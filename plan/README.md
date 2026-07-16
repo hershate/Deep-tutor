@@ -15,6 +15,7 @@
 | [07-learning-workflows.md](./07-learning-workflows.md) | 学习工作流细化：study-planner 7 步映射 + self-study-guide 自学材料生成（generate_study_materials） |
 | [08-data-exchange-format.md](./08-data-exchange-format.md) | 统一数据交换格式：类型系统、工具 I/O 信封、契约模板、流水线流转契约、版本演进（参考 skill-chain-planner） |
 | [09-audit.md](./09-audit.md) | 计划审计：存储策略、上下文溢出、安全、解析边界、Agent 守卫、数据运维、前端边界（迭代补充） |
+| [10-integration.md](./10-integration.md) | 端到端协作：两层执行模型、交互序列、SSE 一致、澄清续接、持久化选择性、反馈循环、Skill↔工具映射 |
 
 ---
 

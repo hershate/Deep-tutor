@@ -61,21 +61,25 @@
 
 ## 三、Agent 循环详细设计（借鉴 Reasonix 三支柱）
 
-### 循环步骤
-1. 组装 prompt：`system`（角色+方法论，固定）+ `tools`（工具定义，固定）+ `messages`（会话历史，只追加）。
-2. 调用 Anthropic Messages API（`tools` 传入自研工具定义）。
-3. 收到 `tool_use` 块 -> 用 pydantic schema 校验参数：
-   - **工具调用修复（Pillar 2）**：schema 不符 -> 把校验错误以 `tool_result(is_error=true)` 反馈，要求模型修正，最多重试 3 次；超限则降级为默认参数并告警记录。
-4. 执行工具（同步或异步），回填 `tool_result`。
+### 执行模型（两层，详见 [10-integration.md](./10-integration.md)）
+**外层 确定性编排器（Orchestrator）**：按固定顺序调度工具 pipeline：`parse -> understand -> map -> stage -> resource -> schedule -> validate（->反馈循环）-> export`（可选 slides/materials）。**非**"自由 Agent 让 Claude 选工具"（易跑偏、难复现、贵）。
+**内层 工具调用循环（每 LLM 工具）**：一次 Claude 调用，`system` = 对应 Skill 的 SKILL.md 指令（稳定前缀，`cache_control`），`user` = `ToolInput.args` + `upstream.data`；输出 pydantic 校验，不符走工具调用修复。纯 Python 工具无 LLM 调用。
+
+### 工具调用循环步骤（内层，每 LLM 工具）
+1. 组装：`system` = Skill SKILL.md 指令（固定前缀）；`user` = `args` + `upstream.data`。
+2. 调用 Anthropic Messages API。
+3. pydantic 校验输出（`ToolOutput.data`）：
+   - **工具调用修复（Pillar 2）**：schema 不符 -> 把校验错误反馈要求修正，最多重试 3 次；超限降级默认参数 + 告警，`status=repaired`。
+4. 产出 `ToolOutput`（status/data/errors/metadata）。
 5. 记录 `tool_calls`（审计）+ `api_usage`（成本计量，Pillar 3）。
-6. 重复 2-5 直到 `stop_reason == "end_turn"`。
-7. **预算守卫**：累计 cost 超阈值 -> 中断循环，返回已生成部分 + 告警。
+6. 编排器：字段覆盖检查（upstream 覆盖下游 args 必填）-> 不符触发上游重生成或 error；**预算守卫**累计 cost 超限 -> 中断 + 保留部分；SSE 推送 `tool_start`/`tool_end`。
+
+> 原"收到 tool_use / 重复到 end_turn"的自由 Agent 语义废弃，改为此两层模型。完整端到端序列、澄清续接、反馈循环见 [10-integration.md](./10-integration.md)。
 
 ### 缓存优先策略（Pillar 1）
-- `system` 与 `tools` 作为**稳定前缀**，不随轮次变动（Anthropic prompt caching：`cache_control` 标记）。
-- `messages` 历史**只追加**，不重写已存在内容。
-- 方案校验反馈通过 `tool_result` 追加，而非改写历史。
-- 长会话中保持高 cache hit，降低成本。
+- 每个 LLM 工具的 `system`（Skill SKILL.md 指令）作为**稳定前缀**，`cache_control` 标记，跨会话/跨调用复用，提高 cache hit。
+- 同一工具的修复重试：校验错误作为新轮 `user` 追加，不重写已有 system/user。
+- 长会话/多方案生成中保持高 cache hit，降低成本。
 
 ### 成本计量（Pillar 3）
 - 每次 API 调用解析 `usage`：`input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`。

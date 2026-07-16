@@ -14,6 +14,7 @@
 | GET | /plans | - | `[{ id, title, topic, created_at }]` | 方案列表 |
 | GET | /plans/{id} | - | `{ plan }` | 方案详情 |
 | POST | /plans/{id}/regenerate | `{ feedback }` | SSE 流 | 按反馈局部重生成 |
+| POST | /plans/{id}/clarify | `{ answers }` | SSE 流 | 澄清续接（needs_clarify 后，见 [10](./10-integration.md)） |
 | POST | /quizzes/{id}/submit | `{ user_answer }` | `{ correct, answer, explanation }` | 提交作答（P2） |
 | GET | /progress/{plan_id} | - | `{ nodes:[{id,status,mastery}], mastery_avg }` | 进度总览（P2） |
 | POST | /progress | `{ plan_id, node_id, status }` | `{ mastery }` | 更新进度（P2） |
@@ -25,12 +26,15 @@
 
 ### SSE 事件格式（/plans/generate）
 ```
-event: tool_start   data: { tool: "build_knowledge_map" }
+event: tool_start    data: { tool }
 event: tool_progress data: { tool, message }
-event: tool_end      data: { tool, status, tokens, cost }
-event: plan_chunk    data: { partial_plan }   # 增量方案片段
+event: tool_end      data: { tool, status, metadata:{tokens_in,tokens_out,cache_read,cost,duration_ms,model} }
+event: clarify_needed data: { questions:[...] }      # needs_clarify 时暂停，待前端 POST /clarify
+event: plan_chunk    data: { partial_plan }          # 增量方案片段
+event: warn          data: { code, message }         # 校验未过/降级
+event: budget_exceeded data: { spent, limit }        # 预算超限中断
 event: done          data: { plan_id, metadata }
-event: error         data: { message, stage }
+event: error         data: { code, message, stage }
 ```
 
 ### 错误响应统一格式
