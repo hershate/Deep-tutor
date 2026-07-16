@@ -94,6 +94,7 @@
 - Skill 输出 schema 在其 Constraints 中固化，Python 端 pydantic 校验，不符走工具调用修复（Pillar 2）。
 - Skill 升级（skill-for-skills UPGRADE）后重新加载即生效，无需改 Python 代码。
 - 基础设施工具（parse_material / schedule_plan / record_progress / export_plan）为纯 Python，不建 Skill。
+- 另复用既有 `ppt-slide-builder`（HTML 幻灯片）作为 `build_plan_slides` 工具的方法论与模板源（`templates/base.html`），非 skill-for-skills 生成。
 
 ## 四、数据模型（SQLite / SQLAlchemy）
 

@@ -65,6 +65,7 @@ Deep-tutor 是一个 **AI 驱动的学习方案生成 Web 应用**。用户通�
 | 4 | 日历文件（.ics） | P5 |
 | 5 | Anki 卡片包（基于知识点） | P5 |
 | 6 | 进度看板（Kanban / 打卡日历） | P2 |
+| 7 | PPT 风格网页演示（HTML 幻灯片，复用 ppt-slide-builder） | P1 |
 
 ## 四、完整学习方案数据结构（plan schema）
 

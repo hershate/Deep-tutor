@@ -28,6 +28,9 @@ Skill 是"做什么、怎么做"的权威定义（含 Workflow/Constraints/Do-No
 - `record_progress`：掌握度计算 + 间隔重复，确定性。
 - `export_plan`：md/pdf 渲染，确定性。
 
+**复用既有 Skill（非 skill-for-skills 生成）**
+- `build_plan_slides`：复用 `ppt-slide-builder`（HTML 幻灯片），见第六节。
+
 ## 三、运行时加载机制
 
 1. Skill 文件存放：项目根 `skills/<skill-name>/SKILL.md`（开发期随仓库版本管理；部署时分发）。
@@ -67,6 +70,7 @@ Agent 循环 ──调用工具──> Python 工具包装器
 
 - **study-planner** 是 Deep-tutor Skill 的方法论蓝本（Step 1-6 直接映射），但不直接调用它：study-planner 面向 Claude Code 终端用户、输出到 `plans/*.md`；Deep-tutor Skill 面向 Web 应用、输出结构化 JSON 供前端渲染与存库。
 - 可参考 `self-study-guide`（已有大纲场景）、`course-material-organizer`、`outline-extractor` 的思路融入资料解析与大纲提取。
+- **ppt-slide-builder**（既有，直接复用）：作为 `build_plan_slides` 工具的方法论与模板源（`templates/base.html` + 主题 CSS 变量 + 动画/过渡），把学习方案导出为自包含 HTML 幻灯片（非 .pptx）。Deep-tutor 以非交互方式调用（plan 已有内容，跳过其逐轮提问，直接生成幻灯片规约并渲染）。
 - Deep-tutor 生成的 Skill 命名统一前缀 `deep-tutor-*`，与既有通用 Skill 区分。
 
 ## 七、Skill 目录与规范
@@ -100,7 +104,7 @@ Deep-tutor/
 加 Python 侧：
 - [ ] Skill 加载器（扫描 `skills/` -> 注册表 -> 工具调用时注入 system prompt + pydantic 校验）
 
-`deep-tutor-quiz` 在 P2。
+`deep-tutor-quiz` 在 P2。`build_plan_slides`（P1）复用既有 `ppt-slide-builder`，无需 skill-for-skills 生成。
 
 ## 九、风险（Skill 相关）
 

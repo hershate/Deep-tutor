@@ -17,7 +17,7 @@
 | POST | /quizzes/{id}/submit | `{ user_answer }` | `{ correct, answer, explanation }` | 提交作答（P2） |
 | GET | /progress/{plan_id} | - | `{ nodes:[{id,status,mastery}], mastery_avg }` | 进度总览（P2） |
 | POST | /progress | `{ plan_id, node_id, status }` | `{ mastery }` | 更新进度（P2） |
-| POST | /export/{plan_id} | `{ format }` | `{ file_url }` | 导出 md/pdf |
+| POST | /export/{plan_id} | `{ format: md\|pdf\|slides }` | `{ file_url }` | 导出 md/pdf/slides（slides 为 HTML 幻灯片） |
 | GET | /usage | - | `{ total_tokens, total_cost, cache_hit_rate, by_session:[] }` | 成本统计 |
 
 ### SSE 事件格式（/plans/generate）
@@ -64,16 +64,18 @@ React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zus
 - `ProgressBoard`（P2，Kanban）
 - `QuizCard`（P2）
 - `UsageMeter`（token/费用/cache hit）
+- `SlidesPreview`（P1，幻灯片 HTML 预览/下载入口）
 
 ### 用户主流程（MVP）
 1. 首页选择"描述需求" + 上传一份 PDF -> 创建会话
 2. 若需澄清 -> 对话追问基础/目标/时长
 3. 进入生成中 -> SSE 实时看到 Agent 依次执行 parse→understand→map→stage→resource→schedule→validate
 4. 生成完成 -> 方案详情页：浏览大纲/阶段/资源/时间线/校验报告
-5. 导出 Markdown / PDF
+5. 导出 Markdown / PDF / 幻灯片（HTML）
 
 ### 交互细节
 - 资源卡点击直接跳转外链；⚠️ 标记提示"建议人工确认"。
 - 校验报告展示 5 项检查是否通过 + 自动修复说明。
 - 用量小窗实时显示本次会话 token/费用。
 - 方案详情支持折叠/展开阶段，便于长方案浏览。
+- 幻灯片导出为新窗口打开自包含 HTML（键盘方向键 / 滚轮 / 点击翻页）。

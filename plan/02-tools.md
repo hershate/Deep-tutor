@@ -17,8 +17,9 @@
 | record_progress | 记录进度、掌握度（P2） | 否 | 是（覆盖写） |
 | validate_plan | 5 项校验 + 修复建议 | 是 | 否 |
 | export_plan | 导出 md/pdf | 否 | 是 |
+| build_plan_slides | 学习方案 -> PPT 风格 HTML 幻灯片（复用 ppt-slide-builder） | 是 | 否 |
 
-> **Skill 承载**：方法论密集工具（understand_intent / build_knowledge_map / design_stages / search_resources / validate_plan / generate_quiz）由 skill-for-skills 生成的 Skill 承载其方法论与 LLM 指令（详见 [05-skills.md](./05-skills.md)）；parse_material / schedule_plan / record_progress / export_plan 为纯 Python。
+> **Skill 承载**：方法论密集工具（understand_intent / build_knowledge_map / design_stages / search_resources / validate_plan / generate_quiz）由 skill-for-skills 生成的 Skill 承载其方法论与 LLM 指令（详见 [05-skills.md](./05-skills.md)）；parse_material / schedule_plan / record_progress / export_plan 为纯 Python。`build_plan_slides` 复用既有 `ppt-slide-builder`（非 skill-for-skills 生成，产出 HTML 幻灯片，非 .pptx）。
 
 ---
 
@@ -94,6 +95,14 @@
 - **errors**: 格式不支持 -> 仅返回 md。
 - **MVP 范围**: md（pdf 同期，ics 在 P5）。
 
+## 12. build_plan_slides
+- **input**: `{ plan_id, theme?: { bg?, accent?, font? }, style?: str }`
+- **output**: `{ slides_url: str, slide_count: int, format: "html" }`
+- **errors**: 模板缺失 -> 降级为简单 HTML 列表；内容过多 -> 按阶段分多个 deck 或精简要点；LLM 组织失败 -> 回退为"每阶段一页"默认结构。
+- **实现**: 加载 `ppt-slide-builder` 的 SKILL.md（方法论）+ `templates/base.html`；调用 LLM（plan + ppt-slide-builder 指令）生成幻灯片规约（每页内容 + 主题 CSS 变量 + 动画/过渡类）；填充 base.html 占位符 -> 自包含 HTML 文件。
+- **Skill**: 复用既有 `ppt-slide-builder`（非 skill-for-skills 生成；产出 HTML 幻灯片，非 .pptx；Deep-tutor 以非交互方式调用，跳过其逐轮提问）。
+- **MVP 范围**: P1（输出增强）。
+
 ---
 
 ## 契约一致性（数据流转）
@@ -109,6 +118,7 @@ search_resources.output + design_stages.output + understand_intent.output ─> s
 (以上聚合) ─> validate_plan.input
 validate_plan.fixes ─(反馈循环)─> 触发 design_stages / build_knowledge_map 重生成
 最终 plan ─> export_plan.input
+最终 plan ─> build_plan_slides.input
 ```
 
 格式约定：工具间以 JSON 对象传递，字段名遵循上表；上游 `output` 必须覆盖下游 `input` 的必填字段（参考 skill-chain-planner 的 L4 字段覆盖检查）。

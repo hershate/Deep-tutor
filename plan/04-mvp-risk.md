@@ -64,6 +64,7 @@
 
 ### P1：增强（MVP 后紧跟）
 - [ ] PDF 导出（export_plan 扩展 pdf）
+- [ ] build_plan_slides（复用 ppt-slide-builder，输出 HTML 幻灯片）
 - [ ] 方案版本化（plans.version + 列表区分）
 - [ ] 局部重生成（/plans/{id}/regenerate）
 - [ ] 成本看板页（/usage 可视化）
@@ -99,6 +100,8 @@
 | R11 | Skill 输出 schema 与 Python 期望漂移 | silent | 中 | 高 | Skill Constraints 固化 schema + Python pydantic 校验 + 工具调用修复兜底 |
 | R12 | Skill 升级引入回归 | logic | 中 | 中 | skill-for-skills UPGRADE 回归审查 + 版本号 + schema 校验 + 冒烟 |
 | R13 | Skill 加载失败/缺失 | dependency | 低 | 高 | 启动检测必需 Skill，缺失报错提示；降级内置默认 prompt |
+| R14 | ppt-slide-builder 仅出 HTML 非 .pptx | 约束 | 中 | 低 | 文档明确"幻灯片=HTML"；后续如需 .pptx 再接 python-pptx，另起工具 |
+| R15 | 幻灯片内容过多/超模板容量 | resource | 中 | 中 | 按阶段分多个 deck 或精简要点；单 deck 页数上限 |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。
