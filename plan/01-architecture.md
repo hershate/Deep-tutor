@@ -119,6 +119,19 @@
 | title | str | 会话标题 |
 | created_at | datetime | |
 
+#### orchestrator_state（编排器状态，1:1 与 session，见 [10](./10-integration.md) 第十一节）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| session_id | PK/FK | |
+| status | enum | idle/running/paused_clarify/done/error/interrupted |
+| current_tool | str? | 当前执行工具 |
+| partial_plan | json | 已产出部分 |
+| tool_call_ids | json | 已完成工具调用 id 列表 |
+| budget_used | float | 已用预算 |
+| trace_id | str | 贯穿审计 |
+| last_event_id | str? | SSE 续接游标 |
+| updated_at | datetime | |
+
 #### materials
 | 字段 | 类型 | 说明 |
 |---|---|---|

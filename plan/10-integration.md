@@ -108,3 +108,55 @@
 - 编排器状态机的持久化与并发会话隔离。
 - SSE 断线续接的 token/游标协议（前端从 last tool_calls 续）。
 - 局部重生成（/plans/{id}/regenerate）与全量生成的编排复用。
+
+## 十、工具包装器统一接口
+
+```python
+async def run_tool(name: str, inp: ToolInput, ctx: ExecContext) -> ToolOutput
+```
+- **ExecContext**：`session_id`、`trace_id`、`budget_tracker`、`skill_registry`、`llm_provider`、`data_dir`、`timeouts{llm:120s, parse:60s, url:30s}`、`cancel_event(asyncio.Event)`、`db`。
+- 全工具 async；阻塞库（PyMuPDF 等）经 `run_in_executor` 包装，不阻塞事件循环。
+- **超时**：per-tool 从 ctx 取；超时 -> `ToolOutput(status=error, errors=[{code:upstream_timeout}])`。
+- **trace_id 贯穿**：会话生成 trace_id；写入 `tool_calls`/`api_usage`/日志/SSE metadata。
+- **取消**：`cancel_event` 被 set（用户取消/预算超限）-> 工具尽快返回 `status=error, code=cancelled`，编排器停止后续。
+- 统一签名使编排器对工具透明调用，便于 mock 与契约测试。
+
+## 十一、编排器状态机持久化与并发隔离
+
+- **状态机**（持久化 `orchestrator_state` 表，1:1 与 session）：`session_id, status(idle|running|paused_clarify|done|error|interrupted), current_tool, partial_plan(json), tool_call_ids(list), budget_used(float), trace_id, last_event_id, updated_at`。
+- 每工具后更新状态；`paused_clarify` 持久化支持页面刷新续接（30min 超时）。
+- **并发隔离**：每会话一个编排器实例；同会话已有 `running` 时新 `/generate` 返回 `409 conflict`；多会话独立（DB 写串行、文件按 `sessions/<sid>/` 隔离）。
+- **崩溃恢复**：进程重启后，`running` 但无活动进程 -> 标 `interrupted`；前端提示"继续"（从 `current_tool` 续）或"重跑"（幂等）。
+
+## 十二、SSE 断线续接游标
+
+- 每事件带 `id: <event_id>`（递增）。前端 `EventSource` 重连带 `Last-Event-ID`。
+- 后端缓冲本会话事件（内存，至 `done`/`error` 后保留可配置时长）；重连从 `Last-Event-ID` 之后重放。
+- 游标粒度：工具级（`tool_start`/`tool_end`）+ 当前工具 `progress`。
+- 会话已 `done` -> 重连直接返回 `done {plan_id}`（不重放全部）；`error`/`interrupted` -> 返回对应终态。
+
+## 十三、局部重生成与全量生成的编排复用
+
+- `POST /plans/{id}/regenerate {feedback, scope?}` -> SSE 流。
+- 编排器复用：`run_pipeline(session, start_tool, upstream_override)`；全量 = `start_tool=parse`，局部 = `start_tool=受影响工具`。
+- **重跑范围最小化**：据 [02](./02-tools.md) 数据流图，从受影响工具起级联重跑其全部下游。
+- feedback 注入对应工具 `args`/`upstream`；`plans.version += 1`。
+- 例：feedback"资源不够" -> `start=search_resources` -> 级联 `schedule->validate`；"阶段不对" -> `start=design_stages` -> 级联 `resource->schedule->validate`。
+
+## 十四、错误与取消传播
+
+- 工具 `status=error`：编排器按降级矩阵（[09](./09-audit.md) 第十五节）决定 跳过/重试/中断；非致命跳过继续，致命中断 + SSE `error` + 持久化部分。
+- 用户取消：`cancel_event` -> 当前工具返回 `cancelled` -> 编排器停止 -> SSE `error{code:cancelled}` + 保留 `partial_plan`。
+- 预算超限：`budget_tracker` 触发 -> 同取消，SSE `budget_exceeded`。
+- 所有终止路径都持久化 `partial_plan` + `tool_calls`，前端可查看部分结果。
+
+## 十五、前端状态机（SSE 事件 -> UI）
+
+- `GenerateProgress` 状态：`idle -> connecting -> running`（`tool_start`/`tool_end` 更新步骤列表）`-> paused_clarify`（`clarify_needed` -> `ChatClarify`）`-> running -> done`（跳详情页）/ `error`（Toast + 重试）/ `cancelled`（保留部分 + 重试）。
+- `tool_end.metadata` -> `UsageMeter` 实时更新。
+- `warn` -> 校验报告 Tab 标红提示。
+- 断线 -> 重连带 `Last-Event-ID` -> 续接（见十二）。
+
+## 十六、收敛声明
+
+经 2 轮协作细化，跨部分交互已完整规定：执行模型（两层）、端到端序列、SSE 一致 + 续接、澄清续接 + 状态机、持久化选择性、反馈循环、Skill↔工具映射、工具包装器统一接口、编排器状态机持久化与并发隔离、局部/全量生成复用、错误/取消传播、前端状态机。剩余为实现期编码细节（具体 async 框架、确切事件缓冲时长、游标存储后端），Phase 1 落地。
