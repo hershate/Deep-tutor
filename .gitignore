@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 环境变量（不入库）
+.env
+.env.local
+.env.*.local
+
+# 运行时数据（SQLite + 上传/解析/导出等，plan/01 §五 存储策略）
+data/
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

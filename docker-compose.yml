@@ -1,0 +1,40 @@
+# Deep-tutor 部署（plan/09-audit.md §十九）。
+# services: backend(uvicorn) + frontend(nginx)。仅 frontend 暴露端口；backend 内部网络。
+# .env 不入镜像/仓库；data 卷持久化；skills 以只读 bind mount（vendor 进仓库）。
+
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # 容器内用绝对路径，挂载点对应 volumes
+      DATA_DIR: /data
+      SKILLS_DIR: /skills
+      DB_PATH: /data/deep-tutor.db
+    volumes:
+      - deep-tutor-data:/data
+      - ./skills:/skills:ro
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  deep-tutor-data:
