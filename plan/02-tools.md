@@ -53,7 +53,7 @@
 - **input**: `{ stage_topics: [[str]] }`
 - **output**: `{ resources: [{ stage_index, title, url, type, verified, note }] }`
 - **errors**: WebSearch 失败 -> 返回搜索关键词建议，不编造 URL。
-- **实现**: WebSearch（后端调用搜索 API）-> 对每个候选调用 `verify_url`。
+- **实现**: Bing Search API（`BING_API_KEY`，后端 httpx 调用）-> 对每个候选调用 `verify_url`。
 - **规则**: 严格移植 study-planner Step 4 链接验证，判定如下：
 
 | 标记 | 判定 | 处理 |

@@ -8,6 +8,7 @@
 | Web 框架 | FastAPI + Uvicorn |
 | 文档解析 | PyMuPDF(PDF)、python-docx、python-pptx、markdown、纯文本 |
 | 网页抓取 | httpx + trafilatura（正文提取） |
+| 搜索 | Bing Search API（search_resources，BING_API_KEY） |
 | 图片 OCR | pytesseract / PaddleOCR（P3） |
 | 音视频转写 | faster-whisper（P3） |
 | AI 编排 | anthropic Python SDK + 自研 Agent 循环 |

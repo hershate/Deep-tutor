@@ -217,7 +217,7 @@ Button（primary/secondary/ghost/danger，sm/md/lg）、Input、Textarea、Selec
 
 ## 七、SSE 流式处理
 
-- 封装 `usePlanGeneration(sessionId)` hook，内部 `new EventSource('/api/plans/generate?...')`。
+- 封装 `usePlanGeneration(sessionId)` hook，内部用 `fetch('/api/plans/generate', {headers:{Authorization:`Bearer ${token}`}})` + `ReadableStream` 解析 SSE（参考 Claude Code/Anthropic SDK 的 Bearer 头流式；不用 EventSource 以便携带 Authorization 头）。
 - 事件映射：`tool_start`->置 ⏳；`tool_progress`->更新进度文案；`tool_end`->置 ✅/❌ 并累加 usage；`plan_chunk`->合并 `partialPlan`；`done`->关闭流、置 done、跳详情页；`error`->置 error + Toast。
 - 断线重连：`onerror` 时若非主动取消，指数退避重连最多 3 次；超限提示失败。
 - 取消：`eventSource.close()` + 调后端取消（或前端置 canceled，后端按会话检测）。

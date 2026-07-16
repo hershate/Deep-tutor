@@ -76,6 +76,7 @@
 - 工具包装器按 tool->skill 映射取 `body` 作 system prompt（Purpose/Workflow/Constraints/Examples）。
 - system 固定前缀 + `cache_control`；user = `ToolInput.args` + `upstream.data` 序列化。
 - Skill 缺失 -> 降级内置默认 prompt + 告警（R13）。
+- 复用 Skill（ppt-slide-builder/self-study-guide）vendor 进项目 `skills/`（自全局 `~/.claude/skills/` 复制），Loader 统一扫描项目目录。
 - **映射表**：
 
 | 工具 | Skill | 类型 |
@@ -131,7 +132,7 @@ async def run_tool(name: str, inp: ToolInput, ctx: ExecContext) -> ToolOutput
 
 ## 十二、SSE 断线续接游标
 
-- 每事件带 `id: <event_id>`（递增）。前端 `EventSource` 重连带 `Last-Event-ID`。
+- 每事件带 `id: <event_id>`（递增）。前端用 fetch+ReadableStream 解析 SSE（携带 Authorization 头，参考 Claude Code 流式），断线重连手动带 `Last-Event-ID` 头。
 - 后端缓冲本会话事件（内存，至 `done`/`error` 后保留可配置时长）；重连从 `Last-Event-ID` 之后重放。
 - 游标粒度：工具级（`tool_start`/`tool_end`）+ 当前工具 `progress`。
 - 会话已 `done` -> 重连直接返回 `done {plan_id}`（不重放全部）；`error`/`interrupted` -> 返回对应终态。

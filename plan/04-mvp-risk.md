@@ -40,6 +40,7 @@
 - [ ] deep-tutor-stages
 - [ ] deep-tutor-resources（含 verify 方法论 + ✅⚠️❌ 规则）
 - [ ] deep-tutor-validate（5 项检查）
+- [ ] vendor 复用 Skill（ppt-slide-builder/self-study-guide 复制进项目 skills/）
 - [ ] Python Skill 加载器（扫描 skills/ -> 注册表 -> 工具调用注入 system prompt + pydantic 校验）
 
 **API**

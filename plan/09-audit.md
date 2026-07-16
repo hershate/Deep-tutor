@@ -230,7 +230,8 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 | BUDGET_PER_SESSION_USD | 会话预算 | 1.0 |
 | DAILY_BUDGET_USD | 每日预算 | 10 |
 | CONTEXT_TOKEN_THRESHOLD | 上下文溢出阈值 | 按模型 |
-| SEARCH_ENGINE | WebSearch 引擎 | 默认 |
+| SEARCH_ENGINE | 搜索引擎 | bing |
+| BING_API_KEY | Bing Search API key | 必填（search_resources） |
 | LOG_LEVEL | 日志级别 | info |
 | CORS_ORIGINS | 允许来源 | http://localhost:5173 |
 

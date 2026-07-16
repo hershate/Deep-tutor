@@ -43,7 +43,7 @@ Skill 是"做什么、怎么做"的权威定义（含 Workflow/Constraints/Do-No
    - 上游数据/用户输入作为 `user message`。
    - Skill 中要求的输出 schema 在 Python 端用 pydantic 校验；不符则走**工具调用修复**（Pillar 2）。
 4. Skill 升级（skill-for-skills UPGRADE）后，Python 无需改代码，重新加载即生效。
-5. Skill 的 `allowed-tools` 映射到 Python 端该工具可调用的子能力（如 `deep-tutor-resources` 的 `WebSearch`/`verify_url`）。
+5. Skill 的 `allowed-tools` 映射到 Python 端该工具可调用的子能力（如 `deep-tutor-resources` 的 Bing Search API/`verify_url`）。
 
 ```
 Agent 循环 ──调用工具──> Python 工具包装器
@@ -90,7 +90,9 @@ Deep-tutor/
     ├── deep-tutor-resources/
     │   └── references/   # 链接验证规则等补充
     ├── deep-tutor-validate/
-    └── deep-tutor-quiz/   (P2)
+    ├── deep-tutor-quiz/        (P2)
+    ├── ppt-slide-builder/      # 复用，vendor 自全局 ~/.claude/skills/
+    └── self-study-guide/       # 复用，vendor 自全局 ~/.claude/skills/
 ```
 - 规范：遵循 `skill-for-skills/sum.md`（frontmatter 必需字段、目录结构、体量控制、Do/Not 示例、审查校验）。
 - 每个 Skill 必含 `SKILL.md` + `README.md`，可选 `references/`、`scripts/`、`templates/`。

@@ -25,6 +25,8 @@
 | GET | /usage | - | `{ total_tokens, total_cost, cache_hit_rate, by_session:[] }` | 成本统计 |
 
 ### SSE 事件格式（/plans/generate）
+
+> 鉴权：SSE 用 fetch+ReadableStream（非 EventSource）以携带 `Authorization: Bearer` 头（参考 Claude Code/Anthropic SDK 流式）；断线重连带 `Last-Event-ID` 头。
 ```
 event: tool_start    data: { tool }
 event: tool_progress data: { tool, message }
@@ -47,7 +49,7 @@ event: error         data: { code, message, stage }
 > 详细 UI 设计（设计系统、页面线框、组件规格、状态管理、SSE、流程、无障碍）见 [06-frontend.md](./06-frontend.md)。
 
 ### 技术栈
-React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + EventSource(SSE) + react-markdown。
+React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + fetch/ReadableStream(SSE，携带 Authorization 头) + react-markdown。
 
 ### 页面
 | 路由 | 页面 | 主要内容 |
