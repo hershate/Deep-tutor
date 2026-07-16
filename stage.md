@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 3 - Agent 循环骨架（工具注册 + 调用修复 + 成本计量 + 预算守卫）。详见 §4.3。
+**当前下一步**：步骤 4 - P0 工具链（parse_material / understand_intent / build_knowledge_map / design_stages / search_resources+verify_url / schedule_plan / validate_plan / export_plan，每工具独立 commit）。详见 §4.4。
 
 ---
 
@@ -81,7 +81,7 @@
 |---|---|---|---|---|
 | 1 | 建骨架 | `chore: scaffold project skeleton` | ✅ 完成 | 见 §4.1（6 commits） |
 | 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | ✅ 完成 | 见 §4.2（commit `44c110b`） |
-| 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ⬜ | - |
+| 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ✅ 完成 | 见 §4.3（commit `a46e1e0`） |
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ⬜ | - |
 | 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | ⬜ | - |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ⬜ | - |
@@ -157,7 +157,7 @@ Deep-tutor/
 
 **结果**：commit `44c110b`。9 项单测全过（usage 解析 / 文本拼接 / cache_control 开关 / 空 system / 成本估算含 cache / 未知模型记 0 / 前缀匹配 / get_provider 守卫）。`AsyncAnthropic` 用法已对齐 SDK 0.76.0（Usage 字段：input/output/cache_read_input/cache_creation_input_tokens）。
 
-### 4.3 步骤 3 - Agent 循环骨架（下一步）
+### 4.3 步骤 3 - Agent 循环骨架（✅ 完成）
 
 **目标**：在 [backend/app/agent/](backend/app/agent/) 落地两层执行模型的「内层工具调用循环」骨架 + 编排器骨架，集成 step 2 的 LLM Provider，实现三支柱完整闭环。
 
@@ -173,12 +173,38 @@ Deep-tutor/
 
 **注意**：编排器与 SSE/持久化的完整集成留到 step 6（API 层）联调；step 3 先把可单测的循环核心做扎实。
 
+**结果**：commit `a46e1e0`。产出 `registry / context / budget / cost / loop / orchestrator` 6 模块。17 项单测全过（Python 工具 / LLM 校验 / 修复重试累加 usage / JSON 代码块提取 / 降级默认 repaired / 无默认 error / Skill 缺失降级默认 prompt / 无 provider 降级 / 字段覆盖 / 预算超限中断 / pipeline 顺序 / 反馈循环重跑 design_stages / 澄清暂停）。全量 26 测试通过（LLM 9 + agent 17）。
+
+**实现期决策（记录）**：
+- 工具调用修复用「文本 JSON + 反馈重试」实现（对齐 08 worked example：Claude 返回 JSON 经 pydantic 校验，不符反馈错误重试≤3，耗尽降级 default_data→repaired / 无 default→error）。plan 提及的 `tool_result(is_error=true)` 是 Anthropic tool_use 流程的等价语义，此处用反馈消息近似；后续如改用 tool_use 结构化输出可在 provider 层扩展。
+- 工具调用上限 20、反馈循环≤2、修复重试≤3 已落地常量。
+- SSE 事件回调 `event_cb(event, data)` 已留接口；DB 持久化（tool_calls/api_usage/orchestrator_state）与 SSE 续接留 step 6 接入。
+
+### 4.4 步骤 4 - P0 工具链（下一步）
+
+**目标**：在 [backend/app/tools/](backend/app/tools/) 逐工具实现 P0 工具，注册到 ToolRegistry，每工具独立 commit。契约对齐 [plan/02](plan/02-tools.md)、信封对齐 [plan/08](plan/08-data-exchange-format.md)。
+
+**工具清单与顺序**（每工具一个 commit）：
+1. `parse_material`（Python）：PDF/DOCX/PPTX/TXT/MD + text + url -> {text, meta, chunks}；空文本 `empty_content`；不支持 `unsupported_format`；降级 `degraded`。
+2. `understand_intent`（LLM，Skill=deep-tutor-intent）：{topic, level?, goal?, daily_minutes?, deadline?, needs_clarify, clarify_questions}。
+3. `build_knowledge_map`（LLM，Skill=deep-tutor-knowledge-map）：{nodes, edges}；环检测（DFS）-> 断 DAG；悬空边丢弃；节点上限。
+4. `design_stages`（LLM，Skill=deep-tutor-stages）：{stages:[{index,name,goal,difficulty,estimated_weeks,topics,milestone}]}；阶段数<3 重生成。
+5. `search_resources` + `verify_url`（检索 Python Bing + 筛选 LLM，Skill=deep-tutor-resources）：{resources:[{stage_index,title,url,type,verified,note}]}；✅⚠️❌ 规则；不编造 URL。
+6. `schedule_plan`（LLM 无 Skill，内联 prompt + 确定性总量校验）：{schedule}；时长不足 `insufficient_time`。
+7. `validate_plan`（LLM，Skill=deep-tutor-validate）：{report(5 项), passed, fixes}。
+8. `export_plan`（Python）：md 导出 -> {file_url}。
+
+**前置依赖**：步骤 5 的 Skill 加载器为 LLM 工具提供 system prompt。步骤 4 可先用占位 prompt / 内联 prompt 推进 Python 工具与契约，LLM 工具的 Skill 在步骤 5 接入后替换。建议顺序：先 parse_material（纯 Python，可立即单测），再 understand_intent（需 LLM，先内联 prompt）。
+
+**关键对齐**：[plan/02 工具契约](plan/02-tools.md)、[plan/07 study-planner 7 步映射](plan/07-learning-workflows.md)、[plan/11 降级默认值/上限](plan/11-extreme-cases.md)。
+
 ---
 
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-16 步骤 3 完成**：Agent 循环骨架。两层执行模型落地：内层 `run_tool`（LLM 工具 system=Skill+cache_control、JSON 解析+pydantic 校验、工具调用修复重试≤3->降级；Python 工具 func；超时/取消/异常统一兜底；跨重试累加 usage），外层 `Orchestrator`（固定 pipeline + 字段覆盖 L4 + 反馈循环≤2 + 预算中断 + 澄清暂停 + SSE 事件回调）。`registry/context/budget/cost` 配套。17 项单测全过（全量 26）。commit `a46e1e0`。
 - **2026-07-16 步骤 2 完成**：LLM Provider 抽象 + Anthropic 实现。`anthropic_provider.py`（AsyncAnthropic Messages API，system cache_control 缓存优先，usage 解析成本计量）、`pricing.py`（模型族前缀匹配价目，未知记 0）、`get_provider()` 工厂、`tests/test_llm.py`（9 项单测全过）。commit `44c110b`。
 - **2026-07-16 步骤 1 完成**：建骨架（后端 FastAPI + 15 表模型 + Alembic 初始迁移；前端 Vite/React/TS/Tailwind；docker-compose + README + .env.example）。验证：后端 import/建表/health 200、alembic autogenerate+upgrade 15 表、前端 install+build 通过。6 commits：`e70e038` `4f07351` `b7b695c` `980226f` `5928646` `1f2535e`。
 - **2026-07-16**：创建 `stage.md`，建立进度跟踪框架；完成环境检查（Python 3.12.10 / Node v26.3.0 / npm 11.16.0 / git 2.55）。准备开始步骤 1 建骨架。
