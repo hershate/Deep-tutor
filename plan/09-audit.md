@@ -111,3 +111,77 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 - 测试与 QA 策略（单元/集成/端到端/契约测试）。
 - 可观测性（metrics、tracing、健康检查）。
 - 失败注入与降级矩阵。
+
+## 十、输入校验规则全集（字段级）
+
+校验由 pydantic 强制；不符走工具调用修复（R2）。错误码：`invalid_range` / `invalid_enum` / `past_deadline` / `empty_required` / `too_long`。
+
+| 工具.字段 | 类型 | 约束 | 非法处理 |
+|---|---|---|---|
+| parse_material.kind | enum(MaterialKind) | file/text/url/image/audio/video | invalid_enum |
+| parse_material.source | text | 非空；url 时须合法 http(s) | empty_required / invalid_url |
+| understand_intent.raw_text | text | ≤10k 字符（超则截断+标注） | too_long |
+| understand_intent.topic(出) | text | 1-200 字符 | invalid_range |
+| understand_intent.daily_minutes | int | 1-1440 | invalid_range |
+| understand_intent.deadline | timestamp | 须为未来 | past_deadline |
+| understand_intent.clarify_questions | list<text> | needs_clarify=true 时 1-5 条 | invalid_range |
+| schedule_plan.daily_minutes | int | >0 | invalid_range |
+| schedule_plan.deadline | timestamp | 未来（可选） | past_deadline |
+| design_stages.stages(出) | list | ≥3 | 不足则重生成 |
+| search_resources.stage_topics | list<list<text>> | 非空 | empty_required |
+| generate_study_materials.depth | enum(brief\|full) | - | invalid_enum |
+| export.format | enum(md\|pdf\|slides\|ics) | - | invalid_enum |
+
+## 十一、并发与事务
+
+- **多资料并行解析**：每个 `parse_material` 独立无共享状态；文件写用原子写（tmp + rename）；DB 插入用短事务。
+- **SQLite 写锁**：WAL 下读写不互斥、写串行；本地单用户足够。并行解析的 DB 写队列串行化（或批量事务）。
+- **Agent 调度**：单会话工具按 pipeline 串行；多会话（多标签）各自独立 session，DB 写串行。
+- **事务边界**：每个工具调用 = 一个事务单元（`tool_calls` 行 + 相关数据行 + 文件写）；失败回滚 DB 行，文件原子 rename 避免半写。
+- **P4 多用户**：迁 Postgres + 行级锁 + 事务隔离级别（RC/RR）。
+
+## 十二、国际化与时区
+
+- **输出语言**：`understand_intent` 检测输入语言（中/英/其他），传入后续工具；Skill 指令注明"按用户语言输出方案与材料"。
+- **时区**：`deadline` 存 UTC；前端按本地时区显示；`schedule_plan` 按用户本地日历排期。
+- **日期格式**：内部 ISO8601；前端本地化展示。
+- **单位**：`daily_minutes` 内部用分钟（int）；前端展示换算"X 小时 Y 分"。
+
+## 十三、测试与 QA 策略
+
+- **单元测试**：各工具 pydantic schema 校验；纯 Python 工具逻辑（parse_material 各格式、schedule_plan 总量校验、record_progress 掌握度）；Agent 循环（工具调用修复、预算守卫、轮次上限）。
+- **契约测试**：08 信封 + 各工具契约的 pydantic 模型；上下游字段覆盖检查（L4）自动化。
+- **集成测试**：Skill 加载器 + 工具 + LLM（mock Anthropic 响应）；pipeline 端到端（mock）。
+- **端到端测试**：真实 Anthropic API（少量小用例，或录制回放）；典型场景"我想学前端"+PDF -> 方案 -> 校验通过。
+- **Skill 冒烟**：每个 `deep-tutor-*` Skill 生成后跑样例输入 -> 输出符合 schema。
+- **前端**：Vitest + Testing Library（组件）、SSE hook 测试、Playwright E2E（可选）。
+- **覆盖率**：后端核心逻辑 ≥80%。
+- **CI**：lint + 类型检查 + 测试 + 契约校验。
+- **测试数据**：固定样例资料 + mock LLM 响应夹具。
+
+## 十四、可观测性
+
+- **日志**：结构化 JSON，含 `session_id`/`tool`/`trace_id`；级别 debug/info/warn/error；不记 PII 与 API key；轮转。
+- **metrics**：`tool_calls` 数、tokens/cost、cache hit、失败率、各工具耗时；可选 `/metrics`（Prometheus）。
+- **tracing**：每会话/工具调用一个 trace；可选 OpenTelemetry。
+- **健康检查**：`/health`（DB 连通、skills 加载、磁盘空间）。
+- **审计**：`tool_calls` + `api_usage` 表即审计源；前端 `UsageMeter` 展示。
+- **错误追踪**：错误堆栈入日志 + 前端 Toast；Sentry 可选（本地默认关）。
+
+## 十五、降级矩阵（工具失败 -> 降级行为）
+
+| 工具失败 | 降级 | 用户感知 |
+|---|---|---|
+| parse_material 某文件 | 跳过，继续其他 | 标红 + 提示 |
+| understand_intent 信息不足 | needs_clarify 对话 | 澄清页 |
+| build_knowledge_map 空 | 通用主题拆解 | 标注"基于通用拆解" |
+| design_stages <3 阶段 | 重生成 | 无（自动） |
+| search_resources WebSearch 失败 | 关键词建议 | 资源少 + 提示 |
+| verify_url 失败 | ⚠️ 标记 | 人工确认提示 |
+| schedule_plan 时长不足 | 压缩/延期建议 | 提示 |
+| validate_plan 不通过 | 重生成≤2 轮 -> 交付+标未过 | 校验报告标红 |
+| generate_study_materials 某单元失败 | 该单元降级简要大纲 | 标注 |
+| build_plan_slides 模板缺失 | 简单 HTML | 标注 |
+| export 失败 | 仅 md | Toast |
+| LLM 超时/限流 | 重试3+退避 -> 部分结果 | 进度标红 + 重试 |
+| 预算超限 | 中断 + 保留部分 | 标红 |
