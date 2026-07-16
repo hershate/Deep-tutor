@@ -199,6 +199,7 @@ Button（primary/secondary/ghost/danger，sm/md/lg）、Input、Textarea、Selec
 | `SlidesPreview` | 幻灯片入口(P1) | `planId`, `url?` | 触发生成/新窗口打开 |
 | `UsageMeter` | 用量小窗 | `usage` | 悬停展开明细 |
 | `ExportMenu` | 导出菜单 | `planId`, `formats` | md/pdf/slides |
+| `StudyMaterialReader` | 自学材料阅读(P2) | `units[]`, `currentUnitId` | 单元导航、上下页、标记已学 |
 | `EmptyState` / `Skeleton` / `Toast` | 辅助 | - | 加载/空/反馈 |
 
 ## 六、状态管理

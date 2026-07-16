@@ -251,6 +251,7 @@ users 1--* sessions 1--* materials
 sessions 1--* plans 1--* knowledge_nodes
 plans 1--* quizzes 1--* quiz_attempts
 plans 1--* progress / learning_logs
+plans 1--* study_units 1--* study_materials (P2)
 sessions 1--* tool_calls
 (全局) api_usage
 ```

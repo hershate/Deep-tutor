@@ -54,7 +54,15 @@
 - **output**: `{ resources: [{ stage_index, title, url, type, verified, note }] }`
 - **errors**: WebSearch 失败 -> 返回搜索关键词建议，不编造 URL。
 - **实现**: WebSearch（后端调用搜索 API）-> 对每个候选调用 `verify_url`。
-- **规则**: 严格移植 study-planner Step 4 链接验证（✅ 已验证 / ⚠️ 存疑 / ❌ 无效丢弃，绝不编造 URL）。
+- **规则**: 严格移植 study-planner Step 4 链接验证，判定如下：
+
+| 标记 | 判定 | 处理 |
+|---|---|---|
+| ✅ 已验证 | HTTP 200 + 内容难度适配该阶段 | 嵌入方案 |
+| ⚠️ 存疑 | 可达但内容级别/质量不确定 | 带说明嵌入，提示人工确认 |
+| ❌ 无效 | 404/403/500/超时/被反爬拦截 | 丢弃并换源 |
+
+补充：重定向记最终 URL；绝不编造或外推 URL；WebSearch 无结果给搜索关键词建议而非空占位。
 
 ## 6. verify_url
 - **input**: `{ url: str, stage_level: int }`
