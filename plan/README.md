@@ -10,6 +10,7 @@
 | [02-tools.md](./02-tools.md) | 自研工具契约（输入/输出/错误/LLM/幂等）与契约一致性 |
 | [03-api-frontend.md](./03-api-frontend.md) | REST/SSE API 设计、前端页面与组件 |
 | [04-mvp-risk.md](./04-mvp-risk.md) | MVP 任务分解（P0/P1）、路线图、风险登记表 |
+| [05-skills.md](./05-skills.md) | Skill 层设计：skill-for-skills 构建的 AI 工作流 Skill、与 Python 运行时结合、映射与加载机制 |
 
 ---
 
@@ -20,6 +21,7 @@ Deep-tutor 是一个 **AI 驱动的学习方案生成 Web 应用**。用户通�
 - **部署形态**：本地优先（单机可用），架构可扩展至多用户云端部署。
 - **AI 后端**：以 Anthropic Claude 为主，设 Provider 抽象层便于后续兼容 DeepSeek 等。
 - **工具体系**：自研 Agent 循环与工具集，借鉴 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的三个架构支柱（缓存优先循环、工具调用修复、成本控制）。
+- **Skill 层**：方法论密集的 AI 工作流用 skill-for-skills 编写为标准 Claude Code Skill，作为 LLM 指令源；Python 运行时加载并驱动对应工具，Skill 也可在 Claude Code 独立复用（详见 [05-skills.md](./05-skills.md)）。
 
 ## 二、对 Reasonix 的借鉴与差异
 
@@ -108,3 +110,4 @@ Plan {
 3. MVP 持久化用 **SQLite**（SQLAlchemy，可迁移 Postgres）。
 4. API Key **本地配置**（`.env`），不入库。
 5. MVP 解析范围：PDF / Word / Markdown / TXT / 网页（OCR 与音视频在 P3）。
+6. 方法论密集的 AI 工作流以 skill-for-skills 生成的 Skill 承载（指令源），基础设施类工具保持纯 Python（详见 [05-skills.md](./05-skills.md)）。

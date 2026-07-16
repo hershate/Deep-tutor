@@ -86,6 +86,15 @@
 - 生成过程通过 SSE 推送每个工具的 `开始 / 进度 / 完成 / 错误` 事件，前端实时可见。
 - `tool_calls` 表记录每次调用的输入/输出/状态/耗时，便于审计与回放。
 
+### Skill 层（基于 skill-for-skills，详见 05-skills.md）
+
+- 架构位置：横跨"自研工具集"与"LLM Provider"之间。方法论密集工具调用 LLM 时，加载对应 Skill 的 SKILL.md 作为 system prompt 指令。
+- 由 skill-for-skills 生成的 Skill：`deep-tutor-intent` / `-knowledge-map` / `-stages` / `-resources` / `-validate` / `-quiz`（P2）。
+- Python 启动时扫描 `skills/`，建立 `skill_name -> SKILL.md` 注册表；调用对应工具时把 Skill 的 Workflow/Constraints/Examples 作为本次 LLM 调用的 system prompt（稳定前缀，缓存友好，符合 Pillar 1）。
+- Skill 输出 schema 在其 Constraints 中固化，Python 端 pydantic 校验，不符走工具调用修复（Pillar 2）。
+- Skill 升级（skill-for-skills UPGRADE）后重新加载即生效，无需改 Python 代码。
+- 基础设施工具（parse_material / schedule_plan / record_progress / export_plan）为纯 Python，不建 Skill。
+
 ## 四、数据模型（SQLite / SQLAlchemy）
 
 ### 表与字段

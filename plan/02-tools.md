@@ -18,6 +18,8 @@
 | validate_plan | 5 项校验 + 修复建议 | 是 | 否 |
 | export_plan | 导出 md/pdf | 否 | 是 |
 
+> **Skill 承载**：方法论密集工具（understand_intent / build_knowledge_map / design_stages / search_resources / validate_plan / generate_quiz）由 skill-for-skills 生成的 Skill 承载其方法论与 LLM 指令（详见 [05-skills.md](./05-skills.md)）；parse_material / schedule_plan / record_progress / export_plan 为纯 Python。
+
 ---
 
 ## 1. parse_material

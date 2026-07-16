@@ -33,6 +33,15 @@
 - [ ] validate_plan（5 项检查 + 修复建议 + 反馈循环）
 - [ ] export_plan（md）
 
+**Skill 层（skill-for-skills，详见 05-skills.md）**
+- [ ] 用 skill-chain-planner 规划主链路（产出接口契约与创建顺序）
+- [ ] skill-for-skills 生成 deep-tutor-intent
+- [ ] deep-tutor-knowledge-map
+- [ ] deep-tutor-stages
+- [ ] deep-tutor-resources（含 verify 方法论 + ✅⚠️❌ 规则）
+- [ ] deep-tutor-validate（5 项检查）
+- [ ] Python Skill 加载器（扫描 skills/ -> 注册表 -> 工具调用注入 system prompt + pydantic 校验）
+
 **API**
 - [ ] /materials/upload | /url | /text
 - [ ] /sessions
@@ -87,6 +96,9 @@
 | R8 | 缓存命中率低致成本高 | resource | 低 | 中 | system/tools 固定前缀 + cache_control；监控 cache hit |
 | R9 | 多模态解析依赖缺失（P3） | dependency | 中 | 中 | 启动时检测 tesseract/whisper，缺失则禁用对应入口 + 提示安装 |
 | R10 | 单文件并发写入冲突（多资料） | resource | 低 | 中 | 每会话独立子目录 + 唯一文件名 |
+| R11 | Skill 输出 schema 与 Python 期望漂移 | silent | 中 | 高 | Skill Constraints 固化 schema + Python pydantic 校验 + 工具调用修复兜底 |
+| R12 | Skill 升级引入回归 | logic | 中 | 中 | skill-for-skills UPGRADE 回归审查 + 版本号 + schema 校验 + 冒烟 |
+| R13 | Skill 加载失败/缺失 | dependency | 低 | 高 | 启动检测必需 Skill，缺失报错提示；降级内置默认 prompt |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。
@@ -101,8 +113,9 @@
 2. LLM Provider 抽象 + Anthropic 实现 -> `feat(llm): provider abstraction + anthropic`
 3. Agent 循环骨架（工具注册 + 调用修复 + 成本计量）-> `feat(agent): core loop with tool-call repair and cost tracking`
 4. P0 工具链（每工具独立 commit）-> `feat(tools): parse_material` 等
-5. API 层 -> `feat(api): materials/sessions/plans endpoints`
-6. 前端 P0 页面 -> `feat(frontend): generate flow and plan detail`
-7. 端到端联调 -> `test: e2e smoke for plan generation`
+5. Skill 层：skill-chain-planner 规划 + skill-for-skills 生成各 Skill + Python 加载器 -> `feat(skills): deep-tutor-* skills and loader`
+6. API 层 -> `feat(api): materials/sessions/plans endpoints`
+7. 前端 P0 页面 -> `feat(frontend): generate flow and plan detail`
+8. 端到端联调 -> `test: e2e smoke for plan generation`
 
 **全程细粒度 git commit，便于版本管理与回滚**（遵循全局规范：commit 信息不含 co-author）。
