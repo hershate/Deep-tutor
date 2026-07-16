@@ -11,6 +11,7 @@
 | [03-api-frontend.md](./03-api-frontend.md) | REST/SSE API 设计、前端页面与组件 |
 | [04-mvp-risk.md](./04-mvp-risk.md) | MVP 任务分解（P0/P1）、路线图、风险登记表 |
 | [05-skills.md](./05-skills.md) | Skill 层设计：skill-for-skills 构建的 AI 工作流 Skill、与 Python 运行时结合、映射与加载机制 |
+| [06-frontend.md](./06-frontend.md) | 前端 UI 细化：设计系统、页面线框、组件规格、状态管理、SSE、用户流程、无障碍 |
 
 ---
 

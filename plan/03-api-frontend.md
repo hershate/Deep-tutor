@@ -37,6 +37,8 @@ event: error         data: { message, stage }
 
 ## 二、前端设计
 
+> 详细 UI 设计（设计系统、页面线框、组件规格、状态管理、SSE、流程、无障碍）见 [06-frontend.md](./06-frontend.md)。
+
 ### 技术栈
 React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + EventSource(SSE) + react-markdown。
 
