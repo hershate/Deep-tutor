@@ -44,6 +44,7 @@ Skill 是"做什么、怎么做"的权威定义（含 Workflow/Constraints/Do-No
    - Skill 中要求的输出 schema 在 Python 端用 pydantic 校验；不符则走**工具调用修复**（Pillar 2）。
 4. Skill 升级（skill-for-skills UPGRADE）后，Python 无需改代码，重新加载即生效。
 5. Skill 的 `allowed-tools` 映射到 Python 端该工具可调用的子能力（如 `deep-tutor-resources` 的 Bing Search API/`verify_url`）。
+6. Skill 文件解析失败（YAML/结构非法）-> 跳过该 Skill + 告警，对应工具降级默认 prompt（R13 / [11](./11-extreme-cases.md) §四）。
 
 ```
 Agent 循环 ──调用工具──> Python 工具包装器
