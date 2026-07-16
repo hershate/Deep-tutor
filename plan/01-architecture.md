@@ -139,7 +139,8 @@
 | session_id | FK | |
 | kind | enum | file/text/url/image/audio/video |
 | source | str | 文件路径/URL/原文摘要 |
-| parsed_text | text | 解析后纯文本 |
+| parsed_text_path | path | 解析文本文件路径（大文本存文件，见第五节存储策略） |
+| parsed_chars | int | 解析文本字符数 |
 | meta | json | 页数、字符数、来源元信息 |
 | created_at | datetime | |
 
@@ -257,8 +258,9 @@
 |---|---|---|
 | id | PK | |
 | unit_id | FK | |
-| content_md | text | Markdown 内容 |
-| content_html | text | 渲染后 HTML |
+| content_md_path | path | Markdown 内容文件路径（见存储策略） |
+| content_html_path | path | 渲染 HTML 文件路径 |
+| size | int | 内容大小（字符数） |
 | resources | json | 扩展阅读链接 |
 | created_at | datetime | |
 

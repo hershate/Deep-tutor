@@ -22,11 +22,13 @@ Skill 是"做什么、怎么做"的权威定义（含 Workflow/Constraints/Do-No
 | `deep-tutor-validate` | validate_plan | study-planner Step 6（5 项检查） | P0 |
 | `deep-tutor-quiz` | generate_quiz | 按知识点多题型 | P2 |
 
-**纯 Python 工具（不建 Skill，确定性/方法论轻）**
-- `parse_material`：文档解析，按后缀分发，无 LLM 方法论。
-- `schedule_plan`：LLM 草案 + 确定性总量校验；方法论轻，暂不建 Skill（后续可视情况补）。
+**纯 Python 工具（无 LLM，不建 Skill）**
+- `parse_material`：文档解析，按后缀分发，无 LLM。
 - `record_progress`：掌握度计算 + 间隔重复，确定性。
 - `export_plan`：md/pdf 渲染，确定性。
+
+**LLM 工具（无 Skill，内联 prompt）**
+- `schedule_plan`：LLM 内联 prompt 生成草案 + 确定性总量校验；方法论轻，暂不建 Skill（后续可视情况补）。
 
 **复用既有 Skill（非 skill-for-skills 生成）**
 - `build_plan_slides`：复用 `ppt-slide-builder`（HTML 幻灯片），见第六节。

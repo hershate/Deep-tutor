@@ -88,7 +88,8 @@
 | generate_quiz (P2) | deep-tutor-quiz | 生成 |
 | generate_study_materials (P2) | self-study-guide | 复用既有 |
 | build_plan_slides (P1) | ppt-slide-builder | 复用既有 |
-| parse_material / schedule_plan / record_progress / export_plan | 无 | 纯 Python |
+| parse_material / record_progress / export_plan | 无 | 纯 Python（无 LLM） |
+| schedule_plan | 无（内联 prompt） | LLM 无 Skill |
 
 ## 八、跨部分一致性核对表
 
