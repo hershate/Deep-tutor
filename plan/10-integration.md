@@ -129,6 +129,7 @@ async def run_tool(name: str, inp: ToolInput, ctx: ExecContext) -> ToolOutput
 - 每工具后更新状态；`paused_clarify` 持久化支持页面刷新续接（30min 超时）。
 - **并发隔离**：每会话一个编排器实例；同会话已有 `running` 时新 `/generate` 返回 `409 conflict`；多会话独立（DB 写串行、文件按 `sessions/<sid>/` 隔离）。
 - **崩溃恢复**：进程重启后，`running` 但无活动进程 -> 标 `interrupted`；前端提示"继续"（从 `current_tool` 续）或"重跑"（幂等）。
+- **running 态冲突**：running 会话 `DELETE` 先 cancel 再删；`Export` 返回 409；`Regenerate` 同 `/generate` 返回 409。`orchestrator_state` 损坏 -> schema 校验失败则标 `interrupted` 不 crash。
 
 ## 十二、SSE 断线续接游标
 

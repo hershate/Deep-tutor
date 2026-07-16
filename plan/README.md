@@ -16,6 +16,7 @@
 | [08-data-exchange-format.md](./08-data-exchange-format.md) | 统一数据交换格式：类型系统、工具 I/O 信封、契约模板、流水线流转契约、版本演进（参考 skill-chain-planner） |
 | [09-audit.md](./09-audit.md) | 计划审计：存储策略、上下文溢出、安全、解析边界、Agent 守卫、数据运维、前端边界（迭代补充） |
 | [10-integration.md](./10-integration.md) | 端到端协作：两层执行模型、交互序列、SSE 一致、澄清续接、持久化选择性、反馈循环、Skill↔工具映射 |
+| [11-extreme-cases.md](./11-extreme-cases.md) | 极端情况与逻辑稳固性：输入极端、资源耗尽/失控、Pipeline 逻辑、降级默认、并发/状态、安全（迭代补充） |
 
 ---
 

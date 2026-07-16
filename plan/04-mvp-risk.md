@@ -122,6 +122,13 @@
 | R26 | 大文本塞 SQLite 致膨胀/锁 | resource | 中 | 中 | 大内容入文件系统，DB 存路径；WAL；定期 VACUUM（见 09） |
 | R27 | 配置缺失/非法（启动） | dependency | 中 | 高 | 启动校验必填 env，缺失报错退出；.env.example 模板 |
 | R28 | 部署卷丢失数据 | resource | 低 | 高 | 卷持久化；定期备份；删容器不删卷 |
+| R29 | prompt 注入（材料含恶意指令） | security | 中 | 高 | 材料 untrusted(user msg)；system 明示不执行指令；pydantic 校验；可疑告警 |
+| R30 | 解析/节点/阶段/资源数量失控 | resource | 中 | 高 | 各项硬上限（09 §二十）；超限截断/拒绝 |
+| R31 | 内存/并发 OOM | resource | 低 | 高 | 并发生成≤2；流式解析；parsed token 上限 |
+| R32 | knowledge_map 环/悬空边 | logic | 低 | 中 | DFS 环检测；edge 端点校验；断开/丢弃 |
+| R33 | running 态 DELETE/Export/Regenerate 冲突 | logic | 中 | 中 | DELETE 先 cancel；Export/Regenerate running 返 409 |
+| R34 | orchestrator_state 损坏 | data | 低 | 中 | 状态 schema 校验；损坏标 interrupted 不 crash |
+| R35 | 错误响应回显敏感信息 | security | 低 | 中 | 错误响应不回显 key/路径；统一错误格式 |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。

@@ -40,7 +40,7 @@
 ## 3. build_knowledge_map
 - **input**: `{ intent, parsed: [material] }`
 - **output**: `{ nodes: [{ id, name, difficulty, must_learn, parent_id? }], edges: [{ from, to, relation }] }`
-- **errors**: 节点为空 -> 回退按主题通用拆解。
+- **errors**: 节点为空 -> 回退按主题通用拆解；环检测（DFS）发现环 -> 断开成 DAG；`edge.from/to` 不在 nodes -> 丢弃该边；节点数超 `MAX_NODES` -> 截断+标注。
 - **prompt 要点**: 移植 study-planner Step 2（核心前置/核心知识/进阶扩展/实战项目 + 依赖关系）。
 
 ## 4. design_stages
