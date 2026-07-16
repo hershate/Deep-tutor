@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 2 - LLM Provider 抽象 + Anthropic 实现（`feat(llm): provider abstraction + anthropic`）。详见 §4.2。
+**当前下一步**：步骤 3 - Agent 循环骨架（工具注册 + 调用修复 + 成本计量 + 预算守卫）。详见 §4.3。
 
 ---
 
@@ -80,7 +80,7 @@
 | # | 步骤 | 目标 commit message | 状态 | 进度 |
 |---|---|---|---|---|
 | 1 | 建骨架 | `chore: scaffold project skeleton` | ✅ 完成 | 见 §4.1（6 commits） |
-| 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | 🟡 下一步 | 见 §4.2 |
+| 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | ✅ 完成 | 见 §4.2（commit `44c110b`） |
 | 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ⬜ | - |
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ⬜ | - |
 | 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | ⬜ | - |
@@ -141,7 +141,7 @@ Deep-tutor/
 - `5928646` chore: add docker-compose, Dockerfiles, README, env example, gitignore
 - `1f2535e` fix(db): alembic.ini 改 ASCII 注释 + 生成初始 schema 迁移
 
-### 4.2 步骤 2 - LLM Provider 抽象 + Anthropic 实现（下一步）
+### 4.2 步骤 2 - LLM Provider 抽象 + Anthropic 实现（✅ 完成）
 
 **目标**：在 [backend/app/llm/](backend/app/llm/) 实现 `AnthropicProvider`（继承已建的 `LLMProvider` 接口），落地三支柱中的「缓存优先」与「成本计量」基础。
 
@@ -153,7 +153,25 @@ Deep-tutor/
 
 **关键对齐**：[plan/01 §三 缓存优先策略 / 成本计量](plan/01-architecture.md)、[plan/10 内层工具调用循环](plan/10-integration.md)。`cache_system=True` 时给 system 块打 `cache_control`。
 
-**未决**：模型价目表用 plan 默认 `claude-sonnet-5` 还是需用户确认具体模型/价目？（实现时按 Anthropic 公开价目填，可配。）
+**未决（已解决）**：价目表用模型族前缀匹配（Sonnet $3/$15、Opus $15/$75、Haiku $0.8/$4，cache_read≈0.1×input、cache_write≈1.25×input），未知模型记 0（不编造），文件内标注核对链接 https://www.anthropic.com/pricing。可后续改为 settings 可配置。
+
+**结果**：commit `44c110b`。9 项单测全过（usage 解析 / 文本拼接 / cache_control 开关 / 空 system / 成本估算含 cache / 未知模型记 0 / 前缀匹配 / get_provider 守卫）。`AsyncAnthropic` 用法已对齐 SDK 0.76.0（Usage 字段：input/output/cache_read_input/cache_creation_input_tokens）。
+
+### 4.3 步骤 3 - Agent 循环骨架（下一步）
+
+**目标**：在 [backend/app/agent/](backend/app/agent/) 落地两层执行模型的「内层工具调用循环」骨架 + 编排器骨架，集成 step 2 的 LLM Provider，实现三支柱完整闭环。
+
+**计划产出**：
+- `app/agent/registry.py`：工具注册表（tool_name -> Tool 可调用 + pydantic 输入/输出 schema）。
+- `app/agent/loop.py`：内层工具调用循环 -- 组装 system(Skill) + user(args+upstream) -> LLM -> pydantic 校验 -> **工具调用修复**（schema 不符反馈重试≤3 -> 降级默认 + 告警 status=repaired）-> 产出 ToolOutput。
+- `app/agent/cost.py`：usage -> api_usage 表 + tool_calls 成本归集。
+- `app/agent/budget.py`：预算守卫（累计 cost 超 BUDGET_PER_SESSION_USD 中断 + 保留部分）。
+- `app/agent/orchestrator.py`：外层确定性编排器（固定顺序 parse->understand->map->stage->resource->schedule->validate->export），字段覆盖检查，SSE 事件推送 hook，状态机持久化（orchestrator_state）。
+- 测试：mock LLM，验证调用修复重试、降级、预算中断、字段覆盖检查。
+
+**关键对齐**：[plan/01 §三 两层执行模型](plan/01-architecture.md)、[plan/10 端到端序列/状态机/反馈循环](plan/10-integration.md)、[plan/08 字段覆盖/工具调用修复](plan/08-data-exchange-format.md)、[plan/11 工具调用死循环上限/降级默认](plan/11-extreme-cases.md)。
+
+**注意**：编排器与 SSE/持久化的完整集成留到 step 6（API 层）联调；step 3 先把可单测的循环核心做扎实。
 
 ---
 
@@ -161,5 +179,6 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-16 步骤 2 完成**：LLM Provider 抽象 + Anthropic 实现。`anthropic_provider.py`（AsyncAnthropic Messages API，system cache_control 缓存优先，usage 解析成本计量）、`pricing.py`（模型族前缀匹配价目，未知记 0）、`get_provider()` 工厂、`tests/test_llm.py`（9 项单测全过）。commit `44c110b`。
 - **2026-07-16 步骤 1 完成**：建骨架（后端 FastAPI + 15 表模型 + Alembic 初始迁移；前端 Vite/React/TS/Tailwind；docker-compose + README + .env.example）。验证：后端 import/建表/health 200、alembic autogenerate+upgrade 15 表、前端 install+build 通过。6 commits：`e70e038` `4f07351` `b7b695c` `980226f` `5928646` `1f2535e`。
 - **2026-07-16**：创建 `stage.md`，建立进度跟踪框架；完成环境检查（Python 3.12.10 / Node v26.3.0 / npm 11.16.0 / git 2.55）。准备开始步骤 1 建骨架。
