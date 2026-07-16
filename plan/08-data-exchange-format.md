@@ -159,3 +159,71 @@
 - 实现阶段：每个工具先写 pydantic schema（= 契约），再写逻辑；契约即文档。
 - skill-chain-planner 规划 Deep-tutor 主链路时，其产出的接口契约与本文件互校（[05](./05-skills.md) 第五节已约定）。
 - 前端 SSE 事件（[03](./03-api-frontend.md)）的 `tool_end` 携带 `ToolOutput.metadata`，用量与状态统一来自信封。
+
+## 九、Worked Example（信封实例）
+
+以 `understand_intent` 为例，展示统一信封在流水线中的实际形态。
+
+### 上游 parse_material 的 ToolOutput（节选）
+```jsonc
+{
+  "schema_version": "1.0", "tool": "parse_material", "status": "ok",
+  "data": { "text": "...", "meta": { "pages": 12, "chars": 8200, "source_type": "pdf" }, "chunks": ["..."] },
+  "errors": [], "metadata": { "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "duration_ms": 420, "model": "" },
+  "stability": "stable"
+}
+```
+
+### understand_intent 的 ToolInput
+```jsonc
+{
+  "schema_version": "1.0", "tool": "understand_intent", "session_id": "sess_01",
+  "args": { "raw_text": "我想学 React，零基础，做项目，每天 1-2h" },
+  "upstream": { "parse_material": { "data": { "text": "...", "meta": {}, "chunks": [] } } }
+}
+```
+
+### understand_intent 的 ToolOutput（正常）
+```jsonc
+{
+  "schema_version": "1.0", "tool": "understand_intent", "status": "ok",
+  "data": {
+    "topic": "React", "level": "零基础", "goal": "做项目",
+    "daily_minutes": 90, "deadline": null,
+    "needs_clarify": false, "clarify_questions": []
+  },
+  "errors": [],
+  "metadata": { "tokens_in": 8200, "tokens_out": 120, "cache_read": 7800, "cost": 0.03, "duration_ms": 2100, "model": "claude-..." },
+  "stability": "stable"
+}
+```
+
+### 需澄清场景（needs_clarify=true，非错误）
+```jsonc
+"data": { "topic": "编程", "level": null, "goal": null, "daily_minutes": null, "deadline": null,
+          "needs_clarify": true, "clarify_questions": ["想学哪方面编程？网页/数据/移动？", "每天能投入多少时间？"] },
+"status": "ok"
+```
+
+### 反馈循环：validate_plan 触发上游重生成
+```jsonc
+{ "tool": "validate_plan", "status": "ok",
+  "data": { "report": { "difficulty_step": "fail", "details": "Stage2 难度2 -> Stage3 难度5，跳级3" },
+            "passed": false, "fixes": ["在 Stage2 与 Stage3 间插入过渡阶段"] },
+  "errors": [], "stability": "stable" }
+// Agent 据 fixes 重新调度 design_stages（ToolInput.upstream 携带 validate_plan.fixes）
+```
+
+### 字段覆盖检查示例
+- `build_knowledge_map.args` 必填：`intent`(object, 含 topic/level/goal/daily_minutes) + `parsed`(list)
+- 上游 `understand_intent.data` 提供 topic/level/goal/daily_minutes ✅；`parse_material.data` 提供 text/chunks ✅
+- 覆盖通过 -> 调度执行；否则 `status=error` + `code=missing_upstream_field`，触发上游重生成（不静默传空）。
+
+### 工具调用修复示例（schema 不符）
+```jsonc
+// 模型返回 daily_minutes: "1-2小时"（字符串，契约要求 int）
+{ "tool": "understand_intent", "status": "repaired",
+  "data": { ..., "daily_minutes": 90 },
+  "errors": [ { "code": "schema_violation", "message": "daily_minutes 非 int，已修复为 90", "details": { "raw": "1-2小时" } } ],
+  "stability": "stable" }
+```
