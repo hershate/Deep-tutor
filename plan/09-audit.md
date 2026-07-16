@@ -185,3 +185,89 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 | export 失败 | 仅 md | Toast |
 | LLM 超时/限流 | 重试3+退避 -> 部分结果 | 进度标红 + 重试 |
 | 预算超限 | 中断 + 保留部分 | 标红 |
+
+## 十六、API 错误码目录
+
+统一错误码（`ToolOutput.errors[].code` 或 HTTP 错误响应）：
+
+| code | HTTP | 触发 |
+|---|---|---|
+| unauthorized | 401 | token 无效 |
+| budget_exceeded | 402 | 预算超限，生成中断 |
+| unsupported_format | 415 | 文件格式不支持 |
+| file_too_large | 413 | 超 MAX_UPLOAD_MB |
+| empty_content | 422 | 解析为空 |
+| password_required | 422 | PDF 加密 |
+| scanned_pdf_suggest_ocr | 422 | 扫描件无文本层 |
+| parse_failed | 422 | 解析失败 |
+| invalid_url | 422 | URL 非法 / SSRF 命中 |
+| invalid_range | 422 | 字段超范围 |
+| invalid_enum | 422 | 枚举非法 |
+| past_deadline | 422 | deadline 在过去 |
+| empty_required | 422 | 必填缺失 |
+| schema_violation | 422 | 工具输出 schema 不符（修复后 status=repaired） |
+| missing_upstream_field | 422 | 上游字段覆盖失败 |
+| rate_limited | 429 | LLM/WebSearch 限流（重试） |
+| upstream_timeout | 504 | LLM/外部超时（重试） |
+| skill_missing | 500 | 必需 Skill 缺失 |
+| internal_error | 500 | 未知（日志 + 追踪） |
+
+> `needs_clarify` 非错误（HTTP 200，data 内标志），交前端 ChatClarify。
+
+## 十七、配置项目录（.env / settings）
+
+| key | 说明 | 默认 |
+|---|---|---|
+| ANTHROPIC_API_KEY | Claude API key | 必填 |
+| ANTHROPIC_MODEL | 模型 | claude-... |
+| AUTH_TOKEN | 本地单用户 token | 必填 |
+| DB_PATH | SQLite 路径 | data/deep-tutor.db |
+| DATA_DIR | 文件存储根 | data/ |
+| SKILLS_DIR | Skill 目录 | skills/ |
+| MAX_UPLOAD_MB | 上传上限 | 50 |
+| MAX_TOOL_CALLS | 工具调用轮次上限 | 20 |
+| MAX_REGENERATIONS | 重生成上限 | 2 |
+| BUDGET_PER_SESSION_USD | 会话预算 | 1.0 |
+| DAILY_BUDGET_USD | 每日预算 | 10 |
+| CONTEXT_TOKEN_THRESHOLD | 上下文溢出阈值 | 按模型 |
+| SEARCH_ENGINE | WebSearch 引擎 | 默认 |
+| LOG_LEVEL | 日志级别 | info |
+| CORS_ORIGINS | 允许来源 | http://localhost:5173 |
+
+启动时校验必填项，缺失 -> 报错退出；`.env.example` 提供模板，`.env` 入 `.gitignore`。
+
+## 十八、CORS / 请求限额 / 速率限制
+
+- **CORS**：仅允许 `CORS_ORIGINS`；允许凭证；预检缓存。
+- **请求体上限**：上传 `MAX_UPLOAD_MB`；JSON API 1MB。
+- **速率限制**：`/plans/generate` 每用户并发 1（串行）；`/materials/url` 与 `/export` 每分钟限 N。
+- **超时**：API 请求 300s（生成长）；LLM 调用 120s；URL 抓取 30s。
+- **MIME 校验**：上传按 magic bytes 校验类型，不只看扩展名（防伪造）。
+
+## 十九、部署配置（docker-compose）
+
+- **services**：`backend`(uvicorn) + `frontend`(nginx) + 可选 `redis`(P4)。
+- **backend**：挂载 `data/` 与 `skills/`(只读) 卷；`env_file: .env`；`healthcheck: /health`；`restart: unless-stopped`。
+- **frontend**：nginx 托管构建产物；反代 `/api -> backend`；SPA fallback。
+- **卷**：`deep-tutor-data`、`deep-tutor-skills`。
+- **网络**：内部；仅 frontend 暴露端口。
+- `.env` 不入镜像/仓库。
+- 本地一键 `docker compose up`。
+- P4 云部署：加 postgres + 对象存储 + TLS + 反代。
+
+## 二十、容量与配额上限
+
+| 项 | 上限 |
+|---|---|
+| 每会话资料数 | ≤20 |
+| 每方案阶段数 | 3-6 |
+| 每单元材料行数 | ≤500 |
+| 重生成轮次 | ≤2 |
+| 工具调用轮次/会话 | ≤20 |
+| 自学材料单元 | ≤30（超则分批） |
+| 上传单文件 | ≤50MB |
+| 导出文件保留 | 随 session 删除级联清理 |
+
+## 二十一、收敛声明
+
+经 3 轮审计，主要风险/边界类别已覆盖：存储策略、上下文溢出、安全（SSRF/路径遍历/XSS/沙箱）、解析边界、Agent 守卫、数据运维、前端边界、输入校验、并发事务、国际化、测试 QA、可观测性、降级矩阵、API 错误码、配置项、CORS/限额、部署、容量配额。剩余为实现期细节（具体依赖版本、精确限流数值、sanitize 白名单配置等），在 Phase 1 编码时落地。

@@ -119,6 +119,8 @@
 | R24 | 中断未恢复（崩溃丢进度） | cascade | 中 | 中 | 持久化 partial_plan+tool_calls；断点续接/幂等重跑 |
 | R25 | 编码错检（GBK 等） | silent | 中 | 中 | chardet/charset-normalizer 转 UTF-8；校验解码率 |
 | R26 | 大文本塞 SQLite 致膨胀/锁 | resource | 中 | 中 | 大内容入文件系统，DB 存路径；WAL；定期 VACUUM（见 09） |
+| R27 | 配置缺失/非法（启动） | dependency | 中 | 高 | 启动校验必填 env，缺失报错退出；.env.example 模板 |
+| R28 | 部署卷丢失数据 | resource | 低 | 高 | 卷持久化；定期备份；删容器不删卷 |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。
