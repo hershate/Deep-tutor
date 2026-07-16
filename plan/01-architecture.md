@@ -222,6 +222,29 @@
 | cost | float | |
 | created_at | datetime | |
 
+#### study_units（自学材料单元，P2）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | PK | |
+| plan_id | FK | |
+| node_id | FK? | 关联知识点 |
+| stage_index | int? | 关联阶段 |
+| title | str | 单元名 |
+| prerequisites | json | 前置知识 |
+| objectives | json | 学习目标 |
+| estimated_time | str | 预估时间 |
+| order | int | 学习顺序 |
+
+#### study_materials（单元内容，P2）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | PK | |
+| unit_id | FK | |
+| content_md | text | Markdown 内容 |
+| content_html | text | 渲染后 HTML |
+| resources | json | 扩展阅读链接 |
+| created_at | datetime | |
+
 ### 关系图（简）
 ```
 users 1--* sessions 1--* materials

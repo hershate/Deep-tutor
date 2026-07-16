@@ -30,6 +30,7 @@ Skill 是"做什么、怎么做"的权威定义（含 Workflow/Constraints/Do-No
 
 **复用既有 Skill（非 skill-for-skills 生成）**
 - `build_plan_slides`：复用 `ppt-slide-builder`（HTML 幻灯片），见第六节。
+- `generate_study_materials`：复用 `self-study-guide`（逐单元自学材料），见第六节与 [07](./07-learning-workflows.md)。
 
 ## 三、运行时加载机制
 
@@ -68,9 +69,10 @@ Agent 循环 ──调用工具──> Python 工具包装器
 
 ## 六、复用既有技能生态
 
-- **study-planner** 是 Deep-tutor Skill 的方法论蓝本（Step 1-6 直接映射），但不直接调用它：study-planner 面向 Claude Code 终端用户、输出到 `plans/*.md`；Deep-tutor Skill 面向 Web 应用、输出结构化 JSON 供前端渲染与存库。
+- **study-planner** 是 Deep-tutor Skill 的方法论蓝本（Step 1-6 直接映射），但不直接调用它：study-planner 面向 Claude Code 终端用户、输出到 `plans/*.md`；Deep-tutor Skill 面向 Web 应用、输出结构化 JSON 供前端渲染与存库。完整 7 步工作流映射见 [07-learning-workflows.md](./07-learning-workflows.md)。
 - 可参考 `self-study-guide`（已有大纲场景）、`course-material-organizer`、`outline-extractor` 的思路融入资料解析与大纲提取。
 - **ppt-slide-builder**（既有，直接复用）：作为 `build_plan_slides` 工具的方法论与模板源（`templates/base.html` + 主题 CSS 变量 + 动画/过渡），把学习方案导出为自包含 HTML 幻灯片（非 .pptx）。Deep-tutor 以非交互方式调用（plan 已有内容，跳过其逐轮提问，直接生成幻灯片规约并渲染）。
+- **self-study-guide**（既有，直接复用）：作为 `generate_study_materials` 工具的方法论与单元模板源，把学习方案转化为逐单元自学材料（概述/核心概念/实践练习/检查理解/总结/扩展阅读 + 索引与复习节点）。上游为 study-planner 工作流产出的 plan。详见 [07-learning-workflows.md](./07-learning-workflows.md)。
 - Deep-tutor 生成的 Skill 命名统一前缀 `deep-tutor-*`，与既有通用 Skill 区分。
 
 ## 七、Skill 目录与规范

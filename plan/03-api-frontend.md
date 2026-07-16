@@ -18,6 +18,9 @@
 | GET | /progress/{plan_id} | - | `{ nodes:[{id,status,mastery}], mastery_avg }` | 进度总览（P2） |
 | POST | /progress | `{ plan_id, node_id, status }` | `{ mastery }` | 更新进度（P2） |
 | POST | /export/{plan_id} | `{ format: md\|pdf\|slides }` | `{ file_url }` | 导出 md/pdf/slides（slides 为 HTML 幻灯片） |
+| POST | /plans/{id}/materials | `{ scope?, depth? }` | SSE 流 | 生成自学材料（P2，复用 self-study-guide） |
+| GET | /plans/{id}/materials | - | `{ units:[] }` | 自学材料单元列表（P2） |
+| GET | /materials/{unit_id} | - | `{ content_html, resources }` | 单元内容（P2） |
 | GET | /usage | - | `{ total_tokens, total_cost, cache_hit_rate, by_session:[] }` | 成本统计 |
 
 ### SSE 事件格式（/plans/generate）

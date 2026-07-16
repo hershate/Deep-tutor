@@ -69,6 +69,12 @@
 - [ ] 局部重生成（/plans/{id}/regenerate）
 - [ ] 成本看板页（/usage 可视化）
 
+### P2：自学材料 + 测验 + 进度
+- [ ] generate_study_materials（复用 self-study-guide，逐单元自学材料）
+- [ ] study_units / study_materials 表 + API（/plans/{id}/materials）
+- [ ] 前端自学材料阅读页 + StudyMaterialReader（见 06）
+- [ ] generate_quiz + record_progress + 学习中心 + 进度看板
+
 ---
 
 ## 二、路线图（总览）
@@ -102,6 +108,8 @@
 | R13 | Skill 加载失败/缺失 | dependency | 低 | 高 | 启动检测必需 Skill，缺失报错提示；降级内置默认 prompt |
 | R14 | ppt-slide-builder 仅出 HTML 非 .pptx | 约束 | 中 | 低 | 文档明确"幻灯片=HTML"；后续如需 .pptx 再接 python-pptx，另起工具 |
 | R15 | 幻灯片内容过多/超模板容量 | resource | 中 | 中 | 按阶段分多个 deck 或精简要点；单 deck 页数上限 |
+| R16 | 自学材料生成成本高（多单元多 LLM 调用） | cascade | 中 | 高 | 单元数上限/分批生成；复用 plan 上下文缓存；预算守卫 |
+| R17 | 单元内容过长或质量不均 | silent | 中 | 中 | 单文件>500 行拆分；每单元≥2 练习校验；抽样审查 |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。

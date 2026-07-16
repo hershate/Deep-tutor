@@ -18,8 +18,9 @@
 | validate_plan | 5 项校验 + 修复建议 | 是 | 否 |
 | export_plan | 导出 md/pdf | 否 | 是 |
 | build_plan_slides | 学习方案 -> PPT 风格 HTML 幻灯片（复用 ppt-slide-builder） | 是 | 否 |
+| generate_study_materials | 方案 -> 逐单元自学材料（复用 self-study-guide） | 是 | 否 |
 
-> **Skill 承载**：方法论密集工具（understand_intent / build_knowledge_map / design_stages / search_resources / validate_plan / generate_quiz）由 skill-for-skills 生成的 Skill 承载其方法论与 LLM 指令（详见 [05-skills.md](./05-skills.md)）；parse_material / schedule_plan / record_progress / export_plan 为纯 Python。`build_plan_slides` 复用既有 `ppt-slide-builder`（非 skill-for-skills 生成，产出 HTML 幻灯片，非 .pptx）。
+> **Skill 承载**：方法论密集工具（understand_intent / build_knowledge_map / design_stages / search_resources / validate_plan / generate_quiz）由 skill-for-skills 生成的 Skill 承载其方法论与 LLM 指令（详见 [05-skills.md](./05-skills.md)）；parse_material / schedule_plan / record_progress / export_plan 为纯 Python。`build_plan_slides` 复用既有 `ppt-slide-builder`（非 skill-for-skills 生成，产出 HTML 幻灯片，非 .pptx）。`generate_study_materials` 复用既有 `self-study-guide`（非 skill-for-skills 生成，产出逐单元自学材料）。
 
 ---
 
@@ -103,6 +104,14 @@
 - **Skill**: 复用既有 `ppt-slide-builder`（非 skill-for-skills 生成；产出 HTML 幻灯片，非 .pptx；Deep-tutor 以非交互方式调用，跳过其逐轮提问）。
 - **MVP 范围**: P1（输出增强）。
 
+## 13. generate_study_materials
+- **input**: `{ plan_id, scope?: { stage_indexes?: [int], node_ids?: [str] }, depth?: brief|full }`（scope 省略 = 全方案）
+- **output**: `{ units: [{ id, title, prerequisites:[str], objectives:[str], estimated_time, material_url }], index_url }`
+- **errors**: 单元过多(>10) -> 分模块；WebSearch 无结果 -> 标注"无外部资料参考"；单文件>500 行 -> 拆子文件；LLM 失败 -> 该单元降级为简要大纲。
+- **实现**: 从 plan 的 stages/nodes 拆单元（30-60min/单元，标前置依赖、2-4 目标）；每单元 WebSearch 补充资料；加载 self-study-guide SKILL.md 为指令，LLM 按模板生成（YAML frontmatter + 概述/核心概念/实践练习≥2/检查理解/总结/扩展阅读）；生成 index（路线图+计划表+复习节点）；渲染 md/html 存库。
+- **Skill**: 复用既有 `self-study-guide`（非 skill-for-skills 生成；Deep-tutor 非交互调用，单元源自 plan）。
+- **MVP 范围**: P2。
+
 ---
 
 ## 契约一致性（数据流转）
@@ -119,6 +128,7 @@ search_resources.output + design_stages.output + understand_intent.output ─> s
 validate_plan.fixes ─(反馈循环)─> 触发 design_stages / build_knowledge_map 重生成
 最终 plan ─> export_plan.input
 最终 plan ─> build_plan_slides.input
+plan(validate 后) ─> generate_study_materials.input
 ```
 
 格式约定：工具间以 JSON 对象传递，字段名遵循上表；上游 `output` 必须覆盖下游 `input` 的必填字段（参考 skill-chain-planner 的 L4 字段覆盖检查）。

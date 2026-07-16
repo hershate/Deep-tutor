@@ -12,6 +12,7 @@
 | [04-mvp-risk.md](./04-mvp-risk.md) | MVP 任务分解（P0/P1）、路线图、风险登记表 |
 | [05-skills.md](./05-skills.md) | Skill 层设计：skill-for-skills 构建的 AI 工作流 Skill、与 Python 运行时结合、映射与加载机制 |
 | [06-frontend.md](./06-frontend.md) | 前端 UI 细化：设计系统、页面线框、组件规格、状态管理、SSE、用户流程、无障碍 |
+| [07-learning-workflows.md](./07-learning-workflows.md) | 学习工作流细化：study-planner 7 步映射 + self-study-guide 自学材料生成（generate_study_materials） |
 
 ---
 
@@ -67,6 +68,7 @@ Deep-tutor 是一个 **AI 驱动的学习方案生成 Web 应用**。用户通�
 | 5 | Anki 卡片包（基于知识点） | P5 |
 | 6 | 进度看板（Kanban / 打卡日历） | P2 |
 | 7 | PPT 风格网页演示（HTML 幻灯片，复用 ppt-slide-builder） | P1 |
+| 8 | 逐单元自学材料（md/html，复用 self-study-guide） | P2 |
 
 ## 四、完整学习方案数据结构（plan schema）
 
