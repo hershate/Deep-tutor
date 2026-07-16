@@ -41,7 +41,7 @@
 | `timestamp` | ISO8601 时间戳 | 审计/进度 |
 
 ### 2.4 全局枚举（复用 + 新增）
-**复用 skill-chain-planner**：`Stability`(stable/candidate/experimental)、`DataSource`(upstream/user/filesystem)、`FormatType`、`Protocol`、`Idempotency`(full/conditional/none)、`RecoveryStrategy`、`RiskCategory`(Deep-tutor 扩展 +`security`)、`NodeType`(转换/分析/生成/操作)。
+**复用 skill-chain-planner**：`Stability`(stable/candidate/experimental)、`DataSource`(upstream/user/filesystem)、`FormatType`、`Protocol`、`Idempotency`(full/conditional/none)、`RecoveryStrategy`、`RiskCategory`(Deep-tutor 扩展 +`security`+`约束`)、`NodeType`(转换/分析/生成/操作)。
 
 **Deep-tutor 新增**：
 | 枚举名 | 可选值 | 适用场景 |

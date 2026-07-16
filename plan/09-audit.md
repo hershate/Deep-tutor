@@ -219,7 +219,7 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 | key | 说明 | 默认 |
 |---|---|---|
 | ANTHROPIC_API_KEY | Claude API key | 必填 |
-| ANTHROPIC_MODEL | 模型 | claude-... |
+| ANTHROPIC_MODEL | 模型（Haiku/Sonnet/Opus，影响成本/上下文/质量，实现时定） | claude-... |
 | AUTH_TOKEN | 本地单用户 token | 必填 |
 | DB_PATH | SQLite 路径 | data/deep-tutor.db |
 | DATA_DIR | 文件存储根 | data/ |
@@ -239,7 +239,7 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 
 ## 十八、CORS / 请求限额 / 速率限制
 
-- **CORS**：仅允许 `CORS_ORIGINS`；允许凭证；预检缓存。
+- **CORS**：仅允许 `CORS_ORIGINS`；允许凭证；允许头 `Authorization, Content-Type, Last-Event-ID`；预检缓存。
 - **请求体上限**：上传 `MAX_UPLOAD_MB`；JSON API 1MB。
 - **速率限制**：`/plans/generate` 每用户并发 1（串行）；`/materials/url` 与 `/export` 每分钟限 N。
 - **超时**：API 请求 300s（生成长）；LLM 调用 120s；URL 抓取 30s。

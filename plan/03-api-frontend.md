@@ -10,8 +10,9 @@
 | POST | /materials/url | `{ url }` | `{ material_id, kind:"url", meta }` | 网页链接抓取 |
 | POST | /materials/text | `{ text }` | `{ material_id, kind:"text" }` | 纯文本提交 |
 | POST | /sessions | `{ material_ids:[], title? }` | `{ session_id }` | 创建会话 |
+| DELETE | /sessions/{id} | - | `{ ok }` | 删除会话（级联删 DB 行 + data/sessions/<id>/ 文件） |
 | POST | /plans/generate | `{ session_id, raw_text? }` | SSE 流 | 生成方案（流式推送工具进度） |
-| GET | /plans | - | `[{ id, title, topic, created_at }]` | 方案列表 |
+| GET | /plans | `?page&limit` | `{ items:[{id,title,topic,created_at}], total }` | 方案列表（分页） |
 | GET | /plans/{id} | - | `{ plan }` | 方案详情 |
 | POST | /plans/{id}/regenerate | `{ feedback }` | SSE 流 | 按反馈局部重生成 |
 | POST | /plans/{id}/clarify | `{ answers }` | SSE 流 | 澄清续接（needs_clarify 后，见 [10](./10-integration.md)） |

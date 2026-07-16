@@ -81,6 +81,7 @@
 - 每个 LLM 工具的 `system`（Skill SKILL.md 指令）作为**稳定前缀**，`cache_control` 标记，跨会话/跨调用复用，提高 cache hit。
 - 同一工具的修复重试：校验错误作为新轮 `user` 追加，不重写已有 system/user。
 - 长会话/多方案生成中保持高 cache hit，降低成本。
+- 注：单次流水线每 Skill 只调一次，cache 收益主要在重生成/跨会话复用同 Skill；首次生成 cache 命中有限。
 
 ### 成本计量（Pillar 3）
 - 每次 API 调用解析 `usage`：`input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`。
@@ -150,7 +151,8 @@
 |---|---|---|
 | id | PK | |
 | session_id | FK | |
-| content | json | 完整 plan schema |
+| content | json | 完整 plan schema（<512KB；超阈值溢出文件，见存储策略） |
+| content_path | path? | 大方案溢出文件路径 |
 | version | int | 版本号（支持重生成） |
 | created_at | datetime | |
 
