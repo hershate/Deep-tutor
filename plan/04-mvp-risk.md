@@ -110,11 +110,21 @@
 | R15 | 幻灯片内容过多/超模板容量 | resource | 中 | 中 | 按阶段分多个 deck 或精简要点；单 deck 页数上限 |
 | R16 | 自学材料生成成本高（多单元多 LLM 调用） | cascade | 中 | 高 | 单元数上限/分批生成；复用 plan 上下文缓存；预算守卫 |
 | R17 | 单元内容过长或质量不均 | silent | 中 | 中 | 单文件>500 行拆分；每单元≥2 练习校验；抽样审查 |
+| R18 | 上下文窗口溢出（长资料） | resource | 中 | 高 | 分块 chunks + map-reduce/截断标注；阈值可配；审计记录 |
+| R19 | SSRF（/materials/url 内网 URL） | security | 中 | 高 | URL 校验禁私网/环回/元数据端点；重定向上限 3 跳 |
+| R20 | 路径遍历（上传文件名） | security | 中 | 高 | 用 material_id 命名；resolve 校验在 data/ 内 |
+| R21 | XSS（渲染用户/网络内容） | security | 中 | 高 | rehype-sanitize + HTML 白名单 + CSP + sandbox iframe |
+| R22 | 工具调用死循环 | logic | 低 | 中 | 每会话工具调用上限 20；超限中断返回部分 |
+| R23 | zip bomb/超大解压（PPTX/DOCX） | resource | 低 | 高 | 解压大小+文件数上限；拒绝超限 |
+| R24 | 中断未恢复（崩溃丢进度） | cascade | 中 | 中 | 持久化 partial_plan+tool_calls；断点续接/幂等重跑 |
+| R25 | 编码错检（GBK 等） | silent | 中 | 中 | chardet/charset-normalizer 转 UTF-8；校验解码率 |
+| R26 | 大文本塞 SQLite 致膨胀/锁 | resource | 中 | 中 | 大内容入文件系统，DB 存路径；WAL；定期 VACUUM（见 09） |
 
 ### 关键静默错误防护（参考 skill-chain-planner Step 5.5）
 - API 返回 200 但 body 为错误对象 -> 校验响应 schema 而非仅 HTTP 状态。
 - 转换后文件非空但内容为乱码/错误页 -> 校验输出包含预期标记（标题/结构关键字）。
-- 数据被截断无通知 -> 校验输出行数/大小与输入对应。
+- 数据被截断无通知 -> 校验输出行数/大小与输入对应；截断/分块写入 tool_calls 审计。
+- 密码/扫描 PDF 误判为空 -> 区分 empty_content / password_required / scanned_pdf_suggest_ocr，不混为一种。
 
 ---
 

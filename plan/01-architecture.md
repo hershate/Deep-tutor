@@ -255,3 +255,12 @@ plans 1--* study_units 1--* study_materials (P2)
 sessions 1--* tool_calls
 (全局) api_usage
 ```
+
+## 五、存储策略（DB vs 文件系统，详见 [09](./09-audit.md)）
+
+大内容入文件系统，DB 存路径 + 元数据，避免 SQLite 膨胀/锁/备份成本：
+- **文件存储**：上传原件、解析文本(parsed_text)、自学材料(content_md/content_html)、导出/幻灯片、大 `plan.content`(>512KB 溢出)。
+- **DB 存储**：元数据、路径、进度、`tool_calls`、`api_usage`、小 JSON。
+- **目录**：`data/deep-tutor.db` + `data/sessions/<sid>/{originals,parsed,plans,materials,exports}/`。
+- **SQLite**：WAL 模式、`synchronous=NORMAL`；定期 VACUUM；删 session 级联删目录；P4 迁 Postgres + 对象存储。
+- **分层**：08 工具信封在内存传递实际文本；持久化层写文件、DB 存路径，两层分离。
