@@ -103,6 +103,8 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
         last_model = resp.usage.model or last_model
         data, err = _parse_and_validate(resp.content, tool.output_model)
         if err is None:
+            if tool.post_process:
+                data = tool.post_process(data)
             return ToolOutput(
                 tool=tool.name,
                 status="ok",
@@ -150,7 +152,7 @@ def _parse_and_validate(content: str, output_model: type[BaseModel] | None) -> t
         validated = output_model.model_validate(parsed)
     except ValidationError as exc:
         return {}, f"schema 校验失败: {exc}"
-    return validated.model_dump(), None
+    return validated.model_dump(by_alias=True), None
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:

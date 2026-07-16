@@ -32,6 +32,7 @@ class Tool:
     default_data: dict[str, Any] | None = None
     requires: list[str] = field(default_factory=list)  # 如 "understand_intent.topic"
     inline_prompt: str | None = None  # LLM 工具内联 prompt（step 5 Skill 未接入时的兜底）
+    post_process: Callable[[dict[str, Any]], dict[str, Any]] | None = None  # LLM 输出校验后的清洗
     func: ToolFunc | None = None  # Python 工具
 
     def __post_init__(self) -> None:
