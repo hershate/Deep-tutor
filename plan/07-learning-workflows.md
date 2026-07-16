@@ -72,3 +72,61 @@ Deep-tutor 的学习规划主线严格对齐 study-planner 的 Step 1-7，由 sk
 ## 七、任务与风险（见 [04](./04-mvp-risk.md)）
 - P2 任务：generate_study_materials 工具 + self-study-guide 复用 + study_units/materials 表 + API + StudyMaterialReader。
 - 风险：材料生成成本（多单元多 LLM 调用，R16）、单文件过长/质量不均（R17）。
+
+## 八、单元材料模板（generate_study_materials 输出）
+
+每单元文件遵循 self-study-guide 模板（Deep-tutor 存为 `study_materials.content_md`，并渲染 `content_html`）：
+
+```markdown
+---
+unit: "01-HTML 结构"
+prerequisites: ["无"]
+objectives:
+  - "学完后能够用语义标签组织页面内容"
+  - "学完后能够区分块级与行内元素"
+estimated_time: "45 min"
+---
+
+## 概述
+<200-300 字：这是什么、为什么重要>
+
+## 核心概念
+### 概念 1：<名称>
+- **通俗解释**：类比/日常场景
+- **要点**：1-2 句关键点
+- **示例**：具体实例
+### 概念 2：<名称>
+...
+
+## 实践练习
+### 基础练习
+1. 练习 1（简单）
+2. 练习 2（中等）
+### 进阶挑战（可选）
+
+## 检查理解
+1. 问题 1
+2. 问题 2
+
+## 总结
+<150-200 字要点回顾>
+
+## 扩展阅读
+- [标题](URL) - 来源说明
+```
+
+**约束（移植 self-study-guide）**：每单元 ≥2 基础练习；单文件 ≤500 行（超则拆子文件）；不粘贴搜索原文、用自己的话；扩展阅读标注 URL；WebSearch 无结果标"无外部资料参考"；单元仅少量内容时不强行填模板。
+
+## 九、端到端示例流（study-planner → self-study-guide）
+
+输入：用户上传《React 入门.pdf》+ 描述"我想学 React，零基础，做项目，每天 1-2h"
+
+1. `parse_material` -> 解析 PDF 为文本
+2. `understand_intent`（study-planner Step1）-> {topic:"React", level:"零基础", goal:"做项目", daily_minutes:90}；needs_clarify? 否
+3. `build_knowledge_map`（Step2）-> nodes: [HTML/CSS基础, JS基础, React组件, State, Hooks, 路由, 项目实战]，edges: 依赖链
+4. `design_stages`（Step3）-> 4 阶段（基础 / JS / React 核心 / 实战），每阶段 3-5 知识点 + 里程碑
+5. `search_resources`+`verify_url`（Step4）-> 每阶段 2-3 资源，✅⚠️ 标记
+6. `schedule_plan` -> 按 12 周 / 每天 90min 排期
+7. `validate_plan`（Step6）-> 5 项检查；若 Stage3 难度跳级 -> 触发 `design_stages` 重生成插入过渡阶段
+8. 前端渲染方案详情页；用户可导出 md / pdf / 幻灯片
+9. [P2] `generate_study_materials`（self-study-guide）-> 按阶段拆 ~12 单元，每单元生成材料 + index；"检查理解"题汇入 `generate_quiz` 题库
