@@ -123,7 +123,9 @@ def _get_system_prompt(tool: Tool, ctx: ExecContext) -> str:
         prompt = ctx.skill_registry.get(tool.skill_name)
         if prompt:
             return prompt
-        log.warning("Skill 缺失: %s，降级内置默认 prompt（R13）", tool.skill_name)
+        log.warning("Skill 缺失: %s，降级 inline/默认 prompt（R13）", tool.skill_name)
+    if tool.inline_prompt:
+        return tool.inline_prompt
     return DEFAULT_SKILL_PROMPT
 
 

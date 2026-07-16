@@ -31,6 +31,7 @@ class Tool:
     output_model: type[BaseModel] | None = None
     default_data: dict[str, Any] | None = None
     requires: list[str] = field(default_factory=list)  # 如 "understand_intent.topic"
+    inline_prompt: str | None = None  # LLM 工具内联 prompt（step 5 Skill 未接入时的兜底）
     func: ToolFunc | None = None  # Python 工具
 
     def __post_init__(self) -> None:
