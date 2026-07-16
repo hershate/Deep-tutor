@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
 from app.tools.build_knowledge_map import build_knowledge_map_tool
+from app.tools.design_stages import design_stages_tool
 from app.tools.parse_material import parse_material_tool
 from app.tools.understand_intent import understand_intent_tool
 
@@ -18,6 +19,7 @@ def default_registry() -> ToolRegistry:
     reg.register(parse_material_tool)
     reg.register(understand_intent_tool)
     reg.register(build_knowledge_map_tool)
+    reg.register(design_stages_tool)
     return reg
 
 
@@ -26,4 +28,5 @@ __all__ = [
     "parse_material_tool",
     "understand_intent_tool",
     "build_knowledge_map_tool",
+    "design_stages_tool",
 ]
