@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 4 - P0 工具链（parse_material / understand_intent / build_knowledge_map / design_stages / search_resources+verify_url / schedule_plan / validate_plan / export_plan，每工具独立 commit）。详见 §4.4。
+**当前下一步**：步骤 5 - Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 deep-tutor-* Skill + Python Skill 加载器，替换 LLM 工具的 inline_prompt）。详见 §4.5。
 
 ---
 
@@ -54,6 +54,7 @@
 ### 已落地的实现期决策（偏离计划处已记录）
 - **启动校验放宽**：`ANTHROPIC_API_KEY` / `BING_API_KEY` 仅功能级必填（调用生成/搜索前校验 + 启动告警），不强制启动退出；仅 `AUTH_TOKEN` 启动硬必填。原因：便于骨架/开发期先跑通非生成端点（health 等）。计划原意（R27）保留，后续可收紧。见 [backend/app/core/settings.py](backend/app/core/settings.py) `validate_required` / `validate_feature_keys`。
 - **前端 tsconfig**：弃用项目引用（`tsc -b` + `tsconfig.node.json`），改单一 `tsconfig.json`（`noEmit` + include src 与 vite.config.ts）。原因：该 TS 版本 `tsc -b` 不允许被引用项目 `noEmit`（TS6310），且会产出 `vite.config.js` 被 Vite 误读。
+- **PDF 解析用 Marker**（用户指定，2026-07-16）：parse_material 的 PDF 路径改用 `marker_single <文件> --force_ocr --output_dir <输出目录>`（默认参数），替代原计划的 PyMuPDF。Marker 输出 `<out>/<stem>/<stem>.md` + `<stem>_meta.json`（页数取自 `page_stats`）；subprocess 调用，超时 600s（OCR 较慢）；requirements 以 `marker-pdf` 替换 PyMuPDF。见 [backend/app/tools/parse_material.py](backend/app/tools/parse_material.py) `_parse_pdf`。
 
 ---
 
@@ -82,8 +83,8 @@
 | 1 | 建骨架 | `chore: scaffold project skeleton` | ✅ 完成 | 见 §4.1（6 commits） |
 | 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | ✅ 完成 | 见 §4.2（commit `44c110b`） |
 | 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ✅ 完成 | 见 §4.3（commit `a46e1e0`） |
-| 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ⬜ | - |
-| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | ⬜ | - |
+| 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ✅ 完成 | 见 §4.4（8 工具，commit 45d194c…9de452e） |
+| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 下一步 | 见 §4.5 |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ⬜ | - |
 | 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | ⬜ | - |
 | 8 | 端到端联调 + 冒烟测试 | `test: e2e smoke for plan generation` | ⬜ | - |
@@ -180,7 +181,7 @@ Deep-tutor/
 - 工具调用上限 20、反馈循环≤2、修复重试≤3 已落地常量。
 - SSE 事件回调 `event_cb(event, data)` 已留接口；DB 持久化（tool_calls/api_usage/orchestrator_state）与 SSE 续接留 step 6 接入。
 
-### 4.4 步骤 4 - P0 工具链（下一步）
+### 4.4 步骤 4 - P0 工具链（✅ 完成）
 
 **目标**：在 [backend/app/tools/](backend/app/tools/) 逐工具实现 P0 工具，注册到 ToolRegistry，每工具独立 commit。契约对齐 [plan/02](plan/02-tools.md)、信封对齐 [plan/08](plan/08-data-exchange-format.md)。
 
@@ -198,12 +199,39 @@ Deep-tutor/
 
 **关键对齐**：[plan/02 工具契约](plan/02-tools.md)、[plan/07 study-planner 7 步映射](plan/07-learning-workflows.md)、[plan/11 降级默认值/上限](plan/11-extreme-cases.md)。
 
+**结果（8 工具全部完成，每工具独立 commit）**：
+- `45d194c` parse_material（Python）：PDF via Marker（marker_single --force_ocr）+ docx/pptx/txt/md/text/url；empty_content/unsupported_format/degraded；500k 截断；分块。
+- `2d8aa22` understand_intent（LLM，deep-tutor-intent）：{topic,level?,goal?,daily_minutes?,deadline?,needs_clarify,clarify_questions}；缺失->澄清。
+- `0bdd18b` build_knowledge_map（LLM，deep-tutor-knowledge-map）：{nodes,edges}；post_process 断环(DFS)->DAG、去悬空边、节点>100 截断。
+- `d33b1be` design_stages（LLM，deep-tutor-stages）：{stages}；pydantic validator 强制 3-6 阶段（不符->修复重试，实现「阶段数<3 重生成」）。
+- `1be7cb1` validate_plan（LLM，deep-tutor-validate）：{report(5 项),passed,fixes}；驱动反馈循环。
+- `5a7b4a4` export_plan（Python）：MVP md；从 args.plan 或 upstream 组装；render_markdown；不支持格式降级 md。
+- `568a6c2` schedule_plan（LLM 内联 prompt + 确定性）：{schedule}；post_process 校验总量<=跨度×每日时长，不足->insufficient_time 警告。
+- `9de452e` search_resources + verify_url（Python）：Bing 检索 + verify_url（SSRF 防护 R19，✅⚠️❌）；无 key 降级不编造 URL；每阶段≤5、总≤40。
+
+**关键机制落地**：Tool 加 `inline_prompt`（step 5 Skill 未接入兜底）+ `post_process(data, inp)`（LLM 输出清洗）；loop `model_dump(by_alias=True)` 保 `from` 字段名；pydantic validator 触发修复重试（业务规则）。全量 70 快速测试通过 + 1 marker 集成测试。
+
+### 4.5 步骤 5 - Skill 层（下一步）
+
+**目标**：将 LLM 工具的 `inline_prompt` 替换为 skill-for-skills 生成的 `deep-tutor-*` Skill（方法论指令源），并实现 Python Skill 加载器。
+
+**计划产出**：
+- 用 skill-chain-planner 规划主链路（产出接口契约与创建顺序，与 plan/08 互校）。
+- skill-for-skills 生成 Skill：`deep-tutor-intent` / `-knowledge-map` / `-stages` / `-resources`（含 verify 方法论 + ✅⚠️❌ 规则）/ `-validate`（5 项检查）。放入 `skills/`。
+- `app/skills/loader.py`：启动扫描 `SKILLS_DIR` -> `{skill_name: SKILL.md body}` 注册表 -> 注入 `ctx.skill_registry`（loop 已支持 skill->inline->默认 三级回退）。
+- vendor 复用：`ppt-slide-builder`（P1）/ `self-study-guide`（P2）复制进 `skills/`（自 `~/.claude/skills/`）。
+- 接入后 LLM 工具的 system prompt 由 Skill 提供，`inline_prompt` 降为兜底；search_resources 的内容适配性筛选由 deep-tutor-resources LLM 提升/下调 ✅⚠️。
+- 测试：Skill 加载器（扫描/缺失降级 R13）；LLM 工具用 Skill prompt（替换 inline）。
+
+**关键对齐**：[plan/05 Skill 层](plan/05-skills.md)、[plan/10 §七 Skill↔工具映射](plan/10-integration.md)。**前置**：需确认本机 `~/.claude/skills/` 下 skill-for-skills / skill-chain-planner 可用（chat.md 记录复用既有技能）。
+
 ---
 
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-16 步骤 4 完成**：P0 工具链 8 工具全部实现（每工具独立 commit）。parse_material（PDF via Marker + docx/pptx/txt/md/text/url）、understand_intent、build_knowledge_map（断环/去悬空/截断）、design_stages（3-6 阶段 validator 触发修复）、validate_plan（5 项校验驱动反馈循环）、export_plan（md）、schedule_plan（确定性时长校验）、search_resources+verify_url（Bing + SSRF 防护）。Tool 加 inline_prompt + post_process(data,inp)；全量 70 快速测试 + 1 marker 集成测试通过。commits: 45d194c 2d8aa22 0bdd18b d33b1be 1be7cb1 5a7b4a4 568a6c2 9de452e。
 - **2026-07-16 步骤 3 完成**：Agent 循环骨架。两层执行模型落地：内层 `run_tool`（LLM 工具 system=Skill+cache_control、JSON 解析+pydantic 校验、工具调用修复重试≤3->降级；Python 工具 func；超时/取消/异常统一兜底；跨重试累加 usage），外层 `Orchestrator`（固定 pipeline + 字段覆盖 L4 + 反馈循环≤2 + 预算中断 + 澄清暂停 + SSE 事件回调）。`registry/context/budget/cost` 配套。17 项单测全过（全量 26）。commit `a46e1e0`。
 - **2026-07-16 步骤 2 完成**：LLM Provider 抽象 + Anthropic 实现。`anthropic_provider.py`（AsyncAnthropic Messages API，system cache_control 缓存优先，usage 解析成本计量）、`pricing.py`（模型族前缀匹配价目，未知记 0）、`get_provider()` 工厂、`tests/test_llm.py`（9 项单测全过）。commit `44c110b`。
 - **2026-07-16 步骤 1 完成**：建骨架（后端 FastAPI + 15 表模型 + Alembic 初始迁移；前端 Vite/React/TS/Tailwind；docker-compose + README + .env.example）。验证：后端 import/建表/health 200、alembic autogenerate+upgrade 15 表、前端 install+build 通过。6 commits：`e70e038` `4f07351` `b7b695c` `980226f` `5928646` `1f2535e`。
