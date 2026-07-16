@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.agent.registry import Tool
+from app.tools.base import ToolInput
 
 MAX_NODES = 100  # 09 §二十
 
@@ -50,7 +51,7 @@ class KnowledgeMapData(BaseModel):
     edges: list[KnowledgeEdge] = []
 
 
-def clean_map(data: dict[str, Any]) -> dict[str, Any]:
+def clean_map(data: dict[str, Any], _inp: ToolInput) -> dict[str, Any]:
     """后处理：断环、去悬空边、节点截断。"""
     nodes = data.get("nodes") or []
     edges = data.get("edges") or []

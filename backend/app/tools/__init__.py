@@ -11,6 +11,7 @@ from app.tools.build_knowledge_map import build_knowledge_map_tool
 from app.tools.design_stages import design_stages_tool
 from app.tools.export_plan import export_plan_tool
 from app.tools.parse_material import parse_material_tool
+from app.tools.schedule_plan import schedule_plan_tool
 from app.tools.understand_intent import understand_intent_tool
 from app.tools.validate_plan import validate_plan_tool
 
@@ -23,6 +24,7 @@ def default_registry() -> ToolRegistry:
     reg.register(build_knowledge_map_tool)
     reg.register(design_stages_tool)
     reg.register(validate_plan_tool)
+    reg.register(schedule_plan_tool)
     reg.register(export_plan_tool)
     return reg
 
@@ -34,5 +36,6 @@ __all__ = [
     "build_knowledge_map_tool",
     "design_stages_tool",
     "validate_plan_tool",
+    "schedule_plan_tool",
     "export_plan_tool",
 ]

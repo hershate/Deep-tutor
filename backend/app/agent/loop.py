@@ -104,7 +104,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
         data, err = _parse_and_validate(resp.content, tool.output_model)
         if err is None:
             if tool.post_process:
-                data = tool.post_process(data)
+                data = tool.post_process(data, inp)
             return ToolOutput(
                 tool=tool.name,
                 status="ok",
