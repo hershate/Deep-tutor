@@ -1,6 +1,6 @@
 # 02 - 自研工具契约
 
-每个工具遵循单一职责，定义 **输入 / 输出 / 错误 / 是否调用 LLM / 幂等性**。Agent 循环按 pipeline 调度，`validate_plan` 可回溯触发上游工具重生成（反馈循环）。
+每个工具遵循单一职责，定义 **输入 / 输出 / 错误 / 是否调用 LLM / 幂等性**。Agent 循环按 pipeline 调度，`validate_plan` 可回溯触发上游工具重生成（反馈循环）。所有工具的输入/输出遵循 [08-data-exchange-format.md](./08-data-exchange-format.md) 的统一信封（ToolInput/ToolOutput）与类型系统；下表为概览，完整 typed 契约按 08 第四节模板逐步补全。
 
 ## 工具总览
 

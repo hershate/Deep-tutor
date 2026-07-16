@@ -13,6 +13,7 @@
 | [05-skills.md](./05-skills.md) | Skill 层设计：skill-for-skills 构建的 AI 工作流 Skill、与 Python 运行时结合、映射与加载机制 |
 | [06-frontend.md](./06-frontend.md) | 前端 UI 细化：设计系统、页面线框、组件规格、状态管理、SSE、用户流程、无障碍 |
 | [07-learning-workflows.md](./07-learning-workflows.md) | 学习工作流细化：study-planner 7 步映射 + self-study-guide 自学材料生成（generate_study_materials） |
+| [08-data-exchange-format.md](./08-data-exchange-format.md) | 统一数据交换格式：类型系统、工具 I/O 信封、契约模板、流水线流转契约、版本演进（参考 skill-chain-planner） |
 
 ---
 

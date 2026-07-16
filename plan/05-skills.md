@@ -63,7 +63,7 @@ Agent 循环 ──调用工具──> Python 工具包装器
 ## 五、skill-chain-planner 的角色（链路规划）
 
 - 用 `skill-chain-planner` 对 Deep-tutor 主链路做链式规划：5W1H+C 分析 -> 复杂度判定 -> 任务分解 -> **接口契约（输入/输出/错误）** -> 架构模式 -> 风险登记 -> 各 Skill 创建规格（P0/P1/P2）。
-- 产出规划文档固化 Skill 间的数据流转契约（如 `understand_intent.output` -> `build_knowledge_map.input`），与 [02-tools.md](./02-tools.md) 的契约一致性互校。
+- 产出规划文档固化 Skill 间的数据流转契约（如 `understand_intent.output` -> `build_knowledge_map.input`），与 [02-tools.md](./02-tools.md) 的契约一致性互校；统一数据交换格式（类型系统/信封/契约模板）见 [08-data-exchange-format.md](./08-data-exchange-format.md)。
 - Python Agent 按该链路编排：parse -> understand -> map -> stage -> resource -> schedule -> validate -> export（validate 可回溯触发上游重生成）。
 - 可选参考 `skill-chain-executor` 的执行思路，但运行时编排由 Python Agent 承担（不依赖 Claude Code 运行时）。
 
