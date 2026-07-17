@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { clarifyStream } from '../lib/api'
 
@@ -11,6 +11,10 @@ export default function Clarify() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const terminalRef = useRef(false)
+  const acRef = useRef<AbortController | null>(null)
+
+  // 卸载时取消进行中的 clarify 流（与 GenerateProgress/PlanDetail 一致）
+  useEffect(() => () => acRef.current?.abort(), [])
 
   function submit() {
     if (!sessionId) return
@@ -19,6 +23,8 @@ export default function Clarify() {
     terminalRef.current = false
     // 过滤空回答
     const filtered = Object.fromEntries(Object.entries(answers).filter(([, v]) => v.trim()))
+    const ac = new AbortController()
+    acRef.current = ac
     clarifyStream(
       Number(sessionId),
       filtered,
@@ -32,8 +38,10 @@ export default function Clarify() {
           setLoading(false)
         }
       },
+      ac.signal,
     )
       .then(() => {
+        if (ac.signal.aborted) return // 主动取消/卸载，不计错误
         // 流结束但未收到终态事件 -> 静默断连，提示重试
         if (!terminalRef.current) {
           setError('连接中断，请重试')
@@ -41,6 +49,7 @@ export default function Clarify() {
         }
       })
       .catch((e: unknown) => {
+        if (ac.signal.aborted) return
         setError(e instanceof Error ? e.message : '连接失败')
         setLoading(false)
       })
