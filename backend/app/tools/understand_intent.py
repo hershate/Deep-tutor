@@ -22,6 +22,7 @@ PROMPT = """你是 Deep-tutor 的「学习意图理解」工具。任务：从�
 5. deadline：截止日期（ISO 8601，无则 null）。
 
 规则：
+- 若输入含 answers（用户对澄清问题的回答），结合 answers 补全缺失维度，此时应尽量给出明确字段而非再次澄清。
 - 若四个维度中有任一缺失或过于模糊 -> needs_clarify=true，并在 clarify_questions 给出
   针对缺失维度的追问（基础/目标/时长），每条一句、具体可答。
 - 若全部明确 -> needs_clarify=false，clarify_questions 为空数组。

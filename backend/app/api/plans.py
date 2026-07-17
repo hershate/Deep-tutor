@@ -48,6 +48,10 @@ class GenerateIn(BaseModel):
     raw_text: str = ""
 
 
+class ClarifyIn(BaseModel):
+    answers: dict = Field(default_factory=dict)
+
+
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -92,6 +96,28 @@ def generate(body: GenerateIn, db: Session = Depends(get_db)) -> StreamingRespon
 
     return StreamingResponse(
         _stream(body.session_id, args_by_tool, initial_upstream),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.post("/{session_id}/clarify")
+def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> StreamingResponse:
+    """澄清续接（plan/10 §四）：paused_clarify 状态下以 answers 重跑 understand_intent -> 继续 pipeline。"""
+    state = db.get(models.OrchestratorState, session_id)
+    if state is None or state.status != models.OrchestratorStatus.paused_clarify:
+        raise ApiError("conflict", "该会话无待澄清任务", status=409)
+    partial = state.partial_plan or {}
+    outputs_dump = partial.get("outputs", {})
+    initial_upstream = {
+        tool: ToolOutput(tool=tool, status=d.get("status", "ok"), data=d.get("data", {}))
+        for tool, d in outputs_dump.items()
+    }
+    raw_text = partial.get("raw_text", "")
+    parsed = _load_parsed_materials(db, session_id)
+    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
+    return StreamingResponse(
+        _stream(session_id, args_by_tool, initial_upstream),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -151,7 +177,12 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
             )
             _set_state(db, session_id, models.OrchestratorStatus.done, trace_id)
         elif result.status == "paused_clarify":
-            _set_state(db, session_id, models.OrchestratorStatus.paused_clarify, trace_id)
+            raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
+            partial = {
+                "raw_text": raw_text,
+                "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
+            }
+            _set_state(db, session_id, models.OrchestratorStatus.paused_clarify, trace_id, partial=partial)
             # clarify_needed 已由编排器 emit
         else:
             msg = result.errors[-1] if result.errors else "生成失败"
@@ -165,7 +196,13 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
         db.close()
 
 
-def _set_state(db: Session, session_id: int, status: models.OrchestratorStatus, trace_id: str) -> None:
+def _set_state(
+    db: Session,
+    session_id: int,
+    status: models.OrchestratorStatus,
+    trace_id: str,
+    partial: dict | None = None,
+) -> None:
     state = db.get(models.OrchestratorState, session_id)
     if state is None:
         state = models.OrchestratorState(session_id=session_id, status=status, trace_id=trace_id)
@@ -173,6 +210,8 @@ def _set_state(db: Session, session_id: int, status: models.OrchestratorStatus, 
     else:
         state.status = status
         state.trace_id = trace_id
+    if partial is not None:
+        state.partial_plan = partial
     db.commit()
 
 
