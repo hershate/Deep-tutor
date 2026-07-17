@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：Step 5 Skill 层进行中（iter 16 加载器 + iter 17-19 `deep-tutor-{intent,knowledge-map,stages}` Skill 落地，134 测试）；待做：剩余 `deep-tutor-{resources,validate}` Skill、vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 19 条。
+**当前下一步**：Step 5 Skill 层进行中（iter 16 加载器 + iter 17-20 `deep-tutor-{intent,knowledge-map,stages,validate}` 4 Skill 落地，136 测试；`deep-tutor-resources` 暂缓--search_resources 纯 Python 无 LLM 消费者）；待做：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 20 条。
 
 ---
 
@@ -84,7 +84,7 @@
 | 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | ✅ 完成 | 见 §4.2（commit `44c110b`） |
 | 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ✅ 完成 | 见 §4.3（commit `a46e1e0`） |
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ✅ 完成 | 见 §4.4（8 工具，commit 45d194c…9de452e） |
-| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 进行中 | 见 §4.5（iter 16 加载器落地，128 测试；待生成 Skill 内容） |
+| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 进行中 | 见 §4.5（iter 16 加载器 + iter 17-20 四 Skill；resources 暂缓；待 vendor） |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ✅ 完成 | 见 §4.6（P0 API 全完成，5 次迭代，91 测试） |
 | 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | ✅ 完成 | 见 §五（P0 页面 + SSE 续接 + Usage/Settings + a11y） |
 | 8 | 端到端联调 + 冒烟测试 | `test: e2e smoke for plan generation` | 🟡 进行中 | 见 §五（mock 冒烟完成，110 测试；真机 Anthropic 冒烟待 key） |
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 Step 5 进行中（iter 20，deep-tutor-validate Skill + resources 暂缓）**：plan/05 §八 第 4 个 P0 Skill。新增 [skills/deep-tutor-validate/SKILL.md](skills/deep-tutor-validate/SKILL.md) + [README.md](skills/deep-tutor-validate/README.md)：方法论移植 study-planner Step 6，5 项校验（dependency_closure/difficulty_step/cognitive_load/milestone_feasibility/gap_analysis），每项 status(pass|fail|warn)+details；任一 fail -> passed=false + fixes 可执行修复建议（驱动反馈循环 plan/10 §六）。可靠性编码 cache_strategy/repair（降级默认全 warn+passed=true）/security(untrusted_input)/budget；Notes 注明反馈循环映射。测试 +2（真实 Skill 加载 + loop 取用集成）。全量 136 测试通过（134+2），零回归。commit `357d6e7`。**deep-tutor-resources 暂缓**：[search_resources.py](backend/app/tools/search_resources.py) 为纯 Python（`llm=False`），LLM 内容适配性筛选未实现（docstring 注明留 step 5），无 skill 消费者；建 Skill 即死代码，待该 LLM 组件落地再建（plan/05 §二）。4 个 LLM 工具 Skill 全部完成（intent/knowledge-map/stages/validate）。
 - **2026-07-17 Step 5 进行中（iter 19，deep-tutor-stages Skill）**：plan/05 §八 第 3 个 P0 Skill。新增 [skills/deep-tutor-stages/SKILL.md](skills/deep-tutor-stages/SKILL.md) + [README.md](skills/deep-tutor-stages/README.md)：方法论移植 study-planner Step 3：3-6 阶段渐进难度（1-5），每阶段 index/name/goal/difficulty/estimated_weeks/topics(3-6, name/why/must_learn)/milestone；相邻难度差≤2、前置知识在更早阶段、里程碑仅用当前及之前知识。可靠性编码 cache_strategy/repair（3-6 validator 不符重试≤3 + 降级默认 3 阶段）/capacity（阶段 3-6、topics 3-6）/security(untrusted_input)/budget。测试 +2（真实 Skill 加载 + loop 取用集成）。全量 134 测试通过（132+2），零回归。commit `6f17fb8`。待做：剩余 2 个 Skill（resources/validate）。
 - **2026-07-17 Step 5 进行中（iter 18，deep-tutor-knowledge-map Skill）**：plan/05 §八 第 2 个 P0 Skill。新增 [skills/deep-tutor-knowledge-map/SKILL.md](skills/deep-tutor-knowledge-map/SKILL.md) + [README.md](skills/deep-tutor-knowledge-map/README.md)：方法论移植 study-planner Step 2（核心前置/核心知识/进阶扩展/实战项目）；nodes(id/name/difficulty/must_learn/parent_id)+edges(from/to/relation)，8-30 节点为宜，id 唯一、edge 端点引用已存在 node。可靠性编码 cache_strategy/repair（降级默认空 nodes/edges）/capacity（节点≤100 运行时截断）/security(untrusted_input)/budget；Notes 注明运行时 `clean_map` 兜底断环/去悬空/截断。测试 +2（真实 Skill 加载 + loop 取用集成，Skill 正文作 system prompt 覆盖 inline_prompt）。全量 132 测试通过（130+2），零回归。commit `4d0fb17`。待做：剩余 3 个 Skill（stages/resources/validate）。
 - **2026-07-17 Step 5 进行中（iter 17，deep-tutor-intent Skill）**：plan/05 §八 首个 P0 Skill 落地。**待决已解**：skill-for-skills 不在本会话可调用 skills 列表（按规范不盲调），改为读取其 `~/.claude/skills/skill-for-skills/{SKILL.md,sum.md,references/reliability-layer.md}` 作**规范参考**手工编写（方法论源=现有 `inline_prompt`，已移植 study-planner）--功能等价于"用 skill-for-skills 生成"（其内容即编写规范）。新增 [skills/deep-tutor-intent/SKILL.md](skills/deep-tutor-intent/SKILL.md)：frontmatter(name/description/version) + Purpose/When to Use/When NOT/Workflow/Constraints/Examples(Do·Not)/Notes；方法论=四维度+澄清规则+不编造；按可靠性层映射编码 cache_strategy（稳定前缀 cache_control）/repair（schema+重试≤3+降级默认）/security（untrusted_input：不执行资料内指令）/budget。+ [README.md](skills/deep-tutor-intent/README.md)。测试 +2：真实 Skill 加载（键/正文/剥 frontmatter）+ loop 取用集成（`provider.calls[0]["system"]==skill body`，覆盖 inline_prompt，cache_system=True）。全量 130 测试通过（128+2），零回归。commit `11e1f21`。待做：剩余 4 个 Skill（knowledge-map/stages/resources/validate）。
