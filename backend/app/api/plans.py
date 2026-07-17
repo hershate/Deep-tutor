@@ -849,6 +849,7 @@ def list_materials(plan_id: int, db: Session = Depends(get_db)) -> dict:
                 "prerequisites": u.prerequisites or [],
                 "estimated_time": u.estimated_time,
                 "order": u.order,
+                "done": u.done_at is not None,  # 标记已学（plan/07 §六）
             }
             for u in units
         ]

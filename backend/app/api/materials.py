@@ -12,6 +12,7 @@ SSRF 防护(/materials/url，复用 verify_url._is_safe_url)、解析失败统�
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -207,3 +208,21 @@ def get_study_unit_content(unit_id: int, db: Session = Depends(get_db)) -> dict:
         except OSError:
             raise ApiError("not_found", f"单元内容文件缺失: {mat.content_md_path}") from None
     return {"unit_id": unit.id, "title": unit.title, "content_md": content_md, "resources": resources}
+
+
+class UnitDoneIn(BaseModel):
+    done: bool
+
+
+@router.post("/{unit_id}/done")
+def mark_unit_done(unit_id: int, body: UnitDoneIn, db: Session = Depends(get_db)) -> dict:
+    """标记/取消已学（plan/07 §六 StudyMaterialReader 标记已学，P2 iter 44）。
+
+    done=True -> done_at=当前 UTC（与 func.now() 同口径的 naive UTC）；False -> 置 None。幂等。
+    """
+    unit = db.get(models.StudyUnit, unit_id)
+    if unit is None:
+        raise ApiError("not_found", f"自学单元 {unit_id} 不存在")
+    unit.done_at = datetime.now(timezone.utc).replace(tzinfo=None) if body.done else None
+    db.commit()
+    return {"unit_id": unit.id, "done": unit.done_at is not None}

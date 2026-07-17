@@ -333,6 +333,7 @@ class StudyUnit(Base):
     objectives: Mapped[list] = mapped_column(JSON, default=list)
     estimated_time: Mapped[str] = mapped_column(String(64), default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime)  # 标记已学时间（plan/07 §六 标记已学），None=未学
 
     plan: Mapped[Plan] = relationship(back_populates="study_units")
     materials: Mapped[list[StudyMaterial]] = relationship(

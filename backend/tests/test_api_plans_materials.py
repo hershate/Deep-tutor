@@ -274,3 +274,31 @@ def test_get_unit_content(client, auth_headers, monkeypatch):
     assert body["resources"] == []
 
     assert client.get("/api/materials/999999", headers=auth_headers).status_code == 404
+
+
+def test_unit_done_mark_and_list(client, auth_headers, monkeypatch):
+    """标记已学（plan/07 §六）：POST done -> 列表 done 标志联动；取消 -> 恢复；404。"""
+    plan_id = _make_plan(client, auth_headers)
+    _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+    unit_id = _units_of(plan_id)[0].id
+
+    # 初始未学
+    units = client.get(f"/api/plans/{plan_id}/materials", headers=auth_headers).json()["units"]
+    assert all(u["done"] is False for u in units)
+
+    # 标记已学（幂等）
+    for _ in range(2):
+        r = client.post(f"/api/materials/{unit_id}/done", json={"done": True}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json() == {"unit_id": unit_id, "done": True}
+    units = client.get(f"/api/plans/{plan_id}/materials", headers=auth_headers).json()["units"]
+    by_id = {u["id"]: u for u in units}
+    assert by_id[unit_id]["done"] is True
+
+    # 取消
+    r = client.post(f"/api/materials/{unit_id}/done", json={"done": False}, headers=auth_headers)
+    assert r.json()["done"] is False
+    units = client.get(f"/api/plans/{plan_id}/materials", headers=auth_headers).json()["units"]
+    assert {u["id"]: u for u in units}[unit_id]["done"] is False
+
+    assert client.post("/api/materials/999999/done", json={"done": True}, headers=auth_headers).status_code == 404
