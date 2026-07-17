@@ -135,6 +135,29 @@ export const updateProgress = (planId: number, nodeId: string, status: ProgressS
     },
   )
 
+// 自学单元（P2，plan/03 §一）：列表元数据 / 单元内容 / 标记已学（iter 43-44）
+export interface StudyUnitMeta {
+  id: number
+  title: string
+  objectives: string[]
+  prerequisites: string[]
+  estimated_time: string
+  order: number
+  done: boolean
+}
+export const listStudyUnits = (planId: number, signal?: AbortSignal) =>
+  apiFetch<{ units: StudyUnitMeta[] }>(`/plans/${planId}/materials`, { signal })
+export const getStudyUnitContent = (unitId: number, signal?: AbortSignal) =>
+  apiFetch<{ unit_id: number; title: string; content_md: string; resources: unknown[] }>(
+    `/materials/${unitId}`,
+    { signal },
+  )
+export const markUnitDone = (unitId: number, done: boolean) =>
+  apiFetch<{ unit_id: number; done: boolean }>(`/materials/${unitId}/done`, {
+    method: 'POST',
+    body: JSON.stringify({ done }),
+  })
+
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })

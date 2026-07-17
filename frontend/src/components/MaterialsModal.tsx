@@ -1,39 +1,39 @@
-// 自学材料弹窗（P2，plan/07 §六 简化版：单文档 markdown + react-markdown 渲染）。
-// 打开即取（幂等：iter 43 起已持久化直接返回，免重复 LLM 成本）；切换深度强制重新生成；
-// 关闭/卸载时中止进行中请求。逐单元阅读器（StudyMaterialReader）在 iter 44。
+// 自学材料弹窗（P2，iter 44：内嵌 StudyMaterialReader 逐单元阅读）。
+// 打开：GET 单元列表 -> 空则 POST 生成（持久化，幂等）-> 再取列表；
+// 切换深度：POST {refresh:true} 强制重生成后重取列表；关闭/卸载中止进行中请求。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import rehypeSanitize from 'rehype-sanitize'
-import remarkGfm from 'remark-gfm'
-import { ApiError, generateMaterials } from '../lib/api'
+import StudyMaterialReader from './StudyMaterialReader'
+import { ApiError, generateMaterials, listStudyUnits, type StudyUnitMeta } from '../lib/api'
 
 interface Props {
   planId: number
   onClose: () => void
+  onOpenQuiz: () => void
 }
 
-export default function MaterialsModal({ planId, onClose }: Props) {
+export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
   const [depth, setDepth] = useState<'brief' | 'full'>('full')
   const [loading, setLoading] = useState(true)
-  const [markdown, setMarkdown] = useState('')
+  const [units, setUnits] = useState<StudyUnitMeta[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const acRef = useRef<AbortController | null>(null)
 
   const run = useCallback(
-    (d: 'brief' | 'full', refresh = false) => {
+    (d: 'brief' | 'full', refresh: boolean) => {
       acRef.current?.abort() // 中止上一次进行中请求
       const ac = new AbortController()
       acRef.current = ac
       setLoading(true)
       setError('')
       setWarning('')
-      generateMaterials(planId, d, ac.signal, refresh)
-        .then((r) => {
-          if (ac.signal.aborted) return
-          setMarkdown(r.markdown)
-          setWarning(r.warning ?? '')
-        })
+      ;(async () => {
+        // refresh 或尚无单元 -> 先生成（持久化；幂等时后端直接返回已存）
+        const g = await generateMaterials(planId, d, ac.signal, refresh)
+        if (!ac.signal.aborted) setWarning(g.warning ?? '')
+        const lst = await listStudyUnits(planId, ac.signal)
+        if (!ac.signal.aborted) setUnits(lst.units)
+      })()
         .catch((e) => {
           if (ac.signal.aborted) return
           setError(e instanceof ApiError ? e.message : '生成失败')
@@ -46,9 +46,28 @@ export default function MaterialsModal({ planId, onClose }: Props) {
   )
 
   useEffect(() => {
-    run('full') // 打开：已持久化则直接返回（幂等，免重复 LLM 成本）
-    return () => acRef.current?.abort() // 卸载中止
-  }, [run])
+    // 打开：先查已存单元（幂等免 LLM）；无则按 full 生成
+    acRef.current?.abort()
+    const ac = new AbortController()
+    acRef.current = ac
+    setLoading(true)
+    listStudyUnits(planId, ac.signal)
+      .then((lst) => {
+        if (ac.signal.aborted) return
+        if (lst.units.length > 0) {
+          setUnits(lst.units)
+          setLoading(false)
+        } else {
+          run('full', false)
+        }
+      })
+      .catch((e) => {
+        if (ac.signal.aborted) return
+        setError(e instanceof ApiError ? e.message : '加载失败')
+        setLoading(false)
+      })
+    return () => ac.abort()
+  }, [planId, run])
 
   // Esc 关闭
   useEffect(() => {
@@ -70,7 +89,7 @@ export default function MaterialsModal({ planId, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="自学材料"
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl"
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <h3 className="font-semibold">自学材料</h3>
@@ -101,7 +120,7 @@ export default function MaterialsModal({ planId, onClose }: Props) {
             </button>
           </div>
         </div>
-        <div className="overflow-y-auto px-6 py-4">
+        <div className="flex min-h-[40vh] flex-1 flex-col overflow-hidden px-6 py-4">
           {loading && <p className="text-slate-500">生成中…（逐单元组织材料，约需数十秒）</p>}
           {error && (
             <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -113,11 +132,7 @@ export default function MaterialsModal({ planId, onClose }: Props) {
               {warning && (
                 <div className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-700">{warning}</div>
               )}
-              <div className="markdown-body text-sm">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                  {markdown}
-                </ReactMarkdown>
-              </div>
+              <StudyMaterialReader units={units} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
             </>
           )}
         </div>

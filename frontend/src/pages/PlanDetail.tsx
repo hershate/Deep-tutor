@@ -138,7 +138,14 @@ export default function PlanDetail() {
       {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
 
       {showMaterials && planId && (
-        <MaterialsModal planId={Number(planId)} onClose={() => setShowMaterials(false)} />
+        <MaterialsModal
+          planId={Number(planId)}
+          onClose={() => setShowMaterials(false)}
+          onOpenQuiz={() => {
+            setShowMaterials(false) // 「去测验」：关材料弹窗开测验弹窗（plan/07 §六 检查理解可跳测验）
+            setShowQuiz(true)
+          }}
+        />
       )}
       {showQuiz && planId && (
         <QuizModal
