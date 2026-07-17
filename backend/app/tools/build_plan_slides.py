@@ -133,16 +133,18 @@ def render_slides_html(spec: SlideSpec, base_template: str) -> str:
 
     html = base_template
 
-    # 1. 主题 CSS 变量（仅覆盖 spec.theme 列出的）
+    # 1. 主题 CSS 变量（仅覆盖 spec.theme 列出的；值净化防 CSS 越界）
     for var, val in spec.theme.items():
         pattern = re.compile(rf"({re.escape(var)}:\s*)[^;]+;")
-        html = pattern.sub(lambda m, v=val: f"{m.group(1)}{v};", html)
+        safe_val = _sanitize_theme_value(val)
+        html = pattern.sub(lambda m, v=safe_val: f"{m.group(1)}{v};", html)
 
-    # 2. 过渡类（.presentation）
-    if spec.transition:
+    # 2. 过渡类（.presentation；类名净化防属性越界）
+    trans = _sanitize_class(spec.transition)
+    if trans:
         html = html.replace(
             '<div class="presentation" id="presentation">',
-            f'<div class="presentation {spec.transition}" id="presentation">',
+            f'<div class="presentation {trans}" id="presentation">',
         )
 
     # 3. 占位符
@@ -158,14 +160,14 @@ def render_slides_html(spec: SlideSpec, base_template: str) -> str:
 
 
 def _render_slide(idx: int, slide: SlideContent, is_first: bool) -> str:
-    """渲染单个 slide section。"""
+    """渲染单个 slide section。LLM 字段净化（content_html 去 XSS，类名防越界）。"""
     tag = "h1" if is_first else "h2"
     active = " active" if is_first else ""
     hidden = "false" if is_first else "true"
-    layout = slide.layout or "left"
-    anim = slide.animation or "anim-fade-in"
+    layout = _sanitize_class(slide.layout) or "left"
+    anim = _sanitize_class(slide.animation) or "anim-fade-in"
     title_html = f'<{tag} class="{anim}">{_esc(slide.title)}</{tag}>' if slide.title else ""
-    content = slide.content_html or ""
+    content = _sanitize_content_html(slide.content_html or "")
     return (
         f"  <!-- SLIDE: slide-{idx} -->\n"
         f'  <section id="slide-{idx}" class="slide{active}" data-slide="{idx}" '
@@ -182,6 +184,35 @@ def _render_slide(idx: int, slide: SlideContent, is_first: bool) -> str:
 def _esc(s: Any) -> str:
     """HTML 转义纯文本（content_html 不转义，仅 title 等纯文本字段）。"""
     return _html.escape(str(s), quote=True)
+
+
+# --- 防 XSS/CSS 注入（LLM 输出兜底净化）---
+# content_html 去 script/style/iframe 等块与残留标签、on* 事件属性；
+# 主题值去 <>{} 防 </style> 突破；类名仅留 alnum/-/_ 防 class 属性越界。
+_SCRIPT_STYLE_BLOCK = re.compile(
+    r"<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?<\s*/\s*\1\s*>", re.IGNORECASE
+)
+_UNSAFE_TAG = re.compile(r"<\s*/?\s*(script|style|iframe|object|embed|link|meta)\b[^>]*>", re.IGNORECASE)
+_EVENT_ATTRS = re.compile(r'\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', re.IGNORECASE)
+_CLASS_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _sanitize_content_html(s: str) -> str:
+    """清理 LLM 生成的 content_html：去危险块/标签与 on* 事件属性（防 XSS）。"""
+    s = _SCRIPT_STYLE_BLOCK.sub("", s)  # <script>...</script> 整块
+    s = _UNSAFE_TAG.sub("", s)  # 残留开/闭危险标签
+    s = _EVENT_ATTRS.sub("", s)  # on*= 事件属性
+    return s
+
+
+def _sanitize_class(s: str) -> str:
+    """类名仅保留 alnum/-/_（防 class 属性越界注入，如 `foo" onclick=`）。"""
+    return _CLASS_SAFE.sub("", s or "")
+
+
+def _sanitize_theme_value(v: str) -> str:
+    """主题值去 <>{} 防 CSS 越界（`</style>` 突破 style 块）。"""
+    return re.sub(r"[<>{}]", "", v or "")
 
 
 # --- LLM 工具（iter 30）：plan -> SlideSpec，复用 loop 修复链 ---

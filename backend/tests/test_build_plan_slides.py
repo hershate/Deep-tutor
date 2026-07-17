@@ -97,6 +97,50 @@ def test_render_escapes_title_not_content():
     assert "<p>ok</p>" in html  # content_html 不转义
 
 
+def test_render_sanitizes_content_html_xss():
+    """content_html 含 script/iframe/on* -> 清理（防 XSS；base.html 自带 nav onclick/script 不受影响）。"""
+    spec = SlideSpec(
+        title="t",
+        slides=[
+            SlideContent(
+                title="x",
+                content_html='<p onclick="alert(1)">ok</p><script>alert(2)</script><iframe src="x"></iframe>',
+            )
+        ],
+    )
+    html = render_slides_html(spec, _BASE_HTML)
+    assert "alert(1)" not in html  # on* 事件属性被去
+    assert "alert(2)" not in html  # script 块被去
+    assert "<iframe" not in html  # iframe 被去（base.html 无 iframe）
+    assert "<p>ok</p>" in html  # 安全内容保留
+    assert 'onclick="navigate' in html  # base.html 合法 nav onclick 保留
+
+
+def test_render_sanitizes_theme_value_css_breakout():
+    """主题值含 </style> 突破 -> 净化（去 <>{}）。"""
+    spec = SlideSpec(
+        title="t",
+        theme={"--bg": "red;</style><script>alert(1)</script>"},
+        slides=[SlideContent(title="x")],
+    )
+    html = render_slides_html(spec, _BASE_HTML)
+    assert "</style><script" not in html  # 突破被防
+    assert "red;" in html  # 安全部分保留
+
+
+def test_render_sanitizes_class_attr_breakout():
+    """transition/animation/layout 含引号/空格 -> 净化（仅 alnum/-/_）。"""
+    spec = SlideSpec(
+        title="t",
+        transition='trans-fade" onclick="alert(1)',
+        slides=[SlideContent(title="x", layout='left" onclick="x', animation='anim-fade-in" onclick="x')],
+    )
+    html = render_slides_html(spec, _BASE_HTML)
+    assert "alert(1)" not in html  # 类名净化（引号/括号被去）
+    assert "trans-fade" in html  # 合法部分保留
+    assert 'class="presentation trans-fadeonclickalert1"' in html  # 过渡类净化后无越界
+
+
 # --- LLM 工具（iter 30）：plan -> SlideSpec，复用 run_tool 修复链 ---
 
 
