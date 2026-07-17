@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：iter 49 quiz 题源联动（单元「检查理解」喂 generate_quiz）。iter 48（WebSearch 补资料）已完成：commits `5e9b6ac`（后端）+ `5ec02b3`（测试）+ `c3784d3`（前端 Reader），全量 225 测试通过 + 前端 build 通过。详见 §五 iter 48 条。
+**当前下一步**：P2 增强项（材料生成 SSE 逐单元流 / WebSearch 补资料 / quiz 题源联动）已全部完成（iter 46-49）。仍延后：deep-tutor-resources Skill（等 LLM 筛选落地）；真机 Anthropic 冒烟需 key。**待用户定方向**：P3（图片 OCR + 音视频转写）/ P4 / P5，或继续其他增强。详见 §五 iter 49 条。
 
 ---
 
@@ -230,6 +230,8 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 49（quiz 题源联动，✅ 完成；P2 增强项收官）**：stage 续接清单最后一项「单元『检查理解』喂 generate_quiz」。[generate_quiz.py](backend/app/tools/generate_quiz.py)：新增 `extract_check_questions(unit_contents, per_unit=4, total=20)`——解析 content_md 的 `### 检查理解` 小节（止于下一个 ###），去列表标记（-/* / 1. 等），每单元 ≤4 总 ≤20，返回 [{unit, questions}]；PROMPT 增加可选输入 `args.unit_check_questions` 说明 + 规则「优先改编为可判分题（补 answer/explanation），尽量覆盖各单元，不足 5 题按知识点补足」。[plans.py](backend/app/api/plans.py) quiz 端点：生成前加载已持久化单元内容文件 -> 提取 -> 注入 args（空则不注入，无单元行为同 iter 38）。**幂等注意**：已持久化题直接返回（不重生成），题源联动仅影响新生成/refresh。测试 +5（extract 基本/无小节空内容/上限；端点注入 unit_check_questions 仅含检查理解小节 / 无单元不注入）。commits `6b1239f`（实现）`d7592ad`（测试）。全量 230 测试通过（225+5），零回归；前端零改动（quiz 流程不变，仅题源丰富）。**P2 三项增强（iter 46-49）全部完成**。待用户定方向：P3 / P4 / P5 或其他；deep-tutor-resources Skill 仍延后（等 LLM 筛选落地）；真机 Anthropic 冒烟需 key。
 
 - **2026-07-18 iter 48（单元 WebSearch 补充资料，✅ 完成）**：plan/07 §三 步骤 2「每单元 WebSearch 补充资料（教程/文档/示例）」+ errors「WebSearch 无结果 -> 标注无外部资料参考」。后端：(1) [search_resources.py](backend/app/tools/search_resources.py) 新增 `search_unit_resources(query, ctx, limit=3)`——复用 `_bing_search` + `verify_url`（limit 传 Bing count），invalid 丢弃、保留 ≤3 条 {title,url,verified,note}；无 key/空 query/检索异常/校验异常 -> []（不编造 URL、不中断单元生成）。(2) [plans.py](backend/app/api/plans.py) `_insert_study_unit` 加 `resources` 参入 study_materials.resources；`_materials_sse` 逐单元生成后检索（query = intent topic + 阶段名 + 首主题名）落库。**范围记录**：仅 SSE 路径挂检索（前端 iter 47 起恒走 SSE）；同步 JSON 路径不检索（resources 为空，与 iter 43 行为一致）。测试 +4（helper 无 key/空 query、verify 过滤+上限+字段形、检索失败返空；SSE 落库 + GET /materials/{id} 返回 + query 构成；SSE 模块加 autouse stub 防 .env BING_API_KEY 致真实联网）。commits `5e9b6ac`（实现）`5ec02b3`（测试）。前端：[api.ts](frontend/src/lib/api.ts) `UnitResource` 类型；[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 内容区下方「参考资料」列表（✅ 已验证/⚠️ 不确定 + sr-only + 外链 target=_blank rel=noreferrer），空不渲染。commit `c3784d3`。全量 225 测试通过（221+4）+ 前端 build（407KB），零回归。待做：iter 49 quiz 题源联动（单元「检查理解」喂 generate_quiz）。
 - **2026-07-18 iter 47（前端 MaterialsModal 接 SSE 逐单元渐进显示，✅ 完成）**：消费 iter 46 后端 SSE。(1) [sse.ts](frontend/src/lib/sse.ts)：从 openSSE 拆出 `readSSEStream(body, onEvent)` 导出（解析逻辑不变），供需先按 content-type 分流的调用方复用。(2) [api.ts](frontend/src/lib/api.ts)：`generateMaterials`（同步）替换为 `generateMaterialsStream`——fetch 带 `Accept: text/event-stream`，按响应 content-type 分流：`application/json`（幂等命中）-> `onSync`；`text/event-stream` -> readSSEStream 分发 `unit_start`/`unit_done`/`onDone`/`onSync` 回调；`error` 事件 -> 抛 ApiError；非 2xx 同 apiFetch 错误解析。一次性流不重连（与后端一致）。commits `7b53171`。(3) [MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx)：生成期间显示逐单元进度列表（`unit_start` 加「⏳ 生成中」-> `unit_done` 置「✅ 完成」/「⚠️ 已降级为简要大纲」，aria-live + sr-only 状态文字）；`done` 后 listStudyUnits 进 Reader；`degraded_count>0` 转 warning 条「x/y 个单元生成失败，已降级为简要大纲」；幂等 JSON 路径 warning 行为同前。commit `1ce35ee`。前端 build 通过（354 模块，407KB）。后端零改动（221 测试不受影响）。待做：iter 48 WebSearch 补资料；iter 49 quiz 题源联动。
