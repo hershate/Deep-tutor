@@ -206,12 +206,20 @@ async def _parse_url(source: str) -> tuple[str, dict]:
 
     if not _is_http_url(source):
         raise _ParseError("unsupported_format", "URL 非法（需 http/https）")
+    # SSRF 防护（R19）：复用 verify_url 的安全判定
+    from app.tools.verify_url import _is_safe_url
+
+    safe, reason = _is_safe_url(source)
+    if not safe:
+        raise _ParseError("ssrf_blocked", f"URL 被安全策略拒绝: {reason}")
     try:
         async with httpx.AsyncClient(
             follow_redirects=True, timeout=httpx.Timeout(URL_TIMEOUT)
         ) as client:
             resp = await client.get(source)
             resp.raise_for_status()
+    except _ParseError:
+        raise
     except httpx.HTTPError as exc:
         raise _ParseError("degraded", f"URL 抓取失败: {exc}") from exc
     html = resp.text

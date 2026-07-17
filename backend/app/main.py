@@ -5,12 +5,10 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.api import api_router
 from app.core.logging import setup_logging
@@ -57,14 +55,13 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
 
-    @app.exception_handler(Exception)
-    async def _unhandled_exception(request: Request, exc: Exception):  # noqa: ARG001
-        # 统一错误格式；不回显敏感信息（路径/key 等，R35）
-        logging.getLogger("deep_tutor").exception("未处理异常: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content={"error": {"code": "internal_error", "message": "内部错误"}},
-        )
+    # 统一错误处理（plan/03 错误格式、R35 不回显敏感信息）
+    from app.api import errors
+    from fastapi import HTTPException
+
+    app.add_exception_handler(errors.ApiError, errors.api_error_handler)
+    app.add_exception_handler(HTTPException, errors.http_exception_handler)
+    app.add_exception_handler(Exception, errors.unhandled_exception_handler)
 
     return app
 
