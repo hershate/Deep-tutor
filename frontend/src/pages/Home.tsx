@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, createSession, uploadMaterial } from '../lib/api'
+import { ApiError, createSession, deleteSession, uploadMaterial } from '../lib/api'
 
 export default function Home() {
   const [rawText, setRawText] = useState('')
@@ -18,7 +18,13 @@ export default function Home() {
     setLoading(true)
     try {
       const { session_id } = await createSession(rawText.slice(0, 40) || '学习方案')
-      if (file) await uploadMaterial(session_id, file)
+      try {
+        if (file) await uploadMaterial(session_id, file)
+      } catch (uploadErr) {
+        // 上传失败：清理刚建的空会话，避免孤儿堆积（重试会建新会话）
+        deleteSession(session_id).catch(() => {})
+        throw uploadErr
+      }
       nav(`/generate/${session_id}`, { state: { rawText } })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '创建失败')
