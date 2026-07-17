@@ -16,7 +16,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -46,6 +46,65 @@ PLAN_OVERFLOW_BYTES = 512 * 1024  # plan/01 §五：>512KB 溢出文件
 # 心跳间隔：长 LLM 调用期间防 nginx/代理/浏览器空闲断连（plan/09 §十九）。
 # SSE 注释行 `: keepalive` 不触发前端事件，仅保活。
 _HEARTBEAT_SECONDS = 15.0
+
+# --- SSE 会话缓冲（plan/10 §十二 断线续接游标）---
+# 单会话事件缓冲 + 订阅扇出：编排器经 publish 发事件（递增 id）；每个连接持独立队列，
+# 订阅时先重放历史 (id > last_event_id) 再接实时。终态后保留可配置时长供迟到重连。
+# 与流客户端解耦：断连时编排器任务仍完成并持久化（防 stale running / 丢进度，R24）。
+_STREAMS: dict[int, "_SessionStream"] = {}
+_MAX_BUFFERED_EVENTS = 500  # 单会话最大缓冲；超限丢最旧（降级重放）
+_RETENTION_SECONDS = 300.0  # 终态后保留时长（秒），供迟到重连；超时自动清理
+
+
+class _SessionStream:
+    """单会话 SSE 事件缓冲 + 订阅扇出（plan/10 §十二）。
+
+    单一事件源：编排器 publish -> 各订阅者独立队列（订阅时先重放历史再接实时）。
+    terminal_id 标记终态事件 id，投递后流即结束。
+    """
+
+    def __init__(self, session_id: int, trace_id: str) -> None:
+        self.session_id = session_id
+        self.trace_id = trace_id
+        self.seq = 0
+        self._events: list[tuple[int, str, dict]] = []  # (id, event, data)，有界
+        self._subs: list[asyncio.Queue] = []
+        self.terminal_id: int | None = None  # 终态事件 id；非空表示流已结束
+        self.task: asyncio.Task | None = None
+        self.raw_text: str = ""
+        self.budget: "BudgetTracker | None" = None
+
+    def publish(self, event: str, data: dict) -> int:
+        """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
+        self.seq += 1
+        eid = self.seq
+        item = (eid, event, data)
+        self._events.append(item)
+        if len(self._events) > _MAX_BUFFERED_EVENTS:
+            del self._events[: len(self._events) - _MAX_BUFFERED_EVENTS]
+        for q in self._subs:
+            q.put_nowait(item)
+        return eid
+
+    def mark_terminal(self, eid: int) -> None:
+        """标记终态事件 id（投递后流结束）。"""
+        self.terminal_id = eid
+
+    def subscribe(self, last_event_id: int) -> asyncio.Queue:
+        """订阅：新建队列，先重放历史 (id > last_event_id)，再接实时。"""
+        q: asyncio.Queue = asyncio.Queue()
+        start = max(last_event_id, 0)
+        for item in self._events:
+            if item[0] > start:
+                q.put_nowait(item)
+        self._subs.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        try:
+            self._subs.remove(q)
+        except ValueError:
+            pass
 
 
 class GenerateIn(BaseModel):
@@ -132,17 +191,24 @@ async def _terminal_stream(event: str, data: dict) -> str:
 
 
 @router.post("/generate")
-def generate(body: GenerateIn, db: Session = Depends(get_db)) -> StreamingResponse:
+def generate(body: GenerateIn, request: Request, db: Session = Depends(get_db)) -> StreamingResponse:
     sess = db.get(models.Session, body.session_id)
     if sess is None:
         raise ApiError("not_found", f"会话 {body.session_id} 不存在")
-    # 运行态冲突（R33）
-    state = db.get(models.OrchestratorState, body.session_id)
-    if state and state.status == models.OrchestratorStatus.running:
-        raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
 
-    # 终态快路径（plan/10 §十二）：done/paused_clarify 不重跑，直接回放终态事件，
-    # 避免页面刷新/断线重连触发重复生成。
+    state = db.get(models.OrchestratorState, body.session_id)
+    # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
+    if state is not None and state.status == models.OrchestratorStatus.running:
+        stream = _STREAMS.get(body.session_id)
+        if stream is not None and stream.terminal_id is None:
+            return StreamingResponse(
+                _relay(stream, _parse_last_event_id(request)),
+                media_type="text/event-stream",
+                headers=_SSE_HEADERS,
+            )
+        raise ApiError("conflict", "该会话生成已中断，请返回首页重新生成", status=409)
+
+    # 终态快路径（plan/10 §十二）：done/paused_clarify/error 不重跑，直接回放终态事件
     if state is not None:
         terminal = _terminal_event(db, body.session_id, state)
         if terminal is not None:
@@ -163,9 +229,8 @@ def generate(body: GenerateIn, db: Session = Depends(get_db)) -> StreamingRespon
             data={"text": concatenated, "meta": {"source_type": "materials", "pages": len(parsed)}, "chunks": chunks},
         )
     args_by_tool = {"understand_intent": {"raw_text": body.raw_text, "parsed": parsed}}
-
     return StreamingResponse(
-        _stream(body.session_id, args_by_tool, initial_upstream),
+        _run_start(body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request)),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -187,39 +252,121 @@ def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> 
     parsed = _load_parsed_materials(db, session_id)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
     return StreamingResponse(
-        _stream(session_id, args_by_tool, initial_upstream),
+        _run_start(session_id, args_by_tool, initial_upstream, 0),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
 
 
-async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -> str:
+def _parse_last_event_id(request: Request) -> int:
+    """解析 Last-Event-ID 请求头（续接游标，plan/10 §十二）。无效/缺失返回 0。"""
+    raw = request.headers.get("last-event-id")
+    if not raw:
+        return 0
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _schedule_cleanup(session_id: int) -> None:
+    """终态后延迟从 _STREAMS 移除（保留窗口供迟到重连）。无运行循环则立即移除。"""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
+    except RuntimeError:
+        _STREAMS.pop(session_id, None)
+
+
+def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> None:
+    """编排器任务结束回调：持久化结果 + 发布终态事件（与流客户端解耦）。
+
+    单一持久化路径：无论客户端是否断连，任务结束即持久化（防 stale running / 丢进度，R24）。
+    在事件循环线程内同步执行（SQLite 写入快）；异常兜底确保流不挂死。
+    """
     db = SessionLocal()
+    try:
+        if task.cancelled():
+            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            eid = stream.publish("error", {"code": "cancelled", "message": "生成已取消", "stage": ""})
+            stream.mark_terminal(eid)
+            return
+        try:
+            result = task.result()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("orchestrator 任务异常: %s", exc)
+            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
+            stream.mark_terminal(eid)
+            return
+        if result.status == "done":
+            _persist_tool_calls(db, session_id, stream.trace_id, result.outputs)
+            plan_id = _persist_plan(db, session_id, result.plan)
+            cost = stream.budget.spent if stream.budget else 0.0
+            data = {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(cost, 6)}}
+            eid = stream.publish("done", data)
+            stream.mark_terminal(eid)
+            _set_state(db, session_id, models.OrchestratorStatus.done, stream.trace_id, last_event_id=str(stream.seq))
+        elif result.status == "paused_clarify":
+            _persist_tool_calls(db, session_id, stream.trace_id, result.outputs)
+            partial = {
+                "raw_text": stream.raw_text,
+                "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
+            }
+            _set_state(
+                db,
+                session_id,
+                models.OrchestratorStatus.paused_clarify,
+                stream.trace_id,
+                partial=partial,
+                last_event_id=str(stream.seq),
+            )
+            # clarify_needed 已由编排器 emit（stream.seq 即其 id）；标记终态使流结束
+            stream.mark_terminal(stream.seq)
+        else:
+            msg = result.errors[-1] if result.errors else "生成失败"
+            data = {"code": "generation_failed", "message": msg, "stage": ""}
+            eid = stream.publish("error", data)
+            stream.mark_terminal(eid)
+            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+    except Exception:  # noqa: BLE001  持久化失败不阻塞流；兜底发终态防挂死
+        log.exception("finalize 异常 session=%s", session_id)
+        if stream.terminal_id is None:
+            eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
+            stream.mark_terminal(eid)
+    finally:
+        db.close()
+        _schedule_cleanup(session_id)
+
+
+async def _run_start(
+    session_id: int, args_by_tool: dict, initial_upstream: dict, last_event_id: int = 0
+) -> str:
+    """启动一次生成：创建会话流 + 编排器任务（done-callback 持久化）+ 续接投递。"""
     trace_id = uuid.uuid4().hex
+    stream = _SessionStream(session_id, trace_id)
+    stream.raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
+    _STREAMS[session_id] = stream
+    db = SessionLocal()
     _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
-    queue: asyncio.Queue = asyncio.Queue()
+    db.close()
 
-    def cb(event: str, data: dict) -> None:
-        queue.put_nowait((event, data))
-
-    # SSE 事件 id（递增），plan/10 §十二 断线续接游标；前端可带 Last-Event-ID 续接。
-    seq = 0
-
-    def emit(event: str, data: dict) -> str:
-        nonlocal seq
-        seq += 1
-        return _sse(event, data, event_id=seq)
-
-    # 构造 LLM Provider（无 key -> 发 error SSE 并结束）
+    # 无 LLM Provider -> 发 error 终态（不启动任务）
     try:
         provider = get_provider()
     except Exception as exc:  # noqa: BLE001
-        yield emit("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
-        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
-        db.close()
+        eid = stream.publish("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
+        stream.mark_terminal(eid)
+        db2 = SessionLocal()
+        _set_state(db2, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(stream.seq))
+        db2.close()
+        _schedule_cleanup(session_id)
+        async for chunk in _relay(stream, last_event_id):
+            yield chunk
         return
 
     budget = BudgetTracker(limit=settings.budget_per_session_usd)
+    stream.budget = budget
     registry = default_registry()
     ctx = ExecContext(
         session_id=str(session_id),
@@ -228,59 +375,46 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
         llm_provider=provider,
         budget=budget,
     )
-    orch = Orchestrator(registry, ctx, event_cb=cb, max_tool_calls=settings.max_tool_calls)
-
+    orch = Orchestrator(
+        registry, ctx, event_cb=lambda e, d: stream.publish(e, d), max_tool_calls=settings.max_tool_calls
+    )
     task = asyncio.create_task(
         orch.run(args_by_tool, start_tool="understand_intent", initial_upstream=initial_upstream)
     )
+    stream.task = task
+    task.add_done_callback(lambda t: _finalize(session_id, stream, t))
+
+    async for chunk in _relay(stream, last_event_id):
+        yield chunk
+
+
+async def _relay(stream: "_SessionStream", last_event_id: int) -> str:
+    """订阅会话流并投递 SSE 事件（重放历史 + 实时），含心跳与终态退出。"""
+    q = stream.subscribe(last_event_id)
+    last_send = time.monotonic()
+    last_yielded = 0
     try:
-        last_send = time.monotonic()
         while True:
-            if task.done():
-                while not queue.empty():
-                    e, d = queue.get_nowait()
-                    yield emit(e, d)
-                    last_send = time.monotonic()
-                break
             try:
-                e, d = await asyncio.wait_for(queue.get(), timeout=0.2)
-                yield emit(e, d)
-                last_send = time.monotonic()
+                eid, event, data = await asyncio.wait_for(q.get(), timeout=0.2)
             except asyncio.TimeoutError:
+                # 终态已标记：若已投递则退出（兜底防空转），否则继续等终态事件入队
+                if stream.terminal_id is not None:
+                    if last_yielded >= stream.terminal_id:
+                        break
+                    continue
                 # 心跳：长 LLM 调用期间防 nginx/代理/浏览器空闲断连
                 if time.monotonic() - last_send > _HEARTBEAT_SECONDS:
                     yield ": keepalive\n\n"
                     last_send = time.monotonic()
                 continue
-
-        result = await task
-        if result.status == "done":
-            _persist_tool_calls(db, session_id, trace_id, result.outputs)
-            plan_id = _persist_plan(db, session_id, result.plan)
-            yield emit(
-                "done",
-                {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(budget.spent, 6)}},
-            )
-            _set_state(db, session_id, models.OrchestratorStatus.done, trace_id, last_event_id=str(seq))
-        elif result.status == "paused_clarify":
-            _persist_tool_calls(db, session_id, trace_id, result.outputs)
-            raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
-            partial = {
-                "raw_text": raw_text,
-                "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
-            }
-            _set_state(db, session_id, models.OrchestratorStatus.paused_clarify, trace_id, partial=partial, last_event_id=str(seq))
-            # clarify_needed 已由编排器 emit
-        else:
-            msg = result.errors[-1] if result.errors else "生成失败"
-            yield emit("error", {"code": "generation_failed", "message": msg, "stage": ""})
-            _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
-    except Exception as exc:  # noqa: BLE001
-        log.exception("generate 流异常: %s", exc)
-        yield emit("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
-        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
+            yield _sse(event, data, event_id=eid)
+            last_send = time.monotonic()
+            last_yielded = eid
+            if stream.terminal_id is not None and eid == stream.terminal_id:
+                break
     finally:
-        db.close()
+        stream.unsubscribe(q)
 
 
 def _set_state(

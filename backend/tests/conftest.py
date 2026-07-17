@@ -18,10 +18,12 @@ import pytest  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolate():
-    """每测试前重置 DB 表 + 清空数据目录，保证隔离。"""
+    """每测试前重置 DB 表 + 清空数据目录 + 清空 SSE 流缓冲，保证隔离。"""
+    from app.api import plans as plans_mod  # noqa: F401
     from app.db import models  # noqa: F401  触发模型注册
     from app.db.base import Base, engine
 
+    plans_mod._STREAMS.clear()  # 内存事件缓冲跨测试隔离
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     p = Path(_TEST_DATA)
