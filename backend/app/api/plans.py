@@ -767,12 +767,11 @@ def _persist_quizzes(db: Session, plan_id: int, spec: QuizSpec) -> list[models.Q
     node_id 映射：payload 保留原始 sid 字符串（前端写回 /progress 用），
     列 node_id 存 knowledge_nodes.id（sid 查不到 -> None，不阻塞出题）。
     """
-    old_ids = [r.id for r in db.query(models.Quiz.id).filter_by(plan_id=plan_id)]
-    if old_ids:
-        db.query(models.QuizAttempt).filter(models.QuizAttempt.quiz_id.in_(old_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(models.Quiz).filter_by(plan_id=plan_id).delete(synchronize_session=False)
+    # ORM 逐行删除：级联删 attempts（Quiz.attempts cascade=delete-orphan），
+    # 且会话 identity map 同步移除（批量 delete 不同步会在 SQLite rowid 复用时撞 SAWarning）
+    for old in db.query(models.Quiz).filter_by(plan_id=plan_id).all():
+        db.delete(old)
+    db.flush()
     sid_map = {n.sid: n.id for n in db.query(models.KnowledgeNode).filter_by(plan_id=plan_id)}
     rows = [
         models.Quiz(
