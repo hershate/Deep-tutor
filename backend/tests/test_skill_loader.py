@@ -2,11 +2,21 @@
 
 纯函数 load_skills + 临时目录，不触模块缓存；覆盖 frontmatter/无 frontmatter/
 回退/空正文/缺目录/无 SKILL.md/重名/剥 frontmatter/BOM/CRLF。
+另含真实 deep-tutor-intent Skill 的加载与 loop 取用集成测试。
 """
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+
+from app.agent import ExecContext, ToolRegistry, run_tool
+from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 from app.skills.loader import load_skills
+from app.tools.base import ToolInput
+from app.tools.understand_intent import understand_intent_tool
+
+_PROJECT_SKILLS = Path(__file__).resolve().parents[2] / "skills"
 
 
 def _write_skill(root, name: str, content: str) -> None:
@@ -86,3 +96,54 @@ def test_load_skills_crlf(tmp_path):
     assert "crlf-x" in reg
     assert "CRLF 正文" in reg["crlf-x"]
     assert "\r" not in reg["crlf-x"]
+
+
+# --- 真实 deep-tutor-intent Skill 集成 ---
+
+
+def test_real_deep_tutor_intent_skill_loads():
+    """真实 skills/deep-tutor-intent/SKILL.md 可加载：键=deep-tutor-intent，正文非空，已剥 frontmatter。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-intent" in reg
+    body = reg["deep-tutor-intent"]
+    assert body.strip()
+    assert not body.startswith("---")  # frontmatter 已剥
+    assert "name: deep-tutor-intent" not in body  # frontmatter 内容不在正文
+
+
+class _ScriptedProvider(LLMProvider):
+    def __init__(self, responses: list[LLMResponse]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True) -> LLMResponse:
+        self.calls.append({"system": system, "cache_system": cache_system})
+        return self._responses.pop(0) if self._responses else LLMResponse(
+            content="{}", usage=LLMUsage(model=model or "claude-sonnet-5")
+        )
+
+
+def test_real_intent_skill_used_as_system_prompt():
+    """真实 Skill 加载后，loop 用 Skill 正文作 system prompt（覆盖 inline_prompt）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    skill_body = reg["deep-tutor-intent"]
+
+    provider = _ScriptedProvider(
+        [LLMResponse(content='{"topic":"React","needs_clarify":false}', usage=LLMUsage(model="claude-sonnet-5"))]
+    )
+    tools = ToolRegistry()
+    tools.register(understand_intent_tool)
+    ctx = ExecContext(
+        session_id="sess_test",
+        trace_id="trace_test",
+        registry=tools,
+        llm_provider=provider,
+        skill_registry=reg,
+    )
+    out = asyncio.run(run_tool("understand_intent", ToolInput(tool="understand_intent", session_id="sess_test"), ctx))
+    assert out.status == "ok"
+    assert out.data["topic"] == "React"
+    # Skill 正文作 system prompt（非 inline_prompt）
+    assert provider.calls[0]["system"] == skill_body
+    assert provider.calls[0]["system"] != understand_intent_tool.inline_prompt
+    assert provider.calls[0]["cache_system"] is True
