@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P1 `/regenerate` 前后端闭环完成（端点 + 前端 UI，117 测试）；待做真机 Anthropic 冒烟（需 key）、Step 5 Skill 层 / slides。详见 §五 2026-07-17 iter 13 条。
+**当前下一步**：P1 `/regenerate` 前后端闭环 + 局部重生成 scope 修复完成（端点 + 前端 UI，118 测试）；待做真机 Anthropic 冒烟（需 key）、Step 5 Skill 层 / slides。详见 §五 2026-07-17 iter 15 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 稳定性修复（iter 15，regenerate 局部重生成 scope 失效）**：审计发现 [plans.py](backend/app/api/plans.py) `_run_start` 硬编码 `start_tool="understand_intent"`，致 `/regenerate` 的 scope 被忽略 -- 无论 scope 为何都从 understand_intent 全量重跑（5 次 LLM 调用，应为 3 次），违反 plan/10 §十三「重跑范围最小化：从受影响工具起级联重跑其下游」，且无谓重跑 understand_intent/build_knowledge_map（本应保留的上游可能被 LLM 改写）+ 浪费成本。修复：`_run_start` 增 `start_tool: str = "understand_intent"` 参数（generate/clarify 默认值不变），`regenerate` 传 `start_tool=body.scope`。测试 `test_regenerate_partial_rerun` 改用共享 provider 单例（旧 `lambda: RegenProvider()` 每次新建实例，致 5+3 响应分割失效、掩盖 bug）+ 增 `assert provider.i == 8`（5 初始 + 3 重生成）显式验证 scope 起跑；已验证回退修复则测试失败（IndexError 耗尽响应）。全量 118 后端测试通过。
 - **2026-07-17 稳定性加固（iter 14，取消线程安全 + DELETE 先取消）**：[plans.py](backend/app/api/plans.py) 抽出 `cancel_running_generation(sid)->bool`，改用 `task.get_loop().call_soon_threadsafe(task.cancel)`（同步调用方如 DELETE /sessions 跑线程池，跨线程/跨循环，旧 `task.cancel()` 仅同事件循环内安全）；`cancel` 端点改用之。[sessions.py](backend/app/api/sessions.py) DELETE /sessions 删行前先 `cancel_running_generation`，防僵尸编排器任务 `_finalize` 撞已删会话 FK（plan/10 §十一 running 态冲突）。测试 +1（`test_cancel_running_generation_schedules_cancel`：无 task/活动/终态/不存在 四情形），全量 118 后端测试通过。commit `dc92b7e`。
 - **2026-07-17 P1（iter 13，重生成前端 UI）**：落地 /regenerate 前端，前后端闭环。[api.ts](frontend/src/lib/api.ts) `regenerateStream`（复用 `ssePostWithReconnect` 断线重连）。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 增重生成区：scope `<select>`（design_stages/search_resources/schedule_plan/validate_plan）+ feedback `<textarea>` + 按钮；`done` -> nav 新 plan；error/budget_exceeded -> `regenError` 内联（**独立于加载 error**，不触发早返回覆盖方案视图）；卸载 `abort` 清理。label/htmlFor 关联 + `role="alert"`。前端 build 通过（91 模块）。
 - **2026-07-17 P1（iter 12，/regenerate 端点）**：落地 plan/10 §十三 局部重生成。后端 [plans.py](backend/app/api/plans.py) `POST /plans/{plan_id}/regenerate {feedback, scope}` -- scope 为 PIPELINE 工具名（understand_intent 之后），从 tool_calls 重建 `initial_upstream`（`_reconstruct_upstream` 取每工具最新 tool_call），`start_tool=scope` 级联重跑，feedback 注入 start_tool 的 `fixes`；复用 `_run_start`（SSE + done-callback 持久化）。`_persist_plan` 改为 version = 该会话 max+1（plan/10 §十三 `plans.version+=1`，首版 1）。校验：scope 非法 -> 400；understand_intent 不在上游 -> 400（需原始 raw_text，不支持）；running -> 409。测试：+3（局部重跑 version+1 / scope 非法 400 / understand_intent scope 400），全量 117 后端测试通过。待做：前端重生成 UI。
