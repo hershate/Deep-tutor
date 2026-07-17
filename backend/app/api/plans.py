@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.agent import BudgetTracker, ExecContext, Orchestrator
+from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator
 from app.api.deps import get_db, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
@@ -116,6 +116,11 @@ class ClarifyIn(BaseModel):
     answers: dict = Field(default_factory=dict)
 
 
+class RegenIn(BaseModel):
+    feedback: str = ""
+    scope: str = ""
+
+
 def _sse(event: str, data: dict, event_id: int | None = None) -> str:
     """格式化一条 SSE 事件。event_id 非空时附 `id:` 行（plan/10 §十二 续接游标，递增）。"""
     parts: list[str] = []
@@ -140,6 +145,25 @@ def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
                 log.warning("读取 parsed_text 失败: %s", m.parsed_text_path)
         parsed.append({"text": text, "meta": m.meta or {}})
     return parsed
+
+
+def _reconstruct_upstream(db: Session, session_id: int, start_tool: str) -> dict[str, ToolOutput]:
+    """从 tool_calls 重建 start_tool 之前各工具的最新输出（plan/10 §十三 局部重生成）。
+
+    取每工具 id 最大（最新）的一条 tool_call；缺失工具不注入（字段覆盖检查会处理）。
+    """
+    start_idx = PIPELINE.index(start_tool)
+    rows = db.query(models.ToolCall).filter_by(session_id=session_id).all()
+    latest: dict[str, models.ToolCall] = {}
+    for r in sorted(rows, key=lambda x: x.id):
+        latest[r.tool] = r  # id 递增 -> 后者覆盖为最新
+    upstream: dict[str, ToolOutput] = {}
+    for name in PIPELINE[:start_idx]:
+        tc = latest.get(name)
+        if tc is None:
+            continue
+        upstream[name] = ToolOutput(tool=name, status=tc.status or "ok", data=tc.output or {})
+    return upstream
 
 
 def _clarify_questions_from_state(state: models.OrchestratorState) -> list:
@@ -273,6 +297,42 @@ async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
         raise ApiError("conflict", "该会话无运行中的生成任务", status=409)
     stream.task.cancel()  # 同事件循环内，安全
     return {"ok": True, "status": "cancelling"}
+
+
+@router.post("/{plan_id}/regenerate")
+def regenerate(
+    plan_id: int, body: RegenIn, request: Request, db: Session = Depends(get_db)
+) -> StreamingResponse:
+    """局部重生成（plan/10 §十三）：从 scope 起级联重跑其下游，feedback 注入 start_tool。
+
+    - scope：PIPELINE 中 understand_intent 之后的工具名（其上游从 tool_calls 重建）。
+    - plans.version += 1（_persist_plan 自动递增）。
+    """
+    plan = db.get(models.Plan, plan_id)
+    if plan is None:
+        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    session_id = plan.session_id
+    state = db.get(models.OrchestratorState, session_id)
+    if state is not None and state.status == models.OrchestratorStatus.running:
+        raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
+
+    if body.scope not in PIPELINE:
+        raise ApiError("bad_request", f"scope 必须为有效工具名: {PIPELINE}", status=400)
+    start_tool = body.scope
+    initial_upstream = _reconstruct_upstream(db, session_id, start_tool)
+    # understand_intent 须在上游（否则需原始 raw_text，不支持）
+    if "understand_intent" not in initial_upstream:
+        raise ApiError(
+            "bad_request",
+            f"不支持从 {start_tool} 重生成（需 understand_intent 上游；请从 design_stages 及之后起）",
+            status=400,
+        )
+    args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
+    return StreamingResponse(
+        _run_start(session_id, args_by_tool, initial_upstream, _parse_last_event_id(request)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 
 def _parse_last_event_id(request: Request) -> int:
@@ -496,7 +556,10 @@ def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: di
 
 def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     content_json = json.dumps(plan_dict, ensure_ascii=False)
-    plan = models.Plan(session_id=session_id, content=plan_dict, version=1)
+    # version = 该会话现有最大版本 + 1（plan/10 §十三 plans.version += 1；首版 1）
+    existing = db.query(models.Plan).filter_by(session_id=session_id).all()
+    version = (max(p.version for p in existing) + 1) if existing else 1
+    plan = models.Plan(session_id=session_id, content=plan_dict, version=version)
     db.add(plan)
     db.flush()
     if len(content_json.encode("utf-8")) > PLAN_OVERFLOW_BYTES:

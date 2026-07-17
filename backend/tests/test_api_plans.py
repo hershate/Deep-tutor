@@ -302,3 +302,86 @@ def test_finalize_cancelled_publishes_error(client, auth_headers):
         assert st.status == models.OrchestratorStatus.error
     finally:
         db.close()
+
+
+def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
+    """POST /plans/{id}/regenerate {scope} -> 从 scope 级联重跑，新 plan version+1（plan/10 §十三）。"""
+
+    class RegenProvider(LLMProvider):
+        """初始生成 5 响应 + 重生成（design_stages 起）3 响应（design_stages/schedule/validate）。"""
+
+        def __init__(self) -> None:
+            self.i = 0
+            self._resp = list(_CANNED) + [_CANNED[2], _CANNED[3], _CANNED[4]]
+
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            r = self._resp[self.i]
+            self.i += 1
+            return r
+
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: RegenProvider())
+    sid = _session(client, auth_headers)
+
+    # 1. 初始生成 -> plan v1
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学 React"},
+        headers=auth_headers,
+    )
+    plan_id = next(d for e, d in _parse_sse(r1.text) if e == "done")["plan_id"]
+
+    # 2. 局部重生成（从 design_stages 起级联重跑）
+    r2 = client.post(
+        f"/api/plans/{plan_id}/regenerate",
+        json={"scope": "design_stages", "feedback": "简化阶段"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    ev2 = _parse_sse(r2.text)
+    assert any(e == "done" for e, _ in ev2), ev2
+    new_plan_id = next(d for e, d in ev2 if e == "done")["plan_id"]
+    assert new_plan_id != plan_id  # 新 plan
+
+    # 3. 列表 2 个 plan；新 plan version=2
+    lst = client.get(f"/api/plans?session_id={sid}", headers=auth_headers).json()
+    assert lst["total"] == 2
+    detail = client.get(f"/api/plans/{new_plan_id}", headers=auth_headers).json()
+    assert detail["version"] == 2
+
+
+def test_regenerate_invalid_scope(client, auth_headers, monkeypatch):
+    """scope 非有效工具名 -> 400。"""
+    monkeypatch.setattr("app.api.plans.get_provider", lambda: CannedProvider())
+    sid = _session(client, auth_headers)
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "x"},
+        headers=auth_headers,
+    )
+    plan_id = next(d for e, d in _parse_sse(r1.text) if e == "done")["plan_id"]
+    r2 = client.post(
+        f"/api/plans/{plan_id}/regenerate",
+        json={"scope": "nonexistent_tool"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 400
+
+
+def test_regenerate_unsupported_scope(client, auth_headers, monkeypatch):
+    """scope=understand_intent（无上游 understand_intent）-> 400。"""
+    monkeypatch.setattr("app.api.plans.get_provider", lambda: CannedProvider())
+    sid = _session(client, auth_headers)
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "x"},
+        headers=auth_headers,
+    )
+    plan_id = next(d for e, d in _parse_sse(r1.text) if e == "done")["plan_id"]
+    r2 = client.post(
+        f"/api/plans/{plan_id}/regenerate",
+        json={"scope": "understand_intent"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 400
