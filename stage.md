@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**当前下一步**：P1 slides 完成 + 渲染净化加固（iter 29-32，162 测试 + 前端 build）；端到端：plan -> LLM `SlideSpec`（降级默认 deck）-> 渲染自包含 HTML（content_html/theme/类名净化防 XSS/CSS 注入）-> 前端 Blob 新窗口打开。待做：真机 Anthropic 冒烟（需 key）、vendor `self-study-guide`（P2 `generate_study_materials`）。详见 §五 2026-07-17 iter 32 条。
+**当前下一步**：**当前下一步**：P1 slides 完成 + 渲染净化 + e2e 冒烟覆盖（iter 29-33，162 测试 + 前端 build）；mock e2e 冒烟含 slides 导出（全链路）。待做：真机 Anthropic 冒烟（需 key，验证 LLM 实际 SlideSpec 质量）、vendor `self-study-guide`（P2 `generate_study_materials`）。详见 §五 2026-07-17 iter 33 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 P1 slides（iter 33，e2e 冒烟覆盖 slides 导出）**：[test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) 加第 8 步：导出 slides（`build_plan_slides` LLM -> 渲染 HTML），验证新功能在全链路集成（会话+资料+生成+详情+用量+设置+md 导出+slides 导出）。mock slides provider 返回 SlideSpec，断言 `format=html` + `slide_count` + `<html>` + 含标题。全量 162 测试通过，零回归。commit `2bc4644`。
 - **2026-07-17 P1 slides（iter 32，渲染净化防 XSS/CSS 注入）**：审计新 slides 代码发现 `render_slides_html` 直接插入 LLM 生成的 content_html/theme 值/类名，LLM 失控或恶意资料传播可致 XSS（`<script>` 在 Blob URL 执行）或 CSS 越界（`</style>` 突破）。修复：[build_plan_slides.py](backend/app/tools/build_plan_slides.py) 加 `_sanitize_content_html`（去 script/style/iframe 块与残留标签、on* 事件属性）、`_sanitize_class`（类名仅 alnum/-/_）、`_sanitize_theme_value`（去 <>{}）；`render_slides_html` 净化 theme/transition，`_render_slide` 净化 content_html/layout/animation。测试 +3（content_html XSS 清理 / 主题值 `</style>` 突破防 / 类名属性越界防）。全量 162 测试通过（159+3），零回归。commit `92c7081`。
 - **2026-07-17 P1 slides（iter 31，export format=slides 端点 + 前端，闭环）**：增量 3（端到端）。[exports.py](backend/app/api/exports.py) `export_plan_endpoint` 按 format 分发（slides->`_export_slides`，其他->`_export_md` 传原 format 保 pdf->md 降级）。`_export_slides`：读 base.html 模板；ctx 注 `llm_provider`（无 key->None 降级）；`run_tool("build_plan_slides")`->spec（ok 用 LLM 规约，否则 `default_spec_from_plan` 降级）；`render_slides_html`->自包含 HTML；返 `{format:"html", slide_count, html}`（前端 Blob 新窗口打开，免文件服务/鉴权）。测试 +2（slides LLM 合法规约->200+html+slide_count；无 provider->降级默认 deck 仍 200+html+warning）。前端 [PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 导出格式选择（Markdown/幻灯片），slides 用 Blob URL `window.open`（plan/03 §93）；[api.ts](frontend/src/lib/api.ts) 类型加 slide_count/html。全量 159 测试通过（157+2）+ 前端 build，零回归。commit `8e7b2cc`。**P1 slides 完成**（iter 29-31）。
 - **2026-07-17 P1 slides（iter 30，build_plan_slides LLM 工具 + 注册）**：增量 2（LLM 规约 + 降级）。[build_plan_slides.py](backend/app/tools/build_plan_slides.py) 加 `PROMPT`（聚焦 spec 生成 inline_prompt：plan->SlideSpec JSON，含 schema + CSS 变量名/anim-*/trans-* 类名约定 + 非交互说明）+ `build_plan_slides_tool = Tool(llm=True, output_model=SlideSpec, default_data=_DEFAULT_SPEC_DATA)`，复用 `run_tool` 修复链（重试≤3->降级）。[__init__.py](backend/app/tools/__init__.py) 注册（不在 PIPELINE，export 调用）。测试 +3（注册 / LLM 合法 spec->ok / LLM 非法->降级 repaired+默认）。全量 157 测试通过（154+3），零回归。commit `cc6a374`。待做：iter 31 export format=slides 端点 + 前端。
