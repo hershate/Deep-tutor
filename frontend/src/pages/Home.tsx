@@ -4,14 +4,20 @@ import { ApiError, createSession, deleteSession, uploadMaterial } from '../lib/a
 
 export default function Home() {
   const [rawText, setRawText] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
   const [error, setError] = useState('')
   const nav = useNavigate()
 
+  function addFiles(list: FileList | null) {
+    if (!list?.length) return
+    setFiles((prev) => [...prev, ...Array.from(list)])
+  }
+
   async function start() {
     setError('')
-    if (!rawText.trim() && !file) {
+    if (!rawText.trim() && files.length === 0) {
       setError('请输入需求描述或上传资料')
       return
     }
@@ -19,7 +25,17 @@ export default function Home() {
     try {
       const { session_id } = await createSession(rawText.slice(0, 40) || '学习方案')
       try {
-        if (file) await uploadMaterial(session_id, file)
+        // 批量导入（P2，plan/README §输入形式9）：多文件合并为一个资料集，逐份上传
+        for (let i = 0; i < files.length; i++) {
+          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].name}）…`)
+          try {
+            await uploadMaterial(session_id, files[i])
+          } catch (e) {
+            throw new Error(
+              `${files[i].name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
+            )
+          }
+        }
       } catch (uploadErr) {
         // 上传失败：清理刚建的空会话，避免孤儿堆积（重试会建新会话）
         deleteSession(session_id).catch(() => {})
@@ -29,6 +45,7 @@ export default function Home() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '创建失败')
       setLoading(false)
+      setUploadProgress('')
     }
   }
 
@@ -36,7 +53,7 @@ export default function Home() {
     <div className="space-y-6">
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">开始生成你的学习方案</h2>
-        <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD）。</p>
+        <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）。</p>
       </div>
 
       <div className="space-y-2">
@@ -54,18 +71,36 @@ export default function Home() {
 
       <div className="space-y-2">
         <label htmlFor="home-file" className="block text-sm font-medium text-slate-700">
-          学习资料（可选）
+          学习资料（可选，可多选）
         </label>
-        <div className="flex items-center gap-3">
-          <input
-            id="home-file"
-            type="file"
-            accept=".pdf,.docx,.pptx,.txt,.md"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-sm"
-          />
-          {file && <span className="text-sm text-slate-500">已选: {file.name}</span>}
-        </div>
+        <input
+          id="home-file"
+          type="file"
+          multiple
+          accept=".pdf,.docx,.pptx,.txt,.md"
+          onChange={(e) => {
+            addFiles(e.target.files)
+            e.target.value = '' // 允许再次选择同一文件
+          }}
+          className="text-sm"
+        />
+        {files.length > 0 && (
+          <ul className="space-y-1 text-sm text-slate-600">
+            {files.map((f, i) => (
+              <li key={`${f.name}-${i}`} className="flex items-center gap-2">
+                <span className="truncate">{f.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`移除 ${f.name}`}
+                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                >
+                  移除
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {error && (
@@ -79,7 +114,7 @@ export default function Home() {
         disabled={loading}
         className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        {loading ? '创建中…' : '生成学习方案'}
+        {loading ? uploadProgress || '创建中…' : '生成学习方案'}
       </button>
     </div>
   )
