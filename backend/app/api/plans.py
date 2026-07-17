@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from pathlib import Path
 
@@ -42,6 +43,10 @@ _SSE_HEADERS = {
 
 PLAN_OVERFLOW_BYTES = 512 * 1024  # plan/01 §五：>512KB 溢出文件
 
+# 心跳间隔：长 LLM 调用期间防 nginx/代理/浏览器空闲断连（plan/09 §十九）。
+# SSE 注释行 `: keepalive` 不触发前端事件，仅保活。
+_HEARTBEAT_SECONDS = 15.0
+
 
 class GenerateIn(BaseModel):
     session_id: int
@@ -52,8 +57,14 @@ class ClarifyIn(BaseModel):
     answers: dict = Field(default_factory=dict)
 
 
-def _sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+def _sse(event: str, data: dict, event_id: int | None = None) -> str:
+    """格式化一条 SSE 事件。event_id 非空时附 `id:` 行（plan/10 §十二 续接游标，递增）。"""
+    parts: list[str] = []
+    if event_id is not None:
+        parts.append(f"id: {event_id}")
+    parts.append(f"event: {event}")
+    parts.append(f"data: {json.dumps(data, ensure_ascii=False)}")
+    return "\n".join(parts) + "\n\n"
 
 
 def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
@@ -132,12 +143,20 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
     def cb(event: str, data: dict) -> None:
         queue.put_nowait((event, data))
 
+    # SSE 事件 id（递增），plan/10 §十二 断线续接游标；前端可带 Last-Event-ID 续接。
+    seq = 0
+
+    def emit(event: str, data: dict) -> str:
+        nonlocal seq
+        seq += 1
+        return _sse(event, data, event_id=seq)
+
     # 构造 LLM Provider（无 key -> 发 error SSE 并结束）
     try:
         provider = get_provider()
     except Exception as exc:  # noqa: BLE001
-        yield _sse("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
-        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id)
+        yield emit("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
+        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
         db.close()
         return
 
@@ -156,27 +175,34 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
         orch.run(args_by_tool, start_tool="understand_intent", initial_upstream=initial_upstream)
     )
     try:
+        last_send = time.monotonic()
         while True:
             if task.done():
                 while not queue.empty():
                     e, d = queue.get_nowait()
-                    yield _sse(e, d)
+                    yield emit(e, d)
+                    last_send = time.monotonic()
                 break
             try:
                 e, d = await asyncio.wait_for(queue.get(), timeout=0.2)
-                yield _sse(e, d)
+                yield emit(e, d)
+                last_send = time.monotonic()
             except asyncio.TimeoutError:
+                # 心跳：长 LLM 调用期间防 nginx/代理/浏览器空闲断连
+                if time.monotonic() - last_send > _HEARTBEAT_SECONDS:
+                    yield ": keepalive\n\n"
+                    last_send = time.monotonic()
                 continue
 
         result = await task
         if result.status == "done":
             _persist_tool_calls(db, session_id, trace_id, result.outputs)
             plan_id = _persist_plan(db, session_id, result.plan)
-            yield _sse(
+            yield emit(
                 "done",
                 {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(budget.spent, 6)}},
             )
-            _set_state(db, session_id, models.OrchestratorStatus.done, trace_id)
+            _set_state(db, session_id, models.OrchestratorStatus.done, trace_id, last_event_id=str(seq))
         elif result.status == "paused_clarify":
             _persist_tool_calls(db, session_id, trace_id, result.outputs)
             raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
@@ -184,16 +210,16 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
                 "raw_text": raw_text,
                 "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
             }
-            _set_state(db, session_id, models.OrchestratorStatus.paused_clarify, trace_id, partial=partial)
+            _set_state(db, session_id, models.OrchestratorStatus.paused_clarify, trace_id, partial=partial, last_event_id=str(seq))
             # clarify_needed 已由编排器 emit
         else:
             msg = result.errors[-1] if result.errors else "生成失败"
-            yield _sse("error", {"code": "generation_failed", "message": msg, "stage": ""})
-            _set_state(db, session_id, models.OrchestratorStatus.error, trace_id)
+            yield emit("error", {"code": "generation_failed", "message": msg, "stage": ""})
+            _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
     except Exception as exc:  # noqa: BLE001
         log.exception("generate 流异常: %s", exc)
-        yield _sse("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
-        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id)
+        yield emit("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
+        _set_state(db, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(seq))
     finally:
         db.close()
 
@@ -204,6 +230,7 @@ def _set_state(
     status: models.OrchestratorStatus,
     trace_id: str,
     partial: dict | None = None,
+    last_event_id: str | None = None,
 ) -> None:
     state = db.get(models.OrchestratorState, session_id)
     if state is None:
@@ -214,6 +241,8 @@ def _set_state(
         state.trace_id = trace_id
     if partial is not None:
         state.partial_plan = partial
+    if last_event_id is not None:
+        state.last_event_id = last_event_id
     db.commit()
 
 

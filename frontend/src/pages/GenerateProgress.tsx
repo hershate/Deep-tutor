@@ -18,11 +18,14 @@ export default function GenerateProgress() {
   const [error, setError] = useState('')
   const [cost, setCost] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+  // 是否已收到终态事件（done/error/budget_exceeded/clarify_needed）；用于检测静默断连
+  const terminalRef = useRef(false)
 
   useEffect(() => {
     if (!sessionId) return
     const ac = new AbortController()
     abortRef.current = ac
+    terminalRef.current = false
     setSteps([])
     setStatus('running')
 
@@ -43,23 +46,36 @@ export default function GenerateProgress() {
           const c = (data.metadata as { cost?: number })?.cost
           if (typeof c === 'number') setCost((x) => x + c)
         } else if (event === 'clarify_needed') {
+          terminalRef.current = true
           nav(`/clarify/${sessionId}`, { state: { questions: data.questions } })
         } else if (event === 'done') {
+          terminalRef.current = true
           setStatus('done')
           nav(`/plans/${data.plan_id}`)
         } else if (event === 'error') {
+          terminalRef.current = true
           setStatus('error')
           setError(String(data.message ?? '生成失败'))
         } else if (event === 'budget_exceeded') {
+          terminalRef.current = true
           setStatus('error')
           setError('预算超限，生成中断')
         }
       },
       ac.signal,
-    ).catch((e: unknown) => {
-      setStatus('error')
-      setError(e instanceof Error ? e.message : '连接失败')
-    })
+    )
+      .then(() => {
+        // 流结束但未收到终态事件，且非主动取消 -> 静默断连（代理/网络中断），提示重试
+        if (!terminalRef.current && !ac.signal.aborted) {
+          setStatus('error')
+          setError('连接中断，请重试')
+        }
+      })
+      .catch((e: unknown) => {
+        if (ac.signal.aborted) return // 主动取消/组件卸载，不计错误
+        setStatus('error')
+        setError(e instanceof Error ? e.message : '连接失败')
+      })
 
     return () => ac.abort()
   }, [sessionId, rawText, nav])

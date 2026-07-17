@@ -81,12 +81,13 @@ export const exportPlan = (planId: number, format = 'md') =>
 export const getUsage = () => apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
 
 // --- generate / clarify（SSE POST，见 lib/sse.ts）---
+// 返回流中最后的 event id（plan/10 §十二 续接游标），供断线重连带 Last-Event-ID。
 export function generateStream(
   sessionId: number,
   rawText: string,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
-) {
+): Promise<string | undefined> {
   return ssePost(`/plans/generate`, { session_id: sessionId, raw_text: rawText }, onEvent, signal)
 }
 
@@ -95,7 +96,7 @@ export function clarifyStream(
   answers: Record<string, unknown>,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
-) {
+): Promise<string | undefined> {
   return ssePost(`/plans/${sessionId}/clarify`, { answers }, onEvent, signal)
 }
 
@@ -106,8 +107,8 @@ async function ssePost(
   body: Record<string, unknown>,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
-) {
-  await openSSE(`${BASE}${path}`, {
+): Promise<string | undefined> {
+  return openSSE(`${BASE}${path}`, {
     method: 'POST',
     body: JSON.stringify(body),
     token: token(),

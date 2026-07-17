@@ -111,3 +111,44 @@ def test_generate_session_not_found(client, auth_headers, monkeypatch):
         headers=auth_headers,
     )
     assert r.status_code == 404
+
+
+def test_generate_emits_increasing_event_ids(client, auth_headers, monkeypatch):
+    """SSE 每事件带递增 id（plan/10 §十二 续接游标），终态持久化 last_event_id。"""
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学 React"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    # 解析所有 id: 行
+    ids: list[int] = []
+    for block in r.text.split("\n\n"):
+        for line in block.split("\n"):
+            if line.startswith("id: "):
+                ids.append(int(line[4:]))
+    assert ids, "SSE 未发出任何 id 行"
+    assert ids == sorted(ids), "id 非递增"
+    assert len(ids) == len(set(ids)), "id 有重复"
+
+    # done 事件应携带最大的 id
+    events = _parse_sse(r.text)
+    assert any(e == "done" for e, _ in events)
+
+    # 终态 last_event_id 持久化到 orchestrator_state
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        st = db.get(models.OrchestratorState, sid)
+        assert st is not None
+        assert st.status == models.OrchestratorStatus.done
+        assert st.last_event_id == str(ids[-1])
+    finally:
+        db.close()

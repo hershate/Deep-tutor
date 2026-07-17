@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { clarifyStream } from '../lib/api'
 
@@ -10,11 +10,13 @@ export default function Clarify() {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const terminalRef = useRef(false)
 
   function submit() {
     if (!sessionId) return
     setLoading(true)
     setError('')
+    terminalRef.current = false
     // 过滤空回答
     const filtered = Object.fromEntries(Object.entries(answers).filter(([, v]) => v.trim()))
     clarifyStream(
@@ -22,16 +24,26 @@ export default function Clarify() {
       filtered,
       (event, data) => {
         if (event === 'done') {
+          terminalRef.current = true
           nav(`/plans/${data.plan_id}`)
         } else if (event === 'error') {
+          terminalRef.current = true
           setError(String(data.message ?? '续接失败'))
           setLoading(false)
         }
       },
-    ).catch((e: unknown) => {
-      setError(e instanceof Error ? e.message : '连接失败')
-      setLoading(false)
-    })
+    )
+      .then(() => {
+        // 流结束但未收到终态事件 -> 静默断连，提示重试
+        if (!terminalRef.current) {
+          setError('连接中断，请重试')
+          setLoading(false)
+        }
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : '连接失败')
+        setLoading(false)
+      })
   }
 
   return (
