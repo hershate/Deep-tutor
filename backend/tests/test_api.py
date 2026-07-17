@@ -183,6 +183,7 @@ def test_request_body_size_limit(client, auth_headers, monkeypatch):
     )
     assert r.status_code == 413
     assert r.json()["error"]["code"] == "payload_too_large"
+    assert "details" in r.json()["error"]  # 与统一错误格式一致（含 details）
 
 
 # --- materials: url (SSRF) ---

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Iterator
 
 from fastapi import Header, HTTPException, status
@@ -28,7 +29,8 @@ async def require_auth(
         token = authorization[7:].strip()
     elif x_auth_token:
         token = x_auth_token
-    if not token or token != settings.auth_token:
+    # 常量时间比较防时序攻击（secrets.compare_digest）
+    if not token or not secrets.compare_digest(token, settings.auth_token):
         raise HTTPException(status_code=401, detail="invalid auth token")
 
 

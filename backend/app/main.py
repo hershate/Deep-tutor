@@ -68,7 +68,7 @@ def create_app() -> FastAPI:
             try:
                 if int(cl) > _MAX_BODY_BYTES:
                     return JSONResponse(
-                        {"error": {"code": "payload_too_large", "message": "请求体超上限"}},
+                        {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
                         status_code=413,
                     )
             except ValueError:
