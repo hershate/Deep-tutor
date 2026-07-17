@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P2 进行中（自学材料 iter 34-36、测验 iter 37-38、进度 iter 39-40 均闭环，199 测试）。下一迭代：iter 41 批量导入。延后：quizzes/quiz_attempts/study_units/study_materials 表持久化、StudyMaterialReader、学习中心独立页（/learn/:planId，plan/03 §二）、learning_logs 打卡、真机 Anthropic 冒烟（需 key）。详见 §五 2026-07-18 iter 40 条。
+**当前下一步**：**P2 已完成**（练习/测验生成 iter 37-38、进度跟踪+掌握度评估 iter 39-40、自学材料 iter 34-36、批量导入 iter 41，200 测试）。下一迭代方向待用户确认：P3（图片 OCR + 音视频转写，plan/README §五）或 P2 延后项回填（quizzes/quiz_attempts/study_units/study_materials 表持久化、StudyMaterialReader、学习中心独立页 /learn/:planId、learning_logs 打卡）。真机 Anthropic 冒烟仍需 key（P1 步骤 8 唯一剩余）。详见 §五 2026-07-18 iter 41 条。
 
 ---
 
@@ -26,7 +26,7 @@
 | Phase | 目标 | 状态 |
 |---|---|---|
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
-| P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | 🟡 进行中（自学材料 MVP 完成，iter 34-36） |
+| P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | P3 | 图片 OCR + 音视频转写 | ⬜ 未开始 |
 | P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ⬜ 未开始 |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 P2 批量导入（iter 41，P2 收官）**：plan/README §输入形式9「多文件合并为一个资料集」。后端本已支持多资料（[plans.py](backend/app/api/plans.py) `_load_parsed_materials` 加载会话全部资料拼接注入 understand_intent），但无 >1 资料的测试覆盖——补集成测试 `test_generate_multi_materials_concatenated`（[test_api_plans.py](backend/tests/test_api_plans.py)：两份 text 资料 -> 生成 -> understand_intent user 消息含两份全文）。commit `2cb6acf`。前端 [Home.tsx](frontend/src/pages/Home.tsx)：file input `multiple` + 已选列表（逐个移除，重复选同一文件可再入列）+ 逐份上传显示进度（上传资料 i/n + 文件名）+ 单份失败报文件名并清理孤儿会话（沿用 iter 28 模式）。commit `1ecfc85`。全量 200 测试通过 + 前端 build，零回归。**P2 全部完成**（练习/测验生成 ✅、进度跟踪+掌握度评估 ✅、自学材料 ✅、批量导入 ✅）。待做：方向待定——P3（图片 OCR + 音视频转写）或 P2 延后项回填（quizzes/study_units 表持久化、StudyMaterialReader、/learn 独立页、learning_logs 打卡）；真机 Anthropic 冒烟仍需 key。
 - **2026-07-18 P2 进度（iter 40，前端进度看板 + 测验回写，进度闭环）**：(1) [api.ts](frontend/src/lib/api.ts) `getProgress`/`updateProgress` + `ProgressNode`/`ProgressStatus` 类型。(2) [ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx)（新，plan/06 §五 简化版）：平均掌握度进度条（role=progressbar）+ 知识点行（掌握度%/复习日/未开始-学习中-已掌握三态切换 aria-pressed），切换 -> POST /progress 后本地重算 avg；无节点（降级方案）return null。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 新增「学习进度」区（阶段与资源之间）；测验弹窗关闭递增 `progressKey` 触发看板刷新。commit `1d1b335`。(3) [QuizModal.tsx](frontend/src/components/QuizModal.tsx) 测验回写：全部选择题判定后按 node_id 聚合正确率 -> `updateProgress`（一次性 ref 守卫；score>=0.8 -> done，与 record_progress 主观 done 下限 0.8 一致，否则 learning；无 node_id 跳过；单节点失败不阻塞，best-effort；头部 aria-live 显示「已回写进度 x/y」）。commit `7504d95`。(4) [test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) 第 11 步：POST /progress（quiz_score=1.0 -> mastery 0.7）+ GET 总览（k1 done、k2 not_started、mastery_avg 0.35）。commit `8837aef`。全量 199 测试通过 + 前端 build（352 模块），零回归。**决策**：看板内嵌 PlanDetail（plan/03 §二 /learn/:planId 独立学习中心页延后）；learning_logs 打卡未做（plan/01 表已在，P2 看板先用 mastery/status 维度）。待做：iter 41 批量导入。
 - **2026-07-18 P2 进度（iter 39，knowledge_nodes 持久化 + record_progress + 进度端点）**：接手上一会话未提交 WIP 补完闭环。(1) schema：[models.py](backend/app/db/models.py) `KnowledgeNode.sid`（String(64)，保留 plan 内容 knowledge_map 原始字符串 id 如 k1，供前端 node_id -> DB id 映射）+ 迁移 `baa9cf610047`（autogenerate，补 server_default='' 兼容既有行；开发库实测为空库，已 upgrade/downgrade 验证链）。commit `ad91dce`。(2) 持久化：[plans.py](backend/app/api/plans.py) `_persist_knowledge_nodes` 挂进 `_persist_plan`——sid/字段保留，parent_id 两遍插入回填（先建行取 id 再按 sid 映射父引用），悬空父引用忽略、缺 name 跳过、上限 100。测试 +3（[test_persist_knowledge_nodes.py](backend/tests/test_persist_knowledge_nodes.py)）。commit `ac0dd52`。(3) 进度：[record_progress.py](backend/app/tools/record_progress.py) 纯函数（掌握度加权：quiz 0.7*score+0.3*old、主观 done max(old,0.8)；SM-2-lite：mastery <0.5 +1d / <0.7 +3d / <0.85 +7d / 否则 +14d）+ [progress.py](backend/app/api/progress.py) 端点：`POST /api/progress`（覆盖写 upsert，node_id 取 sid；节点不存在 -> 忽略+warning 不报错，plan/02 §9 errors）、`GET /api/progress/{plan_id}`（全部节点合并 progress 行 + mastery_avg，plan/03 §一）。**决策**：next_review 不入库（plan/01 progress 表无此列），由 mastery+updated_at(UTC) 即时推导，日粒度、时区日界最多差 1 天可接受（docstring 已注）。测试 +13（纯函数 6 + 端点 7，[test_record_progress.py](backend/tests/test_record_progress.py)、[test_api_progress.py](backend/tests/test_api_progress.py)）。全量 199 测试通过（186+13），零回归。commit `dab3eb9`。待做：iter 40 前端进度看板 + 测验回写（QuizModal 算 choice 正确率 -> POST /progress）。
 
