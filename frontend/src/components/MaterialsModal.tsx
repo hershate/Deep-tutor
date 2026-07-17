@@ -1,9 +1,9 @@
-// 自学材料弹窗（P2，iter 44：内嵌 StudyMaterialReader 逐单元阅读）。
-// 打开：GET 单元列表 -> 空则 POST 生成（持久化，幂等）-> 再取列表；
+// 自学材料弹窗（P2，iter 44：内嵌 StudyMaterialReader 逐单元阅读；iter 47：生成改 SSE 逐单元渐进显示）。
+// 打开：GET 单元列表 -> 空则 POST 生成（SSE 逐单元进度；幂等命中返 JSON）-> 再取列表；
 // 切换深度：POST {refresh:true} 强制重生成后重取列表；关闭/卸载中止进行中请求。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import StudyMaterialReader from './StudyMaterialReader'
-import { ApiError, generateMaterials, listStudyUnits, type StudyUnitMeta } from '../lib/api'
+import { ApiError, generateMaterialsStream, listStudyUnits, type StudyUnitMeta } from '../lib/api'
 
 interface Props {
   planId: number
@@ -11,10 +11,19 @@ interface Props {
   onOpenQuiz: () => void
 }
 
+/** 逐单元生成进度（SSE unit_start/unit_done 事件驱动）。 */
+interface UnitProgress {
+  order: number
+  title: string
+  total: number
+  state: 'generating' | 'done' | 'degraded'
+}
+
 export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
   const [depth, setDepth] = useState<'brief' | 'full'>('full')
   const [loading, setLoading] = useState(true)
   const [units, setUnits] = useState<StudyUnitMeta[]>([])
+  const [progress, setProgress] = useState<UnitProgress[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const acRef = useRef<AbortController | null>(null)
@@ -27,10 +36,37 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
       setLoading(true)
       setError('')
       setWarning('')
+      setProgress([])
       ;(async () => {
-        // refresh 或尚无单元 -> 先生成（持久化；幂等时后端直接返回已存）
-        const g = await generateMaterials(planId, d, ac.signal, refresh)
-        if (!ac.signal.aborted) setWarning(g.warning ?? '')
+        // refresh 或尚无单元 -> 生成（SSE 逐单元进度；幂等命中后端直接返回 JSON）
+        await generateMaterialsStream(
+          planId,
+          d,
+          refresh,
+          {
+            onUnitStart: (u) => {
+              if (ac.signal.aborted) return
+              setProgress((prev) => [...prev, { order: u.order, title: u.title, total: u.total, state: 'generating' }])
+            },
+            onUnitDone: (u) => {
+              if (ac.signal.aborted) return
+              setProgress((prev) =>
+                prev.map((p) =>
+                  p.order === u.order ? { ...p, state: u.degraded ? 'degraded' : 'done' } : p,
+                ),
+              )
+            },
+            onDone: (r) => {
+              if (ac.signal.aborted) return
+              if (r.degraded_count > 0)
+                setWarning(`${r.degraded_count}/${r.unit_count} 个单元生成失败，已降级为简要大纲`)
+            },
+            onSync: (g) => {
+              if (!ac.signal.aborted) setWarning(g.warning ?? '')
+            },
+          },
+          ac.signal,
+        )
         const lst = await listStudyUnits(planId, ac.signal)
         if (!ac.signal.aborted) setUnits(lst.units)
       })()
@@ -121,7 +157,29 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
           </div>
         </div>
         <div className="flex min-h-[40vh] flex-1 flex-col overflow-hidden px-6 py-4">
-          {loading && <p className="text-slate-500">生成中…（逐单元组织材料，约需数十秒）</p>}
+          {loading && (
+            <div>
+              <p className="text-slate-500">生成中…（逐单元组织材料，约需数十秒）</p>
+              {progress.length > 0 && (
+                <ul aria-live="polite" className="mt-3 space-y-1 text-sm">
+                  {progress.map((p) => (
+                    <li key={p.order} className="flex items-center gap-2">
+                      <span aria-hidden="true">
+                        {p.state === 'generating' ? '⏳' : p.state === 'degraded' ? '⚠️' : '✅'}
+                      </span>
+                      <span className={p.state === 'generating' ? 'text-slate-500' : ''}>
+                        单元 {p.order}/{p.total}：{p.title}
+                        <span className="sr-only">
+                          {p.state === 'generating' ? '（生成中）' : p.state === 'degraded' ? '（已降级为简要大纲）' : '（已完成）'}
+                        </span>
+                      </span>
+                      {p.state === 'degraded' && <span className="text-amber-600">已降级为简要大纲</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {error && (
             <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
               {error}
