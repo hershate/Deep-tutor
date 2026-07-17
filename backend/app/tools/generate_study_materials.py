@@ -4,7 +4,8 @@
 - LLM 生成 StudyMaterialsSpec（每单元 content_md 按 self-study-guide 模板），Python 渲染为 markdown。
 - LLM 失败/无 provider -> 降级 default_materials_from_plan（纯 Python 默认）。
 
-iter 34：仅模型 + 默认 + 渲染（无 LLM）。LLM 工具 + 注册在 iter 35。
+简化 MVP（同 build_plan_slides 模式）：一次 LLM 调用生成全部单元规约 -> render_materials_md
+单文档 -> 前端 react-markdown。延后：DB 持久化/每单元文件/WebSearch/异步/StudyMaterialReader。
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from app.agent.registry import Tool
 
 _DEFAULT_TITLE = "学习方案"
 
@@ -101,3 +104,54 @@ def render_materials_md(spec: StudyMaterialsSpec) -> str:
         lines.append("---")
         lines.append("")
     return "\n".join(lines)
+
+
+# --- LLM 工具（iter 35）：plan -> StudyMaterialsSpec，复用 loop 修复链 ---
+
+PROMPT = """你是 Deep-tutor 的「自学材料规约生成」工具。任务：从学习方案（args.plan）生成逐单元自学材料规约（StudyMaterialsSpec JSON），供渲染为单个 markdown 文档。非交互，直接输出规约。
+
+输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,difficulty,estimated_weeks,topics[{name,why,must_learn}],milestone}]、resources[{title,url,note}]）。args.depth 可选 brief|full（默认 full；brief 时 content_md 精简为概述+要点）。
+
+仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
+{"title":"方案标题","units":[{"title":"单元名","objectives":["学完后能够..."],"prerequisites":["前置知识"],"estimated_time":"45 min","content_md":"markdown 内容"}]}
+
+规则：
+- 单元来源 plan.stages：每阶段 1-3 单元，按阶段顺序排列，总 3-12 单元；每单元对应 30-60 分钟自学量。
+- 每单元 2-4 个 objectives（以「学完后能够…」表述）；prerequisites 来自更早单元/阶段（第一单元可为 ["无"] 或基础知识）。
+- content_md 为 markdown，用 ### 级小标题，依次包含：
+  ### 概述（200-300 字：这是什么、为什么重要，日常语言）
+  ### 核心概念（每概念：通俗解释（类比/日常场景）+ 要点 + 示例）
+  ### 实践练习（基础练习 ≥2 个，由易到难；可附进阶挑战）
+  ### 检查理解（2-4 个自测问题）
+  ### 总结（150-200 字要点回顾）
+  ### 扩展阅读（仅可引用 args.plan.resources 中已有的 url，标注来源；无合适资源时写「无外部资料参考」）
+- 禁止编造 URL：扩展阅读只可引用 plan.resources 已给的 url，否则省略该节或标注「无外部资料参考」。
+- 用自己的话组织内容，不粘贴资料原文；不编造 plan 中没有的知识点。
+- 单元内容少时不强行填模板，保持简洁。
+
+仅返回符合 schema 的 JSON 对象。
+"""
+
+# 工具降级默认（LLM 失败时的静态兜底；端点在非 ok 时改用 default_materials_from_plan(plan) 渲染）
+_DEFAULT_MATERIALS_DATA = {
+    "title": "学习方案",
+    "units": [
+        {
+            "title": "概述",
+            "objectives": [],
+            "prerequisites": [],
+            "estimated_time": "",
+            "content_md": "（自学材料规约生成失败，已降级）",
+        }
+    ],
+}
+
+
+generate_study_materials_tool = Tool(
+    name="generate_study_materials",
+    llm=True,
+    skill_name=None,  # 用聚焦 inline_prompt（SKILL.md 为交互式，不宜作 spec 生成 system prompt）
+    output_model=StudyMaterialsSpec,
+    inline_prompt=PROMPT,
+    default_data=_DEFAULT_MATERIALS_DATA,
+)
