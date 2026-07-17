@@ -170,6 +170,7 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
 
         result = await task
         if result.status == "done":
+            _persist_tool_calls(db, session_id, trace_id, result.outputs)
             plan_id = _persist_plan(db, session_id, result.plan)
             yield _sse(
                 "done",
@@ -177,6 +178,7 @@ async def _stream(session_id: int, args_by_tool: dict, initial_upstream: dict) -
             )
             _set_state(db, session_id, models.OrchestratorStatus.done, trace_id)
         elif result.status == "paused_clarify":
+            _persist_tool_calls(db, session_id, trace_id, result.outputs)
             raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
             partial = {
                 "raw_text": raw_text,
@@ -213,6 +215,44 @@ def _set_state(
     if partial is not None:
         state.partial_plan = partial
     db.commit()
+
+
+def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: dict[str, ToolOutput]) -> None:
+    """持久化 tool_calls + api_usage（成本计量 Pillar 3，plan/01 §三）。批量写，失败不阻塞。"""
+    try:
+        for tool_name, out in outputs.items():
+            m = out.metadata
+            err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
+            db.add(
+                models.ToolCall(
+                    session_id=session_id,
+                    tool=tool_name,
+                    input={},
+                    output=out.data,
+                    status=out.status,
+                    error=err_msg,
+                    llm_tokens_in=m.tokens_in,
+                    llm_tokens_out=m.tokens_out,
+                    cost=m.cost,
+                    duration_ms=m.duration_ms,
+                )
+            )
+            if m.tokens_in or m.tokens_out:  # LLM 调用才记 api_usage
+                db.add(
+                    models.ApiUsage(
+                        provider="anthropic",
+                        model=m.model,
+                        tokens_in=m.tokens_in,
+                        tokens_out=m.tokens_out,
+                        cache_read=m.cache_read,
+                        cache_write=m.cache_write,
+                        cost=m.cost,
+                    )
+                )
+        db.commit()
+    except Exception:  # noqa: BLE001  审计写入失败不阻塞主流程
+        log.exception("持久化 tool_calls 失败")
+        db.rollback()
 
 
 def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
