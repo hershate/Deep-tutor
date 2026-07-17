@@ -87,6 +87,7 @@ export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'ful
 
 // 测验（P2，plan/02 §8）：同步一次 LLM 调用 -> 题目 JSON（前端交互判分）
 export interface QuizItemData {
+  id?: number // quizzes 表 DB id（iter 42 持久化后必有；判分走 /quizzes/{id}/submit）
   node_id: string
   node_name: string
   type: 'choice' | 'fill' | 'short'
@@ -99,6 +100,13 @@ export const generateQuiz = (planId: number, signal?: AbortSignal) =>
   apiFetch<{ title: string; quiz_count: number; quizzes: QuizItemData[]; warning?: string }>(
     `/plans/${planId}/quiz`,
     { method: 'POST', body: JSON.stringify({}), signal },
+  )
+
+// 提交作答（plan/03 §一）：choice 服务器判分；fill/short 自评 correct=null
+export const submitQuiz = (quizId: number, userAnswer: Record<string, unknown>) =>
+  apiFetch<{ correct: boolean | null; answer: string; explanation: string }>(
+    `/quizzes/${quizId}/submit`,
+    { method: 'POST', body: JSON.stringify({ user_answer: userAnswer }) },
   )
 
 // --- progress（P2，plan/03 §一）---

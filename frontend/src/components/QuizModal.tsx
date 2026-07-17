@@ -1,7 +1,7 @@
-// 测验弹窗（P2，plan/02 §8 简化版：choice 即时判分；fill/short 展示参考答案自评）。
-// 打开即生成；全部选择题判定后按知识点聚合正确率回写进度（POST /progress，iter 40）。
+// 测验弹窗（P2，plan/02 §8：choice 服务器判分（/quizzes/{id}/submit，iter 42）；fill/short 展示参考答案自评）。
+// 打开即生成（幂等：已持久化直接返回）；全部选择题判定后按知识点聚合正确率回写进度（POST /progress，iter 40）。
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, generateQuiz, updateProgress, type QuizItemData } from '../lib/api'
+import { ApiError, generateQuiz, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
 
 interface Props {
   planId: number
@@ -104,9 +104,20 @@ export default function QuizModal({ planId, onClose }: Props) {
     setAnswers((prev) => ({ ...prev, [i]: { ...prev[i], ...p } }))
   }
 
-  function judge(i: number, q: QuizItemData) {
+  // 判分：有 DB id 走服务器判分（/quizzes/{id}/submit，记录 attempt）；
+  // 失败/无 id 回退本地比对（不阻塞答题，但 attempt 不落库）。
+  async function judge(i: number, q: QuizItemData) {
     const a = answers[i]
     if (!a?.selected || a.judged) return
+    if (q.id !== undefined) {
+      try {
+        const r = await submitQuiz(q.id, { selected: a.selected })
+        patch(i, { judged: true, correct: r.correct === true })
+        return
+      } catch {
+        // 网络/服务器异常 -> 本地判分兜底
+      }
+    }
     patch(i, { judged: true, correct: a.selected === q.answer })
   }
 
