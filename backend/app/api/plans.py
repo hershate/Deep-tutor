@@ -754,16 +754,69 @@ async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depe
     return result
 
 
-# --- 测验（P2，plan/02 §8；简化 MVP：同步一次 LLM 调用 -> JSON，quizzes 表持久化延后）---
+# --- 测验（P2，plan/02 §8；简化 MVP：同步一次 LLM 调用 -> JSON；iter 42 起 quizzes 表持久化）---
+
+
+class QuizIn(BaseModel):
+    refresh: bool = False  # True 强制重新生成（替换旧题，attempts 级联删）
+
+
+def _persist_quizzes(db: Session, plan_id: int, spec: QuizSpec) -> list[models.Quiz]:
+    """替换式持久化：删旧题（含 attempts，FK 约束需先删）-> 插新题。
+
+    node_id 映射：payload 保留原始 sid 字符串（前端写回 /progress 用），
+    列 node_id 存 knowledge_nodes.id（sid 查不到 -> None，不阻塞出题）。
+    """
+    old_ids = [r.id for r in db.query(models.Quiz.id).filter_by(plan_id=plan_id)]
+    if old_ids:
+        db.query(models.QuizAttempt).filter(models.QuizAttempt.quiz_id.in_(old_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(models.Quiz).filter_by(plan_id=plan_id).delete(synchronize_session=False)
+    sid_map = {n.sid: n.id for n in db.query(models.KnowledgeNode).filter_by(plan_id=plan_id)}
+    rows = [
+        models.Quiz(
+            plan_id=plan_id,
+            node_id=sid_map.get(q.node_id),
+            type=models.QuizType(q.type),
+            payload=q.model_dump(),
+        )
+        for q in spec.quizzes
+    ]
+    db.add_all(rows)
+    db.commit()
+    for r in rows:
+        db.refresh(r)
+    return rows
+
+
+def _quiz_result(rows: list[models.Quiz], content: dict, spec_title: str | None = None) -> dict:
+    """quizzes 行 -> 响应（payload + DB id）。title：生成路径用 spec 标题；
+    持久化重读路径由 intent 推算（title 不入库，与 default_quiz_from_plan 同式）。"""
+    intent = content.get("intent") or {}
+    title = spec_title or f"{intent.get('topic') or '学习方案'}测验"
+    return {
+        "title": title,
+        "quiz_count": len(rows),
+        "quizzes": [{**(r.payload or {}), "id": r.id} for r in rows],
+    }
 
 
 @router.post("/{plan_id}/quiz")
-async def generate_quiz_endpoint(plan_id: int, db: Session = Depends(get_db)) -> dict:
-    """生成测验：run_tool 生成 QuizSpec（LLM，降级默认），返回 JSON 供前端交互判分。
+async def generate_quiz_endpoint(
+    plan_id: int, body: QuizIn | None = None, db: Session = Depends(get_db)
+) -> dict:
+    """生成测验：run_tool 生成 QuizSpec（LLM，降级默认）并持久化 quizzes 表，返回 JSON 供前端交互判分。
 
-    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_quiz_from_plan 纯 Python 默认（稳定兜底）。
+    幂等：已持久化且未指定 refresh -> 直接返回已存题（免重复 LLM 成本）。
+    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_quiz_from_plan 纯 Python 默认（稳定兜底，同样落库）。
     """
     plan, content = _plan_or_404(db, plan_id)
+    refresh = bool(body and body.refresh)
+
+    existing = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
+    if existing and not refresh:
+        return _quiz_result(existing, content)
 
     try:
         provider = get_provider()
@@ -789,11 +842,8 @@ async def generate_quiz_endpoint(plan_id: int, db: Session = Depends(get_db)) ->
     else:
         spec = default_quiz_from_plan(content)
 
-    result: dict = {
-        "title": spec.title,
-        "quiz_count": len(spec.quizzes),
-        "quizzes": [q.model_dump() for q in spec.quizzes],
-    }
+    rows = _persist_quizzes(db, plan.id, spec)
+    result = _quiz_result(rows, content, spec_title=spec.title)
     if spec_out.status != "ok":
         result["warning"] = "测验题生成降级，使用默认自测题"
     return result
