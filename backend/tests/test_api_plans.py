@@ -86,6 +86,40 @@ def test_generate_happy_path(client, auth_headers, monkeypatch):
     assert isinstance(plan, dict)
 
 
+def test_generate_multi_materials_concatenated(client, auth_headers, monkeypatch):
+    """批量导入（P2，plan/README §输入形式9）：多份资料全部拼接注入 understand_intent。"""
+    from app.api import plans as plans_mod
+
+    class CaptureProvider(LLMProvider):
+        def __init__(self) -> None:
+            self.i = 0
+            self.first_user = ""
+
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            if self.i == 0:
+                self.first_user = user
+            r = _CANNED[self.i]
+            self.i += 1
+            return r
+
+    provider = CaptureProvider()
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    sid = _session(client, auth_headers)
+    for text in ("资料甲：变量与函数。", "资料乙：组件与状态。"):
+        r = client.post("/api/materials/text", json={"session_id": sid, "text": text}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+    r = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学 React"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert "done" in [e for e, _ in _parse_sse(r.text)]
+    # understand_intent 的 user 消息（args.parsed + upstream.parse_material）含两份资料全文
+    assert "资料甲：变量与函数。" in provider.first_user
+    assert "资料乙：组件与状态。" in provider.first_user
+
+
 def test_generate_no_provider_emits_error(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
