@@ -192,6 +192,7 @@ class KnowledgeNode(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)
+    sid: Mapped[str] = mapped_column(String(64), default="")  # plan 内容 knowledge_map 中的原始字符串 id（如 "k1"）
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     difficulty: Mapped[int] = mapped_column(Integer, default=1)  # 1-5
     must_learn: Mapped[bool] = mapped_column(Boolean, default=False)
