@@ -1,5 +1,6 @@
 // 自学材料弹窗（P2，plan/07 §六 简化版：单文档 markdown + react-markdown 渲染）。
-// 打开即生成（depth=full）；切换深度重新生成；关闭/卸载时中止进行中请求。
+// 打开即取（幂等：iter 43 起已持久化直接返回，免重复 LLM 成本）；切换深度强制重新生成；
+// 关闭/卸载时中止进行中请求。逐单元阅读器（StudyMaterialReader）在 iter 44。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
@@ -20,14 +21,14 @@ export default function MaterialsModal({ planId, onClose }: Props) {
   const acRef = useRef<AbortController | null>(null)
 
   const run = useCallback(
-    (d: 'brief' | 'full') => {
+    (d: 'brief' | 'full', refresh = false) => {
       acRef.current?.abort() // 中止上一次进行中请求
       const ac = new AbortController()
       acRef.current = ac
       setLoading(true)
       setError('')
       setWarning('')
-      generateMaterials(planId, d, ac.signal)
+      generateMaterials(planId, d, ac.signal, refresh)
         .then((r) => {
           if (ac.signal.aborted) return
           setMarkdown(r.markdown)
@@ -45,7 +46,7 @@ export default function MaterialsModal({ planId, onClose }: Props) {
   )
 
   useEffect(() => {
-    run('full')
+    run('full') // 打开：已持久化则直接返回（幂等，免重复 LLM 成本）
     return () => acRef.current?.abort() // 卸载中止
   }, [run])
 
@@ -83,7 +84,7 @@ export default function MaterialsModal({ planId, onClose }: Props) {
               onChange={(e) => {
                 const d = e.target.value as 'brief' | 'full'
                 setDepth(d)
-                run(d)
+                run(d, true) // 切换深度 -> 强制重新生成（替换已持久化单元）
               }}
               disabled={loading}
               className="rounded border px-2 py-1 text-sm"

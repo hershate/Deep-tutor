@@ -77,11 +77,12 @@ export const exportPlan = (planId: number, format = 'md') =>
     { method: 'POST', body: JSON.stringify({ format }) },
   )
 
-// 自学材料（P2，plan/07 §五）：同步一次 LLM 调用 -> markdown（前端 react-markdown 渲染）
-export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'full', signal?: AbortSignal) =>
+// 自学材料（P2，plan/07 §五）：同步一次 LLM 调用 -> markdown（前端 react-markdown 渲染）。
+// iter 43 起幂等：已持久化直接返回；refresh=true 强制重新生成（替换旧单元）。
+export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'full', signal?: AbortSignal, refresh = false) =>
   apiFetch<{ unit_count: number; markdown: string; warning?: string }>(`/plans/${planId}/materials`, {
     method: 'POST',
-    body: JSON.stringify({ depth }),
+    body: JSON.stringify({ depth, refresh }),
     signal,
   })
 
