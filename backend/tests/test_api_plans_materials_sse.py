@@ -9,11 +9,24 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.llm.base import LLMProvider, LLMUsage
 
 from test_api_plans_materials import _make_plan, _resp, _units_of
 
 _SSE_HEADERS = {"Accept": "text/event-stream"}
+
+
+@pytest.fixture(autouse=True)
+def _stub_unit_search(monkeypatch):
+    """默认 stub 单元补充资料检索（防 .env BING_API_KEY 致测试真实联网）；单测可覆盖。"""
+    from app.api import plans as plans_mod
+
+    async def _none(query, ctx):
+        return []
+
+    monkeypatch.setattr(plans_mod, "search_unit_resources", _none)
 
 
 def _unit_resp(content_md: str):
@@ -218,3 +231,33 @@ def test_materials_sse_refresh_regenerates(client, auth_headers, monkeypatch):
     assert len(units) == 3  # 替换而非追加
     text0 = Path(units[0].materials[0].content_md_path).read_text(encoding="utf-8")
     assert "第二版。" in text0
+
+
+def test_materials_sse_unit_resources_persisted(client, auth_headers, monkeypatch):
+    """iter 48：单元 WebSearch 补充资料落库 study_materials.resources，GET /materials/{unit_id} 返回。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: _UnitProvider([_unit_resp("### 概述\n\n正文。")]))
+    canned = [
+        {"title": "React 官方文档", "url": "https://react.dev", "verified": "ok", "note": ""},
+        {"title": "某教程", "url": "https://example.com/t", "verified": "uncertain", "note": ""},
+    ]
+    seen_queries: list[str] = []
+
+    async def fake_search(query, ctx):
+        seen_queries.append(query)
+        return canned
+
+    monkeypatch.setattr(plans_mod, "search_unit_resources", fake_search)
+
+    r = _post_sse(client, auth_headers, plan_id)
+    assert _parse_sse(r.text)[-1][0] == "done"
+    # 每单元一次检索；query 含 topic（React）与阶段名
+    assert len(seen_queries) == 3
+    assert "React" in seen_queries[0] and "基础" in seen_queries[0]
+
+    unit_id = _units_of(plan_id)[0].id
+    r2 = client.get(f"/api/materials/{unit_id}", headers=auth_headers)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["resources"] == canned
