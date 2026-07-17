@@ -106,3 +106,23 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     exp = client.post(f"/api/export/{plan_id}", json={"format": "md"}, headers=auth_headers).json()
     assert exp["format"] == "md"
     assert Path(exp["file_url"]).exists()
+
+    # 8. 导出 slides（build_plan_slides LLM -> 渲染自包含 HTML）
+    from app.api import exports as exports_mod
+    from app.core import settings as settings_mod
+
+    class _SlidesProvider(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return _resp(
+                '{"title":"React","theme":{"--bg":"#0a0e1a","--accent":"#3b82f6"},'
+                '"transition":"trans-fade","slides":['
+                '{"title":"React","content_html":"<p>零基础</p>","layout":"center","animation":"anim-fade-in"}]}'
+            )
+
+    monkeypatch.setattr(exports_mod, "get_provider", lambda: _SlidesProvider())
+    monkeypatch.setattr(settings_mod.settings, "skills_dir", str(Path(__file__).resolve().parents[2] / "skills"))
+    exp_slides = client.post(f"/api/export/{plan_id}", json={"format": "slides"}, headers=auth_headers).json()
+    assert exp_slides["format"] == "html"
+    assert exp_slides["slide_count"] >= 1
+    assert "<html" in exp_slides["html"]
+    assert "React" in exp_slides["html"]
