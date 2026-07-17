@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 - 前端 P0 页面（首页/上传、澄清、生成进度 SSE、方案详情、设置），对接已完成的 API。详见 §4.6。
+**当前下一步**：步骤 7 进行中（前端）-- P0 页面已建（Home/GenerateProgress/Clarify/PlanDetail，build 通过）；待做 Settings/用量 UI、SSE 断线续接、无障碍、端到端真机联调（步骤 8）。详见 §4.6。
 
 ---
 
@@ -86,7 +86,7 @@
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ✅ 完成 | 见 §4.4（8 工具，commit 45d194c…9de452e） |
 | 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 下一步 | 见 §4.5 |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ✅ 完成 | 见 §4.6（P0 API 全完成，5 次迭代，91 测试） |
-| 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | 🟡 下一步 | 见 §4.6 |
+| 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | 🟡 进行中 | 见 §4.6（P0 页面已建，build 通过） |
 | 8 | 端到端联调 + 冒烟测试 | `test: e2e smoke for plan generation` | ⬜ | - |
 
 ### 4.1 步骤 1 - 建骨架（✅ 完成）
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-16 步骤 7 进行中**：前端 P0 页面（iter1）。Home（需求描述+文件上传->建会话）、GenerateProgress（消费 SSE 实时展示工具步骤+token/费用、clarify/done/error 路由）、Clarify（逐问回答->续接）、PlanDetail（意图/阶段卡/资源✅⚠️❌/校验报告+导出）。lib/api.ts Bearer 全端点、lib/sse.ts 支持 POST 流式、lib/types.ts。修复 orchestrator._assemble（组装完整方案组件）。frontend `npm run build` 通过（tsc+产物）。待做：Settings/用量 UI、SSE 续接、无障碍、步骤 8 端到端联调。commit: 见 8f3d…段。
 - **2026-07-16 步骤 6 完成**：API 层 P0 全完成（5 次迭代）。errors 统一格式 + storage 路径安全(R20)；sessions/materials（Bearer 鉴权、大小/magic/SSRF 校验）；/plans/generate SSE（编排器+事件回调->SSE、运行态 409 R33、plan 持久化溢出、状态机）；/plans 列表/详情；/export；/clarify 澄清续接（partial_plan 重建 upstream）；/usage + tool_calls/api_usage 持久化（Pillar 3 端到端可见）。Orchestrator.run 加 start_tool+initial_upstream（支持续接/重生成）。全量 91 快速测试通过。commits: 9cb07f6…f4fc3c5 段。待办：/regenerate（P1）。
 - **2026-07-16 步骤 4 完成**：P0 工具链 8 工具全部实现（每工具独立 commit）。parse_material（PDF via Marker + docx/pptx/txt/md/text/url）、understand_intent、build_knowledge_map（断环/去悬空/截断）、design_stages（3-6 阶段 validator 触发修复）、validate_plan（5 项校验驱动反馈循环）、export_plan（md）、schedule_plan（确定性时长校验）、search_resources+verify_url（Bing + SSRF 防护）。Tool 加 inline_prompt + post_process(data,inp)；全量 70 快速测试 + 1 marker 集成测试通过。commits: 45d194c 2d8aa22 0bdd18b d33b1be 1be7cb1 5a7b4a4 568a6c2 9de452e。
 - **2026-07-16 步骤 3 完成**：Agent 循环骨架。两层执行模型落地：内层 `run_tool`（LLM 工具 system=Skill+cache_control、JSON 解析+pydantic 校验、工具调用修复重试≤3->降级；Python 工具 func；超时/取消/异常统一兜底；跨重试累加 usage），外层 `Orchestrator`（固定 pipeline + 字段覆盖 L4 + 反馈循环≤2 + 预算中断 + 澄清暂停 + SSE 事件回调）。`registry/context/budget/cost` 配套。17 项单测全过（全量 26）。commit `a46e1e0`。
