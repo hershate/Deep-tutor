@@ -171,6 +171,20 @@ def test_read_capped_returns_within_limit():
     assert out == b"hello"
 
 
+def test_request_body_size_limit(client, auth_headers, monkeypatch):
+    """超大请求体（Content-Length 超限）-> 413，路由解析前拒（防 OOM）。"""
+    from app import main as main_mod
+
+    monkeypatch.setattr(main_mod, "_MAX_BODY_BYTES", 10)
+    r = client.post(
+        "/api/materials/text",
+        json={"session_id": 1, "text": "x" * 100},
+        headers=auth_headers,
+    )
+    assert r.status_code == 413
+    assert r.json()["error"]["code"] == "payload_too_large"
+
+
 # --- materials: url (SSRF) ---
 
 

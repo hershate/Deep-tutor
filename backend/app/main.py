@@ -9,12 +9,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import api_router
 from app.core.logging import setup_logging
 from app.core.settings import settings
 from app.db.base import init_db
 from app.skills.loader import get_skill_registry
+
+# 请求体大小上限（防超大 JSON/multipart 体 OOM）：上传限额 + multipart 开销余量。
+# Content-Length 预检在路由解析前拒，避免 Starlette 全量读取 body 入内存。
+_MAX_BODY_BYTES = settings.max_upload_bytes + 5 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -54,6 +59,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
     )
+
+    # 请求体大小限制（Content-Length 预检，防超大 body OOM；路由解析前拒）
+    @app.middleware("http")
+    async def _limit_request_body(request, call_next):
+        cl = request.headers.get("content-length")
+        if cl:
+            try:
+                if int(cl) > _MAX_BODY_BYTES:
+                    return JSONResponse(
+                        {"error": {"code": "payload_too_large", "message": "请求体超上限"}},
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
+        return await call_next(request)
 
     app.include_router(api_router)
 
