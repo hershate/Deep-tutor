@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 进行中（前端）-- P0 页面已建 + SSE 稳定性基础完成（事件 id 游标 / 心跳保活 / 静默断连检测，plan/10 §十二）；待做 SSE 断线续接完整版（重放端点 + 指数退避重连≤3，plan/06 §七）、Settings/用量 UI、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 条。
+**当前下一步**：步骤 7 进行中（前端）-- P0 页面 + SSE 稳定性基础（事件 id 游标 / 心跳 / 静默断连检测）+ 终态快路径（done/paused_clarify/error 重连不重跑，plan/10 §十二）均完成；待做 SSE 续接完整版（事件缓冲 + running 态重放/挂接 + 前端指数退避重连≤3，plan/06 §七）、Settings/用量 UI、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 步骤 7 进行中（iter 3，SSE 终态快路径）**：落地 plan/10 §十二 终态快路径（稳定性：防重复生成）。后端 [plans.py](backend/app/api/plans.py)：`generate` 端点在 running 冲突检查后增 `_terminal_event` 快路径 -- `done` 查最新 plan 回放 `done {plan_id}`（不重跑，无新 plan）；`paused_clarify` 从 partial_plan 提取 `clarify_questions` 回放 `clarify_needed`；`error`/`interrupted` 回放终态 `error {code:previous_failed}`（不自动重跑，因硬刷新会丢 raw_text）；`idle`/状态不一致 -> 正常生成。新增 `_terminal_stream`（单事件即关闭）、`_clarify_questions_from_state`。前端无需改动（已处理 done/clarify_needed/error 事件）。测试：+3（done/paused_clarify/error 快路径），全量 96 后端测试通过。待做：SSE 续接完整版（事件缓冲 + running 重放 + 前端指数退避重连≤3）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 2，SSE 稳定性基础）**：落地 plan/10 §十二 断线续接游标基础（稳定性优先）。后端 [plans.py](backend/app/api/plans.py)：`_sse` 增 `event_id` 参数，每事件附递增 `id:` 行；`_stream` 加 `seq` 计数 + `emit` 闭包；空闲 >15s 发 `: keepalive` 心跳防 nginx/代理/浏览器空闲断连；终态持久化 `last_event_id` 到 `orchestrator_state`（DB 已有该列）。前端 [sse.ts](frontend/src/lib/sse.ts)：跟踪并返回 last event id（供续接回传 `Last-Event-ID`）；[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) / [Clarify.tsx](frontend/src/pages/Clarify.tsx) 增 `terminalRef` 检测静默断连（流结束未收到终态事件且非主动取消 -> 提示「连接中断，请重试」），`.catch` 守护主动取消/卸载。测试：+1（事件 id 递增 + `last_event_id` 持久化），全量 93 后端测试通过；前端 build 通过。待做：SSE 续接完整版（后端事件缓冲 + GET 重放端点 + 终态快路径 + 前端指数退避重连≤3）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-16 步骤 7 进行中**：前端 P0 页面（iter1）。Home（需求描述+文件上传->建会话）、GenerateProgress（消费 SSE 实时展示工具步骤+token/费用、clarify/done/error 路由）、Clarify（逐问回答->续接）、PlanDetail（意图/阶段卡/资源✅⚠️❌/校验报告+导出）。lib/api.ts Bearer 全端点、lib/sse.ts 支持 POST 流式、lib/types.ts。修复 orchestrator._assemble（组装完整方案组件）。frontend `npm run build` 通过（tsc+产物）。待做：Settings/用量 UI、SSE 续接、无障碍、步骤 8 端到端联调。commit: 见 8f3d…段。
 - **2026-07-16 步骤 6 完成**：API 层 P0 全完成（5 次迭代）。errors 统一格式 + storage 路径安全(R20)；sessions/materials（Bearer 鉴权、大小/magic/SSRF 校验）；/plans/generate SSE（编排器+事件回调->SSE、运行态 409 R33、plan 持久化溢出、状态机）；/plans 列表/详情；/export；/clarify 澄清续接（partial_plan 重建 upstream）；/usage + tool_calls/api_usage 持久化（Pillar 3 端到端可见）。Orchestrator.run 加 start_tool+initial_upstream（支持续接/重生成）。全量 91 快速测试通过。commits: 9cb07f6…f4fc3c5 段。待办：/regenerate（P1）。
