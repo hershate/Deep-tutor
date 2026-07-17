@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P1 `/regenerate` 前后端闭环 + 局部重生成 scope 修复完成（端点 + 前端 UI，118 测试）；待做真机 Anthropic 冒烟（需 key）、Step 5 Skill 层 / slides。详见 §五 2026-07-17 iter 15 条。
+**当前下一步**：Step 5 Skill 层进行中（iter 16 加载器基础设施落地，128 测试）；待做：生成 `deep-tutor-*` Skill 内容（iter 17+，待决 skill-for-skills 调用方式）、vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 16 条。
 
 ---
 
@@ -84,7 +84,7 @@
 | 2 | LLM Provider 抽象 + Anthropic 实现 | `feat(llm): provider abstraction + anthropic` | ✅ 完成 | 见 §4.2（commit `44c110b`） |
 | 3 | Agent 循环骨架（工具注册+调用修复+成本计量+预算守卫） | `feat(agent): core loop with tool-call repair and cost tracking` | ✅ 完成 | 见 §4.3（commit `a46e1e0`） |
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ✅ 完成 | 见 §4.4（8 工具，commit 45d194c…9de452e） |
-| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 下一步 | 见 §4.5 |
+| 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 进行中 | 见 §4.5（iter 16 加载器落地，128 测试；待生成 Skill 内容） |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ✅ 完成 | 见 §4.6（P0 API 全完成，5 次迭代，91 测试） |
 | 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | ✅ 完成 | 见 §五（P0 页面 + SSE 续接 + Usage/Settings + a11y） |
 | 8 | 端到端联调 + 冒烟测试 | `test: e2e smoke for plan generation` | 🟡 进行中 | 见 §五（mock 冒烟完成，110 测试；真机 Anthropic 冒烟待 key） |
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 Step 5 进行中（iter 16，Skill 加载器基础设施）**：落地 plan/05 §三 Skill 层基础设施（**不生成 Skill 内容**，向后兼容）。新增 [loader.py](backend/app/skills/loader.py)：`load_skills(skills_dir)->dict` 纯函数（扫描 `<name>/SKILL.md`，逐行剥 frontmatter，name 取 frontmatter `name:` 或目录名，BOM/CRLF 容忍，单文件失败跳过+告警，缺目录返 `{}`，**永不抛**）+ `get_skill_registry()` 模块缓存 + `reset_skill_registry()` 测试隔离。[main.py](backend/app/main.py) lifespan 启动扫描 + 日志加载数。[plans.py](backend/app/api/plans.py) `_run_start` 注入 `skill_registry=get_skill_registry() or None`（空->None->loop 走 inline_prompt，**零行为变更**；loop 三级回退 skill->inline->默认 不动）。[conftest.py](backend/tests/conftest.py) `isolate` 每测 `reset_skill_registry()`。[test_skill_loader.py](backend/tests/test_skill_loader.py) +10（frontmatter/无/回退/空正文/缺目录/无 SKILL.md/重名/剥 frontmatter/BOM/CRLF）。全量 128 测试通过（118+10），零回归。风险已逐项排查：路径解析沿用 CWD 约定（Docker 绝对/测试 temp/dev 方式1 项目根；dev 方式2 优雅降级不崩）；缓存事件循环单线程读写无竞态；仅 `_run_start` 注入（exports/materials 纯 Python 不需）。commit `7d1a0d0`。待做：生成 `deep-tutor-*` Skill 内容（待决 skill-for-skills 会话内调用 vs 手工编写）。
 - **2026-07-17 稳定性修复（iter 15，regenerate 局部重生成 scope 失效）**：审计发现 [plans.py](backend/app/api/plans.py) `_run_start` 硬编码 `start_tool="understand_intent"`，致 `/regenerate` 的 scope 被忽略 -- 无论 scope 为何都从 understand_intent 全量重跑（5 次 LLM 调用，应为 3 次），违反 plan/10 §十三「重跑范围最小化：从受影响工具起级联重跑其下游」，且无谓重跑 understand_intent/build_knowledge_map（本应保留的上游可能被 LLM 改写）+ 浪费成本。修复：`_run_start` 增 `start_tool: str = "understand_intent"` 参数（generate/clarify 默认值不变），`regenerate` 传 `start_tool=body.scope`。测试 `test_regenerate_partial_rerun` 改用共享 provider 单例（旧 `lambda: RegenProvider()` 每次新建实例，致 5+3 响应分割失效、掩盖 bug）+ 增 `assert provider.i == 8`（5 初始 + 3 重生成）显式验证 scope 起跑；已验证回退修复则测试失败（IndexError 耗尽响应）。全量 118 后端测试通过。
 - **2026-07-17 稳定性加固（iter 14，取消线程安全 + DELETE 先取消）**：[plans.py](backend/app/api/plans.py) 抽出 `cancel_running_generation(sid)->bool`，改用 `task.get_loop().call_soon_threadsafe(task.cancel)`（同步调用方如 DELETE /sessions 跑线程池，跨线程/跨循环，旧 `task.cancel()` 仅同事件循环内安全）；`cancel` 端点改用之。[sessions.py](backend/app/api/sessions.py) DELETE /sessions 删行前先 `cancel_running_generation`，防僵尸编排器任务 `_finalize` 撞已删会话 FK（plan/10 §十一 running 态冲突）。测试 +1（`test_cancel_running_generation_schedules_cancel`：无 task/活动/终态/不存在 四情形），全量 118 后端测试通过。commit `dc92b7e`。
 - **2026-07-17 P1（iter 13，重生成前端 UI）**：落地 /regenerate 前端，前后端闭环。[api.ts](frontend/src/lib/api.ts) `regenerateStream`（复用 `ssePostWithReconnect` 断线重连）。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 增重生成区：scope `<select>`（design_stages/search_resources/schedule_plan/validate_plan）+ feedback `<textarea>` + 按钮；`done` -> nav 新 plan；error/budget_exceeded -> `regenError` 内联（**独立于加载 error**，不触发早返回覆盖方案视图）；卸载 `abort` 清理。label/htmlFor 关联 + `role="alert"`。前端 build 通过（91 模块）。
