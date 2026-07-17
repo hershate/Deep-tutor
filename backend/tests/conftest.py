@@ -24,6 +24,9 @@ def isolate():
     from app.db.base import Base, engine
 
     plans_mod._STREAMS.clear()  # 内存事件缓冲跨测试隔离
+    from app.skills.loader import reset_skill_registry
+
+    reset_skill_registry()  # Skill 注册表缓存跨测试隔离
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     p = Path(_TEST_DATA)

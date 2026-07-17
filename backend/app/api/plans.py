@@ -28,6 +28,7 @@ from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
 from app.llm import get_provider
+from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.base import ToolOutput
 
@@ -475,6 +476,7 @@ async def _run_start(
         trace_id=trace_id,
         registry=registry,
         llm_provider=provider,
+        skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
         budget=budget,
     )
     orch = Orchestrator(

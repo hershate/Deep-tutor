@@ -14,6 +14,7 @@ from app.api import api_router
 from app.core.logging import setup_logging
 from app.core.settings import settings
 from app.db.base import init_db
+from app.skills.loader import get_skill_registry
 
 
 @asynccontextmanager
@@ -31,7 +32,8 @@ async def lifespan(app: FastAPI):
         )
     settings.ensure_dirs()
     init_db()
-    log.info("Deep-tutor 后端启动完成 (model=%s)", settings.anthropic_model)
+    skills = get_skill_registry()  # plan/05 §三.2 启动扫描 skills/ -> 注册表
+    log.info("Deep-tutor 后端启动完成 (model=%s, skills=%d)", settings.anthropic_model, len(skills))
     yield
     log.info("Deep-tutor 后端关闭")
 
