@@ -7,7 +7,13 @@ from __future__ import annotations
 
 import asyncio
 
-from app.api.plans import _MAX_BUFFERED_EVENTS, _SessionStream, _relay
+from app.api.plans import (
+    _MAX_BUFFERED_EVENTS,
+    _STREAMS,
+    _SessionStream,
+    _relay,
+    cancel_running_generation,
+)
 
 
 # --- _SessionStream 同步语义 ---
@@ -152,5 +158,46 @@ def test_relay_ignores_keepalive_comment_in_event_logic():
         chunk = await gen.__anext__()
         assert "tool_start" in chunk
         await gen.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_cancel_running_generation_schedules_cancel():
+    """cancel_running_generation 在任务所属循环上调度 cancel（线程安全；无活动任务 -> False）。"""
+
+    async def scenario():
+        s = _SessionStream(999, "t")
+        _STREAMS[999] = s
+        # 无 task -> False
+        assert cancel_running_generation(999) is False
+
+        async def slow():
+            await asyncio.sleep(100)
+
+        # 活动任务 -> True，且取消生效
+        task = asyncio.create_task(slow())
+        s.task = task
+        assert cancel_running_generation(999) is True
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert task.cancelled()
+
+        # 终态（task 存在但 terminal）-> False
+        s2 = _SessionStream(998, "t")
+        _STREAMS[998] = s2
+        t2 = asyncio.create_task(slow())
+        s2.task = t2
+        s2.mark_terminal(1)
+        assert cancel_running_generation(998) is False
+        t2.cancel()
+        try:
+            await t2
+        except asyncio.CancelledError:
+            pass
+
+        # 不存在的会话 -> False
+        assert cancel_running_generation(12345) is False
 
     asyncio.run(scenario())

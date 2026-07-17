@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_default_user, require_auth
 from app.api.errors import ApiError
+from app.api.plans import cancel_running_generation
 from app.core.storage import delete_session_files
 from app.db import models
 
@@ -45,6 +46,8 @@ def delete_session(session_id: int, db: Session = Depends(get_db)) -> dict:
     sess = db.get(models.Session, session_id)
     if sess is None:
         raise ApiError("not_found", f"会话 {session_id} 不存在")
+    # running 态：先 cancel 编排器任务再删（plan/10 §十一），防僵尸任务 _finalize 撞 FK
+    cancel_running_generation(session_id)
     # 级联：DB 行（relationship cascade=all,delete-orphan）+ 文件目录
     db.delete(sess)
     db.commit()

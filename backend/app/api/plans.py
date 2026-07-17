@@ -282,6 +282,23 @@ def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> 
     )
 
 
+def cancel_running_generation(session_id: int) -> bool:
+    """取消会话运行中的生成任务（线程安全；供 cancel 端点与 DELETE /sessions 复用）。
+
+    经 `call_soon_threadsafe` 在任务所属事件循环上调度 cancel，故同步/异步调用方均安全。
+    返回是否已调度取消（无活动任务 -> False）。
+    """
+    stream = _STREAMS.get(session_id)
+    if stream is None or stream.task is None or stream.terminal_id is not None:
+        return False
+    try:
+        stream.task.get_loop().call_soon_threadsafe(stream.task.cancel)
+    except Exception:  # noqa: BLE001
+        log.warning("取消任务失败 session=%s", session_id)
+        return False
+    return True
+
+
 @router.post("/{session_id}/cancel")
 async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
     """取消运行中的生成（plan/10 §十一）。
@@ -292,10 +309,8 @@ async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
     sess = db.get(models.Session, session_id)
     if sess is None:
         raise ApiError("not_found", f"会话 {session_id} 不存在")
-    stream = _STREAMS.get(session_id)
-    if stream is None or stream.task is None or stream.terminal_id is not None:
+    if not cancel_running_generation(session_id):
         raise ApiError("conflict", "该会话无运行中的生成任务", status=409)
-    stream.task.cancel()  # 同事件循环内，安全
     return {"ok": True, "status": "cancelling"}
 
 
