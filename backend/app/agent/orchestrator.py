@@ -99,12 +99,23 @@ class Orchestrator:
 
     # ---- 公开入口 ----
 
-    async def run(self, args_by_tool: dict[str, dict[str, Any]]) -> OrchestratorResult:
-        outputs: dict[str, ToolOutput] = {}
+    async def run(
+        self,
+        args_by_tool: dict[str, dict[str, Any]],
+        start_tool: str | None = None,
+        initial_upstream: dict[str, ToolOutput] | None = None,
+    ) -> OrchestratorResult:
+        """执行 pipeline。
+
+        - start_tool：从该工具起执行（默认从头）；支持局部重生成/澄清续接（plan/10 §十三）。
+        - initial_upstream：预填充的上游输出（如已解析的 materials），跳过其上游工具。
+        """
+        outputs: dict[str, ToolOutput] = dict(initial_upstream or {})
         errors: list[str] = []
         call_count = 0
 
-        for name in PIPELINE:
+        start_idx = PIPELINE.index(start_tool) if start_tool in PIPELINE else 0
+        for name in PIPELINE[start_idx:]:
             if not self.registry.has(name):
                 continue  # 未注册的工具跳过（便于分步骤落地/测试）
             if call_count >= self.max_tool_calls:
