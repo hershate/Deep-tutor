@@ -160,3 +160,24 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     assert quiz_body["quiz_count"] == 1
     assert quiz_body["quizzes"][0]["type"] == "choice"
     assert quiz_body["quizzes"][0]["answer"] == "const"
+
+    # 11. 进度（P2）：测验回写（quiz_score）-> 掌握度加权；总览含 nodes + mastery_avg
+    prog = client.post(
+        "/api/progress",
+        json={"plan_id": plan_id, "node_id": "k1", "status": "done", "quiz_score": 1.0},
+        headers=auth_headers,
+    )
+    assert prog.status_code == 200, prog.text
+    assert prog.json()["updated"] is True
+    assert prog.json()["mastery"] == 0.7  # 0.7*1.0 + 0.3*0.0
+
+    overview = client.get(f"/api/progress/{plan_id}", headers=auth_headers)
+    assert overview.status_code == 200, overview.text
+    ov = overview.json()
+    by_sid = {n["node_id"]: n for n in ov["nodes"]}
+    assert set(by_sid) == {"k1", "k2"}
+    assert by_sid["k1"]["status"] == "done"
+    assert by_sid["k1"]["mastery"] == 0.7
+    assert by_sid["k1"]["next_review"] is not None
+    assert by_sid["k2"]["status"] == "not_started"
+    assert ov["mastery_avg"] == 0.35  # (0.7 + 0.0) / 2
