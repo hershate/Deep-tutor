@@ -90,4 +90,49 @@ async def _bing_search(query: str, api_key: str, count: int = 5) -> list[dict]:
     return [{"title": w.get("name", ""), "url": w.get("url", "")} for w in web_pages]
 
 
+MAX_PER_UNIT = 3  # 单单元补充资料上限（iter 48，plan/07 §三 步骤 2）
+
+
+async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_PER_UNIT) -> list[dict]:
+    """单自学单元 WebSearch 补充资料（plan/07 §三 步骤 2「每单元 WebSearch 补充资料」，iter 48）。
+
+    复用 `_bing_search` + `verify_url`（同 search_resources 主流程）：Bing 候选 -> 逐个校验，
+    丢弃 invalid，保留 ≤limit 条 {title,url,verified,note}。
+    无 BING_API_KEY / 空 query / 检索失败 / 无结果 -> []（不编造 URL；内容侧由 LLM 标「无外部资料参考」）。
+    """
+    if not settings.bing_api_key or not query.strip():
+        return []
+    try:
+        candidates = await _bing_search(query, settings.bing_api_key, count=limit)
+    except Exception as exc:  # noqa: BLE001  检索失败不中断单元生成
+        log.warning("单元补充资料检索失败 query=%s: %s", query, exc)
+        return []
+    resources: list[dict] = []
+    for cand in candidates:
+        if len(resources) >= limit:
+            break
+        v_inp = ToolInput(
+            tool="verify_url",
+            session_id=ctx.session_id,
+            args={"url": cand.get("url", ""), "stage_level": 1},
+        )
+        try:
+            v_out = await verify_url(v_inp, ctx)
+        except Exception as exc:  # noqa: BLE001  单候选校验失败跳过
+            log.warning("单元补充资料校验失败 url=%s: %s", cand.get("url", ""), exc)
+            continue
+        vdata = v_out.data or {}
+        if vdata.get("label") == "invalid":
+            continue  # 失效换源（同主流程）
+        resources.append(
+            {
+                "title": cand.get("title", ""),
+                "url": vdata.get("final_url", cand.get("url", "")),
+                "verified": vdata.get("label", "uncertain"),
+                "note": "",
+            }
+        )
+    return resources
+
+
 search_resources_tool = Tool(name="search_resources", llm=False, func=search_resources)

@@ -43,6 +43,7 @@ from app.tools.generate_study_materials import (
     default_materials_from_plan,
     render_materials_md,
 )
+from app.tools.search_resources import search_unit_resources
 from app.core.storage import write_unit_text
 
 log = logging.getLogger("deep_tutor.api.plans")
@@ -730,8 +731,11 @@ def _delete_study_units(db: Session, plan_id: int) -> list[str]:
     return old_paths
 
 
-def _insert_study_unit(db: Session, plan_id: int, session_id: int, order: int, u: StudyUnitSpec) -> str:
-    """插入单单元行 + 写内容文件，返回新文件路径（提交由调用方负责）。"""
+def _insert_study_unit(
+    db: Session, plan_id: int, session_id: int, order: int, u: StudyUnitSpec, resources: list | None = None
+) -> str:
+    """插入单单元行 + 写内容文件，返回新文件路径（提交由调用方负责）。
+    resources：单元 WebSearch 补充资料（iter 48），入 study_materials.resources。"""
     row = models.StudyUnit(
         plan_id=plan_id,
         title=u.title[:256],
@@ -748,6 +752,7 @@ def _insert_study_unit(db: Session, plan_id: int, session_id: int, order: int, u
             unit_id=row.id,
             content_md_path=str(path),
             size=len(u.content_md.encode("utf-8")),
+            resources=list(resources or []),
         )
     )
     return str(path)
@@ -872,7 +877,14 @@ async def _materials_sse(
             if degraded:
                 degraded_count += 1
                 unit = brief_unit_from_stage(stage, fallback_title=title)
-            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit))
+            # 单元 WebSearch 补充资料（plan/07 §三 步骤 2，iter 48）：topic + 阶段名 + 首主题；
+            # 无 key / 检索失败 -> []（不中断单元生成；内容侧由 LLM 标「无外部资料参考」）
+            query_parts = [p for p in (topic, title) if p]
+            first_topic = ((stage.get("topics") or [{}])[0] or {}).get("name") if stage else None
+            if first_topic and first_topic not in query_parts:
+                query_parts.append(first_topic)
+            resources = await search_unit_resources(" ".join(query_parts), ctx)
+            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit, resources))
             db.commit()  # 逐单元提交：断线保留已生成进度
             yield _sse("unit_done", {"order": order, "title": unit.title, "degraded": degraded})
         _cleanup_stale_material_files(old_paths, new_paths)
