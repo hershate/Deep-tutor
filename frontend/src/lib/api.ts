@@ -72,10 +72,10 @@ export const listPlans = (sessionId?: number) =>
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 
 export const exportPlan = (planId: number, format = 'md') =>
-  apiFetch<{ file_url: string; format: string; warning?: string }>(`/export/${planId}`, {
-    method: 'POST',
-    body: JSON.stringify({ format }),
-  })
+  apiFetch<{ file_url: string; format: string; warning?: string; slide_count?: number; html?: string }>(
+    `/export/${planId}`,
+    { method: 'POST', body: JSON.stringify({ format }) },
+  )
 
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>

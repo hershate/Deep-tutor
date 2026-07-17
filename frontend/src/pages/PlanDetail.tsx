@@ -27,6 +27,7 @@ export default function PlanDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
+  const [exportFormat, setExportFormat] = useState<'md' | 'slides'>('md')
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -47,8 +48,16 @@ export default function PlanDetail() {
   async function doExport() {
     if (!planId) return
     try {
-      const r = await exportPlan(Number(planId), 'md')
-      setExportUrl(r.file_url)
+      const r = await exportPlan(Number(planId), exportFormat)
+      if (exportFormat === 'slides' && r.html) {
+        // 自包含 HTML：Blob URL 新窗口打开（plan/03 §93 键盘/滚轮/点击翻页）
+        const url = URL.createObjectURL(new Blob([r.html], { type: 'text/html' }))
+        window.open(url)
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        setExportUrl('')
+      } else {
+        setExportUrl(r.file_url)
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败')
     }
@@ -90,9 +99,23 @@ export default function PlanDetail() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
-        <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
-          导出 Markdown
-        </button>
+        <div className="flex items-center gap-2">
+          <label htmlFor="export-format" className="sr-only">
+            导出格式
+          </label>
+          <select
+            id="export-format"
+            value={exportFormat}
+            onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides')}
+            className="rounded-lg border px-2 py-2 text-sm"
+          >
+            <option value="md">Markdown</option>
+            <option value="slides">幻灯片</option>
+          </select>
+          <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
+            导出
+          </button>
+        </div>
       </div>
       {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
 

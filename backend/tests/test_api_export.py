@@ -66,3 +66,61 @@ def test_export_pdf_degrades_to_md(client, auth_headers):
 def test_export_plan_not_found(client, auth_headers):
     r = client.post("/api/export/999999", json={"format": "md"}, headers=auth_headers)
     assert r.status_code == 404
+
+
+class _SlidesProvider(LLMProvider):
+    """slides 导出专用 provider（返回 SlideSpec JSON）。"""
+
+    def __init__(self, responses):
+        self._r = list(responses)
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        return self._r.pop(0) if self._r else _resp("{}")
+
+
+_REAL_SKILLS = str(Path(__file__).resolve().parents[2] / "skills")
+
+
+def test_export_slides_ok(client, auth_headers, monkeypatch):
+    """format=slides + LLM 合法规约 -> 200 + html + slide_count。"""
+    from app.api import exports as exports_mod
+    from app.core import settings as settings_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    spec_json = (
+        '{"title":"React","theme":{"--bg":"#0a0e1a","--accent":"#3b82f6"},'
+        '"transition":"trans-fade","slides":['
+        '{"title":"React","content_html":"<p>零基础</p>","layout":"center","animation":"anim-fade-in"},'
+        '{"title":"阶段1","content_html":"<ul><li>JS</li></ul>","layout":"left","animation":"anim-slide-up"}]}'
+    )
+    monkeypatch.setattr(exports_mod, "get_provider", lambda: _SlidesProvider([_resp(spec_json)]))
+    monkeypatch.setattr(settings_mod.settings, "skills_dir", _REAL_SKILLS)  # base.html 模板
+    r = client.post(f"/api/export/{plan_id}", json={"format": "slides"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["format"] == "html"
+    assert body["slide_count"] == 2
+    assert "<html" in body["html"]
+    assert "React" in body["html"]
+    assert "trans-fade" in body["html"]
+
+
+def test_export_slides_degrade_no_provider(client, auth_headers, monkeypatch):
+    """无 LLM provider（无 key）-> 降级 default_spec_from_plan，仍 200 + html + warning。"""
+    from app.api import exports as exports_mod
+    from app.core import settings as settings_mod
+
+    plan_id = _make_plan(client, auth_headers)
+
+    def _raise():
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置")
+
+    monkeypatch.setattr(exports_mod, "get_provider", _raise)
+    monkeypatch.setattr(settings_mod.settings, "skills_dir", _REAL_SKILLS)
+    r = client.post(f"/api/export/{plan_id}", json={"format": "slides"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["format"] == "html"
+    assert body["slide_count"] >= 1
+    assert "<html" in body["html"]
+    assert "warning" in body  # 降级提示
