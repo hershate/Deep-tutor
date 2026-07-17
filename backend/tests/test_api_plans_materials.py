@@ -111,3 +111,166 @@ def test_materials_invalid_depth(client, auth_headers):
     plans_mod.get_provider = lambda: CannedProvider()
     r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "verbose"}, headers=auth_headers)
     assert r.status_code == 422
+
+
+# --- iter 43：study_units/study_materials 持久化 ---
+
+_SPEC_JSON = (
+    '{"title":"React 自学材料","units":['
+    '{"title":"JS 基础","objectives":["写函数"],"prerequisites":["无"],'
+    '"estimated_time":"45 min","content_md":"### 概述\\n\\nJS 是交互逻辑。"},'
+    '{"title":"React 组件","objectives":["写组件"],"prerequisites":["JS 基础"],'
+    '"estimated_time":"60 min","content_md":"### 概述\\n\\n组件是 UI 单元。"}]}'
+)
+
+
+def _gen_materials(client, auth_headers, monkeypatch, plan_id, provider, body=None):
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    r = client.post(f"/api/plans/{plan_id}/materials", json=body or {"depth": "full"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _units_of(plan_id):
+    from sqlalchemy.orm import selectinload
+
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return (
+            db.query(models.StudyUnit)
+            .options(selectinload(models.StudyUnit.materials))
+            .filter_by(plan_id=plan_id)
+            .order_by(models.StudyUnit.order)
+            .all()
+        )
+    finally:
+        db.close()
+
+
+def test_materials_persisted_to_db_and_file(client, auth_headers, monkeypatch):
+    """生成即落库：study_units 元数据 + study_materials 内容文件（内容写盘，DB 存路径）。"""
+    plan_id = _make_plan(client, auth_headers)
+    _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+
+    units = _units_of(plan_id)
+    assert [u.title for u in units] == ["JS 基础", "React 组件"]
+    assert units[0].objectives == ["写函数"]
+    assert units[0].estimated_time == "45 min"
+    assert units[0].order == 0 and units[1].order == 1
+
+    from pathlib import Path
+
+    assert len(units[0].materials) == 1
+    path = Path(units[0].materials[0].content_md_path)
+    assert path.exists()
+    assert "JS 是交互逻辑。" in path.read_text(encoding="utf-8")
+    assert units[0].materials[0].size > 0
+
+
+def test_materials_idempotent_no_regenerate(client, auth_headers, monkeypatch):
+    """已持久化 -> 再 POST 直接重渲染返回（免重复 LLM 成本）；provider 失效也不影响。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    first = _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+
+    def _raise():
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置")
+
+    monkeypatch.setattr(plans_mod, "get_provider", _raise)
+    r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    second = r.json()
+    # 幂等：同一批持久化单元重渲染（内容一致；标题由 intent 推算，与生成路径 spec 标题可能不同——不入库，见 plans._units_to_spec）
+    assert second["unit_count"] == first["unit_count"] == 2
+    assert "## 1. JS 基础" in second["markdown"]
+    assert "JS 是交互逻辑。" in second["markdown"]
+    assert "warning" not in second  # 非降级：返回的是已持久化的 LLM 规约
+
+
+def test_materials_refresh_replaces_and_cleans_files(client, auth_headers, monkeypatch):
+    """refresh=true -> 重新生成替换旧单元；unit 数减少时多余旧内容文件清理
+    （rowid 复用导致同名路径 -> 属新内容不删；仅清理不再引用的旧文件）。"""
+    from pathlib import Path
+
+    plan_id = _make_plan(client, auth_headers)
+    _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+    old_paths = [m.content_md_path for u in _units_of(plan_id) for m in u.materials]
+    assert len(old_paths) == 2 and all(Path(p).exists() for p in old_paths)
+
+    # 新规约仅 1 单元 -> 多余的旧文件应被清理
+    new_spec = (
+        '{"title":"React 自学材料","units":['
+        '{"title":"JS 基础","objectives":["写函数"],"prerequisites":["无"],'
+        '"estimated_time":"45 min","content_md":"### 概述\\n\\nJS 全新内容。"}]}'
+    )
+    body = _gen_materials(
+        client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(new_spec)]), body={"refresh": True}
+    )
+    assert "JS 全新内容。" in body["markdown"]
+
+    units = _units_of(plan_id)
+    assert len(units) == 1  # 替换而非追加
+    new_paths = [Path(m.content_md_path) for u in units for m in u.materials]
+    assert all(p.exists() for p in new_paths)  # 新内容文件在
+    assert "JS 全新内容。" in new_paths[0].read_text(encoding="utf-8")
+    stale = set(old_paths) - {p for p in (m.content_md_path for u in units for m in u.materials)}
+    assert stale  # 有多余旧文件
+    assert all(not Path(p).exists() for p in stale)  # 且已清理
+
+
+def test_materials_degrade_also_persisted(client, auth_headers, monkeypatch):
+    """降级默认材料也落库；再 POST 返回已存内容。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+
+    def _raise():
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置")
+
+    monkeypatch.setattr(plans_mod, "get_provider", _raise)
+    r = client.post(f"/api/plans/{plan_id}/materials", json={}, headers=auth_headers)
+    assert "warning" in r.json()
+    assert len(_units_of(plan_id)) >= 1
+
+
+def test_list_materials_units(client, auth_headers, monkeypatch):
+    """GET /plans/{id}/materials -> 单元元数据列表（无内容字段）。"""
+    plan_id = _make_plan(client, auth_headers)
+    _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+
+    r = client.get(f"/api/plans/{plan_id}/materials", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    units = r.json()["units"]
+    assert len(units) == 2
+    assert units[0]["title"] == "JS 基础"
+    assert units[0]["objectives"] == ["写函数"]
+    assert units[0]["order"] == 0
+    assert "content_md" not in units[0]  # 列表不含内容
+
+    # 未生成过 -> 空列表
+    plan_id2 = _make_plan(client, auth_headers)
+    r = client.get(f"/api/plans/{plan_id2}/materials", headers=auth_headers)
+    assert r.json()["units"] == []
+
+
+def test_get_unit_content(client, auth_headers, monkeypatch):
+    """GET /materials/{unit_id} -> content_md + title；不存在 -> 404。"""
+    plan_id = _make_plan(client, auth_headers)
+    _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
+    unit_id = _units_of(plan_id)[0].id
+
+    r = client.get(f"/api/materials/{unit_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["unit_id"] == unit_id
+    assert body["title"] == "JS 基础"
+    assert "JS 是交互逻辑。" in body["content_md"]
+    assert body["resources"] == []
+
+    assert client.get("/api/materials/999999", headers=auth_headers).status_code == 404

@@ -1,6 +1,6 @@
 """文件存储辅助（plan/01 §五 存储策略、R20 路径遍历防护）。
 
-大内容入文件系统，DB 存路径。目录：data/sessions/<sid>/{originals,parsed,exports}/。
+大内容入文件系统，DB 存路径。目录：data/sessions/<sid>/{originals,parsed,exports,materials}/。
 路径安全：所有路径 resolve 后须在 data_dir 内，否则拒绝（R20）。
 """
 
@@ -49,6 +49,12 @@ def exports_dir(session_id: int | str) -> Path:
     return d
 
 
+def materials_dir(session_id: int | str) -> Path:
+    d = _session_root(session_id) / "materials"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _safe_ext(ext: str) -> str:
     """扩展名清洗：仅保留字母数字，限长。"""
     cleaned = "".join(c for c in ext if c.isalnum())
@@ -66,6 +72,13 @@ def save_upload(session_id: int | str, material_id: int, content: bytes, ext: st
 
 def write_parsed_text(session_id: int | str, material_id: int, text: str) -> Path:
     path = parsed_dir(session_id) / f"{material_id}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def write_unit_text(session_id: int | str, unit_id: int, text: str) -> Path:
+    """自学材料单元内容（study_materials.content_md_path，plan/01 §五）。"""
+    path = materials_dir(session_id) / f"unit_{unit_id}.md"
     path.write_text(text, encoding="utf-8")
     return path
 

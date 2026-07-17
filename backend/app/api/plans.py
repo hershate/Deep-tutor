@@ -36,9 +36,11 @@ from app.tools.base import ToolInput, ToolOutput
 from app.tools.generate_quiz import QuizSpec, default_quiz_from_plan
 from app.tools.generate_study_materials import (
     StudyMaterialsSpec,
+    StudyUnitSpec,
     default_materials_from_plan,
     render_materials_md,
 )
+from app.core.storage import write_unit_text
 
 log = logging.getLogger("deep_tutor.api.plans")
 
@@ -707,21 +709,94 @@ def _plan_or_404(db: Session, plan_id: int) -> tuple[models.Plan, dict]:
     return plan, content
 
 
-# --- 自学材料（P2，plan/07 §五；简化 MVP：同步一次 LLM 调用 -> markdown，SSE/异步/持久化延后）---
+# --- 自学材料（P2，plan/07 §五；简化 MVP：同步一次 LLM 调用 -> markdown，SSE/异步延后；iter 43 起持久化）---
 
 
 class MaterialsIn(BaseModel):
     depth: Literal["brief", "full"] = "full"
+    refresh: bool = False  # True 强制重新生成（替换旧单元，内容文件级联清理）
+
+
+def _persist_study_units(db: Session, plan: models.Plan, spec: StudyMaterialsSpec) -> None:
+    """替换式持久化：删旧单元（ORM 级联 study_materials + 清理内容文件）-> 插新行 + 写内容文件。
+
+    study_units 存元数据，content_md 入文件（plan/01 §五 大内容入文件系统）。
+    spec 无 node/stage 归属信息（单文档 MVP），node_id/stage_index 留空。
+    """
+    old_units = db.query(models.StudyUnit).filter_by(plan_id=plan.id).all()
+    old_paths = [m.content_md_path for u in old_units for m in u.materials]
+    for u in old_units:
+        db.delete(u)  # cascade study_materials
+    db.flush()
+    new_paths: list[str] = []
+    for i, u in enumerate(spec.units):
+        row = models.StudyUnit(
+            plan_id=plan.id,
+            title=u.title[:256],
+            prerequisites=list(u.prerequisites),
+            objectives=list(u.objectives),
+            estimated_time=u.estimated_time[:64],
+            order=i,
+        )
+        db.add(row)
+        db.flush()
+        path = write_unit_text(plan.session_id, row.id, u.content_md)
+        new_paths.append(str(path))
+        db.add(
+            models.StudyMaterial(
+                unit_id=row.id,
+                content_md_path=str(path),
+                size=len(u.content_md.encode("utf-8")),
+            )
+        )
+    db.commit()
+    # 旧内容文件清理（DB 已提交，best-effort）；排除与新文件相同的路径
+    # （SQLite rowid 复用时新旧 unit id 可能相同 -> 同名文件已是新内容，不可删）
+    stale = set(old_paths) - set(new_paths)
+    for p in stale:
+        try:
+            Path(p).unlink(missing_ok=True)
+        except OSError:
+            log.warning("清理旧单元内容文件失败: %s", p)
+
+
+def _units_to_spec(db: Session, plan: models.Plan, units: list[models.StudyUnit], content: dict) -> StudyMaterialsSpec:
+    """持久化单元 -> StudyMaterialsSpec（重渲染 markdown 用；title 由 intent 推算，不入库）。"""
+    intent = content.get("intent") or {}
+    specs: list[StudyUnitSpec] = []
+    for u in units:
+        content_md = ""
+        if u.materials:
+            try:
+                content_md = Path(u.materials[0].content_md_path).read_text(encoding="utf-8")
+            except OSError:
+                log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
+        specs.append(
+            StudyUnitSpec(
+                title=u.title,
+                objectives=list(u.objectives or []),
+                prerequisites=list(u.prerequisites or []),
+                estimated_time=u.estimated_time or "",
+                content_md=content_md,
+            )
+        )
+    return StudyMaterialsSpec(title=intent.get("topic") or "学习方案", units=specs)
 
 
 @router.post("/{plan_id}/materials")
 async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depends(get_db)) -> dict:
-    """生成自学材料：run_tool 生成 StudyMaterialsSpec（LLM，降级默认）+ 渲染 markdown。
+    """生成自学材料：run_tool 生成 StudyMaterialsSpec（LLM，降级默认）-> 持久化 -> 渲染 markdown。
 
-    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_materials_from_plan 纯 Python 默认（稳定兜底）。
+    幂等：已持久化且未 refresh -> 直接重渲染返回（免重复 LLM 成本）。
+    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_materials_from_plan 纯 Python 默认（稳定兜底，同样落库）。
     返回 markdown 内容（前端 react-markdown 渲染；无需额外文件服务/鉴权）。
     """
     plan, content = _plan_or_404(db, plan_id)
+
+    existing = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
+    if existing and not body.refresh:
+        spec = _units_to_spec(db, plan, existing, content)
+        return {"unit_count": len(spec.units), "markdown": render_materials_md(spec)}
 
     try:
         provider = get_provider()
@@ -747,11 +822,37 @@ async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depe
     else:
         spec = default_materials_from_plan(content)
 
+    _persist_study_units(db, plan, spec)
     md = render_materials_md(spec)
     result: dict = {"unit_count": len(spec.units), "markdown": md}
     if spec_out.status != "ok":
         result["warning"] = "自学材料规约生成降级，使用默认结构"
     return result
+
+
+@router.get("/{plan_id}/materials")
+def list_materials(plan_id: int, db: Session = Depends(get_db)) -> dict:
+    """自学材料单元列表（plan/03 §一 GET /plans/{id}/materials）：元数据，不含内容。"""
+    plan, _content = _plan_or_404(db, plan_id)
+    units = (
+        db.query(models.StudyUnit)
+        .filter_by(plan_id=plan.id)
+        .order_by(models.StudyUnit.order)
+        .all()
+    )
+    return {
+        "units": [
+            {
+                "id": u.id,
+                "title": u.title,
+                "objectives": u.objectives or [],
+                "prerequisites": u.prerequisites or [],
+                "estimated_time": u.estimated_time,
+                "order": u.order,
+            }
+            for u in units
+        ]
+    }
 
 
 # --- 测验（P2，plan/02 §8；简化 MVP：同步一次 LLM 调用 -> JSON；iter 42 起 quizzes 表持久化）---

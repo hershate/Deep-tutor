@@ -12,6 +12,7 @@ SSRF 防护(/materials/url，复用 verify_url._is_safe_url)、解析失败统�
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
@@ -184,3 +185,25 @@ async def text_material(body: TextIn, db: Session = Depends(get_db)) -> Material
     if not body.text or not body.text.strip():
         raise ApiError("empty_content", "文本为空")
     return await _store(db, body.session_id, "text", body.text, text_override=body.text)
+
+
+@router.get("/{unit_id}")
+def get_study_unit_content(unit_id: int, db: Session = Depends(get_db)) -> dict:
+    """自学材料单元内容（plan/03 §一 GET /materials/{unit_id}，P2 iter 43）。
+
+    偏离记录：返回 content_md（前端 react-markdown 渲染）替代 plan 的 content_html；
+    resources 为 WebSearch 补充资料预留（当前为空 list，未生成）。
+    """
+    unit = db.get(models.StudyUnit, unit_id)
+    if unit is None:
+        raise ApiError("not_found", f"自学单元 {unit_id} 不存在")
+    content_md = ""
+    resources: list = []
+    if unit.materials:
+        mat = unit.materials[0]
+        resources = mat.resources or []
+        try:
+            content_md = Path(mat.content_md_path).read_text(encoding="utf-8")
+        except OSError:
+            raise ApiError("not_found", f"单元内容文件缺失: {mat.content_md_path}") from None
+    return {"unit_id": unit.id, "title": unit.title, "content_md": content_md, "resources": resources}
