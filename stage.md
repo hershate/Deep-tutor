@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：iter 47 前端 MaterialsModal 接 SSE 渐进显示（frontend/src/lib/sse.ts openSSE 签名待查；需处理幂等 JSON 与 SSE 两种 content-type）。iter 46（材料生成 SSE 逐单元流）后端已完成：wip `090529e`（工具+API）+ `927ae54`（5 项 SSE 测试），全量 221 测试通过，零回归。详见 §五 iter 46 条。
+**当前下一步**：iter 48 WebSearch 补资料（复用 search_resources 的 Bing，无 key 标「无外部资料参考」，存 study_materials.resources）。iter 47（前端 MaterialsModal 接 SSE 渐进显示）已完成：commits `7b53171`（SSE 客户端层）+ `1ce35ee`（MaterialsModal 渐进 UI），前端 build 通过。详见 §五 iter 47 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 47（前端 MaterialsModal 接 SSE 逐单元渐进显示，✅ 完成）**：消费 iter 46 后端 SSE。(1) [sse.ts](frontend/src/lib/sse.ts)：从 openSSE 拆出 `readSSEStream(body, onEvent)` 导出（解析逻辑不变），供需先按 content-type 分流的调用方复用。(2) [api.ts](frontend/src/lib/api.ts)：`generateMaterials`（同步）替换为 `generateMaterialsStream`——fetch 带 `Accept: text/event-stream`，按响应 content-type 分流：`application/json`（幂等命中）-> `onSync`；`text/event-stream` -> readSSEStream 分发 `unit_start`/`unit_done`/`onDone`/`onSync` 回调；`error` 事件 -> 抛 ApiError；非 2xx 同 apiFetch 错误解析。一次性流不重连（与后端一致）。commits `7b53171`。(3) [MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx)：生成期间显示逐单元进度列表（`unit_start` 加「⏳ 生成中」-> `unit_done` 置「✅ 完成」/「⚠️ 已降级为简要大纲」，aria-live + sr-only 状态文字）；`done` 后 listStudyUnits 进 Reader；`degraded_count>0` 转 warning 条「x/y 个单元生成失败，已降级为简要大纲」；幂等 JSON 路径 warning 行为同前。commit `1ce35ee`。前端 build 通过（354 模块，407KB）。后端零改动（221 测试不受影响）。待做：iter 48 WebSearch 补资料；iter 49 quiz 题源联动。
 - **2026-07-18 iter 46（材料生成 SSE 逐单元流，P2 增强项，✅ 完成）**：用户选定方向「P2 增强项」后的第一项：材料生成改 SSE 异步（plan/07 §三「按 Stage 拆分、每单元一次 LLM、LLM 失败 -> 该单元降级为简要大纲」+ plan/07 §五「POST /plans/{id}/materials（SSE/异步）」）。后端实现 wip 提交 commit `090529e`（3 文件，+255/-76），本次续接完成验证与测试：全量基线 216 零回归 -> 补 [test_api_plans_materials_sse.py](backend/tests/test_api_plans_materials_sse.py) 5 项测试（commit `927ae54`）-> 全量 221 通过。已改内容：
   - [generate_study_materials.py](backend/app/tools/generate_study_materials.py)：从 `default_materials_from_plan` 拆出 `_stage_to_brief_unit`（共用）；新增 `brief_unit_from_stage`（单单元降级简要大纲）、`UnitContentSpec`（objectives/prerequisites/estimated_time/content_md，title 由 stage 确定性给不入 LLM 输出）、`UNIT_CONTENT_PROMPT`（单元模板同全量版：### 概述/核心概念/实践练习≥2/检查理解/总结/扩展阅读，禁止编造 URL）、`generate_unit_content_tool`（llm=True + inline_prompt + default_data，复用 run_tool 修复链）。
   - [tools/__init__.py](backend/app/tools/__init__.py)：注册 `generate_unit_content_tool`（不在 PIPELINE）。
