@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：稳定性加固审计接近收尾（iter 21-26：四处 OOM + `_finalize` FK + auth 时序 + 错误格式，149 测试；LLM provider、`_relay`、export、orchestrator、deps 审计无问题）；候选：并发同会话 generate TOCTOU（本地单用户低危，修需跨线程锁、暂记不修）。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 26 条。
+**当前下一步**：更深稳定性审计（iter 21-27：四处 OOM + `_finalize` FK + auth 时序 + 错误格式 + Clarify 卸载取消，149 后端测试 + 前端 build 通过）；已审：后端全主路径 + 前端 sse/GenerateProgress/Clarify/Home。候选：PlanDetail/Usage/Settings 前端、marker subprocess/线程池、Home 上传失败孤儿会话（UX，低危）。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 27 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 更深稳定性审计（iter 27，Clarify 卸载取消 clarify 流）**：审计前端 [Clarify.tsx](frontend/src/pages/Clarify.tsx) 发现缺卸载取消（GenerateProgress/PlanDetail 均有）--用户中途离开则 clarify 流后台继续，可能在已卸载组件上 setError/setLoading。修复：加 `acRef` + `useEffect` 卸载 abort；`submit` 建 AbortController 传 signal 给 `clarifyStream`；`.then`/`.catch` 守护 `ac.signal.aborted`（不计错误）。与 GenerateProgress/PlanDetail 模式一致。`npm run build` 通过（91 模块）。commit `bc3cd39`。另审：[Home.tsx](frontend/src/pages/Home.tsx) 上传失败留孤儿会话（createSession 成功后 uploadMaterial 失败，UX 低危，不修）、[sse.ts](frontend/src/lib/sse.ts)（浏览器中止即释放 reader、后端 \n 行尾、心跳防挂，无问题）。
 - **2026-07-17 稳定性加固审计（iter 26，auth 常量时间比较 + 错误格式一致）**：审计 [deps.py](backend/app/api/deps.py) `require_auth` token 比较用 `!=`（非常量时间，时序攻击向量）--改 `secrets.compare_digest`（常量时间；既有 valid/invalid token 测试覆盖、行为不变）。[main.py](backend/app/main.py) 请求体超限响应补 `details:{}`，与 `errors._error_body` 统一格式一致。test_api body-limit 测试增 `assert "details" in error`。全量 149 测试通过，零回归。commit `84bd3c2`。另：deps `get_default_user`/`get_db`、errors 处理器（R35 不回显）审计无问题。
 - **2026-07-17 稳定性加固审计（iter 25，_finalize 会话已删除跳过 DB 写防 FK 违约）**：审计发现 DELETE /sessions 取消运行中任务后，`_finalize`（done-callback）仍调 `_set_state` 重建 `OrchestratorState(session_id=已删会话)`，撞 FK（`PRAGMA foreign_keys=ON` + 级联删 state）-> IntegrityError 被 broad-except 吞成 `internal_error` 噪声 + 错误事件码（plan/10 §十一）。修复：[plans.py](backend/app/api/plans.py) `_finalize` 顶部加会话存在守卫--会话已删 -> 不写 DB，仅发 `error{cancelled}` + 清理；会话存在走正常持久化（既有 cancelled 分支不变）。测试 +1（删会话后 `_finalize` -> 发 `error{cancelled}` 非 `internal_error`、不重建 OrchestratorState）；已实证回退守卫则 FK 违约 + 测试失败。全量 149 测试通过（148+1），零回归。commit `ab441fb`。审计候选：并发同会话 generate TOCTOU（本地单用户低危，修需跨线程锁、风险大于收益，暂记不修）。
 - **2026-07-17 稳定性加固审计（iter 24，全局请求体大小限制防 OOM）**：审计发现 `/materials/text`、`/plans/generate`(raw_text) 等 JSON body 端点：Starlette 全量读取 body 入内存再解析、无大小上限--超大 body 可 OOM（上传 `file.read` 已 iter 21 修，但 JSON body 未覆盖）。修复：[main.py](backend/app/main.py) 全局 http 中间件 `_limit_request_body`，Content-Length 预检超 `_MAX_BODY_BYTES`(max_upload_bytes+5MB) 直接返 413，路由解析前拒（Starlette 不再读 body）；覆盖 text/raw_text/multipart 全端点，且对超大上传提前拒（先于 `_read_capped`）。测试 +1（monkeypatch 限到 10B，POST 120B body -> 413）。全量 148 测试通过（147+1），零回归。commit `5f0ce71`。另：export 流程（plan_id int 校验无路径穿越、输出有界、无注入）、orchestrator（反馈循环≤2、预算守卫 iter 10 已加、call_count 含反馈重跑）审计无问题。
