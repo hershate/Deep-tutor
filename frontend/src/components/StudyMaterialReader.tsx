@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import { ApiError, getStudyUnitContent, markUnitDone, type StudyUnitMeta } from '../lib/api'
+import { ApiError, getStudyUnitContent, markUnitDone, type StudyUnitMeta, type UnitResource } from '../lib/api'
 
 interface Props {
   units: StudyUnitMeta[]
@@ -17,6 +17,7 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
   const [currentId, setCurrentId] = useState<number | null>(units[0]?.id ?? null)
   const [content, setContent] = useState('')
   const [contentTitle, setContentTitle] = useState('')
+  const [resources, setResources] = useState<UnitResource[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [doneBusy, setDoneBusy] = useState(false)
@@ -38,6 +39,7 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
         if (ac.signal.aborted) return
         setContent(r.content_md)
         setContentTitle(r.title)
+        setResources(r.resources ?? [])
       })
       .catch((e) => {
         if (ac.signal.aborted) return
@@ -110,6 +112,27 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
                 {content || `## ${contentTitle}\n\n（本单元暂无内容）`}
               </ReactMarkdown>
             </div>
+            {resources.length > 0 && (
+              <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                <h4 className="mb-1 text-xs font-medium text-slate-500">参考资料</h4>
+                <ul className="space-y-1 text-sm">
+                  {resources.map((r, i) => (
+                    <li key={i} className="flex items-center gap-1.5">
+                      <span aria-hidden="true">{r.verified === 'ok' ? '✅' : '⚠️'}</span>
+                      <span className="sr-only">{r.verified === 'ok' ? '已验证' : '不确定'}</span>
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-blue-600 hover:underline"
+                      >
+                        {r.title || r.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-between gap-2 border-t pt-3">
               <button
                 onClick={() => idx > 0 && setCurrentId(units[idx - 1].id)}

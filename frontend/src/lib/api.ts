@@ -190,8 +190,14 @@ export interface StudyUnitMeta {
 }
 export const listStudyUnits = (planId: number, signal?: AbortSignal) =>
   apiFetch<{ units: StudyUnitMeta[] }>(`/plans/${planId}/materials`, { signal })
+export interface UnitResource {
+  title: string
+  url: string
+  verified: string // ok=已验证 | uncertain=不确定（同资源 ✅⚠️ 标记）
+  note: string
+}
 export const getStudyUnitContent = (unitId: number, signal?: AbortSignal) =>
-  apiFetch<{ unit_id: number; title: string; content_md: string; resources: unknown[] }>(
+  apiFetch<{ unit_id: number; title: string; content_md: string; resources: UnitResource[] }>(
     `/materials/${unitId}`,
     { signal },
   )
