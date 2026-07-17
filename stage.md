@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P1 `/regenerate` 端点完成（plan/10 §十三，117 测试）；待做前端重生成 UI（PlanDetail 重生成区：scope 选择 + feedback + SSE 消费）、真机 Anthropic 冒烟（需 key）。详见 §五 2026-07-17 iter 12 条。
+**当前下一步**：P1 `/regenerate` 前后端闭环完成（端点 + 前端 UI，117 测试）；待做真机 Anthropic 冒烟（需 key）、Step 5 Skill 层 / slides。详见 §五 2026-07-17 iter 13 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 P1（iter 13，重生成前端 UI）**：落地 /regenerate 前端，前后端闭环。[api.ts](frontend/src/lib/api.ts) `regenerateStream`（复用 `ssePostWithReconnect` 断线重连）。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 增重生成区：scope `<select>`（design_stages/search_resources/schedule_plan/validate_plan）+ feedback `<textarea>` + 按钮；`done` -> nav 新 plan；error/budget_exceeded -> `regenError` 内联（**独立于加载 error**，不触发早返回覆盖方案视图）；卸载 `abort` 清理。label/htmlFor 关联 + `role="alert"`。前端 build 通过（91 模块）。
 - **2026-07-17 P1（iter 12，/regenerate 端点）**：落地 plan/10 §十三 局部重生成。后端 [plans.py](backend/app/api/plans.py) `POST /plans/{plan_id}/regenerate {feedback, scope}` -- scope 为 PIPELINE 工具名（understand_intent 之后），从 tool_calls 重建 `initial_upstream`（`_reconstruct_upstream` 取每工具最新 tool_call），`start_tool=scope` 级联重跑，feedback 注入 start_tool 的 `fixes`；复用 `_run_start`（SSE + done-callback 持久化）。`_persist_plan` 改为 version = 该会话 max+1（plan/10 §十三 `plans.version+=1`，首版 1）。校验：scope 非法 -> 400；understand_intent 不在上游 -> 400（需原始 raw_text，不支持）；running -> 409。测试：+3（局部重跑 version+1 / scope 非法 400 / understand_intent scope 400），全量 117 后端测试通过。待做：前端重生成 UI。
 - **2026-07-17 步骤 7 进行中（iter 11，取消生成）**：落地 plan/06 §三/§八 + plan/10 §十一 取消功能（用户控制 + 预算保护）。后端 [plans.py](backend/app/api/plans.py) `POST /plans/{session_id}/cancel`（async，同事件循环内 `stream.task.cancel()` 安全）-- 取消活动流任务 -> done-callback `_finalize` 已处理 `task.cancelled()`（发 `error{code:cancelled}` + 置 error 态）；无运行任务 -> 409。前端 [api.ts](frontend/src/lib/api.ts) `cancelGeneration`；[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) [取消] 按钮（仅 running 显示）+ `cancelled` 状态（区分于 error，中性样式，非 role=alert）。取消后 SSE 流收到 `error{cancelled}` -> 终态不重连。测试：+3（无运行 -> 409 / 已完成 -> 409 / `_finalize` cancelled 单元），全量 114 后端测试通过；前端 build 通过。
 - **2026-07-17 稳定性加固（iter 10，反馈循环预算守卫）**：审计编排器发现 [orchestrator.py](backend/app/agent/orchestrator.py) `_rerun_from`（反馈循环重跑）累计 cost 但**未检查 `exceeded()`**，致反馈循环期间可超支且不中断（主循环预算检查仅在 `_exec` 后触发，反馈重跑绕过）。修复：`_rerun_from` 每次 `add` 后检查超限即 `break`；主循环反馈段后检查超限 -> 发 `budget_exceeded` + 返回 `interrupted`（先于 `validation_unresolved` 判定）。测试：+1（反馈重跑期间预算超限 -> interrupted，`export_plan` 未执行），全量 111 后端测试通过。审计另确认：LLM/网络调用超时均已落地（`ctx.timeouts.llm`、`MARKER_TIMEOUT`、`URL_TIMEOUT`、`SEARCH_TIMEOUT`），无挂死风险，未加循环级兜底（避免误杀 marker 600s OCR）。
