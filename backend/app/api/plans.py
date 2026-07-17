@@ -83,6 +83,54 @@ def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
     return parsed
 
 
+def _clarify_questions_from_state(state: models.OrchestratorState) -> list:
+    """从 paused_clarify 的 partial_plan 提取澄清问题（understand_intent.data.clarify_questions）。"""
+    partial = state.partial_plan or {}
+    intent = partial.get("outputs", {}).get("understand_intent", {}).get("data", {})
+    return list(intent.get("clarify_questions") or [])
+
+
+def _terminal_event(
+    db: Session, session_id: int, state: models.OrchestratorState
+) -> tuple[str, dict] | None:
+    """终态快路径（plan/10 §十二）：返回 (event, data) 或 None（需正常生成）。
+
+    - done -> 查最新 plan 回放 done {plan_id}；无 plan（状态不一致）-> None 重新生成。
+    - paused_clarify -> 回放 clarify_needed {questions}；无问题 -> None。
+    - error/interrupted -> 回放终态 error（不自动重跑：硬刷新会丢失 raw_text）。
+    - idle -> None（正常生成）。
+
+    稳定性：页面刷新或断线重连时不触发重复生成（防重复计费/重复方案）。
+    """
+    if state.status == models.OrchestratorStatus.done:
+        plan = (
+            db.query(models.Plan)
+            .filter_by(session_id=session_id)
+            .order_by(models.Plan.created_at.desc())
+            .first()
+        )
+        if plan is not None:
+            return "done", {"plan_id": plan.id}
+        return None
+    if state.status == models.OrchestratorStatus.paused_clarify:
+        questions = _clarify_questions_from_state(state)
+        if questions:
+            return "clarify_needed", {"questions": questions}
+        return None
+    if state.status in (models.OrchestratorStatus.error, models.OrchestratorStatus.interrupted):
+        return "error", {
+            "code": "previous_failed",
+            "message": "上次生成未完成，请返回首页重新生成",
+            "stage": "",
+        }
+    return None
+
+
+async def _terminal_stream(event: str, data: dict) -> str:
+    """终态快路径：仅发一个事件即关闭（不重放历史，plan/10 §十二 done/error 重连直接返回终态）。"""
+    yield _sse(event, data, event_id=1)
+
+
 @router.post("/generate")
 def generate(body: GenerateIn, db: Session = Depends(get_db)) -> StreamingResponse:
     sess = db.get(models.Session, body.session_id)
@@ -92,6 +140,17 @@ def generate(body: GenerateIn, db: Session = Depends(get_db)) -> StreamingRespon
     state = db.get(models.OrchestratorState, body.session_id)
     if state and state.status == models.OrchestratorStatus.running:
         raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
+
+    # 终态快路径（plan/10 §十二）：done/paused_clarify 不重跑，直接回放终态事件，
+    # 避免页面刷新/断线重连触发重复生成。
+    if state is not None:
+        terminal = _terminal_event(db, body.session_id, state)
+        if terminal is not None:
+            return StreamingResponse(
+                _terminal_stream(terminal[0], terminal[1]),
+                media_type="text/event-stream",
+                headers=_SSE_HEADERS,
+            )
 
     parsed = _load_parsed_materials(db, body.session_id)
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])

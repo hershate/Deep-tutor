@@ -152,3 +152,94 @@ def test_generate_emits_increasing_event_ids(client, auth_headers, monkeypatch):
         assert st.last_event_id == str(ids[-1])
     finally:
         db.close()
+
+
+def test_generate_done_fast_path(client, auth_headers, monkeypatch):
+    """done 态下重连 /generate -> 直接回放 done {plan_id}（不重跑，无新 plan，plan/10 §十二）。"""
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    sid = _session(client, auth_headers)
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学 React"},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 200, r1.text
+    plan_id = next(d for e, d in _parse_sse(r1.text) if e == "done")["plan_id"]
+
+    # 重连：应仅回放 done（同一 plan_id）；若误重跑，CannedProvider 已耗尽会报错
+    r2 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学 React"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    ev2 = _parse_sse(r2.text)
+    assert ev2 == [("done", {"plan_id": plan_id})], ev2
+
+    # 未产生新 plan
+    lst = client.get(f"/api/plans?session_id={sid}", headers=auth_headers).json()
+    assert lst["total"] == 1
+
+
+def test_generate_paused_clarify_fast_path(client, auth_headers, monkeypatch):
+    """paused_clarify 态下重连 /generate -> 直接回放 clarify_needed（不重跑，plan/10 §十二）。"""
+    from app.api import plans as plans_mod
+
+    clarify_resp = _resp(
+        '{"topic":"编程","level":null,"goal":null,"daily_minutes":null,"deadline":null,'
+        '"needs_clarify":true,"clarify_questions":["想学哪方面？","每天多少时间？"]}'
+    )
+
+    class ClarifyOnly(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return clarify_resp
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: ClarifyOnly())
+    sid = _session(client, auth_headers)
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学编程"},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 200, r1.text
+    assert any(e == "clarify_needed" for e, _ in _parse_sse(r1.text))
+
+    # 重连：应仅回放 clarify_needed（不重跑 understand_intent）
+    r2 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "学编程"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    ev2 = _parse_sse(r2.text)
+    assert ev2 == [("clarify_needed", {"questions": ["想学哪方面？", "每天多少时间？"]})], ev2
+
+
+def test_generate_error_fast_path(client, auth_headers, monkeypatch):
+    """error 态下重连 /generate -> 回放终态 error（不自动重跑，plan/10 §十二）。"""
+    from app.api import plans as plans_mod
+
+    def _raise():
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置")
+
+    monkeypatch.setattr(plans_mod, "get_provider", _raise)
+    sid = _session(client, auth_headers)
+    r1 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "x"},
+        headers=auth_headers,
+    )
+    assert any(e == "error" for e, _ in _parse_sse(r1.text))
+
+    # 重连：回放终态 error（previous_failed），不重跑（_raise 不会再被调用）
+    r2 = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "x"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    ev2 = _parse_sse(r2.text)
+    assert len(ev2) == 1 and ev2[0][0] == "error", ev2
+    assert ev2[0][1]["code"] == "previous_failed"
