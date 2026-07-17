@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { generateStream } from '../lib/api'
 
 interface Step {
@@ -13,6 +14,7 @@ export default function GenerateProgress() {
   const loc = useLocation()
   const rawText = (loc.state as { rawText?: string } | null)?.rawText ?? ''
   const nav = useNavigate()
+  const qc = useQueryClient()
   const [steps, setSteps] = useState<Step[]>([])
   const [status, setStatus] = useState<'running' | 'done' | 'error'>('running')
   const [error, setError] = useState('')
@@ -56,12 +58,17 @@ export default function GenerateProgress() {
         }
       },
       ac.signal,
-    ).catch((e: unknown) => {
-      // generateStream 内部已指数退避重连≤3；此处仅捕获重连耗尽/4xx 等终态失败
-      if (ac.signal.aborted) return // 主动取消/组件卸载，不计错误
-      setStatus('error')
-      setError(e instanceof Error ? e.message : '连接失败')
-    })
+    )
+      .then(() => {
+        // 生成结束（非取消）后刷新用量（api_usage 已在 done-callback 落库）
+        if (!ac.signal.aborted) qc.invalidateQueries({ queryKey: ['usage'] })
+      })
+      .catch((e: unknown) => {
+        // generateStream 内部已指数退避重连≤3；此处仅捕获重连耗尽/4xx 等终态失败
+        if (ac.signal.aborted) return // 主动取消/组件卸载，不计错误
+        setStatus('error')
+        setError(e instanceof Error ? e.message : '连接失败')
+      })
 
     return () => ac.abort()
   }, [sessionId, rawText, nav])

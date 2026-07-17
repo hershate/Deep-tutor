@@ -4,6 +4,7 @@ import Home from './pages/Home'
 import GenerateProgress from './pages/GenerateProgress'
 import Clarify from './pages/Clarify'
 import PlanDetail from './pages/PlanDetail'
+import Usage from './pages/Usage'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/generate/:sessionId" element={<GenerateProgress />} />
         <Route path="/clarify/:sessionId" element={<Clarify />} />
         <Route path="/plans/:planId" element={<PlanDetail />} />
+        <Route path="/usage" element={<Usage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
