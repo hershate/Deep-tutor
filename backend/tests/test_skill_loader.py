@@ -15,6 +15,7 @@ from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 from app.skills.loader import load_skills
 from app.tools.base import ToolInput
 from app.tools.build_knowledge_map import build_knowledge_map_tool
+from app.tools.design_stages import design_stages_tool
 from app.tools.understand_intent import understand_intent_tool
 
 _PROJECT_SKILLS = Path(__file__).resolve().parents[2] / "skills"
@@ -180,4 +181,42 @@ def test_real_knowledge_map_skill_used_as_system_prompt():
     assert out.status == "ok"
     assert provider.calls[0]["system"] == skill_body
     assert provider.calls[0]["system"] != build_knowledge_map_tool.inline_prompt
+    assert provider.calls[0]["cache_system"] is True
+
+
+def test_real_deep_tutor_stages_skill_loads():
+    """真实 skills/deep-tutor-stages/SKILL.md 可加载。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-stages" in reg
+    body = reg["deep-tutor-stages"]
+    assert body.strip()
+    assert not body.startswith("---")
+    assert "name: deep-tutor-stages" not in body
+
+
+def test_real_stages_skill_used_as_system_prompt():
+    """真实 Skill 加载后，loop 用 Skill 正文作 system prompt（覆盖 inline_prompt）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    skill_body = reg["deep-tutor-stages"]
+
+    canned = (
+        '{"stages":[{"index":0,"name":"基础","goal":"g","difficulty":1,"estimated_weeks":1,'
+        '"topics":[{"name":"JS","why":"w","must_learn":true}],"milestone":"m"},'
+        '{"index":1,"name":"进阶","goal":"g","difficulty":3,"estimated_weeks":1,"topics":[],"milestone":"m"},'
+        '{"index":2,"name":"实战","goal":"g","difficulty":5,"estimated_weeks":1,"topics":[],"milestone":"m"}]}'
+    )
+    provider = _ScriptedProvider([LLMResponse(content=canned, usage=LLMUsage(model="claude-sonnet-5"))])
+    tools = ToolRegistry()
+    tools.register(design_stages_tool)
+    ctx = ExecContext(
+        session_id="sess_test",
+        trace_id="trace_test",
+        registry=tools,
+        llm_provider=provider,
+        skill_registry=reg,
+    )
+    out = asyncio.run(run_tool("design_stages", ToolInput(tool="design_stages", session_id="sess_test"), ctx))
+    assert out.status == "ok"
+    assert provider.calls[0]["system"] == skill_body
+    assert provider.calls[0]["system"] != design_stages_tool.inline_prompt
     assert provider.calls[0]["cache_system"] is True
