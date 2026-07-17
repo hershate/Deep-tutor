@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**当前下一步**：P2 `generate_study_materials` 进行中（iter 34 vendor `self-study-guide` + 渲染助手，166 测试；简化稳定 MVP，同 slides 模式：一次 LLM 调用 -> 规约 -> markdown -> 前端 react-markdown）；待做：iter 35 `generate_study_materials` LLM 工具 + 注册、iter 36 `POST /plans/{id}/materials` 端点 + 前端弹窗。延后：真机 Anthropic 冒烟（需 key）、DB 持久化/每单元文件/WebSearch/StudyMaterialReader/异步。详见 §五 2026-07-17 iter 34 条。
+**当前下一步**：P2 `generate_study_materials` 进行中（iter 35 LLM 工具 + 注册完成，169 测试；简化稳定 MVP，同 slides 模式：一次 LLM 调用 -> 规约 -> markdown -> 前端 react-markdown）；待做：iter 36 `POST /plans/{id}/materials` 端点 + 前端弹窗。延后：真机 Anthropic 冒烟（需 key）、DB 持久化/每单元文件/WebSearch/StudyMaterialReader/异步。详见 §五 2026-07-17 iter 35 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 P2 自学材料（iter 35，LLM 工具 + 注册）**：增量 2（LLM 规约 + 降级，同 iter 30 slides 模式）。[generate_study_materials.py](backend/app/tools/generate_study_materials.py) 加 `PROMPT`（聚焦 spec 生成 inline_prompt：plan->StudyMaterialsSpec JSON，含 schema + self-study-guide 模板约束移植——每阶段 1-3 单元总 3-12、2-4 objectives、content_md 用 ### 小节含概述/核心概念/实践练习≥2/检查理解/总结/扩展阅读；**禁止编造 URL**（扩展阅读仅引用 plan.resources 已有 url，无则标「无外部资料参考」）；depth brief|full 可选）+ `generate_study_materials_tool = Tool(llm=True, output_model=StudyMaterialsSpec, default_data=_DEFAULT_MATERIALS_DATA)`，复用 `run_tool` 修复链（重试≤3->降级）。[__init__.py](backend/app/tools/__init__.py) 注册（不在 PIPELINE，iter 36 端点调用）。测试 +3（注册 / LLM 合法规约->ok / LLM 非法->降级 repaired+默认）。全量 169 测试通过（166+3），零回归。commit `f380d54`。待做：iter 36 `POST /plans/{id}/materials` 端点 + 前端弹窗。
 - **2026-07-17 P2 自学材料（iter 34，vendor self-study-guide + 渲染助手）**：用户选「P2 自学材料」（plan/02 §13 / plan/07 §三）。简化稳定 MVP（同 slides 模式，延后 DB 持久化/每单元文件/WebSearch/异步/Reader）。增量 1（基础，无 LLM）：vendor [skills/self-study-guide/](skills/self-study-guide/)（SKILL.md + README，方法论参考）。新增 [generate_study_materials.py](backend/app/tools/generate_study_materials.py)：`StudyUnitSpec`/`StudyMaterialsSpec` pydantic（LLM 输出 schema + 渲染输入）；`default_materials_from_plan`（纯 Python 默认，每阶段一单元，降级用）；`render_materials_md`（拼单 markdown 文档，前端 react-markdown 渲染）。测试 +4（loader 加载 self-study-guide / 基本渲染 / 默认 deck / 空 plan 回退）。全量 166 测试通过（162+4），零回归。commit `a1d30fa`。待做：iter 35 LLM 工具 + 注册；iter 36 端点 + 前端。
 - **2026-07-17 P1 slides（iter 33，e2e 冒烟覆盖 slides 导出）**：[test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) 加第 8 步：导出 slides（`build_plan_slides` LLM -> 渲染 HTML），验证新功能在全链路集成（会话+资料+生成+详情+用量+设置+md 导出+slides 导出）。mock slides provider 返回 SlideSpec，断言 `format=html` + `slide_count` + `<html>` + 含标题。全量 162 测试通过，零回归。commit `2bc4644`。
 - **2026-07-17 P1 slides（iter 32，渲染净化防 XSS/CSS 注入）**：审计新 slides 代码发现 `render_slides_html` 直接插入 LLM 生成的 content_html/theme 值/类名，LLM 失控或恶意资料传播可致 XSS（`<script>` 在 Blob URL 执行）或 CSS 越界（`</style>` 突破）。修复：[build_plan_slides.py](backend/app/tools/build_plan_slides.py) 加 `_sanitize_content_html`（去 script/style/iframe 块与残留标签、on* 事件属性）、`_sanitize_class`（类名仅 alnum/-/_）、`_sanitize_theme_value`（去 <>{}）；`render_slides_html` 净化 theme/transition，`_render_slide` 净化 content_html/layout/animation。测试 +3（content_html XSS 清理 / 主题值 `</style>` 突破防 / 类名属性越界防）。全量 162 测试通过（159+3），零回归。commit `92c7081`。
