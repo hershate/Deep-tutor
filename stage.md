@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 进行中（前端）-- P0 页面 + SSE 稳定性基础（事件 id 游标 / 心跳 / 静默断连检测）+ 终态快路径（done/paused_clarify/error 重连不重跑，plan/10 §十二）均完成；待做 SSE 续接完整版（事件缓冲 + running 态重放/挂接 + 前端指数退避重连≤3，plan/06 §七）、Settings/用量 UI、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 条。
+**当前下一步**：步骤 7 进行中 -- SSE 续接**后端**完成（`_SessionStream` 事件缓冲 + Last-Event-ID 续接 + done-callback 持久化防 stale running，plan/10 §十二）；待做前端指数退避重连≤3（plan/06 §七）、Settings/用量 UI、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 iter 4 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 步骤 7 进行中（iter 4，SSE 续接后端）**：落地 plan/10 §十二 事件缓冲 + 续接 + 持久化解耦（稳定性优先）。后端 [plans.py](backend/app/api/plans.py)：新增 `_SessionStream`（单会话有界事件缓冲 `_MAX_BUFFERED_EVENTS=500` + 订阅扇出；订阅时重放 id>last_event_id 再接实时；终态后保留 `_RETENTION_SECONDS=300s` 供迟到重连）。**持久化移至编排器任务 `done-callback`（`_finalize`）**，与流客户端解耦 -- 修复断连后 stale running / 丢进度（R24）：旧实现客户端断连时 `GeneratorExit` 跳过 `await task`，致 plan/状态不落库、会话永久 `running`（409 死锁）；新实现任务结束即持久化，无论客户端是否在连。`POST /generate` 读 `Last-Event-ID` 头：`running`+活动流 -> 续接（`_relay` 重放+实时+心跳）；`running`+无流（进程重启等 stale）-> 409 引导重生成；终态 -> 快路径（iter 3）。`_stream` 拆为 `_run_start`（建流+启任务+done-callback）/`_relay`（订阅投递+心跳+终态退出）/`_finalize`（持久化+发终态）。测试：+11（`_SessionStream` 语义 + `_relay` 续接/迟到重连，`asyncio.run` 驱动无 pytest-asyncio），conftest `isolate` 清 `_STREAMS` 跨测试隔离；全量 107 后端测试通过。待做：前端指数退避重连≤3（消费 Last-Event-ID 续接）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 3，SSE 终态快路径）**：落地 plan/10 §十二 终态快路径（稳定性：防重复生成）。后端 [plans.py](backend/app/api/plans.py)：`generate` 端点在 running 冲突检查后增 `_terminal_event` 快路径 -- `done` 查最新 plan 回放 `done {plan_id}`（不重跑，无新 plan）；`paused_clarify` 从 partial_plan 提取 `clarify_questions` 回放 `clarify_needed`；`error`/`interrupted` 回放终态 `error {code:previous_failed}`（不自动重跑，因硬刷新会丢 raw_text）；`idle`/状态不一致 -> 正常生成。新增 `_terminal_stream`（单事件即关闭）、`_clarify_questions_from_state`。前端无需改动（已处理 done/clarify_needed/error 事件）。测试：+3（done/paused_clarify/error 快路径），全量 96 后端测试通过。待做：SSE 续接完整版（事件缓冲 + running 重放 + 前端指数退避重连≤3）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 2，SSE 稳定性基础）**：落地 plan/10 §十二 断线续接游标基础（稳定性优先）。后端 [plans.py](backend/app/api/plans.py)：`_sse` 增 `event_id` 参数，每事件附递增 `id:` 行；`_stream` 加 `seq` 计数 + `emit` 闭包；空闲 >15s 发 `: keepalive` 心跳防 nginx/代理/浏览器空闲断连；终态持久化 `last_event_id` 到 `orchestrator_state`（DB 已有该列）。前端 [sse.ts](frontend/src/lib/sse.ts)：跟踪并返回 last event id（供续接回传 `Last-Event-ID`）；[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) / [Clarify.tsx](frontend/src/pages/Clarify.tsx) 增 `terminalRef` 检测静默断连（流结束未收到终态事件且非主动取消 -> 提示「连接中断，请重试」），`.catch` 守护主动取消/卸载。测试：+1（事件 id 递增 + `last_event_id` 持久化），全量 93 后端测试通过；前端 build 通过。待做：SSE 续接完整版（后端事件缓冲 + GET 重放端点 + 终态快路径 + 前端指数退避重连≤3）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-16 步骤 7 进行中**：前端 P0 页面（iter1）。Home（需求描述+文件上传->建会话）、GenerateProgress（消费 SSE 实时展示工具步骤+token/费用、clarify/done/error 路由）、Clarify（逐问回答->续接）、PlanDetail（意图/阶段卡/资源✅⚠️❌/校验报告+导出）。lib/api.ts Bearer 全端点、lib/sse.ts 支持 POST 流式、lib/types.ts。修复 orchestrator._assemble（组装完整方案组件）。frontend `npm run build` 通过（tsc+产物）。待做：Settings/用量 UI、SSE 续接、无障碍、步骤 8 端到端联调。commit: 见 8f3d…段。
