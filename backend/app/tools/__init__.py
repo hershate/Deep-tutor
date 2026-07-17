@@ -12,7 +12,7 @@ from app.tools.build_plan_slides import build_plan_slides_tool
 from app.tools.design_stages import design_stages_tool
 from app.tools.export_plan import export_plan_tool
 from app.tools.generate_quiz import generate_quiz_tool
-from app.tools.generate_study_materials import generate_study_materials_tool
+from app.tools.generate_study_materials import generate_study_materials_tool, generate_unit_content_tool
 from app.tools.parse_material import parse_material_tool
 from app.tools.schedule_plan import schedule_plan_tool
 from app.tools.search_resources import search_resources_tool
@@ -35,6 +35,7 @@ def default_registry() -> ToolRegistry:
     reg.register(export_plan_tool)
     reg.register(build_plan_slides_tool)  # P1 slides（export format=slides 调用，不在 PIPELINE）
     reg.register(generate_study_materials_tool)  # P2 自学材料（POST /plans/{id}/materials 调用，不在 PIPELINE）
+    reg.register(generate_unit_content_tool)  # P2 逐单元材料（materials SSE 流式路径，iter 46）
     reg.register(generate_quiz_tool)  # P2 测验（POST /plans/{id}/quiz 调用，不在 PIPELINE）
     return reg
 
@@ -52,5 +53,6 @@ __all__ = [
     "export_plan_tool",
     "build_plan_slides_tool",
     "generate_study_materials_tool",
+    "generate_unit_content_tool",
     "generate_quiz_tool",
 ]

@@ -3,7 +3,7 @@
 POST /api/plans/generate  SSE 流式生成（编排器 + 事件回调 -> SSE）
 GET  /api/plans           列表（分页）
 GET  /api/plans/{id}      详情
-POST /api/plans/{id}/materials  生成自学材料（P2 简化 MVP：同步一次 LLM 调用 -> markdown）
+POST /api/plans/{id}/materials  生成自学材料（P2：同步 JSON / SSE 逐单元流，iter 46 内容协商）
 
 稳定性：运行态冲突 409（R33）、预算守卫、错误/取消传播、plan 持久化（大方案溢出文件）。
 """
@@ -15,6 +15,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,8 @@ from app.tools.generate_quiz import QuizSpec, default_quiz_from_plan
 from app.tools.generate_study_materials import (
     StudyMaterialsSpec,
     StudyUnitSpec,
+    UnitContentSpec,
+    brief_unit_from_stage,
     default_materials_from_plan,
     render_materials_md,
 )
@@ -709,7 +712,7 @@ def _plan_or_404(db: Session, plan_id: int) -> tuple[models.Plan, dict]:
     return plan, content
 
 
-# --- 自学材料（P2，plan/07 §五；简化 MVP：同步一次 LLM 调用 -> markdown，SSE/异步延后；iter 43 起持久化）---
+# --- 自学材料（P2，plan/07 §五；同步 JSON / SSE 逐单元流（iter 46 内容协商）；iter 43 起持久化）---
 
 
 class MaterialsIn(BaseModel):
@@ -717,47 +720,60 @@ class MaterialsIn(BaseModel):
     refresh: bool = False  # True 强制重新生成（替换旧单元，内容文件级联清理）
 
 
-def _persist_study_units(db: Session, plan: models.Plan, spec: StudyMaterialsSpec) -> None:
-    """替换式持久化：删旧单元（ORM 级联 study_materials + 清理内容文件）-> 插新行 + 写内容文件。
-
-    study_units 存元数据，content_md 入文件（plan/01 §五 大内容入文件系统）。
-    spec 无 node/stage 归属信息（单文档 MVP），node_id/stage_index 留空。
-    """
-    old_units = db.query(models.StudyUnit).filter_by(plan_id=plan.id).all()
+def _delete_study_units(db: Session, plan_id: int) -> list[str]:
+    """删除旧单元（ORM 级联 study_materials），返回旧内容文件路径（提交与文件清理由调用方负责）。"""
+    old_units = db.query(models.StudyUnit).filter_by(plan_id=plan_id).all()
     old_paths = [m.content_md_path for u in old_units for m in u.materials]
     for u in old_units:
         db.delete(u)  # cascade study_materials
     db.flush()
-    new_paths: list[str] = []
-    for i, u in enumerate(spec.units):
-        row = models.StudyUnit(
-            plan_id=plan.id,
-            title=u.title[:256],
-            prerequisites=list(u.prerequisites),
-            objectives=list(u.objectives),
-            estimated_time=u.estimated_time[:64],
-            order=i,
+    return old_paths
+
+
+def _insert_study_unit(db: Session, plan_id: int, session_id: int, order: int, u: StudyUnitSpec) -> str:
+    """插入单单元行 + 写内容文件，返回新文件路径（提交由调用方负责）。"""
+    row = models.StudyUnit(
+        plan_id=plan_id,
+        title=u.title[:256],
+        prerequisites=list(u.prerequisites),
+        objectives=list(u.objectives),
+        estimated_time=u.estimated_time[:64],
+        order=order,
+    )
+    db.add(row)
+    db.flush()
+    path = write_unit_text(session_id, row.id, u.content_md)
+    db.add(
+        models.StudyMaterial(
+            unit_id=row.id,
+            content_md_path=str(path),
+            size=len(u.content_md.encode("utf-8")),
         )
-        db.add(row)
-        db.flush()
-        path = write_unit_text(plan.session_id, row.id, u.content_md)
-        new_paths.append(str(path))
-        db.add(
-            models.StudyMaterial(
-                unit_id=row.id,
-                content_md_path=str(path),
-                size=len(u.content_md.encode("utf-8")),
-            )
-        )
-    db.commit()
-    # 旧内容文件清理（DB 已提交，best-effort）；排除与新文件相同的路径
-    # （SQLite rowid 复用时新旧 unit id 可能相同 -> 同名文件已是新内容，不可删）
+    )
+    return str(path)
+
+
+def _cleanup_stale_material_files(old_paths: list[str], new_paths: list[str]) -> None:
+    """旧内容文件清理（best-effort）；排除与新文件相同的路径
+    （SQLite rowid 复用时新旧 unit id 可能相同 -> 同名文件已是新内容，不可删）。"""
     stale = set(old_paths) - set(new_paths)
     for p in stale:
         try:
             Path(p).unlink(missing_ok=True)
         except OSError:
             log.warning("清理旧单元内容文件失败: %s", p)
+
+
+def _persist_study_units(db: Session, plan: models.Plan, spec: StudyMaterialsSpec) -> None:
+    """替换式持久化：删旧单元 -> 插新行 + 写内容文件，一次性提交。
+
+    study_units 存元数据，content_md 入文件（plan/01 §五 大内容入文件系统）。
+    spec 无 node/stage 归属信息（单文档 MVP），node_id/stage_index 留空。
+    """
+    old_paths = _delete_study_units(db, plan.id)
+    new_paths = [_insert_study_unit(db, plan.id, plan.session_id, i, u) for i, u in enumerate(spec.units)]
+    db.commit()
+    _cleanup_stale_material_files(old_paths, new_paths)
 
 
 def _units_to_spec(db: Session, plan: models.Plan, units: list[models.StudyUnit], content: dict) -> StudyMaterialsSpec:
@@ -783,13 +799,101 @@ def _units_to_spec(db: Session, plan: models.Plan, units: list[models.StudyUnit]
     return StudyMaterialsSpec(title=intent.get("topic") or "学习方案", units=specs)
 
 
-@router.post("/{plan_id}/materials")
-async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depends(get_db)) -> dict:
-    """生成自学材料：run_tool 生成 StudyMaterialsSpec（LLM，降级默认）-> 持久化 -> 渲染 markdown。
+_MAX_MATERIAL_UNITS = 12  # 单元数上限（plan/07 §三 3-12 单元；超出截断）
 
-    幂等：已持久化且未 refresh -> 直接重渲染返回（免重复 LLM 成本）。
-    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_materials_from_plan 纯 Python 默认（稳定兜底，同样落库）。
-    返回 markdown 内容（前端 react-markdown 渲染；无需额外文件服务/鉴权）。
+
+async def _materials_sse(
+    plan_id: int, session_id: int, content: dict, body: MaterialsIn, old_paths: list[str]
+) -> AsyncIterator[str]:
+    """逐单元材料生成 SSE 流（plan/07 §三：按 stage 拆分，每单元一次 LLM；失败降级简要大纲）。
+
+    旧单元已在端点内删除并提交；本流逐单元生成 -> 落库（逐单元提交，断线保留已生成进度），
+    结束后清理旧内容文件。一次性流，不做断线重连（类 clarify 终态快路径之外的轻量场景）。
+    事件：unit_start {order,title,total} -> unit_done {order,title,degraded} ×N
+          -> done {unit_count,degraded_count}；异常兜底 error {code,message}。
+    """
+    db = SessionLocal()
+    new_paths: list[str] = []
+    try:
+        stages = list(content.get("stages") or [])[:_MAX_MATERIAL_UNITS]
+        if not stages:
+            stages = [{}]  # 无阶段 -> 单占位单元
+        total = len(stages)
+        try:
+            provider = get_provider()
+        except Exception:  # noqa: BLE001  无 key -> 全部单元降级 brief
+            provider = None
+        ctx = ExecContext(
+            session_id=str(session_id),
+            trace_id=f"materials-{plan_id}",
+            registry=default_registry(),
+            llm_provider=provider,
+            data_dir=settings.data_dir,
+        )
+        topic = (content.get("intent") or {}).get("topic") or "概述"
+        degraded_count = 0
+        for i, stage in enumerate(stages):
+            order = i + 1
+            title = stage.get("name") or topic
+            yield _sse("unit_start", {"order": order, "title": title, "total": total})
+            unit: StudyUnitSpec | None = None
+            if provider is not None:
+                inp = ToolInput(
+                    tool="generate_unit_content",
+                    session_id=str(session_id),
+                    args={
+                        "plan": content,
+                        "stage": stage,
+                        "order": order,
+                        "total": total,
+                        "depth": body.depth,
+                    },
+                )
+                task = asyncio.ensure_future(run_tool("generate_unit_content", inp, ctx))
+                try:
+                    while not task.done():
+                        await asyncio.wait({task}, timeout=_HEARTBEAT_SECONDS)
+                        if not task.done():
+                            yield ": keepalive\n\n"  # 长 LLM 调用期间保活（plan/09 §十九）
+                    out = task.result()
+                except BaseException:
+                    task.cancel()  # 断连/取消 -> 不遗留后台 LLM 调用
+                    raise
+                if out.status == "ok":
+                    data = UnitContentSpec.model_validate(out.data)
+                    unit = StudyUnitSpec(
+                        title=title,
+                        objectives=data.objectives,
+                        prerequisites=data.prerequisites,
+                        estimated_time=data.estimated_time,
+                        content_md=data.content_md,
+                    )
+            degraded = unit is None
+            if degraded:
+                degraded_count += 1
+                unit = brief_unit_from_stage(stage, fallback_title=title)
+            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit))
+            db.commit()  # 逐单元提交：断线保留已生成进度
+            yield _sse("unit_done", {"order": order, "title": unit.title, "degraded": degraded})
+        _cleanup_stale_material_files(old_paths, new_paths)
+        yield _sse("done", {"unit_count": total, "degraded_count": degraded_count})
+    except Exception:  # noqa: BLE001  统一兜底：流以 error 事件收尾而非裸断
+        log.exception("材料流式生成异常: plan %s", plan_id)
+        yield _sse("error", {"code": "internal_error", "message": "材料生成中断"})
+    finally:
+        db.close()
+
+
+@router.post("/{plan_id}/materials")
+async def generate_materials(plan_id: int, body: MaterialsIn, request: Request, db: Session = Depends(get_db)):
+    """生成自学材料（内容协商，iter 46；plan/07 §五 SSE/异步）。
+
+    - Accept: text/event-stream 且需生成（无已存单元或 refresh）-> SSE 逐单元流（_materials_sse）；
+      旧单元在流开始前替换式删除并提交。
+    - 否则 -> 同步 JSON：run_tool 生成 StudyMaterialsSpec（LLM，降级默认）-> 持久化 -> 渲染 markdown。
+
+    幂等：已持久化且未 refresh -> 直接重渲染返回 JSON（免重复 LLM 成本；即使请求 SSE 也返回 JSON）。
+    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default/brief 纯 Python 兜底（稳定降级，同样落库）。
     """
     plan, content = _plan_or_404(db, plan_id)
 
@@ -797,6 +901,15 @@ async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depe
     if existing and not body.refresh:
         spec = _units_to_spec(db, plan, existing, content)
         return {"unit_count": len(spec.units), "markdown": render_materials_md(spec)}
+
+    if "text/event-stream" in request.headers.get("accept", ""):
+        old_paths = _delete_study_units(db, plan.id)
+        db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
+        return StreamingResponse(
+            _materials_sse(plan.id, plan.session_id, content, body, old_paths),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
 
     try:
         provider = get_provider()
