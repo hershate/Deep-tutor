@@ -78,7 +78,22 @@ export const exportPlan = (planId: number, format = 'md') =>
   })
 
 // --- usage ---
-export const getUsage = () => apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
+export const getUsage = () =>
+  apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
+
+// --- settings（只读配置快照，plan/06 §四.7；Key 仅返回是否已设，不返回明文）---
+export interface AppSettings {
+  anthropic_model: string
+  budget_per_session_usd: number
+  daily_budget_usd: number
+  max_tool_calls: number
+  max_upload_mb: number
+  search_engine: string
+  anthropic_api_key_set: boolean
+  bing_api_key_set: boolean
+  auth_token_set: boolean
+}
+export const getSettings = () => apiFetch<AppSettings>('/settings')
 
 // --- generate / clarify（SSE POST，见 lib/sse.ts）---
 // generate 支持断线续接：流未到终态即带 Last-Event-ID 重连，指数退避≤3（plan/06 §七）。

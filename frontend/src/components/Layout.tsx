@@ -19,6 +19,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Link to="/usage" className="text-slate-600 hover:text-slate-900">
                 用量
               </Link>
+              <Link to="/settings" className="text-slate-600 hover:text-slate-900">
+                设置
+              </Link>
             </nav>
           </div>
           <UsageMeter />

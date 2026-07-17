@@ -5,7 +5,7 @@ health/sessions/materials/plans/export 已接入；clarify/regenerate 留后续�
 
 from fastapi import APIRouter
 
-from app.api import deps, exports, health, materials, plans, sessions, usage
+from app.api import deps, exports, health, materials, plans, sessions, settings, usage
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
@@ -14,6 +14,7 @@ api_router.include_router(materials.router)
 api_router.include_router(plans.router)
 api_router.include_router(exports.router)
 api_router.include_router(usage.router)
+api_router.include_router(settings.router)
 
 
-__all__ = ["api_router", "deps", "exports", "health", "materials", "plans", "sessions", "usage"]
+__all__ = ["api_router", "deps", "exports", "health", "materials", "plans", "sessions", "settings", "usage"]
