@@ -18,7 +18,11 @@ export default function Settings() {
       </p>
 
       {isLoading && <p className="text-slate-500">加载中…</p>}
-      {error && <p className="text-red-600">加载失败（请确认已配置认证 token）</p>}
+      {error && (
+        <p role="alert" className="text-red-600">
+          加载失败（请确认已配置认证 token）
+        </p>
+      )}
 
       {data && (
         <dl className="divide-y rounded-lg border bg-white">

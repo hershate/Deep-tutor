@@ -33,24 +33,40 @@ export default function Home() {
         <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD）。</p>
       </div>
 
-      <textarea
-        className="w-full min-h-[120px] rounded-lg border border-slate-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
-        value={rawText}
-        onChange={(e) => setRawText(e.target.value)}
-      />
-
-      <div className="flex items-center gap-3">
-        <input
-          type="file"
-          accept=".pdf,.docx,.pptx,.txt,.md"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="text-sm"
+      <div className="space-y-2">
+        <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700">
+          需求描述
+        </label>
+        <textarea
+          id="home-rawtext"
+          className="w-full min-h-[120px] rounded-lg border border-slate-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
+          value={rawText}
+          onChange={(e) => setRawText(e.target.value)}
         />
-        {file && <span className="text-sm text-slate-500">已选: {file.name}</span>}
       </div>
 
-      {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      <div className="space-y-2">
+        <label htmlFor="home-file" className="block text-sm font-medium text-slate-700">
+          学习资料（可选）
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            id="home-file"
+            type="file"
+            accept=".pdf,.docx,.pptx,.txt,.md"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="text-sm"
+          />
+          {file && <span className="text-sm text-slate-500">已选: {file.name}</span>}
+        </div>
+      </div>
+
+      {error && (
+        <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <button
         onClick={start}

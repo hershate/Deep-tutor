@@ -18,6 +18,7 @@ interface PlanData {
 }
 
 const VERIFY_LABEL: Record<string, string> = { ok: '✅', uncertain: '⚠️', invalid: '❌' }
+const VERIFY_TEXT: Record<string, string> = { ok: '已验证', uncertain: '不确定', invalid: '无效' }
 
 export default function PlanDetail() {
   const { planId } = useParams()
@@ -45,7 +46,12 @@ export default function PlanDetail() {
   }
 
   if (loading) return <p className="text-slate-500">加载方案…</p>
-  if (error) return <div className="rounded-lg bg-red-50 p-3 text-red-700">{error}</div>
+  if (error)
+    return (
+      <div role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">
+        {error}
+      </div>
+    )
   if (!plan) return <p className="text-slate-500">无方案数据</p>
 
   return (
@@ -98,7 +104,9 @@ export default function PlanDetail() {
           <ul className="space-y-1 text-sm">
             {plan.resources.map((r, i) => (
               <li key={i}>
-                {VERIFY_LABEL[r.verified ?? ''] ?? '·'} {r.title}{' '}
+                <span aria-hidden="true">{VERIFY_LABEL[r.verified ?? ''] ?? '·'}</span>{' '}
+                <span className="sr-only">{VERIFY_TEXT[r.verified ?? ''] ?? '未知'}：</span>
+                {r.title}{' '}
                 <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                   {r.url}
                 </a>

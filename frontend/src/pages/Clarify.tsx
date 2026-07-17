@@ -52,20 +52,30 @@ export default function Clarify() {
       <p className="text-slate-600">为了生成更贴合的学习方案，请回答以下问题：</p>
 
       <div className="space-y-3">
-        {questions.map((q, i) => (
-          <div key={i} className="space-y-1">
-            <label className="text-sm font-medium">{q}</label>
-            <input
-              className="w-full rounded-lg border border-slate-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={answers[q] ?? ''}
-              onChange={(e) => setAnswers((a) => ({ ...a, [q]: e.target.value }))}
-              placeholder="你的回答…"
-            />
-          </div>
-        ))}
+        {questions.map((q, i) => {
+          const inputId = `clarify-q-${i}`
+          return (
+            <div key={i} className="space-y-1">
+              <label htmlFor={inputId} className="text-sm font-medium">
+                {q}
+              </label>
+              <input
+                id={inputId}
+                className="w-full rounded-lg border border-slate-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={answers[q] ?? ''}
+                onChange={(e) => setAnswers((a) => ({ ...a, [q]: e.target.value }))}
+                placeholder="你的回答…"
+              />
+            </div>
+          )
+        })}
       </div>
 
-      {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <button
         onClick={submit}

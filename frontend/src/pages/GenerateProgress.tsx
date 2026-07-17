@@ -85,7 +85,12 @@ export default function GenerateProgress() {
         {steps.map((st, i) => (
           <li key={i} className="flex items-center gap-3 rounded-lg border bg-white p-3">
             <span className="w-5 text-center">
-              {st.status === 'running' ? '⏳' : st.status === 'error' ? '❌' : '✅'}
+              <span aria-hidden="true">
+                {st.status === 'running' ? '⏳' : st.status === 'error' ? '❌' : '✅'}
+              </span>
+              <span className="sr-only">
+                {st.status === 'running' ? '进行中' : st.status === 'error' ? '失败' : '完成'}
+              </span>
             </span>
             <span className="font-medium">{st.name}</span>
             {st.meta && (
@@ -98,7 +103,7 @@ export default function GenerateProgress() {
       </ul>
 
       {status === 'error' && (
-        <div className="rounded-lg bg-red-50 p-4 text-red-700">
+        <div role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">
           <p className="font-medium">生成失败</p>
           <p className="text-sm">{error}</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
