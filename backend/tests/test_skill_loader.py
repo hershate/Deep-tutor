@@ -17,6 +17,7 @@ from app.tools.base import ToolInput
 from app.tools.build_knowledge_map import build_knowledge_map_tool
 from app.tools.design_stages import design_stages_tool
 from app.tools.understand_intent import understand_intent_tool
+from app.tools.validate_plan import validate_plan_tool
 
 _PROJECT_SKILLS = Path(__file__).resolve().parents[2] / "skills"
 
@@ -219,4 +220,42 @@ def test_real_stages_skill_used_as_system_prompt():
     assert out.status == "ok"
     assert provider.calls[0]["system"] == skill_body
     assert provider.calls[0]["system"] != design_stages_tool.inline_prompt
+    assert provider.calls[0]["cache_system"] is True
+
+
+def test_real_deep_tutor_validate_skill_loads():
+    """真实 skills/deep-tutor-validate/SKILL.md 可加载。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-validate" in reg
+    body = reg["deep-tutor-validate"]
+    assert body.strip()
+    assert not body.startswith("---")
+    assert "name: deep-tutor-validate" not in body
+
+
+def test_real_validate_skill_used_as_system_prompt():
+    """真实 Skill 加载后，loop 用 Skill 正文作 system prompt（覆盖 inline_prompt）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    skill_body = reg["deep-tutor-validate"]
+
+    canned = (
+        '{"report":{"dependency_closure":{"status":"pass","details":""},'
+        '"difficulty_step":{"status":"pass","details":""},"cognitive_load":{"status":"pass","details":""},'
+        '"milestone_feasibility":{"status":"pass","details":""},"gap_analysis":{"status":"pass","details":""}},'
+        '"passed":true,"fixes":[]}'
+    )
+    provider = _ScriptedProvider([LLMResponse(content=canned, usage=LLMUsage(model="claude-sonnet-5"))])
+    tools = ToolRegistry()
+    tools.register(validate_plan_tool)
+    ctx = ExecContext(
+        session_id="sess_test",
+        trace_id="trace_test",
+        registry=tools,
+        llm_provider=provider,
+        skill_registry=reg,
+    )
+    out = asyncio.run(run_tool("validate_plan", ToolInput(tool="validate_plan", session_id="sess_test"), ctx))
+    assert out.status == "ok"
+    assert provider.calls[0]["system"] == skill_body
+    assert provider.calls[0]["system"] != validate_plan_tool.inline_prompt
     assert provider.calls[0]["cache_system"] is True
