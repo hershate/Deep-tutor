@@ -321,7 +321,11 @@ def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
 
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: RegenProvider())
+    # 共享单例：初始生成消费 _CANNED[0..4]（5 次），重生成应仅消费 [5..7]
+    # （design_stages/schedule/validate 3 次）。若误从 understand_intent 全量重跑
+    # （旧 bug：_run_start 硬编码 start_tool）会耗尽响应 -> error，且 i != 8。
+    provider = RegenProvider()
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
     sid = _session(client, auth_headers)
 
     # 1. 初始生成 -> plan v1
@@ -349,6 +353,9 @@ def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
     assert lst["total"] == 2
     detail = client.get(f"/api/plans/{new_plan_id}", headers=auth_headers).json()
     assert detail["version"] == 2
+    # 重跑范围最小化（plan/10 §十三）：仅 design_stages/schedule/validate 3 次 LLM 调用
+    # （初始 5 + 重生成 3 = 8）；若误从 understand_intent 全量重跑则 i > 8 或耗尽报错。
+    assert provider.i == 8, f"期望 8 次 LLM 调用（5 初始 + 3 重生成），实际 {provider.i}"
 
 
 def test_regenerate_invalid_scope(client, auth_headers, monkeypatch):

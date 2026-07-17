@@ -344,7 +344,9 @@ def regenerate(
         )
     args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
     return StreamingResponse(
-        _run_start(session_id, args_by_tool, initial_upstream, _parse_last_event_id(request)),
+        _run_start(
+            session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), start_tool=start_tool
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -432,9 +434,17 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
 
 
 async def _run_start(
-    session_id: int, args_by_tool: dict, initial_upstream: dict, last_event_id: int = 0
+    session_id: int,
+    args_by_tool: dict,
+    initial_upstream: dict,
+    last_event_id: int = 0,
+    start_tool: str = "understand_intent",
 ) -> str:
-    """启动一次生成：创建会话流 + 编排器任务（done-callback 持久化）+ 续接投递。"""
+    """启动一次生成：创建会话流 + 编排器任务（done-callback 持久化）+ 续接投递。
+
+    start_tool：编排器起始工具。默认 understand_intent（全量生成 / 澄清续接）；
+    局部重生成传 scope（plan/10 §十三：从受影响工具起级联重跑其下游，重跑范围最小化）。
+    """
     trace_id = uuid.uuid4().hex
     stream = _SessionStream(session_id, trace_id)
     stream.raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
@@ -471,7 +481,7 @@ async def _run_start(
         registry, ctx, event_cb=lambda e, d: stream.publish(e, d), max_tool_calls=settings.max_tool_calls
     )
     task = asyncio.create_task(
-        orch.run(args_by_tool, start_tool="understand_intent", initial_upstream=initial_upstream)
+        orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
     )
     stream.task = task
     task.add_done_callback(lambda t: _finalize(session_id, stream, t))
