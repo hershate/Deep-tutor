@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：更深稳定性审计（iter 21-27：四处 OOM + `_finalize` FK + auth 时序 + 错误格式 + Clarify 卸载取消，149 后端测试 + 前端 build 通过）；已审：后端全主路径 + 前端 sse/GenerateProgress/Clarify/Home。候选：PlanDetail/Usage/Settings 前端、marker subprocess/线程池、Home 上传失败孤儿会话（UX，低危）。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 27 条。
+**当前下一步**：**当前下一步**：更深稳定性审计（iter 21-28：四处 OOM + `_finalize` FK + auth 时序 + 错误格式 + Clarify 卸载取消 + Home 孤儿会话，149 后端测试 + 前端 build 通过）；已审：后端全主路径 + 前端 sse/GenerateProgress/Clarify/Home/Usage/Settings/PlanDetail。候选：marker subprocess（已审有界 600s）、并发线程池（本地单用户低危）。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 28 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 更深稳定性审计（iter 28，Home 上传失败清理孤儿会话）**：审计 [Home.tsx](frontend/src/pages/Home.tsx) `start()`：`createSession` 成功后 `uploadMaterial` 失败（超大/不支持格式）会留空会话孤儿，重试建新会话致孤儿堆积。修复：上传失败时 `deleteSession` 刚建会话（best-effort）再抛错由外层提示（会话刚建无运行任务，删除安全）。`npm run build` 通过（91 模块）。commit `88175f4`。另审：[Usage.tsx](frontend/src/pages/Usage.tsx)/[Settings.tsx](frontend/src/pages/Settings.tsx)（只读 TanStack Query，无问题）、marker subprocess（`subprocess.run` 600s 超时->upstream_timeout，有界）、`ssePostWithReconnect`（重试≤3、退避 1/2/4s、终态检测，无问题）、PlanDetail 展示（无问题）。
 - **2026-07-17 更深稳定性审计（iter 27，Clarify 卸载取消 clarify 流）**：审计前端 [Clarify.tsx](frontend/src/pages/Clarify.tsx) 发现缺卸载取消（GenerateProgress/PlanDetail 均有）--用户中途离开则 clarify 流后台继续，可能在已卸载组件上 setError/setLoading。修复：加 `acRef` + `useEffect` 卸载 abort；`submit` 建 AbortController 传 signal 给 `clarifyStream`；`.then`/`.catch` 守护 `ac.signal.aborted`（不计错误）。与 GenerateProgress/PlanDetail 模式一致。`npm run build` 通过（91 模块）。commit `bc3cd39`。另审：[Home.tsx](frontend/src/pages/Home.tsx) 上传失败留孤儿会话（createSession 成功后 uploadMaterial 失败，UX 低危，不修）、[sse.ts](frontend/src/lib/sse.ts)（浏览器中止即释放 reader、后端 \n 行尾、心跳防挂，无问题）。
 - **2026-07-17 稳定性加固审计（iter 26，auth 常量时间比较 + 错误格式一致）**：审计 [deps.py](backend/app/api/deps.py) `require_auth` token 比较用 `!=`（非常量时间，时序攻击向量）--改 `secrets.compare_digest`（常量时间；既有 valid/invalid token 测试覆盖、行为不变）。[main.py](backend/app/main.py) 请求体超限响应补 `details:{}`，与 `errors._error_body` 统一格式一致。test_api body-limit 测试增 `assert "details" in error`。全量 149 测试通过，零回归。commit `84bd3c2`。另：deps `get_default_user`/`get_db`、errors 处理器（R35 不回显）审计无问题。
 - **2026-07-17 稳定性加固审计（iter 25，_finalize 会话已删除跳过 DB 写防 FK 违约）**：审计发现 DELETE /sessions 取消运行中任务后，`_finalize`（done-callback）仍调 `_set_state` 重建 `OrchestratorState(session_id=已删会话)`，撞 FK（`PRAGMA foreign_keys=ON` + 级联删 state）-> IntegrityError 被 broad-except 吞成 `internal_error` 噪声 + 错误事件码（plan/10 §十一）。修复：[plans.py](backend/app/api/plans.py) `_finalize` 顶部加会话存在守卫--会话已删 -> 不写 DB，仅发 `error{cancelled}` + 清理；会话存在走正常持久化（既有 cancelled 分支不变）。测试 +1（删会话后 `_finalize` -> 发 `error{cancelled}` 非 `internal_error`、不重建 OrchestratorState）；已实证回退守卫则 FK 违约 + 测试失败。全量 149 测试通过（148+1），零回归。commit `ab441fb`。审计候选：并发同会话 generate TOCTOU（本地单用户低危，修需跨线程锁、风险大于收益，暂记不修）。
