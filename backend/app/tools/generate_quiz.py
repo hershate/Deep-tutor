@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -94,17 +95,59 @@ def default_quiz_from_plan(plan: dict[str, Any]) -> QuizSpec:
     return QuizSpec(title=title, quizzes=items)
 
 
+# --- quiz 题源联动（iter 49）：单元「检查理解」自测题 -> generate_quiz 题源 ---
+
+_LIST_MARKER = re.compile(r"^(?:[-*+]|\d+[.、)])\s*")
+
+
+def extract_check_questions(
+    unit_contents: list[tuple[str, str]], per_unit: int = 4, total: int = 20
+) -> list[dict]:
+    """从单元 content_md 提取「### 检查理解」自测题（iter 49，单元题源喂 generate_quiz）。
+
+    取该小节（### 检查理解 到下一个 ### 之间）的非空行，去列表标记（-/* / 1. 等）；
+    每单元 ≤per_unit、总计 ≤total。无该小节或无题 -> 跳过该单元。
+    返回 [{"unit": 单元名, "questions": [问题原文]}]，供 quiz 工具 prompt 改编为可判分题。
+    """
+    result: list[dict] = []
+    count = 0
+    for title, content_md in unit_contents:
+        if count >= total:
+            break
+        questions: list[str] = []
+        in_section = False
+        for line in (content_md or "").splitlines():
+            s = line.strip()
+            if s.startswith("###"):
+                if in_section:
+                    break  # 下一个小节 -> 结束
+                in_section = "检查理解" in s
+                continue
+            if not in_section or not s:
+                continue
+            q = _LIST_MARKER.sub("", s).strip()
+            if q:
+                questions.append(q)
+            if len(questions) >= per_unit:
+                break
+        if questions:
+            count += len(questions)
+            result.append({"unit": title, "questions": questions})
+    return result
+
+
 # --- LLM 工具（iter 37）：plan -> QuizSpec，复用 loop 修复链 ---
 
 PROMPT = """你是 Deep-tutor 的「测验题生成」工具。任务：从学习方案（args.plan）按知识点多题型出题，生成测验规约（QuizSpec JSON）。非交互，直接输出规约。
 
-输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal}、knowledge_map{nodes:[{id,name,difficulty,must_learn}]}、stages[{name,topics[{name}]}]）。
+输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal}、knowledge_map{nodes:[{id,name,difficulty,must_learn}]}、stages[{name,topics[{name}]}]）。可选 args.unit_check_questions（自学单元「检查理解」自测题：[{"unit":"单元名","questions":["问题"]}]，iter 49 题源联动）。
 
 仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
 {"title":"测验标题","quizzes":[{"node_id":"节点id","node_name":"节点名","type":"choice|fill|short","question":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"正确选项原文或参考答案","explanation":"解析"}]}
 
 规则：
 - 出题来源 plan.knowledge_map.nodes（must_learn 优先；map 为空时用 stages.topics）；每节点 1-2 题，总 5-20 题。
+- 若有 args.unit_check_questions：优先将这些单元自测题改编为可判分题（choice/fill/short，补 answer 与 explanation），尽量覆盖各单元；不足 5 题时按知识点补足。改编题与单元知识点相关时 node_id/node_name 填对应节点，无对应节点可留空。
 - 题型混合：choice（单选，options 3-4 个，answer 必须是 options 中正确选项的原文，且仅一个正确）、fill（填空，answer 为缺失的关键词语）、short（简答，answer 为参考要点）。
 - 难度贴合节点 difficulty（1-2 概念辨析/记忆，3 应用，4-5 综合）。
 - options 中干扰项须合理（常见误解），不凑数。

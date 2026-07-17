@@ -34,7 +34,7 @@ from app.llm import get_provider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.base import ToolInput, ToolOutput
-from app.tools.generate_quiz import QuizSpec, default_quiz_from_plan
+from app.tools.generate_quiz import QuizSpec, default_quiz_from_plan, extract_check_questions
 from app.tools.generate_study_materials import (
     StudyMaterialsSpec,
     StudyUnitSpec,
@@ -1056,10 +1056,26 @@ async def generate_quiz_endpoint(
         llm_provider=provider,
         data_dir=settings.data_dir,
     )
+    # quiz 题源联动（iter 49）：已持久化自学单元的「检查理解」自测题 -> 题源（无单元/无小节 -> 空，行为同前）
+    unit_contents: list[tuple[str, str]] = []
+    for u in (
+        db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
+    ):
+        if not u.materials:
+            continue
+        try:
+            unit_contents.append((u.title, Path(u.materials[0].content_md_path).read_text(encoding="utf-8")))
+        except OSError:
+            log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
+    check_questions = extract_check_questions(unit_contents)
     inp = ToolInput(
         tool="generate_quiz",
         session_id=str(plan.session_id),
-        args={"plan_id": str(plan_id), "plan": content},
+        args={
+            "plan_id": str(plan_id),
+            "plan": content,
+            **({"unit_check_questions": check_questions} if check_questions else {}),
+        },
     )
     spec_out = await run_tool("generate_quiz", inp, ctx)
     # ok 用 LLM 规约；repaired/error 降级 default_quiz_from_plan(plan)
