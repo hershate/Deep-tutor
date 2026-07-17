@@ -14,6 +14,7 @@ from app.agent import ExecContext, ToolRegistry, run_tool
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 from app.skills.loader import load_skills
 from app.tools.base import ToolInput
+from app.tools.build_knowledge_map import build_knowledge_map_tool
 from app.tools.understand_intent import understand_intent_tool
 
 _PROJECT_SKILLS = Path(__file__).resolve().parents[2] / "skills"
@@ -146,4 +147,37 @@ def test_real_intent_skill_used_as_system_prompt():
     # Skill 正文作 system prompt（非 inline_prompt）
     assert provider.calls[0]["system"] == skill_body
     assert provider.calls[0]["system"] != understand_intent_tool.inline_prompt
+    assert provider.calls[0]["cache_system"] is True
+
+
+def test_real_deep_tutor_knowledge_map_skill_loads():
+    """真实 skills/deep-tutor-knowledge-map/SKILL.md 可加载。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-knowledge-map" in reg
+    body = reg["deep-tutor-knowledge-map"]
+    assert body.strip()
+    assert not body.startswith("---")
+    assert "name: deep-tutor-knowledge-map" not in body
+
+
+def test_real_knowledge_map_skill_used_as_system_prompt():
+    """真实 Skill 加载后，loop 用 Skill 正文作 system prompt（覆盖 inline_prompt）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    skill_body = reg["deep-tutor-knowledge-map"]
+
+    canned = '{"nodes":[{"id":"k1","name":"JS","difficulty":2,"must_learn":true,"parent_id":null}],"edges":[]}'
+    provider = _ScriptedProvider([LLMResponse(content=canned, usage=LLMUsage(model="claude-sonnet-5"))])
+    tools = ToolRegistry()
+    tools.register(build_knowledge_map_tool)
+    ctx = ExecContext(
+        session_id="sess_test",
+        trace_id="trace_test",
+        registry=tools,
+        llm_provider=provider,
+        skill_registry=reg,
+    )
+    out = asyncio.run(run_tool("build_knowledge_map", ToolInput(tool="build_knowledge_map", session_id="sess_test"), ctx))
+    assert out.status == "ok"
+    assert provider.calls[0]["system"] == skill_body
+    assert provider.calls[0]["system"] != build_knowledge_map_tool.inline_prompt
     assert provider.calls[0]["cache_system"] is True
