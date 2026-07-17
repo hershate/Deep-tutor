@@ -1,14 +1,18 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Home from './pages/Home'
+import GenerateProgress from './pages/GenerateProgress'
+import Clarify from './pages/Clarify'
+import PlanDetail from './pages/PlanDetail'
 
-// 路由骨架（plan/06）。生成流程各页面在 step 7 落地：
-// /, /clarify/:sessionId, /generate/:sessionId, /plans/:id, /usage, /settings
 export default function App() {
   return (
     <Layout>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/generate/:sessionId" element={<GenerateProgress />} />
+        <Route path="/clarify/:sessionId" element={<Clarify />} />
+        <Route path="/plans/:planId" element={<PlanDetail />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

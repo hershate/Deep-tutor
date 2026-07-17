@@ -244,10 +244,21 @@ class Orchestrator:
         return None
 
     def _assemble(self, outputs: dict[str, ToolOutput]) -> dict[str, Any]:
-        export = outputs.get("export_plan")
-        if export and export.data:
-            return dict(export.data)
-        return {name: o.data for name, o in outputs.items()}
+        """组装完整方案（各组件输出聚合；export_plan 仅产文件，不作为方案本体）。"""
+        plan: dict[str, Any] = {}
+        if "understand_intent" in outputs:
+            plan["intent"] = outputs["understand_intent"].data
+        if "build_knowledge_map" in outputs:
+            plan["knowledge_map"] = outputs["build_knowledge_map"].data
+        if "design_stages" in outputs:
+            plan["stages"] = outputs["design_stages"].data.get("stages", [])
+        if "search_resources" in outputs:
+            plan["resources"] = outputs["search_resources"].data.get("resources", [])
+        if "schedule_plan" in outputs:
+            plan["schedule"] = outputs["schedule_plan"].data.get("schedule", [])
+        if "validate_plan" in outputs:
+            plan["validation_report"] = outputs["validate_plan"].data
+        return plan
 
     def _emit(self, event: str, data: dict[str, Any]) -> None:
         if self.event_cb:

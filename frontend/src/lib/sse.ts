@@ -11,20 +11,28 @@ export interface SSEOptions {
   token?: string
   lastEventId?: string
   signal?: AbortSignal
+  method?: 'GET' | 'POST'
+  body?: string
   onEvent: (ev: SSEEvent) => void
   onError?: (err: unknown) => void
 }
 
 /**
  * 打开 SSE 流。逐行解析 `text/event-stream`，按 SSE 规范处理 field/event/id。
- * 断线续接：传入上次最后的 event id 作为 Last-Event-ID 头。
+ * 支持 POST（/plans/generate 等流式端点）。断线续接：传入上次最后的 event id 作为 Last-Event-ID 头。
  */
 export async function openSSE(url: string, opts: SSEOptions): Promise<void> {
   const headers: Record<string, string> = { Accept: 'text/event-stream' }
-  if (opts.token) headers['X-Auth-Token'] = opts.token
+  if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`
   if (opts.lastEventId) headers['Last-Event-ID'] = opts.lastEventId
+  if (opts.body) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(url, { headers, signal: opts.signal })
+  const res = await fetch(url, {
+    method: opts.method ?? 'GET',
+    headers,
+    body: opts.body,
+    signal: opts.signal,
+  })
   if (!res.ok || !res.body) {
     throw new Error(`SSE 连接失败: HTTP ${res.status}`)
   }

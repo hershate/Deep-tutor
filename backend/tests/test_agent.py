@@ -258,7 +258,10 @@ def test_orchestrator_pipeline_order_and_done():
     result = asyncio.run(orch.run({}))
     assert result.status == "done"
     assert order == PIPELINE  # 按固定顺序执行
-    assert result.plan == {"file_url": "/data/x.md"}
+    # _assemble 组装完整方案（各组件聚合，非 export_plan 的 file_url）
+    assert result.plan["intent"]["topic"] == "Go"
+    assert result.plan["validation_report"]["passed"] is True
+    assert result.plan["stages"] == []
 
 
 def test_orchestrator_clarify_pauses():
