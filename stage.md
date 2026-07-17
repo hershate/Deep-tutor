@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 P0 前端完成（页面+SSE 续接+Usage+Settings）；步骤 8 mock 冒烟测试完成（110 测试）。待做：无障碍（a11y）、真机 Anthropic 冒烟（需 key）、收紧启动校验（R27）。可评估进入 P2 或完善 P1 收尾。详见 §五 2026-07-17 iter 8 条。
+**当前下一步**：步骤 7 P0 前端完成（页面+SSE 续接+Usage+Settings+a11y）；步骤 8 mock 冒烟完成（110 测试）。待做：真机 Anthropic 冒烟（需 key）。P0 基本收尾，可评估进入 P1（regenerate/slides）或 P2。详见 §五 2026-07-17 iter 9 条。
 
 ---
 
@@ -86,7 +86,7 @@
 | 4 | P0 工具链（每工具独立 commit） | `feat(tools): ...` | ✅ 完成 | 见 §4.4（8 工具，commit 45d194c…9de452e） |
 | 5 | Skill 层（skill-chain-planner 规划 + skill-for-skills 生成 + Python 加载器） | `feat(skills): deep-tutor-* skills and loader` | 🟡 下一步 | 见 §4.5 |
 | 6 | API 层（materials/sessions/plans/export） | `feat(api): materials/sessions/plans endpoints` | ✅ 完成 | 见 §4.6（P0 API 全完成，5 次迭代，91 测试） |
-| 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | 🟡 进行中 | 见 §五（P0 页面 + SSE 稳定性基础完成，build 通过） |
+| 7 | 前端 P0 页面 | `feat(frontend): generate flow and plan detail` | ✅ 完成 | 见 §五（P0 页面 + SSE 续接 + Usage/Settings + a11y） |
 | 8 | 端到端联调 + 冒烟测试 | `test: e2e smoke for plan generation` | 🟡 进行中 | 见 §五（mock 冒烟完成，110 测试；真机 Anthropic 冒烟待 key） |
 
 ### 4.1 步骤 1 - 建骨架（✅ 完成）
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 步骤 7 进行中（iter 9，无障碍 a11y）**：落地 plan/06 §九 无障碍基础。[index.css](frontend/src/index.css) 加 `prefers-reduced-motion` 关闭动画/过渡。[Clarify.tsx](frontend/src/pages/Clarify.tsx) label/input `htmlFor`/`id` 关联。[Home.tsx](frontend/src/pages/Home.tsx) 为 textarea/file input 加可见 `<label>`。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 步骤状态图标加 `sr-only` 文字（进行中/失败/完成）。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 资源 ✅⚠️❌ 加 `sr-only` 文字（已验证/不确定/无效，图标+文字不只靠颜色）。各页错误区加 `role="alert"`（Home/Clarify/GenerateProgress/PlanDetail/Usage/Settings）。前端 build 通过（91 模块）。待做：真机 Anthropic 冒烟（需 key）。**P0 前端基本完成**。
 - **2026-07-17 步骤 8 进行中（iter 8，e2e 冒烟测试）**：新增 [test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) -- 完整用户旅程冒烟（TestClient + mock LLM）：建会话 -> 加文本资料（验证 material->生成注入 `initial_upstream`，他测仅 raw_text）-> 生成(SSE `done`) -> 方案详情/列表 -> `/usage`（api_usage 落库，5 调用）-> `/settings`（不泄密）-> 导出 md。全量 110 后端测试通过。真机 Anthropic 冒烟需配置 key 后另跑。待做：无障碍、真机冒烟、R27 启动校验收紧。
 - **2026-07-17 步骤 7 进行中（iter 7，Settings 只读页）**：用户定方向为只读展示（避免与 .env 假设 4 冲突）。后端新增 [settings.py](backend/app/api/settings.py) `GET /api/settings` -- 只读返回非敏感配置（模型/会话预算/每日预算/工具调用上限/上传上限/搜索引擎 + Key 是否已设 bool），**不返回任何明文密钥**；注册到 api_router。前端新增 [Settings.tsx](frontend/src/pages/Settings.tsx)（`dl/dt/dd` 列表只读展示，Key 状态绿/琥珀色标注）+ [api.ts](frontend/src/lib/api.ts) `getSettings`/`AppSettings`；[App.tsx](frontend/src/App.tsx) 加 /settings 路由，[Layout.tsx](frontend/src/components/Layout.tsx) 加导航。测试：+2（不泄密 + 需鉴权），全量 109 后端测试通过；前端 build 通过（91 模块）。待做：无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 6，Usage UI）**：前端用量展示（Pillar 3 成本可见性，plan/06 UsageMeter/用量页）。新增 [UsageMeter.tsx](frontend/src/components/UsageMeter.tsx)（顶栏小窗：总费用+token，TanStack Query 拉 /api/usage，窗口聚焦刷新，aria-label）+ [Usage.tsx](frontend/src/pages/Usage.tsx)（详情页：总 token/费用/缓存命中率/调用数 + 手动刷新，`dl/dt/dd` 语义）。[Layout.tsx](frontend/src/components/Layout.tsx) 加顶栏导航（首页/用量）+ UsageMeter。[App.tsx](frontend/src/App.tsx) 加 /usage 路由。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 生成结束（非取消）后 `invalidateQueries(['usage'])` 刷新用量（api_usage 已在 done-callback 落库）。前端 build 通过（90 模块）。待做：Settings 页（范围待定，见下）、无障碍、步骤 8 联调。
