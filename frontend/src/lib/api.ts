@@ -77,14 +77,57 @@ export const exportPlan = (planId: number, format = 'md') =>
     { method: 'POST', body: JSON.stringify({ format }) },
   )
 
-// 自学材料（P2，plan/07 §五）：同步一次 LLM 调用 -> markdown（前端 react-markdown 渲染）。
-// iter 43 起幂等：已持久化直接返回；refresh=true 强制重新生成（替换旧单元）。
-export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'full', signal?: AbortSignal, refresh = false) =>
-  apiFetch<{ unit_count: number; markdown: string; warning?: string }>(`/plans/${planId}/materials`, {
+// 自学材料（P2，plan/07 §五；iter 47：SSE 逐单元渐进显示）。
+// 内容协商：Accept: text/event-stream 且需生成 -> SSE 流（unit_start/unit_done ×N -> done）；
+// 幂等命中（已持久化未 refresh）仍返回 JSON -> onSync。一次性流，不做断线重连（后端同）。
+export interface MaterialsSyncResult {
+  unit_count: number
+  markdown: string
+  warning?: string
+}
+export interface MaterialsStreamCallbacks {
+  onUnitStart?: (d: { order: number; title: string; total: number }) => void
+  onUnitDone?: (d: { order: number; title: string; degraded: boolean }) => void
+  onDone?: (d: { unit_count: number; degraded_count: number }) => void
+  onSync?: (r: MaterialsSyncResult) => void // 幂等命中 JSON
+}
+export async function generateMaterialsStream(
+  planId: number,
+  depth: 'brief' | 'full',
+  refresh: boolean,
+  cb: MaterialsStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/plans/${planId}/materials`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token()}`,
+      Accept: 'text/event-stream',
+    },
     body: JSON.stringify({ depth, refresh }),
     signal,
   })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    const err = body?.error ?? {}
+    throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+  }
+  const ctype = res.headers.get('content-type') ?? ''
+  if (ctype.includes('application/json')) {
+    cb.onSync?.((await res.json()) as MaterialsSyncResult) // 幂等命中：直接返回已存单元
+    return
+  }
+  if (!res.body) throw new ApiError('http_error', 'SSE 响应无 body', res.status)
+  await readSSEStream(res.body, (ev) => {
+    const data = ev.data ? JSON.parse(ev.data) : {}
+    const event = ev.event ?? 'message'
+    if (event === 'unit_start') cb.onUnitStart?.(data)
+    else if (event === 'unit_done') cb.onUnitDone?.(data)
+    else if (event === 'done') cb.onDone?.(data)
+    else if (event === 'error') throw new ApiError(data.code ?? 'error', data.message ?? '材料生成失败', res.status)
+  })
+}
 
 // 测验（P2，plan/02 §8）：同步一次 LLM 调用 -> 题目 JSON（前端交互判分）
 export interface QuizItemData {
@@ -227,7 +270,7 @@ export function clarifyStream(
   return ssePost(`/plans/${sessionId}/clarify`, { answers }, onEvent, signal)
 }
 
-import { openSSE, SseError } from './sse'
+import { openSSE, readSSEStream, SseError } from './sse'
 
 const SSE_MAX_RETRIES = 3 // plan/06 §七：指数退避重连最多 3 次
 const SSE_BACKOFF_BASE_MS = 1000

@@ -46,8 +46,19 @@ export async function openSSE(url: string, opts: SSEOptions): Promise<string | u
   if (!res.ok || !res.body) {
     throw new SseError(res.status, `SSE 连接失败: HTTP ${res.status}`)
   }
+  return readSSEStream(res.body, opts.onEvent)
+}
 
-  const reader = res.body.getReader()
+/**
+ * 解析已建立的 SSE 响应体（逐行 field/event/id，注释/心跳行跳过）。
+ * 从 openSSE 拆出，供需先按 content-type 分流（JSON 幂等 vs SSE）的调用方复用（如材料生成，iter 47）。
+ * 返回流中见到的最后一个 `id`。
+ */
+export async function readSSEStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (ev: SSEEvent) => void,
+): Promise<string | undefined> {
+  const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let cur: SSEEvent = { data: '' }
@@ -63,7 +74,7 @@ export async function openSSE(url: string, opts: SSEOptions): Promise<string | u
       if (line === '') {
         if (cur.data !== '' || cur.event || cur.id) {
           if (cur.id) lastId = cur.id
-          opts.onEvent({ ...cur })
+          onEvent({ ...cur })
         }
         cur = { data: '' }
         continue
