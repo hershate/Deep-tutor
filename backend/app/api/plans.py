@@ -33,6 +33,7 @@ from app.llm import get_provider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.base import ToolInput, ToolOutput
+from app.tools.generate_quiz import QuizSpec, default_quiz_from_plan
 from app.tools.generate_study_materials import (
     StudyMaterialsSpec,
     default_materials_from_plan,
@@ -648,13 +649,29 @@ def get_plan(plan_id: int, db: Session = Depends(get_db)) -> dict:
     plan = db.get(models.Plan, plan_id)
     if plan is None:
         raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    return {"id": plan.id, "session_id": plan.session_id, "version": plan.version, "plan": _load_plan_content(plan)}
+
+
+def _load_plan_content(plan: models.Plan) -> dict:
+    """读 plan 内容（大方案从 content_path 溢出文件回读）；读不到返 {}。"""
     content = plan.content
     if not content and plan.content_path:
         try:
             content = json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             content = {}
-    return {"id": plan.id, "session_id": plan.session_id, "version": plan.version, "plan": content}
+    return content or {}
+
+
+def _plan_or_404(db: Session, plan_id: int) -> tuple[models.Plan, dict]:
+    """加载 plan + 内容；不存在 -> 404，内容为空 -> 400。"""
+    plan = db.get(models.Plan, plan_id)
+    if plan is None:
+        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    content = _load_plan_content(plan)
+    if not content:
+        raise ApiError("empty_content", "方案内容为空")
+    return plan, content
 
 
 # --- 自学材料（P2，plan/07 §五；简化 MVP：同步一次 LLM 调用 -> markdown，SSE/异步/持久化延后）---
@@ -671,17 +688,7 @@ async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depe
     无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_materials_from_plan 纯 Python 默认（稳定兜底）。
     返回 markdown 内容（前端 react-markdown 渲染；无需额外文件服务/鉴权）。
     """
-    plan = db.get(models.Plan, plan_id)
-    if plan is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
-    content = plan.content
-    if not content and plan.content_path:
-        try:
-            content = json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            content = {}
-    if not content:
-        raise ApiError("empty_content", "方案内容为空，无法生成自学材料")
+    plan, content = _plan_or_404(db, plan_id)
 
     try:
         provider = get_provider()
@@ -711,4 +718,49 @@ async def generate_materials(plan_id: int, body: MaterialsIn, db: Session = Depe
     result: dict = {"unit_count": len(spec.units), "markdown": md}
     if spec_out.status != "ok":
         result["warning"] = "自学材料规约生成降级，使用默认结构"
+    return result
+
+
+# --- 测验（P2，plan/02 §8；简化 MVP：同步一次 LLM 调用 -> JSON，quizzes 表持久化延后）---
+
+
+@router.post("/{plan_id}/quiz")
+async def generate_quiz_endpoint(plan_id: int, db: Session = Depends(get_db)) -> dict:
+    """生成测验：run_tool 生成 QuizSpec（LLM，降级默认），返回 JSON 供前端交互判分。
+
+    无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_quiz_from_plan 纯 Python 默认（稳定兜底）。
+    """
+    plan, content = _plan_or_404(db, plan_id)
+
+    try:
+        provider = get_provider()
+    except Exception:  # noqa: BLE001  无 key -> 降级默认
+        provider = None
+
+    ctx = ExecContext(
+        session_id=str(plan.session_id),
+        trace_id=f"quiz-{plan_id}",
+        registry=default_registry(),
+        llm_provider=provider,
+        data_dir=settings.data_dir,
+    )
+    inp = ToolInput(
+        tool="generate_quiz",
+        session_id=str(plan.session_id),
+        args={"plan_id": str(plan_id), "plan": content},
+    )
+    spec_out = await run_tool("generate_quiz", inp, ctx)
+    # ok 用 LLM 规约；repaired/error 降级 default_quiz_from_plan(plan)
+    if spec_out.status == "ok":
+        spec = QuizSpec.model_validate(spec_out.data)
+    else:
+        spec = default_quiz_from_plan(content)
+
+    result: dict = {
+        "title": spec.title,
+        "quiz_count": len(spec.quizzes),
+        "quizzes": [q.model_dump() for q in spec.quizzes],
+    }
+    if spec_out.status != "ok":
+        result["warning"] = "测验题生成降级，使用默认自测题"
     return result
