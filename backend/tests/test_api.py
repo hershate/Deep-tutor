@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
+
+import pytest
+
+from app.api.errors import ApiError
 
 
 def _session(client, auth_headers, title="t"):
@@ -117,6 +122,53 @@ def test_upload_too_large(client, auth_headers, monkeypatch):
     )
     assert r.status_code == 413
     assert r.json()["error"]["code"] == "payload_too_large"
+
+
+class _FakeUpload:
+    """模拟 UploadFile：记录 read 调用的 n 上限，证明限量读取。"""
+
+    def __init__(self, data: bytes, size: int | None = None) -> None:
+        self._data = data
+        self.size = size
+        self.read_max_n = -1
+
+    async def read(self, n: int = -1) -> bytes:
+        if n > self.read_max_n:
+            self.read_max_n = n
+        if n < 0:
+            return self._data
+        return self._data[:n]
+
+
+def test_read_capped_capped_read_rejects_over_limit():
+    """size 未知（Content-Length 缺失/伪造）：限量读取 max+1 即拒，不全量读（防 OOM）。"""
+    from app.api.materials import _read_capped
+
+    fake = _FakeUpload(b"x" * 100, size=None)  # 100 字节，上限 10
+    with pytest.raises(ApiError) as exc:
+        asyncio.run(_read_capped(fake, 10))
+    assert exc.value.code == "payload_too_large"
+    assert fake.read_max_n == 11  # 仅读 max+1，未全量读 100
+
+
+def test_read_capped_precheck_rejects_huge_size():
+    """file.size 预检：超大文件直接拒，不读字节。"""
+    from app.api.materials import _read_capped
+
+    fake = _FakeUpload(b"x" * 100, size=999)  # size 远超上限 10
+    with pytest.raises(ApiError) as exc:
+        asyncio.run(_read_capped(fake, 10))
+    assert exc.value.code == "payload_too_large"
+    assert fake.read_max_n == -1  # 未触发 read
+
+
+def test_read_capped_returns_within_limit():
+    """限额内文件原样返回。"""
+    from app.api.materials import _read_capped
+
+    fake = _FakeUpload(b"hello", size=5)
+    out = asyncio.run(_read_capped(fake, 10))
+    assert out == b"hello"
 
 
 # --- materials: url (SSRF) ---

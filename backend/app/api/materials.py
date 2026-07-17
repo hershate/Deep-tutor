@@ -98,9 +98,10 @@ async def _store(
 
 
 def _validate_upload(filename: str, content: bytes) -> str:
-    """大小 + 扩展名 + magic bytes 校验。返回清洗后扩展名。"""
-    if len(content) > settings.max_upload_bytes:
-        raise ApiError("payload_too_large", f"文件超上限 {settings.max_upload_mb}MB")
+    """扩展名 + magic bytes 校验。返回清洗后扩展名。
+
+    大小校验由 `_read_capped` 在读取阶段完成（防 OOM），此处不再重复。
+    """
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in SUPPORTED_FILE_EXTS:
         raise ApiError("unsupported_format", f"不支持的扩展名 {ext}（支持 {sorted(SUPPORTED_FILE_EXTS)}）")
@@ -110,6 +111,22 @@ def _validate_upload(filename: str, content: bytes) -> str:
     return ext
 
 
+async def _read_capped(file: UploadFile, max_bytes: int) -> bytes:
+    """读取上传内容，限量 max_bytes+1 防 OOM（R20 / DoS）。
+
+    - `file.size` 预检：Content-Length 可得时，超大文件直接拒，不读字节。
+    - 限量读取：至多读 `max_bytes+1`；超 `max_bytes` 抛 `payload_too_large`
+      （Content-Length 缺失/伪造时的兜底，内存上界 = `max_bytes+1`）。
+    """
+    size = getattr(file, "size", None)
+    if size is not None and size > max_bytes:
+        raise ApiError("payload_too_large", f"文件超上限 {settings.max_upload_mb}MB")
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ApiError("payload_too_large", f"文件超上限 {settings.max_upload_mb}MB")
+    return content
+
+
 @router.post("/upload", response_model=MaterialOut)
 async def upload_material(
     session_id: int = Form(...),
@@ -117,7 +134,7 @@ async def upload_material(
     db: Session = Depends(get_db),
 ) -> MaterialOut:
     _get_session_or_404(db, session_id)
-    content = await file.read()
+    content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
 
