@@ -42,18 +42,18 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         )
 
     try:
+        # 流式抓取仅取状态码与最终 URL，不加载正文（防超大响应 OOM；follow_redirects 仍生效）
         async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(ctx.timeouts.url)) as client:
-            resp = await client.get(url)
+            async with client.stream("GET", url) as resp:
+                status = resp.status_code
+                final_url = str(resp.url)
     except httpx.HTTPError as exc:
         log.info("verify_url 抓取失败 %s: %s", url, exc)
         return _ok_data(url, ok=False, status=None, label="invalid")
 
-    status = resp.status_code
-    final_url = str(resp.url)
     if status == 200:
         # step 4：可达即 ok；内容适配性留 step 5 LLM 判定
-        label = "ok"
-        return _ok_data(final_url, ok=True, status=status, label=label)
+        return _ok_data(final_url, ok=True, status=status, label="ok")
     return _ok_data(final_url, ok=False, status=status, label="invalid")
 
 
