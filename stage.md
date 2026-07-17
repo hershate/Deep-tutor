@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：稳定性加固审计进行中（iter 21 上传 OOM 修复，139 测试；用户选此方向）；审计候选：URL 抓取无大小上限（OOM 风险，[parse_material.py](backend/app/tools/parse_material.py) `_parse_url`）等。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 21 条。
+**当前下一步**：稳定性加固审计进行中（iter 21 上传 OOM + iter 22 URL 抓取 OOM 修复，143 测试）；审计候选：generate/SSE/取消流程、orchestrator 反馈循环/预算、LLM provider 错误处理、export 流程。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 22 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 稳定性加固审计（iter 22，URL 抓取 OOM 修复）**：审计 [parse_material.py](backend/app/tools/parse_material.py) `_parse_url` 用 `resp.text` 全量加载响应正文、无大小上限--恶意超大页面可 OOM（与上传 OOM 同类）。修复：改流式 `client.stream` + `_collect_capped` 限量读 `MAX_URL_BYTES`(10MB)，超限抛 `payload_too_large`（内存上界 ≈ max+单块）；抽 `_decode_best(raw)`（charset_normalizer 优先 + utf-8/gbk/latin-1 兜底），`_read_text_file` 与 `_parse_url` 复用、编码检测一致（替代 `resp.text`）。测试 +4（`_collect_capped` 限额内/超限早停/边界恰好；`_decode_best` utf-8 精确 + 非 utf-8 不崩）。全量 143 测试通过（139+4），零回归。commit `ff1c3da`。
 - **2026-07-17 稳定性加固审计（iter 21，上传 OOM DoS 修复）**：用户选「稳定性加固审计」方向。审计 [materials.py](backend/app/api/materials.py) 发现 `upload_material` 先 `await file.read()` 全量读入内存再校验大小--超大文件 OOM 后才被拒（DoS）。修复：抽 `_read_capped(file, max_bytes)`--`file.size` 预检（Content-Length 可得时超大直接拒、不读字节）+ 限量读 `max+1`（Content-Length 缺失/伪造兜底，内存上界 max+1），超限抛 `payload_too_large`；`upload_material` 改用之；`_validate_upload` 去冗余大小校验（移至读取阶段）。测试 +3（限量读取拒超限证仅读 max+1 / size 预检拒超大不读 / 限额内原样返回）。全量 139 测试通过（136+3），零回归。commit `fda57c4`。审计候选：URL 抓取无大小上限（`_parse_url` 全量 `resp.text`，OOM 风险）。
 - **2026-07-17 Step 5 进行中（iter 20，deep-tutor-validate Skill + resources 暂缓）**：plan/05 §八 第 4 个 P0 Skill。新增 [skills/deep-tutor-validate/SKILL.md](skills/deep-tutor-validate/SKILL.md) + [README.md](skills/deep-tutor-validate/README.md)：方法论移植 study-planner Step 6，5 项校验（dependency_closure/difficulty_step/cognitive_load/milestone_feasibility/gap_analysis），每项 status(pass|fail|warn)+details；任一 fail -> passed=false + fixes 可执行修复建议（驱动反馈循环 plan/10 §六）。可靠性编码 cache_strategy/repair（降级默认全 warn+passed=true）/security(untrusted_input)/budget；Notes 注明反馈循环映射。测试 +2（真实 Skill 加载 + loop 取用集成）。全量 136 测试通过（134+2），零回归。commit `357d6e7`。**deep-tutor-resources 暂缓**：[search_resources.py](backend/app/tools/search_resources.py) 为纯 Python（`llm=False`），LLM 内容适配性筛选未实现（docstring 注明留 step 5），无 skill 消费者；建 Skill 即死代码，待该 LLM 组件落地再建（plan/05 §二）。4 个 LLM 工具 Skill 全部完成（intent/knowledge-map/stages/validate）。
 - **2026-07-17 Step 5 进行中（iter 19，deep-tutor-stages Skill）**：plan/05 §八 第 3 个 P0 Skill。新增 [skills/deep-tutor-stages/SKILL.md](skills/deep-tutor-stages/SKILL.md) + [README.md](skills/deep-tutor-stages/README.md)：方法论移植 study-planner Step 3：3-6 阶段渐进难度（1-5），每阶段 index/name/goal/difficulty/estimated_weeks/topics(3-6, name/why/must_learn)/milestone；相邻难度差≤2、前置知识在更早阶段、里程碑仅用当前及之前知识。可靠性编码 cache_strategy/repair（3-6 validator 不符重试≤3 + 降级默认 3 阶段）/capacity（阶段 3-6、topics 3-6）/security(untrusted_input)/budget。测试 +2（真实 Skill 加载 + loop 取用集成）。全量 134 测试通过（132+2），零回归。commit `6f17fb8`。待做：剩余 2 个 Skill（resources/validate）。
