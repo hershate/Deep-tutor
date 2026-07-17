@@ -122,6 +122,12 @@ export default function PlanDetail() {
             导出
           </button>
           <button
+            onClick={() => nav(`/learn/${planId}`)}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            学习中心
+          </button>
+          <button
             onClick={() => setShowMaterials(true)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >

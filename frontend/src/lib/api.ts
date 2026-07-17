@@ -158,6 +158,21 @@ export const markUnitDone = (unitId: number, done: boolean) =>
     body: JSON.stringify({ done }),
   })
 
+// --- learning logs 打卡（P2，plan/01 §四；学习中心页用）---
+export interface LearningLogItem {
+  id: number
+  date: string // ISO 日期
+  minutes: number
+  note: string | null
+}
+export const listLearningLogs = (planId: number) =>
+  apiFetch<{ logs: LearningLogItem[]; total_minutes: number }>(`/progress/logs/${planId}`)
+export const addLearningLog = (planId: number, minutes: number, note = '') =>
+  apiFetch<{ id: number; date: string; minutes: number; note: string | null }>('/progress/logs', {
+    method: 'POST',
+    body: JSON.stringify({ plan_id: planId, minutes, note: note || null }),
+  })
+
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })

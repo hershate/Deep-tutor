@@ -8,6 +8,7 @@ import { ApiError, getProgress, updateProgress, type ProgressNode, type Progress
 interface Props {
   planId: number
   refreshToken?: number
+  onChanged?: () => void // 状态更新成功后回调（父组件联动刷新，如学习中心复习提醒）
 }
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
@@ -22,7 +23,7 @@ const STATUS_STYLE: Record<ProgressStatus, string> = {
   done: 'bg-green-100 text-green-700',
 }
 
-export default function ProgressBoard({ planId, refreshToken = 0 }: Props) {
+export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: Props) {
   const [nodes, setNodes] = useState<ProgressNode[]>([])
   const [masteryAvg, setMasteryAvg] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -66,6 +67,7 @@ export default function ProgressBoard({ planId, refreshToken = 0 }: Props) {
         setMasteryAvg(
           next.length ? Math.round((next.reduce((s, n) => s + n.mastery, 0) / next.length) * 1000) / 1000 : 0,
         )
+        onChanged?.()
       } else {
         setError(r.warning ?? '进度更新被忽略')
       }
