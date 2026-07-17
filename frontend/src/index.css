@@ -27,3 +27,51 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* markdown 渲染基础排版（react-markdown 输出；无 typography 插件，手工兜底） */
+.markdown-body h1 {
+  @apply mb-3 mt-1 text-xl font-bold;
+}
+.markdown-body h2 {
+  @apply mb-2 mt-5 border-b pb-1 text-lg font-semibold;
+}
+.markdown-body h3 {
+  @apply mb-2 mt-4 font-semibold;
+}
+.markdown-body p {
+  @apply mb-2 leading-relaxed;
+}
+.markdown-body ul {
+  @apply mb-2 list-disc pl-5;
+}
+.markdown-body ol {
+  @apply mb-2 list-decimal pl-5;
+}
+.markdown-body li {
+  @apply mb-1;
+}
+.markdown-body blockquote {
+  @apply mb-2 border-l-4 border-slate-200 pl-3 text-slate-500;
+}
+.markdown-body code {
+  @apply rounded bg-slate-100 px-1 py-0.5 text-[0.85em];
+}
+.markdown-body pre {
+  @apply mb-2 overflow-x-auto rounded-lg bg-slate-100 p-3;
+}
+.markdown-body pre code {
+  @apply bg-transparent p-0;
+}
+.markdown-body a {
+  @apply text-blue-600 hover:underline;
+}
+.markdown-body table {
+  @apply mb-2 w-full border-collapse;
+}
+.markdown-body th,
+.markdown-body td {
+  @apply border border-slate-200 px-2 py-1 text-left;
+}
+.markdown-body hr {
+  @apply my-4 border-slate-200;
+}

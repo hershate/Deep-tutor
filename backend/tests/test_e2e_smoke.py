@@ -126,3 +126,20 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     assert exp_slides["slide_count"] >= 1
     assert "<html" in exp_slides["html"]
     assert "React" in exp_slides["html"]
+
+    # 9. 自学材料（generate_study_materials LLM -> 渲染 markdown，P2）
+    class _MaterialsProvider(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return _resp(
+                '{"title":"React 自学材料","units":['
+                '{"title":"JS 基础","objectives":["写函数"],"prerequisites":["无"],'
+                '"estimated_time":"45 min","content_md":"### 概述\\n\\nJS 是交互逻辑。"}]}'
+            )
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: _MaterialsProvider())
+    mat_res = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
+    assert mat_res.status_code == 200, mat_res.text
+    mat_body = mat_res.json()
+    assert mat_body["unit_count"] == 1
+    assert "# React 自学材料" in mat_body["markdown"]
+    assert "## 1. JS 基础" in mat_body["markdown"]

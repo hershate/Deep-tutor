@@ -77,6 +77,14 @@ export const exportPlan = (planId: number, format = 'md') =>
     { method: 'POST', body: JSON.stringify({ format }) },
   )
 
+// 自学材料（P2，plan/07 §五）：同步一次 LLM 调用 -> markdown（前端 react-markdown 渲染）
+export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'full', signal?: AbortSignal) =>
+  apiFetch<{ unit_count: number; markdown: string; warning?: string }>(`/plans/${planId}/materials`, {
+    method: 'POST',
+    body: JSON.stringify({ depth }),
+    signal,
+  })
+
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })

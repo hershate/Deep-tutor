@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import MaterialsModal from '../components/MaterialsModal'
 import { ApiError, exportPlan, getPlan, regenerateStream } from '../lib/api'
 
 interface PlanData {
@@ -28,6 +29,7 @@ export default function PlanDetail() {
   const [error, setError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
   const [exportFormat, setExportFormat] = useState<'md' | 'slides'>('md')
+  const [showMaterials, setShowMaterials] = useState(false)
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -115,9 +117,19 @@ export default function PlanDetail() {
           <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
             导出
           </button>
+          <button
+            onClick={() => setShowMaterials(true)}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            自学材料
+          </button>
         </div>
       </div>
       {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
+
+      {showMaterials && planId && (
+        <MaterialsModal planId={Number(planId)} onClose={() => setShowMaterials(false)} />
+      )}
 
       {plan.intent && (
         <section className="rounded-lg border bg-white p-4">
