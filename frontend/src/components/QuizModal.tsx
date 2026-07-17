@@ -1,7 +1,7 @@
 // 测验弹窗（P2，plan/02 §8 简化版：choice 即时判分；fill/short 展示参考答案自评）。
-// 打开即生成；进度回写在 iter 40（record_progress 端点落地后）接入。
+// 打开即生成；全部选择题判定后按知识点聚合正确率回写进度（POST /progress，iter 40）。
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, generateQuiz, type QuizItemData } from '../lib/api'
+import { ApiError, generateQuiz, updateProgress, type QuizItemData } from '../lib/api'
 
 interface Props {
   planId: number
@@ -24,7 +24,9 @@ export default function QuizModal({ planId, onClose }: Props) {
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const [answers, setAnswers] = useState<Record<number, AnswerState>>({})
+  const [writeback, setWriteback] = useState('')
   const acRef = useRef<AbortController | null>(null)
+  const writebackRef = useRef(false)
 
   useEffect(() => {
     const ac = new AbortController()
@@ -54,6 +56,49 @@ export default function QuizModal({ planId, onClose }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // 测验回写（iter 40）：全部选择题判定后，按知识点聚合正确率 -> POST /progress。
+  // 状态映射：score >= 0.8 -> done（与 record_progress 主观 done 下限 0.8 一致），否则 learning。
+  // 无 node_id 的题跳过（无法映射 knowledge_nodes）；单节点失败不阻塞其余（best-effort）。
+  useEffect(() => {
+    if (writebackRef.current) return
+    const choiceItems = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
+    if (choiceItems.length === 0) return
+    if (!choiceItems.every(({ i }) => answers[i]?.judged)) return
+    writebackRef.current = true
+
+    const byNode = new Map<string, { total: number; correct: number }>()
+    for (const { q, i } of choiceItems) {
+      if (!q.node_id) continue
+      const agg = byNode.get(q.node_id) ?? { total: 0, correct: 0 }
+      agg.total += 1
+      if (answers[i]?.correct) agg.correct += 1
+      byNode.set(q.node_id, agg)
+    }
+    if (byNode.size === 0) {
+      setWriteback('题目未关联知识点，未回写进度')
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      let ok = 0
+      for (const [nodeId, agg] of byNode) {
+        const score = agg.correct / agg.total
+        try {
+          const r = await updateProgress(planId, nodeId, score >= 0.8 ? 'done' : 'learning', score)
+          if (r.updated) ok += 1
+        } catch {
+          // best-effort：单节点失败不阻塞其余
+        }
+      }
+      if (!cancelled) {
+        setWriteback(`已回写进度：${ok}/${byNode.size} 个知识点（掌握度按答题正确率更新）`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [answers, quizzes, planId])
 
   function patch(i: number, p: Partial<AnswerState>) {
     setAnswers((prev) => ({ ...prev, [i]: { ...prev[i], ...p } }))
@@ -88,6 +133,11 @@ export default function QuizModal({ planId, onClose }: Props) {
             {judged.length > 0 && (
               <span className="text-sm text-slate-600" aria-live="polite">
                 选择题得分：{correctCount} / {choiceIdx.length}
+              </span>
+            )}
+            {writeback && (
+              <span className="text-xs text-emerald-700" aria-live="polite">
+                {writeback}
               </span>
             )}
             <button
