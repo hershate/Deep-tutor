@@ -85,6 +85,22 @@ export const generateMaterials = (planId: number, depth: 'brief' | 'full' = 'ful
     signal,
   })
 
+// 测验（P2，plan/02 §8）：同步一次 LLM 调用 -> 题目 JSON（前端交互判分）
+export interface QuizItemData {
+  node_id: string
+  node_name: string
+  type: 'choice' | 'fill' | 'short'
+  question: string
+  options: string[]
+  answer: string
+  explanation: string
+}
+export const generateQuiz = (planId: number, signal?: AbortSignal) =>
+  apiFetch<{ title: string; quiz_count: number; quizzes: QuizItemData[]; warning?: string }>(
+    `/plans/${planId}/quiz`,
+    { method: 'POST', body: JSON.stringify({}), signal },
+  )
+
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })

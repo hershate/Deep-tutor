@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
+import QuizModal from '../components/QuizModal'
 import { ApiError, exportPlan, getPlan, regenerateStream } from '../lib/api'
 
 interface PlanData {
@@ -30,6 +31,7 @@ export default function PlanDetail() {
   const [exportUrl, setExportUrl] = useState('')
   const [exportFormat, setExportFormat] = useState<'md' | 'slides'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
+  const [showQuiz, setShowQuiz] = useState(false)
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -123,6 +125,12 @@ export default function PlanDetail() {
           >
             自学材料
           </button>
+          <button
+            onClick={() => setShowQuiz(true)}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            测验
+          </button>
         </div>
       </div>
       {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
@@ -130,6 +138,7 @@ export default function PlanDetail() {
       {showMaterials && planId && (
         <MaterialsModal planId={Number(planId)} onClose={() => setShowMaterials(false)} />
       )}
+      {showQuiz && planId && <QuizModal planId={Number(planId)} onClose={() => setShowQuiz(false)} />}
 
       {plan.intent && (
         <section className="rounded-lg border bg-white p-4">

@@ -143,3 +143,20 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     assert mat_body["unit_count"] == 1
     assert "# React 自学材料" in mat_body["markdown"]
     assert "## 1. JS 基础" in mat_body["markdown"]
+
+    # 10. 测验（generate_quiz LLM -> 题目 JSON，P2）
+    class _QuizProvider(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return _resp(
+                '{"title":"React 测验","quizzes":['
+                '{"node_id":"k1","node_name":"JS","type":"choice","question":"声明常量用？",'
+                '"options":["var","const"],"answer":"const","explanation":"const 声明常量。"}]}'
+            )
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: _QuizProvider())
+    quiz_res = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
+    assert quiz_res.status_code == 200, quiz_res.text
+    quiz_body = quiz_res.json()
+    assert quiz_body["quiz_count"] == 1
+    assert quiz_body["quizzes"][0]["type"] == "choice"
+    assert quiz_body["quizzes"][0]["answer"] == "const"
