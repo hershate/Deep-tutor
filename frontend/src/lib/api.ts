@@ -101,6 +101,31 @@ export const generateQuiz = (planId: number, signal?: AbortSignal) =>
     { method: 'POST', body: JSON.stringify({}), signal },
   )
 
+// --- progress（P2，plan/03 §一）---
+export type ProgressStatus = 'not_started' | 'learning' | 'done'
+export interface ProgressNode {
+  node_id: string // knowledge_nodes.sid（plan 内容 knowledge_map 原始 id）
+  name: string
+  status: ProgressStatus
+  mastery: number // 0-1
+  next_review: string | null // ISO 日期；无进度行时为 null
+}
+export const getProgress = (planId: number) =>
+  apiFetch<{ plan_id: number; nodes: ProgressNode[]; mastery_avg: number }>(`/progress/${planId}`)
+export const updateProgress = (planId: number, nodeId: string, status: ProgressStatus, quizScore?: number) =>
+  apiFetch<{ updated: boolean; warning?: string; status?: ProgressStatus; mastery?: number; next_review?: string }>(
+    '/progress',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        plan_id: planId,
+        node_id: nodeId,
+        status,
+        ...(quizScore !== undefined ? { quiz_score: quizScore } : {}),
+      }),
+    },
+  )
+
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })

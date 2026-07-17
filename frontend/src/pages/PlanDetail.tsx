@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
+import ProgressBoard from '../components/ProgressBoard'
 import QuizModal from '../components/QuizModal'
 import { ApiError, exportPlan, getPlan, regenerateStream } from '../lib/api'
 
@@ -32,6 +33,7 @@ export default function PlanDetail() {
   const [exportFormat, setExportFormat] = useState<'md' | 'slides'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
+  const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -138,7 +140,15 @@ export default function PlanDetail() {
       {showMaterials && planId && (
         <MaterialsModal planId={Number(planId)} onClose={() => setShowMaterials(false)} />
       )}
-      {showQuiz && planId && <QuizModal planId={Number(planId)} onClose={() => setShowQuiz(false)} />}
+      {showQuiz && planId && (
+        <QuizModal
+          planId={Number(planId)}
+          onClose={() => {
+            setShowQuiz(false)
+            setProgressKey((k) => k + 1) // 测验可能已回写进度，关闭后刷新看板
+          }}
+        />
+      )}
 
       {plan.intent && (
         <section className="rounded-lg border bg-white p-4">
@@ -171,6 +181,13 @@ export default function PlanDetail() {
               {s.milestone && <p className="mt-2 text-sm text-slate-500">里程碑: {s.milestone}</p>}
             </div>
           ))}
+        </section>
+      )}
+
+      {planId && (
+        <section className="rounded-lg border bg-white p-4" aria-label="学习进度">
+          <h3 className="mb-2 font-semibold">学习进度</h3>
+          <ProgressBoard planId={Number(planId)} refreshToken={progressKey} />
         </section>
       )}
 
