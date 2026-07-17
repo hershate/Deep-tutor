@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**当前下一步**：P1 slides 进行中（iter 29 vendor `ppt-slide-builder` + 渲染助手，154 测试；用户选「LLM 生成规约 + Python 渲染」）；待做：iter 30 `build_plan_slides` 工具（LLM 规约 + 降级默认 deck + 注册）、iter 31 export `format=slides` + 前端 PlanDetail 幻灯片导出。延后：真机 Anthropic 冒烟（需 key）、self-study-guide（P2）。详见 §五 2026-07-17 iter 29 条。
+**当前下一步**：**当前下一步**：P1 slides 进行中（iter 29 vendor + 渲染，iter 30 `build_plan_slides` LLM 工具 + 注册，157 测试）；待做：iter 31 export `format=slides` 端点（dispatch md/slides + 注入 llm_provider/skill + run_tool->spec + 渲染落盘）+ 前端 PlanDetail 幻灯片导出（`window.open`）。延后：真机 Anthropic 冒烟（需 key）、self-study-guide（P2）。详见 §五 2026-07-17 iter 30 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 P1 slides（iter 30，build_plan_slides LLM 工具 + 注册）**：增量 2（LLM 规约 + 降级）。[build_plan_slides.py](backend/app/tools/build_plan_slides.py) 加 `PROMPT`（聚焦 spec 生成 inline_prompt：plan->SlideSpec JSON，含 schema + CSS 变量名/anim-*/trans-* 类名约定 + 非交互说明）+ `build_plan_slides_tool = Tool(llm=True, output_model=SlideSpec, default_data=_DEFAULT_SPEC_DATA)`，复用 `run_tool` 修复链（重试≤3->降级）。[__init__.py](backend/app/tools/__init__.py) 注册（不在 PIPELINE，export 调用）。测试 +3（注册 / LLM 合法 spec->ok / LLM 非法->降级 repaired+默认）。全量 157 测试通过（154+3），零回归。commit `cc6a374`。待做：iter 31 export format=slides 端点 + 前端。
 - **2026-07-17 P1 slides（iter 29，vendor ppt-slide-builder + 渲染助手）**：用户选「LLM 生成规约 + Python 渲染」（plan/02 §12）。增量 1（基础，无 LLM）：vendor [skills/ppt-slide-builder/](skills/ppt-slide-builder/)（SKILL.md + README + templates/base.html + references/animation-reference.md，作渲染模板 + 类名参考 + 文档）。新增 [build_plan_slides.py](backend/app/tools/build_plan_slides.py)：`SlideSpec`/`SlideContent` pydantic（LLM 输出 schema + 渲染输入）；`default_spec_from_plan`（纯 Python 默认 deck，降级用）；`render_slides_html(spec, base_template)`（填 base.html：主题 CSS 变量、trans-* 过渡类、占位符、N 个 slide section）。逐 slide 容错（content_html 入 section 不破全局、非法 CSS/类浏览器忽略），title 转义、content_html 不转义。测试 +5（loader 加载 ppt-slide-builder / 基本渲染 / 默认 deck / 空 slides 回退 / title 转义）。全量 154 测试通过（149+5），零回归。commit `72cea1d`。待做：iter 30 LLM 调用 + 工具注册 + 降级测试；iter 31 export format=slides + 前端。
 - **2026-07-17 更深稳定性审计（iter 28，Home 上传失败清理孤儿会话）**：审计 [Home.tsx](frontend/src/pages/Home.tsx) `start()`：`createSession` 成功后 `uploadMaterial` 失败（超大/不支持格式）会留空会话孤儿，重试建新会话致孤儿堆积。修复：上传失败时 `deleteSession` 刚建会话（best-effort）再抛错由外层提示（会话刚建无运行任务，删除安全）。`npm run build` 通过（91 模块）。commit `88175f4`。另审：[Usage.tsx](frontend/src/pages/Usage.tsx)/[Settings.tsx](frontend/src/pages/Settings.tsx)（只读 TanStack Query，无问题）、marker subprocess（`subprocess.run` 600s 超时->upstream_timeout，有界）、`ssePostWithReconnect`（重试≤3、退避 1/2/4s、终态检测，无问题）、PlanDetail 展示（无问题）。
 - **2026-07-17 更深稳定性审计（iter 27，Clarify 卸载取消 clarify 流）**：审计前端 [Clarify.tsx](frontend/src/pages/Clarify.tsx) 发现缺卸载取消（GenerateProgress/PlanDetail 均有）--用户中途离开则 clarify 流后台继续，可能在已卸载组件上 setError/setLoading。修复：加 `acRef` + `useEffect` 卸载 abort；`submit` 建 AbortController 传 signal 给 `clarifyStream`；`.then`/`.catch` 守护 `ac.signal.aborted`（不计错误）。与 GenerateProgress/PlanDetail 模式一致。`npm run build` 通过（91 模块）。commit `bc3cd39`。另审：[Home.tsx](frontend/src/pages/Home.tsx) 上传失败留孤儿会话（createSession 成功后 uploadMaterial 失败，UX 低危，不修）、[sse.ts](frontend/src/lib/sse.ts)（浏览器中止即释放 reader、后端 \n 行尾、心跳防挂，无问题）。
