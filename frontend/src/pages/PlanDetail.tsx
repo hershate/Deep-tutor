@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { ApiError, exportPlan, getPlan } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { ApiError, exportPlan, getPlan, regenerateStream } from '../lib/api'
 
 interface PlanData {
   intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number }
@@ -22,10 +22,16 @@ const VERIFY_TEXT: Record<string, string> = { ok: '已验证', uncertain: '不�
 
 export default function PlanDetail() {
   const { planId } = useParams()
+  const nav = useNavigate()
   const [plan, setPlan] = useState<PlanData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
+  const [regenScope, setRegenScope] = useState('design_stages')
+  const [regenFeedback, setRegenFeedback] = useState('')
+  const [regenLoading, setRegenLoading] = useState(false)
+  const [regenError, setRegenError] = useState('')
+  const regenAcRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!planId) return
@@ -35,6 +41,9 @@ export default function PlanDetail() {
       .finally(() => setLoading(false))
   }, [planId])
 
+  // 卸载时取消进行中的重生成流
+  useEffect(() => () => regenAcRef.current?.abort(), [])
+
   async function doExport() {
     if (!planId) return
     try {
@@ -43,6 +52,29 @@ export default function PlanDetail() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败')
     }
+  }
+
+  function doRegenerate() {
+    if (!planId) return
+    setRegenError('')
+    setRegenLoading(true)
+    const ac = new AbortController()
+    regenAcRef.current = ac
+    regenerateStream(Number(planId), regenScope, regenFeedback, (event, data) => {
+      if (event === 'done') {
+        nav(`/plans/${data.plan_id}`)
+      } else if (event === 'error') {
+        setRegenError(String(data.message ?? '重生成失败'))
+        setRegenLoading(false)
+      } else if (event === 'budget_exceeded') {
+        setRegenError('预算超限，重生成中断')
+        setRegenLoading(false)
+      }
+    }, ac.signal).catch((e: unknown) => {
+      if (ac.signal.aborted) return
+      setRegenError(e instanceof Error ? e.message : '连接失败')
+      setRegenLoading(false)
+    })
   }
 
   if (loading) return <p className="text-slate-500">加载方案…</p>
@@ -128,6 +160,53 @@ export default function PlanDetail() {
           )}
         </section>
       )}
+
+      <section className="rounded-lg border bg-white p-4 space-y-3" aria-label="重生成方案">
+        <h3 className="font-semibold">重生成</h3>
+        <p className="text-sm text-slate-500">从选定工具起级联重跑其下游，生成新版本方案（plan.version+1）。</p>
+        <div className="flex items-center gap-2">
+          <label htmlFor="regen-scope" className="text-sm text-slate-600">
+            起点
+          </label>
+          <select
+            id="regen-scope"
+            value={regenScope}
+            onChange={(e) => setRegenScope(e.target.value)}
+            className="border rounded p-1.5 text-sm"
+            disabled={regenLoading}
+          >
+            <option value="design_stages">阶段设计</option>
+            <option value="search_resources">资源</option>
+            <option value="schedule_plan">排期</option>
+            <option value="validate_plan">校验</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="regen-feedback" className="block text-sm text-slate-600">
+            反馈（可选）
+          </label>
+          <textarea
+            id="regen-feedback"
+            className="w-full rounded border border-slate-300 p-2 text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="如：简化阶段、增加资源、调整难度梯度"
+            value={regenFeedback}
+            onChange={(e) => setRegenFeedback(e.target.value)}
+            disabled={regenLoading}
+          />
+        </div>
+        <button
+          onClick={doRegenerate}
+          disabled={regenLoading}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {regenLoading ? '重生成中…' : '重生成'}
+        </button>
+        {regenError && (
+          <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            {regenError}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

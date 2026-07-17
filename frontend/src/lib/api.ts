@@ -111,6 +111,17 @@ export function generateStream(
   return ssePostWithReconnect(`/plans/generate`, { session_id: sessionId, raw_text: rawText }, onEvent, signal)
 }
 
+// 局部重生成（plan/10 §十三）：从 scope 起级联重跑，复用断线重连。
+export function regenerateStream(
+  planId: number,
+  scope: string,
+  feedback: string,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return ssePostWithReconnect(`/plans/${planId}/regenerate`, { scope, feedback }, onEvent, signal)
+}
+
 export function clarifyStream(
   sessionId: number,
   answers: Record<string, unknown>,
