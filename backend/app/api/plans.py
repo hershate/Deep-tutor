@@ -381,6 +381,13 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
     """
     db = SessionLocal()
     try:
+        # 会话已删除（如 DELETE /sessions 先取消了任务）-> 不写 DB（防 FK 违约），
+        # 仅发终态 + 清理。会话存在则走正常持久化路径。
+        if db.get(models.Session, session_id) is None:
+            if stream.terminal_id is None:
+                eid = stream.publish("error", {"code": "cancelled", "message": "会话已删除", "stage": ""})
+                stream.mark_terminal(eid)
+            return
         if task.cancelled():
             _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
             eid = stream.publish("error", {"code": "cancelled", "message": "生成已取消", "stage": ""})

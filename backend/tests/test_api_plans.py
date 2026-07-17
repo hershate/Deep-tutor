@@ -304,6 +304,51 @@ def test_finalize_cancelled_publishes_error(client, auth_headers):
         db.close()
 
 
+def test_finalize_deleted_session_skips_db_no_fk_violation(client, auth_headers):
+    """会话已删除时 _finalize 不写 DB（防 FK 违约），发 error{cancelled}（非 internal_error）。
+
+    场景：DELETE /sessions 取消运行中任务 -> _finalize 见会话已删 -> 跳过 _set_state
+    （否则重建 OrchestratorState 撞已删会话 FK，被 broad-except 吞成 internal_error 噪声）。
+    """
+    from app.api import plans as plans_mod
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    sid = _session(client, auth_headers)
+    # 删除会话（级联删 orchestrator_state）
+    assert client.delete(f"/api/sessions/{sid}", headers=auth_headers).status_code == 200
+
+    async def scenario():
+        stream = plans_mod._SessionStream(sid, "trace_del")
+        plans_mod._STREAMS[sid] = stream
+
+        async def slow():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(slow())
+        stream.task = task
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        plans_mod._finalize(sid, stream, task)
+        return stream
+
+    stream = asyncio.run(scenario())
+    # 发 error{cancelled}（guard 命中），非 internal_error（FK 违约被吞的旧路径）
+    assert stream.terminal_id is not None
+    _, ev, data = stream._events[-1]
+    assert ev == "error"
+    assert data["code"] == "cancelled"
+    # 会话已删 -> 不重建 OrchestratorState（无 FK 违约）
+    db = SessionLocal()
+    try:
+        assert db.get(models.OrchestratorState, sid) is None
+    finally:
+        db.close()
+
+
 def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
     """POST /plans/{id}/regenerate {scope} -> 从 scope 级联重跑，新 plan version+1（plan/10 §十三）。"""
 
