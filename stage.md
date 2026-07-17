@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 -- SSE 续接前后端完成 + Usage UI 完成（顶栏 UsageMeter + /usage 详情页，Pillar 3 成本可见性）；待做 Settings 页（**范围待用户定**：只读展示 vs 运行时可改，涉及 .env 假设 4）、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 iter 6 条。
+**当前下一步**：步骤 7 -- SSE 续接前后端 + Usage UI + Settings 只读页 均完成；待做无障碍（a11y）、端到端真机联调（步骤 8）。详见 §五 2026-07-17 iter 7 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 步骤 7 进行中（iter 7，Settings 只读页）**：用户定方向为只读展示（避免与 .env 假设 4 冲突）。后端新增 [settings.py](backend/app/api/settings.py) `GET /api/settings` -- 只读返回非敏感配置（模型/会话预算/每日预算/工具调用上限/上传上限/搜索引擎 + Key 是否已设 bool），**不返回任何明文密钥**；注册到 api_router。前端新增 [Settings.tsx](frontend/src/pages/Settings.tsx)（`dl/dt/dd` 列表只读展示，Key 状态绿/琥珀色标注）+ [api.ts](frontend/src/lib/api.ts) `getSettings`/`AppSettings`；[App.tsx](frontend/src/App.tsx) 加 /settings 路由，[Layout.tsx](frontend/src/components/Layout.tsx) 加导航。测试：+2（不泄密 + 需鉴权），全量 109 后端测试通过；前端 build 通过（91 模块）。待做：无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 6，Usage UI）**：前端用量展示（Pillar 3 成本可见性，plan/06 UsageMeter/用量页）。新增 [UsageMeter.tsx](frontend/src/components/UsageMeter.tsx)（顶栏小窗：总费用+token，TanStack Query 拉 /api/usage，窗口聚焦刷新，aria-label）+ [Usage.tsx](frontend/src/pages/Usage.tsx)（详情页：总 token/费用/缓存命中率/调用数 + 手动刷新，`dl/dt/dd` 语义）。[Layout.tsx](frontend/src/components/Layout.tsx) 加顶栏导航（首页/用量）+ UsageMeter。[App.tsx](frontend/src/App.tsx) 加 /usage 路由。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 生成结束（非取消）后 `invalidateQueries(['usage'])` 刷新用量（api_usage 已在 done-callback 落库）。前端 build 通过（90 模块）。待做：Settings 页（范围待定，见下）、无障碍、步骤 8 联调。
   - **Settings 页范围未决**：plan/06 §四.7 列「API Key/模型/预算/主题」，但计划假设 4「API Key 本地配置（.env），不入库」与之冲突——可编辑 Key/模型/预算需后端运行时配置端点（覆盖 .env 或入库）。安全默认：只读展示当前后端配置（模型/预算/Key 是否已设，掩码）+ 主题切换，需新增 `GET /api/settings`（不泄密）。**需用户确认范围**。
 - **2026-07-17 步骤 7 进行中（iter 5，SSE 续接前端重连）**：前端落地断线重连（plan/06 §七），消费后端 attach 能力，SSE 续接前后端闭环。[api.ts](frontend/src/lib/api.ts)：新增 `ssePostWithReconnect` -- 流未到终态（done/error/budget_exceeded/clarify_needed）即带 `Last-Event-ID` 重连，指数退避 1s/2s/4s 最多 3 次（初始+3 重试）；4xx 非瞬态（如 409 stale，408/429 除外）不重连直接抛；网络错误/5xx 重连；超限抛「连接中断，重连失败，请重试」；取消/卸载不重连。`generateStream` 改用之（返回 `Promise<void>`）；`clarifyStream` 保留单次（端点非幂等，续接应走 /generate attach）。[sse.ts](frontend/src/lib/sse.ts)：新增 `SseError`（携 HTTP 状态码）供上层区分瞬态/非瞬态。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx)：简化 -- 移除 `terminalRef`/`.then()` 静默断连检测（重连由 wrapper 处理），`.catch` 仅捕重连耗尽/4xx。后端按 id>last_event_id 重放 -> 无重复事件/重复计费。前端 build 通过（tsc+vite）。待做：Settings/用量 UI、无障碍、步骤 8 端到端联调。
