@@ -342,3 +342,39 @@ def test_orchestrator_budget_interrupts():
     assert any(e == "budget_exceeded" for e, _ in events)
     # 后续工具未执行
     assert "build_knowledge_map" not in order
+
+
+def test_orchestrator_budget_exceeded_during_feedback_rerun():
+    """反馈循环重跑期间预算超限 -> 中断（不继续 export），防反馈循环超支。"""
+    order: list[str] = []
+    design_calls = {"n": 0}
+
+    async def design_func(inp, ctx):
+        order.append("design_stages")
+        design_calls["n"] += 1
+        # 初始低成本；反馈重跑时高成本 -> 触发预算超限
+        cost = 0.0 if design_calls["n"] == 1 else 5.0
+        return ToolOutput(
+            tool="design_stages",
+            status="ok",
+            data={"stages": [{"index": 0, "name": "s0", "difficulty": 1}]},
+            metadata={"tokens_in": 1_000_000, "tokens_out": 0, "cost": cost, "model": "claude-sonnet-5"},  # type: ignore[arg-type]
+        )
+
+    def validate_fn(n):
+        if n == 1:
+            return {"report": {"difficulty_step": "fail"}, "passed": False, "fixes": ["插入过渡阶段"]}
+        return {"report": {}, "passed": True, "fixes": []}
+
+    reg = _py_registry(order, validate_plan_fn=validate_fn, design_stages_fn=design_func)
+    budget = BudgetTracker(limit=1.0)
+    events: list[tuple] = []
+    orch = Orchestrator(reg, _ctx(registry=reg, budget=budget), event_cb=lambda e, d: events.append((e, d)))
+    result = asyncio.run(orch.run({}))
+
+    assert result.status == "interrupted"
+    assert any(e == "budget_exceeded" for e, _ in events)
+    # export_plan 未执行（中断保留部分）
+    assert "export_plan" not in order
+    # design_stages 重跑过一次（反馈循环触发后超限中断）
+    assert design_calls["n"] == 2

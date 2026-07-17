@@ -160,6 +160,13 @@ class Orchestrator:
                     out = outputs.get("validate_plan", out)
                     if out.status == "error":
                         break
+                    if self.ctx.budget and self.ctx.budget.exceeded():
+                        break  # 预算超限，停止反馈循环
+                # 反馈循环中预算超限 -> 中断保留部分（先于 validation_unresolved 判定）
+                if self.ctx.budget and self.ctx.budget.exceeded():
+                    self._emit("budget_exceeded", {"spent": self.ctx.budget.spent, "limit": self.ctx.budget.limit})
+                    errors.append("budget_exceeded")
+                    return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
                 if not out.data.get("passed", True):
                     self._emit("warn", {"code": "validation_unresolved", "message": "校验仍不通过，交付当前方案 + 报告"})
 
@@ -219,6 +226,8 @@ class Orchestrator:
             count += 1
             if self.ctx.budget:
                 self.ctx.budget.add(out.metadata.cost)
+                if self.ctx.budget.exceeded():
+                    break  # 预算超限，停止重跑（主循环将返回 interrupted）
             if out.status == "error":
                 break
         return count
