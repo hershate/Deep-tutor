@@ -127,3 +127,37 @@ def test_tool_invalid_degrades_to_default():
     assert out.status == "repaired"
     assert out.data["title"] == "学习测验"  # 默认降级规约
     assert len(out.data["quizzes"]) >= 1
+
+
+# --- iter 49：extract_check_questions（单元「检查理解」-> quiz 题源）---
+
+from app.tools.generate_quiz import extract_check_questions
+
+
+def test_extract_check_questions_basic():
+    """提取 ### 检查理解 小节题目（去列表标记；止于下一个 ###）。"""
+    md = (
+        "### 概述\n\n内容。\n\n### 检查理解\n\n"
+        "1. 什么是闭包？\n2. let 与 var 的区别？\n- 箭头函数 this 指向？\n\n"
+        "### 总结\n\n要点。这不是题。\n"
+    )
+    out = extract_check_questions([("JS 基础", md)])
+    assert out == [{"unit": "JS 基础", "questions": ["什么是闭包？", "let 与 var 的区别？", "箭头函数 this 指向？"]}]
+
+
+def test_extract_check_questions_no_section_or_empty():
+    """无小节 / 小节无题 / 空内容 -> 跳过该单元。"""
+    assert extract_check_questions([("a", "### 概述\n\n无小节。")]) == []
+    assert extract_check_questions([("a", "### 检查理解\n\n\n### 总结\n\nx")]) == []
+    assert extract_check_questions([("a", "")]) == []
+    assert extract_check_questions([]) == []
+
+
+def test_extract_check_questions_caps():
+    """每单元 ≤4、总计 ≤20。"""
+    md = "### 检查理解\n\n" + "\n".join(f"{i}. 问题{i}？" for i in range(1, 8))
+    out = extract_check_questions([("u1", md)])
+    assert len(out[0]["questions"]) == 4
+    units = [(f"u{i}", md) for i in range(6)]  # 6 单元 × 4 = 24 -> 截 20
+    out = extract_check_questions(units)
+    assert sum(len(u["questions"]) for u in out) == 20

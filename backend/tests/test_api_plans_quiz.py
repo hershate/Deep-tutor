@@ -102,3 +102,67 @@ def test_quiz_degrade_no_provider(client, auth_headers, monkeypatch):
 def test_quiz_plan_not_found(client, auth_headers):
     r = client.post("/api/plans/999999/quiz", json={}, headers=auth_headers)
     assert r.status_code == 404
+
+
+def test_quiz_uses_unit_check_questions(client, auth_headers, monkeypatch):
+    """iter 49 题源联动：已持久化单元的「检查理解」自测题注入 quiz 工具 args。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+
+    # 落库一个带「检查理解」小节的自学单元（内容走文件，同生成路径）
+    from app.core.storage import write_unit_text
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    plan = db.get(models.Plan, plan_id)
+    u = models.StudyUnit(
+        plan_id=plan_id, title="JS 基础", prerequisites=[], objectives=[], estimated_time="", order=0
+    )
+    db.add(u)
+    db.flush()
+    md = "### 概述\n\n内容。\n\n### 检查理解\n\n1. 什么是闭包？\n2. let 与 var 的区别？\n\n### 总结\n\n要点。"
+    path = write_unit_text(plan.session_id, u.id, md)
+    db.add(models.StudyMaterial(unit_id=u.id, content_md_path=str(path), size=len(md), resources=[]))
+    db.commit()
+    db.close()
+
+    captured: dict = {}
+
+    class _CapProvider(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            captured["user"] = user
+            return _resp(
+                '{"title":"t","quizzes":[{"node_id":"k1","node_name":"JS","type":"short",'
+                '"question":"q","options":[],"answer":"a","explanation":""}]}'
+            )
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: _CapProvider())
+    r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert "unit_check_questions" in captured["user"]
+    assert "什么是闭包？" in captured["user"]
+    assert "let 与 var 的区别？" in captured["user"]
+    assert "要点。" not in captured["user"]  # 仅检查理解小节，不带其他内容
+
+
+def test_quiz_without_units_unchanged(client, auth_headers, monkeypatch):
+    """无持久化单元 -> 不注入 unit_check_questions（行为同 iter 38）。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    captured: dict = {}
+
+    class _CapProvider(LLMProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            captured["user"] = user
+            return _resp(
+                '{"title":"t","quizzes":[{"node_id":"k1","node_name":"JS","type":"short",'
+                '"question":"q","options":[],"answer":"a","explanation":""}]}'
+            )
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: _CapProvider())
+    r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert "unit_check_questions" not in captured["user"]
