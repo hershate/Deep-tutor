@@ -12,8 +12,11 @@ record_progress docstring）；非 UTC 时区在日界最多差 1 天，对 1-14
 
 from __future__ import annotations
 
+from datetime import date as dt_date
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_auth
@@ -101,3 +104,56 @@ def get_progress(plan_id: int, db: Session = Depends(get_db)) -> dict:
     views = [_node_view(n, rows.get(n.id)) for n in nodes]
     mastery_avg = round(sum(v["mastery"] for v in views) / len(views), 3) if views else 0.0
     return {"plan_id": plan_id, "nodes": views, "mastery_avg": mastery_avg}
+
+
+# --- learning_logs 打卡（plan/01 §四 learning_logs，P2 iter 45；学习中心页用）---
+
+
+class LearningLogIn(BaseModel):
+    plan_id: int
+    minutes: int = Field(ge=0, le=1440)  # 学习分钟数（上限取一天 1440）
+    note: str | None = Field(default=None, max_length=2000)
+    date: dt_date | None = None  # 默认今天（本地单用户，服务器本地日即用户本地日）
+
+
+@router.post("/logs")
+def add_learning_log(body: LearningLogIn, db: Session = Depends(get_db)) -> dict:
+    """打卡：记一条学习日志（plan_id, date, minutes, note）。"""
+    if db.get(models.Plan, body.plan_id) is None:
+        raise ApiError("not_found", f"方案 {body.plan_id} 不存在")
+    row = models.LearningLog(
+        plan_id=body.plan_id,
+        date=body.date or dt_date.today(),
+        minutes=body.minutes,
+        note=body.note,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "date": row.date.isoformat(), "minutes": row.minutes, "note": row.note}
+
+
+@router.get("/logs/{plan_id}")
+def list_learning_logs(plan_id: int, db: Session = Depends(get_db)) -> dict:
+    """学习日志列表（日期倒序，上限 100 条）+ 累计分钟数。"""
+    if db.get(models.Plan, plan_id) is None:
+        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    rows = (
+        db.query(models.LearningLog)
+        .filter_by(plan_id=plan_id)
+        .order_by(models.LearningLog.date.desc(), models.LearningLog.id.desc())
+        .limit(100)
+        .all()
+    )
+    total = (
+        db.query(func.coalesce(func.sum(models.LearningLog.minutes), 0))
+        .filter_by(plan_id=plan_id)
+        .scalar()
+    )
+    return {
+        "logs": [
+            {"id": r.id, "date": r.date.isoformat(), "minutes": r.minutes, "note": r.note}
+            for r in rows
+        ],
+        "total_minutes": int(total or 0),
+    }

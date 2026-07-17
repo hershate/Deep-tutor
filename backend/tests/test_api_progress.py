@@ -7,7 +7,7 @@ POST /api/progress（覆盖写 + 掌握度加权 + 间隔重复）；GET /api/pr
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 
@@ -143,3 +143,38 @@ def test_get_progress_empty_and_not_found(client, auth_headers, monkeypatch):
 
     r = client.get("/api/progress/999999", headers=auth_headers)
     assert r.status_code == 404
+
+
+def test_learning_logs_checkin_and_list(client, auth_headers, monkeypatch):
+    """打卡（learning_logs，iter 45）：POST 记日志（默认今日）-> GET 列表倒序 + 累计分钟。"""
+    plan_id = _make_plan(client, auth_headers, monkeypatch)
+
+    r = client.post("/api/progress/logs", json={"plan_id": plan_id, "minutes": 45, "note": "学了 JS 基础"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["date"] == date.today().isoformat()  # 默认今日
+    assert body["minutes"] == 45
+
+    # 显式日期（补记昨天）
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    r = client.post("/api/progress/logs", json={"plan_id": plan_id, "minutes": 30, "date": yesterday}, headers=auth_headers)
+    assert r.json()["date"] == yesterday
+
+    r = client.get(f"/api/progress/logs/{plan_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total_minutes"] == 75
+    assert len(body["logs"]) == 2
+    assert body["logs"][0]["date"] == date.today().isoformat()  # 日期倒序
+    assert body["logs"][0]["note"] == "学了 JS 基础"
+
+
+def test_learning_logs_validation(client, auth_headers, monkeypatch):
+    """minutes 越界 -> 422；plan 不存在 -> 404（POST/GET）。"""
+    plan_id = _make_plan(client, auth_headers, monkeypatch)
+    r = client.post("/api/progress/logs", json={"plan_id": plan_id, "minutes": -5}, headers=auth_headers)
+    assert r.status_code == 422
+    r = client.post("/api/progress/logs", json={"plan_id": plan_id, "minutes": 2000}, headers=auth_headers)
+    assert r.status_code == 422
+    assert client.post("/api/progress/logs", json={"plan_id": 999999, "minutes": 10}, headers=auth_headers).status_code == 404
+    assert client.get("/api/progress/logs/999999", headers=auth_headers).status_code == 404
