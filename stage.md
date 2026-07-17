@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：步骤 7 进行中 -- SSE 续接**前后端均完成**（后端 `_SessionStream` 缓冲 + Last-Event-ID 续接 + done-callback 持久化；前端指数退避重连≤3，plan/06 §七 / plan/10 §十二）；待做 Settings/用量 UI、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 iter 5 条。
+**当前下一步**：步骤 7 -- SSE 续接前后端完成 + Usage UI 完成（顶栏 UsageMeter + /usage 详情页，Pillar 3 成本可见性）；待做 Settings 页（**范围待用户定**：只读展示 vs 运行时可改，涉及 .env 假设 4）、无障碍、端到端真机联调（步骤 8）。详见 §五 2026-07-17 iter 6 条。
 
 ---
 
@@ -231,6 +231,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 步骤 7 进行中（iter 6，Usage UI）**：前端用量展示（Pillar 3 成本可见性，plan/06 UsageMeter/用量页）。新增 [UsageMeter.tsx](frontend/src/components/UsageMeter.tsx)（顶栏小窗：总费用+token，TanStack Query 拉 /api/usage，窗口聚焦刷新，aria-label）+ [Usage.tsx](frontend/src/pages/Usage.tsx)（详情页：总 token/费用/缓存命中率/调用数 + 手动刷新，`dl/dt/dd` 语义）。[Layout.tsx](frontend/src/components/Layout.tsx) 加顶栏导航（首页/用量）+ UsageMeter。[App.tsx](frontend/src/App.tsx) 加 /usage 路由。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 生成结束（非取消）后 `invalidateQueries(['usage'])` 刷新用量（api_usage 已在 done-callback 落库）。前端 build 通过（90 模块）。待做：Settings 页（范围待定，见下）、无障碍、步骤 8 联调。
+  - **Settings 页范围未决**：plan/06 §四.7 列「API Key/模型/预算/主题」，但计划假设 4「API Key 本地配置（.env），不入库」与之冲突——可编辑 Key/模型/预算需后端运行时配置端点（覆盖 .env 或入库）。安全默认：只读展示当前后端配置（模型/预算/Key 是否已设，掩码）+ 主题切换，需新增 `GET /api/settings`（不泄密）。**需用户确认范围**。
 - **2026-07-17 步骤 7 进行中（iter 5，SSE 续接前端重连）**：前端落地断线重连（plan/06 §七），消费后端 attach 能力，SSE 续接前后端闭环。[api.ts](frontend/src/lib/api.ts)：新增 `ssePostWithReconnect` -- 流未到终态（done/error/budget_exceeded/clarify_needed）即带 `Last-Event-ID` 重连，指数退避 1s/2s/4s 最多 3 次（初始+3 重试）；4xx 非瞬态（如 409 stale，408/429 除外）不重连直接抛；网络错误/5xx 重连；超限抛「连接中断，重连失败，请重试」；取消/卸载不重连。`generateStream` 改用之（返回 `Promise<void>`）；`clarifyStream` 保留单次（端点非幂等，续接应走 /generate attach）。[sse.ts](frontend/src/lib/sse.ts)：新增 `SseError`（携 HTTP 状态码）供上层区分瞬态/非瞬态。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx)：简化 -- 移除 `terminalRef`/`.then()` 静默断连检测（重连由 wrapper 处理），`.catch` 仅捕重连耗尽/4xx。后端按 id>last_event_id 重放 -> 无重复事件/重复计费。前端 build 通过（tsc+vite）。待做：Settings/用量 UI、无障碍、步骤 8 端到端联调。
 - **2026-07-17 步骤 7 进行中（iter 4，SSE 续接后端）**：落地 plan/10 §十二 事件缓冲 + 续接 + 持久化解耦（稳定性优先）。后端 [plans.py](backend/app/api/plans.py)：新增 `_SessionStream`（单会话有界事件缓冲 `_MAX_BUFFERED_EVENTS=500` + 订阅扇出；订阅时重放 id>last_event_id 再接实时；终态后保留 `_RETENTION_SECONDS=300s` 供迟到重连）。**持久化移至编排器任务 `done-callback`（`_finalize`）**，与流客户端解耦 -- 修复断连后 stale running / 丢进度（R24）：旧实现客户端断连时 `GeneratorExit` 跳过 `await task`，致 plan/状态不落库、会话永久 `running`（409 死锁）；新实现任务结束即持久化，无论客户端是否在连。`POST /generate` 读 `Last-Event-ID` 头：`running`+活动流 -> 续接（`_relay` 重放+实时+心跳）；`running`+无流（进程重启等 stale）-> 409 引导重生成；终态 -> 快路径（iter 3）。`_stream` 拆为 `_run_start`（建流+启任务+done-callback）/`_relay`（订阅投递+心跳+终态退出）/`_finalize`（持久化+发终态）。测试：+11（`_SessionStream` 语义 + `_relay` 续接/迟到重连，`asyncio.run` 驱动无 pytest-asyncio），conftest `isolate` 清 `_STREAMS` 跨测试隔离；全量 107 后端测试通过。待做：前端指数退避重连≤3（消费 Last-Event-ID 续接）、Settings/用量 UI、无障碍、步骤 8 联调。
 - **2026-07-17 步骤 7 进行中（iter 3，SSE 终态快路径）**：落地 plan/10 §十二 终态快路径（稳定性：防重复生成）。后端 [plans.py](backend/app/api/plans.py)：`generate` 端点在 running 冲突检查后增 `_terminal_event` 快路径 -- `done` 查最新 plan 回放 `done {plan_id}`（不重跑，无新 plan）；`paused_clarify` 从 partial_plan 提取 `clarify_questions` 回放 `clarify_needed`；`error`/`interrupted` 回放终态 `error {code:previous_failed}`（不自动重跑，因硬刷新会丢 raw_text）；`idle`/状态不一致 -> 正常生成。新增 `_terminal_stream`（单事件即关闭）、`_clarify_questions_from_state`。前端无需改动（已处理 done/clarify_needed/error 事件）。测试：+3（done/paused_clarify/error 快路径），全量 96 后端测试通过。待做：SSE 续接完整版（事件缓冲 + running 重放 + 前端指数退避重连≤3）、Settings/用量 UI、无障碍、步骤 8 联调。
