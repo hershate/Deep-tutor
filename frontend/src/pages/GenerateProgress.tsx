@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { generateStream } from '../lib/api'
+import { cancelGeneration, generateStream } from '../lib/api'
 
 interface Step {
   name: string
@@ -16,7 +16,7 @@ export default function GenerateProgress() {
   const nav = useNavigate()
   const qc = useQueryClient()
   const [steps, setSteps] = useState<Step[]>([])
-  const [status, setStatus] = useState<'running' | 'done' | 'error'>('running')
+  const [status, setStatus] = useState<'running' | 'done' | 'error' | 'cancelled'>('running')
   const [error, setError] = useState('')
   const [cost, setCost] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -50,8 +50,13 @@ export default function GenerateProgress() {
           setStatus('done')
           nav(`/plans/${data.plan_id}`)
         } else if (event === 'error') {
-          setStatus('error')
-          setError(String(data.message ?? '生成失败'))
+          if (data.code === 'cancelled') {
+            setStatus('cancelled')
+            setError('')
+          } else {
+            setStatus('error')
+            setError(String(data.message ?? '生成失败'))
+          }
         } else if (event === 'budget_exceeded') {
           setStatus('error')
           setError('预算超限，生成中断')
@@ -76,7 +81,17 @@ export default function GenerateProgress() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">生成中…</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold">生成中…</h2>
+          {status === 'running' && (
+            <button
+              onClick={() => cancelGeneration(Number(sessionId)).catch(() => {})}
+              className="rounded-lg border px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              取消
+            </button>
+          )}
+        </div>
         <span className="text-sm text-slate-500">费用 ${cost.toFixed(4)}</span>
       </div>
       <p className="text-sm text-slate-500">会话 #{sessionId}</p>
@@ -106,6 +121,15 @@ export default function GenerateProgress() {
         <div role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">
           <p className="font-medium">生成失败</p>
           <p className="text-sm">{error}</p>
+          <button onClick={() => nav('/')} className="mt-2 text-sm underline">
+            返回首页
+          </button>
+        </div>
+      )}
+
+      {status === 'cancelled' && (
+        <div className="rounded-lg bg-slate-100 p-4 text-slate-700">
+          <p className="font-medium">已取消</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
             返回首页
           </button>

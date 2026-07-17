@@ -258,6 +258,23 @@ def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> 
     )
 
 
+@router.post("/{session_id}/cancel")
+async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
+    """取消运行中的生成（plan/10 §十一）。
+
+    取消活动流的编排器任务 -> done-callback（`_finalize`）发 `error{code:cancelled}`
+    并置 error 态；连接中的客户端经 SSE 收到该事件。无运行任务 -> 409。
+    """
+    sess = db.get(models.Session, session_id)
+    if sess is None:
+        raise ApiError("not_found", f"会话 {session_id} 不存在")
+    stream = _STREAMS.get(session_id)
+    if stream is None or stream.task is None or stream.terminal_id is not None:
+        raise ApiError("conflict", "该会话无运行中的生成任务", status=409)
+    stream.task.cancel()  # 同事件循环内，安全
+    return {"ok": True, "status": "cancelling"}
+
+
 def _parse_last_event_id(request: Request) -> int:
     """解析 Last-Event-ID 请求头（续接游标，plan/10 §十二）。无效/缺失返回 0。"""
     raw = request.headers.get("last-event-id")

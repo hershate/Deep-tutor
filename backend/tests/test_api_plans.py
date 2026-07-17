@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
@@ -243,3 +244,61 @@ def test_generate_error_fast_path(client, auth_headers, monkeypatch):
     ev2 = _parse_sse(r2.text)
     assert len(ev2) == 1 and ev2[0][0] == "error", ev2
     assert ev2[0][1]["code"] == "previous_failed"
+
+
+def test_cancel_no_running_generation(client, auth_headers):
+    """无运行中生成 -> cancel 409。"""
+    sid = _session(client, auth_headers)
+    r = client.post(f"/api/plans/{sid}/cancel", headers=auth_headers)
+    assert r.status_code == 409
+
+
+def test_cancel_after_done(client, auth_headers, monkeypatch):
+    """生成完成后 cancel -> 409（无运行中任务）。"""
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    sid = _session(client, auth_headers)
+    client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "x"}, headers=auth_headers)
+    r = client.post(f"/api/plans/{sid}/cancel", headers=auth_headers)
+    assert r.status_code == 409
+
+
+def test_finalize_cancelled_publishes_error(client, auth_headers):
+    """_finalize 处理被取消的任务 -> 发 error{cancelled} + 置 error 态（plan/10 §十一）。"""
+    from app.api import plans as plans_mod
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    sid = _session(client, auth_headers)
+
+    async def scenario():
+        stream = plans_mod._SessionStream(sid, "trace_cancel")
+        plans_mod._STREAMS[sid] = stream
+
+        async def slow():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(slow())
+        stream.task = task
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        plans_mod._finalize(sid, stream, task)
+        return stream
+
+    stream = asyncio.run(scenario())
+    assert stream.terminal_id is not None
+    _, ev, data = stream._events[-1]
+    assert ev == "error"
+    assert data["code"] == "cancelled"
+
+    db = SessionLocal()
+    try:
+        st = db.get(models.OrchestratorState, sid)
+        assert st is not None
+        assert st.status == models.OrchestratorStatus.error
+    finally:
+        db.close()

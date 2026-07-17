@@ -77,6 +77,10 @@ export const exportPlan = (planId: number, format = 'md') =>
     body: JSON.stringify({ format }),
   })
 
+// --- cancel（取消运行中生成，plan/10 §十一）---
+export const cancelGeneration = (sessionId: number) =>
+  apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })
+
 // --- usage ---
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
