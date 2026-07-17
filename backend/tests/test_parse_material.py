@@ -158,3 +158,61 @@ def test_default_registry_has_parse_material():
     reg = default_registry()
     assert reg.has("parse_material")
     assert reg.get("parse_material").llm is False
+
+
+# --- URL 抓取限量读取（防 OOM）---
+
+
+class _FakeAiter:
+    """模拟 httpx 响应的 aiter_bytes()：按块产出。"""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self):
+        self._it = iter(self._chunks)
+        return self
+
+    async def __anext__(self) -> bytes:
+        try:
+            return next(self._it)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+def test_collect_capped_within_limit():
+    from app.tools.parse_material import _collect_capped
+
+    out, too_large = asyncio.run(_collect_capped(_FakeAiter([b"ab", b"cd"]), 10))
+    assert out == b"abcd"
+    assert too_large is False
+
+
+def test_collect_capped_over_limit_stops_early():
+    """超上限即停，未并入超限块（内存上界 ≈ max + 单块）。"""
+    from app.tools.parse_material import _collect_capped
+
+    out, too_large = asyncio.run(_collect_capped(_FakeAiter([b"x" * 8, b"x" * 8, b"y"]), 10))
+    assert too_large is True
+    assert out == b"x" * 8  # 第二块会令 total=16>10，未并入
+
+
+def test_collect_capped_exact_boundary_ok():
+    """恰好等于上限不视为超限。"""
+    from app.tools.parse_material import _collect_capped
+
+    out, too_large = asyncio.run(_collect_capped(_FakeAiter([b"x" * 10]), 10))
+    assert out == b"x" * 10
+    assert too_large is False
+
+
+def test_decode_best_utf8_and_no_crash():
+    """utf-8 精确解码；非 utf-8 字节不崩（返回 str，具体编码依赖 charset_normalizer 检测）。"""
+    from app.tools.parse_material import _decode_best
+
+    assert _decode_best(b"") == ""
+    assert _decode_best("你好".encode("utf-8")) == "你好"
+    # GBK 字节不应崩（charset_normalizer 检测；短串可能不稳，仅断言返回 str）
+    assert isinstance(_decode_best("你好".encode("gbk")), str)
+    # 纯 latin-1 字节兜底不崩
+    assert isinstance(_decode_best(b"\xff\xfe\x80"), str)

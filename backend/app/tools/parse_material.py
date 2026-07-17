@@ -30,6 +30,7 @@ MAX_PARSED_CHARS = 500_000  # 09 §二十 上限（chars 近似）
 CHUNK_SIZE = 3000
 URL_TIMEOUT = 30.0
 MARKER_TIMEOUT = 600.0  # marker --force_ocr 含 OCR，较慢，单独给长超时
+MAX_URL_BYTES = 10 * 1024 * 1024  # URL 抓取正文上限 10MB（防 OOM，09 §二十）
 SUPPORTED_FILE_EXTS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 
 
@@ -181,7 +182,14 @@ def _parse_pptx(path: Path) -> tuple[str, dict]:
 
 def _read_text_file(path: Path) -> str:
     """读取文本文件，自动检测编码（R25）。"""
-    raw = path.read_bytes()
+    return _decode_best(path.read_bytes())
+
+
+def _decode_best(raw: bytes) -> str:
+    """字节 -> 文本：优先 charset_normalizer 检测，兜底 utf-8/gbk/latin-1。
+
+    供文件与 URL 抓取复用，保证编码检测一致。
+    """
     if not raw:
         return ""
     try:
@@ -192,13 +200,30 @@ def _read_text_file(path: Path) -> str:
             return str(result)
     except Exception:  # noqa: BLE001
         pass
-    # 兜底 UTF-8 / GBK
     for enc in ("utf-8", "gbk", "latin-1"):
         try:
             return raw.decode(enc)
         except UnicodeDecodeError:
             continue
     return raw.decode("utf-8", errors="replace")
+
+
+async def _collect_capped(aiter, max_bytes: int) -> tuple[bytes, bool]:
+    """从异步字节流收集至多 max_bytes；返回 (content, too_large)。
+
+    逐块累加，某块会令总量超 max_bytes 即停（不并入该块），内存上界 ≈ max_bytes + 单块。
+    供 URL 抓取限量读取防 OOM。
+    """
+    chunks: list[bytes] = []
+    total = 0
+    too_large = False
+    async for chunk in aiter:
+        if total + len(chunk) > max_bytes:
+            too_large = True
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+    return b"".join(chunks), too_large
 
 
 async def _parse_url(source: str) -> tuple[str, dict]:
@@ -212,20 +237,30 @@ async def _parse_url(source: str) -> tuple[str, dict]:
     safe, reason = _is_safe_url(source)
     if not safe:
         raise _ParseError("ssrf_blocked", f"URL 被安全策略拒绝: {reason}")
+    # 流式抓取 + 限量读取（防超大响应 OOM）
+    html = ""
+    final_url = ""
+    status = 0
     try:
         async with httpx.AsyncClient(
             follow_redirects=True, timeout=httpx.Timeout(URL_TIMEOUT)
         ) as client:
-            resp = await client.get(source)
-            resp.raise_for_status()
+            async with client.stream("GET", source) as resp:
+                resp.raise_for_status()
+                raw, too_large = await _collect_capped(resp.aiter_bytes(), MAX_URL_BYTES)
+                if too_large:
+                    raise _ParseError(
+                        "payload_too_large", f"URL 正文超上限 {MAX_URL_BYTES // (1024 * 1024)}MB"
+                    )
+                html = _decode_best(raw)
+                final_url = str(resp.url)
+                status = resp.status_code
     except _ParseError:
         raise
     except httpx.HTTPError as exc:
         raise _ParseError("degraded", f"URL 抓取失败: {exc}") from exc
-    html = resp.text
-    final_url = str(resp.url)
     text = _html_to_text(html)
-    return text, {"source_type": "url", "final_url": final_url, "status": resp.status_code}
+    return text, {"source_type": "url", "final_url": final_url, "status": status}
 
 
 # --- 辅助 ---
