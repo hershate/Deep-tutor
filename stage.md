@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：稳定性加固审计进行中（iter 21-24 四处 OOM 修复--上传/URL/verify_url/请求体，148 测试；LLM provider、`_relay`、export 流程、orchestrator 审计无问题）；审计候选：sessions/materials 其他边界、settings 启动校验、并发会话隔离。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 24 条。
+**当前下一步**：稳定性加固审计进行中（iter 21-25：四处 OOM + `_finalize` FK 违约修复，149 测试；LLM provider、`_relay`、export、orchestrator 审计无问题）；审计候选：并发同会话 generate TOCTOU（本地单用户低危，修需跨线程锁、暂记不修）、settings 启动校验。延后：vendor `ppt-slide-builder`/`self-study-guide`、真机 Anthropic 冒烟（需 key）、slides。详见 §五 2026-07-17 iter 25 条。
 
 ---
 
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 稳定性加固审计（iter 25，_finalize 会话已删除跳过 DB 写防 FK 违约）**：审计发现 DELETE /sessions 取消运行中任务后，`_finalize`（done-callback）仍调 `_set_state` 重建 `OrchestratorState(session_id=已删会话)`，撞 FK（`PRAGMA foreign_keys=ON` + 级联删 state）-> IntegrityError 被 broad-except 吞成 `internal_error` 噪声 + 错误事件码（plan/10 §十一）。修复：[plans.py](backend/app/api/plans.py) `_finalize` 顶部加会话存在守卫--会话已删 -> 不写 DB，仅发 `error{cancelled}` + 清理；会话存在走正常持久化（既有 cancelled 分支不变）。测试 +1（删会话后 `_finalize` -> 发 `error{cancelled}` 非 `internal_error`、不重建 OrchestratorState）；已实证回退守卫则 FK 违约 + 测试失败。全量 149 测试通过（148+1），零回归。commit `ab441fb`。审计候选：并发同会话 generate TOCTOU（本地单用户低危，修需跨线程锁、风险大于收益，暂记不修）。
 - **2026-07-17 稳定性加固审计（iter 24，全局请求体大小限制防 OOM）**：审计发现 `/materials/text`、`/plans/generate`(raw_text) 等 JSON body 端点：Starlette 全量读取 body 入内存再解析、无大小上限--超大 body 可 OOM（上传 `file.read` 已 iter 21 修，但 JSON body 未覆盖）。修复：[main.py](backend/app/main.py) 全局 http 中间件 `_limit_request_body`，Content-Length 预检超 `_MAX_BODY_BYTES`(max_upload_bytes+5MB) 直接返 413，路由解析前拒（Starlette 不再读 body）；覆盖 text/raw_text/multipart 全端点，且对超大上传提前拒（先于 `_read_capped`）。测试 +1（monkeypatch 限到 10B，POST 120B body -> 413）。全量 148 测试通过（147+1），零回归。commit `5f0ce71`。另：export 流程（plan_id int 校验无路径穿越、输出有界、无注入）、orchestrator（反馈循环≤2、预算守卫 iter 10 已加、call_count 含反馈重跑）审计无问题。
 - **2026-07-17 稳定性加固审计（iter 23，verify_url 抓取 OOM 修复）**：审计 [verify_url.py](backend/app/tools/verify_url.py) 用 `client.get(url)` 全量加载响应正文、仅查 `status_code`--`search_resources` 每会话最多调 40 次，恶意超大响应可 OOM（与上传/URL 抓取 OOM 同类）。修复：改 `client.stream("GET", url)` 仅取 `status_code` 与 `final_url`、不读正文（流式上下文退出即弃）；`follow_redirects` 仍生效（MockTransport 实证 302->200 + final_url 正确）。测试 +4（MockTransport 无网络：200->ok 10MB 正文不加载 / 302 重定向跟随->ok / 404->invalid / 连接错误->invalid）。全量 147 测试通过（143+4），零回归。commit `d6232dc`。另：LLM provider（SDK 自带重试、loop 捕异常、usage None-safe）与 `_relay`（终态事件经 publish 投递所有订阅、不挂死）审计无问题。
 - **2026-07-17 稳定性加固审计（iter 22，URL 抓取 OOM 修复）**：审计 [parse_material.py](backend/app/tools/parse_material.py) `_parse_url` 用 `resp.text` 全量加载响应正文、无大小上限--恶意超大页面可 OOM（与上传 OOM 同类）。修复：改流式 `client.stream` + `_collect_capped` 限量读 `MAX_URL_BYTES`(10MB)，超限抛 `payload_too_large`（内存上界 ≈ max+单块）；抽 `_decode_best(raw)`（charset_normalizer 优先 + utf-8/gbk/latin-1 兜底），`_read_text_file` 与 `_parse_url` 复用、编码检测一致（替代 `resp.text`）。测试 +4（`_collect_capped` 限额内/超限早停/边界恰好；`_decode_best` utf-8 精确 + 非 utf-8 不崩）。全量 143 测试通过（139+4），零回归。commit `ff1c3da`。
