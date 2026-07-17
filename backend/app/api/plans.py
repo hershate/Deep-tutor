@@ -611,9 +611,42 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
         path.write_text(content_json, encoding="utf-8")
         plan.content_path = str(path)
         plan.content = {}
+    _persist_knowledge_nodes(db, plan.id, plan_dict)
     db.commit()
     db.refresh(plan)
     return plan.id
+
+
+def _persist_knowledge_nodes(db: Session, plan_id: int, plan_dict: dict) -> None:
+    """持久化 knowledge_map.nodes 为 knowledge_nodes 行（进度/quiz 关联用，plan/01 §四）。
+
+    sid 保留 plan 内容中的原始字符串 id（前端 quiz node_id -> DB id 映射）；
+    parent_id 两遍插入（先建行取 id，再回填父引用）。上限 100（同 build_knowledge_map 截断）。
+    """
+    nodes = ((plan_dict.get("knowledge_map") or {}).get("nodes") or [])[:100]
+    sid_to_row: dict[str, models.KnowledgeNode] = {}
+    for n in nodes:
+        name = str(n.get("name") or "")[:256]
+        if not name:
+            continue
+        row = models.KnowledgeNode(
+            plan_id=plan_id,
+            sid=str(n.get("id") or "")[:64],
+            name=name,
+            difficulty=int(n.get("difficulty") or 1),
+            must_learn=bool(n.get("must_learn")),
+        )
+        db.add(row)
+        if row.sid:
+            sid_to_row[row.sid] = row
+    db.flush()
+    for n in nodes:
+        pid = n.get("parent_id")
+        row = sid_to_row.get(str(n.get("id") or ""))
+        parent = sid_to_row.get(str(pid)) if pid is not None else None
+        if row is not None and parent is not None and parent is not row:
+            row.parent_id = parent.id
+    db.flush()
 
 
 # --- 列表 / 详情 ---
