@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P2 `generate_study_materials` 进行中（iter 35 LLM 工具 + 注册完成，169 测试；简化稳定 MVP，同 slides 模式：一次 LLM 调用 -> 规约 -> markdown -> 前端 react-markdown）；待做：iter 36 `POST /plans/{id}/materials` 端点 + 前端弹窗。延后：真机 Anthropic 冒烟（需 key）、DB 持久化/每单元文件/WebSearch/StudyMaterialReader/异步。详见 §五 2026-07-17 iter 35 条。
+**当前下一步**：P2 `generate_study_materials` MVP 闭环完成（iter 34-36：vendor skill + 渲染助手 -> LLM 工具 + 注册 -> 端点 + 前端弹窗；173 测试）。下一迭代候选（P2 续，见 plan/04 §三）：`generate_quiz` 练习/测验生成、进度跟踪 record_progress、掌握度评估、批量导入；或稳定性加固审计；或真机 Anthropic 冒烟（需 key）。**待用户定方向**。延后：materials DB 持久化/每单元文件/WebSearch/异步 SSE/StudyMaterialReader（plan/07 §四-六）。详见 §五 2026-07-17 iter 36 条。
 
 ---
 
@@ -26,7 +26,7 @@
 | Phase | 目标 | 状态 |
 |---|---|---|
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
-| P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ⬜ 未开始 |
+| P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | 🟡 进行中（自学材料 MVP 完成，iter 34-36） |
 | P3 | 图片 OCR + 音视频转写 | ⬜ 未开始 |
 | P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ⬜ 未开始 |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
@@ -231,6 +231,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-17 P2 自学材料（iter 36，端点 + 前端弹窗，MVP 闭环）**：增量 3（端到端，同 iter 31 slides 模式）。后端 [plans.py](backend/app/api/plans.py) `POST /plans/{plan_id}/materials {depth: brief|full=full}`：读 plan（content_path 溢出回读）；ctx 注 `llm_provider`（无 key->None 降级）；`run_tool("generate_study_materials")`->spec（ok 用 LLM 规约，否则 `default_materials_from_plan` 降级）；`render_materials_md`->单 markdown；返 `{unit_count, markdown, warning?}`（前端 react-markdown 渲染，免文件服务/鉴权；plan/07 §五 的 SSE/异步简化掉）。测试 +4（[test_api_plans_materials.py](backend/tests/test_api_plans_materials.py)：LLM 合法规约->200+markdown+unit_count 无 warning / 无 provider->降级默认仍 200+warning / 404 / depth 非法 422）。前端 [MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx)（新）：打开即生成（depth=full）、深度切换重新生成、进行中请求中止（acRef + 卸载 abort，同 Clarify 模式）、Esc/遮罩点击关闭、`role="dialog" aria-modal`、warning 琥珀提示、error `role="alert"`；react-markdown + remark-gfm + **rehype-sanitize**（防 LLM 输出 XSS，依赖已装）。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 头部加 [自学材料] 按钮开弹窗；[api.ts](frontend/src/lib/api.ts) `generateMaterials`（带 signal）；[index.css](frontend/src/index.css) `.markdown-body` 基础排版（无 typography 插件，手工 @apply 兜底）。[test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) 加第 9 步（materials 端点全链路集成）。全量 173 测试通过 + 前端 build（350 模块），零回归。commits `ed9bcab`（后端端点）`9597d0d`（前端+冒烟）。**generate_study_materials 简化 MVP 完成**（iter 34-36）。延后：DB 持久化（study_units/study_materials 表）/每单元文件/WebSearch 补资料/异步 SSE/StudyMaterialReader（plan/07 §四-六）。
 - **2026-07-17 P2 自学材料（iter 35，LLM 工具 + 注册）**：增量 2（LLM 规约 + 降级，同 iter 30 slides 模式）。[generate_study_materials.py](backend/app/tools/generate_study_materials.py) 加 `PROMPT`（聚焦 spec 生成 inline_prompt：plan->StudyMaterialsSpec JSON，含 schema + self-study-guide 模板约束移植——每阶段 1-3 单元总 3-12、2-4 objectives、content_md 用 ### 小节含概述/核心概念/实践练习≥2/检查理解/总结/扩展阅读；**禁止编造 URL**（扩展阅读仅引用 plan.resources 已有 url，无则标「无外部资料参考」）；depth brief|full 可选）+ `generate_study_materials_tool = Tool(llm=True, output_model=StudyMaterialsSpec, default_data=_DEFAULT_MATERIALS_DATA)`，复用 `run_tool` 修复链（重试≤3->降级）。[__init__.py](backend/app/tools/__init__.py) 注册（不在 PIPELINE，iter 36 端点调用）。测试 +3（注册 / LLM 合法规约->ok / LLM 非法->降级 repaired+默认）。全量 169 测试通过（166+3），零回归。commit `f380d54`。待做：iter 36 `POST /plans/{id}/materials` 端点 + 前端弹窗。
 - **2026-07-17 P2 自学材料（iter 34，vendor self-study-guide + 渲染助手）**：用户选「P2 自学材料」（plan/02 §13 / plan/07 §三）。简化稳定 MVP（同 slides 模式，延后 DB 持久化/每单元文件/WebSearch/异步/Reader）。增量 1（基础，无 LLM）：vendor [skills/self-study-guide/](skills/self-study-guide/)（SKILL.md + README，方法论参考）。新增 [generate_study_materials.py](backend/app/tools/generate_study_materials.py)：`StudyUnitSpec`/`StudyMaterialsSpec` pydantic（LLM 输出 schema + 渲染输入）；`default_materials_from_plan`（纯 Python 默认，每阶段一单元，降级用）；`render_materials_md`（拼单 markdown 文档，前端 react-markdown 渲染）。测试 +4（loader 加载 self-study-guide / 基本渲染 / 默认 deck / 空 plan 回退）。全量 166 测试通过（162+4），零回归。commit `a1d30fa`。待做：iter 35 LLM 工具 + 注册；iter 36 端点 + 前端。
 - **2026-07-17 P1 slides（iter 33，e2e 冒烟覆盖 slides 导出）**：[test_e2e_smoke.py](backend/tests/test_e2e_smoke.py) 加第 8 步：导出 slides（`build_plan_slides` LLM -> 渲染 HTML），验证新功能在全链路集成（会话+资料+生成+详情+用量+设置+md 导出+slides 导出）。mock slides provider 返回 SlideSpec，断言 `format=html` + `slide_count` + `<html>` + 含标题。全量 162 测试通过，零回归。commit `2bc4644`。
