@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.agent.registry import Tool
+
 # 渲染所用模板（vendor 自 ~/.claude/skills/ppt-slide-builder）
 TEMPLATE_REL = Path("ppt-slide-builder") / "templates" / "base.html"
 
@@ -180,3 +182,46 @@ def _render_slide(idx: int, slide: SlideContent, is_first: bool) -> str:
 def _esc(s: Any) -> str:
     """HTML 转义纯文本（content_html 不转义，仅 title 等纯文本字段）。"""
     return _html.escape(str(s), quote=True)
+
+
+# --- LLM 工具（iter 30）：plan -> SlideSpec，复用 loop 修复链 ---
+
+PROMPT = """你是 Deep-tutor 的「幻灯片规约生成」工具。任务：从学习方案（args.plan）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
+
+输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,topics[{name}],milestone}]、resources[{title,url}]、schedule[{date,tasks}]、validation_report）。
+
+仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
+{"title":"方案标题","theme":{"--bg":"#色值","--bg-alt":"#色值","--text":"#色值","--text-secondary":"#色值","--accent":"#色值","--accent-hover":"#色值","--border":"#色值","--font-display":"字体栈","--font-body":"字体栈"},"transition":"trans-fade|trans-slide-left|trans-slide-right|trans-slide-up|trans-zoom|trans-flip|trans-none","slides":[{"title":"页标题","content_html":"HTML 内容","layout":"center|left|grid-2|grid-3","animation":"anim-fade-in|anim-slide-up|anim-slide-down|anim-slide-left|anim-slide-right|anim-scale-in|anim-rotate-in|anim-blur-in|anim-flip-in|anim-bounce-in"}]}
+
+规则：
+- 第 1 页标题页：layout=center，title=intent.topic，content_html 含 level/goal/daily_minutes 副标题。
+- 每个学习阶段一页：title=阶段名，content_html 含 goal、知识点 <ul>、里程碑。
+- 资源页、排期页、校验页各一页（按需，内容从 plan 取）。
+- 总页数 5-15。
+- content_html 仅用 <p>/<ul>/<ol>/<li>/<strong>/<em>/<br>；禁 <script>/<style>/<iframe>/<img>。
+- theme 选合适配色（如深色科技 #0a0e1a/#3b82f6 或浅色商务 #ffffff/#1a1a1a）。
+- animation/transition 用上述类名之一。
+- 不编造 plan 中没有的内容；资料未体现的字段省略。
+
+仅返回符合 schema 的 JSON 对象。
+"""
+
+# 工具降级默认（LLM 失败时的静态兜底；export 端点在非 ok 时会改用 default_spec_from_plan(plan) 渲染）
+_DEFAULT_SPEC_DATA = {
+    "title": "学习方案",
+    "theme": {},
+    "transition": "trans-fade",
+    "slides": [
+        {"title": "学习方案", "content_html": "<p>（幻灯片规约生成失败，已降级）</p>", "layout": "center", "animation": "anim-fade-in"}
+    ],
+}
+
+
+build_plan_slides_tool = Tool(
+    name="build_plan_slides",
+    llm=True,
+    skill_name=None,  # 用聚焦 inline_prompt（SKILL.md 为交互式，不宜作 spec 生成 system prompt）
+    output_model=SlideSpec,
+    inline_prompt=PROMPT,
+    default_data=_DEFAULT_SPEC_DATA,
+)

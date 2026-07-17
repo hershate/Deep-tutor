@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
 from app.tools.build_knowledge_map import build_knowledge_map_tool
+from app.tools.build_plan_slides import build_plan_slides_tool
 from app.tools.design_stages import design_stages_tool
 from app.tools.export_plan import export_plan_tool
 from app.tools.parse_material import parse_material_tool
@@ -30,6 +31,7 @@ def default_registry() -> ToolRegistry:
     reg.register(schedule_plan_tool)
     reg.register(validate_plan_tool)
     reg.register(export_plan_tool)
+    reg.register(build_plan_slides_tool)  # P1 slides（export format=slides 调用，不在 PIPELINE）
     return reg
 
 
@@ -44,4 +46,5 @@ __all__ = [
     "schedule_plan_tool",
     "validate_plan_tool",
     "export_plan_tool",
+    "build_plan_slides_tool",
 ]
