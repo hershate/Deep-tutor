@@ -10,6 +10,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
   const [uploadPct, setUploadPct] = useState<number | null>(null) // 当前文件字节级进度（plan/09 §七）
+  const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
   const nav = useNavigate()
 
@@ -103,19 +104,38 @@ export default function Home() {
 
       <div className="space-y-2">
         <label htmlFor="home-file" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-          学习资料（可选，可多选）
+          学习资料（可选，可多选 / 可拖拽）
         </label>
-        <input
-          id="home-file"
-          type="file"
-          multiple
-          accept=".pdf,.docx,.pptx,.txt,.md,.png,.jpg,.jpeg,.bmp,.gif,.webp,.tiff,.tif,.mp3,.wav,.m4a,.ogg,.flac,.mp4,.mkv,.mov,.webm,.avi"
-          onChange={(e) => {
-            addFiles(e.target.files)
-            e.target.value = '' // 允许再次选择同一文件
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
           }}
-          className="text-sm"
-        />
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            addFiles(e.dataTransfer.files)
+          }}
+          className={`rounded-lg border-2 border-dashed p-4 transition-colors ${
+            dragOver
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+              : 'border-slate-300 dark:border-slate-600'
+          }`}
+        >
+          <input
+            id="home-file"
+            type="file"
+            multiple
+            accept=".pdf,.docx,.pptx,.txt,.md,.png,.jpg,.jpeg,.bmp,.gif,.webp,.tiff,.tif,.mp3,.wav,.m4a,.ogg,.flac,.mp4,.mkv,.mov,.webm,.avi"
+            onChange={(e) => {
+              addFiles(e.target.files)
+              e.target.value = '' // 允许再次选择同一文件
+            }}
+            className="text-sm"
+          />
+          <p className="mt-1 text-xs text-slate-400">或将文件拖拽到此处</p>
+        </div>
         {files.length > 0 && (
           <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
             {files.map((f, i) => (
