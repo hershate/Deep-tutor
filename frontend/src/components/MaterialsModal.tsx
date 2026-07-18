@@ -275,23 +275,23 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
                   onClick={() =>
                     setSelected((prev) => (prev.size === units.length ? new Set() : new Set(units.map((u) => u.id))))
                   }
-                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                 >
                   {selected.size === units.length ? '清空' : '全选'}
                 </button>
                 <button
                   onClick={() => run(depth, false, [...selected])}
                   disabled={selected.size === 0}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-500 hover:shadow-md active:scale-[.98] disabled:opacity-40"
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-40 disabled:hover:shadow-sm disabled:active:scale-100"
                 >
-                  重新生成选中单元（{selected.size}）
+                  重新生成选中单元（<span className="tabular-nums">{selected.size}</span>）
                 </button>
                 <button
                   onClick={() => {
                     setSelectMode(false)
                     setSelected(new Set())
                   }}
-                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                 >
                   取消
                 </button>
