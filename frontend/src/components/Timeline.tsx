@@ -44,11 +44,11 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm tabular-nums text-slate-600 dark:text-slate-300">
         共 {days.length} 个学习日 · 约 {hours} 小时 · {days[0].date} ~ {days[days.length - 1].date}
       </p>
-      {weeks.map(([week, ds]) => (
-        <section key={week} aria-label={`第 ${week} 周`}>
+      {weeks.map(([week, ds], wi) => (
+        <section key={week} aria-label={`第 ${week} 周`} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(wi, 6) * 70}ms` }}>
           <h4 className="mb-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">第 {week} 周</h4>
           <ul className="space-y-1.5">
             {ds.map((d) => {
@@ -58,7 +58,7 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
               return (
                 <li
                   key={d.date}
-                  className="flex flex-wrap items-baseline gap-x-3 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="flex flex-wrap items-baseline gap-x-3 rounded-lg border bg-white px-3 py-2 text-sm transition-all duration-150 hover:border-blue-200 hover:shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900"
                 >
                   <span className="shrink-0 font-medium text-slate-700 dark:text-slate-200">
                     {d.date.slice(5)} {weekday}

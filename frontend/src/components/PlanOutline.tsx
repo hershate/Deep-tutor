@@ -42,9 +42,9 @@ function MapNode({ node, childrenMap, depth }: {
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             aria-label={`${open ? '收起' : '展开'} ${node.name}`}
-            className="w-5 shrink-0 text-slate-400 hover:text-slate-600 dark:text-slate-300"
+            className="w-5 shrink-0 text-slate-400 transition-colors hover:text-slate-600 dark:text-slate-300 dark:hover:text-slate-100"
           >
-            {open ? '▾' : '▸'}
+            <span aria-hidden="true" className={`inline-block transition-transform duration-200 ${open ? 'rotate-90' : ''}`}>▸</span>
           </button>
         ) : (
           <span className="w-5 shrink-0 text-center text-slate-300">·</span>
@@ -68,25 +68,30 @@ function MapNode({ node, childrenMap, depth }: {
   )
 }
 
-/** 单阶段卡（可折叠）。 */
+/** 单阶段卡（可折叠）。iter 96：箭头旋转过渡 + 展开区淡入。 */
 function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800">
+    <div className="rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+        className="flex w-full items-center justify-between rounded-xl p-4 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
       >
         <h4 className="font-medium">
-          <span className="mr-1 text-slate-400">{open ? '▾' : '▸'}</span>
+          <span
+            aria-hidden="true"
+            className={`mr-1 inline-block text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          >
+            ▸
+          </span>
           {s.index + 1}. {s.name}
         </h4>
         <span className="text-xs text-slate-400">难度 {s.difficulty} / {s.estimated_weeks} 周</span>
       </button>
       {open && (
-        <div className="border-t px-4 pb-4 pt-2">
+        <div className="animate-fade-in border-t px-4 pb-4 pt-2 dark:border-slate-700">
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">目标: {s.goal}</p>
           {s.topics && s.topics.length > 0 && (
             <ul className="mt-2 text-sm">
@@ -127,7 +132,7 @@ export default function PlanOutline({ stages, knowledgeMap }: Props) {
         </section>
       )}
       {roots.length > 0 && (
-        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="知识图谱">
+        <section className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="知识图谱">
           <h4 className="mb-2 font-semibold">知识图谱</h4>
           <ul>
             {roots.map((n) => (

@@ -12,6 +12,7 @@ import {
   type AdminUser,
 } from '../lib/api'
 import { getStoredUser, updateStoredUser } from '../lib/auth'
+import { SkeletonLines } from './Skeleton'
 
 interface CreateForm {
   username: string
@@ -114,7 +115,7 @@ export default function UserManager() {
   }
 
   return (
-    <section aria-label="用户管理" className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
+    <section aria-label="用户管理" className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold">用户管理</h3>
         <button
@@ -123,7 +124,7 @@ export default function UserManager() {
             setShowForm(!showForm)
             setOpError('')
           }}
-          className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700"
+          className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98]"
         >
           {showForm ? '取消' : '新增用户'}
         </button>
@@ -131,14 +132,14 @@ export default function UserManager() {
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">仅管理员可见。删除用户将级联删除其全部数据（不可恢复）。</p>
 
       {opError && (
-        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="mb-3 animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
 
       {showForm && (
         <form
-          className="mb-4 space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
+          className="mb-4 animate-fade-in space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
           onSubmit={(e) => {
             e.preventDefault()
             submitCreate()
@@ -151,7 +152,7 @@ export default function UserManager() {
                 required
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.target.value })}
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 autoComplete="off"
               />
             </label>
@@ -160,7 +161,7 @@ export default function UserManager() {
               <input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 autoComplete="off"
               />
             </label>
@@ -173,7 +174,7 @@ export default function UserManager() {
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="mt-1 w-full rounded border px-2 py-1"
+              className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
               autoComplete="new-password"
             />
           </label>
@@ -189,7 +190,7 @@ export default function UserManager() {
             <button
               type="submit"
               disabled={busy}
-              className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[.98] disabled:opacity-50 disabled:active:scale-100"
             >
               创建
             </button>
@@ -200,7 +201,7 @@ export default function UserManager() {
                 setForm(EMPTY_CREATE)
                 setOpError('')
               }}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -208,7 +209,7 @@ export default function UserManager() {
         </form>
       )}
 
-      {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>}
+      {isLoading && <SkeletonLines lines={3} />}
       {error && !(error instanceof ApiError && error.status === 403) && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           用户列表加载失败
@@ -218,7 +219,7 @@ export default function UserManager() {
         {users.map((u) => (
           <li
             key={u.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 transition-colors hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -239,7 +240,7 @@ export default function UserManager() {
               <button
                 onClick={() => rename(u)}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
               >
                 改名
               </button>
@@ -250,7 +251,7 @@ export default function UserManager() {
                   setOpError('')
                 }}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
               >
                 重置密码
               </button>
@@ -259,14 +260,14 @@ export default function UserManager() {
                   <button
                     onClick={() => toggleAdmin(u)}
                     disabled={busy}
-                    className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                    className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
                   >
                     {u.is_admin ? '撤销管理员' : '设为管理员'}
                   </button>
                   <button
                     onClick={() => remove(u)}
                     disabled={busy}
-                    className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950 disabled:opacity-50"
+                    className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950 disabled:opacity-50 disabled:active:scale-100"
                   >
                     删除
                   </button>
@@ -275,7 +276,7 @@ export default function UserManager() {
             </div>
             {resetId === u.id && (
               <form
-                className="mt-2 flex w-full items-center gap-2"
+                className="mt-2 flex w-full animate-fade-in items-center gap-2"
                 onSubmit={(e) => {
                   e.preventDefault()
                   submitReset()
@@ -288,14 +289,14 @@ export default function UserManager() {
                   placeholder="新密码（至少 4 位）"
                   value={resetPw}
                   onChange={(e) => setResetPw(e.target.value)}
-                  className="rounded border px-2 py-1 text-sm"
+                  className="rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                   autoComplete="new-password"
                   aria-label={`为 ${u.username} 设置新密码`}
                 />
                 <button
                   type="submit"
                   disabled={busy}
-                  className="rounded-lg bg-blue-600 px-2.5 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-lg bg-blue-600 px-2.5 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[.98] disabled:opacity-50 disabled:active:scale-100"
                 >
                   确定
                 </button>
