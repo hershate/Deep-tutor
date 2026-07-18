@@ -1375,7 +1375,9 @@ async def generate_quiz_endpoint(
         if not u.materials:
             continue
         try:
-            unit_contents.append((u.title, Path(u.materials[0].content_md_path).read_text(encoding="utf-8")))
+            # read_unit_content 自动串联 .pN 拆分子文件——直接 read_text 只读主文件，
+            # >500 行单元的「检查理解」小节（模板第 4/6 节，常落入拆分尾部）会被静默漏掉
+            unit_contents.append((u.title, read_unit_content(u.materials[0].content_md_path)))
         except OSError:
             log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
     check_questions = extract_check_questions(unit_contents)
