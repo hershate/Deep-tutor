@@ -40,7 +40,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
   }
 
   return (
-    <section className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <h3 className="mb-2 font-semibold">源资料{data ? `（${data.total}）` : ''}</h3>
       {isLoading && <SkeletonLines lines={2} />}
       {error && (
@@ -53,10 +53,11 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
       )}
       {data && data.total > 0 && (
         <ul className="space-y-1.5">
-          {data.items.map((m) => (
+          {data.items.map((m, i) => (
             <li
               key={m.material_id}
-              className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-slate-700"
+              className="flex animate-fade-in-up items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
             >
               <span aria-hidden="true">{KIND_ICON[m.kind] ?? '📎'}</span>
               <span className="min-w-0 flex-1 truncate" title={m.source}>
@@ -69,7 +70,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
                 onClick={() => onDelete(m)}
                 disabled={busyId !== null}
                 aria-label={`删除资料 ${displayName(m)}`}
-                className="shrink-0 rounded-lg border px-2 py-0.5 text-xs text-red-600 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-red-400 dark:hover:bg-red-950"
+                className="shrink-0 rounded-lg border border-red-200 px-2 py-0.5 text-xs text-red-600 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
               >
                 {busyId === m.material_id ? '删除中…' : '删除'}
               </button>
