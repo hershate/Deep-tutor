@@ -155,6 +155,7 @@ export const exportPlan = (planId: number, format = 'md') =>
     event_count?: number
     apkg_b64?: string
     card_count?: number
+    pdf_b64?: string
   }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format }) })
 
 // 自学材料（P2，plan/07 §五；iter 47：SSE 逐单元渐进显示）。

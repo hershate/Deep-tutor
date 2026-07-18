@@ -27,7 +27,8 @@ from app.tools.base import ToolInput
 from app.tools.build_anki import build_apkg
 from app.tools.build_ics import build_ics
 from app.tools.build_plan_slides import SlideSpec, default_spec_from_plan, render_slides_html
-from app.tools.export_plan import export_plan
+from app.tools.export_pdf import build_pdf, pdf_available
+from app.tools.export_plan import export_plan, render_markdown
 
 router = APIRouter(prefix="/export", tags=["export"], dependencies=[Depends(require_auth)])
 
@@ -59,7 +60,36 @@ async def export_plan_endpoint(
         return _export_ics(plan_id, content)
     if body.format == "anki":
         return _export_anki(plan_id, content)
+    if body.format == "pdf":
+        return await _export_pdf(plan_id, plan.session_id, content)
     return await _export_md(plan_id, plan.session_id, content, body.format)
+
+
+async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
+    """PDF 导出（plan/03 §一）：md -> HTML -> weasyprint。
+
+    R9 降级：weasyprint 不可用（未装/缺 Pango 原生库）-> 降级 md + warning
+    （plan/02 §11「不支持格式 -> 降级为 md」），与 OCR/whisper 同一模式。
+    weasyprint 为同步 CPU 密集调用，to_thread 防阻塞事件循环。
+    """
+    if not pdf_available():
+        result = await _export_md(plan_id, session_id, content, "md")
+        result["warning"] = (
+            "PDF 导出依赖 weasyprint（另需系统 Pango 库）不可用，已降级为 Markdown；"
+            "安装：pip install weasyprint（Windows 另需 GTK 运行时）"
+        )
+        return result
+    import asyncio
+
+    md = render_markdown(content)
+    pdf = await asyncio.to_thread(build_pdf, content, md)
+    return {
+        "file_url": "",
+        "format": "pdf",
+        "filename": f"deep-tutor-plan-{plan_id}.pdf",
+        "chars": len(md),
+        "pdf_b64": base64.b64encode(pdf).decode("ascii"),
+    }
 
 
 def _export_ics(plan_id: int, content: dict) -> dict:

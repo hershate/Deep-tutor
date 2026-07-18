@@ -35,5 +35,9 @@ pytest-asyncio>=0.23
 
 # 导出（P5）
 genanki==0.13.1                # Anki .apkg 卡片包生成（纯 Python）
+markdown>=3.5                  # md -> HTML（PDF 导出链路，纯 Python）
 
-# 注：weasyprint（PDF 导出）在 P1 步骤加入。
+# PDF 导出（plan/03 §一，R9 可选依赖）：Python 包 + 系统 Pango 库缺一不可，
+# 缺失时 API 自动降级 md + warning（export_pdf.pdf_available 探测）。
+# weasyprint>=60                 # pip 安装；Windows 另需 GTK 运行时，Linux 需 pango
+

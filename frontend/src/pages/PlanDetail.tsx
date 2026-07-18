@@ -40,7 +40,7 @@ export default function PlanDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
-  const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki'>('md')
+  const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki' | 'pdf'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
   const [share, setShare] = useState<ShareStatus | null>(null)
@@ -114,8 +114,13 @@ export default function PlanDetail() {
         const bytes = Uint8Array.from(atob(r.apkg_b64), (c) => c.charCodeAt(0))
         downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), r.filename || 'plan.apkg')
         setExportUrl(`已下载 ${r.filename}（${r.card_count ?? 0} 张卡片）`)
-      } else if (exportFormat === 'md' && r.content) {
-        // UX（iter 73）：Markdown 也走浏览器下载（原仅显示服务器文件路径，浏览器无法访问）
+      } else if (exportFormat === 'pdf' && r.pdf_b64) {
+        // PDF（iter 79）：base64 -> Blob 下载；weasyprint 不可用时后端降级 md（走下方 content 分支）
+        const bytes = Uint8Array.from(atob(r.pdf_b64), (c) => c.charCodeAt(0))
+        downloadBlob(new Blob([bytes], { type: 'application/pdf' }), r.filename || 'plan.pdf')
+        setExportUrl(`已下载 ${r.filename}`)
+      } else if (r.content) {
+        // Markdown（含 pdf 降级 md 的情形：后端 R9 降级时返回 md 正文 + warning）
         downloadBlob(new Blob([r.content], { type: 'text/markdown;charset=utf-8' }), r.filename || 'plan.md')
         setExportUrl(`已下载 ${r.filename || 'plan.md'}`)
       } else {
@@ -170,13 +175,14 @@ export default function PlanDetail() {
           <select
             id="export-format"
             value={exportFormat}
-            onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides' | 'ics' | 'anki')}
+            onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides' | 'ics' | 'anki' | 'pdf')}
             className="rounded-lg border px-2 py-2 text-sm"
           >
             <option value="md">Markdown</option>
             <option value="slides">幻灯片</option>
             <option value="ics">日历 (.ics)</option>
             <option value="anki">Anki 卡片包</option>
+            <option value="pdf">PDF</option>
           </select>
           <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
             导出
