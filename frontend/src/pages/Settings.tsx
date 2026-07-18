@@ -192,7 +192,7 @@ function BackupCard() {
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={importing || previewing}
-          className="rounded border px-3 py-1.5 text-sm font-medium transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+          className="rounded-lg border px-3 py-1.5 text-sm font-medium transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
         >
           {previewing ? '预检中…' : importing ? '导入中…' : '选择备份文件导入'}
         </button>
@@ -211,7 +211,7 @@ function BackupCard() {
       {/* 导入预检（iter 159）：确认前看清备份内容 */}
       {pending && (
         <div className="mt-3 animate-fade-in rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
-          <p>
+          <p className="tabular-nums">
             备份内容：{pending.preview.sessions} 会话 / {pending.preview.materials} 资料 /{' '}
             {pending.preview.plans} 方案 / {pending.preview.knowledge_nodes} 知识节点 /{' '}
             {pending.preview.node_notes} 笔记 / {pending.preview.study_units} 自学单元 /{' '}
@@ -243,7 +243,7 @@ function BackupCard() {
         </div>
       )}
       {result && (
-        <div className="mt-3 animate-fade-in rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+        <div className="mt-3 animate-fade-in rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
           <p>
             本次导入：{result.sessions} 会话 / {result.materials} 资料 / {result.plans} 方案 /{' '}
             {result.knowledge_nodes} 知识节点 / {result.study_units} 自学单元 / {result.quizzes} 测验 /{' '}
