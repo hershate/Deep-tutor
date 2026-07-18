@@ -215,11 +215,11 @@ export default function Wiki() {
       {wrongOv && wrongOv.total > 0 && (
         <section className="animate-fade-in-up rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
           <h3 className="mb-2 text-sm font-semibold text-red-800 dark:text-red-200">
-            🎯 当前错题 · <span className="tabular-nums">{wrongOv.total}</span> 道
+            <span aria-hidden="true">🎯</span> 当前错题 · <span className="tabular-nums">{wrongOv.total}</span> 道
           </h3>
           <ul className="flex flex-wrap gap-1.5">
-            {wrongOv.items.map((w) => (
-              <li key={w.plan_id}>
+            {wrongOv.items.map((w, i) => (
+              <li key={w.plan_id} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}>
                 <Link
                   to={`/plans/${w.plan_id}`}
                   title={`${w.topic || '方案'} · ${w.wrong_count} 道错题，去错题重练`}
