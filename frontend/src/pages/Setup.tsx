@@ -71,16 +71,18 @@ export default function Setup() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-800 px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-50 to-blue-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 px-4 py-8">
       <div className="w-full max-w-lg">
-        <h1 className="text-2xl font-bold tracking-tight mb-1">欢迎使用 Deep-tutor</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
-          首次使用，花 30 秒完成初始设置（均可跳过，稍后在「设置」页配置）
-        </p>
+        <div className="animate-fade-in-up">
+          <h1 className="text-2xl font-bold tracking-tight mb-1">欢迎使用 Deep-tutor</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
+            首次使用，花 30 秒完成初始设置（均可跳过，稍后在「设置」页配置）
+          </p>
+        </div>
 
         <form onSubmit={finish} className="space-y-4">
           {/* 步骤 1：访问密码（可选） */}
-          <section className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-sm p-5">
+          <section className="animate-fade-in-up rounded-xl border bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '80ms' }}>
             <h2 className="text-base font-semibold mb-1">
               1. 设置访问密码 <span className="text-xs font-normal text-slate-400">（可选）</span>
             </h2>
@@ -98,7 +100,7 @@ export default function Setup() {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 />
               </div>
               <div>
@@ -111,14 +113,14 @@ export default function Setup() {
                   autoComplete="new-password"
                   value={password2}
                   onChange={(e) => setPassword2(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 />
               </div>
             </div>
           </section>
 
           {/* 步骤 2：AI API Key（可选） */}
-          <section className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-sm p-5">
+          <section className="animate-fade-in-up rounded-xl border bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '160ms' }}>
             <h2 className="text-base font-semibold mb-1">
               2. 配置 AI API Key <span className="text-xs font-normal text-slate-400">（可选）</span>
             </h2>
@@ -136,18 +138,18 @@ export default function Setup() {
               placeholder="sk-ant-…"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
             />
             <button
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
               aria-expanded={showAdvanced}
-              className="mt-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              className="mt-2 text-xs text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             >
               {showAdvanced ? '▾ 收起高级选项' : '▸ 高级选项（自定义端点 / 模型）'}
             </button>
             {showAdvanced && (
-              <div className="mt-2 grid grid-cols-2 gap-3">
+              <div className="mt-2 grid animate-fade-in grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="setup-base-url" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
                     自定义端点 base_url
@@ -158,7 +160,7 @@ export default function Setup() {
                     placeholder="https://…（留空为官方）"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                   />
                 </div>
                 <div>
@@ -171,7 +173,7 @@ export default function Setup() {
                     placeholder="留空为默认模型"
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                   />
                 </div>
               </div>
@@ -179,16 +181,16 @@ export default function Setup() {
           </section>
 
           {error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="animate-shake rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
               {error}
             </p>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex animate-fade-in-up items-center gap-3" style={{ animationDelay: '240ms' }}>
             <button
               type="submit"
               disabled={busy}
-              className="flex-1 bg-slate-900 text-white rounded py-2 text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
             >
               {busy ? '保存中…' : '完成并进入'}
             </button>
@@ -196,7 +198,7 @@ export default function Setup() {
               type="button"
               onClick={skip}
               disabled={busy}
-              className="px-4 py-2 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-50"
+              className="px-4 py-2 text-sm text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 disabled:opacity-50"
             >
               跳过，稍后配置
             </button>

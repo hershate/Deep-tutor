@@ -22,12 +22,20 @@ export default {
           from: { transform: 'translateX(-100%)' },
           to: { transform: 'translateX(0)' },
         },
+        // 表单错误轻晃（登录/设置向导校验失败反馈）
+        shake: {
+          '10%, 90%': { transform: 'translateX(-1px)' },
+          '20%, 80%': { transform: 'translateX(2px)' },
+          '30%, 50%, 70%': { transform: 'translateX(-3px)' },
+          '40%, 60%': { transform: 'translateX(3px)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in .25s ease-out both',
         'fade-in-up': 'fade-in-up .35s cubic-bezier(.21,1.02,.73,1) both',
         'scale-in': 'scale-in .2s ease-out both',
         'slide-in-left': 'slide-in-left .25s ease-out both',
+        shake: 'shake .4s ease-in-out both',
       },
     },
   },

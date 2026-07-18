@@ -40,8 +40,9 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-800 px-4">
-      <div className="w-full max-w-sm bg-white dark:bg-slate-800 border rounded-lg shadow-sm p-6">
+    // iter 95 美化： subtle 渐变底 + 卡片弹入 + 输入/按钮品牌化
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-50 to-blue-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 px-4">
+      <div className="w-full max-w-sm animate-scale-in rounded-2xl border bg-white p-8 shadow-lg dark:border-slate-700 dark:bg-slate-800">
         <h1 className="text-lg font-semibold tracking-tight mb-1">Deep-tutor</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">请登录以继续</p>
         <form onSubmit={onSubmit} className="space-y-4">
@@ -56,7 +57,7 @@ export default function Login() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
             />
           </div>
           <div>
@@ -70,18 +71,18 @@ export default function Login() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
             />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="animate-shake rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
               {error}
             </p>
           )}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-slate-900 text-white rounded py-2 text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
           >
             {loading ? '登录中…' : '登录'}
           </button>
