@@ -90,7 +90,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
             </li>
           )}
           {units.map((u, i) => (
-            <li key={u.id}>
+            <li key={u.id} className="animate-fade-in" style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}>
               <button
                 onClick={() => setCurrentId(u.id)}
                 aria-current={u.id === currentId ? 'true' : undefined}
