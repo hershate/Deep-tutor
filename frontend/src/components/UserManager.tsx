@@ -211,15 +211,16 @@ export default function UserManager() {
 
       {isLoading && <SkeletonLines lines={3} />}
       {error && !(error instanceof ApiError && error.status === 403) && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mb-3 animate-fade-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           用户列表加载失败
         </p>
       )}
       <ul className="space-y-2">
-        {users.map((u) => (
+        {users.map((u, i) => (
           <li
             key={u.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 transition-colors hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+            className="flex animate-fade-in-up flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 transition-colors hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+            style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
