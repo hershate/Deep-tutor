@@ -7,7 +7,7 @@
 
 1. Chrome / Edge 打开 `chrome://extensions`，开启「开发者模式」。
 2. 「加载已解压的扩展程序」-> 选择本目录（`extension/`）。
-3. 打开扩展「选项」页：填写服务器地址（默认 `http://localhost:8000`）与 Token
+3. 打开扩展「选项」页：填写服务器地址（默认 `http://localhost:41173`）与 Token
    （Deep-tutor 登录后的 JWT，或服务端 `.env` 的 `AUTH_TOKEN`），点「测试连接」确认。
 
 ## 使用

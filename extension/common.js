@@ -1,7 +1,7 @@
 // Deep-tutor 剪藏 - 配置读写 + 剪藏 API 调用（background 与 popup 共用）。
-// 配置存 chrome.storage.local：serverUrl（默认 http://localhost:8000）、token（JWT 或 AUTH_TOKEN）。
+// 配置存 chrome.storage.local：serverUrl（默认 http://localhost:41173）、token（JWT 或 AUTH_TOKEN）。
 
-const DEFAULT_SERVER_URL = 'http://localhost:8000'
+const DEFAULT_SERVER_URL = 'http://localhost:41173'
 
 async function dtGetConfig() {
   const cfg = await chrome.storage.local.get(['serverUrl', 'token'])
