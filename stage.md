@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 126（前端美化第 28 轮：方案详情下拉聚焦态）**：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 两个 `<select>`（导出格式 / 重生成起点）为全站最后无聚焦反馈的表单控件——补 `transition-shadow focus:ring-2 focus:ring-blue-500`，重生成起点另补 `disabled:opacity-50`（重生成中禁用态此前无视觉反馈）。iter 125 号预留给并行会话冒烟种子脚本（`smoke_seed_iter125.py`）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 124（前端美化第 27 轮：学习统计行入场动效）**：并行会话 Wiki 统计胶囊行（commit `a38f8dd`）落成后走查——该行原为静态直出，与页面其余区块（提醒卡/分组卡均有入场动画）不一致；补容器 `animate-fade-in-up` + 三胶囊 40/100/160ms 错峰淡入，统计信息出现节奏与待复习卡衔接。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 122（功能线：全局学习统计，✅ 完成）**：跨方案学习仪表盘数据——连续打卡 streak + 本周/累计分钟，Wiki 页顶部胶囊行。
