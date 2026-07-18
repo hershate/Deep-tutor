@@ -41,6 +41,8 @@ CODE_STATUS: dict[str, int] = {
     "ssrf_blocked": 400,
     "validation_error": 422,
     "missing_upstream_field": 400,
+    "no_schedule": 422,
+    "no_quizzes": 422,
     "internal_error": 500,
 }
 
