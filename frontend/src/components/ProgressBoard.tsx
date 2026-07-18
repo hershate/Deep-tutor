@@ -2,7 +2,10 @@
 // 数据源 GET /api/progress/{planId}（knowledge_nodes 合并 progress 行，iter 39 端点）。
 // 状态切换 -> POST /api/progress（覆盖写，掌握度由后端 record_progress 计算）。
 // refreshToken 变化时重拉（测验回写后父组件递增触发刷新）。
+// 大纲虚拟化（plan/09 §七）：节点数 > VIRTUAL_THRESHOLD 时用 react-window 只渲染可视行，
+// 防超长方案（每知识点一行，可达上百）全量 DOM 卡顿；阈值内保持普通 <ul>。
 import { useEffect, useState } from 'react'
+import { FixedSizeList, type ListChildComponentProps } from 'react-window'
 import { ApiError, getProgress, updateProgress, type ProgressNode, type ProgressStatus } from '../lib/api'
 
 interface Props {
@@ -21,6 +24,73 @@ const STATUS_STYLE: Record<ProgressStatus, string> = {
   not_started: 'bg-slate-100 text-slate-600',
   learning: 'bg-blue-100 text-blue-700',
   done: 'bg-green-100 text-green-700',
+}
+
+// 虚拟化参数：超过 30 个知识点才启用（阈值内普通列表更利于全页滚动与查找）；
+// 行高固定 48px（内容 40px + 8px 间距），虚拟列表视口最多展示约 10 行。
+const VIRTUAL_THRESHOLD = 30
+const ROW_HEIGHT = 48
+const MAX_LIST_HEIGHT = ROW_HEIGHT * 10
+
+interface RowData {
+  nodes: ProgressNode[]
+  busyNode: string
+  onSetStatus: (node: ProgressNode, status: ProgressStatus) => void
+}
+
+/** 单个知识点行（普通 <li> 与虚拟行共用）。compact=虚拟行（定高，元信息窄屏隐藏）。 */
+function NodeItem({ node: n, busyNode, onSetStatus, compact }: {
+  node: ProgressNode
+  busyNode: string
+  onSetStatus: (node: ProgressNode, status: ProgressStatus) => void
+  compact?: boolean
+}) {
+  return (
+    <>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">{n.name}</span>
+      <span
+        className={`text-xs text-slate-400 ${compact ? 'hidden sm:inline' : ''}`}
+        aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
+      >
+        掌握度 {Math.round(n.mastery * 100)}%
+      </span>
+      {n.next_review && (
+        <span
+          className={`text-xs text-slate-400 ${compact ? 'hidden md:inline' : ''}`}
+          title="按间隔重复（SM-2-lite）推算"
+        >
+          复习 {n.next_review}
+        </span>
+      )}
+      <span className="flex shrink-0 gap-1" role="group" aria-label={`${n.name} 状态`}>
+        {STATUS_ORDER.map((s) => (
+          <button
+            key={s}
+            onClick={() => onSetStatus(n, s)}
+            disabled={busyNode === n.node_id}
+            aria-pressed={n.status === s}
+            className={`rounded px-2 py-0.5 text-xs ${
+              n.status === s ? STATUS_STYLE[s] + ' font-medium' : 'text-slate-400 hover:bg-slate-50'
+            } disabled:opacity-50`}
+          >
+            {STATUS_LABEL[s]}
+          </button>
+        ))}
+      </span>
+    </>
+  )
+}
+
+/** react-window 行渲染器：固定行高、单行布局（名称截断），元信息窄屏隐藏防换行。 */
+function VirtualRow({ index, style, data }: ListChildComponentProps<RowData>) {
+  const n = data.nodes[index]
+  return (
+    <div style={style}>
+      <div className="mb-2 flex h-10 items-center gap-2 rounded-lg border px-3">
+        <NodeItem node={n} busyNode={data.busyNode} onSetStatus={data.onSetStatus} compact />
+      </div>
+    </div>
+  )
 }
 
 export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: Props) {
@@ -104,36 +174,26 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
         </div>
         <span className="text-sm text-slate-600">平均掌握度 {pct}%</span>
       </div>
-      <ul className="space-y-2">
-        {nodes.map((n) => (
-          <li key={n.node_id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{n.name}</span>
-            <span className="text-xs text-slate-400" aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}>
-              掌握度 {Math.round(n.mastery * 100)}%
-            </span>
-            {n.next_review && (
-              <span className="text-xs text-slate-400" title="按间隔重复（SM-2-lite）推算">
-                复习 {n.next_review}
-              </span>
-            )}
-            <span className="flex gap-1" role="group" aria-label={`${n.name} 状态`}>
-              {STATUS_ORDER.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatus(n, s)}
-                  disabled={busyNode === n.node_id}
-                  aria-pressed={n.status === s}
-                  className={`rounded px-2 py-0.5 text-xs ${
-                    n.status === s ? STATUS_STYLE[s] + ' font-medium' : 'text-slate-400 hover:bg-slate-50'
-                  } disabled:opacity-50`}
-                >
-                  {STATUS_LABEL[s]}
-                </button>
-              ))}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {nodes.length > VIRTUAL_THRESHOLD ? (
+        <FixedSizeList
+          height={Math.min(nodes.length * ROW_HEIGHT, MAX_LIST_HEIGHT)}
+          itemCount={nodes.length}
+          itemSize={ROW_HEIGHT}
+          itemData={{ nodes, busyNode, onSetStatus: setStatus }}
+          width="100%"
+          className="rounded-lg"
+        >
+          {VirtualRow}
+        </FixedSizeList>
+      ) : (
+        <ul className="space-y-2">
+          {nodes.map((n) => (
+            <li key={n.node_id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+              <NodeItem node={n} busyNode={busyNode} onSetStatus={setStatus} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
