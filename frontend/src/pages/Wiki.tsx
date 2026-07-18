@@ -42,6 +42,28 @@ export default function Wiki() {
     }
   }
 
+  // 快捷状态标记（iter 142）：不进学习中心直接循环 未开始->学习中->已掌握
+  const [statusBusyId, setStatusBusyId] = useState<number | null>(null)
+  const NEXT_STATUS: Record<ProgressStatus, ProgressStatus> = {
+    not_started: 'learning',
+    learning: 'done',
+    done: 'not_started',
+  }
+
+  async function cycleStatus(n: KnowledgeItem) {
+    if (statusBusyId !== null) return
+    setStatusBusyId(n.node_id)
+    try {
+      await updateProgress(n.plan_id, n.sid, NEXT_STATUS[n.status])
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['review-due'] }) // 掌握度变化影响复习日
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '状态更新失败，请重试')
+    } finally {
+      setStatusBusyId(null)
+    }
+  }
+
   // 搜索防抖（300ms）：避免每击键一次请求
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300)
@@ -242,9 +264,6 @@ export default function Wiki() {
                           {n.must_learn && <span className="mr-1 text-amber-500" title="必学">★</span>}
                           {n.name}
                         </span>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[n.status]}`}>
-                          {STATUS_LABEL[n.status]}
-                        </span>
                       </div>
                       <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span>{DIFFICULTY_LABEL[n.difficulty] ?? `难度${n.difficulty}`}</span>
@@ -298,20 +317,20 @@ function StudyHeatmap({ items }: { items: CalendarDay[] }) {
       aria-label="近12周学习打卡热力图"
     >
       <h3 className="mb-2 text-sm font-medium text-slate-600 dark:text-slate-300">学习打卡 · 近 12 周</h3>
-      <div className="flex gap-1 overflow-x-auto pb-1">
+      <div className="flex gap-1 overflow-x-auto pb-1" role="img" aria-label={`近 ${items.length} 天学习打卡热力图，颜色越深分钟越多`}>
         {weeks.map((week, wi) => (
-          <div key={wi} className="flex shrink-0 flex-col gap-1">
+          <div key={wi} className="flex shrink-0 animate-fade-in flex-col gap-1" style={{ animationDelay: `${Math.min(wi, 11) * 30}ms` }}>
             {week.map((d) => (
               <div
                 key={d.date}
                 title={`${d.date} · ${d.minutes > 0 ? `${d.minutes} 分钟` : '未打卡'}`}
-                className={`h-3.5 w-3.5 rounded-sm transition-transform hover:scale-125 ${heatClass(d.minutes)}`}
+                className={`h-3.5 w-3.5 rounded-sm transition-all hover:scale-125 hover:shadow-sm ${heatClass(d.minutes)}`}
               />
             ))}
           </div>
         ))}
       </div>
-      <div className="mt-2 flex items-center justify-end gap-1 text-[10px] text-slate-400">
+      <div className="mt-2 flex items-center justify-end gap-1 text-[10px] text-slate-400" aria-hidden="true">
         少
         <span className={`h-3 w-3 rounded-sm ${heatClass(0)}`} />
         <span className={`h-3 w-3 rounded-sm ${heatClass(15)}`} />
