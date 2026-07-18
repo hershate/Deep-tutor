@@ -97,7 +97,10 @@ export default function Wiki() {
     staleTime: 60_000,
   })
 
-  // 按方案分组（保持后端返回顺序：新方案在前）
+  // 排序（iter 146）：组内节点排序，默认保持后端顺序
+  const [sortKey, setSortKey] = useState<'default' | 'mastery_asc' | 'mastery_desc' | 'difficulty' | 'name'>('default')
+
+  // 按方案分组（保持后端返回顺序：新方案在前）；组内按 sortKey 排序
   const groups = useMemo(() => {
     const map = new Map<number, { topic: string; items: KnowledgeItem[] }>()
     for (const item of data?.items ?? []) {
@@ -105,8 +108,17 @@ export default function Wiki() {
       g.items.push(item)
       map.set(item.plan_id, g)
     }
+    if (sortKey !== 'default') {
+      const cmp: Record<Exclude<typeof sortKey, 'default'>, (a: KnowledgeItem, b: KnowledgeItem) => number> = {
+        mastery_asc: (a, b) => a.mastery - b.mastery, // 薄弱在前——优先补
+        mastery_desc: (a, b) => b.mastery - a.mastery,
+        difficulty: (a, b) => a.difficulty - b.difficulty,
+        name: (a, b) => a.name.localeCompare(b.name, 'zh'),
+      }
+      for (const g of map.values()) g.items.sort(cmp[sortKey])
+    }
     return [...map.entries()]
-  }, [data])
+  }, [data, sortKey])
 
   const stats = data?.stats
 
@@ -123,6 +135,19 @@ export default function Wiki() {
           >
             {exportBusy ? '导出中…' : '导出手册 (.md)'}
           </button>
+          {/* 排序（iter 146） */}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+            aria-label="知识点排序"
+            className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+          >
+            <option value="default">默认排序</option>
+            <option value="mastery_asc">掌握度↑（薄弱优先）</option>
+            <option value="mastery_desc">掌握度↓</option>
+            <option value="difficulty">难度↑</option>
+            <option value="name">名称</option>
+          </select>
           <input
             type="search"
             value={q}
