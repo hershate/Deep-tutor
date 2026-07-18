@@ -174,6 +174,50 @@ def review_due(
     return {"items": items[: max(1, min(limit, 500))], "total": len(items)}
 
 
+# --- 全局学习统计（iter 122）：跨方案累计/本周分钟数 + 连续打卡天数 ---
+
+
+@router.get("/stats/summary")
+def stats_summary(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """学习统计：累计/近 7 日分钟数、连续打卡天数（streak）。
+
+    streak 语义：有打卡的日期倒序连成链，链尾须为今天或昨天（今天还没打卡不清零）。
+    日界按服务器本地日（与 LearningLogIn.date 默认值同口径）。
+    """
+    from datetime import timedelta
+
+    rows = (
+        db.query(models.LearningLog)
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .all()
+    )
+    today = dt_date.today()
+    week_start = today - timedelta(days=6)  # 含今天共 7 天
+    total_minutes = sum(r.minutes for r in rows)
+    week_minutes = sum(r.minutes for r in rows if r.date >= week_start)
+
+    days = sorted({r.date for r in rows}, reverse=True)
+    streak = 0
+    if days and days[0] >= today - timedelta(days=1):
+        expected = days[0]
+        for d in days:
+            if d != expected:
+                break
+            streak += 1
+            expected -= timedelta(days=1)
+
+    return {
+        "total_minutes": total_minutes,
+        "week_minutes": week_minutes,
+        "streak_days": streak,
+        "total_logs": len(rows),
+    }
+
+
 # --- learning_logs 打卡（plan/01 §四 learning_logs，P2 iter 45；学习中心页用）---
 
 
