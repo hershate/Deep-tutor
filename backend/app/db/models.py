@@ -312,11 +312,16 @@ class ToolCall(Base):
 
 
 class ApiUsage(Base):
-    """原始 API 用量（成本计量 Pillar 3）。"""
+    """原始 API 用量（成本计量 Pillar 3）。
+
+    P4 多用户（iter 58）：user_id 归属用户（按用户统计用量）；
+    迁移前旧行回填至首个用户（见 alembic 迁移），新行由 _persist_tool_calls 写入。
+    """
 
     __tablename__ = "api_usage"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # P4 iter 58 按用户隔离
     provider: Mapped[str] = mapped_column(String(32), default="anthropic")
     model: Mapped[str] = mapped_column(String(64), default="")
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
@@ -368,16 +373,21 @@ class StudyMaterial(Base):
 class LlmProviderProfile(Base):
     """LLM 供应商档案（用户自定义供应商，类 CC-switch，iter 50）。
 
-    多档案切换：is_active 唯一生效（API 层保证同时至多一个）；
-    get_provider() 优先取 active 档案，否则回退 .env（ANTHROPIC_API_KEY）。
+    多档案切换：is_active 唯一生效（API 层保证同一用户内同时至多一个）；
+    get_provider(user_id) 优先取该用户 active 档案，否则回退 .env（ANTHROPIC_API_KEY）。
     api_key 仅存本机 SQLite，API 层不回显明文（仅掩码末 4 位）。
     base_url 为空 -> Anthropic 官方端点；model 为空 -> settings.anthropic_model。
+    P4 多用户（iter 58）：档案按用户隔离（user_id + (user_id,name) 唯一）；
+    迁移前旧行回填至首个用户（见 alembic 迁移）。
     """
 
     __tablename__ = "llm_provider_profiles"
+    # 命名复合唯一约束：同名档案仅在同用户内冲突；命名便于 SQLite alembic 降级
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_provider_user_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # P4 iter 58 按用户隔离
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
     base_url: Mapped[str] = mapped_column(String(512), default="")
     api_key: Mapped[str] = mapped_column(String(256), nullable=False)
     model: Mapped[str] = mapped_column(String(128), default="")
