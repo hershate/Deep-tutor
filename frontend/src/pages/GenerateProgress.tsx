@@ -206,7 +206,7 @@ export default function GenerateProgress() {
               <button
                 onClick={() => setShowPartial(false)}
                 aria-label="关闭预览"
-                className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="rounded px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
               >
                 ✕
               </button>
@@ -227,7 +227,7 @@ export default function GenerateProgress() {
                       <li key={i}>
                         {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'} {r.title}{' '}
                         {isHttpUrl(r.url) ? (
-                          <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                          <a href={r.url} target="_blank" rel="noreferrer" className="break-all text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
                             {r.url}
                           </a>
                         ) : (
