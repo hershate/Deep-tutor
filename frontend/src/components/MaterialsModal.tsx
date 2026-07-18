@@ -170,7 +170,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
                 run(d, true) // 切换深度 -> 强制重新生成（替换已持久化单元）
               }}
               disabled={loading}
-              className="rounded border px-2 py-1 text-sm"
+              className="rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900"
             >
               <option value="full">完整</option>
               <option value="brief">简要</option>
@@ -178,7 +178,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             <button
               onClick={doExportZip}
               disabled={loading || units.length === 0 || zipBusy}
-              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               {zipBusy ? '导出中…' : '导出全部 (.zip)'}
             </button>
@@ -190,7 +190,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               disabled={loading || units.length === 0}
               aria-pressed={selectMode}
               className={`rounded-lg border px-3 py-1 text-sm transition-all active:scale-95 disabled:opacity-40 ${
-                selectMode ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+                selectMode ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950 dark:text-blue-300' : 'hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700'
               }`}
             >
               选择重生成
@@ -198,7 +198,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             <button
               onClick={onClose}
               aria-label="关闭"
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               关闭
             </button>
