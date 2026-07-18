@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 179（功能线：学习中心本周目标进度条，✅ 完成）**：日目标（iter 163）只有当日对照，一周坚持得如何没视图——打卡区日目标条下补周目标条。[Learn.tsx](frontend/src/pages/Learn.tsx)：近 7 天（含今天，本地日口径 sv locale，与后端服务器本地日一致）已学分钟 vs 周目标（intent.daily_minutes × 7）；达标变绿 ✓，indigo 未达标态与蓝色日条区分；进度条带 `role="progressbar"`+`aria-value*`（沿用 iter 165 语义模式）。纯前端零后端，复用已加载 logs；无日目标时不渲染。**编号说明**：注释初标 iter 178，与并行美化轨 iter 178（第 71 轮）撞号，本条取 179（commit `5dbe6c5`）。**验证**：`npm run build` 通过（1.75s，主包 214.07kB）。**注**：本切片为用户「完成该工作后结束循环」指令的收尾切片——错题重练（iter 114 QuizModal wrong 模式 + Wiki 错题卡跳转）经核查已完备，未重复建设；循环至此终止。
+
 - **2026-07-19 iter 178（美化轨：第 71 轮——备份偏好审查，✅ 完成）**：审查并行轨 iter 177 备份偏好（`275feb6`）——预检/结果计数行均正确继承既有样式，仅发现 R46 漏改：导入**结果**计数段无 `tabular-nums`（预检段当时改了、结果段漏了），补上对齐（commit `b60ef84`）。第 61-70 轮为无新料监视轮，未记空轮。验证：`npm run build` 通过（1.72s，主包 213.07kB）。
 
 - **2026-07-19 iter 177（功能线：用户偏好纳入备份导出/导入，✅ 完成）**：iter 176 预留项收口——日预算覆盖不随备份走，换机/还原后静默回默认。[backup.py](backend/app/core/backup.py) 导出增 `prefs` 字段（user_prefs KV 全量；备份版本仍 1——可选键新旧互导兼容，同 iter 105 node note 处理）；导入 `_restore_prefs` 本机已有同键跳过不覆盖（与供应商档案同策略，追加式还原不覆盖现有设置）并记 skipped；preview 增 prefs 键数。前端 BackupImportResult/BackupPreview 类型补 prefs（ImportResult 顺带补 node_notes——后端早返回但类型漏声明），预检与导入结果计数行均显示「N 偏好」。测试 test_api_backup_prefs.py 4 条（导出含 prefs / 导入还原贯通 /usage 有效值 / 已有键跳过不覆盖 / 旧备份无 prefs 兼容）；备份族 16 过、全量 525 过（commit `275feb6`）。**验证**：ruff 全绿；`npm run build` 通过（4.11s，主包 213.05kB）。
