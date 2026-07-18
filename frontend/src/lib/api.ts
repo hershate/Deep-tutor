@@ -125,7 +125,8 @@ export const exportPlan = (planId: number, format = 'md') =>
     warning?: string
     slide_count?: number
     html?: string
-    // P5：ics / anki 随响应返回内容，前端 Blob 下载
+    // P5：ics / anki 随响应返回内容，前端 Blob 下载；iter 73：md 同样随响应返回正文
+    content?: string
     filename?: string
     ics?: string
     event_count?: number

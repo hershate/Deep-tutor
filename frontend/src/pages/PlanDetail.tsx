@@ -114,6 +114,10 @@ export default function PlanDetail() {
         const bytes = Uint8Array.from(atob(r.apkg_b64), (c) => c.charCodeAt(0))
         downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), r.filename || 'plan.apkg')
         setExportUrl(`已下载 ${r.filename}（${r.card_count ?? 0} 张卡片）`)
+      } else if (exportFormat === 'md' && r.content) {
+        // UX（iter 73）：Markdown 也走浏览器下载（原仅显示服务器文件路径，浏览器无法访问）
+        downloadBlob(new Blob([r.content], { type: 'text/markdown;charset=utf-8' }), r.filename || 'plan.md')
+        setExportUrl(`已下载 ${r.filename || 'plan.md'}`)
       } else {
         setExportUrl(r.file_url)
       }

@@ -75,3 +75,32 @@ def test_assemble_from_upstream():
         content = Path(out.data["file_url"]).read_text(encoding="utf-8")
         assert "# Go" in content
         assert "基础" in content
+
+
+def test_export_md_returns_content_and_quizzes_section():
+    """iter 73：md 正文随响应返回（前端 Blob 下载）；含 quizzes 时渲染测验题章节。"""
+    import asyncio
+
+    from app.agent.context import ExecContext
+    from app.tools.base import ToolInput
+    from app.tools.export_plan import export_plan
+
+    plan = {
+        "title": "T",
+        "quizzes": [
+            {"question": "Q1?", "options": ["A. x", "B. y"], "answer": "B. y", "explanation": "因为"},
+            {"question": "Q2?", "answer": "简答"},
+        ],
+    }
+    inp = ToolInput(tool="export_plan", session_id="s-content", args={"plan_id": "p1", "format": "md", "plan": plan})
+    out = asyncio.run(export_plan(inp, ExecContext(session_id="s-content", trace_id="t", data_dir="data-test-tmp")))
+    assert out.status == "ok"
+    md = out.data["content"]
+    assert out.data["filename"] == "p1.md"
+    assert "## 测验题" in md
+    assert "1. Q1?" in md and "A. x" in md and "答案：B. y" in md and "解析：因为" in md
+    assert "2. Q2?" in md and "答案：简答" in md
+    # 清理测试产物
+    import shutil
+
+    shutil.rmtree("data-test-tmp", ignore_errors=True)

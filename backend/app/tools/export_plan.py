@@ -36,7 +36,7 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     file_path = out_dir / f"{plan_id}.md"
     file_path.write_text(md, encoding="utf-8")
 
-    data = {"file_url": str(file_path), "format": "md", "chars": len(md)}
+    data = {"file_url": str(file_path), "format": "md", "chars": len(md), "content": md, "filename": f"{plan_id}.md"}
     if degraded_format:
         return ToolOutput(
             tool="export_plan",
@@ -132,6 +132,20 @@ def render_markdown(plan: dict[str, Any]) -> str:
         for d in schedule:
             tasks = "、".join(d.get("tasks", []))
             lines.append(f"| {d.get('date', '')} | {d.get('stage_index', '')} | {tasks} | {d.get('est_minutes', '')} |")
+        lines.append("")
+
+    quizzes = plan.get("quizzes")
+    if quizzes:
+        lines.append("## 测验题\n")
+        for i, q in enumerate(quizzes, 1):
+            if not isinstance(q, dict):
+                continue
+            lines.append(f"{i}. {q.get('question', '')}")
+            for opt in q.get("options") or []:
+                lines.append(f"   - {opt}")
+            lines.append(f"   - 答案：{q.get('answer', '')}")
+            if q.get("explanation"):
+                lines.append(f"   - 解析：{q['explanation']}")
         lines.append("")
 
     report = plan.get("validation_report")

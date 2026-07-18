@@ -106,7 +106,13 @@ async def _export_md(plan_id: int, session_id: int, content: dict, fmt: str) -> 
     out = await export_plan(inp, ctx)
     if out.status == "error" and out.errors:
         raise ApiError(out.errors[0].code, out.errors[0].message)
-    result = {"file_url": out.data["file_url"], "format": out.data.get("format", "md")}
+    result = {
+        "file_url": out.data["file_url"],
+        "format": out.data.get("format", "md"),
+        # UX（iter 73）：md 正文随响应返回，前端 Blob 直接下载（不再只显示服务器路径）
+        "content": out.data.get("content", ""),
+        "filename": out.data.get("filename", f"{plan_id}.md"),
+    }
     if out.status == "repaired" and out.errors:
         result["warning"] = out.errors[0].message
     return result
