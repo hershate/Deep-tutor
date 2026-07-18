@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 169（美化轨：第 50 轮——双 a11y 补全，✅ 完成）**：审查并行轨两项新功能：① 用量页预算进度条（BudgetBar）视觉/动效已齐（500ms ease-out、蓝/amber/红三档、最低 2% 可见宽度），缺 progressbar 语义——轨道加 `role="progressbar"`+`aria-value*`（同 iter 165 今日目标条修法）；② 打卡快捷分钟 chips（iter 168）选中态仅靠颜色区分——加 `aria-pressed` 让读屏可辨（commit `246b18b`）。**注**：构建被并行轨 PlanDetail.tsx 未提交 WIP（`listPlans` 回调 6 处 TS 错）阻塞，非本轮改动问题，仅提交 Learn/Usage 两文件。验证：tsc 对两文件零错。
+
 - **2026-07-19 iter 168（功能线：打卡快捷分钟 chips，✅ 完成）**：每次打卡手敲分钟数——加 15/30/60/120 快捷 chips。[Learn.tsx](frontend/src/pages/Learn.tsx) 分钟输入下快捷行（点击填入、当前值高亮、tabular-nums）；纯前端（commit `7161321`）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 167（功能线：用量页今日预算进度，✅ 完成）**：日预算只在 429 超额时才感知——用量页加今日预算进度条。**编号说明**：代码注释自标 iter 164，与并行美化轨 iter 164-166（第 47-49 轮）撞号，本条取 167。
