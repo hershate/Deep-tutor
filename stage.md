@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 123（前端美化第 26 轮：待复习提醒卡动效）**：并行会话 Wiki「今日待复习」提醒卡（commit `088aff3`）落成后走查：①卡片容器 `animate-fade-in` → `animate-fade-in-up`（与全站 section 入场一致）；②到期节点胶囊错峰入场（40ms 递增封顶 8，「等 N 个」360ms 尾拍）；③胶囊 hover 加微浮 `-translate-y-0.5` + 深色 hover 边框 `dark:hover:border-amber-700`；④计数数字包 `tabular-nums`。注：iter 122 号被并行会话学习统计切片（代码注释自标）占用，本轮取 123；其 Wiki 统计胶囊行已自带品牌样式，无需调整。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 121（功能线：全局今日待复习，✅ 完成）**：复习提醒从「单方案学习中心内」升为「跨方案全局聚合」，打开 Wiki 即见今日到期知识点。**编号说明**：本切片代码注释自标 iter 119，与并行美化轨撞号，本条按共享序号取 121。
   - **后端**（commit `efaef1c`）：[progress.py](backend/app/api/progress.py) 新增 `GET /progress/review/due`——Progress join KnowledgeNode/Plan/Session 按 user 过滤，逐行以 `_node_view` 同式 SM-2-lite 推导 next_review（mastery+updated_at，不入库），`<= 今天` 入选；复习日升序（最逾期在前）+掌握度次序；plan_topic 懒加载缓存；limit 默认 100 钳 1-500。路由两段式 `/review/due` 与 `/{plan_id}` 单段无冲突。
   - **前端**（commit `088aff3`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 顶部「📅 今日待复习 · N」amber 提醒卡（节点胶囊跳 `/learn/{plan_id}`，title 显示方案/掌握度/复习日，>10 折叠「等 N 个」，staleTime 60s）；[api.ts](frontend/src/lib/api.ts) `ReviewDueItem`/`getReviewDue`。
