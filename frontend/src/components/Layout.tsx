@@ -139,7 +139,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="text-slate-500 underline underline-offset-2 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                  className="text-slate-500 underline underline-offset-2 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                 >
                   注销
                 </button>
@@ -154,7 +154,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div role="status" className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
             <span>当前未设置访问密码，本机局域网内任何人可访问此应用。</span>
-            <Link to="/settings" className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100">
+            <Link to="/settings" className="font-medium underline underline-offset-2 transition-colors hover:text-amber-900 dark:hover:text-amber-100">
               去设置密码
             </Link>
           </div>
@@ -164,7 +164,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div role="status" className="border-b border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-blue-800 dark:text-blue-200">
             <span>尚未配置 AI API Key，学习方案生成功能暂不可用。</span>
-            <Link to="/settings" className="font-medium underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-100">
+            <Link to="/settings" className="font-medium underline underline-offset-2 transition-colors hover:text-blue-900 dark:hover:text-blue-100">
               去配置
             </Link>
           </div>
@@ -208,7 +208,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                   type="button"
                   onClick={() => setDrawerOpen(false)}
                   aria-label="关闭导航菜单"
-                  className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="rounded px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
                 >
                   ✕
                 </button>

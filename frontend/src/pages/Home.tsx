@@ -155,7 +155,7 @@ export default function Home() {
                   type="button"
                   onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${f.name}`}
-                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-600 dark:text-red-400"
+                  className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
                 >
                   移除
                 </button>
@@ -202,7 +202,7 @@ export default function Home() {
                   type="button"
                   onClick={() => setUrls((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${u}`}
-                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-600 dark:text-red-400"
+                  className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
                 >
                   移除
                 </button>
