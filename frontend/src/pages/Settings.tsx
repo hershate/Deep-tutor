@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
+import ProviderManager from '../components/ProviderManager'
 import { getSettings } from '../lib/api'
 
-/** 设置页（/settings）：只读展示后端配置（plan/06 §四.7）。
- * Key/模型/预算由服务端 .env 配置，前端不可修改（plan 假设 4）。 */
+/** 设置页（/settings）：LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。 */
 export default function Settings() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['settings'],
@@ -13,8 +13,11 @@ export default function Settings() {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">设置</h2>
+
+      <ProviderManager />
+
       <p className="text-sm text-slate-500">
-        当前后端配置（只读）。API Key / 模型 / 预算由服务端 .env 配置，前端不可修改。
+        以下为服务端 .env 配置快照（只读）；启用供应商档案后 LLM 调用以档案为准。
       </p>
 
       {isLoading && <p className="text-slate-500">加载中…</p>}

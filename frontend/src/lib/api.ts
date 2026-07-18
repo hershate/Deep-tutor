@@ -230,6 +230,35 @@ export const cancelGeneration = (sessionId: number) =>
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
 
+// --- LLM 供应商档案（自定义供应商多档案切换，iter 51-52）---
+// api_key 只写不读：响应仅含掩码末 4 位；更新时 api_key 留空 -> 保留原值。
+export interface ProviderProfile {
+  id: number
+  name: string
+  base_url: string // 空 = Anthropic 官方端点
+  model: string // 空 = 服务端默认模型
+  is_active: boolean
+  api_key_masked: string
+  created_at: string
+}
+export interface ProviderInput {
+  name: string
+  api_key?: string // 创建必填；更新可留空（保留原值）
+  base_url?: string
+  model?: string
+}
+export const listProviders = () => apiFetch<{ providers: ProviderProfile[] }>('/providers')
+export const createProvider = (body: ProviderInput) =>
+  apiFetch<ProviderProfile>('/providers', { method: 'POST', body: JSON.stringify(body) })
+export const updateProvider = (id: number, body: ProviderInput) =>
+  apiFetch<ProviderProfile>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteProvider = (id: number) =>
+  apiFetch<{ ok: boolean }>(`/providers/${id}`, { method: 'DELETE' })
+export const activateProvider = (id: number) =>
+  apiFetch<ProviderProfile>(`/providers/${id}/activate`, { method: 'POST', body: JSON.stringify({}) })
+export const deactivateProviders = () =>
+  apiFetch<{ ok: boolean }>('/providers/deactivate', { method: 'POST', body: JSON.stringify({}) })
+
 // --- settings（只读配置快照，plan/06 §四.7；Key 仅返回是否已设，不返回明文）---
 export interface AppSettings {
   anthropic_model: string
