@@ -238,7 +238,7 @@ export default function Home() {
           <button
             type="button"
             onClick={addUrl}
-            className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+            className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
           >
             添加
           </button>
