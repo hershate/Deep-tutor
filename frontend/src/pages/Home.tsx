@@ -138,7 +138,8 @@ export default function Home() {
               addFiles(e.target.files)
               e.target.value = '' // 允许再次选择同一文件
             }}
-            className="text-sm"
+            // iter 105：file: 伪元素品牌化原生「选择文件」按钮
+            className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 file:transition-colors hover:file:bg-blue-100 dark:file:bg-blue-950 dark:file:text-blue-300 dark:hover:file:bg-blue-900"
           />
           <p className="mt-1 text-xs text-slate-400">或将文件拖拽到此处</p>
         </div>
@@ -179,7 +180,7 @@ export default function Home() {
                 addUrl()
               }
             }}
-            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-900 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="button"
@@ -221,7 +222,7 @@ export default function Home() {
             {uploadPct !== null && ` ${uploadPct}%`}
           </div>
           {uploadPct !== null && (
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
               <div
                 className="h-full rounded-full bg-blue-600 transition-all duration-200"
                 style={{ width: `${uploadPct}%` }}

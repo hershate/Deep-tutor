@@ -443,7 +443,7 @@ export default function PlanDetail() {
             id="regen-scope"
             value={regenScope}
             onChange={(e) => setRegenScope(e.target.value)}
-            className="border rounded p-1.5 text-sm"
+            className="rounded-lg border p-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
             disabled={regenLoading}
           >
             <option value="design_stages">阶段设计</option>
@@ -458,7 +458,7 @@ export default function PlanDetail() {
           </label>
           <textarea
             id="regen-feedback"
-            className="w-full rounded border border-slate-300 dark:border-slate-600 p-2 text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full min-h-[60px] rounded-lg border border-slate-300 p-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
             placeholder="如：简化阶段、增加资源、调整难度梯度"
             value={regenFeedback}
             onChange={(e) => setRegenFeedback(e.target.value)}

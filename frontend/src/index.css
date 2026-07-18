@@ -75,6 +75,23 @@ body {
   }
 }
 
+/* iter 105：打印样式——只输出主内容（隐藏顶栏/侧栏/页脚/Toast/抽屉等浮层），黑白底色 */
+@media print {
+  header,
+  footer,
+  aside,
+  .fixed {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}
+
 /* markdown 渲染基础排版（react-markdown 输出；无 typography 插件，手工兜底） */
 .markdown-body h1 {
   @apply mb-3 mt-1 text-xl font-bold;
