@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 @dataclass
 class Timeouts:
     llm: float = 120.0
-    parse: float = 60.0
+    # Python 工具外层兜底超时（err.md B6）：须高于工具内部最长超时
+    # （parse_material 的 marker=600s），仅兜无内部守卫的挂起（如 whisper ffprobe 缺失）
+    parse: float = 900.0
     url: float = 30.0
 
 

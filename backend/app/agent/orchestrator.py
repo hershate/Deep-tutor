@@ -113,7 +113,12 @@ class Orchestrator:
         errors: list[str] = []
         call_count = 0
 
-        start_idx = PIPELINE.index(start_tool) if start_tool in PIPELINE else 0
+        # err.md B18：不在 PIPELINE 的 start_tool 原会静默回退从头执行，与语义不符
+        if start_tool is not None and start_tool not in PIPELINE:
+            msg = f"start_tool 不在 PIPELINE: {start_tool}"
+            log.error(msg)
+            return OrchestratorResult("error", outputs, {}, [msg])
+        start_idx = PIPELINE.index(start_tool) if start_tool else 0
         for name in PIPELINE[start_idx:]:
             if not self.registry.has(name):
                 continue  # 未注册的工具跳过（便于分步骤落地/测试）
@@ -154,8 +159,18 @@ class Orchestrator:
                     if not target or target not in PIPELINE:
                         break
                     self._emit("warn", {"code": "validation_failed", "message": f"反馈循环第 {rounds} 轮，重跑 {target}"})
-                    reran = await self._rerun_from(target, args_by_tool, outputs, fixes=out.data.get("fixes", []))
+                    reran, rerun_err = await self._rerun_from(target, args_by_tool, outputs, fixes=out.data.get("fixes", []))
                     call_count += reran
+                    if rerun_err is not None:
+                        # err.md B10：重跑链路工具 error 不得被吞——此前重跑未到达
+                        # validate_plan 时取到旧的 ok 输出，pipeline 以 done 交付错误方案
+                        for e in rerun_err.errors:
+                            errors.append(f"feedback:{target}: {e.code} - {e.message}")
+                        self._emit("error", {
+                            "code": rerun_err.errors[-1].code if rerun_err.errors else "error",
+                            "stage": f"feedback:{target}",
+                        })
+                        return OrchestratorResult("error", outputs, self._assemble(outputs), errors)
                     out = outputs.get("validate_plan", out)
                     if out.status == "error":
                         break
@@ -217,8 +232,8 @@ class Orchestrator:
         args_by_tool: dict[str, dict[str, Any]],
         outputs: dict[str, ToolOutput],
         fixes: list[str],
-    ) -> int:
-        """从 target 重跑到 validate_plan（含），返回本次重跑的工具数。"""
+    ) -> tuple[int, ToolOutput | None]:
+        """从 target 重跑到 validate_plan（含）；返回 (重跑工具数, 首个 error 输出或 None)。"""
         start = PIPELINE.index(target)
         end = PIPELINE.index("validate_plan")
         count = 0
@@ -228,13 +243,13 @@ class Orchestrator:
             out = await self._exec(name, args_by_tool, outputs, fixes=fixes if name == target else None)
             outputs[name] = out
             count += 1
+            if out.status == "error":
+                return count, out  # err.md B10：上抛给主循环按 error 中断，不得吞掉
             if self.ctx.budget:
                 self.ctx.budget.add(out.metadata.cost)
                 if self.ctx.budget.exceeded():
                     break  # 预算超限，停止重跑（主循环将返回 interrupted）
-            if out.status == "error":
-                break
-        return count
+        return count, None
 
     def _build_input(
         self,

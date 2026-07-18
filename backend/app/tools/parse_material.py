@@ -388,33 +388,44 @@ async def _collect_capped(aiter, max_bytes: int) -> tuple[bytes, bool]:
 
 async def _parse_url(source: str) -> tuple[str, dict]:
     import httpx
+    from urllib.parse import urljoin
 
     if not _is_http_url(source):
         raise _ParseError("unsupported_format", "URL 非法（需 http/https）")
     # SSRF 防护（R19）：复用 verify_url 的安全判定
     from app.tools.verify_url import _is_safe_url
 
-    safe, reason = _is_safe_url(source)
-    if not safe:
-        raise _ParseError("ssrf_blocked", f"URL 被安全策略拒绝: {reason}")
-    # 流式抓取 + 限量读取（防超大响应 OOM）
+    # err.md B4：不用 follow_redirects=True（302 到内网/云元数据端点会绕过 SSRF
+    # 校验），手动逐跳跟随、每跳重新校验；B7：DNS 解析走 to_thread 防阻塞事件循环
     html = ""
     final_url = ""
     status = 0
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True, timeout=httpx.Timeout(URL_TIMEOUT)
+            follow_redirects=False, timeout=httpx.Timeout(URL_TIMEOUT)
         ) as client:
-            async with client.stream("GET", source) as resp:
-                resp.raise_for_status()
-                raw, too_large = await _collect_capped(resp.aiter_bytes(), MAX_URL_BYTES)
-                if too_large:
-                    raise _ParseError(
-                        "payload_too_large", f"URL 正文超上限 {MAX_URL_BYTES // (1024 * 1024)}MB"
-                    )
-                html = _decode_best(raw)
-                final_url = str(resp.url)
-                status = resp.status_code
+            current = source
+            for _ in range(6):  # 初始 + 至多 5 跳重定向
+                safe, reason = await asyncio.to_thread(_is_safe_url, current)
+                if not safe:
+                    raise _ParseError("ssrf_blocked", f"URL 被安全策略拒绝: {reason}")
+                # 流式抓取 + 限量读取（防超大响应 OOM）
+                async with client.stream("GET", current) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+                        current = urljoin(str(resp.url), resp.headers["location"])
+                        continue
+                    resp.raise_for_status()
+                    raw, too_large = await _collect_capped(resp.aiter_bytes(), MAX_URL_BYTES)
+                    if too_large:
+                        raise _ParseError(
+                            "payload_too_large", f"URL 正文超上限 {MAX_URL_BYTES // (1024 * 1024)}MB"
+                        )
+                    html = _decode_best(raw)
+                    final_url = str(resp.url)
+                    status = resp.status_code
+                    break
+            else:
+                raise _ParseError("ssrf_blocked", "重定向次数超上限 5")
     except _ParseError:
         raise
     except httpx.HTTPError as exc:

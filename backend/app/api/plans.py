@@ -85,6 +85,11 @@ _MAX_GENERATE_PER_USER = 1
 _MAX_GENERATE_GLOBAL = 2
 # raw_text 截断（plan/09 §十 understand_intent.raw_text ≤10k）
 _MAX_RAW_TEXT_CHARS = 10_000
+# 注入 prompt 的资料总量上限（err.md A14/B2）：20 条 × 大文件极端下拼接可近 GB 级，
+# 内存与 LLM 成本双重风险；超出截断并在内容中标注
+_MAX_MATERIALS_TOTAL_CHARS = 100_000
+# 单条 parsed 文件读取上限（parse_material 本身已按 MAX_PARSED_CHARS 截断，此处再兜底）
+_MAX_PARSED_FILE_CHARS = 200_000
 
 
 def _check_generate_quota(db: Session, user: User, session_id: int) -> None:
@@ -191,7 +196,7 @@ def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
             try:
                 p = Path(m.parsed_text_path)
                 if p.exists():
-                    text = p.read_text(encoding="utf-8")
+                    text = p.read_text(encoding="utf-8")[:_MAX_PARSED_FILE_CHARS]
             except Exception:  # noqa: BLE001
                 log.warning("读取 parsed_text 失败: %s", m.parsed_text_path)
         parsed.append({"text": text, "meta": m.meta or {}})
@@ -318,15 +323,21 @@ def generate(
         stream = _occupy_generation(db, body.session_id, raw_text)
 
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
+    if len(concatenated) > _MAX_MATERIALS_TOTAL_CHARS:
+        concatenated = concatenated[:_MAX_MATERIALS_TOTAL_CHARS] + "\n…[资料总量超限，已截断]"
     initial_upstream: dict[str, ToolOutput] = {}
     if concatenated:
-        chunks = [concatenated[i : i + 3000] for i in range(0, len(concatenated), 3000)]
+        # err.md B2：不再附 chunks（与 text 同内容的第二份拷贝，下游无人消费，
+        # 全量广播等于逐 LLM 工具重复计费；loop._sanitize_for_prompt 亦有兜底）
         initial_upstream["parse_material"] = ToolOutput(
             tool="parse_material",
             status="ok",
-            data={"text": concatenated, "meta": {"source_type": "materials", "pages": len(parsed)}, "chunks": chunks},
+            data={"text": concatenated, "meta": {"source_type": "materials", "pages": len(parsed)}},
         )
-    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed}}
+    # err.md B2：args.parsed 只传 meta（全文已由 upstream.parse_material.data.text
+    # 提供，此前同一份内容在 user 消息里出现 2-3 次）
+    parsed_metas = [{"text": "", "meta": p["meta"]} for p in parsed]
+    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed_metas}}
     return StreamingResponse(
         _run_start(
             stream, body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
@@ -361,7 +372,7 @@ def clarify(
         raw_text = partial.get("raw_text", "")[:_MAX_RAW_TEXT_CHARS]
         _check_generate_quota(db, user, session_id)
         stream = _occupy_generation(db, session_id, raw_text)
-    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
+    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": [{"text": "", "meta": p["meta"]} for p in parsed], "answers": body.answers}}
     return StreamingResponse(
         _run_start(stream, session_id, args_by_tool, initial_upstream, 0, user_id=user.id),
         media_type="text/event-stream",

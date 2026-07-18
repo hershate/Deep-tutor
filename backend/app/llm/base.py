@@ -25,6 +25,14 @@ class LLMResponse(BaseModel):
     stop_reason: str | None = None
 
 
+class TransientLLMError(Exception):
+    """LLM API 瞬态错误（限流/连接失败/5xx/overloaded），可退避重试（err.md B1）。
+
+    由具体 Provider 把 SDK 的瞬态异常映射为本类型；agent 层据此做指数退避，
+    非瞬态错误（4xx 请求错误等）不包装、直接抛出。
+    """
+
+
 class LLMProvider:
     """LLM Provider 抽象基类。"""
 

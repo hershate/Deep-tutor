@@ -8,11 +8,22 @@
 
 from __future__ import annotations
 
+import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
-from app.llm.base import LLMProvider, LLMResponse, LLMUsage
+from app.llm.base import LLMProvider, LLMResponse, LLMUsage, TransientLLMError
 from app.llm.pricing import estimate_cost
+
+
+def _map_transient(exc: Exception) -> Exception:
+    """把 anthropic SDK 的瞬态异常映射为 TransientLLMError（err.md B1）；其余原样返回。"""
+    if isinstance(exc, (anthropic.RateLimitError, anthropic.APIConnectionError, anthropic.InternalServerError)):
+        return TransientLLMError(str(exc))
+    # 529 overloaded 等 5xx 状态错误
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code >= 500:
+        return TransientLLMError(str(exc))
+    return exc
 
 
 class AnthropicProvider(LLMProvider):
@@ -34,12 +45,16 @@ class AnthropicProvider(LLMProvider):
     ) -> LLMResponse:
         used_model = model or self._model
         system_param = self._build_system(system, cache_system)
-        resp: Message = await self._client.messages.create(
-            model=used_model,
-            max_tokens=max_tokens,
-            system=system_param,
-            messages=[{"role": "user", "content": user}],
-        )
+        try:
+            resp: Message = await self._client.messages.create(
+                model=used_model,
+                max_tokens=max_tokens,
+                system=system_param,
+                messages=[{"role": "user", "content": user}],
+            )
+        except anthropic.APIError as exc:
+            mapped = _map_transient(exc)
+            raise mapped from exc
         return self._to_response(resp, used_model)
 
     @staticmethod
