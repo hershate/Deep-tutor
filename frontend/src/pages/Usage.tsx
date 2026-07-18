@@ -52,6 +52,8 @@ export default function Usage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             汇总所有会话的 LLM 调用（api_usage 表，成本计量 Pillar 3）。
           </p>
+          {/* 今日预算进度（iter 164）：本地日口径，超预算变红 */}
+          <BudgetBar today={data.today_cost} budget={data.daily_budget_usd} />
         </>
       )}
 
@@ -96,6 +98,33 @@ function DailyChart({ items }: { items: { date: string; cost: number; tokens: nu
       <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-400">
         <span>{items[0].date.slice(5)}</span>
         <span>{items[items.length - 1].date.slice(5)}</span>
+      </div>
+    </section>
+  )
+}
+
+/** iter 164：今日费用 / 日预算进度条（>=80% amber，超预算 red） */
+function BudgetBar({ today, budget }: { today: number; budget: number }) {
+  const pct = budget > 0 ? (today / budget) * 100 : 0
+  const over = pct >= 100
+  const warn = pct >= 80 && !over
+  return (
+    <section
+      className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+      aria-label={`今日预算：已用 ${today.toFixed(6)} 美元，预算 ${budget} 美元`}
+    >
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium text-slate-600 dark:text-slate-300">今日预算</span>
+        <span className={`tabular-nums ${over ? 'font-semibold text-red-600 dark:text-red-400' : warn ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+          ${today.toFixed(6)} / ${budget}
+          {over && '（已超预算）'}
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ease-out ${over ? 'bg-red-500' : warn ? 'bg-amber-400' : 'bg-blue-500'}`}
+          style={{ width: `${Math.min(100, Math.max(pct, today > 0 ? 2 : 0))}%` }}
+        />
       </div>
     </section>
   )

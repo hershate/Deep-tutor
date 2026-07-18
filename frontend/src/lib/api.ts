@@ -485,7 +485,7 @@ export const getWrongOverview = () =>
 
 // --- usage ---
 export const getUsage = () =>
-  apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
+  apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number; today_cost: number; daily_budget_usd: number }>('/usage')
 
 // iter 131：近 N 日按日用量（无调用日补 0，供趋势图）
 export interface UsageDailyItem { date: string; cost: number; tokens: number; calls: number }
