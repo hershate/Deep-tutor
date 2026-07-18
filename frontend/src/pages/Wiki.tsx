@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -102,6 +102,15 @@ export default function Wiki() {
     queryKey: ['wrong-overview'],
     queryFn: getWrongOverview,
     staleTime: 60_000,
+  })
+
+  // 笔记视图（iter 161）：知识点 / 我的笔记 tab 切换
+  const [view, setView] = useState<'nodes' | 'notes'>('nodes')
+  const { data: notesOv } = useQuery({
+    queryKey: ['notes-overview'],
+    queryFn: getNotesOverview,
+    staleTime: 30_000,
+    enabled: view === 'notes',
   })
 
   // 排序（iter 146）：组内节点排序，默认保持后端顺序
@@ -233,6 +242,68 @@ export default function Wiki() {
         </section>
       )}
 
+      {/* 视图切换（iter 161）：知识点 / 我的笔记 */}
+      <div className="flex gap-2" role="tablist" aria-label="知识库视图">
+        {([['nodes', '知识点'], ['notes', '我的笔记']] as const).map(([v, label]) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-all active:scale-95 ${
+              view === v
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'notes' ? (
+        /* 我的笔记（iter 161）：跨方案全部笔记，更新近者在前 */
+        !notesOv ? (
+          <SkeletonCards count={3} />
+        ) : notesOv.total === 0 ? (
+          <EmptyState
+            icon="📝"
+            title="还没有笔记"
+            description="在知识点卡片上点 📝 即可记录笔记，全部笔记会汇聚到这里"
+          />
+        ) : (
+          <ul className="space-y-2">
+            {notesOv.items.map((n, i) => (
+              <li
+                key={n.node_id}
+                className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-700 dark:bg-slate-800"
+                style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Link
+                    to={`/plans/${n.plan_id}`}
+                    className="min-w-0 truncate text-sm font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+                    title={`查看方案：${n.plan_topic || '方案'}`}
+                  >
+                    {n.node_name}
+                    <span className="ml-2 text-xs font-normal text-slate-400">{n.plan_topic || `方案 #${n.plan_id}`}</span>
+                  </Link>
+                  {n.updated_at && (
+                    <span className="shrink-0 text-xs tabular-nums text-slate-400">
+                      {n.updated_at.slice(0, 16).replace('T', ' ')}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                  {n.content_preview}
+                  {n.truncated && <span className="text-slate-400"> …</span>}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : (
+      <>
       {/* 状态筛选 chips（带计数） */}
       {stats && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="按学习状态筛选">
@@ -359,7 +430,10 @@ export default function Wiki() {
                   {openNoteId === n.node_id && (
                     <NodeNoteEditor
                       nodeId={n.node_id}
-                      onSaved={() => qc.invalidateQueries({ queryKey: ['knowledge'] })}
+                      onSaved={() => {
+                        qc.invalidateQueries({ queryKey: ['knowledge'] })
+                        qc.invalidateQueries({ queryKey: ['notes-overview'] }) // iter 161：笔记视图同步
+                      }}
                     />
                   )}
                 </div>
@@ -368,6 +442,8 @@ export default function Wiki() {
           </ul>
         </section>
       ))}
+      </>
+      )}
     </div>
   )
 }

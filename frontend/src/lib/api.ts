@@ -324,6 +324,18 @@ export interface KnowledgeItem {
   mastery: number // 0-1
   has_note: boolean // iter 105：是否有笔记（Wiki 显示 📝）
 }
+// iter 161：个人笔记总览（Wiki「笔记」视图）
+export interface NoteOverviewItem {
+  node_id: number
+  node_name: string
+  plan_id: number
+  plan_topic: string
+  content_preview: string
+  truncated: boolean
+  updated_at: string | null
+}
+export const getNotesOverview = () =>
+  apiFetch<{ items: NoteOverviewItem[]; total: number }>('/knowledge/notes')
 export interface KnowledgeResult {
   items: KnowledgeItem[]
   total: number
