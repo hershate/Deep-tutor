@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 175（美化轨：第 60 轮——预算编辑行审查，✅ 完成）**：并行轨 BudgetRow（`400e322`）落地，审查结论：**零样式缺口**——编辑态数字输入带 focus ring、保存品牌主按钮、恢复默认次级按钮、tabular-nums 有效值、暗色全配。顺带修复 [Settings.tsx:104](frontend/src/pages/Settings.tsx#L104) 历史格式瑕疵（`}) {  const color =` 粘连，HEAD 既有，此前因与其 WIP 同文件暂缓）（commit `41db984`）。第 55-59 轮为无新料监视轮，未记空轮。验证：`npm run build` 通过（1.74s，主包 213.00kB）。
+
 - **2026-07-19 iter 174（美化轨：第 54 轮——全量复查零改动，✅ 完成）**：并行轨后端 user_prefs 收尾中（未提交），前端无新料。本轮复核此前未单独审过的组件原子与页面：EmptyState（图标 aria-hidden+float 动画+虚线卡）、Skeleton（role=status+shimmer+reduced-motion 覆盖）、Login（渐变底+scale-in 卡+shake 错误+全品牌控件）、GenerateProgress（呼吸灯+计时+spinner+sr-only 步骤态）——均已达品牌基线，**零改动**。不编造改动凑数；构建验证通过（1.71s，主包 210.73kB）。覆盖结论：前端 31 个 tsx 全部至少过一轮打磨，美化轨进入纯监视模式——后续轮次仅在并行轨落地新前端时做对齐审查。
 
 - **2026-07-19 iter 173（美化轨：第 53 轮——上传进度条 a11y，✅ 完成）**：并行轨后端 user_prefs 在改（未提交），本轮全维度清扫：暗色覆盖零遗漏（`bg-white`/text 色全配 dark 变体）、300 处 hover 全带 transition、外链全带 target、`role="alert"` 25 处全品牌化。唯一真缺：[Home.tsx](frontend/src/pages/Home.tsx) 文件上传进度条纯 div——补 `role="progressbar"`+`aria-value*`（commit `924b18c`），全站进度条语义至此 3 处（今日目标/预算/上传）补齐。验证：`npm run build` 通过（1.71s，主包 210.73kB）。
