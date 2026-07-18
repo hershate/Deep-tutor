@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 104（前端美化第 12 轮：Toast 退场 + 空态浮动 + 列表项入场）**：①[tailwind.config.js](frontend/tailwind.config.js) 新增 `fade-out`（淡出下移）与 `float`（±4px 轻浮 3s 循环）关键帧。②[Toast.tsx](frontend/src/components/Toast.tsx) **补退场动画**：ToastItem 加 `leaving` 标记，store 拆 `beginRemove`（先置 leaving 播 200ms fade-out 再真移除，EXIT_MS 与动画时长对齐；TTL 到期与手动 ✕ 关闭同路径）——此前 3s 到点直接消失突兀。③[EmptyState.tsx](frontend/src/components/EmptyState.tsx)：容器 animate-fade-in-up + 圆角加大 + py-10，图标 animate-float 轻浮 + text-3xl（reduced-motion 由全局媒体查询关停）。④[Home.tsx](frontend/src/pages/Home.tsx) 文件/链接列表项 animate-fade-in 入场。**验证**：`npm run build` 通过。美化系列已 12 轮，覆盖面饱和；后续轮次转为小修小补（打印样式/细节走查）。
+
 - **2026-07-19 iter 103（前端美化第 11 轮：markdown 排版 + vendor 分包 + 字数提示）**：①[index.css](frontend/src/index.css) markdown-body 全面提质：代码块改深色底（bg-slate-900 浅/深主题统一高对比，pre code 补 text-inherit 防行内 code 样式串色）；表头底色+行 hover 过渡+text-sm；引用块改蓝色左边框+淡蓝底圆角；列表 marker 染品牌蓝；链接 underline-offset+hover 过渡（旧 blockquote 重复规则清理）。②[vite.config.ts](frontend/vite.config.ts) manualChunks 分包：react-vendor（react/react-dom/react-router-dom 164kB）+ markdown-vendor（react-markdown/remark-gfm/rehype-sanitize 163kB）——主包 497kB→**177.6kB**（gzip 49.6kB），>500kB 构建警告消除，vendor 内容稳定可长缓存。③[Home.tsx](frontend/src/pages/Home.tsx) 需求描述实时字数统计（x / 20,000 右下等宽数字，>18000 转 amber 预警，aria-live）；textarea 补 dark:bg-slate-900。**验证**：`npm run build` 通过（391 模块，4 chunk 全部 <500kB）。
 
 - **2026-07-19 iter 103（功能线：数据备份导出/导入 + 按单元重生成材料 + 材料导出 + 个人知识库 Wiki，✅ 完成）**：本轮 /loop 需求中的四条功能切片全部落地并通过真机冒烟。**编号说明**：本切片各 commit 代码注释自标 iter 93/98/99/100，与并行美化轨（iter 92-102）撞号（iter 97/101 条已注），本条按共享序号取 103。
