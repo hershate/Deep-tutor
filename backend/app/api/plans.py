@@ -1096,6 +1096,7 @@ async def generate_quiz_endpoint(
         trace_id=f"quiz-{plan_id}",
         registry=default_registry(),
         llm_provider=provider,
+        skill_registry=get_skill_registry() or None,  # iter 61：deep-tutor-quiz Skill（空 -> inline 回退）
         data_dir=settings.data_dir,
     )
     # quiz 题源联动（iter 49）：已持久化自学单元的「检查理解」自测题 -> 题源（无单元/无小节 -> 空，行为同前）

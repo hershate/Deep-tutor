@@ -233,6 +233,44 @@ def test_real_deep_tutor_validate_skill_loads():
     assert "name: deep-tutor-validate" not in body
 
 
+def test_real_deep_tutor_quiz_skill_loads():
+    """真实 skills/deep-tutor-quiz/SKILL.md 可加载（iter 61）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-quiz" in reg
+    body = reg["deep-tutor-quiz"]
+    assert body.strip()
+    assert not body.startswith("---")
+    assert "name: deep-tutor-quiz" not in body
+
+
+def test_real_quiz_skill_used_as_system_prompt():
+    """真实 Skill 加载后，loop 用 Skill 正文作 generate_quiz 的 system prompt（覆盖 inline_prompt，iter 61）。"""
+    from app.tools.generate_quiz import generate_quiz_tool
+
+    reg = load_skills(_PROJECT_SKILLS)
+    skill_body = reg["deep-tutor-quiz"]
+
+    canned = (
+        '{"title":"T测验","quizzes":[{"node_id":"k1","node_name":"n1","type":"choice",'
+        '"question":"q?","options":["A","B","C"],"answer":"A","explanation":"e"}]}'
+    )
+    provider = _ScriptedProvider([LLMResponse(content=canned, usage=LLMUsage(model="claude-sonnet-5"))])
+    tools = ToolRegistry()
+    tools.register(generate_quiz_tool)
+    ctx = ExecContext(
+        session_id="sess_test",
+        trace_id="trace_test",
+        registry=tools,
+        llm_provider=provider,
+        skill_registry=reg,
+    )
+    out = asyncio.run(run_tool("generate_quiz", ToolInput(tool="generate_quiz", session_id="sess_test"), ctx))
+    assert out.status == "ok"
+    assert provider.calls[0]["system"] == skill_body
+    assert provider.calls[0]["system"] != generate_quiz_tool.inline_prompt
+    assert provider.calls[0]["cache_system"] is True
+
+
 def test_real_validate_skill_used_as_system_prompt():
     """真实 Skill 加载后，loop 用 Skill 正文作 system prompt（覆盖 inline_prompt）。"""
     reg = load_skills(_PROJECT_SKILLS)
