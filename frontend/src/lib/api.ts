@@ -96,20 +96,43 @@ export const createTextMaterial = (sessionId: number, text: string) =>
     body: JSON.stringify({ session_id: sessionId, text }),
   })
 
-export async function uploadMaterial(sessionId: number, file: File) {
-  const form = new FormData()
-  form.append('session_id', String(sessionId))
-  form.append('file', file)
-  const res = await fetch(`${BASE}/materials/upload`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token()}` },
-    body: form,
+// 大文件上传（plan/09 §七 前端边界：字节级进度）。用 XHR 而非 fetch——
+// fetch 的上传进度（Request duplex stream）浏览器支持差，XHR upload.onprogress 全量可用。
+export function uploadMaterial(
+  sessionId: number,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<{ material_id: number; kind: string; meta: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE}/materials/upload`)
+    xhr.setRequestHeader('Authorization', `Bearer ${token()}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      const body = (() => {
+        try {
+          return JSON.parse(xhr.responseText)
+        } catch {
+          return {}
+        }
+      })()
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body)
+      } else {
+        handleUnauthorized(xhr.status)
+        const err = body?.error ?? {}
+        reject(new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${xhr.status}`, xhr.status))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError('network_error', '网络错误', 0))
+    xhr.ontimeout = () => reject(new ApiError('upstream_timeout', '上传超时', 504))
+    const form = new FormData()
+    form.append('session_id', String(sessionId))
+    form.append('file', file)
+    xhr.send(form)
   })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new ApiError(body?.error?.code ?? 'http_error', body?.error?.message ?? `HTTP ${res.status}`, res.status)
-  }
-  return res.json()
 }
 
 // --- plans ---

@@ -7,6 +7,7 @@ export default function Home() {
   const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
+  const [uploadPct, setUploadPct] = useState<number | null>(null) // 当前文件字节级进度（plan/09 §七）
   const [error, setError] = useState('')
   const nav = useNavigate()
 
@@ -27,9 +28,10 @@ export default function Home() {
       try {
         // 批量导入（P2，plan/README §输入形式9）：多文件合并为一个资料集，逐份上传
         for (let i = 0; i < files.length; i++) {
-          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].name}）…`)
+          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].name}）`)
+          setUploadPct(null)
           try {
-            await uploadMaterial(session_id, files[i])
+            await uploadMaterial(session_id, files[i], (pct) => setUploadPct(pct))
           } catch (e) {
             throw new Error(
               `${files[i].name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
@@ -106,6 +108,23 @@ export default function Home() {
       {error && (
         <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {loading && uploadProgress && (
+        <div className="space-y-1" aria-live="polite">
+          <div className="text-sm text-slate-600">
+            {uploadProgress}
+            {uploadPct !== null && ` ${uploadPct}%`}
+          </div>
+          {uploadPct !== null && (
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all duration-200"
+                style={{ width: `${uploadPct}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
