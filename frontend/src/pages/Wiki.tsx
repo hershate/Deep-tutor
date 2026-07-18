@@ -107,14 +107,14 @@ export default function Wiki() {
 
       {/* 学习统计行（iter 122）：有打卡记录时显示 */}
       {studyStats && studyStats.total_logs > 0 && (
-        <div className="flex flex-wrap gap-2 text-xs" aria-label="学习统计">
-          <span className="rounded-full bg-orange-100 px-3 py-1 font-medium text-orange-700 dark:bg-orange-950 dark:text-orange-300" title="连续打卡天数">
+        <div className="flex animate-fade-in-up flex-wrap gap-2 text-xs" aria-label="学习统计">
+          <span className="animate-fade-in rounded-full bg-orange-100 px-3 py-1 font-medium text-orange-700 dark:bg-orange-950 dark:text-orange-300" style={{ animationDelay: '40ms' }} title="连续打卡天数">
             🔥 连续 <span className="tabular-nums">{studyStats.streak_days}</span> 天
           </span>
-          <span className="rounded-full bg-blue-100 px-3 py-1 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300" title="近 7 天学习时长">
+          <span className="animate-fade-in rounded-full bg-blue-100 px-3 py-1 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300" style={{ animationDelay: '100ms' }} title="近 7 天学习时长">
             📊 本周 <span className="tabular-nums">{studyStats.week_minutes}</span> 分钟
           </span>
-          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300" title="累计学习时长">
+          <span className="animate-fade-in rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300" style={{ animationDelay: '160ms' }} title="累计学习时长">
             ⏱ 累计 <span className="tabular-nums">{studyStats.total_minutes}</span> 分钟
           </span>
         </div>
