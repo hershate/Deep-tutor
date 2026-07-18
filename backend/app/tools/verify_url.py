@@ -12,6 +12,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -25,6 +26,36 @@ log = logging.getLogger("deep_tutor.tools.verify")
 URL_TIMEOUT = 30.0
 # 云元数据端点（R19）
 _METADATA_HOSTS = {"169.254.169.254", "169.254.170.2", "metadata.google.internal"}
+
+# 结果缓存（P5 缓存深度优化）：进程内 TTL 缓存，同 URL 在有效期内不重复发 HTTP。
+# 成功判定缓存 24h；失败判定（可能瞬时故障）缓存 1h。容量上限 FIFO 淘汰。
+_CACHE_OK_TTL = 24 * 3600.0
+_CACHE_ERR_TTL = 3600.0
+_CACHE_MAX = 4096
+_cache: dict[str, tuple[float, dict]] = {}  # url -> (过期时间 monotonic, data)
+
+
+def _cache_get(url: str) -> dict | None:
+    hit = _cache.get(url)
+    if hit is None:
+        return None
+    expires, data = hit
+    if time.monotonic() > expires:
+        _cache.pop(url, None)
+        return None
+    return data
+
+
+def _cache_put(url: str, data: dict, ok: bool) -> None:
+    if len(_cache) >= _CACHE_MAX:
+        _cache.pop(next(iter(_cache)))  # FIFO 淘汰最旧
+    ttl = _CACHE_OK_TTL if ok else _CACHE_ERR_TTL
+    _cache[url] = (time.monotonic() + ttl, data)
+
+
+def reset_verify_cache() -> None:
+    """测试隔离 / 手动清空。"""
+    _cache.clear()
 
 
 async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
@@ -41,6 +72,10 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             errors=[ToolError(code="ssrf_blocked", message=f"URL 被安全策略拒绝: {reason}")],
         )
 
+    cached = _cache_get(url)
+    if cached is not None:
+        return ToolOutput(tool="verify_url", status="ok", data={**cached, "cached": True})
+
     try:
         # 流式抓取仅取状态码与最终 URL，不加载正文（防超大响应 OOM；follow_redirects 仍生效）
         async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(ctx.timeouts.url)) as client:
@@ -49,12 +84,17 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 final_url = str(resp.url)
     except httpx.HTTPError as exc:
         log.info("verify_url 抓取失败 %s: %s", url, exc)
-        return _ok_data(url, ok=False, status=None, label="invalid")
+        out = _ok_data(url, ok=False, status=None, label="invalid")
+        _cache_put(url, out.data, ok=False)
+        return out
 
     if status == 200:
         # step 4：可达即 ok；内容适配性留 step 5 LLM 判定
-        return _ok_data(final_url, ok=True, status=status, label="ok")
-    return _ok_data(final_url, ok=False, status=status, label="invalid")
+        out = _ok_data(final_url, ok=True, status=status, label="ok")
+    else:
+        out = _ok_data(final_url, ok=False, status=status, label="invalid")
+    _cache_put(url, out.data, ok=out.data["ok"])
+    return out
 
 
 def _ok_data(url: str, *, ok: bool, status: int | None, label: str) -> ToolOutput:

@@ -125,3 +125,85 @@ def test_verify_url_fetch_error_invalid(monkeypatch):
     out = _run("http://example.com")
     assert out.data["label"] == "invalid"
     assert out.data["status"] is None
+
+
+# --- 结果缓存（P5 缓存深度优化：同 URL 有效期内不重复发 HTTP）---
+
+
+def _patch_fetch_multi(handler, monkeypatch):
+    """缓存测试专用：每次调用新建 client（共享 MockTransport），支持同测试内多次抓取。"""
+    import httpx
+    from app.tools import verify_url as vu
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient  # patch 前留存真类，防 lambda 内递归引用
+    monkeypatch.setattr(vu, "_is_safe_url", lambda u: (True, ""))
+    monkeypatch.setattr(
+        vu.httpx, "AsyncClient", lambda **kw: real_client(follow_redirects=True, transport=transport)
+    )
+
+
+def test_verify_url_cache_hit_no_second_fetch(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, text="ok")
+
+    _patch_fetch_multi(handler, monkeypatch)
+    out1 = _run("http://example.com/cached")
+    out2 = _run("http://example.com/cached")
+    assert len(calls) == 1  # 第二次命中缓存，未发 HTTP
+    assert out1.data["label"] == "ok"
+    assert out2.data["label"] == "ok" and out2.data.get("cached") is True
+    assert "cached" not in out1.data
+
+
+def test_verify_url_cache_also_caches_invalid(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(404)
+
+    _patch_fetch_multi(handler, monkeypatch)
+    _run("http://example.com/missing")
+    out = _run("http://example.com/missing")
+    assert len(calls) == 1
+    assert out.data["label"] == "invalid" and out.data.get("cached") is True
+
+
+def test_verify_url_cache_expires(monkeypatch):
+    import httpx
+    from app.tools import verify_url as vu
+
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(200, text="ok")
+
+    _patch_fetch_multi(handler, monkeypatch)
+    now = [1000.0]
+    monkeypatch.setattr(vu.time, "monotonic", lambda: now[0])
+    _run("http://example.com/exp")
+    now[0] += vu._CACHE_OK_TTL + 1  # 过有效期
+    _run("http://example.com/exp")
+    assert len(calls) == 2  # 过期后重新抓取
+
+
+def test_verify_url_cache_fifo_eviction(monkeypatch):
+    import httpx
+    from app.tools import verify_url as vu
+
+    _patch_fetch_multi(lambda req: httpx.Response(200, text="ok"), monkeypatch)
+    monkeypatch.setattr(vu, "_CACHE_MAX", 3)
+    for i in range(4):
+        _run(f"http://example.com/{i}")
+    assert len(vu._cache) == 3
+    assert vu._cache_get("http://example.com/0") is None  # 最旧被淘汰
+    assert vu._cache_get("http://example.com/3") is not None

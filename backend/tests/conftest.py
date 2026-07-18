@@ -27,6 +27,9 @@ def isolate():
     from app.skills.loader import reset_skill_registry
 
     reset_skill_registry()  # Skill 注册表缓存跨测试隔离
+    from app.tools.verify_url import reset_verify_cache
+
+    reset_verify_cache()  # verify_url 结果缓存跨测试隔离（P5 缓存优化）
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     p = Path(_TEST_DATA)
