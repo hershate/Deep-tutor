@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 89 条。
+**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）；「后端启动即死」实机故障已修复——alembic fileConfig 日志劫持 + 旧脚本模板 .env 占位值锁死登录双根因（iter 90）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 90/89 条。
 
 ---
 
@@ -233,6 +233,12 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-19 iter 90（「后端启动即死」双重根因修复：alembic 日志劫持 + 模板占位值锁死登录，commits `b4869f4`/`1bcdaee`）**：用户实机反馈 start.ps1 打开浏览器但「后端并没有成功启动」——uvicorn 日志停在 alembic "Will assume non-transactional DDL." 后无声息。复现定位（用户同款模板 .env + 临时库后台跑）：**进程实际健康**（/api/health 200、端口 LISTENING），是两个独立问题叠加：
+  - **根因 1（日志劫持，`b4869f4`）**：[alembic/env.py](backend/alembic/env.py) 模板自带的 `fileConfig(alembic.ini)` 默认 `disable_existing_loggers=True`——lifespan 内 `run_migrations()` 触发时把 deep_tutor/uvicorn/app.* 全部既有 logger 禁用并替换 root handlers（轮转文件日志同时脱落），此后 "Application startup complete" 等一切日志静默消失，看似启动即死（用户 Ctrl+C 后「Shutting down」同样被吞，PowerShell 提示符静默返回，表象=崩溃）。修复：`_alembic_config` 置 `cfg.attributes["configure_logging"]=False`（alembic attributes 即向 env.py 传值的官方通道），env.py 据此跳过 fileConfig；直跑 alembic CLI 无此属性保持模板原行为。附带收益：迁移日志改由应用日志体系承接，同步落入 data/logs/deep-tutor.log。回归测试：迁移后 root handlers/level 不变、deep_tutor/uvicorn.error 未禁用（test_db_migrate.py +1）。
+  - **根因 2（模板占位值锁死登录，`1bcdaee`）**：旧版 start.* 曾自动复制 .env.example 生成 .env，占位 `AUTH_TOKEN=change-me-please` 按「已配置」处理 -> 开放模式关闭；占位 `ANTHROPIC_API_KEY=sk-ant-xxxxxxxx` -> llm_configured=true -> 不进设置向导；而无人设过密码 -> JWT 登录不可用——用户被锁死在无法登录页（即「前端并没有真正启动」的观感）。修复：[settings.py](backend/app/core/settings.py) 模块级占位常量 + 派生属性 `auth_token_configured`/`anthropic_key_configured`（单点判定），passwordless_open / deps._is_env_token / setup._llm_configured / llm.get_provider / main 开放模式日志 / api/settings 快照 / validate_feature_keys 全部改走属性；`.env.example` 两个占位改留空（新复制模板=可用零配置）。安全语义：占位值人尽皆知，`X-Auth-Token: change-me-please` 不再被认作有效凭证（封闭模式 401）。测试 +4（占位视为未配置 / 占位下开放模式放行 / 占位凭证拒认 / LLM 占位 -> needs_setup=true）。
+  - **附带修复（同 commit）**：`test_setup_admin_jwt_allowed_when_closed` 秒级抖动——吊销判定基于整秒（JWT iat 为 int 秒），登录与改密碰巧同秒时旧 JWT 本就不在吊销范围（iter 89 取整秒修复的固有边界，setup.py 注释已改述准确语义）；测试拨快时钟 2s 消抖（PyJWT exp 校验走 datetime 不受影响）。
+  - **验证**：全量 436 后端测试通过（431->436），ruff 全绿；真机冒烟（用户同款模板 env + 全新临时库，:18935）：启动日志完整（迁移链 ->「数据库迁移完成」-> 开放模式提示 ->「Application startup complete」）、health ok、status `open_mode=true/llm_configured=false/needs_setup=true`（向导将展示）、无 token /api/plans 200、SPA 与 /setup 深链 200、data/logs/deep-tutor.log 同步写入；进程按监听 PID 精确清理。
 
 - **2026-07-18 iter 89（零配置开箱即用 + 首次设置向导，commits `031c7ab`/`70aad46`/`432e7f4`/`c1c5d42`）**：用户指示「无 .env 时第一次进入应是配置页（可跳过，后面在设置页添加 API 等），而不是脚本直接退出；功能未启用不应让用户看不到界面；大多数用户没有技术水平，应开箱即用」。经 EnterPlanMode 探索认证/启动链路后按批准方案分四批落地：
   - **批 1 后端零配置启动 + 开放本机模式（`031c7ab`）**：[settings.py](backend/app/core/settings.py) `validate_required` 移除 AUTH_TOKEN 硬必填（R27 收敛，决策登记 §二）；[security.py](backend/app/core/security.py) 新增 `passwordless_open(db)` 谓词（未配 AUTH_TOKEN 且无任何用户设密码 -> 开放；**每次请求实时查询不缓存**，防设密码后认证模式滞留）+ `get_or_create_open_admin` 懒创建空密码 admin（空 hash 登录恒失败，仅身份锚点；数据自始归属 admin 零迁移；**懒创建而非启动创建**——test_api_users 等断言用户数的既有测试零回归，实证关键决策）；[deps.py](backend/app/api/deps.py) `resolve_user`/`require_auth` 开放分支（失败路径才查库，已认证请求零新增查询；get_db 上移因 Depends 默认值定义时求值）；[main.py](backend/app/main.py) lifespan 删 SystemExit + 零认证 info 日志。测试 +5（test_open_mode.py）。
