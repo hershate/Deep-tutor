@@ -9,7 +9,7 @@ import QuizModal from '../components/QuizModal'
 import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
-import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, regenerateStream, revokeShare, type QuizStats, type ShareStatus } from '../lib/api'
+import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, listPlans, regenerateStream, revokeShare, type PlanSummary, type QuizStats, type ShareStatus } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
 interface PlanData {
@@ -74,6 +74,15 @@ export default function PlanDetail() {
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
+  const [versions, setVersions] = useState<PlanSummary[]>([]) // 版本历史（iter 169）
+
+  // 版本历史（iter 169）：同会话全部版本，>1 时标题旁显示切换下拉
+  useEffect(() => {
+    if (!sessionId) return
+    listPlans(sessionId)
+      .then((r) => setVersions(r.items.sort((a, b) => b.version - a.version)))
+      .catch(() => {}) // 版本列表失败不阻塞页面
+  }, [sessionId])
   const [wrongExportBusy, setWrongExportBusy] = useState(false) // 错题 Anki 导出（iter 134）
   const [quizStats, setQuizStats] = useState<QuizStats | null>(null) // 测验历史统计（iter 152）
 
@@ -254,7 +263,26 @@ export default function PlanDetail() {
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
+          {/* 版本历史切换（iter 169）：同会话多次重新生成 → 标题旁下拉切版本 */}
+          {versions.length > 1 && (
+            <select
+              aria-label="切换方案版本"
+              value={Number(planId)}
+              onChange={(e) => nav(`/plans/${e.target.value}`)}
+              title={`本会话共 ${versions.length} 个版本，可切换查看`}
+              className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+            >
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  版本 v{v.version}
+                  {v.id === Number(planId) ? '（当前）' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
         {/* iter 93 美化：窄屏 flex-wrap 防溢出；次按钮按压缩放、主按钮悬浮阴影 */}
         <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="export-format" className="sr-only">
