@@ -165,7 +165,7 @@ function BackupCard() {
           type="button"
           onClick={doExport}
           disabled={exporting}
-          className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-blue-500 hover:shadow-md active:scale-95 disabled:opacity-50"
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
         >
           {exporting ? '导出中…' : '导出全部数据'}
         </button>
