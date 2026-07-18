@@ -188,7 +188,7 @@ export default function PlanDetail() {
         const bytes = Uint8Array.from(atob(r.apkg_b64), (c) => c.charCodeAt(0))
         downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), r.filename || 'wrong.apkg')
         setExportUrl(`已下载 ${r.filename}（${r.card_count ?? 0} 张错题卡）`)
-        toast(`已导出 ${r.card_count ?? 0} 张错题卡`, 'success')
+        toast.success(`已导出 ${r.card_count ?? 0} 张错题卡`)
       }
     } catch (e) {
       // no_wrong_quizzes（全部答对/未作答）等后端信息直接透出
