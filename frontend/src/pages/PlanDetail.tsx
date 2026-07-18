@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
 import ProgressBoard from '../components/ProgressBoard'
 import QuizModal from '../components/QuizModal'
-import { ApiError, exportPlan, getPlan, regenerateStream } from '../lib/api'
+import { ApiError, createShare, exportPlan, getPlan, getShare, regenerateStream, revokeShare, type ShareStatus } from '../lib/api'
 
 interface PlanData {
   intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number }
@@ -43,6 +43,8 @@ export default function PlanDetail() {
   const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
+  const [share, setShare] = useState<ShareStatus | null>(null)
+  const [shareMsg, setShareMsg] = useState('')
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
@@ -56,7 +58,39 @@ export default function PlanDetail() {
       .then((r) => setPlan((r as { plan: PlanData }).plan))
       .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
       .finally(() => setLoading(false))
+    getShare(Number(planId))
+      .then(setShare)
+      .catch(() => setShare(null))
   }, [planId])
+
+  // 协作分享（P5）：创建（幂等）/复制/撤销只读链接
+  async function doShare() {
+    if (!planId) return
+    try {
+      const r = await createShare(Number(planId))
+      const url = `${window.location.origin}${r.path}`
+      setShare({ shared: true, token: r.token, path: r.path })
+      try {
+        await navigator.clipboard.writeText(url)
+        setShareMsg('链接已复制')
+      } catch {
+        setShareMsg(url) // 剪贴板不可用（非安全上下文）则直接展示
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '创建分享失败')
+    }
+  }
+
+  async function doRevokeShare() {
+    if (!planId) return
+    try {
+      await revokeShare(Number(planId))
+      setShare({ shared: false })
+      setShareMsg('已撤销，原链接即刻失效')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '撤销失败')
+    }
+  }
 
   // 卸载时取消进行中的重生成流
   useEffect(() => () => regenAcRef.current?.abort(), [])
@@ -143,6 +177,14 @@ export default function PlanDetail() {
           <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
             导出
           </button>
+          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
+            {share?.shared ? '复制分享链接' : '分享'}
+          </button>
+          {share?.shared && (
+            <button onClick={doRevokeShare} className="rounded-lg border px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+              撤销分享
+            </button>
+          )}
           <button
             onClick={() => nav(`/learn/${planId}`)}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
@@ -164,6 +206,7 @@ export default function PlanDetail() {
         </div>
       </div>
       {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
+      {shareMsg && <div className="break-all text-xs text-emerald-600">{shareMsg}</div>}
 
       {showMaterials && planId && (
         <MaterialsModal

@@ -466,3 +466,32 @@ async function ssePostWithReconnect(
     await sseSleep(sseBackoff(attempt), signal)
   }
 }
+
+// --- 协作分享（P5）：只读分享链接 ---
+export interface ShareStatus {
+  shared: boolean
+  token?: string
+  path?: string
+  created_at?: string
+}
+export interface SharedPlanData {
+  title: string
+  created_at: string
+  content: {
+    topic?: string
+    stages?: Array<{
+      index: number
+      name: string
+      goal?: string
+      milestone?: string
+      topics?: Array<{ name: string; must_learn?: boolean }>
+      resources?: Array<{ title?: string; url?: string; type?: string; verified?: string }>
+    }>
+    quizzes?: Array<{ question?: string }>
+  }
+}
+export const createShare = (planId: number) =>
+  apiFetch<{ token: string; path: string; created_at: string }>(`/plans/${planId}/share`, { method: 'POST' })
+export const revokeShare = (planId: number) => apiFetch<void>(`/plans/${planId}/share`, { method: 'DELETE' })
+export const getShare = (planId: number) => apiFetch<ShareStatus>(`/plans/${planId}/share`)
+export const getShared = (token: string) => apiFetch<SharedPlanData>(`/shared/${token}`)

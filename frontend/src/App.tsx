@@ -8,6 +8,7 @@ import Clarify from './pages/Clarify'
 import Learn from './pages/Learn'
 import Login from './pages/Login'
 import PlanDetail from './pages/PlanDetail'
+import SharedPlan from './pages/SharedPlan'
 import Usage from './pages/Usage'
 import Settings from './pages/Settings'
 
@@ -24,6 +25,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* P5 协作分享：公开只读页，无需登录（链接本身即凭证，192bit 随机 token） */}
+      <Route path="/shared/:token" element={<SharedPlan />} />
       <Route
         path="*"
         element={
