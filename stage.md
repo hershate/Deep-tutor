@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P4 全部完成**；部署方案已定稿为**纯脚本本地直起**（iter 67 落地，iter 68 移除全部 Docker 相关并真机冒烟）。**候选下一步**：P5（缓存深度优化 + Anki/ics 导出 + 协作分享）/ 扩展真机剪藏冒烟（装扩展 + 配 key 跑剪藏->生成）。详见 §五 iter 68 条。
+**当前下一步**：**P5 全部完成**（ics 导出 iter 69、Anki 导出 iter 70、协作分享 iter 71、缓存深度优化 iter 72）。全量 356 后端测试 + 前端 build 通过。**候选下一步**：plan 路线图全部 Phase 已收官——后续可做：扩展真机剪藏冒烟 / UX 打磨（如导出 md 也改浏览器下载、Home 批量操作）/ plan/09 审计清单复查 / 用户新需求。详见 §五 iter 69-72 条。
 
 ---
 
@@ -29,7 +29,7 @@
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
 | P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ✅ 完成（多用户 iter 57-60；Skills iter 61-63（MCP 暂缓）；浏览器插件 iter 64-65；部署 iter 66-68：纯脚本本地直起，Docker 方案已按用户决定移除） |
-| P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
+| P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ✅ 完成（ics iter 69；Anki iter 70；只读分享链接 iter 71；verify_url 缓存 iter 72） |
 
 ---
 
@@ -232,6 +232,14 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 69-72（P5 全部完成：ics/Anki 导出 + 协作分享 + 缓存深度优化）**：plan 中 P5 仅有路线图行（无细化文档），按全自动指令自行设计实现，稳定优先 + UX 优先。
+  - **iter 69 ics 日历导出（commits `e3da0d7`/`6d54bf3`）**：[build_ics.py](backend/app/tools/build_ics.py) 纯 stdlib RFC 5545 构建器——schedule_plan 产出的逐日 schedule -> 每天一个**全天事件**（阶段名/任务/预计时长进描述，X-WR-CALNAME 日历名），RFC 转义（\ ; , 换行）+ **75 字节 UTF-8 折叠** + CRLF；非法日期跳过计数（warning），全非法/空 -> `no_schedule`(422)。端点 `/export format=ics` 随响应返回 ics 文本（**前端 Blob 直接下载**，双击导入系统日历——不再只显示服务器文件路径）。测试 +11。
+  - **iter 70 Anki 卡片包导出（commits `1aa4f8a`/`6d54bf3`）**：[build_anki.py](backend/app/tools/build_anki.py) 用 genanki（纯 Python 库，requirements + `genanki==0.13.1`）：**测验题（generate_quiz 按知识点出的校验题）转卡片**——正面题干+选项、背面答案+解析，全文 HTML 转义；deck id 由 plan_id 派生（重复导出进同牌组更新）。无测验题 -> `no_quizzes`(422) 提示先生成。端点返回 base64 .apkg，前端 Blob 下载（双击导入 Anki）。测试 +7（含卡片内容写 sqlite 验证转义/选项渲染）。
+  - **iter 71 协作分享——只读分享链接（commits `93f52eb`/`9d58d3a`/`0018133`）**：share_links 表（迁移 `c7e2a9f41d35`，plan_id 唯一 + token 唯一索引；**backref cascade delete-orphan** 保证 session/user 级联删 plan 不被 FK 阻断）；POST/GET/DELETE `/plans/{id}/share`（所有者，创建幂等返回既有 192bit 随机 token）；GET `/shared/{token}` **公开无认证**只读（只含方案内容，不含用户/会话/资料）。前端：PlanDetail 分享按钮（创建即复制剪贴板，非安全上下文降级展示；已分享可撤销）、`/shared/:token` 公开页（RequireAuth 外，渲染阶段/topics/资源链接）。测试 +8；迁移 roundtrip 验证。
+  - **iter 72 缓存深度优化（commit `62ae0de`）**：评估现状——prompt 缓存（system ephemeral）与 cache_read/write 计量 + Usage 页命中率展示此前已落地；缺口在 URL 校验层（同 URL 跨方案/重生成重复发 HTTP）。新增 [verify_url.py](backend/app/tools/verify_url.py) 进程内 TTL 缓存：成功 24h / 失败 1h / 4096 条 FIFO，命中带 `cached=true`；`reset_verify_cache` 接入 conftest 隔离。测试 +4（含每次新建 client 共享 MockTransport 的 `_patch_fetch_multi`，留存真类防递归 patch）。
+  - **验证**：全量 356 测试通过（326→356，+30）+ 前端 build（427KB），零回归。**plan 路线图 P1-P5 全部收官**。
+  - **待做**：扩展真机剪藏冒烟 / UX 打磨（md 导出浏览器化等）/ 用户新需求。
 
 - **2026-07-18 iter 68（移除 Docker + 纯脚本真机冒烟，✅ 完成）**：用户决定「移除全部 Docker 相关，项目目前不需要 Docker；用纯脚本真机冒烟」。用户同时下达全自动指令（不再请示；除 Python 库不装软件；脱离 Docker 跨平台脚本；稳定优先；**隐私红线：任何含 apikey 的配置绝不提交**；重视 UX）。
   - **Docker 移除（commit `b9a9a68`）**：删 docker-compose.yml / 两 Dockerfile / frontend/nginx.conf / 两 .dockerignore；README 部署章节重写为单一本地直起方案（配置表/迁移/首登/升级/**文件级备份**（data/ 打包）/可选 OCR 与 HTTPS）；.env.example、health.py/migrate.py docstring 同步。（事故：`.claude/plan.md` 本地草稿误随 `git add -A` 入库，下一 commit `918da88` 移出并将 `.claude/` 加入 .gitignore。）plan/ 为设计历史文档，docker 记述保留。
