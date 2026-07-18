@@ -33,19 +33,17 @@ async def health() -> dict:
         components["db"] = "error"
 
     try:
-        components["skills_loaded"] = len(get_skill_registry())
+        get_skill_registry()
+        components["skills"] = "ok"
     except Exception:  # noqa: BLE001
-        components["skills_loaded"] = -1
+        components["skills"] = "error"
 
+    # err.md A25：未认证端点不回显内部细节（磁盘余量数值/组件计数），仅给状态档位
     try:
         free_mb = int(shutil.disk_usage(settings.data_dir).free / (1024 * 1024))
+        components["disk"] = "low" if free_mb < _DISK_WARN_FREE_MB else "ok"
     except OSError:
-        free_mb = -1
-    components["disk_free_mb"] = free_mb
+        components["disk"] = "error"
 
-    degraded = (
-        components["db"] != "ok"
-        or components["skills_loaded"] == -1
-        or (0 <= free_mb < _DISK_WARN_FREE_MB)
-    )
+    degraded = "error" in components.values() or components["disk"] == "low"
     return {"status": "degraded" if degraded else "ok", "components": components}

@@ -26,7 +26,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
-from app.api.deps import get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
+from app.agent.cost import record_metadata_usage
+from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
 from app.db import models
@@ -320,6 +321,7 @@ def generate(
                 )
 
         _check_generate_quota(db, user, body.session_id)  # 新起生成前的并发配额（plan/09 §十八/§二十）
+        check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, body.session_id, raw_text)
 
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
@@ -371,6 +373,7 @@ def clarify(
         }
         raw_text = partial.get("raw_text", "")[:_MAX_RAW_TEXT_CHARS]
         _check_generate_quota(db, user, session_id)
+        check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, session_id, raw_text)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": [{"text": "", "meta": p["meta"]} for p in parsed], "answers": body.answers}}
     return StreamingResponse(
@@ -435,6 +438,13 @@ def regenerate(
         state = db.get(models.OrchestratorState, session_id)
         if state is not None and state.status == models.OrchestratorStatus.running:
             raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
+        # err.md A7：重生成次数上限（settings.max_regenerations 此前从未被引用，
+        # 同一 plan 可无限次重生成，LLM 成本无上限）。version 初值 1，每次重生成 +1。
+        if plan.version > settings.max_regenerations:
+            raise ApiError(
+                "quota_exceeded",
+                f"该方案重生成次数已达上限 {settings.max_regenerations} 次（如需更多请新建会话重新生成）",
+            )
         # understand_intent 须在上游（否则需原始 raw_text，不支持）
         if "understand_intent" not in initial_upstream:
             raise ApiError(
@@ -443,6 +453,7 @@ def regenerate(
                 status=400,
             )
         _check_generate_quota(db, user, session_id)
+        check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, session_id, "")
     args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
     return StreamingResponse(
@@ -1068,6 +1079,7 @@ async def _materials_sse(
             registry=default_registry(),
             llm_provider=provider,
             data_dir=settings.data_dir,
+            budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
         )
         topic = (content.get("intent") or {}).get("topic") or "概述"
         degraded_count = 0
@@ -1098,6 +1110,14 @@ async def _materials_sse(
                 except BaseException:
                     task.cancel()  # 断连/取消 -> 不遗留后台 LLM 调用
                     raise
+                # err.md A6：逐单元成本纳入预算守卫与 api_usage 计量
+                if ctx.budget:
+                    ctx.budget.add(out.metadata.cost)
+                record_metadata_usage(db, out.metadata, user_id)
+                if ctx.budget and ctx.budget.exceeded():
+                    log.warning("材料生成预算超限 plan=%s spent=%.4f", plan_id, ctx.budget.spent)
+                    yield _sse("error", {"code": "budget_exceeded", "message": "本次生成预算已用尽，已保留已生成单元"})
+                    return
                 if out.status == "ok":
                     data = UnitContentSpec.model_validate(out.data)
                     unit = StudyUnitSpec(
@@ -1165,6 +1185,7 @@ async def generate_materials(
             "index_md": _read_materials_index(plan.session_id),
         }
 
+    check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径；幂等重渲染不耗 LLM）
     picked = _resolve_scope_stages(content, body.scope)  # 422 invalid_scope
 
     if "text/event-stream" in request.headers.get("accept", ""):
@@ -1189,6 +1210,7 @@ async def generate_materials(
         registry=default_registry(),
         llm_provider=provider,
         data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
     )
     # 同步 JSON 路径：scope 仅作用于 prompt（过滤阶段副本）；持久化仍为整档替换
     # （LLM 单文档规约无法可靠映射 stage_index；前端默认走 SSE 逐单元路径，scope 语义完整）
@@ -1201,6 +1223,7 @@ async def generate_materials(
         args={"plan_id": str(plan_id), "plan": prompt_content, "depth": body.depth},
     )
     spec_out = await run_tool("generate_study_materials", inp, ctx)
+    record_metadata_usage(db, spec_out.metadata, user.id)  # err.md A6：计量
     # ok 用 LLM 规约；repaired/error 降级 default_materials_from_plan(plan)
     if spec_out.status == "ok":
         spec = StudyMaterialsSpec.model_validate(spec_out.data)
@@ -1256,6 +1279,15 @@ class QuizIn(BaseModel):
     refresh: bool = False  # True 强制重新生成（替换旧题，attempts 级联删）
 
 
+def _quiz_type_safe(raw: str) -> models.QuizType:
+    """err.md A3：LLM 输出的自由字符串题型非法时回退 choice（原直接 QuizType(...) 抛 ValueError -> 500）。"""
+    try:
+        return models.QuizType(raw)
+    except ValueError:
+        log.warning("非法测验题型 %r，回退 choice", raw)
+        return models.QuizType.choice
+
+
 def _persist_quizzes(db: Session, plan_id: int, spec: QuizSpec) -> list[models.Quiz]:
     """替换式持久化：删旧题（含 attempts，FK 约束需先删）-> 插新题。
 
@@ -1272,7 +1304,7 @@ def _persist_quizzes(db: Session, plan_id: int, spec: QuizSpec) -> list[models.Q
         models.Quiz(
             plan_id=plan_id,
             node_id=sid_map.get(q.node_id),
-            type=models.QuizType(q.type),
+            type=_quiz_type_safe(q.type),
             payload=q.model_dump(),
         )
         for q in spec.quizzes
@@ -1315,6 +1347,8 @@ async def generate_quiz_endpoint(
     if existing and not refresh:
         return _quiz_result(existing, content)
 
+    check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径）
+
     try:
         provider = get_provider(user.id)
     except Exception:  # noqa: BLE001  无 key -> 降级默认
@@ -1327,6 +1361,7 @@ async def generate_quiz_endpoint(
         llm_provider=provider,
         skill_registry=get_skill_registry() or None,  # iter 61：deep-tutor-quiz Skill（空 -> inline 回退）
         data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
     )
     # quiz 题源联动（iter 49）：已持久化自学单元的「检查理解」自测题 -> 题源（无单元/无小节 -> 空，行为同前）
     unit_contents: list[tuple[str, str]] = []
@@ -1350,6 +1385,7 @@ async def generate_quiz_endpoint(
         },
     )
     spec_out = await run_tool("generate_quiz", inp, ctx)
+    record_metadata_usage(db, spec_out.metadata, user.id)  # err.md A6：计量
     # ok 用 LLM 规约；repaired/error 降级 default_quiz_from_plan(plan)
     if spec_out.status == "ok":
         spec = QuizSpec.model_validate(spec_out.data)

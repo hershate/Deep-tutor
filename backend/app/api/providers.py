@@ -13,6 +13,7 @@ import re
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
@@ -103,7 +104,12 @@ def create_provider(
         is_active=False,
     )
     db.add(p)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # err.md A16：并发创建撞 uq_provider_user_name -> 409（而非 500）
+        db.rollback()
+        raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409) from None
     db.refresh(p)
     return _out(p)
 
@@ -127,7 +133,12 @@ def update_provider(
         p.model = body.model
     if body.api_key is not None:  # 不传 -> 保留原值
         p.api_key = body.api_key
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # err.md A16：并发改名撞 uq_provider_user_name -> 409（而非 500）
+        db.rollback()
+        raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409) from None
     db.refresh(p)
     return _out(p)
 

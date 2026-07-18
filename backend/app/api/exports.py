@@ -9,18 +9,21 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.agent import run_tool
+from app.agent import BudgetTracker, run_tool
 from app.agent.context import ExecContext
-from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
+from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.settings import settings
+from app.db.base import SessionLocal
 from app.db.models import User
 from app.llm import get_provider
 from app.tools import default_registry
@@ -31,6 +34,8 @@ from app.tools.build_plan_slides import SlideSpec, default_spec_from_plan, rende
 from app.tools.export_pdf import build_pdf, pdf_available
 from app.tools.export_plan import export_plan, render_markdown
 
+log = logging.getLogger("deep_tutor.api.exports")
+
 router = APIRouter(prefix="/export", tags=["export"], dependencies=[Depends(require_auth)])
 
 # 导出速率限制（plan/09 §十八）
@@ -38,7 +43,8 @@ _EXPORT_RATE_PER_MIN = 12
 
 
 class ExportIn(BaseModel):
-    format: str = "md"
+    # err.md A17：未知格式此前静默走 md 分支（客户端拿到与请求不符的产物）
+    format: Literal["md", "pdf", "slides", "ics", "anki"] = "md"
 
 
 @router.post("/{plan_id}")
@@ -64,9 +70,9 @@ async def export_plan_endpoint(
     if body.format == "slides":
         return await _export_slides(plan_id, plan.session_id, content, user.id)
     if body.format == "ics":
-        return _export_ics(plan_id, content)
+        return await _export_ics(plan_id, content)
     if body.format == "anki":
-        return _export_anki(plan_id, content)
+        return await _export_anki(plan_id, content)
     if body.format == "pdf":
         return await _export_pdf(plan_id, plan.session_id, content)
     return await _export_md(plan_id, plan.session_id, content, body.format)
@@ -99,10 +105,13 @@ async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
     }
 
 
-def _export_ics(plan_id: int, content: dict) -> dict:
+async def _export_ics(plan_id: int, content: dict) -> dict:
     """ics 日历导出（P5）：schedule -> RFC 5545 全天事件。内容随响应返回，前端 Blob 下载。"""
+    import asyncio
+
     try:
-        ics_text, events, skipped = build_ics(plan_id, content)
+        # err.md A18：同步 CPU 工作 to_thread，防阻塞事件循环（同 _export_pdf）
+        ics_text, events, skipped = await asyncio.to_thread(build_ics, plan_id, content)
     except ValueError as exc:
         raise ApiError("no_schedule", str(exc)) from exc
     result: dict = {
@@ -117,10 +126,13 @@ def _export_ics(plan_id: int, content: dict) -> dict:
     return result
 
 
-def _export_anki(plan_id: int, content: dict) -> dict:
+async def _export_anki(plan_id: int, content: dict) -> dict:
     """Anki 卡片包导出（P5）：quizzes -> .apkg（base64 随响应返回，前端 Blob 下载）。"""
+    import asyncio
+
     try:
-        apkg, cards = build_apkg(plan_id, content)
+        # err.md A18：同步 CPU 工作 to_thread，防阻塞事件循环（同 _export_pdf）
+        apkg, cards = await asyncio.to_thread(build_apkg, plan_id, content)
     except ValueError as exc:
         raise ApiError("no_quizzes", str(exc)) from exc
     return {
@@ -166,7 +178,11 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
     try:
         base_template = template_path.read_text(encoding="utf-8")
     except OSError as exc:  # noqa: BLE001  模板缺失（vendored，正常不应发生）
-        raise ApiError("internal_error", f"幻灯片模板缺失: {exc}") from exc
+        # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
+        log.error("幻灯片模板缺失: %s", exc)
+        raise ApiError("internal_error", "幻灯片模板缺失") from exc
+
+    check_daily_budget(None, user_id)  # err.md A6：slides LLM 调用纳入日预算守卫
 
     try:
         provider = get_provider(user_id)
@@ -179,6 +195,8 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
         registry=default_registry(),
         llm_provider=provider,
         data_dir=settings.data_dir,
+        # err.md A6：会话级预算守卫（此前该路径 LLM 调用无预算约束）
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),
     )
     inp = ToolInput(
         tool="build_plan_slides",
@@ -191,6 +209,16 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
         spec = SlideSpec.model_validate(spec_out.data)
     else:
         spec = default_spec_from_plan(content)
+
+    # err.md A6：slides LLM 用量计入 api_usage（日预算统计口径完整）
+    if spec_out.metadata.tokens_in or spec_out.metadata.tokens_out:
+        from app.agent.cost import record_metadata_usage
+
+        db = SessionLocal()
+        try:
+            record_metadata_usage(db, spec_out.metadata, user_id)
+        finally:
+            db.close()
 
     html = render_slides_html(spec, base_template)
     result: dict = {"file_url": "", "format": "html", "slide_count": len(spec.slides), "html": html}

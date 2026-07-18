@@ -10,8 +10,9 @@ def test_health_ok(client):
     assert body["status"] == "ok"
     comp = body["components"]
     assert comp["db"] == "ok"
-    assert comp["skills_loaded"] >= 0
-    assert comp["disk_free_mb"] >= 0
+    # err.md A25：未认证端点只给状态档位，不回显磁盘余量数值/组件计数
+    assert comp["skills"] == "ok"
+    assert comp["disk"] == "ok"
 
 
 def test_health_no_auth_required(client):
@@ -48,4 +49,4 @@ def test_health_low_disk_degraded(client, monkeypatch):
     monkeypatch.setattr(health_mod.shutil, "disk_usage", lambda p: Usage(0, 0, 50 * 1024 * 1024))
     body = client.get("/api/health").json()
     assert body["status"] == "degraded"
-    assert body["components"]["disk_free_mb"] == 50
+    assert body["components"]["disk"] == "low"

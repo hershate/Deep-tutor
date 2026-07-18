@@ -15,6 +15,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
@@ -44,7 +45,12 @@ def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depen
     if link is None:
         link = ShareLink(plan_id=plan.id, token=secrets.token_urlsafe(24))
         db.add(link)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # err.md A16：并发创建撞唯一约束 -> 重读既有行（幂等语义不变）
+            db.rollback()
+            link = db.query(ShareLink).filter_by(plan_id=plan.id).one()
         db.refresh(link)
     return {"token": link.token, "path": f"/shared/{link.token}", "created_at": link.created_at.isoformat()}
 

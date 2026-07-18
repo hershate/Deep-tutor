@@ -114,7 +114,7 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+        allow_headers=["Authorization", "Content-Type", "Last-Event-ID", "X-Auth-Token"],  # err.md A21：X-Auth-Token 认证方式对浏览器跨域可用
     )
 
     # 请求体大小限制（Content-Length 预检，防超大 body OOM；路由解析前拒）
@@ -130,16 +130,40 @@ def create_app() -> FastAPI:
                     )
             except ValueError:
                 pass
+            return await call_next(request)
+        # err.md A5/C18：chunked 传输无 Content-Length，预检被绕过 -> 流式限量读取，
+        # 超限即拒；未超限则把已读 body 重新包装给下游
+        if "chunked" in request.headers.get("transfer-encoding", "").lower():
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > _MAX_BODY_BYTES:
+                    return JSONResponse(
+                        {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
+                        status_code=413,
+                    )
+
+            async def _receive():
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+            from starlette.requests import Request as _StarletteRequest
+
+            request = _StarletteRequest(request.scope, _receive)
         return await call_next(request)
 
     app.include_router(api_router)
 
     # 统一错误处理（plan/03 错误格式、R35 不回显敏感信息）
-    from app.api import errors
     from fastapi import HTTPException
+    from fastapi.exceptions import RequestValidationError
+
+    from app.api import errors
 
     app.add_exception_handler(errors.ApiError, errors.api_error_handler)
     app.add_exception_handler(HTTPException, errors.http_exception_handler)
+    # err.md A4：Starlette 层 404/405 与请求校验 422 同样走统一错误格式
+    app.add_exception_handler(StarletteHTTPException, errors.starlette_http_exception_handler)
+    app.add_exception_handler(RequestValidationError, errors.request_validation_handler)
     app.add_exception_handler(Exception, errors.unhandled_exception_handler)
 
     # 免 nginx 本地直起（iter 67）：FRONTEND_DIST 指向构建产物时由后端托管 SPA。

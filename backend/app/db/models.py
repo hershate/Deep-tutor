@@ -100,6 +100,8 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(256), default="")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # err.md A9：改密时间（epoch 秒）；JWT iat 早于此值即视为已吊销（改密后旧 token 失效）
+    tokens_valid_after: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # 删用户时级联删其会话（err.md C3：PRAGMA foreign_keys=ON 下无级联会 FK 阻断）；

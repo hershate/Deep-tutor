@@ -7,6 +7,7 @@ P4 按用户隔离（iter 58）：仅统计当前用户（api_usage.user_id）�
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
@@ -18,15 +19,18 @@ router = APIRouter(prefix="/usage", tags=["usage"], dependencies=[Depends(requir
 
 @router.get("")
 def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
-    rows = db.query(models.ApiUsage).filter_by(user_id=user.id).all()
-    total_in = sum(r.tokens_in for r in rows)
-    total_out = sum(r.tokens_out for r in rows)
-    total_cache_read = sum(r.cache_read for r in rows)
-    total_cost = sum(r.cost for r in rows)
+    # err.md A19：SQL 聚合替代全表读入 Python 求和（用量增长后内存/耗时线性上升）
+    total_in, total_out, total_cache_read, total_cost, calls = db.query(
+        func.coalesce(func.sum(models.ApiUsage.tokens_in), 0),
+        func.coalesce(func.sum(models.ApiUsage.tokens_out), 0),
+        func.coalesce(func.sum(models.ApiUsage.cache_read), 0),
+        func.coalesce(func.sum(models.ApiUsage.cost), 0.0),
+        func.count(models.ApiUsage.id),
+    ).filter_by(user_id=user.id).one()
     cache_hit_rate = (total_cache_read / total_in) if total_in else 0.0
     return {
-        "total_tokens": total_in + total_out,
-        "total_cost": round(total_cost, 6),
+        "total_tokens": int(total_in + total_out),
+        "total_cost": round(float(total_cost), 6),
         "cache_hit_rate": round(cache_hit_rate, 4),
-        "calls": len(rows),
+        "calls": int(calls),
     }

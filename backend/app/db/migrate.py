@@ -23,17 +23,21 @@ log = logging.getLogger(__name__)
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 # 代际探测：按迁移链从新到旧，首个命中的特征即该库 stamp 目标。
-# (revision, 表名, 列名)；列名为 None 表示表存在即命中。
-_REVISION_PROBES: list[tuple[str, str, str | None]] = [
-    ("d8f3b1a92c67", "materials", "content_hash"),
-    ("c7e2a9f41d35", "share_links", None),
-    ("a1c4f7e20b58", "llm_provider_profiles", "user_id"),
-    ("169af26b09e7", "users", "username"),
-    ("3deb4164602b", "llm_provider_profiles", None),
-    ("69bb0fe9ca9f", "study_units", "done_at"),
-    ("baa9cf610047", "knowledge_nodes", "sid"),
-]
-_BASE_REVISION = "beba50db3cc1"
+# 每项 (revision, detector(insp) -> bool)；探测器须与链序严格一致（新在前）。
+def _has_table(table: str):
+    def _det(insp) -> bool:
+        return table in insp.get_table_names()
+
+    return _det
+
+
+def _has_column(table: str, column: str):
+    def _det(insp) -> bool:
+        if table not in insp.get_table_names():
+            return False
+        return column in {c["name"] for c in insp.get_columns(table)}
+
+    return _det
 
 
 def _progress_has_plan_node_unique(insp) -> bool:
@@ -53,11 +57,18 @@ def _progress_has_plan_node_unique(insp) -> bool:
     return False
 
 
-# 附加特征探测（无法以「表/列存在」表达的新代际），按迁移链从新到旧：
-# (revision, detector(insp) -> bool)。先于 _REVISION_PROBES 检查（列探针会命中更老代际）。
-_EXTRA_PROBES = [
+_REVISION_PROBES = [
+    ("a3b91c2e4f56", _has_column("users", "tokens_valid_after")),
     ("f2a8c1d94e07", _progress_has_plan_node_unique),
+    ("d8f3b1a92c67", _has_column("materials", "content_hash")),
+    ("c7e2a9f41d35", _has_table("share_links")),
+    ("a1c4f7e20b58", _has_column("llm_provider_profiles", "user_id")),
+    ("169af26b09e7", _has_column("users", "username")),
+    ("3deb4164602b", _has_table("llm_provider_profiles")),
+    ("69bb0fe9ca9f", _has_column("study_units", "done_at")),
+    ("baa9cf610047", _has_column("knowledge_nodes", "sid")),
 ]
+_BASE_REVISION = "beba50db3cc1"
 
 
 def _alembic_config(db_url: str) -> Config:
@@ -74,16 +85,8 @@ def detect_stamp(db_url: str) -> str | None:
     tables = set(insp.get_table_names())
     if "alembic_version" in tables or "sessions" not in tables:
         return None  # 版本表在 -> alembic 自理；无业务表 -> 视为新库
-    for revision, detector in _EXTRA_PROBES:
+    for revision, detector in _REVISION_PROBES:
         if detector(insp):
-            return revision
-    for revision, table, column in _REVISION_PROBES:
-        if table not in tables:
-            continue
-        if column is None:
-            return revision
-        cols = {c["name"] for c in insp.get_columns(table)}
-        if column in cols:
             return revision
     return _BASE_REVISION
 

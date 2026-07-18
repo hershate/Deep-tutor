@@ -38,22 +38,30 @@ def build_metadata(total: LLMUsage, model: str = "") -> ToolMetadata:
     )
 
 
-def record_api_usage(db, usage: LLMUsage, provider: str = "anthropic") -> float:
-    """写 api_usage 表（若 db 提供），返回 cost。step 6 在编排器中按需调用。"""
-    cost = estimate_cost(usage, usage.model)
-    if db is not None:
+def record_metadata_usage(db, metadata: ToolMetadata, user_id: int | None = None, provider: str = "anthropic") -> None:
+    """按 ToolOutput.metadata 写 api_usage 行（err.md A6/B16）。
+
+    生成管线的用量由 _persist_tool_calls 归集；quiz/materials/slides 等独立端点
+    此前不计量（日预算与用量统计对其失明），统一经此函数补记。
+    无 token 消耗（纯降级/无 provider）时不写；写失败仅回滚不抛（计量不阻断业务）。
+    """
+    if not (metadata.tokens_in or metadata.tokens_out):
+        return
+    try:
         from app.db.models import ApiUsage
 
         db.add(
             ApiUsage(
+                user_id=user_id,
                 provider=provider,
-                model=usage.model,
-                tokens_in=usage.input_tokens,
-                tokens_out=usage.output_tokens,
-                cache_read=usage.cache_read_input_tokens,
-                cache_write=usage.cache_creation_input_tokens,
-                cost=cost,
+                model=metadata.model,
+                tokens_in=metadata.tokens_in,
+                tokens_out=metadata.tokens_out,
+                cache_read=metadata.cache_read,
+                cache_write=metadata.cache_write,
+                cost=metadata.cost,
             )
         )
         db.commit()
-    return cost
+    except Exception:  # noqa: BLE001
+        db.rollback()

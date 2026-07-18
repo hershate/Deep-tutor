@@ -21,6 +21,9 @@ from app.db.models import User
 
 router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(require_auth)])
 
+# 每用户会话数上限（err.md A24：此前会话创建无配额，DB 行/文件目录无界增长）
+_MAX_SESSIONS_PER_USER = 200
+
 
 class SessionCreate(BaseModel):
     title: str = Field(default="", max_length=256)
@@ -35,6 +38,14 @@ class SessionOut(BaseModel):
 def create_session(
     body: SessionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> SessionOut:
+    count = db.query(models.Session).filter_by(user_id=user.id).count()
+    if count >= _MAX_SESSIONS_PER_USER:
+        from app.api.errors import ApiError
+
+        raise ApiError(
+            "quota_exceeded",
+            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
+        )
     sess = models.Session(user_id=user.id, title=body.title)
     db.add(sess)
     db.commit()

@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
@@ -85,7 +87,12 @@ def create_user(
         is_admin=body.is_admin,
     )
     db.add(u)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # err.md A16：并发创建撞 uq_users_username -> 409（而非 500）
+        db.rollback()
+        raise ApiError("conflict", f"用户名已存在: {username}", status=409) from None
     db.refresh(u)
     return _user_out(u)
 
@@ -111,6 +118,7 @@ def update_user(
         u.name = body.name.strip() or u.name
     if body.password is not None:
         u.password_hash = hash_password(body.password)
+        u.tokens_valid_after = time.time()  # err.md A9：重置密码吊销旧 JWT
     db.commit()
     db.refresh(u)
     return _user_out(u)

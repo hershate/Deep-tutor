@@ -45,6 +45,20 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
+_dummy_hash: str = ""
+
+
+def dummy_verify(password: str) -> None:
+    """对伪 hash 执行一次完整 pbkdf2 校验（结果丢弃）。
+
+    err.md A8：登录时用户不存在也走同等耗时路径，消除时序侧信道（用户名枚举）。
+    """
+    global _dummy_hash
+    if not _dummy_hash:
+        _dummy_hash = hash_password("dummy-password-for-timing-flattening")
+    verify_password(password, _dummy_hash)
+
+
 def _secret() -> str:
     """JWT HMAC secret：jwt_secret -> AUTH_TOKEN -> 进程级随机（兜底）。"""
     global _fallback_secret
@@ -93,8 +107,19 @@ def ensure_admin_user(db) -> None:
     try:
         admin = db.query(User).filter_by(username=settings.admin_username).first()
         if admin is not None:
+            changed = False
             if not admin.is_admin:
                 admin.is_admin = True
+                changed = True
+            # err.md C8：ADMIN_PASSWORD 轮换/后补时应收敛到现有管理员
+            # （此前命中即 return，改密码永不生效；空密码账号后补密码也无法登录）
+            if settings.admin_password and not verify_password(
+                settings.admin_password, admin.password_hash
+            ):
+                admin.password_hash = hash_password(settings.admin_password)
+                admin.tokens_valid_after = time.time()  # 改密吊销旧 JWT（err.md A9）
+                changed = True
+            if changed:
                 db.commit()
             return
         users = db.query(User).all()

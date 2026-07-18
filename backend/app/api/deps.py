@@ -81,7 +81,17 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
             user_id = int(payload.get("sub", ""))
         except (TypeError, ValueError):
             return None
-        return db.get(User, user_id)
+        user = db.get(User, user_id)
+        if user is None:
+            return None
+        # err.md A9：改密（tokens_valid_after 更新）前签发的 JWT 视为已吊销
+        try:
+            iat = float(payload.get("iat", 0))
+        except (TypeError, ValueError):
+            return None
+        if iat < (user.tokens_valid_after or 0):
+            return None
+        return user
     if _is_env_token(token):
         return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
     return None
@@ -104,6 +114,47 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin required")
     return user
+
+
+def check_daily_budget(db: Session | None, user_id: int) -> None:
+    """日预算守卫（err.md A6：daily_budget_usd 配置此前全库零引用、从未强制）。
+
+    当日（UTC）api_usage 累计 cost >= settings.daily_budget_usd -> 402 budget_exceeded；
+    daily_budget_usd <= 0 视为不限。db 为 None 时使用短生命周期会话。
+    触发 LLM 计费的端点（生成/材料/测验/幻灯片）应在执行前调用。
+    """
+    limit = settings.daily_budget_usd
+    if limit <= 0:
+        return
+    if db is None:
+        own = SessionLocal()
+        try:
+            return check_daily_budget(own, user_id)
+        finally:
+            own.close()
+    from datetime import datetime, timezone
+
+    from sqlalchemy import func
+
+    from app.api.errors import ApiError
+    from app.db import models
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    spent = (
+        db.query(func.coalesce(func.sum(models.ApiUsage.cost), 0.0))
+        .filter(
+            models.ApiUsage.user_id == user_id,
+            func.date(models.ApiUsage.created_at) == today,
+        )
+        .scalar()
+        or 0.0
+    )
+    if spent >= limit:
+        raise ApiError(
+            "budget_exceeded",
+            f"当日 LLM 预算已用尽（${spent:.4f} / ${limit:.4f}），请明天再试或调整 DAILY_BUDGET_USD",
+            status=402,
+        )
 
 
 # --- 数据归属守卫（P4 iter 58 按用户隔离）---

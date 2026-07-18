@@ -51,12 +51,12 @@ _MAGIC = {
 
 class UrlIn(BaseModel):
     session_id: int
-    url: str
+    url: str = Field(min_length=1, max_length=2048)  # err.md A5：此前无上限
 
 
 class TextIn(BaseModel):
     session_id: int
-    text: str
+    text: str = Field(max_length=2_000_000)  # err.md A5：与 ClipIn content 同上限（2MB），防内存 DoS
 
 
 class MaterialOut(BaseModel):
@@ -231,10 +231,19 @@ async def upload_material(
 
     text = out.data.get("text", "")
     meta = out.data.get("meta", {})
-    material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
-    material.parsed_chars = len(text)
-    material.meta = meta
-    db.commit()
+    # err.md A15：解析文本落盘失败需回滚 DB 并清理原件，防孤儿文件
+    try:
+        material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
+        material.parsed_chars = len(text)
+        material.meta = meta
+        db.commit()
+    except Exception:
+        db.rollback()
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
     db.refresh(material)
     return MaterialOut(material_id=material.id, kind="file", meta=meta)
 
@@ -286,7 +295,9 @@ def get_study_unit_content(
         try:
             content_md = read_unit_content(mat.content_md_path)  # 自动串联拆分子文件（plan/02 §13）
         except OSError:
-            raise ApiError("not_found", f"单元内容文件缺失: {mat.content_md_path}") from None
+            # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
+            log.warning("单元内容文件缺失 unit=%s path=%s", unit.id, mat.content_md_path)
+            raise ApiError("not_found", f"单元 {unit.id} 的内容文件缺失") from None
     return {"unit_id": unit.id, "title": unit.title, "content_md": content_md, "resources": resources}
 
 
@@ -333,6 +344,14 @@ async def clip_material(
     """
     content = body.content.strip()
     title = (body.title or "").strip()
+    # err.md A24：clip 同样受会话数配额约束（与 POST /sessions 一致）
+    from app.api.sessions import _MAX_SESSIONS_PER_USER
+
+    if db.query(models.Session).filter_by(user_id=user.id).count() >= _MAX_SESSIONS_PER_USER:
+        raise ApiError(
+            "quota_exceeded",
+            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
+        )
     if body.kind == "text":
         if not content:
             raise ApiError("empty_content", "剪藏内容为空")
@@ -340,6 +359,9 @@ async def clip_material(
     else:
         if not _HTTPS_RE.match(content):
             raise ApiError("bad_request", "剪藏链接须以 http(s):// 开头", status=400)
+        # err.md A13：clip 的 url 分支与 /materials/url 同一抓取入口，同样过限流
+        if not limiter.check(f"url:{user.id}", _URL_RATE_PER_MIN):
+            raise ApiError("rate_limited", f"网页抓取限每分钟 {_URL_RATE_PER_MIN} 次，请稍后再试")
         title = title or content[:80]
 
     sess = models.Session(user_id=user.id, title=title[:256])
