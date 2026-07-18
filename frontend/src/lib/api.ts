@@ -96,6 +96,13 @@ export const createTextMaterial = (sessionId: number, text: string) =>
     body: JSON.stringify({ session_id: sessionId, text }),
   })
 
+// 网页链接资料（plan/03 §二 输入形式「网页链接」）：后端抓取+正文提取（trafilatura）
+export const createUrlMaterial = (sessionId: number, url: string) =>
+  apiFetch<{ material_id: number; kind: string; meta: Record<string, unknown> }>('/materials/url', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, url }),
+  })
+
 // 大文件上传（plan/09 §七 前端边界：字节级进度）。用 XHR 而非 fetch——
 // fetch 的上传进度（Request duplex stream）浏览器支持差，XHR upload.onprogress 全量可用。
 export function uploadMaterial(

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, createSession, deleteSession, uploadMaterial } from '../lib/api'
+import { ApiError, createSession, createUrlMaterial, deleteSession, uploadMaterial } from '../lib/api'
 
 export default function Home() {
   const [rawText, setRawText] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [urls, setUrls] = useState<string[]>([]) // 网页链接资料（plan/03 §二）
+  const [urlInput, setUrlInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
   const [uploadPct, setUploadPct] = useState<number | null>(null) // 当前文件字节级进度（plan/09 §七）
@@ -16,10 +18,26 @@ export default function Home() {
     setFiles((prev) => [...prev, ...Array.from(list)])
   }
 
+  function addUrl() {
+    const u = urlInput.trim()
+    if (!u) return
+    if (!/^https?:\/\//i.test(u)) {
+      setError('链接需以 http:// 或 https:// 开头')
+      return
+    }
+    if (urls.includes(u)) {
+      setError('该链接已添加')
+      return
+    }
+    setError('')
+    setUrls((prev) => [...prev, u])
+    setUrlInput('')
+  }
+
   async function start() {
     setError('')
-    if (!rawText.trim() && files.length === 0) {
-      setError('请输入需求描述或上传资料')
+    if (!rawText.trim() && files.length === 0 && urls.length === 0) {
+      setError('请输入需求描述，或上传资料 / 添加网页链接')
       return
     }
     setLoading(true)
@@ -35,6 +53,18 @@ export default function Home() {
           } catch (e) {
             throw new Error(
               `${files[i].name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
+            )
+          }
+        }
+        // 网页链接资料（plan/03 §二）：后端逐条抓取+正文提取
+        for (let i = 0; i < urls.length; i++) {
+          setUploadProgress(`抓取网页 ${i + 1}/${urls.length}（${urls[i]}）`)
+          setUploadPct(null)
+          try {
+            await createUrlMaterial(session_id, urls[i])
+          } catch (e) {
+            throw new Error(
+              `${urls[i]} 抓取失败：${e instanceof ApiError ? e.message : '网络错误'}`,
             )
           }
         }
@@ -55,7 +85,7 @@ export default function Home() {
     <div className="space-y-6">
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">开始生成你的学习方案</h2>
-        <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）。</p>
+        <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
       </div>
 
       <div className="space-y-2">
@@ -95,6 +125,52 @@ export default function Home() {
                   type="button"
                   onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${f.name}`}
+                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                >
+                  移除
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="home-url" className="block text-sm font-medium text-slate-700">
+          网页链接（可选，可多条）
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="home-url"
+            type="url"
+            placeholder="https://example.com/tutorial"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addUrl()
+              }
+            }}
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={addUrl}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50"
+          >
+            添加
+          </button>
+        </div>
+        {urls.length > 0 && (
+          <ul className="space-y-1 text-sm text-slate-600">
+            {urls.map((u, i) => (
+              <li key={u} className="flex items-center gap-2">
+                <span className="truncate">{u}</span>
+                <button
+                  type="button"
+                  onClick={() => setUrls((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`移除 ${u}`}
                   className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-red-600"
                 >
                   移除
