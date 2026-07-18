@@ -97,31 +97,44 @@ body {
 .markdown-body li {
   @apply mb-1;
 }
-.markdown-body blockquote {
-  @apply mb-2 border-l-4 border-slate-200 pl-3 text-slate-500 dark:border-slate-600 dark:text-slate-400;
-}
 .markdown-body code {
   @apply rounded bg-slate-100 px-1 py-0.5 text-[0.85em] dark:bg-slate-700;
 }
+/* iter 103：代码块深色底（浅/深主题统一高对比），圆角+横向滚动 */
 .markdown-body pre {
-  @apply mb-2 overflow-x-auto rounded-lg bg-slate-100 p-3 dark:bg-slate-800;
+  @apply mb-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-3 text-slate-100 dark:border-slate-700;
 }
 .markdown-body pre code {
-  @apply bg-transparent p-0;
+  @apply bg-transparent p-0 text-inherit dark:bg-transparent;
 }
 .markdown-body a {
-  @apply text-blue-600 hover:underline dark:text-blue-400;
+  @apply text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300;
 }
 .markdown-body table {
-  @apply mb-2 w-full border-collapse;
+  @apply mb-2 w-full border-collapse overflow-hidden rounded-lg text-sm;
+}
+.markdown-body th {
+  @apply bg-slate-50 font-semibold dark:bg-slate-700/60;
 }
 .markdown-body th,
 .markdown-body td {
   @apply border border-slate-200 px-2 py-1 text-left dark:border-slate-600;
+}
+.markdown-body tbody tr {
+  @apply transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40;
+}
+.markdown-body blockquote {
+  @apply mb-2 rounded-r border-l-4 border-blue-200 bg-blue-50/50 py-1 pl-3 text-slate-500 dark:border-blue-800 dark:bg-blue-950/40 dark:text-slate-400;
 }
 .markdown-body hr {
   @apply my-4 border-slate-200 dark:border-slate-600;
 }
 .markdown-body h2 {
   @apply dark:border-slate-600;
+}
+.markdown-body ul li::marker {
+  @apply text-blue-400;
+}
+.markdown-body ol li::marker {
+  @apply text-blue-500 font-medium;
 }

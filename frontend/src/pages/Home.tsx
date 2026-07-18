@@ -96,12 +96,16 @@ export default function Home() {
         </label>
         <textarea
           id="home-rawtext"
-          className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 p-3 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-900 p-3 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
           maxLength={20000} // err.md D14：对齐后端 prompt 字段截断上限
         />
+        {/* iter 103：字数实时提示（接近上限时 amber 预警） */}
+        <p className={`text-right text-xs tabular-nums transition-colors ${rawText.length > 18000 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} aria-live="polite">
+          {rawText.length.toLocaleString()} / 20,000
+        </p>
       </div>
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '120ms' }}>
