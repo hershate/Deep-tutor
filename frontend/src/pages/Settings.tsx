@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import ProviderManager from '../components/ProviderManager'
+import UserManager from '../components/UserManager'
 import { getSettings } from '../lib/api'
 
-/** 设置页（/settings）：LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。 */
+/** 设置页（/settings）：用户管理（admin，iter 60）+ LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。 */
 export default function Settings() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['settings'],
@@ -13,6 +14,8 @@ export default function Settings() {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">设置</h2>
+
+      <UserManager />
 
       <ProviderManager />
 
