@@ -184,7 +184,14 @@ export default function Learn() {
                 {todayMinutes >= dailyGoal && ' ✓'}
               </span>
             </div>
-            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+            <div
+              className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
+              role="progressbar"
+              aria-valuenow={Math.min(100, Math.round((todayMinutes / dailyGoal) * 100))}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="今日目标完成度"
+            >
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${todayMinutes >= dailyGoal ? 'bg-emerald-500' : 'bg-blue-500'}`}
                 style={{ width: `${Math.min(100, Math.round((todayMinutes / dailyGoal) * 100))}%` }}
