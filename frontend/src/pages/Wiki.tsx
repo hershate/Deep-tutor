@@ -152,8 +152,8 @@ export default function Wiki() {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索知识点…"
-            aria-label="搜索知识点"
+            placeholder="搜索知识点 / 笔记…"
+            aria-label="搜索知识点或笔记内容"
             className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
           />
         </div>

@@ -13,6 +13,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
@@ -41,7 +42,7 @@ def list_knowledge(
 ) -> dict:
     """当前用户全部方案的知识节点（新方案在前），含进度状态。
 
-    - q：节点名子串过滤（大小写不敏感由 SQLite LIKE 语义保证）
+    - q：节点名**或本人笔记内容**子串过滤（iter 148 扩展笔记内容；大小写不敏感由 SQLite LIKE 语义保证）
     - status：not_started（含无进度行）/ learning / done
     - 截断：limit 防重度用户一次拉爆（前端提示总数）
     """
@@ -56,7 +57,20 @@ def list_knowledge(
     if plan_id is not None:
         query = query.filter(models.KnowledgeNode.plan_id == plan_id)
     if q and q.strip():
-        query = query.filter(models.KnowledgeNode.name.contains(q.strip()))
+        qs = q.strip()
+        # iter 148：名或笔记内容匹配。outerjoin 不复制行——uq_node_notes_user_node 保证每节点至多一条
+        query = query.outerjoin(
+            models.NodeNote,
+            and_(
+                models.NodeNote.node_id == models.KnowledgeNode.id,
+                models.NodeNote.user_id == user.id,
+            ),
+        ).filter(
+            or_(
+                models.KnowledgeNode.name.contains(qs),
+                models.NodeNote.content.contains(qs),
+            )
+        )
     nodes = (
         query.order_by(models.KnowledgeNode.plan_id.desc(), models.KnowledgeNode.id)
         .limit(limit)
