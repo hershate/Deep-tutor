@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 159（美化轨：第 45 轮——错题卡打磨，✅ 完成）**：审查并行轨 iter 156 全局错题卡（commit `e510fac`）：样式本已对齐品牌模式（fade-in-up 卡 + hover 上浮 chips + tabular-nums + 暗色全配），仅补两处——① 方案 chips 逐项入场（`animate-fade-in-up` + 40ms 阶梯，沿用 R26/27 待复习卡 chips 模式）；② 标题 🎯 加 `aria-hidden`（装饰性 emoji 防读屏复读，沿用 R35/R40 模式）。验证：tsc 对 Wiki.tsx 零错（Settings.tsx 的 5 处 TS6133 均为并行轨备份预览 WIP 未提交文件，不动）。
+
 - **2026-07-19 iter 158（功能线：跨方案错题总览，✅ 完成）**：错题重练藏在单个方案里，全局有哪些错题看不见——Wiki 加全局错题卡。**编号说明**：代码注释自标 iter 156，与并行美化轨 iter 156/157（第 43/44 轮）撞号，本条取 158。
   - **后端**（commit `cb29998`）：[quizzes.py](backend/app/api/quizzes.py) `GET /quizzes/wrong-overview`——全量作答按题分组取最新（与 quiz/wrong 同判定），错题按方案聚合 {plan_id, topic, wrong_count} 错题多者在前 + total；无错题 items=[]。
   - **前端**（commit 见 git log「feat(wiki): 全局错题卡」）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 待复习卡下红色错题卡「🎯 当前错题 · N 道」+ 方案 chips（含计数，跳方案详情），total>0 才显示；[api.ts](frontend/src/lib/api.ts) `getWrongOverview`。
