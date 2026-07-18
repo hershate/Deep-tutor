@@ -47,7 +47,7 @@ export default function Settings() {
 
       {isLoading && <SkeletonLines lines={4} />}
       {error && (
-        <p role="alert" className="text-red-600 dark:text-red-400">
+        <p role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           {/* err.md D16：显示真实错误信息 */}
           加载失败：{error instanceof Error ? error.message : '未知错误'}
         </p>

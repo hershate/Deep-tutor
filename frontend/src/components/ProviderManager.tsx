@@ -207,7 +207,7 @@ export default function ProviderManager() {
 
       {isLoading && <SkeletonLines lines={3} />}
       {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           供应商列表加载失败
         </p>
       )}

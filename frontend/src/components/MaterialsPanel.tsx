@@ -44,7 +44,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
       <h3 className="mb-2 font-semibold">源资料{data ? `（${data.total}）` : ''}</h3>
       {isLoading && <SkeletonLines lines={2} />}
       {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           资料清单加载失败：{error instanceof ApiError ? error.message : '网络错误'}
         </p>
       )}
