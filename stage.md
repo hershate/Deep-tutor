@@ -234,6 +234,13 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 176（功能线：用户级日预算覆盖——参数配置落地，✅ 完成）**：日预算只能改 .env 重启才生效——设置页直接可改。**编号说明**：代码注释初标 iter 171，与并行美化轨 iter 171-175（第 51-60 轮）连撞两次，本条取 176（注释随 `ceb01a7`/`8f298e2` 两次改标）。
+  - **模型/迁移**：新增 `user_prefs` 通用 KV 表（迁移 `b4e19f0c7a25`，为后续偏好项预留——加新键免迁移）；User.prefs ORM 级联删用户。
+  - **后端**：`deps.get_daily_budget`（覆盖优先、非法值静默回退默认）；`check_daily_budget` 改用有效值，**同日界口径从 UTC 日修正为服务器本地日**（`date(created_at,'localtime')`，与 iter 167 /usage today_cost 一致——此前 UTC+8 0-8 点花费计入"昨天"，守卫阈值与用量页显示不符）；`PUT /settings/prefs`（0-100000，0=不限，null 清覆盖，幂等 upsert）；GET /settings 增 `daily_budget_effective/is_override`；/usage 的 `daily_budget_usd` 改返回有效值（预算条与守卫同源）。
+  - **迁移健壮性**：migrate 探测链补 user_prefs 代；**conftest 清 alembic_version**——残留旧版本号会让启动迁移对 create_all 已建新表再 CREATE 报 "table already exists"（本切片实证，此后每加迁移都会踩，属测试基建修复）。
+  - **前端**：[Settings.tsx](frontend/src/pages/Settings.tsx) 只读「每日预算」行改 BudgetRow——有效值 + 覆盖时标注默认，编辑态输入 + 保存/恢复默认/取消，保存后失效 settings/usage 查询（用量页预算条同源刷新）；api.ts 增 `updatePrefs`。
+  - **测试**：test_api_settings_prefs.py 5 条（默认无覆盖/设置贯通 settings+usage/清除删行/越界 422/覆盖值支配守卫 402）；全量 521 通过。提交：后端 `bddd88d` + 前端 `400e322`。**验证**：ruff 全绿；`npm run build` 通过（1.70s，主包 213.00kB）。**预留**：user_prefs 尚未纳入备份导出（备份格式加键需版本兼容处理，后续切片）。
+
 - **2026-07-19 iter 175（美化轨：第 60 轮——预算编辑行审查，✅ 完成）**：并行轨 BudgetRow（`400e322`）落地，审查结论：**零样式缺口**——编辑态数字输入带 focus ring、保存品牌主按钮、恢复默认次级按钮、tabular-nums 有效值、暗色全配。顺带修复 [Settings.tsx:104](frontend/src/pages/Settings.tsx#L104) 历史格式瑕疵（`}) {  const color =` 粘连，HEAD 既有，此前因与其 WIP 同文件暂缓）（commit `41db984`）。第 55-59 轮为无新料监视轮，未记空轮。验证：`npm run build` 通过（1.74s，主包 213.00kB）。
 
 - **2026-07-19 iter 174（美化轨：第 54 轮——全量复查零改动，✅ 完成）**：并行轨后端 user_prefs 收尾中（未提交），前端无新料。本轮复核此前未单独审过的组件原子与页面：EmptyState（图标 aria-hidden+float 动画+虚线卡）、Skeleton（role=status+shimmer+reduced-motion 覆盖）、Login（渐变底+scale-in 卡+shake 错误+全品牌控件）、GenerateProgress（呼吸灯+计时+spinner+sr-only 步骤态）——均已达品牌基线，**零改动**。不编造改动凑数；构建验证通过（1.71s，主包 210.73kB）。覆盖结论：前端 31 个 tsx 全部至少过一轮打磨，美化轨进入纯监视模式——后续轮次仅在并行轨落地新前端时做对齐审查。
