@@ -365,6 +365,15 @@ export interface ReviewDueItem {
 export const getReviewDue = () =>
   apiFetch<{ items: ReviewDueItem[]; total: number }>('/progress/review/due')
 
+// 全局学习统计（iter 122）：累计/本周分钟 + 连续打卡
+export interface StudyStats {
+  total_minutes: number
+  week_minutes: number
+  streak_days: number
+  total_logs: number
+}
+export const getStudyStats = () => apiFetch<StudyStats>('/progress/stats/summary')
+
 export interface ProgressNode {
   node_id: string // knowledge_nodes.sid（plan 内容 knowledge_map 原始 id）
   name: string
