@@ -207,7 +207,7 @@ export const listPlans = (sessionId?: number, page = 1, q = '') => {
 
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 
-export const exportPlan = (planId: number, format = 'md') =>
+export const exportPlan = (planId: number, format = 'md', wrongOnly = false) =>
   apiFetch<{
     file_url: string
     format: string
@@ -223,7 +223,7 @@ export const exportPlan = (planId: number, format = 'md') =>
     card_count?: number
     pdf_b64?: string
   // err.md D15：导出走 LLM 链（slides 等），放宽至 5 分钟
-  }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format }), timeoutMs: 300_000 })
+  }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format, wrong_only: wrongOnly }), timeoutMs: 300_000 })
 
 // 自学材料（P2，plan/07 §五；iter 47：SSE 逐单元渐进显示）。
 // 内容协商：Accept: text/event-stream 且需生成 -> SSE 流（unit_start/unit_done ×N -> done）；

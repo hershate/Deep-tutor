@@ -74,6 +74,7 @@ export default function PlanDetail() {
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
+  const [wrongExportBusy, setWrongExportBusy] = useState(false) // 错题 Anki 导出（iter 134）
   const [resFilter, setResFilter] = useState('') // 资源 Tab ✅⚠️❌ 筛选（plan/06 §四.4）
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
@@ -173,6 +174,27 @@ export default function PlanDetail() {
       setOpError(e instanceof ApiError ? e.message : '导出失败')
     } finally {
       setExportBusy(false)
+    }
+  }
+
+  // 错题 Anki 导出（iter 134）：仅最近判错的题 -> 独立错题牌组 .apkg（不消耗 API 额度）
+  async function doExportWrong() {
+    if (!planId || wrongExportBusy) return
+    setWrongExportBusy(true)
+    setOpError('')
+    try {
+      const r = await exportPlan(Number(planId), 'anki', true)
+      if (r.apkg_b64) {
+        const bytes = Uint8Array.from(atob(r.apkg_b64), (c) => c.charCodeAt(0))
+        downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), r.filename || 'wrong.apkg')
+        setExportUrl(`已下载 ${r.filename}（${r.card_count ?? 0} 张错题卡）`)
+        toast(`已导出 ${r.card_count ?? 0} 张错题卡`, 'success')
+      }
+    } catch (e) {
+      // no_wrong_quizzes（全部答对/未作答）等后端信息直接透出
+      setOpError(e instanceof ApiError ? e.message : '错题导出失败')
+    } finally {
+      setWrongExportBusy(false)
     }
   }
 
@@ -282,6 +304,15 @@ export default function PlanDetail() {
             className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 shadow-sm transition-all hover:bg-emerald-50 hover:shadow-md active:scale-[.98] dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
           >
             错题重练
+          </button>
+          {/* 错题 Anki 导出（iter 134）：独立错题牌组 .apkg，双击导入 Anki */}
+          <button
+            onClick={doExportWrong}
+            disabled={wrongExportBusy}
+            title="把最近答错的题导出为 Anki 卡片包（.apkg），离线复习"
+            className="rounded-lg border border-emerald-300 px-3 py-2 text-sm text-emerald-700 shadow-sm transition-all hover:bg-emerald-50 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:active:scale-100 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
+          >
+            {wrongExportBusy ? '导出中…' : '导出错题'}
           </button>
         </div>
       </div>
