@@ -12,18 +12,20 @@ SSRF 防护(/materials/url，复用 verify_url._is_safe_url)、解析失败统�
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
-from app.core.storage import save_upload, write_parsed_text
+from app.core.storage import delete_session_files, save_upload, write_parsed_text
 from app.db import models
 from app.db.models import User
 from app.tools.base import ToolInput
@@ -229,8 +231,6 @@ def get_study_unit_content(
 
 class UnitDoneIn(BaseModel):
     done: bool
-
-
 @router.post("/{unit_id}/done")
 def mark_unit_done(
     unit_id: int,
@@ -246,3 +246,68 @@ def mark_unit_done(
     unit.done_at = datetime.now(timezone.utc).replace(tzinfo=None) if body.done else None
     db.commit()
     return {"unit_id": unit.id, "done": unit.done_at is not None}
+
+
+# --- 浏览器剪藏（P4 iter 64，plan/README 输入形式10）：建会话 + 加资料一步到位 ---
+
+_HTTPS_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+class ClipIn(BaseModel):
+    kind: Literal["text", "url"]
+    content: str = Field(min_length=1, max_length=2_000_000)
+    title: str | None = Field(default=None, max_length=256)
+
+
+@router.post("/clip")
+async def clip_material(
+    body: ClipIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """剪藏（浏览器插件用）：创建会话（归属当前用户）+ 解析入资料，返回生成页路径。
+
+    - text：剪藏选中文本；url：剪藏页面链接（复用 /materials/url 的 SSRF 防护与解析）。
+    - title 缺省取内容前 40 字（text）或 URL 前 80 字。
+    - 资料解析失败 -> 删除刚建会话（防孤儿，同 Home 前端模式）后抛原错误。
+    - 前端打开 `open_path`（/generate/{session_id}）即开始生成（raw_text 为空，仅用资料）。
+    """
+    content = body.content.strip()
+    title = (body.title or "").strip()
+    if body.kind == "text":
+        if not content:
+            raise ApiError("empty_content", "剪藏内容为空")
+        title = title or content[:40]
+    else:
+        if not _HTTPS_RE.match(content):
+            raise ApiError("bad_request", "剪藏链接须以 http(s):// 开头", status=400)
+        title = title or content[:80]
+
+    sess = models.Session(user_id=user.id, title=title[:256])
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    try:
+        if body.kind == "text":
+            mat = await _store(db, sess.id, "text", content, text_override=content)
+        else:
+            mat = await _store(db, sess.id, "url", content)
+    except Exception:
+        # 资料失败 -> 清理孤儿会话（行 + 文件目录），再抛原错误
+        try:
+            doomed = db.get(models.Session, sess.id)
+            if doomed is not None:
+                db.delete(doomed)
+                db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        try:
+            delete_session_files(sess.id)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    return {
+        "session_id": sess.id,
+        "material_id": mat.material_id,
+        "kind": mat.kind,
+        "title": sess.title,
+        "open_path": f"/generate/{sess.id}",
+    }
