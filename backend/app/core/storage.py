@@ -172,3 +172,18 @@ def delete_session_files(session_id: int | str) -> None:
     base = _session_root(session_id)
     if base.exists():
         shutil.rmtree(base, ignore_errors=True)
+
+
+def delete_material_files(session_id: int | str, material_id: int) -> None:
+    """删除单个源资料的磁盘文件（iter 104：DELETE /sessions/{sid}/materials/{mid} 配套）。
+
+    原件 originals/<mid>.<ext>（保存时扩展名经 _safe_ext 清洗、删除时不定，按 "<mid>." 前缀 glob；
+    material_id 为 int，模式 "5.*" 不会误中 "50.*"）；解析文本 parsed/<mid>.txt 精确路径。
+    目录不存在即无文件可删（不创建目录）。缺文件不报错（幂等清理）。
+    """
+    base = _session_root(session_id)
+    originals = base / "originals"
+    if originals.is_dir():
+        for path in originals.glob(f"{material_id}.*"):
+            path.unlink(missing_ok=True)
+    (base / "parsed" / f"{material_id}.txt").unlink(missing_ok=True)
