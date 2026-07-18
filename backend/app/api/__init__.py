@@ -5,7 +5,7 @@ health/sessions/materials/plans/export/usage/settings/progress/quizzes 已接入
 
 from fastapi import APIRouter
 
-from app.api import auth, backup, deps, exports, health, materials, plans, progress, providers, quizzes, sessions, settings, setup, share, usage, users
+from app.api import auth, backup, deps, exports, health, knowledge, materials, plans, progress, providers, quizzes, sessions, settings, setup, share, usage, users
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
@@ -24,6 +24,7 @@ api_router.include_router(share.router)
 api_router.include_router(share.public_router)  # P5：无认证的只读分享访问
 api_router.include_router(setup.router)  # iter 89：首次设置向导（公开端点）
 api_router.include_router(backup.router)  # iter 93：数据备份导出/导入
+api_router.include_router(knowledge.router)  # iter 100：个人知识库聚合（Wiki 页）
 
 
-__all__ = ["api_router", "auth", "backup", "deps", "exports", "health", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "setup", "share", "usage", "users"]
+__all__ = ["api_router", "auth", "backup", "deps", "exports", "health", "knowledge", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "setup", "share", "usage", "users"]
