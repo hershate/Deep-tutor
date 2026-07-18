@@ -20,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -89,9 +90,16 @@ class ToolCallStatus(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
+    # 命名唯一约束：SQLite 下 alembic 降级需约束名（未命名约束 batch 模式无法 DROP）
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
+    # P4 多用户（iter 57）：username 唯一登录名（旧数据可为 NULL，启动时收敛为管理员）；
+    # password_hash 为 pbkdf2$iterations$salt$hash（app/core/security.py）；is_admin 管理员标记。
+    username: Mapped[str | None] = mapped_column(String(64))
+    password_hash: Mapped[str] = mapped_column(String(256), default="")
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     sessions: Mapped[list[Session]] = relationship(back_populates="user")

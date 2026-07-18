@@ -5,9 +5,10 @@ health/sessions/materials/plans/export/usage/settings/progress/quizzes 已接入
 
 from fastapi import APIRouter
 
-from app.api import deps, exports, health, materials, plans, progress, providers, quizzes, sessions, settings, usage
+from app.api import auth, deps, exports, health, materials, plans, progress, providers, quizzes, sessions, settings, usage
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(auth.router)
 api_router.include_router(health.router)
 api_router.include_router(sessions.router)
 api_router.include_router(materials.router)
@@ -20,4 +21,4 @@ api_router.include_router(quizzes.router)
 api_router.include_router(providers.router)
 
 
-__all__ = ["api_router", "deps", "exports", "health", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "usage"]
+__all__ = ["api_router", "auth", "deps", "exports", "health", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "usage"]

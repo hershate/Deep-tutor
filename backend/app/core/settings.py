@@ -27,8 +27,12 @@ class Settings(BaseSettings):
         description="模型（Haiku/Sonnet/Opus，影响成本/上下文/质量）",
     )
 
-    # --- 认证（本地单用户）---
-    auth_token: str = Field(default="", description="本地单用户 token（启动必填）")
+    # --- 认证（本地单用户 token；P4 多用户 JWT）---
+    auth_token: str = Field(default="", description="本地单用户 token（启动必填；P4 起作 JWT 兼容回退）")
+    admin_username: str = Field(default="admin", description="P4 管理员登录名（启动自动创建/收敛）")
+    admin_password: str = Field(default="", description="P4 管理员初始密码（空 -> 不创建登录账号，仅 token 回退）")
+    jwt_secret: str = Field(default="", description="P4 JWT HMAC secret（空 -> 回退 AUTH_TOKEN；再无 -> 每启动随机）")
+    jwt_expire_days: int = Field(default=7, description="P4 JWT 有效期（天）")
 
     # --- 存储 ---
     db_path: str = Field(default="data/deep-tutor.db", description="SQLite 路径")
