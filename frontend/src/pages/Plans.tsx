@@ -16,14 +16,17 @@ export default function Plans() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    let cancelled = false // err.md D6：快速翻页时旧响应不得覆盖新数据
     setLoading(true)
     listPlans(undefined, page)
       .then((r) => {
+        if (cancelled) return
         setItems(r.items)
         setTotal(r.total)
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-      .finally(() => setLoading(false))
+      .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [page])
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))

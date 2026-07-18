@@ -11,7 +11,7 @@ import {
   updateUser,
   type AdminUser,
 } from '../lib/api'
-import { getStoredUser } from '../lib/auth'
+import { getStoredUser, updateStoredUser } from '../lib/auth'
 
 interface CreateForm {
   username: string
@@ -95,7 +95,12 @@ export default function UserManager() {
   function rename(u: AdminUser) {
     const name = window.prompt(`修改「${u.username}」的显示名：`, u.name)
     if (name === null || !name.trim() || name.trim() === u.name) return
-    void run(() => updateUser(u.id, { name: name.trim() }))
+    const newName = name.trim()
+    void run(async () => {
+      await updateUser(u.id, { name: newName })
+      // err.md D17：改的是当前登录用户 -> 同步本地缓存，顶栏立即刷新
+      if (me?.id === u.id) updateStoredUser({ name: newName })
+    })
   }
 
   function remove(u: AdminUser) {
@@ -219,8 +224,15 @@ export default function UserManager() {
               <div className="flex items-center gap-2">
                 <span className="font-medium">{u.name}</span>
                 <span className="text-xs text-slate-500 dark:text-slate-400">@{u.username}</span>
-                {u.is_admin && <span className="rounded bg-amber-50 dark:bg-amber-9500 px-1.5 py-0.5 text-xs text-white">管理员</span>}
-                {me?.id === u.id && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">当前登录</span>}
+                {u.is_admin && (
+                  // err.md D10：dark:bg-amber-9500 非法类 + 浅色模式白字浅底不可读
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    管理员
+                  </span>
+                )}
+                {me?.id === u.id && (
+                  <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs dark:bg-slate-700 dark:text-slate-200">当前登录</span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">

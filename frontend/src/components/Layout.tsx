@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
-import { clearAuth, getStoredUser, hasJwtSession } from '../lib/auth'
+import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
 import { useUIStore } from '../store/ui'
 
 // AppShell（plan/06 §三）：顶栏 + 可折叠侧栏（图标态；窄屏收起为抽屉）。
@@ -17,7 +17,19 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
-  const user = getStoredUser()
+  // err.md D17：getStoredUser() 直读 localStorage 非响应式（改名后顶栏不更新）——
+  // 改 state + 监听 AUTH_CHANGED_EVENT（同源 setAuth/clearAuth/updateStoredUser）
+  // 与 storage 事件（其他标签页）
+  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser())
+  useEffect(() => {
+    const sync = () => setUser(getStoredUser())
+    window.addEventListener(AUTH_CHANGED_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
   const theme = useUIStore((s) => s.theme)
   const toggleTheme = useUIStore((s) => s.toggleTheme)
   const collapsed = useUIStore((s) => s.sidebarCollapsed)

@@ -27,7 +27,7 @@ interface PlanData {
   }
   schedule?: ScheduleDay[]
   resources?: Array<{ title?: string; url?: string; type?: string; verified?: string; note?: string }>
-  validation_report?: { passed?: boolean; report?: Record<string, { status?: string; details?: string }>; fixes?: string[] }
+  validation_report?: { passed?: boolean; degraded?: boolean; report?: Record<string, { status?: string; details?: string }>; fixes?: string[] }
 }
 
 const VERIFY_LABEL: Record<string, string> = { ok: '✅', uncertain: '⚠️', invalid: '❌' }
@@ -57,8 +57,12 @@ export default function PlanDetail() {
   const nav = useNavigate()
   const [plan, setPlan] = useState<PlanData | null>(null)
   const [loading, setLoading] = useState(true)
+  // err.md D1：初始加载错误（整页错误块）与操作错误（内联 banner）分离——
+  // 方案已加载后导出/分享失败不再把整页替换成无出口的裸错误块
   const [error, setError] = useState('')
+  const [opError, setOpError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
+  const [exportBusy, setExportBusy] = useState(false) // err.md D8：导出防重复提交
   const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki' | 'pdf'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
@@ -75,13 +79,21 @@ export default function PlanDetail() {
 
   useEffect(() => {
     if (!planId) return
+    // err.md D3：重生成 done 后 nav 到新版 planId（同路由组件不卸载），
+    // 在此复位重生成区状态——否则 regenLoading 永远为 true，区域永久禁用
+    setRegenLoading(false)
+    setRegenError('')
+    setOpError('')
+    let cancelled = false // err.md D6：快速切换 planId 时旧响应不得覆盖新数据
+    setLoading(true)
     getPlan(Number(planId))
-      .then((r) => setPlan((r as { plan: PlanData }).plan))
-      .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-      .finally(() => setLoading(false))
+      .then((r) => { if (!cancelled) setPlan((r as { plan: PlanData }).plan) })
+      .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     getShare(Number(planId))
-      .then(setShare)
-      .catch(() => setShare(null))
+      .then((s) => { if (!cancelled) setShare(s) })
+      .catch(() => { if (!cancelled) setShare(null) })
+    return () => { cancelled = true }
   }, [planId])
 
   // 协作分享（P5）：创建（幂等）/复制/撤销只读链接
@@ -100,7 +112,7 @@ export default function PlanDetail() {
         toast.info('剪贴板不可用，请手动复制链接')
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '创建分享失败')
+      setOpError(e instanceof ApiError ? e.message : '创建分享失败')
     }
   }
 
@@ -112,7 +124,7 @@ export default function PlanDetail() {
       setShareMsg('已撤销，原链接即刻失效')
       toast.success('分享已撤销')
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '撤销失败')
+      setOpError(e instanceof ApiError ? e.message : '撤销失败')
     }
   }
 
@@ -120,7 +132,9 @@ export default function PlanDetail() {
   useEffect(() => () => regenAcRef.current?.abort(), [])
 
   async function doExport() {
-    if (!planId) return
+    if (!planId || exportBusy) return // err.md D8：防重复提交
+    setExportBusy(true)
+    setOpError('')
     try {
       const r = await exportPlan(Number(planId), exportFormat)
       if (exportFormat === 'slides' && r.html) {
@@ -150,9 +164,11 @@ export default function PlanDetail() {
       } else {
         setExportUrl(r.file_url)
       }
-      if (r.warning) setError(`导出警告：${r.warning}`)
+      if (r.warning) setOpError(`导出警告：${r.warning}`)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '导出失败')
+      setOpError(e instanceof ApiError ? e.message : '导出失败')
+    } finally {
+      setExportBusy(false)
     }
   }
 
@@ -180,16 +196,30 @@ export default function PlanDetail() {
   }
 
   if (loading) return <SkeletonCards count={4} />
+  // 初始加载失败：整页错误 + 出口（err.md D1：不再是无返回/重试的裸错误块）
   if (error)
     return (
-      <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-red-700 dark:text-red-300">
-        {error}
+      <div role="alert" className="space-y-3 rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
+        <p>{error}</p>
+        <div className="flex gap-3 text-sm">
+          <button onClick={() => nav('/plans')} className="underline">
+            返回方案列表
+          </button>
+          <button onClick={() => window.location.reload()} className="underline">
+            重试
+          </button>
+        </div>
       </div>
     )
   if (!plan) return <p className="text-slate-500 dark:text-slate-400">无方案数据</p>
 
   return (
     <div className="space-y-6">
+      {opError && (
+        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+          {opError}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
         <div className="flex items-center gap-2">
@@ -208,8 +238,12 @@ export default function PlanDetail() {
             <option value="anki">Anki 卡片包</option>
             <option value="pdf">PDF</option>
           </select>
-          <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700">
-            导出
+          <button
+            onClick={doExport}
+            disabled={exportBusy}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+          >
+            {exportBusy ? '导出中…' : '导出'}
           </button>
           <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700">
             {share?.shared ? '复制分享链接' : '分享'}
@@ -356,6 +390,11 @@ export default function PlanDetail() {
               <h3 className="mb-2 font-semibold">
                 校验报告: {plan.validation_report.passed ? '通过 ✅' : '未通过 ⚠️'}
               </h3>
+              {plan.validation_report.degraded && (
+                <p className="mb-2 rounded bg-amber-50 dark:bg-amber-950 p-2 text-sm text-amber-700 dark:text-amber-300">
+                  自动校验未执行（校验工具降级），方案未经核验，请人工复核。
+                </p>
+              )}
               {plan.validation_report.report && (
                 <ul className="text-sm">
                   {Object.entries(plan.validation_report.report).map(([k, v]) => (

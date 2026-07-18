@@ -99,6 +99,7 @@ export default function Home() {
           placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
+          maxLength={20000} // err.md D14：对齐后端 prompt 字段截断上限
         />
       </div>
 
@@ -166,6 +167,7 @@ export default function Home() {
             placeholder="https://example.com/tutorial"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
+            maxLength={2048} // err.md D14：对齐后端 UrlIn.url 上限
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()

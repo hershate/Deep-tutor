@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import PlanOutline, { type OutlineNode, type OutlineStage } from '../components/PlanOutline'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
+import { toast } from '../components/Toast'
 import { cancelGeneration, generateStream } from '../lib/api'
 
 interface Step {
@@ -101,7 +102,12 @@ export default function GenerateProgress() {
           <h2 className="text-2xl font-bold">生成中…</h2>
           {status === 'running' && (
             <button
-              onClick={() => cancelGeneration(Number(sessionId)).catch(() => {})}
+              onClick={() =>
+                // err.md D13：取消请求失败此前静默吞掉，用户以为已取消实际仍在跑
+                cancelGeneration(Number(sessionId)).catch(() =>
+                  toast.error('取消请求失败，请重试（生成仍在进行）'),
+                )
+              }
               className="rounded-lg border px-3 py-1 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               取消

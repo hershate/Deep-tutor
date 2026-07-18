@@ -25,7 +25,10 @@ export default function Learn() {
   const [note, setNote] = useState('')
   const [progressKey, setProgressKey] = useState(0)
   const [loading, setLoading] = useState(true)
+  // err.md D4：初始加载错误（整页）与操作错误（内联 banner）分离——
+  // 打卡失败不再把整页学习中心替换成裸错误块
   const [error, setError] = useState('')
+  const [opError, setOpError] = useState('')
   const [checkinBusy, setCheckinBusy] = useState(false)
   const [checkinMsg, setCheckinMsg] = useState('')
 
@@ -40,15 +43,19 @@ export default function Learn() {
 
   useEffect(() => {
     if (!planId) return
+    let cancelled = false // err.md D6：快速切换 planId 时旧响应不得覆盖新数据
+    setLoading(true)
     Promise.all([getPlan(id), getProgress(id)])
       .then(([p, prog]) => {
+        if (cancelled) return
         setTopic(((p as { plan?: { intent?: { topic?: string } } }).plan?.intent?.topic) ?? '')
         const today = new Date().toISOString().slice(0, 10)
         setDueNodes(prog.nodes.filter((n) => n.next_review !== null && n.next_review <= today))
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-      .finally(() => setLoading(false))
+      .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     loadLogs()
+    return () => { cancelled = true }
   }, [planId, id, loadLogs])
 
   // 看板状态切换后刷新复习提醒
@@ -64,12 +71,13 @@ export default function Learn() {
 
   async function checkin() {
     const m = Number(minutes)
-    if (!Number.isFinite(m) || m < 0 || m > 1440) {
-      setError('分钟数须在 0-1440 之间')
+    // err.md D14：0 分钟打卡无意义且污染统计，下限 1
+    if (!Number.isFinite(m) || m < 1 || m > 1440) {
+      setOpError('分钟数须在 1-1440 之间')
       return
     }
     setCheckinBusy(true)
-    setError('')
+    setOpError('')
     try {
       await addLearningLog(id, m, note.trim())
       setNote('')
@@ -77,7 +85,7 @@ export default function Learn() {
       loadLogs()
       setTimeout(() => setCheckinMsg(''), 3000)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '打卡失败')
+      setOpError(e instanceof ApiError ? e.message : '打卡失败')
     } finally {
       setCheckinBusy(false)
     }
@@ -85,10 +93,14 @@ export default function Learn() {
 
   if (!planId) return null
   if (loading) return <p className="text-slate-500 dark:text-slate-400">加载学习中心…</p>
-  if (error && !dueNodes.length)
+  // 初始加载失败：整页错误 + 出口（err.md D4）
+  if (error)
     return (
-      <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-red-700 dark:text-red-300">
-        {error}
+      <div role="alert" className="space-y-3 rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
+        <p>{error}</p>
+        <Link to={`/plans/${id}`} className="text-sm underline">
+          返回方案详情
+        </Link>
       </div>
     )
 
@@ -101,9 +113,9 @@ export default function Learn() {
         </Link>
       </div>
 
-      {error && (
+      {opError && (
         <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
-          {error}
+          {opError}
         </div>
       )}
 
@@ -139,7 +151,7 @@ export default function Learn() {
             <input
               id="checkin-minutes"
               type="number"
-              min={0}
+              min={1}
               max={1440}
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
@@ -156,6 +168,7 @@ export default function Learn() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="今天学了什么"
+              maxLength={200}
               className="w-full rounded border px-2 py-1.5 text-sm"
             />
           </div>

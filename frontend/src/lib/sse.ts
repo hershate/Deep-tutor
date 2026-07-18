@@ -1,6 +1,8 @@
 // SSE 流式：fetch + ReadableStream 携带鉴权头（plan 决策：SSE 头鉴权用 fetch+ReadableStream，
 // 因 EventSource 不能带自定义头）。支持断线续接（Last-Event-ID，plan/10 SSE 续接游标）。
 
+import { handleUnauthorized } from './auth'
+
 /** SSE 层错误（携带 HTTP 状态码，供上层区分瞬态/非瞬态以决定是否重连）。 */
 export class SseError extends Error {
   constructor(public status: number | undefined, message: string) {
@@ -44,6 +46,7 @@ export async function openSSE(url: string, opts: SSEOptions): Promise<string | u
     signal: opts.signal,
   })
   if (!res.ok || !res.body) {
+    handleUnauthorized(res.status) // err.md D5：SSE 通道 401 触发登录跳转（此前仅显示连接失败）
     throw new SseError(res.status, `SSE 连接失败: HTTP ${res.status}`)
   }
   return readSSEStream(res.body, opts.onEvent)

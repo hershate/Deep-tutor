@@ -107,7 +107,9 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         setError(e instanceof ApiError ? e.message : '加载失败')
         setLoading(false)
       })
-    return () => ac.abort()
+    // err.md D2：cleanup 必须中止「当前」controller——run() 会替换 acRef.current，
+    // 闭包捕获的第一个 ac 在被替换后 abort 它毫无意义（进行中的 SSE 流泄漏）
+    return () => acRef.current?.abort()
   }, [planId, run])
 
   // Esc 关闭

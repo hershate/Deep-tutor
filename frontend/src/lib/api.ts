@@ -2,7 +2,7 @@
 // 所有请求带 Authorization: Bearer 头（P4 多用户：localStorage JWT 优先，回退 VITE_AUTH_TOKEN，见 lib/auth.ts）。
 // dev 环境经 Vite 代理 /api -> :8000；生产经 nginx 反代。
 
-import { clearAuth, getToken, hasJwtSession, setAuth, type AuthUser } from './auth'
+import { getToken, handleUnauthorized, setAuth, type AuthUser } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -16,23 +16,53 @@ export class ApiError extends Error {
   }
 }
 
-// JWT 会话下 401（token 过期/用户被删）-> 清本地会话并跳登录页（env token 部署无登录态，不跳）。
-function handleUnauthorized(status: number): void {
-  if (status === 401 && hasJwtSession()) {
-    clearAuth()
-    window.location.assign('/login')
+/** 解析 SSE 事件 data（err.md D9：单条畸形 JSON 不再炸掉整个流/触发无谓重连）。 */
+function parseSseData(raw: string): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const v = JSON.parse(raw) as unknown
+    return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
   }
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token()}`,
-      ...(init?.headers ?? {}),
-    },
-  })
+// err.md D15：apiFetch 默认超时（后端 hang 住时页面不再永远加载态）；
+// 长任务端点（导出/测验等 LLM 链）经 init.timeoutMs 放宽。
+const DEFAULT_TIMEOUT_MS = 120_000
+
+export async function apiFetch<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const ac = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    ac.abort()
+  }, init?.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  // 合并调用方 signal（如组件卸载取消）
+  const callerSignal = init?.signal
+  if (callerSignal) {
+    if (callerSignal.aborted) ac.abort()
+    else callerSignal.addEventListener('abort', () => ac.abort(), { once: true })
+  }
+  let res: Response
+  try {
+    const { timeoutMs: _t, ...rest } = init ?? {}
+    res = await fetch(`${BASE}${path}`, {
+      ...rest,
+      signal: ac.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token()}`,
+        ...(rest.headers ?? {}),
+      },
+    })
+  } catch (e) {
+    if (timedOut) throw new ApiError('upstream_timeout', '请求超时，请稍后重试', 504)
+    if (callerSignal?.aborted) throw e // 调用方主动取消，原样上抛（页面按取消处理）
+    throw new ApiError('network_error', '网络错误，请检查连接', 0)
+  } finally {
+    clearTimeout(timer)
+  }
   if (!res.ok) {
     handleUnauthorized(res.status)
     const body = await res.json().catch(() => ({}))
@@ -114,6 +144,7 @@ export function uploadMaterial(
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${BASE}/materials/upload`)
     xhr.setRequestHeader('Authorization', `Bearer ${token()}`)
+    xhr.timeout = 10 * 60 * 1000 // err.md D15：大文件上传 10 分钟超时（此前永不超时）
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
     }
@@ -150,10 +181,12 @@ export interface PlanSummary {
   created_at: string
   topic: string
 }
-export const listPlans = (sessionId?: number, page = 1) =>
-  apiFetch<{ items: PlanSummary[]; total: number }>(
-    `/plans${sessionId ? `?session_id=${sessionId}&` : '?'}page=${page}`,
-  )
+export const listPlans = (sessionId?: number, page = 1) => {
+  // err.md D18：URLSearchParams 拼 query（此前手工插值，session_id 异常值可注入额外参数）
+  const q = new URLSearchParams({ page: String(page) })
+  if (sessionId) q.set('session_id', String(sessionId))
+  return apiFetch<{ items: PlanSummary[]; total: number }>(`/plans?${q.toString()}`)
+}
 
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 
@@ -172,7 +205,8 @@ export const exportPlan = (planId: number, format = 'md') =>
     apkg_b64?: string
     card_count?: number
     pdf_b64?: string
-  }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format }) })
+  // err.md D15：导出走 LLM 链（slides 等），放宽至 5 分钟
+  }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format }), timeoutMs: 300_000 })
 
 // 自学材料（P2，plan/07 §五；iter 47：SSE 逐单元渐进显示）。
 // 内容协商：Accept: text/event-stream 且需生成 -> SSE 流（unit_start/unit_done ×N -> done）；
@@ -206,6 +240,7 @@ export async function generateMaterialsStream(
     signal,
   })
   if (!res.ok) {
+    handleUnauthorized(res.status) // err.md D5：SSE 通道 401 同样触发登录跳转
     const body = await res.json().catch(() => ({}))
     const err = body?.error ?? {}
     throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
@@ -217,12 +252,12 @@ export async function generateMaterialsStream(
   }
   if (!res.body) throw new ApiError('http_error', 'SSE 响应无 body', res.status)
   await readSSEStream(res.body, (ev) => {
-    const data = ev.data ? JSON.parse(ev.data) : {}
+    const data = parseSseData(ev.data)
     const event = ev.event ?? 'message'
-    if (event === 'unit_start') cb.onUnitStart?.(data)
-    else if (event === 'unit_done') cb.onUnitDone?.(data)
-    else if (event === 'done') cb.onDone?.(data)
-    else if (event === 'error') throw new ApiError(data.code ?? 'error', data.message ?? '材料生成失败', res.status)
+    if (event === 'unit_start') cb.onUnitStart?.(data as { order: number; title: string; total: number })
+    else if (event === 'unit_done') cb.onUnitDone?.(data as { order: number; title: string; degraded: boolean })
+    else if (event === 'done') cb.onDone?.(data as { unit_count: number; degraded_count: number })
+    else if (event === 'error') throw new ApiError(String(data.code ?? 'error'), String(data.message ?? '材料生成失败'), res.status)
   })
 }
 
@@ -240,7 +275,8 @@ export interface QuizItemData {
 export const generateQuiz = (planId: number, signal?: AbortSignal) =>
   apiFetch<{ title: string; quiz_count: number; quizzes: QuizItemData[]; warning?: string }>(
     `/plans/${planId}/quiz`,
-    { method: 'POST', body: JSON.stringify({}), signal },
+    // err.md D15：测验为一次 LLM 调用 + 修复重试，放宽至 5 分钟
+    { method: 'POST', body: JSON.stringify({}), signal, timeoutMs: 300_000 },
   )
 
 // 提交作答（plan/03 §一）：choice 服务器判分；fill/short 自评 correct=null
@@ -446,8 +482,7 @@ async function ssePost(
     token: token(),
     signal,
     onEvent: (ev) => {
-      const data = ev.data ? JSON.parse(ev.data) : {}
-      onEvent(ev.event ?? 'message', data)
+      onEvent(ev.event ?? 'message', parseSseData(ev.data))
     },
   })
 }
@@ -480,8 +515,7 @@ async function ssePostWithReconnect(
         onEvent: (ev) => {
           const eventName = ev.event ?? 'message'
           if (isTerminalEvent(eventName)) terminalReached = true
-          const data = ev.data ? JSON.parse(ev.data) : {}
-          onEvent(eventName, data)
+          onEvent(eventName, parseSseData(ev.data))
         },
       })
     } catch (e) {

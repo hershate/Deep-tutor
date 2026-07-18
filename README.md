@@ -79,11 +79,14 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 
 | 变量 | 说明 |
 | --- | --- |
-| `JWT_SECRET` | **必填**。JWT 签名密钥，留空则重启后全员登录态失效。生成：`python -c "import secrets; print(secrets.token_hex(32))"` |
+| `JWT_SECRET` | JWT 签名密钥。留空则自动生成随机密钥并持久化到 `data/.jwt_secret`（重启不失效；多实例部署需显式设置同一密钥）。生成：`python -c "import secrets; print(secrets.token_hex(32))"` |
 | `ADMIN_PASSWORD` | 多用户必填。管理员初始密码，启动时自动创建/收敛 `ADMIN_USERNAME`（默认 `admin`）账号 |
 | `AUTH_TOKEN` | 简单 token 回退（与 JWT 双轨；API/浏览器扩展可用它认证） |
+| `DATABASE_URL` | 可选。完整 SQLAlchemy URL（如切换 PostgreSQL）；留空则使用 `DB_PATH` 的 SQLite（默认 `data/deep-tutor.db`） |
 | `ANTHROPIC_API_KEY` | 生成功能必需（也可在 Web 设置页配置供应商档案） |
 | `BING_API_KEY` | 资源搜索可选 |
+
+> **安全提示（认证设计权衡）**：前端 JWT 明文存于 localStorage，且 `VITE_AUTH_TOKEN`（若设置）会打包进客户端 bundle——两者都假定本机/受信局域网部署。多用户或公网部署请勿设置 `VITE_AUTH_TOKEN`（走登录页 JWT），并在公网前加 HTTPS 反代。
 
 启动时自动执行数据库迁移（`app.db.migrate`）：新库建表、旧库增量迁移；历史 `create_all` 时期的无版本库会按 schema 特征探测代际后接续迁移，无需手工处理。
 

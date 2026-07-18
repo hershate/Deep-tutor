@@ -26,7 +26,8 @@ export default function Usage() {
       {isLoading && <p className="text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && (
         <p role="alert" className="text-red-600 dark:text-red-400">
-          加载失败（请确认已配置认证 token）
+          {/* err.md D16：显示真实错误信息（此前任何错误都笼统提示 token，误导排障） */}
+          加载失败：{error instanceof Error ? error.message : '未知错误'}
         </p>
       )}
 

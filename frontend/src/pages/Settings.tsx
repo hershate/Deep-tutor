@@ -26,7 +26,8 @@ export default function Settings() {
       {isLoading && <p className="text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && (
         <p role="alert" className="text-red-600 dark:text-red-400">
-          加载失败（请确认已配置认证 token）
+          {/* err.md D16：显示真实错误信息 */}
+          加载失败：{error instanceof Error ? error.message : '未知错误'}
         </p>
       )}
 
@@ -79,7 +80,11 @@ function Row({
   status?: 'ok' | 'warn'
 }) {
   const color =
-    status === 'ok' ? 'text-green-600 dark:text-green-400' : status === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800'
+    status === 'ok'
+      ? 'text-green-600 dark:text-green-400'
+      : status === 'warn'
+        ? 'text-amber-600 dark:text-amber-400'
+        : 'text-slate-800 dark:text-slate-100' // err.md D11：默认色补 dark 变体（此前深色模式近黑底黑字）
   return (
     <div className="flex items-center justify-between px-4 py-3">
       <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>

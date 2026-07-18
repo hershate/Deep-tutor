@@ -18,11 +18,16 @@ export default function Clarify() {
 
   function submit() {
     if (!sessionId) return
+    // 过滤空回答
+    const filtered = Object.fromEntries(Object.entries(answers).filter(([, v]) => v.trim()))
+    // err.md D14：全空提交等于放弃澄清却走完整生成——拦下提示
+    if (Object.keys(filtered).length === 0) {
+      setError('请至少回答一个问题（或返回首页重新开始）')
+      return
+    }
     setLoading(true)
     setError('')
     terminalRef.current = false
-    // 过滤空回答
-    const filtered = Object.fromEntries(Object.entries(answers).filter(([, v]) => v.trim()))
     const ac = new AbortController()
     acRef.current = ac
     clarifyStream(
@@ -55,6 +60,24 @@ export default function Clarify() {
       })
   }
 
+  // err.md D14：直接访问 /clarify/:id（无 questions state）此前渲染空表单，
+  // 用户只能提交空回答触发一轮无意义生成——显式给出口
+  if (questions.length === 0)
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">补充信息</h2>
+        <p className="text-slate-600 dark:text-slate-300">
+          没有待回答的澄清问题（可能已回答过或会话状态已变化）。
+        </p>
+        <button
+          onClick={() => nav('/')}
+          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700"
+        >
+          返回首页
+        </button>
+      </div>
+    )
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">补充信息</h2>
@@ -74,6 +97,7 @@ export default function Clarify() {
                 value={answers[q] ?? ''}
                 onChange={(e) => setAnswers((a) => ({ ...a, [q]: e.target.value }))}
                 placeholder="你的回答…"
+                maxLength={2000} // err.md D14
               />
             </div>
           )
