@@ -1,4 +1,4 @@
-# Deep-tutor 本地直起（免 Docker，Windows PowerShell）：
+﻿# Deep-tutor 本地直起（免 Docker，Windows PowerShell）：
 #   venv -> 依赖 -> .env -> 前端构建 -> 数据库迁移 -> 单进程启动（后端托管 SPA + /api，:8000）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 #       端口覆盖：$env:PORT=9000; scripts\start.ps1
