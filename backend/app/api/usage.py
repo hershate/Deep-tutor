@@ -32,12 +32,16 @@ def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_us
         func.count(models.ApiUsage.id),
     ).filter_by(user_id=user.id).one()
     cache_hit_rate = (total_cache_read / total_in) if total_in else 0.0
-    # iter 164：今日费用 + 日预算（用量页预算进度条；口径 naive UTC，与 /daily 一致）
+    # iter 164：今日费用 + 日预算（用量页预算进度条）。
+    # 日界按服务器本地日（用户心智口径）：created_at 为 naive UTC，
+    # 边界 = 本地今日 0 点换算回 UTC（本地偏移从系统推导）。
+    local_offset = datetime.now().astimezone().utcoffset() or timedelta(0)
+    since_utc = datetime.combine(date.today(), time.min) - local_offset
     today_cost = (
         db.query(func.coalesce(func.sum(models.ApiUsage.cost), 0.0))
         .filter(
             models.ApiUsage.user_id == user.id,
-            models.ApiUsage.created_at >= datetime.combine(date.today(), time.min),
+            models.ApiUsage.created_at >= since_utc,
         )
         .scalar()
     )
@@ -59,22 +63,25 @@ def get_usage_daily(
 ) -> dict:
     """近 N 日（含今天）按日聚合：cost/tokens/calls；无调用日补 0（前端柱状图连续）。
 
-    日界口径：created_at 为 naive UTC（全库同口径），func.date 按 UTC 日分组；
-    非 UTC 时区日界最多差数小时，对趋势图可接受。
+    日界按服务器本地日（用户心智口径；iter 164 修正，原 UTC 日界对 UTC+8 用户偏移 8h）：
+    created_at 为 naive UTC，SQL `date(created_at, 'localtime')` 归本地日分组，
+    窗口起点 = 本地起始日 0 点换算回 UTC。
     """
+    local_offset = datetime.now().astimezone().utcoffset() or timedelta(0)
     start = date.today() - timedelta(days=days - 1)
+    since_utc = datetime.combine(start, time.min) - local_offset
     rows = (
         db.query(
-            func.date(models.ApiUsage.created_at).label("d"),
+            func.date(models.ApiUsage.created_at, "localtime").label("d"),
             func.coalesce(func.sum(models.ApiUsage.cost), 0.0),
             func.coalesce(func.sum(models.ApiUsage.tokens_in + models.ApiUsage.tokens_out), 0),
             func.count(models.ApiUsage.id),
         )
         .filter(
             models.ApiUsage.user_id == user.id,
-            models.ApiUsage.created_at >= datetime.combine(start, time.min),
+            models.ApiUsage.created_at >= since_utc,
         )
-        .group_by(func.date(models.ApiUsage.created_at))
+        .group_by(func.date(models.ApiUsage.created_at, "localtime"))
         .all()
     )
     by_date: dict[str, tuple[float, int, int]] = {

@@ -52,7 +52,7 @@ def test_usage_after_generate(client, auth_headers, monkeypatch):
 
 def test_usage_today_cost_excludes_old_rows(client, auth_headers):
     """iter 164：昨日及更早的调用不计入 today_cost（但计入 total_cost）。"""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from app.db import models
     from app.db.base import SessionLocal
@@ -60,12 +60,16 @@ def test_usage_today_cost_excludes_old_rows(client, auth_headers):
 
     db = SessionLocal()
     try:
-        admin = db.query(User).filter_by(username="admin").one()
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.flush()
+        utc_now = datetime.now(timezone.utc).replace(tzinfo=None)  # 与 created_at naive UTC 同口径
         db.add_all(
             [
                 models.ApiUsage(user_id=admin.id, cost=0.5, tokens_in=1, tokens_out=1, cache_read=0,
-                                created_at=datetime.now() - timedelta(days=1)),
-                models.ApiUsage(user_id=admin.id, cost=0.2, tokens_in=1, tokens_out=1, cache_read=0),
+                                created_at=utc_now - timedelta(days=1)),
+                models.ApiUsage(user_id=admin.id, cost=0.2, tokens_in=1, tokens_out=1, cache_read=0,
+                                created_at=utc_now),
             ]
         )
         db.commit()
