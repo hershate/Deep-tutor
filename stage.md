@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P4 四项全部完成**——多用户（iter 57-60）、Skills 扩展（iter 61-63，MCP 暂缓）、浏览器插件（iter 64-65）、云部署通用模板（iter 66，用户选定本机/局域网 HTTP，OCR/whisper 保持可选）。全量 317 后端测试通过。**候选下一步**：真机冒烟（docker compose 起栈 + 装扩展 + 配 key 跑剪藏->生成全链路，本机无 docker 待有环境时做）/ P5（缓存深度优化 + Anki/ics 导出 + 协作分享）。详见 §五 iter 66 条。
+**当前下一步**：**P4 全部完成**，云部署双案齐备——docker-compose（iter 66）+ 免 Docker 本地直起脚本（iter 67，用户要求）。全量 325 后端测试通过。**候选下一步**：P5（缓存深度优化 + Anki/ics 导出 + 协作分享）/ 真机冒烟（docker 起栈；start.ps1 在干净 Windows 机器全流程验证；装扩展跑剪藏->生成）。详见 §五 iter 67 条。
 
 ---
 
@@ -232,6 +232,14 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 67（云部署补充：免 Docker 本地直起方案，✅ 完成）**：用户要求「不要只用 Docker，给出 sh（Linux）+ powershell（Windows）脚本直接启动」。
+  - **SPA 托管（commit `be1c695`）**：[settings.py](backend/app/core/settings.py) 加 `FRONTEND_DIST`（空=不托管）；[main.py](backend/app/main.py) `_SPAStaticFiles`：挂 `/`（/api 路由注册在前不遮蔽）、未命中非 /api 路径回退 index.html（React Router 接管）、**/api 未命中返回 JSON 404 不吞**——判定用 `scope["path"]` 而非 StaticFiles 传入 path（后者被转 OS 分隔符，Windows 下 `api\xxx` 致守卫失效，测试暴露）。无 index.html 时告警不挂载（非运行期 500）。测试 +8（test_spa_static.py）。
+  - **直起脚本（commit `2204b68`）**：[scripts/start.sh](scripts/start.sh) + [scripts/start.ps1](scripts/start.ps1)：venv → pip 依赖（幂等）→ 缺 .env 则生成模板并提示填 JWT_SECRET/ADMIN_PASSWORD/ANTHROPIC_API_KEY 后退出 → 无 frontend/dist 且有 npm 则自动构建（两者皆无报错）→ `python -m app.db.migrate` → uvicorn `--app-dir backend` 单进程（0.0.0.0:8000，PORT 可覆盖）。bash -n + PSParser 语法校验通过。
+  - **真机冒烟**：scratch DB（env 重定向）migrate 到 head → uvicorn 起 18923 端口：`/` 200 html、`/learn/123` SPA 回退 200、`/api/health` ok、无认证 401、`/api/nope` 404 JSON——全通过。
+  - **文档**：README 部署分 A（本地直起）/B（docker-compose）两案；[.env.example](.env.example) 补 FRONTEND_DIST。
+  - **验证**：全量 325 测试通过（317+8），零回归。
+  - **待做**：P5 / 真机冒烟（干净机器全流程 + docker 起栈 + 扩展剪藏链路）。
 
 - **2026-07-18 iter 66（P4 云部署通用模板：启动迁移 + compose 加固 + 部署文档，✅ 完成）**：用户选定「云部署（P4 收尾）」，环境确认为**本机/局域网 docker compose、HTTP 直连，OCR/whisper 依赖保持可选**。盘点 iter 1 骨架（compose/Dockerfile/nginx）发现三缺口并修：
   - **启动迁移（commit `23f2000`）**：此前容器入口直接 uvicorn，`init_db()` 的 create_all 不会对已有库加新列（P4 的 user_id 等）→ 升级镜像即数据/代码不一致。新增 [app/db/migrate.py](backend/app/db/migrate.py)（`python -m app.db.migrate`）：新库 upgrade head 建表 / 有 alembic_version 增量 / **无版本旧库（历史 create_all 所建）按 schema 特征探测代际**（`_REVISION_PROBES` 新->旧：provider_profiles.user_id→head、users.username→169af26、provider 表→3deb416、done_at→69bb0fe、knowledge_nodes.sid→baa9cf6、否则 base）stamp 后续接迁移，避免 CREATE TABLE 冲突。[alembic/env.py](backend/alembic/env.py) 改为**仅未显式设置时**回退 settings.sqlite_url（原无条件覆盖，致 migrate 指定目标库被忽略——测试暴露此 bug）。tests/test_db_migrate.py +7（三条路径 + 幂等 + 中间代/基代/现行 create_all 各代际 stamp）。
