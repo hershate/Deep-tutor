@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 170（功能线：方案版本历史切换，✅ 完成）**：重新生成/级联重跑会产出 plan.version+1 的新方案，但旧版本无从回看——方案详情页加版本切换。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 拿到 plan.session_id 后调 `listPlans(sessionId)`（既有 `GET /plans?session_id=N` 本就返回会话全部版本，零后端改动），版本数 >1 时标题旁出现下拉：按 version 倒序列出、标注（当前）、选中即跳对应 /plans/:id；仅 1 版本不渲染，列表请求失败静默不阻塞页面。**编号说明**：代码注释初标 iter 169，与并行美化轨 iter 169（第 50 轮）撞号，本条取 170（注释随 commit `c44691b` 改标）。提交：功能 commit `9826380` + 改标 commit `c44691b`。**验证**：`npm run build` 通过（1.71s，主包 210.56kB）。
+
 - **2026-07-19 iter 169（美化轨：第 50 轮——双 a11y 补全，✅ 完成）**：审查并行轨两项新功能：① 用量页预算进度条（BudgetBar）视觉/动效已齐（500ms ease-out、蓝/amber/红三档、最低 2% 可见宽度），缺 progressbar 语义——轨道加 `role="progressbar"`+`aria-value*`（同 iter 165 今日目标条修法）；② 打卡快捷分钟 chips（iter 168）选中态仅靠颜色区分——加 `aria-pressed` 让读屏可辨（commit `246b18b`）。**注**：构建被并行轨 PlanDetail.tsx 未提交 WIP（`listPlans` 回调 6 处 TS 错）阻塞，非本轮改动问题，仅提交 Learn/Usage 两文件。验证：tsc 对两文件零错。
 
 - **2026-07-19 iter 168（功能线：打卡快捷分钟 chips，✅ 完成）**：每次打卡手敲分钟数——加 15/30/60/120 快捷 chips。[Learn.tsx](frontend/src/pages/Learn.tsx) 分钟输入下快捷行（点击填入、当前值高亮、tabular-nums）；纯前端（commit `7161321`）。**验证**：`npm run build` 通过。
