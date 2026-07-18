@@ -803,18 +803,23 @@ def list_plans(
     session_id: int | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None, max_length=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     # P4 隔离：仅列当前用户会话下的方案；指定 session_id 须为本用户会话（否则 404）
-    q = db.query(models.Plan).join(models.Session, models.Plan.session_id == models.Session.id).filter(
+    q_ = db.query(models.Plan).join(models.Session, models.Plan.session_id == models.Session.id).filter(
         models.Session.user_id == user.id
     )
     if session_id is not None:
         get_owned_session(db, session_id, user)
-        q = q.filter(models.Plan.session_id == session_id)
-    total = q.count()
-    items = q.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+        q_ = q_.filter(models.Plan.session_id == session_id)
+    if q and q.strip():
+        # iter 128：按主题子串搜索（JSON_EXTRACT intent.topic；溢出落盘的大方案
+        # content={} 无路径 -> NULL 不匹配，属已知限制见 stage.md）
+        q_ = q_.filter(models.Plan.content["intent"]["topic"].as_string().contains(q.strip()))
+    total = q_.count()
+    items = q_.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     return {
         "items": [
             PlanSummary(
