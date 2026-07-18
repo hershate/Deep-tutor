@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P4「Skills 扩展」进行中——iter 61 `deep-tutor-quiz` Skill 已落地（MCP 经用户确认暂缓）。全量 296 后端测试 + 前端 build 通过。**候选下一步**：`deep-tutor-resources` Skill（需先落地 search_resources 的 LLM 内容适配性筛选，plan/02 §7）/ P4 剩余（云部署、浏览器插件）/ P5 / 真机冒烟。详见 §五 iter 61 条。
+**当前下一步**：P4「Skills 扩展」已完成——iter 61 `deep-tutor-quiz`、iter 62-63 `deep-tutor-resources`（含 LLM 内容适配性筛选落地）均完成，plan/05 §八 全部 5+1 个 Skill 落地（MCP 经用户确认暂缓）。全量 303 后端测试 + 前端 build 通过。**候选下一步**：P4 剩余（云部署、浏览器插件）/ P5（缓存/导出/协作）/ 真机冒烟（配 key 后跑筛选全链路）。详见 §五 iter 61-63 条。
 
 ---
 
@@ -28,7 +28,7 @@
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
-| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户主线 iter 57-60 ✅：认证/隔离/用户管理/登录 UI；云部署、Skills/MCP、浏览器插件待排期） |
+| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户 iter 57-60 ✅；Skills 扩展 iter 61-63 ✅（MCP 暂缓，用户确认）；云部署、浏览器插件待排期） |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
 ---
@@ -233,8 +233,14 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 62-63（P4 Skills 扩展：deep-tutor-resources + LLM 内容适配性筛选，✅ 完成）**：用户选定「deep-tutor-resources Skill」。该 Skill 的前置（plan/02 §5「✅ = HTTP 200 + 内容难度适配该阶段」的内容适配半）此前一直延后（iter 20：无 skill 消费者不建死代码），本次一并落地。
+  - **iter 62（筛选实现，commit `023e3be`）**：[search_resources.py](backend/app/tools/search_resources.py) 新增 `_screen_resources`——verify_url 可达判定后，**一次批量 LLM 调用**（≤40 候选，成本有界）判定每候选与阶段主题/学习者水平的内容适配性：`suitable=false`（不相关）丢弃、`label="uncertain"` 降 ⚠️、`note` 写入（≤200 字）；**label 只降不升**（verify 已 ⚠️ 不因 LLM 说 ok 而升）；上下文取 `inp.upstream` 的 understand_intent（topic/level）+ design_stages（阶段名）；system prompt 取 `ctx.skill_registry["deep-tutor-resources"]`，缺失回退 inline `SCREEN_PROMPT`（R13，两者 schema 一致）。**稳定降级**：无 provider / LLM 异常 / 输出不可解析（`_parse_screen_verdicts` 整体结构非法 -> None）-> 跳过筛选保持原判定（行为同 iter 62 前）；响应未覆盖的 url 保持原判定；单项非法跳过不影响其余；容忍 markdown 代码块包裹。工具仍为 `llm=False` func（网络 + 内部可选 LLM 的混合流程，不进 loop 的 llm 工具路径）。测试 +6（丢弃+降⚠️+note / 不相关丢弃 / LLM 异常+非 JSON+非数组三种降级 / 部分覆盖+非法单项 / 无 provider 跳过 / skill prompt 优先于 inline）。
+  - **iter 63（Skill 落地，commit `6293148`）**：[skills/deep-tutor-resources/SKILL.md](skills/deep-tutor-resources/SKILL.md) + README——方法论移植 study-planner Step 4（✅⚠️❌ 三级验证表 + 内容适配规则：suitable=false 仅限不相关宁宽勿漏、拿不准一律 uncertain、url 原样返回不臆测正文），输出 schema 与 `_parse_screen_verdicts`/inline prompt 对齐。测试 +1（真实 Skill 加载）。
+  - **验证**：全量 303 测试通过（296+7），零回归。**plan/05 §八 Skill 全部落地**（intent/knowledge-map/stages/validate/quiz/resources；build_plan_slides 复用 ppt-slide-builder、generate_study_materials 复用 self-study-guide，均无需新建）。
+  - **待做**：P4 剩余（云部署、浏览器插件）/ P5 / 真机冒烟（配 key 后跑「检索->verify->LLM 筛选」真实链路）。
+
 - **2026-07-18 iter 61（P4 Skills 扩展：deep-tutor-quiz Skill，✅ 完成）**：用户选定方向「Skills/MCP 扩展（P4）」，经 AskUserQuestion 确认：**Skills 侧做 deep-tutor-quiz（计划内 P2 Skill）/ MCP 暂缓**（plan 文档对 MCP 无具体定义）。[skills/deep-tutor-quiz/SKILL.md](skills/deep-tutor-quiz/SKILL.md) + README：方法论移植自 iter 37-49 已验证的 inline PROMPT（题源 knowledge_map must_learn 优先/5-20 题/题型混合/难度贴合 difficulty/answer 为 options 原文/不编造知识点 + iter 49 unit_check_questions 题源联动规则 + essay 等不可判分题型主动避免），按 skill-for-skills 规范格式（Purpose/When/Workflow/Constraints/Examples/Notes + cache_strategy/repair/security/budget 编码）。[generate_quiz.py](backend/app/tools/generate_quiz.py) `skill_name="deep-tutor-quiz"`（inline PROMPT 保留作 R13 回退）；[plans.py](backend/app/api/plans.py) quiz 端点 ctx 注入 `skill_registry=get_skill_registry() or None`（此前 quiz/materials/exports ctx 均未注入，Skill 无从生效——本次仅接 quiz，materials/slides 按设计保持 inline 聚焦 prompt）。测试 +2（真实 Skill 加载 + loop 取用集成 system==skill body 覆盖 inline，仿 validate 模式）。commit `972475a`。全量 296 测试通过，零回归。**至此 plan/05 §八 已建 Skill 全部落地**（intent/knowledge-map/stages/validate/quiz；resources 待 LLM 筛选落地后建，build_plan_slides 复用 ppt-slide-builder 无需新建）。
-  - **待做**：deep-tutor-resources（前置：search_resources LLM 内容适配性筛选，plan/02 §7）/ P4 剩余（云部署、浏览器插件）/ P5 / 真机冒烟。
+  - **待做**：iter 62-63 已完成（见上条）；P4 剩余（云部署、浏览器插件）/ P5 / 真机冒烟。
 
 - **2026-07-18 iter 59-60（P4 多用户：admin 用户管理 + 前端登录/用户管理 UI，✅ 完成）**：
   - **iter 59 后端（commit `b7fd142`）**：[users.py](backend/app/api/users.py)（新，全部 `require_admin`）：`GET /api/users`（不含 password_hash）、`POST`（username 唯一 409、密码 ≥4 位、空白用户名 400）、`PUT /{id}`（改名/授予撤销管理员/重置密码）、`DELETE /{id}`。**护栏**：禁自降级/自删除；系统至少保留一名管理员（降级或删除最后一名管理员 -> 409）。**删除级联**：先 `cancel_running_generation`（防僵尸编排器任务撞 FK，同 DELETE /sessions 模式）-> ORM 删会话（级联 plans/materials/quizzes 等）-> 删供应商档案/api_usage 行 -> 删用户 -> best-effort 删会话文件目录；被删用户旧 JWT 自然 401（sub 查无此人）。测试 +12（[test_api_users.py](backend/tests/test_api_users.py)：403/401/CRUD/dup 409/校验/重置密码后旧密码失效/三项护栏/级联删除后会话·档案·用量清零）。
