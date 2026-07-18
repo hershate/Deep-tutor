@@ -50,6 +50,16 @@ export default function Settings() {
             value={data.auth_token_set ? '已配置' : '未配置'}
             status={data.auth_token_set ? 'ok' : 'warn'}
           />
+          <Row
+            label="图片 OCR（tesseract）"
+            value={data.ocr_available ? '可用' : '不可用（需安装 tesseract + pytesseract）'}
+            status={data.ocr_available ? 'ok' : 'warn'}
+          />
+          <Row
+            label={`音视频转写（faster-whisper ${data.whisper_model}，≤${data.media_max_minutes} 分钟）`}
+            value={data.whisper_available ? '可用' : '不可用（pip install faster-whisper）'}
+            status={data.whisper_available ? 'ok' : 'warn'}
+          />
         </dl>
       )}
     </div>

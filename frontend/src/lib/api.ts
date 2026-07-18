@@ -275,6 +275,10 @@ export interface AppSettings {
   anthropic_api_key_set: boolean
   bing_api_key_set: boolean
   auth_token_set: boolean
+  ocr_available: boolean // 图片 OCR 依赖可用（P3，R9）
+  whisper_available: boolean // 音视频转写依赖可用（P3，R9）
+  whisper_model: string
+  media_max_minutes: number
 }
 export const getSettings = () => apiFetch<AppSettings>('/settings')
 

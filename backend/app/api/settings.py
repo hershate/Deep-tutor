@@ -16,7 +16,13 @@ router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(
 
 @router.get("")
 def get_settings() -> dict:
-    """只读配置快照（掩码：仅返回 Key 是否已设，不返回明文）。"""
+    """只读配置快照（掩码：仅返回 Key 是否已设，不返回明文）。
+
+    多模态（P3，R9）：ocr_available/whisper_available 为运行时依赖检测结果，
+    False 时对应上传入口将报 dependency_missing（前端可提示安装）。
+    """
+    from app.tools.parse_material import ocr_available, whisper_available
+
     return {
         "anthropic_model": settings.anthropic_model,
         "budget_per_session_usd": settings.budget_per_session_usd,
@@ -27,4 +33,8 @@ def get_settings() -> dict:
         "anthropic_api_key_set": bool(settings.anthropic_api_key),
         "bing_api_key_set": bool(settings.bing_api_key),
         "auth_token_set": bool(settings.auth_token),
+        "ocr_available": ocr_available(),
+        "whisper_available": whisper_available(),
+        "whisper_model": settings.whisper_model,
+        "media_max_minutes": settings.media_max_minutes,
     }
