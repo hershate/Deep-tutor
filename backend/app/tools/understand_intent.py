@@ -55,26 +55,42 @@ class IntentData(BaseModel):
 
 
 def _validate_intent(data: dict, inp: ToolInput) -> dict:  # noqa: ARG001
-    """确定性校验（plan/09 §十六 past_deadline）：
+    """确定性校验（plan/09 §十/§十六）：
 
-    LLM 抽取的 deadline 若已过去 -> 清空并转澄清（比硬 422 更适合管线：
-    用户可能只是在叙述历史，硬拒会打断生成；追问确认更贴合 plan/09 意图）。
-    非法日期字符串 -> 清空（不进入下游 schedule_plan）。
+    - deadline 已过去 -> 清空并转澄清（比硬 422 更适合管线：用户可能在叙述历史，
+      硬拒会打断生成；追问确认更贴合 plan/09 意图）。非法日期串 -> 清空。
+    - daily_minutes 超 1..1440 -> 清空（invalid_range，§十；不阻断生成，按未知时长走）。
+    - topic 超 200 字符 -> 截断（invalid_range，§十）。
     """
     dl = data.get("deadline")
-    if not dl:
-        return data
-    try:
-        day = datetime.fromisoformat(str(dl).strip()).date()
-    except ValueError:
-        data["deadline"] = None
-        return data
-    if day < date.today():
-        data["deadline"] = None
-        data["needs_clarify"] = True
-        data.setdefault("clarify_questions", []).append(
-            f"检测到你提供的截止日期（{day.isoformat()}）已过，请提供新的截止日期，或说明没有截止时间。"
-        )
+    if dl:
+        try:
+            day = datetime.fromisoformat(str(dl).strip()).date()
+        except ValueError:
+            data["deadline"] = None
+        else:
+            if day < date.today():
+                data["deadline"] = None
+                data["needs_clarify"] = True
+                data.setdefault("clarify_questions", []).append(
+                    f"检测到你提供的截止日期（{day.isoformat()}）已过，请提供新的截止日期，或说明没有截止时间。"
+                )
+
+    dm = data.get("daily_minutes")
+    if dm is not None:
+        try:
+            dm_int = int(dm)
+        except (TypeError, ValueError):
+            data["daily_minutes"] = None
+        else:
+            if not 1 <= dm_int <= 1440:
+                data["daily_minutes"] = None
+            else:
+                data["daily_minutes"] = dm_int
+
+    topic = data.get("topic")
+    if isinstance(topic, str) and len(topic) > 200:
+        data["topic"] = topic[:200]
     return data
 
 

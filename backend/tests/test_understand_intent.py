@@ -129,3 +129,20 @@ def test_validate_intent_datetime_with_time_past():
 
     out = _validate_intent({"topic": "Go", "deadline": "2025-01-01T23:59:59"}, None)
     assert out["deadline"] is None and out["needs_clarify"] is True
+
+
+def test_validate_intent_daily_minutes_range():
+    from app.tools.understand_intent import _validate_intent
+
+    assert _validate_intent({"topic": "x", "daily_minutes": 60}, None)["daily_minutes"] == 60
+    assert _validate_intent({"topic": "x", "daily_minutes": 0}, None)["daily_minutes"] is None
+    assert _validate_intent({"topic": "x", "daily_minutes": 99999}, None)["daily_minutes"] is None
+    assert _validate_intent({"topic": "x", "daily_minutes": "abc"}, None)["daily_minutes"] is None
+    assert _validate_intent({"topic": "x", "daily_minutes": "90"}, None)["daily_minutes"] == 90
+
+
+def test_validate_intent_topic_truncated():
+    from app.tools.understand_intent import _validate_intent
+
+    out = _validate_intent({"topic": "长" * 300}, None)
+    assert len(out["topic"]) == 200
