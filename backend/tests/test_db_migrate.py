@@ -125,3 +125,27 @@ def test_stamp_provider_profiles_generation(tmp_path):
     assert _version(url) == HEAD
     user_cols = {c["name"] for c in inspect(create_engine(url)).get_columns("users")}
     assert "username" in user_cols
+
+
+def test_run_migrations_preserves_app_logging(tmp_path):
+    """iter 90 回归：env.py 模板自带的 fileConfig 默认 disable_existing_loggers=True，
+    应用进程内跑迁移（lifespan -> run_migrations）曾把 deep_tutor/uvicorn 等既有
+    logger 全部禁用并替换 root handlers——进程实际健康、端口正常服务，但此后所有
+    日志（含 "Application startup complete"）静默消失，表现为「后端启动即死」。
+    _alembic_config 置 attributes["configure_logging"]=False 后，迁移不得触碰
+    任何既有日志配置。"""
+    import logging
+
+    root = logging.getLogger()
+    before_handlers = list(root.handlers)
+    before_level = root.level
+    # 迁移前已存在的 logger 才会被 fileConfig 禁用——须先实例化
+    app_logger = logging.getLogger("deep_tutor")
+    uvicorn_logger = logging.getLogger("uvicorn.error")
+
+    run_migrations(_url(tmp_path))
+
+    assert root.handlers == before_handlers
+    assert root.level == before_level
+    assert app_logger.disabled is False
+    assert uvicorn_logger.disabled is False

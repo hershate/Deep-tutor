@@ -20,7 +20,13 @@ config = context.config
 if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)  # err.md C10
 
-if config.config_file_name is not None:
+# fileConfig 默认 disable_existing_loggers=True：在应用进程内执行迁移时
+# （lifespan -> app.db.migrate.run_migrations -> command.upgrade）会禁用
+# deep_tutor/uvicorn/app.* 全部既有 logger 并替换 root handlers——进程实际健康
+# 但此后所有日志（含 "Application startup complete"）静默消失，表现为「后端
+# 启动即死」（iter 90 实证）。app.db.migrate 因此置 attributes["configure_logging"]
+# =False 跳过之；直跑 alembic CLI 无该属性 -> 保持模板原行为。
+if config.config_file_name is not None and config.attributes.get("configure_logging", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

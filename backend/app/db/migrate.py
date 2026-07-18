@@ -76,6 +76,12 @@ def _alembic_config(db_url: str) -> Config:
     # script_location 相对 cwd 解析，显式钉到包路径，保证任意 cwd 可跑
     cfg.set_main_option("script_location", str(_BACKEND_DIR / "alembic"))
     cfg.set_main_option("sqlalchemy.url", db_url)
+    # 本函数总是经应用进程（lifespan / python -m app.db.migrate）触达 env.py：
+    # 阻止 env.py fileConfig（默认 disable_existing_loggers=True 会禁用 app/uvicorn
+    # 既有 logger 并替换 root handlers——服务仍健康但日志全灭，看似启动即死，iter 90
+    # 实证）。alembic 自身日志改为传播到 root，由应用/CLI 既有日志配置承接。
+    # 直跑 alembic CLI 不经本函数，env.py 保持模板原行为。
+    cfg.attributes["configure_logging"] = False
     return cfg
 
 
