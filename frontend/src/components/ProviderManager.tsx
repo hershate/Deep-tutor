@@ -9,6 +9,7 @@ import {
   deactivateProviders,
   deleteProvider,
   listProviders,
+  testProvider,
   updateProvider,
   type ProviderProfile,
 } from '../lib/api'
@@ -30,6 +31,26 @@ export default function ProviderManager() {
   const [showForm, setShowForm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [opError, setOpError] = useState('')
+  const [testResults, setTestResults] = useState<Record<number, { ok: boolean; message: string }>>({})
+  const [testingId, setTestingId] = useState<number | null>(null)
+
+  async function runTest(id: number) {
+    setTestingId(id)
+    try {
+      const r = await testProvider(id)
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: r.ok ? { ok: true, message: `连接成功（${r.model}）` } : { ok: false, message: r.error ?? '连接失败' },
+      }))
+    } catch (e) {
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: { ok: false, message: e instanceof ApiError ? e.message : '连接失败' },
+      }))
+    } finally {
+      setTestingId(null)
+    }
+  }
 
   const providers = data?.providers ?? []
   const hasActive = providers.some((p) => p.is_active)
@@ -210,8 +231,23 @@ export default function ProviderManager() {
               <div className="mt-0.5 truncate text-xs text-slate-500">
                 {p.base_url || 'Anthropic 官方端点'} · {p.model || '默认模型'} · Key {p.api_key_masked}
               </div>
+              {testResults[p.id] && (
+                <div
+                  role="status"
+                  className={`mt-0.5 text-xs ${testResults[p.id].ok ? 'text-green-600' : 'text-red-600'}`}
+                >
+                  {testResults[p.id].message}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => void runTest(p.id)}
+                disabled={testingId === p.id}
+                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                {testingId === p.id ? '测试中…' : '测试'}
+              </button>
               {!p.is_active && (
                 <button
                   onClick={() => void run(() => activateProvider(p.id))}

@@ -258,6 +258,11 @@ export const activateProvider = (id: number) =>
   apiFetch<ProviderProfile>(`/providers/${id}/activate`, { method: 'POST', body: JSON.stringify({}) })
 export const deactivateProviders = () =>
   apiFetch<{ ok: boolean }>('/providers/deactivate', { method: 'POST', body: JSON.stringify({}) })
+export const testProvider = (id: number) =>
+  apiFetch<{ ok: boolean; model: string; error?: string }>(`/providers/${id}/test`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
 
 // --- settings（只读配置快照，plan/06 §四.7；Key 仅返回是否已设，不返回明文）---
 export interface AppSettings {
