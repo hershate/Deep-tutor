@@ -3,6 +3,8 @@
 提交作答：记录 quiz_attempts 行并判分（choice 服务器比对 payload.answer；
 fill/short 自评题 correct=None）。进度掌握度回写仍走 POST /progress（前端聚合），
 两端点解耦（submit 只管作答记录与判分）。
+
+GET /quizzes/wrong-overview（iter 156）：跨方案错题总览——每方案当前错题数（Wiki 全局视图）。
 """
 
 from __future__ import annotations
@@ -57,3 +59,51 @@ def submit_quiz(
         "answer": payload.get("answer", ""),
         "explanation": payload.get("explanation", ""),
     }
+
+
+@router.get("/wrong-overview")
+def wrong_overview(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """跨方案错题总览（iter 156）：每方案当前错题数 + 合计（Wiki 页全局错题卡）。
+
+    判定与 GET /plans/{id}/quiz/wrong 同口径：每题最新作答 correct IS False。
+    无错题 -> items=[] / total=0（前端不显示卡片）。
+    """
+    from app.api.plans import _load_plan_content
+
+    attempts = (
+        db.query(models.QuizAttempt)
+        .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
+        .join(models.Plan, models.Quiz.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .order_by(
+            models.QuizAttempt.quiz_id,
+            models.QuizAttempt.created_at.desc(),
+            models.QuizAttempt.id.desc(),
+        )
+        .all()
+    )
+    latest_by_quiz: dict[int, models.QuizAttempt] = {}
+    for a in attempts:
+        latest_by_quiz.setdefault(a.quiz_id, a)
+    wrong_ids = [qid for qid, a in latest_by_quiz.items() if a.correct is False]
+    if not wrong_ids:
+        return {"items": [], "total": 0}
+
+    per_plan: dict[int, int] = {}
+    for q in db.query(models.Quiz).filter(models.Quiz.id.in_(wrong_ids)).all():
+        per_plan[q.plan_id] = per_plan.get(q.plan_id, 0) + 1
+
+    topics: dict[int, str] = {}
+    for pid in per_plan:
+        plan = db.get(models.Plan, pid)
+        if plan is None:
+            continue
+        content = _load_plan_content(plan)
+        topics[pid] = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+
+    items = [
+        {"plan_id": pid, "topic": topics.get(pid, ""), "wrong_count": cnt}
+        for pid, cnt in sorted(per_plan.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    return {"items": items, "total": sum(per_plan.values())}
