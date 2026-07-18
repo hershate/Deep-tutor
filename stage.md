@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 117（前端美化第 23 轮：预览弹窗与长 URL 收尾）**：①[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 部分方案预览弹窗 ✕ 关闭钮补 `transition-colors`（全站最后一处瞬时变色残留）；②资源外链 `break-all` 统一——iter 111 只补了 PlanDetail，本轮将 [SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx) 与 GenerateProgress 预览列表的外链同步补齐，长 URL 在三处资源展示位均不会再撑破容器。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 116（前端美化第 22 轮：自学材料弹窗细节）**：[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) 头部控件走查——①「深度」下拉原裸样式（`rounded border`，无深色/聚焦态）升级为品牌输入件（rounded-lg + 深色底/边框 + focus 蓝环 + disabled 半透明）；②「导出全部」「关闭」按钮补 `dark:border-slate-600`（原深色下边框沿用浅色过亮）；③「选择重生成」选中态补 `dark:border-blue-500`（原深色下选中边框不可见）、「关闭」补 transition-all + active:scale-95。另：并行会话错题重练（commit `f902bd6`，QuizModal wrong 模式）样式已自带品牌模式，无需调整。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 115（功能线：错题重练，✅ 完成）**：答错题目可零成本原题重练（不消耗 LLM 额度）。**编号说明**：本切片代码注释自标 iter 114，与并行美化轨 iter 114（第 21 轮）撞号，本条按共享序号取 115。
