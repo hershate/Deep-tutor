@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 163（功能线：学习中心今日目标进度条，✅ 完成）**：方案定了每天学多久，学了多少没对照——打卡区加今日目标进度。[Learn.tsx](frontend/src/pages/Learn.tsx) 读取 intent.daily_minutes（无则不显示），今日已学分钟 = 当日 logs 求和（本地日口径 sv locale，与后端服务器本地日一致）；进度条 500ms 过渡、达标变绿 + ✓；纯前端零后端（commit `412699c`）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 162（功能线：个人笔记总览，✅ 完成）**：笔记散在各节点卡片里，想通览只能逐个点开——Wiki 加「我的笔记」视图。**编号说明**：代码注释自标 iter 161，与并行美化轨 iter 161（第 46 轮）撞号，本条取 162。
   - **后端**（commit `2c84a31`）：[knowledge.py](backend/app/api/knowledge.py) `GET /knowledge/notes`——NodeNote join KnowledgeNode（user 过滤、content 非空），updated_at 倒序，content 截 300 字符预览 + truncated 标记（完整内容走既有 GET /notes/{node_id} 按需取，防 20k×200 行拉爆响应）；plan_topic 惰性缓存。
   - **前端**（commit `2fd9bd3`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部下加「知识点 / 我的笔记」tab（chips 同筛选样式），笔记视图：卡片列表（节点名+方案题+更新时间+预览，点节点名跳方案），空态引导「点 📝 记录」；`enabled: view==='notes'` 惰性拉取；NodeNoteEditor 保存后同时失效 notes-overview；[api.ts](frontend/src/lib/api.ts) `getNotesOverview`。
