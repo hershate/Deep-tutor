@@ -96,6 +96,24 @@ def test_stamp_head_for_current_create_all_db(tmp_path):
     assert _version(url) == HEAD
 
 
+def test_models_match_migration_head(tmp_path):
+    """models 与 alembic head 零漂移（深查发现 share_links.token 曾两套约束定义）。
+
+    测试库走 create_all、部署库走 alembic，两者 schema 不一致会让测试漏掉部署侧问题，
+    也污染未来 autogenerate 输出。此测试把漂移钉死在 CI。
+    """
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    url = _url(tmp_path)
+    command.upgrade(_alembic_config(url), "head")
+    eng = create_engine(url)
+    with eng.connect() as conn:
+        mc = MigrationContext.configure(conn)
+        diffs = compare_metadata(mc, Base.metadata)
+    assert diffs == []
+
+
 def test_stamp_provider_profiles_generation(tmp_path):
     """3deb4164602b 代：provider 表存在但 users 无 username。"""
     url = _url(tmp_path)

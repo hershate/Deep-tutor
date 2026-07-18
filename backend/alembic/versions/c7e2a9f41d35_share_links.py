@@ -30,9 +30,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['plan_id'], ['plans.id']),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('plan_id', name='uq_share_links_plan'),
-        sa.UniqueConstraint('token', name='uq_share_links_token'),
     )
-    op.create_index('ix_share_links_token', 'share_links', ['token'])
+    # token 唯一性用唯一索引表达，与 models.ShareLink（unique=True, index=True）保持一致，
+    # 避免 create_all（测试库）与 alembic（部署库）产出两套 schema 造成 autogenerate 漂移
+    op.create_index('ix_share_links_token', 'share_links', ['token'], unique=True)
 
 
 def downgrade() -> None:
