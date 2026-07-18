@@ -1,11 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, createSession, createUrlMaterial, deleteSession, uploadMaterial } from '../lib/api'
 
+// iter 137：首页草稿 localStorage 持久化——刷新/误关页面不丢需求描述与链接（文件句柄无法持久化）
+const DRAFT_KEY = 'dt-home-draft'
+
+interface HomeDraft { rawText: string; urls: string[] }
+
+function loadDraft(): HomeDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw) as Partial<HomeDraft>
+    return {
+      rawText: typeof d.rawText === 'string' ? d.rawText : '',
+      urls: Array.isArray(d.urls) ? d.urls.filter((u): u is string => typeof u === 'string') : [],
+    }
+  } catch {
+    return null // 损坏数据静默忽略
+  }
+}
+
 export default function Home() {
-  const [rawText, setRawText] = useState('')
+  const [draft] = useState<HomeDraft | null>(loadDraft)
+  const [rawText, setRawText] = useState(draft?.rawText ?? '')
   const [files, setFiles] = useState<File[]>([])
-  const [urls, setUrls] = useState<string[]>([]) // 网页链接资料（plan/03 §二）
+  const [urls, setUrls] = useState<string[]>(draft?.urls ?? []) // 网页链接资料（plan/03 §二）
+  const [draftRestored, setDraftRestored] = useState(Boolean(draft && (draft.rawText || draft.urls.length)))
   const [urlInput, setUrlInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
@@ -13,6 +34,19 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
   const nav = useNavigate()
+
+  // 草稿自动保存（输入即存，localStorage 同步写开销可忽略；空内容清除 key 防恢复空草稿）
+  useEffect(() => {
+    if (!rawText.trim() && urls.length === 0) localStorage.removeItem(DRAFT_KEY)
+    else localStorage.setItem(DRAFT_KEY, JSON.stringify({ rawText, urls }))
+  }, [rawText, urls])
+
+  function clearDraft() {
+    setRawText('')
+    setUrls([])
+    setDraftRestored(false)
+    localStorage.removeItem(DRAFT_KEY)
+  }
 
   function addFiles(list: FileList | null) {
     if (!list?.length) return
@@ -75,6 +109,7 @@ export default function Home() {
         throw uploadErr
       }
       nav(`/generate/${session_id}`, { state: { rawText } })
+      localStorage.removeItem(DRAFT_KEY) // 生成成功 -> 草稿使命完成
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '创建失败')
       setLoading(false)
@@ -94,9 +129,24 @@ export default function Home() {
       </div>
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '60ms' }}>
-        <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-          需求描述
-        </label>
+        <div className="flex items-center justify-between">
+          <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            需求描述
+          </label>
+          {/* iter 137：草稿恢复提示 + 一键清除 */}
+          {draftRestored && (
+            <span className="flex animate-fade-in items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+              已恢复上次未提交的草稿
+              <button
+                type="button"
+                onClick={clearDraft}
+                className="rounded px-1.5 py-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-700 dark:hover:text-red-400"
+              >
+                清除
+              </button>
+            </span>
+          )}
+        </div>
         <textarea
           id="home-rawtext"
           className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-900 p-3 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
