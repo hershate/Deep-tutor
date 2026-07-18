@@ -170,6 +170,11 @@ class Orchestrator:
                 if not out.data.get("passed", True):
                     self._emit("warn", {"code": "validation_unresolved", "message": "校验仍不通过，交付当前方案 + 报告"})
 
+            # plan/03 §一 SSE plan_chunk：每个工具产出后广播当前部分方案，
+            # 前端「查看部分」（plan/06 §四.3）生成中即可浏览已产出片段；
+            # 事件经 _SessionStream 缓冲，断线重连自动重放最新片段。
+            self._emit("plan_chunk", {"partial_plan": self._assemble(outputs)})
+
         return OrchestratorResult("done", outputs, self._assemble(outputs), errors)
 
     # ---- 内部 ----

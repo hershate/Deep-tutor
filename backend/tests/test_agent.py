@@ -378,3 +378,23 @@ def test_orchestrator_budget_exceeded_during_feedback_rerun():
     assert "export_plan" not in order
     # design_stages 重跑过一次（反馈循环触发后超限中断）
     assert design_calls["n"] == 2
+
+
+def test_orchestrator_emits_plan_chunk_per_tool():
+    """plan/03 §一：每个工具产出后广播 plan_chunk（前端「查看部分」），内容随进度增长。"""
+    order: list[str] = []
+    reg = _py_registry(order)
+    events: list[tuple] = []
+    orch = Orchestrator(reg, _ctx(registry=reg), event_cb=lambda e, d: events.append((e, d)))
+    result = asyncio.run(orch.run({}))
+
+    assert result.status == "done"
+    chunks = [d["partial_plan"] for e, d in events if e == "plan_chunk"]
+    # 每个已注册工具一次（export_plan 也含），至少 7 个 chunk
+    assert len(chunks) >= 7
+    # 递增包含：首个 chunk 仅有 parse_material 之外为空 intent；含 intent 的 chunk 在 understand_intent 之后
+    intents = [c.get("intent") for c in chunks]
+    assert any(i is None for i in intents[:1])
+    assert any(i and i.get("topic") == "Go" for i in intents)
+    # 最终 chunk 与 result.plan 一致（全组件聚合）
+    assert chunks[-1]["validation_report"]["passed"] is True

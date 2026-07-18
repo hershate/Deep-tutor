@@ -1,12 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
+import PlanOutline, { type OutlineNode, type OutlineStage } from '../components/PlanOutline'
+import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { cancelGeneration, generateStream } from '../lib/api'
 
 interface Step {
   name: string
   status: 'running' | 'done' | 'error' | ''
   meta?: Record<string, unknown>
+}
+
+// plan_chunk 部分方案（plan/03 §一）：与 PlanDetail 的 PlanData 同构（内容可能尚不完整）
+interface PartialPlan {
+  intent?: { topic?: string }
+  stages?: OutlineStage[]
+  knowledge_map?: { nodes?: OutlineNode[] }
+  schedule?: ScheduleDay[]
+  resources?: Array<{ title?: string; url?: string; verified?: string }>
 }
 
 export default function GenerateProgress() {
@@ -19,6 +30,8 @@ export default function GenerateProgress() {
   const [status, setStatus] = useState<'running' | 'done' | 'error' | 'cancelled'>('running')
   const [error, setError] = useState('')
   const [cost, setCost] = useState(0)
+  const [partial, setPartial] = useState<PartialPlan | null>(null) // 最新 plan_chunk（查看部分）
+  const [showPartial, setShowPartial] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -44,6 +57,9 @@ export default function GenerateProgress() {
           )
           const c = (data.metadata as { cost?: number })?.cost
           if (typeof c === 'number') setCost((x) => x + c)
+        } else if (event === 'plan_chunk') {
+          // 每工具产出后广播的部分方案（plan/03 §一）：仅保留最新一份供「查看部分」
+          setPartial(data.partial_plan as PartialPlan)
         } else if (event === 'clarify_needed') {
           nav(`/clarify/${sessionId}`, { state: { questions: data.questions } })
         } else if (event === 'done') {
@@ -91,6 +107,14 @@ export default function GenerateProgress() {
               取消
             </button>
           )}
+          {partial && (
+            <button
+              onClick={() => setShowPartial(true)}
+              className="rounded-lg border px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-700"
+            >
+              查看部分 →
+            </button>
+          )}
         </div>
         <span className="text-sm text-slate-500 dark:text-slate-400">费用 ${cost.toFixed(4)}</span>
       </div>
@@ -133,6 +157,59 @@ export default function GenerateProgress() {
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
             返回首页
           </button>
+        </div>
+      )}
+
+      {showPartial && partial && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="部分方案预览"
+          onClick={() => setShowPartial(false)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl dark:bg-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                部分方案{partial.intent?.topic ? `：${partial.intent.topic}` : ''}
+                {status === 'running' && <span className="ml-2 text-xs font-normal text-slate-400">（生成中，实时更新）</span>}
+              </h3>
+              <button
+                onClick={() => setShowPartial(false)}
+                aria-label="关闭预览"
+                className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-5">
+              <PlanOutline stages={partial.stages} knowledgeMap={partial.knowledge_map} />
+              {partial.schedule && partial.schedule.length > 0 && (
+                <section aria-label="已产出日程">
+                  <h4 className="mb-2 font-semibold">日程（已产出）</h4>
+                  <Timeline schedule={partial.schedule} stageNames={(partial.stages ?? []).map((s) => s.name)} />
+                </section>
+              )}
+              {partial.resources && partial.resources.length > 0 && (
+                <section aria-label="已产出资源">
+                  <h4 className="mb-2 font-semibold">资源（已产出 {partial.resources.length} 条）</h4>
+                  <ul className="space-y-1 text-sm">
+                    {partial.resources.map((r, i) => (
+                      <li key={i}>
+                        {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'} {r.title}{' '}
+                        <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                          {r.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
