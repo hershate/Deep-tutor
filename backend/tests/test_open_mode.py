@@ -120,3 +120,35 @@ def test_open_mode_invalid_token_still_open(client, monkeypatch):
     _open_mode(monkeypatch)
     r = client.get("/api/plans", headers={"Authorization": "Bearer garbage"})
     assert r.status_code == 200
+
+
+# --- 历史模板占位值（iter 90）：旧 scripts/start.* 复制的模板 .env 带
+# AUTH_TOKEN=change-me-please，占位值须视为未配置，否则开放模式关闭 + 无人
+# 有密码 -> 用户被锁死在无法登录页（用户实机反馈）。 ---
+
+
+def test_placeholder_auth_token_counts_as_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "change-me-please")
+    assert settings_mod.settings.auth_token_configured is False
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "real-random-token")
+    assert settings_mod.settings.auth_token_configured is True
+
+
+def test_open_mode_with_placeholder_auth_token(client, monkeypatch):
+    """模板占位 AUTH_TOKEN 不关闭开放模式（无密码库 -> 免登录放行）。"""
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "change-me-please")
+    db = _db()
+    try:
+        assert passwordless_open(db) is True
+    finally:
+        db.close()
+    assert client.get("/api/settings").status_code == 200
+
+
+def test_placeholder_auth_token_not_a_valid_credential(client, monkeypatch):
+    """占位值人尽皆知，不得作为有效凭证：封闭模式（已有密码用户）下
+    携带字面 change-me-please 也不应认证通过。"""
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "change-me-please")
+    _mk_user_with_password()
+    r = client.get("/api/plans", headers={"X-Auth-Token": "change-me-please"})
+    assert r.status_code == 401

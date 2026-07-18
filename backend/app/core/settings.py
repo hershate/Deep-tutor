@@ -24,6 +24,14 @@ def _anchor(p: str) -> str:
     return str(_REPO_ROOT / p)
 
 
+# .env.example 历史模板占位值（iter 89 之前的 scripts/start.* 会在无 .env 时自动
+# 复制模板生成 .env）。占位值不是有效凭证：若按「已配置」处理，AUTH_TOKEN 占位会
+# 关闭开放本机模式、ANTHROPIC_API_KEY 占位会标记 LLM 已配而不进首次设置向导——
+# 两者叠加把用户锁死在无法登录页（iter 90 实证）。统一经下方派生属性视为未配置。
+TEMPLATE_AUTH_TOKEN = "change-me-please"
+TEMPLATE_ANTHROPIC_API_KEY = "sk-ant-xxxxxxxx"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(_REPO_ROOT / ".env"),  # err.md C7：.env 同样锚定，不依赖 cwd
@@ -92,6 +100,16 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
+    def auth_token_configured(self) -> bool:
+        """AUTH_TOKEN 是否为有效配置（历史模板占位值视为未配置，见模块头注释）。"""
+        return bool(self.auth_token) and self.auth_token != TEMPLATE_AUTH_TOKEN
+
+    @property
+    def anthropic_key_configured(self) -> bool:
+        """ANTHROPIC_API_KEY 是否为有效配置（历史模板占位值视为未配置，见模块头注释）。"""
+        return bool(self.anthropic_api_key) and self.anthropic_api_key != TEMPLATE_ANTHROPIC_API_KEY
+
+    @property
     def sqlite_url(self) -> str:
         return f"sqlite:///{self.db_path}"
 
@@ -137,7 +155,7 @@ class Settings(BaseSettings):
     def validate_feature_keys(self) -> list[str]:
         """功能级必填 key 检查（调用对应功能前用），返回缺失项。"""
         missing: list[str] = []
-        if not self.anthropic_api_key:
+        if not self.anthropic_key_configured:
             missing.append("ANTHROPIC_API_KEY")
         if not self.bing_api_key:
             missing.append("BING_API_KEY")

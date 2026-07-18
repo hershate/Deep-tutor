@@ -88,6 +88,19 @@ def test_status_llm_configured_via_env_key(client, monkeypatch):
     assert client.get(f"{BASE}/status").json()["llm_configured"] is True
 
 
+def test_status_llm_placeholder_env_key_counts_as_unconfigured(client, monkeypatch):
+    """iter 90：模板占位 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx 视为未配置——
+    否则旧脚本生成的 .env 会标记 LLM 已配而不进设置向导（叠加占位 AUTH_TOKEN
+    锁死登录页，用户实机反馈）。"""
+    _zero_config(monkeypatch)
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "sk-ant-xxxxxxxx")
+    assert settings_mod.settings.anthropic_key_configured is False
+    assert "ANTHROPIC_API_KEY" in settings_mod.settings.validate_feature_keys()
+    body = client.get(f"{BASE}/status").json()
+    assert body["llm_configured"] is False
+    assert body["needs_setup"] is True
+
+
 def test_status_corrupted_state_file_still_ok(client, monkeypatch):
     _zero_config(monkeypatch)
     from app.core.setup_state import _path
@@ -193,6 +206,14 @@ def test_setup_admin_jwt_allowed_when_closed(client, monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")
     _mk_admin()
     ha = _login(client)
+    # 吊销判定基于整秒（JWT iat 为 int 秒，见 setup.py 注释）：登录与改密若碰巧
+    # 落在同一秒，旧 JWT 本就不在吊销范围，测试随秒边界抖动（连跑实证）。把时钟
+    # 拨快 2s 使「改密」确定性地晚于登录 iat。PyJWT 的 exp 校验走 datetime 而非
+    # time.time，不受此补丁影响。
+    import time as time_mod
+
+    real_now = time_mod.time()
+    monkeypatch.setattr(time_mod, "time", lambda: real_now + 2)
     r = client.post(f"{BASE}", json={"password": "new-pw-5678"}, headers=ha)
     assert r.status_code == 200, r.text
     # 新密码生效、旧 JWT 被吊销（tokens_valid_after）

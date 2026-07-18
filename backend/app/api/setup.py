@@ -75,8 +75,8 @@ class SetupIn(BaseModel):
 
 
 def _llm_configured() -> bool:
-    """「get_provider() 可用」语义：env key 或任一 active 供应商档案。"""
-    return bool(settings.anthropic_api_key) or get_active_profile() is not None
+    """「get_provider() 可用」语义：env key（模板占位值不算，iter 90）或任一 active 供应商档案。"""
+    return settings.anthropic_key_configured or get_active_profile() is not None
 
 
 @router.get("/status")
@@ -103,7 +103,8 @@ def setup(body: SetupIn, db: Annotated[Session, Depends(get_db)], user: Annotate
         user.password_hash = hash_password(body.password)
         # 吊销改密前签发的 JWT（err.md A9）。取整秒：本端点随即签发新 token，
         # JWT iat 为 int 秒——若用 float 秒，新 token iat 被截断后 < tokens_valid_after
-        # 会被立即误判为已吊销（测试实证）；同秒旧 token 宽限 1s 可接受
+        # 会被立即误判为已吊销（测试实证）；代价是与改密同一秒内签发的旧 token
+        # 不被吊销（攻击者无法在该秒级窗口内先取得合法 JWT，可接受）
         user.tokens_valid_after = float(int(time.time()))
         password_set = True
 

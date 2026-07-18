@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
         ensure_admin_user(db)
     finally:
         db.close()
-    if not settings.admin_password and not settings.auth_token:
+    if not settings.admin_password and not settings.auth_token_configured:
         log.info("未配置认证（ADMIN_PASSWORD/AUTH_TOKEN 均空）：以开放本机模式运行——"
                  "免登录直接使用，局域网内任何人可访问；可在前端设置页设置访问密码")
     elif not settings.admin_password:

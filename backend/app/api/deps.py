@@ -29,7 +29,9 @@ def _extract_token(authorization: str | None, x_auth_token: str | None) -> str |
 
 
 def _is_env_token(token: str) -> bool:
-    return bool(settings.auth_token) and secrets.compare_digest(token, settings.auth_token)
+    # auth_token_configured：历史模板占位值（change-me-please）不是有效凭证，
+    # 不参与比较（否则人尽皆知的占位串即可认证，iter 90）
+    return settings.auth_token_configured and secrets.compare_digest(token, settings.auth_token)
 
 
 def get_db() -> Iterator[SessionLocal]:  # type: ignore[type-arg]

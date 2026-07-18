@@ -56,7 +56,7 @@ def get_provider(user_id: int | None = None) -> LLMProvider:
             model=profile["model"] or settings.anthropic_model,
             base_url=profile["base_url"] or None,
         )
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_key_configured:
         raise RuntimeError("ANTHROPIC_API_KEY 未配置且无生效供应商档案，无法构造 LLM Provider")
     return AnthropicProvider(
         api_key=settings.anthropic_api_key,

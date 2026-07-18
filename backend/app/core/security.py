@@ -147,7 +147,7 @@ def passwordless_open(db) -> bool:
     """
     from app.db.models import User
 
-    if settings.auth_token:
+    if settings.auth_token_configured:
         return False
     return db.query(User.id).filter(User.password_hash != "").first() is None
 
