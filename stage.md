@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 146（前端美化第 37 轮：错误横幅动画零残留）**：[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 整板加载失败横幅补 `animate-fade-in`——iter 131 统一品牌横幅后全站 `role="alert"` 逐处复核，此为最后一处无入场动画的横幅（初始加载失败时硬切出现）。至此全站错误提示均为「边框+浅底+fade-in」一致模式。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 145（功能线：自学材料深度偏好记忆，✅ 完成）**：每次打开材料弹窗深度都回到「完整」——记住上次选择。[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) depth 初始值读 `dt-materials-depth`（非法值回落 full），切换时写入。纯前端零后端（commit `e384a8c`）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 144（功能线：Wiki 知识点快捷状态标记，✅ 完成）**：改个状态要点进方案/学习中心——Wiki 卡片状态徽标直接可点。**编号说明**：代码注释自标 iter 142，与并行美化轨 iter 143（第 36 轮）相邻不撞号，本条按共享序号取 144。
