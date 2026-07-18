@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 151（功能线：学习日志可删除，✅ 完成）**：打错卡（分钟数手滑/重复打卡）无法撤回，统计被污染——加删除。**编号说明**：代码注释自标 iter 150，与并行美化轨 iter 150（第 39 轮）撞号，本条取 151。
+  - **后端**（commit `3098b6a`）：[progress.py](backend/app/api/progress.py) `DELETE /progress/logs/{log_id}`——join Plan/Session 归属校验（他人日志 404 不泄露存在性），删除后返回 {deleted, id}。
+  - **前端**（commit `443754e`）：[Learn.tsx](frontend/src/pages/Learn.tsx) 日志行尾 ✕（低可见 hover 显红、confirm 列明日期+分钟、deletingLogId 防重入、成功 loadLogs 重取——累计分钟/日历同步刷新）；[api.ts](frontend/src/lib/api.ts) `deleteLearningLog`。
+  - **测试**：[test_api_delete_log.py](backend/tests/test_api_delete_log.py) 3 例（删除后列表+累计分钟正确/再删 404、他人 404+不存在 404、401）。**验证**：后端全量 502 通过（499→502，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 150（前端美化第 39 轮：学习中心打卡区细节）**：[Learn.tsx](frontend/src/pages/Learn.tsx) 打卡表单——①分钟数/备注输入框 `rounded` → `rounded-lg`（全站输入件圆角最后残留）；②标题「累计 N 分钟」数字包 `tabular-nums`（打卡后位数变化不跳动）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 149（功能线：知识库搜索扩展到笔记内容，✅ 完成）**：记了笔记却搜不到——q 同时匹配节点名与本人笔记。**编号说明**：代码注释自标 iter 148，与并行美化轨 iter 148（第 38 轮）撞号，本条取 149。
