@@ -17,12 +17,12 @@ export default function UsageMeter() {
   return (
     <Link
       to="/usage"
-      className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800"
+      className="text-sm tabular-nums text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
       aria-label={`用量：总费用 ${data.total_cost.toFixed(4)} 美元，共 ${data.total_tokens} token`}
       title="查看用量详情"
     >
       <span>${data.total_cost.toFixed(4)}</span>
-      <span className="mx-1 text-slate-300">·</span>
+      <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
       <span>{(data.total_tokens / 1000).toFixed(1)}k tok</span>
     </Link>
   )

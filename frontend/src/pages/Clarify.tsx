@@ -71,7 +71,7 @@ export default function Clarify() {
         </p>
         <button
           onClick={() => nav('/')}
-          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700"
+          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98]"
         >
           返回首页
         </button>
@@ -87,13 +87,18 @@ export default function Clarify() {
         {questions.map((q, i) => {
           const inputId = `clarify-q-${i}`
           return (
-            <div key={i} className="space-y-1">
+            // iter 100 美化：问题卡片化 + 错峰入场
+            <div
+              key={i}
+              className="animate-fade-in-up space-y-1 rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+              style={{ animationDelay: `${Math.min(i, 6) * 70}ms` }}
+            >
               <label htmlFor={inputId} className="text-sm font-medium">
                 {q}
               </label>
               <input
                 id={inputId}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-300 p-2 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 value={answers[q] ?? ''}
                 onChange={(e) => setAnswers((a) => ({ ...a, [q]: e.target.value }))}
                 placeholder="你的回答…"
@@ -105,7 +110,7 @@ export default function Clarify() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -113,7 +118,7 @@ export default function Clarify() {
       <button
         onClick={submit}
         disabled={loading}
-        className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
       >
         {loading ? '生成中…' : '提交并继续生成'}
       </button>
