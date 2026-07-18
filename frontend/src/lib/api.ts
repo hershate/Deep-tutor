@@ -314,6 +314,7 @@ export interface KnowledgeItem {
   plan_topic: string
   status: ProgressStatus
   mastery: number // 0-1
+  has_note: boolean // iter 105：是否有笔记（Wiki 显示 📝）
 }
 export interface KnowledgeResult {
   items: KnowledgeItem[]
@@ -328,6 +329,19 @@ export const getKnowledge = (params: { q?: string; status?: ProgressStatus; plan
   const qs = q.toString()
   return apiFetch<KnowledgeResult>(`/knowledge${qs ? `?${qs}` : ''}`)
 }
+
+// 知识点笔记（iter 105）：每用户每节点一条；空内容保存即删除
+export interface NodeNote {
+  node_id: number
+  content: string
+  updated_at: string | null
+}
+export const getNodeNote = (nodeId: number) => apiFetch<NodeNote>(`/knowledge/notes/${nodeId}`)
+export const putNodeNote = (nodeId: number, content: string) =>
+  apiFetch<NodeNote>(`/knowledge/notes/${nodeId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  })
 
 // --- progress（P2，plan/03 §一）---
 export type ProgressStatus = 'not_started' | 'learning' | 'done'

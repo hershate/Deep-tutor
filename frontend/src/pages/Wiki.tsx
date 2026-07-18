@@ -1,9 +1,10 @@
 // 个人知识库 Wiki 页（iter 100）：跨方案聚合知识节点，可检索/按状态筛选，
 // 按方案分组浏览；点击节点跳方案详情。数据：GET /api/knowledge。
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import EmptyState from '../components/EmptyState'
+import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { getKnowledge, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
@@ -20,9 +21,11 @@ const STATUS_STYLE: Record<ProgressStatus, string> = {
 const DIFFICULTY_LABEL = ['', '入门', '基础', '中等', '进阶', '挑战']
 
 export default function Wiki() {
+  const qc = useQueryClient()
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   const [status, setStatus] = useState<ProgressStatus | null>(null)
+  const [openNoteId, setOpenNoteId] = useState<number | null>(null) // iter 105：展开中的笔记编辑器
 
   // 搜索防抖（300ms）：避免每击键一次请求
   useEffect(() => {
@@ -140,31 +143,50 @@ export default function Wiki() {
           <ul className="grid gap-2 p-3 sm:grid-cols-2">
             {g.items.map((n) => (
               <li key={n.node_id}>
-                <Link
-                  to={`/plans/${planId}`}
-                  className="block rounded-lg border px-3 py-2 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:hover:border-blue-700"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-medium">
-                      {n.must_learn && <span className="mr-1 text-amber-500" title="必学">★</span>}
-                      {n.name}
-                    </span>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[n.status]}`}>
-                      {STATUS_LABEL[n.status]}
-                    </span>
+                <div className="rounded-lg border transition-all hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:hover:border-blue-700">
+                  <div className="flex items-start">
+                    <Link to={`/plans/${planId}`} className="block min-w-0 flex-1 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium">
+                          {n.must_learn && <span className="mr-1 text-amber-500" title="必学">★</span>}
+                          {n.name}
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[n.status]}`}>
+                          {STATUS_LABEL[n.status]}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <span>{DIFFICULTY_LABEL[n.difficulty] ?? `难度${n.difficulty}`}</span>
+                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                          <span
+                            className="block h-full rounded-full bg-emerald-500 transition-all"
+                            style={{ width: `${Math.round(n.mastery * 100)}%` }}
+                            aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
+                          />
+                        </span>
+                        <span className="tabular-nums">{Math.round(n.mastery * 100)}%</span>
+                      </div>
+                    </Link>
+                    {/* 笔记开关（iter 105）：有笔记时 📝 常驻着色 */}
+                    <button
+                      onClick={() => setOpenNoteId((prev) => (prev === n.node_id ? null : n.node_id))}
+                      aria-expanded={openNoteId === n.node_id}
+                      aria-label={`${n.name} 笔记`}
+                      title={n.has_note ? '查看/编辑笔记' : '添加笔记'}
+                      className={`shrink-0 rounded-lg px-2 py-2 text-sm transition-all hover:bg-slate-100 active:scale-90 dark:hover:bg-slate-700 ${
+                        n.has_note ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'
+                      }`}
+                    >
+                      📝
+                    </button>
                   </div>
-                  <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <span>{DIFFICULTY_LABEL[n.difficulty] ?? `难度${n.difficulty}`}</span>
-                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                      <span
-                        className="block h-full rounded-full bg-emerald-500 transition-all"
-                        style={{ width: `${Math.round(n.mastery * 100)}%` }}
-                        aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
-                      />
-                    </span>
-                    <span className="tabular-nums">{Math.round(n.mastery * 100)}%</span>
-                  </div>
-                </Link>
+                  {openNoteId === n.node_id && (
+                    <NodeNoteEditor
+                      nodeId={n.node_id}
+                      onSaved={() => qc.invalidateQueries({ queryKey: ['knowledge'] })}
+                    />
+                  )}
+                </div>
               </li>
             ))}
           </ul>
