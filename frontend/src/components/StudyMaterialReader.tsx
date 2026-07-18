@@ -9,12 +9,15 @@ import { ApiError, getStudyUnitContent, markUnitDone, type StudyUnitMeta, type U
 
 interface Props {
   units: StudyUnitMeta[]
+  indexMd?: string // plan/02 §13 index 文档：导航首部「📑 路线图」伪单元（id=-1）
   onUnitsChange: (units: StudyUnitMeta[]) => void
   onOpenQuiz: () => void
 }
 
-export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }: Props) {
-  const [currentId, setCurrentId] = useState<number | null>(units[0]?.id ?? null)
+const INDEX_ID = -1
+
+export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange, onOpenQuiz }: Props) {
+  const [currentId, setCurrentId] = useState<number | null>(indexMd ? INDEX_ID : (units[0]?.id ?? null))
   const [content, setContent] = useState('')
   const [contentTitle, setContentTitle] = useState('')
   const [resources, setResources] = useState<UnitResource[]>([])
@@ -23,12 +26,13 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
   const [doneBusy, setDoneBusy] = useState(false)
   const acRef = useRef<AbortController | null>(null)
 
+  const isIndex = currentId === INDEX_ID
   const idx = units.findIndex((u) => u.id === currentId)
   const current = idx >= 0 ? units[idx] : null
 
-  // 选中单元 -> 按需加载内容（卸载/切换中止进行中请求）
+  // 选中单元 -> 按需加载内容（卸载/切换中止进行中请求）；index 伪单元用传入的 indexMd 不请求
   useEffect(() => {
-    if (currentId === null) return
+    if (currentId === null || currentId === INDEX_ID) return
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
@@ -71,6 +75,19 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
       {/* 单元导航 */}
       <nav aria-label="自学单元" className="w-44 shrink-0 overflow-y-auto border-r pr-2">
         <ul className="space-y-1">
+          {indexMd && (
+            <li>
+              <button
+                onClick={() => setCurrentId(INDEX_ID)}
+                aria-current={isIndex ? 'true' : undefined}
+                className={`w-full rounded px-2 py-1.5 text-left text-sm ${
+                  isIndex ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+                }`}
+              >
+                📑 路线图
+              </button>
+            </li>
+          )}
           {units.map((u, i) => (
             <li key={u.id}>
               <button
@@ -95,13 +112,31 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
 
       {/* 内容区 */}
       <div className="min-w-0 flex-1 overflow-y-auto">
-        {loading && <p className="text-sm text-slate-500 dark:text-slate-400">加载单元内容…</p>}
-        {error && (
-          <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
-            {error}
-          </div>
-        )}
-        {!loading && !error && current && (
+        {isIndex ? (
+          <>
+            <div className="markdown-body text-sm">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                {indexMd}
+              </ReactMarkdown>
+            </div>
+            <div className="mt-4 flex items-center justify-end border-t pt-3">
+              <button
+                onClick={() => units.length > 0 && setCurrentId(units[0].id)}
+                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                开始学习 →
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {loading && <p className="text-sm text-slate-500 dark:text-slate-400">加载单元内容…</p>}
+            {error && (
+              <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+                {error}
+              </div>
+            )}
+            {!loading && !error && current && (
           <>
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               {current.estimated_time && <span>预计 {current.estimated_time}</span>}
@@ -169,6 +204,8 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
                 下一单元
               </button>
             </div>
+              </>
+            )}
           </>
         )}
       </div>

@@ -41,11 +41,17 @@ from app.tools.generate_study_materials import (
     StudyUnitSpec,
     UnitContentSpec,
     brief_unit_from_stage,
+    build_materials_index,
     default_materials_from_plan,
     render_materials_md,
 )
 from app.tools.search_resources import search_unit_resources
-from app.core.storage import write_unit_text
+from app.core.storage import (
+    delete_unit_content,
+    materials_dir,
+    read_unit_content,
+    write_unit_content,
+)
 
 log = logging.getLogger("deep_tutor.api.plans")
 
@@ -766,14 +772,64 @@ def _plan_or_404(db: Session, plan_id: int, user: User) -> tuple[models.Plan, di
 # --- 自学材料（P2，plan/07 §五；同步 JSON / SSE 逐单元流（iter 46 内容协商）；iter 43 起持久化）---
 
 
+class MaterialsScopeIn(BaseModel):
+    """局部生成范围（plan/02 §13 scope；缺省=全方案）。"""
+
+    stage_indexes: list[int] | None = None
+    node_ids: list[str] | None = None
+
+
 class MaterialsIn(BaseModel):
     depth: Literal["brief", "full"] = "full"
     refresh: bool = False  # True 强制重新生成（替换旧单元，内容文件级联清理）
+    scope: MaterialsScopeIn | None = None
 
 
-def _delete_study_units(db: Session, plan_id: int) -> list[str]:
-    """删除旧单元（ORM 级联 study_materials），返回旧内容文件路径（提交与文件清理由调用方负责）。"""
-    old_units = db.query(models.StudyUnit).filter_by(plan_id=plan_id).all()
+def _resolve_scope_stages(content: dict, scope: MaterialsScopeIn | None) -> list[tuple[dict, int | None]]:
+    """scope -> [(stage, stage_index)] 选定子集（plan/02 §13）。
+
+    stage_indexes 直接选阶段（非法 -> 422）；node_ids 经知识图谱节点名匹配
+    阶段 topics（无匹配 -> 422）。无 scope -> 全部阶段。
+    """
+    stages = list(content.get("stages") or [])
+    if scope is None:
+        return [(s, s.get("index")) for s in stages]
+    if scope.stage_indexes is not None:
+        picked: list[tuple[dict, int | None]] = []
+        for i in scope.stage_indexes:
+            match = next((s for s in stages if s.get("index") == i), None)
+            if match is None:
+                raise ApiError("invalid_scope", f"stage_index {i} 不存在（方案共 {len(stages)} 个阶段）")
+            picked.append((match, i))
+        return picked
+    if scope.node_ids is not None:
+        nodes = (content.get("knowledge_map") or {}).get("nodes") or []
+        wanted = set(scope.node_ids)
+        names = {n.get("name") for n in nodes if n.get("id") in wanted and n.get("name")}
+        if not names:
+            raise ApiError("invalid_scope", "node_ids 均不在方案知识图谱中")
+        picked = [
+            (s, s.get("index"))
+            for s in stages
+            if any(t.get("name") in names for t in (s.get("topics") or []))
+        ]
+        if not picked:
+            raise ApiError("invalid_scope", "node_ids 未匹配到任何阶段知识点")
+        return picked
+    return [(s, s.get("index")) for s in stages]
+
+
+def _delete_study_units(
+    db: Session, plan_id: int, stage_indexes: set[int] | None = None
+) -> list[str]:
+    """删除旧单元（ORM 级联 study_materials），返回旧内容文件路径（提交与文件清理由调用方负责）。
+
+    stage_indexes 非空时仅删该 scope 内单元（plan/02 §13 局部生成不清整方案）。
+    """
+    q = db.query(models.StudyUnit).filter_by(plan_id=plan_id)
+    if stage_indexes is not None:
+        q = q.filter(models.StudyUnit.stage_index.in_(stage_indexes))
+    old_units = q.all()
     old_paths = [m.content_md_path for u in old_units for m in u.materials]
     for u in old_units:
         db.delete(u)  # cascade study_materials
@@ -781,13 +837,30 @@ def _delete_study_units(db: Session, plan_id: int) -> list[str]:
     return old_paths
 
 
+def _resequence_study_units(db: Session, plan_id: int) -> None:
+    """局部生成后重排 order（按 stage_index、原 order 稳定排序，NULL stage 排后）。"""
+    units = db.query(models.StudyUnit).filter_by(plan_id=plan_id).all()
+    units.sort(key=lambda u: (u.stage_index is None, u.stage_index or 0, u.order))
+    for i, u in enumerate(units):
+        u.order = i
+    db.flush()
+
+
 def _insert_study_unit(
-    db: Session, plan_id: int, session_id: int, order: int, u: StudyUnitSpec, resources: list | None = None
+    db: Session,
+    plan_id: int,
+    session_id: int,
+    order: int,
+    u: StudyUnitSpec,
+    resources: list | None = None,
+    stage_index: int | None = None,
 ) -> str:
-    """插入单单元行 + 写内容文件，返回新文件路径（提交由调用方负责）。
-    resources：单元 WebSearch 补充资料（iter 48），入 study_materials.resources。"""
+    """插入单单元行 + 写内容文件（>500 行自动拆子文件，plan/02 §13），返回新文件路径（提交由调用方负责）。
+    resources：单元 WebSearch 补充资料（iter 48），入 study_materials.resources。
+    stage_index：单元对应阶段（scope 局部生成的替换粒度）。"""
     row = models.StudyUnit(
         plan_id=plan_id,
+        stage_index=stage_index,
         title=u.title[:256],
         prerequisites=list(u.prerequisites),
         objectives=list(u.objectives),
@@ -796,7 +869,7 @@ def _insert_study_unit(
     )
     db.add(row)
     db.flush()
-    path = write_unit_text(session_id, row.id, u.content_md)
+    path = write_unit_content(session_id, row.id, u.content_md)
     db.add(
         models.StudyMaterial(
             unit_id=row.id,
@@ -808,25 +881,58 @@ def _insert_study_unit(
     return str(path)
 
 
+def _write_materials_index(session_id: int, content: dict, units: list[models.StudyUnit]) -> None:
+    """生成并落盘 index 文档（plan/02 §13 index_url：路线图+计划表+复习节点）。
+
+    从全部已持久化单元构建（局部生成后 index 亦反映全方案）。
+    """
+    intent = content.get("intent") or {}
+    spec = StudyMaterialsSpec(
+        title=intent.get("topic") or "学习方案",
+        units=[
+            StudyUnitSpec(
+                title=u.title,
+                objectives=list(u.objectives or []),
+                prerequisites=list(u.prerequisites or []),
+                estimated_time=u.estimated_time or "",
+            )
+            for u in units
+        ],
+    )
+    md = build_materials_index(content, spec)
+    (materials_dir(session_id) / "index.md").write_text(md, encoding="utf-8")
+
+
+def _read_materials_index(session_id: int) -> str:
+    """读 index 文档（不存在 -> 空串）。"""
+    try:
+        return (materials_dir(session_id) / "index.md").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 def _cleanup_stale_material_files(old_paths: list[str], new_paths: list[str]) -> None:
-    """旧内容文件清理（best-effort）；排除与新文件相同的路径
+    """旧内容文件清理（best-effort，含拆分子文件）；排除与新文件相同的路径
     （SQLite rowid 复用时新旧 unit id 可能相同 -> 同名文件已是新内容，不可删）。"""
     stale = set(old_paths) - set(new_paths)
     for p in stale:
         try:
-            Path(p).unlink(missing_ok=True)
+            delete_unit_content(p)
         except OSError:
             log.warning("清理旧单元内容文件失败: %s", p)
 
 
-def _persist_study_units(db: Session, plan: models.Plan, spec: StudyMaterialsSpec) -> None:
-    """替换式持久化：删旧单元 -> 插新行 + 写内容文件，一次性提交。
+def _persist_study_units(db: Session, plan: models.Plan, spec: StudyMaterialsSpec, content: dict | None = None) -> None:
+    """替换式持久化：删旧单元 -> 插新行 + 写内容文件 + 落盘 index 文档，一次性提交。
 
     study_units 存元数据，content_md 入文件（plan/01 §五 大内容入文件系统）。
     spec 无 node/stage 归属信息（单文档 MVP），node_id/stage_index 留空。
     """
     old_paths = _delete_study_units(db, plan.id)
     new_paths = [_insert_study_unit(db, plan.id, plan.session_id, i, u) for i, u in enumerate(spec.units)]
+    if content is not None:
+        units = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
+        _write_materials_index(plan.session_id, content, units)
     db.commit()
     _cleanup_stale_material_files(old_paths, new_paths)
 
@@ -839,7 +945,7 @@ def _units_to_spec(db: Session, plan: models.Plan, units: list[models.StudyUnit]
         content_md = ""
         if u.materials:
             try:
-                content_md = Path(u.materials[0].content_md_path).read_text(encoding="utf-8")
+                content_md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
             except OSError:
                 log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
         specs.append(
@@ -858,22 +964,28 @@ _MAX_MATERIAL_UNITS = 12  # 单元数上限（plan/07 §三 3-12 单元；超出
 
 
 async def _materials_sse(
-    plan_id: int, session_id: int, content: dict, body: MaterialsIn, old_paths: list[str], user_id: int
+    plan_id: int,
+    session_id: int,
+    content: dict,
+    body: MaterialsIn,
+    old_paths: list[str],
+    user_id: int,
+    picked: list[tuple[dict, int | None]],
 ) -> AsyncIterator[str]:
     """逐单元材料生成 SSE 流（plan/07 §三：按 stage 拆分，每单元一次 LLM；失败降级简要大纲）。
 
     旧单元已在端点内删除并提交；本流逐单元生成 -> 落库（逐单元提交，断线保留已生成进度），
-    结束后清理旧内容文件。一次性流，不做断线重连（类 clarify 终态快路径之外的轻量场景）。
+    结束后重排 order（局部生成）、落盘 index 文档、清理旧内容文件。
+    一次性流，不做断线重连（类 clarify 终态快路径之外的轻量场景）。
     事件：unit_start {order,title,total} -> unit_done {order,title,degraded} ×N
           -> done {unit_count,degraded_count}；异常兜底 error {code,message}。
     user_id：发起用户（P4 iter 58）：供应商档案按该用户解析。
+    picked：[(stage, stage_index)]（scope 解析结果；空 -> 单占位单元）。
     """
     db = SessionLocal()
     new_paths: list[str] = []
     try:
-        stages = list(content.get("stages") or [])[:_MAX_MATERIAL_UNITS]
-        if not stages:
-            stages = [{}]  # 无阶段 -> 单占位单元
+        stages = picked[:_MAX_MATERIAL_UNITS] or [({}, None)]  # 无阶段 -> 单占位单元
         total = len(stages)
         try:
             provider = get_provider(user_id)
@@ -888,7 +1000,7 @@ async def _materials_sse(
         )
         topic = (content.get("intent") or {}).get("topic") or "概述"
         degraded_count = 0
-        for i, stage in enumerate(stages):
+        for i, (stage, stage_idx) in enumerate(stages):
             order = i + 1
             title = stage.get("name") or topic
             yield _sse("unit_start", {"order": order, "title": title, "total": total})
@@ -935,9 +1047,16 @@ async def _materials_sse(
             if first_topic and first_topic not in query_parts:
                 query_parts.append(first_topic)
             resources = await search_unit_resources(" ".join(query_parts), ctx)
-            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit, resources))
+            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit, resources, stage_index=stage_idx))
             db.commit()  # 逐单元提交：断线保留已生成进度
             yield _sse("unit_done", {"order": order, "title": unit.title, "degraded": degraded})
+        if body.scope is not None:
+            _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
+        all_units = (
+            db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
+        )
+        _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
+        db.commit()
         _cleanup_stale_material_files(old_paths, new_paths)
         yield _sse("done", {"unit_count": total, "degraded_count": degraded_count})
     except Exception:  # noqa: BLE001  统一兜底：流以 error 事件收尾而非裸断
@@ -969,13 +1088,21 @@ async def generate_materials(
     existing = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
     if existing and not body.refresh:
         spec = _units_to_spec(db, plan, existing, content)
-        return {"unit_count": len(spec.units), "markdown": render_materials_md(spec)}
+        return {
+            "unit_count": len(spec.units),
+            "markdown": render_materials_md(spec),
+            "index_md": _read_materials_index(plan.session_id),
+        }
+
+    picked = _resolve_scope_stages(content, body.scope)  # 422 invalid_scope
 
     if "text/event-stream" in request.headers.get("accept", ""):
-        old_paths = _delete_study_units(db, plan.id)
+        # scope 局部生成仅删 scope 内单元（stage_index 集合）；全量生成删全部
+        stage_set = {idx for _, idx in picked if idx is not None} if body.scope is not None else None
+        old_paths = _delete_study_units(db, plan.id, stage_set)
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
         return StreamingResponse(
-            _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id),
+            _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
@@ -992,21 +1119,30 @@ async def generate_materials(
         llm_provider=provider,
         data_dir=settings.data_dir,
     )
+    # 同步 JSON 路径：scope 仅作用于 prompt（过滤阶段副本）；持久化仍为整档替换
+    # （LLM 单文档规约无法可靠映射 stage_index；前端默认走 SSE 逐单元路径，scope 语义完整）
+    prompt_content = content
+    if body.scope is not None:
+        prompt_content = {**content, "stages": [s for s, _ in picked]}
     inp = ToolInput(
         tool="generate_study_materials",
         session_id=str(plan.session_id),
-        args={"plan_id": str(plan_id), "plan": content, "depth": body.depth},
+        args={"plan_id": str(plan_id), "plan": prompt_content, "depth": body.depth},
     )
     spec_out = await run_tool("generate_study_materials", inp, ctx)
     # ok 用 LLM 规约；repaired/error 降级 default_materials_from_plan(plan)
     if spec_out.status == "ok":
         spec = StudyMaterialsSpec.model_validate(spec_out.data)
     else:
-        spec = default_materials_from_plan(content)
+        spec = default_materials_from_plan(prompt_content)
 
-    _persist_study_units(db, plan, spec)
+    _persist_study_units(db, plan, spec, content)
     md = render_materials_md(spec)
-    result: dict = {"unit_count": len(spec.units), "markdown": md}
+    result: dict = {
+        "unit_count": len(spec.units),
+        "markdown": md,
+        "index_md": _read_materials_index(plan.session_id),
+    }
     if spec_out.status != "ok":
         result["warning"] = "自学材料规约生成降级，使用默认结构"
     return result
@@ -1016,7 +1152,7 @@ async def generate_materials(
 def list_materials(
     plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    """自学材料单元列表（plan/03 §一 GET /plans/{id}/materials）：元数据，不含内容。"""
+    """自学材料单元列表（plan/03 §一 GET /plans/{id}/materials）：元数据 + index 文档，不含单元内容。"""
     plan, _content = _plan_or_404(db, plan_id, user)
     units = (
         db.query(models.StudyUnit)
@@ -1033,10 +1169,12 @@ def list_materials(
                 "prerequisites": u.prerequisites or [],
                 "estimated_time": u.estimated_time,
                 "order": u.order,
+                "stage_index": u.stage_index,
                 "done": u.done_at is not None,  # 标记已学（plan/07 §六）
             }
             for u in units
-        ]
+        ],
+        "index_md": _read_materials_index(plan.session_id),  # plan/02 §13 index 文档
     }
 
 

@@ -43,6 +43,7 @@ CODE_STATUS: dict[str, int] = {
     "missing_upstream_field": 400,
     "no_schedule": 422,
     "no_quizzes": 422,
+    "invalid_scope": 422,
     "internal_error": 500,
 }
 

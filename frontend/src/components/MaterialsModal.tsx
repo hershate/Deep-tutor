@@ -23,6 +23,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
   const [depth, setDepth] = useState<'brief' | 'full'>('full')
   const [loading, setLoading] = useState(true)
   const [units, setUnits] = useState<StudyUnitMeta[]>([])
+  const [indexMd, setIndexMd] = useState('') // plan/02 §13 index 文档（路线图/计划表/复习节点）
   const [progress, setProgress] = useState<UnitProgress[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
@@ -68,7 +69,10 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
           ac.signal,
         )
         const lst = await listStudyUnits(planId, ac.signal)
-        if (!ac.signal.aborted) setUnits(lst.units)
+        if (!ac.signal.aborted) {
+          setUnits(lst.units)
+          setIndexMd(lst.index_md ?? '')
+        }
       })()
         .catch((e) => {
           if (ac.signal.aborted) return
@@ -92,6 +96,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         if (ac.signal.aborted) return
         if (lst.units.length > 0) {
           setUnits(lst.units)
+          setIndexMd(lst.index_md ?? '')
           setLoading(false)
         } else {
           run('full', false)
@@ -190,7 +195,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               {warning && (
                 <div className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-700">{warning}</div>
               )}
-              <StudyMaterialReader units={units} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
+              <StudyMaterialReader units={units} indexMd={indexMd} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
             </>
           )}
         </div>

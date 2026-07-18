@@ -286,7 +286,7 @@ export interface StudyUnitMeta {
   done: boolean
 }
 export const listStudyUnits = (planId: number, signal?: AbortSignal) =>
-  apiFetch<{ units: StudyUnitMeta[] }>(`/plans/${planId}/materials`, { signal })
+  apiFetch<{ units: StudyUnitMeta[]; index_md?: string }>(`/plans/${planId}/materials`, { signal })
 export interface UnitResource {
   title: string
   url: string

@@ -97,11 +97,22 @@ def default_materials_from_plan(plan: dict[str, Any]) -> StudyMaterialsSpec:
     return StudyMaterialsSpec(title=title, units=units)
 
 
+_MODULE_SIZE = 5  # 单元过多(>10) -> 每 5 单元一模块（plan/02 §13 errors：分模块）
+
+
 def render_materials_md(spec: StudyMaterialsSpec) -> str:
-    """StudyMaterialsSpec -> 单 markdown 文档（前端 react-markdown 渲染）。"""
+    """StudyMaterialsSpec -> 单 markdown 文档（前端 react-markdown 渲染）。
+
+    单元 >10 时按 5 个一模块插入模块分组标题（plan/02 §13「单元过多 -> 分模块」）。
+    """
     lines = [f"# {spec.title}", "", f"> 共 {len(spec.units)} 个自学单元", ""]
+    modular = len(spec.units) > 10
     for i, u in enumerate(spec.units, 1):
-        lines.append(f"## {i}. {u.title}")
+        if modular and (i - 1) % _MODULE_SIZE == 0:
+            end = min(i + _MODULE_SIZE - 1, len(spec.units))
+            lines.append(f"## 模块 {(i - 1) // _MODULE_SIZE + 1}（单元 {i}-{end}）")
+            lines.append("")
+        lines.append(f"{'###' if modular else '##'} {i}. {u.title}")
         lines.append("")
         meta: list[str] = []
         if u.estimated_time:
@@ -118,6 +129,51 @@ def render_materials_md(spec: StudyMaterialsSpec) -> str:
             lines.append("")
         lines.append("---")
         lines.append("")
+    return "\n".join(lines)
+
+
+def build_materials_index(plan: dict[str, Any], spec: StudyMaterialsSpec) -> str:
+    """index 文档（plan/02 §13 output index_url / plan/07 §三 步骤 4）：
+    路线图（单元表）+ 计划表（plan.schedule）+ 复习节点（单元标题 + 必学知识点）。
+    """
+    intent = plan.get("intent") or {}
+    title = spec.title or intent.get("topic") or _DEFAULT_TITLE
+    lines = [f"# {title} · 自学路线图", ""]
+
+    lines.append("## 路线图")
+    lines.append("")
+    lines.append("| # | 单元 | 预计时长 | 前置 | 目标 |")
+    lines.append("|---|---|---|---|---|")
+    for i, u in enumerate(spec.units, 1):
+        prereq = "、".join(u.prerequisites) or "无"
+        objectives = "；".join(u.objectives) or "—"
+        lines.append(f"| {i} | {u.title} | {u.estimated_time or '—'} | {prereq} | {objectives} |")
+    lines.append("")
+
+    schedule = plan.get("schedule") or []
+    if schedule:
+        lines.append("## 计划表")
+        lines.append("")
+        lines.append("| 日期 | 阶段 | 任务 | 预计分钟 |")
+        lines.append("|---|---|---|---|")
+        for d in schedule:
+            tasks = "、".join(d.get("tasks", []))
+            lines.append(f"| {d.get('date', '')} | {d.get('stage_index', '')} | {tasks} | {d.get('est_minutes', '')} |")
+        lines.append("")
+
+    lines.append("## 复习节点")
+    lines.append("")
+    for i, u in enumerate(spec.units, 1):
+        lines.append(f"- [ ] 单元 {i}：{u.title}")
+    must_nodes = [
+        n.get("name")
+        for n in (plan.get("knowledge_map") or {}).get("nodes", [])
+        if n.get("must_learn") and n.get("name")
+    ]
+    if must_nodes:
+        lines.append("")
+        lines.append("必学知识点：" + "、".join(must_nodes))
+    lines.append("")
     return "\n".join(lines)
 
 

@@ -83,6 +83,86 @@ def write_unit_text(session_id: int | str, unit_id: int, text: str) -> Path:
     return path
 
 
+# --- 单元内容拆子文件（plan/02 §13 errors：单文件 >500 行 -> 拆子文件）---
+
+_MAX_UNIT_FILE_LINES = 500
+
+
+def _part_path(main: Path, n: int) -> Path:
+    """拆分子文件路径：unit_<id>.md -> unit_<id>.p2.md（n=2 起）。"""
+    return main.with_name(f"{main.stem}.p{n}{main.suffix}")
+
+
+def _split_at_headings(text: str, max_lines: int = _MAX_UNIT_FILE_LINES) -> list[str]:
+    """按 ### 小节边界装箱切分为 ≤max_lines 的部分；单节超限则硬切。"""
+    sections: list[str] = []
+    buf: list[str] = []
+    for ln in text.split("\n"):
+        if ln.startswith("### ") and buf:
+            sections.append("\n".join(buf))
+            buf = []
+        buf.append(ln)
+    if buf:
+        sections.append("\n".join(buf))
+
+    parts: list[str] = []
+    cur: list[str] = []
+    cur_len = 0
+    for sec in sections:
+        sec_lines = sec.count("\n") + 1
+        if cur and cur_len + sec_lines > max_lines:
+            parts.append("\n\n".join(cur))
+            cur, cur_len = [], 0
+        if sec_lines > max_lines:  # 单节超限 -> 硬切
+            hard = sec.split("\n")
+            for i in range(0, len(hard), max_lines):
+                parts.append("\n".join(hard[i : i + max_lines]))
+            continue
+        cur.append(sec)
+        cur_len += sec_lines
+    if cur:
+        parts.append("\n\n".join(cur))
+    return parts or [text]
+
+
+def write_unit_content(session_id: int | str, unit_id: int, content_md: str) -> Path:
+    """写单元内容（>500 行自动拆子文件，plan/02 §13），返回主文件路径。"""
+    if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES:
+        return write_unit_text(session_id, unit_id, content_md)
+    parts = _split_at_headings(content_md)
+    main = write_unit_text(session_id, unit_id, parts[0])
+    for i, part in enumerate(parts[1:], 2):
+        _part_path(main, i).write_text(part, encoding="utf-8")
+    return main
+
+
+def read_unit_content(path: str | Path) -> str:
+    """读单元内容，自动串联 .p2/.p3 拆分子文件（对调用方透明还原全文）。"""
+    main = Path(path)
+    text = main.read_text(encoding="utf-8")
+    n = 2
+    while True:
+        part = _part_path(main, n)
+        if not part.exists():
+            break
+        text += "\n\n" + part.read_text(encoding="utf-8")
+        n += 1
+    return text
+
+
+def delete_unit_content(path: str | Path) -> None:
+    """删单元内容文件及其全部拆分子文件。"""
+    main = Path(path)
+    main.unlink(missing_ok=True)
+    n = 2
+    while True:
+        part = _part_path(main, n)
+        if not part.exists():
+            break
+        part.unlink(missing_ok=True)
+        n += 1
+
+
 def delete_session_files(session_id: int | str) -> None:
     """删除会话目录（级联清理，plan/09 §五）。"""
     base = _session_root(session_id)

@@ -25,7 +25,7 @@ from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
-from app.core.storage import delete_session_files, save_upload, write_parsed_text
+from app.core.storage import delete_session_files, read_unit_content, save_upload, write_parsed_text
 from app.db import models
 from app.db.models import User
 from app.tools.base import ToolInput
@@ -223,7 +223,7 @@ def get_study_unit_content(
         mat = unit.materials[0]
         resources = mat.resources or []
         try:
-            content_md = Path(mat.content_md_path).read_text(encoding="utf-8")
+            content_md = read_unit_content(mat.content_md_path)  # 自动串联拆分子文件（plan/02 §13）
         except OSError:
             raise ApiError("not_found", f"单元内容文件缺失: {mat.content_md_path}") from None
     return {"unit_id": unit.id, "title": unit.title, "content_md": content_md, "resources": resources}
