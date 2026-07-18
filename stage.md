@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P2 增强项（材料生成 SSE 逐单元流 / WebSearch 补资料 / quiz 题源联动）已全部完成（iter 46-49）。仍延后：deep-tutor-resources Skill（等 LLM 筛选落地）；真机 Anthropic 冒烟需 key。**待用户定方向**：P3（图片 OCR + 音视频转写）/ P4 / P5，或继续其他增强。详见 §五 iter 49 条。
+**当前下一步**：自定义 LL 供应商功能（iter 50-53，用户 2026-07-18 指定方向）已完成：多档案切换 + Anthropic 兼容端点 + DB 存储 + CRUD/激活/连通性测试 + Settings 管理 UI，全量 243 测试通过 + 前端 build 通过。**待用户定下一步方向**：P3（图片 OCR + 音视频转写）/ P4 / P5 或其他增强。仍延后：deep-tutor-resources Skill（等 LLM 筛选落地）；真机 Anthropic 冒烟（现在可用自定义供应商档案配置 key 后跑）。详见 §五 iter 50-53 条。
 
 ---
 
@@ -55,6 +55,7 @@
 - **启动校验放宽**：`ANTHROPIC_API_KEY` / `BING_API_KEY` 仅功能级必填（调用生成/搜索前校验 + 启动告警），不强制启动退出；仅 `AUTH_TOKEN` 启动硬必填。原因：便于骨架/开发期先跑通非生成端点（health 等）。计划原意（R27）保留，后续可收紧。见 [backend/app/core/settings.py](backend/app/core/settings.py) `validate_required` / `validate_feature_keys`。
 - **前端 tsconfig**：弃用项目引用（`tsc -b` + `tsconfig.node.json`），改单一 `tsconfig.json`（`noEmit` + include src 与 vite.config.ts）。原因：该 TS 版本 `tsc -b` 不允许被引用项目 `noEmit`（TS6310），且会产出 `vite.config.js` 被 Vite 误读。
 - **PDF 解析用 Marker**（用户指定，2026-07-16）：parse_material 的 PDF 路径改用 `marker_single <文件> --force_ocr --output_dir <输出目录>`（默认参数），替代原计划的 PyMuPDF。Marker 输出 `<out>/<stem>/<stem>.md` + `<stem>_meta.json`（页数取自 `page_stats`）；subprocess 调用，超时 600s（OCR 较慢）；requirements 以 `marker-pdf` 替换 PyMuPDF。见 [backend/app/tools/parse_material.py](backend/app/tools/parse_material.py) `_parse_pdf`。
+- **API Key 可入库（突破假设 4，用户指定，2026-07-18）**：自定义 LLM 供应商档案（多档案切换，类 CC-switch）的 api_key 存 `llm_provider_profiles` 表（本机 SQLite）；安全约束：API 任何响应不回显明文（仅掩码末 4 位）、更新缺省保留原值、base_url 限 http(s)。.env 仍为无档案时的回退。见 §五 iter 50-53。
 
 ---
 
@@ -230,6 +231,14 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 50-53（自定义 LLM 供应商，类 CC-switch，✅ 完成）**：用户指定方向「AI 后端像 CC-switch 一样自定义供应商：base URL + API key 等」。经 AskUserQuestion 确认三项决策：**多档案切换 / 仅 Anthropic 兼容协议 / 数据库存储**（突破假设 4，已记录于 §二）。
+  - **iter 50（基础，commit `701afa2`）**：[models.py](backend/app/db/models.py) `LlmProviderProfile` 表（name 唯一/base_url/api_key/model/is_active）+ 迁移 `3deb4164602b`（升降级验证）；[anthropic_provider.py](backend/app/llm/anthropic_provider.py) 支持 `base_url`；[llm/\_\_init\_\_.py](backend/app/llm/__init__.py) `get_active_profile()`（DB 异常静默回退 None）+ `get_provider()` 改为 active 档案优先、回退 .env（档案 base_url/model 空 -> 官方端点/settings 默认模型）。测试 +4（档案优先/model 覆盖/未激活回退/DB 异常）。
+  - **iter 51（CRUD API，commit `7081f63`）**：[providers.py](backend/app/api/providers.py) `GET/POST/PUT/DELETE /api/providers` + `POST /{id}/activate`（同时至多一个 active）+ `POST /deactivate`（回退 .env）。安全：api_key 只写不读（响应仅掩码末 4 位）、更新缺省保留、名称唯一 409、base_url 限 http(s)。测试 +8（掩码/409/422/key 保留/单 active/删除/激活驱动 get_provider/鉴权）。
+  - **iter 52（前端 UI，commit `11036a9`）**：[ProviderManager.tsx](frontend/src/components/ProviderManager.tsx)（列表：名称/端点/模型/掩码 key/使用中徽标；新增+编辑表单，编辑时 key 留空保留；启用/停用全部回退 .env/删除 confirm）；[Settings.tsx](frontend/src/pages/Settings.tsx) 接入并保留 .env 只读快照；[api.ts](frontend/src/lib/api.ts) providers 系列。
+  - **iter 53（连通性测试，commits `25db0f0`/`7f476ff`）**：`POST /api/providers/{id}/test`——档案凭据最小 LLM 调用（max_tokens=8），ok/error（截断 200 字符防回显敏感），不改激活状态；前端逐档案「测试」按钮 + 内联结果（成功绿/失败红，role=status）。测试 +1。
+  - **验证**：全量 243 测试通过（230->234->242->243），前端 build（413KB）通过，零回归。
+  - **待做**：用户定方向（P3/P4/P5 或其他）；真机冒烟现可经供应商档案配置 key 后跑；deep-tutor-resources Skill 仍延后。
 
 - **2026-07-18 iter 49（quiz 题源联动，✅ 完成；P2 增强项收官）**：stage 续接清单最后一项「单元『检查理解』喂 generate_quiz」。[generate_quiz.py](backend/app/tools/generate_quiz.py)：新增 `extract_check_questions(unit_contents, per_unit=4, total=20)`——解析 content_md 的 `### 检查理解` 小节（止于下一个 ###），去列表标记（-/* / 1. 等），每单元 ≤4 总 ≤20，返回 [{unit, questions}]；PROMPT 增加可选输入 `args.unit_check_questions` 说明 + 规则「优先改编为可判分题（补 answer/explanation），尽量覆盖各单元，不足 5 题按知识点补足」。[plans.py](backend/app/api/plans.py) quiz 端点：生成前加载已持久化单元内容文件 -> 提取 -> 注入 args（空则不注入，无单元行为同 iter 38）。**幂等注意**：已持久化题直接返回（不重生成），题源联动仅影响新生成/refresh。测试 +5（extract 基本/无小节空内容/上限；端点注入 unit_check_questions 仅含检查理解小节 / 无单元不注入）。commits `6b1239f`（实现）`d7592ad`（测试）。全量 230 测试通过（225+5），零回归；前端零改动（quiz 流程不变，仅题源丰富）。**P2 三项增强（iter 46-49）全部完成**。待用户定方向：P3 / P4 / P5 或其他；deep-tutor-resources Skill 仍延后（等 LLM 筛选落地）；真机 Anthropic 冒烟需 key。
 
