@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 119（前端美化第 24 轮：品牌链接样式收尾）**：最后两处与品牌链接模式（`underline-offset-2` + 深色 hover 变亮 `dark:hover:text-blue-300`）不一致的文本链接补齐——[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元「参考资料」外链、[Wiki.tsx](frontend/src/pages/Wiki.tsx) 分组头「查看方案 →」。至此全站文本链接样式零残留差异。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 118（功能线：Wiki 知识手册导出，✅ 完成）**：个人知识库一键导出为单个 Markdown 手册（含笔记），与备份 JSON 互补（手册给人读/存档，备份给机器还原）。**编号说明**：本切片代码注释自标 iter 116，与并行美化轨撞号，本条按共享序号取 118。
   - **后端**（commit `ff58441`）：[knowledge.py](backend/app/api/knowledge.py) 新增 `GET /knowledge/export`——当前用户全部节点按方案分组（新方案在前），每节 `## 方案主题` / 每节点 `### 名称 ★必学` + `状态 · 掌握度% · 难度` 行 + 笔记原文引用块（多行逐行 `>` 前缀）；头部 `导出于 <本地时间> · N 个知识点 · M 个方案`；RFC 5987 `filename*=UTF-8''知识手册-YYYYMMDD.md`；P4 隔离（三表 join user_id）。进度/笔记各单查询取 map（防 N+1）。
   - **前端**（commit `f421333`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部「导出手册 (.md)」按钮（busy 防重入 + toast）；[api.ts](frontend/src/lib/api.ts) `downloadKnowledgeHandbook`（复用 saveBlob 解析 RFC 5987 文件名）。
