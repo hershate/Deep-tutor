@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 108（前端美化第 16 轮：skip link 无障碍 + 品牌标识）**：①[Layout.tsx](frontend/src/components/Layout.tsx) 加**跳到主内容 skip link**（sr-only 常态隐藏，键盘 Tab 聚焦时浮现为蓝色胶囊 z-50），main 加 id="main-content" + tabIndex=-1 承接跳转——键盘/读屏用户无需遍历整个顶栏导航。②登录/设置向导页加统一**品牌标识**（蓝→靛渐变圆角方块 + 🎓 + shadow-md）：[Login.tsx](frontend/src/pages/Login.tsx) 卡片顶部、[Setup.tsx](frontend/src/pages/Setup.tsx) 欢迎语上方，与 iter 107 首页渐变标题呼应。注：并行工作（PlanDetail MaterialsPanel 集成、lib/api.ts、新增 MaterialsPanel.tsx）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 107（前端美化第 15 轮：markdown 图片/任务列表 + 呼吸灯 + 渐变标题）**：①[index.css](frontend/src/index.css)：markdown-body 图片圆角边框+shadow-sm（自学材料配图不再生硬贴边）；GFM 任务列表复选框 accent-blue-600 品牌色。②[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx)：运行中标题旁加**呼吸灯**（animate-ping 扩散环+实心蓝点，tailwind 内置 ping），生成状态一目了然；done/error 时自动消失。③[Home.tsx](frontend/src/pages/Home.tsx)：首页主标题改品牌渐变文字（blue-600→indigo-500 bg-clip-text，深色 blue-400→indigo-300），形成视觉焦点。注：并行工作（lib/api.ts + 新增 MaterialsPanel.tsx）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 106（前端美化第 14 轮：路由回顶 + 测验题卡入场）**：①[Layout.tsx](frontend/src/components/Layout.tsx) **路由切换 window.scrollTo(0,0)**——此前长列表（方案列表/时间线）跳详情后停留在原滚动位置，需手动回顶；配合 iter 92 的主区入场动画，切页体验完整。②[QuizModal.tsx](frontend/src/components/QuizModal.tsx)：题目卡逐张错峰入场（60ms 递增封顶 8）+ 深色边框补全；「显示/隐藏参考答案」按钮按压过渡、答案展开 animate-fade-in。③[Timeline.tsx](frontend/src/components/Timeline.tsx)：日行分钟数 tabular-nums。注：并行后端改动（sessions.py/storage.py）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
