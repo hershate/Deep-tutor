@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
+from app.api.errors import ApiError
 from app.db import models
 from app.db.models import User
 from app.tools.record_progress import compute_mastery, next_review_date
@@ -304,3 +305,25 @@ def list_learning_logs(
         ],
         "total_minutes": int(total or 0),
     }
+
+
+@router.delete("/logs/{log_id}")
+def delete_learning_log(
+    log_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """删除一条学习日志（iter 150：打错卡可撤回）。
+
+    P4 隔离：经 Plan->Session 校验归属，他人日志 404（不泄露存在性）。
+    """
+    row = (
+        db.query(models.LearningLog)
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.LearningLog.id == log_id, models.Session.user_id == user.id)
+        .one_or_none()
+    )
+    if row is None:
+        raise ApiError("not_found", "学习日志不存在")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "id": log_id}
