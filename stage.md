@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 118（功能线：Wiki 知识手册导出，✅ 完成）**：个人知识库一键导出为单个 Markdown 手册（含笔记），与备份 JSON 互补（手册给人读/存档，备份给机器还原）。**编号说明**：本切片代码注释自标 iter 116，与并行美化轨撞号，本条按共享序号取 118。
+  - **后端**（commit `ff58441`）：[knowledge.py](backend/app/api/knowledge.py) 新增 `GET /knowledge/export`——当前用户全部节点按方案分组（新方案在前），每节 `## 方案主题` / 每节点 `### 名称 ★必学` + `状态 · 掌握度% · 难度` 行 + 笔记原文引用块（多行逐行 `>` 前缀）；头部 `导出于 <本地时间> · N 个知识点 · M 个方案`；RFC 5987 `filename*=UTF-8''知识手册-YYYYMMDD.md`；P4 隔离（三表 join user_id）。进度/笔记各单查询取 map（防 N+1）。
+  - **前端**（commit `f421333`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部「导出手册 (.md)」按钮（busy 防重入 + toast）；[api.ts](frontend/src/lib/api.ts) `downloadKnowledgeHandbook`（复用 saveBlob 解析 RFC 5987 文件名）。
+  - **测试**：test_api_knowledge.py +3（手册内容断言：计数隔离「3 个知识点」/分组标题/★必学/状态掌握度行/笔记引用块两行/中文文件名头；空库「0 个知识点」；401）。**验证**：后端全量 477 通过（474→477，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 117（前端美化第 23 轮：预览弹窗与长 URL 收尾）**：①[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 部分方案预览弹窗 ✕ 关闭钮补 `transition-colors`（全站最后一处瞬时变色残留）；②资源外链 `break-all` 统一——iter 111 只补了 PlanDetail，本轮将 [SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx) 与 GenerateProgress 预览列表的外链同步补齐，长 URL 在三处资源展示位均不会再撑破容器。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 116（前端美化第 22 轮：自学材料弹窗细节）**：[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) 头部控件走查——①「深度」下拉原裸样式（`rounded border`，无深色/聚焦态）升级为品牌输入件（rounded-lg + 深色底/边框 + focus 蓝环 + disabled 半透明）；②「导出全部」「关闭」按钮补 `dark:border-slate-600`（原深色下边框沿用浅色过亮）；③「选择重生成」选中态补 `dark:border-blue-500`（原深色下选中边框不可见）、「关闭」补 transition-all + active:scale-95。另：并行会话错题重练（commit `f902bd6`，QuizModal wrong 模式）样式已自带品牌模式，无需调整。**验证**：`npm run build` 通过。
