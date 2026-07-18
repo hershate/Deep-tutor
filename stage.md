@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 154（前端美化第 42 轮：错误横幅二次清零）**：[Usage.tsx](frontend/src/pages/Usage.tsx) 加载失败提示仍为上古裸文字（`text-red-600`，iter 131 统一时漏网）——升级为品牌错误横幅（红边框+浅红底+fade-in）。本轮用「无 rounded-lg 的 role=alert」反向检索复核，确认全站零残留。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 153（前端美化第 41 轮：深色边框走查清零）**：[Home.tsx](frontend/src/pages/Home.tsx) 网页链接「添加」按钮补 `dark:border-slate-600`——全站 `dark:hover:bg-slate-700` 按钮逐一复核，此为最后一处缺深色边框的（深色下沿用浅色边框过亮）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 152（前端美化第 40 轮：打卡日历图例无障碍）**：[CheckinCalendar.tsx](frontend/src/components/CheckinCalendar.tsx) 底部「少→多」色阶图例行加 `aria-hidden`——色块无文字语义，日历格子已自带 `aria-label`（日期+分钟/未打卡），图例进读屏树只会念出无意义的「少 多」。与 iter 143 热力图图例同处理。另核实并行会话日志删除按钮（Learn.tsx ✕）样式已符合品牌模式（低可见 hover 显红 + 按压 + disabled）。**验证**：`npm run build` 通过。
