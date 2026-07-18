@@ -2,7 +2,8 @@
 
 导出（build_export）：当前用户全部学习资产打包为单个自包含 JSON——
 会话 / 资料（解析文本内联）/ 方案（content 内联，含溢出文件回读）/ 知识节点树 /
-进度 / 打卡 / 测验（含作答记录）/ 自学材料（md 内联，拆分子文件自动串联）。
+进度 / 打卡 / 测验（含作答记录）/ 自学材料（md 内联，拆分子文件自动串联）/
+用户偏好 KV（iter 177：日预算等覆盖项）。
 **凭证边界**：api_key 等敏感字段绝不导出——供应商档案以空 key 导出，
 导入后在设置页补填并激活。
 
@@ -133,12 +134,18 @@ def build_export(db: DbSession, user: models.User) -> dict:
         for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
     ]
 
+    prefs_out = {  # 用户偏好 KV（iter 177）：日预算等覆盖项随备份走
+        r.key: r.value
+        for r in db.query(models.UserPref).filter_by(user_id=user.id).all()
+    }
+
     return {
         "format": FORMAT,
         "version": VERSION,
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "user": {"username": user.username or "", "name": user.name},
         "provider_profiles": profiles_out,
+        "prefs": prefs_out,
         "sessions": sessions_out,
     }
 
@@ -309,6 +316,7 @@ def preview_backup(data: Any) -> dict:
         "quizzes": sum(len(p.get("quizzes") or []) for p in plans),
         "study_units": sum(len(p.get("study_units") or []) for p in plans),
         "provider_profiles": len(data.get("provider_profiles") or []),
+        "prefs": len(data.get("prefs")) if isinstance(data.get("prefs"), dict) else 0,
     }
 
 
@@ -337,6 +345,7 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         "learning_logs": 0,
         "provider_profiles": 0,
         "node_notes": 0,
+        "prefs": 0,
         "skipped": [],
     }
 
@@ -379,7 +388,26 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
                 _restore_plan(db, sess, p, summary, user.id)
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
+    _restore_prefs(db, user, data.get("prefs") or {}, summary)
     return summary
+
+
+def _restore_prefs(db: DbSession, user: models.User, prefs: Any, summary: dict) -> None:
+    """用户偏好 KV（iter 177）：本机已有同键则跳过（与供应商档案同策略——
+    追加式还原不覆盖现有设置）；旧备份无 prefs 字段 -> 空 dict 直接返回。"""
+    if not isinstance(prefs, dict):
+        return
+    existing = {r.key for r in db.query(models.UserPref).filter_by(user_id=user.id).all()}
+    for k, v in prefs.items():
+        key = str(k)[:64]
+        if not key:
+            continue
+        if key in existing:
+            summary["skipped"].append(f"偏好「{key}」本机已有值，已跳过")
+            continue
+        db.add(models.UserPref(user_id=user.id, key=key, value=str(v)[:4000]))
+        existing.add(key)
+        summary["prefs"] += 1
 
 
 def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, user_id: int) -> None:

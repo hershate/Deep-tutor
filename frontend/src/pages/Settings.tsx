@@ -310,7 +310,7 @@ function BackupCard() {
             {pending.preview.plans} 方案 / {pending.preview.knowledge_nodes} 知识节点 /{' '}
             {pending.preview.node_notes} 笔记 / {pending.preview.study_units} 自学单元 /{' '}
             {pending.preview.quizzes} 测验 / {pending.preview.learning_logs} 打卡 /{' '}
-            {pending.preview.provider_profiles} 供应商档案
+            {pending.preview.provider_profiles} 供应商档案 / {pending.preview.prefs} 偏好
           </p>
           <p className="mt-1 text-blue-600 dark:text-blue-300">
             {pending.preview.username && <>导出人：{pending.preview.username} · </>}
@@ -341,7 +341,8 @@ function BackupCard() {
           <p>
             本次导入：{result.sessions} 会话 / {result.materials} 资料 / {result.plans} 方案 /{' '}
             {result.knowledge_nodes} 知识节点 / {result.study_units} 自学单元 / {result.quizzes} 测验 /{' '}
-            {result.progress} 进度 / {result.learning_logs} 打卡 / {result.provider_profiles} 供应商档案
+            {result.progress} 进度 / {result.learning_logs} 打卡 / {result.provider_profiles} 供应商档案 /{' '}
+            {result.prefs} 偏好
           </p>
           {result.skipped.length > 0 && (
             <ul className="mt-1 list-inside list-disc">

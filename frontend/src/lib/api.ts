@@ -605,6 +605,8 @@ export interface BackupImportResult {
   progress: number
   learning_logs: number
   provider_profiles: number
+  node_notes: number
+  prefs: number // iter 177：用户偏好项数
   skipped: string[]
 }
 
@@ -691,6 +693,7 @@ export interface BackupPreview {
   quizzes: number
   study_units: number
   provider_profiles: number
+  prefs: number // iter 177：用户偏好项数
 }
 export async function previewBackup(file: File): Promise<BackupPreview> {
   const fd = new FormData()
