@@ -219,6 +219,7 @@ export default function Learn() {
                 <button
                   key={m}
                   type="button"
+                  aria-pressed={minutes === String(m)}
                   onClick={() => setMinutes(String(m))}
                   className={`rounded px-1.5 py-0.5 text-xs tabular-nums transition-all active:scale-95 ${
                     minutes === String(m)

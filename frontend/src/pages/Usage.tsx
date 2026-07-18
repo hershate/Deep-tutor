@@ -120,7 +120,14 @@ function BudgetBar({ today, budget }: { today: number; budget: number }) {
           {over && '（已超预算）'}
         </span>
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+      <div
+        className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
+        role="progressbar"
+        aria-valuenow={Math.min(100, Math.round(pct))}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="今日预算使用进度"
+      >
         <div
           className={`h-full rounded-full transition-all duration-500 ease-out ${over ? 'bg-red-500' : warn ? 'bg-amber-400' : 'bg-blue-500'}`}
           style={{ width: `${Math.min(100, Math.max(pct, today > 0 ? 2 : 0))}%` }}
