@@ -81,15 +81,36 @@ _SHARED_READ_RATE_PER_MIN = 30
 
 def _sanitize_shared_content(content: dict) -> dict:
     """分享视图裁剪：quizzes 剥离 answer/explanation（前端只渲染题干，
-    原文全量返回会让浏览者经 devtools 直接看到答案，破坏测验意义）。"""
+    原文全量返回会让浏览者经 devtools 直接看到答案，破坏测验意义）；
+    资源 url 仅保留 http(s)——javascript:/data: 协议链接被点击会在浏览者
+    源站上下文执行脚本（跨用户 XSS 面），后端裁剪兜底前端渲染校验。"""
+    content = dict(content)
     quizzes = content.get("quizzes")
     if isinstance(quizzes, list):
-        content = dict(content)
         content["quizzes"] = [
             {k: v for k, v in q.items() if k not in ("answer", "explanation")}
             if isinstance(q, dict) else q
             for q in quizzes
         ]
+    stages = content.get("stages")
+    if isinstance(stages, list):
+        new_stages = []
+        for stage in stages:
+            if not isinstance(stage, dict):
+                new_stages.append(stage)
+                continue
+            stage = dict(stage)  # 拷贝后改，不污染 session 内 plan.content 原对象
+            resources = stage.get("resources")
+            if isinstance(resources, list):
+                stage["resources"] = [
+                    {**r, "url": ""}
+                    if isinstance(r, dict)
+                    and not str(r.get("url", "")).strip().lower().startswith(("http://", "https://"))
+                    else r
+                    for r in resources
+                ]
+            new_stages.append(stage)
+        content["stages"] = new_stages
     return content
 
 

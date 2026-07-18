@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError, getShared, type SharedPlanData } from '../lib/api'
+import { isHttpUrl } from '../lib/url'
 
 // 协作分享公开页（P5）：只读展示方案，无需登录。仅含方案内容，无用户/会话信息。
 export default function SharedPlan() {
@@ -62,12 +63,12 @@ export default function SharedPlan() {
               {st.resources.map((r, i) => (
                 <li key={i} className="text-slate-600 dark:text-slate-300">
                   {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'}{' '}
-                  {r.url ? (
+                  {isHttpUrl(r.url) ? (
                     <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                       {r.title || r.url}
                     </a>
                   ) : (
-                    r.title
+                    r.title || r.url
                   )}
                   {r.type && <span className="ml-1 text-xs text-slate-400">（{r.type}）</span>}
                 </li>

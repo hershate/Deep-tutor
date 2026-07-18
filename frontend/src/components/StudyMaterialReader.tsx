@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import { ApiError, getStudyUnitContent, markUnitDone, type StudyUnitMeta, type UnitResource } from '../lib/api'
+import { isHttpUrl } from '../lib/url'
 
 interface Props {
   units: StudyUnitMeta[]
@@ -155,14 +156,18 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                     <li key={i} className="flex items-center gap-1.5">
                       <span aria-hidden="true">{r.verified === 'ok' ? '✅' : '⚠️'}</span>
                       <span className="sr-only">{r.verified === 'ok' ? '已验证' : '不确定'}</span>
-                      <a
-                        href={r.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-blue-600 hover:underline"
-                      >
-                        {r.title || r.url}
-                      </a>
+                      {isHttpUrl(r.url) ? (
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="truncate text-blue-600 hover:underline"
+                        >
+                          {r.title || r.url}
+                        </a>
+                      ) : (
+                        <span className="truncate text-slate-600 dark:text-slate-300">{r.title || r.url}</span>
+                      )}
                     </li>
                   ))}
                 </ul>

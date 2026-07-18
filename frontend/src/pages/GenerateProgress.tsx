@@ -5,6 +5,7 @@ import PlanOutline, { type OutlineNode, type OutlineStage } from '../components/
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
 import { cancelGeneration, generateStream } from '../lib/api'
+import { isHttpUrl } from '../lib/url'
 
 interface Step {
   name: string
@@ -206,9 +207,13 @@ export default function GenerateProgress() {
                     {partial.resources.map((r, i) => (
                       <li key={i}>
                         {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'} {r.title}{' '}
-                        <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                          {r.url}
-                        </a>
+                        {isHttpUrl(r.url) ? (
+                          <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                            {r.url}
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 dark:text-slate-400">{r.url}</span>
+                        )}
                       </li>
                     ))}
                   </ul>

@@ -115,3 +115,40 @@ def test_share_link_cascade_on_session_delete(client, auth_headers):
         assert db.query(ShareLink).filter_by(token=token).first() is None
     finally:
         db.close()
+
+
+def test_shared_strips_non_http_resource_urls(client, auth_headers):
+    """深查 round 11：分享视图后端裁剪 javascript: 等资源链接（跨用户 XSS 兜底），
+    http(s) 链接保留；原 plan.content 不被修改。"""
+    plan = {
+        "title": "t",
+        "stages": [
+            {
+                "index": 0,
+                "name": "s",
+                "resources": [
+                    {"title": "ok", "url": "https://a.example/x"},
+                    {"title": "evil", "url": "javascript:alert(1)"},
+                    {"title": "evil2", "url": "data:text/html,<script>1</script>"},
+                ],
+            }
+        ],
+    }
+    pid = _mk_plan(client, auth_headers, plan)
+    token = client.post(f"/api/plans/{pid}/share", headers=auth_headers).json()["token"]
+
+    pub = client.get(f"/api/shared/{token}")
+    assert pub.status_code == 200
+    urls = [r["url"] for r in pub.json()["content"]["stages"][0]["resources"]]
+    assert urls == ["https://a.example/x", "", ""]
+
+    # 原方案内容不受影响（所有者视图仍是原始 url）
+    from app.db.base import SessionLocal
+    from app.db.models import Plan
+
+    db = SessionLocal()
+    try:
+        stored = db.get(Plan, pid).content
+        assert stored["stages"][0]["resources"][1]["url"] == "javascript:alert(1)"
+    finally:
+        db.close()

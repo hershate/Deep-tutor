@@ -9,6 +9,7 @@ import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
 import { ApiError, createShare, exportPlan, getPlan, getShare, regenerateStream, revokeShare, type ShareStatus } from '../lib/api'
+import { isHttpUrl } from '../lib/url'
 
 interface PlanData {
   intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number }
@@ -369,9 +370,13 @@ export default function PlanDetail() {
                       <span aria-hidden="true">{VERIFY_LABEL[r.verified ?? ''] ?? '·'}</span>{' '}
                       <span className="sr-only">{VERIFY_TEXT[r.verified ?? ''] ?? '未知'}：</span>
                       {r.title}{' '}
-                      <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                        {r.url}
-                      </a>
+                      {isHttpUrl(r.url) ? (
+                        <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                          {r.url}
+                        </a>
+                      ) : (
+                        <span className="text-slate-500 dark:text-slate-400">{r.url}</span>
+                      )}
                       {r.note && <span className="text-slate-400">（{r.note}）</span>}
                     </li>
                   ))}
