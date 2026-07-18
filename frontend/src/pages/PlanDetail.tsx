@@ -74,9 +74,9 @@ export default function PlanDetail() {
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
-  const [versions, setVersions] = useState<PlanSummary[]>([]) // 版本历史（iter 169）
+  const [versions, setVersions] = useState<PlanSummary[]>([]) // 版本历史（iter 170）
 
-  // 版本历史（iter 169）：同会话全部版本，>1 时标题旁显示切换下拉
+  // 版本历史（iter 170）：同会话全部版本，>1 时标题旁显示切换下拉
   useEffect(() => {
     if (!sessionId) return
     listPlans(sessionId)
@@ -265,7 +265,7 @@ export default function PlanDetail() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
-          {/* 版本历史切换（iter 169）：同会话多次重新生成 → 标题旁下拉切版本 */}
+          {/* 版本历史切换（iter 170）：同会话多次重新生成 → 标题旁下拉切版本 */}
           {versions.length > 1 && (
             <select
               aria-label="切换方案版本"
