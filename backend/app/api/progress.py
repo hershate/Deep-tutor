@@ -123,6 +123,57 @@ def get_progress(
     return {"plan_id": plan_id, "nodes": views, "mastery_avg": mastery_avg}
 
 
+# --- 全局今日待复习（iter 119）：跨方案聚合到期节点，Wiki 页顶部提醒 ---
+
+
+@router.get("/review/due")
+def review_due(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """当前用户全部方案的到期复习节点（next_review <= 今天），按复习日升序（最逾期在前）。
+
+    next_review 同 _node_view 语义：mastery + updated_at 即时推导（SM-2-lite），不入库。
+    """
+    from app.api.plans import _load_plan_content
+
+    rows = (
+        db.query(models.Progress, models.KnowledgeNode)
+        .join(models.KnowledgeNode, models.Progress.node_id == models.KnowledgeNode.id)
+        .join(models.Plan, models.Progress.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .all()
+    )
+    topics: dict[int, str] = {}
+    today = dt_date.today()
+    items = []
+    for prog, node in rows:
+        due = next_review_date(round(prog.mastery, 3), today=prog.updated_at.date())
+        if due > today:
+            continue
+        if node.plan_id not in topics:
+            plan = db.get(models.Plan, node.plan_id)
+            content = _load_plan_content(plan) if plan is not None else {}
+            topics[node.plan_id] = str(
+                (content.get("intent") or {}).get("topic") or content.get("title") or ""
+            )
+        items.append(
+            {
+                "plan_id": node.plan_id,
+                "plan_topic": topics[node.plan_id],
+                "node_id": node.sid,
+                "name": node.name,
+                "status": prog.status.value,
+                "mastery": round(prog.mastery, 3),
+                "next_review": due.isoformat(),
+            }
+        )
+    items.sort(key=lambda i: (i["next_review"], i["mastery"]))
+    return {"items": items[: max(1, min(limit, 500))], "total": len(items)}
+
+
 # --- learning_logs 打卡（plan/01 §四 learning_logs，P2 iter 45；学习中心页用）---
 
 
