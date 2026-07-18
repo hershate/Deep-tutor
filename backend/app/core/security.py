@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
 import time
 
 import jwt
@@ -22,6 +23,7 @@ from app.core.settings import settings
 
 _ITERATIONS = 600_000  # err.md C16：OWASP 2023 对 PBKDF2-HMAC-SHA256 的建议下限
 _fallback_secret: str = ""
+_secret_lock = threading.Lock()  # 首次生成/读取持久化密钥的竞态防护
 
 
 def hash_password(password: str) -> str:
@@ -72,9 +74,12 @@ def _secret() -> str:
         return settings.jwt_secret
     if _fallback_secret:
         return _fallback_secret
-    persisted = _load_or_create_persisted_secret()
-    _fallback_secret = persisted or secrets.token_hex(32)
-    return _fallback_secret
+    with _secret_lock:
+        if _fallback_secret:  # double-checked：等锁期间另一线程已生成
+            return _fallback_secret
+        persisted = _load_or_create_persisted_secret()
+        _fallback_secret = persisted or secrets.token_hex(32)
+        return _fallback_secret
 
 
 def _load_or_create_persisted_secret() -> str:
