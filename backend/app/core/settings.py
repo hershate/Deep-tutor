@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     db_path: str = Field(default="data/deep-tutor.db", description="SQLite 路径")
     data_dir: str = Field(default="data", description="文件存储根")
     skills_dir: str = Field(default="skills", description="Skill 目录")
+    frontend_dist: str = Field(
+        default="",
+        description="前端构建产物目录（设置后由后端托管 SPA + /api 同端口，免 nginx；空=不托管）",
+    )
 
     # --- 限额 ---
     max_upload_mb: int = Field(default=50, description="上传单文件上限 MB")

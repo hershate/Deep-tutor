@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 from app.api import api_router
 from app.core.logging import setup_logging
@@ -103,7 +108,38 @@ def create_app() -> FastAPI:
     app.add_exception_handler(HTTPException, errors.http_exception_handler)
     app.add_exception_handler(Exception, errors.unhandled_exception_handler)
 
+    # 免 nginx 本地直起（iter 67）：FRONTEND_DIST 指向构建产物时由后端托管 SPA。
+    # 挂在 /api 路由之后：/api/* 恒进 API 路由，未命中的前端路由回退 index.html。
+    if settings.frontend_dist:
+        dist = Path(settings.frontend_dist)
+        if (dist / "index.html").is_file():
+            app.mount("/", _SPAStaticFiles(directory=str(dist), html=True), name="spa")
+        else:
+            logging.getLogger(__name__).warning(
+                "FRONTEND_DIST=%s 下无 index.html，SPA 托管未启用", dist
+            )
+
     return app
+
+
+class _SPAStaticFiles(StaticFiles):
+    """SPA 静态托管：未命中的非 /api 路径回退 index.html（前端路由），/api 404 不吞。"""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        # 用 scope["path"]（恒为 / 前缀的 URL 路径）判定：StaticFiles 传入的 path
+        # 会被转为 OS 分隔符（Windows 下 api\xxx），不可移植。
+        norm = scope.get("path", "").lstrip("/")
+        if norm == "api" or norm.startswith("api/"):
+            return JSONResponse(
+                {"error": {"code": "not_found", "message": "接口不存在", "details": {}}},
+                status_code=404,
+            )
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 app = create_app()
