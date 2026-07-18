@@ -650,6 +650,34 @@ export async function importBackup(file: File): Promise<BackupImportResult> {
   return (await res.json()) as BackupImportResult
 }
 
+/** 备份导入预检（iter 159）：只读计数不落库，导入前确认内容。 */
+export interface BackupPreview {
+  version: number
+  exported_at: string | null
+  username: string
+  sessions: number
+  plans: number
+  materials: number
+  knowledge_nodes: number
+  node_notes: number
+  progress: number
+  learning_logs: number
+  quizzes: number
+  study_units: number
+  provider_profiles: number
+}
+export async function previewBackup(file: File): Promise<BackupPreview> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`${BASE}/backup/preview`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token()}` },
+    body: fd,
+  })
+  await throwIfNotOk(res)
+  return (await res.json()) as BackupPreview
+}
+
 const SSE_MAX_RETRIES = 3 // plan/06 §七：指数退避重连最多 3 次
 const SSE_BACKOFF_BASE_MS = 1000
 const SSE_BACKOFF_MAX_MS = 8000

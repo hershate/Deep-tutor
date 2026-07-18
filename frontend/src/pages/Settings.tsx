@@ -4,7 +4,7 @@ import ProviderManager from '../components/ProviderManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadBackup, getSettings, importBackup, postSetup, type BackupImportResult } from '../lib/api'
+import { ApiError, downloadBackup, getSettings, importBackup, postSetup, previewBackup, type BackupImportResult, type BackupPreview } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -122,6 +122,9 @@ function BackupCard() {
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<BackupImportResult | null>(null)
+  // iter 159：导入预检——选文件后先预览计数，确认后才真正导入
+  const [pending, setPending] = useState<{ file: File; preview: BackupPreview } | null>(null)
+  const [previewing, setPreviewing] = useState(false)
 
   async function doExport() {
     if (exporting) return
@@ -136,19 +139,35 @@ function BackupCard() {
     }
   }
 
+  // 选文件 -> 预检（不落库），用户确认后 doImport 才真正导入（iter 159）
+  async function doPreview(file: File) {
+    setPreviewing(true)
+    setResult(null)
+    setPending(null)
+    try {
+      const preview = await previewBackup(file)
+      setPending({ file, preview })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '预检失败，请确认文件为本应用导出的备份')
+    } finally {
+      setPreviewing(false)
+      if (fileRef.current) fileRef.current.value = '' // 允许重复选同一文件
+    }
+  }
+
   async function doImport(file: File) {
     setImporting(true)
     setResult(null)
     try {
       const r = await importBackup(file)
       setResult(r)
+      setPending(null)
       toast.success(`导入完成：${r.sessions} 个会话 / ${r.plans} 个方案`)
       await qc.invalidateQueries() // 列表页等展示新数据
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '导入失败，请确认文件为本应用导出的备份')
     } finally {
       setImporting(false)
-      if (fileRef.current) fileRef.current.value = '' // 允许重复选同一文件
     }
   }
 
@@ -172,10 +191,10 @@ function BackupCard() {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          disabled={importing}
+          disabled={importing || previewing}
           className="rounded border px-3 py-1.5 text-sm font-medium transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
         >
-          {importing ? '导入中…' : '选择备份文件导入'}
+          {previewing ? '预检中…' : importing ? '导入中…' : '选择备份文件导入'}
         </button>
         <input
           ref={fileRef}
@@ -185,10 +204,44 @@ function BackupCard() {
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0]
-            if (f) void doImport(f)
+            if (f) void doPreview(f)
           }}
         />
       </div>
+      {/* 导入预检（iter 159）：确认前看清备份内容 */}
+      {pending && (
+        <div className="mt-3 animate-fade-in rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+          <p>
+            备份内容：{pending.preview.sessions} 会话 / {pending.preview.materials} 资料 /{' '}
+            {pending.preview.plans} 方案 / {pending.preview.knowledge_nodes} 知识节点 /{' '}
+            {pending.preview.node_notes} 笔记 / {pending.preview.study_units} 自学单元 /{' '}
+            {pending.preview.quizzes} 测验 / {pending.preview.learning_logs} 打卡 /{' '}
+            {pending.preview.provider_profiles} 供应商档案
+          </p>
+          <p className="mt-1 text-blue-600 dark:text-blue-300">
+            {pending.preview.username && <>导出人：{pending.preview.username} · </>}
+            {pending.preview.exported_at && <>导出时间：{pending.preview.exported_at.replace('T', ' ')}</>}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void doImport(pending.file)}
+              disabled={importing}
+              className="rounded-lg bg-blue-600 px-3 py-1 font-medium text-white transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+            >
+              {importing ? '导入中…' : '确认导入（追加还原）'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPending(null)}
+              disabled={importing}
+              className="rounded-lg border px-3 py-1 transition-all hover:bg-white active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
       {result && (
         <div className="mt-3 animate-fade-in rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
           <p>
