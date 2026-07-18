@@ -275,7 +275,14 @@ export default function Home() {
             {uploadPct !== null && ` ${uploadPct}%`}
           </div>
           {uploadPct !== null && (
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+              role="progressbar"
+              aria-valuenow={uploadPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="文件上传进度"
+            >
               <div
                 className="h-full rounded-full bg-blue-600 transition-all duration-200"
                 style={{ width: `${uploadPct}%` }}
