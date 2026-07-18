@@ -449,6 +449,61 @@ export function clarifyStream(
 
 import { openSSE, readSSEStream, SseError } from './sse'
 
+// --- 数据备份（iter 93）：整库导出 JSON 下载 / 追加式导入 ---
+
+export interface BackupImportResult {
+  ok: boolean
+  sessions: number
+  materials: number
+  plans: number
+  knowledge_nodes: number
+  study_units: number
+  quizzes: number
+  progress: number
+  learning_logs: number
+  provider_profiles: number
+  skipped: string[]
+}
+
+/** 非 JSON 响应的错误解析（与 apiFetch 同一约定）。 */
+async function throwIfNotOk(res: Response): Promise<void> {
+  if (res.ok) return
+  handleUnauthorized(res.status)
+  const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } }
+  const err = body?.error ?? {}
+  throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+}
+
+/** 导出当前用户全部数据并触发浏览器下载（文件名取后端 Content-Disposition）。 */
+export async function downloadBackup(): Promise<void> {
+  const res = await fetch(`${BASE}/backup/export`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  const blob = await res.blob()
+  const cd = res.headers.get('content-disposition') ?? ''
+  const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'deep-tutor-backup.json'
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+/** 导入备份 JSON（追加式：全部以新数据重建，不覆盖现有数据）。 */
+export async function importBackup(file: File): Promise<BackupImportResult> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`${BASE}/backup/import`, {
+    method: 'POST',
+    // 不设 Content-Type：浏览器自动带 multipart boundary（apiFetch 的 json 头不适用）
+    headers: { Authorization: `Bearer ${token()}` },
+    body: fd,
+  })
+  await throwIfNotOk(res)
+  return (await res.json()) as BackupImportResult
+}
+
 const SSE_MAX_RETRIES = 3 // plan/06 §七：指数退避重连最多 3 次
 const SSE_BACKOFF_BASE_MS = 1000
 const SSE_BACKOFF_MAX_MS = 8000

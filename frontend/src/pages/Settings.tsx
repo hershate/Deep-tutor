@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ProviderManager from '../components/ProviderManager'
 import UserManager from '../components/UserManager'
-import { ApiError, getSettings, postSetup } from '../lib/api'
+import { toast } from '../components/Toast'
+import { ApiError, downloadBackup, getSettings, importBackup, postSetup, type BackupImportResult } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -25,6 +26,8 @@ export default function Settings() {
       <UserManager />
 
       <ProviderManager />
+
+      <BackupCard />
 
       <p className="text-sm text-slate-500 dark:text-slate-400">
         以下为服务端 .env 配置快照（只读）；启用供应商档案后 LLM 调用以档案为准。
@@ -96,6 +99,101 @@ function Row({
       <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className={`text-sm font-medium ${color}`}>{value}</dd>
     </div>
+  )
+}
+
+/** 数据备份卡（iter 93）：导出整库 JSON / 追加式导入还原。
+ *  凭证（api_key 等）不随备份走——导入后需在供应商档案补填并激活。 */
+function BackupCard() {
+  const qc = useQueryClient()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<BackupImportResult | null>(null)
+
+  async function doExport() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await downloadBackup()
+      toast.success('备份已开始下载')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function doImport(file: File) {
+    setImporting(true)
+    setResult(null)
+    try {
+      const r = await importBackup(file)
+      setResult(r)
+      toast.success(`导入完成：${r.sessions} 个会话 / ${r.plans} 个方案`)
+      await qc.invalidateQueries() // 列表页等展示新数据
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '导入失败，请确认文件为本应用导出的备份')
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = '' // 允许重复选同一文件
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">数据备份</h3>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        导出全部学习数据（会话/方案/知识节点/进度/打卡/自学材料）为 JSON 文件，可用于迁移或存档；
+        导入为<strong>追加还原</strong>（不覆盖现有数据，重复导入会产生副本）。
+        API Key 等凭证不随备份导出，导入后请在上方供应商档案中补填并激活。
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={doExport}
+          disabled={exporting}
+          className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-blue-500 hover:shadow-md active:scale-95 disabled:opacity-50"
+        >
+          {exporting ? '导出中…' : '导出全部数据'}
+        </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={importing}
+          className="rounded border px-3 py-1.5 text-sm font-medium transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+        >
+          {importing ? '导入中…' : '选择备份文件导入'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          aria-label="选择备份文件"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void doImport(f)
+          }}
+        />
+      </div>
+      {result && (
+        <div className="mt-3 animate-fade-in rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+          <p>
+            本次导入：{result.sessions} 会话 / {result.materials} 资料 / {result.plans} 方案 /{' '}
+            {result.knowledge_nodes} 知识节点 / {result.study_units} 自学单元 / {result.quizzes} 测验 /{' '}
+            {result.progress} 进度 / {result.learning_logs} 打卡 / {result.provider_profiles} 供应商档案
+          </p>
+          {result.skipped.length > 0 && (
+            <ul className="mt-1 list-inside list-disc">
+              {result.skipped.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
