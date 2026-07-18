@@ -37,6 +37,13 @@ async def lifespan(app: FastAPI):
         )
     settings.ensure_dirs()
     init_db()
+    # 多模态依赖检测（P3，R9）：缺失仅告警——对应入口按 dependency_missing 报错 + 提示安装
+    from app.tools.parse_material import ocr_available, whisper_available
+
+    if not ocr_available():
+        log.warning("图片 OCR 不可用：未检测到 tesseract/pytesseract（安装后上传图片方可 OCR）")
+    if not whisper_available():
+        log.warning("音视频转写不可用：未安装 faster-whisper（pip install faster-whisper）")
     skills = get_skill_registry()  # plan/05 §三.2 启动扫描 skills/ -> 注册表
     log.info("Deep-tutor 后端启动完成 (model=%s, skills=%d)", settings.anthropic_model, len(skills))
     yield

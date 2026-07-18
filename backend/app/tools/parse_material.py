@@ -1,10 +1,12 @@
 """parse_material 工具（plan/02 §1）。
 
 多模态资料 -> 结构化文本 + 元数据 + chunks。纯 Python，无 LLM。
-- file: PDF(PyMuPDF) / DOCX(python-docx) / PPTX(python-pptx) / TXT / MD（按扩展名分发）
+- file: PDF(Marker) / DOCX(python-docx) / PPTX(python-pptx) / TXT / MD（按扩展名分发）
+- image(P3): 图片 OCR（pytesseract + tesseract 二进制；R9：缺失 -> dependency_missing + 安装提示）
+- audio/video(P3): 音视频转写（faster-whisper；R9 同上；ffprobe 时长守卫）
 - text: 直接原文
 - url: httpx 抓取 + 正文提取（trafilatura 优先，缺失则 stdlib HTML 转文本）
-错误：unsupported_format / empty_content / degraded（降级纯文本）。
+错误：unsupported_format / empty_content / degraded（降级纯文本）/ dependency_missing。
 上限：解析文本 ≤ MAX_PARSED_CHARS（09 §二十），超限截断 + 标注。
 """
 
@@ -22,6 +24,7 @@ from pathlib import Path
 
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
+from app.core.settings import settings
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
 log = logging.getLogger("deep_tutor.tools.parse")
@@ -31,7 +34,11 @@ CHUNK_SIZE = 3000
 URL_TIMEOUT = 30.0
 MARKER_TIMEOUT = 600.0  # marker --force_ocr 含 OCR，较慢，单独给长超时
 MAX_URL_BYTES = 10 * 1024 * 1024  # URL 抓取正文上限 10MB（防 OOM，09 §二十）
-SUPPORTED_FILE_EXTS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
+OCR_TIMEOUT = 120.0  # 图片 OCR 超时（pytesseract timeout 参数，秒）
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif"}
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
+SUPPORTED_FILE_EXTS = {".pdf", ".docx", ".pptx", ".txt", ".md"} | IMAGE_EXTS | AUDIO_EXTS | VIDEO_EXTS
 
 
 class _ParseError(Exception):
@@ -48,8 +55,8 @@ async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     kind = args.get("kind")
     source = args.get("source", "")
 
-    if kind not in {"file", "text", "url"}:
-        return _err("unsupported_format", f"不支持的 kind: {kind}（支持 file/text/url）")
+    if kind not in {"file", "text", "url", "image", "audio", "video"}:
+        return _err("unsupported_format", f"不支持的 kind: {kind}（支持 file/text/url/image/audio/video）")
 
     try:
         if kind == "text":
@@ -57,6 +64,7 @@ async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         elif kind == "url":
             text, meta = await _parse_url(source)
         else:
+            # file / image / audio / video：均按路径 + 扩展名分发（kind 仅语义标注）
             text, meta = await asyncio.to_thread(_parse_file, source)
     except _ParseError as e:
         return _err(e.code, e.message)
@@ -104,9 +112,136 @@ def _parse_file(source: str) -> tuple[str, dict]:
         return _parse_docx(path)
     if ext == ".pptx":
         return _parse_pptx(path)
+    if ext in IMAGE_EXTS:
+        return _parse_image(path)
+    if ext in AUDIO_EXTS | VIDEO_EXTS:
+        return _parse_media(path)
     # .txt / .md
     text = _read_text_file(path)
     return text, {"source_type": ext.lstrip("."), "pages": 1}
+
+
+# --- 图片 OCR（P3，pytesseract；R9：依赖缺失 -> dependency_missing + 安装提示）---
+
+
+def ocr_available() -> bool:
+    """图片 OCR 依赖是否可用（tesseract 二进制 + pytesseract/Pillow）。R9 启动检测用。"""
+    if shutil.which("tesseract") is None:
+        return False
+    try:
+        import PIL.Image  # noqa: F401
+        import pytesseract  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _parse_image(path: Path) -> tuple[str, dict]:
+    """图片 OCR：tesseract 二进制 + pytesseract。语言包缺失回退 eng；超时 -> upstream_timeout。"""
+    if shutil.which("tesseract") is None:
+        raise _ParseError(
+            "dependency_missing",
+            "图片 OCR 依赖 tesseract（未在 PATH 找到；请安装 tesseract-ocr 后重试）",
+        )
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError as exc:
+        raise _ParseError(
+            "dependency_missing",
+            "图片 OCR 依赖 pytesseract/Pillow（pip install pytesseract Pillow）",
+        ) from exc
+
+    langs = settings.ocr_languages or "eng"
+    with Image.open(str(path)) as img:
+        try:
+            text = pytesseract.image_to_string(img, lang=langs, timeout=OCR_TIMEOUT)
+        except RuntimeError as exc:  # pytesseract 超时抛 RuntimeError
+            raise _ParseError("upstream_timeout", f"图片 OCR 超时（{OCR_TIMEOUT}s）") from exc
+        except pytesseract.TesseractError:
+            # 语言包缺失等 -> 回退 eng 重试一次
+            try:
+                text = pytesseract.image_to_string(img, lang="eng", timeout=OCR_TIMEOUT)
+            except RuntimeError as exc:
+                raise _ParseError("upstream_timeout", f"图片 OCR 超时（{OCR_TIMEOUT}s）") from exc
+    text = (text or "").strip()
+    if not text:
+        raise _ParseError("empty_content", "图片 OCR 未识别到文字")
+    return text, {"source_type": "image", "parser": "tesseract", "ocr_langs": langs}
+
+
+# --- 音视频转写（P3，faster-whisper；R9：依赖缺失 -> dependency_missing + 安装提示）---
+
+_WHISPER_COMPUTE_TYPE = "int8"  # CPU 友好（本地单用户默认无 GPU）
+_FFPROBE_TIMEOUT = 30.0
+
+
+def whisper_available() -> bool:
+    """音视频转写依赖是否可用（faster-whisper）。R9 启动检测用。"""
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _media_duration_seconds(path: Path) -> float | None:
+    """ffprobe 取媒体时长（秒）；ffprobe 缺失/探测失败 -> None（跳过时长守卫，降级不阻断）。"""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_FFPROBE_TIMEOUT,
+        )
+        return float((proc.stdout or "").strip())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_media(path: Path) -> tuple[str, dict]:
+    """音视频转写：faster-whisper 本地模型（CPU/int8）。
+
+    时长守卫：ffprobe 可得且 > settings.media_max_minutes -> 拒绝（防长时阻塞/CPU 耗尽）。
+    首次使用自动下载模型（HuggingFace）；模型大小经 settings.whisper_model 配置。
+    """
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise _ParseError(
+            "dependency_missing",
+            "音视频转写依赖 faster-whisper（pip install faster-whisper；首次使用自动下载模型）",
+        ) from exc
+
+    duration = _media_duration_seconds(path)
+    if duration is not None and duration > settings.media_max_minutes * 60:
+        raise _ParseError(
+            "payload_too_large",
+            f"音视频时长 {duration / 60:.1f} 分钟超上限 {settings.media_max_minutes} 分钟",
+        )
+
+    source_type = "video" if path.suffix.lower() in VIDEO_EXTS else "audio"
+    model = WhisperModel(settings.whisper_model, device="cpu", compute_type=_WHISPER_COMPUTE_TYPE)
+    segments, info = model.transcribe(str(path))
+    parts = [seg.text.strip() for seg in segments if seg.text and seg.text.strip()]
+    text = "\n".join(parts).strip()
+    if not text:
+        raise _ParseError("empty_content", "音视频转写未识别到语音文本")
+    meta: dict = {
+        "source_type": source_type,
+        "parser": "faster-whisper",
+        "whisper_model": settings.whisper_model,
+        "language": getattr(info, "language", None),
+    }
+    if duration is not None:
+        meta["duration_s"] = round(duration, 1)
+    return text, meta
 
 
 def _parse_pdf(path: Path) -> tuple[str, dict]:
@@ -267,8 +402,15 @@ async def _parse_url(source: str) -> tuple[str, dict]:
 
 
 def _degraded_fallback(source: str, kind: str, exc: Exception) -> tuple[str, dict]:
-    """解析失败的降级：尽量取纯文本，标记 degraded。"""
-    if kind == "file":
+    """解析失败的降级：尽量取纯文本，标记 degraded。
+
+    二进制格式（PDF/DOCX/PPTX/图片/音视频）不按文本回读——那会产出乱码垃圾文本
+    注入下游 LLM（可用性护栏）；返回空串 -> 上层 empty_content 明确报错。
+    """
+    if kind in {"file", "image", "audio", "video"}:
+        ext = Path(source).suffix.lower()
+        if ext in SUPPORTED_FILE_EXTS - {".txt", ".md"}:
+            return "", {"source_type": "degraded", "error": str(exc)}
         try:
             return _read_text_file(Path(source)), {"source_type": "degraded", "error": str(exc)}
         except Exception:  # noqa: BLE001

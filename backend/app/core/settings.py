@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     search_engine: str = Field(default="bing", description="搜索引擎")
     bing_api_key: str = Field(default="", description="Bing Search API key（search_resources 必填）")
 
+    # --- 多模态（P3；R9：依赖缺失则对应入口禁用 + 提示安装）---
+    ocr_languages: str = Field(default="eng+chi_sim", description="图片 OCR 语言（tesseract -l）")
+    whisper_model: str = Field(default="base", description="音视频转写模型（faster-whisper 模型名/路径）")
+    media_max_minutes: int = Field(default=30, description="音视频转写时长上限（分钟，ffprobe 可得时强制）")
+
     # --- 杂项 ---
     log_level: str = Field(default="info", description="日志级别")
     cors_origins: str = Field(

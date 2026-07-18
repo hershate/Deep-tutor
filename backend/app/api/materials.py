@@ -36,6 +36,11 @@ _MAGIC = {
     ".pdf": b"%PDF",
     ".docx": b"PK",
     ".pptx": b"PK",
+    ".png": b"\x89PNG",
+    ".jpg": b"\xff\xd8\xff",
+    ".jpeg": b"\xff\xd8\xff",
+    ".gif": b"GIF8",
+    ".bmp": b"BM",
 }
 
 
