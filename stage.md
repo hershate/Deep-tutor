@@ -234,6 +234,15 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 113（功能线：知识点笔记 node_notes，✅ 完成）**：个人 LLM Wiki 深化——知识节点可挂私人笔记，随备份迁移。**编号说明**：本切片代码注释自标 iter 105，与并行美化轨 iter 105（第 13 轮）撞号，本条按共享序号取 113。
+  - **模型+迁移**（commit `f4682bf`）：[models.py](backend/app/db/models.py) 新增 `NodeNote`（user_id+node_id 双 FK，`uq_node_notes_user_node` 唯一约束兜底并发双写；User.node_notes / KnowledgeNode.notes 均 ORM 级联 delete-orphan——删会话/删用户自动清理）；迁移 `e5b21c8f90a3_node_notes.py`（batch 不需要，create_table 直写），[migrate.py](backend/app/db/migrate.py) `_REVISION_PROBES` 顶部加 node_notes 探针（create_all 旧库 stamp 识别）。
+  - **API**（同 commit）：[knowledge.py](backend/app/api/knowledge.py) `GET /knowledge/notes/{node_id}`（无笔记返空内容不 404，前端编辑体验一致）+ `PUT /knowledge/notes/{node_id}`（upsert，内容 strip 后为空即删行；撞唯一约束回滚按更新重放；上限 2 万字符）；`GET /knowledge` items 附 `has_note`（本批节点单查询取集合）。他人节点 GET/PUT 均 404。
+  - **备份集成**（同 commit）：[backup.py](backend/app/core/backup.py) 导出在节点 dict 嵌入 `note` 字段（仅非空；`version` 仍为 1——旧备份无字段不还原笔记，旧代码读新备份忽略该字段，双向兼容）；导入按 sid 重关联建新 NodeNote（无 sid 锚点跳过，strip 截 2 万），summary 增 `node_notes` 计数。
+  - **前端**（commit `6b2b7de`）：新增 [NodeNoteEditor.tsx](frontend/src/components/NodeNoteEditor.tsx)（展开时按需 GET、textarea 2 万上限、保存/清空即删、更新时间、toast 反馈）；[Wiki.tsx](frontend/src/pages/Wiki.tsx) 节点卡右侧 📝 开关（has_note 琥珀色常驻），卡片结构改「容器 div + Link 主体 + 独立按钮」避免按钮嵌套锚点，保存后 invalidateQueries(['knowledge']) 同步标记；[api.ts](frontend/src/lib/api.ts) `NodeNote`/`getNodeNote`/`putNodeNote` + `KnowledgeItem.has_note`。
+  - **测试**：[test_api_notes.py](backend/tests/test_api_notes.py) 6 例（增改清空删行、has_note 标记、三方隔离+归属验证、删会话级联清理、备份 roundtrip 含导出嵌入/导入计数/双份节点均带笔记、401）；迁移测试 10 例全过（含 models↔head 零漂移）。**验证**：后端全量 470 通过（464→470，+6）；ruff 零告警；`npm run build` 通过。**坑记**：共享测试库文件（tempdir dt_api_test.db）中 alembic_version 表不被 conftest drop_all 清理（非 metadata 表），新增迁移后须删旧库文件再跑，否则「旧版本号+新表」撞 create。
+
+- **2026-07-19 iter 112（前端美化第 20 轮：零散 hover 补色彩过渡）**：走查全站 `hover:` 用法，残余 6 处瞬时变色元素补 `transition-colors`：[Layout.tsx](frontend/src/components/Layout.tsx) 注销链接、两条状态横幅「去设置密码/去配置」链接、抽屉 ✕ 关闭钮；[Home.tsx](frontend/src/pages/Home.tsx) 两处资料 ✕ 删除钮（顺带规整类序 + 补 `dark:text-slate-500` 常态色，原深色下沿用 slate-400 偏亮）。全站 hover 反馈自此均有 200ms 渐变，无瞬时跳变残留。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 111（前端美化第 19 轮：外链/返回链接样式统一）**：细节走查补漏——全站残余裸 `hover:underline`（无色彩过渡/深色变体）统一为品牌链接样式 `underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300`：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 资源外链（另加 `break-all` 防长 URL 撑破卡片）、[Learn.tsx](frontend/src/pages/Learn.tsx) 头部「返回方案详情」、[SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx) 与 [GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 资源外链；Learn 整页错误态出口链接同步补过渡 + 红色系 hover 深化。hover 反馈由瞬时变 200ms 渐变，深浅主题下均有一致变亮反馈。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 110（前端美化第 18 轮：回到顶部悬浮按钮）**：[Layout.tsx](frontend/src/components/Layout.tsx) 新增 back-to-top——滚动 >400px 时出现（passive scroll 监听），右下圆形悬浮钮（SVG 上箭头、bg-white/90 backdrop-blur、scale-in 入场、hover 上浮+染蓝、active 按压）；点击平滑回顶，**prefers-reduced-motion 用户改即时跳转**（JS matchMedia 判定，平滑滚动不受 CSS 媒体查询约束需显式分支）；z-40 于 Toast（z-50）之下，通知弹出时短暂遮挡可接受。长页面（方案详情/时间线/学习中心）回顶不再需要手动滚动。**验证**：`npm run build` 通过。
