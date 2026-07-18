@@ -27,10 +27,12 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
   const [progress, setProgress] = useState<UnitProgress[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
+  const [selectMode, setSelectMode] = useState(false) // iter 98：按单元选择重生成模式
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const acRef = useRef<AbortController | null>(null)
 
   const run = useCallback(
-    (d: 'brief' | 'full', refresh: boolean) => {
+    (d: 'brief' | 'full', refresh: boolean, unitIds?: number[]) => {
       acRef.current?.abort() // 中止上一次进行中请求
       const ac = new AbortController()
       acRef.current = ac
@@ -39,7 +41,8 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
       setWarning('')
       setProgress([])
       ;(async () => {
-        // refresh 或尚无单元 -> 生成（SSE 逐单元进度；幂等命中后端直接返回 JSON）
+        // refresh 或尚无单元 -> 生成（SSE 逐单元进度；幂等命中后端直接返回 JSON）；
+        // unitIds 非空 -> 按单元重生成（iter 98，仅删选中行）
         await generateMaterialsStream(
           planId,
           d,
@@ -67,11 +70,14 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             },
           },
           ac.signal,
+          unitIds,
         )
         const lst = await listStudyUnits(planId, ac.signal)
         if (!ac.signal.aborted) {
           setUnits(lst.units)
           setIndexMd(lst.index_md ?? '')
+          setSelectMode(false)
+          setSelected(new Set())
         }
       })()
         .catch((e) => {
@@ -155,6 +161,19 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               <option value="brief">简要</option>
             </select>
             <button
+              onClick={() => {
+                setSelectMode((v) => !v)
+                setSelected(new Set())
+              }}
+              disabled={loading || units.length === 0}
+              aria-pressed={selectMode}
+              className={`rounded-lg border px-3 py-1 text-sm transition-all active:scale-95 disabled:opacity-40 ${
+                selectMode ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              选择重生成
+            </button>
+            <button
               onClick={onClose}
               aria-label="关闭"
               className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -192,7 +211,63 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               {error}
             </div>
           )}
-          {!loading && !error && (
+          {!loading && !error && selectMode && (
+            <div className="flex animate-fade-in flex-col gap-3">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                勾选要重新生成的单元——只有选中的单元会被替换，其余单元内容保持不变：
+              </p>
+              <ul className="max-h-[45vh] space-y-1 overflow-y-auto rounded-lg border p-2 dark:border-slate-700">
+                {units.map((u) => (
+                  <li key={u.id}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(u.id)}
+                        onChange={() =>
+                          setSelected((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(u.id)) next.delete(u.id)
+                            else next.add(u.id)
+                            return next
+                          })
+                        }
+                        className="accent-blue-600"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{u.title}</span>
+                      {u.done && <span className="text-xs text-green-600 dark:text-green-400">✓ 已学</span>}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap items-center gap-2 border-t pt-3 dark:border-slate-700">
+                <button
+                  onClick={() =>
+                    setSelected((prev) => (prev.size === units.length ? new Set() : new Set(units.map((u) => u.id))))
+                  }
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                >
+                  {selected.size === units.length ? '清空' : '全选'}
+                </button>
+                <button
+                  onClick={() => run(depth, false, [...selected])}
+                  disabled={selected.size === 0}
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-500 hover:shadow-md active:scale-[.98] disabled:opacity-40"
+                >
+                  重新生成选中单元（{selected.size}）
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectMode(false)
+                    setSelected(new Set())
+                  }}
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+          {!loading && !error && !selectMode && (
             <>
               {warning && (
                 <div className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-700">{warning}</div>

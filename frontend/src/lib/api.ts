@@ -228,6 +228,7 @@ export async function generateMaterialsStream(
   refresh: boolean,
   cb: MaterialsStreamCallbacks,
   signal?: AbortSignal,
+  unitIds?: number[], // iter 98：按单元重生成（选中若干单元单独重新生成；与 refresh/scope 互斥由后端保证）
 ): Promise<void> {
   const res = await fetch(`${BASE}/plans/${planId}/materials`, {
     method: 'POST',
@@ -236,7 +237,7 @@ export async function generateMaterialsStream(
       Authorization: `Bearer ${token()}`,
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ depth, refresh }),
+    body: JSON.stringify(unitIds?.length ? { depth, unit_ids: unitIds } : { depth, refresh }),
     signal,
   })
   if (!res.ok) {
