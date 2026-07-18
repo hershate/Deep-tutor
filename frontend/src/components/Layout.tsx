@@ -46,6 +46,21 @@ export default function Layout({ children }: { children: ReactNode }) {
     window.scrollTo(0, 0)
   }, [location.pathname])
 
+  // iter 110：长页面回到顶部悬浮按钮（滚动 >400px 出现）
+  const [showBackTop, setShowBackTop] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setShowBackTop(window.scrollY > 400)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  function backToTop() {
+    // 尊重 prefers-reduced-motion：即时跳转而非平滑滚动
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
+  }
+
   function onLogout() {
     clearAuth()
     navigate('/login', { replace: true })
@@ -228,6 +243,20 @@ export default function Layout({ children }: { children: ReactNode }) {
           Deep-tutor · Phase 1 MVP
         </div>
       </footer>
+      {/* iter 110：回到顶部（右下悬浮，Toast z-50 短暂遮挡可接受；scale-in 入场） */}
+      {showBackTop && (
+        <button
+          type="button"
+          onClick={backToTop}
+          aria-label="回到顶部"
+          title="回到顶部"
+          className="fixed bottom-4 right-4 z-40 animate-scale-in rounded-full border bg-white/90 p-2.5 text-slate-500 shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:text-blue-600 hover:shadow-xl active:scale-95 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-300 dark:hover:text-blue-400"
+        >
+          <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 3a1 1 0 0 1 .7.3l5 5a1 1 0 0 1-1.4 1.4L11 6.42V16a1 1 0 1 1-2 0V6.42L5.7 9.7A1 1 0 0 1 4.3 8.3l5-5A1 1 0 0 1 10 3Z" clipRule="evenodd" />
+          </svg>
+        </button>
+      )}
       <Toaster />
     </div>
   )
