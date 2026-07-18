@@ -33,4 +33,7 @@ Pillow>=10.0                     # 图片读取（pytesseract 依赖）
 pytest>=8.0
 pytest-asyncio>=0.23
 
+# 导出（P5）
+genanki==0.13.1                # Anki .apkg 卡片包生成（纯 Python）
+
 # 注：weasyprint（PDF 导出）在 P1 步骤加入。
