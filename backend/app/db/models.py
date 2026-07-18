@@ -102,7 +102,15 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    sessions: Mapped[list[Session]] = relationship(back_populates="user")
+    # 删用户时级联删其会话（err.md C3：PRAGMA foreign_keys=ON 下无级联会 FK 阻断）；
+    # ORM 级级联（先删子行），不依赖 FK ondelete，迁移库与 create_all 库行为一致。
+    sessions: Mapped[list[Session]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    api_usages: Mapped[list[ApiUsage]] = relationship(cascade="all, delete-orphan")
+    provider_profiles: Mapped[list[LlmProviderProfile]] = relationship(
+        cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -212,7 +220,10 @@ class KnowledgeNode(Base):
     parent: Mapped[KnowledgeNode | None] = relationship(
         remote_side="KnowledgeNode.id", back_populates="children"
     )
-    children: Mapped[list[KnowledgeNode]] = relationship(back_populates="parent")
+    # err.md C11：删父节点时级联删子节点（否则 FK 阻断 ORM 删除）
+    children: Mapped[list[KnowledgeNode]] = relationship(
+        back_populates="parent", cascade="all, delete-orphan"
+    )
     resources: Mapped[list[Resource]] = relationship(
         back_populates="node", cascade="all, delete-orphan"
     )

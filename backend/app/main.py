@@ -41,13 +41,34 @@ async def lifespan(app: FastAPI):
             "功能级 key 缺失（生成/搜索将不可用直到配置）: %s", soft_missing
         )
     settings.ensure_dirs()
+    # err.md C2：启动即执行 alembic 迁移（旧库增量加列/建表），不再仅依赖
+    # scripts/start.* 的前置迁移；随后 init_db 兜底保证模型定义的表齐全
+    # （create_all 对已存在表为 no-op；测试夹具 drop_all 后亦靠它重建）。
+    from app.db.migrate import run_migrations
+
+    run_migrations()
     init_db()
-    # P4 多用户（iter 57）：启动收敛管理员账号（旧单用户数据归管理员）
-    from app.core.security import ensure_admin_user
+    # err.md A2：进程崩溃/重启后 orchestrator_state 残留 running 会让该用户
+    # 永久 409（配额检查把 stale running 计入并发）。启动时批量收敛为 interrupted，
+    # 会话可通过 /generate 重新生成（_terminal_event 回放 error 终态）。
+    from sqlalchemy import update
+
+    from app.db import models
     from app.db.base import SessionLocal
 
     db = SessionLocal()
     try:
+        stale = db.execute(
+            update(models.OrchestratorState)
+            .where(models.OrchestratorState.status == models.OrchestratorStatus.running)
+            .values(status=models.OrchestratorStatus.interrupted)
+        )
+        if stale.rowcount:
+            db.commit()
+            log.warning("启动恢复：%d 个 stale running 会话已收敛为 interrupted", stale.rowcount)
+        # P4 多用户（iter 57）：启动收敛管理员账号（旧单用户数据归管理员）
+        from app.core.security import ensure_admin_user
+
         ensure_admin_user(db)
     finally:
         db.close()
