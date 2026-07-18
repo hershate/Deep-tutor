@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 143（前端美化第 36 轮：打卡热力图走查）**：并行会话 Wiki 热力图（commit `0f418de`）落成后走查——①12 个周列加 30ms 错峰入场（左起波浪式，与卡片 fade-in-up 衔接）；②格子 hover 在放大基础上补 `hover:shadow-sm`（transition-transform → transition-all）；③图表容器加 `role="img"` + 概括性 `aria-label`（84 个格子不再逐个进读屏树），图例行标 `aria-hidden`（title 悬浮已足，色块无文字语义）。注：iter 141/142 被并行会话热力图记录与状态快捷标记切片占用；后者未提交，已避开。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 141（功能线：Wiki 打卡热力图，✅ 完成）**：streak 只有一个数字，缺成就感可视化——GitHub 风格打卡热力图。**编号说明**：并行会话 iter 140 注记将 139 预留给了本切片，但 139 彼时未落记录、140 已占用后续号，本条按共享序号取 141（代码注释自标 iter 139 不改，与预留号一致）。
   - **后端**（commit `3c8ddac`）：[progress.py](backend/app/api/progress.py) `GET /progress/stats/calendar?days=N`（7-366，默认 84）——LearningLog join Plan/Session 按用户过滤 + GROUP BY date 跨方案同日分钟求和，无打卡日补 0（热力图连续）；日界服务器本地日（与 stats/summary 同口径）。
   - **前端**（commit 见 git log「feat(wiki): 打卡热力图」）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) `StudyHeatmap`——顺序 7 天一列（最旧在左）、4 档 emerald 强度（<30/<60/<120/≥120 分钟）、悬浮 title 显 日期+分钟、右下「少→多」图例、横向 overflow-x-auto 防窄屏挤压；仅 total_logs>0 时渲染。[api.ts](frontend/src/lib/api.ts) `getStatsCalendar(days)`。
