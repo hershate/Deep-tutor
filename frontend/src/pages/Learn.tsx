@@ -152,7 +152,7 @@ export default function Learn() {
             {dueNodes.map((n, i) => (
               <li key={n.node_id} className="flex animate-fade-in-up items-center gap-2" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
                 <span className="font-medium">{n.name}</span>
-                <span className="text-xs text-slate-400">掌握度 {Math.round(n.mastery * 100)}%</span>
+                <span className="text-xs tabular-nums text-slate-400">掌握度 {Math.round(n.mastery * 100)}%</span>
                 <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600 dark:bg-amber-950 dark:text-amber-400">复习 {n.next_review}</span>
               </li>
             ))}

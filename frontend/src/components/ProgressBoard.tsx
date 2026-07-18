@@ -53,7 +53,7 @@ function NodeItem({ node: n, busyNode, onSetStatus, compact }: {
         className={`text-xs text-slate-400 ${compact ? 'hidden sm:inline' : ''}`}
         aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
       >
-        掌握度 {Math.round(n.mastery * 100)}%
+        掌握度 <span className="tabular-nums">{Math.round(n.mastery * 100)}%</span>
       </span>
       {n.next_review && (
         <span
