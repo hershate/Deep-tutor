@@ -869,6 +869,19 @@ class MaterialsIn(BaseModel):
     depth: Literal["brief", "full"] = "full"
     refresh: bool = False  # True 强制重新生成（替换旧单元，内容文件级联清理）
     scope: MaterialsScopeIn | None = None
+    # iter 93：按单元重生成——选中若干单元单独重新生成（隐含强制重生成，与 scope 互斥；
+    # 仅 SSE 路径支持，同步 JSON 路径 422）。上限同 _MAX_MATERIAL_UNITS（12）
+    unit_ids: list[int] | None = Field(default=None, max_length=12)
+
+
+def _stage_for_unit(content: dict, unit: models.StudyUnit) -> dict:
+    """单元对应的 plan stage（stage_index 匹配）；阶段已消失/无归属 -> 以单元标题构造
+    最小伪阶段（generate_unit_content 只需 name/topics，保证任意单元可重生成）。"""
+    if unit.stage_index is not None:
+        for s in content.get("stages") or []:
+            if s.get("index") == unit.stage_index:
+                return s
+    return {"name": unit.title}
 
 
 def _resolve_scope_stages(content: dict, scope: MaterialsScopeIn | None) -> list[tuple[dict, int | None]]:
@@ -1145,7 +1158,7 @@ async def _materials_sse(
             new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit, resources, stage_index=stage_idx))
             db.commit()  # 逐单元提交：断线保留已生成进度
             yield _sse("unit_done", {"order": order, "title": unit.title, "degraded": degraded})
-        if body.scope is not None:
+        if body.scope is not None or body.unit_ids:
             _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
         all_units = (
             db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
@@ -1180,8 +1193,26 @@ async def generate_materials(
     """
     plan, content = _plan_or_404(db, plan_id, user)
 
+    # iter 93：按单元重生成——解析选中单元（须属本方案），隐含强制重生成
+    unit_rows: list[models.StudyUnit] = []
+    if body.unit_ids:
+        if body.scope is not None:
+            raise ApiError("invalid_scope", "unit_ids 与 scope 互斥，请只用其一")
+        unit_rows = (
+            db.query(models.StudyUnit)
+            .filter(
+                models.StudyUnit.plan_id == plan.id,
+                models.StudyUnit.id.in_(set(body.unit_ids)),
+            )
+            .order_by(models.StudyUnit.order)
+            .all()
+        )
+        missing = set(body.unit_ids) - {u.id for u in unit_rows}
+        if missing:
+            raise ApiError("not_found", f"学习单元不存在: {sorted(missing)}", status=404)
+
     existing = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
-    if existing and not body.refresh:
+    if existing and not body.refresh and not body.unit_ids:
         spec = _units_to_spec(db, plan, existing, content)
         return {
             "unit_count": len(spec.units),
@@ -1190,18 +1221,32 @@ async def generate_materials(
         }
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径；幂等重渲染不耗 LLM）
-    picked = _resolve_scope_stages(content, body.scope)  # 422 invalid_scope
+    if body.unit_ids:
+        picked = [(_stage_for_unit(content, u), u.stage_index) for u in unit_rows]
+    else:
+        picked = _resolve_scope_stages(content, body.scope)  # 422 invalid_scope
 
     if "text/event-stream" in request.headers.get("accept", ""):
-        # scope 局部生成仅删 scope 内单元（stage_index 集合）；全量生成删全部
-        stage_set = {idx for _, idx in picked if idx is not None} if body.scope is not None else None
-        old_paths = _delete_study_units(db, plan.id, stage_set)
+        if body.unit_ids:
+            # 按单元删除：仅删选中行（同 stage 的未选中单元不受影响）
+            old_paths = [m.content_md_path for u in unit_rows for m in u.materials]
+            for u in unit_rows:
+                db.delete(u)  # cascade study_materials
+            db.flush()
+        else:
+            # scope 局部生成仅删 scope 内单元（stage_index 集合）；全量生成删全部
+            stage_set = {idx for _, idx in picked if idx is not None} if body.scope is not None else None
+            old_paths = _delete_study_units(db, plan.id, stage_set)
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
         return StreamingResponse(
             _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
+
+    # 同步 JSON 路径：unit_ids 的逐单元替换语义无法由单文档规约表达 -> 明确 422（前端走 SSE）
+    if body.unit_ids:
+        raise ApiError("invalid_scope", "按单元重生成请使用 SSE 请求（Accept: text/event-stream）")
 
     try:
         provider = get_provider(user.id)
