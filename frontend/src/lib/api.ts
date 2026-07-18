@@ -506,13 +506,17 @@ async function ssePostWithReconnect(
     if (signal?.aborted) return
     let terminalReached = false
     try {
-      lastId = await openSSE(`${BASE}${path}`, {
+      await openSSE(`${BASE}${path}`, {
         method: 'POST',
         body: JSON.stringify(body),
         token: token(),
         signal,
         lastEventId: lastId,
         onEvent: (ev) => {
+          // 边投递边推进游标：openSSE 的返回值只在流「干净结束」时拿到，
+          // 网络中断时 readSSEStream 直接抛出、返回值丢失——若不在这里
+          // 实时记录 lastId，重连将从 undefined 重放全部事件（事件重复送达）
+          if (ev.id) lastId = ev.id
           const eventName = ev.event ?? 'message'
           if (isTerminalEvent(eventName)) terminalReached = true
           onEvent(eventName, parseSseData(ev.data))
