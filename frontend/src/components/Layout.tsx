@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
 import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation() // iter 92：按路由 key 触发主区入场动画
   // err.md D17：getStoredUser() 直读 localStorage 非响应式（改名后顶栏不更新）——
   // 改 state + 监听 AUTH_CHANGED_EVENT（同源 setAuth/clearAuth/updateStoredUser）
   // 与 storage 事件（其他标签页）
@@ -45,10 +46,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   }
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+    `group relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
       isActive
-        ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
+        ? 'bg-blue-50 font-medium text-blue-700 shadow-sm dark:bg-blue-950 dark:text-blue-300'
+        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white'
     }`
 
   const sidebarNav = (
@@ -73,7 +74,8 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b bg-white dark:border-slate-700 dark:bg-slate-800">
+      {/* iter 92：吸顶 + 毛玻璃顶栏，滚动时内容从其下滑过 */}
+      <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/80">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             {/* 窄屏抽屉开关 */}
@@ -81,11 +83,11 @@ export default function Layout({ children }: { children: ReactNode }) {
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="打开导航菜单"
-              className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50 md:hidden dark:border-slate-600 dark:hover:bg-slate-700"
+              className="rounded-lg border px-2 py-1 text-sm transition-colors hover:bg-slate-50 md:hidden dark:border-slate-600 dark:hover:bg-slate-700"
             >
               ☰
             </button>
-            <Link to="/" className="text-lg font-semibold tracking-tight hover:text-slate-700 dark:hover:text-slate-200">
+            <Link to="/" className="text-lg font-semibold tracking-tight transition-colors hover:text-blue-600 dark:hover:text-blue-400">
               Deep-tutor
             </Link>
           </div>
@@ -95,9 +97,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               onClick={toggleTheme}
               aria-label={theme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
               title={theme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
-              className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              className="rounded-lg border px-2 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
-              <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span aria-hidden="true" className="inline-block transition-transform duration-300 hover:rotate-12">{theme === 'dark' ? '☀️' : '🌙'}</span>
             </button>
             <UsageMeter />
             {hasJwtSession() && user && (
@@ -159,15 +161,15 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
         </aside>
 
-        {/* 窄屏抽屉 */}
+        {/* 窄屏抽屉（iter 92：遮罩淡入 + 面板左滑入） */}
         {drawerOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 animate-fade-in bg-black/40 md:hidden"
             onClick={() => setDrawerOpen(false)}
             aria-hidden="true"
           >
             <aside
-              className="h-full w-56 bg-white p-4 shadow-xl dark:bg-slate-800"
+              className="h-full w-56 animate-slide-in-left bg-white p-4 shadow-xl dark:bg-slate-800"
               role="dialog"
               aria-label="导航菜单"
               onClick={(e) => e.stopPropagation()}
@@ -204,7 +206,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <main className="min-w-0 flex-1 px-4 py-6">{children}</main>
+        {/* iter 92：key=路由路径，切换页面时主区淡入上移 */}
+        <main key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up px-4 py-6">{children}</main>
       </div>
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">

@@ -84,18 +84,19 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      {/* iter 92：卡片化分区和错峰入场动画（animationDelay 递增） */}
+      <div className="space-y-2 animate-fade-in-up">
         <h2 className="text-2xl font-bold">开始生成你的学习方案</h2>
         <p className="text-slate-600 dark:text-slate-300">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '60ms' }}>
         <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           需求描述
         </label>
         <textarea
           id="home-rawtext"
-          className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 p-3 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
@@ -103,7 +104,7 @@ export default function Home() {
         />
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '120ms' }}>
         <label htmlFor="home-file" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           学习资料（可选，可多选 / 可拖拽）
         </label>
@@ -118,10 +119,10 @@ export default function Home() {
             setDragOver(false)
             addFiles(e.dataTransfer.files)
           }}
-          className={`rounded-lg border-2 border-dashed p-4 transition-colors ${
+          className={`rounded-lg border-2 border-dashed p-4 transition-all duration-200 ${
             dragOver
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-              : 'border-slate-300 dark:border-slate-600'
+              ? 'scale-[1.01] border-blue-500 bg-blue-50 shadow-inner dark:bg-blue-950'
+              : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'
           }`}
         >
           <input
@@ -156,7 +157,7 @@ export default function Home() {
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '180ms' }}>
         <label htmlFor="home-url" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           网页链接（可选，可多条）
         </label>
@@ -174,12 +175,12 @@ export default function Home() {
                 addUrl()
               }
             }}
-            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="button"
             onClick={addUrl}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+            className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
           >
             添加
           </button>
@@ -204,7 +205,7 @@ export default function Home() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -229,7 +230,7 @@ export default function Home() {
       <button
         onClick={start}
         disabled={loading}
-        className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm transition-all duration-200 hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
       >
         {loading ? uploadProgress || '创建中…' : '生成学习方案'}
       </button>
