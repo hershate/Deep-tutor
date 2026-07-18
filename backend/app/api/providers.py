@@ -187,7 +187,16 @@ async def test_provider(
     model = p.model or settings.anthropic_model
     provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
     try:
-        await provider.chat("你是连通性测试探针。", "ping", max_tokens=8, cache_system=False)
+        # 显式 120s 上限（与 Timeouts.llm 一致）：SDK 默认超时 600s，慢/挂死端点
+        # 会让测试请求悬挂过久
+        import asyncio
+
+        await asyncio.wait_for(
+            provider.chat("你是连通性测试探针。", "ping", max_tokens=8, cache_system=False),
+            timeout=120.0,
+        )
     except Exception as exc:  # noqa: BLE001  任何失败均作为测试结果返回（非 500）
-        return {"ok": False, "model": model, "error": str(exc)[:200]}
+        # TimeoutError 的 str() 为空串，须显式给消息
+        msg = "连接超时（120s）" if isinstance(exc, asyncio.TimeoutError) else str(exc)[:200]
+        return {"ok": False, "model": model, "error": msg}
     return {"ok": True, "model": model}
