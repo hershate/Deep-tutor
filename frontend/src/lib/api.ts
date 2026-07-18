@@ -531,6 +531,8 @@ export interface AppSettings {
   anthropic_model: string
   budget_per_session_usd: number
   daily_budget_usd: number
+  daily_budget_effective: number // iter 171：用户覆盖后的有效日预算
+  daily_budget_is_override: boolean
   max_tool_calls: number
   max_upload_mb: number
   search_engine: string
@@ -543,6 +545,18 @@ export interface AppSettings {
   media_max_minutes: number
 }
 export const getSettings = () => apiFetch<AppSettings>('/settings')
+
+// iter 171：用户级日预算覆盖；value 为 null = 清除覆盖回退全局默认（0 = 不限）
+export interface PrefsResult {
+  daily_budget_usd: number
+  daily_budget_default: number
+  daily_budget_is_override: boolean
+}
+export const updatePrefs = (dailyBudgetUsd: number | null) =>
+  apiFetch<PrefsResult>('/settings/prefs', {
+    method: 'PUT',
+    body: JSON.stringify({ daily_budget_usd: dailyBudgetUsd }),
+  })
 
 // --- generate / clarify（SSE POST，见 lib/sse.ts）---
 // generate 支持断线续接：流未到终态即带 Last-Event-ID 重连，指数退避≤3（plan/06 §七）。

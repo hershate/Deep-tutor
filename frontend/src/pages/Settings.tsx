@@ -4,7 +4,7 @@ import ProviderManager from '../components/ProviderManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadBackup, getSettings, importBackup, postSetup, previewBackup, type BackupImportResult, type BackupPreview } from '../lib/api'
+import { ApiError, downloadBackup, getSettings, importBackup, postSetup, previewBackup, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -57,7 +57,8 @@ export default function Settings() {
         <dl className="animate-fade-in divide-y overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <Row label="模型" value={data.anthropic_model} />
           <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
-          <Row label="每日预算 (USD)" value={`$${data.daily_budget_usd}`} />
+          {/* 每日预算可编辑（iter 171 参数配置）：用户覆盖优先于 .env 默认 */}
+          <BudgetRow data={data} />
           <Row label="工具调用上限 / 会话" value={String(data.max_tool_calls)} />
           <Row label="上传上限 (MB)" value={String(data.max_upload_mb)} />
           <Row label="搜索引擎" value={data.search_engine} />
@@ -110,6 +111,98 @@ function Row({
     <div className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
       <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className={`text-sm font-medium ${color}`}>{value}</dd>
+    </div>
+  )
+}
+
+/** 每日预算可编辑行（iter 171 参数配置）：显示有效值，覆盖时标注 .env 默认；
+ *  编辑保存后同步刷新 settings/usage（用量页预算条读同一有效值）。0 = 不限。 */
+function BudgetRow({ data }: { data: AppSettings }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function save(reset: boolean) {
+    const n = reset ? null : Number(value)
+    if (!reset && (!Number.isFinite(n) || (n as number) < 0 || (n as number) > 100000)) {
+      toast.error('预算须在 0-100000 之间（0 = 不限）')
+      return
+    }
+    setBusy(true)
+    try {
+      await updatePrefs(n)
+      toast.success(reset ? '已恢复默认日预算' : '日预算已更新')
+      setEditing(false)
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['usage'] })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '保存失败，请重试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
+      <dt className="text-sm text-slate-600 dark:text-slate-300">
+        每日预算 (USD)
+        {data.daily_budget_is_override && (
+          <span className="ml-1 text-xs text-slate-400">（默认 ${data.daily_budget_usd}）</span>
+        )}
+      </dt>
+      <dd className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+        {editing ? (
+          <>
+            <input
+              type="number"
+              min={0}
+              max={100000}
+              step="0.5"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              aria-label="每日预算（美元）"
+              className="w-24 rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+            />
+            <button
+              onClick={() => save(false)}
+              disabled={busy}
+              className="rounded-lg bg-blue-600 px-2 py-1 text-xs text-white transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+            >
+              保存
+            </button>
+            {data.daily_budget_is_override && (
+              <button
+                onClick={() => save(true)}
+                disabled={busy}
+                className="rounded-lg border px-2 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                恢复默认
+              </button>
+            )}
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              className="rounded-lg px-1 py-1 text-xs text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="tabular-nums">${data.daily_budget_effective}</span>
+            <button
+              onClick={() => {
+                setValue(String(data.daily_budget_effective))
+                setEditing(true)
+              }}
+              className="rounded-lg border px-2 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
+            >
+              编辑
+            </button>
+          </>
+        )}
+      </dd>
     </div>
   )
 }
