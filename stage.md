@@ -234,6 +234,13 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 167（功能线：用量页今日预算进度，✅ 完成）**：日预算只在 429 超额时才感知——用量页加今日预算进度条。**编号说明**：代码注释自标 iter 164，与并行美化轨 iter 164-166（第 47-49 轮）撞号，本条取 167。
+  - **后端**（commit `19331fb` + 修正 `5ab0810`）：[usage.py](backend/app/api/usage.py) `GET /usage` 增 `today_cost` + `daily_budget_usd`（增量字段向后兼容）。**坑记（重要）**：初版日界用 `date.today()` 本地日与 naive-UTC created_at 直接比较——UTC+8 下 0-8 点的调用被错划昨日，测试当场捕获（2 failed）；修正为**本地日口径**：SQL `date(created_at,'localtime')` 分组 + 边界 = 本地午夜 − 系统偏移换算回 UTC，`/daily` 同日界同步修正；教训是「naive UTC 存储 vs 本地日边界」必须显式换算，不可裸比。
+  - **前端**（commit 见 git log「feat(usage): 用量页今日预算进度条」）：[Usage.tsx](frontend/src/pages/Usage.tsx) `BudgetBar`——今日 $X / 日预算 $Y，<80% 蓝 / ≥80% amber / 超预算红 +「已超预算」；[api.ts](frontend/src/lib/api.ts) getUsage 类型扩展。
+  - **测试**：[test_api_usage.py](backend/tests/test_api_usage.py) +1（昨日行不计 today_cost 但计 total_cost；admin 种子自备——auth_headers 不落用户行，首版 `.one()` NoResultFound）。**验证**：后端全量 516 通过（515→516，+1）；ruff 零告警；`npm run build` 通过。
+
+- **2026-07-19 iter 166（美化轨：第 49 轮——用户管理打磨，✅ 完成）**：并行轨 usage.py 后端在改（未提交），本轮转全局清扫。审查从未打磨过的 [UserManager.tsx](frontend/src/components/UserManager.tsx)，补两处（commit `4c8ba4c`）：① 列表加载失败为裸 `<p>` 红字 → 品牌错误横幅（`animate-fade-in`+`rounded-lg`+暗色，同 R42 Usage 修法）；② 用户行加 `animate-fade-in-up` + 40ms 阶梯逐项入场。另核：全局 focus-visible 焦点环 iter 92 已在 index.css 覆盖，无键盘 a11y 缺口；Toast/CheckinCalendar 已完备。验证：`npm run build` 通过（1.71s，主包 208.92kB）。
+
 - **2026-07-19 iter 165（美化轨：第 48 轮——今日目标进度条 a11y，✅ 完成）**：审查并行轨今日目标进度条（`412699c`）——视觉/动效已齐（500ms ease-out 填充、达标变绿 ✓、tabular-nums），仅缺进度条语义：纯 div 读屏无法播报进度。轨道加 `role="progressbar"` + `aria-valuenow/min/max` + `aria-label="今日目标完成度"`（commit `6227bf2`），读屏直接报百分比。验证：`npm run build` 通过（1.71s，主包 207.72kB）。
 
 - **2026-07-19 iter 164（美化轨：第 47 轮——视图切换淡入，✅ 完成）**：审查并行轨「我的笔记」视图（`2fd9bd3`）——质量已高（卡片 fade-in-up 阶梯/tabular-nums/EmptyState/Skeleton/tab 语义齐全），仅补一处体验缺口：tab 切换时内容区无过渡、生硬跳变。包 `key={view}` 的 `animate-fade-in space-y-4` 容器（commit `66249cc`），切换即整区淡入，nodes 视图原有逐项动画随之重播。**编号说明**：并行轨 stage 记录已占 iter 163，本条取 164。验证：`npm run build` 通过（1.72s，主包 207.59kB）。
