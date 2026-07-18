@@ -7,9 +7,12 @@ step 5 Skill 未接入前用 inline_prompt；接入后由 Skill 覆盖。
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from pydantic import BaseModel, Field
 
 from app.agent.registry import Tool
+from app.tools.base import ToolInput
 
 PROMPT = """你是 Deep-tutor 的「学习意图理解」工具。任务：从用户原始描述与解析后的资料中，
 抽取学习意图的四个维度，并判断是否需要澄清。
@@ -51,12 +54,37 @@ class IntentData(BaseModel):
     clarify_questions: list[str] = Field(default_factory=list)
 
 
+def _validate_intent(data: dict, inp: ToolInput) -> dict:  # noqa: ARG001
+    """确定性校验（plan/09 §十六 past_deadline）：
+
+    LLM 抽取的 deadline 若已过去 -> 清空并转澄清（比硬 422 更适合管线：
+    用户可能只是在叙述历史，硬拒会打断生成；追问确认更贴合 plan/09 意图）。
+    非法日期字符串 -> 清空（不进入下游 schedule_plan）。
+    """
+    dl = data.get("deadline")
+    if not dl:
+        return data
+    try:
+        day = datetime.fromisoformat(str(dl).strip()).date()
+    except ValueError:
+        data["deadline"] = None
+        return data
+    if day < date.today():
+        data["deadline"] = None
+        data["needs_clarify"] = True
+        data.setdefault("clarify_questions", []).append(
+            f"检测到你提供的截止日期（{day.isoformat()}）已过，请提供新的截止日期，或说明没有截止时间。"
+        )
+    return data
+
+
 understand_intent_tool = Tool(
     name="understand_intent",
     llm=True,
     skill_name="deep-tutor-intent",  # step 5 Skill 接入后覆盖 inline_prompt
     output_model=IntentData,
     inline_prompt=PROMPT,
+    post_process=_validate_intent,
     # 降级默认：无法理解时触发澄清
     default_data={
         "topic": "",

@@ -85,3 +85,47 @@ def test_understand_intent_uses_inline_prompt_when_no_skill():
     inp = ToolInput(tool="understand_intent", session_id="s", args={"raw_text": "学 Rust"})
     asyncio.run(run_tool("understand_intent", inp, ctx))
     assert "学习意图理解" in provider.calls[0]["system"]
+
+
+# --- deadline 确定性校验（plan/09 §十六 past_deadline -> 澄清，iter 75）---
+
+
+def test_validate_intent_past_deadline_triggers_clarify():
+    from app.tools.understand_intent import _validate_intent
+
+    data = {"topic": "Go", "deadline": "2020-01-01", "needs_clarify": False, "clarify_questions": []}
+    out = _validate_intent(data, None)
+    assert out["deadline"] is None
+    assert out["needs_clarify"] is True
+    assert any("2020-01-01" in q for q in out["clarify_questions"])
+
+
+def test_validate_intent_future_deadline_kept():
+    from app.tools.understand_intent import _validate_intent
+
+    data = {"topic": "Go", "deadline": "2099-12-31", "needs_clarify": False}
+    out = _validate_intent(data, None)
+    assert out["deadline"] == "2099-12-31"
+    assert out["needs_clarify"] is False
+
+
+def test_validate_intent_invalid_deadline_cleared_silently():
+    from app.tools.understand_intent import _validate_intent
+
+    out = _validate_intent({"topic": "Go", "deadline": "明年年底"}, None)
+    assert out["deadline"] is None
+    assert out.get("needs_clarify") in (None, False)  # 非法串静默清空，不打扰
+
+
+def test_validate_intent_no_deadline_noop():
+    from app.tools.understand_intent import _validate_intent
+
+    data = {"topic": "Go", "deadline": None}
+    assert _validate_intent(data, None) is data
+
+
+def test_validate_intent_datetime_with_time_past():
+    from app.tools.understand_intent import _validate_intent
+
+    out = _validate_intent({"topic": "Go", "deadline": "2025-01-01T23:59:59"}, None)
+    assert out["deadline"] is None and out["needs_clarify"] is True
