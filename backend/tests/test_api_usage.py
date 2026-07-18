@@ -45,3 +45,32 @@ def test_usage_after_generate(client, auth_headers, monkeypatch):
     assert u1["calls"] >= 5
     assert u1["total_tokens"] > 0
     assert u1["total_cost"] > 0
+    # iter 164：今日费用与日预算（刚产生的调用必然落在今日）
+    assert u1["today_cost"] == u1["total_cost"]
+    assert u1["daily_budget_usd"] > 0
+
+
+def test_usage_today_cost_excludes_old_rows(client, auth_headers):
+    """iter 164：昨日及更早的调用不计入 today_cost（但计入 total_cost）。"""
+    from datetime import datetime, timedelta
+
+    from app.db import models
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter_by(username="admin").one()
+        db.add_all(
+            [
+                models.ApiUsage(user_id=admin.id, cost=0.5, tokens_in=1, tokens_out=1, cache_read=0,
+                                created_at=datetime.now() - timedelta(days=1)),
+                models.ApiUsage(user_id=admin.id, cost=0.2, tokens_in=1, tokens_out=1, cache_read=0),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+    u = client.get("/api/usage", headers=auth_headers).json()
+    assert abs(u["today_cost"] - 0.2) < 1e-9
+    assert abs(u["total_cost"] - 0.7) < 1e-9

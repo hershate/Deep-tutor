@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
+from app.core.settings import settings
 from app.db import models
 from app.db.models import User
 
@@ -31,11 +32,22 @@ def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_us
         func.count(models.ApiUsage.id),
     ).filter_by(user_id=user.id).one()
     cache_hit_rate = (total_cache_read / total_in) if total_in else 0.0
+    # iter 164：今日费用 + 日预算（用量页预算进度条；口径 naive UTC，与 /daily 一致）
+    today_cost = (
+        db.query(func.coalesce(func.sum(models.ApiUsage.cost), 0.0))
+        .filter(
+            models.ApiUsage.user_id == user.id,
+            models.ApiUsage.created_at >= datetime.combine(date.today(), time.min),
+        )
+        .scalar()
+    )
     return {
         "total_tokens": int(total_in + total_out),
         "total_cost": round(float(total_cost), 6),
         "cache_hit_rate": round(cache_hit_rate, 4),
         "calls": int(calls),
+        "today_cost": round(float(today_cost or 0.0), 6),
+        "daily_budget_usd": settings.daily_budget_usd,
     }
 
 
