@@ -213,6 +213,23 @@ export default function Learn() {
               onChange={(e) => setMinutes(e.target.value)}
               className="w-28 rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
+            {/* 快捷分钟（iter 168）：一键填入常用时长 */}
+            <div className="mt-1 flex gap-1" role="group" aria-label="快捷分钟">
+              {[15, 30, 60, 120].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMinutes(String(m))}
+                  className={`rounded px-1.5 py-0.5 text-xs tabular-nums transition-all active:scale-95 ${
+                    minutes === String(m)
+                      ? 'bg-blue-100 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="min-w-48 flex-1">
             <label htmlFor="checkin-note" className="block text-xs text-slate-500 dark:text-slate-400">
