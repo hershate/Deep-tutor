@@ -234,6 +234,12 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 138（功能线：首页草稿自动保存，✅ 完成）**：写了半屏需求描述，刷新/误关全没——首页草稿 localStorage 持久化。**编号说明**：代码注释自标 iter 137，与并行美化轨 iter 137（第 34 轮）撞号，本条取 138。
+  - **前端**（commit `271a8fc`）：[Home.tsx](frontend/src/pages/Home.tsx) 需求描述+网页链接输入即存 `dt-home-draft`（文件句柄无法持久化，仅文字类）；挂载时惰性恢复并显示 amber「已恢复上次未提交的草稿 · 清除」提示；内容清空即删 key（防恢复空草稿）；生成成功跳转后自动清除（草稿使命完成）；损坏 JSON 静默忽略。纯前端零后端改动。
+  - **验证**：`npm run build` 通过。
+
+- **2026-07-19 iter 137（前端美化第 34 轮：skip link 跳转落点）**：[Layout.tsx](frontend/src/components/Layout.tsx) `<main>` 加 `scroll-mt-16`——iter 108 的「跳到主内容」skip link 激活后浏览器将 #main-content 顶部对齐视口顶，恰被 64px 吸顶 header 遮挡首行；scroll-margin 让落点让出 header 高度。键盘/读屏用户跳转后立即可读。注：iter 136 被并行会话错题 Anki 导出占用。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 136（功能线：错题 Anki 导出，✅ 完成）**：错题重练只能在线练——加一键导出 Anki 牌组，离线/间隔重复复习。**编号说明**：本切片代码注释自标 iter 134，与并行美化轨 iter 134/135（第 32/33 轮）撞号，本条按共享序号取 136。
   - **后端**（commit `9fe380e`）：[plans.py](backend/app/api/plans.py) 错题判定抽 `_wrong_quiz_rows`（供导出复用，与 GET quiz/wrong 同口径）；[build_anki.py](backend/app/tools/build_anki.py) `build_apkg` 加 `quizzes`/`wrong_only` 参数——错题牌组 deck 名加「·错题」且 deck id +1 亿偏移（与全量牌组并存导入不互相覆盖）；[exports.py](backend/app/api/exports.py) `ExportIn.wrong_only`——错题来源为 DB quizzes+attempts（非 content 快照），无错题 `no_wrong_quizzes`（422，[errors.py](backend/app/api/errors.py) 登记，与 no_quizzes 同族）、非 anki 格式 `bad_request`；文件名 `deep-tutor-plan-{id}-wrong.apkg`。
   - **前端**（commit `18fea5a` + 修复 `c57cc92`）：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 错题重练旁「导出错题」按钮（emerald 同族描边、busy 防重入、no_wrong_quizzes 后端信息直接透出）；[api.ts](frontend/src/lib/api.ts) `exportPlan(planId, format, wrongOnly)` 第三参。**坑记**：toast 是对象非函数（`toast.success(...)`），初版直接调用致 TS2349 构建失败且已落 commit，随即修复提交。
