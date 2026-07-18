@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 145（功能线：自学材料深度偏好记忆，✅ 完成）**：每次打开材料弹窗深度都回到「完整」——记住上次选择。[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) depth 初始值读 `dt-materials-depth`（非法值回落 full），切换时写入。纯前端零后端（commit `e384a8c`）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 144（功能线：Wiki 知识点快捷状态标记，✅ 完成）**：改个状态要点进方案/学习中心——Wiki 卡片状态徽标直接可点。**编号说明**：代码注释自标 iter 142，与并行美化轨 iter 143（第 36 轮）相邻不撞号，本条按共享序号取 144。
   - **前端**（commit `e0ccd92`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 状态徽标从 Link 内移到右侧控件列（📝 笔记开关上方，独立 button——保持无嵌套交互）——点击循环 未开始→学习中→已掌握→未开始，复用既有 `updateProgress`（POST /progress，主观标掌握 mastery 封顶 0.8 的后端语义不变）；成功后同时失效 knowledge + review-due（掌握度变化影响复习日）；`statusBusyId` 防重入 + 失败 toast。零后端改动。
   - **验证**：`npm run build` 通过。
