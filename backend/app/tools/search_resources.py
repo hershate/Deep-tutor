@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -19,6 +20,7 @@ import httpx
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
 from app.core.settings import settings
+from app.llm.base import LLMUsage
 from app.tools.base import ToolError, ToolInput, ToolOutput
 from app.tools.verify_url import verify_url
 
@@ -61,7 +63,9 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 v_inp = ToolInput(
                     tool="verify_url",
                     session_id=inp.session_id,
-                    args={"url": cand.get("url", ""), "stage_level": 1},
+                    # err.md B19：阶段水平随 stage_index 递进（此前硬编码 1，
+                    # 高级阶段资源按入门水平校验，verify 难度判定失真）
+                    args={"url": cand.get("url", ""), "stage_level": stage_index + 1},
                 )
                 v_out = await verify_url(v_inp, ctx)
                 vdata = v_out.data or {}
@@ -78,8 +82,15 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                     }
                 )
 
-    resources = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62）
-    return ToolOutput(tool="search_resources", status="ok", data={"resources": resources})
+    # err.md B9：筛选调用的 usage 须进入 ToolOutput.metadata —— 否则编排器
+    # budget.add(0) 且 _persist_tool_calls 归集为空，这次 LLM 花费对预算/统计失明
+    resources, screen_usage = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62）
+    out = ToolOutput(tool="search_resources", status="ok", data={"resources": resources})
+    if screen_usage is not None:
+        from app.agent.cost import build_metadata
+
+        out.metadata = build_metadata(screen_usage)
+    return out
 
 
 # --- LLM 内容适配性筛选（iter 62，plan/02 §5：✅ = HTTP 200 + 内容难度适配该阶段）---
@@ -140,16 +151,19 @@ def _parse_screen_verdicts(text: str) -> dict[str, dict] | None:
     return verdicts
 
 
-async def _screen_resources(resources: list[dict], inp: ToolInput, ctx: ExecContext) -> list[dict]:
+async def _screen_resources(
+    resources: list[dict], inp: ToolInput, ctx: ExecContext
+) -> tuple[list[dict], "LLMUsage | None"]:
     """LLM 内容适配性筛选（一次批量调用，成本有界）：不相关丢弃、存疑降 ⚠️、附 note。
 
+    返回 (筛选后资源, 本次 LLM usage 或 None)（err.md B9：调用方据 usage 填 metadata）。
     降级（稳定优先）：无 provider / 无候选 / LLM 异常 / 输出不可解析 -> 原样返回
     （行为同筛选前：verify 可达即保留原标记）。LLM 响应未覆盖的 url 保持原判定。
     label 只降不升（verify 已 ⚠️ 的候选不因 LLM 说 ok 而升 ✅）。
     """
     provider = ctx.llm_provider
     if provider is None or not resources:
-        return resources
+        return resources, None
 
     intent = ((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}
     stages_data = ((inp.upstream or {}).get("design_stages") or {}).get("data") or {}
@@ -164,19 +178,23 @@ async def _screen_resources(resources: list[dict], inp: ToolInput, ctx: ExecCont
     }
     system = (ctx.skill_registry or {}).get("deep-tutor-resources") or SCREEN_PROMPT
     try:
-        resp = await provider.chat(
-            system,
-            json.dumps(payload, ensure_ascii=False),
-            max_tokens=SCREEN_MAX_TOKENS,
-            cache_system=True,
+        # err.md B8：筛选调用此前无超时，provider 挂起会无限阻塞整个 pipeline
+        resp = await asyncio.wait_for(
+            provider.chat(
+                system,
+                json.dumps(payload, ensure_ascii=False),
+                max_tokens=SCREEN_MAX_TOKENS,
+                cache_system=True,
+            ),
+            timeout=ctx.timeouts.llm,
         )
         verdicts = _parse_screen_verdicts(resp.content)
     except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：保持原判定
         log.warning("资源内容适配筛选失败，跳过筛选: %s", exc)
-        return resources
+        return resources, None
     if verdicts is None:
         log.warning("资源内容适配筛选输出不可解析，跳过筛选")
-        return resources
+        return resources, resp.usage
 
     screened: list[dict] = []
     for r in resources:
@@ -192,7 +210,7 @@ async def _screen_resources(resources: list[dict], inp: ToolInput, ctx: ExecCont
         if v["note"]:
             r2["note"] = v["note"][:200]
         screened.append(r2)
-    return screened
+    return screened, resp.usage
 
 
 async def _bing_search(query: str, api_key: str, count: int = 5) -> list[dict]:

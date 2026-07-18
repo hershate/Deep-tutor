@@ -48,25 +48,10 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 
 
 def _assemble_from_upstream(upstream: dict[str, Any]) -> dict[str, Any]:
-    """从上游工具输出组装方案 dict。"""
-    plan: dict[str, Any] = {}
-    for tool_name, payload in upstream.items():
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not data:
-            continue
-        if tool_name == "understand_intent":
-            plan["intent"] = data
-        elif tool_name == "build_knowledge_map":
-            plan["knowledge_map"] = data
-        elif tool_name == "design_stages":
-            plan["stages"] = data.get("stages", [])
-        elif tool_name == "search_resources":
-            plan["resources"] = data.get("resources", [])
-        elif tool_name == "schedule_plan":
-            plan["schedule"] = data.get("schedule", [])
-        elif tool_name == "validate_plan":
-            plan["validation_report"] = data
-    return plan
+    """从上游工具输出组装方案 dict（err.md B13：统一走 plan_assembly.PLAN_SECTIONS）。"""
+    from app.agent.plan_assembly import assemble_plan
+
+    return assemble_plan(upstream)
 
 
 def render_markdown(plan: dict[str, Any]) -> str:
@@ -152,6 +137,9 @@ def render_markdown(plan: dict[str, Any]) -> str:
     if report:
         lines.append("## 校验报告\n")
         lines.append(f"- 总体：{'通过' if report.get('passed') else '未通过'}")
+        if report.get("degraded"):
+            # err.md B11：降级交付的方案明确标注未经自动校验
+            lines.append("- ⚠️ 自动校验未执行（校验工具降级），方案未经核验，请人工复核")
         rep = report.get("report") or {}
         for key, val in rep.items():
             status = val.get("status") if isinstance(val, dict) else val

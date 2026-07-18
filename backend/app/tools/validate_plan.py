@@ -65,6 +65,9 @@ _DEFAULT = {
         "gap_analysis": {"status": "warn", "details": "校验工具降级，未执行"},
     },
     "passed": True,
+    # err.md B11：显式标记「未经校验」——passed=True 仅为不触发反馈循环，
+    # 消费方（前端/导出）据 degraded 提示人工复核，而非当作校验通过
+    "degraded": True,
     "fixes": ["校验工具降级，已跳过自动校验，请人工复核"],
 }
 

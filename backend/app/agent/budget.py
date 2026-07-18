@@ -7,13 +7,6 @@ limit<=0 视为不限（开发/测试用）。
 from __future__ import annotations
 
 
-class BudgetExceeded(Exception):
-    def __init__(self, spent: float, limit: float) -> None:
-        self.spent = spent
-        self.limit = limit
-        super().__init__(f"budget exceeded: spent {spent:.6f} > limit {limit:.6f}")
-
-
 class BudgetTracker:
     def __init__(self, limit: float) -> None:
         self.limit = limit
@@ -23,7 +16,7 @@ class BudgetTracker:
         self.spent += cost
 
     def exceeded(self) -> bool:
-        """limit<=0 视为不限。"""
+        """limit<=0 视为不限。err.md B15：达上限即超限（>=，此前 > 恰满不限）。"""
         if self.limit <= 0:
             return False
-        return self.spent > self.limit
+        return self.spent >= self.limit

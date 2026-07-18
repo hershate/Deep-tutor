@@ -51,11 +51,18 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
         schedule = schedule[:_MAX_SCHEDULE_DAYS]
         data["schedule"] = schedule
         data["truncated"] = True
-    daily = inp.args.get("daily_minutes")
+    # err.md B17：daily_minutes 非正数/非数值时跳过容量校验——负数会让
+    # capacity 变负，任何排期都误报 insufficient_time
+    try:
+        daily = int(inp.args.get("daily_minutes") or 0)
+    except (TypeError, ValueError):
+        daily = 0
+    if daily <= 0:
+        daily = 0
     total = sum(int(s.get("est_minutes", 0) or 0) for s in schedule)
     data["total_minutes"] = total
     if daily:
-        data["required_days"] = math.ceil(total / daily) if daily else 0
+        data["required_days"] = math.ceil(total / daily)
 
     if daily and schedule:
         dates = []
@@ -66,7 +73,7 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
                 continue
         if len(dates) >= 2:
             span = (max(dates) - min(dates)).days + 1
-            capacity = span * int(daily)
+            capacity = span * daily
             data["span_days"] = span
             data["capacity_minutes"] = capacity
             if total > capacity:

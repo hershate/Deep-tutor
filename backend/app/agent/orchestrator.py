@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from app.agent.context import ExecContext
 from app.agent.loop import run_tool
+from app.agent.plan_assembly import PLAN_SECTIONS, assemble_plan
 from app.agent.registry import Tool, ToolRegistry
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
@@ -44,6 +45,10 @@ FEEDBACK_TARGETS: dict[str, str] = {
 }
 
 MAX_FEEDBACK_ROUNDS = 2  # 对齐 settings.max_regenerations
+
+# err.md B13：静态一致性自检（新增工具漏登记时尽早暴露，而非静默丢输出/反馈无效）
+assert set(FEEDBACK_TARGETS.values()) <= set(PIPELINE), "FEEDBACK_TARGETS 指向不在 PIPELINE 的工具"
+assert set(PLAN_SECTIONS) <= set(PIPELINE), "PLAN_SECTIONS 登记了不在 PIPELINE 的工具"
 
 EventCb = Callable[[str, dict[str, Any]], None]
 
@@ -272,21 +277,8 @@ class Orchestrator:
         return None
 
     def _assemble(self, outputs: dict[str, ToolOutput]) -> dict[str, Any]:
-        """组装完整方案（各组件输出聚合；export_plan 仅产文件，不作为方案本体）。"""
-        plan: dict[str, Any] = {}
-        if "understand_intent" in outputs:
-            plan["intent"] = outputs["understand_intent"].data
-        if "build_knowledge_map" in outputs:
-            plan["knowledge_map"] = outputs["build_knowledge_map"].data
-        if "design_stages" in outputs:
-            plan["stages"] = outputs["design_stages"].data.get("stages", [])
-        if "search_resources" in outputs:
-            plan["resources"] = outputs["search_resources"].data.get("resources", [])
-        if "schedule_plan" in outputs:
-            plan["schedule"] = outputs["schedule_plan"].data.get("schedule", [])
-        if "validate_plan" in outputs:
-            plan["validation_report"] = outputs["validate_plan"].data
-        return plan
+        """组装完整方案（err.md B13：统一走 plan_assembly.PLAN_SECTIONS 声明式映射）。"""
+        return assemble_plan(outputs)
 
     def _emit(self, event: str, data: dict[str, Any]) -> None:
         if self.event_cb:

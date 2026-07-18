@@ -60,8 +60,9 @@ def test_build_pdf_with_fake_weasyprint(monkeypatch):
     captured = {}
 
     class FakeHTML:
-        def __init__(self, string: str) -> None:
+        def __init__(self, string: str, **kwargs) -> None:
             captured["html"] = string
+            captured["kwargs"] = kwargs
 
         def write_pdf(self) -> bytes:
             return b"%PDF-1.4 fake"
@@ -76,6 +77,22 @@ def test_build_pdf_with_fake_weasyprint(monkeypatch):
     assert data == b"%PDF-1.4 fake"
     assert "Python 入门" in captured["html"]
     assert "<style>" in captured["html"]
+    assert callable(captured["kwargs"].get("url_fetcher"))  # err.md B12：渲染期禁网络抓取
+
+
+def test_markdown_to_html_escapes_raw_html():
+    """err.md B12：LLM 内容夹带的 raw HTML 被转义（防渲染期 SSRF/注入）。"""
+    html = markdown_to_html('正文 <img src="http://169.254.169.254/x"> 尾巴', "T<b>")
+    assert "<img" not in html
+    assert "&lt;img" in html
+    assert "<title>T&lt;b&gt;</title>" in html
+
+
+def test_markdown_to_html_keeps_code_block():
+    """fenced code block 内的 < > 不被预转义（markdown 自行处理，避免双重转义）。"""
+    html = markdown_to_html("```\n#include <stdio.h>\n```\n", "T")
+    assert "&lt;stdio.h&gt;" in html
+    assert "&amp;lt;" not in html
 
 
 def test_export_pdf_endpoint_ok(client, auth_headers, monkeypatch):

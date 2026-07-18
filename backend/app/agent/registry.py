@@ -9,11 +9,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+
+log = logging.getLogger("deep_tutor.registry")
 
 if TYPE_CHECKING:
     from app.agent.context import ExecContext
@@ -47,6 +50,9 @@ class ToolRegistry:
         self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
+        # err.md B20：重名注册此前静默覆盖（手滑注册两个同名工具时后者偷换前者）
+        if tool.name in self._tools:
+            log.warning("工具 %s 重复注册，将覆盖已有实现", tool.name)
         self._tools[tool.name] = tool
 
     def get(self, name: str) -> Tool:
