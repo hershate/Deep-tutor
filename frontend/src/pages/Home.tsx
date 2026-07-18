@@ -145,7 +145,7 @@ export default function Home() {
         {files.length > 0 && (
           <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
             {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center gap-2">
+              <li key={`${f.name}-${i}`} className="flex animate-fade-in items-center gap-2">
                 <span className="truncate">{f.name}</span>
                 <button
                   type="button"
@@ -192,7 +192,7 @@ export default function Home() {
         {urls.length > 0 && (
           <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
             {urls.map((u, i) => (
-              <li key={u} className="flex items-center gap-2">
+              <li key={u} className="flex animate-fade-in items-center gap-2">
                 <span className="truncate">{u}</span>
                 <button
                   type="button"

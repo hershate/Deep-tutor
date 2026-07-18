@@ -9,27 +9,35 @@ export interface ToastItem {
   id: number
   kind: ToastKind
   message: string
+  leaving?: boolean // iter 104：退场阶段（播完 fade-out 再移除）
 }
 
 interface ToastState {
   toasts: ToastItem[]
   push: (kind: ToastKind, message: string) => void
   remove: (id: number) => void
+  beginRemove: (id: number) => void
 }
 
 let nextId = 1
 const TTL_MS = 3000
+const EXIT_MS = 200 // 与 tailwind animate-fade-out 时长一致
 
-export const useToastStore = create<ToastState>((set) => ({
+export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
   push: (kind, message) => {
     const id = nextId++
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, kind, message }] })) // 最多叠 4 条
+    setTimeout(() => get().beginRemove(id), TTL_MS)
+  },
+  // 先标 leaving 播退场动画，再真正移除（手动关闭与 TTL 到期同路径）
+  beginRemove: (id) => {
+    set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)) }))
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-    }, TTL_MS)
+    }, EXIT_MS)
   },
-  remove: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  remove: (id) => get().beginRemove(id),
 }))
 
 /** 便捷调用（非组件环境也可用）。 */
@@ -56,7 +64,7 @@ export function Toaster() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`flex animate-fade-in-up items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${KIND_STYLE[t.kind]}`}
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${t.leaving ? 'animate-fade-out' : 'animate-fade-in-up'} ${KIND_STYLE[t.kind]}`}
         >
           <span aria-hidden="true">{KIND_ICON[t.kind]}</span>
           <span className="min-w-0 flex-1 break-all">{t.message}</span>

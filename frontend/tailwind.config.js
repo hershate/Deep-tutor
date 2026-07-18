@@ -29,6 +29,15 @@ export default {
           '30%, 50%, 70%': { transform: 'translateX(-3px)' },
           '40%, 60%': { transform: 'translateX(3px)' },
         },
+        // Toast 退场（淡出下移）与空态图标轻浮
+        'fade-out': {
+          from: { opacity: '1', transform: 'translateY(0)' },
+          to: { opacity: '0', transform: 'translateY(4px)' },
+        },
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-4px)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in .25s ease-out both',
@@ -36,6 +45,8 @@ export default {
         'scale-in': 'scale-in .2s ease-out both',
         'slide-in-left': 'slide-in-left .25s ease-out both',
         shake: 'shake .4s ease-in-out both',
+        'fade-out': 'fade-out .2s ease-in both',
+        float: 'float 3s ease-in-out infinite',
       },
     },
   },
