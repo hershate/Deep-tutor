@@ -74,6 +74,10 @@ export default function Setup() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-50 to-blue-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 px-4 py-8">
       <div className="w-full max-w-lg">
         <div className="animate-fade-in-up">
+          {/* iter 108：品牌标识（与登录页一致） */}
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-500 text-2xl shadow-md">
+            <span aria-hidden="true">🎓</span>
+          </div>
           <h1 className="text-2xl font-bold tracking-tight mb-1">欢迎使用 Deep-tutor</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
             首次使用，花 30 秒完成初始设置（均可跳过，稍后在「设置」页配置）

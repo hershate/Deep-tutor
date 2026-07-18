@@ -43,6 +43,10 @@ export default function Login() {
     // iter 95 美化： subtle 渐变底 + 卡片弹入 + 输入/按钮品牌化
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-50 to-blue-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 px-4">
       <div className="w-full max-w-sm animate-scale-in rounded-2xl border bg-white p-8 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+        {/* iter 108：品牌标识（渐变圆角方块 + 🎓） */}
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-500 text-2xl shadow-md">
+          <span aria-hidden="true">🎓</span>
+        </div>
         <h1 className="text-lg font-semibold tracking-tight mb-1">Deep-tutor</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">请登录以继续</p>
         <form onSubmit={onSubmit} className="space-y-4">

@@ -80,6 +80,13 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* iter 108：键盘/读屏用户跳到主内容的 skip link（聚焦时才可见） */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-blue-600 focus:px-3 focus:py-2 focus:text-sm focus:text-white focus:shadow-lg"
+      >
+        跳到主内容
+      </a>
       {/* iter 92：吸顶 + 毛玻璃顶栏，滚动时内容从其下滑过 */}
       <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/80">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
@@ -212,8 +219,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        {/* iter 92：key=路由路径，切换页面时主区淡入上移 */}
-        <main key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up px-4 py-6">{children}</main>
+        {/* iter 92：key=路由路径，切换页面时主区淡入上移；id 供 skip link 跳转 */}
+        <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up px-4 py-6">{children}</main>
       </div>
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">
