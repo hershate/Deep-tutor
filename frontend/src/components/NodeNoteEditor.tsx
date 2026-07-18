@@ -77,7 +77,7 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
         <button
           onClick={save}
           disabled={busy}
-          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
         >
           {busy ? '保存中…' : '保存笔记'}
         </button>

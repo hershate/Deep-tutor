@@ -88,7 +88,7 @@ export default function Wiki() {
 
       {isLoading && <SkeletonCards count={3} />}
       {error && (
-        <p role="alert" className="text-red-600 dark:text-red-400">
+        <p role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           加载失败：{error instanceof Error ? error.message : '未知错误'}
         </p>
       )}
@@ -109,7 +109,7 @@ export default function Wiki() {
                   setQ('')
                   setStatus(null)
                 }}
-                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
               >
                 清除筛选
               </button>
@@ -159,7 +159,7 @@ export default function Wiki() {
                         <span>{DIFFICULTY_LABEL[n.difficulty] ?? `难度${n.difficulty}`}</span>
                         <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                           <span
-                            className="block h-full rounded-full bg-emerald-500 transition-all"
+                            className="block h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
                             style={{ width: `${Math.round(n.mastery * 100)}%` }}
                             aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
                           />
