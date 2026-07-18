@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 152（前端美化第 40 轮：打卡日历图例无障碍）**：[CheckinCalendar.tsx](frontend/src/components/CheckinCalendar.tsx) 底部「少→多」色阶图例行加 `aria-hidden`——色块无文字语义，日历格子已自带 `aria-label`（日期+分钟/未打卡），图例进读屏树只会念出无意义的「少 多」。与 iter 143 热力图图例同处理。另核实并行会话日志删除按钮（Learn.tsx ✕）样式已符合品牌模式（低可见 hover 显红 + 按压 + disabled）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 151（功能线：学习日志可删除，✅ 完成）**：打错卡（分钟数手滑/重复打卡）无法撤回，统计被污染——加删除。**编号说明**：代码注释自标 iter 150，与并行美化轨 iter 150（第 39 轮）撞号，本条取 151。
   - **后端**（commit `3098b6a`）：[progress.py](backend/app/api/progress.py) `DELETE /progress/logs/{log_id}`——join Plan/Session 归属校验（他人日志 404 不泄露存在性），删除后返回 {deleted, id}。
   - **前端**（commit `443754e`）：[Learn.tsx](frontend/src/pages/Learn.tsx) 日志行尾 ✕（低可见 hover 显红、confirm 列明日期+分钟、deletingLogId 防重入、成功 loadLogs 重取——累计分钟/日历同步刷新）；[api.ts](frontend/src/lib/api.ts) `deleteLearningLog`。
