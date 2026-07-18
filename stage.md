@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；plan/09 审计清单复查完毕（iter 75-77 补：健康检查/字段校验/zip bomb 防护/上传进度条）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：扩展真机加载验证（需用户装扩展）/ react-window 大纲虚拟化（§七，长方案才需要）/ 用户新需求。详见 §五 iter 77 条。
+**当前下一步**：**P1-P5 全部完成**；plan/09 审计清单复查完毕（iter 75-77 补：健康检查/字段校验/zip bomb 防护/上传进度条），§七 大纲虚拟化已落地（iter 78，ProgressBoard 超 30 节点启用 react-window）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 78 条。
 
 ---
 
@@ -35,7 +35,7 @@
 
 ## 二、执行约定
 
-- **技术栈**（[plan/01-architecture.md](plan/01-architecture.md)）：后端 Python 3.11+/FastAPI/Uvicorn/SQLAlchemy 2.0/SQLite/Alembic/pydantic v2/pydantic-settings/anthropic SDK；前端 React 18+TS+Vite+Tailwind+TanStack Query+React Router+Zustand+react-markdown；部署 scripts/start.* 本地直起（uvicorn 单进程托管 SPA + /api；Docker 方案 iter 68 移除）。
+- **技术栈**（[plan/01-architecture.md](plan/01-architecture.md)）：后端 Python 3.11+/FastAPI/Uvicorn/SQLAlchemy 2.0/SQLite/Alembic/pydantic v2/pydantic-settings/anthropic SDK；前端 React 18+TS+Vite+Tailwind+TanStack Query+React Router+Zustand+react-markdown+react-window；部署 scripts/start.* 本地直起（uvicorn 单进程托管 SPA + /api；Docker 方案 iter 68 移除）。
 - **git commit**：细粒度、每逻辑变更独立 commit；commit 信息中文；**严禁写 co-author / 协作者**（用户全局规范）。
 - **不编造**：引用计划/技能前先读原文；不臆测接口与字段。
 - **问而不猜**：遇歧义先问用户，除非用户已明确表示自行决定。
@@ -232,6 +232,8 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 78（大纲虚拟化：ProgressBoard 接入 react-window）**：plan/09 §七「长方案渲染 -> 大纲虚拟化（react-window）避免卡顿」，用户选定方向。排查各长列表：进度看板知识点列表是主候选（每知识点一行，大方案可达上百；PlanDetail 阶段通常 <15、资源 <50，Learn 复习列表仅当日到期，均无需虚拟化）。实现：[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 节点数 >`VIRTUAL_THRESHOLD`(30) 时用 `FixedSizeList`（行高 48px 定高、视口最多 10 行内部滚动、只渲染可视行）；阈值内保持普通 `<ul>`（利于全页滚动/浏览器查找）。行渲染抽取共用 `NodeItem`（普通行 flex-wrap 自适应；虚拟行 compact 定高单行，名称 truncate，掌握度/复习日期窄屏 `hidden sm/md:inline` 防换行溢出）。依赖：react-window@1.8 + @types/react-window（npm 项目依赖，§七 具名）。前端 build 通过（437.97KB，+10KB）。**§七 全部落地**（进度条 iter 77、SSE 重连、幻灯片净化、虚拟化本条）。
 
 - **2026-07-18 iter 77（前端边界：上传字节级进度条，commit `322aadf`）**：plan/09 §七「大文件上传 -> 进度条」。[api.ts](frontend/src/lib/api.ts) `uploadMaterial` 改 **XHR**（fetch 上传进度浏览器支持差，`xhr.upload.onprogress` 全量可用；401 统一跳登录、network_error/超时分类）；[Home.tsx](frontend/src/pages/Home.tsx) 每文件实时百分比 + 进度条（aria-live）。前端 build 通过。**用户指示：结束全自动模式，有问题可询问。** §七 余项：react-window 大纲虚拟化（仅超长方案需要，暂缓）；SSE 重连/幻灯片净化已落地。
 
