@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date as dt_date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -175,6 +175,7 @@ def review_due(
 
 
 # --- 全局学习统计（iter 122）：跨方案累计/本周分钟数 + 连续打卡天数 ---
+# iter 139：/stats/calendar 近 N 日按日分钟数（Wiki 打卡热力图，无打卡日补 0）
 
 
 @router.get("/stats/summary")
@@ -216,6 +217,38 @@ def stats_summary(
         "streak_days": streak,
         "total_logs": len(rows),
     }
+
+
+@router.get("/stats/calendar")
+def stats_calendar(
+    days: int = Query(default=84, ge=7, le=366),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """学习打卡日历（iter 139，Wiki 热力图）：近 N 日按日学习分钟数，无打卡日补 0。
+
+    SQL 聚合（同日跨方案多条打卡求和）；日界按服务器本地日（与 stats/summary 同口径）。
+    """
+    from datetime import timedelta
+
+    start = dt_date.today() - timedelta(days=days - 1)
+    rows = (
+        db.query(
+            models.LearningLog.date,
+            func.coalesce(func.sum(models.LearningLog.minutes), 0),
+        )
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id, models.LearningLog.date >= start)
+        .group_by(models.LearningLog.date)
+        .all()
+    )
+    by_date = {r[0]: int(r[1]) for r in rows}
+    items = [
+        {"date": (start + timedelta(days=i)).isoformat(), "minutes": by_date.get(start + timedelta(days=i), 0)}
+        for i in range(days)
+    ]
+    return {"items": items}
 
 
 # --- learning_logs 打卡（plan/01 §四 learning_logs，P2 iter 45；学习中心页用）---
