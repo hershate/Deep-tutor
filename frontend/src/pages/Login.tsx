@@ -2,18 +2,24 @@ import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { login } from '../lib/api'
 import { getToken } from '../lib/auth'
+import { useSetupStatus } from '../lib/setup'
 
 // 登录页（P4 多用户，iter 59）：用户名+密码 -> JWT 存 localStorage -> 回跳来源页。
 // 已有有效 token（JWT 或 env AUTH_TOKEN）-> 直接回首页。
+// iter 89：待首次设置 -> /setup；零配置开放模式（免登录）-> 回首页。
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { data: status } = useSetupStatus()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  if (getToken()) {
+  if (status?.needs_setup) {
+    return <Navigate to="/setup" replace />
+  }
+  if (status?.open_mode || getToken()) {
     return <Navigate to="/" replace />
   }
 

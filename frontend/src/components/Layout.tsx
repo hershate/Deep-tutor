@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
 import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
+import { useSetupStatus } from '../lib/setup'
 import { useUIStore } from '../store/ui'
 
 // AppShell（plan/06 §三）：顶栏 + 可折叠侧栏（图标态；窄屏收起为抽屉）。
@@ -35,6 +36,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const [drawerOpen, setDrawerOpen] = useState(false) // 窄屏抽屉
+  // iter 89：开放模式（未设密码）/ 未配 API Key 的常驻提示横幅（状态查询失败不渲染）
+  const { data: setupStatus } = useSetupStatus()
 
   function onLogout() {
     clearAuth()
@@ -115,6 +118,28 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+
+      {/* iter 89 状态横幅：开放模式安全提示 / 未配 API Key 功能提示 */}
+      {setupStatus?.open_mode && (
+        <div role="status" className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+            <span>当前未设置访问密码，本机局域网内任何人可访问此应用。</span>
+            <Link to="/settings" className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100">
+              去设置密码
+            </Link>
+          </div>
+        </div>
+      )}
+      {setupStatus && !setupStatus.llm_configured && (
+        <div role="status" className="border-b border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-blue-800 dark:text-blue-200">
+            <span>尚未配置 AI API Key，学习方案生成功能暂不可用。</span>
+            <Link to="/settings" className="font-medium underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-100">
+              去配置
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="mx-auto flex w-full max-w-6xl flex-1">
         {/* 桌面侧栏（md+）：可折叠为图标态 */}

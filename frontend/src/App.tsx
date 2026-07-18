@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import { getToken } from './lib/auth'
+import { useSetupStatus } from './lib/setup'
 import Home from './pages/Home'
 import GenerateProgress from './pages/GenerateProgress'
 import Clarify from './pages/Clarify'
@@ -9,13 +10,34 @@ import Learn from './pages/Learn'
 import Login from './pages/Login'
 import PlanDetail from './pages/PlanDetail'
 import Plans from './pages/Plans'
+import Setup from './pages/Setup'
 import SharedPlan from './pages/SharedPlan'
 import Usage from './pages/Usage'
 import Settings from './pages/Settings'
 
-// 路由守卫（P4 多用户，iter 59）：无任何 token（JWT 与 env AUTH_TOKEN 皆空）-> 跳登录页，记住来源。
+// 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
+// - 状态加载中 -> 占位；查询失败 -> 回退旧逻辑（仅查 token，不让 status 端点故障阻塞应用）
+// - needs_setup -> /setup 首次设置向导
+// - open_mode（零配置免登录）-> 免 token 放行
+// - 否则无 token -> /login，记住来源
 function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation()
+  const { data: status, isLoading, isError } = useSetupStatus()
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">
+        加载中…
+      </div>
+    )
+  }
+  if (!isError && status) {
+    if (status.needs_setup) {
+      return <Navigate to="/setup" replace />
+    }
+    if (status.open_mode) {
+      return <>{children}</>
+    }
+  }
   if (!getToken()) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
@@ -26,6 +48,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* iter 89：首次设置向导（零配置开箱即用），公开页 */}
+      <Route path="/setup" element={<Setup />} />
       {/* P5 协作分享：公开只读页，无需登录（链接本身即凭证，192bit 随机 token） */}
       <Route path="/shared/:token" element={<SharedPlan />} />
       <Route

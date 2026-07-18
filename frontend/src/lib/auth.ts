@@ -68,10 +68,17 @@ export function clearAuth(): void {
 /**
  * JWT 会话下 401（token 过期/用户被删）-> 清本地会话并跳登录页
  * （env token 部署无登录态，不跳）。apiFetch / SSE / 上传共用（err.md D5）。
+ * iter 89 补充：无任何 token 时的 401（开放模式在设置密码后关闭）-> 同样跳登录页；
+ * 登录页的 open_mode 检查保证未设密码时不会形成跳转回环。
  */
 export function handleUnauthorized(status: number): void {
-  if (status === 401 && hasJwtSession()) {
+  if (status !== 401) return
+  if (hasJwtSession()) {
     clearAuth()
+    window.location.assign('/login')
+    return
+  }
+  if (!getToken() && !import.meta.env.VITE_AUTH_TOKEN) {
     window.location.assign('/login')
   }
 }

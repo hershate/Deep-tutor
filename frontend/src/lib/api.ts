@@ -574,3 +574,29 @@ export const createShare = (planId: number) =>
 export const revokeShare = (planId: number) => apiFetch<void>(`/plans/${planId}/share`, { method: 'DELETE' })
 export const getShare = (planId: number) => apiFetch<ShareStatus>(`/plans/${planId}/share`)
 export const getShared = (token: string) => apiFetch<SharedPlanData>(`/shared/${token}`)
+
+// --- 首次设置向导（iter 89 零配置开箱即用）---
+// /setup/* 为公开端点：status 无需认证；setup/dismiss 在开放模式或 admin JWT 下可用。
+export interface SetupStatus {
+  open_mode: boolean
+  llm_configured: boolean
+  dismissed: boolean
+  needs_setup: boolean
+}
+export interface SetupInput {
+  password?: string
+  api_key?: string
+  base_url?: string
+  model?: string
+}
+export interface SetupResult {
+  ok: boolean
+  password_set: boolean
+  provider_configured: boolean
+  token?: string
+  user?: AuthUser
+}
+export const getSetupStatus = () => apiFetch<SetupStatus>('/setup/status')
+export const postSetup = (body: SetupInput) =>
+  apiFetch<SetupResult>('/setup', { method: 'POST', body: JSON.stringify(body) })
+export const dismissSetup = () => apiFetch<{ ok: boolean }>('/setup/dismiss', { method: 'POST' })

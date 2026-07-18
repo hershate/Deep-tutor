@@ -1,19 +1,26 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ProviderManager from '../components/ProviderManager'
 import UserManager from '../components/UserManager'
-import { getSettings } from '../lib/api'
+import { ApiError, getSettings, postSetup } from '../lib/api'
+import { setAuth } from '../lib/auth'
+import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
-/** 设置页（/settings）：用户管理（admin，iter 60）+ LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。 */
+/** 设置页（/settings）：用户管理（admin，iter 60）+ LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。
+ *  iter 89：开放模式（零配置未设密码）时顶部显示「访问密码」卡——设置后用返回 JWT 无感切换为登录态。 */
 export default function Settings() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
     staleTime: 60_000,
   })
+  const { data: setupStatus } = useSetupStatus()
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">设置</h2>
+
+      {setupStatus?.open_mode && <PasswordCard />}
 
       <UserManager />
 
@@ -78,8 +85,7 @@ function Row({
   label: string
   value: string
   status?: 'ok' | 'warn'
-}) {
-  const color =
+}) {  const color =
     status === 'ok'
       ? 'text-green-600 dark:text-green-400'
       : status === 'warn'
@@ -90,5 +96,88 @@ function Row({
       <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className={`text-sm font-medium ${color}`}>{value}</dd>
     </div>
+  )
+}
+
+/** 访问密码卡（iter 89）：仅开放模式（零配置未设密码）显示。
+ *  走 POST /setup（admin 身份），返回 JWT 立即 setAuth——无感切换为登录态，
+ *  避免「设完密码所有请求 401 卡死」。 */
+function PasswordCard() {
+  const qc = useQueryClient()
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function submit() {
+    if (busy) return
+    setErr('')
+    if (pw.length < 4) {
+      setErr('密码至少 4 位')
+      return
+    }
+    if (pw !== pw2) {
+      setErr('两次输入的密码不一致')
+      return
+    }
+    setBusy(true)
+    try {
+      const r = await postSetup({ password: pw })
+      if (r.token && r.user) setAuth(r.token, r.user)
+      await qc.invalidateQueries({ queryKey: SETUP_QUERY_KEY })
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : '设置失败，请重试')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">设置访问密码</h3>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+        当前免登录运行，局域网内任何人可访问。设置密码后需登录使用（账号 admin）。
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label htmlFor="pw-card-1" className="mb-1 block text-xs font-medium text-amber-900 dark:text-amber-100">
+            密码（≥4 位）
+          </label>
+          <input
+            id="pw-card-1"
+            type="password"
+            autoComplete="new-password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            className="w-40 rounded border px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+          />
+        </div>
+        <div>
+          <label htmlFor="pw-card-2" className="mb-1 block text-xs font-medium text-amber-900 dark:text-amber-100">
+            确认密码
+          </label>
+          <input
+            id="pw-card-2"
+            type="password"
+            autoComplete="new-password"
+            value={pw2}
+            onChange={(e) => setPw2(e.target.value)}
+            className="w-40 rounded border px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+        >
+          {busy ? '设置中…' : '设置密码'}
+        </button>
+      </div>
+      {err && (
+        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+          {err}
+        </p>
+      )}
+    </section>
   )
 }
