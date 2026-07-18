@@ -58,6 +58,7 @@ def _progress_has_plan_node_unique(insp) -> bool:
 
 
 _REVISION_PROBES = [
+    ("e5b21c8f90a3", _has_table("node_notes")),
     ("a3b91c2e4f56", _has_column("users", "tokens_valid_after")),
     ("f2a8c1d94e07", _progress_has_plan_node_unique),
     ("d8f3b1a92c67", _has_column("materials", "content_hash")),

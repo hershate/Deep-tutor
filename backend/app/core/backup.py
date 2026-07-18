@@ -113,7 +113,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
             }
             for m in sess.materials
         ]
-        plans_out = [_export_plan(db, p) for p in sess.plans]
+        plans_out = [_export_plan(db, p, user.id) for p in sess.plans]
         sessions_out.append(
             {
                 "title": sess.title,
@@ -143,7 +143,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
     }
 
 
-def _export_plan(db: DbSession, plan: models.Plan) -> dict:
+def _export_plan(db: DbSession, plan: models.Plan, user_id: int) -> dict:
     nodes = (
         db.query(models.KnowledgeNode)
         .filter_by(plan_id=plan.id)
@@ -151,6 +151,19 @@ def _export_plan(db: DbSession, plan: models.Plan) -> dict:
         .all()
     )
     id_to_sid = {n.id: n.sid for n in nodes}
+    # 知识点笔记（iter 105）：node_id -> content（仅当前用户；空内容不出现在导出）
+    note_map: dict[int, str] = {}
+    if nodes:
+        note_map = {
+            row.node_id: row.content
+            for row in db.query(models.NodeNote)
+            .filter(
+                models.NodeNote.user_id == user_id,
+                models.NodeNote.node_id.in_(id_to_sid.keys()),
+            )
+            .all()
+            if row.content
+        }
     nodes_out = [
         {
             "sid": n.sid,
@@ -158,6 +171,7 @@ def _export_plan(db: DbSession, plan: models.Plan) -> dict:
             "difficulty": n.difficulty,
             "must_learn": bool(n.must_learn),
             "parent_sid": id_to_sid.get(n.parent_id) if n.parent_id else None,
+            **({"note": note_map[n.id]} if n.id in note_map else {}),
         }
         for n in nodes
     ]
@@ -293,6 +307,7 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         "progress": 0,
         "learning_logs": 0,
         "provider_profiles": 0,
+        "node_notes": 0,
         "skipped": [],
     }
 
@@ -332,13 +347,13 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
 
         for p in s.get("plans") or []:
             if isinstance(p, dict):
-                _restore_plan(db, sess, p, summary)
+                _restore_plan(db, sess, p, summary, user.id)
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
     return summary
 
 
-def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict) -> None:
+def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, user_id: int) -> None:
     content = p.get("content") if isinstance(p.get("content"), dict) else {}
     plan = models.Plan(
         session_id=sess.id,
@@ -387,6 +402,24 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict) -
         parent = sid_to_node.get(str(n.get("parent_sid") or ""))
         if row is not None and parent is not None and parent is not row:
             row.parent_id = parent.id
+    db.flush()
+
+    # 知识点笔记（iter 105）：随节点还原（note 字段缺省=无笔记，兼容旧备份）
+    for n in p.get("knowledge_nodes") or []:
+        if not isinstance(n, dict):
+            continue
+        note_content = n.get("note")
+        if not isinstance(note_content, str) or not note_content.strip():
+            continue
+        row = sid_to_node.get(str(n.get("sid") or ""))
+        if row is None:
+            continue  # 无 sid 锚点的节点无法重关联笔记
+        db.add(
+            models.NodeNote(
+                user_id=user_id, node_id=row.id, content=note_content.strip()[:20_000]
+            )
+        )
+        summary["node_notes"] += 1
     db.flush()
 
     for r in p.get("resources") or []:

@@ -113,6 +113,9 @@ class User(Base):
     provider_profiles: Mapped[list[LlmProviderProfile]] = relationship(
         cascade="all, delete-orphan"
     )
+    node_notes: Mapped[list[NodeNote]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -229,6 +232,9 @@ class KnowledgeNode(Base):
     resources: Mapped[list[Resource]] = relationship(
         back_populates="node", cascade="all, delete-orphan"
     )
+    notes: Mapped[list[NodeNote]] = relationship(
+        back_populates="node", cascade="all, delete-orphan"
+    )
 
 
 class Resource(Base):
@@ -303,6 +309,29 @@ class LearningLog(Base):
     note: Mapped[str | None] = mapped_column(Text)
 
     plan: Mapped[Plan] = relationship(back_populates="learning_logs")
+
+
+class NodeNote(Base):
+    """知识点笔记（iter 105 个人 Wiki 增强）：每用户每节点一条，空内容即删行。
+
+    归属双 FK：node_id 定位知识点（随节点级联清理），user_id 归属用户（P4 隔离 +
+    删用户级联）。导出/导入走 backup.py（按节点 sid 重关联，随备份版本 1 兼容：
+    旧备份无 note 字段则不还原笔记）。
+    """
+
+    __tablename__ = "node_notes"
+    __table_args__ = (UniqueConstraint("user_id", "node_id", name="uq_node_notes_user_node"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    node_id: Mapped[int] = mapped_column(ForeignKey("knowledge_nodes.id"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="node_notes")
+    node: Mapped[KnowledgeNode] = relationship(back_populates="notes")
 
 
 class ToolCall(Base):
