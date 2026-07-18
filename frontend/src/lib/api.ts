@@ -119,10 +119,19 @@ export const listPlans = (sessionId?: number) =>
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 
 export const exportPlan = (planId: number, format = 'md') =>
-  apiFetch<{ file_url: string; format: string; warning?: string; slide_count?: number; html?: string }>(
-    `/export/${planId}`,
-    { method: 'POST', body: JSON.stringify({ format }) },
-  )
+  apiFetch<{
+    file_url: string
+    format: string
+    warning?: string
+    slide_count?: number
+    html?: string
+    // P5：ics / anki 随响应返回内容，前端 Blob 下载
+    filename?: string
+    ics?: string
+    event_count?: number
+    apkg_b64?: string
+    card_count?: number
+  }>(`/export/${planId}`, { method: 'POST', body: JSON.stringify({ format }) })
 
 // 自学材料（P2，plan/07 §五；iter 47：SSE 逐单元渐进显示）。
 // 内容协商：Accept: text/event-stream 且需生成 -> SSE 流（unit_start/unit_done ×N -> done）；

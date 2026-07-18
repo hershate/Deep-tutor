@@ -23,6 +23,16 @@ interface PlanData {
 const VERIFY_LABEL: Record<string, string> = { ok: '✅', uncertain: '⚠️', invalid: '❌' }
 const VERIFY_TEXT: Record<string, string> = { ok: '已验证', uncertain: '不确定', invalid: '无效' }
 
+/** 触发浏览器下载（P5 ics/Anki 导出：内容随 API 响应返回，本地生成 Blob 保存）。 */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
 export default function PlanDetail() {
   const { planId } = useParams()
   const nav = useNavigate()
@@ -30,7 +40,7 @@ export default function PlanDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportUrl, setExportUrl] = useState('')
-  const [exportFormat, setExportFormat] = useState<'md' | 'slides'>('md')
+  const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
@@ -61,9 +71,19 @@ export default function PlanDetail() {
         window.open(url)
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
         setExportUrl('')
+      } else if (exportFormat === 'ics' && r.ics) {
+        // P5 日历：Blob 下载 .ics（双击导入系统日历）
+        downloadBlob(new Blob([r.ics], { type: 'text/calendar' }), r.filename || 'plan.ics')
+        setExportUrl(`已下载 ${r.filename}（${r.event_count ?? 0} 个学习日）`)
+      } else if (exportFormat === 'anki' && r.apkg_b64) {
+        // P5 Anki：base64 -> Blob 下载 .apkg（双击导入 Anki）
+        const bytes = Uint8Array.from(atob(r.apkg_b64), (c) => c.charCodeAt(0))
+        downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), r.filename || 'plan.apkg')
+        setExportUrl(`已下载 ${r.filename}（${r.card_count ?? 0} 张卡片）`)
       } else {
         setExportUrl(r.file_url)
       }
+      if (r.warning) setError(`导出警告：${r.warning}`)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败')
     }
@@ -112,11 +132,13 @@ export default function PlanDetail() {
           <select
             id="export-format"
             value={exportFormat}
-            onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides')}
+            onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides' | 'ics' | 'anki')}
             className="rounded-lg border px-2 py-2 text-sm"
           >
             <option value="md">Markdown</option>
             <option value="slides">幻灯片</option>
+            <option value="ics">日历 (.ics)</option>
+            <option value="anki">Anki 卡片包</option>
           </select>
           <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
             导出

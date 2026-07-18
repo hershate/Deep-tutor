@@ -7,6 +7,7 @@ POST /api/export/{plan_id}  导出方案为 md（pdf/slides 在 P1/P5）
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -23,6 +24,8 @@ from app.db.models import User
 from app.llm import get_provider
 from app.tools import default_registry
 from app.tools.base import ToolInput
+from app.tools.build_anki import build_apkg
+from app.tools.build_ics import build_ics
 from app.tools.build_plan_slides import SlideSpec, default_spec_from_plan, render_slides_html
 from app.tools.export_plan import export_plan
 
@@ -52,7 +55,44 @@ async def export_plan_endpoint(
 
     if body.format == "slides":
         return await _export_slides(plan_id, plan.session_id, content, user.id)
+    if body.format == "ics":
+        return _export_ics(plan_id, content)
+    if body.format == "anki":
+        return _export_anki(plan_id, content)
     return await _export_md(plan_id, plan.session_id, content, body.format)
+
+
+def _export_ics(plan_id: int, content: dict) -> dict:
+    """ics 日历导出（P5）：schedule -> RFC 5545 全天事件。内容随响应返回，前端 Blob 下载。"""
+    try:
+        ics_text, events, skipped = build_ics(plan_id, content)
+    except ValueError as exc:
+        raise ApiError("no_schedule", str(exc)) from exc
+    result: dict = {
+        "file_url": "",
+        "format": "ics",
+        "filename": f"deep-tutor-plan-{plan_id}.ics",
+        "event_count": events,
+        "ics": ics_text,
+    }
+    if skipped:
+        result["warning"] = f"{skipped} 条日程日期非法已跳过"
+    return result
+
+
+def _export_anki(plan_id: int, content: dict) -> dict:
+    """Anki 卡片包导出（P5）：quizzes -> .apkg（base64 随响应返回，前端 Blob 下载）。"""
+    try:
+        apkg, cards = build_apkg(plan_id, content)
+    except ValueError as exc:
+        raise ApiError("no_quizzes", str(exc)) from exc
+    return {
+        "file_url": "",
+        "format": "apkg",
+        "filename": f"deep-tutor-plan-{plan_id}.apkg",
+        "card_count": cards,
+        "apkg_b64": base64.b64encode(apkg).decode("ascii"),
+    }
 
 
 async def _export_md(plan_id: int, session_id: int, content: dict, fmt: str) -> dict:
