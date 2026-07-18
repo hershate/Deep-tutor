@@ -74,6 +74,12 @@ async def lifespan(app: FastAPI):
         db.close()
     if not settings.admin_password:
         log.warning("ADMIN_PASSWORD 未配置：JWT 登录不可用，仅 AUTH_TOKEN 回退（P4 多用户）")
+    # err.md C17：CORS * 兜底告警（配合凭证/自定义头时是危险配置）
+    if "*" in settings.cors_origin_list:
+        log.warning(
+            "CORS_ORIGINS 含通配符 *：任何来源网页均可携带 X-Auth-Token 调用 API，"
+            "公网部署请务必收敛为具体来源（逗号分隔）"
+        )
     # 多模态依赖检测（P3，R9）：缺失仅告警——对应入口按 dependency_missing 报错 + 提示安装
     from app.tools.parse_material import ocr_available, whisper_available
 

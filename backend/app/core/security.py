@@ -1,10 +1,12 @@
 """密码哈希与 JWT（P4 多用户，iter 57）。
 
-- 密码：pbkdf2_hmac(sha256, 200k 轮)，存储格式 `pbkdf2$iterations$salt_hex$hash_hex`；
+- 密码：pbkdf2_hmac(sha256, 600k 轮，err.md C16 对齐 OWASP 2023 建议)，
+  存储格式 `pbkdf2$iterations$salt_hex$hash_hex`（轮数内嵌，旧 hash 校验不受影响）；
   校验用 hmac.compare_digest 常量时间比较（防时序攻击）。
 - JWT：HS256，payload {sub: user_id, username, iat, exp}。
-  secret 取 settings.jwt_secret；空 -> 回退 AUTH_TOKEN（本地部署实用默认，stage.md 已记录）；
-  再无 -> 进程级随机（重启后 token 失效，main lifespan 告警）。
+  secret 取 settings.jwt_secret；空 -> data_dir/.jwt_secret 持久化随机串
+  （err.md C9：不再回退 AUTH_TOKEN——否则持 token 者可伪造任意用户/管理员 JWT）。
+  持久化失败 -> 进程级随机（重启后 token 失效，main lifespan 告警）。
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import jwt
 
 from app.core.settings import settings
 
-_ITERATIONS = 200_000
+_ITERATIONS = 600_000  # err.md C16：OWASP 2023 对 PBKDF2-HMAC-SHA256 的建议下限
 _fallback_secret: str = ""
 
 
@@ -60,15 +62,41 @@ def dummy_verify(password: str) -> None:
 
 
 def _secret() -> str:
-    """JWT HMAC secret：jwt_secret -> AUTH_TOKEN -> 进程级随机（兜底）。"""
+    """JWT HMAC secret：jwt_secret -> 持久化随机串（.jwt_secret）-> 进程级随机（兜底）。
+
+    err.md C9：不再回退 AUTH_TOKEN——AUTH_TOKEN 是客户端持有的认证凭证，
+    兼作 JWT 签名密钥意味着任何持 token 者可离线伪造任意用户（含管理员）的 JWT。
+    """
     global _fallback_secret
     if settings.jwt_secret:
         return settings.jwt_secret
-    if settings.auth_token:
-        return settings.auth_token
-    if not _fallback_secret:
-        _fallback_secret = secrets.token_hex(32)
+    if _fallback_secret:
+        return _fallback_secret
+    persisted = _load_or_create_persisted_secret()
+    _fallback_secret = persisted or secrets.token_hex(32)
     return _fallback_secret
+
+
+def _load_or_create_persisted_secret() -> str:
+    """从 data_dir/.jwt_secret 读取；不存在则生成并落盘（0600）。失败 -> 空串。"""
+    from pathlib import Path
+
+    try:
+        path = Path(settings.data_dir) / ".jwt_secret"
+        if path.exists():
+            val = path.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+        path.parent.mkdir(parents=True, exist_ok=True)
+        val = secrets.token_hex(32)
+        path.write_text(val, encoding="utf-8")
+        try:
+            path.chmod(0o600)  # POSIX 生效；Windows 忽略
+        except OSError:
+            pass
+        return val
+    except OSError:
+        return ""
 
 
 def create_token(user_id: int, username: str) -> str:

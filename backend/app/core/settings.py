@@ -8,13 +8,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 相对路径锚定点：仓库根（backend/app/core/settings.py -> 上三级）。
+# err.md C7：相对路径此前依赖启动 cwd（非仓库根启动会读不到 .env、在错误位置
+# 新建空库，表现为「数据丢失」）；统一锚定后任意 cwd 行为一致。
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _anchor(p: str) -> str:
+    """相对路径锚定到仓库根；空串/绝对路径原样返回。"""
+    if not p or Path(p).is_absolute():
+        return p
+    return str(_REPO_ROOT / p)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_REPO_ROOT / ".env"),  # err.md C7：.env 同样锚定，不依赖 cwd
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -35,9 +47,13 @@ class Settings(BaseSettings):
     jwt_expire_days: int = Field(default=7, description="P4 JWT 有效期（天）")
 
     # --- 存储 ---
-    db_path: str = Field(default="data/deep-tutor.db", description="SQLite 路径")
-    data_dir: str = Field(default="data", description="文件存储根")
-    skills_dir: str = Field(default="skills", description="Skill 目录")
+    db_path: str = Field(default="data/deep-tutor.db", description="SQLite 路径（相对路径锚定仓库根）")
+    database_url: str = Field(
+        default="",
+        description="完整 SQLAlchemy 数据库 URL（err.md C10：未来切换 Postgres 等；空 -> 由 DB_PATH 拼 sqlite URL）",
+    )
+    data_dir: str = Field(default="data", description="文件存储根（相对路径锚定仓库根）")
+    skills_dir: str = Field(default="skills", description="Skill 目录（相对路径锚定仓库根）")
     frontend_dist: str = Field(
         default="",
         description="前端构建产物目录（设置后由后端托管 SPA + /api 同端口，免 nginx；空=不托管）",
@@ -80,6 +96,24 @@ class Settings(BaseSettings):
         return f"sqlite:///{self.db_path}"
 
     @property
+    def sqlalchemy_url(self) -> str:
+        """实际使用的数据库 URL（err.md C10：DATABASE_URL 优先，空 -> SQLite）。"""
+        return self.database_url or self.sqlite_url
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.sqlalchemy_url.startswith("sqlite")
+
+    @model_validator(mode="after")
+    def _anchor_paths(self) -> "Settings":
+        """err.md C7：相对路径统一锚定仓库根（不依赖启动 cwd）。"""
+        self.db_path = _anchor(self.db_path)
+        self.data_dir = _anchor(self.data_dir)
+        self.skills_dir = _anchor(self.skills_dir)
+        self.frontend_dist = _anchor(self.frontend_dist)
+        return self
+
+    @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
@@ -113,4 +147,10 @@ class Settings(BaseSettings):
         return missing
 
 
-settings = Settings()
+# err.md C14：环境变量解析错误给可读提示而非裸 ValidationError traceback
+try:
+    settings = Settings()
+except ValidationError as exc:  # pragma: no cover - 仅配置错误时触发
+    raise SystemExit(
+        f"配置解析失败（请检查 .env 与环境变量类型，如 JWT_EXPIRE_DAYS 须为整数）:\n{exc}"
+    ) from exc

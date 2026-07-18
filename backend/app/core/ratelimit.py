@@ -13,17 +13,29 @@ from collections import deque
 class SlidingWindowLimiter:
     """滑动窗口限流器：check(key, limit, window_s) 命中计数并返回是否放行。"""
 
+    # err.md C6：key 数量兜底上限（key 洪泛攻击下全清，防内存无界增长）
+    _MAX_KEYS = 100_000
+
     def __init__(self) -> None:
         self._hits: dict[str, deque[float]] = {}
 
     def check(self, key: str, limit: int, window_s: float = 60.0) -> bool:
         now = time.monotonic()
-        q = self._hits.setdefault(key, deque())
-        cutoff = now - window_s
-        while q and q[0] <= cutoff:
-            q.popleft()
-        if len(q) >= limit:
-            return False
+        q = self._hits.get(key)
+        if q is not None:
+            cutoff = now - window_s
+            while q and q[0] <= cutoff:
+                q.popleft()
+            if not q:
+                del self._hits[key]  # err.md C6：窗口外空闲 key 惰性淘汰
+                q = None
+            elif len(q) >= limit:
+                return False
+        if q is None:
+            if len(self._hits) >= self._MAX_KEYS:
+                self._hits.clear()  # 兜底：异常量级时全清（限流短暂失效优于 OOM）
+            q = deque()
+            self._hits[key] = q
         q.append(now)
         return True
 

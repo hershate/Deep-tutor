@@ -127,6 +127,10 @@ def _split_at_headings(text: str, max_lines: int = _MAX_UNIT_FILE_LINES) -> list
 
 def write_unit_content(session_id: int | str, unit_id: int, content_md: str) -> Path:
     """写单元内容（>500 行自动拆子文件，plan/02 §13），返回主文件路径。"""
+    main = materials_dir(session_id) / f"unit_{unit_id}.md"
+    # err.md C5：写前先清上一版残留的 .pN 拆分子文件——否则 read_unit_content
+    # 会无条件串联旧尾巴（3 段重生成变 1 段时读回 = 新主文件 + 旧 .p2/.p3）
+    delete_unit_content(main)
     if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES:
         return write_unit_text(session_id, unit_id, content_md)
     parts = _split_at_headings(content_md)

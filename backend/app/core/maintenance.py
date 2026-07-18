@@ -21,18 +21,25 @@ MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
 
 def vacuum_db(db_path: str | None = None) -> None:
     """VACUUM 数据库（plan/09 §一 周期性 VACUUM）。失败仅告警不抛出。"""
-    if db_path is None:
-        from app.core.settings import settings
+    from app.core.settings import settings
 
+    if not settings.is_sqlite:
+        log.info("非 SQLite 后端，跳过 VACUUM")  # err.md C10
+        return
+    if db_path is None:
         db_path = settings.db_path
     if db_path == ":memory:" or not Path(db_path).exists():
         return
+    conn: sqlite3.Connection | None = None
     try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("VACUUM")
+        conn = sqlite3.connect(db_path)
+        conn.execute("VACUUM")
         log.info("VACUUM 完成: %s", db_path)
     except sqlite3.Error as e:  # 锁冲突等 -> 下轮再试
         log.warning("VACUUM 失败（下轮重试）: %s", e)
+    finally:
+        if conn is not None:
+            conn.close()  # err.md C12：with 块不保证 connection 关闭，显式 close
 
 
 def cleanup_orphan_session_dirs(data_dir: str | None = None) -> int:
@@ -68,18 +75,23 @@ def run_maintenance() -> dict:
 
 
 async def maintenance_loop(stop_event) -> None:
-    """后台周期任务：每 MAINTENANCE_INTERVAL_SECONDS 执行一轮（asyncio.Event 停止）。"""
+    """后台周期任务：每 MAINTENANCE_INTERVAL_SECONDS 执行一轮（asyncio.Event 停止）。
+
+    err.md C13：先等待一个周期再执行——启动即跑 VACUUM 会在服务冷启动
+    （迁移/恢复占用写锁）时争抢资源；首轮推迟到 24h 后不影响运维目标。
+    """
     import asyncio
 
     while not stop_event.is_set():
         try:
+            await asyncio.wait_for(stop_event.wait(), timeout=MAINTENANCE_INTERVAL_SECONDS)
+            break  # stop_event 已置位 -> 退出
+        except TimeoutError:
+            pass
+        try:
             await asyncio.to_thread(run_maintenance)
         except Exception as e:  # noqa: BLE001 - 运维失败不拖垮服务
             log.warning("运维任务失败（下轮重试）: %s", e)
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=MAINTENANCE_INTERVAL_SECONDS)
-        except TimeoutError:
-            pass
 
 
 def main() -> None:  # pragma: no cover - CLI 入口
