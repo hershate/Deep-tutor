@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P4 全部完成**，云部署双案齐备——docker-compose（iter 66）+ 免 Docker 本地直起脚本（iter 67，用户要求）。全量 325 后端测试通过。**候选下一步**：P5（缓存深度优化 + Anki/ics 导出 + 协作分享）/ 真机冒烟（docker 起栈；start.ps1 在干净 Windows 机器全流程验证；装扩展跑剪藏->生成）。详见 §五 iter 67 条。
+**当前下一步**：**P4 全部完成**；部署方案已定稿为**纯脚本本地直起**（iter 67 落地，iter 68 移除全部 Docker 相关并真机冒烟）。**候选下一步**：P5（缓存深度优化 + Anki/ics 导出 + 协作分享）/ 扩展真机剪藏冒烟（装扩展 + 配 key 跑剪藏->生成）。详见 §五 iter 68 条。
 
 ---
 
@@ -28,14 +28,14 @@
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
-| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ✅ 完成（多用户 iter 57-60；Skills iter 61-63（MCP 暂缓）；浏览器插件 iter 64-65；云部署 iter 66 通用模板，真机 compose 验证待 docker 环境） |
+| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ✅ 完成（多用户 iter 57-60；Skills iter 61-63（MCP 暂缓）；浏览器插件 iter 64-65；部署 iter 66-68：纯脚本本地直起，Docker 方案已按用户决定移除） |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
 ---
 
 ## 二、执行约定
 
-- **技术栈**（[plan/01-architecture.md](plan/01-architecture.md)）：后端 Python 3.11+/FastAPI/Uvicorn/SQLAlchemy 2.0/SQLite/Alembic/pydantic v2/pydantic-settings/anthropic SDK；前端 React 18+TS+Vite+Tailwind+TanStack Query+React Router+Zustand+react-markdown；部署 docker-compose（nginx + uvicorn + 卷）。
+- **技术栈**（[plan/01-architecture.md](plan/01-architecture.md)）：后端 Python 3.11+/FastAPI/Uvicorn/SQLAlchemy 2.0/SQLite/Alembic/pydantic v2/pydantic-settings/anthropic SDK；前端 React 18+TS+Vite+Tailwind+TanStack Query+React Router+Zustand+react-markdown；部署 scripts/start.* 本地直起（uvicorn 单进程托管 SPA + /api；Docker 方案 iter 68 移除）。
 - **git commit**：细粒度、每逻辑变更独立 commit；commit 信息中文；**严禁写 co-author / 协作者**（用户全局规范）。
 - **不编造**：引用计划/技能前先读原文；不臆测接口与字段。
 - **问而不猜**：遇歧义先问用户，除非用户已明确表示自行决定。

@@ -1,4 +1,4 @@
-"""部署启动迁移：alembic upgrade head 的健壮包装（docker 入口 / 手动执行）。
+"""部署启动迁移：alembic upgrade head 的健壮包装（scripts/start.* 入口 / 手动执行）。
 
 三类库：
 1. 全新库（无业务表）——upgrade head 建全部表并写 alembic_version；

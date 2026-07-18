@@ -1,4 +1,4 @@
-"""健康检查（docker-compose healthcheck 用，plan/09 §十九）。"""
+"""健康检查（部署探活/冒烟用，plan/09 §十九）。"""
 
 from fastapi import APIRouter
 
