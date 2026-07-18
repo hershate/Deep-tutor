@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 165（美化轨：第 48 轮——今日目标进度条 a11y，✅ 完成）**：审查并行轨今日目标进度条（`412699c`）——视觉/动效已齐（500ms ease-out 填充、达标变绿 ✓、tabular-nums），仅缺进度条语义：纯 div 读屏无法播报进度。轨道加 `role="progressbar"` + `aria-valuenow/min/max` + `aria-label="今日目标完成度"`（commit `6227bf2`），读屏直接报百分比。验证：`npm run build` 通过（1.71s，主包 207.72kB）。
+
 - **2026-07-19 iter 164（美化轨：第 47 轮——视图切换淡入，✅ 完成）**：审查并行轨「我的笔记」视图（`2fd9bd3`）——质量已高（卡片 fade-in-up 阶梯/tabular-nums/EmptyState/Skeleton/tab 语义齐全），仅补一处体验缺口：tab 切换时内容区无过渡、生硬跳变。包 `key={view}` 的 `animate-fade-in space-y-4` 容器（commit `66249cc`），切换即整区淡入，nodes 视图原有逐项动画随之重播。**编号说明**：并行轨 stage 记录已占 iter 163，本条取 164。验证：`npm run build` 通过（1.72s，主包 207.59kB）。
 
 - **2026-07-19 iter 163（功能线：学习中心今日目标进度条，✅ 完成）**：方案定了每天学多久，学了多少没对照——打卡区加今日目标进度。[Learn.tsx](frontend/src/pages/Learn.tsx) 读取 intent.daily_minutes（无则不显示），今日已学分钟 = 当日 logs 求和（本地日口径 sv locale，与后端服务器本地日一致）；进度条 500ms 过渡、达标变绿 + ✓；纯前端零后端（commit `412699c`）。**验证**：`npm run build` 通过。
