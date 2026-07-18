@@ -8,6 +8,7 @@ import GenerateProgress from './pages/GenerateProgress'
 import Clarify from './pages/Clarify'
 import Learn from './pages/Learn'
 import Login from './pages/Login'
+import NotFound from './pages/NotFound'
 import PlanDetail from './pages/PlanDetail'
 import Plans from './pages/Plans'
 import Setup from './pages/Setup'
@@ -69,7 +70,8 @@ export default function App() {
                 <Route path="/wiki" element={<Wiki />} />
                 <Route path="/usage" element={<Usage />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                {/* iter 157：未知路由显式 404（原静默重定向首页，输错 URL 无感知） */}
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
           </RequireAuth>
