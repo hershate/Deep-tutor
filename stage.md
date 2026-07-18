@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P4 四项中三项已完成——多用户（iter 57-60）、Skills 扩展（iter 61-63，MCP 暂缓）、浏览器插件（iter 64-65）。全量 310 后端测试 + 前端 build 通过。**候选下一步**：P4 最后一项云部署（需用户提供目标环境信息）/ P5（缓存/导出/协作）/ 真机冒烟（装扩展 + 配 key 跑剪藏->生成全链路）。详见 §五 iter 64-65 条。
+**当前下一步**：**P4 四项全部完成**——多用户（iter 57-60）、Skills 扩展（iter 61-63，MCP 暂缓）、浏览器插件（iter 64-65）、云部署通用模板（iter 66，用户选定本机/局域网 HTTP，OCR/whisper 保持可选）。全量 317 后端测试通过。**候选下一步**：真机冒烟（docker compose 起栈 + 装扩展 + 配 key 跑剪藏->生成全链路，本机无 docker 待有环境时做）/ P5（缓存深度优化 + Anki/ics 导出 + 协作分享）。详见 §五 iter 66 条。
 
 ---
 
@@ -28,7 +28,7 @@
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
-| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户 iter 57-60 ✅；Skills iter 61-63 ✅（MCP 暂缓）；浏览器插件 iter 64-65 ✅；云部署待排期） |
+| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ✅ 完成（多用户 iter 57-60；Skills iter 61-63（MCP 暂缓）；浏览器插件 iter 64-65；云部署 iter 66 通用模板，真机 compose 验证待 docker 环境） |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
 ---
@@ -232,6 +232,13 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 66（P4 云部署通用模板：启动迁移 + compose 加固 + 部署文档，✅ 完成）**：用户选定「云部署（P4 收尾）」，环境确认为**本机/局域网 docker compose、HTTP 直连，OCR/whisper 依赖保持可选**。盘点 iter 1 骨架（compose/Dockerfile/nginx）发现三缺口并修：
+  - **启动迁移（commit `23f2000`）**：此前容器入口直接 uvicorn，`init_db()` 的 create_all 不会对已有库加新列（P4 的 user_id 等）→ 升级镜像即数据/代码不一致。新增 [app/db/migrate.py](backend/app/db/migrate.py)（`python -m app.db.migrate`）：新库 upgrade head 建表 / 有 alembic_version 增量 / **无版本旧库（历史 create_all 所建）按 schema 特征探测代际**（`_REVISION_PROBES` 新->旧：provider_profiles.user_id→head、users.username→169af26、provider 表→3deb416、done_at→69bb0fe、knowledge_nodes.sid→baa9cf6、否则 base）stamp 后续接迁移，避免 CREATE TABLE 冲突。[alembic/env.py](backend/alembic/env.py) 改为**仅未显式设置时**回退 settings.sqlite_url（原无条件覆盖，致 migrate 指定目标库被忽略——测试暴露此 bug）。tests/test_db_migrate.py +7（三条路径 + 幂等 + 中间代/基代/现行 create_all 各代际 stamp）。
+  - **compose/Dockerfile 加固（commit `b10a38e`）**：[backend/Dockerfile](backend/Dockerfile) CMD 改 `python -m app.db.migrate && exec uvicorn`（exec 保信号传递）；[docker-compose.yml](docker-compose.yml) 硬校验 `JWT_SECRET`（`${JWT_SECRET:?...}`，缺失/为空即报错——否则重启后全员登录态静默失效），frontend depends_on 改 `condition: service_healthy`（吃 backend 既有 healthcheck）。
+  - **部署文档（commit `8972a1f`）**：[README.md](README.md) 部署章节扩充：必填配置表（JWT_SECRET 必填+生成命令 / ADMIN_PASSWORD 多用户必填 / AUTH_TOKEN 双轨回退 / ANTHROPIC/BING key）、启动步骤、首登流程、升级流程（迁移自动跑）、命名卷停机备份命令（Win/Linux）、可选项（OCR/whisper 按需加 Dockerfile；HTTPS 本机/局域网不需要，公网则上层反代终止 TLS）。
+  - **验证**：compose YAML 结构断言通过（本机无 docker，`compose config`/实机 build 待有环境验证）；全量 317 测试通过（310+7），零回归。**P4 全部完成**。
+  - **待做**：真机冒烟（docker 环境起栈全链路）/ P5。
 
 - **2026-07-18 iter 64-65（P4 浏览器插件：剪藏端点 + MV3 扩展，✅ 完成）**：用户选定「浏览器插件（P4）」（plan/README 输入形式10：选中文本/网页剪藏发送为资料）。
   - **iter 64（剪藏端点，commit `d90b940`）**：[materials.py](backend/app/api/materials.py) `POST /api/materials/clip {kind: text|url, content, title?}`——为当前用户**一步到位建会话 + 解析入资料**（复用 `_store` 与 SSRF 防护），title 缺省取内容前 40 字/URL 前 80 字；**解析失败清理孤儿会话**（行 + 文件目录，同 Home 前端模式）；返回 `{session_id, material_id, kind, title, open_path: /generate/{sid}}`——前端生成页 mount 即自动开始生成（raw_text 空，仅用剪藏资料，终端快路径处理重入）。测试 +7（text 成功+归属 / 空内容 422 无孤儿 / 非法 scheme 400 / SSRF 拦截+无孤儿 / url 成功 mock parse / 401 / JWT 用户归属+跨用户 404）。注：发现 `empty_content` 映射 422（CODE_STATUS），与既有 /materials/text 一致。
