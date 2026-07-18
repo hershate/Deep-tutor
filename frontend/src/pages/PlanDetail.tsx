@@ -217,13 +217,14 @@ export default function PlanDetail() {
   return (
     <div className="space-y-6">
       {opError && (
-        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
-        <div className="flex items-center gap-2">
+        {/* iter 93 美化：窄屏 flex-wrap 防溢出；次按钮按压缩放、主按钮悬浮阴影 */}
+        <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="export-format" className="sr-only">
             导出格式
           </label>
@@ -231,7 +232,7 @@ export default function PlanDetail() {
             id="export-format"
             value={exportFormat}
             onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides' | 'ics' | 'anki' | 'pdf')}
-            className="rounded-lg border px-2 py-2 text-sm"
+            className="rounded-lg border px-2 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
           >
             <option value="md">Markdown</option>
             <option value="slides">幻灯片</option>
@@ -242,33 +243,33 @@ export default function PlanDetail() {
           <button
             onClick={doExport}
             disabled={exportBusy}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+            className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
           >
             {exportBusy ? '导出中…' : '导出'}
           </button>
-          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700">
+          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700">
             {share?.shared ? '复制分享链接' : '分享'}
           </button>
           {share?.shared && (
-            <button onClick={doRevokeShare} className="rounded-lg border px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950">
+            <button onClick={doRevokeShare} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
               撤销分享
             </button>
           )}
           <button
             onClick={() => nav(`/learn/${planId}`)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md active:scale-[.98]"
           >
             学习中心
           </button>
           <button
             onClick={() => setShowMaterials(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98]"
           >
             自学材料
           </button>
           <button
             onClick={() => setShowQuiz(true)}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[.98]"
           >
             测验
           </button>
@@ -298,7 +299,7 @@ export default function PlanDetail() {
       )}
 
       {plan.intent && (
-        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
+        <section className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4">
           <h3 className="mb-2 font-semibold">学习意图</h3>
           <ul className="text-sm text-slate-600 dark:text-slate-300">
             {plan.intent.level && <li>基础: {plan.intent.level}</li>}
@@ -308,17 +309,17 @@ export default function PlanDetail() {
         </section>
       )}
 
-      <div role="tablist" aria-label="方案内容" className="flex gap-1 border-b">
+      <div role="tablist" aria-label="方案内容" className="flex gap-1 border-b dark:border-slate-700">
         {TABS.map((t) => (
           <button
             key={t.key}
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors duration-200 ${
               tab === t.key
                 ? 'border-blue-600 text-blue-700 dark:text-blue-300'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:text-slate-200'
+                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200'
             }`}
           >
             {t.label}
@@ -327,19 +328,19 @@ export default function PlanDetail() {
       </div>
 
       {tab === 'path' && (
-        <div role="tabpanel" aria-label="学习路径">
+        <div role="tabpanel" aria-label="学习路径" className="animate-fade-in">
           <PlanOutline stages={plan.stages} knowledgeMap={plan.knowledge_map} />
         </div>
       )}
 
       {tab === 'timeline' && (
-        <div role="tabpanel" aria-label="时间线">
+        <div role="tabpanel" aria-label="时间线" className="animate-fade-in">
           <Timeline schedule={plan.schedule ?? []} stageNames={(plan.stages ?? []).map((s) => s.name)} />
         </div>
       )}
 
       {tab === 'resources' && (
-        <div role="tabpanel" aria-label="资源" className="space-y-3">
+        <div role="tabpanel" aria-label="资源" className="animate-fade-in space-y-3">
           {plan.resources && plan.resources.length > 0 ? (
             <>
               <div className="flex items-center gap-2 text-sm">
@@ -354,15 +355,15 @@ export default function PlanDetail() {
                     key={f.v}
                     onClick={() => setResFilter(f.v)}
                     aria-pressed={resFilter === f.v}
-                    className={`rounded-full border px-3 py-1 text-xs ${
-                      resFilter === f.v ? 'border-blue-600 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    className={`rounded-full border px-3 py-1 text-xs transition-all duration-150 active:scale-95 ${
+                      resFilter === f.v ? 'border-blue-600 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700'
                     }`}
                   >
                     {f.label}
                   </button>
                 ))}
               </div>
-              <ul className="space-y-1 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4 text-sm">
+              <ul className="space-y-1 rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4 text-sm">
                 {plan.resources
                   .filter((r) => !resFilter || (r.verified ?? '') === resFilter)
                   .map((r, i) => (
@@ -389,9 +390,9 @@ export default function PlanDetail() {
       )}
 
       {tab === 'report' && (
-        <div role="tabpanel" aria-label="校验报告">
+        <div role="tabpanel" aria-label="校验报告" className="animate-fade-in">
           {plan.validation_report ? (
-            <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
+            <section className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4">
               <h3 className="mb-2 font-semibold">
                 校验报告: {plan.validation_report.passed ? '通过 ✅' : '未通过 ⚠️'}
               </h3>
@@ -425,13 +426,13 @@ export default function PlanDetail() {
       )}
 
       {planId && (
-        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="学习进度">
+        <section className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="学习进度">
           <h3 className="mb-2 font-semibold">学习进度</h3>
           <ProgressBoard planId={Number(planId)} refreshToken={progressKey} />
         </section>
       )}
 
-      <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4 space-y-3" aria-label="重生成方案">
+      <section className="space-y-3 rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="重生成方案">
         <h3 className="font-semibold">重生成</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400">从选定工具起级联重跑其下游，生成新版本方案（plan.version+1）。</p>
         <div className="flex items-center gap-2">
@@ -467,12 +468,12 @@ export default function PlanDetail() {
         <button
           onClick={doRegenerate}
           disabled={regenLoading}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
         >
           {regenLoading ? '重生成中…' : '重生成'}
         </button>
         {regenError && (
-          <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+          <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
             {regenError}
           </div>
         )}

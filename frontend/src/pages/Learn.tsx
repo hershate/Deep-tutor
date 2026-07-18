@@ -114,34 +114,34 @@ export default function Learn() {
       </div>
 
       {opError && (
-        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
 
-      <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="复习提醒">
+      <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="复习提醒">
         <h3 className="mb-2 font-semibold">今日待复习（{dueNodes.length}）</h3>
         {dueNodes.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">暂无到期复习节点（学习或测验后按间隔重复自动推算）。</p>
         ) : (
           <ul className="space-y-1 text-sm">
-            {dueNodes.map((n) => (
-              <li key={n.node_id} className="flex items-center gap-2">
+            {dueNodes.map((n, i) => (
+              <li key={n.node_id} className="flex animate-fade-in-up items-center gap-2" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
                 <span className="font-medium">{n.name}</span>
                 <span className="text-xs text-slate-400">掌握度 {Math.round(n.mastery * 100)}%</span>
-                <span className="text-xs text-amber-600 dark:text-amber-400">复习 {n.next_review}</span>
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600 dark:bg-amber-950 dark:text-amber-400">复习 {n.next_review}</span>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="进度看板">
+      <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" style={{ animationDelay: '80ms' }} aria-label="进度看板">
         <h3 className="mb-2 font-semibold">进度看板</h3>
         <ProgressBoard planId={id} refreshToken={progressKey} onChanged={() => setProgressKey((k) => k + 1)} />
       </section>
 
-      <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="学习打卡">
+      <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" style={{ animationDelay: '160ms' }} aria-label="学习打卡">
         <h3 className="mb-2 font-semibold">打卡（累计 {totalMinutes} 分钟）</h3>
         <div className="flex flex-wrap items-end gap-2">
           <div>
@@ -155,7 +155,7 @@ export default function Learn() {
               max={1440}
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
-              className="w-28 rounded border px-2 py-1.5 text-sm"
+              className="w-28 rounded border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
           </div>
           <div className="min-w-48 flex-1">
@@ -169,19 +169,19 @@ export default function Learn() {
               onChange={(e) => setNote(e.target.value)}
               placeholder="今天学了什么"
               maxLength={200}
-              className="w-full rounded border px-2 py-1.5 text-sm"
+              className="w-full rounded border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
           </div>
           <button
             onClick={checkin}
             disabled={checkinBusy}
-            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
           >
             {checkinBusy ? '打卡中…' : '打卡'}
           </button>
           {checkinMsg && (
-            <span className="text-sm text-green-700 dark:text-green-300" aria-live="polite">
-              {checkinMsg}
+            <span className="animate-fade-in text-sm text-green-700 dark:text-green-300" aria-live="polite">
+              {checkinMsg} ✓
             </span>
           )}
         </div>
