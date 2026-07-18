@@ -68,13 +68,13 @@ export default function CheckinCalendar({ logs }: { logs: LearningLogItem[] }) {
           type="button"
           onClick={() => shift(-1)}
           aria-label="上一月"
-          className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+          className="rounded px-2 py-1 text-sm text-slate-500 transition-all hover:bg-slate-100 active:scale-90 dark:text-slate-400 dark:hover:bg-slate-700"
         >
           ◀
         </button>
         <span className="text-sm font-medium">
           {year} 年 {month + 1} 月
-          <span className="ml-2 text-xs font-normal text-slate-400">
+          <span className="ml-2 text-xs font-normal tabular-nums text-slate-400">
             打卡 {monthStats.days} 天 · {monthStats.minutes} 分钟
           </span>
         </span>
@@ -82,12 +82,13 @@ export default function CheckinCalendar({ logs }: { logs: LearningLogItem[] }) {
           type="button"
           onClick={() => shift(1)}
           aria-label="下一月"
-          className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+          className="rounded px-2 py-1 text-sm text-slate-500 transition-all hover:bg-slate-100 active:scale-90 dark:text-slate-400 dark:hover:bg-slate-700"
         >
           ▶
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-xs">
+      {/* iter 96：翻月淡入 + 格子过渡（有打卡的格子 hover 微放大） */}
+      <div key={`${year}-${month}`} className="grid animate-fade-in grid-cols-7 gap-1 text-center text-xs">
         {WEEKDAYS.map((w) => (
           <div key={w} className="py-1 text-slate-400">
             {w}
@@ -101,9 +102,9 @@ export default function CheckinCalendar({ logs }: { logs: LearningLogItem[] }) {
               key={c.date}
               title={c.minutes > 0 ? `${c.date}：${c.minutes} 分钟` : c.date}
               aria-label={c.minutes > 0 ? `${c.date} 打卡 ${c.minutes} 分钟` : `${c.date} 未打卡`}
-              className={`rounded py-1.5 ${levelClass(c.minutes)} ${
-                c.date === todayStr ? 'ring-2 ring-blue-500' : ''
-              }`}
+              className={`rounded py-1.5 transition-transform duration-150 ${levelClass(c.minutes)} ${
+                c.minutes > 0 ? 'hover:scale-110' : ''
+              } ${c.date === todayStr ? 'ring-2 ring-blue-500' : ''}`}
             >
               {c.day}
             </div>

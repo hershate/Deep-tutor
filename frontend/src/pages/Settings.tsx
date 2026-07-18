@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ProviderManager from '../components/ProviderManager'
 import UserManager from '../components/UserManager'
+import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
 import { ApiError, downloadBackup, getSettings, importBackup, postSetup, type BackupImportResult } from '../lib/api'
 import { setAuth } from '../lib/auth'
@@ -21,19 +22,30 @@ export default function Settings() {
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">设置</h2>
 
-      {setupStatus?.open_mode && <PasswordCard />}
+      {/* iter 96 美化：各卡片错峰入场 */}
+      {setupStatus?.open_mode && (
+        <div className="animate-fade-in-up">
+          <PasswordCard />
+        </div>
+      )}
 
-      <UserManager />
+      <div className="animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+        <UserManager />
+      </div>
 
-      <ProviderManager />
+      <div className="animate-fade-in-up" style={{ animationDelay: '120ms' }}>
+        <ProviderManager />
+      </div>
 
-      <BackupCard />
+      <div className="animate-fade-in-up" style={{ animationDelay: '180ms' }}>
+        <BackupCard />
+      </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400">
         以下为服务端 .env 配置快照（只读）；启用供应商档案后 LLM 调用以档案为准。
       </p>
 
-      {isLoading && <p className="text-slate-500 dark:text-slate-400">加载中…</p>}
+      {isLoading && <SkeletonLines lines={4} />}
       {error && (
         <p role="alert" className="text-red-600 dark:text-red-400">
           {/* err.md D16：显示真实错误信息 */}
@@ -42,7 +54,7 @@ export default function Settings() {
       )}
 
       {data && (
-        <dl className="divide-y rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800">
+        <dl className="animate-fade-in divide-y overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <Row label="模型" value={data.anthropic_model} />
           <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
           <Row label="每日预算 (USD)" value={`$${data.daily_budget_usd}`} />
@@ -95,7 +107,7 @@ function Row({
         ? 'text-amber-600 dark:text-amber-400'
         : 'text-slate-800 dark:text-slate-100' // err.md D11：默认色补 dark 变体（此前深色模式近黑底黑字）
   return (
-    <div className="flex items-center justify-between px-4 py-3">
+    <div className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
       <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className={`text-sm font-medium ${color}`}>{value}</dd>
     </div>
@@ -141,7 +153,7 @@ function BackupCard() {
   }
 
   return (
-    <section className="rounded-lg border bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+    <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">数据备份</h3>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         导出全部学习数据（会话/方案/知识节点/进度/打卡/自学材料）为 JSON 文件，可用于迁移或存档；
@@ -230,7 +242,7 @@ function PasswordCard() {
   }
 
   return (
-    <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+    <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-sm dark:border-amber-800 dark:bg-amber-950">
       <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">设置访问密码</h3>
       <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
         当前免登录运行，局域网内任何人可访问。设置密码后需登录使用（账号 admin）。
@@ -246,7 +258,7 @@ function PasswordCard() {
             autoComplete="new-password"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
-            className="w-40 rounded border px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="w-40 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800"
           />
         </div>
         <div>
@@ -259,20 +271,20 @@ function PasswordCard() {
             autoComplete="new-password"
             value={pw2}
             onChange={(e) => setPw2(e.target.value)}
-            className="w-40 rounded border px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="w-40 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800"
           />
         </div>
         <button
           type="button"
           onClick={submit}
           disabled={busy}
-          className="rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-amber-600 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
         >
           {busy ? '设置中…' : '设置密码'}
         </button>
       </div>
       {err && (
-        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 animate-shake text-xs text-red-600 dark:text-red-400">
           {err}
         </p>
       )}

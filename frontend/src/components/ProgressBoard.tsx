@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { FixedSizeList, type ListChildComponentProps } from 'react-window'
 import { ApiError, getProgress, updateProgress, type ProgressNode, type ProgressStatus } from '../lib/api'
+import { SkeletonLines } from './Skeleton'
 
 interface Props {
   planId: number
@@ -69,9 +70,9 @@ function NodeItem({ node: n, busyNode, onSetStatus, compact }: {
             onClick={() => onSetStatus(n, s)}
             disabled={busyNode === n.node_id}
             aria-pressed={n.status === s}
-            className={`rounded px-2 py-0.5 text-xs ${
+            className={`rounded px-2 py-0.5 text-xs transition-all duration-150 active:scale-95 ${
               n.status === s ? STATUS_STYLE[s] + ' font-medium' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-            } disabled:opacity-50`}
+            } disabled:opacity-50 disabled:active:scale-100`}
           >
             {STATUS_LABEL[s]}
           </button>
@@ -86,7 +87,7 @@ function VirtualRow({ index, style, data }: ListChildComponentProps<RowData>) {
   const n = data.nodes[index]
   return (
     <div style={style}>
-      <div className="mb-2 flex h-10 items-center gap-2 rounded-lg border px-3">
+      <div className="mb-2 flex h-10 items-center gap-2 rounded-lg border px-3 dark:border-slate-700">
         <NodeItem node={n} busyNode={data.busyNode} onSetStatus={data.onSetStatus} compact />
       </div>
     </div>
@@ -152,10 +153,10 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-500 dark:text-slate-400">进度加载中…</p>
+  if (loading) return <SkeletonLines lines={3} />
   if (error)
     return (
-      <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+      <div role="alert" className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </div>
     )
@@ -167,7 +168,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
       <div className="mb-3 flex items-center gap-3">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
           <div
-            className="h-full rounded-full bg-emerald-500 transition-all"
+            className="h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
             style={{ width: `${pct}%` }}
             role="progressbar"
             aria-valuenow={pct}
@@ -176,10 +177,10 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
             aria-label="平均掌握度"
           />
         </div>
-        <span className="text-sm text-slate-600 dark:text-slate-300">平均掌握度 {pct}%</span>
+        <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">平均掌握度 {pct}%</span>
       </div>
       {opError && (
-        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="mb-3 animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
@@ -197,7 +198,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
       ) : (
         <ul className="space-y-2">
           {nodes.map((n) => (
-            <li key={n.node_id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+            <li key={n.node_id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 transition-colors hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600">
               <NodeItem node={n} busyNode={busyNode} onSetStatus={setStatus} />
             </li>
           ))}
