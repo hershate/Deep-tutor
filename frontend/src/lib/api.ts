@@ -1,16 +1,26 @@
 // API 客户端（plan/03 REST API）。
-// 所有请求带 Authorization: Bearer 头（本地单用户认证，plan/03 §一）。
+// 所有请求带 Authorization: Bearer 头（P4 多用户：localStorage JWT 优先，回退 VITE_AUTH_TOKEN，见 lib/auth.ts）。
 // dev 环境经 Vite 代理 /api -> :8000；生产经 nginx 反代。
+
+import { clearAuth, getToken, hasJwtSession, setAuth, type AuthUser } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
 function token(): string {
-  return import.meta.env.VITE_AUTH_TOKEN ?? ''
+  return getToken()
 }
 
 export class ApiError extends Error {
   constructor(public code: string, message: string, public status: number) {
     super(message)
+  }
+}
+
+// JWT 会话下 401（token 过期/用户被删）-> 清本地会话并跳登录页（env token 部署无登录态，不跳）。
+function handleUnauthorized(status: number): void {
+  if (status === 401 && hasJwtSession()) {
+    clearAuth()
+    window.location.assign('/login')
   }
 }
 
@@ -24,6 +34,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     },
   })
   if (!res.ok) {
+    handleUnauthorized(res.status)
     const body = await res.json().catch(() => ({}))
     const err = body?.error ?? {}
     throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
@@ -31,6 +42,42 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
+
+// --- auth（P4 多用户，iter 59）---
+// login 不走 apiFetch（无 token；401 为正常失败路径，不触发跳登录页）。
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = body?.error ?? {}
+    throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+  }
+  setAuth(body.token, body.user as AuthUser)
+  return body.user as AuthUser
+}
+
+export const getMe = () => apiFetch<AuthUser>('/auth/me')
+
+// --- 用户管理（admin，iter 59）---
+export interface AdminUser extends AuthUser {
+  created_at: string
+}
+export interface UserInput {
+  username?: string
+  password?: string
+  name?: string
+  is_admin?: boolean
+}
+export const listUsers = () => apiFetch<{ users: AdminUser[] }>('/users')
+export const createUser = (body: Required<Pick<UserInput, 'username' | 'password'>> & UserInput) =>
+  apiFetch<AdminUser>('/users', { method: 'POST', body: JSON.stringify(body) })
+export const updateUser = (id: number, body: UserInput) =>
+  apiFetch<AdminUser>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteUser = (id: number) => apiFetch<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' })
 
 // --- sessions ---
 export const createSession = (title = '') =>
