@@ -234,8 +234,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        {/* iter 92：key=路由路径，切换页面时主区淡入上移；id 供 skip link 跳转 */}
-        <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up px-4 py-6">{children}</main>
+        {/* iter 92：key=路由路径，切换页面时主区淡入上移；id 供 skip link 跳转；scroll-mt 防吸顶 header 遮挡跳转落点 */}
+        <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up scroll-mt-16 px-4 py-6">{children}</main>
       </div>
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">
