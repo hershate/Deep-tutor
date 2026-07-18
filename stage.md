@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；持续打磨中（iter 73-76：md 导出浏览器化、剪藏冒烟、健康检查增强、deadline/字段校验、zip bomb 防护）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：前端边界打磨（上传进度条等，plan/09 §七）/ 扩展真机加载验证 / 用户新需求。详见 §五 iter 75-76 条。
+**当前下一步**：**P1-P5 全部完成**；plan/09 审计清单复查完毕（iter 75-77 补：健康检查/字段校验/zip bomb 防护/上传进度条）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：扩展真机加载验证（需用户装扩展）/ react-window 大纲虚拟化（§七，长方案才需要）/ 用户新需求。详见 §五 iter 77 条。
 
 ---
 
@@ -232,6 +232,8 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 77（前端边界：上传字节级进度条，commit `322aadf`）**：plan/09 §七「大文件上传 -> 进度条」。[api.ts](frontend/src/lib/api.ts) `uploadMaterial` 改 **XHR**（fetch 上传进度浏览器支持差，`xhr.upload.onprogress` 全量可用；401 统一跳登录、network_error/超时分类）；[Home.tsx](frontend/src/pages/Home.tsx) 每文件实时百分比 + 进度条（aria-live）。前端 build 通过。**用户指示：结束全自动模式，有问题可询问。** §七 余项：react-window 大纲虚拟化（仅超长方案需要，暂缓）；SSE 重连/幻灯片净化已落地。
 
 - **2026-07-18 iter 75-76（plan/09 审计清单复查：字段校验补全 + zip bomb 防护 + 健康检查增强）**：对照 plan/09 §四/§十/§十四/§十六 逐项核查，补三个缺口。
   - **健康检查（commit `2d73f94`）**：[health.py](backend/app/api/health.py) 原仅 `{"status":"ok"}` -> §十四 完整版：恒 200 + `components{db 连通(SELECT 1), skills_loaded, disk_free_mb}`；DB 异常/skills 失败/磁盘 <100MB -> `degraded`；不暴露异常细节与路径（R35）。测试 +4。
