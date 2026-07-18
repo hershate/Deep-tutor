@@ -62,7 +62,20 @@ async def lifespan(app: FastAPI):
         log.warning("音视频转写不可用：未安装 faster-whisper（pip install faster-whisper）")
     skills = get_skill_registry()  # plan/05 §三.2 启动扫描 skills/ -> 注册表
     log.info("Deep-tutor 后端启动完成 (model=%s, skills=%d)", settings.anthropic_model, len(skills))
+    # 定期运维（plan/09 §一：VACUUM + 清孤儿文件，每 24h 后台执行）
+    import asyncio
+
+    from app.core.maintenance import maintenance_loop
+
+    stop_event = asyncio.Event()
+    maintenance_task = asyncio.create_task(maintenance_loop(stop_event))
     yield
+    stop_event.set()
+    maintenance_task.cancel()
+    try:
+        await maintenance_task
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        pass
     log.info("Deep-tutor 后端关闭")
 
 
