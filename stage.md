@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 148（前端美化第 38 轮：hover:bg-blue-500 变体清零）**：全站残留 2 处非品牌主按钮变体（hover:blue-500，品牌模式为 blue-700）——[Wiki.tsx](frontend/src/pages/Wiki.tsx) 空态「去新建方案」、[Settings.tsx](frontend/src/pages/Settings.tsx) 备份卡「导出全部数据」（另补 rounded-lg/shadow-sm/disabled 还原）。另核实并行会话排序选择器（`d9b0f2b`）样式已符合品牌输入件模式，无需调整。至此全站主按钮 hover 色统一。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 147（功能线：Wiki 知识点排序，✅ 完成）**：知识点多了想按薄弱/难度看——加排序选择器。**编号说明**：代码注释自标 iter 146，与并行美化轨 iter 146（第 37 轮）撞号，本条取 147。[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部加排序下拉（默认/掌握度↑薄弱优先/掌握度↓/难度↑/名称 zh locale），组内排序实现于 groups useMemo（默认保持后端顺序不变）（commit `d9b0f2b`）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 146（前端美化第 37 轮：错误横幅动画零残留）**：[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 整板加载失败横幅补 `animate-fade-in`——iter 131 统一品牌横幅后全站 `role="alert"` 逐处复核，此为最后一处无入场动画的横幅（初始加载失败时硬切出现）。至此全站错误提示均为「边框+浅底+fade-in」一致模式。**验证**：`npm run build` 通过。
