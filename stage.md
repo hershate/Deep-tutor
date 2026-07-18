@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 157（前端美化第 44 轮：404 页）**：未知路由此前静默 `<Navigate to="/">`——用户输错 URL/用过期链接毫无感知。新增 [NotFound.tsx](frontend/src/pages/NotFound.tsx)（🧭 EmptyState + 返回首页品牌按钮，居中窄栏），[App.tsx](frontend/src/App.tsx) 内层 catch-all 改挂之。注：本轮构建时被并行会话进行中的 Wiki 错题总览（`getWrongOverview` 未定义）阻塞——系其未完工状态，非本轮改动问题；仅提交 App.tsx/NotFound.tsx，Wiki.tsx/api.ts 留给并行会话。
+
 - **2026-07-19 iter 156（前端美化第 43 轮：掌握度百分比等宽数字）**：残余 2 处掌握度数字补 `tabular-nums`——[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 节点行、[Learn.tsx](frontend/src/pages/Learn.tsx) 复习提醒行（状态切换/测验回写后数字变化不跳动）。另核实并行会话测验统计行（PlanDetail iter 152 切片）已自带 tabular-nums 与 fade-in，无需调整。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 155（功能线：测验历史统计，✅ 完成）**：练过几轮正确率如何无感知——方案详情加测验统计行。**编号说明**：代码注释自标 iter 152，与并行美化轨 iter 152-154（第 40-42 轮）撞号，本条取 155。
