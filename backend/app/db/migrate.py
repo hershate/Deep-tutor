@@ -59,12 +59,22 @@ def detect_stamp(db_url: str) -> str | None:
     return _BASE_REVISION
 
 
+def _ensure_sqlite_parent(db_url: str) -> None:
+    """确保 SQLite 文件父目录存在（全新机器无 data/ 时 sqlite 无法建库文件）。"""
+    prefix = "sqlite:///"
+    if db_url.startswith(prefix):
+        path = db_url[len(prefix) :]
+        if path and path != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+
 def run_migrations(db_url: str | None = None) -> None:
     """对目标库执行 stamp（如需要）+ upgrade head。"""
     if db_url is None:
         from app.core.settings import settings
 
         db_url = settings.sqlite_url
+    _ensure_sqlite_parent(db_url)
     stamp = detect_stamp(db_url)
     cfg = _alembic_config(db_url)
     if stamp:

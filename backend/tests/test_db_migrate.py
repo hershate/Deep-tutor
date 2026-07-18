@@ -38,6 +38,13 @@ def test_fresh_db_upgrades_to_head(tmp_path):
     assert _version(url) == HEAD
 
 
+def test_fresh_db_in_nonexistent_dir(tmp_path):
+    """全新机器无 data/ 目录：迁移自动建父目录（干净检出冒烟暴露的 bug）。"""
+    url = f"sqlite:///{tmp_path / 'sub' / 'dir' / 'm.db'}"
+    run_migrations(url)
+    assert _version(url) == HEAD
+
+
 def test_run_migrations_idempotent(tmp_path):
     url = _url(tmp_path)
     run_migrations(url)
