@@ -119,6 +119,22 @@ export const createSession = (title = '') =>
 export const deleteSession = (id: number) =>
   apiFetch<{ ok: boolean }>(`/sessions/${id}`, { method: 'DELETE' })
 
+// 会话源资料管理（iter 104）：清单 + 单个删除（传错资料可移除后重生成）
+export interface SessionMaterial {
+  material_id: number
+  kind: string // file | url | text
+  source: string // 可读摘要：文件名 / URL / 文本前 200 字
+  parsed_chars: number
+  meta: Record<string, unknown>
+  created_at: string | null
+}
+
+export const getSessionMaterials = (sessionId: number) =>
+  apiFetch<{ items: SessionMaterial[]; total: number }>(`/sessions/${sessionId}/materials`)
+
+export const deleteSessionMaterial = (sessionId: number, materialId: number) =>
+  apiFetch<{ ok: boolean }>(`/sessions/${sessionId}/materials/${materialId}`, { method: 'DELETE' })
+
 // --- materials ---
 export const createTextMaterial = (sessionId: number, text: string) =>
   apiFetch<{ material_id: number; kind: string; meta: Record<string, unknown> }>('/materials/text', {

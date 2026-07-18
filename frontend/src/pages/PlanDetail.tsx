@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
+import MaterialsPanel from '../components/MaterialsPanel'
 import EmptyState from '../components/EmptyState'
 import PlanOutline from '../components/PlanOutline'
 import ProgressBoard from '../components/ProgressBoard'
@@ -71,6 +72,7 @@ export default function PlanDetail() {
   const [shareMsg, setShareMsg] = useState('')
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
   const [tab, setTab] = useState<TabKey>('path')
+  const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
   const [resFilter, setResFilter] = useState('') // 资源 Tab ✅⚠️❌ 筛选（plan/06 §四.4）
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
@@ -88,7 +90,7 @@ export default function PlanDetail() {
     let cancelled = false // err.md D6：快速切换 planId 时旧响应不得覆盖新数据
     setLoading(true)
     getPlan(Number(planId))
-      .then((r) => { if (!cancelled) setPlan((r as { plan: PlanData }).plan) })
+      .then((r) => { if (!cancelled) { setPlan((r as { plan: PlanData }).plan); setSessionId((r as { session_id?: number }).session_id ?? null) } })
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
       .finally(() => { if (!cancelled) setLoading(false) })
     getShare(Number(planId))
@@ -308,6 +310,9 @@ export default function PlanDetail() {
           </ul>
         </section>
       )}
+
+      {/* 源资料清单（iter 104）：可单个删除后重生成 */}
+      {sessionId !== null && <MaterialsPanel sessionId={sessionId} />}
 
       <div role="tablist" aria-label="方案内容" className="flex gap-1 border-b dark:border-slate-700">
         {TABS.map((t) => (
