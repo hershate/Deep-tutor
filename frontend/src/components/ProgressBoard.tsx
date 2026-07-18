@@ -156,7 +156,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
   if (loading) return <SkeletonLines lines={3} />
   if (error)
     return (
-      <div role="alert" className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+      <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </div>
     )
