@@ -77,7 +77,7 @@ export default function Home() {
           id="home-file"
           type="file"
           multiple
-          accept=".pdf,.docx,.pptx,.txt,.md"
+          accept=".pdf,.docx,.pptx,.txt,.md,.png,.jpg,.jpeg,.bmp,.gif,.webp,.tiff,.tif,.mp3,.wav,.m4a,.ogg,.flac,.mp4,.mkv,.mov,.webm,.avi"
           onChange={(e) => {
             addFiles(e.target.files)
             e.target.value = '' // 允许再次选择同一文件
