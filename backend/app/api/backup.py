@@ -1,7 +1,8 @@
 """数据备份端点（iter 93）：整库导出为 JSON 下载 / 从 JSON 追加导入。
 
-- GET  /backup/export  当前用户全部学习资产（凭证除外，见 core/backup.py 边界）
-- POST /backup/import  上传备份 JSON 追加还原（全部新行，不覆盖现有数据）
+- GET  /backup/export   当前用户全部学习资产（凭证除外，见 core/backup.py 边界）
+- POST /backup/import   上传备份 JSON 追加还原（全部新行，不覆盖现有数据）
+- POST /backup/preview  导入预检（iter 159）：只读计数不落库，导入前看清内容
 """
 
 from __future__ import annotations
@@ -42,6 +43,28 @@ def export_backup(
         media_type="application/json; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/preview")
+async def preview_backup_endpoint(
+    file: UploadFile,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """导入预检（iter 159）：解析备份并返回计数，不写库。
+
+    与 /import 同的大小/JSON/结构校验；区别仅在不调用 restore。
+    """
+    raw = await file.read(_MAX_BACKUP_BYTES + 1)
+    if len(raw) > _MAX_BACKUP_BYTES:
+        raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
+    try:
+        return backup_core.preview_backup(data)
+    except backup_core.BackupFormatError as exc:
+        raise ApiError("invalid_backup", str(exc), status=400) from None
 
 
 @router.post("/import")

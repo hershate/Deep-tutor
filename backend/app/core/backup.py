@@ -283,6 +283,35 @@ def validate_backup(data: Any) -> dict:
     return data
 
 
+def preview_backup(data: Any) -> dict:
+    """导入预检（iter 159）：validate + 只读计数，不落库。结构非法抛 BackupFormatError。
+
+    供 POST /backup/preview——用户导入前看清备份里有什么（防误导入错误文件）。
+    计数口径与 restore 的 summary 键一致（另加导出元信息）。
+    """
+    data = validate_backup(data)
+    sessions = [s for s in data["sessions"] if isinstance(s, dict)]
+    plans = [p for s in sessions for p in (s.get("plans") or []) if isinstance(p, dict)]
+    user = data.get("user") or {}
+    return {
+        "version": data.get("version"),
+        "exported_at": data.get("exported_at"),
+        "username": str(user.get("username") or user.get("name") or ""),
+        "sessions": len(sessions),
+        "plans": len(plans),
+        "materials": sum(len(s.get("materials") or []) for s in sessions),
+        "knowledge_nodes": sum(len(p.get("knowledge_nodes") or []) for p in plans),
+        "node_notes": sum(
+            1 for p in plans for n in (p.get("knowledge_nodes") or []) if n.get("note")
+        ),
+        "progress": sum(len(p.get("progress") or []) for p in plans),
+        "learning_logs": sum(len(p.get("learning_logs") or []) for p in plans),
+        "quizzes": sum(len(p.get("quizzes") or []) for p in plans),
+        "study_units": sum(len(p.get("study_units") or []) for p in plans),
+        "provider_profiles": len(data.get("provider_profiles") or []),
+    }
+
+
 def _enum_or(enum_cls, value: Any):
     """字符串 -> 枚举；非法值返回 None（调用方决定跳过或降级）。"""
     try:
