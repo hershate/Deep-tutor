@@ -97,7 +97,10 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
   const [nodes, setNodes] = useState<ProgressNode[]>([])
   const [masteryAvg, setMasteryAvg] = useState(0)
   const [loading, setLoading] = useState(true)
+  // 与 PlanDetail/Learn 同模式（err.md D1/D4）：初始加载错误（整块）与
+  // 操作错误（内联 banner）分离——状态切换失败不再把整块看板替换成裸错误块
   const [error, setError] = useState('')
+  const [opError, setOpError] = useState('')
   const [busyNode, setBusyNode] = useState('')
 
   useEffect(() => {
@@ -124,6 +127,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
   async function setStatus(node: ProgressNode, status: ProgressStatus) {
     if (status === node.status || busyNode) return
     setBusyNode(node.node_id)
+    setOpError('')
     try {
       const r = await updateProgress(planId, node.node_id, status)
       if (r.updated) {
@@ -139,10 +143,10 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
         )
         onChanged?.()
       } else {
-        setError(r.warning ?? '进度更新被忽略')
+        setOpError(r.warning ?? '进度更新被忽略')
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '进度更新失败')
+      setOpError(e instanceof ApiError ? e.message : '进度更新失败')
     } finally {
       setBusyNode('')
     }
@@ -174,6 +178,11 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
         </div>
         <span className="text-sm text-slate-600 dark:text-slate-300">平均掌握度 {pct}%</span>
       </div>
+      {opError && (
+        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
+          {opError}
+        </div>
+      )}
       {nodes.length > VIRTUAL_THRESHOLD ? (
         <FixedSizeList
           height={Math.min(nodes.length * ROW_HEIGHT, MAX_LIST_HEIGHT)}
