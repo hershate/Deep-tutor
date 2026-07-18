@@ -127,3 +127,141 @@ def test_unit_resources_search_failure_returns_empty(monkeypatch):
 
     monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
     assert _run_unit("React 基础") == []
+
+
+# --- iter 62：LLM 内容适配性筛选（verify 可达后批量判定；失败稳定降级为不筛选）---
+
+from app.llm.base import LLMResponse, LLMUsage  # noqa: E402
+
+
+class _ScreenProvider:
+    """fake LLM：记录 system/user，返回预设 content（chat 签名同 AnthropicProvider）。"""
+
+    def __init__(self, content: str | None = None, exc: Exception | None = None):
+        self.content = content
+        self.exc = exc
+        self.calls: list[dict] = []
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        self.calls.append({"system": system, "user": user, "cache_system": cache_system})
+        if self.exc is not None:
+            raise self.exc
+        return LLMResponse(content=self.content or "", usage=LLMUsage(model="m"))
+
+
+def _setup_two_candidates(monkeypatch):
+    """两候选（ok/deep）经 fake Bing + fake verify 均可达 ok。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+
+    async def fake_bing(query, api_key, count=5):
+        return [
+            {"title": f"{query} 入门教程", "url": "https://example.com/intro"},
+            {"title": f"{query} 内核源码剖析", "url": "https://example.com/deep"},
+        ]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+
+def _run_with_provider(provider, skill_registry=None):
+    ctx = ExecContext(
+        session_id="s",
+        trace_id="t",
+        registry=default_registry(),
+        llm_provider=provider,
+        skill_registry=skill_registry,
+    )
+    inp = ToolInput(
+        tool="search_resources",
+        session_id="s",
+        args={"stage_topics": [["Python 基础"]]},
+        upstream={
+            "understand_intent": {"data": {"topic": "Python", "level": "零基础"}},
+            "design_stages": {"data": {"stages": [{"name": "入门"}]}},
+        },
+    )
+    return asyncio.run(search_resources(inp, ctx))
+
+
+def test_screening_drops_unsuitable_and_marks_uncertain(monkeypatch):
+    """suitable=false 丢弃；label=uncertain 降 ⚠️ + note 写入。"""
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider(
+        '[{"url":"https://example.com/intro","suitable":true,"label":"ok","note":""},'
+        '{"url":"https://example.com/deep","suitable":true,"label":"uncertain","note":"内容过深，适合进阶"}]'
+    )
+    out = _run_with_provider(provider)
+    res = out.data["resources"]
+    assert len(res) == 2
+    intro = next(r for r in res if "intro" in r["url"])
+    deep = next(r for r in res if "deep" in r["url"])
+    assert intro["verified"] == "ok" and intro["note"] == ""
+    assert deep["verified"] == "uncertain" and deep["note"] == "内容过深，适合进阶"
+    # 筛选输入含 intent/stage 上下文
+    assert "Python" in provider.calls[0]["user"]
+    assert provider.calls[0]["cache_system"] is True
+
+
+def test_screening_drops_irrelevant(monkeypatch):
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider(
+        '[{"url":"https://example.com/intro","suitable":true,"label":"ok","note":""},'
+        '{"url":"https://example.com/deep","suitable":false,"label":"uncertain","note":"与主题无关"}]'
+    )
+    out = _run_with_provider(provider)
+    res = out.data["resources"]
+    assert len(res) == 1 and "intro" in res[0]["url"]
+
+
+def test_screening_failure_fallback(monkeypatch):
+    """LLM 异常 / 输出不可解析 -> 跳过筛选，保持原判定（稳定降级）。"""
+    _setup_two_candidates(monkeypatch)
+    out = _run_with_provider(_ScreenProvider(exc=RuntimeError("LLM down")))
+    assert len(out.data["resources"]) == 2
+    assert all(r["verified"] == "ok" for r in out.data["resources"])
+
+    out = _run_with_provider(_ScreenProvider("这不是 JSON"))
+    assert len(out.data["resources"]) == 2
+
+    out = _run_with_provider(_ScreenProvider('{"not":"a list"}'))
+    assert len(out.data["resources"]) == 2
+
+
+def test_screening_partial_coverage_keeps_rest(monkeypatch):
+    """响应未覆盖的 url 保持原判定；非法单项跳过不影响其余。"""
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider(
+        '[{"url":"https://example.com/deep","suitable":true,"label":"uncertain","note":"偏深"},'
+        '{"url":123,"suitable":"yes"}]'  # 非法项
+    )
+    out = _run_with_provider(provider)
+    res = out.data["resources"]
+    assert len(res) == 2
+    intro = next(r for r in res if "intro" in r["url"])
+    deep = next(r for r in res if "deep" in r["url"])
+    assert intro["verified"] == "ok"  # 未覆盖 -> 原判定
+    assert deep["verified"] == "uncertain"
+
+
+def test_screening_no_provider_skips(monkeypatch):
+    """无 LLM provider -> 不筛选（既有行为，无需 LLM 也可出方案）。"""
+    _setup_two_candidates(monkeypatch)
+    out = _run({"stage_topics": [["Python 基础"]]})  # _ctx() 无 provider
+    assert len(out.data["resources"]) == 2
+    assert all(r["verified"] == "ok" for r in out.data["resources"])
+
+
+def test_screening_uses_skill_prompt_when_available(monkeypatch):
+    """skill_registry 有 deep-tutor-resources -> system 用 Skill 正文；否则 inline SCREEN_PROMPT。"""
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider("[]")
+    _run_with_provider(provider, skill_registry={"deep-tutor-resources": "SKILL 正文标记"})
+    assert provider.calls[0]["system"] == "SKILL 正文标记"
+
+    provider2 = _ScreenProvider("[]")
+    _run_with_provider(provider2)  # 无 skill -> inline 回退
+    assert provider2.calls[0]["system"] == sr_mod.SCREEN_PROMPT
