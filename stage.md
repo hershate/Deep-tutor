@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P4 多用户进行中——iter 57（认证基础：users 扩展 + pbkdf2/JWT + login/me + 管理员启动收敛）与 iter 58（全端点按用户数据隔离 + providers/usage 按用户）已完成，全量 282 测试通过。下一步 **iter 59：admin 用户管理端点 + 前端登录页/token 存储/注销 + 测试**，随后 iter 60 前端用户管理 UI + 全量验证。详见 §五 iter 57-58 条。
+**当前下一步**：P4 多用户主线（iter 57-60）已全部完成——认证（pbkdf2/JWT/login/me + 管理员启动收敛）、全端点按用户数据隔离、admin 用户管理端点 + 前端登录/注销/用户管理 UI。全量 294 后端测试 + 前端 build 通过。**P4 剩余方向**：云部署（docker-compose 多用户配置/HTTPS）、Skills/MCP 扩展、浏览器插件；或 P5（缓存/导出/协作）；或真机冒烟（配 ADMIN_PASSWORD + 供应商 key 跑登录->生成全链路）。详见 §五 iter 57-60 条。
 
 ---
 
@@ -28,7 +28,7 @@
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
-| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户 iter 57-58 完成：认证 + 数据隔离；iter 59-60 前端登录/用户管理待做） |
+| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户主线 iter 57-60 ✅：认证/隔离/用户管理/登录 UI；云部署、Skills/MCP、浏览器插件待排期） |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
 ---
@@ -233,11 +233,18 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 59-60（P4 多用户：admin 用户管理 + 前端登录/用户管理 UI，✅ 完成）**：
+  - **iter 59 后端（commit `b7fd142`）**：[users.py](backend/app/api/users.py)（新，全部 `require_admin`）：`GET /api/users`（不含 password_hash）、`POST`（username 唯一 409、密码 ≥4 位、空白用户名 400）、`PUT /{id}`（改名/授予撤销管理员/重置密码）、`DELETE /{id}`。**护栏**：禁自降级/自删除；系统至少保留一名管理员（降级或删除最后一名管理员 -> 409）。**删除级联**：先 `cancel_running_generation`（防僵尸编排器任务撞 FK，同 DELETE /sessions 模式）-> ORM 删会话（级联 plans/materials/quizzes 等）-> 删供应商档案/api_usage 行 -> 删用户 -> best-effort 删会话文件目录；被删用户旧 JWT 自然 401（sub 查无此人）。测试 +12（[test_api_users.py](backend/tests/test_api_users.py)：403/401/CRUD/dup 409/校验/重置密码后旧密码失效/三项护栏/级联删除后会话·档案·用量清零）。
+  - **iter 59 前端（commit `519e4e3`）**：[auth.ts](frontend/src/lib/auth.ts)（新）：localStorage `dt_token`/`dt_user`，`getToken()` JWT 优先回退 `VITE_AUTH_TOKEN`（与后端双轨一致，env-token 部署无需登录页）；[api.ts](frontend/src/lib/api.ts)：`token()` 改走 auth.ts；`login()`（不走 apiFetch，401 为正常失败路径）/`getMe()`/users CRUD；`apiFetch` 401 且为 JWT 会话 -> 清会话 + `location.assign('/login')`（token 过期/用户被删自愈）；[Login.tsx](frontend/src/pages/Login.tsx)（新：用户名+密码表单，role=alert 错误，成功后回跳 `location.state.from`）；[App.tsx](frontend/src/App.tsx)：`RequireAuth` 守卫（无任何 token -> /login 并记来源），/login 在 Layout 外；[Layout.tsx](frontend/src/components/Layout.tsx)：显示当前用户（管理员徽标）+ 注销按钮（仅 JWT 会话显示）。
+  - **iter 60（commit `6ec3f6d`）**：[UserManager.tsx](frontend/src/components/UserManager.tsx)（新，嵌入 Settings 页顶部）：用户列表（显示名/@用户名/管理员徽标/当前登录标记）+ 新增表单（用户名/显示名/初始密码/管理员勾选）+ 改名（prompt）+ 重置密码（内联表单）+ 授予/撤销管理员（撤销需 confirm）+ 删除（confirm 明示级联不可恢复）；**403（非管理员）整段隐藏**（retry:false 立即定态；env-token 无用户体系部署同样隐藏）；后端护栏错误（自删/最后管理员 409）经 opError 展示。.env.example 补 P4 配置段（ADMIN_USERNAME/ADMIN_PASSWORD/JWT_SECRET/JWT_EXPIRE_DAYS + 双轨说明）。
+  - **验证**：全量 294 后端测试通过（282+12），前端 build（423KB）通过，零回归。**P4 多用户主线完成**（iter 57-60）。
+  - **待做**：P4 剩余（云部署多用户配置/HTTPS、Skills/MCP 扩展、浏览器插件）；或 P5；或真机冒烟（配 ADMIN_PASSWORD + 供应商 key 跑登录->生成->隔离全链路）；deep-tutor-resources Skill 仍延后。
+
 - **2026-07-18 iter 57-58（P4 多用户：认证基础 + 全端点数据隔离，✅ 完成）**：用户选定 P4 方向并经 AskUserQuestion 确认两项决策：**账号体系=管理员预设+创建**（.env `ADMIN_USERNAME`/`ADMIN_PASSWORD` 启动收敛管理员，管理员后台创建其他用户）/ **供应商档案=按用户隔离**。
   - **iter 57（认证基础，commit `4d1973f`）**：[models.py](backend/app/db/models.py) `User` 增 `username`（命名唯一约束 `uq_users_username`，SQLite 降级需名）/`password_hash`/`is_admin` + 迁移 `169af26b09e7`（升降级验证）；[security.py](backend/app/core/security.py)（新）：`hash_password`/`verify_password`（pbkdf2_hmac sha256 200k 轮，`hmac.compare_digest` 常量时间比较，畸形串->False 不抛）、`create_token`/`decode_token`（JWT HS256，secret 链 `jwt_secret`->`AUTH_TOKEN`->进程级随机）、`ensure_admin_user`（恰一个无 username 旧默认用户 -> 升级为管理员，既有数据随 user_id 归管理员；无则按 .env 密码创建；幂等不抛）；[deps.py](backend/app/api/deps.py) 重写：`require_auth`（JWT 或 AUTH_TOKEN 并行）、`resolve_user`/`get_current_user`/`require_admin`；[auth.py](backend/app/api/auth.py)（新）：`POST /auth/login`（统一 401「用户名或密码错误」防枚举）+ `GET /auth/me`；[main.py](backend/app/main.py) lifespan 调 `ensure_admin_user` + `ADMIN_PASSWORD` 未配置告警。测试 +13（[test_auth.py](backend/tests/test_auth.py)：哈希往返/畸形/JWT 往返/篡改/过期（直接构造过期 payload，PyJWT 内部时钟不可 monkeypatch）/login/me/启动收敛三情形）。
   - **iter 58（数据隔离，commits `5b8a88c`/`e1b7887`）**：schema——`llm_provider_profiles` 增 `user_id` + name 全局唯一改 `(user_id,name)` 复合唯一（旧迁移未命名约束 SQLite 无法按名 drop -> **手工重建表**）；`api_usage` 增 `user_id`；迁移 `a1c4f7e20b58`（旧数据回填首用户，scratch DB 双向验证）。[llm/\_\_init\_\_.py](backend/app/llm/__init__.py)：`get_active_profile(user_id=None)`/`get_provider(user_id=None)`——指定用户仅查其 active 档案（他人档案不可见），None 为无用户上下文全局回退（兼容旧调用/测试）。[deps.py](backend/app/api/deps.py)：`get_owned_session`/`get_owned_plan` 归属守卫——**统一 404 而非 403（不泄露资源存在性，防枚举 id）**；`resolve_user` AUTH_TOKEN 回退路径无用户时自动创建默认用户（旧单用户行为兼容，仅配 AUTH_TOKEN 的部署 P4 后仍可用）。端点全量改造：sessions（create 用当前用户/delete 归属）、plans（generate/clarify/cancel/regenerate 会话或方案归属；list 按 join sessions 过滤、指定他人 session_id->404；`_run_start`/`_materials_sse` 增 `user_id` 参，LLM 调用 `get_provider(user.id)`；`_persist_tool_calls` 的 api_usage 记 `user_id`）、materials（upload/url/text 会话归属；单元内容/标记已学经 unit->plan->session 归属）、exports（方案归属 + slides `get_provider(user_id)`）、quizzes（submit 经 quiz->plan->session 归属）、progress（4 端点方案归属）、providers（全部操作 `user_id` 范围；同名冲突仅同用户判定；activate/deactivate 仅影响本人档案）、usage（仅统计当前用户）。测试 +10（[test_api_isolation.py](backend/tests/test_api_isolation.py)：会话/方案/单元/quiz 跨用户 404、list 按用户过滤、providers 隔离+跨用户同名不冲突+activate 范围、get_provider 按用户、usage 按用户、AUTH_TOKEN 自动建用户兼容）；既有测试零修改通过（get_provider monkeypatch lambda 统一改 `*a, **k` 签名适配新参数）。
   - **验证**：全量 282 测试通过（272+10），零回归。**注意**：`init_db` 为开发模式 `create_all`（不跑迁移）——既有开发库需 `alembic upgrade head` 或删库重建才有新列；生产经 Alembic 迁移。
-  - **待做**：iter 59 admin 用户管理端点（增删改查用户 + 重置密码）+ 前端登录页/token 存储（localStorage 替代 VITE_AUTH_TOKEN）/注销；iter 60 前端用户管理 UI + 全量验证；P4 剩余（云部署、Skills/MCP、浏览器插件）之后排期。
+  - **待做**：iter 59-60 已完成（见上条）；P4 剩余（云部署、Skills/MCP、浏览器插件）之后排期。
 
 - **2026-07-18 iter 54-56（P3 图片 OCR + 音视频转写，✅ 完成）**：用户指示「按顺序稳步推进，注意稳定性（边界/极端）与可用性（无设计缺陷/缺失）」。技术选型对齐 plan/01 §二（pytesseract/PaddleOCR -> 取 pytesseract，R9 明确点名 tesseract 检测；faster-whisper）。环境实测：无 tesseract/pytesseract/faster-whisper/paddleocr，有 ffmpeg 8.0.1。
   - **iter 54-55（解析后端，commits `d5bde7d`/`29feec1`/前端 `2e5a4bb`）**：[parse_material.py](backend/app/tools/parse_material.py) 扩展——`IMAGE_EXTS`（png/jpg/jpeg/bmp/gif/webp/tiff）/`AUDIO_EXTS`（mp3/wav/m4a/ogg/flac）/`VIDEO_EXTS`（mp4/mkv/mov/webm/avi）入 `SUPPORTED_FILE_EXTS`；`_parse_image`（tesseract 二进制 + pytesseract；`shutil.which` 检测，缺失 -> `dependency_missing` + 安装提示（R9）；语言包缺失 TesseractError -> 回退 eng 重试一次；120s 超时 -> `upstream_timeout`；空识别 -> `empty_content`）；`_parse_media`（faster-whisper CPU/int8，settings.whisper_model=base；ffprobe 时长守卫 >media_max_minutes=30 -> `payload_too_large`，ffprobe 缺失优雅跳过；segments 拼接；空转写 -> `empty_content`）；kind 支持 `image/audio/video` 别名（按路径+扩展名分发）；`ocr_available()`/`whisper_available()` 检测函数。**稳定性护栏**：二进制格式（PDF/DOCX/PPTX/图片/音视频）解析异常不再按文本回读（防乱码垃圾注入下游 LLM），改返空 -> `empty_content` 明确报错。[settings.py](backend/app/core/settings.py) 增 `ocr_languages`(eng+chi_sim)/`whisper_model`(base)/`media_max_minutes`(30)；[materials.py](backend/app/api/materials.py) magic 增 png/jpg/gif/bmp；[main.py](backend/app/main.py) 启动 R9 告警；requirements 加 pytesseract/Pillow（faster-whisper 注释为可选）。前端 Home accept 扩展。测试 +16（依赖缺失/成功/语言回退/超时/空文本/时长守卫/转写拼接/二进制护栏/上传 png 校验与 magic 不符；fake 模块注入 sys.modules 不触发真实 OCR/转写）。
