@@ -16,10 +16,12 @@ from app.llm.pricing import estimate_cost
 
 
 class AnthropicProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str, *, client: AsyncAnthropic | None = None) -> None:
+    def __init__(
+        self, api_key: str, model: str, *, base_url: str | None = None, client: AsyncAnthropic | None = None
+    ) -> None:
         self._model = model
-        # 允许注入 client（测试用）；否则按 api_key 创建
-        self._client = client or AsyncAnthropic(api_key=api_key)
+        # 允许注入 client（测试用）；否则按 api_key 创建（base_url 支持自定义 Anthropic 兼容端点，iter 50）
+        self._client = client or AsyncAnthropic(api_key=api_key, base_url=base_url or None)
 
     async def chat(
         self,

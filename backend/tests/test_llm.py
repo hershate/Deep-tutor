@@ -138,3 +138,63 @@ def test_get_provider_raises_without_key(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")
     with pytest.raises(RuntimeError):
         get_provider()
+
+
+# --- iter 50：get_provider 多档案切换（DB active 档案优先，回退 .env）---
+
+
+def _insert_profile(name="自定义", base_url="https://relay.example.com", api_key="sk-profile", model="", is_active=True):
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        p = models.LlmProviderProfile(
+            name=name, base_url=base_url, api_key=api_key, model=model, is_active=is_active
+        )
+        db.add(p)
+        db.commit()
+        db.refresh(p)
+        return p.id
+    finally:
+        db.close()
+
+
+def test_get_provider_prefers_active_profile(monkeypatch):
+    """active 档案优先：key/base_url 取档案；model 空 -> settings.anthropic_model。"""
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "sk-env")
+    monkeypatch.setattr(settings_mod.settings, "anthropic_model", "claude-sonnet-5")
+    _insert_profile()
+    p = get_provider()
+    assert p._client.api_key == "sk-profile"
+    assert "relay.example.com" in str(p._client.base_url)
+    assert p._model == "claude-sonnet-5"  # 档案 model 空 -> 回退 settings
+
+
+def test_get_provider_profile_model_override():
+    """档案 model 非空 -> 覆盖 settings 默认模型。"""
+    _insert_profile(model="claude-opus-4-8")
+    p = get_provider()
+    assert p._model == "claude-opus-4-8"
+
+
+def test_get_provider_inactive_profile_falls_back_to_env(monkeypatch):
+    """无 active 档案 -> .env 路径（行为同前）。"""
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "sk-env")
+    _insert_profile(is_active=False)
+    p = get_provider()
+    assert p._client.api_key == "sk-env"
+
+
+def test_get_active_profile_db_failure_returns_none(monkeypatch):
+    """DB 读取异常 -> None（回退 .env，不阻断）。"""
+    import app.llm as llm_mod
+    from app.db import base as db_base
+
+    monkeypatch.setattr(db_base, "SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    # SessionLocal 在函数内局部导入，需 patch 源头模块
+    assert llm_mod.get_active_profile() is None

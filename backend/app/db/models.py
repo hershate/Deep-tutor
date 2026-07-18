@@ -355,3 +355,23 @@ class StudyMaterial(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     unit: Mapped[StudyUnit] = relationship(back_populates="materials")
+
+
+class LlmProviderProfile(Base):
+    """LLM 供应商档案（用户自定义供应商，类 CC-switch，iter 50）。
+
+    多档案切换：is_active 唯一生效（API 层保证同时至多一个）；
+    get_provider() 优先取 active 档案，否则回退 .env（ANTHROPIC_API_KEY）。
+    api_key 仅存本机 SQLite，API 层不回显明文（仅掩码末 4 位）。
+    base_url 为空 -> Anthropic 官方端点；model 为空 -> settings.anthropic_model。
+    """
+
+    __tablename__ = "llm_provider_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    api_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
