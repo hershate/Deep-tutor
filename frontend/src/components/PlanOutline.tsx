@@ -50,7 +50,12 @@ function MapNode({ node, childrenMap, depth }: {
           <span className="w-5 shrink-0 text-center text-slate-300">·</span>
         )}
         <span className="text-sm">
-          {node.must_learn && <span className="text-amber-500" title="必学">★ </span>}
+          {node.must_learn && (
+            <>
+              <span aria-hidden="true" className="text-amber-500" title="必学">★ </span>
+              <span className="sr-only">必学：</span>
+            </>
+          )}
           {node.name}
         </span>
         {node.difficulty !== undefined && (
@@ -96,7 +101,18 @@ function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen
           {s.topics && s.topics.length > 0 && (
             <ul className="mt-2 text-sm">
               {s.topics.map((t, i) => (
-                <li key={i}>{t.must_learn ? '★ ' : '· '}{t.name}{t.why ? `（${t.why}）` : ''}</li>
+                <li key={i}>
+                  {t.must_learn ? (
+                    <>
+                      <span aria-hidden="true" className="text-amber-500">★ </span>
+                      <span className="sr-only">必学：</span>
+                    </>
+                  ) : (
+                    '· '
+                  )}
+                  {t.name}
+                  {t.why ? `（${t.why}）` : ''}
+                </li>
               ))}
             </ul>
           )}
@@ -126,8 +142,10 @@ export default function PlanOutline({ stages, knowledgeMap }: Props) {
     <div className="space-y-4">
       {stages && stages.length > 0 && (
         <section className="space-y-3" aria-label="学习阶段">
-          {stages.map((s) => (
-            <StageCard key={s.index} stage={s} defaultOpen={s.index === 0} />
+          {stages.map((s, i) => (
+            <div key={s.index} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}>
+              <StageCard stage={s} defaultOpen={s.index === 0} />
+            </div>
           ))}
         </section>
       )}
