@@ -116,7 +116,7 @@ export default function Plans() {
                       </span>
                     )}
                   </span>
-                  <span className="ml-3 shrink-0 text-xs text-slate-400">
+                  <span className="ml-3 shrink-0 text-xs tabular-nums text-slate-400">
                     {p.created_at.slice(0, 16).replace('T', ' ')}
                   </span>
                   <span aria-hidden="true" className="ml-2 shrink-0 text-slate-300 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-500 dark:text-slate-600 dark:group-hover:text-blue-400">
@@ -143,17 +143,17 @@ export default function Plans() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="rounded border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
+            className="rounded-lg border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
           >
             上一页
           </button>
-          <span className="text-slate-500 dark:text-slate-400">
+          <span className="tabular-nums text-slate-500 dark:text-slate-400">
             {page} / {pages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(pages, p + 1))}
             disabled={page >= pages}
-            className="rounded border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
+            className="rounded-lg border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
           >
             下一页
           </button>
