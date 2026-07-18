@@ -125,12 +125,12 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="自学材料"
-        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl bg-white dark:bg-slate-800 shadow-xl"
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <h3 className="font-semibold">自学材料</h3>
           <div className="flex items-center gap-2">
-            <label htmlFor="materials-depth" className="text-sm text-slate-600">
+            <label htmlFor="materials-depth" className="text-sm text-slate-600 dark:text-slate-300">
               深度
             </label>
             <select
@@ -150,7 +150,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             <button
               onClick={onClose}
               aria-label="关闭"
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50"
+              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               关闭
             </button>
@@ -159,7 +159,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         <div className="flex min-h-[40vh] flex-1 flex-col overflow-hidden px-6 py-4">
           {loading && (
             <div>
-              <p className="text-slate-500">生成中…（逐单元组织材料，约需数十秒）</p>
+              <p className="text-slate-500 dark:text-slate-400">生成中…（逐单元组织材料，约需数十秒）</p>
               {progress.length > 0 && (
                 <ul aria-live="polite" className="mt-3 space-y-1 text-sm">
                   {progress.map((p) => (
@@ -167,13 +167,13 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
                       <span aria-hidden="true">
                         {p.state === 'generating' ? '⏳' : p.state === 'degraded' ? '⚠️' : '✅'}
                       </span>
-                      <span className={p.state === 'generating' ? 'text-slate-500' : ''}>
+                      <span className={p.state === 'generating' ? 'text-slate-500 dark:text-slate-400' : ''}>
                         单元 {p.order}/{p.total}：{p.title}
                         <span className="sr-only">
                           {p.state === 'generating' ? '（生成中）' : p.state === 'degraded' ? '（已降级为简要大纲）' : '（已完成）'}
                         </span>
                       </span>
-                      {p.state === 'degraded' && <span className="text-amber-600">已降级为简要大纲</span>}
+                      {p.state === 'degraded' && <span className="text-amber-600 dark:text-amber-400">已降级为简要大纲</span>}
                     </li>
                   ))}
                 </ul>
@@ -181,14 +181,14 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             </div>
           )}
           {error && (
-            <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
               {error}
             </div>
           )}
           {!loading && !error && (
             <>
               {warning && (
-                <div className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-700">{warning}</div>
+                <div className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-700">{warning}</div>
               )}
               <StudyMaterialReader units={units} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
             </>

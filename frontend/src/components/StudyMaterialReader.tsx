@@ -64,7 +64,7 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
     }
   }
 
-  if (units.length === 0) return <p className="text-sm text-slate-500">暂无自学单元</p>
+  if (units.length === 0) return <p className="text-sm text-slate-500 dark:text-slate-400">暂无自学单元</p>
 
   return (
     <div className="flex min-h-0 flex-1 gap-4">
@@ -77,13 +77,13 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
                 onClick={() => setCurrentId(u.id)}
                 aria-current={u.id === currentId ? 'true' : undefined}
                 className={`w-full rounded px-2 py-1.5 text-left text-sm ${
-                  u.id === currentId ? 'bg-blue-50 font-medium text-blue-700' : 'hover:bg-slate-50'
+                  u.id === currentId ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
                 <span className="mr-1 text-xs text-slate-400">{i + 1}.</span>
                 {u.title}
                 {u.done && (
-                  <span className="ml-1 text-xs text-green-600" aria-label="已学">
+                  <span className="ml-1 text-xs text-green-600 dark:text-green-400" aria-label="已学">
                     ✓<span className="sr-only">（已学）</span>
                   </span>
                 )}
@@ -95,15 +95,15 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
 
       {/* 内容区 */}
       <div className="min-w-0 flex-1 overflow-y-auto">
-        {loading && <p className="text-sm text-slate-500">加载单元内容…</p>}
+        {loading && <p className="text-sm text-slate-500 dark:text-slate-400">加载单元内容…</p>}
         {error && (
-          <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
             {error}
           </div>
         )}
         {!loading && !error && current && (
           <>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               {current.estimated_time && <span>预计 {current.estimated_time}</span>}
               {current.objectives.length > 0 && <span>目标：{current.objectives.join('；')}</span>}
             </div>
@@ -113,8 +113,8 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
               </ReactMarkdown>
             </div>
             {resources.length > 0 && (
-              <div className="mt-3 rounded-lg border border-slate-200 p-3">
-                <h4 className="mb-1 text-xs font-medium text-slate-500">参考资料</h4>
+              <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                <h4 className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">参考资料</h4>
                 <ul className="space-y-1 text-sm">
                   {resources.map((r, i) => (
                     <li key={i} className="flex items-center gap-1.5">
@@ -137,7 +137,7 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
               <button
                 onClick={() => idx > 0 && setCurrentId(units[idx - 1].id)}
                 disabled={idx <= 0}
-                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40"
+                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40"
               >
                 上一单元
               </button>
@@ -148,8 +148,8 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
                   aria-pressed={current.done}
                   className={`rounded-lg px-3 py-1.5 text-sm ${
                     current.done
-                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                      : 'border hover:bg-slate-50'
+                      ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200'
+                      : 'border hover:bg-slate-50 dark:hover:bg-slate-700'
                   } disabled:opacity-50`}
                 >
                   {current.done ? '✓ 已学（点击取消）' : '标记已学'}
@@ -164,7 +164,7 @@ export default function StudyMaterialReader({ units, onUnitsChange, onOpenQuiz }
               <button
                 onClick={() => idx < units.length - 1 && setCurrentId(units[idx + 1].id)}
                 disabled={idx < 0 || idx >= units.length - 1}
-                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40"
+                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40"
               >
                 下一单元
               </button>

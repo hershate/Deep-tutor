@@ -35,7 +35,7 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
   }, [days])
 
   if (days.length === 0) {
-    return <p className="text-sm text-slate-500">暂无日程数据（方案未含 schedule）。</p>
+    return <p className="text-sm text-slate-500 dark:text-slate-400">暂无日程数据（方案未含 schedule）。</p>
   }
 
   const totalMin = days.reduce((s, d) => s + (d.est_minutes ?? 0), 0)
@@ -43,12 +43,12 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-slate-600 dark:text-slate-300">
         共 {days.length} 个学习日 · 约 {hours} 小时 · {days[0].date} ~ {days[days.length - 1].date}
       </p>
       {weeks.map(([week, ds]) => (
         <section key={week} aria-label={`第 ${week} 周`}>
-          <h4 className="mb-1.5 text-sm font-semibold text-slate-500">第 {week} 周</h4>
+          <h4 className="mb-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">第 {week} 周</h4>
           <ul className="space-y-1.5">
             {ds.map((d) => {
               const t = new Date(d.date + 'T00:00:00')
@@ -57,17 +57,17 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
               return (
                 <li
                   key={d.date}
-                  className="flex flex-wrap items-baseline gap-x-3 rounded-lg border bg-white px-3 py-2 text-sm"
+                  className="flex flex-wrap items-baseline gap-x-3 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 px-3 py-2 text-sm"
                 >
-                  <span className="shrink-0 font-medium text-slate-700">
+                  <span className="shrink-0 font-medium text-slate-700 dark:text-slate-200">
                     {d.date.slice(5)} {weekday}
                   </span>
                   {stageName && (
-                    <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-700">
+                    <span className="shrink-0 rounded bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 text-xs text-indigo-700 dark:text-indigo-300">
                       {stageName}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 text-slate-600">{(d.tasks ?? []).join('、')}</span>
+                  <span className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">{(d.tasks ?? []).join('、')}</span>
                   {d.est_minutes !== undefined && (
                     <span className="shrink-0 text-xs text-slate-400">{d.est_minutes} 分钟</span>
                   )}

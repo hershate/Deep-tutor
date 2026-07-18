@@ -173,14 +173,14 @@ export default function PlanDetail() {
     })
   }
 
-  if (loading) return <p className="text-slate-500">加载方案…</p>
+  if (loading) return <p className="text-slate-500 dark:text-slate-400">加载方案…</p>
   if (error)
     return (
-      <div role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">
+      <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-red-700 dark:text-red-300">
         {error}
       </div>
     )
-  if (!plan) return <p className="text-slate-500">无方案数据</p>
+  if (!plan) return <p className="text-slate-500 dark:text-slate-400">无方案数据</p>
 
   return (
     <div className="space-y-6">
@@ -202,14 +202,14 @@ export default function PlanDetail() {
             <option value="anki">Anki 卡片包</option>
             <option value="pdf">PDF</option>
           </select>
-          <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
+          <button onClick={doExport} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700">
             导出
           </button>
-          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50">
+          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700">
             {share?.shared ? '复制分享链接' : '分享'}
           </button>
           {share?.shared && (
-            <button onClick={doRevokeShare} className="rounded-lg border px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+            <button onClick={doRevokeShare} className="rounded-lg border px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950">
               撤销分享
             </button>
           )}
@@ -233,8 +233,8 @@ export default function PlanDetail() {
           </button>
         </div>
       </div>
-      {exportUrl && <div className="text-xs text-slate-500">已导出: {exportUrl}</div>}
-      {shareMsg && <div className="break-all text-xs text-emerald-600">{shareMsg}</div>}
+      {exportUrl && <div className="text-xs text-slate-500 dark:text-slate-400">已导出: {exportUrl}</div>}
+      {shareMsg && <div className="break-all text-xs text-emerald-600 dark:text-emerald-400">{shareMsg}</div>}
 
       {showMaterials && planId && (
         <MaterialsModal
@@ -257,9 +257,9 @@ export default function PlanDetail() {
       )}
 
       {plan.intent && (
-        <section className="rounded-lg border bg-white p-4">
+        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
           <h3 className="mb-2 font-semibold">学习意图</h3>
-          <ul className="text-sm text-slate-600">
+          <ul className="text-sm text-slate-600 dark:text-slate-300">
             {plan.intent.level && <li>基础: {plan.intent.level}</li>}
             {plan.intent.goal && <li>目标: {plan.intent.goal}</li>}
             {plan.intent.daily_minutes && <li>每日: {plan.intent.daily_minutes} 分钟</li>}
@@ -276,8 +276,8 @@ export default function PlanDetail() {
             onClick={() => setTab(t.key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === t.key
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-blue-600 text-blue-700 dark:text-blue-300'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:text-slate-200'
             }`}
           >
             {t.label}
@@ -302,7 +302,7 @@ export default function PlanDetail() {
           {plan.resources && plan.resources.length > 0 ? (
             <>
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-slate-500">筛选：</span>
+                <span className="text-slate-500 dark:text-slate-400">筛选：</span>
                 {[
                   { v: '', label: '全部' },
                   { v: 'ok', label: '✅ 已验证' },
@@ -314,14 +314,14 @@ export default function PlanDetail() {
                     onClick={() => setResFilter(f.v)}
                     aria-pressed={resFilter === f.v}
                     className={`rounded-full border px-3 py-1 text-xs ${
-                      resFilter === f.v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'
+                      resFilter === f.v ? 'border-blue-600 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
                     }`}
                   >
                     {f.label}
                   </button>
                 ))}
               </div>
-              <ul className="space-y-1 rounded-lg border bg-white p-4 text-sm">
+              <ul className="space-y-1 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4 text-sm">
                 {plan.resources
                   .filter((r) => !resFilter || (r.verified ?? '') === resFilter)
                   .map((r, i) => (
@@ -338,7 +338,7 @@ export default function PlanDetail() {
               </ul>
             </>
           ) : (
-            <p className="text-sm text-slate-500">暂无配套资源。</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">暂无配套资源。</p>
           )}
         </div>
       )}
@@ -346,7 +346,7 @@ export default function PlanDetail() {
       {tab === 'report' && (
         <div role="tabpanel" aria-label="校验报告">
           {plan.validation_report ? (
-            <section className="rounded-lg border bg-white p-4">
+            <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
               <h3 className="mb-2 font-semibold">
                 校验报告: {plan.validation_report.passed ? '通过 ✅' : '未通过 ⚠️'}
               </h3>
@@ -359,7 +359,7 @@ export default function PlanDetail() {
               )}
               {plan.validation_report.fixes && plan.validation_report.fixes.length > 0 && (
                 <div className="mt-2 text-sm">
-                  <span className="text-slate-500">修复建议：</span>
+                  <span className="text-slate-500 dark:text-slate-400">修复建议：</span>
                   <ul className="list-disc pl-5">
                     {plan.validation_report.fixes.map((f, i) => (
                       <li key={i}>{f}</li>
@@ -369,23 +369,23 @@ export default function PlanDetail() {
               )}
             </section>
           ) : (
-            <p className="text-sm text-slate-500">暂无校验报告。</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">暂无校验报告。</p>
           )}
         </div>
       )}
 
       {planId && (
-        <section className="rounded-lg border bg-white p-4" aria-label="学习进度">
+        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="学习进度">
           <h3 className="mb-2 font-semibold">学习进度</h3>
           <ProgressBoard planId={Number(planId)} refreshToken={progressKey} />
         </section>
       )}
 
-      <section className="rounded-lg border bg-white p-4 space-y-3" aria-label="重生成方案">
+      <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4 space-y-3" aria-label="重生成方案">
         <h3 className="font-semibold">重生成</h3>
-        <p className="text-sm text-slate-500">从选定工具起级联重跑其下游，生成新版本方案（plan.version+1）。</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">从选定工具起级联重跑其下游，生成新版本方案（plan.version+1）。</p>
         <div className="flex items-center gap-2">
-          <label htmlFor="regen-scope" className="text-sm text-slate-600">
+          <label htmlFor="regen-scope" className="text-sm text-slate-600 dark:text-slate-300">
             起点
           </label>
           <select
@@ -402,12 +402,12 @@ export default function PlanDetail() {
           </select>
         </div>
         <div className="space-y-1">
-          <label htmlFor="regen-feedback" className="block text-sm text-slate-600">
+          <label htmlFor="regen-feedback" className="block text-sm text-slate-600 dark:text-slate-300">
             反馈（可选）
           </label>
           <textarea
             id="regen-feedback"
-            className="w-full rounded border border-slate-300 p-2 text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded border border-slate-300 dark:border-slate-600 p-2 text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="如：简化阶段、增加资源、调整难度梯度"
             value={regenFeedback}
             onChange={(e) => setRegenFeedback(e.target.value)}
@@ -422,7 +422,7 @@ export default function PlanDetail() {
           {regenLoading ? '重生成中…' : '重生成'}
         </button>
         {regenError && (
-          <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
             {regenError}
           </div>
         )}

@@ -86,19 +86,19 @@ export default function GenerateProgress() {
           {status === 'running' && (
             <button
               onClick={() => cancelGeneration(Number(sessionId)).catch(() => {})}
-              className="rounded-lg border px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border px-3 py-1 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               取消
             </button>
           )}
         </div>
-        <span className="text-sm text-slate-500">费用 ${cost.toFixed(4)}</span>
+        <span className="text-sm text-slate-500 dark:text-slate-400">费用 ${cost.toFixed(4)}</span>
       </div>
-      <p className="text-sm text-slate-500">会话 #{sessionId}</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">会话 #{sessionId}</p>
 
       <ul className="space-y-2">
         {steps.map((st, i) => (
-          <li key={i} className="flex items-center gap-3 rounded-lg border bg-white p-3">
+          <li key={i} className="flex items-center gap-3 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-3">
             <span className="w-5 text-center">
               <span aria-hidden="true">
                 {st.status === 'running' ? '⏳' : st.status === 'error' ? '❌' : '✅'}
@@ -118,7 +118,7 @@ export default function GenerateProgress() {
       </ul>
 
       {status === 'error' && (
-        <div role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">
+        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
           <p className="font-medium">生成失败</p>
           <p className="text-sm">{error}</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
@@ -128,7 +128,7 @@ export default function GenerateProgress() {
       )}
 
       {status === 'cancelled' && (
-        <div className="rounded-lg bg-slate-100 p-4 text-slate-700">
+        <div className="rounded-lg bg-slate-100 dark:bg-slate-700 p-4 text-slate-700 dark:text-slate-200">
           <p className="font-medium">已取消</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
             返回首页

@@ -34,13 +34,13 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm bg-white border rounded-lg shadow-sm p-6">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-800 px-4">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-800 border rounded-lg shadow-sm p-6">
         <h1 className="text-lg font-semibold tracking-tight mb-1">Deep-tutor</h1>
-        <p className="text-sm text-slate-500 mb-5">请登录以继续</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">请登录以继续</p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label htmlFor="login-username" className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="login-username" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
               用户名
             </label>
             <input
@@ -54,7 +54,7 @@ export default function Login() {
             />
           </div>
           <div>
-            <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
               密码
             </label>
             <input
@@ -68,7 +68,7 @@ export default function Login() {
             />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
               {error}
             </p>
           )}

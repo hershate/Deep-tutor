@@ -17,15 +17,15 @@ export default function Usage() {
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
         >
           {isFetching ? '刷新中…' : '刷新'}
         </button>
       </div>
 
-      {isLoading && <p className="text-slate-500">加载中…</p>}
+      {isLoading && <p className="text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && (
-        <p role="alert" className="text-red-600">
+        <p role="alert" className="text-red-600 dark:text-red-400">
           加载失败（请确认已配置认证 token）
         </p>
       )}
@@ -38,7 +38,7 @@ export default function Usage() {
             <Stat label="缓存命中率" value={`${(data.cache_hit_rate * 100).toFixed(1)}%`} />
             <Stat label="API 调用数" value={String(data.calls)} />
           </dl>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             汇总所有会话的 LLM 调用（api_usage 表，成本计量 Pillar 3）。
           </p>
         </>
@@ -49,8 +49,8 @@ export default function Usage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <dt className="text-xs text-slate-500">{label}</dt>
+    <div className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="mt-1 text-xl font-semibold">{value}</dd>
     </div>
   )

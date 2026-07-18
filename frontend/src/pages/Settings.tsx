@@ -19,19 +19,19 @@ export default function Settings() {
 
       <ProviderManager />
 
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-slate-500 dark:text-slate-400">
         以下为服务端 .env 配置快照（只读）；启用供应商档案后 LLM 调用以档案为准。
       </p>
 
-      {isLoading && <p className="text-slate-500">加载中…</p>}
+      {isLoading && <p className="text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && (
-        <p role="alert" className="text-red-600">
+        <p role="alert" className="text-red-600 dark:text-red-400">
           加载失败（请确认已配置认证 token）
         </p>
       )}
 
       {data && (
-        <dl className="divide-y rounded-lg border bg-white">
+        <dl className="divide-y rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800">
           <Row label="模型" value={data.anthropic_model} />
           <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
           <Row label="每日预算 (USD)" value={`$${data.daily_budget_usd}`} />
@@ -79,10 +79,10 @@ function Row({
   status?: 'ok' | 'warn'
 }) {
   const color =
-    status === 'ok' ? 'text-green-600' : status === 'warn' ? 'text-amber-600' : 'text-slate-800'
+    status === 'ok' ? 'text-green-600 dark:text-green-400' : status === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800'
   return (
     <div className="flex items-center justify-between px-4 py-3">
-      <dt className="text-sm text-slate-600">{label}</dt>
+      <dt className="text-sm text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className={`text-sm font-medium ${color}`}>{value}</dd>
     </div>
   )

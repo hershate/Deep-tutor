@@ -95,7 +95,7 @@ export default function ProviderManager() {
   }
 
   return (
-    <section aria-label="LLM 供应商" className="rounded-lg border bg-white p-4">
+    <section aria-label="LLM 供应商" className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold">LLM 供应商</h3>
         <div className="flex items-center gap-2">
@@ -103,7 +103,7 @@ export default function ProviderManager() {
             <button
               onClick={() => void run(deactivateProviders)}
               disabled={busy}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
             >
               停用全部（回退 .env）
             </button>
@@ -120,19 +120,19 @@ export default function ProviderManager() {
           </button>
         </div>
       </div>
-      <p className="mb-3 text-xs text-slate-500">
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
         启用任一档案后，所有 LLM 调用走该供应商（Anthropic 兼容端点）；全部停用则回退服务端 .env 配置。
       </p>
 
       {opError && (
-        <div role="alert" className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
 
       {showForm && (
         <form
-          className="mb-4 space-y-2 rounded-lg border border-slate-200 p-3"
+          className="mb-4 space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
@@ -196,7 +196,7 @@ export default function ProviderManager() {
                 setForm(EMPTY_FORM)
                 setOpError('')
               }}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50"
+              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -204,21 +204,21 @@ export default function ProviderManager() {
         </form>
       )}
 
-      {isLoading && <p className="text-sm text-slate-500">加载中…</p>}
+      {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           供应商列表加载失败
         </p>
       )}
       {!isLoading && !error && providers.length === 0 && (
-        <p className="text-sm text-slate-500">暂无自定义供应商，当前使用服务端 .env 配置。</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义供应商，当前使用服务端 .env 配置。</p>
       )}
       <ul className="space-y-2">
         {providers.map((p) => (
           <li
             key={p.id}
             className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 ${
-              p.is_active ? 'border-green-300 bg-green-50' : 'border-slate-200'
+              p.is_active ? 'border-green-300 bg-green-50 dark:bg-green-950' : 'border-slate-200 dark:border-slate-700'
             }`}
           >
             <div className="min-w-0">
@@ -228,13 +228,13 @@ export default function ProviderManager() {
                   <span className="rounded bg-green-600 px-1.5 py-0.5 text-xs text-white">使用中</span>
                 )}
               </div>
-              <div className="mt-0.5 truncate text-xs text-slate-500">
+              <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                 {p.base_url || 'Anthropic 官方端点'} · {p.model || '默认模型'} · Key {p.api_key_masked}
               </div>
               {testResults[p.id] && (
                 <div
                   role="status"
-                  className={`mt-0.5 text-xs ${testResults[p.id].ok ? 'text-green-600' : 'text-red-600'}`}
+                  className={`mt-0.5 text-xs ${testResults[p.id].ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
                 >
                   {testResults[p.id].message}
                 </div>
@@ -244,7 +244,7 @@ export default function ProviderManager() {
               <button
                 onClick={() => void runTest(p.id)}
                 disabled={testingId === p.id}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
               >
                 {testingId === p.id ? '测试中…' : '测试'}
               </button>
@@ -252,7 +252,7 @@ export default function ProviderManager() {
                 <button
                   onClick={() => void run(() => activateProvider(p.id))}
                   disabled={busy}
-                  className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
                 >
                   启用
                 </button>
@@ -260,7 +260,7 @@ export default function ProviderManager() {
               <button
                 onClick={() => startEdit(p)}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
               >
                 编辑
               </button>
@@ -270,7 +270,7 @@ export default function ProviderManager() {
                     void run(() => deleteProvider(p.id))
                 }}
                 disabled={busy}
-                className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950 disabled:opacity-50"
               >
                 删除
               </button>

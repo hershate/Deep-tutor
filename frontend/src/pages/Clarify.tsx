@@ -58,7 +58,7 @@ export default function Clarify() {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">补充信息</h2>
-      <p className="text-slate-600">为了生成更贴合的学习方案，请回答以下问题：</p>
+      <p className="text-slate-600 dark:text-slate-300">为了生成更贴合的学习方案，请回答以下问题：</p>
 
       <div className="space-y-3">
         {questions.map((q, i) => {
@@ -70,7 +70,7 @@ export default function Clarify() {
               </label>
               <input
                 id={inputId}
-                className="w-full rounded-lg border border-slate-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={answers[q] ?? ''}
                 onChange={(e) => setAnswers((a) => ({ ...a, [q]: e.target.value }))}
                 placeholder="你的回答…"
@@ -81,7 +81,7 @@ export default function Clarify() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}

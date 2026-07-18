@@ -85,16 +85,16 @@ export default function Home() {
     <div className="space-y-6">
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">开始生成你的学习方案</h2>
-        <p className="text-slate-600">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
+        <p className="text-slate-600 dark:text-slate-300">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="home-rawtext" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           需求描述
         </label>
         <textarea
           id="home-rawtext"
-          className="w-full min-h-[120px] rounded-lg border border-slate-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
@@ -102,7 +102,7 @@ export default function Home() {
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="home-file" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="home-file" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           学习资料（可选，可多选）
         </label>
         <input
@@ -117,7 +117,7 @@ export default function Home() {
           className="text-sm"
         />
         {files.length > 0 && (
-          <ul className="space-y-1 text-sm text-slate-600">
+          <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
             {files.map((f, i) => (
               <li key={`${f.name}-${i}`} className="flex items-center gap-2">
                 <span className="truncate">{f.name}</span>
@@ -125,7 +125,7 @@ export default function Home() {
                   type="button"
                   onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${f.name}`}
-                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-600 dark:text-red-400"
                 >
                   移除
                 </button>
@@ -136,7 +136,7 @@ export default function Home() {
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="home-url" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="home-url" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           网页链接（可选，可多条）
         </label>
         <div className="flex gap-2">
@@ -152,18 +152,18 @@ export default function Home() {
                 addUrl()
               }
             }}
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="button"
             onClick={addUrl}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
           >
             添加
           </button>
         </div>
         {urls.length > 0 && (
-          <ul className="space-y-1 text-sm text-slate-600">
+          <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
             {urls.map((u, i) => (
               <li key={u} className="flex items-center gap-2">
                 <span className="truncate">{u}</span>
@@ -171,7 +171,7 @@ export default function Home() {
                   type="button"
                   onClick={() => setUrls((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${u}`}
-                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                  className="rounded px-1.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-600 dark:text-red-400"
                 >
                   移除
                 </button>
@@ -182,14 +182,14 @@ export default function Home() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
 
       {loading && uploadProgress && (
         <div className="space-y-1" aria-live="polite">
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-slate-600 dark:text-slate-300">
             {uploadProgress}
             {uploadPct !== null && ` ${uploadPct}%`}
           </div>

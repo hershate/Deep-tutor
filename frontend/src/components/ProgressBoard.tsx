@@ -21,9 +21,9 @@ const STATUS_LABEL: Record<ProgressStatus, string> = {
 }
 const STATUS_ORDER: ProgressStatus[] = ['not_started', 'learning', 'done']
 const STATUS_STYLE: Record<ProgressStatus, string> = {
-  not_started: 'bg-slate-100 text-slate-600',
-  learning: 'bg-blue-100 text-blue-700',
-  done: 'bg-green-100 text-green-700',
+  not_started: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+  learning: 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300',
+  done: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300',
 }
 
 // 虚拟化参数：超过 30 个知识点才启用（阈值内普通列表更利于全页滚动与查找）；
@@ -70,7 +70,7 @@ function NodeItem({ node: n, busyNode, onSetStatus, compact }: {
             disabled={busyNode === n.node_id}
             aria-pressed={n.status === s}
             className={`rounded px-2 py-0.5 text-xs ${
-              n.status === s ? STATUS_STYLE[s] + ' font-medium' : 'text-slate-400 hover:bg-slate-50'
+              n.status === s ? STATUS_STYLE[s] + ' font-medium' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
             } disabled:opacity-50`}
           >
             {STATUS_LABEL[s]}
@@ -148,10 +148,10 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-500">进度加载中…</p>
+  if (loading) return <p className="text-sm text-slate-500 dark:text-slate-400">进度加载中…</p>
   if (error)
     return (
-      <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+      <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </div>
     )
@@ -161,7 +161,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
   return (
     <div>
       <div className="mb-3 flex items-center gap-3">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
           <div
             className="h-full rounded-full bg-emerald-500 transition-all"
             style={{ width: `${pct}%` }}
@@ -172,7 +172,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
             aria-label="平均掌握度"
           />
         </div>
-        <span className="text-sm text-slate-600">平均掌握度 {pct}%</span>
+        <span className="text-sm text-slate-600 dark:text-slate-300">平均掌握度 {pct}%</span>
       </div>
       {nodes.length > VIRTUAL_THRESHOLD ? (
         <FixedSizeList

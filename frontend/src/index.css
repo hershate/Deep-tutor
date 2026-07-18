@@ -13,7 +13,7 @@ body,
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
 }
 
 /* 无障碍：尊重 prefers-reduced-motion，关闭动画/过渡（plan/06 §九） */
@@ -51,27 +51,30 @@ body {
   @apply mb-1;
 }
 .markdown-body blockquote {
-  @apply mb-2 border-l-4 border-slate-200 pl-3 text-slate-500;
+  @apply mb-2 border-l-4 border-slate-200 pl-3 text-slate-500 dark:border-slate-600 dark:text-slate-400;
 }
 .markdown-body code {
-  @apply rounded bg-slate-100 px-1 py-0.5 text-[0.85em];
+  @apply rounded bg-slate-100 px-1 py-0.5 text-[0.85em] dark:bg-slate-700;
 }
 .markdown-body pre {
-  @apply mb-2 overflow-x-auto rounded-lg bg-slate-100 p-3;
+  @apply mb-2 overflow-x-auto rounded-lg bg-slate-100 p-3 dark:bg-slate-800;
 }
 .markdown-body pre code {
   @apply bg-transparent p-0;
 }
 .markdown-body a {
-  @apply text-blue-600 hover:underline;
+  @apply text-blue-600 hover:underline dark:text-blue-400;
 }
 .markdown-body table {
   @apply mb-2 w-full border-collapse;
 }
 .markdown-body th,
 .markdown-body td {
-  @apply border border-slate-200 px-2 py-1 text-left;
+  @apply border border-slate-200 px-2 py-1 text-left dark:border-slate-600;
 }
 .markdown-body hr {
-  @apply my-4 border-slate-200;
+  @apply my-4 border-slate-200 dark:border-slate-600;
+}
+.markdown-body h2 {
+  @apply dark:border-slate-600;
 }

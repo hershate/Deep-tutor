@@ -109,7 +109,7 @@ export default function UserManager() {
   }
 
   return (
-    <section aria-label="用户管理" className="rounded-lg border bg-white p-4">
+    <section aria-label="用户管理" className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold">用户管理</h3>
         <button
@@ -123,17 +123,17 @@ export default function UserManager() {
           {showForm ? '取消' : '新增用户'}
         </button>
       </div>
-      <p className="mb-3 text-xs text-slate-500">仅管理员可见。删除用户将级联删除其全部数据（不可恢复）。</p>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">仅管理员可见。删除用户将级联删除其全部数据（不可恢复）。</p>
 
       {opError && (
-        <div role="alert" className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
 
       {showForm && (
         <form
-          className="mb-4 space-y-2 rounded-lg border border-slate-200 p-3"
+          className="mb-4 space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
           onSubmit={(e) => {
             e.preventDefault()
             submitCreate()
@@ -195,7 +195,7 @@ export default function UserManager() {
                 setForm(EMPTY_CREATE)
                 setOpError('')
               }}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50"
+              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -203,9 +203,9 @@ export default function UserManager() {
         </form>
       )}
 
-      {isLoading && <p className="text-sm text-slate-500">加载中…</p>}
+      {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>}
       {error && !(error instanceof ApiError && error.status === 403) && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           用户列表加载失败
         </p>
       )}
@@ -213,13 +213,13 @@ export default function UserManager() {
         {users.map((u) => (
           <li
             key={u.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-medium">{u.name}</span>
-                <span className="text-xs text-slate-500">@{u.username}</span>
-                {u.is_admin && <span className="rounded bg-amber-500 px-1.5 py-0.5 text-xs text-white">管理员</span>}
+                <span className="text-xs text-slate-500 dark:text-slate-400">@{u.username}</span>
+                {u.is_admin && <span className="rounded bg-amber-50 dark:bg-amber-9500 px-1.5 py-0.5 text-xs text-white">管理员</span>}
                 {me?.id === u.id && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">当前登录</span>}
               </div>
             </div>
@@ -227,7 +227,7 @@ export default function UserManager() {
               <button
                 onClick={() => rename(u)}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
               >
                 改名
               </button>
@@ -238,7 +238,7 @@ export default function UserManager() {
                   setOpError('')
                 }}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
               >
                 重置密码
               </button>
@@ -247,14 +247,14 @@ export default function UserManager() {
                   <button
                     onClick={() => toggleAdmin(u)}
                     disabled={busy}
-                    className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
                   >
                     {u.is_admin ? '撤销管理员' : '设为管理员'}
                   </button>
                   <button
                     onClick={() => remove(u)}
                     disabled={busy}
-                    className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950 disabled:opacity-50"
                   >
                     删除
                   </button>

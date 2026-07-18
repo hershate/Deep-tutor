@@ -42,7 +42,7 @@ function MapNode({ node, childrenMap, depth }: {
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             aria-label={`${open ? '收起' : '展开'} ${node.name}`}
-            className="w-5 shrink-0 text-slate-400 hover:text-slate-600"
+            className="w-5 shrink-0 text-slate-400 hover:text-slate-600 dark:text-slate-300"
           >
             {open ? '▾' : '▸'}
           </button>
@@ -72,12 +72,12 @@ function MapNode({ node, childrenMap, depth }: {
 function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-lg border bg-white">
+    <div className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg p-4 text-left hover:bg-slate-50"
+        className="flex w-full items-center justify-between rounded-lg p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
       >
         <h4 className="font-medium">
           <span className="mr-1 text-slate-400">{open ? '▾' : '▸'}</span>
@@ -87,7 +87,7 @@ function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen
       </button>
       {open && (
         <div className="border-t px-4 pb-4 pt-2">
-          <p className="mt-1 text-sm text-slate-600">目标: {s.goal}</p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">目标: {s.goal}</p>
           {s.topics && s.topics.length > 0 && (
             <ul className="mt-2 text-sm">
               {s.topics.map((t, i) => (
@@ -95,7 +95,7 @@ function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen
               ))}
             </ul>
           )}
-          {s.milestone && <p className="mt-2 text-sm text-slate-500">里程碑: {s.milestone}</p>}
+          {s.milestone && <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">里程碑: {s.milestone}</p>}
         </div>
       )}
     </div>
@@ -127,7 +127,7 @@ export default function PlanOutline({ stages, knowledgeMap }: Props) {
         </section>
       )}
       {roots.length > 0 && (
-        <section className="rounded-lg border bg-white p-4" aria-label="知识图谱">
+        <section className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="知识图谱">
           <h4 className="mb-2 font-semibold">知识图谱</h4>
           <ul>
             {roots.map((n) => (
@@ -137,7 +137,7 @@ export default function PlanOutline({ stages, knowledgeMap }: Props) {
         </section>
       )}
       {(!stages || stages.length === 0) && roots.length === 0 && (
-        <p className="text-sm text-slate-500">暂无学习路径数据。</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">暂无学习路径数据。</p>
       )}
     </div>
   )
