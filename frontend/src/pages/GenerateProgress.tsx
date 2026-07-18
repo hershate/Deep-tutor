@@ -36,6 +36,15 @@ export default function GenerateProgress() {
   const [showPartial, setShowPartial] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
+  // iter 135：已用时长（运行中每秒走动，终态定格）——长任务耗时可见
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (status !== 'running') return
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [status])
+  const elapsedText = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
+
   useEffect(() => {
     if (!sessionId) return
     const ac = new AbortController()
@@ -132,7 +141,11 @@ export default function GenerateProgress() {
             </button>
           )}
         </div>
-        <span className="text-sm tabular-nums text-slate-500 dark:text-slate-400">费用 ${cost.toFixed(4)}</span>
+        <span className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
+          <span aria-label="已用时长">⏱ {elapsedText}</span>
+          <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+          费用 ${cost.toFixed(4)}
+        </span>
       </div>
       <p className="text-sm text-slate-500 dark:text-slate-400">会话 #{sessionId}</p>
 
