@@ -6,7 +6,8 @@ import { Link } from 'react-router-dom'
 import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
-import { getKnowledge, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { toast } from '../components/Toast'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -26,6 +27,20 @@ export default function Wiki() {
   const [debouncedQ, setDebouncedQ] = useState('')
   const [status, setStatus] = useState<ProgressStatus | null>(null)
   const [openNoteId, setOpenNoteId] = useState<number | null>(null) // iter 105：展开中的笔记编辑器
+  const [exportBusy, setExportBusy] = useState(false) // iter 116：手册导出防重入
+
+  async function onExport() {
+    if (exportBusy) return
+    setExportBusy(true)
+    try {
+      await downloadKnowledgeHandbook()
+      toast.success('知识手册已下载')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
+    } finally {
+      setExportBusy(false)
+    }
+  }
 
   // 搜索防抖（300ms）：避免每击键一次请求
   useEffect(() => {
@@ -56,14 +71,24 @@ export default function Wiki() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">知识库</h2>
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索知识点…"
-          aria-label="搜索知识点"
-          className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
-        />
+        <div className="flex items-center gap-2">
+          {/* 知识手册导出（iter 116）：全部节点+笔记 -> Markdown 下载 */}
+          <button
+            onClick={onExport}
+            disabled={exportBusy}
+            className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+          >
+            {exportBusy ? '导出中…' : '导出手册 (.md)'}
+          </button>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="搜索知识点…"
+            aria-label="搜索知识点"
+            className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+          />
+        </div>
       </div>
 
       {/* 状态筛选 chips（带计数） */}

@@ -574,6 +574,15 @@ export async function downloadMaterialsZip(planId: number): Promise<void> {
   saveBlob(await res.blob(), res.headers.get('content-disposition'), `materials-${planId}.zip`)
 }
 
+/** 个人知识手册 Markdown 下载（iter 116）。 */
+export async function downloadKnowledgeHandbook(): Promise<void> {
+  const res = await fetch(`${BASE}/knowledge/export`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), '知识手册.md')
+}
+
 /** 导入备份 JSON（追加式：全部以新数据重建，不覆盖现有数据）。 */
 export async function importBackup(file: File): Promise<BackupImportResult> {
   const fd = new FormData()
