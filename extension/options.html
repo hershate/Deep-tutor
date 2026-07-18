@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Deep-tutor 剪藏 - 选项</title>
+  <style>
+    body { max-width: 480px; margin: 24px auto; font: 14px/1.6 system-ui, sans-serif; color: #1e293b; padding: 0 16px; }
+    h1 { font-size: 18px; }
+    label { display: block; margin: 14px 0 4px; font-weight: 600; }
+    input { width: 100%; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+    button { margin-top: 16px; padding: 8px 18px; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font-size: 14px; }
+    #test-btn { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; margin-left: 8px; }
+    #status { margin-top: 12px; min-height: 20px; }
+    #status.ok { color: #16a34a; } #status.err { color: #dc2626; }
+    .hint { color: #64748b; font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Deep-tutor 剪藏 - 选项</h1>
+  <label for="server-url">服务器地址</label>
+  <input id="server-url" type="url" placeholder="http://localhost:8000" />
+  <div class="hint">Deep-tutor 后端的访问地址（不含 /api 后缀）。</div>
+
+  <label for="token">认证 Token</label>
+  <input id="token" type="password" autocomplete="off" placeholder="登录页签发的 JWT，或 .env 的 AUTH_TOKEN" />
+  <div class="hint">在 Deep-tutor 登录后的 JWT（localStorage dt_token），或服务端 .env 配置的 AUTH_TOKEN。</div>
+
+  <button id="save-btn">保存</button>
+  <button id="test-btn">测试连接</button>
+  <div id="status" role="status"></div>
+
+  <script src="common.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
