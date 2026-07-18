@@ -160,7 +160,7 @@ export default function Wiki() {
             <h3 className="truncate font-semibold">{g.topic}</h3>
             <Link
               to={`/plans/${planId}`}
-              className="shrink-0 text-sm text-blue-600 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400"
+              className="shrink-0 text-sm text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
             >
               查看方案 →
             </Link>

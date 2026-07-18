@@ -166,7 +166,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                           href={r.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="truncate text-blue-600 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400"
+                          className="truncate text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
                         >
                           {r.title || r.url}
                         </a>
