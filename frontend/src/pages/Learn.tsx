@@ -33,6 +33,11 @@ export default function Learn() {
   const [checkinBusy, setCheckinBusy] = useState(false)
   const [checkinMsg, setCheckinMsg] = useState('')
   const [deletingLogId, setDeletingLogId] = useState<number | null>(null) // iter 150：删除日志防重入
+  const [dailyGoal, setDailyGoal] = useState<number | null>(null) // iter 163：intent.daily_minutes 今日目标
+
+  // 今日已学分钟（iter 163）：本地日口径（sv locale 出 YYYY-MM-DD，与后端服务器本地日一致）
+  const todayStr = new Date().toLocaleDateString('sv')
+  const todayMinutes = logs.filter((l) => l.date === todayStr).reduce((s, l) => s + l.minutes, 0)
 
   // 删除打错的卡（iter 150）：confirm 后 DELETE，成功重取列表
   async function onDeleteLog(l: LearningLogItem) {
@@ -66,7 +71,9 @@ export default function Learn() {
     Promise.all([getPlan(id), getProgress(id)])
       .then(([p, prog]) => {
         if (cancelled) return
-        setTopic(((p as { plan?: { intent?: { topic?: string } } }).plan?.intent?.topic) ?? '')
+        const intent = (p as { plan?: { intent?: { topic?: string; daily_minutes?: number } } }).plan?.intent
+        setTopic(intent?.topic ?? '')
+        setDailyGoal(typeof intent?.daily_minutes === 'number' && intent.daily_minutes > 0 ? intent.daily_minutes : null)
         const today = new Date().toISOString().slice(0, 10)
         setDueNodes(prog.nodes.filter((n) => n.next_review !== null && n.next_review <= today))
       })
@@ -167,6 +174,24 @@ export default function Learn() {
 
       <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" style={{ animationDelay: '160ms' }} aria-label="学习打卡">
         <h3 className="mb-2 font-semibold">打卡（累计 <span className="tabular-nums">{totalMinutes}</span> 分钟）</h3>
+        {/* 今日目标进度（iter 163）：方案 intent.daily_minutes 为日目标 */}
+        {dailyGoal && (
+          <div className="mb-3" aria-label={`今日目标 ${dailyGoal} 分钟，已完成 ${todayMinutes} 分钟`}>
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>今日目标 <span className="tabular-nums">{dailyGoal}</span> 分钟</span>
+              <span className={`tabular-nums ${todayMinutes >= dailyGoal ? 'font-medium text-emerald-600 dark:text-emerald-400' : ''}`}>
+                已完成 <span className="tabular-nums">{todayMinutes}</span> 分钟
+                {todayMinutes >= dailyGoal && ' ✓'}
+              </span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${todayMinutes >= dailyGoal ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                style={{ width: `${Math.min(100, Math.round((todayMinutes / dailyGoal) * 100))}%` }}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-end gap-2">
           <div>
             <label htmlFor="checkin-minutes" className="block text-xs text-slate-500 dark:text-slate-400">
