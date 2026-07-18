@@ -109,7 +109,7 @@ export default function GenerateProgress() {
                   toast.error('取消请求失败，请重试（生成仍在进行）'),
                 )
               }
-              className="rounded-lg border px-3 py-1 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm text-slate-600 transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -117,30 +117,40 @@ export default function GenerateProgress() {
           {partial && (
             <button
               onClick={() => setShowPartial(true)}
-              className="rounded-lg border px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm text-blue-600 transition-all hover:bg-blue-50 active:scale-95 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-700"
             >
               查看部分 →
             </button>
           )}
         </div>
-        <span className="text-sm text-slate-500 dark:text-slate-400">费用 ${cost.toFixed(4)}</span>
+        <span className="text-sm tabular-nums text-slate-500 dark:text-slate-400">费用 ${cost.toFixed(4)}</span>
       </div>
       <p className="text-sm text-slate-500 dark:text-slate-400">会话 #{sessionId}</p>
 
       <ul className="space-y-2">
         {steps.map((st, i) => (
-          <li key={i} className="flex items-center gap-3 rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-3">
-            <span className="w-5 text-center">
-              <span aria-hidden="true">
-                {st.status === 'running' ? '⏳' : st.status === 'error' ? '❌' : '✅'}
-              </span>
+          <li
+            key={i}
+            className={`flex animate-fade-in-up items-center gap-3 rounded-lg border p-3 transition-colors duration-300 ${
+              st.status === 'running'
+                ? 'border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/40'
+                : 'bg-white dark:border-slate-700 dark:bg-slate-800'
+            }`}
+          >
+            <span className="flex w-5 items-center justify-center">
+              {st.status === 'running' ? (
+                // iter 99：运行中步骤用旋转 spinner（tailwind 内置 animate-spin），替代静态 ⏳
+                <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+              ) : (
+                <span aria-hidden="true">{st.status === 'error' ? '❌' : '✅'}</span>
+              )}
               <span className="sr-only">
                 {st.status === 'running' ? '进行中' : st.status === 'error' ? '失败' : '完成'}
               </span>
             </span>
             <span className="font-medium">{st.name}</span>
             {st.meta && (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs tabular-nums text-slate-400">
                 {(st.meta as { tokens_in?: number }).tokens_in ?? 0} in / {(st.meta as { tokens_out?: number }).tokens_out ?? 0} out
               </span>
             )}
@@ -149,7 +159,7 @@ export default function GenerateProgress() {
       </ul>
 
       {status === 'error' && (
-        <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
+        <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
           <p className="font-medium">生成失败</p>
           <p className="text-sm">{error}</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
@@ -159,7 +169,7 @@ export default function GenerateProgress() {
       )}
 
       {status === 'cancelled' && (
-        <div className="rounded-lg bg-slate-100 dark:bg-slate-700 p-4 text-slate-700 dark:text-slate-200">
+        <div className="animate-fade-in rounded-lg bg-slate-100 dark:bg-slate-700 p-4 text-slate-700 dark:text-slate-200">
           <p className="font-medium">已取消</p>
           <button onClick={() => nav('/')} className="mt-2 text-sm underline">
             返回首页

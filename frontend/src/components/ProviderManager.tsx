@@ -13,6 +13,7 @@ import {
   updateProvider,
   type ProviderProfile,
 } from '../lib/api'
+import { SkeletonLines } from './Skeleton'
 
 interface FormState {
   id: number | null // null=新增；否则编辑该档案
@@ -95,7 +96,7 @@ export default function ProviderManager() {
   }
 
   return (
-    <section aria-label="LLM 供应商" className="rounded-lg border bg-white dark:border-slate-700 dark:bg-slate-800 p-4">
+    <section aria-label="LLM 供应商" className="rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold">LLM 供应商</h3>
         <div className="flex items-center gap-2">
@@ -103,7 +104,7 @@ export default function ProviderManager() {
             <button
               onClick={() => void run(deactivateProviders)}
               disabled={busy}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
             >
               停用全部（回退 .env）
             </button>
@@ -114,7 +115,7 @@ export default function ProviderManager() {
               setShowForm(!showForm)
               setOpError('')
             }}
-            className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700"
+            className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98]"
           >
             {showForm && form.id === null ? '取消' : '新增供应商'}
           </button>
@@ -125,14 +126,14 @@ export default function ProviderManager() {
       </p>
 
       {opError && (
-        <div role="alert" className="mb-3 rounded-lg bg-red-50 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
+        <div role="alert" className="mb-3 animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-2 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
       )}
 
       {showForm && (
         <form
-          className="mb-4 space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
+          className="mb-4 animate-fade-in space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
@@ -145,7 +146,7 @@ export default function ProviderManager() {
                 required
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 placeholder="如：官方中转"
               />
             </label>
@@ -154,7 +155,7 @@ export default function ProviderManager() {
               <input
                 value={form.model}
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 placeholder="如：claude-sonnet-5"
               />
             </label>
@@ -164,7 +165,7 @@ export default function ProviderManager() {
             <input
               value={form.base_url}
               onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-              className="mt-1 w-full rounded border px-2 py-1"
+              className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
               placeholder="https://relay.example.com"
               type="url"
             />
@@ -174,7 +175,7 @@ export default function ProviderManager() {
             <input
               value={form.api_key}
               onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-              className="mt-1 w-full rounded border px-2 py-1"
+              className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
               placeholder={form.id !== null ? '留空保持不变' : 'sk-...'}
               type="password"
               autoComplete="new-password"
@@ -185,7 +186,7 @@ export default function ProviderManager() {
             <button
               type="submit"
               disabled={busy}
-              className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[.98] disabled:opacity-50 disabled:active:scale-100"
             >
               {form.id === null ? '创建' : '保存'}
             </button>
@@ -196,7 +197,7 @@ export default function ProviderManager() {
                 setForm(EMPTY_FORM)
                 setOpError('')
               }}
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -204,7 +205,7 @@ export default function ProviderManager() {
         </form>
       )}
 
-      {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>}
+      {isLoading && <SkeletonLines lines={3} />}
       {error && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           供应商列表加载失败
@@ -217,8 +218,8 @@ export default function ProviderManager() {
         {providers.map((p) => (
           <li
             key={p.id}
-            className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 ${
-              p.is_active ? 'border-green-300 bg-green-50 dark:bg-green-950' : 'border-slate-200 dark:border-slate-700'
+            className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 transition-colors duration-200 ${
+              p.is_active ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950' : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
             }`}
           >
             <div className="min-w-0">
@@ -234,7 +235,7 @@ export default function ProviderManager() {
               {testResults[p.id] && (
                 <div
                   role="status"
-                  className={`mt-0.5 text-xs ${testResults[p.id].ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                  className={`mt-0.5 animate-fade-in text-xs ${testResults[p.id].ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
                 >
                   {testResults[p.id].message}
                 </div>
@@ -244,7 +245,7 @@ export default function ProviderManager() {
               <button
                 onClick={() => void runTest(p.id)}
                 disabled={testingId === p.id}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
               >
                 {testingId === p.id ? '测试中…' : '测试'}
               </button>
@@ -252,7 +253,7 @@ export default function ProviderManager() {
                 <button
                   onClick={() => void run(() => activateProvider(p.id))}
                   disabled={busy}
-                  className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                  className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
                 >
                   启用
                 </button>
@@ -260,7 +261,7 @@ export default function ProviderManager() {
               <button
                 onClick={() => startEdit(p)}
                 disabled={busy}
-                className="rounded-lg border px-2.5 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                className="rounded-lg border px-2.5 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
               >
                 编辑
               </button>
@@ -270,7 +271,7 @@ export default function ProviderManager() {
                     void run(() => deleteProvider(p.id))
                 }}
                 disabled={busy}
-                className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950 disabled:opacity-50"
+                className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950 disabled:opacity-50 disabled:active:scale-100"
               >
                 删除
               </button>
