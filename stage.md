@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；plan/09 审计清单复查完毕（iter 75-77 补：健康检查/字段校验/zip bomb 防护/上传进度条），§七 大纲虚拟化已落地（iter 78，ProgressBoard 超 30 节点启用 react-window）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 78 条。
+**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 89 条。
 
 ---
 
@@ -57,6 +57,7 @@
 - **PDF 解析用 Marker**（用户指定，2026-07-16）：parse_material 的 PDF 路径改用 `marker_single <文件> --force_ocr --output_dir <输出目录>`（默认参数），替代原计划的 PyMuPDF。Marker 输出 `<out>/<stem>/<stem>.md` + `<stem>_meta.json`（页数取自 `page_stats`）；subprocess 调用，超时 600s（OCR 较慢）；requirements 以 `marker-pdf` 替换 PyMuPDF。见 [backend/app/tools/parse_material.py](backend/app/tools/parse_material.py) `_parse_pdf`。
 - **API Key 可入库（突破假设 4，用户指定，2026-07-18）**：自定义 LLM 供应商档案（多档案切换，类 CC-switch）的 api_key 存 `llm_provider_profiles` 表（本机 SQLite）；安全约束：API 任何响应不回显明文（仅掩码末 4 位）、更新缺省保留原值、base_url 限 http(s)。.env 仍为无档案时的回退。见 §五 iter 50-53。
 - **P4 多用户账号体系（用户指定，2026-07-18）**：管理员预设+创建——.env `ADMIN_USERNAME`/`ADMIN_PASSWORD` 启动收敛管理员（旧单用户数据归管理员），其他用户由管理员后台创建（iter 59）；**供应商档案按用户隔离**（iter 58）；跨用户访问一律 404（不泄露存在性）；JWT 与 AUTH_TOKEN 双轨认证（AUTH_TOKEN 回退自动建默认用户，兼容旧部署）。见 §五 iter 57-58。
+- **零配置开箱即用（用户指定，2026-07-18）**：无 .env 也可启动使用——①`validate_required` 移除 AUTH_TOKEN 启动硬必填（**R27 语义收敛**：无硬必填，功能级 key 调用前校验；原计划「缺失报错退出」偏离，因大多数用户无技术水平、应开箱即用）；②无 AUTH_TOKEN 且无任何用户设密码时进入**开放本机模式**（免登录，身份为懒创建的空密码 admin，数据自始归属 admin 零迁移）；③首次设置向导（/setup 页 + 公开 setup API）引导设密码/配 API Key，可跳过（`data/.setup_state.json` 记录），之后经设置页补配；④安全权衡：开放模式 + 0.0.0.0 绑定 = 局域网可访问，以前端常驻横幅 + 向导引导设密码 + README 明示收敛（用户已明确选择开箱即用优先）。见 §五 iter 89。
 
 ---
 
@@ -232,6 +233,16 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 89（零配置开箱即用 + 首次设置向导，commits `031c7ab`/`70aad46`/`432e7f4`/`c1c5d42`）**：用户指示「无 .env 时第一次进入应是配置页（可跳过，后面在设置页添加 API 等），而不是脚本直接退出；功能未启用不应让用户看不到界面；大多数用户没有技术水平，应开箱即用」。经 EnterPlanMode 探索认证/启动链路后按批准方案分四批落地：
+  - **批 1 后端零配置启动 + 开放本机模式（`031c7ab`）**：[settings.py](backend/app/core/settings.py) `validate_required` 移除 AUTH_TOKEN 硬必填（R27 收敛，决策登记 §二）；[security.py](backend/app/core/security.py) 新增 `passwordless_open(db)` 谓词（未配 AUTH_TOKEN 且无任何用户设密码 -> 开放；**每次请求实时查询不缓存**，防设密码后认证模式滞留）+ `get_or_create_open_admin` 懒创建空密码 admin（空 hash 登录恒失败，仅身份锚点；数据自始归属 admin 零迁移；**懒创建而非启动创建**——test_api_users 等断言用户数的既有测试零回归，实证关键决策）；[deps.py](backend/app/api/deps.py) `resolve_user`/`require_auth` 开放分支（失败路径才查库，已认证请求零新增查询；get_db 上移因 Depends 默认值定义时求值）；[main.py](backend/app/main.py) lifespan 删 SystemExit + 零认证 info 日志。测试 +5（test_open_mode.py）。
+  - **批 2 setup API（`70aad46`）**：新 [setup_state.py](backend/app/core/setup_state.py)（`data/.setup_state.json`，version 字段预留扩展；读写永不抛 + tmp+rename 原子写；损坏降级默认值向导复现不崩溃）+ 新 [setup.py](backend/app/api/setup.py) 公开路由：`GET /status`（granular flags：open_mode/llm_configured/dismissed/needs_setup，后续新向导步骤只加 flag）、`POST /setup`（全可选字段 extra=ignore 向前兼容；权限收敛 `_setup_caller` 依赖=开放模式 admin 或 admin JWT 否则 401/403；密码写调用者账号 + **tokens_valid_after 取整秒**——float 秒会把随即签发的新 JWT（iat int 秒截断）误判吊销，测试实证；响应带新 JWT 前端无感切换；api_key 固定名「默认」档案 upsert 并激活，复用 providers 校验，不回显明文）、`POST /dismiss`。测试 +14（test_api_setup.py）。
+  - **批 3 前端（`432e7f4`）**：新 [Setup.tsx](frontend/src/pages/Setup.tsx) 向导页（欢迎 + 设密码/配 API Key 两张可选卡片，base_url/model 折叠高级项，[完成并进入] JWT 即登录 / [跳过稍后配置] dismiss）；新 [lib/setup.ts](frontend/src/lib/setup.ts) `useSetupStatus`（react-query ['setup'] 共享缓存）；[App.tsx](frontend/src/App.tsx) RequireAuth 四态（加载占位 / **查询失败回退旧逻辑不阻塞应用** / needs_setup->向导 / open_mode 免 token 放行）+ Login 开放模式跳首页；[Layout.tsx](frontend/src/components/Layout.tsx) 常驻横幅（开放模式安全提示 + 未配 API Key 功能提示）；[Settings.tsx](frontend/src/pages/Settings.tsx) 开放模式「访问密码」卡（POST /setup 返回 JWT 无感切换，避免设完密码 401 卡死）；[auth.ts](frontend/src/lib/auth.ts) handleUnauthorized 补无 token 401 跳登录（登录页 open_mode 检查防回环）。前端 build 通过（390 模块）。
+  - **批 4 脚本 + 文档（`c1c5d42`）**：start.sh/start.ps1 无 .env 不退出（**不代生成 .env**——模板弱 token change-me-please 会反成认证配置）+ 启动后延迟 3s 自动开浏览器（NO_BROWSER=1 关闭；sh xdg-open/open、ps1 Start-Job）；README 环境变量改可选 + 开放模式局域网安全提示 + 忘密码经 ADMIN_PASSWORD 重启收敛说明；.env.example 顶部注释全可选。bash -n + PSParser 通过。
+  - **验证**：全量 431 后端测试通过（412->431，+19），ruff 全绿，前端 build 通过；**真机零配置冒烟**（blanked env + 临时 DB/DATA_DIR，:18931）：health ok -> status open_mode/needs_setup=true -> 无 token /api/plans 200 -> POST /setup（密码+key）返 JWT -> 无 token 401（开放自动关闭）-> admin 登录 200 -> status 终态全 False；`data/.jwt_secret` 与 `.setup_state.json` 均正确持久化。冒烟进程按监听 PID 精确清理。
+  - **扩展点（为后续预留）**：setup_state version+dict 结构、POST /setup extra=ignore、status granular flags、`_setup_caller`/`passwordless_open` 单点谓词——新增向导步骤/认证方案均单点扩展。
+
+- **2026-07-18 补记（err.md 全项目审计 + 深查轮次，介于 iter 88 与 iter 89 之间，据 git log 补录）**：iter 88 记录后、iter 89 前共有 20 个 commit 未及时写入本文件，现补记：①`86d63c4` 创建 [err.md](err.md) 全项目审计清单（A25 API 层 + B20 agent/tools + C20 core/db + D18 前端 + E5 脚本/CI 共 88 项）；②8 个批次全部修复（`96a4b57`/`1efe3b5`/`90ec38e`/`a09c122`/`59b07cc`/`1aad16c`/`7adbf3f`，含迁移 server_default 补齐、/generate 竞态收敛、LLM 瞬态退避重试、统一 404/405/422 错误格式、chunked 绕过 body 上限、预算守卫接 LLM 计费端点等），`5dc8164` 更新 err.md 全部标记修复；③深查 round 1-17 继续加固（`73be540` JWT 兜底密钥首次生成加锁防竞态、`1b0e259` /generate 终态窗口误 409 改续接重放、`3c14e9f` SSE 重连游标丢失修复、`9a0677a` share 公开面收紧 + quizzes 判分真空、`ca9da6e` share_links.token 迁移对齐、`6dd331a` URL 抓取异常降级、`f8d930d` slides re.sub 崩溃 + javascript: XSS、`122d3ab` 资源 url 仅 http(s) 可渲染、`ed1c1b4` JWT 进程级随机密钥告警、`241f754` 连通性测试 120s 超时、`64c6d5c` 拆分单元检查理解题源丢失修复、`24ff980` ProgressBoard 操作错误改内联 banner，等）。全量测试由 405 增至 412。
 
 - **2026-07-18 iter 88（verify_url 补强：重试/robots/登录墙，commit `4583b3a`）**：plan/02 §6 + plan/09 §一 + plan/11 §九，审计缺口清单最后一条清完。①超时重试 1 次再标 invalid（_fetch 抽取，仅 TimeoutException 触发；非超时错误立即标记）。②遵守 robots.txt：urllib.robotparser 解析，Disallow -> 不抓正文、⚠️ robots_disallowed；host 级 1h 缓存避免重复拉取。③登录墙/CAPTCHA/空壳检测：200 但正文 <512B（content_too_short）或命中关键字（captcha/recaptcha/cf-challenge/请登录/登录后继续/验证您是真人 等 -> login_wall:<kw>）标 ⚠️ 存疑，data.reason 记录原因；仅读 16KB 正文前缀（不加载全文，§一「仅校验不存全文」）。UA 标识 Deep-tutor。测试 +5，既有缓存测试适配 robots 合规请求（不计 robots.txt 调用）；全量 405 通过，ruff 全绿。
 - **2026-07-18 iter 87（运维项：日志轮转/定期运维/CI，commits `f9031b5`/`f1c944b`）**：plan/09 §一/§六/§十三/§十四。①日志轮转：RotatingFileHandler（data/logs/deep-tutor.log，5MB×5 份，utf-8），目录不可写降级仅控制台（不阻塞启动）。②定期运维：新 app/core/maintenance.py（vacuum_db + cleanup_orphan_session_dirs 清孤儿会话目录 + run_maintenance），lifespan 挂 24h 后台 maintenance_loop（停止事件优雅取消），CLI `python -m app.core.maintenance` 可手动/cron。③CI：新 .github/workflows/ci.yml（backend：ruff + pytest --cov-fail-under=80 + OpenAPI 契约导出烟测；frontend：npm ci + tsc/vite build）。④ruff 落地：backend/ruff.toml（E4/E7/E9/F）+ 全库清理（--fix 19 处 + 手工 9 处）至全绿。新增 test_maintenance.py 4 例；当前覆盖率 91%（≥80% 门槛安全）；全量 400 通过。
