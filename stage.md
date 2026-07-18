@@ -234,6 +234,10 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 130（功能线：方案删除入口，✅ 完成）**：补齐缺口——后端 `DELETE /sessions/{id}` 早已存在（级联 DB+文件、运行态先 cancel），但前端无任何删除入口，方案只增不减。
+  - **前端**（commit `bcb4e5b`）：[Plans.tsx](frontend/src/pages/Plans.tsx) 列表项右侧 🗑（常态 slate-300 低可见，hover 显红框红字——弱化常驻视觉噪音、操作时可发现）；window.confirm 阐明级联范围「全部版本、学习进度、自学材料与源资料，且不可恢复」；`deletingId` 防重入；删本页最后一条且非首页自动回一页（否则 reloadKey 原地刷新）；行结构改「容器 div + Link 主体 + 独立按钮」（避免按钮嵌套锚点，与 Wiki 节点卡 iter 113 同式）。`deleteSession` 为 api.ts 既有函数，无需后端改动（删除语义/级联/隔离由既有测试覆盖）。
+  - **验证**：`npm run build` 通过。后续候选：PlanDetail 内删除入口（返回列表）/ 回收站式软删（需 schema，暂不做）。
+
 - **2026-07-19 iter 129（功能线：方案列表主题搜索，✅ 完成）**：方案多了找不到——列表页加主题搜索。**编号说明**：本切片代码注释自标 iter 128，与并行美化轨 iter 128（第 29 轮）撞号，本条按共享序号取 129。
   - **后端**（commit `b05584c`）：[plans.py](backend/app/api/plans.py) `GET /plans` 加 `q` 参数（≤100 字符）——`content["intent"]["topic"].as_string().contains()` JSON 路径提取子串过滤（SQLite JSON_EXTRACT），纯空白忽略；total 与过滤一致（分页正确）；P4 隔离不受影响。**已知限制**：>512KB 溢出落盘的大方案 content={} 无路径 -> NULL 不参与匹配（topic 检索不到该方案）。
   - **前端**（commit `8bac1f3`）：[Plans.tsx](frontend/src/pages/Plans.tsx) 头部搜索框（300ms 防抖、词变回第 1 页、请求随 debouncedQ+page 双依赖），空态区分「没有匹配的方案」+ 清除搜索出口；[api.ts](frontend/src/lib/api.ts) `listPlans(sessionId?, page, q)` 第三参。
