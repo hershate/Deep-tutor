@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 109（前端美化第 17 轮：MaterialsPanel 风格对齐）**：并行工作「源资料面板」（commit `647f4aa`，其注释自标 iter 104）落成后走查——[MaterialsPanel.tsx](frontend/src/components/MaterialsPanel.tsx)：**修复 section 无 padding**（标题/列表贴边，与全站卡片 p-4 不一致）；资料行错峰入场（40ms 递增封顶 8）+ hover 边框过渡；删除按钮边框补 red-200/red-900（原 slate 色系与红色语义不符）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 108（前端美化第 16 轮：skip link 无障碍 + 品牌标识）**：①[Layout.tsx](frontend/src/components/Layout.tsx) 加**跳到主内容 skip link**（sr-only 常态隐藏，键盘 Tab 聚焦时浮现为蓝色胶囊 z-50），main 加 id="main-content" + tabIndex=-1 承接跳转——键盘/读屏用户无需遍历整个顶栏导航。②登录/设置向导页加统一**品牌标识**（蓝→靛渐变圆角方块 + 🎓 + shadow-md）：[Login.tsx](frontend/src/pages/Login.tsx) 卡片顶部、[Setup.tsx](frontend/src/pages/Setup.tsx) 欢迎语上方，与 iter 107 首页渐变标题呼应。注：并行工作（PlanDetail MaterialsPanel 集成、lib/api.ts、新增 MaterialsPanel.tsx）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 107（前端美化第 15 轮：markdown 图片/任务列表 + 呼吸灯 + 渐变标题）**：①[index.css](frontend/src/index.css)：markdown-body 图片圆角边框+shadow-sm（自学材料配图不再生硬贴边）；GFM 任务列表复选框 accent-blue-600 品牌色。②[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx)：运行中标题旁加**呼吸灯**（animate-ping 扩散环+实心蓝点，tailwind 内置 ping），生成状态一目了然；done/error 时自动消失。③[Home.tsx](frontend/src/pages/Home.tsx)：首页主标题改品牌渐变文字（blue-600→indigo-500 bg-clip-text，深色 blue-400→indigo-300），形成视觉焦点。注：并行工作（lib/api.ts + 新增 MaterialsPanel.tsx）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
