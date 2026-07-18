@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 111（前端美化第 19 轮：外链/返回链接样式统一）**：细节走查补漏——全站残余裸 `hover:underline`（无色彩过渡/深色变体）统一为品牌链接样式 `underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300`：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 资源外链（另加 `break-all` 防长 URL 撑破卡片）、[Learn.tsx](frontend/src/pages/Learn.tsx) 头部「返回方案详情」、[SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx) 与 [GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 资源外链；Learn 整页错误态出口链接同步补过渡 + 红色系 hover 深化。hover 反馈由瞬时变 200ms 渐变，深浅主题下均有一致变亮反馈。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 110（前端美化第 18 轮：回到顶部悬浮按钮）**：[Layout.tsx](frontend/src/components/Layout.tsx) 新增 back-to-top——滚动 >400px 时出现（passive scroll 监听），右下圆形悬浮钮（SVG 上箭头、bg-white/90 backdrop-blur、scale-in 入场、hover 上浮+染蓝、active 按压）；点击平滑回顶，**prefers-reduced-motion 用户改即时跳转**（JS matchMedia 判定，平滑滚动不受 CSS 媒体查询约束需显式分支）；z-40 于 Toast（z-50）之下，通知弹出时短暂遮挡可接受。长页面（方案详情/时间线/学习中心）回顶不再需要手动滚动。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 109（前端美化第 17 轮：MaterialsPanel 风格对齐）**：并行工作「源资料面板」（commit `647f4aa`，其注释自标 iter 104）落成后走查——[MaterialsPanel.tsx](frontend/src/components/MaterialsPanel.tsx)：**修复 section 无 padding**（标题/列表贴边，与全站卡片 p-4 不一致）；资料行错峰入场（40ms 递增封顶 8）+ hover 边框过渡；删除按钮边框补 red-200/red-900（原 slate 色系与红色语义不符）。**验证**：`npm run build` 通过。
