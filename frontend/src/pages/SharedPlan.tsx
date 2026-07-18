@@ -29,7 +29,7 @@ export default function SharedPlan() {
   if (error || !data)
     return (
       <div className="mx-auto max-w-xl animate-fade-in p-10 text-center">
-        <div className="text-4xl">🔗</div>
+        <div className="text-4xl" aria-hidden="true">🔗</div>
         <h1 className="mt-4 text-lg font-medium text-slate-700 dark:text-slate-200">{error || '分享链接不存在或已撤销'}</h1>
         <p className="mt-2 text-sm text-slate-400">请向分享者确认链接是否仍然有效</p>
       </div>
@@ -55,7 +55,7 @@ export default function SharedPlan() {
             阶段 {st.index + 1}：{st.name}
           </h2>
           {st.goal && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{st.goal}</p>}
-          {st.milestone && <p className="mt-1 text-sm text-indigo-600 dark:text-indigo-400">🎯 里程碑：{st.milestone}</p>}
+          {st.milestone && <p className="mt-1 text-sm text-indigo-600 dark:text-indigo-400"><span aria-hidden="true">🎯 </span>里程碑：{st.milestone}</p>}
           {st.topics && st.topics.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {st.topics.map((t) => (
@@ -64,7 +64,14 @@ export default function SharedPlan() {
                   className={`rounded-full px-2 py-0.5 text-xs ${t.must_learn ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}
                 >
                   {t.name}
-                  {t.must_learn ? ' ★' : ''}
+                  {t.must_learn ? (
+                    <>
+                      {' '}<span aria-hidden="true">★</span>
+                      <span className="sr-only">（必学）</span>
+                    </>
+                  ) : (
+                    ''
+                  )}
                 </span>
               ))}
             </div>
@@ -73,7 +80,8 @@ export default function SharedPlan() {
             <ul className="mt-2 space-y-1 text-sm">
               {st.resources.map((r, i) => (
                 <li key={i} className="text-slate-600 dark:text-slate-300">
-                  {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'}{' '}
+                  <span aria-hidden="true">{r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'}</span>
+                  <span className="sr-only">{r.verified === 'ok' ? '已验证：' : r.verified === 'invalid' ? '无效：' : '不确定：'}</span>{' '}
                   {isHttpUrl(r.url) ? (
                     <a href={r.url} target="_blank" rel="noreferrer" className="break-all text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
                       {r.title || r.url}
