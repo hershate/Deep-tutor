@@ -1,0 +1,532 @@
+"""用户数据备份导出/导入（iter 93，用户需求：导出能再导入回去方便备份）。
+
+导出（build_export）：当前用户全部学习资产打包为单个自包含 JSON——
+会话 / 资料（解析文本内联）/ 方案（content 内联，含溢出文件回读）/ 知识节点树 /
+进度 / 打卡 / 测验（含作答记录）/ 自学材料（md 内联，拆分子文件自动串联）。
+**凭证边界**：api_key 等敏感字段绝不导出——供应商档案以空 key 导出，
+导入后在设置页补填并激活。
+
+导入（restore_backup）：**追加式还原**——全部以新行重建（不覆盖现有数据，
+重复导入产生副本，UI 已提示）；外键全量重映射，知识节点树/进度/测验/单元
+按节点 sid 重关联；大内容经 app.core.storage 重新落盘（新 session/unit id 命名）。
+单事务：任何硬错误整体回滚（端点负责），不留半截数据。
+格式带 format/version 头：后续版本演进时按 version 分派迁移逻辑。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy.orm import Session as DbSession
+
+from app.core.storage import read_unit_content, write_parsed_text, write_unit_content
+from app.db import models
+
+log = logging.getLogger(__name__)
+
+FORMAT = "deep-tutor-backup"
+VERSION = 1
+
+# 与 app.api.plans.PLAN_OVERFLOW_BYTES 保持一致（plan/01 §五：>512KB 溢出文件）；
+# 不跨层 import api 模块，故在此冗余定义（稳定常量，变更概率极低）
+_PLAN_OVERFLOW_BYTES = 512 * 1024
+
+
+# ---------------------------------------------------------------------------
+# 通用小工具
+# ---------------------------------------------------------------------------
+
+
+def _iso(dt: datetime | date | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
+def _parse_dt(v: Any) -> datetime | None:
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        return datetime.fromisoformat(v)
+    except ValueError:
+        return None
+
+
+def _parse_date(v: Any) -> date | None:
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        return None
+
+
+def _read_text(path: str | None) -> str | None:
+    """读文件文本；路径空/读失败 -> None（导出尽量完整，单文件缺失不阻塞）。"""
+    if not path:
+        return None
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError:
+        log.warning("备份导出：文件读取失败 %s", path)
+        return None
+
+
+def _load_plan_content(plan: models.Plan) -> dict:
+    """plan 内容（大方案从 content_path 溢出文件回读）；读不到返 {}。"""
+    content = plan.content
+    if not content and plan.content_path:
+        try:
+            content = json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            log.warning("备份导出：plan %s 溢出文件读取失败", plan.id)
+            content = None
+    return content if isinstance(content, dict) else {}
+
+
+# ---------------------------------------------------------------------------
+# 导出
+# ---------------------------------------------------------------------------
+
+
+def build_export(db: DbSession, user: models.User) -> dict:
+    """组装当前用户的完整备份 dict（不落盘，由端点序列化为下载响应）。"""
+    sessions_out: list[dict] = []
+    sessions = (
+        db.query(models.Session)
+        .filter_by(user_id=user.id)
+        .order_by(models.Session.id)
+        .all()
+    )
+    for sess in sessions:
+        materials_out = [
+            {
+                "kind": m.kind.value,
+                "source": m.source,
+                "parsed_text": _read_text(m.parsed_text_path),
+                "parsed_chars": m.parsed_chars,
+                "meta": m.meta or {},
+                "content_hash": m.content_hash,
+                "created_at": _iso(m.created_at),
+            }
+            for m in sess.materials
+        ]
+        plans_out = [_export_plan(db, p) for p in sess.plans]
+        sessions_out.append(
+            {
+                "title": sess.title,
+                "created_at": _iso(sess.created_at),
+                "materials": materials_out,
+                "plans": plans_out,
+            }
+        )
+
+    profiles_out = [
+        {  # api_key 绝不导出（模块 docstring 凭证边界）
+            "name": p.name,
+            "base_url": p.base_url,
+            "model": p.model,
+            "is_active": bool(p.is_active),
+        }
+        for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
+    ]
+
+    return {
+        "format": FORMAT,
+        "version": VERSION,
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "user": {"username": user.username or "", "name": user.name},
+        "provider_profiles": profiles_out,
+        "sessions": sessions_out,
+    }
+
+
+def _export_plan(db: DbSession, plan: models.Plan) -> dict:
+    nodes = (
+        db.query(models.KnowledgeNode)
+        .filter_by(plan_id=plan.id)
+        .order_by(models.KnowledgeNode.id)
+        .all()
+    )
+    id_to_sid = {n.id: n.sid for n in nodes}
+    nodes_out = [
+        {
+            "sid": n.sid,
+            "name": n.name,
+            "difficulty": n.difficulty,
+            "must_learn": bool(n.must_learn),
+            "parent_sid": id_to_sid.get(n.parent_id) if n.parent_id else None,
+        }
+        for n in nodes
+    ]
+    resources_out = [
+        {
+            "node_sid": id_to_sid.get(r.node_id) if r.node_id else None,
+            "url": r.url,
+            "title": r.title,
+            "type": r.type.value,
+            "verified": r.verified.value,
+            "note": r.note,
+        }
+        for r in db.query(models.Resource)
+        .join(models.KnowledgeNode, models.Resource.node_id == models.KnowledgeNode.id)
+        .filter(models.KnowledgeNode.plan_id == plan.id)
+        .all()
+    ]
+    progress_out = [
+        {
+            "node_sid": id_to_sid.get(p.node_id),
+            "status": p.status.value,
+            "mastery": p.mastery,
+        }
+        for p in db.query(models.Progress).filter_by(plan_id=plan.id).all()
+        if p.node_id in id_to_sid  # 孤儿进度行（节点已删）无重关联锚点，跳过
+    ]
+    logs_out = [
+        {"date": _iso(lg.date), "minutes": lg.minutes, "note": lg.note}
+        for lg in db.query(models.LearningLog).filter_by(plan_id=plan.id).all()
+    ]
+    quizzes_out = [
+        {
+            "node_sid": id_to_sid.get(q.node_id) if q.node_id else None,
+            "type": q.type.value,
+            "payload": q.payload or {},
+            "attempts": [
+                {
+                    "user_answer": a.user_answer or {},
+                    "correct": a.correct,
+                    "created_at": _iso(a.created_at),
+                }
+                for a in q.attempts
+            ],
+        }
+        for q in db.query(models.Quiz).filter_by(plan_id=plan.id).all()
+    ]
+    units_out = []
+    for u in db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all():
+        content_md: str | None = None
+        mat_resources: list = []
+        if u.materials:
+            mat = u.materials[0]
+            try:
+                content_md = read_unit_content(mat.content_md_path)  # 自动串联拆分子文件
+            except OSError:
+                log.warning("备份导出：单元 %s 内容文件缺失 %s", u.id, mat.content_md_path)
+            mat_resources = mat.resources or []
+        units_out.append(
+            {
+                "node_sid": id_to_sid.get(u.node_id) if u.node_id else None,
+                "stage_index": u.stage_index,
+                "title": u.title,
+                "prerequisites": u.prerequisites or [],
+                "objectives": u.objectives or [],
+                "estimated_time": u.estimated_time,
+                "order": u.order,
+                "done_at": _iso(u.done_at),
+                "content_md": content_md,
+                "material_resources": mat_resources,
+            }
+        )
+    return {
+        "version": plan.version,
+        "created_at": _iso(plan.created_at),
+        "content": _load_plan_content(plan),
+        "knowledge_nodes": nodes_out,
+        "resources": resources_out,
+        "progress": progress_out,
+        "learning_logs": logs_out,
+        "quizzes": quizzes_out,
+        "study_units": units_out,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 导入（追加式还原）
+# ---------------------------------------------------------------------------
+
+
+class BackupFormatError(ValueError):
+    """备份文件结构/版本不合法（端点转 400）。"""
+
+
+def validate_backup(data: Any) -> dict:
+    """校验备份顶层结构；不合法抛 BackupFormatError。返回 data（dict）。"""
+    if not isinstance(data, dict):
+        raise BackupFormatError("备份文件须为 JSON 对象")
+    if data.get("format") != FORMAT:
+        raise BackupFormatError("不是 Deep-tutor 备份文件（format 字段缺失或不匹配）")
+    version = data.get("version")
+    if not isinstance(version, int) or version < 1:
+        raise BackupFormatError("备份文件 version 字段缺失或非法")
+    if version > VERSION:
+        raise BackupFormatError(
+            f"备份版本过新（v{version} > 当前支持的 v{VERSION}），请升级 Deep-tutor 后再导入"
+        )
+    if not isinstance(data.get("sessions") or [], list):
+        raise BackupFormatError("备份文件 sessions 字段非法")
+    return data
+
+
+def _enum_or(enum_cls, value: Any):
+    """字符串 -> 枚举；非法值返回 None（调用方决定跳过或降级）。"""
+    try:
+        return enum_cls(str(value))
+    except ValueError:
+        return None
+
+
+def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
+    """把备份数据追加还原为当前用户的新数据；返回各项计数摘要。
+
+    单事务语义：本函数只 flush，commit/rollback 由调用方（端点）负责。
+    """
+    data = validate_backup(data)
+    summary: dict[str, Any] = {
+        "sessions": 0,
+        "materials": 0,
+        "plans": 0,
+        "knowledge_nodes": 0,
+        "study_units": 0,
+        "quizzes": 0,
+        "progress": 0,
+        "learning_logs": 0,
+        "provider_profiles": 0,
+        "skipped": [],
+    }
+
+    for s in data.get("sessions") or []:
+        if not isinstance(s, dict):
+            continue
+        sess = models.Session(user_id=user.id, title=str(s.get("title") or "")[:256])
+        if dt := _parse_dt(s.get("created_at")):
+            sess.created_at = dt
+        db.add(sess)
+        db.flush()  # 取新 session_id（文件落盘命名需要）
+        summary["sessions"] += 1
+
+        for m in s.get("materials") or []:
+            if not isinstance(m, dict):
+                continue
+            kind = _enum_or(models.MaterialKind, m.get("kind"))
+            if kind is None:
+                summary["skipped"].append(f"资料 kind 非法（{m.get('kind')!r}），已跳过")
+                continue
+            row = models.Material(
+                session_id=sess.id,
+                kind=kind,
+                source=str(m.get("source") or ""),
+                parsed_chars=int(m.get("parsed_chars") or 0),
+                meta=m.get("meta") if isinstance(m.get("meta"), dict) else {},
+                content_hash=(str(m.get("content_hash"))[:64] if m.get("content_hash") else None),
+            )
+            if dt := _parse_dt(m.get("created_at")):
+                row.created_at = dt
+            db.add(row)
+            db.flush()  # 取 material_id 命名解析文本文件
+            text = m.get("parsed_text")
+            if isinstance(text, str) and text:
+                row.parsed_text_path = str(write_parsed_text(sess.id, row.id, text))
+            summary["materials"] += 1
+
+        for p in s.get("plans") or []:
+            if isinstance(p, dict):
+                _restore_plan(db, sess, p, summary)
+
+    _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
+    return summary
+
+
+def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict) -> None:
+    content = p.get("content") if isinstance(p.get("content"), dict) else {}
+    plan = models.Plan(
+        session_id=sess.id,
+        content=content,
+        version=int(p.get("version") or 1),
+    )
+    if dt := _parse_dt(p.get("created_at")):
+        plan.created_at = dt
+    db.add(plan)
+    db.flush()
+    # 大方案同样溢出落盘（与 _persist_plan 同规则，DB 行不塞超大 JSON）
+    content_json = json.dumps(content, ensure_ascii=False)
+    if content and len(content_json.encode("utf-8")) > _PLAN_OVERFLOW_BYTES:
+        from app.core.storage import exports_dir
+
+        path = exports_dir(sess.id) / f"plan_{plan.id}.json"
+        path.write_text(content_json, encoding="utf-8")
+        plan.content_path = str(path)
+        plan.content = {}
+    summary["plans"] += 1
+
+    # 知识节点两遍插入（先建行取 id，再按 sid 回填父引用），sid -> 新行映射
+    sid_to_node: dict[str, models.KnowledgeNode] = {}
+    for n in p.get("knowledge_nodes") or []:
+        if not isinstance(n, dict):
+            continue
+        name = str(n.get("name") or "")[:256]
+        if not name:
+            continue
+        row = models.KnowledgeNode(
+            plan_id=plan.id,
+            sid=str(n.get("sid") or "")[:64],
+            name=name,
+            difficulty=max(1, min(5, int(n.get("difficulty") or 1))),
+            must_learn=bool(n.get("must_learn")),
+        )
+        db.add(row)
+        if row.sid:
+            sid_to_node[row.sid] = row
+        summary["knowledge_nodes"] += 1
+    db.flush()
+    for n in p.get("knowledge_nodes") or []:
+        if not isinstance(n, dict):
+            continue
+        row = sid_to_node.get(str(n.get("sid") or ""))
+        parent = sid_to_node.get(str(n.get("parent_sid") or ""))
+        if row is not None and parent is not None and parent is not row:
+            row.parent_id = parent.id
+    db.flush()
+
+    for r in p.get("resources") or []:
+        if not isinstance(r, dict):
+            continue
+        node = sid_to_node.get(str(r.get("node_sid") or ""))
+        if node is None:
+            continue  # 无锚点资源跳过（节点未导入时无归属）
+        rtype = _enum_or(models.ResourceType, r.get("type")) or models.ResourceType.doc
+        verified = _enum_or(models.VerifyLabel, r.get("verified")) or models.VerifyLabel.uncertain
+        db.add(
+            models.Resource(
+                node_id=node.id,
+                url=str(r.get("url") or ""),
+                title=str(r.get("title") or "")[:512],
+                type=rtype,
+                verified=verified,
+                note=str(r.get("note") or ""),
+            )
+        )
+
+    for pr in p.get("progress") or []:
+        if not isinstance(pr, dict):
+            continue
+        node = sid_to_node.get(str(pr.get("node_sid") or ""))
+        if node is None:
+            continue
+        status = _enum_or(models.ProgressStatus, pr.get("status")) or models.ProgressStatus.not_started
+        db.add(
+            models.Progress(
+                plan_id=plan.id,
+                node_id=node.id,
+                status=status,
+                mastery=max(0.0, min(1.0, float(pr.get("mastery") or 0.0))),
+            )
+        )
+        summary["progress"] += 1
+
+    for lg in p.get("learning_logs") or []:
+        if not isinstance(lg, dict):
+            continue
+        d = _parse_date(lg.get("date"))
+        if d is None:
+            continue
+        db.add(
+            models.LearningLog(
+                plan_id=plan.id,
+                date=d,
+                minutes=int(lg.get("minutes") or 0),
+                note=lg.get("note") if isinstance(lg.get("note"), str) else None,
+            )
+        )
+        summary["learning_logs"] += 1
+
+    for q in p.get("quizzes") or []:
+        if not isinstance(q, dict):
+            continue
+        qtype = _enum_or(models.QuizType, q.get("type")) or models.QuizType.choice
+        node = sid_to_node.get(str(q.get("node_sid") or ""))
+        quiz = models.Quiz(
+            plan_id=plan.id,
+            node_id=node.id if node else None,
+            type=qtype,
+            payload=q.get("payload") if isinstance(q.get("payload"), dict) else {},
+        )
+        db.add(quiz)
+        db.flush()
+        summary["quizzes"] += 1
+        for a in q.get("attempts") or []:
+            if not isinstance(a, dict):
+                continue
+            att = models.QuizAttempt(
+                quiz_id=quiz.id,
+                user_answer=a.get("user_answer") if isinstance(a.get("user_answer"), dict) else {},
+                correct=a.get("correct") if isinstance(a.get("correct"), bool) else None,
+            )
+            if dt := _parse_dt(a.get("created_at")):
+                att.created_at = dt
+            db.add(att)
+
+    for u in p.get("study_units") or []:
+        if not isinstance(u, dict):
+            continue
+        title = str(u.get("title") or "")[:256]
+        if not title:
+            continue
+        node = sid_to_node.get(str(u.get("node_sid") or ""))
+        unit = models.StudyUnit(
+            plan_id=plan.id,
+            node_id=node.id if node else None,
+            stage_index=u.get("stage_index") if isinstance(u.get("stage_index"), int) else None,
+            title=title,
+            prerequisites=u.get("prerequisites") if isinstance(u.get("prerequisites"), list) else [],
+            objectives=u.get("objectives") if isinstance(u.get("objectives"), list) else [],
+            estimated_time=str(u.get("estimated_time") or "")[:64],
+            order=int(u.get("order") or 0),
+        )
+        if dt := _parse_dt(u.get("done_at")):
+            unit.done_at = dt
+        db.add(unit)
+        db.flush()  # 取 unit_id 命名内容文件
+        summary["study_units"] += 1
+        content_md = u.get("content_md")
+        if isinstance(content_md, str) and content_md:
+            path = write_unit_content(sess.id, unit.id, content_md)  # >500 行自动拆子文件
+            db.add(
+                models.StudyMaterial(
+                    unit_id=unit.id,
+                    content_md_path=str(path),
+                    size=len(content_md),
+                    resources=u.get("material_resources") if isinstance(u.get("material_resources"), list) else [],
+                )
+            )
+
+
+def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary: dict) -> None:
+    """供应商档案：空 key 导入（凭证不随备份走），一律置为未激活——
+    用户在设置页补填 API Key 后手动激活，避免空 key 档案被误用。
+    同名档案已存在则跳过（(user_id,name) 唯一约束）。"""
+    existing = {
+        r.name for r in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
+    }
+    for pr in profiles:
+        if not isinstance(pr, dict):
+            continue
+        name = str(pr.get("name") or "")[:64]
+        if not name:
+            continue
+        if name in existing:
+            summary["skipped"].append(f"供应商档案「{name}」已存在，已跳过")
+            continue
+        db.add(
+            models.LlmProviderProfile(
+                user_id=user.id,
+                name=name,
+                base_url=str(pr.get("base_url") or "")[:512],
+                api_key="",  # 凭证边界：不随备份导入
+                model=str(pr.get("model") or "")[:128],
+                is_active=False,
+            )
+        )
+        existing.add(name)
+        summary["provider_profiles"] += 1
