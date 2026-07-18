@@ -338,7 +338,7 @@ function BackupCard() {
       )}
       {result && (
         <div className="mt-3 animate-fade-in rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-          <p>
+          <p className="tabular-nums">
             本次导入：{result.sessions} 会话 / {result.materials} 资料 / {result.plans} 方案 /{' '}
             {result.knowledge_nodes} 知识节点 / {result.study_units} 自学单元 / {result.quizzes} 测验 /{' '}
             {result.progress} 进度 / {result.learning_logs} 打卡 / {result.provider_profiles} 供应商档案 /{' '}
