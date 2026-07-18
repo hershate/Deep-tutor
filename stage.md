@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 135（前端美化第 33 轮：生成进度页已用时长）**：[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 头部费用旁加 **⏱ 已用时长**——运行中每秒走动（m:ss，`setInterval` 随 status==='running' 启停），done/error/cancelled 终态定格；与费用并列 `tabular-nums`，分隔点复用 UsageMeter 模式；`aria-label` 供读屏。长任务（数十秒级生成）耗时感知此前空白。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 134（前端美化第 32 轮：用量柱状图动效）**：并行会话按日费用柱状图（commit `101fa67`）落成后走查——①14 根柱体加 35ms 错峰淡入（左起波浪式出现，与卡片 fade-in-up 衔接）；②「合计 $…」与底部起止日期包 `tabular-nums`。柱体 hover 变深/暗色变体原已实现，无需调整。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 133（功能线：用量页按日费用趋势，✅ 完成）**：成本可见性只有总数没有趋势——用量页加近 14 日按日柱状图。**编号说明**：本切片代码注释自标 iter 131，与并行美化轨 iter 131/132（第 30/31 轮）撞号，本条按共享序号取 133。
