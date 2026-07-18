@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 160（功能线：备份导入预检，✅ 完成）**：导入即写库，导错文件只能吃进副本——两步导入。**编号说明**：代码注释自标 iter 159，与并行美化轨 iter 159（第 45 轮）撞号，本条取 160。
+  - **后端**（commit `cddc0bc`）：[core/backup.py](backend/app/core/backup.py) `preview_backup`（validate_backup + 只读计数：sessions/plans/materials/nodes/node_notes/progress/logs/quizzes/units/profiles + exported_at/username，计数口径与 restore summary 一致）；[api/backup.py](backend/app/api/backup.py) `POST /backup/preview`（与 import 同 256MB/JSON/结构校验，不落库）。**坑记**：编辑 core/backup.py 时一次无效 Edit 把 `_enum_or` def 行与 docstring 粘连（ruff invalid-syntax 即时发现，同切片修复）。
+  - **前端**（commit 见 git log「feat(settings): 备份导入改两步」）：[Settings.tsx](frontend/src/pages/Settings.tsx) 选文件 -> `/backup/preview` -> 蓝色预览卡（全计数 + 导出人 + 导出时间 + 「确认导入（追加还原）」/「取消」）-> 确认才走原 importBackup；[api.ts](frontend/src/lib/api.ts) `previewBackup` + `BackupPreview`。
+  - **测试**：[test_api_backup_preview.py](backend/tests/test_api_backup_preview.py) 4 例（11 项计数+note 计数只算非空、预检后 DB 零写入（sessions/plans/profiles 均 0）、非 JSON/format 不符/版本过新 400、401）。**验证**：后端全量 512 通过（508→512，+4）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 159（美化轨：第 45 轮——错题卡打磨，✅ 完成）**：审查并行轨 iter 156 全局错题卡（commit `e510fac`）：样式本已对齐品牌模式（fade-in-up 卡 + hover 上浮 chips + tabular-nums + 暗色全配），仅补两处——① 方案 chips 逐项入场（`animate-fade-in-up` + 40ms 阶梯，沿用 R26/27 待复习卡 chips 模式）；② 标题 🎯 加 `aria-hidden`（装饰性 emoji 防读屏复读，沿用 R35/R40 模式）。验证：tsc 对 Wiki.tsx 零错（Settings.tsx 的 5 处 TS6133 均为并行轨备份预览 WIP 未提交文件，不动）。
 
 - **2026-07-19 iter 158（功能线：跨方案错题总览，✅ 完成）**：错题重练藏在单个方案里，全局有哪些错题看不见——Wiki 加全局错题卡。**编号说明**：代码注释自标 iter 156，与并行美化轨 iter 156/157（第 43/44 轮）撞号，本条取 158。
