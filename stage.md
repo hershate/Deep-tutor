@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：P4「Skills 扩展」已完成——iter 61 `deep-tutor-quiz`、iter 62-63 `deep-tutor-resources`（含 LLM 内容适配性筛选落地）均完成，plan/05 §八 全部 5+1 个 Skill 落地（MCP 经用户确认暂缓）。全量 303 后端测试 + 前端 build 通过。**候选下一步**：P4 剩余（云部署、浏览器插件）/ P5（缓存/导出/协作）/ 真机冒烟（配 key 后跑筛选全链路）。详见 §五 iter 61-63 条。
+**当前下一步**：P4 四项中三项已完成——多用户（iter 57-60）、Skills 扩展（iter 61-63，MCP 暂缓）、浏览器插件（iter 64-65）。全量 310 后端测试 + 前端 build 通过。**候选下一步**：P4 最后一项云部署（需用户提供目标环境信息）/ P5（缓存/导出/协作）/ 真机冒烟（装扩展 + 配 key 跑剪藏->生成全链路）。详见 §五 iter 64-65 条。
 
 ---
 
@@ -28,7 +28,7 @@
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
 | **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
-| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户 iter 57-60 ✅；Skills 扩展 iter 61-63 ✅（MCP 暂缓，用户确认）；云部署、浏览器插件待排期） |
+| P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | 🟡 进行中（多用户 iter 57-60 ✅；Skills iter 61-63 ✅（MCP 暂缓）；浏览器插件 iter 64-65 ✅；云部署待排期） |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
 ---
@@ -232,6 +232,12 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 64-65（P4 浏览器插件：剪藏端点 + MV3 扩展，✅ 完成）**：用户选定「浏览器插件（P4）」（plan/README 输入形式10：选中文本/网页剪藏发送为资料）。
+  - **iter 64（剪藏端点，commit `d90b940`）**：[materials.py](backend/app/api/materials.py) `POST /api/materials/clip {kind: text|url, content, title?}`——为当前用户**一步到位建会话 + 解析入资料**（复用 `_store` 与 SSRF 防护），title 缺省取内容前 40 字/URL 前 80 字；**解析失败清理孤儿会话**（行 + 文件目录，同 Home 前端模式）；返回 `{session_id, material_id, kind, title, open_path: /generate/{sid}}`——前端生成页 mount 即自动开始生成（raw_text 空，仅用剪藏资料，终端快路径处理重入）。测试 +7（text 成功+归属 / 空内容 422 无孤儿 / 非法 scheme 400 / SSRF 拦截+无孤儿 / url 成功 mock parse / 401 / JWT 用户归属+跨用户 404）。注：发现 `empty_content` 映射 422（CODE_STATUS），与既有 /materials/text 一致。
+  - **iter 65（MV3 扩展，commit `c64e2b2`）**：[extension/](extension/)（纯 JS 免构建，开发者模式加载）：`manifest.json`（MV3，permissions: contextMenus/storage/activeTab/scripting + host `<all_urls>`——后台 fetch 需用户自配服务器源权限）；`common.js`（配置读写 + dtClip + 角标反馈）；`background.js`（右键菜单：选中->剪藏文本、页面->剪藏链接）；`popup.html/js`（两按钮 + 最近结果「打开并生成学习方案 →」链接）；`options.html/js`（服务器地址 + Token + 测试连接 GET /settings）；README（安装/使用/权限说明）。node --check 全文件 + manifest JSON 校验通过。
+  - **验证**：全量 310 测试通过（303+7），零回归。**真机验证待做**：装扩展 + 起后端 + 配 Token 跑剪藏->生成全链路。
+  - **待做**：P4 最后一项云部署（需用户提供目标环境）/ P5 / 真机冒烟。
 
 - **2026-07-18 iter 62-63（P4 Skills 扩展：deep-tutor-resources + LLM 内容适配性筛选，✅ 完成）**：用户选定「deep-tutor-resources Skill」。该 Skill 的前置（plan/02 §5「✅ = HTTP 200 + 内容难度适配该阶段」的内容适配半）此前一直延后（iter 20：无 skill 消费者不建死代码），本次一并落地。
   - **iter 62（筛选实现，commit `023e3be`）**：[search_resources.py](backend/app/tools/search_resources.py) 新增 `_screen_resources`——verify_url 可达判定后，**一次批量 LLM 调用**（≤40 候选，成本有界）判定每候选与阶段主题/学习者水平的内容适配性：`suitable=false`（不相关）丢弃、`label="uncertain"` 降 ⚠️、`note` 写入（≤200 字）；**label 只降不升**（verify 已 ⚠️ 不因 LLM 说 ok 而升）；上下文取 `inp.upstream` 的 understand_intent（topic/level）+ design_stages（阶段名）；system prompt 取 `ctx.skill_registry["deep-tutor-resources"]`，缺失回退 inline `SCREEN_PROMPT`（R13，两者 schema 一致）。**稳定降级**：无 provider / LLM 异常 / 输出不可解析（`_parse_screen_verdicts` 整体结构非法 -> None）-> 跳过筛选保持原判定（行为同 iter 62 前）；响应未覆盖的 url 保持原判定；单项非法跳过不影响其余；容忍 markdown 代码块包裹。工具仍为 `llm=False` func（网络 + 内部可选 LLM 的混合流程，不进 loop 的 llm 工具路径）。测试 +6（丢弃+降⚠️+note / 不相关丢弃 / LLM 异常+非 JSON+非数组三种降级 / 部分覆盖+非法单项 / 无 provider 跳过 / skill prompt 优先于 inline）。
