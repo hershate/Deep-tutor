@@ -21,7 +21,11 @@ interface UnitProgress {
 }
 
 export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
-  const [depth, setDepth] = useState<'brief' | 'full'>('full')
+  // iter 145：深度偏好记忆——上次选用的深度作为下次默认值（localStorage）
+  const [depth, setDepth] = useState<'brief' | 'full'>(() => {
+    const d = localStorage.getItem('dt-materials-depth')
+    return d === 'brief' || d === 'full' ? d : 'full'
+  })
   const [loading, setLoading] = useState(true)
   const [units, setUnits] = useState<StudyUnitMeta[]>([])
   const [indexMd, setIndexMd] = useState('') // plan/02 §13 index 文档（路线图/计划表/复习节点）
@@ -167,6 +171,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               onChange={(e) => {
                 const d = e.target.value as 'brief' | 'full'
                 setDepth(d)
+                localStorage.setItem('dt-materials-depth', d) // iter 145：记忆偏好
                 run(d, true) // 切换深度 -> 强制重新生成（替换已持久化单元）
               }}
               disabled={loading}
