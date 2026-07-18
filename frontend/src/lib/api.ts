@@ -446,6 +446,9 @@ export const addLearningLog = (planId: number, minutes: number, note = '') =>
     method: 'POST',
     body: JSON.stringify({ plan_id: planId, minutes, note: note || null }),
   })
+// iter 150：删除打错的卡
+export const deleteLearningLog = (logId: number) =>
+  apiFetch<{ deleted: boolean; id: number }>(`/progress/logs/${logId}`, { method: 'DELETE' })
 
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>

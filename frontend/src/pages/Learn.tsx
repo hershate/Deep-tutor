@@ -7,6 +7,7 @@ import ProgressBoard from '../components/ProgressBoard'
 import {
   addLearningLog,
   ApiError,
+  deleteLearningLog,
   getPlan,
   getProgress,
   listLearningLogs,
@@ -31,6 +32,23 @@ export default function Learn() {
   const [opError, setOpError] = useState('')
   const [checkinBusy, setCheckinBusy] = useState(false)
   const [checkinMsg, setCheckinMsg] = useState('')
+  const [deletingLogId, setDeletingLogId] = useState<number | null>(null) // iter 150：删除日志防重入
+
+  // 删除打错的卡（iter 150）：confirm 后 DELETE，成功重取列表
+  async function onDeleteLog(l: LearningLogItem) {
+    if (deletingLogId !== null) return
+    if (!window.confirm(`删除 ${l.date} 的 ${l.minutes} 分钟打卡记录？`)) return
+    setDeletingLogId(l.id)
+    setOpError('')
+    try {
+      await deleteLearningLog(l.id)
+      loadLogs()
+    } catch (e) {
+      setOpError(e instanceof ApiError ? e.message : '删除失败，请重试')
+    } finally {
+      setDeletingLogId(null)
+    }
+  }
 
   const loadLogs = useCallback(() => {
     listLearningLogs(id)
@@ -198,9 +216,19 @@ export default function Learn() {
             </div>
             <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
               {logs.slice(0, 10).map((l) => (
-                <li key={l.id}>
+                <li key={l.id} className="flex items-center gap-1">
                   <span className="text-slate-400">{l.date}</span> · {l.minutes} 分钟
                   {l.note ? ` · ${l.note}` : ''}
+                  {/* 删除打错的卡（iter 150） */}
+                  <button
+                    onClick={() => onDeleteLog(l)}
+                    disabled={deletingLogId !== null}
+                    aria-label={`删除 ${l.date} 打卡`}
+                    title="删除该条打卡记录"
+                    className="rounded px-1 text-xs text-slate-300 transition-all hover:bg-red-50 hover:text-red-600 active:scale-95 disabled:opacity-50 dark:text-slate-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+                  >
+                    {deletingLogId === l.id ? '…' : '✕'}
+                  </button>
                 </li>
               ))}
             </ul>
