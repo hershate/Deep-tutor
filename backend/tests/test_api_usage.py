@@ -31,7 +31,7 @@ class CannedProvider(LLMProvider):
 def test_usage_after_generate(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
 
     # 生成前 usage 为空
     u0 = client.get("/api/usage", headers=auth_headers).json()

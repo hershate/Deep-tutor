@@ -42,7 +42,7 @@ def _utc_today():
 def _make_plan(client, auth_headers, monkeypatch) -> int:
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
     sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
     r = client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "学 React"}, headers=auth_headers)
     assert r.status_code == 200, r.text

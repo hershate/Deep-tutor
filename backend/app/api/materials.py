@@ -20,11 +20,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.agent.context import ExecContext
-from app.api.deps import get_db, require_auth
+from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
 from app.core.storage import save_upload, write_parsed_text
 from app.db import models
+from app.db.models import User
 from app.tools.base import ToolInput
 from app.tools.parse_material import parse_material, SUPPORTED_FILE_EXTS
 
@@ -60,11 +61,9 @@ class MaterialOut(BaseModel):
     meta: dict
 
 
-def _get_session_or_404(db: Session, session_id: int) -> models.Session:
-    sess = db.get(models.Session, session_id)
-    if sess is None:
-        raise ApiError("not_found", f"会话 {session_id} 不存在")
-    return sess
+def _get_session_or_404(db: Session, session_id: int, user: User) -> models.Session:
+    """当前用户拥有的会话（P4 iter 58 隔离：不存在/属他人 -> 404）。"""
+    return get_owned_session(db, session_id, user)
 
 
 def _ctx(session_id: int) -> ExecContext:
@@ -139,8 +138,9 @@ async def upload_material(
     session_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> MaterialOut:
-    _get_session_or_404(db, session_id)
+    _get_session_or_404(db, session_id, user)
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
@@ -180,29 +180,41 @@ async def upload_material(
 
 
 @router.post("/url", response_model=MaterialOut)
-async def url_material(body: UrlIn, db: Session = Depends(get_db)) -> MaterialOut:
-    _get_session_or_404(db, body.session_id)
+async def url_material(
+    body: UrlIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> MaterialOut:
+    _get_session_or_404(db, body.session_id, user)
     return await _store(db, body.session_id, "url", body.url)
 
 
 @router.post("/text", response_model=MaterialOut)
-async def text_material(body: TextIn, db: Session = Depends(get_db)) -> MaterialOut:
-    _get_session_or_404(db, body.session_id)
+async def text_material(
+    body: TextIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> MaterialOut:
+    _get_session_or_404(db, body.session_id, user)
     if not body.text or not body.text.strip():
         raise ApiError("empty_content", "文本为空")
     return await _store(db, body.session_id, "text", body.text, text_override=body.text)
 
 
+def _owned_unit_or_404(db: Session, unit_id: int, user: User) -> models.StudyUnit:
+    """当前用户拥有的自学单元（unit -> plan -> session.user_id；不存在/属他人 -> 404）。"""
+    unit = db.get(models.StudyUnit, unit_id)
+    if unit is None or unit.plan is None or unit.plan.session is None or unit.plan.session.user_id != user.id:
+        raise ApiError("not_found", f"自学单元 {unit_id} 不存在")
+    return unit
+
+
 @router.get("/{unit_id}")
-def get_study_unit_content(unit_id: int, db: Session = Depends(get_db)) -> dict:
+def get_study_unit_content(
+    unit_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """自学材料单元内容（plan/03 §一 GET /materials/{unit_id}，P2 iter 43）。
 
     偏离记录：返回 content_md（前端 react-markdown 渲染）替代 plan 的 content_html；
-    resources 为 WebSearch 补充资料预留（当前为空 list，未生成）。
+    resources 为 WebSearch 补充资料（iter 48，可能为空 list）。
     """
-    unit = db.get(models.StudyUnit, unit_id)
-    if unit is None:
-        raise ApiError("not_found", f"自学单元 {unit_id} 不存在")
+    unit = _owned_unit_or_404(db, unit_id, user)
     content_md = ""
     resources: list = []
     if unit.materials:
@@ -220,14 +232,17 @@ class UnitDoneIn(BaseModel):
 
 
 @router.post("/{unit_id}/done")
-def mark_unit_done(unit_id: int, body: UnitDoneIn, db: Session = Depends(get_db)) -> dict:
+def mark_unit_done(
+    unit_id: int,
+    body: UnitDoneIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
     """标记/取消已学（plan/07 §六 StudyMaterialReader 标记已学，P2 iter 44）。
 
     done=True -> done_at=当前 UTC（与 func.now() 同口径的 naive UTC）；False -> 置 None。幂等。
     """
-    unit = db.get(models.StudyUnit, unit_id)
-    if unit is None:
-        raise ApiError("not_found", f"自学单元 {unit_id} 不存在")
+    unit = _owned_unit_or_404(db, unit_id, user)
     unit.done_at = datetime.now(timezone.utc).replace(tzinfo=None) if body.done else None
     db.commit()
     return {"unit_id": unit.id, "done": unit.done_at is not None}

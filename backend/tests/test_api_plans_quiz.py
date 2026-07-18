@@ -44,7 +44,7 @@ class _QuizProvider(LLMProvider):
 def _make_plan(client, auth_headers):
     from app.api import plans as plans_mod
 
-    plans_mod.get_provider = lambda: CannedProvider()
+    plans_mod.get_provider = lambda *a, **k: CannedProvider()
     sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
     r = client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "学 React"}, headers=auth_headers)
     import json as _json
@@ -68,7 +68,7 @@ def test_quiz_ok(client, auth_headers, monkeypatch):
         '{"node_id":"k1","node_name":"JS","type":"short","question":"什么是闭包？",'
         '"options":[],"answer":"携带词法作用域的函数","explanation":""}]}'
     )
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _QuizProvider([_resp(spec_json)]))
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _QuizProvider([_resp(spec_json)]))
     r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -86,7 +86,7 @@ def test_quiz_degrade_no_provider(client, auth_headers, monkeypatch):
 
     plan_id = _make_plan(client, auth_headers)
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -138,7 +138,7 @@ def test_quiz_uses_unit_check_questions(client, auth_headers, monkeypatch):
                 '"question":"q","options":[],"answer":"a","explanation":""}]}'
             )
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _CapProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _CapProvider())
     r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert r.status_code == 200, r.text
     assert "unit_check_questions" in captured["user"]
@@ -162,7 +162,7 @@ def test_quiz_without_units_unchanged(client, auth_headers, monkeypatch):
                 '"question":"q","options":[],"answer":"a","explanation":""}]}'
             )
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _CapProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _CapProvider())
     r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert r.status_code == 200, r.text
     assert "unit_check_questions" not in captured["user"]

@@ -15,9 +15,11 @@ from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 __all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider"]
 
 
-def get_active_profile() -> "dict | None":
+def get_active_profile(user_id: int | None = None) -> "dict | None":
     """读 DB 中 is_active 的供应商档案（iter 50 多档案切换）；无 -> None。
 
+    P4 按用户隔离（iter 58）：user_id 指定 -> 仅查该用户的 active 档案；
+    user_id=None -> 任意 active 档案（无用户上下文的全局回退，如旧调用/脚本）。
     DB 读取失败（如表不存在/连接异常）-> None 回退 .env，不阻断调用方。
     """
     try:
@@ -26,7 +28,10 @@ def get_active_profile() -> "dict | None":
 
         db = SessionLocal()
         try:
-            p = db.query(models.LlmProviderProfile).filter_by(is_active=True).first()
+            q = db.query(models.LlmProviderProfile).filter_by(is_active=True)
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            p = q.first()
             if p is None:
                 return None
             return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or ""}
@@ -36,13 +41,15 @@ def get_active_profile() -> "dict | None":
         return None
 
 
-def get_provider() -> LLMProvider:
+def get_provider(user_id: int | None = None) -> LLMProvider:
     """构造 LLM Provider：DB active 供应商档案优先（iter 50），否则 .env（ANTHROPIC_API_KEY）。
 
+    P4 按用户隔离（iter 58）：user_id 指定 -> 仅用该用户的档案（他人档案不可见）；
+    user_id=None -> 任意 active 档案（无用户上下文回退）。
     档案的 base_url/model 为空时分别回退官方端点 / settings.anthropic_model。
     两者皆无 -> 抛 RuntimeError（功能级必填，见 settings.validate_feature_keys）。
     """
-    profile = get_active_profile()
+    profile = get_active_profile(user_id)
     if profile is not None:
         return AnthropicProvider(
             api_key=profile["api_key"],

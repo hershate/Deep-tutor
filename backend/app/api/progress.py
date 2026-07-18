@@ -19,9 +19,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_auth
-from app.api.errors import ApiError
+from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.db import models
+from app.db.models import User
 from app.tools.record_progress import compute_mastery, next_review_date
 
 router = APIRouter(prefix="/progress", tags=["progress"], dependencies=[Depends(require_auth)])
@@ -55,10 +55,11 @@ def _node_view(node: models.KnowledgeNode, row: models.Progress | None) -> dict:
 
 
 @router.post("")
-def update_progress(body: ProgressUpdate, db: Session = Depends(get_db)) -> dict:
+def update_progress(
+    body: ProgressUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """更新单节点进度（覆盖写，幂等）：掌握度加权 + 间隔重复（record_progress）。"""
-    if db.get(models.Plan, body.plan_id) is None:
-        raise ApiError("not_found", f"方案 {body.plan_id} 不存在")
+    get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     node = (
         db.query(models.KnowledgeNode)
         .filter_by(plan_id=body.plan_id, sid=body.node_id)
@@ -95,10 +96,11 @@ def update_progress(body: ProgressUpdate, db: Session = Depends(get_db)) -> dict
 
 
 @router.get("/{plan_id}")
-def get_progress(plan_id: int, db: Session = Depends(get_db)) -> dict:
+def get_progress(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """进度总览（plan/03 §一）：全部 knowledge_nodes 合并 progress 行 + mastery_avg。"""
-    if db.get(models.Plan, plan_id) is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     nodes = db.query(models.KnowledgeNode).filter_by(plan_id=plan_id).all()
     rows = {r.node_id: r for r in db.query(models.Progress).filter_by(plan_id=plan_id).all()}
     views = [_node_view(n, rows.get(n.id)) for n in nodes]
@@ -117,10 +119,11 @@ class LearningLogIn(BaseModel):
 
 
 @router.post("/logs")
-def add_learning_log(body: LearningLogIn, db: Session = Depends(get_db)) -> dict:
+def add_learning_log(
+    body: LearningLogIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """打卡：记一条学习日志（plan_id, date, minutes, note）。"""
-    if db.get(models.Plan, body.plan_id) is None:
-        raise ApiError("not_found", f"方案 {body.plan_id} 不存在")
+    get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     row = models.LearningLog(
         plan_id=body.plan_id,
         date=body.date or dt_date.today(),
@@ -134,10 +137,11 @@ def add_learning_log(body: LearningLogIn, db: Session = Depends(get_db)) -> dict
 
 
 @router.get("/logs/{plan_id}")
-def list_learning_logs(plan_id: int, db: Session = Depends(get_db)) -> dict:
+def list_learning_logs(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """学习日志列表（日期倒序，上限 100 条）+ 累计分钟数。"""
-    if db.get(models.Plan, plan_id) is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     rows = (
         db.query(models.LearningLog)
         .filter_by(plan_id=plan_id)

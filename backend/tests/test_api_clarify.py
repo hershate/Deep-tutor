@@ -59,7 +59,7 @@ def test_clarify_flow(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
     provider = ClarifyProvider()
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
 
     sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
 

@@ -54,7 +54,7 @@ def _session(client, auth_headers):
 def test_generate_happy_path(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
 
     sid = _session(client, auth_headers)
     r = client.post(
@@ -103,7 +103,7 @@ def test_generate_multi_materials_concatenated(client, auth_headers, monkeypatch
             return r
 
     provider = CaptureProvider()
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
     sid = _session(client, auth_headers)
     for text in ("资料甲：变量与函数。", "资料乙：组件与状态。"):
         r = client.post("/api/materials/text", json={"session_id": sid, "text": text}, headers=auth_headers)
@@ -123,7 +123,7 @@ def test_generate_multi_materials_concatenated(client, auth_headers, monkeypatch
 def test_generate_no_provider_emits_error(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -139,7 +139,7 @@ def test_generate_no_provider_emits_error(client, auth_headers, monkeypatch):
 
 
 def test_generate_session_not_found(client, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.plans.get_provider", lambda: CannedProvider())
+    monkeypatch.setattr("app.api.plans.get_provider", lambda *a, **k: CannedProvider())
     r = client.post(
         "/api/plans/generate",
         json={"session_id": 999999, "raw_text": "x"},
@@ -152,7 +152,7 @@ def test_generate_emits_increasing_event_ids(client, auth_headers, monkeypatch):
     """SSE 每事件带递增 id（plan/10 §十二 续接游标），终态持久化 last_event_id。"""
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
     sid = _session(client, auth_headers)
     r = client.post(
         "/api/plans/generate",
@@ -193,7 +193,7 @@ def test_generate_done_fast_path(client, auth_headers, monkeypatch):
     """done 态下重连 /generate -> 直接回放 done {plan_id}（不重跑，无新 plan，plan/10 §十二）。"""
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
     sid = _session(client, auth_headers)
     r1 = client.post(
         "/api/plans/generate",
@@ -231,7 +231,7 @@ def test_generate_paused_clarify_fast_path(client, auth_headers, monkeypatch):
         async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
             return clarify_resp
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: ClarifyOnly())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: ClarifyOnly())
     sid = _session(client, auth_headers)
     r1 = client.post(
         "/api/plans/generate",
@@ -256,7 +256,7 @@ def test_generate_error_fast_path(client, auth_headers, monkeypatch):
     """error 态下重连 /generate -> 回放终态 error（不自动重跑，plan/10 §十二）。"""
     from app.api import plans as plans_mod
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -291,7 +291,7 @@ def test_cancel_after_done(client, auth_headers, monkeypatch):
     """生成完成后 cancel -> 409（无运行中任务）。"""
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
     sid = _session(client, auth_headers)
     client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "x"}, headers=auth_headers)
     r = client.post(f"/api/plans/{sid}/cancel", headers=auth_headers)
@@ -404,7 +404,7 @@ def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
     # （design_stages/schedule/validate 3 次）。若误从 understand_intent 全量重跑
     # （旧 bug：_run_start 硬编码 start_tool）会耗尽响应 -> error，且 i != 8。
     provider = RegenProvider()
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
     sid = _session(client, auth_headers)
 
     # 1. 初始生成 -> plan v1
@@ -439,7 +439,7 @@ def test_regenerate_partial_rerun(client, auth_headers, monkeypatch):
 
 def test_regenerate_invalid_scope(client, auth_headers, monkeypatch):
     """scope 非有效工具名 -> 400。"""
-    monkeypatch.setattr("app.api.plans.get_provider", lambda: CannedProvider())
+    monkeypatch.setattr("app.api.plans.get_provider", lambda *a, **k: CannedProvider())
     sid = _session(client, auth_headers)
     r1 = client.post(
         "/api/plans/generate",
@@ -457,7 +457,7 @@ def test_regenerate_invalid_scope(client, auth_headers, monkeypatch):
 
 def test_regenerate_unsupported_scope(client, auth_headers, monkeypatch):
     """scope=understand_intent（无上游 understand_intent）-> 400。"""
-    monkeypatch.setattr("app.api.plans.get_provider", lambda: CannedProvider())
+    monkeypatch.setattr("app.api.plans.get_provider", lambda *a, **k: CannedProvider())
     sid = _session(client, auth_headers)
     r1 = client.post(
         "/api/plans/generate",

@@ -1,6 +1,8 @@
 """LLM 供应商档案 API（用户自定义供应商，类 CC-switch，iter 51）。
 
-多档案切换：CRUD + activate（同时至多一个 active）+ deactivate（回退 .env）。
+多档案切换：CRUD + activate（同一用户内同时至多一个 active）+ deactivate（回退 .env）。
+P4 按用户隔离（iter 58）：档案归属用户（user_id），一切操作仅作用于当前用户的档案；
+同名冲突仅在同用户内判定。跨用户访问一律 404（不泄露存在性）。
 安全：api_key 只写不读——任何响应不回显明文，仅返回掩码末 4 位；
 更新时不传 api_key 则保留原值。base_url 仅允许 http(s)（防 file:// 等协议注入）。
 """
@@ -13,10 +15,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_auth
+from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
 from app.db import models
+from app.db.models import User
 from app.llm.anthropic_provider import AnthropicProvider
 
 router = APIRouter(prefix="/providers", tags=["providers"], dependencies=[Depends(require_auth)])
@@ -65,19 +68,39 @@ class ProviderUpdate(BaseModel):
     _check_url = field_validator("base_url")(_validate_base_url)
 
 
+def _owned_or_404(db: Session, profile_id: int, user: User) -> models.LlmProviderProfile:
+    """当前用户拥有的档案；不存在/属他人 -> 404（不泄露存在性）。"""
+    p = db.get(models.LlmProviderProfile, profile_id)
+    if p is None or p.user_id != user.id:
+        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
+    return p
+
+
 @router.get("")
-def list_providers(db: Session = Depends(get_db)) -> dict:
-    rows = db.query(models.LlmProviderProfile).order_by(models.LlmProviderProfile.id).all()
+def list_providers(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    rows = (
+        db.query(models.LlmProviderProfile)
+        .filter_by(user_id=user.id)
+        .order_by(models.LlmProviderProfile.id)
+        .all()
+    )
     return {"providers": [_out(p) for p in rows]}
 
 
 @router.post("", status_code=201)
-def create_provider(body: ProviderIn, db: Session = Depends(get_db)) -> dict:
-    dup = db.query(models.LlmProviderProfile).filter_by(name=body.name).first()
+def create_provider(
+    body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
     if dup is not None:
         raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409)
     p = models.LlmProviderProfile(
-        name=body.name, base_url=body.base_url, api_key=body.api_key, model=body.model, is_active=False
+        user_id=user.id,
+        name=body.name,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        model=body.model,
+        is_active=False,
     )
     db.add(p)
     db.commit()
@@ -86,12 +109,15 @@ def create_provider(body: ProviderIn, db: Session = Depends(get_db)) -> dict:
 
 
 @router.put("/{profile_id}")
-def update_provider(profile_id: int, body: ProviderUpdate, db: Session = Depends(get_db)) -> dict:
-    p = db.get(models.LlmProviderProfile, profile_id)
-    if p is None:
-        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
+def update_provider(
+    profile_id: int,
+    body: ProviderUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    p = _owned_or_404(db, profile_id, user)
     if body.name is not None and body.name != p.name:
-        dup = db.query(models.LlmProviderProfile).filter_by(name=body.name).first()
+        dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
         if dup is not None:
             raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409)
         p.name = body.name
@@ -107,22 +133,22 @@ def update_provider(profile_id: int, body: ProviderUpdate, db: Session = Depends
 
 
 @router.delete("/{profile_id}")
-def delete_provider(profile_id: int, db: Session = Depends(get_db)) -> dict:
-    p = db.get(models.LlmProviderProfile, profile_id)
-    if p is None:
-        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
+def delete_provider(
+    profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    p = _owned_or_404(db, profile_id, user)
     db.delete(p)
     db.commit()
     return {"ok": True}
 
 
 @router.post("/{profile_id}/activate")
-def activate_provider(profile_id: int, db: Session = Depends(get_db)) -> dict:
-    """启用档案（同时至多一个 active；启用后 get_provider 走该档案）。"""
-    p = db.get(models.LlmProviderProfile, profile_id)
-    if p is None:
-        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
-    for other in db.query(models.LlmProviderProfile).filter_by(is_active=True).all():
+def activate_provider(
+    profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """启用档案（同一用户内同时至多一个 active；启用后 get_provider(user_id) 走该档案）。"""
+    p = _owned_or_404(db, profile_id, user)
+    for other in db.query(models.LlmProviderProfile).filter_by(user_id=user.id, is_active=True).all():
         other.is_active = False
     p.is_active = True
     db.commit()
@@ -130,23 +156,23 @@ def activate_provider(profile_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/deactivate")
-def deactivate_providers(db: Session = Depends(get_db)) -> dict:
-    """取消所有档案启用 -> get_provider 回退 .env（ANTHROPIC_API_KEY）。"""
-    for p in db.query(models.LlmProviderProfile).filter_by(is_active=True).all():
+def deactivate_providers(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """取消当前用户所有档案启用 -> get_provider 回退 .env（ANTHROPIC_API_KEY）。"""
+    for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id, is_active=True).all():
         p.is_active = False
     db.commit()
     return {"ok": True}
 
 
 @router.post("/{profile_id}/test")
-async def test_provider(profile_id: int, db: Session = Depends(get_db)) -> dict:
+async def test_provider(
+    profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """连通性测试（iter 53）：用档案凭据发起一次最小 LLM 调用，返回 ok/error。
 
     不激活档案、不改任何状态；错误信息截断（防回显敏感内容）。
     """
-    p = db.get(models.LlmProviderProfile, profile_id)
-    if p is None:
-        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
+    p = _owned_or_404(db, profile_id, user)
     model = p.model or settings.anthropic_model
     provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
     try:

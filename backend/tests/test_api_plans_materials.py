@@ -44,7 +44,7 @@ class _MaterialsProvider(LLMProvider):
 def _make_plan(client, auth_headers):
     from app.api import plans as plans_mod
 
-    plans_mod.get_provider = lambda: CannedProvider()
+    plans_mod.get_provider = lambda *a, **k: CannedProvider()
     sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
     r = client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "学 React"}, headers=auth_headers)
     import json as _json
@@ -68,7 +68,7 @@ def test_materials_ok(client, auth_headers, monkeypatch):
         '{"title":"React 组件","objectives":["学完后能够写函数组件"],"prerequisites":["JS 基础"],'
         '"estimated_time":"60 min","content_md":"### 概述\\n\\n组件是 UI 单元。"}]}'
     )
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _MaterialsProvider([_resp(spec_json)]))
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _MaterialsProvider([_resp(spec_json)]))
     r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -86,7 +86,7 @@ def test_materials_degrade_no_provider(client, auth_headers, monkeypatch):
 
     plan_id = _make_plan(client, auth_headers)
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -108,7 +108,7 @@ def test_materials_invalid_depth(client, auth_headers):
     from app.api import plans as plans_mod
 
     plan_id = _make_plan(client, auth_headers)
-    plans_mod.get_provider = lambda: CannedProvider()
+    plans_mod.get_provider = lambda *a, **k: CannedProvider()
     r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "verbose"}, headers=auth_headers)
     assert r.status_code == 422
 
@@ -127,7 +127,7 @@ _SPEC_JSON = (
 def _gen_materials(client, auth_headers, monkeypatch, plan_id, provider, body=None):
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
     r = client.post(f"/api/plans/{plan_id}/materials", json=body or {"depth": "full"}, headers=auth_headers)
     assert r.status_code == 200, r.text
     return r.json()
@@ -179,7 +179,7 @@ def test_materials_idempotent_no_regenerate(client, auth_headers, monkeypatch):
     plan_id = _make_plan(client, auth_headers)
     first = _gen_materials(client, auth_headers, monkeypatch, plan_id, _MaterialsProvider([_resp(_SPEC_JSON)]))
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -230,7 +230,7 @@ def test_materials_degrade_also_persisted(client, auth_headers, monkeypatch):
 
     plan_id = _make_plan(client, auth_headers)
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)

@@ -25,11 +25,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
-from app.api.deps import get_db, require_auth
+from app.api.deps import get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
+from app.db.models import User
 from app.llm import get_provider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
@@ -230,10 +231,13 @@ async def _terminal_stream(event: str, data: dict) -> str:
 
 
 @router.post("/generate")
-def generate(body: GenerateIn, request: Request, db: Session = Depends(get_db)) -> StreamingResponse:
-    sess = db.get(models.Session, body.session_id)
-    if sess is None:
-        raise ApiError("not_found", f"会话 {body.session_id} 不存在")
+def generate(
+    body: GenerateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    get_owned_session(db, body.session_id, user)  # P4 隔离：他人会话 404
 
     state = db.get(models.OrchestratorState, body.session_id)
     # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
@@ -269,15 +273,23 @@ def generate(body: GenerateIn, request: Request, db: Session = Depends(get_db)) 
         )
     args_by_tool = {"understand_intent": {"raw_text": body.raw_text, "parsed": parsed}}
     return StreamingResponse(
-        _run_start(body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request)),
+        _run_start(
+            body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
 
 
 @router.post("/{session_id}/clarify")
-def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> StreamingResponse:
+def clarify(
+    session_id: int,
+    body: ClarifyIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
     """澄清续接（plan/10 §四）：paused_clarify 状态下以 answers 重跑 understand_intent -> 继续 pipeline。"""
+    get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
     state = db.get(models.OrchestratorState, session_id)
     if state is None or state.status != models.OrchestratorStatus.paused_clarify:
         raise ApiError("conflict", "该会话无待澄清任务", status=409)
@@ -291,7 +303,7 @@ def clarify(session_id: int, body: ClarifyIn, db: Session = Depends(get_db)) -> 
     parsed = _load_parsed_materials(db, session_id)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
     return StreamingResponse(
-        _run_start(session_id, args_by_tool, initial_upstream, 0),
+        _run_start(session_id, args_by_tool, initial_upstream, 0, user_id=user.id),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -315,15 +327,15 @@ def cancel_running_generation(session_id: int) -> bool:
 
 
 @router.post("/{session_id}/cancel")
-async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
+async def cancel(
+    session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """取消运行中的生成（plan/10 §十一）。
 
     取消活动流的编排器任务 -> done-callback（`_finalize`）发 `error{code:cancelled}`
     并置 error 态；连接中的客户端经 SSE 收到该事件。无运行任务 -> 409。
     """
-    sess = db.get(models.Session, session_id)
-    if sess is None:
-        raise ApiError("not_found", f"会话 {session_id} 不存在")
+    get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
     if not cancel_running_generation(session_id):
         raise ApiError("conflict", "该会话无运行中的生成任务", status=409)
     return {"ok": True, "status": "cancelling"}
@@ -331,16 +343,18 @@ async def cancel(session_id: int, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/{plan_id}/regenerate")
 def regenerate(
-    plan_id: int, body: RegenIn, request: Request, db: Session = Depends(get_db)
+    plan_id: int,
+    body: RegenIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """局部重生成（plan/10 §十三）：从 scope 起级联重跑其下游，feedback 注入 start_tool。
 
     - scope：PIPELINE 中 understand_intent 之后的工具名（其上游从 tool_calls 重建）。
     - plans.version += 1（_persist_plan 自动递增）。
     """
-    plan = db.get(models.Plan, plan_id)
-    if plan is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     session_id = plan.session_id
     state = db.get(models.OrchestratorState, session_id)
     if state is not None and state.status == models.OrchestratorStatus.running:
@@ -360,7 +374,12 @@ def regenerate(
     args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
     return StreamingResponse(
         _run_start(
-            session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), start_tool=start_tool
+            session_id,
+            args_by_tool,
+            initial_upstream,
+            _parse_last_event_id(request),
+            start_tool=start_tool,
+            user_id=user.id,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -461,11 +480,13 @@ async def _run_start(
     initial_upstream: dict,
     last_event_id: int = 0,
     start_tool: str = "understand_intent",
+    user_id: int | None = None,
 ) -> str:
     """启动一次生成：创建会话流 + 编排器任务（done-callback 持久化）+ 续接投递。
 
     start_tool：编排器起始工具。默认 understand_intent（全量生成 / 澄清续接）；
     局部重生成传 scope（plan/10 §十三：从受影响工具起级联重跑其下游，重跑范围最小化）。
+    user_id：发起用户（P4 iter 58）：LLM 供应商档案按该用户解析（get_provider(user_id)）。
     """
     trace_id = uuid.uuid4().hex
     stream = _SessionStream(session_id, trace_id)
@@ -475,9 +496,9 @@ async def _run_start(
     _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
     db.close()
 
-    # 无 LLM Provider -> 发 error 终态（不启动任务）
+    # 无 LLM Provider -> 发 error 终态（不启动任务）；档案按发起用户解析（P4 隔离）
     try:
-        provider = get_provider()
+        provider = get_provider(user_id)
     except Exception as exc:  # noqa: BLE001
         eid = stream.publish("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
         stream.mark_terminal(eid)
@@ -565,8 +586,13 @@ def _set_state(
 
 
 def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: dict[str, ToolOutput]) -> None:
-    """持久化 tool_calls + api_usage（成本计量 Pillar 3，plan/01 §三）。批量写，失败不阻塞。"""
+    """持久化 tool_calls + api_usage（成本计量 Pillar 3，plan/01 §三）。批量写，失败不阻塞。
+
+    api_usage.user_id 取会话归属用户（P4 iter 58 按用户统计用量）。
+    """
     try:
+        sess = db.get(models.Session, session_id)
+        usage_user_id = sess.user_id if sess is not None else None
         for tool_name, out in outputs.items():
             m = out.metadata
             err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
@@ -587,6 +613,7 @@ def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: di
             if m.tokens_in or m.tokens_out:  # LLM 调用才记 api_usage
                 db.add(
                     models.ApiUsage(
+                        user_id=usage_user_id,
                         provider="anthropic",
                         model=m.model,
                         tokens_in=m.tokens_in,
@@ -671,10 +698,15 @@ def list_plans(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    q = db.query(models.Plan)
+    # P4 隔离：仅列当前用户会话下的方案；指定 session_id 须为本用户会话（否则 404）
+    q = db.query(models.Plan).join(models.Session, models.Plan.session_id == models.Session.id).filter(
+        models.Session.user_id == user.id
+    )
     if session_id is not None:
-        q = q.filter_by(session_id=session_id)
+        get_owned_session(db, session_id, user)
+        q = q.filter(models.Plan.session_id == session_id)
     total = q.count()
     items = q.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     return {
@@ -684,10 +716,10 @@ def list_plans(
 
 
 @router.get("/{plan_id}")
-def get_plan(plan_id: int, db: Session = Depends(get_db)) -> dict:
-    plan = db.get(models.Plan, plan_id)
-    if plan is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+def get_plan(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     return {"id": plan.id, "session_id": plan.session_id, "version": plan.version, "plan": _load_plan_content(plan)}
 
 
@@ -702,11 +734,9 @@ def _load_plan_content(plan: models.Plan) -> dict:
     return content or {}
 
 
-def _plan_or_404(db: Session, plan_id: int) -> tuple[models.Plan, dict]:
-    """加载 plan + 内容；不存在 -> 404，内容为空 -> 400。"""
-    plan = db.get(models.Plan, plan_id)
-    if plan is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+def _plan_or_404(db: Session, plan_id: int, user: User) -> tuple[models.Plan, dict]:
+    """加载当前用户拥有的 plan + 内容；不存在/属他人 -> 404，内容为空 -> 400。"""
+    plan = get_owned_plan(db, plan_id, user)
     content = _load_plan_content(plan)
     if not content:
         raise ApiError("empty_content", "方案内容为空")
@@ -808,7 +838,7 @@ _MAX_MATERIAL_UNITS = 12  # 单元数上限（plan/07 §三 3-12 单元；超出
 
 
 async def _materials_sse(
-    plan_id: int, session_id: int, content: dict, body: MaterialsIn, old_paths: list[str]
+    plan_id: int, session_id: int, content: dict, body: MaterialsIn, old_paths: list[str], user_id: int
 ) -> AsyncIterator[str]:
     """逐单元材料生成 SSE 流（plan/07 §三：按 stage 拆分，每单元一次 LLM；失败降级简要大纲）。
 
@@ -816,6 +846,7 @@ async def _materials_sse(
     结束后清理旧内容文件。一次性流，不做断线重连（类 clarify 终态快路径之外的轻量场景）。
     事件：unit_start {order,title,total} -> unit_done {order,title,degraded} ×N
           -> done {unit_count,degraded_count}；异常兜底 error {code,message}。
+    user_id：发起用户（P4 iter 58）：供应商档案按该用户解析。
     """
     db = SessionLocal()
     new_paths: list[str] = []
@@ -825,7 +856,7 @@ async def _materials_sse(
             stages = [{}]  # 无阶段 -> 单占位单元
         total = len(stages)
         try:
-            provider = get_provider()
+            provider = get_provider(user_id)
         except Exception:  # noqa: BLE001  无 key -> 全部单元降级 brief
             provider = None
         ctx = ExecContext(
@@ -897,7 +928,13 @@ async def _materials_sse(
 
 
 @router.post("/{plan_id}/materials")
-async def generate_materials(plan_id: int, body: MaterialsIn, request: Request, db: Session = Depends(get_db)):
+async def generate_materials(
+    plan_id: int,
+    body: MaterialsIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """生成自学材料（内容协商，iter 46；plan/07 §五 SSE/异步）。
 
     - Accept: text/event-stream 且需生成（无已存单元或 refresh）-> SSE 逐单元流（_materials_sse）；
@@ -907,7 +944,7 @@ async def generate_materials(plan_id: int, body: MaterialsIn, request: Request, 
     幂等：已持久化且未 refresh -> 直接重渲染返回 JSON（免重复 LLM 成本；即使请求 SSE 也返回 JSON）。
     无 ANTHROPIC_API_KEY 或 LLM 失败 -> default/brief 纯 Python 兜底（稳定降级，同样落库）。
     """
-    plan, content = _plan_or_404(db, plan_id)
+    plan, content = _plan_or_404(db, plan_id, user)
 
     existing = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
     if existing and not body.refresh:
@@ -918,13 +955,13 @@ async def generate_materials(plan_id: int, body: MaterialsIn, request: Request, 
         old_paths = _delete_study_units(db, plan.id)
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
         return StreamingResponse(
-            _materials_sse(plan.id, plan.session_id, content, body, old_paths),
+            _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
 
     try:
-        provider = get_provider()
+        provider = get_provider(user.id)
     except Exception:  # noqa: BLE001  无 key -> 降级默认
         provider = None
 
@@ -956,9 +993,11 @@ async def generate_materials(plan_id: int, body: MaterialsIn, request: Request, 
 
 
 @router.get("/{plan_id}/materials")
-def list_materials(plan_id: int, db: Session = Depends(get_db)) -> dict:
+def list_materials(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
     """自学材料单元列表（plan/03 §一 GET /plans/{id}/materials）：元数据，不含内容。"""
-    plan, _content = _plan_or_404(db, plan_id)
+    plan, _content = _plan_or_404(db, plan_id, user)
     units = (
         db.query(models.StudyUnit)
         .filter_by(plan_id=plan.id)
@@ -1030,14 +1069,17 @@ def _quiz_result(rows: list[models.Quiz], content: dict, spec_title: str | None 
 
 @router.post("/{plan_id}/quiz")
 async def generate_quiz_endpoint(
-    plan_id: int, body: QuizIn | None = None, db: Session = Depends(get_db)
+    plan_id: int,
+    body: QuizIn | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """生成测验：run_tool 生成 QuizSpec（LLM，降级默认）并持久化 quizzes 表，返回 JSON 供前端交互判分。
 
     幂等：已持久化且未指定 refresh -> 直接返回已存题（免重复 LLM 成本）。
     无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_quiz_from_plan 纯 Python 默认（稳定兜底，同样落库）。
     """
-    plan, content = _plan_or_404(db, plan_id)
+    plan, content = _plan_or_404(db, plan_id, user)
     refresh = bool(body and body.refresh)
 
     existing = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
@@ -1045,7 +1087,7 @@ async def generate_quiz_endpoint(
         return _quiz_result(existing, content)
 
     try:
-        provider = get_provider()
+        provider = get_provider(user.id)
     except Exception:  # noqa: BLE001  无 key -> 降级默认
         provider = None
 

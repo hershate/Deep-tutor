@@ -16,10 +16,10 @@ from sqlalchemy.orm import Session
 
 from app.agent import run_tool
 from app.agent.context import ExecContext
-from app.api.deps import get_db, require_auth
+from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
 from app.core.settings import settings
-from app.db import models
+from app.db.models import User
 from app.llm import get_provider
 from app.tools import default_registry
 from app.tools.base import ToolInput
@@ -34,10 +34,13 @@ class ExportIn(BaseModel):
 
 
 @router.post("/{plan_id}")
-async def export_plan_endpoint(plan_id: int, body: ExportIn, db: Session = Depends(get_db)) -> dict:
-    plan = db.get(models.Plan, plan_id)
-    if plan is None:
-        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+async def export_plan_endpoint(
+    plan_id: int,
+    body: ExportIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     content = plan.content
     if not content and plan.content_path:
         try:
@@ -48,7 +51,7 @@ async def export_plan_endpoint(plan_id: int, body: ExportIn, db: Session = Depen
         raise ApiError("empty_content", "方案内容为空，无法导出")
 
     if body.format == "slides":
-        return await _export_slides(plan_id, plan.session_id, content)
+        return await _export_slides(plan_id, plan.session_id, content, user.id)
     return await _export_md(plan_id, plan.session_id, content, body.format)
 
 
@@ -69,11 +72,12 @@ async def _export_md(plan_id: int, session_id: int, content: dict, fmt: str) -> 
     return result
 
 
-async def _export_slides(plan_id: int, session_id: int, content: dict) -> dict:
+async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: int) -> dict:
     """slides 导出：run_tool 生成 SlideSpec（LLM，降级默认）+ 渲染自包含 HTML。
 
     无 ANTHROPIC_API_KEY 或 LLM 失败 -> default_spec_from_plan 纯 Python 默认 deck（稳定兜底）。
     返回 html 内容（前端 Blob 新窗口打开，plan/03 §93；无需额外文件服务/鉴权）。
+    user_id：发起用户（P4 iter 58）：供应商档案按该用户解析。
     """
     template_path = Path(settings.skills_dir) / "ppt-slide-builder" / "templates" / "base.html"
     try:
@@ -82,7 +86,7 @@ async def _export_slides(plan_id: int, session_id: int, content: dict) -> dict:
         raise ApiError("internal_error", f"幻灯片模板缺失: {exc}") from exc
 
     try:
-        provider = get_provider()
+        provider = get_provider(user_id)
     except Exception:  # noqa: BLE001  无 key -> 降级默认 deck
         provider = None
 

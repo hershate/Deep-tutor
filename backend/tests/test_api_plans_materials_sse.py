@@ -90,7 +90,7 @@ def test_materials_sse_all_ok(client, auth_headers, monkeypatch):
             _unit_resp("### 概述\n\n实战单元正文。"),
         ]
     )
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
 
     r = _post_sse(client, auth_headers, plan_id)
     assert r.status_code == 200, r.text
@@ -140,7 +140,7 @@ def test_materials_sse_unit_failure_degrades(client, auth_headers, monkeypatch):
             _unit_resp("### 概述\n\n实战单元正文。"),
         ]
     )
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
 
     r = _post_sse(client, auth_headers, plan_id)
     assert r.status_code == 200, r.text
@@ -169,7 +169,7 @@ def test_materials_sse_no_provider_all_degraded(client, auth_headers, monkeypatc
 
     plan_id = _make_plan(client, auth_headers)
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -194,12 +194,12 @@ def test_materials_sse_idempotent_returns_json(client, auth_headers, monkeypatch
 
     plan_id = _make_plan(client, auth_headers)
     provider = _UnitProvider([_unit_resp("### 概述\n\n正文。")])
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: provider)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
     r = _post_sse(client, auth_headers, plan_id)
     assert r.headers["content-type"].startswith("text/event-stream")
     assert _parse_sse(r.text)[-1][0] == "done"
 
-    def _raise():
+    def _raise(*a, **k):
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     monkeypatch.setattr(plans_mod, "get_provider", _raise)
@@ -216,11 +216,11 @@ def test_materials_sse_refresh_regenerates(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
 
     plan_id = _make_plan(client, auth_headers)
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _UnitProvider([_unit_resp("### 概述\n\n第一版。")]))
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp("### 概述\n\n第一版。")]))
     r = _post_sse(client, auth_headers, plan_id)
     assert r.headers["content-type"].startswith("text/event-stream")
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _UnitProvider([_unit_resp("### 概述\n\n第二版。")]))
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp("### 概述\n\n第二版。")]))
     r2 = _post_sse(client, auth_headers, plan_id, body={"depth": "full", "refresh": True})
     assert r2.headers["content-type"].startswith("text/event-stream")
     assert _parse_sse(r2.text)[-1] == ("done", {"unit_count": 3, "degraded_count": 0})
@@ -238,7 +238,7 @@ def test_materials_sse_unit_resources_persisted(client, auth_headers, monkeypatc
     from app.api import plans as plans_mod
 
     plan_id = _make_plan(client, auth_headers)
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _UnitProvider([_unit_resp("### 概述\n\n正文。")]))
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp("### 概述\n\n正文。")]))
     canned = [
         {"title": "React 官方文档", "url": "https://react.dev", "verified": "ok", "note": ""},
         {"title": "某教程", "url": "https://example.com/t", "verified": "uncertain", "note": ""},

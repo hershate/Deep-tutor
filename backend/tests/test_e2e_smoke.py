@@ -56,7 +56,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     """完整用户旅程冒烟：会话+资料 -> 生成 -> 详情/列表 -> 用量 -> 设置 -> 导出。"""
     from app.api import plans as plans_mod
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: CannedProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
 
     # 1. 建会话
     sid = client.post("/api/sessions", json={"title": "e2e 冒烟"}, headers=auth_headers).json()["session_id"]
@@ -119,7 +119,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
                 '{"title":"React","content_html":"<p>零基础</p>","layout":"center","animation":"anim-fade-in"}]}'
             )
 
-    monkeypatch.setattr(exports_mod, "get_provider", lambda: _SlidesProvider())
+    monkeypatch.setattr(exports_mod, "get_provider", lambda *a, **k: _SlidesProvider())
     monkeypatch.setattr(settings_mod.settings, "skills_dir", str(Path(__file__).resolve().parents[2] / "skills"))
     exp_slides = client.post(f"/api/export/{plan_id}", json={"format": "slides"}, headers=auth_headers).json()
     assert exp_slides["format"] == "html"
@@ -136,7 +136,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
                 '"estimated_time":"45 min","content_md":"### 概述\\n\\nJS 是交互逻辑。"}]}'
             )
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _MaterialsProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _MaterialsProvider())
     mat_res = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
     assert mat_res.status_code == 200, mat_res.text
     mat_body = mat_res.json()
@@ -153,7 +153,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
                 '"options":["var","const"],"answer":"const","explanation":"const 声明常量。"}]}'
             )
 
-    monkeypatch.setattr(plans_mod, "get_provider", lambda: _QuizProvider())
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _QuizProvider())
     quiz_res = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert quiz_res.status_code == 200, quiz_res.text
     quiz_body = quiz_res.json()

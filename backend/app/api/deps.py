@@ -67,7 +67,11 @@ def get_default_user(db: Session) -> User:
 
 
 def resolve_user(db: Session, authorization: str | None, x_auth_token: str | None) -> User | None:
-    """解析请求身份为 User（JWT -> 对应用户；AUTH_TOKEN -> 首个管理员/首个用户）；失败 -> None。"""
+    """解析请求身份为 User（JWT -> 对应用户；AUTH_TOKEN -> 首个管理员/首个用户）；失败 -> None。
+
+    AUTH_TOKEN 回退路径下若库中无任何用户 -> 自动创建默认用户（与旧单用户行为一致，
+    保证仅配置 AUTH_TOKEN 的本地部署/既有调用方在 P4 后仍可用）。
+    """
     token = _extract_token(authorization, x_auth_token)
     if not token:
         return None
@@ -79,7 +83,7 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
             return None
         return db.get(User, user_id)
     if _is_env_token(token):
-        return db.query(User).filter_by(is_admin=True).first() or db.query(User).first()
+        return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
     return None
 
 
@@ -100,3 +104,29 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin required")
     return user
+
+
+# --- 数据归属守卫（P4 iter 58 按用户隔离）---
+# 统一 404（而非 403）：不泄露资源是否存在（防枚举他人数据 id）。
+
+
+def get_owned_session(db: Session, session_id: int, user: User):
+    """加载当前用户拥有的会话；不存在或属他人 -> 404。"""
+    from app.api.errors import ApiError
+    from app.db.models import Session as SessionModel
+
+    sess = db.get(SessionModel, session_id)
+    if sess is None or sess.user_id != user.id:
+        raise ApiError("not_found", f"会话 {session_id} 不存在")
+    return sess
+
+
+def get_owned_plan(db: Session, plan_id: int, user: User):
+    """加载当前用户拥有的方案（经 plan.session.user_id 判定）；不存在或属他人 -> 404。"""
+    from app.api.errors import ApiError
+    from app.db.models import Plan
+
+    plan = db.get(Plan, plan_id)
+    if plan is None or plan.session is None or plan.session.user_id != user.id:
+        raise ApiError("not_found", f"方案 {plan_id} 不存在")
+    return plan
