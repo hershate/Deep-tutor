@@ -377,7 +377,7 @@ export default function PlanDetail() {
                       <span className="sr-only">{VERIFY_TEXT[r.verified ?? ''] ?? '未知'}：</span>
                       {r.title}{' '}
                       {isHttpUrl(r.url) ? (
-                        <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                        <a href={r.url} target="_blank" rel="noreferrer" className="break-all text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
                           {r.url}
                         </a>
                       ) : (

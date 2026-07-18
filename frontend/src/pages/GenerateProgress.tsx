@@ -227,7 +227,7 @@ export default function GenerateProgress() {
                       <li key={i}>
                         {r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'} {r.title}{' '}
                         {isHttpUrl(r.url) ? (
-                          <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                          <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
                             {r.url}
                           </a>
                         ) : (

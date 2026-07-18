@@ -104,7 +104,7 @@ export default function Learn() {
     return (
       <div role="alert" className="space-y-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
         <p>{error}</p>
-        <Link to={`/plans/${id}`} className="text-sm underline">
+        <Link to={`/plans/${id}`} className="text-sm underline underline-offset-2 transition-colors hover:text-red-900 dark:hover:text-red-100">
           返回方案详情
         </Link>
       </div>
@@ -114,7 +114,7 @@ export default function Learn() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">学习中心{topic ? `：${topic}` : ''}</h2>
-        <Link to={`/plans/${id}`} className="text-sm text-blue-600 hover:underline">
+        <Link to={`/plans/${id}`} className="text-sm text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
           返回方案详情
         </Link>
       </div>
