@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 116（前端美化第 22 轮：自学材料弹窗细节）**：[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) 头部控件走查——①「深度」下拉原裸样式（`rounded border`，无深色/聚焦态）升级为品牌输入件（rounded-lg + 深色底/边框 + focus 蓝环 + disabled 半透明）；②「导出全部」「关闭」按钮补 `dark:border-slate-600`（原深色下边框沿用浅色过亮）；③「选择重生成」选中态补 `dark:border-blue-500`（原深色下选中边框不可见）、「关闭」补 transition-all + active:scale-95。另：并行会话错题重练（commit `f902bd6`，QuizModal wrong 模式）样式已自带品牌模式，无需调整。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 115（功能线：错题重练，✅ 完成）**：答错题目可零成本原题重练（不消耗 LLM 额度）。**编号说明**：本切片代码注释自标 iter 114，与并行美化轨 iter 114（第 21 轮）撞号，本条按共享序号取 115。
   - **后端**（commit `a7a5f6c`）：[plans.py](backend/app/api/plans.py) 新增 `GET /plans/{id}/quiz/wrong`——每题取最新一条 QuizAttempt（created_at 倒序、同刻 id 大者优先），`correct IS False` 计入；自评题（correct=None）与未作答题不计；全部作答单查询取回按 quiz 分组（防逐题 N+1）；响应复用 `_quiz_result` 形状（title 为「{topic}错题重练」）；P4 隔离他人方案 404。答错 -> 重练答对 -> 自动出列（无需刷新题）。
   - **前端**（commit `f902bd6`）：[QuizModal.tsx](frontend/src/components/QuizModal.tsx) 加 `wrong` 模式（数据源换 `getWrongQuizzes`、加载文案「加载错题…」、无错题 🎉 空态引导去完整测验）；[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 测验旁「错题重练」次按钮（emerald 描边款，title 注明零额度），关闭后照常 progressKey+1 刷新看板；[api.ts](frontend/src/lib/api.ts) `getWrongQuizzes`。
