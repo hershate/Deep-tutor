@@ -127,15 +127,12 @@ class Settings(BaseSettings):
     def validate_required(self) -> list[str]:
         """启动时校验必填项，返回缺失项列表。
 
-        - AUTH_TOKEN：本地认证，结构性必填（启动即校验）。
-        - ANTHROPIC_API_KEY / BING_API_KEY：仅对应功能（生成 / 搜索）调用时必填，
-          启动时缺失仅告警，便于骨架/开发期先跑通 health 等非生成端点。
-          （实现期可收紧为启动硬校验，见 stage.md 备注。）
+        零配置开箱即用（iter 89）：无任何启动硬必填——无 .env 也可启动，
+        认证缺失时以后端「开放本机模式」运行（见 app/core/security.py
+        passwordless_open），首次设置引导用户在前端完成。
+        R27 语义收敛为「功能级 key 调用前校验」（validate_feature_keys）。
         """
-        missing: list[str] = []
-        if not self.auth_token:
-            missing.append("AUTH_TOKEN")
-        return missing
+        return []
 
     def validate_feature_keys(self) -> list[str]:
         """功能级必填 key 检查（调用对应功能前用），返回缺失项。"""

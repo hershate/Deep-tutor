@@ -30,15 +30,17 @@ _MAX_BODY_BYTES = settings.max_upload_bytes + 5 * 1024 * 1024
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = setup_logging(settings.log_level)
-    # 启动校验必填项（R27）
+    # 启动校验（iter 89 零配置开箱即用：无硬必填，缺失认证配置 -> 开放本机模式，
+    # 首次设置引导用户在前端完成；R27 收敛为功能级 key 调用前校验）
     missing = settings.validate_required()
-    if missing:
+    if missing:  # pragma: no cover - 当前无硬必填，保留钩子供未来收紧
         log.error("启动校验失败，缺失必填配置: %s", missing)
         raise SystemExit(1)
     soft_missing = settings.validate_feature_keys()
     if soft_missing:
         log.warning(
-            "功能级 key 缺失（生成/搜索将不可用直到配置）: %s", soft_missing
+            "功能级 key 缺失（生成/搜索将不可用直到配置，可在前端 设置->供应商档案 添加）: %s",
+            soft_missing,
         )
     # err.md E5：弱/默认 AUTH_TOKEN 告警（.env.example 的 change-me-please 忘改即弱认证）
     if settings.auth_token.strip().lower() in {
@@ -87,7 +89,10 @@ async def lifespan(app: FastAPI):
         ensure_admin_user(db)
     finally:
         db.close()
-    if not settings.admin_password:
+    if not settings.admin_password and not settings.auth_token:
+        log.info("未配置认证（ADMIN_PASSWORD/AUTH_TOKEN 均空）：以开放本机模式运行——"
+                 "免登录直接使用，局域网内任何人可访问；可在前端设置页设置访问密码")
+    elif not settings.admin_password:
         log.warning("ADMIN_PASSWORD 未配置：JWT 登录不可用，仅 AUTH_TOKEN 回退（P4 多用户）")
     # err.md C17：CORS * 兜底告警（配合凭证/自定义头时是危险配置）
     if "*" in settings.cors_origin_list:

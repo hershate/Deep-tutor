@@ -17,10 +17,14 @@ import logging
 import secrets
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import jwt
 
 from app.core.settings import settings
+
+if TYPE_CHECKING:
+    from app.db.models import User
 
 _ITERATIONS = 600_000  # err.md C16：OWASP 2023 对 PBKDF2-HMAC-SHA256 的建议下限
 _fallback_secret: str = ""
@@ -131,6 +135,46 @@ def decode_token(token: str) -> dict | None:
         return jwt.decode(token, _secret(), algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
+
+
+def passwordless_open(db) -> bool:
+    """免登录开放模式（零配置开箱即用，iter 89）：未配 AUTH_TOKEN 且库中无任何
+    用户设过密码（password_hash 非空）。
+
+    任一用户设密码或配置 AUTH_TOKEN 即自动关闭，无需状态迁移。
+    每次请求实时查询（单行 EXISTS，本地 SQLite 成本可忽略），不缓存——
+    避免密码设置后认证模式滞留的陈旧状态风险。
+    """
+    from app.db.models import User
+
+    if settings.auth_token:
+        return False
+    return db.query(User.id).filter(User.password_hash != "").first() is None
+
+
+def get_or_create_open_admin(db) -> User:
+    """开放模式下的身份锚点：返回首个管理员；库中无管理员则懒创建
+    （username=ADMIN_USERNAME，password_hash="" —— 空 hash 在 verify_password
+    恒为 False，登录仍不可用，仅作数据归属锚点，保证开放模式下产生的数据
+    从第一天就归属 admin，后续设密码无数据迁移问题）。
+
+    懒创建（而非启动时创建）是为兼容既有测试与部署：配置 AUTH_TOKEN 的
+    旧部署行为完全不变。
+    """
+    from app.db.models import User
+
+    user = db.query(User).filter_by(is_admin=True).first()
+    if user is None:
+        user = User(
+            name=settings.admin_username,
+            username=settings.admin_username,
+            password_hash="",
+            is_admin=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
 
 
 def ensure_admin_user(db) -> None:

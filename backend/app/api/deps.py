@@ -32,27 +32,33 @@ def _is_env_token(token: str) -> bool:
     return bool(settings.auth_token) and secrets.compare_digest(token, settings.auth_token)
 
 
-async def require_auth(
-    authorization: str | None = Header(default=None),
-    x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
-) -> None:
-    """校验请求认证：JWT 或 AUTH_TOKEN 任一通过即可。"""
-    token = _extract_token(authorization, x_auth_token)
-    if not token:
-        raise HTTPException(status_code=401, detail="invalid auth token")
-    if decode_token(token) is not None:
-        return
-    if _is_env_token(token):
-        return
-    raise HTTPException(status_code=401, detail="invalid auth token")
-
-
 def get_db() -> Iterator[SessionLocal]:  # type: ignore[type-arg]
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+async def require_auth(
+    authorization: str | None = Header(default=None),
+    x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
+    db: Session = Depends(get_db),
+) -> None:
+    """校验请求认证：JWT 或 AUTH_TOKEN 任一通过即可；
+    零配置开放本机模式（passwordless_open，iter 89）直接放行。"""
+    token = _extract_token(authorization, x_auth_token)
+    if token:
+        if decode_token(token) is not None:
+            return
+        if _is_env_token(token):
+            return
+    # 失败路径才查库：已认证请求不新增 DB 查询
+    from app.core.security import passwordless_open
+
+    if passwordless_open(db):
+        return
+    raise HTTPException(status_code=401, detail="invalid auth token")
 
 
 def get_default_user(db: Session) -> User:
@@ -71,29 +77,36 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
 
     AUTH_TOKEN 回退路径下若库中无任何用户 -> 自动创建默认用户（与旧单用户行为一致，
     保证仅配置 AUTH_TOKEN 的本地部署/既有调用方在 P4 后仍可用）。
+    零配置开放本机模式（iter 89）：无有效 token 且 passwordless_open -> 首个管理员
+    （懒创建空密码 admin）。
     """
     token = _extract_token(authorization, x_auth_token)
-    if not token:
-        return None
-    payload = decode_token(token)
-    if payload is not None:
-        try:
-            user_id = int(payload.get("sub", ""))
-        except (TypeError, ValueError):
-            return None
-        user = db.get(User, user_id)
-        if user is None:
-            return None
-        # err.md A9：改密（tokens_valid_after 更新）前签发的 JWT 视为已吊销
-        try:
-            iat = float(payload.get("iat", 0))
-        except (TypeError, ValueError):
-            return None
-        if iat < (user.tokens_valid_after or 0):
-            return None
-        return user
-    if _is_env_token(token):
-        return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
+    if token:
+        payload = decode_token(token)
+        if payload is not None:
+            try:
+                user_id = int(payload.get("sub", ""))
+            except (TypeError, ValueError):
+                return None
+            user = db.get(User, user_id)
+            if user is None:
+                return None
+            # err.md A9：改密（tokens_valid_after 更新）前签发的 JWT 视为已吊销
+            try:
+                iat = float(payload.get("iat", 0))
+            except (TypeError, ValueError):
+                return None
+            if iat < (user.tokens_valid_after or 0):
+                return None
+            return user
+        if _is_env_token(token):
+            return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
+    # 零配置开放本机模式（iter 89）：无有效 token 且未设任何密码/未配 AUTH_TOKEN
+    # -> 首个管理员（无则懒创建空密码 admin，数据自始归属 admin）
+    from app.core.security import get_or_create_open_admin, passwordless_open
+
+    if passwordless_open(db):
+        return get_or_create_open_admin(db)
     return None
 
 
