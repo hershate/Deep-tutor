@@ -100,7 +100,16 @@ export default function GenerateProgress() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold">生成中…</h2>
+          <h2 className="flex items-center gap-2 text-2xl font-bold">
+            {/* iter 107：运行中标题旁呼吸灯（ping 扩散环 + 实心点） */}
+            {status === 'running' && (
+              <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600" />
+              </span>
+            )}
+            生成中…
+          </h2>
           {status === 'running' && (
             <button
               onClick={() =>

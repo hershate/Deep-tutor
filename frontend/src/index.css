@@ -155,3 +155,10 @@ body {
 .markdown-body ol li::marker {
   @apply text-blue-500 font-medium;
 }
+/* iter 107：图片圆角阴影；任务列表复选框品牌色（GFM task list） */
+.markdown-body img {
+  @apply my-2 rounded-lg border shadow-sm dark:border-slate-700;
+}
+.markdown-body input[type='checkbox'] {
+  @apply mr-1 accent-blue-600;
+}

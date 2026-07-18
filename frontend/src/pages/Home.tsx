@@ -86,7 +86,10 @@ export default function Home() {
     <div className="space-y-6">
       {/* iter 92：卡片化分区和错峰入场动画（animationDelay 递增） */}
       <div className="space-y-2 animate-fade-in-up">
-        <h2 className="text-2xl font-bold">开始生成你的学习方案</h2>
+        {/* iter 107：品牌渐变标题（蓝->靛），点缀首页视觉焦点 */}
+        <h2 className="bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-2xl font-bold text-transparent dark:from-blue-400 dark:to-indigo-300">
+          开始生成你的学习方案
+        </h2>
         <p className="text-slate-600 dark:text-slate-300">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
       </div>
 
