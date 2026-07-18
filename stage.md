@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 150（前端美化第 39 轮：学习中心打卡区细节）**：[Learn.tsx](frontend/src/pages/Learn.tsx) 打卡表单——①分钟数/备注输入框 `rounded` → `rounded-lg`（全站输入件圆角最后残留）；②标题「累计 N 分钟」数字包 `tabular-nums`（打卡后位数变化不跳动）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 149（功能线：知识库搜索扩展到笔记内容，✅ 完成）**：记了笔记却搜不到——q 同时匹配节点名与本人笔记。**编号说明**：代码注释自标 iter 148，与并行美化轨 iter 148（第 38 轮）撞号，本条取 149。
   - **后端**（commit `a1e2df4`）：[knowledge.py](backend/app/api/knowledge.py) list q 过滤改「名 OR 笔记内容」——outerjoin NodeNote（join 条件含 user_id：他人在我节点上的笔记不命中；uq 约束保证不复制行）+ `or_(name.contains, content.contains)`。
   - **前端**（同 commit）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 搜索占位符「搜索知识点 / 笔记…」。
