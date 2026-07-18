@@ -531,7 +531,7 @@ export interface AppSettings {
   anthropic_model: string
   budget_per_session_usd: number
   daily_budget_usd: number
-  daily_budget_effective: number // iter 171：用户覆盖后的有效日预算
+  daily_budget_effective: number // iter 175：用户覆盖后的有效日预算
   daily_budget_is_override: boolean
   max_tool_calls: number
   max_upload_mb: number
@@ -546,7 +546,7 @@ export interface AppSettings {
 }
 export const getSettings = () => apiFetch<AppSettings>('/settings')
 
-// iter 171：用户级日预算覆盖；value 为 null = 清除覆盖回退全局默认（0 = 不限）
+// iter 175：用户级日预算覆盖；value 为 null = 清除覆盖回退全局默认（0 = 不限）
 export interface PrefsResult {
   daily_budget_usd: number
   daily_budget_default: number

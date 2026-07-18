@@ -132,7 +132,7 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def get_daily_budget(db: Session, user_id: int) -> float:
-    """有效日预算（iter 171）：用户覆盖（user_prefs.daily_budget_usd）优先，否则全局默认。
+    """有效日预算（iter 175）：用户覆盖（user_prefs.daily_budget_usd）优先，否则全局默认。
 
     覆盖值非法（手改库等非浮点文本）时静默回退默认，不让坏数据打死守卫。
     """
@@ -155,7 +155,7 @@ def check_daily_budget(db: Session | None, user_id: int) -> None:
     """日预算守卫（err.md A6：daily_budget_usd 配置此前全库零引用、从未强制）。
 
     当日（服务器本地日，iter 167 口径）api_usage 累计 cost >= 有效日预算
-    （用户覆盖优先，iter 171）-> 402 budget_exceeded；预算 <= 0 视为不限。
+    （用户覆盖优先，iter 175）-> 402 budget_exceeded；预算 <= 0 视为不限。
     db 为 None 时使用短生命周期会话。
     触发 LLM 计费的端点（生成/材料/测验/幻灯片）应在执行前调用。
     """

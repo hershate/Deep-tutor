@@ -338,7 +338,7 @@ class NodeNote(Base):
 
 
 class UserPref(Base):
-    """用户级偏好 KV（iter 171 参数配置：日预算等运行时覆盖项）。
+    """用户级偏好 KV（iter 175 参数配置：日预算等运行时覆盖项）。
 
     通用 key/value 文本表，为后续偏好项预留（免每加一项跑一次迁移）；删除某键
     即回退全局默认。删用户 ORM 级联（同 node_notes）。
