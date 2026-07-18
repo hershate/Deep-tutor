@@ -92,6 +92,29 @@ async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 
 # --- 各类型解析 ---
 
+# zip bomb 防护（R23，plan/09 §四）：DOCX/PPTX 是 zip——读中央目录（不解压）
+# 校验解压后总大小与条目数，超限拒绝（防 10MB 压缩包展开成 GB 级耗尽内存）。
+_ZIP_MAX_UNCOMPRESSED = 512 * 1024 * 1024  # 512MB
+_ZIP_MAX_ENTRIES = 10_000
+
+
+def _check_zip_safety(path: Path) -> None:
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            infos = zf.infolist()
+    except zipfile.BadZipFile as exc:
+        raise _ParseError("parse_failed", f"损坏的 {path.suffix} 文件（非合法 zip 容器）") from exc
+    if len(infos) > _ZIP_MAX_ENTRIES:
+        raise _ParseError("payload_too_large", f"压缩包条目数 {len(infos)} 超上限 {_ZIP_MAX_ENTRIES}")
+    total = sum(i.file_size for i in infos)
+    if total > _ZIP_MAX_UNCOMPRESSED:
+        raise _ParseError(
+            "payload_too_large",
+            f"解压后总大小 {total / 1024 / 1024:.0f}MB 超上限 {_ZIP_MAX_UNCOMPRESSED / 1024 / 1024:.0f}MB",
+        )
+
 
 def _parse_text(source: str) -> tuple[str, dict]:
     return source, {"source_type": "text"}
@@ -109,8 +132,10 @@ def _parse_file(source: str) -> tuple[str, dict]:
     if ext == ".pdf":
         return _parse_pdf(path)
     if ext == ".docx":
+        _check_zip_safety(path)
         return _parse_docx(path)
     if ext == ".pptx":
+        _check_zip_safety(path)
         return _parse_pptx(path)
     if ext in IMAGE_EXTS:
         return _parse_image(path)

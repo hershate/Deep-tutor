@@ -216,3 +216,58 @@ def test_decode_best_utf8_and_no_crash():
     assert isinstance(_decode_best("你好".encode("gbk")), str)
     # 纯 latin-1 字节兜底不崩
     assert isinstance(_decode_best(b"\xff\xfe\x80"), str)
+
+
+# --- zip bomb 防护（R23，plan/09 §四，iter 76）---
+
+
+def test_zip_safety_rejects_huge_uncompressed(tmp_path, monkeypatch):
+    import zipfile
+
+    import app.tools.parse_material as pm
+
+    monkeypatch.setattr(pm, "_ZIP_MAX_UNCOMPRESSED", 1024)  # 调低上限避免真写 512MB
+    p = tmp_path / "bomb.docx"
+    with zipfile.ZipFile(p, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("big.xml", b"x" * 2048)  # 解压 2KB > 上限 1KB
+    import pytest
+
+    with pytest.raises(pm._ParseError, match="超上限"):
+        pm._check_zip_safety(p)
+
+
+def test_zip_safety_rejects_too_many_entries(tmp_path):
+    import zipfile
+
+    from app.tools.parse_material import _ZIP_MAX_ENTRIES, _check_zip_safety, _ParseError
+
+    p = tmp_path / "many.pptx"
+    with zipfile.ZipFile(p, "w") as zf:
+        for i in range(_ZIP_MAX_ENTRIES + 1):
+            zf.writestr(f"f{i}", "x")
+    import pytest
+
+    with pytest.raises(_ParseError, match="条目数"):
+        _check_zip_safety(p)
+
+
+def test_zip_safety_bad_zip(tmp_path):
+    from app.tools.parse_material import _check_zip_safety, _ParseError
+
+    p = tmp_path / "broken.docx"
+    p.write_bytes(b"not a zip at all")
+    import pytest
+
+    with pytest.raises(_ParseError, match="损坏"):
+        _check_zip_safety(p)
+
+
+def test_zip_safety_normal_docx_passes(tmp_path):
+    import zipfile
+
+    from app.tools.parse_material import _check_zip_safety
+
+    p = tmp_path / "ok.docx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("word/document.xml", "<xml/>")
+    _check_zip_safety(p)  # 不抛即通过
