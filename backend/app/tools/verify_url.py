@@ -2,9 +2,10 @@
 
 校验链接可达性与适配性。httpx GET，检查 HTTP 200；返回 label: ok|uncertain|invalid。
 - ✅ ok：HTTP 200 可达（step 4 仅可达性；内容适配性筛选由 step 5 LLM deep-tutor-resources 提升/下调）
-- ⚠️ uncertain：可达但需人工确认（step 5 LLM 判定）
-- ❌ invalid：4xx/5xx/超时/被抓取拦截
+- ⚠️ uncertain：可达但需人工确认（登录墙/CAPTCHA/正文过短/robots  disallow；step 5 LLM 判定）
+- ❌ invalid：4xx/5xx/超时重试后仍失败/被抓取拦截
 SSRF 防护（R19）：禁私网/环回/元数据端点。
+合规（plan/09 §一）：遵守 robots.txt，仅校验不存全文。
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import ipaddress
 import logging
 import socket
 import time
+import urllib.robotparser
 from urllib.parse import urlparse
 
 import httpx
@@ -24,6 +26,25 @@ from app.tools.base import ToolError, ToolInput, ToolOutput
 log = logging.getLogger("deep_tutor.tools.verify")
 
 URL_TIMEOUT = 30.0
+_TIMEOUT_RETRIES = 1  # 超时重试 1 次（plan/02 §6 errors）
+_USER_AGENT = "Deep-tutor/0.1 (learning-plan verifier)"
+# 登录墙/CAPTCHA 检测（plan/11 §九：200 但无实内容 -> 内容长度/关键字校验标 ⚠️）
+_BODY_PREFIX_BYTES = 16 * 1024  # 仅读响应前缀（不加载全文，plan/09 §一）
+_MIN_CONTENT_BYTES = 512  # 正文低于此长度 -> 疑似空壳/拦截页
+_LOGIN_WALL_KEYWORDS = (
+    "captcha",
+    "recaptcha",
+    "hcaptcha",
+    "cf-challenge",
+    "challenge-platform",
+    "sign in to continue",
+    "log in to continue",
+    "请登录",
+    "登录后继续",
+    "登录以继续",
+    "验证您是真人",
+    "安全验证",
+)
 # 云元数据端点（R19）
 _METADATA_HOSTS = {"169.254.169.254", "169.254.170.2", "metadata.google.internal"}
 
@@ -56,6 +77,67 @@ def _cache_put(url: str, data: dict, ok: bool) -> None:
 def reset_verify_cache() -> None:
     """测试隔离 / 手动清空。"""
     _cache.clear()
+    _robots_cache.clear()
+
+
+# robots.txt 缓存（plan/09 §一 遵守 robots）：host -> (过期时间, 允许抓取)
+_ROBOTS_TTL = 3600.0
+_robots_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
+    """按 robots.txt 判定是否允许抓取该 URL；robots 获取/解析失败 -> 放行（可达性自会判定）。"""
+    parsed = urlparse(url)
+    host = parsed.netloc
+    hit = _robots_cache.get(host)
+    if hit is not None and time.monotonic() <= hit[0]:
+        return hit[1]
+    allowed = True
+    try:
+        resp = await client.get(f"{parsed.scheme}://{host}/robots.txt", timeout=5.0)
+        if resp.status_code == 200:
+            rp = urllib.robotparser.RobotFileParser()
+            rp.parse(resp.text.splitlines())
+            allowed = rp.can_fetch(_USER_AGENT, url)
+    except httpx.HTTPError:
+        pass
+    _robots_cache[host] = (time.monotonic() + _ROBOTS_TTL, allowed)
+    return allowed
+
+
+def _analyze_body(prefix: bytes) -> str | None:
+    """登录墙/CAPTCHA/空壳检测（plan/11 §九）：命中返回原因，否则 None。"""
+    text = prefix.decode("utf-8", errors="ignore")
+    if len(text.strip()) < _MIN_CONTENT_BYTES:
+        return "content_too_short"
+    lowered = text.lower()
+    for kw in _LOGIN_WALL_KEYWORDS:
+        if kw in lowered:
+            return f"login_wall:{kw}"
+    return None
+
+
+async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[int, str, bytes]:
+    """抓取（超时重试 _TIMEOUT_RETRIES 次，plan/02 §6）；返回 (status, final_url, 正文前缀)。"""
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(1 + _TIMEOUT_RETRIES):
+        try:
+            # 流式抓取仅取状态码/最终 URL/正文前缀，不加载全文（防超大响应 OOM；follow_redirects 仍生效）
+            async with client.stream("GET", url) as resp:
+                status = resp.status_code
+                final_url = str(resp.url)
+                prefix = b""
+                if status == 200:
+                    async for chunk in resp.aiter_bytes(8192):
+                        prefix += chunk
+                        if len(prefix) >= _BODY_PREFIX_BYTES:
+                            break
+                return status, final_url, prefix[:_BODY_PREFIX_BYTES]
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            log.info("verify_url 超时（第 %d 次）%s", attempt + 1, url)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
@@ -77,11 +159,18 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return ToolOutput(tool="verify_url", status="ok", data={**cached, "cached": True})
 
     try:
-        # 流式抓取仅取状态码与最终 URL，不加载正文（防超大响应 OOM；follow_redirects 仍生效）
-        async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(ctx.timeouts.url)) as client:
-            async with client.stream("GET", url) as resp:
-                status = resp.status_code
-                final_url = str(resp.url)
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(ctx.timeouts.url),
+            headers={"User-Agent": _USER_AGENT},
+        ) as client:
+            # 遵守 robots.txt（plan/09 §一）；disallow -> ⚠️ 不抓取
+            if not await _robots_allows(client, url):
+                out = _ok_data(url, ok=False, status=None, label="uncertain")
+                out.data["reason"] = "robots_disallowed"
+                _cache_put(url, out.data, ok=False)
+                return out
+            status, final_url, prefix = await _fetch(client, url)
     except httpx.HTTPError as exc:
         log.info("verify_url 抓取失败 %s: %s", url, exc)
         out = _ok_data(url, ok=False, status=None, label="invalid")
@@ -89,8 +178,14 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return out
 
     if status == 200:
-        # step 4：可达即 ok；内容适配性留 step 5 LLM 判定
-        out = _ok_data(final_url, ok=True, status=status, label="ok")
+        suspicion = _analyze_body(prefix)
+        if suspicion is not None:
+            # 200 但无实内容（登录墙/CAPTCHA/空壳，plan/11 §九）-> ⚠️ 存疑
+            out = _ok_data(final_url, ok=True, status=status, label="uncertain")
+            out.data["reason"] = suspicion
+        else:
+            # step 4：可达即 ok；内容适配性留 step 5 LLM 判定
+            out = _ok_data(final_url, ok=True, status=status, label="ok")
     else:
         out = _ok_data(final_url, ok=False, status=status, label="invalid")
     _cache_put(url, out.data, ok=out.data["ok"])

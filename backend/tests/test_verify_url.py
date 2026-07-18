@@ -68,6 +68,9 @@ def test_real_url_reachable_or_skip():
 
 # --- 抓取路径（MockTransport，无网络；验证流式不加载正文 + 重定向跟随）---
 
+# 足长正文（plan/11 §九：200 但正文过短 -> ⚠️；测试用足长内容保持 ok 语义）
+_BIG = "<!DOCTYPE html><html><body><p>" + "学习资源正文内容。" * 100 + "</p></body></html>"
+
 
 def _patch_fetch(handler, monkeypatch):
     """用真 httpx.AsyncClient 预建 MockTransport 客户端，再替换 verify_url 的客户端工厂。
@@ -97,7 +100,7 @@ def test_verify_url_follows_redirect(monkeypatch):
     def handler(req):
         if req.url.path == "/start":
             return httpx.Response(302, headers={"location": "http://example.com/final"})
-        return httpx.Response(200, text="ok")
+        return httpx.Response(200, text="x" * 1024)
 
     _patch_fetch(handler, monkeypatch)
     out = _run("http://example.com/start")
@@ -150,12 +153,13 @@ def test_verify_url_cache_hit_no_second_fetch(monkeypatch):
 
     def handler(req):
         calls.append(req.url.path)
-        return httpx.Response(200, text="ok")
+        return httpx.Response(200, text="x" * 1024)
 
     _patch_fetch_multi(handler, monkeypatch)
     out1 = _run("http://example.com/cached")
     out2 = _run("http://example.com/cached")
-    assert len(calls) == 1  # 第二次命中缓存，未发 HTTP
+    main_calls = [c for c in calls if c != "/robots.txt"]  # robots.txt 合规请求不计
+    assert len(main_calls) == 1  # 第二次命中缓存，未发 HTTP
     assert out1.data["label"] == "ok"
     assert out2.data["label"] == "ok" and out2.data.get("cached") is True
     assert "cached" not in out1.data
@@ -167,7 +171,8 @@ def test_verify_url_cache_also_caches_invalid(monkeypatch):
     calls = []
 
     def handler(req):
-        calls.append(1)
+        if req.url.path != "/robots.txt":  # robots.txt 合规请求不计
+            calls.append(1)
         return httpx.Response(404)
 
     _patch_fetch_multi(handler, monkeypatch)
@@ -184,8 +189,9 @@ def test_verify_url_cache_expires(monkeypatch):
     calls = []
 
     def handler(req):
-        calls.append(1)
-        return httpx.Response(200, text="ok")
+        if req.url.path != "/robots.txt":
+            calls.append(1)
+        return httpx.Response(200, text="x" * 1024)
 
     _patch_fetch_multi(handler, monkeypatch)
     now = [1000.0]
@@ -200,10 +206,93 @@ def test_verify_url_cache_fifo_eviction(monkeypatch):
     import httpx
     from app.tools import verify_url as vu
 
-    _patch_fetch_multi(lambda req: httpx.Response(200, text="ok"), monkeypatch)
+    _patch_fetch_multi(lambda req: httpx.Response(200, text="x" * 1024), monkeypatch)
     monkeypatch.setattr(vu, "_CACHE_MAX", 3)
     for i in range(4):
         _run(f"http://example.com/{i}")
     assert len(vu._cache) == 3
     assert vu._cache_get("http://example.com/0") is None  # 最旧被淘汰
     assert vu._cache_get("http://example.com/3") is not None
+
+
+# --- iter 88：超时重试 / robots.txt 遵守 / 登录墙检测（plan/02 §6、plan/09 §一、plan/11 §九）---
+
+
+def test_verify_url_timeout_retry_once_then_ok(monkeypatch):
+    """首次超时 -> 重试 1 次成功 -> ok（plan/02 §6 超时重试 1 次再标记）。"""
+    import httpx
+
+    attempts = []
+
+    def handler(req):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(404)
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise httpx.ReadTimeout("slow", request=req)
+        return httpx.Response(200, text="x" * 1024)
+
+    _patch_fetch_multi(handler, monkeypatch)
+    out = _run("http://example.com/slow")
+    assert out.data["label"] == "ok"
+    assert len(attempts) == 2  # 1 次超时 + 1 次重试
+
+
+def test_verify_url_timeout_retry_exhausted_invalid(monkeypatch):
+    """持续超时（重试后仍失败）-> invalid。"""
+    import httpx
+
+    attempts = []
+
+    def handler(req):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(404)
+        attempts.append(1)
+        raise httpx.ReadTimeout("slow", request=req)
+
+    _patch_fetch_multi(handler, monkeypatch)
+    out = _run("http://example.com/always-slow")
+    assert out.data["label"] == "invalid"
+    assert out.data["status"] is None
+    assert len(attempts) == 2  # 只重试 1 次，不无限重
+
+
+def test_verify_url_robots_disallowed(monkeypatch):
+    """robots.txt Disallow -> 不抓取正文，标 ⚠️ robots_disallowed（plan/09 §一 遵守 robots）。"""
+    import httpx
+
+    fetched = []
+
+    def handler(req):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow: /\n")
+        fetched.append(req.url.path)
+        return httpx.Response(200, text="x" * 1024)
+
+    _patch_fetch_multi(handler, monkeypatch)
+    out = _run("http://example.com/blocked-by-robots")
+    assert out.data["label"] == "uncertain"
+    assert out.data["reason"] == "robots_disallowed"
+    assert fetched == []  # 未抓取被禁路径
+
+
+def test_verify_url_login_wall_keyword_uncertain(monkeypatch):
+    """200 但命中登录墙/CAPTCHA 关键字 -> ⚠️（plan/11 §九 内容关键字校验）。"""
+    import httpx
+
+    body = "<html><body>" + "请登录后查看完整内容 " + "x" * 1024 + "</body></html>"
+    _patch_fetch(lambda req: httpx.Response(200, text=body), monkeypatch)
+    out = _run("http://example.com/walled")
+    assert out.data["label"] == "uncertain"
+    assert out.data["ok"] is True  # 可达但存疑
+    assert out.data["reason"].startswith("login_wall:")
+
+
+def test_verify_url_content_too_short_uncertain(monkeypatch):
+    """200 但正文过短（空壳/拦截页）-> ⚠️ content_too_short。"""
+    import httpx
+
+    _patch_fetch(lambda req: httpx.Response(200, text="ok"), monkeypatch)
+    out = _run("http://example.com/empty-shell")
+    assert out.data["label"] == "uncertain"
+    assert out.data["reason"] == "content_too_short"
