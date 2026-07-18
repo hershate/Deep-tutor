@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 158（功能线：跨方案错题总览，✅ 完成）**：错题重练藏在单个方案里，全局有哪些错题看不见——Wiki 加全局错题卡。**编号说明**：代码注释自标 iter 156，与并行美化轨 iter 156/157（第 43/44 轮）撞号，本条取 158。
+  - **后端**（commit `cb29998`）：[quizzes.py](backend/app/api/quizzes.py) `GET /quizzes/wrong-overview`——全量作答按题分组取最新（与 quiz/wrong 同判定），错题按方案聚合 {plan_id, topic, wrong_count} 错题多者在前 + total；无错题 items=[]。
+  - **前端**（commit 见 git log「feat(wiki): 全局错题卡」）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 待复习卡下红色错题卡「🎯 当前错题 · N 道」+ 方案 chips（含计数，跳方案详情），total>0 才显示；[api.ts](frontend/src/lib/api.ts) `getWrongOverview`。
+  - **测试**：[test_api_wrong_overview.py](backend/tests/test_api_wrong_overview.py) 3 例（2+1 聚合排序+他人隔离 total=3、空态、401）。**验证**：后端全量 508 通过（505→508，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 157（前端美化第 44 轮：404 页）**：未知路由此前静默 `<Navigate to="/">`——用户输错 URL/用过期链接毫无感知。新增 [NotFound.tsx](frontend/src/pages/NotFound.tsx)（🧭 EmptyState + 返回首页品牌按钮，居中窄栏），[App.tsx](frontend/src/App.tsx) 内层 catch-all 改挂之。注：本轮构建时被并行会话进行中的 Wiki 错题总览（`getWrongOverview` 未定义）阻塞——系其未完工状态，非本轮改动问题；仅提交 App.tsx/NotFound.tsx，Wiki.tsx/api.ts 留给并行会话。
 
 - **2026-07-19 iter 156（前端美化第 43 轮：掌握度百分比等宽数字）**：残余 2 处掌握度数字补 `tabular-nums`——[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 节点行、[Learn.tsx](frontend/src/pages/Learn.tsx) 复习提醒行（状态切换/测验回写后数字变化不跳动）。另核实并行会话测验统计行（PlanDetail iter 152 切片）已自带 tabular-nums 与 fade-in，无需调整。**验证**：`npm run build` 通过。
