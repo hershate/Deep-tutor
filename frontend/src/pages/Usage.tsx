@@ -81,19 +81,19 @@ function DailyChart({ items }: { items: { date: string; cost: number; tokens: nu
     <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">近 {items.length} 天费用</h3>
-        <span className="text-xs text-slate-400">合计 ${total.toFixed(6)}</span>
+        <span className="text-xs tabular-nums text-slate-400">合计 ${total.toFixed(6)}</span>
       </div>
       <div className="flex h-28 items-end gap-1" role="img" aria-label="近14天按日费用柱状图">
-        {items.map((i) => (
+        {items.map((i, bi) => (
           <div
             key={i.date}
             title={`${i.date}\n费用 $${i.cost.toFixed(6)} · ${i.tokens.toLocaleString()} tokens · ${i.calls} 次调用`}
-            className="group relative flex-1 rounded-t bg-blue-500/70 transition-all duration-200 hover:bg-blue-600 dark:bg-blue-400/60 dark:hover:bg-blue-400"
-            style={{ height: `${Math.max((i.cost / maxCost) * 100, i.cost > 0 ? 6 : 2)}%` }}
+            className="group relative flex-1 animate-fade-in rounded-t bg-blue-500/70 transition-all duration-200 hover:bg-blue-600 dark:bg-blue-400/60 dark:hover:bg-blue-400"
+            style={{ height: `${Math.max((i.cost / maxCost) * 100, i.cost > 0 ? 6 : 2)}%`, animationDelay: `${Math.min(bi, 13) * 35}ms` }}
           />
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+      <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-400">
         <span>{items[0].date.slice(5)}</span>
         <span>{items[items.length - 1].date.slice(5)}</span>
       </div>
