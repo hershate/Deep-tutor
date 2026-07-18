@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 121（功能线：全局今日待复习，✅ 完成）**：复习提醒从「单方案学习中心内」升为「跨方案全局聚合」，打开 Wiki 即见今日到期知识点。**编号说明**：本切片代码注释自标 iter 119，与并行美化轨撞号，本条按共享序号取 121。
+  - **后端**（commit `efaef1c`）：[progress.py](backend/app/api/progress.py) 新增 `GET /progress/review/due`——Progress join KnowledgeNode/Plan/Session 按 user 过滤，逐行以 `_node_view` 同式 SM-2-lite 推导 next_review（mastery+updated_at，不入库），`<= 今天` 入选；复习日升序（最逾期在前）+掌握度次序；plan_topic 懒加载缓存；limit 默认 100 钳 1-500。路由两段式 `/review/due` 与 `/{plan_id}` 单段无冲突。
+  - **前端**（commit `088aff3`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 顶部「📅 今日待复习 · N」amber 提醒卡（节点胶囊跳 `/learn/{plan_id}`，title 显示方案/掌握度/复习日，>10 折叠「等 N 个」，staleTime 60s）；[api.ts](frontend/src/lib/api.ts) `ReviewDueItem`/`getReviewDue`。
+  - **测试**：[test_api_review_due.py](backend/tests/test_api_review_due.py) 3 例（低掌握度+10 天前更新到期入选；0.95 掌握度 14 天间隔未到期；今日新学次日才到期；他人节点隔离；空库；401）。**验证**：后端全量 480 通过（477→480，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 120（前端美化第 25 轮：测验弹窗收尾）**：[QuizModal.tsx](frontend/src/components/QuizModal.tsx) 走查——①「关闭」按钮补 `transition-all active:scale-95 dark:border-slate-600`（全站按钮模式最后残留）；②头部「进度已回写」提示补深色 `dark:text-emerald-400`（原深色下 emerald-700 偏暗）。注：Wiki.tsx / lib/api.ts 有并行会话未提交改动（待复习聚合），已避开。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 119（前端美化第 24 轮：品牌链接样式收尾）**：最后两处与品牌链接模式（`underline-offset-2` + 深色 hover 变亮 `dark:hover:text-blue-300`）不一致的文本链接补齐——[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元「参考资料」外链、[Wiki.tsx](frontend/src/pages/Wiki.tsx) 分组头「查看方案 →」。至此全站文本链接样式零残留差异。**验证**：`npm run build` 通过。
