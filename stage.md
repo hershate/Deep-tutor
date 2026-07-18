@@ -234,6 +234,13 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 124（前端美化第 27 轮：学习统计行入场动效）**：并行会话 Wiki 统计胶囊行（commit `a38f8dd`）落成后走查——该行原为静态直出，与页面其余区块（提醒卡/分组卡均有入场动画）不一致；补容器 `animate-fade-in-up` + 三胶囊 40/100/160ms 错峰淡入，统计信息出现节奏与待复习卡衔接。**验证**：`npm run build` 通过。
+
+- **2026-07-19 iter 122（功能线：全局学习统计，✅ 完成）**：跨方案学习仪表盘数据——连续打卡 streak + 本周/累计分钟，Wiki 页顶部胶囊行。
+  - **后端**（commit `9866557`）：[progress.py](backend/app/api/progress.py) 新增 `GET /progress/stats/summary`——learning_logs join Plan/Session 按 user 过滤；total_minutes/week_minutes（含今天共 7 天窗口）/total_logs；**streak 语义**：有打卡日期倒序成链，链尾须为今天或昨天（今天未打卡不清零），断档即断链；日界与 LearningLogIn.date 默认值同口径（服务器本地日）。路由两段式 `/stats/summary` 与 `/{plan_id}` 无冲突。
+  - **前端**（commit `a38f8dd` api.ts + 美化轨 `9ee7b62` 顺扫 Wiki.tsx）：[api.ts](frontend/src/lib/api.ts) `StudyStats`/`getStudyStats`；[Wiki.tsx](frontend/src/pages/Wiki.tsx) 统计行三胶囊（🔥连续 N 天 / 📊本周 X 分钟 / ⏱累计 Y 分钟，有打卡记录才显示，title 注解口径）；美化轨已补错峰入场动效（iter 124）。
+  - **测试**：[test_api_progress_stats.py](backend/tests/test_api_progress_stats.py) 4 例（分钟汇总+近 7 日窗口+他人 99 分钟隔离、今天未打卡 streak 续链、断档断链与仅旧打卡归零、空库+401）。**验证**：后端全量 484 通过（480→484，+4）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 123（前端美化第 26 轮：待复习提醒卡动效）**：并行会话 Wiki「今日待复习」提醒卡（commit `088aff3`）落成后走查：①卡片容器 `animate-fade-in` → `animate-fade-in-up`（与全站 section 入场一致）；②到期节点胶囊错峰入场（40ms 递增封顶 8，「等 N 个」360ms 尾拍）；③胶囊 hover 加微浮 `-translate-y-0.5` + 深色 hover 边框 `dark:hover:border-amber-700`；④计数数字包 `tabular-nums`。注：iter 122 号被并行会话学习统计切片（代码注释自标）占用，本轮取 123；其 Wiki 统计胶囊行已自带品牌样式，无需调整。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 121（功能线：全局今日待复习，✅ 完成）**：复习提醒从「单方案学习中心内」升为「跨方案全局聚合」，打开 Wiki 即见今日到期知识点。**编号说明**：本切片代码注释自标 iter 119，与并行美化轨撞号，本条按共享序号取 121。
