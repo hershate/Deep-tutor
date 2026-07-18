@@ -45,7 +45,11 @@ def submit_quiz(
     # choice 服务器判分；fill/short 自评（correct=None）
     correct: bool | None = None
     if quiz.type == models.QuizType.choice:
-        correct = body.user_answer.get("selected") == payload.get("answer")
+        # payload 缺 answer（异常/降级数据）时判 None——否则 None==None 误判正确，
+        # 空提交即可刷「答对」虚增掌握度
+        answer = payload.get("answer")
+        if answer is not None:
+            correct = body.user_answer.get("selected") == answer
     db.add(models.QuizAttempt(quiz_id=quiz.id, user_answer=body.user_answer, correct=correct))
     db.commit()
     return {

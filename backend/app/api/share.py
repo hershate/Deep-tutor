@@ -14,12 +14,13 @@ import json
 import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.db.models import Plan, ShareLink, User
 
 # 认证轨：挂在 /plans 下（与 plans.py 同前缀，所有权校验 404 防枚举）
@@ -74,15 +75,36 @@ def get_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(
     return {"shared": True, "token": link.token, "path": f"/shared/{link.token}", "created_at": link.created_at.isoformat()}
 
 
+# 公开读限流（防 token 探测/抓取滥用；192bit token 本身不可枚举，此为纵深防御）
+_SHARED_READ_RATE_PER_MIN = 30
+
+
+def _sanitize_shared_content(content: dict) -> dict:
+    """分享视图裁剪：quizzes 剥离 answer/explanation（前端只渲染题干，
+    原文全量返回会让浏览者经 devtools 直接看到答案，破坏测验意义）。"""
+    quizzes = content.get("quizzes")
+    if isinstance(quizzes, list):
+        content = dict(content)
+        content["quizzes"] = [
+            {k: v for k, v in q.items() if k not in ("answer", "explanation")}
+            if isinstance(q, dict) else q
+            for q in quizzes
+        ]
+    return content
+
+
 @public_router.get("/{token}")
-def read_shared(token: str, db: Session = Depends(get_db)) -> dict:
+def read_shared(token: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    ip = request.client.host if request.client else "unknown"
+    if not limiter.check(f"shared_read:{ip}", _SHARED_READ_RATE_PER_MIN):
+        raise ApiError("rate_limited", "访问过于频繁，请稍后再试", status=429)
     link = db.query(ShareLink).filter_by(token=token).first()
     if link is None:
         raise ApiError("not_found", "分享链接不存在或已撤销")
     plan = db.get(Plan, link.plan_id)
     if plan is None:
         raise ApiError("not_found", "方案已删除")
-    content = _load_content(plan)
+    content = _sanitize_shared_content(_load_content(plan))
     return {
         "title": content.get("title") or content.get("topic") or "学习方案",
         "created_at": plan.created_at.isoformat() if plan.created_at else "",

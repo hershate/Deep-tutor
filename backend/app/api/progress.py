@@ -128,7 +128,7 @@ def get_progress(
 
 class LearningLogIn(BaseModel):
     plan_id: int
-    minutes: int = Field(ge=0, le=1440)  # 学习分钟数（上限取一天 1440）
+    minutes: int = Field(ge=1, le=1440)  # 学习分钟数（err.md D14 对齐前端：0 分钟无意义且污染统计）
     note: str | None = Field(default=None, max_length=2000)
     date: dt_date | None = None  # 默认今天（本地单用户，服务器本地日即用户本地日）
 
