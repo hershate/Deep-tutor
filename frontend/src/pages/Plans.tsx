@@ -2,6 +2,8 @@
 // 标题/版本/创建时间，点击进入详情；简单分页（上一页/下一页）。
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import EmptyState from '../components/EmptyState'
+import { SkeletonCards } from '../components/Skeleton'
 import { ApiError, listPlans, type PlanSummary } from '../lib/api'
 
 const PAGE_SIZE = 20
@@ -35,11 +37,18 @@ export default function Plans() {
         </div>
       )}
       {loading ? (
-        <p className="text-slate-500 dark:text-slate-400">加载中…</p>
+        <SkeletonCards count={4} />
       ) : items.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          还没有方案。<Link to="/" className="text-blue-600 hover:underline dark:text-blue-400">去新建一个 →</Link>
-        </p>
+        <EmptyState
+          icon="🗂️"
+          title="还没有学习方案"
+          description="从首页描述需求或上传资料，生成你的第一个方案"
+          action={
+            <Link to="/" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              新建方案 →
+            </Link>
+          }
+        />
       ) : (
         <ul className="space-y-2">
           {items.map((p) => (

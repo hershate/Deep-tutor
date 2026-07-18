@@ -1,6 +1,7 @@
 // 日程时间线（plan/06 §四.4 时间线 Tab / §五 Timeline 组件「按日期分组」）：
 // schedule 按相对周分组（第 N 周），逐日列出阶段/任务/分钟；头部汇总起止与总时长。
 import { useMemo } from 'react'
+import EmptyState from './EmptyState'
 
 export interface ScheduleDay {
   date: string
@@ -35,7 +36,7 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
   }, [days])
 
   if (days.length === 0) {
-    return <p className="text-sm text-slate-500 dark:text-slate-400">暂无日程数据（方案未含 schedule）。</p>
+    return <EmptyState icon="🗓️" title="暂无日程数据" description="方案未包含 schedule 部分" />
   }
 
   const totalMin = days.reduce((s, d) => s + (d.est_minutes ?? 0), 0)

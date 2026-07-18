@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
+import EmptyState from '../components/EmptyState'
 import PlanOutline from '../components/PlanOutline'
 import ProgressBoard from '../components/ProgressBoard'
 import QuizModal from '../components/QuizModal'
+import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
+import { toast } from '../components/Toast'
 import { ApiError, createShare, exportPlan, getPlan, getShare, regenerateStream, revokeShare, type ShareStatus } from '../lib/api'
 
 interface PlanData {
@@ -91,8 +94,10 @@ export default function PlanDetail() {
       try {
         await navigator.clipboard.writeText(url)
         setShareMsg('链接已复制')
+        toast.success('分享链接已复制到剪贴板')
       } catch {
         setShareMsg(url) // 剪贴板不可用（非安全上下文）则直接展示
+        toast.info('剪贴板不可用，请手动复制链接')
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '创建分享失败')
@@ -105,6 +110,7 @@ export default function PlanDetail() {
       await revokeShare(Number(planId))
       setShare({ shared: false })
       setShareMsg('已撤销，原链接即刻失效')
+      toast.success('分享已撤销')
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '撤销失败')
     }
@@ -173,7 +179,7 @@ export default function PlanDetail() {
     })
   }
 
-  if (loading) return <p className="text-slate-500 dark:text-slate-400">加载方案…</p>
+  if (loading) return <SkeletonCards count={4} />
   if (error)
     return (
       <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-red-700 dark:text-red-300">
@@ -338,7 +344,7 @@ export default function PlanDetail() {
               </ul>
             </>
           ) : (
-            <p className="text-sm text-slate-500 dark:text-slate-400">暂无配套资源。</p>
+            <EmptyState icon="🔗" title="暂无配套资源" description="方案未包含资源推荐" />
           )}
         </div>
       )}

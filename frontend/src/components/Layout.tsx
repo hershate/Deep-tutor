@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
 import { clearAuth, getStoredUser, hasJwtSession } from '../lib/auth'
 import { useUIStore } from '../store/ui'
@@ -174,6 +175,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           Deep-tutor · Phase 1 MVP
         </div>
       </footer>
+      <Toaster />
     </div>
   )
 }
