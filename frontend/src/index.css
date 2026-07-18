@@ -44,6 +44,25 @@ body {
   @apply outline-none ring-2 ring-blue-500/60 ring-offset-1 ring-offset-slate-50 dark:ring-offset-slate-900;
 }
 
+/* iter 92 第 2 轮：骨架屏 shimmer（扫光），替代单调 pulse；reduced-motion 由上方媒体查询统一关闭 */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton-shimmer {
+  @apply relative overflow-hidden;
+}
+.skeleton-shimmer::after {
+  content: '';
+  @apply absolute inset-0 -translate-x-full;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.45), transparent);
+  animation: shimmer 1.4s infinite;
+}
+.dark .skeleton-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.08), transparent);
+}
+
 /* 无障碍：尊重 prefers-reduced-motion，关闭动画/过渡（plan/06 §九） */
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -127,7 +127,7 @@ export default function QuizModal({ planId, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -136,7 +136,7 @@ export default function QuizModal({ planId, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="测验"
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-white dark:bg-slate-800 shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-3xl animate-scale-in flex-col rounded-xl bg-white dark:bg-slate-800 shadow-xl"
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <h3 className="font-semibold">{title || '测验'}</h3>
@@ -192,7 +192,7 @@ export default function QuizModal({ planId, onClose }: Props) {
                           return (
                             <label
                               key={j}
-                              className={`flex items-center gap-2 rounded border px-3 py-2 text-sm ${
+                              className={`flex cursor-pointer items-center gap-2 rounded border px-3 py-2 text-sm transition-colors duration-150 ${
                                 showRight
                                   ? 'border-green-300 bg-green-50 dark:bg-green-950'
                                   : showWrong

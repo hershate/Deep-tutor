@@ -54,11 +54,11 @@ export default function Plans() {
         />
       ) : (
         <ul className="space-y-2">
-          {items.map((p) => (
-            <li key={p.id}>
+          {items.map((p, idx) => (
+            <li key={p.id} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(idx, 10) * 40}ms` }}>
               <Link
                 to={`/plans/${p.id}`}
-                className="flex items-center justify-between rounded-lg border bg-white px-4 py-3 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                className="group flex items-center justify-between rounded-lg border bg-white px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900 dark:hover:bg-slate-700"
               >
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {p.topic || `方案 #${p.id}`}
@@ -71,6 +71,9 @@ export default function Plans() {
                 <span className="ml-3 shrink-0 text-xs text-slate-400">
                   {p.created_at.slice(0, 16).replace('T', ' ')}
                 </span>
+                <span aria-hidden="true" className="ml-2 shrink-0 text-slate-300 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-500 dark:text-slate-600 dark:group-hover:text-blue-400">
+                  →
+                </span>
               </Link>
             </li>
           ))}
@@ -81,7 +84,7 @@ export default function Plans() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="rounded border px-3 py-1 disabled:opacity-40 dark:border-slate-600"
+            className="rounded border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
           >
             上一页
           </button>
@@ -91,7 +94,7 @@ export default function Plans() {
           <button
             onClick={() => setPage((p) => Math.min(pages, p + 1))}
             disabled={page >= pages}
-            className="rounded border px-3 py-1 disabled:opacity-40 dark:border-slate-600"
+            className="rounded border px-3 py-1 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
           >
             下一页
           </button>

@@ -169,14 +169,14 @@ export default function GenerateProgress() {
 
       {showPartial && partial && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-label="部分方案预览"
           onClick={() => setShowPartial(false)}
         >
           <div
-            className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl dark:bg-slate-800"
+            className="max-h-[85vh] w-full max-w-3xl animate-scale-in overflow-y-auto rounded-xl bg-white p-5 shadow-xl dark:bg-slate-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">

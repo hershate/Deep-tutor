@@ -1,4 +1,4 @@
-// 加载骨架屏（plan/06 §二 组件原子 Skeleton）：脉冲占位块。
+// 加载骨架屏（plan/06 §二 组件原子 Skeleton）：扫光占位块（iter 92 shimmer，替代 pulse）。
 interface SkeletonProps {
   className?: string
 }
@@ -7,7 +7,7 @@ export function Skeleton({ className = '' }: SkeletonProps) {
   return (
     <div
       aria-hidden="true"
-      className={`animate-pulse rounded bg-slate-200 dark:bg-slate-700 ${className}`}
+      className={`skeleton-shimmer rounded bg-slate-200 dark:bg-slate-700 ${className}`}
     />
   )
 }

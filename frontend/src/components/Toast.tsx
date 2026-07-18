@@ -56,7 +56,7 @@ export function Toaster() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${KIND_STYLE[t.kind]}`}
+          className={`flex animate-fade-in-up items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${KIND_STYLE[t.kind]}`}
         >
           <span aria-hidden="true">{KIND_ICON[t.kind]}</span>
           <span className="min-w-0 flex-1 break-all">{t.message}</span>
@@ -64,7 +64,7 @@ export function Toaster() {
             type="button"
             onClick={() => remove(t.id)}
             aria-label="关闭通知"
-            className="shrink-0 opacity-60 hover:opacity-100"
+            className="shrink-0 opacity-60 transition-opacity hover:opacity-100"
           >
             ✕
           </button>

@@ -123,7 +123,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose() // 点遮罩关闭
       }}
@@ -132,7 +132,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="自学材料"
-        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl bg-white dark:bg-slate-800 shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-4xl animate-scale-in flex-col rounded-xl bg-white dark:bg-slate-800 shadow-xl"
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <h3 className="font-semibold">自学材料</h3>
