@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStudyStats, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -61,6 +61,13 @@ export default function Wiki() {
     staleTime: 60_000,
   })
 
+  // 学习统计（iter 122）：连续打卡/本周/累计分钟
+  const { data: studyStats } = useQuery({
+    queryKey: ['study-stats'],
+    queryFn: getStudyStats,
+    staleTime: 60_000,
+  })
+
   // 按方案分组（保持后端返回顺序：新方案在前）
   const groups = useMemo(() => {
     const map = new Map<number, { topic: string; items: KnowledgeItem[] }>()
@@ -98,26 +105,41 @@ export default function Wiki() {
         </div>
       </div>
 
+      {/* 学习统计行（iter 122）：有打卡记录时显示 */}
+      {studyStats && studyStats.total_logs > 0 && (
+        <div className="flex flex-wrap gap-2 text-xs" aria-label="学习统计">
+          <span className="rounded-full bg-orange-100 px-3 py-1 font-medium text-orange-700 dark:bg-orange-950 dark:text-orange-300" title="连续打卡天数">
+            🔥 连续 <span className="tabular-nums">{studyStats.streak_days}</span> 天
+          </span>
+          <span className="rounded-full bg-blue-100 px-3 py-1 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300" title="近 7 天学习时长">
+            📊 本周 <span className="tabular-nums">{studyStats.week_minutes}</span> 分钟
+          </span>
+          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300" title="累计学习时长">
+            ⏱ 累计 <span className="tabular-nums">{studyStats.total_minutes}</span> 分钟
+          </span>
+        </div>
+      )}
+
       {/* 今日待复习提醒（iter 119）：有到期节点时置顶 */}
       {due && due.total > 0 && (
-        <section className="animate-fade-in rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+        <section className="animate-fade-in-up rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
           <h3 className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
-            📅 今日待复习 · {due.total} 个知识点
+            📅 今日待复习 · <span className="tabular-nums">{due.total}</span> 个知识点
           </h3>
           <ul className="flex flex-wrap gap-1.5">
-            {due.items.slice(0, 10).map((d) => (
-              <li key={`${d.plan_id}-${d.node_id}`}>
+            {due.items.slice(0, 10).map((d, i) => (
+              <li key={`${d.plan_id}-${d.node_id}`} className="animate-fade-in" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
                 <Link
                   to={`/learn/${d.plan_id}`}
                   title={`${d.plan_topic || '方案'} · 掌握度 ${Math.round(d.mastery * 100)}% · 复习日 ${d.next_review}`}
-                  className="inline-block rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-800 transition-all hover:border-amber-400 hover:shadow-sm active:scale-95 dark:border-amber-800 dark:bg-slate-800 dark:text-amber-200"
+                  className="inline-block rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-800 transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-sm active:scale-95 dark:border-amber-800 dark:bg-slate-800 dark:text-amber-200 dark:hover:border-amber-700"
                 >
                   {d.name}
                 </Link>
               </li>
             ))}
             {due.total > 10 && (
-              <li className="px-1.5 py-1 text-xs text-amber-700 dark:text-amber-300">等 {due.total} 个</li>
+              <li className="animate-fade-in px-1.5 py-1 text-xs tabular-nums text-amber-700 dark:text-amber-300" style={{ animationDelay: '360ms' }}>等 {due.total} 个</li>
             )}
           </ul>
         </section>
