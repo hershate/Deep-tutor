@@ -102,3 +102,41 @@ def test_active_profile_drives_get_provider(client, auth_headers, monkeypatch):
 
 def test_requires_auth(client):
     assert client.get(BASE).status_code == 401
+
+
+def test_provider_connectivity_test(client, auth_headers, monkeypatch):
+    """iter 53：连通性测试——mock provider 成功/失败/404；不激活档案。"""
+    from app.api import providers as providers_mod
+    from app.llm.base import LLMResponse, LLMUsage
+
+    p = _create(client, auth_headers)
+
+    class _OkProvider:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return LLMResponse(content="pong", usage=LLMUsage(model="m"))
+
+    captured: dict = {}
+    monkeypatch.setattr(providers_mod, "AnthropicProvider", _OkProvider)
+    r = client.post(f"{BASE}/{p['id']}/test", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert captured["api_key"] == "sk-test-1234"  # 用档案凭据
+    assert captured["base_url"] == "https://relay.example.com"
+
+    class _FailProvider(_OkProvider):
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            raise RuntimeError("401 invalid api key")
+
+    monkeypatch.setattr(providers_mod, "AnthropicProvider", _FailProvider)
+    r = client.post(f"{BASE}/{p['id']}/test", headers=auth_headers)
+    assert r.json()["ok"] is False
+    assert "401" in r.json()["error"]
+
+    # 档案未被激活（测试不改状态）
+    rows = client.get(BASE, headers=auth_headers).json()["providers"]
+    assert all(not x["is_active"] for x in rows)
+
+    assert client.post(f"{BASE}/999999/test", headers=auth_headers).status_code == 404

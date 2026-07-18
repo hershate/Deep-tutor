@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_auth
 from app.api.errors import ApiError
+from app.core.settings import settings
 from app.db import models
+from app.llm.anthropic_provider import AnthropicProvider
 
 router = APIRouter(prefix="/providers", tags=["providers"], dependencies=[Depends(require_auth)])
 
@@ -134,3 +136,21 @@ def deactivate_providers(db: Session = Depends(get_db)) -> dict:
         p.is_active = False
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{profile_id}/test")
+async def test_provider(profile_id: int, db: Session = Depends(get_db)) -> dict:
+    """连通性测试（iter 53）：用档案凭据发起一次最小 LLM 调用，返回 ok/error。
+
+    不激活档案、不改任何状态；错误信息截断（防回显敏感内容）。
+    """
+    p = db.get(models.LlmProviderProfile, profile_id)
+    if p is None:
+        raise ApiError("not_found", f"供应商档案 {profile_id} 不存在")
+    model = p.model or settings.anthropic_model
+    provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
+    try:
+        await provider.chat("你是连通性测试探针。", "ping", max_tokens=8, cache_system=False)
+    except Exception as exc:  # noqa: BLE001  任何失败均作为测试结果返回（非 500）
+        return {"ok": False, "model": model, "error": str(exc)[:200]}
+    return {"ok": True, "model": model}
