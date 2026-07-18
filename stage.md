@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 107（前端美化第 15 轮：markdown 图片/任务列表 + 呼吸灯 + 渐变标题）**：①[index.css](frontend/src/index.css)：markdown-body 图片圆角边框+shadow-sm（自学材料配图不再生硬贴边）；GFM 任务列表复选框 accent-blue-600 品牌色。②[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx)：运行中标题旁加**呼吸灯**（animate-ping 扩散环+实心蓝点，tailwind 内置 ping），生成状态一目了然；done/error 时自动消失。③[Home.tsx](frontend/src/pages/Home.tsx)：首页主标题改品牌渐变文字（blue-600→indigo-500 bg-clip-text，深色 blue-400→indigo-300），形成视觉焦点。注：并行工作（lib/api.ts + 新增 MaterialsPanel.tsx）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 106（前端美化第 14 轮：路由回顶 + 测验题卡入场）**：①[Layout.tsx](frontend/src/components/Layout.tsx) **路由切换 window.scrollTo(0,0)**——此前长列表（方案列表/时间线）跳详情后停留在原滚动位置，需手动回顶；配合 iter 92 的主区入场动画，切页体验完整。②[QuizModal.tsx](frontend/src/components/QuizModal.tsx)：题目卡逐张错峰入场（60ms 递增封顶 8）+ 深色边框补全；「显示/隐藏参考答案」按钮按压过渡、答案展开 animate-fade-in。③[Timeline.tsx](frontend/src/components/Timeline.tsx)：日行分钟数 tabular-nums。注：并行后端改动（sessions.py/storage.py）未提交、与本轮无关，已避开。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 105（前端美化第 13 轮：深色扫尾 + file 按钮品牌化 + 打印样式）**：①[Home.tsx](frontend/src/pages/Home.tsx)：原生文件选择按钮用 `file:` 伪元素品牌化（蓝底胶囊+hover 过渡+深色适配，替换浏览器默认灰钮）；上传进度条轨道补 dark:bg-slate-700；URL 输入补 dark:bg-slate-900。②[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx)：重生成区 select/textarea 深色底与圆角统一（原 `border rounded` 无边框色深色变体）。③[index.css](frontend/src/index.css) **打印样式**：@media print 隐藏 header/footer/aside/.fixed 浮层（Toast/抽屉/模态），正文黑白底、main 去 padding——方案详情/时间线可直接打印存档。④[Layout.tsx](frontend/src/components/Layout.tsx) 侧栏收起按钮 transition-all+active:scale-95。**验证**：`npm run build` 通过。
