@@ -16,7 +16,9 @@ from app.db.base import Base  # noqa: E402
 from app.db import models  # noqa: E402,F401  触发模型注册
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.sqlite_url)
+# 已被调用方显式设置（如 app.db.migrate 指定目标库）时尊重之；否则回退 settings（CLI 直跑）
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.sqlite_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
