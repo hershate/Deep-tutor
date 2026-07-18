@@ -1,7 +1,7 @@
 """设置 API（plan/06 §四.7 设置页）。
 
 GET /api/settings        只读返回当前后端配置（非敏感）：模型/预算/限额/Key 是否已设。
-PUT /api/settings/prefs  用户级偏好覆盖（iter 175 参数配置）：目前支持 daily_budget_usd。
+PUT /api/settings/prefs  用户级偏好覆盖（iter 176 参数配置）：目前支持 daily_budget_usd。
 不返回任何原始密钥（plan 假设 4：API Key 本地 .env 配置，不入库/不下发）。
 """
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(
 
 
 class PrefsIn(BaseModel):
-    """用户偏好覆盖（iter 175）。值为 None = 清除覆盖回退全局默认；0 = 不限预算。"""
+    """用户偏好覆盖（iter 176）。值为 None = 清除覆盖回退全局默认；0 = 不限预算。"""
 
     daily_budget_usd: float | None = Field(default=None, ge=0, le=100000)
 
@@ -33,7 +33,7 @@ def get_settings(
 
     多模态（P3，R9）：ocr_available/whisper_available 为运行时依赖检测结果，
     False 时对应上传入口将报 dependency_missing（前端可提示安装）。
-    iter 175：daily_budget_usd 为全局默认，另附用户覆盖后的有效值。
+    iter 176：daily_budget_usd 为全局默认，另附用户覆盖后的有效值。
     """
     from app.tools.parse_material import ocr_available, whisper_available
 
@@ -69,7 +69,7 @@ def update_prefs(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """设置/清除用户级日预算覆盖（iter 175）。
+    """设置/清除用户级日预算覆盖（iter 176）。
 
     daily_budget_usd 为 null -> 删除覆盖（回退全局默认）；为数值 -> upsert 覆盖行。
     幂等：重复 PUT 同值结果一致。

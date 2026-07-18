@@ -1,4 +1,4 @@
-"""用户级日预算覆盖测试（iter 175 参数配置）。
+"""用户级日预算覆盖测试（iter 176 参数配置）。
 
 PUT /api/settings/prefs 设置/清除 user_prefs.daily_budget_usd；
 有效值贯通 GET /settings、GET /usage 与日预算守卫 check_daily_budget。

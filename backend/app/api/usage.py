@@ -50,7 +50,7 @@ def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_us
         "cache_hit_rate": round(cache_hit_rate, 4),
         "calls": int(calls),
         "today_cost": round(float(today_cost or 0.0), 6),
-        # iter 175：有效日预算（用户覆盖优先；预算条与守卫同源，显示即真实阈值）
+        # iter 176：有效日预算（用户覆盖优先；预算条与守卫同源，显示即真实阈值）
         "daily_budget_usd": get_daily_budget(db, user.id),
     }
 

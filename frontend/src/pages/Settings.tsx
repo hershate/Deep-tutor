@@ -57,7 +57,7 @@ export default function Settings() {
         <dl className="animate-fade-in divide-y overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <Row label="模型" value={data.anthropic_model} />
           <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
-          {/* 每日预算可编辑（iter 175 参数配置）：用户覆盖优先于 .env 默认 */}
+          {/* 每日预算可编辑（iter 176 参数配置）：用户覆盖优先于 .env 默认 */}
           <BudgetRow data={data} />
           <Row label="工具调用上限 / 会话" value={String(data.max_tool_calls)} />
           <Row label="上传上限 (MB)" value={String(data.max_upload_mb)} />
@@ -116,7 +116,7 @@ function Row({
   )
 }
 
-/** 每日预算可编辑行（iter 175 参数配置）：显示有效值，覆盖时标注 .env 默认；
+/** 每日预算可编辑行（iter 176 参数配置）：显示有效值，覆盖时标注 .env 默认；
  *  编辑保存后同步刷新 settings/usage（用量页预算条读同一有效值）。0 = 不限。 */
 function BudgetRow({ data }: { data: AppSettings }) {
   const qc = useQueryClient()

@@ -35,7 +35,7 @@ def isolate():
     reset_rate_limiter()  # 速率限制计数跨测试隔离（plan/09 §十八）
     Base.metadata.drop_all(bind=engine)
     # alembic_version 非 ORM 表，drop_all 不会清：残留旧版本号会让启动迁移对
-    # create_all 已建的新表再执行 CREATE -> "table already exists"（iter 175 实证）
+    # create_all 已建的新表再执行 CREATE -> "table already exists"（iter 176 实证）
     from sqlalchemy import text
 
     with engine.begin() as conn:
