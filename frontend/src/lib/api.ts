@@ -197,11 +197,12 @@ export interface PlanSummary {
   created_at: string
   topic: string
 }
-export const listPlans = (sessionId?: number, page = 1) => {
+export const listPlans = (sessionId?: number, page = 1, q = '') => {
   // err.md D18：URLSearchParams 拼 query（此前手工插值，session_id 异常值可注入额外参数）
-  const q = new URLSearchParams({ page: String(page) })
-  if (sessionId) q.set('session_id', String(sessionId))
-  return apiFetch<{ items: PlanSummary[]; total: number }>(`/plans?${q.toString()}`)
+  const params = new URLSearchParams({ page: String(page) })
+  if (sessionId) params.set('session_id', String(sessionId))
+  if (q.trim()) params.set('q', q.trim()) // iter 128：主题搜索
+  return apiFetch<{ items: PlanSummary[]; total: number }>(`/plans?${params.toString()}`)
 }
 
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
