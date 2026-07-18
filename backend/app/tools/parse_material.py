@@ -451,6 +451,10 @@ def _degraded_fallback(source: str, kind: str, exc: Exception) -> tuple[str, dic
             return _read_text_file(Path(source)), {"source_type": "degraded", "error": str(exc)}
         except Exception:  # noqa: BLE001
             return "", {"source_type": "degraded", "error": str(exc)}
+    if kind == "url":
+        # URL 本身不是内容：抓取异常时返回空串 -> 上层 empty_content 明确报错，
+        # 避免把 URL 字符串当「解析文本」假成功注入下游 LLM
+        return "", {"source_type": "degraded", "error": str(exc)}
     return str(source), {"source_type": "degraded", "error": str(exc)}
 
 

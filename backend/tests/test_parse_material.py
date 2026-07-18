@@ -267,3 +267,16 @@ def test_zip_safety_normal_docx_passes(tmp_path):
     with zipfile.ZipFile(p, "w") as zf:
         zf.writestr("word/document.xml", "<xml/>")
     _check_zip_safety(p)  # 不抛即通过
+
+
+def test_url_unexpected_error_not_returned_as_content(monkeypatch):
+    """URL 抓取抛非预期异常时降级为空 -> empty_content，而非把 URL 串当解析文本假成功。"""
+    import app.tools.parse_material as pm
+
+    async def _boom(source):
+        raise OSError("network stack exploded")
+
+    monkeypatch.setattr(pm, "_parse_url", _boom)
+    out = _run({"kind": "url", "source": "https://example.com/a"})
+    assert out.status == "error"
+    assert out.errors[0].code == "empty_content"

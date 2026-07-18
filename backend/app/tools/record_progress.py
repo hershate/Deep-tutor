@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-_STATUS_VALID = frozenset({"not_started", "learning", "done"})
-
 
 def compute_mastery(old: float, status: str, quiz_score: float | None) -> float:
     """掌握度（0-1）。quiz_score 为本次答题正确率（0-1，None=无测验）。"""
