@@ -234,6 +234,13 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 134（前端美化第 32 轮：用量柱状图动效）**：并行会话按日费用柱状图（commit `101fa67`）落成后走查——①14 根柱体加 35ms 错峰淡入（左起波浪式出现，与卡片 fade-in-up 衔接）；②「合计 $…」与底部起止日期包 `tabular-nums`。柱体 hover 变深/暗色变体原已实现，无需调整。**验证**：`npm run build` 通过。
+
+- **2026-07-19 iter 133（功能线：用量页按日费用趋势，✅ 完成）**：成本可见性只有总数没有趋势——用量页加近 14 日按日柱状图。**编号说明**：本切片代码注释自标 iter 131，与并行美化轨 iter 131/132（第 30/31 轮）撞号，本条按共享序号取 133。
+  - **后端**（commit `334018b`）：[usage.py](backend/app/api/usage.py) `GET /usage/daily?days=N`（1-90，默认 14）——`func.date(created_at)` GROUP BY 按日聚合 cost/tokens/calls，无调用日补 0（前端柱状图连续不断档）；日界口径为 naive UTC（全库同口径，非 UTC 时区最多差数小时，趋势图可接受）。
+  - **前端**（commit `101fa67`）：[Usage.tsx](frontend/src/pages/Usage.tsx) 汇总卡下方 `DailyChart` 纯 CSS 柱状图（无图表库依赖）——柱高按 max 归一、悬浮 title 显示 日期/费用/token/调用数、首末日期刻度、合计费用；[api.ts](frontend/src/lib/api.ts) `getUsageDaily(days)`。落成后并行会话补了逐柱错峰 fade-in 与 tabular-nums（101fa67 之上叠加，已核实存活）。
+  - **测试**：[test_api_usage_daily.py](backend/tests/test_api_usage_daily.py) 3 例（同日两行聚合+他人行隔离+5 个无调用日补 0、days 默认 14/边界 1 合法 0 与 91 → 422、401）。**验证**：后端全量 490 通过（487→490，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 132（前端美化第 31 轮：方案列表细节）**：[Plans.tsx](frontend/src/pages/Plans.tsx) 走查（并行会话删除入口 `bcb4e5b` 落成后）——①行尾时间戳与分页「N / M」页码包 `tabular-nums`（列表刷新/翻页时宽度不跳动）；②分页按钮 `rounded` → `rounded-lg`（与全站按钮圆角一致）。删除按钮本身样式已符合品牌模式（低可见 hover 显红 + 按压 + disabled），无需调整。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 131（前端美化第 30 轮：裸错误提示统一为品牌横幅）**：全站 `role="alert"` 走查——残余 4 处裸文字/无边框错误提示升级为品牌错误横幅（红边框 + 浅红底 + fade-in）：[Plans.tsx](frontend/src/pages/Plans.tsx) 列表加载失败（原有底无边框无动画）、[Settings.tsx](frontend/src/pages/Settings.tsx) 快照加载失败、[MaterialsPanel.tsx](frontend/src/components/MaterialsPanel.tsx) 资料清单加载失败、[ProviderManager.tsx](frontend/src/components/ProviderManager.tsx) 供应商列表加载失败。注：Plans.tsx 改动与并行会话删除入口（commit `bcb4e5b`）同时落盘被一并卷入，四处修改均已核实存活。**验证**：`npm run build` 通过。
