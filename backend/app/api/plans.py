@@ -23,6 +23,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
@@ -1557,3 +1558,38 @@ def _wrong_quiz_rows(db: Session, plan: models.Plan) -> list[models.Quiz]:
 
 def _wrong_quiz_title(content: dict) -> str:
     return f"{(content.get('intent') or {}).get('topic') or '学习方案'}错题重练"
+
+
+@router.get("/{plan_id}/quiz/stats")
+def quiz_stats(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """测验历史统计（iter 152）：题数 / 作答次数 / 判分正确率 + 当前错题数。
+
+    accuracy 口径：correct IS NOT NULL 的作答中 correct IS True 占比（自评题 None 不计）；
+    无任何判分作答 -> None（前端不显示）。wrong_count 与 GET quiz/wrong 同判定。
+    """
+    plan, _content = _plan_or_404(db, plan_id, user)
+    quiz_count = (
+        db.query(func.count(models.Quiz.id)).filter_by(plan_id=plan.id).scalar() or 0
+    )
+    attempts, graded, correct = (
+        db.query(
+            func.count(models.QuizAttempt.id),
+            func.count(models.QuizAttempt.correct),  # count 跳过 NULL
+            func.coalesce(
+                func.sum(case((models.QuizAttempt.correct.is_(True), 1), else_=0)), 0
+            ),
+        )
+        .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
+        .filter(models.Quiz.plan_id == plan.id)
+        .one()
+    )
+    return {
+        "quiz_count": int(quiz_count),
+        "attempts": int(attempts),
+        "graded": int(graded),
+        "correct": int(correct),
+        "accuracy": round(correct / graded, 4) if graded else None,
+        "wrong_count": len(_wrong_quiz_rows(db, plan)),
+    }
