@@ -233,6 +233,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 83（SSE plan_chunk + 生成中「查看部分」，commit `7fdf4f7`）**：plan/03 §一 `plan_chunk{partial_plan}` + plan/06 §四.3「查看部分→」。编排器每工具产出后 emit（复用 `_assemble`；错误/澄清/预算中断保留已发片段；`_SessionStream` 缓冲令断线重连自动重放最新片段）。[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 累积最新 chunk + 模态预览（复用 PlanOutline/Timeline + 资源列表），失败/取消后仍可浏览。测试 +1，全量 378 通过。
+- **2026-07-18 iter 82（深浅双主题 + 拖拽上传 + 打卡日历，commits `f4853c3`/`a97d5f0`/`3aa2ef8`）**：plan/06 §一/§四.1/§五。①主题：tailwind `darkMode:'class'` + 新增 [store/ui.ts](frontend/src/store/ui.ts) useUIStore（localStorage `dt_theme`、首访跟随系统、模块加载即应用防闪烁、写 color-scheme 令原生表单自适应）；Layout ☀️/🌙 开关；18 个页面/组件单趟正则补 dark: 变体（无重复无级联，spot-check 验证）。②拖拽上传：Home 文件区改虚线拖放区（dragover 高亮、drop 并入列表）。③打卡日历：新增 [CheckinCalendar.tsx](frontend/src/components/CheckinCalendar.tsx)（月历按分钟分档着色、翻月、本月汇总、今日圈、色阶图例），嵌入 Learn 页。
+- **2026-07-18 iter 81（方案详情页 Tabs 重构：时间线 + 可折叠大纲，commit `f21755b`）**：plan/06 §四.4 + plan/03 §二。新增 [PlanOutline.tsx](frontend/src/components/PlanOutline.tsx)（知识图谱按 parent_id 组可折叠树默认展开第一层；阶段卡可折叠默认展开 Stage 1）与 [Timeline.tsx](frontend/src/components/Timeline.tsx)（schedule 按相对周分组逐日渲染 + 汇总头）。PlanDetail 改 Tabs（学习路径/时间线/资源/校验报告，role=tablist），资源 Tab 增 ✅⚠️❌ 筛选，校验 Tab 增修复建议。
+- **2026-07-18 iter 80（首页网页链接资料入口，commit `5509240`）**：plan/03 §二 输入形式「网页链接」。api.ts `createUrlMaterial` 消费既有 POST /materials/url；Home 加 URL 输入/添加/移除列表（前缀+去重校验、Enter 快捷），start() 文件后逐条抓取，失败报具体链接并清孤儿会话。
+
 - **2026-07-18 iter 79（功能缺口补全启动：plan 全量审计 + PDF 导出，commit `fc31b96`）**：用户指示「实现所有功能缺口，保障稳定性与可扩展性」（/loop 每分钟）。先派 agent 对照 plan/ 全部 12 文档 + 代码完成缺口审计（结论见本条末）。**PDF 导出落地**（P1 清单最大欠账）：新增 [export_pdf.py](backend/app/tools/export_pdf.py)——`pdf_available()` 探测（weasyprint 导入可抛 OSError：Windows 缺 Pango 原生库，本机即此情形）-> 不可用降级 md + warning（plan/02 §11 + R9 模式，同 OCR/whisper）；链路 render_markdown -> markdown 库（纯 Python 新依赖）-> 打印 CSS -> weasyprint（to_thread）。API format=pdf 返回 base64（同 anki）；前端加 PDF 选项 + Blob 下载，md 分支改认 `r.content` 兼容降级。测试 +5，全量 377 通过，前端 build 通过。
   - **审计结论（缺口全清单，作为本次 /loop 工作队列）**：①功能：PDF 导出✅本条、时间线视图、可折叠知识图谱、网页链接入口、plan_chunk/查看部分、双主题、侧边栏、打卡日历、拖拽上传、原子组件；②generate_study_materials：scope/index/模块拆分；③防护：限频、资料数≤20、并发生成≤2、schedule≤365 天、raw_text≤10k、hash 去重、日志轮转、VACUUM、CI、verify_url 重试/robots/登录墙检测。偏离补记：同会话多 SSE 流用订阅扇出（非 plan/11 §九「关旧流」，设计等价更优）。
 
