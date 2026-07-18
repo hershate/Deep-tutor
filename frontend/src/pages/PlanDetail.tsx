@@ -200,7 +200,7 @@ export default function PlanDetail() {
   // 初始加载失败：整页错误 + 出口（err.md D1：不再是无返回/重试的裸错误块）
   if (error)
     return (
-      <div role="alert" className="space-y-3 rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
+      <div role="alert" className="space-y-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
         <p>{error}</p>
         <div className="flex gap-3 text-sm">
           <button onClick={() => nav('/plans')} className="underline">

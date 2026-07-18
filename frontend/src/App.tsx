@@ -26,7 +26,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { data: status, isLoading, isError } = useSetupStatus()
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">
+      <div className="min-h-screen flex items-center justify-center gap-2 text-sm text-slate-400" role="status">
+        <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
         加载中…
       </div>
     )

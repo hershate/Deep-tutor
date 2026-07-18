@@ -161,16 +161,21 @@ export default function QuizModal({ planId, onClose }: Props) {
           </div>
         </div>
         <div className="space-y-4 overflow-y-auto px-6 py-4">
-          {loading && <p className="text-slate-500 dark:text-slate-400">出题中…（按知识点组织题目，约需数十秒）</p>}
+          {loading && (
+            <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400" role="status">
+              <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+              出题中…（按知识点组织题目，约需数十秒）
+            </p>
+          )}
           {error && (
-            <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+            <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
               {error}
             </div>
           )}
           {!loading && !error && (
             <>
               {warning && (
-                <div className="rounded-lg bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-700">{warning}</div>
+                <div className="animate-fade-in rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950 p-3 text-sm text-amber-700 dark:text-amber-300">{warning}</div>
               )}
               {quizzes.map((q, i) => {
                 const a = answers[i] ?? {}
@@ -219,7 +224,7 @@ export default function QuizModal({ planId, onClose }: Props) {
                             <button
                               onClick={() => judge(i, q)}
                               disabled={!a.selected}
-                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
                             >
                               判定
                             </button>

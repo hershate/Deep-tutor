@@ -92,11 +92,17 @@ export default function Learn() {
   }
 
   if (!planId) return null
-  if (loading) return <p className="text-slate-500 dark:text-slate-400">加载学习中心…</p>
+  if (loading)
+    return (
+      <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400" role="status">
+        <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+        加载学习中心…
+      </p>
+    )
   // 初始加载失败：整页错误 + 出口（err.md D4）
   if (error)
     return (
-      <div role="alert" className="space-y-3 rounded-lg bg-red-50 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
+      <div role="alert" className="space-y-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-4 text-red-700 dark:text-red-300">
         <p>{error}</p>
         <Link to={`/plans/${id}`} className="text-sm underline">
           返回方案详情
