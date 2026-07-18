@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 114（前端美化第 21 轮：Wiki/笔记编辑器风格对齐）**：并行会话知识库笔记功能（commit `6b2b7de`）落成后走查：[Wiki.tsx](frontend/src/pages/Wiki.tsx) ①加载失败提示升级为品牌错误横幅（红边框 + 浅红底 + fade-in，原裸文字）；②「清除筛选」按钮补 `dark:border-slate-600`（原深色下边框沿用浅色系过亮）；③节点掌握度条过渡补 `duration-500 ease-out`（掌握度更新时宽度缓动而非跳变）。[NodeNoteEditor.tsx](frontend/src/components/NodeNoteEditor.tsx) 保存按钮对齐品牌主按钮模式（hover:blue-700 + shadow-md + 按压 .98 + disabled 还原，原 hover:blue-500/scale-95 变体）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 113（功能线：知识点笔记 node_notes，✅ 完成）**：个人 LLM Wiki 深化——知识节点可挂私人笔记，随备份迁移。**编号说明**：本切片代码注释自标 iter 105，与并行美化轨 iter 105（第 13 轮）撞号，本条按共享序号取 113。
   - **模型+迁移**（commit `f4682bf`）：[models.py](backend/app/db/models.py) 新增 `NodeNote`（user_id+node_id 双 FK，`uq_node_notes_user_node` 唯一约束兜底并发双写；User.node_notes / KnowledgeNode.notes 均 ORM 级联 delete-orphan——删会话/删用户自动清理）；迁移 `e5b21c8f90a3_node_notes.py`（batch 不需要，create_table 直写），[migrate.py](backend/app/db/migrate.py) `_REVISION_PROBES` 顶部加 node_notes 探针（create_all 旧库 stamp 识别）。
   - **API**（同 commit）：[knowledge.py](backend/app/api/knowledge.py) `GET /knowledge/notes/{node_id}`（无笔记返空内容不 404，前端编辑体验一致）+ `PUT /knowledge/notes/{node_id}`（upsert，内容 strip 后为空即删行；撞唯一约束回滚按更新重放；上限 2 万字符）；`GET /knowledge` items 附 `has_note`（本批节点单查询取集合）。他人节点 GET/PUT 均 404。
