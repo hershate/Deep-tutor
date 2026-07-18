@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 149（功能线：知识库搜索扩展到笔记内容，✅ 完成）**：记了笔记却搜不到——q 同时匹配节点名与本人笔记。**编号说明**：代码注释自标 iter 148，与并行美化轨 iter 148（第 38 轮）撞号，本条取 149。
+  - **后端**（commit `a1e2df4`）：[knowledge.py](backend/app/api/knowledge.py) list q 过滤改「名 OR 笔记内容」——outerjoin NodeNote（join 条件含 user_id：他人在我节点上的笔记不命中；uq 约束保证不复制行）+ `or_(name.contains, content.contains)`。
+  - **前端**（同 commit）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 搜索占位符「搜索知识点 / 笔记…」。
+  - **测试**：[test_api_knowledge_note_search.py](backend/tests/test_api_knowledge_note_search.py) 2 例（本人笔记命中+他人笔记在我节点上不命中+他人节点隔离、名匹配回归+无匹配空态）。**验证**：后端全量 499 通过（497→499，+2）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 148（前端美化第 38 轮：hover:bg-blue-500 变体清零）**：全站残留 2 处非品牌主按钮变体（hover:blue-500，品牌模式为 blue-700）——[Wiki.tsx](frontend/src/pages/Wiki.tsx) 空态「去新建方案」、[Settings.tsx](frontend/src/pages/Settings.tsx) 备份卡「导出全部数据」（另补 rounded-lg/shadow-sm/disabled 还原）。另核实并行会话排序选择器（`d9b0f2b`）样式已符合品牌输入件模式，无需调整。至此全站主按钮 hover 色统一。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 147（功能线：Wiki 知识点排序，✅ 完成）**：知识点多了想按薄弱/难度看——加排序选择器。**编号说明**：代码注释自标 iter 146，与并行美化轨 iter 146（第 37 轮）撞号，本条取 147。[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部加排序下拉（默认/掌握度↑薄弱优先/掌握度↓/难度↑/名称 zh locale），组内排序实现于 groups useMemo（默认保持后端顺序不变）（commit `d9b0f2b`）。**验证**：`npm run build` 通过。
