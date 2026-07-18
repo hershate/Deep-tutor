@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P5 全部完成**（ics 导出 iter 69、Anki 导出 iter 70、协作分享 iter 71、缓存深度优化 iter 72）。全量 356 后端测试 + 前端 build 通过。**候选下一步**：plan 路线图全部 Phase 已收官——后续可做：扩展真机剪藏冒烟 / UX 打磨（如导出 md 也改浏览器下载、Home 批量操作）/ plan/09 审计清单复查 / 用户新需求。详见 §五 iter 69-72 条。
+**当前下一步**：**P1-P5 全部完成**；持续打磨中（iter 73-76：md 导出浏览器化、剪藏冒烟、健康检查增强、deadline/字段校验、zip bomb 防护）。全量 372 后端测试 + 前端 build 通过。**候选下一步**：前端边界打磨（上传进度条等，plan/09 §七）/ 扩展真机加载验证 / 用户新需求。详见 §五 iter 75-76 条。
 
 ---
 
@@ -232,6 +232,12 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 75-76（plan/09 审计清单复查：字段校验补全 + zip bomb 防护 + 健康检查增强）**：对照 plan/09 §四/§十/§十四/§十六 逐项核查，补三个缺口。
+  - **健康检查（commit `2d73f94`）**：[health.py](backend/app/api/health.py) 原仅 `{"status":"ok"}` -> §十四 完整版：恒 200 + `components{db 连通(SELECT 1), skills_loaded, disk_free_mb}`；DB 异常/skills 失败/磁盘 <100MB -> `degraded`；不暴露异常细节与路径（R35）。测试 +4。
+  - **deadline + 字段级校验（commits `3447e1b`/`b0eedb4`）**：[understand_intent.py](backend/app/tools/understand_intent.py) post_process `_validate_intent`：§十六 past_deadline——LLM 抽取的 deadline 已过 -> 清空 + needs_clarify + 追问（**偏离 plan 的 422 硬拒**：管线内硬拒会打断生成，用户可能仅在叙述历史，澄清语义更准，stage 记录）；非法日期串静默清空；§十 daily_minutes 1-1440 越界/非数 -> 清空按未知时长走；topic >200 截断。测试 +7。
+  - **zip bomb 防护（commit `6db570b`）**：[parse_material.py](backend/app/tools/parse_material.py) `_check_zip_safety`（R23）：DOCX/PPTX 解析前读 zip 中央目录（不解压），解压总大小 >512MB 或条目 >10000 -> `payload_too_large` 拒绝；坏 zip -> `parse_failed`。测试 +4。
+  - **验证**：全量 372 测试通过（361→372），零回归。其余 §四-§七 项核查结论：路径遍历（R20 storage）、XSS（slides 净化 + react-markdown）、Agent 守卫（轮次/预算/修复上限）、SSE 断线重连、上传大小/类型校验均已落地；待做：上传进度条（§七）。
 
 - **2026-07-18 iter 73-74（UX 打磨 + 剪藏链路真机冒烟）**：
   - **iter 73 md 导出浏览器化（commit `4ff3d5d`）**：修 UX 缺陷——原 md 导出仅回显服务器文件路径（浏览器无法访问）。export_plan data 加 `content`/`filename`，端点透传，前端 Blob 下载 .md（文件仍归档）；render_markdown 补「测验题」章节（题干/选项/答案/解析）。测试 +1，全量 357 通过，前端 build 通过。
