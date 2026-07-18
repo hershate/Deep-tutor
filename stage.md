@@ -233,6 +233,14 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 68（移除 Docker + 纯脚本真机冒烟，✅ 完成）**：用户决定「移除全部 Docker 相关，项目目前不需要 Docker；用纯脚本真机冒烟」。用户同时下达全自动指令（不再请示；除 Python 库不装软件；脱离 Docker 跨平台脚本；稳定优先；**隐私红线：任何含 apikey 的配置绝不提交**；重视 UX）。
+  - **Docker 移除（commit `b9a9a68`）**：删 docker-compose.yml / 两 Dockerfile / frontend/nginx.conf / 两 .dockerignore；README 部署章节重写为单一本地直起方案（配置表/迁移/首登/升级/**文件级备份**（data/ 打包）/可选 OCR 与 HTTPS）；.env.example、health.py/migrate.py docstring 同步。（事故：`.claude/plan.md` 本地草稿误随 `git add -A` 入库，下一 commit `918da88` 移出并将 `.claude/` 加入 .gitignore。）plan/ 为设计历史文档，docker 记述保留。
+  - **冒烟中修复真 bug（commit `171bf05`）**：干净检出首跑 start.ps1 时 `python -m app.db.migrate` 失败——`data/` 目录不存在，sqlite 无法建库文件（lifespan 的 ensure_dirs 在 uvicorn 阶段才跑，migrate 先行）。修：run_migrations 先建 SQLite 父目录；测试 +1。另修复 start.ps1 **UTF-8 无 BOM** 致 Windows PowerShell 5.1 按 GBK 解析中文乱码、脚本语法错误——加 BOM 后正常（冒烟第一轮暴露）。
+  - **干净环境全流程冒烟（Windows，$TEMP 副本，排除 node_modules/.git/data/.env 模拟全新检出）**：phase1 venv+pip+.env 模板生成退出 ✓；填 JWT_SECRET/ADMIN_PASSWORD/AUTH_TOKEN 后 phase2：npm install+build ✓ → 迁移到 head ✓ → 起服 :18080 ✓。验证：`/` 200 html、`/login` SPA 回退 200、`/api/health` ok、**JWT 登录 -> /api/plans 200**、AUTH_TOKEN 双轨 200、无认证 401、错误密码 401、`/api/auth/me` 200；**重启后 JWT 仍有效**（SECRET 固定）、admin 收敛 1 用户、alembic_version=head（a1c4f7e20b58）。冒烟副本与进程已清理。
+  - **隐私红线核查**：tracked 文件无 .env（仅 .env.example 模板），全库扫描无 sk-*/apikey 明文。
+  - **验证**：全量 326 测试通过（325+1）+ 前端 build（423KB），零回归。
+  - **待做**：P5（缓存深度优化 + Anki/ics 导出 + 协作分享）/ 扩展真机剪藏冒烟。
+
 - **2026-07-18 iter 67（云部署补充：免 Docker 本地直起方案，✅ 完成）**：用户要求「不要只用 Docker，给出 sh（Linux）+ powershell（Windows）脚本直接启动」。
   - **SPA 托管（commit `be1c695`）**：[settings.py](backend/app/core/settings.py) 加 `FRONTEND_DIST`（空=不托管）；[main.py](backend/app/main.py) `_SPAStaticFiles`：挂 `/`（/api 路由注册在前不遮蔽）、未命中非 /api 路径回退 index.html（React Router 接管）、**/api 未命中返回 JSON 404 不吞**——判定用 `scope["path"]` 而非 StaticFiles 传入 path（后者被转 OS 分隔符，Windows 下 `api\xxx` 致守卫失效，测试暴露）。无 index.html 时告警不挂载（非运行期 500）。测试 +8（test_spa_static.py）。
   - **直起脚本（commit `2204b68`）**：[scripts/start.sh](scripts/start.sh) + [scripts/start.ps1](scripts/start.ps1)：venv → pip 依赖（幂等）→ 缺 .env 则生成模板并提示填 JWT_SECRET/ADMIN_PASSWORD/ANTHROPIC_API_KEY 后退出 → 无 frontend/dist 且有 npm 则自动构建（两者皆无报错）→ `python -m app.db.migrate` → uvicorn `--app-dir backend` 单进程（0.0.0.0:8000，PORT 可覆盖）。bash -n + PSParser 语法校验通过。
