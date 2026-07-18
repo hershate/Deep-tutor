@@ -243,6 +243,16 @@ def test_real_deep_tutor_quiz_skill_loads():
     assert "name: deep-tutor-quiz" not in body
 
 
+def test_real_deep_tutor_resources_skill_loads():
+    """真实 skills/deep-tutor-resources/SKILL.md 可加载（iter 63）。"""
+    reg = load_skills(_PROJECT_SKILLS)
+    assert "deep-tutor-resources" in reg
+    body = reg["deep-tutor-resources"]
+    assert body.strip()
+    assert not body.startswith("---")
+    assert "name: deep-tutor-resources" not in body
+
+
 def test_real_quiz_skill_used_as_system_prompt():
     """真实 Skill 加载后，loop 用 Skill 正文作 generate_quiz 的 system prompt（覆盖 inline_prompt，iter 61）。"""
     from app.tools.generate_quiz import generate_quiz_tool
