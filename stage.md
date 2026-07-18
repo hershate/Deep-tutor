@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 172（美化轨：第 52 轮——单元导航入场，✅ 完成）**：审查并行轨版本切换下拉（`9826380`）——已对齐 R28 select 品牌模式零改动；顺带复核 Timeline/Clarify/UsageMeter/StudyMaterialReader 均已达品牌基线。仅补一处：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元导航列表此前无入场动画、与内容区 `animate-fade-in` 不齐——导航项加 30ms 阶梯淡入（commit `1ebe5c8`）。验证：`npm run build` 通过（1.73s，主包 210.64kB）。
+
 - **2026-07-19 iter 171（美化轨：第 51 轮——PlanOutline 打磨，✅ 完成）**：并行轨 PlanDetail 版本切换在改，本轮续清扫线。先全量核 `role="alert"` 25 处——均已品牌化零遗留（UserManager/Usage 修完后收口）。再审从未打磨的 [PlanOutline.tsx](frontend/src/components/PlanOutline.tsx)，补三处（commit `b426166`）：① 阶段卡加 `animate-fade-in-up` + 60ms 阶梯逐项入场；②③ 图谱节点与 topics 的 ★ 符号改 `aria-hidden` + `sr-only`「必学」（防读屏读 "star"，沿用 R35 SharedPlan 模式）。**编号说明**：并行轨 stage 记录已占 iter 170（方案版本历史切换），本条取 171。验证：`npm run build` 通过（1.72s，主包 210.56kB）。
 
 - **2026-07-19 iter 170（功能线：方案版本历史切换，✅ 完成）**：重新生成/级联重跑会产出 plan.version+1 的新方案，但旧版本无从回看——方案详情页加版本切换。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 拿到 plan.session_id 后调 `listPlans(sessionId)`（既有 `GET /plans?session_id=N` 本就返回会话全部版本，零后端改动），版本数 >1 时标题旁出现下拉：按 version 倒序列出、标注（当前）、选中即跳对应 /plans/:id；仅 1 版本不渲染，列表请求失败静默不阻塞页面。**编号说明**：代码注释初标 iter 169，与并行美化轨 iter 169（第 50 轮）撞号，本条取 170（注释随 commit `c44691b` 改标）。提交：功能 commit `9826380` + 改标 commit `c44691b`。**验证**：`npm run build` 通过（1.71s，主包 210.56kB）。
