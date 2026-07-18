@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 178（美化轨：第 71 轮——备份偏好审查，✅ 完成）**：审查并行轨 iter 177 备份偏好（`275feb6`）——预检/结果计数行均正确继承既有样式，仅发现 R46 漏改：导入**结果**计数段无 `tabular-nums`（预检段当时改了、结果段漏了），补上对齐（commit `b60ef84`）。第 61-70 轮为无新料监视轮，未记空轮。验证：`npm run build` 通过（1.72s，主包 213.07kB）。
+
 - **2026-07-19 iter 177（功能线：用户偏好纳入备份导出/导入，✅ 完成）**：iter 176 预留项收口——日预算覆盖不随备份走，换机/还原后静默回默认。[backup.py](backend/app/core/backup.py) 导出增 `prefs` 字段（user_prefs KV 全量；备份版本仍 1——可选键新旧互导兼容，同 iter 105 node note 处理）；导入 `_restore_prefs` 本机已有同键跳过不覆盖（与供应商档案同策略，追加式还原不覆盖现有设置）并记 skipped；preview 增 prefs 键数。前端 BackupImportResult/BackupPreview 类型补 prefs（ImportResult 顺带补 node_notes——后端早返回但类型漏声明），预检与导入结果计数行均显示「N 偏好」。测试 test_api_backup_prefs.py 4 条（导出含 prefs / 导入还原贯通 /usage 有效值 / 已有键跳过不覆盖 / 旧备份无 prefs 兼容）；备份族 16 过、全量 525 过（commit `275feb6`）。**验证**：ruff 全绿；`npm run build` 通过（4.11s，主包 213.05kB）。
 
 - **2026-07-19 iter 176（功能线：用户级日预算覆盖——参数配置落地，✅ 完成）**：日预算只能改 .env 重启才生效——设置页直接可改。**编号说明**：代码注释初标 iter 171，与并行美化轨 iter 171-175（第 51-60 轮）连撞两次，本条取 176（注释随 `ceb01a7`/`8f298e2` 两次改标）。
