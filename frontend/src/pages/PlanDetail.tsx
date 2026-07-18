@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
+import PlanOutline from '../components/PlanOutline'
 import ProgressBoard from '../components/ProgressBoard'
 import QuizModal from '../components/QuizModal'
+import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { ApiError, createShare, exportPlan, getPlan, getShare, regenerateStream, revokeShare, type ShareStatus } from '../lib/api'
 
 interface PlanData {
@@ -16,12 +18,26 @@ interface PlanData {
     topics?: Array<{ name: string; why?: string; must_learn?: boolean }>
     milestone?: string
   }>
+  knowledge_map?: {
+    nodes?: Array<{ id: string; name: string; difficulty?: number; must_learn?: boolean; parent_id?: string | null }>
+    edges?: Array<{ from: string; to: string; relation?: string }>
+  }
+  schedule?: ScheduleDay[]
   resources?: Array<{ title?: string; url?: string; type?: string; verified?: string; note?: string }>
   validation_report?: { passed?: boolean; report?: Record<string, { status?: string; details?: string }>; fixes?: string[] }
 }
 
 const VERIFY_LABEL: Record<string, string> = { ok: '✅', uncertain: '⚠️', invalid: '❌' }
 const VERIFY_TEXT: Record<string, string> = { ok: '已验证', uncertain: '不确定', invalid: '无效' }
+
+// Tabs（plan/06 §四.4）：学习路径 / 时间线 / 资源 / 校验报告
+type TabKey = 'path' | 'timeline' | 'resources' | 'report'
+const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: 'path', label: '学习路径' },
+  { key: 'timeline', label: '时间线' },
+  { key: 'resources', label: '资源' },
+  { key: 'report', label: '校验报告' },
+]
 
 /** 触发浏览器下载（P5 ics/Anki 导出：内容随 API 响应返回，本地生成 Blob 保存）。 */
 function downloadBlob(blob: Blob, filename: string) {
@@ -46,6 +62,8 @@ export default function PlanDetail() {
   const [share, setShare] = useState<ShareStatus | null>(null)
   const [shareMsg, setShareMsg] = useState('')
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
+  const [tab, setTab] = useState<TabKey>('path')
+  const [resFilter, setResFilter] = useState('') // 资源 Tab ✅⚠️❌ 筛选（plan/06 §四.4）
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -249,64 +267,117 @@ export default function PlanDetail() {
         </section>
       )}
 
-      {plan.stages && (
-        <section className="space-y-3">
-          <h3 className="font-semibold">学习阶段</h3>
-          {plan.stages.map((s) => (
-            <div key={s.index} className="rounded-lg border bg-white p-4">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">{s.index + 1}. {s.name}</h4>
-                <span className="text-xs text-slate-400">难度 {s.difficulty} / {s.estimated_weeks} 周</span>
+      <div role="tablist" aria-label="方案内容" className="flex gap-1 border-b">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
+              tab === t.key
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'path' && (
+        <div role="tabpanel" aria-label="学习路径">
+          <PlanOutline stages={plan.stages} knowledgeMap={plan.knowledge_map} />
+        </div>
+      )}
+
+      {tab === 'timeline' && (
+        <div role="tabpanel" aria-label="时间线">
+          <Timeline schedule={plan.schedule ?? []} stageNames={(plan.stages ?? []).map((s) => s.name)} />
+        </div>
+      )}
+
+      {tab === 'resources' && (
+        <div role="tabpanel" aria-label="资源" className="space-y-3">
+          {plan.resources && plan.resources.length > 0 ? (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-slate-500">筛选：</span>
+                {[
+                  { v: '', label: '全部' },
+                  { v: 'ok', label: '✅ 已验证' },
+                  { v: 'uncertain', label: '⚠️ 不确定' },
+                  { v: 'invalid', label: '❌ 无效' },
+                ].map((f) => (
+                  <button
+                    key={f.v}
+                    onClick={() => setResFilter(f.v)}
+                    aria-pressed={resFilter === f.v}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      resFilter === f.v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
               </div>
-              <p className="mt-1 text-sm text-slate-600">目标: {s.goal}</p>
-              {s.topics && s.topics.length > 0 && (
-                <ul className="mt-2 text-sm">
-                  {s.topics.map((t, i) => (
-                    <li key={i}>{t.must_learn ? '★ ' : '· '}{t.name}</li>
+              <ul className="space-y-1 rounded-lg border bg-white p-4 text-sm">
+                {plan.resources
+                  .filter((r) => !resFilter || (r.verified ?? '') === resFilter)
+                  .map((r, i) => (
+                    <li key={i}>
+                      <span aria-hidden="true">{VERIFY_LABEL[r.verified ?? ''] ?? '·'}</span>{' '}
+                      <span className="sr-only">{VERIFY_TEXT[r.verified ?? ''] ?? '未知'}：</span>
+                      {r.title}{' '}
+                      <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                        {r.url}
+                      </a>
+                      {r.note && <span className="text-slate-400">（{r.note}）</span>}
+                    </li>
+                  ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">暂无配套资源。</p>
+          )}
+        </div>
+      )}
+
+      {tab === 'report' && (
+        <div role="tabpanel" aria-label="校验报告">
+          {plan.validation_report ? (
+            <section className="rounded-lg border bg-white p-4">
+              <h3 className="mb-2 font-semibold">
+                校验报告: {plan.validation_report.passed ? '通过 ✅' : '未通过 ⚠️'}
+              </h3>
+              {plan.validation_report.report && (
+                <ul className="text-sm">
+                  {Object.entries(plan.validation_report.report).map(([k, v]) => (
+                    <li key={k}>{k}: {v.status} {v.details}</li>
                   ))}
                 </ul>
               )}
-              {s.milestone && <p className="mt-2 text-sm text-slate-500">里程碑: {s.milestone}</p>}
-            </div>
-          ))}
-        </section>
+              {plan.validation_report.fixes && plan.validation_report.fixes.length > 0 && (
+                <div className="mt-2 text-sm">
+                  <span className="text-slate-500">修复建议：</span>
+                  <ul className="list-disc pl-5">
+                    {plan.validation_report.fixes.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          ) : (
+            <p className="text-sm text-slate-500">暂无校验报告。</p>
+          )}
+        </div>
       )}
 
       {planId && (
         <section className="rounded-lg border bg-white p-4" aria-label="学习进度">
           <h3 className="mb-2 font-semibold">学习进度</h3>
           <ProgressBoard planId={Number(planId)} refreshToken={progressKey} />
-        </section>
-      )}
-
-      {plan.resources && plan.resources.length > 0 && (
-        <section className="rounded-lg border bg-white p-4">
-          <h3 className="mb-2 font-semibold">配套资源</h3>
-          <ul className="space-y-1 text-sm">
-            {plan.resources.map((r, i) => (
-              <li key={i}>
-                <span aria-hidden="true">{VERIFY_LABEL[r.verified ?? ''] ?? '·'}</span>{' '}
-                <span className="sr-only">{VERIFY_TEXT[r.verified ?? ''] ?? '未知'}：</span>
-                {r.title}{' '}
-                <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                  {r.url}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {plan.validation_report && (
-        <section className="rounded-lg border bg-white p-4">
-          <h3 className="mb-2 font-semibold">校验报告: {plan.validation_report.passed ? '通过 ✅' : '未通过 ⚠️'}</h3>
-          {plan.validation_report.report && (
-            <ul className="text-sm">
-              {Object.entries(plan.validation_report.report).map(([k, v]) => (
-                <li key={k}>{k}: {v.status} {v.details}</li>
-              ))}
-            </ul>
-          )}
         </section>
       )}
 
