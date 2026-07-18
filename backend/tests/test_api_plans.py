@@ -305,6 +305,12 @@ def test_finalize_cancelled_publishes_error(client, auth_headers):
     from app.db.base import SessionLocal
 
     sid = _session(client, auth_headers)
+    # err.md A12 后 _finalize 仅当 state.trace_id 匹配才写库：先按真实占位路径置 running
+    db0 = SessionLocal()
+    try:
+        plans_mod._set_state(db0, sid, models.OrchestratorStatus.running, "trace_cancel")
+    finally:
+        db0.close()
 
     async def scenario():
         stream = plans_mod._SessionStream(sid, "trace_cancel")

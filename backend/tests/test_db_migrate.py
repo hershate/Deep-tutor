@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from app.db import models  # noqa: F401  触发模型注册
 from app.db.base import Base
 from app.db.migrate import _alembic_config, detect_stamp, run_migrations
 
-HEAD = "d8f3b1a92c67"
+# 动态取当前 head：新增迁移后无需手改测试
+HEAD = ScriptDirectory.from_config(_alembic_config("sqlite:///unused.db")).get_current_head()
 
 
 def _url(tmp_path, name: str = "m.db") -> str:

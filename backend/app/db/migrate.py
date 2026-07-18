@@ -36,6 +36,30 @@ _REVISION_PROBES: list[tuple[str, str, str | None]] = [
 _BASE_REVISION = "beba50db3cc1"
 
 
+def _progress_has_plan_node_unique(insp) -> bool:
+    """progress 表存在覆盖 (plan_id, node_id) 的唯一约束/索引（f2a8c1d94e07 代特征）。
+
+    SQLite 不持久化表级约束名，故按「唯一索引的列集合」判定（autoindex 亦可命中）。
+    """
+    if "progress" not in insp.get_table_names():
+        return False
+    target = {"plan_id", "node_id"}
+    for uc in insp.get_unique_constraints("progress"):
+        if set(uc.get("column_names") or []) == target:
+            return True
+    for idx in insp.get_indexes("progress"):
+        if idx.get("unique") and set(idx.get("column_names") or []) == target:
+            return True
+    return False
+
+
+# 附加特征探测（无法以「表/列存在」表达的新代际），按迁移链从新到旧：
+# (revision, detector(insp) -> bool)。先于 _REVISION_PROBES 检查（列探针会命中更老代际）。
+_EXTRA_PROBES = [
+    ("f2a8c1d94e07", _progress_has_plan_node_unique),
+]
+
+
 def _alembic_config(db_url: str) -> Config:
     cfg = Config(str(_BACKEND_DIR / "alembic.ini"))
     # script_location 相对 cwd 解析，显式钉到包路径，保证任意 cwd 可跑
@@ -50,6 +74,9 @@ def detect_stamp(db_url: str) -> str | None:
     tables = set(insp.get_table_names())
     if "alembic_version" in tables or "sessions" not in tables:
         return None  # 版本表在 -> alembic 自理；无业务表 -> 视为新库
+    for revision, detector in _EXTRA_PROBES:
+        if detector(insp):
+            return revision
     for revision, table, column in _REVISION_PROBES:
         if table not in tables:
             continue

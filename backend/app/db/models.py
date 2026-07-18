@@ -274,6 +274,8 @@ class QuizAttempt(Base):
 
 class Progress(Base):
     __tablename__ = "progress"
+    # err.md A11/C19：每 (plan_id, node_id) 至多一行；先查后插竞态由唯一约束兜底
+    __table_args__ = (UniqueConstraint("plan_id", "node_id", name="uq_progress_plan_node"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)

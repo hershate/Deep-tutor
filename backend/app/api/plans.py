@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -74,6 +75,10 @@ _HEARTBEAT_SECONDS = 15.0
 # 订阅时先重放历史 (id > last_event_id) 再接实时。终态后保留可配置时长供迟到重连。
 # 与流客户端解耦：断连时编排器任务仍完成并持久化（防 stale running / 丢进度，R24）。
 _STREAMS: dict[int, "_SessionStream"] = {}
+# err.md A1：状态检查与占位（注册流 + 置 running）必须在同一临界区。
+# 端点为同步 def（线程池执行），并发请求可交错通过检查再各自占位
+# （双编排器并行 / 绕过每用户并发配额）；单进程内部署用线程锁即可保证原子。
+_OCCUPY_LOCK = threading.Lock()
 _MAX_BUFFERED_EVENTS = 500  # 单会话最大缓冲；超限丢最旧（降级重放）
 # 生成并发配额（plan/09 §十八 每用户并发 1；§二十 R31 全局同时生成 ≤2）
 _MAX_GENERATE_PER_USER = 1
@@ -260,6 +265,20 @@ async def _terminal_stream(event: str, data: dict) -> str:
     yield _sse(event, data, event_id=1)
 
 
+def _occupy_generation(db: Session, session_id: int, raw_text: str) -> "_SessionStream":
+    """同步占位：注册会话流 + 置 running。调用方须持 _OCCUPY_LOCK（err.md A1）。
+
+    占位在端点内、返回 StreamingResponse 之前完成，而非等到流式生成器首次迭代，
+    使「状态检查 -> 占位」无窗口期。
+    """
+    trace_id = uuid.uuid4().hex
+    stream = _SessionStream(session_id, trace_id)
+    stream.raw_text = raw_text
+    _STREAMS[session_id] = stream
+    _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
+    return stream
+
+
 @router.post("/generate")
 def generate(
     body: GenerateIn,
@@ -269,30 +288,35 @@ def generate(
 ) -> StreamingResponse:
     get_owned_session(db, body.session_id, user)  # P4 隔离：他人会话 404
 
-    state = db.get(models.OrchestratorState, body.session_id)
-    # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
-    if state is not None and state.status == models.OrchestratorStatus.running:
-        stream = _STREAMS.get(body.session_id)
-        if stream is not None and stream.terminal_id is None:
-            return StreamingResponse(
-                _relay(stream, _parse_last_event_id(request)),
-                media_type="text/event-stream",
-                headers=_SSE_HEADERS,
-            )
-        raise ApiError("conflict", "该会话生成已中断，请返回首页重新生成", status=409)
-
-    # 终态快路径（plan/10 §十二）：done/paused_clarify/error 不重跑，直接回放终态事件
-    if state is not None:
-        terminal = _terminal_event(db, body.session_id, state)
-        if terminal is not None:
-            return StreamingResponse(
-                _terminal_stream(terminal[0], terminal[1]),
-                media_type="text/event-stream",
-                headers=_SSE_HEADERS,
-            )
-
     parsed = _load_parsed_materials(db, body.session_id)
-    _check_generate_quota(db, user, body.session_id)  # 新起生成前的并发配额（plan/09 §十八/§二十）
+    # raw_text ≤10k 截断（plan/09 §十）
+    raw_text = body.raw_text[:_MAX_RAW_TEXT_CHARS]
+    with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
+        state = db.get(models.OrchestratorState, body.session_id)
+        # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
+        if state is not None and state.status == models.OrchestratorStatus.running:
+            stream = _STREAMS.get(body.session_id)
+            if stream is not None and stream.terminal_id is None:
+                return StreamingResponse(
+                    _relay(stream, _parse_last_event_id(request)),
+                    media_type="text/event-stream",
+                    headers=_SSE_HEADERS,
+                )
+            raise ApiError("conflict", "该会话生成已中断，请返回首页重新生成", status=409)
+
+        # 终态快路径（plan/10 §十二）：done/paused_clarify/error 不重跑，直接回放终态事件
+        if state is not None:
+            terminal = _terminal_event(db, body.session_id, state)
+            if terminal is not None:
+                return StreamingResponse(
+                    _terminal_stream(terminal[0], terminal[1]),
+                    media_type="text/event-stream",
+                    headers=_SSE_HEADERS,
+                )
+
+        _check_generate_quota(db, user, body.session_id)  # 新起生成前的并发配额（plan/09 §十八/§二十）
+        stream = _occupy_generation(db, body.session_id, raw_text)
+
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
     initial_upstream: dict[str, ToolOutput] = {}
     if concatenated:
@@ -302,12 +326,10 @@ def generate(
             status="ok",
             data={"text": concatenated, "meta": {"source_type": "materials", "pages": len(parsed)}, "chunks": chunks},
         )
-    # raw_text ≤10k 截断（plan/09 §十）
-    raw_text = body.raw_text[:_MAX_RAW_TEXT_CHARS]
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed}}
     return StreamingResponse(
         _run_start(
-            body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
+            stream, body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -323,20 +345,25 @@ def clarify(
 ) -> StreamingResponse:
     """澄清续接（plan/10 §四）：paused_clarify 状态下以 answers 重跑 understand_intent -> 继续 pipeline。"""
     get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
-    state = db.get(models.OrchestratorState, session_id)
-    if state is None or state.status != models.OrchestratorStatus.paused_clarify:
-        raise ApiError("conflict", "该会话无待澄清任务", status=409)
-    partial = state.partial_plan or {}
-    outputs_dump = partial.get("outputs", {})
-    initial_upstream = {
-        tool: ToolOutput(tool=tool, status=d.get("status", "ok"), data=d.get("data", {}))
-        for tool, d in outputs_dump.items()
-    }
-    raw_text = partial.get("raw_text", "")[:_MAX_RAW_TEXT_CHARS]
     parsed = _load_parsed_materials(db, session_id)
+    with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
+        state = db.get(models.OrchestratorState, session_id)
+        if state is not None and state.status == models.OrchestratorStatus.running:
+            raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
+        if state is None or state.status != models.OrchestratorStatus.paused_clarify:
+            raise ApiError("conflict", "该会话无待澄清任务", status=409)
+        partial = state.partial_plan or {}
+        outputs_dump = partial.get("outputs", {})
+        initial_upstream = {
+            tool: ToolOutput(tool=tool, status=d.get("status", "ok"), data=d.get("data", {}))
+            for tool, d in outputs_dump.items()
+        }
+        raw_text = partial.get("raw_text", "")[:_MAX_RAW_TEXT_CHARS]
+        _check_generate_quota(db, user, session_id)
+        stream = _occupy_generation(db, session_id, raw_text)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
     return StreamingResponse(
-        _run_start(session_id, args_by_tool, initial_upstream, 0, user_id=user.id),
+        _run_start(stream, session_id, args_by_tool, initial_upstream, 0, user_id=user.id),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -389,24 +416,27 @@ def regenerate(
     """
     plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     session_id = plan.session_id
-    state = db.get(models.OrchestratorState, session_id)
-    if state is not None and state.status == models.OrchestratorStatus.running:
-        raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
-
     if body.scope not in PIPELINE:
         raise ApiError("bad_request", f"scope 必须为有效工具名: {PIPELINE}", status=400)
     start_tool = body.scope
     initial_upstream = _reconstruct_upstream(db, session_id, start_tool)
-    # understand_intent 须在上游（否则需原始 raw_text，不支持）
-    if "understand_intent" not in initial_upstream:
-        raise ApiError(
-            "bad_request",
-            f"不支持从 {start_tool} 重生成（需 understand_intent 上游；请从 design_stages 及之后起）",
-            status=400,
-        )
+    with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
+        state = db.get(models.OrchestratorState, session_id)
+        if state is not None and state.status == models.OrchestratorStatus.running:
+            raise ApiError("conflict", "该会话已有生成任务运行中", status=409)
+        # understand_intent 须在上游（否则需原始 raw_text，不支持）
+        if "understand_intent" not in initial_upstream:
+            raise ApiError(
+                "bad_request",
+                f"不支持从 {start_tool} 重生成（需 understand_intent 上游；请从 design_stages 及之后起）",
+                status=400,
+            )
+        _check_generate_quota(db, user, session_id)
+        stream = _occupy_generation(db, session_id, "")
     args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
     return StreamingResponse(
         _run_start(
+            stream,
             session_id,
             args_by_tool,
             initial_upstream,
@@ -447,9 +477,15 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
     """
     db = SessionLocal()
     try:
-        # 会话已删除（如 DELETE /sessions 先取消了任务）-> 不写 DB（防 FK 违约），
-        # 仅发终态 + 清理。会话存在则走正常持久化路径。
-        if db.get(models.Session, session_id) is None:
+        # 会话已删除（如 DELETE /sessions 先取消了任务），或 rowid 被新会话复用
+        # （err.md A12：旧任务 finalize 会把结果写进无关新会话）-> 不写 DB，
+        # 仅发终态 + 清理。trace_id 匹配才说明该会话仍属本次生成。
+        state = db.get(models.OrchestratorState, session_id)
+        if (
+            db.get(models.Session, session_id) is None
+            or state is None
+            or state.trace_id != stream.trace_id
+        ):
             if stream.terminal_id is None:
                 eid = stream.publish("error", {"code": "cancelled", "message": "会话已删除", "stage": ""})
                 stream.mark_terminal(eid)
@@ -508,6 +544,7 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
 
 
 async def _run_start(
+    stream: "_SessionStream",
     session_id: int,
     args_by_tool: dict,
     initial_upstream: dict,
@@ -515,29 +552,25 @@ async def _run_start(
     start_tool: str = "understand_intent",
     user_id: int | None = None,
 ) -> str:
-    """启动一次生成：创建会话流 + 编排器任务（done-callback 持久化）+ 续接投递。
+    """启动一次生成：编排器任务（done-callback 持久化）+ 续接投递。
 
+    stream：调用方在 _OCCUPY_LOCK 内经 _occupy_generation 创建并占位的会话流
+    （err.md A1：检查与占位同临界区，此处不再自行创建/置态）。
     start_tool：编排器起始工具。默认 understand_intent（全量生成 / 澄清续接）；
     局部重生成传 scope（plan/10 §十三：从受影响工具起级联重跑其下游，重跑范围最小化）。
     user_id：发起用户（P4 iter 58）：LLM 供应商档案按该用户解析（get_provider(user_id)）。
     """
-    trace_id = uuid.uuid4().hex
-    stream = _SessionStream(session_id, trace_id)
-    stream.raw_text = args_by_tool.get("understand_intent", {}).get("raw_text", "")
-    _STREAMS[session_id] = stream
-    db = SessionLocal()
-    _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
-    db.close()
-
     # 无 LLM Provider -> 发 error 终态（不启动任务）；档案按发起用户解析（P4 隔离）
     try:
         provider = get_provider(user_id)
     except Exception as exc:  # noqa: BLE001
         eid = stream.publish("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
         stream.mark_terminal(eid)
-        db2 = SessionLocal()
-        _set_state(db2, session_id, models.OrchestratorStatus.error, trace_id, last_event_id=str(stream.seq))
-        db2.close()
+        db = SessionLocal()
+        try:  # err.md A22：try/finally 保证 Session 关闭
+            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+        finally:
+            db.close()
         _schedule_cleanup(session_id)
         async for chunk in _relay(stream, last_event_id):
             yield chunk
@@ -548,7 +581,7 @@ async def _run_start(
     registry = default_registry()
     ctx = ExecContext(
         session_id=str(session_id),
-        trace_id=trace_id,
+        trace_id=stream.trace_id,
         registry=registry,
         llm_provider=provider,
         skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt

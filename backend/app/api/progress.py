@@ -17,6 +17,7 @@ from datetime import date as dt_date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
@@ -74,18 +75,32 @@ def update_progress(
         .filter_by(plan_id=body.plan_id, node_id=node.id)
         .one_or_none()
     )
-    old = row.mastery if row is not None else 0.0
-    mastery = compute_mastery(old, body.status.value, body.quiz_score)
-    if row is None:
-        row = models.Progress(
-            plan_id=body.plan_id, node_id=node.id, status=body.status, mastery=mastery
-        )
-        db.add(row)
-    else:
+    if row is not None:
+        mastery = compute_mastery(row.mastery, body.status.value, body.quiz_score)
         row.status = body.status
         row.mastery = mastery
-    db.commit()
+        db.commit()
+    else:
+        row = models.Progress(
+            plan_id=body.plan_id, node_id=node.id, status=body.status,
+            mastery=compute_mastery(0.0, body.status.value, body.quiz_score),
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            # err.md A11：并发请求先插了同 (plan_id, node_id) 行（唯一约束兜底）-> 转为更新
+            db.rollback()
+            row = (
+                db.query(models.Progress)
+                .filter_by(plan_id=body.plan_id, node_id=node.id)
+                .one()
+            )
+            row.status = body.status
+            row.mastery = compute_mastery(row.mastery, body.status.value, body.quiz_score)
+            db.commit()
     db.refresh(row)
+    mastery = row.mastery
     return {
         "updated": True,
         "node_id": node.sid,
