@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 120（前端美化第 25 轮：测验弹窗收尾）**：[QuizModal.tsx](frontend/src/components/QuizModal.tsx) 走查——①「关闭」按钮补 `transition-all active:scale-95 dark:border-slate-600`（全站按钮模式最后残留）；②头部「进度已回写」提示补深色 `dark:text-emerald-400`（原深色下 emerald-700 偏暗）。注：Wiki.tsx / lib/api.ts 有并行会话未提交改动（待复习聚合），已避开。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 119（前端美化第 24 轮：品牌链接样式收尾）**：最后两处与品牌链接模式（`underline-offset-2` + 深色 hover 变亮 `dark:hover:text-blue-300`）不一致的文本链接补齐——[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元「参考资料」外链、[Wiki.tsx](frontend/src/pages/Wiki.tsx) 分组头「查看方案 →」。至此全站文本链接样式零残留差异。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 118（功能线：Wiki 知识手册导出，✅ 完成）**：个人知识库一键导出为单个 Markdown 手册（含笔记），与备份 JSON 互补（手册给人读/存档，备份给机器还原）。**编号说明**：本切片代码注释自标 iter 116，与并行美化轨撞号，本条按共享序号取 118。
