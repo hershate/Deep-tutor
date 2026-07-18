@@ -11,6 +11,9 @@ services:
       DATA_DIR: /data
       SKILLS_DIR: /skills
       DB_PATH: /data/deep-tutor.db
+      # P4 多用户：JWT 签名密钥必须固定，否则每次重启全员登录态失效。
+      # 在 .env 配置（生成：python -c "import secrets; print(secrets.token_hex(32))"）。
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中配置 JWT_SECRET（多用户登录必需；如确为单用户 token 模式，删除本行）}
     volumes:
       - deep-tutor-data:/data
       - ./skills:/skills:ro
@@ -33,7 +36,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
