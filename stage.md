@@ -234,6 +234,13 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 162（功能线：个人笔记总览，✅ 完成）**：笔记散在各节点卡片里，想通览只能逐个点开——Wiki 加「我的笔记」视图。**编号说明**：代码注释自标 iter 161，与并行美化轨 iter 161（第 46 轮）撞号，本条取 162。
+  - **后端**（commit `2c84a31`）：[knowledge.py](backend/app/api/knowledge.py) `GET /knowledge/notes`——NodeNote join KnowledgeNode（user 过滤、content 非空），updated_at 倒序，content 截 300 字符预览 + truncated 标记（完整内容走既有 GET /notes/{node_id} 按需取，防 20k×200 行拉爆响应）；plan_topic 惰性缓存。
+  - **前端**（commit `2fd9bd3`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部下加「知识点 / 我的笔记」tab（chips 同筛选样式），笔记视图：卡片列表（节点名+方案题+更新时间+预览，点节点名跳方案），空态引导「点 📝 记录」；`enabled: view==='notes'` 惰性拉取；NodeNoteEditor 保存后同时失效 notes-overview；[api.ts](frontend/src/lib/api.ts) `getNotesOverview`。
+  - **测试**：[test_api_notes_overview.py](backend/tests/test_api_notes_overview.py) 3 例（倒序+300 截断+truncated+他人隔离、空态、401）。**验证**：后端全量 515 通过（512→515，+3）；ruff 零告警；`npm run build` 通过。
+
+- **2026-07-19 iter 161（美化轨：第 46 轮——备份导入预检打磨，✅ 完成）**：审查并行轨备份两步导入（`9a8212e`）。预检卡本已用 `animate-fade-in`+蓝色信息横幅+品牌确认/取消按钮，补三处（commit `22acccf`）：① 预检计数段加 `tabular-nums`（9 项计数数字等宽对齐）；② 「选择备份文件导入」按钮 `rounded`→`rounded-lg`；③ 导入结果横幅 `rounded`→`rounded-lg`（与全站横幅统一）。**编号说明**：并行轨 stage 记录已占 iter 160，本条取 161。验证：`npm run build` 通过（1.74s，主包 204.68kB）。
+
 - **2026-07-19 iter 160（功能线：备份导入预检，✅ 完成）**：导入即写库，导错文件只能吃进副本——两步导入。**编号说明**：代码注释自标 iter 159，与并行美化轨 iter 159（第 45 轮）撞号，本条取 160。
   - **后端**（commit `cddc0bc`）：[core/backup.py](backend/app/core/backup.py) `preview_backup`（validate_backup + 只读计数：sessions/plans/materials/nodes/node_notes/progress/logs/quizzes/units/profiles + exported_at/username，计数口径与 restore summary 一致）；[api/backup.py](backend/app/api/backup.py) `POST /backup/preview`（与 import 同 256MB/JSON/结构校验，不落库）。**坑记**：编辑 core/backup.py 时一次无效 Edit 把 `_enum_or` def 行与 docstring 粘连（ruff invalid-syntax 即时发现，同切片修复）。
   - **前端**（commit 见 git log「feat(settings): 备份导入改两步」）：[Settings.tsx](frontend/src/pages/Settings.tsx) 选文件 -> `/backup/preview` -> 蓝色预览卡（全计数 + 导出人 + 导出时间 + 「确认导入（追加还原）」/「取消」）-> 确认才走原 importBackup；[api.ts](frontend/src/lib/api.ts) `previewBackup` + `BackupPreview`。
