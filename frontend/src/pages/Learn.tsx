@@ -148,7 +148,7 @@ export default function Learn() {
       </section>
 
       <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" style={{ animationDelay: '160ms' }} aria-label="学习打卡">
-        <h3 className="mb-2 font-semibold">打卡（累计 {totalMinutes} 分钟）</h3>
+        <h3 className="mb-2 font-semibold">打卡（累计 <span className="tabular-nums">{totalMinutes}</span> 分钟）</h3>
         <div className="flex flex-wrap items-end gap-2">
           <div>
             <label htmlFor="checkin-minutes" className="block text-xs text-slate-500 dark:text-slate-400">
@@ -161,7 +161,7 @@ export default function Learn() {
               max={1440}
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
-              className="w-28 rounded border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+              className="w-28 rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
           </div>
           <div className="min-w-48 flex-1">
@@ -175,7 +175,7 @@ export default function Learn() {
               onChange={(e) => setNote(e.target.value)}
               placeholder="今天学了什么"
               maxLength={200}
-              className="w-full rounded border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+              className="w-full rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
           </div>
           <button
