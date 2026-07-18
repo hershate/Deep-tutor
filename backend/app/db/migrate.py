@@ -25,6 +25,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[2]
 # 代际探测：按迁移链从新到旧，首个命中的特征即该库 stamp 目标。
 # (revision, 表名, 列名)；列名为 None 表示表存在即命中。
 _REVISION_PROBES: list[tuple[str, str, str | None]] = [
+    ("c7e2a9f41d35", "share_links", None),
     ("a1c4f7e20b58", "llm_provider_profiles", "user_id"),
     ("169af26b09e7", "users", "username"),
     ("3deb4164602b", "llm_provider_profiles", None),

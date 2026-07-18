@@ -23,7 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -393,3 +393,23 @@ class LlmProviderProfile(Base):
     model: Mapped[str] = mapped_column(String(128), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ShareLink(Base):
+    """方案只读分享链接（P5 协作分享）。
+
+    每个方案至多一条有效链接（plan_id 唯一）；token 为 secrets.token_urlsafe 随机串，
+    知道链接即可只读访问方案内容（不含用户/会话/资料信息）。撤销 = 删行。
+    """
+
+    __tablename__ = "share_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False, unique=True)
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # Plan 删除时联动删链接（session/user 级联删 plan 路径），防 FK 约束阻断
+    plan: Mapped[Plan] = relationship(
+        backref=backref("share_link", cascade="all, delete-orphan", uselist=False)
+    )
