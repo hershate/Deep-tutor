@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 147（功能线：Wiki 知识点排序，✅ 完成）**：知识点多了想按薄弱/难度看——加排序选择器。**编号说明**：代码注释自标 iter 146，与并行美化轨 iter 146（第 37 轮）撞号，本条取 147。[Wiki.tsx](frontend/src/pages/Wiki.tsx) 头部加排序下拉（默认/掌握度↑薄弱优先/掌握度↓/难度↑/名称 zh locale），组内排序实现于 groups useMemo（默认保持后端顺序不变）（commit `d9b0f2b`）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 146（前端美化第 37 轮：错误横幅动画零残留）**：[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 整板加载失败横幅补 `animate-fade-in`——iter 131 统一品牌横幅后全站 `role="alert"` 逐处复核，此为最后一处无入场动画的横幅（初始加载失败时硬切出现）。至此全站错误提示均为「边框+浅底+fade-in」一致模式。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 145（功能线：自学材料深度偏好记忆，✅ 完成）**：每次打开材料弹窗深度都回到「完整」——记住上次选择。[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) depth 初始值读 `dt-materials-depth`（非法值回落 full），切换时写入。纯前端零后端（commit `e384a8c`）。**验证**：`npm run build` 通过。
