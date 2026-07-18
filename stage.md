@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 174（美化轨：第 54 轮——全量复查零改动，✅ 完成）**：并行轨后端 user_prefs 收尾中（未提交），前端无新料。本轮复核此前未单独审过的组件原子与页面：EmptyState（图标 aria-hidden+float 动画+虚线卡）、Skeleton（role=status+shimmer+reduced-motion 覆盖）、Login（渐变底+scale-in 卡+shake 错误+全品牌控件）、GenerateProgress（呼吸灯+计时+spinner+sr-only 步骤态）——均已达品牌基线，**零改动**。不编造改动凑数；构建验证通过（1.71s，主包 210.73kB）。覆盖结论：前端 31 个 tsx 全部至少过一轮打磨，美化轨进入纯监视模式——后续轮次仅在并行轨落地新前端时做对齐审查。
+
 - **2026-07-19 iter 173（美化轨：第 53 轮——上传进度条 a11y，✅ 完成）**：并行轨后端 user_prefs 在改（未提交），本轮全维度清扫：暗色覆盖零遗漏（`bg-white`/text 色全配 dark 变体）、300 处 hover 全带 transition、外链全带 target、`role="alert"` 25 处全品牌化。唯一真缺：[Home.tsx](frontend/src/pages/Home.tsx) 文件上传进度条纯 div——补 `role="progressbar"`+`aria-value*`（commit `924b18c`），全站进度条语义至此 3 处（今日目标/预算/上传）补齐。验证：`npm run build` 通过（1.71s，主包 210.73kB）。
 
 - **2026-07-19 iter 172（美化轨：第 52 轮——单元导航入场，✅ 完成）**：审查并行轨版本切换下拉（`9826380`）——已对齐 R28 select 品牌模式零改动；顺带复核 Timeline/Clarify/UsageMeter/StudyMaterialReader 均已达品牌基线。仅补一处：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元导航列表此前无入场动画、与内容区 `animate-fade-in` 不齐——导航项加 30ms 阶梯淡入（commit `1ebe5c8`）。验证：`npm run build` 通过（1.73s，主包 210.64kB）。
