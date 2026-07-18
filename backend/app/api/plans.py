@@ -302,7 +302,11 @@ def generate(
         # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
         if state is not None and state.status == models.OrchestratorStatus.running:
             stream = _STREAMS.get(body.session_id)
-            if stream is not None and stream.terminal_id is None:
+            if stream is not None:
+                # 注意：不再要求 terminal_id is None——_finalize 先 mark_terminal
+                # 后 _set_state(done)，窗口期内 terminal 流 + running 态并存；
+                # _relay 对终态流会重放缓冲事件（含终态）后正常退出，
+                # 此前此窗口误判 409「生成已中断」，用户重试才自愈
                 return StreamingResponse(
                     _relay(stream, _parse_last_event_id(request)),
                     media_type="text/event-stream",

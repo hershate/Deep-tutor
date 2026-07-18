@@ -105,7 +105,7 @@ def run_migrations(db_url: str | None = None) -> None:
     if db_url is None:
         from app.core.settings import settings
 
-        db_url = settings.sqlite_url
+        db_url = settings.sqlalchemy_url  # err.md C10：DATABASE_URL 优先（此前硬编码 sqlite_url）
     _ensure_sqlite_parent(db_url)
     stamp = detect_stamp(db_url)
     cfg = _alembic_config(db_url)
