@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 from app.agent.registry import Tool
 from app.tools.base import ToolInput
 
+_MAX_SCHEDULE_DAYS = 365  # 排期天数上限（plan/11 §二/§三）
+
 PROMPT = """你是 Deep-tutor 的「学习排期」工具。任务：依据学习阶段、每日可用时长与截止日期，生成逐日学习计划。
 
 要求：
@@ -42,8 +44,13 @@ class ScheduleData(BaseModel):
 
 
 def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
-    """确定性校验：总量 <= 排期跨度 × 每日时长。"""
+    """确定性校验：总量 <= 排期跨度 × 每日时长；排期跨度 ≤365 天（plan/11 §二/§三）。"""
     schedule = data.get("schedule") or []
+    # MAX_SCHEDULE_DAYS=365（plan/11 §二/§三）：超长排期截断并标记
+    if len(schedule) > _MAX_SCHEDULE_DAYS:
+        schedule = schedule[:_MAX_SCHEDULE_DAYS]
+        data["schedule"] = schedule
+        data["truncated"] = True
     daily = inp.args.get("daily_minutes")
     total = sum(int(s.get("est_minutes", 0) or 0) for s in schedule)
     data["total_minutes"] = total

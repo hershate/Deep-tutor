@@ -30,6 +30,9 @@ def isolate():
     from app.tools.verify_url import reset_verify_cache
 
     reset_verify_cache()  # verify_url 结果缓存跨测试隔离（P5 缓存优化）
+    from app.core.ratelimit import reset_rate_limiter
+
+    reset_rate_limiter()  # 速率限制计数跨测试隔离（plan/09 §十八）
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     p = Path(_TEST_DATA)

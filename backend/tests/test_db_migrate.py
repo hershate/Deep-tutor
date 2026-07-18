@@ -9,7 +9,7 @@ from app.db import models  # noqa: F401  触发模型注册
 from app.db.base import Base
 from app.db.migrate import _alembic_config, detect_stamp, run_migrations
 
-HEAD = "c7e2a9f41d35"
+HEAD = "d8f3b1a92c67"
 
 
 def _url(tmp_path, name: str = "m.db") -> str:

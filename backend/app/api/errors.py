@@ -44,6 +44,9 @@ CODE_STATUS: dict[str, int] = {
     "no_schedule": 422,
     "no_quizzes": 422,
     "invalid_scope": 422,
+    "quota_exceeded": 429,
+    "rate_limited": 429,
+    "server_busy": 503,
     "internal_error": 500,
 }
 

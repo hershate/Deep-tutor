@@ -11,6 +11,7 @@ SSRF 防护(/materials/url，复用 verify_url._is_safe_url)、解析失败统�
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import datetime, timezone
@@ -19,11 +20,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.core.storage import delete_session_files, read_unit_content, save_upload, write_parsed_text
 from app.db import models
@@ -72,10 +75,57 @@ def _ctx(session_id: int) -> ExecContext:
     return ExecContext(session_id=str(session_id), trace_id=f"mat-{session_id}")
 
 
+# 配额（plan/09 §二十）：每会话资料数上限；URL 抓取速率（plan/09 §十八）
+_MAX_MATERIALS_PER_SESSION = 20
+_URL_RATE_PER_MIN = 10
+
+
+def _hash_source(data: bytes | str) -> str:
+    """来源内容哈希（plan/11 §九 content hash 去重）。文本按 utf-8 编码。"""
+    raw = data.encode("utf-8") if isinstance(data, str) else data
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _check_material_quota(db: Session, session_id: int) -> None:
+    """每会话资料数 ≤20（plan/09 §二十）；超限 -> 429 quota_exceeded。"""
+    count = db.scalar(
+        select(func.count(models.Material.id)).where(models.Material.session_id == session_id)
+    ) or 0
+    if count >= _MAX_MATERIALS_PER_SESSION:
+        raise ApiError(
+            "quota_exceeded",
+            f"每会话资料数已达上限 {_MAX_MATERIALS_PER_SESSION} 条（plan/09 §二十）",
+        )
+
+
+def _dedup_lookup(db: Session, session_id: int, content_hash: str) -> MaterialOut | None:
+    """同会话相同内容哈希的已解析资料 -> 直接复用（plan/11 §九），不重复解析/扣配额。"""
+    existing = db.scalar(
+        select(models.Material).where(
+            models.Material.session_id == session_id,
+            models.Material.content_hash == content_hash,
+            models.Material.parsed_text_path.is_not(None),
+        )
+    )
+    if existing is None:
+        return None
+    return MaterialOut(
+        material_id=existing.id,
+        kind=existing.kind.value if hasattr(existing.kind, "value") else str(existing.kind),
+        meta={**(existing.meta or {}), "deduped": True},
+    )
+
+
 async def _store(
     db: Session, session_id: int, kind: str, source: str, *, text_override: str | None = None
 ) -> MaterialOut:
-    """解析 -> 持久化解析文本 -> DB 行。"""
+    """解析 -> 持久化解析文本 -> DB 行（先查 content hash 去重 + 配额）。"""
+    content_hash = _hash_source(text_override if text_override is not None else source.strip())
+    deduped = _dedup_lookup(db, session_id, content_hash)
+    if deduped is not None:
+        return deduped
+    _check_material_quota(db, session_id)
+
     args = {"kind": kind, "source": source}
     if text_override is not None:
         args["source"] = text_override
@@ -92,6 +142,7 @@ async def _store(
         source=src_field[:1024],
         parsed_chars=len(text),
         meta=meta,
+        content_hash=content_hash,
     )
     db.add(material)
     db.flush()
@@ -147,9 +198,17 @@ async def upload_material(
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
 
+    # 内容哈希去重（plan/11 §九）：同会话重复上传同一文件 -> 复用已解析结果
+    content_hash = _hash_source(content)
+    deduped = _dedup_lookup(db, session_id, content_hash)
+    if deduped is not None:
+        return deduped
+    _check_material_quota(db, session_id)
+
     # 先建 material 行拿 id，再用 id 命名保存原件（R20：不使用原始文件名）
     material = models.Material(
-        session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={}
+        session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
+        content_hash=content_hash,
     )
     db.add(material)
     db.flush()
@@ -186,6 +245,9 @@ async def url_material(
     body: UrlIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> MaterialOut:
     _get_session_or_404(db, body.session_id, user)
+    # URL 抓取速率限制（plan/09 §十八 /materials/url 每分钟限 N）
+    if not limiter.check(f"url:{user.id}", _URL_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"网页抓取限每分钟 {_URL_RATE_PER_MIN} 次，请稍后再试")
     return await _store(db, body.session_id, "url", body.url)
 
 

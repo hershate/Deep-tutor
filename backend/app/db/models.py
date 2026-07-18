@@ -162,6 +162,8 @@ class Material(Base):
     parsed_text_path: Mapped[str | None] = mapped_column(String(512))
     parsed_chars: Mapped[int] = mapped_column(Integer, default=0)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    # 来源内容哈希（sha256，plan/11 §九：重复资料按 content hash 去重、复用已解析结果）
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="materials")

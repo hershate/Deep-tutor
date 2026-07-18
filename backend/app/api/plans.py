@@ -75,6 +75,30 @@ _HEARTBEAT_SECONDS = 15.0
 # 与流客户端解耦：断连时编排器任务仍完成并持久化（防 stale running / 丢进度，R24）。
 _STREAMS: dict[int, "_SessionStream"] = {}
 _MAX_BUFFERED_EVENTS = 500  # 单会话最大缓冲；超限丢最旧（降级重放）
+# 生成并发配额（plan/09 §十八 每用户并发 1；§二十 R31 全局同时生成 ≤2）
+_MAX_GENERATE_PER_USER = 1
+_MAX_GENERATE_GLOBAL = 2
+# raw_text 截断（plan/09 §十 understand_intent.raw_text ≤10k）
+_MAX_RAW_TEXT_CHARS = 10_000
+
+
+def _check_generate_quota(db: Session, user: User, session_id: int) -> None:
+    """生成并发配额：每用户并发 1（plan/09 §十八）+ 全局同时生成 ≤2（plan/09 §二十 R31）。
+
+    仅在「新起一次生成」时检查；续接/终态回放不受限。
+    """
+    running = db.query(models.OrchestratorState).join(
+        models.Session, models.Session.id == models.OrchestratorState.session_id
+    ).filter(
+        models.Session.user_id == user.id,
+        models.OrchestratorState.session_id != session_id,
+        models.OrchestratorState.status == models.OrchestratorStatus.running,
+    ).count()
+    if running >= _MAX_GENERATE_PER_USER:
+        raise ApiError("conflict", "您已有另一个生成任务运行中（每用户并发 1）", status=409)
+    active = sum(1 for s in _STREAMS.values() if s.terminal_id is None)
+    if active >= _MAX_GENERATE_GLOBAL:
+        raise ApiError("server_busy", "当前生成任务较多，请稍后重试（全局并发上限）", status=503)
 _RETENTION_SECONDS = 300.0  # 终态后保留时长（秒），供迟到重连；超时自动清理
 
 
@@ -268,6 +292,7 @@ def generate(
             )
 
     parsed = _load_parsed_materials(db, body.session_id)
+    _check_generate_quota(db, user, body.session_id)  # 新起生成前的并发配额（plan/09 §十八/§二十）
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
     initial_upstream: dict[str, ToolOutput] = {}
     if concatenated:
@@ -277,7 +302,9 @@ def generate(
             status="ok",
             data={"text": concatenated, "meta": {"source_type": "materials", "pages": len(parsed)}, "chunks": chunks},
         )
-    args_by_tool = {"understand_intent": {"raw_text": body.raw_text, "parsed": parsed}}
+    # raw_text ≤10k 截断（plan/09 §十）
+    raw_text = body.raw_text[:_MAX_RAW_TEXT_CHARS]
+    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed}}
     return StreamingResponse(
         _run_start(
             body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
@@ -305,7 +332,7 @@ def clarify(
         tool: ToolOutput(tool=tool, status=d.get("status", "ok"), data=d.get("data", {}))
         for tool, d in outputs_dump.items()
     }
-    raw_text = partial.get("raw_text", "")
+    raw_text = partial.get("raw_text", "")[:_MAX_RAW_TEXT_CHARS]
     parsed = _load_parsed_materials(db, session_id)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed, "answers": body.answers}}
     return StreamingResponse(

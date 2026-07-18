@@ -19,6 +19,7 @@ from app.agent import run_tool
 from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db.models import User
 from app.llm import get_provider
@@ -31,6 +32,9 @@ from app.tools.export_pdf import build_pdf, pdf_available
 from app.tools.export_plan import export_plan, render_markdown
 
 router = APIRouter(prefix="/export", tags=["export"], dependencies=[Depends(require_auth)])
+
+# 导出速率限制（plan/09 §十八）
+_EXPORT_RATE_PER_MIN = 12
 
 
 class ExportIn(BaseModel):
@@ -45,6 +49,9 @@ async def export_plan_endpoint(
     user: User = Depends(get_current_user),
 ) -> dict:
     plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
+    # 导出速率限制（plan/09 §十八 /export 每分钟限 N）
+    if not limiter.check(f"export:{user.id}", _EXPORT_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"导出限每分钟 {_EXPORT_RATE_PER_MIN} 次，请稍后再试")
     content = plan.content
     if not content and plan.content_path:
         try:
