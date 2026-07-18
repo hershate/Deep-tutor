@@ -1,7 +1,8 @@
 ﻿# Deep-tutor 本地直起（免 Docker，Windows PowerShell）：
-#   venv -> 依赖 -> .env -> 前端构建 -> 数据库迁移 -> 单进程启动（后端托管 SPA + /api，:8000）
+#   venv -> 依赖 -> .env -> 前端构建 -> 数据库迁移 -> 单进程启动（后端托管 SPA + /api，:41173）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\start.ps1
-#       端口覆盖：$env:PORT=9000; scripts\start.ps1
+#       端口覆盖：scripts\start.ps1 -Port 9000（或 $env:PORT=9000；参数优先于环境变量）
+param([int]$Port = 0)
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
@@ -58,10 +59,22 @@ Write-Host "==> 数据库迁移"
 if ($LASTEXITCODE -ne 0) { throw "数据库迁移失败（$LASTEXITCODE）" }
 
 # 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问）
-$port = if ($env:PORT) { $env:PORT } else { "8000" }
-Write-Host "==> 启动 Deep-tutor：http://localhost:$port（局域网 http://<本机IP>:$port）"
+# 端口优先级：-Port 参数 > PORT 环境变量 > 默认 41173
+# （默认 41173：8000 常落入 Windows Hyper-V/winNAT 排除端口段，bind 报 WinError 10013）
+# 注意：PowerShell 变量名不区分大小写——局部变量绝不可命名 $port（与参数 $Port
+# 是同一变量，默认值赋值会把传入参数覆盖掉，实机冒烟实证）
+$listenPort = 41173
+if ($Port -gt 0) {
+    $listenPort = $Port
+} elseif ($env:PORT) {
+    $parsed = 0
+    if (-not [int]::TryParse($env:PORT, [ref]$parsed)) { throw "PORT 环境变量须为 1-65535 的整数（当前：$env:PORT）" }
+    $listenPort = $parsed
+}
+if ($listenPort -lt 1 -or $listenPort -gt 65535) { throw "端口须在 1-65535 之间（当前：$listenPort）" }
+Write-Host "==> 启动 Deep-tutor：http://localhost:$listenPort（局域网 http://<本机IP>:$listenPort）"
 # 自动打开浏览器（NO_BROWSER=1 关闭）：延迟 3s 等服务就绪
 if ($env:NO_BROWSER -ne "1") {
-    Start-Job -ScriptBlock { param($u) Start-Sleep -Seconds 3; Start-Process $u } -ArgumentList "http://localhost:$port" | Out-Null
+    Start-Job -ScriptBlock { param($u) Start-Sleep -Seconds 3; Start-Process $u } -ArgumentList "http://localhost:$listenPort" | Out-Null
 }
-& $venvPy -m uvicorn app.main:app --host 0.0.0.0 --port $port --app-dir backend
+& $venvPy -m uvicorn app.main:app --host 0.0.0.0 --port $listenPort --app-dir backend

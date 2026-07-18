@@ -66,7 +66,7 @@ npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000）
 
 ## 部署（本地直起，本机/局域网）
 
-单个 Python 进程托管前端 SPA + `/api`（`:8000`），无需 Docker/nginx：
+单个 Python 进程托管前端 SPA + `/api`（默认 `:41173`），无需 Docker/nginx：
 
 ```bash
 # Linux / macOS
@@ -76,9 +76,9 @@ bash scripts/start.sh
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
-脚本自动完成：建 `backend/.venv` → 装依赖 → 无 `.env` 时以零配置模式继续（不再退出）→ 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动并自动打开浏览器（`NO_BROWSER=1` 关闭）。再次运行幂等秒过。端口覆盖：`PORT=9000`（PowerShell：`$env:PORT=9000`）。
+脚本自动完成：建 `backend/.venv` → 装依赖 → 无 `.env` 时以零配置模式继续（不再退出）→ 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动并自动打开浏览器（`NO_BROWSER=1` 关闭）。再次运行幂等秒过。端口覆盖（默认 41173——8000 常落入 Windows Hyper-V/winNAT 排除端口段致 bind 失败）：`bash scripts/start.sh --port 9000`（PowerShell：`scripts\start.ps1 -Port 9000`；亦可用 `PORT` 环境变量，参数优先）。
 
-依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。启动后访问 `http://localhost:8000`（局域网 `http://<本机IP>:8000`）。**无 `.env` 首次进入会自动跳到首次设置向导**：设置访问密码与 AI API Key 均可在向导或之后的「设置」页完成，无需手改任何配置文件。
+依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。启动后访问 `http://localhost:41173`（局域网 `http://<本机IP>:41173`）。**无 `.env` 首次进入会自动跳到首次设置向导**：设置访问密码与 AI API Key 均可在向导或之后的「设置」页完成，无需手改任何配置文件。
 
 ### 配置（.env，全部可选）
 
@@ -116,7 +116,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 ### 可选项
 
 - **OCR / 音视频转写**：默认未装依赖（R9 降级设计）。上传图片 OCR 需安装 `tesseract`（+ 中文语言包）与 `pip install pytesseract`，音视频转写需 `pip install faster-whisper`（装进 `backend/.venv`）；缺失时对应入口报 `dependency_missing`，其余功能不受影响。
-- **HTTPS**：本机/局域网部署不需要；若暴露公网，请在前面加一层反代（Caddy / Nginx Proxy Manager 等）终止 TLS 并转发到 `:8000`。
+- **HTTPS**：本机/局域网部署不需要；若暴露公网，请在前面加一层反代（Caddy / Nginx Proxy Manager 等）终止 TLS 并转发到 `:41173`。
 
 ## 进度与计划
 

@@ -1,9 +1,33 @@
 #!/usr/bin/env bash
 # Deep-tutor 本地直起（免 Docker，Linux/macOS）：
-#   venv -> 依赖 -> .env -> 前端构建 -> 数据库迁移 -> 单进程启动（后端托管 SPA + /api，:8000）
-# 用法：bash scripts/start.sh    （端口覆盖：PORT=9000 bash scripts/start.sh）
+#   venv -> 依赖 -> .env -> 前端构建 -> 数据库迁移 -> 单进程启动（后端托管 SPA + /api，:41173）
+# 用法：bash scripts/start.sh [--port 端口]
+#       端口覆盖优先级：--port 参数 > PORT 环境变量 > 默认 41173
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# 端口参数解析（默认 41173：8000 常落入 Windows Hyper-V/winNAT 排除端口段，bind 失败）
+PORT_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--port)
+      [ $# -ge 2 ] || { echo "错误：$1 需要端口参数（用法：bash scripts/start.sh [--port 端口]）"; exit 1; }
+      PORT_ARG=$2; shift 2;;
+    --port=*)
+      PORT_ARG=${1#*=}; shift;;
+    -h|--help)
+      echo "用法：bash scripts/start.sh [--port 端口]（默认 41173；亦可用 PORT 环境变量）"; exit 0;;
+    *)
+      echo "错误：未知参数 $1（用法：bash scripts/start.sh [--port 端口]）"; exit 1;;
+  esac
+done
+PORT=${PORT_ARG:-${PORT:-41173}}
+case "$PORT" in
+  *[!0-9]*|"") echo "错误：端口须为 1-65535 的整数（当前：$PORT）"; exit 1;;
+esac
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo "错误：端口须在 1-65535 之间（当前：$PORT）"; exit 1
+fi
 
 PY=python3
 command -v python3 >/dev/null 2>&1 || PY=python
@@ -48,8 +72,7 @@ export PYTHONPATH=backend
 echo "==> 数据库迁移"
 "$VENV_PY" -m app.db.migrate
 
-# 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问）
-PORT=${PORT:-8000}
+# 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问；PORT 已在脚本头解析）
 echo "==> 启动 Deep-tutor：http://localhost:${PORT}（局域网 http://<本机IP>:${PORT}）"
 # 自动打开浏览器（NO_BROWSER=1 关闭）：延迟 3s 等服务就绪
 if [ "${NO_BROWSER:-}" != "1" ]; then
