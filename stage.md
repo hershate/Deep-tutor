@@ -233,6 +233,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 73-74（UX 打磨 + 剪藏链路真机冒烟）**：
+  - **iter 73 md 导出浏览器化（commit `4ff3d5d`）**：修 UX 缺陷——原 md 导出仅回显服务器文件路径（浏览器无法访问）。export_plan data 加 `content`/`filename`，端点透传，前端 Blob 下载 .md（文件仍归档）；render_markdown 补「测验题」章节（题干/选项/答案/解析）。测试 +1，全量 357 通过，前端 build 通过。
+  - **iter 74 剪藏 API 真机冒烟（无 commit，验证记录）**：repo 代码 + 临时 DB/DATA_DIR 起服 :18924（migrate -> head c7e2a9f41d35）：`POST /api/materials/clip` kind=text 成功（session_id/material_id/open_path=/generate/1 返回，会话归属 AUTH_TOKEN 自动创建的默认用户 local，解析文件落盘 123B，**中文 UTF-8 存储正确**——控制台乱码仅为 codepage 显示问题）；非法 scheme（file://）400、空内容 422、无认证 401 均正确。浏览器扩展侧（右键菜单/popup）依赖浏览器环境，此前已 node --check 静态校验，真机加载验证待用户装扩展。
+  - **验证**：全量 357 测试 + 前端 build 绿。
+
 - **2026-07-18 iter 69-72（P5 全部完成：ics/Anki 导出 + 协作分享 + 缓存深度优化）**：plan 中 P5 仅有路线图行（无细化文档），按全自动指令自行设计实现，稳定优先 + UX 优先。
   - **iter 69 ics 日历导出（commits `e3da0d7`/`6d54bf3`）**：[build_ics.py](backend/app/tools/build_ics.py) 纯 stdlib RFC 5545 构建器——schedule_plan 产出的逐日 schedule -> 每天一个**全天事件**（阶段名/任务/预计时长进描述，X-WR-CALNAME 日历名），RFC 转义（\ ; , 换行）+ **75 字节 UTF-8 折叠** + CRLF；非法日期跳过计数（warning），全非法/空 -> `no_schedule`(422)。端点 `/export format=ics` 随响应返回 ics 文本（**前端 Blob 直接下载**，双击导入系统日历——不再只显示服务器文件路径）。测试 +11。
   - **iter 70 Anki 卡片包导出（commits `1aa4f8a`/`6d54bf3`）**：[build_anki.py](backend/app/tools/build_anki.py) 用 genanki（纯 Python 库，requirements + `genanki==0.13.1`）：**测验题（generate_quiz 按知识点出的校验题）转卡片**——正面题干+选项、背面答案+解析，全文 HTML 转义；deck id 由 plan_id 派生（重复导出进同牌组更新）。无测验题 -> `no_quizzes`(422) 提示先生成。端点返回 base64 .apkg，前端 Blob 下载（双击导入 Anki）。测试 +7（含卡片内容写 sqlite 验证转义/选项渲染）。
