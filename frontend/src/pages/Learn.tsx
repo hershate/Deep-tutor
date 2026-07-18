@@ -39,6 +39,11 @@ export default function Learn() {
   const todayStr = new Date().toLocaleDateString('sv')
   const todayMinutes = logs.filter((l) => l.date === todayStr).reduce((s, l) => s + l.minutes, 0)
 
+  // 本周已学分钟（iter 179）：近 7 天（含今天）本地日窗口；周目标 = 日目标 × 7
+  const weekStartStr = new Date(Date.now() - 6 * 86_400_000).toLocaleDateString('sv')
+  const weekMinutes = logs.filter((l) => l.date >= weekStartStr).reduce((s, l) => s + l.minutes, 0)
+  const weeklyGoal = dailyGoal ? dailyGoal * 7 : null
+
   // 删除打错的卡（iter 150）：confirm 后 DELETE，成功重取列表
   async function onDeleteLog(l: LearningLogItem) {
     if (deletingLogId !== null) return
@@ -197,6 +202,31 @@ export default function Learn() {
                 style={{ width: `${Math.min(100, Math.round((todayMinutes / dailyGoal) * 100))}%` }}
               />
             </div>
+            {/* 本周目标进度（iter 179）：近 7 天窗口，周目标 = 日目标 × 7 */}
+            {weeklyGoal && (
+              <>
+                <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span>本周目标 <span className="tabular-nums">{weeklyGoal}</span> 分钟</span>
+                  <span className={`tabular-nums ${weekMinutes >= weeklyGoal ? 'font-medium text-emerald-600 dark:text-emerald-400' : ''}`}>
+                    已完成 <span className="tabular-nums">{weekMinutes}</span> 分钟
+                    {weekMinutes >= weeklyGoal && ' ✓'}
+                  </span>
+                </div>
+                <div
+                  className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
+                  role="progressbar"
+                  aria-valuenow={Math.min(100, Math.round((weekMinutes / weeklyGoal) * 100))}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="本周目标完成度"
+                >
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ease-out ${weekMinutes >= weeklyGoal ? 'bg-emerald-500' : 'bg-indigo-400'}`}
+                    style={{ width: `${Math.min(100, Math.round((weekMinutes / weeklyGoal) * 100))}%` }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         )}
         <div className="flex flex-wrap items-end gap-2">
