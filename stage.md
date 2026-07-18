@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 141（功能线：Wiki 打卡热力图，✅ 完成）**：streak 只有一个数字，缺成就感可视化——GitHub 风格打卡热力图。**编号说明**：并行会话 iter 140 注记将 139 预留给了本切片，但 139 彼时未落记录、140 已占用后续号，本条按共享序号取 141（代码注释自标 iter 139 不改，与预留号一致）。
+  - **后端**（commit `3c8ddac`）：[progress.py](backend/app/api/progress.py) `GET /progress/stats/calendar?days=N`（7-366，默认 84）——LearningLog join Plan/Session 按用户过滤 + GROUP BY date 跨方案同日分钟求和，无打卡日补 0（热力图连续）；日界服务器本地日（与 stats/summary 同口径）。
+  - **前端**（commit 见 git log「feat(wiki): 打卡热力图」）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) `StudyHeatmap`——顺序 7 天一列（最旧在左）、4 档 emerald 强度（<30/<60/<120/≥120 分钟）、悬浮 title 显 日期+分钟、右下「少→多」图例、横向 overflow-x-auto 防窄屏挤压；仅 total_logs>0 时渲染。[api.ts](frontend/src/lib/api.ts) `getStatsCalendar(days)`。
+  - **测试**：[test_api_stats_calendar.py](backend/tests/test_api_stats_calendar.py) 3 例（跨方案同日求和 50+他人 999 隔离+5 个无打卡日补 0、days 默认 84/边界 6 与 367 → 422、401）。**验证**：后端全量 497 通过（494→497，+3）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 140（前端美化第 35 轮：分享页无障碍）**：[SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx)——资源验证状态图标（✅⚠️❌）与必学 ★ 加 `aria-hidden` + `sr-only` 文字（「已验证：/不确定：/无效：」「（必学）」），错误页 🔗 与里程碑 🎯 同处理；公开只读页的读屏体验补齐（原读屏只念 emoji 名）。注：本轮构建时被并行会话进行中的 Wiki 打卡热力图（`StudyHeatmap` 未创建）阻塞——系其未完工状态，非本轮改动问题；iter 139 预留给该热力图切片。**验证**：SharedPlan.tsx 单文件无类型错误（`tsc` 其余错误均在 Wiki.tsx）。
 
 - **2026-07-19 iter 138（功能线：首页草稿自动保存，✅ 完成）**：写了半屏需求描述，刷新/误关全没——首页草稿 localStorage 持久化。**编号说明**：代码注释自标 iter 137，与并行美化轨 iter 137（第 34 轮）撞号，本条取 138。
