@@ -59,7 +59,23 @@ npm install
 npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000）
 ```
 
-## 部署（docker-compose，本机/局域网）
+## 部署 A：本地直起（免 Docker，推荐本机/单机）
+
+单个 Python 进程托管前端 SPA + `/api`（`:8000`），无需 Docker/nginx：
+
+```bash
+# Linux / macOS
+bash scripts/start.sh
+
+# Windows（PowerShell）
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+脚本自动完成：建 `backend/.venv` → 装依赖 → 缺 `.env` 则从模板生成并提示填写（**JWT_SECRET / ADMIN_PASSWORD / ANTHROPIC_API_KEY**）→ 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动。再次运行幂等秒过。端口覆盖：`PORT=9000`（PowerShell：`$env:PORT=9000`）。
+
+依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。启动后访问 `http://localhost:8000`（局域网 `http://<本机IP>:8000`）。
+
+## 部署 B：docker-compose（本机/局域网）
 
 架构：仅 `frontend`（nginx，`:8080`）对外暴露端口，`backend`（uvicorn）只在内部网络；SQLite 与上传/导出文件持久化在命名卷 `deep-tutor-data`；`skills/` 只读挂载。
 
