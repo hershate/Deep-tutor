@@ -150,14 +150,14 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
               </span>
             )}
             {writeback && (
-              <span className="text-xs text-emerald-700" aria-live="polite">
+              <span className="text-xs text-emerald-700 dark:text-emerald-400" aria-live="polite">
                 {writeback}
               </span>
             )}
             <button
               onClick={onClose}
               aria-label="关闭"
-              className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               关闭
             </button>
