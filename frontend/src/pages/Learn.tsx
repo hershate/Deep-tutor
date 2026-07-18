@@ -2,6 +2,7 @@
 // 复习提醒：GET /progress 节点 next_review <= 今日（间隔重复 SM-2-lite 到期节点）。
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import CheckinCalendar from '../components/CheckinCalendar'
 import ProgressBoard from '../components/ProgressBoard'
 import {
   addLearningLog,
@@ -172,14 +173,19 @@ export default function Learn() {
           )}
         </div>
         {logs.length > 0 && (
-          <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
-            {logs.slice(0, 10).map((l) => (
-              <li key={l.id}>
-                <span className="text-slate-400">{l.date}</span> · {l.minutes} 分钟
-                {l.note ? ` · ${l.note}` : ''}
-              </li>
-            ))}
-          </ul>
+          <>
+            <div className="mt-4 border-t pt-3 dark:border-slate-700">
+              <CheckinCalendar logs={logs} />
+            </div>
+            <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+              {logs.slice(0, 10).map((l) => (
+                <li key={l.id}>
+                  <span className="text-slate-400">{l.date}</span> · {l.minutes} 分钟
+                  {l.note ? ` · ${l.note}` : ''}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </div>
