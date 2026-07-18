@@ -8,6 +8,7 @@ import Clarify from './pages/Clarify'
 import Learn from './pages/Learn'
 import Login from './pages/Login'
 import PlanDetail from './pages/PlanDetail'
+import Plans from './pages/Plans'
 import SharedPlan from './pages/SharedPlan'
 import Usage from './pages/Usage'
 import Settings from './pages/Settings'
@@ -36,6 +37,7 @@ export default function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />
                 <Route path="/clarify/:sessionId" element={<Clarify />} />
+                <Route path="/plans" element={<Plans />} />
                 <Route path="/plans/:planId" element={<PlanDetail />} />
                 <Route path="/learn/:planId" element={<Learn />} />
                 <Route path="/usage" element={<Usage />} />

@@ -143,8 +143,17 @@ export function uploadMaterial(
 }
 
 // --- plans ---
-export const listPlans = (sessionId?: number) =>
-  apiFetch<{ items: unknown[]; total: number }>(`/plans${sessionId ? `?session_id=${sessionId}` : ''}`)
+export interface PlanSummary {
+  id: number
+  session_id: number
+  version: number
+  created_at: string
+  topic: string
+}
+export const listPlans = (sessionId?: number, page = 1) =>
+  apiFetch<{ items: PlanSummary[]; total: number }>(
+    `/plans${sessionId ? `?session_id=${sessionId}&` : '?'}page=${page}`,
+  )
 
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 

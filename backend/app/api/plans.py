@@ -690,6 +690,20 @@ class PlanSummary(BaseModel):
     session_id: int
     version: int
     created_at: str
+    topic: str = ""  # 列表展示用（iter 84：侧栏/方案列表页需要标题，免 N+1 详情查询）
+
+
+def _plan_topic(p: models.Plan) -> str:
+    """方案标题（intent.topic），大方案从 content_path 文件读；失败静默为空。"""
+    content = p.content
+    if not content and p.content_path:
+        try:
+            content = json.loads(Path(p.content_path).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            content = None
+    if isinstance(content, dict):
+        return str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+    return ""
 
 
 @router.get("")
@@ -710,7 +724,13 @@ def list_plans(
     total = q.count()
     items = q.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     return {
-        "items": [PlanSummary(id=p.id, session_id=p.session_id, version=p.version, created_at=str(p.created_at)).model_dump() for p in items],
+        "items": [
+            PlanSummary(
+                id=p.id, session_id=p.session_id, version=p.version,
+                created_at=str(p.created_at), topic=_plan_topic(p),
+            ).model_dump()
+            for p in items
+        ],
         "total": total,
     }
 

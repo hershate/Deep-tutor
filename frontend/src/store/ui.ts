@@ -25,7 +25,11 @@ function applyTheme(theme: Theme) {
 interface UIState {
   theme: Theme
   toggleTheme: () => void
+  sidebarCollapsed: boolean // AppShell 侧栏折叠为图标态（plan/06 §三）
+  toggleSidebar: () => void
 }
+
+const SIDEBAR_KEY = 'dt_sidebar_collapsed'
 
 export const useUIStore = create<UIState>((set, get) => ({
   theme: initialTheme(),
@@ -38,6 +42,22 @@ export const useUIStore = create<UIState>((set, get) => ({
     }
     applyTheme(next)
     set({ theme: next })
+  },
+  sidebarCollapsed: (() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === '1'
+    } catch {
+      return false
+    }
+  })(),
+  toggleSidebar: () => {
+    const next = !get().sidebarCollapsed
+    try {
+      localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0')
+    } catch {
+      /* 同上 */
+    }
+    set({ sidebarCollapsed: next })
   },
 }))
 
