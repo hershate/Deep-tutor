@@ -24,11 +24,11 @@ fi
 echo "==> 安装/校验后端依赖"
 "$VENV_PY" -m pip install -q -r backend/requirements.txt
 
-# 2. .env（缺失则从模板生成；必填项见 README 部署章节）
+# 2. .env（iter 89 零配置开箱即用：缺失不再退出——后端以「开放本机模式」启动，
+#    首次打开浏览器进入设置向导，可在界面内完成密码/API Key 配置；不代为生成 .env，
+#    避免模板弱 token change-me-please 反成认证配置）
 if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "==> 已生成 .env：请编辑填写 JWT_SECRET / ADMIN_PASSWORD / ANTHROPIC_API_KEY 后重新运行本脚本"
-  exit 0
+  echo "==> 未找到 .env：以零配置模式启动（首次打开浏览器将引导完成初始设置）"
 fi
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）
@@ -51,4 +51,9 @@ echo "==> 数据库迁移"
 # 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问）
 PORT=${PORT:-8000}
 echo "==> 启动 Deep-tutor：http://localhost:${PORT}（局域网 http://<本机IP>:${PORT}）"
+# 自动打开浏览器（NO_BROWSER=1 关闭）：延迟 3s 等服务就绪
+if [ "${NO_BROWSER:-}" != "1" ]; then
+  ( sleep 3; xdg-open "http://localhost:${PORT}" >/dev/null 2>&1 \
+      || open "http://localhost:${PORT}" >/dev/null 2>&1 || true ) &
+fi
 exec "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --app-dir backend

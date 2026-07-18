@@ -27,11 +27,11 @@ Write-Host "==> 安装/校验后端依赖"
 & $venvPy -m pip install -q -r backend\requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
 
-# 2. .env（缺失则从模板生成；必填项见 README 部署章节）
+# 2. .env（iter 89 零配置开箱即用：缺失不再退出——后端以「开放本机模式」启动，
+#    首次打开浏览器进入设置向导，可在界面内完成密码/API Key 配置；不代为生成 .env，
+#    避免模板弱 token change-me-please 反成认证配置）
 if (-not (Test-Path ".env")) {
-    Copy-Item .env.example .env
-    Write-Host "==> 已生成 .env：请编辑填写 JWT_SECRET / ADMIN_PASSWORD / ANTHROPIC_API_KEY 后重新运行本脚本"
-    exit 0
+    Write-Host "==> 未找到 .env：以零配置模式启动（首次打开浏览器将引导完成初始设置）"
 }
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）
@@ -60,4 +60,8 @@ if ($LASTEXITCODE -ne 0) { throw "数据库迁移失败（$LASTEXITCODE）" }
 # 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问）
 $port = if ($env:PORT) { $env:PORT } else { "8000" }
 Write-Host "==> 启动 Deep-tutor：http://localhost:$port（局域网 http://<本机IP>:$port）"
+# 自动打开浏览器（NO_BROWSER=1 关闭）：延迟 3s 等服务就绪
+if ($env:NO_BROWSER -ne "1") {
+    Start-Job -ScriptBlock { param($u) Start-Sleep -Seconds 3; Start-Process $u } -ArgumentList "http://localhost:$port" | Out-Null
+}
 & $venvPy -m uvicorn app.main:app --host 0.0.0.0 --port $port --app-dir backend

@@ -32,12 +32,17 @@ Deep-tutor/
 
 ## 快速开始（本地开发）
 
-### 1. 配置环境变量
+### 1. 配置环境变量（可选）
+
+> **零配置开箱即用（iter 89）**：不配任何参数也能启动——后端以「开放本机模式」运行，
+> 首次打开浏览器会进入**首次设置向导**（设置访问密码 / 配置 AI API Key，均可跳过，
+> 之后可在「设置」页补配）。需要多用户、固定 JWT 密钥等高级配置时再建 `.env`：
 
 ```bash
-cp .env.example .env
-# 编辑 .env：至少填写 AUTH_TOKEN；生成功能需 ANTHROPIC_API_KEY；搜索需 BING_API_KEY
+cp .env.example .env   # 可选。所有字段均有默认值或可在界面内配置
 ```
+
+> ⚠️ **开放模式安全提示**：零配置下免登录运行，且服务绑定 `0.0.0.0`——**同一局域网内的任何人都能访问本应用**（查看/修改你的数据）。请在首次设置向导或「设置」页设置访问密码；设密码后开放模式自动关闭。
 
 ### 2. 后端
 
@@ -71,26 +76,26 @@ bash scripts/start.sh
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
-脚本自动完成：建 `backend/.venv` → 装依赖 → 缺 `.env` 则从模板生成并提示填写 → 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动。再次运行幂等秒过。端口覆盖：`PORT=9000`（PowerShell：`$env:PORT=9000`）。
+脚本自动完成：建 `backend/.venv` → 装依赖 → 无 `.env` 时以零配置模式继续（不再退出）→ 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动并自动打开浏览器（`NO_BROWSER=1` 关闭）。再次运行幂等秒过。端口覆盖：`PORT=9000`（PowerShell：`$env:PORT=9000`）。
 
-依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。启动后访问 `http://localhost:8000`（局域网 `http://<本机IP>:8000`）。
+依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。启动后访问 `http://localhost:8000`（局域网 `http://<本机IP>:8000`）。**无 `.env` 首次进入会自动跳到首次设置向导**：设置访问密码与 AI API Key 均可在向导或之后的「设置」页完成，无需手改任何配置文件。
 
-### 配置（.env）
+### 配置（.env，全部可选）
 
 | 变量 | 说明 |
 | --- | --- |
 | `JWT_SECRET` | JWT 签名密钥。留空则自动生成随机密钥并持久化到 `data/.jwt_secret`（重启不失效；多实例部署需显式设置同一密钥）。生成：`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `ADMIN_PASSWORD` | 多用户必填。管理员初始密码，启动时自动创建/收敛 `ADMIN_USERNAME`（默认 `admin`）账号 |
+| `ADMIN_PASSWORD` | 多用户场景建议。管理员初始密码，启动时自动创建/收敛 `ADMIN_USERNAME`（默认 `admin`）账号；也可在首次设置向导/设置页直接设置（忘记密码时配此项重启可强制收敛重置） |
 | `AUTH_TOKEN` | 简单 token 回退（与 JWT 双轨；API/浏览器扩展可用它认证） |
 | `DATABASE_URL` | 可选。完整 SQLAlchemy URL（如切换 PostgreSQL）；留空则使用 `DB_PATH` 的 SQLite（默认 `data/deep-tutor.db`） |
-| `ANTHROPIC_API_KEY` | 生成功能必需（也可在 Web 设置页配置供应商档案） |
+| `ANTHROPIC_API_KEY` | 生成功能必需（也可在首次设置向导或 Web 设置页配置供应商档案，无需写入 .env） |
 | `BING_API_KEY` | 资源搜索可选 |
 
 > **安全提示（认证设计权衡）**：前端 JWT 明文存于 localStorage，且 `VITE_AUTH_TOKEN`（若设置）会打包进客户端 bundle——两者都假定本机/受信局域网部署。多用户或公网部署请勿设置 `VITE_AUTH_TOKEN`（走登录页 JWT），并在公网前加 HTTPS 反代。
 
 启动时自动执行数据库迁移（`app.db.migrate`）：新库建表、旧库增量迁移；历史 `create_all` 时期的无版本库会按 schema 特征探测代际后接续迁移，无需手工处理。
 
-首次使用：浏览器打开 → 跳转登录页 → 用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录 → 设置页配置供应商档案与创建其他用户。
+首次使用：浏览器打开 → 无 `.env` 时进入首次设置向导（可跳过）→ 已配 `ADMIN_PASSWORD` 时跳转登录页，用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录 → 设置页可配置供应商档案与创建其他用户。
 
 ### 升级
 
