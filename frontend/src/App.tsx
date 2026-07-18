@@ -14,6 +14,7 @@ import Setup from './pages/Setup'
 import SharedPlan from './pages/SharedPlan'
 import Usage from './pages/Usage'
 import Settings from './pages/Settings'
+import Wiki from './pages/Wiki'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
 // - 状态加载中 -> 占位；查询失败 -> 回退旧逻辑（仅查 token，不让 status 端点故障阻塞应用）
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="/plans" element={<Plans />} />
                 <Route path="/plans/:planId" element={<PlanDetail />} />
                 <Route path="/learn/:planId" element={<Learn />} />
+                <Route path="/wiki" element={<Wiki />} />
                 <Route path="/usage" element={<Usage />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

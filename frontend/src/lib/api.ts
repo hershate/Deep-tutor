@@ -287,6 +287,32 @@ export const submitQuiz = (quizId: number, userAnswer: Record<string, unknown>) 
     { method: 'POST', body: JSON.stringify({ user_answer: userAnswer }) },
   )
 
+// --- 个人知识库（iter 100，Wiki 页）---
+export interface KnowledgeItem {
+  node_id: number
+  sid: string
+  name: string
+  difficulty: number // 1-5
+  must_learn: boolean
+  plan_id: number
+  plan_topic: string
+  status: ProgressStatus
+  mastery: number // 0-1
+}
+export interface KnowledgeResult {
+  items: KnowledgeItem[]
+  total: number
+  stats: Record<ProgressStatus, number>
+}
+export const getKnowledge = (params: { q?: string; status?: ProgressStatus; plan_id?: number } = {}) => {
+  const q = new URLSearchParams()
+  if (params.q?.trim()) q.set('q', params.q.trim())
+  if (params.status) q.set('status', params.status)
+  if (params.plan_id != null) q.set('plan_id', String(params.plan_id))
+  const qs = q.toString()
+  return apiFetch<KnowledgeResult>(`/knowledge${qs ? `?${qs}` : ''}`)
+}
+
 // --- progress（P2，plan/03 §一）---
 export type ProgressStatus = 'not_started' | 'learning' | 'done'
 export interface ProgressNode {

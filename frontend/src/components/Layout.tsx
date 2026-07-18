@@ -12,6 +12,7 @@ import { useUIStore } from '../store/ui'
 const NAV_ITEMS = [
   { to: '/', icon: '＋', label: '新建方案', end: true },
   { to: '/plans', icon: '📚', label: '方案列表', end: false },
+  { to: '/wiki', icon: '🧠', label: '知识库', end: false },
   { to: '/usage', icon: '📊', label: '用量', end: false },
   { to: '/settings', icon: '⚙️', label: '设置', end: false },
 ]
