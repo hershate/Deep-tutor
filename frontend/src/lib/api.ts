@@ -352,6 +352,19 @@ export const putNodeNote = (nodeId: number, content: string) =>
 
 // --- progress（P2，plan/03 §一）---
 export type ProgressStatus = 'not_started' | 'learning' | 'done'
+// 全局今日待复习（iter 119）：跨方案到期节点
+export interface ReviewDueItem {
+  plan_id: number
+  plan_topic: string
+  node_id: string // knowledge_nodes.sid
+  name: string
+  status: ProgressStatus
+  mastery: number
+  next_review: string // ISO 日期
+}
+export const getReviewDue = () =>
+  apiFetch<{ items: ReviewDueItem[]; total: number }>('/progress/review/due')
+
 export interface ProgressNode {
   node_id: string // knowledge_nodes.sid（plan 内容 knowledge_map 原始 id）
   name: string

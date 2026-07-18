@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -54,6 +54,13 @@ export default function Wiki() {
     staleTime: 15_000,
   })
 
+  // 今日待复习（iter 119）：跨方案到期节点，顶部提醒卡
+  const { data: due } = useQuery({
+    queryKey: ['review-due'],
+    queryFn: getReviewDue,
+    staleTime: 60_000,
+  })
+
   // 按方案分组（保持后端返回顺序：新方案在前）
   const groups = useMemo(() => {
     const map = new Map<number, { topic: string; items: KnowledgeItem[] }>()
@@ -90,6 +97,31 @@ export default function Wiki() {
           />
         </div>
       </div>
+
+      {/* 今日待复习提醒（iter 119）：有到期节点时置顶 */}
+      {due && due.total > 0 && (
+        <section className="animate-fade-in rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+          <h3 className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+            📅 今日待复习 · {due.total} 个知识点
+          </h3>
+          <ul className="flex flex-wrap gap-1.5">
+            {due.items.slice(0, 10).map((d) => (
+              <li key={`${d.plan_id}-${d.node_id}`}>
+                <Link
+                  to={`/learn/${d.plan_id}`}
+                  title={`${d.plan_topic || '方案'} · 掌握度 ${Math.round(d.mastery * 100)}% · 复习日 ${d.next_review}`}
+                  className="inline-block rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-800 transition-all hover:border-amber-400 hover:shadow-sm active:scale-95 dark:border-amber-800 dark:bg-slate-800 dark:text-amber-200"
+                >
+                  {d.name}
+                </Link>
+              </li>
+            ))}
+            {due.total > 10 && (
+              <li className="px-1.5 py-1 text-xs text-amber-700 dark:text-amber-300">等 {due.total} 个</li>
+            )}
+          </ul>
+        </section>
+      )}
 
       {/* 状态筛选 chips（带计数） */}
       {stats && (
