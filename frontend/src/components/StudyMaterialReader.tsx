@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import { ApiError, getStudyUnitContent, markUnitDone, type StudyUnitMeta, type UnitResource } from '../lib/api'
+import { ApiError, getStudyUnitContent, markUnitDone, saveTextFile, type StudyUnitMeta, type UnitResource } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
 interface Props {
@@ -182,6 +182,15 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                 上一单元
               </button>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    // iter 99：单单元导出为 .md（用已加载内容，零额外请求）
+                    saveTextFile(content || `# ${contentTitle}\n\n（本单元暂无内容）`, `${contentTitle || '单元'}.md`)
+                  }
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                >
+                  下载 .md
+                </button>
                 <button
                   onClick={toggleDone}
                   disabled={doneBusy}

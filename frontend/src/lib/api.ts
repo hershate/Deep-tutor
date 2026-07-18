@@ -475,20 +475,40 @@ async function throwIfNotOk(res: Response): Promise<void> {
   throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
 }
 
+/** 触发浏览器下载 Blob（文件名优先取 Content-Disposition 的 filename 星号形式，支持 RFC 5987 中文名）。 */
+function saveBlob(blob: Blob, disposition: string | null, fallback: string): void {
+  const cd = disposition ?? ''
+  const star = /filename\*=UTF-8''([^;]+)/.exec(cd)
+  const plain = /filename="?([^";]+)"?/.exec(cd)
+  const name = (star ? decodeURIComponent(star[1]) : plain?.[1]) ?? fallback
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+/** 前端侧文本下载（如单个学习单元 markdown）。 */
+export function saveTextFile(text: string, filename: string): void {
+  saveBlob(new Blob([text], { type: 'text/markdown;charset=utf-8' }), null, filename)
+}
+
 /** 导出当前用户全部数据并触发浏览器下载（文件名取后端 Content-Disposition）。 */
 export async function downloadBackup(): Promise<void> {
   const res = await fetch(`${BASE}/backup/export`, {
     headers: { Authorization: `Bearer ${token()}` },
   })
   await throwIfNotOk(res)
-  const blob = await res.blob()
-  const cd = res.headers.get('content-disposition') ?? ''
-  const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'deep-tutor-backup.json'
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(a.href)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), 'deep-tutor-backup.json')
+}
+
+/** 全案自学材料 zip 下载（iter 99）。 */
+export async function downloadMaterialsZip(planId: number): Promise<void> {
+  const res = await fetch(`${BASE}/plans/${planId}/materials/export`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), `materials-${planId}.zip`)
 }
 
 /** 导入备份 JSON（追加式：全部以新数据重建，不覆盖现有数据）。 */

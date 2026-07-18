@@ -3,7 +3,8 @@
 // 切换深度：POST {refresh:true} 强制重生成后重取列表；关闭/卸载中止进行中请求。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import StudyMaterialReader from './StudyMaterialReader'
-import { ApiError, generateMaterialsStream, listStudyUnits, type StudyUnitMeta } from '../lib/api'
+import { toast } from './Toast'
+import { ApiError, downloadMaterialsZip, generateMaterialsStream, listStudyUnits, type StudyUnitMeta } from '../lib/api'
 
 interface Props {
   planId: number
@@ -29,7 +30,21 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
   const [error, setError] = useState('')
   const [selectMode, setSelectMode] = useState(false) // iter 98：按单元选择重生成模式
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [zipBusy, setZipBusy] = useState(false) // iter 99：全案 zip 导出中
   const acRef = useRef<AbortController | null>(null)
+
+  async function doExportZip() {
+    if (zipBusy) return
+    setZipBusy(true)
+    try {
+      await downloadMaterialsZip(planId)
+      toast.success('自学材料 zip 已开始下载')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
+    } finally {
+      setZipBusy(false)
+    }
+  }
 
   const run = useCallback(
     (d: 'brief' | 'full', refresh: boolean, unitIds?: number[]) => {
@@ -160,6 +175,13 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
               <option value="full">完整</option>
               <option value="brief">简要</option>
             </select>
+            <button
+              onClick={doExportZip}
+              disabled={loading || units.length === 0 || zipBusy}
+              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:hover:bg-slate-700"
+            >
+              {zipBusy ? '导出中…' : '导出全部 (.zip)'}
+            </button>
             <button
               onClick={() => {
                 setSelectMode((v) => !v)
