@@ -234,6 +234,10 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 144（功能线：Wiki 知识点快捷状态标记，✅ 完成）**：改个状态要点进方案/学习中心——Wiki 卡片状态徽标直接可点。**编号说明**：代码注释自标 iter 142，与并行美化轨 iter 143（第 36 轮）相邻不撞号，本条按共享序号取 144。
+  - **前端**（commit `e0ccd92`）：[Wiki.tsx](frontend/src/pages/Wiki.tsx) 状态徽标从 Link 内移到右侧控件列（📝 笔记开关上方，独立 button——保持无嵌套交互）——点击循环 未开始→学习中→已掌握→未开始，复用既有 `updateProgress`（POST /progress，主观标掌握 mastery 封顶 0.8 的后端语义不变）；成功后同时失效 knowledge + review-due（掌握度变化影响复习日）；`statusBusyId` 防重入 + 失败 toast。零后端改动。
+  - **验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 143（前端美化第 36 轮：打卡热力图走查）**：并行会话 Wiki 热力图（commit `0f418de`）落成后走查——①12 个周列加 30ms 错峰入场（左起波浪式，与卡片 fade-in-up 衔接）；②格子 hover 在放大基础上补 `hover:shadow-sm`（transition-transform → transition-all）；③图表容器加 `role="img"` + 概括性 `aria-label`（84 个格子不再逐个进读屏树），图例行标 `aria-hidden`（title 悬浮已足，色块无文字语义）。注：iter 141/142 被并行会话热力图记录与状态快捷标记切片占用；后者未提交，已避开。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 141（功能线：Wiki 打卡热力图，✅ 完成）**：streak 只有一个数字，缺成就感可视化——GitHub 风格打卡热力图。**编号说明**：并行会话 iter 140 注记将 139 预留给了本切片，但 139 彼时未落记录、140 已占用后续号，本条按共享序号取 141（代码注释自标 iter 139 不改，与预留号一致）。
