@@ -5,7 +5,7 @@ health/sessions/materials/plans/export/usage/settings/progress/quizzes 已接入
 
 from fastapi import APIRouter
 
-from app.api import auth, deps, exports, health, materials, plans, progress, providers, quizzes, sessions, settings, share, usage, users
+from app.api import auth, deps, exports, health, materials, plans, progress, providers, quizzes, sessions, settings, setup, share, usage, users
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
@@ -22,6 +22,7 @@ api_router.include_router(providers.router)
 api_router.include_router(users.router)
 api_router.include_router(share.router)
 api_router.include_router(share.public_router)  # P5：无认证的只读分享访问
+api_router.include_router(setup.router)  # iter 89：首次设置向导（公开端点）
 
 
-__all__ = ["api_router", "auth", "deps", "exports", "health", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "share", "usage", "users"]
+__all__ = ["api_router", "auth", "deps", "exports", "health", "materials", "plans", "progress", "providers", "quizzes", "sessions", "settings", "setup", "share", "usage", "users"]
