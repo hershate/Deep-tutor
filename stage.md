@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 156（前端美化第 43 轮：掌握度百分比等宽数字）**：残余 2 处掌握度数字补 `tabular-nums`——[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 节点行、[Learn.tsx](frontend/src/pages/Learn.tsx) 复习提醒行（状态切换/测验回写后数字变化不跳动）。另核实并行会话测验统计行（PlanDetail iter 152 切片）已自带 tabular-nums 与 fade-in，无需调整。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 155（功能线：测验历史统计，✅ 完成）**：练过几轮正确率如何无感知——方案详情加测验统计行。**编号说明**：代码注释自标 iter 152，与并行美化轨 iter 152-154（第 40-42 轮）撞号，本条取 155。
   - **后端**（commit `bf43dc3`）：[plans.py](backend/app/api/plans.py) `GET /plans/{id}/quiz/stats`——题数/作答次数/判分数（correct IS NOT NULL）/正确数/正确率（无判分作答 -> None）/当前错题数（复用 `_wrong_quiz_rows` 同判定）；单聚合查询 + case 计数。
   - **前端**（commit `5eb351a`）：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 按钮行下统计行「作答 N 次 · 正确率 X% · 当前错题 M 道」（仅 attempts>0 显示，错题数红色），随 progressKey 刷新（测验/重练关闭即更新）；[api.ts](frontend/src/lib/api.ts) `getQuizStats`。**坑记**：插入 api.ts 时误吞 `// --- usage ---` 注释行，同提交内修复。
