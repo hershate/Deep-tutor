@@ -233,6 +233,9 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-18 iter 79（功能缺口补全启动：plan 全量审计 + PDF 导出，commit `fc31b96`）**：用户指示「实现所有功能缺口，保障稳定性与可扩展性」（/loop 每分钟）。先派 agent 对照 plan/ 全部 12 文档 + 代码完成缺口审计（结论见本条末）。**PDF 导出落地**（P1 清单最大欠账）：新增 [export_pdf.py](backend/app/tools/export_pdf.py)——`pdf_available()` 探测（weasyprint 导入可抛 OSError：Windows 缺 Pango 原生库，本机即此情形）-> 不可用降级 md + warning（plan/02 §11 + R9 模式，同 OCR/whisper）；链路 render_markdown -> markdown 库（纯 Python 新依赖）-> 打印 CSS -> weasyprint（to_thread）。API format=pdf 返回 base64（同 anki）；前端加 PDF 选项 + Blob 下载，md 分支改认 `r.content` 兼容降级。测试 +5，全量 377 通过，前端 build 通过。
+  - **审计结论（缺口全清单，作为本次 /loop 工作队列）**：①功能：PDF 导出✅本条、时间线视图、可折叠知识图谱、网页链接入口、plan_chunk/查看部分、双主题、侧边栏、打卡日历、拖拽上传、原子组件；②generate_study_materials：scope/index/模块拆分；③防护：限频、资料数≤20、并发生成≤2、schedule≤365 天、raw_text≤10k、hash 去重、日志轮转、VACUUM、CI、verify_url 重试/robots/登录墙检测。偏离补记：同会话多 SSE 流用订阅扇出（非 plan/11 §九「关旧流」，设计等价更优）。
+
 - **2026-07-18 iter 78（大纲虚拟化：ProgressBoard 接入 react-window）**：plan/09 §七「长方案渲染 -> 大纲虚拟化（react-window）避免卡顿」，用户选定方向。排查各长列表：进度看板知识点列表是主候选（每知识点一行，大方案可达上百；PlanDetail 阶段通常 <15、资源 <50，Learn 复习列表仅当日到期，均无需虚拟化）。实现：[ProgressBoard.tsx](frontend/src/components/ProgressBoard.tsx) 节点数 >`VIRTUAL_THRESHOLD`(30) 时用 `FixedSizeList`（行高 48px 定高、视口最多 10 行内部滚动、只渲染可视行）；阈值内保持普通 `<ul>`（利于全页滚动/浏览器查找）。行渲染抽取共用 `NodeItem`（普通行 flex-wrap 自适应；虚拟行 compact 定高单行，名称 truncate，掌握度/复习日期窄屏 `hidden sm/md:inline` 防换行溢出）。依赖：react-window@1.8 + @types/react-window（npm 项目依赖，§七 具名）。前端 build 通过（437.97KB，+10KB）。**§七 全部落地**（进度条 iter 77、SSE 重连、幻灯片净化、虚拟化本条）。
 
 - **2026-07-18 iter 77（前端边界：上传字节级进度条，commit `322aadf`）**：plan/09 §七「大文件上传 -> 进度条」。[api.ts](frontend/src/lib/api.ts) `uploadMaterial` 改 **XHR**（fetch 上传进度浏览器支持差，`xhr.upload.onprogress` 全量可用；401 统一跳登录、network_error/超时分类）；[Home.tsx](frontend/src/pages/Home.tsx) 每文件实时百分比 + 进度条（aria-live）。前端 build 通过。**用户指示：结束全自动模式，有问题可询问。** §七 余项：react-window 大纲虚拟化（仅超长方案需要，暂缓）；SSE 重连/幻灯片净化已落地。
