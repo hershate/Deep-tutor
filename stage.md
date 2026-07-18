@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：自定义 LL 供应商功能（iter 50-53，用户 2026-07-18 指定方向）已完成：多档案切换 + Anthropic 兼容端点 + DB 存储 + CRUD/激活/连通性测试 + Settings 管理 UI，全量 243 测试通过 + 前端 build 通过。**待用户定下一步方向**：P3（图片 OCR + 音视频转写）/ P4 / P5 或其他增强。仍延后：deep-tutor-resources Skill（等 LLM 筛选落地）；真机 Anthropic 冒烟（现在可用自定义供应商档案配置 key 后跑）。详见 §五 iter 50-53 条。
+**当前下一步**：P3（图片 OCR + 音视频转写，iter 54-56）已完成——R9 依赖缺失降级模式（本机无 tesseract/faster-whisper，对应入口 dependency_missing + 安装提示，不影响其余功能），全量 259 测试通过 + 前端 build 通过。**待用户定下一步方向**：P4（多用户 + 云部署 + Skills/MCP + 浏览器插件）/ P5（缓存/导出/协作）/ 真机验证（装 tesseract + faster-whisper + 配供应商 key 后跑 OCR/转写/生成全链路）。详见 §五 iter 54-56 条。
 
 ---
 
@@ -27,7 +27,7 @@
 |---|---|---|
 | **P1 MVP** | 资料/需求 -> 完整学习方案主线（大纲+路径+时间+资源+校验） | 🟡 进行中（步骤 1 完成） |
 | P2 | 练习/测验生成 + 进度跟踪 + 掌握度评估 + 自学材料 + 批量导入 | ✅ 完成（iter 34-41；持久化/Reader/独立学习页等增强项延后） |
-| P3 | 图片 OCR + 音视频转写 | ⬜ 未开始 |
+| **P3** | 图片 OCR + 音视频转写 | ✅ 完成（iter 54-56，R9 依赖缺失降级模式；真机 OCR/转写待装依赖后验证） |
 | P4 | 多用户 + 云部署 + Skills/MCP 扩展 + 浏览器插件 | ⬜ 未开始 |
 | P5 | 缓存深度优化 + Anki/ics 导出 + 协作分享 | ⬜ 未开始 |
 
@@ -231,6 +231,12 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-18 iter 54-56（P3 图片 OCR + 音视频转写，✅ 完成）**：用户指示「按顺序稳步推进，注意稳定性（边界/极端）与可用性（无设计缺陷/缺失）」。技术选型对齐 plan/01 §二（pytesseract/PaddleOCR -> 取 pytesseract，R9 明确点名 tesseract 检测；faster-whisper）。环境实测：无 tesseract/pytesseract/faster-whisper/paddleocr，有 ffmpeg 8.0.1。
+  - **iter 54-55（解析后端，commits `d5bde7d`/`29feec1`/前端 `2e5a4bb`）**：[parse_material.py](backend/app/tools/parse_material.py) 扩展——`IMAGE_EXTS`（png/jpg/jpeg/bmp/gif/webp/tiff）/`AUDIO_EXTS`（mp3/wav/m4a/ogg/flac）/`VIDEO_EXTS`（mp4/mkv/mov/webm/avi）入 `SUPPORTED_FILE_EXTS`；`_parse_image`（tesseract 二进制 + pytesseract；`shutil.which` 检测，缺失 -> `dependency_missing` + 安装提示（R9）；语言包缺失 TesseractError -> 回退 eng 重试一次；120s 超时 -> `upstream_timeout`；空识别 -> `empty_content`）；`_parse_media`（faster-whisper CPU/int8，settings.whisper_model=base；ffprobe 时长守卫 >media_max_minutes=30 -> `payload_too_large`，ffprobe 缺失优雅跳过；segments 拼接；空转写 -> `empty_content`）；kind 支持 `image/audio/video` 别名（按路径+扩展名分发）；`ocr_available()`/`whisper_available()` 检测函数。**稳定性护栏**：二进制格式（PDF/DOCX/PPTX/图片/音视频）解析异常不再按文本回读（防乱码垃圾注入下游 LLM），改返空 -> `empty_content` 明确报错。[settings.py](backend/app/core/settings.py) 增 `ocr_languages`(eng+chi_sim)/`whisper_model`(base)/`media_max_minutes`(30)；[materials.py](backend/app/api/materials.py) magic 增 png/jpg/gif/bmp；[main.py](backend/app/main.py) 启动 R9 告警；requirements 加 pytesseract/Pillow（faster-whisper 注释为可选）。前端 Home accept 扩展。测试 +16（依赖缺失/成功/语言回退/超时/空文本/时长守卫/转写拼接/二进制护栏/上传 png 校验与 magic 不符；fake 模块注入 sys.modules 不触发真实 OCR/转写）。
+  - **iter 56（可用性收尾，commit `df1a1d4`）**：`GET /api/settings` 增 `ocr_available`/`whisper_available`/`whisper_model`/`media_max_minutes`；Settings 页两行状态（不可用附安装提示）；.env.example 补 P3 配置项说明。
+  - **验证**：全量 259 测试通过（243+16），前端 build（414KB）通过，零回归。**真机 OCR/转写待装依赖后验证**（本机无 tesseract/faster-whisper，按 R9 设计为禁用入口 + 提示）。
+  - **待做**：用户定方向（P4/P5/真机验证）；deep-tutor-resources Skill 仍延后。
 
 - **2026-07-18 iter 50-53（自定义 LLM 供应商，类 CC-switch，✅ 完成）**：用户指定方向「AI 后端像 CC-switch 一样自定义供应商：base URL + API key 等」。经 AskUserQuestion 确认三项决策：**多档案切换 / 仅 Anthropic 兼容协议 / 数据库存储**（突破假设 4，已记录于 §二）。
   - **iter 50（基础，commit `701afa2`）**：[models.py](backend/app/db/models.py) `LlmProviderProfile` 表（name 唯一/base_url/api_key/model/is_active）+ 迁移 `3deb4164602b`（升降级验证）；[anthropic_provider.py](backend/app/llm/anthropic_provider.py) 支持 `base_url`；[llm/\_\_init\_\_.py](backend/app/llm/__init__.py) `get_active_profile()`（DB 异常静默回退 None）+ `get_provider()` 改为 active 档案优先、回退 .env（档案 base_url/model 空 -> 官方端点/settings 默认模型）。测试 +4（档案优先/model 覆盖/未激活回退/DB 异常）。
