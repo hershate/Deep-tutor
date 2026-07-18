@@ -9,7 +9,7 @@ import QuizModal from '../components/QuizModal'
 import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
-import { ApiError, createShare, exportPlan, getPlan, getShare, regenerateStream, revokeShare, type ShareStatus } from '../lib/api'
+import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, regenerateStream, revokeShare, type QuizStats, type ShareStatus } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
 interface PlanData {
@@ -75,6 +75,13 @@ export default function PlanDetail() {
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
   const [wrongExportBusy, setWrongExportBusy] = useState(false) // 错题 Anki 导出（iter 134）
+  const [quizStats, setQuizStats] = useState<QuizStats | null>(null) // 测验历史统计（iter 152）
+
+  // 测验历史统计（iter 152）：随 progressKey 刷新（测验/重练关闭后重取）
+  useEffect(() => {
+    if (!planId) return
+    getQuizStats(Number(planId)).then(setQuizStats).catch(() => {})
+  }, [planId, progressKey])
   const [resFilter, setResFilter] = useState('') // 资源 Tab ✅⚠️❌ 筛选（plan/06 §四.4）
   const [regenScope, setRegenScope] = useState('design_stages')
   const [regenFeedback, setRegenFeedback] = useState('')
@@ -316,6 +323,18 @@ export default function PlanDetail() {
           </button>
         </div>
       </div>
+      {/* 测验历史统计（iter 152）：有作答才显示 */}
+      {quizStats && quizStats.attempts > 0 && (
+        <div className="animate-fade-in text-xs text-slate-500 dark:text-slate-400">
+          测验：作答 <span className="tabular-nums">{quizStats.attempts}</span> 次
+          {quizStats.accuracy !== null && (
+            <> · 正确率 <span className="tabular-nums">{Math.round(quizStats.accuracy * 100)}%</span></>
+          )}
+          {quizStats.wrong_count > 0 && (
+            <> · 当前错题 <span className="tabular-nums text-red-500">{quizStats.wrong_count}</span> 道</>
+          )}
+        </div>
+      )}
       {exportUrl && <div className="text-xs text-slate-500 dark:text-slate-400">已导出: {exportUrl}</div>}
       {shareMsg && <div className="break-all text-xs text-emerald-600 dark:text-emerald-400">{shareMsg}</div>}
 

@@ -454,6 +454,18 @@ export const deleteLearningLog = (logId: number) =>
 export const cancelGeneration = (sessionId: number) =>
   apiFetch<{ ok: boolean; status: string }>(`/plans/${sessionId}/cancel`, { method: 'POST' })
 
+// iter 152：测验历史统计（作答次数/判分正确率/当前错题数）
+export interface QuizStats {
+  quiz_count: number
+  attempts: number
+  graded: number
+  correct: number
+  accuracy: number | null
+  wrong_count: number
+}
+export const getQuizStats = (planId: number) =>
+  apiFetch<QuizStats>(`/plans/${planId}/quiz/stats`)
+
 // --- usage ---
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
