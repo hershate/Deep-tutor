@@ -180,7 +180,11 @@ export default function QuizModal({ planId, onClose }: Props) {
               {quizzes.map((q, i) => {
                 const a = answers[i] ?? {}
                 return (
-                  <div key={i} className="rounded-lg border p-4">
+                  <div
+                    key={i}
+                    className="animate-fade-in-up rounded-lg border p-4 dark:border-slate-700"
+                    style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
+                  >
                     <div className="flex items-center gap-2 text-xs text-slate-400">
                       <span>第 {i + 1} 题</span>
                       <span className="rounded bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5">{TYPE_LABEL[q.type] ?? q.type}</span>
@@ -243,13 +247,13 @@ export default function QuizModal({ planId, onClose }: Props) {
                           <>
                             <button
                               onClick={() => patch(i, { showAnswer: !a.showAnswer })}
-                              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+                              className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                               aria-expanded={!!a.showAnswer}
                             >
                               {a.showAnswer ? '隐藏参考答案' : '显示参考答案'}
                             </button>
                             {a.showAnswer && (
-                              <p className="mt-2 rounded bg-slate-50 dark:bg-slate-800 p-2 text-sm text-slate-700 dark:text-slate-200">{q.answer}</p>
+                              <p className="mt-2 animate-fade-in rounded bg-slate-50 dark:bg-slate-800 p-2 text-sm text-slate-700 dark:text-slate-200">{q.answer}</p>
                             )}
                           </>
                         ) : (

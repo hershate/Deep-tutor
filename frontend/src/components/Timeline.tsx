@@ -70,7 +70,7 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
                   )}
                   <span className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">{(d.tasks ?? []).join('、')}</span>
                   {d.est_minutes !== undefined && (
-                    <span className="shrink-0 text-xs text-slate-400">{d.est_minutes} 分钟</span>
+                    <span className="shrink-0 text-xs tabular-nums text-slate-400">{d.est_minutes} 分钟</span>
                   )}
                 </li>
               )

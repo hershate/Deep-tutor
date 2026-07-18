@@ -41,6 +41,11 @@ export default function Layout({ children }: { children: ReactNode }) {
   // iter 89：开放模式（未设密码）/ 未配 API Key 的常驻提示横幅（状态查询失败不渲染）
   const { data: setupStatus } = useSetupStatus()
 
+  // iter 106：路由切换回到页面顶部（此前停留在前一页的滚动位置，长列表跳详情体验突兀）
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
+
   function onLogout() {
     clearAuth()
     navigate('/login', { replace: true })
