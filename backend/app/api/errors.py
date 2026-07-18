@@ -49,6 +49,7 @@ CODE_STATUS: dict[str, int] = {
     "missing_upstream_field": 400,
     "no_schedule": 422,
     "no_quizzes": 422,
+    "no_wrong_quizzes": 422,  # iter 134 错题导出无错题（与 no_quizzes 同族：无内容可导出）
     "invalid_scope": 422,
     "quota_exceeded": 429,
     "rate_limited": 429,

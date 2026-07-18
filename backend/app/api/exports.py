@@ -1,6 +1,7 @@
 """导出 API（plan/03 §一 export）。
 
 POST /api/export/{plan_id}  导出方案为 md（pdf/slides 在 P1/P5）
+  - format=anki & wrong_only=true（iter 134）：仅导出错题（最近作答判错）为独立 .apkg 牌组。
 
 从 DB 加载方案（大方案从文件读），调 export_plan 工具渲染 Markdown 并写文件，返回 file_url。
 """
@@ -23,6 +24,7 @@ from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.settings import settings
+from app.db import models
 from app.db.base import SessionLocal
 from app.db.models import User
 from app.llm import get_provider
@@ -45,6 +47,7 @@ _EXPORT_RATE_PER_MIN = 12
 class ExportIn(BaseModel):
     # err.md A17：未知格式此前静默走 md 分支（客户端拿到与请求不符的产物）
     format: Literal["md", "pdf", "slides", "ics", "anki"] = "md"
+    wrong_only: bool = False  # iter 134：仅导出错题（最近作答判错的题），仅 anki 格式支持
 
 
 @router.post("/{plan_id}")
@@ -72,7 +75,10 @@ async def export_plan_endpoint(
     if body.format == "ics":
         return await _export_ics(plan_id, content)
     if body.format == "anki":
-        return await _export_anki(plan_id, content)
+        return await _export_anki(plan_id, content, db=db, plan=plan, wrong_only=body.wrong_only)
+    if body.wrong_only:
+        # iter 134：错题导出仅 anki（错题判定依赖 DB 作答记录，md/pdf 等走 content 快照无此口径）
+        raise ApiError("bad_request", "错题导出仅支持 anki 格式")
     if body.format == "pdf":
         return await _export_pdf(plan_id, plan.session_id, content)
     return await _export_md(plan_id, plan.session_id, content, body.format)
@@ -126,19 +132,39 @@ async def _export_ics(plan_id: int, content: dict) -> dict:
     return result
 
 
-async def _export_anki(plan_id: int, content: dict) -> dict:
-    """Anki 卡片包导出（P5）：quizzes -> .apkg（base64 随响应返回，前端 Blob 下载）。"""
+async def _export_anki(
+    plan_id: int,
+    content: dict,
+    db: Session | None = None,
+    plan: models.Plan | None = None,
+    wrong_only: bool = False,
+) -> dict:
+    """Anki 卡片包导出（P5）：quizzes -> .apkg（base64 随响应返回，前端 Blob 下载）。
+
+    wrong_only（iter 134）：只收最近作答判错的题（DB quizzes 表 + QuizAttempt 判定，
+    与 GET /plans/{id}/quiz/wrong 同口径）；无错题 -> no_wrong_quizzes。
+    """
     import asyncio
+
+    quizzes: list[dict] | None = None
+    if wrong_only:
+        from app.api.plans import _wrong_quiz_rows
+
+        assert db is not None and plan is not None  # wrong_only 路径由端点保证
+        rows = _wrong_quiz_rows(db, plan)
+        quizzes = [dict(r.payload or {}) for r in rows]
+        if not quizzes:
+            raise ApiError("no_wrong_quizzes", "当前没有错题——全部答对或尚未作答，无需导出")
 
     try:
         # err.md A18：同步 CPU 工作 to_thread，防阻塞事件循环（同 _export_pdf）
-        apkg, cards = await asyncio.to_thread(build_apkg, plan_id, content)
+        apkg, cards = await asyncio.to_thread(build_apkg, plan_id, content, quizzes, wrong_only)
     except ValueError as exc:
         raise ApiError("no_quizzes", str(exc)) from exc
     return {
         "file_url": "",
         "format": "apkg",
-        "filename": f"deep-tutor-plan-{plan_id}.apkg",
+        "filename": f"deep-tutor-plan-{plan_id}{'-wrong' if wrong_only else ''}.apkg",
         "card_count": cards,
         "apkg_b64": base64.b64encode(apkg).decode("ascii"),
     }

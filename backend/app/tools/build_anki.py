@@ -59,15 +59,26 @@ def _card_back(quiz: dict) -> str:
     return "".join(parts)
 
 
-def build_apkg(plan_id: int, content: dict) -> tuple[bytes, int]:
-    """生成 .apkg 字节。返回 (apkg_bytes, 卡片数)。无有效测验题抛 ValueError。"""
-    quizzes = [q for q in (content.get("quizzes") or []) if isinstance(q, dict)]
+def build_apkg(
+    plan_id: int,
+    content: dict,
+    quizzes: list[dict] | None = None,
+    wrong_only: bool = False,
+) -> tuple[bytes, int]:
+    """生成 .apkg 字节。返回 (apkg_bytes, 卡片数)。无有效测验题抛 ValueError。
+
+    quizzes：外部筛好的题目 payload（iter 134 错题导出）；None -> content["quizzes"]。
+    wrong_only：错题牌组——deck 名加「错题」后缀且 deck id 偏移，与全量牌组并存不互相覆盖。
+    """
+    source = quizzes if quizzes is not None else (content.get("quizzes") or [])
+    quizzes = [q for q in source if isinstance(q, dict)]
     quizzes = [q for q in quizzes if str(q.get("question", "")).strip() and str(q.get("answer", "")).strip()]
     if not quizzes:
         raise ValueError("方案暂无测验题（quizzes 为空），请先生成测验再导出 Anki")
 
     title = str(content.get("title") or content.get("topic") or "学习计划")
-    deck = genanki.Deck(_deck_id(plan_id), f"Deep-tutor::{title}")
+    deck_id = _deck_id(plan_id) + (100_000_000 if wrong_only else 0)
+    deck = genanki.Deck(deck_id, f"Deep-tutor::{title}{'·错题' if wrong_only else ''}")
     for q in quizzes:
         deck.add_note(genanki.Note(model=_MODEL, fields=[_card_front(q), _card_back(q)]))
 

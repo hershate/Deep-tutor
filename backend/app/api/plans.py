@@ -1525,10 +1525,14 @@ def wrong_quizzes(
     无错题 -> quiz_count=0（前端展示空态）。响应形状同 POST /quiz（_quiz_result）。
     """
     plan, content = _plan_or_404(db, plan_id, user)
+    return _quiz_result(_wrong_quiz_rows(db, plan), content, spec_title=_wrong_quiz_title(content))
+
+
+def _wrong_quiz_rows(db: Session, plan: models.Plan) -> list[models.Quiz]:
+    """错题行（iter 114 判定逻辑，iter 134 抽出供导出复用）：每题最新作答判错 -> 原题。"""
     quizzes = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
     if not quizzes:
-        return _quiz_result([], content, spec_title=_wrong_quiz_title(content))
-
+        return []
     # 单查询取全部作答，按 quiz 分组后组内首条即最新（避免逐题 N+1）
     attempts = (
         db.query(models.QuizAttempt)
@@ -1544,12 +1548,11 @@ def wrong_quizzes(
     latest_by_quiz: dict[int, models.QuizAttempt] = {}
     for a in attempts:
         latest_by_quiz.setdefault(a.quiz_id, a)
-    wrong = [
+    return [
         q
         for q in quizzes
         if (la := latest_by_quiz.get(q.id)) is not None and la.correct is False
     ]
-    return _quiz_result(wrong, content, spec_title=_wrong_quiz_title(content))
 
 
 def _wrong_quiz_title(content: dict) -> str:
