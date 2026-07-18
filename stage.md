@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 131（前端美化第 30 轮：裸错误提示统一为品牌横幅）**：全站 `role="alert"` 走查——残余 4 处裸文字/无边框错误提示升级为品牌错误横幅（红边框 + 浅红底 + fade-in）：[Plans.tsx](frontend/src/pages/Plans.tsx) 列表加载失败（原有底无边框无动画）、[Settings.tsx](frontend/src/pages/Settings.tsx) 快照加载失败、[MaterialsPanel.tsx](frontend/src/components/MaterialsPanel.tsx) 资料清单加载失败、[ProviderManager.tsx](frontend/src/components/ProviderManager.tsx) 供应商列表加载失败。注：Plans.tsx 改动与并行会话删除入口（commit `bcb4e5b`）同时落盘被一并卷入，四处修改均已核实存活。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 130（功能线：方案删除入口，✅ 完成）**：补齐缺口——后端 `DELETE /sessions/{id}` 早已存在（级联 DB+文件、运行态先 cancel），但前端无任何删除入口，方案只增不减。
   - **前端**（commit `bcb4e5b`）：[Plans.tsx](frontend/src/pages/Plans.tsx) 列表项右侧 🗑（常态 slate-300 低可见，hover 显红框红字——弱化常驻视觉噪音、操作时可发现）；window.confirm 阐明级联范围「全部版本、学习进度、自学材料与源资料，且不可恢复」；`deletingId` 防重入；删本页最后一条且非首页自动回一页（否则 reloadKey 原地刷新）；行结构改「容器 div + Link 主体 + 独立按钮」（避免按钮嵌套锚点，与 Wiki 节点卡 iter 113 同式）。`deleteSession` 为 api.ts 既有函数，无需后端改动（删除语义/级联/隔离由既有测试覆盖）。
   - **验证**：`npm run build` 通过。后续候选：PlanDetail 内删除入口（返回列表）/ 回收站式软删（需 schema，暂不做）。
