@@ -1507,3 +1507,45 @@ async def generate_quiz_endpoint(
     if spec_out.status != "ok":
         result["warning"] = "测验题生成降级，使用默认自测题"
     return result
+
+
+@router.get("/{plan_id}/quiz/wrong")
+def wrong_quizzes(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """错题重练（iter 114）：筛出最近一次作答判错的题原题重练，零 LLM 成本。
+
+    判定：每题取最新一条 QuizAttempt（created_at 倒序，同刻 id 大者优先），
+    correct IS False 计入；自评题（fill/short 判分 correct=None）与从未作答的题不计。
+    无错题 -> quiz_count=0（前端展示空态）。响应形状同 POST /quiz（_quiz_result）。
+    """
+    plan, content = _plan_or_404(db, plan_id, user)
+    quizzes = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
+    if not quizzes:
+        return _quiz_result([], content, spec_title=_wrong_quiz_title(content))
+
+    # 单查询取全部作答，按 quiz 分组后组内首条即最新（避免逐题 N+1）
+    attempts = (
+        db.query(models.QuizAttempt)
+        .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
+        .filter(models.Quiz.plan_id == plan.id)
+        .order_by(
+            models.QuizAttempt.quiz_id,
+            models.QuizAttempt.created_at.desc(),
+            models.QuizAttempt.id.desc(),
+        )
+        .all()
+    )
+    latest_by_quiz: dict[int, models.QuizAttempt] = {}
+    for a in attempts:
+        latest_by_quiz.setdefault(a.quiz_id, a)
+    wrong = [
+        q
+        for q in quizzes
+        if (la := latest_by_quiz.get(q.id)) is not None and la.correct is False
+    ]
+    return _quiz_result(wrong, content, spec_title=_wrong_quiz_title(content))
+
+
+def _wrong_quiz_title(content: dict) -> str:
+    return f"{(content.get('intent') or {}).get('topic') or '学习方案'}错题重练"
