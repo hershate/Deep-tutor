@@ -80,3 +80,50 @@ def test_knowledge_empty(client, auth_headers):
 
 def test_knowledge_requires_auth(client):
     assert client.get("/api/knowledge").status_code == 401
+
+
+def test_knowledge_export_handbook(client, auth_headers):
+    """知识手册导出（iter 116）：按方案分组 + 状态/掌握度/难度 + 笔记引用块；他人数据隔离。"""
+    _seed()
+    # 给「二叉树」挂笔记
+    from app.db import models
+
+    db = SessionLocal()
+    try:
+        admin = db.query(models.User).filter_by(username="admin").one()
+        node = db.query(models.KnowledgeNode).filter_by(name="二叉树").one()
+        db.add(models.NodeNote(user_id=admin.id, node_id=node.id, content="先序：根左右\n中序：左根右"))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/api/knowledge/export", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/markdown")
+    assert "filename*=UTF-8''" in r.headers["content-disposition"]
+    md = r.text
+    assert md.startswith("# 个人知识手册")
+    assert "3 个知识点" in md  # 他人节点被隔离（库内共 4 节点）
+    assert "## 主题甲" in md and "## 主题乙" in md
+    assert "### 二叉树 ★必学" in md
+    assert "状态：已掌握 · 掌握度 90% · 难度：中等" in md
+    assert "> 先序：根左右" in md and "> 中序：左根右" in md
+    assert "他人节点" not in md and "他人主题" not in md
+
+
+def test_knowledge_export_empty(client, auth_headers):
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        db.add(User(name="admin", username="admin", password_hash="", is_admin=True))
+        db.commit()
+    finally:
+        db.close()
+    r = client.get("/api/knowledge/export", headers=auth_headers)
+    assert r.status_code == 200
+    assert "0 个知识点" in r.text
+
+
+def test_knowledge_export_requires_auth(client):
+    assert client.get("/api/knowledge/export").status_code == 401

@@ -7,8 +7,11 @@ iter 105 增强：知识点笔记（node_notes）——GET/PUT 单节点笔记 +
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -121,6 +124,92 @@ def list_knowledge(
         items = [i for i in items if i["status"] == status]
 
     return {"items": items, "total": len(items), "stats": stats}
+
+
+# --- 知识手册导出（iter 116）：跨方案知识节点 + 笔记 -> 单个 Markdown 下载 ---
+
+_STATUS_LABEL = {"not_started": "未开始", "learning": "学习中", "done": "已掌握"}
+_DIFFICULTY_LABEL = {1: "入门", 2: "基础", 3: "中等", 4: "进阶", 5: "挑战"}
+
+
+@router.get("/export")
+def export_knowledge_handbook(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> Response:
+    """导出个人知识手册（Markdown）：按方案分组列出全部知识节点（状态/掌握度/难度/必学），
+    附用户笔记原文。下载文件名经 RFC 5987 filename*=UTF-8'' 编码（中文名）。
+    """
+    from app.api.plans import _load_plan_content
+
+    nodes = (
+        db.query(models.KnowledgeNode)
+        .join(models.Plan, models.KnowledgeNode.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .order_by(models.KnowledgeNode.plan_id.desc(), models.KnowledgeNode.id)
+        .all()
+    )
+    progress_map: dict[tuple[int, int], models.Progress] = {}
+    note_map: dict[int, str] = {}
+    if nodes:
+        node_ids = {n.id for n in nodes}
+        plan_ids = {n.plan_id for n in nodes}
+        for p in (
+            db.query(models.Progress)
+            .filter(models.Progress.plan_id.in_(plan_ids), models.Progress.node_id.in_(node_ids))
+            .all()
+        ):
+            progress_map[(p.plan_id, p.node_id)] = p
+        note_map = {
+            row.node_id: row.content
+            for row in db.query(models.NodeNote)
+            .filter(models.NodeNote.user_id == user.id, models.NodeNote.node_id.in_(node_ids))
+            .all()
+            if row.content
+        }
+
+    topics: dict[int, str] = {}
+    for pid in {n.plan_id for n in nodes}:
+        plan = db.get(models.Plan, pid)
+        if plan is None:
+            continue
+        content = _load_plan_content(plan)
+        topics[pid] = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+
+    now = datetime.now(timezone.utc).astimezone()
+    lines = [
+        "# 个人知识手册",
+        "",
+        f"> 导出于 {now:%Y-%m-%d %H:%M} · {len(nodes)} 个知识点 · {len(topics)} 个方案（Deep-tutor）",
+        "",
+    ]
+    current_plan: int | None = None
+    for n in nodes:
+        if n.plan_id != current_plan:
+            current_plan = n.plan_id
+            lines += ["", f"## {topics.get(n.plan_id) or f'方案 #{n.plan_id}'}", ""]
+        p = progress_map.get((n.plan_id, n.id))
+        st = p.status.value if p else "not_started"
+        mastery = f"{round(float(p.mastery) * 100)}%" if p else "0%"
+        star = " ★必学" if n.must_learn else ""
+        lines.append(f"### {n.name}{star}")
+        lines.append(
+            f"- 状态：{_STATUS_LABEL.get(st, st)} · 掌握度 {mastery} · 难度：{_DIFFICULTY_LABEL.get(n.difficulty, n.difficulty)}"
+        )
+        note = note_map.get(n.id)
+        if note:
+            lines.append("- 笔记：")
+            # 笔记原文按引用块嵌入（用户自有内容，可能是多行 markdown）
+            lines += [f"  > {ln}" if ln.strip() else "  >" for ln in note.splitlines()]
+        lines.append("")
+
+    md = "\n".join(lines).strip() + "\n"
+    filename = f"知识手册-{now:%Y%m%d}.md"
+    return Response(
+        content=md,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 # --- 知识点笔记（iter 105）：每用户每节点一条，空内容保存即删除 ---
