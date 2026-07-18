@@ -261,6 +261,8 @@ export default function Wiki() {
         ))}
       </div>
 
+      {/* key=view：切换 tab 时内容淡入（iter 163） */}
+      <div key={view} className="animate-fade-in space-y-4">
       {view === 'notes' ? (
         /* 我的笔记（iter 161）：跨方案全部笔记，更新近者在前 */
         !notesOv ? (
@@ -444,6 +446,7 @@ export default function Wiki() {
       ))}
       </>
       )}
+      </div>
     </div>
   )
 }
