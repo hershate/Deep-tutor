@@ -216,3 +216,32 @@ def test_auth_bearer_works(client, auth_headers):
 def test_auth_wrong_token(client):
     r = client.post("/api/sessions", json={"title": "x"}, headers={"Authorization": "Bearer wrong"})
     assert r.status_code == 401
+
+
+def test_upload_image_png_passes_validation(client, auth_headers, monkeypatch):
+    """P3：png 扩展名+magic 校验通过；解析层 dependency_missing（无 tesseract）-> 400 清晰报错（R9）。"""
+    sid = _session(client, auth_headers)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("p.png", BytesIO(png), "image/png")},
+        headers=auth_headers,
+    )
+    # 本环境无 tesseract -> dependency_missing（有 tesseract 的环境则应 200）
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "dependency_missing"
+    assert "tesseract" in r.json()["error"]["message"]
+
+
+def test_upload_image_magic_mismatch(client, auth_headers):
+    """扩展名 .png 但内容非 PNG magic -> 400 unsupported_format。"""
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("fake.png", BytesIO(b"not a png"), "image/png")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "unsupported_format"

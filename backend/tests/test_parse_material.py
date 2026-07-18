@@ -56,7 +56,7 @@ def test_empty_text_is_error():
 
 
 def test_unsupported_kind():
-    out = _run({"kind": "image", "source": "x"})
+    out = _run({"kind": "video_url", "source": "x"})
     assert out.status == "error"
     assert out.errors[0].code == "unsupported_format"
 
