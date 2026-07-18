@@ -101,7 +101,8 @@ function Row({
   label: string
   value: string
   status?: 'ok' | 'warn'
-}) {  const color =
+}) {
+  const color =
     status === 'ok'
       ? 'text-green-600 dark:text-green-400'
       : status === 'warn'
