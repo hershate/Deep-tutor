@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 177（功能线：用户偏好纳入备份导出/导入，✅ 完成）**：iter 176 预留项收口——日预算覆盖不随备份走，换机/还原后静默回默认。[backup.py](backend/app/core/backup.py) 导出增 `prefs` 字段（user_prefs KV 全量；备份版本仍 1——可选键新旧互导兼容，同 iter 105 node note 处理）；导入 `_restore_prefs` 本机已有同键跳过不覆盖（与供应商档案同策略，追加式还原不覆盖现有设置）并记 skipped；preview 增 prefs 键数。前端 BackupImportResult/BackupPreview 类型补 prefs（ImportResult 顺带补 node_notes——后端早返回但类型漏声明），预检与导入结果计数行均显示「N 偏好」。测试 test_api_backup_prefs.py 4 条（导出含 prefs / 导入还原贯通 /usage 有效值 / 已有键跳过不覆盖 / 旧备份无 prefs 兼容）；备份族 16 过、全量 525 过（commit `275feb6`）。**验证**：ruff 全绿；`npm run build` 通过（4.11s，主包 213.05kB）。
+
 - **2026-07-19 iter 176（功能线：用户级日预算覆盖——参数配置落地，✅ 完成）**：日预算只能改 .env 重启才生效——设置页直接可改。**编号说明**：代码注释初标 iter 171，与并行美化轨 iter 171-175（第 51-60 轮）连撞两次，本条取 176（注释随 `ceb01a7`/`8f298e2` 两次改标）。
   - **模型/迁移**：新增 `user_prefs` 通用 KV 表（迁移 `b4e19f0c7a25`，为后续偏好项预留——加新键免迁移）；User.prefs ORM 级联删用户。
   - **后端**：`deps.get_daily_budget`（覆盖优先、非法值静默回退默认）；`check_daily_budget` 改用有效值，**同日界口径从 UTC 日修正为服务器本地日**（`date(created_at,'localtime')`，与 iter 167 /usage today_cost 一致——此前 UTC+8 0-8 点花费计入"昨天"，守卫阈值与用量页显示不符）；`PUT /settings/prefs`（0-100000，0=不限，null 清覆盖，幂等 upsert）；GET /settings 增 `daily_budget_effective/is_override`；/usage 的 `daily_budget_usd` 改返回有效值（预算条与守卫同源）。
