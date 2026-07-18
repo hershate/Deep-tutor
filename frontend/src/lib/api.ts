@@ -466,6 +466,11 @@ export interface QuizStats {
 export const getQuizStats = (planId: number) =>
   apiFetch<QuizStats>(`/plans/${planId}/quiz/stats`)
 
+// iter 156：跨方案错题总览（Wiki 全局错题卡）
+export interface WrongOverviewItem { plan_id: number; topic: string; wrong_count: number }
+export const getWrongOverview = () =>
+  apiFetch<{ items: WrongOverviewItem[]; total: number }>('/quizzes/wrong-overview')
+
 // --- usage ---
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')

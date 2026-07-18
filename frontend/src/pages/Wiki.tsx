@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -94,6 +94,13 @@ export default function Wiki() {
   const { data: calendar } = useQuery({
     queryKey: ['stats-calendar'],
     queryFn: () => getStatsCalendar(84),
+    staleTime: 60_000,
+  })
+
+  // 全局错题（iter 156）：跨方案错题总览卡
+  const { data: wrongOv } = useQuery({
+    queryKey: ['wrong-overview'],
+    queryFn: getWrongOverview,
     staleTime: 60_000,
   })
 
@@ -200,6 +207,28 @@ export default function Wiki() {
             {due.total > 10 && (
               <li className="animate-fade-in px-1.5 py-1 text-xs tabular-nums text-amber-700 dark:text-amber-300" style={{ animationDelay: '360ms' }}>等 {due.total} 个</li>
             )}
+          </ul>
+        </section>
+      )}
+
+      {/* 全局错题（iter 156）：跨方案错题总览，有错题时显示 */}
+      {wrongOv && wrongOv.total > 0 && (
+        <section className="animate-fade-in-up rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+          <h3 className="mb-2 text-sm font-semibold text-red-800 dark:text-red-200">
+            🎯 当前错题 · <span className="tabular-nums">{wrongOv.total}</span> 道
+          </h3>
+          <ul className="flex flex-wrap gap-1.5">
+            {wrongOv.items.map((w) => (
+              <li key={w.plan_id}>
+                <Link
+                  to={`/plans/${w.plan_id}`}
+                  title={`${w.topic || '方案'} · ${w.wrong_count} 道错题，去错题重练`}
+                  className="inline-block rounded-full border border-red-300 bg-white px-2.5 py-1 text-xs text-red-800 transition-all hover:-translate-y-0.5 hover:border-red-400 hover:shadow-sm active:scale-95 dark:border-red-800 dark:bg-slate-800 dark:text-red-200 dark:hover:border-red-700"
+                >
+                  {w.topic || `方案 #${w.plan_id}`} <span className="tabular-nums">({w.wrong_count})</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </section>
       )}
