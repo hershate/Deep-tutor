@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 140（前端美化第 35 轮：分享页无障碍）**：[SharedPlan.tsx](frontend/src/pages/SharedPlan.tsx)——资源验证状态图标（✅⚠️❌）与必学 ★ 加 `aria-hidden` + `sr-only` 文字（「已验证：/不确定：/无效：」「（必学）」），错误页 🔗 与里程碑 🎯 同处理；公开只读页的读屏体验补齐（原读屏只念 emoji 名）。注：本轮构建时被并行会话进行中的 Wiki 打卡热力图（`StudyHeatmap` 未创建）阻塞——系其未完工状态，非本轮改动问题；iter 139 预留给该热力图切片。**验证**：SharedPlan.tsx 单文件无类型错误（`tsc` 其余错误均在 Wiki.tsx）。
+
 - **2026-07-19 iter 138（功能线：首页草稿自动保存，✅ 完成）**：写了半屏需求描述，刷新/误关全没——首页草稿 localStorage 持久化。**编号说明**：代码注释自标 iter 137，与并行美化轨 iter 137（第 34 轮）撞号，本条取 138。
   - **前端**（commit `271a8fc`）：[Home.tsx](frontend/src/pages/Home.tsx) 需求描述+网页链接输入即存 `dt-home-draft`（文件句柄无法持久化，仅文字类）；挂载时惰性恢复并显示 amber「已恢复上次未提交的草稿 · 清除」提示；内容清空即删 key（防恢复空草稿）；生成成功跳转后自动清除（草稿使命完成）；损坏 JSON 静默忽略。纯前端零后端改动。
   - **验证**：`npm run build` 通过。
