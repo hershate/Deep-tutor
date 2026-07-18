@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 168（功能线：打卡快捷分钟 chips，✅ 完成）**：每次打卡手敲分钟数——加 15/30/60/120 快捷 chips。[Learn.tsx](frontend/src/pages/Learn.tsx) 分钟输入下快捷行（点击填入、当前值高亮、tabular-nums）；纯前端（commit `7161321`）。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 167（功能线：用量页今日预算进度，✅ 完成）**：日预算只在 429 超额时才感知——用量页加今日预算进度条。**编号说明**：代码注释自标 iter 164，与并行美化轨 iter 164-166（第 47-49 轮）撞号，本条取 167。
   - **后端**（commit `19331fb` + 修正 `5ab0810`）：[usage.py](backend/app/api/usage.py) `GET /usage` 增 `today_cost` + `daily_budget_usd`（增量字段向后兼容）。**坑记（重要）**：初版日界用 `date.today()` 本地日与 naive-UTC created_at 直接比较——UTC+8 下 0-8 点的调用被错划昨日，测试当场捕获（2 failed）；修正为**本地日口径**：SQL `date(created_at,'localtime')` 分组 + 边界 = 本地午夜 − 系统偏移换算回 UTC，`/daily` 同日界同步修正；教训是「naive UTC 存储 vs 本地日边界」必须显式换算，不可裸比。
   - **前端**（commit 见 git log「feat(usage): 用量页今日预算进度条」）：[Usage.tsx](frontend/src/pages/Usage.tsx) `BudgetBar`——今日 $X / 日预算 $Y，<80% 蓝 / ≥80% amber / 超预算红 +「已超预算」；[api.ts](frontend/src/lib/api.ts) getUsage 类型扩展。
