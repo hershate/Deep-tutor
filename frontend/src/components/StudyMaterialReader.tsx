@@ -74,14 +74,14 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
   return (
     <div className="flex min-h-0 flex-1 gap-4">
       {/* 单元导航 */}
-      <nav aria-label="自学单元" className="w-44 shrink-0 overflow-y-auto border-r pr-2">
+      <nav aria-label="自学单元" className="w-44 shrink-0 overflow-y-auto border-r pr-2 dark:border-slate-700">
         <ul className="space-y-1">
           {indexMd && (
             <li>
               <button
                 onClick={() => setCurrentId(INDEX_ID)}
                 aria-current={isIndex ? 'true' : undefined}
-                className={`w-full rounded px-2 py-1.5 text-left text-sm ${
+                className={`w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
                   isIndex ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
@@ -94,7 +94,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
               <button
                 onClick={() => setCurrentId(u.id)}
                 aria-current={u.id === currentId ? 'true' : undefined}
-                className={`w-full rounded px-2 py-1.5 text-left text-sm ${
+                className={`w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
                   u.id === currentId ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
@@ -111,8 +111,8 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
         </ul>
       </nav>
 
-      {/* 内容区 */}
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      {/* 内容区（iter 101：切单元按 key 淡入） */}
+      <div key={currentId} className="min-w-0 flex-1 animate-fade-in overflow-y-auto">
         {isIndex ? (
           <>
             <div className="markdown-body text-sm">
@@ -120,10 +120,10 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                 {indexMd}
               </ReactMarkdown>
             </div>
-            <div className="mt-4 flex items-center justify-end border-t pt-3">
+            <div className="mt-4 flex items-center justify-end border-t pt-3 dark:border-slate-700">
               <button
                 onClick={() => units.length > 0 && setCurrentId(units[0].id)}
-                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
               >
                 开始学习 →
               </button>
@@ -131,9 +131,14 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
           </>
         ) : (
           <>
-            {loading && <p className="text-sm text-slate-500 dark:text-slate-400">加载单元内容…</p>}
+            {loading && (
+              <p className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400" role="status">
+                <span aria-hidden="true" className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+                加载单元内容…
+              </p>
+            )}
             {error && (
-              <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+              <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
                 {error}
               </div>
             )}
@@ -149,7 +154,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
               </ReactMarkdown>
             </div>
             {resources.length > 0 && (
-              <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+              <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <h4 className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">参考资料</h4>
                 <ul className="space-y-1 text-sm">
                   {resources.map((r, i) => (
@@ -161,7 +166,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                           href={r.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="truncate text-blue-600 hover:underline"
+                          className="truncate text-blue-600 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400"
                         >
                           {r.title || r.url}
                         </a>
@@ -173,11 +178,11 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                 </ul>
               </div>
             )}
-            <div className="mt-4 flex items-center justify-between gap-2 border-t pt-3">
+            <div className="mt-4 flex items-center justify-between gap-2 border-t pt-3 dark:border-slate-700">
               <button
                 onClick={() => idx > 0 && setCurrentId(units[idx - 1].id)}
                 disabled={idx <= 0}
-                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40"
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-40 disabled:active:scale-100"
               >
                 上一单元
               </button>
@@ -187,7 +192,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                     // iter 99：单单元导出为 .md（用已加载内容，零额外请求）
                     saveTextFile(content || `# ${contentTitle}\n\n（本单元暂无内容）`, `${contentTitle || '单元'}.md`)
                   }
-                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:hover:bg-slate-700"
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                 >
                   下载 .md
                 </button>
@@ -195,17 +200,17 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                   onClick={toggleDone}
                   disabled={doneBusy}
                   aria-pressed={current.done}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                  className={`rounded-lg px-3 py-1.5 text-sm transition-all active:scale-95 ${
                     current.done
-                      ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200'
-                      : 'border hover:bg-slate-50 dark:hover:bg-slate-700'
-                  } disabled:opacity-50`}
+                      ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800'
+                      : 'border hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700'
+                  } disabled:opacity-50 disabled:active:scale-100`}
                 >
                   {current.done ? '✓ 已学（点击取消）' : '标记已学'}
                 </button>
                 <button
                   onClick={onOpenQuiz}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[.98]"
                 >
                   去测验
                 </button>
@@ -213,7 +218,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
               <button
                 onClick={() => idx < units.length - 1 && setCurrentId(units[idx + 1].id)}
                 disabled={idx < 0 || idx >= units.length - 1}
-                className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40"
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-40 disabled:active:scale-100"
               >
                 下一单元
               </button>

@@ -207,13 +207,22 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
         <div className="flex min-h-[40vh] flex-1 flex-col overflow-hidden px-6 py-4">
           {loading && (
             <div>
-              <p className="text-slate-500 dark:text-slate-400">生成中…（逐单元组织材料，约需数十秒）</p>
+              <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+                生成中…（逐单元组织材料，约需数十秒）
+              </p>
               {progress.length > 0 && (
                 <ul aria-live="polite" className="mt-3 space-y-1 text-sm">
                   {progress.map((p) => (
-                    <li key={p.order} className="flex items-center gap-2">
-                      <span aria-hidden="true">
-                        {p.state === 'generating' ? '⏳' : p.state === 'degraded' ? '⚠️' : '✅'}
+                    <li key={p.order} className="flex animate-fade-in items-center gap-2">
+                      <span aria-hidden="true" className="flex w-4 items-center justify-center">
+                        {p.state === 'generating' ? (
+                          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+                        ) : p.state === 'degraded' ? (
+                          '⚠️'
+                        ) : (
+                          '✅'
+                        )}
                       </span>
                       <span className={p.state === 'generating' ? 'text-slate-500 dark:text-slate-400' : ''}>
                         单元 {p.order}/{p.total}：{p.title}
@@ -229,7 +238,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
             </div>
           )}
           {error && (
-            <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
+            <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
               {error}
             </div>
           )}
@@ -292,7 +301,7 @@ export default function MaterialsModal({ planId, onClose, onOpenQuiz }: Props) {
           {!loading && !error && !selectMode && (
             <>
               {warning && (
-                <div className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-700">{warning}</div>
+                <div className="mb-3 animate-fade-in rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950 p-3 text-sm text-amber-700 dark:text-amber-300">{warning}</div>
               )}
               <StudyMaterialReader units={units} indexMd={indexMd} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
             </>
