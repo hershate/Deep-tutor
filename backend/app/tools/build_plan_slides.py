@@ -155,7 +155,9 @@ def render_slides_html(spec: SlideSpec, base_template: str) -> str:
 
     # 4. 生成 N 个 slide section，替换模板的 2 个示例 slide
     rendered = "\n\n".join(_render_slide(i + 1, s, i == 0) for i, s in enumerate(spec.slides))
-    html = re.sub(r"<!-- SLIDE:.*<!-- /SLIDE -->", rendered, html, count=1, flags=re.DOTALL)
+    # 替换串必须走 lambda：字符串替换会把 rendered 当模板处理——LLM 内容含反斜杠
+    # （LaTeX \alpha、Windows 路径 C:\new）时 \p 等抛 re.error 崩溃、\a 静默变响铃符
+    html = re.sub(r"<!-- SLIDE:.*<!-- /SLIDE -->", lambda _m: rendered, html, count=1, flags=re.DOTALL)
     return html
 
 
@@ -194,14 +196,20 @@ _SCRIPT_STYLE_BLOCK = re.compile(
 )
 _UNSAFE_TAG = re.compile(r"<\s*/?\s*(script|style|iframe|object|embed|link|meta)\b[^>]*>", re.IGNORECASE)
 _EVENT_ATTRS = re.compile(r'\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', re.IGNORECASE)
+_JS_URL_ATTR = re.compile(
+    r'(href|src)\s*=\s*("|\')\s*javascript:[^"\']*\2', re.IGNORECASE
+)  # javascript: 协议链接（可执行脚本，唯一未被 on*/危险标签覆盖的 XSS 面）
+_JS_URL_ATTR_BARE = re.compile(r'(href|src)\s*=\s*javascript:[^\s>]*', re.IGNORECASE)  # 无引号变体
 _CLASS_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
 
 
 def _sanitize_content_html(s: str) -> str:
-    """清理 LLM 生成的 content_html：去危险块/标签与 on* 事件属性（防 XSS）。"""
+    """清理 LLM 生成的 content_html：去危险块/标签、on* 事件属性与 javascript: 链接（防 XSS）。"""
     s = _SCRIPT_STYLE_BLOCK.sub("", s)  # <script>...</script> 整块
     s = _UNSAFE_TAG.sub("", s)  # 残留开/闭危险标签
     s = _EVENT_ATTRS.sub("", s)  # on*= 事件属性
+    s = _JS_URL_ATTR.sub(r"\1=\2#\2", s)  # href/src="javascript:..." -> "#"
+    s = _JS_URL_ATTR_BARE.sub(r'\1="#"', s)  # 无引号变体
     return s
 
 

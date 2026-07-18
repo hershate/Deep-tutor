@@ -208,3 +208,43 @@ def test_tool_invalid_degrades_to_default():
     assert out.status == "repaired"
     assert out.data["title"] == "学习方案"  # 默认降级 spec
     assert len(out.data["slides"]) >= 1
+
+
+def test_render_content_with_backslashes_no_crash():
+    """深查 round 10：LLM 内容含反斜杠（LaTeX/Windows 路径）时 re.sub 字符串替换
+    会把渲染结果当模板处理——\p 类抛 re.error、\a 静默变响铃符；改 lambda 后须原样保留。"""
+    spec = SlideSpec(
+        title="数学",
+        slides=[
+            SlideContent(
+                title="公式",
+                content_html=r"<p>公式 \alpha + \beta，路径 C:\new\dir</p>",
+                layout="left",
+            ),
+        ],
+    )
+    html = render_slides_html(spec, _BASE_HTML)  # 不抛 re.error 即通过一半
+    assert r"\alpha + \beta" in html
+    assert r"C:\new\dir" in html
+    assert "\x07" not in html  # 无响铃符污染
+
+
+def test_render_neutralizes_javascript_href():
+    """LLM content_html 的 javascript: 链接 -> #（on*/危险标签之外的最后 XSS 面）。"""
+    spec = SlideSpec(
+        title="t",
+        slides=[
+            SlideContent(
+                title="s",
+                content_html=(
+                    '<p><a href="javascript:alert(1)">x</a>'
+                    "<a href='javascript:alert(2)'>y</a>"
+                    "<a href=javascript:alert(3)>z</a>"
+                    '<a href="https://ok.example">ok</a></p>'
+                ),
+            ),
+        ],
+    )
+    html = render_slides_html(spec, _BASE_HTML)
+    assert "javascript:" not in html
+    assert 'href="https://ok.example"' in html  # 合法链接不受影响
