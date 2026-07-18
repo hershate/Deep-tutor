@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '../components/Skeleton'
-import { getUsage } from '../lib/api'
+import { getUsage, getUsageDaily } from '../lib/api'
 
 /** 用量详情页（/usage）：汇总 token / 费用 / 缓存命中率 / 调用数。 */
 export default function Usage() {
@@ -10,6 +10,8 @@ export default function Usage() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   })
+  // iter 131：近 14 日按日趋势（CSS 柱状图，无图表库依赖）
+  const daily = useQuery({ queryKey: ['usage-daily'], queryFn: () => getUsageDaily(14), staleTime: 60_000 })
 
   return (
     <div className="space-y-4">
@@ -52,6 +54,9 @@ export default function Usage() {
           </p>
         </>
       )}
+
+      {/* iter 131：近 14 日按日费用柱状图（纯 CSS，悬浮看明细） */}
+      {daily.data && daily.data.items.length > 0 && <DailyChart items={daily.data.items} />}
     </div>
   )
 }
@@ -65,5 +70,33 @@ function Stat({ label, value, delay = 0 }: { label: string; value: string; delay
       <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
     </div>
+  )
+}
+
+/** iter 131：按日费用柱状图（无图表库；每柱 title 悬浮显示 日期/费用/token/调用数） */
+function DailyChart({ items }: { items: { date: string; cost: number; tokens: number; calls: number }[] }) {
+  const maxCost = Math.max(...items.map((i) => i.cost), 1e-9)
+  const total = items.reduce((s, i) => s + i.cost, 0)
+  return (
+    <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">近 {items.length} 天费用</h3>
+        <span className="text-xs text-slate-400">合计 ${total.toFixed(6)}</span>
+      </div>
+      <div className="flex h-28 items-end gap-1" role="img" aria-label="近14天按日费用柱状图">
+        {items.map((i) => (
+          <div
+            key={i.date}
+            title={`${i.date}\n费用 $${i.cost.toFixed(6)} · ${i.tokens.toLocaleString()} tokens · ${i.calls} 次调用`}
+            className="group relative flex-1 rounded-t bg-blue-500/70 transition-all duration-200 hover:bg-blue-600 dark:bg-blue-400/60 dark:hover:bg-blue-400"
+            style={{ height: `${Math.max((i.cost / maxCost) * 100, i.cost > 0 ? 6 : 2)}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+        <span>{items[0].date.slice(5)}</span>
+        <span>{items[items.length - 1].date.slice(5)}</span>
+      </div>
+    </section>
   )
 }

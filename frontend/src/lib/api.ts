@@ -450,6 +450,11 @@ export const cancelGeneration = (sessionId: number) =>
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number }>('/usage')
 
+// iter 131：近 N 日按日用量（无调用日补 0，供趋势图）
+export interface UsageDailyItem { date: string; cost: number; tokens: number; calls: number }
+export const getUsageDaily = (days = 14) =>
+  apiFetch<{ items: UsageDailyItem[] }>(`/usage/daily?days=${days}`)
+
 // --- LLM 供应商档案（自定义供应商多档案切换，iter 51-52）---
 // api_key 只写不读：响应仅含掩码末 4 位；更新时 api_key 留空 -> 保留原值。
 export interface ProviderProfile {
