@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 173（美化轨：第 53 轮——上传进度条 a11y，✅ 完成）**：并行轨后端 user_prefs 在改（未提交），本轮全维度清扫：暗色覆盖零遗漏（`bg-white`/text 色全配 dark 变体）、300 处 hover 全带 transition、外链全带 target、`role="alert"` 25 处全品牌化。唯一真缺：[Home.tsx](frontend/src/pages/Home.tsx) 文件上传进度条纯 div——补 `role="progressbar"`+`aria-value*`（commit `924b18c`），全站进度条语义至此 3 处（今日目标/预算/上传）补齐。验证：`npm run build` 通过（1.71s，主包 210.73kB）。
+
 - **2026-07-19 iter 172（美化轨：第 52 轮——单元导航入场，✅ 完成）**：审查并行轨版本切换下拉（`9826380`）——已对齐 R28 select 品牌模式零改动；顺带复核 Timeline/Clarify/UsageMeter/StudyMaterialReader 均已达品牌基线。仅补一处：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元导航列表此前无入场动画、与内容区 `animate-fade-in` 不齐——导航项加 30ms 阶梯淡入（commit `1ebe5c8`）。验证：`npm run build` 通过（1.73s，主包 210.64kB）。
 
 - **2026-07-19 iter 171（美化轨：第 51 轮——PlanOutline 打磨，✅ 完成）**：并行轨 PlanDetail 版本切换在改，本轮续清扫线。先全量核 `role="alert"` 25 处——均已品牌化零遗留（UserManager/Usage 修完后收口）。再审从未打磨的 [PlanOutline.tsx](frontend/src/components/PlanOutline.tsx)，补三处（commit `b426166`）：① 阶段卡加 `animate-fade-in-up` + 60ms 阶梯逐项入场；②③ 图谱节点与 topics 的 ★ 符号改 `aria-hidden` + `sr-only`「必学」（防读屏读 "star"，沿用 R35 SharedPlan 模式）。**编号说明**：并行轨 stage 记录已占 iter 170（方案版本历史切换），本条取 171。验证：`npm run build` 通过（1.72s，主包 210.56kB）。
