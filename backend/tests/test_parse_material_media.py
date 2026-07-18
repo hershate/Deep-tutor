@@ -10,9 +10,7 @@ import asyncio
 import sys
 import tempfile
 import types
-from pathlib import Path
 
-import pytest
 
 from app.agent.context import ExecContext
 from app.tools import parse_material as pm_mod

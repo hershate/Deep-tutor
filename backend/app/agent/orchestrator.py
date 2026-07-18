@@ -15,7 +15,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from app.agent.budget import BudgetExceeded
 from app.agent.context import ExecContext
 from app.agent.loop import run_tool
 from app.agent.registry import Tool, ToolRegistry

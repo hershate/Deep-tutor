@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -230,7 +229,6 @@ def test_zip_safety_rejects_huge_uncompressed(tmp_path, monkeypatch):
     p = tmp_path / "bomb.docx"
     with zipfile.ZipFile(p, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("big.xml", b"x" * 2048)  # 解压 2KB > 上限 1KB
-    import pytest
 
     with pytest.raises(pm._ParseError, match="超上限"):
         pm._check_zip_safety(p)
@@ -245,7 +243,6 @@ def test_zip_safety_rejects_too_many_entries(tmp_path):
     with zipfile.ZipFile(p, "w") as zf:
         for i in range(_ZIP_MAX_ENTRIES + 1):
             zf.writestr(f"f{i}", "x")
-    import pytest
 
     with pytest.raises(_ParseError, match="条目数"):
         _check_zip_safety(p)
@@ -256,7 +253,6 @@ def test_zip_safety_bad_zip(tmp_path):
 
     p = tmp_path / "broken.docx"
     p.write_bytes(b"not a zip at all")
-    import pytest
 
     with pytest.raises(_ParseError, match="损坏"):
         _check_zip_safety(p)

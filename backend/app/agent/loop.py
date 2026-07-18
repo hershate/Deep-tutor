@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from app.agent.context import ExecContext
-from app.agent.cost import accumulate_usage, build_metadata, usage_cost
+from app.agent.cost import accumulate_usage, build_metadata
 from app.agent.registry import Tool
 from app.llm.base import LLMUsage
 from app.tools.base import ToolError, ToolInput, ToolMetadata, ToolOutput

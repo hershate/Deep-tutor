@@ -10,8 +10,8 @@ from app.tools import default_registry
 from app.tools.base import ToolInput
 from app.tools.generate_quiz import (
     QuizItem,
-    QuizSpec,
     default_quiz_from_plan,
+    extract_check_questions,
     generate_quiz_tool,
 )
 
@@ -130,8 +130,6 @@ def test_tool_invalid_degrades_to_default():
 
 
 # --- iter 49：extract_check_questions（单元「检查理解」-> quiz 题源）---
-
-from app.tools.generate_quiz import extract_check_questions
 
 
 def test_extract_check_questions_basic():

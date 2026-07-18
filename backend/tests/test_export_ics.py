@@ -33,20 +33,20 @@ def test_build_ics_basic():
     assert events == 2 and skipped == 0
     lines = _unfold(ics)
     assert lines[0] == "BEGIN:VCALENDAR" and lines[-2] == "END:VCALENDAR"  # 末尾 CRLF 产生空尾行
-    assert any(l == "DTSTART;VALUE=DATE:20260720" for l in lines)
-    assert any(l.startswith("UID:dt-7-0-2026-07-20@deep-tutor") for l in lines)
-    assert any("阶段1 基础语法" in l and l.startswith("SUMMARY:") for l in lines)
-    assert any("预计时长：60 分钟" in l for l in lines)
-    assert any(l.startswith("X-WR-CALNAME:") and "Python 入门" in l for l in lines)
+    assert any(line == "DTSTART;VALUE=DATE:20260720" for line in lines)
+    assert any(line.startswith("UID:dt-7-0-2026-07-20@deep-tutor") for line in lines)
+    assert any("阶段1 基础语法" in line and line.startswith("SUMMARY:") for line in lines)
+    assert any("预计时长：60 分钟" in line for line in lines)
+    assert any(line.startswith("X-WR-CALNAME:") and "Python 入门" in line for line in lines)
 
 
 def test_build_ics_escapes_special_chars():
     ics, _, _ = build_ics(7, PLAN)
     lines = _unfold(ics)
     # 逗号/分号/换行按 RFC 转义（阶段名「进阶, 实战」、任务「学变量; 类型」「项目\n实战」）
-    assert any("进阶\\, 实战" in l for l in lines)
-    assert any("学变量\\; 类型" in l for l in lines)
-    assert any("项目\\n实战" in l.replace("\\\\n", "\\n") or "项目\\n实战" in l for l in lines)
+    assert any("进阶\\, 实战" in line for line in lines)
+    assert any("学变量\\; 类型" in line for line in lines)
+    assert any("项目\\n实战" in line.replace("\\\\n", "\\n") or "项目\\n实战" in line for line in lines)
 
 
 def test_build_ics_crlf_and_folding():

@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from app.llm.base import LLMProvider, LLMUsage
+from app.llm.base import LLMProvider
 
 from test_api_plans_materials import _make_plan, _resp, _units_of
 

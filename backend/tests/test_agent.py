@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 from pydantic import BaseModel
 
 from app.agent import (

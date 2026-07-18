@@ -76,7 +76,8 @@ def test_build_apkg_escapes_html():
         raw = f.read()
     tmp = io.BytesIO(raw)
     # sqlite3 需要文件，落地临时文件
-    import tempfile, pathlib
+    import tempfile
+    import pathlib
 
     with tempfile.NamedTemporaryFile(suffix=".anki2", delete=False) as tf:
         tf.write(tmp.read())
@@ -95,7 +96,9 @@ def test_build_apkg_escapes_html():
 
 
 def test_build_apkg_choice_options_rendered():
-    import sqlite3, tempfile, pathlib
+    import sqlite3
+    import tempfile
+    import pathlib
 
     apkg, _ = build_apkg(1, PLAN)
     zf = _open_apkg(apkg)

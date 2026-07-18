@@ -19,7 +19,7 @@ from app.tools.generate_study_materials import (
     render_materials_md,
 )
 
-from test_api_plans_materials import _make_plan, _resp, _units_of
+from test_api_plans_materials import _make_plan, _units_of
 from test_api_plans_materials_sse import _parse_sse, _UnitProvider, _unit_resp
 
 _SSE_HEADERS = {"Accept": "text/event-stream"}

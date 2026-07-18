@@ -12,7 +12,6 @@ import sys
 import types
 
 from app.api import exports as exports_api
-from app.tools import export_pdf
 from app.tools.export_pdf import markdown_to_html, pdf_available
 
 
