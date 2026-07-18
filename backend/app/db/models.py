@@ -116,6 +116,9 @@ class User(Base):
     node_notes: Mapped[list[NodeNote]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    prefs: Mapped[list[UserPref]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -332,6 +335,27 @@ class NodeNote(Base):
 
     user: Mapped[User] = relationship(back_populates="node_notes")
     node: Mapped[KnowledgeNode] = relationship(back_populates="notes")
+
+
+class UserPref(Base):
+    """用户级偏好 KV（iter 171 参数配置：日预算等运行时覆盖项）。
+
+    通用 key/value 文本表，为后续偏好项预留（免每加一项跑一次迁移）；删除某键
+    即回退全局默认。删用户 ORM 级联（同 node_notes）。
+    """
+
+    __tablename__ = "user_prefs"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_prefs_user_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="prefs")
 
 
 class ToolCall(Base):

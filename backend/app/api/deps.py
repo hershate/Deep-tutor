@@ -131,35 +131,58 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def get_daily_budget(db: Session, user_id: int) -> float:
+    """有效日预算（iter 171）：用户覆盖（user_prefs.daily_budget_usd）优先，否则全局默认。
+
+    覆盖值非法（手改库等非浮点文本）时静默回退默认，不让坏数据打死守卫。
+    """
+    from app.db import models
+
+    raw = (
+        db.query(models.UserPref.value)
+        .filter_by(user_id=user_id, key="daily_budget_usd")
+        .scalar()
+    )
+    if raw is None:
+        return settings.daily_budget_usd
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return settings.daily_budget_usd
+
+
 def check_daily_budget(db: Session | None, user_id: int) -> None:
     """日预算守卫（err.md A6：daily_budget_usd 配置此前全库零引用、从未强制）。
 
-    当日（UTC）api_usage 累计 cost >= settings.daily_budget_usd -> 402 budget_exceeded；
-    daily_budget_usd <= 0 视为不限。db 为 None 时使用短生命周期会话。
+    当日（服务器本地日，iter 167 口径）api_usage 累计 cost >= 有效日预算
+    （用户覆盖优先，iter 171）-> 402 budget_exceeded；预算 <= 0 视为不限。
+    db 为 None 时使用短生命周期会话。
     触发 LLM 计费的端点（生成/材料/测验/幻灯片）应在执行前调用。
     """
-    limit = settings.daily_budget_usd
-    if limit <= 0:
-        return
     if db is None:
         own = SessionLocal()
         try:
             return check_daily_budget(own, user_id)
         finally:
             own.close()
-    from datetime import datetime, timezone
+    from datetime import date
 
     from sqlalchemy import func
 
     from app.api.errors import ApiError
     from app.db import models
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    limit = get_daily_budget(db, user_id)
+    if limit <= 0:
+        return
+    # iter 167 口径：本地日（'localtime' 修饰符），与 /usage today_cost 一致——
+    # 此前用 UTC 日，UTC+8 0-8 点的花费被计入"昨天"，守卫与用量页显示不符
+    today = date.today().isoformat()
     spent = (
         db.query(func.coalesce(func.sum(models.ApiUsage.cost), 0.0))
         .filter(
             models.ApiUsage.user_id == user_id,
-            func.date(models.ApiUsage.created_at) == today,
+            func.date(models.ApiUsage.created_at, "localtime") == today,
         )
         .scalar()
         or 0.0
@@ -167,7 +190,7 @@ def check_daily_budget(db: Session | None, user_id: int) -> None:
     if spent >= limit:
         raise ApiError(
             "budget_exceeded",
-            f"当日 LLM 预算已用尽（${spent:.4f} / ${limit:.4f}），请明天再试或调整 DAILY_BUDGET_USD",
+            f"当日 LLM 预算已用尽（${spent:.4f} / ${limit:.4f}），请明天再试或在设置页调整日预算",
             status=402,
         )
 

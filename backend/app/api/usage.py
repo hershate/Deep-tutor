@@ -13,8 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_auth
-from app.core.settings import settings
+from app.api.deps import get_current_user, get_daily_budget, get_db, require_auth
 from app.db import models
 from app.db.models import User
 
@@ -51,7 +50,8 @@ def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_us
         "cache_hit_rate": round(cache_hit_rate, 4),
         "calls": int(calls),
         "today_cost": round(float(today_cost or 0.0), 6),
-        "daily_budget_usd": settings.daily_budget_usd,
+        # iter 171：有效日预算（用户覆盖优先；预算条与守卫同源，显示即真实阈值）
+        "daily_budget_usd": get_daily_budget(db, user.id),
     }
 
 
