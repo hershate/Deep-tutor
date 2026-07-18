@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStudyStats, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -68,6 +68,13 @@ export default function Wiki() {
     staleTime: 60_000,
   })
 
+  // 打卡热力图（iter 139）：近 12 周按日学习分钟
+  const { data: calendar } = useQuery({
+    queryKey: ['stats-calendar'],
+    queryFn: () => getStatsCalendar(84),
+    staleTime: 60_000,
+  })
+
   // 按方案分组（保持后端返回顺序：新方案在前）
   const groups = useMemo(() => {
     const map = new Map<number, { topic: string; items: KnowledgeItem[] }>()
@@ -118,6 +125,11 @@ export default function Wiki() {
             ⏱ 累计 <span className="tabular-nums">{studyStats.total_minutes}</span> 分钟
           </span>
         </div>
+      )}
+
+      {/* 打卡热力图（iter 139）：近 12 周学习分钟，GitHub 风格周列 */}
+      {studyStats && studyStats.total_logs > 0 && calendar && (
+        <StudyHeatmap items={calendar.items} />
       )}
 
       {/* 今日待复习提醒（iter 119）：有到期节点时置顶 */}
@@ -273,4 +285,49 @@ export default function Wiki() {
       ))}
     </div>
   )
+}
+
+/** iter 139：打卡热力图——近 12 周（84 天）学习分钟，GitHub 风格周列，悬浮看 日期+分钟 */
+function StudyHeatmap({ items }: { items: CalendarDay[] }) {
+  // 顺序 7 天一列（最旧在左），列内自上而下时间递增
+  const weeks: CalendarDay[][] = []
+  for (let i = 0; i < items.length; i += 7) weeks.push(items.slice(i, i + 7))
+  return (
+    <section
+      className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+      aria-label="近12周学习打卡热力图"
+    >
+      <h3 className="mb-2 text-sm font-medium text-slate-600 dark:text-slate-300">学习打卡 · 近 12 周</h3>
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="flex shrink-0 flex-col gap-1">
+            {week.map((d) => (
+              <div
+                key={d.date}
+                title={`${d.date} · ${d.minutes > 0 ? `${d.minutes} 分钟` : '未打卡'}`}
+                className={`h-3.5 w-3.5 rounded-sm transition-transform hover:scale-125 ${heatClass(d.minutes)}`}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-1 text-[10px] text-slate-400">
+        少
+        <span className={`h-3 w-3 rounded-sm ${heatClass(0)}`} />
+        <span className={`h-3 w-3 rounded-sm ${heatClass(15)}`} />
+        <span className={`h-3 w-3 rounded-sm ${heatClass(45)}`} />
+        <span className={`h-3 w-3 rounded-sm ${heatClass(90)}`} />
+        <span className={`h-3 w-3 rounded-sm ${heatClass(150)}`} />
+        多
+      </div>
+    </section>
+  )
+}
+
+function heatClass(minutes: number): string {
+  if (minutes <= 0) return 'bg-slate-100 dark:bg-slate-700'
+  if (minutes < 30) return 'bg-emerald-200 dark:bg-emerald-900'
+  if (minutes < 60) return 'bg-emerald-400 dark:bg-emerald-700'
+  if (minutes < 120) return 'bg-emerald-500 dark:bg-emerald-600'
+  return 'bg-emerald-600 dark:bg-emerald-500'
 }

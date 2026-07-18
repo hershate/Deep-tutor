@@ -375,6 +375,11 @@ export interface StudyStats {
 }
 export const getStudyStats = () => apiFetch<StudyStats>('/progress/stats/summary')
 
+// iter 139：打卡日历热力图——近 N 日按日分钟数（无打卡日补 0）
+export interface CalendarDay { date: string; minutes: number }
+export const getStatsCalendar = (days = 84) =>
+  apiFetch<{ items: CalendarDay[] }>(`/progress/stats/calendar?days=${days}`)
+
 export interface ProgressNode {
   node_id: string // knowledge_nodes.sid（plan 内容 knowledge_map 原始 id）
   name: string
