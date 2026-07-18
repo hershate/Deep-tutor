@@ -235,7 +235,7 @@ export default function PlanDetail() {
             id="export-format"
             value={exportFormat}
             onChange={(e) => setExportFormat(e.target.value as 'md' | 'slides' | 'ics' | 'anki' | 'pdf')}
-            className="rounded-lg border px-2 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="rounded-lg border px-2 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
           >
             <option value="md">Markdown</option>
             <option value="slides">幻灯片</option>
@@ -466,7 +466,7 @@ export default function PlanDetail() {
             id="regen-scope"
             value={regenScope}
             onChange={(e) => setRegenScope(e.target.value)}
-            className="rounded-lg border p-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+            className="rounded-lg border p-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900"
             disabled={regenLoading}
           >
             <option value="design_stages">阶段设计</option>
