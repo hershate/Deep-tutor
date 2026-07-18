@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import threading
 import time
@@ -78,6 +79,12 @@ def _secret() -> str:
         if _fallback_secret:  # double-checked：等锁期间另一线程已生成
             return _fallback_secret
         persisted = _load_or_create_persisted_secret()
+        if not persisted:
+            # 进程级随机兜底：重启后全部 JWT 失效——必须告警，否则运维无从察觉
+            logging.getLogger(__name__).warning(
+                "JWT secret 持久化失败（%s 不可写？），使用进程级随机密钥——重启后所有登录态失效",
+                settings.data_dir,
+            )
         _fallback_secret = persisted or secrets.token_hex(32)
         return _fallback_secret
 
