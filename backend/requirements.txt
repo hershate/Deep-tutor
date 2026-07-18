@@ -1,43 +1,44 @@
 # Deep-tutor 后端依赖（P0 范围）
+# 版本策略（err.md E3）：下限 = 功能所需最低版本，上限 = 下一个主版本
+# （主版本升级可能破坏构建，须经测试后人工放宽；上限不排除当前已装版本）。
 # Web 框架
-fastapi>=0.110
-uvicorn[standard]>=0.27
-python-multipart>=0.0.9          # 文件上传
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+python-multipart>=0.0.9,<1.0    # 文件上传
 
 # 校验 / 配置
-pydantic>=2.6
-pydantic-settings>=2.2
+pydantic>=2.6,<3.0
+pydantic-settings>=2.2,<3.0
 
 # 持久化
-SQLAlchemy>=2.0
-alembic>=1.13
+SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
 
 # AI 编排
-anthropic>=0.40
-pyjwt>=2.8                     # P4 多用户 JWT 认证（iter 57）
+anthropic>=0.40,<1.0
+pyjwt>=2.8,<3.0                   # P4 多用户 JWT 认证（iter 57）
 
 # 文档解析（P0 范围：PDF/Word/PPTX/Markdown/TXT/网页）
-marker-pdf>=1.10                 # PDF -> Markdown（marker_single CLI，--force_ocr；本地已装）
-python-docx>=1.1
-python-pptx>=0.6
-httpx>=0.27                      # 网页抓取 / Bing 搜索
-trafilatura>=1.8                 # 正文提取（可选，缺失则 stdlib HTML 转文本兜底）
-charset-normalizer>=3.3          # 编码检测（R25）
+marker-pdf>=1.10,<2.0             # PDF -> Markdown（marker_single CLI，--force_ocr；本地已装）
+python-docx>=1.1,<2.0
+python-pptx>=0.6,<2.0
+httpx>=0.27,<1.0                  # 网页抓取 / Bing 搜索
+trafilatura>=1.8,<3.0             # 正文提取（可选，缺失则 stdlib HTML 转文本兜底）
+charset-normalizer>=3.3,<4.0      # 编码检测（R25）
 
 # 多模态（P3；R9：缺失时对应入口禁用 + 提示安装，不影响其余功能）
-pytesseract>=0.3.10              # 图片 OCR（另需系统安装 tesseract-ocr 二进制）
-Pillow>=10.0                     # 图片读取（pytesseract 依赖）
-# faster-whisper>=1.0            # 音视频转写（可选：体积大 + 首次使用下载模型；用时装）
+pytesseract>=0.3.10,<1.0          # 图片 OCR（另需系统安装 tesseract-ocr 二进制）
+Pillow>=10.0,<13.0                # 图片读取（pytesseract 依赖）
+# faster-whisper>=1.0,<2.0        # 音视频转写（可选：体积大 + 首次使用下载模型；用时装）
 
 # 测试
-pytest>=8.0
-pytest-asyncio>=0.23
+pytest>=8.0,<10.0
+pytest-asyncio>=0.23,<1.0
 
 # 导出（P5）
-genanki==0.13.1                # Anki .apkg 卡片包生成（纯 Python）
-markdown>=3.5                  # md -> HTML（PDF 导出链路，纯 Python）
+genanki==0.13.1                   # Anki .apkg 卡片包生成（纯 Python）
+markdown>=3.5,<4.0                # md -> HTML（PDF 导出链路，纯 Python）
 
 # PDF 导出（plan/03 §一，R9 可选依赖）：Python 包 + 系统 Pango 库缺一不可，
 # 缺失时 API 自动降级 md + warning（export_pdf.pdf_available 探测）。
-# weasyprint>=60                 # pip 安装；Windows 另需 GTK 运行时，Linux 需 pango
-
+# weasyprint>=60,<70               # pip 安装；Windows 另需 GTK 运行时，Linux 需 pango

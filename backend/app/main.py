@@ -40,6 +40,21 @@ async def lifespan(app: FastAPI):
         log.warning(
             "功能级 key 缺失（生成/搜索将不可用直到配置）: %s", soft_missing
         )
+    # err.md E5：弱/默认 AUTH_TOKEN 告警（.env.example 的 change-me-please 忘改即弱认证）
+    if settings.auth_token.strip().lower() in {
+        "change-me-please",
+        "changeme",
+        "change-me",
+        "test",
+        "token",
+        "123456",
+        "password",
+    }:
+        log.warning(
+            "AUTH_TOKEN 为弱默认值（%r），任何猜到该值的人可调用全部 API——请改为随机长串 "
+            "（python -c \"import secrets; print(secrets.token_hex(32))\"）",
+            settings.auth_token,
+        )
     settings.ensure_dirs()
     # err.md C2：启动即执行 alembic 迁移（旧库增量加列/建表），不再仅依赖
     # scripts/start.* 的前置迁移；随后 init_db 兜底保证模型定义的表齐全

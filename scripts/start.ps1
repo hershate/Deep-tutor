@@ -10,13 +10,19 @@ foreach ($cand in @("python", "py")) {
     if (Get-Command $cand -ErrorAction SilentlyContinue) { $py = $cand; break }
 }
 if (-not $py) { throw "未找到 Python 3.11+，请先安装（https://www.python.org/downloads/）" }
+# err.md E2：前置版本校验（低版本建 venv 后到运行期才报错，排障困难）
+& $py -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+if ($LASTEXITCODE -ne 0) { throw "需要 Python 3.11+（当前：$(& $py -V 2>&1)）" }
 
 # 1. 虚拟环境 + 依赖（幂等：已安装则 pip 秒过）
-if (-not (Test-Path "backend\.venv")) {
+$venvPy = "backend\.venv\Scripts\python.exe"
+# err.md E1：检测 venv python 可执行而非目录存在——venv 创建被中断时目录在但
+# 无 python，此前后续运行跳过重建直接 pip 失败；残留半成品先清再建
+if (-not (Test-Path $venvPy)) {
+    if (Test-Path "backend\.venv") { Remove-Item -Recurse -Force "backend\.venv" }
     Write-Host "==> 创建虚拟环境 backend\.venv"
     & $py -m venv backend\.venv
 }
-$venvPy = "backend\.venv\Scripts\python.exe"
 Write-Host "==> 安装/校验后端依赖"
 & $venvPy -m pip install -q -r backend\requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }

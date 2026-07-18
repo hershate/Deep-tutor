@@ -8,13 +8,19 @@ cd "$(dirname "$0")/.."
 PY=python3
 command -v python3 >/dev/null 2>&1 || PY=python
 command -v "$PY" >/dev/null 2>&1 || { echo "错误：未找到 Python 3.11+，请先安装"; exit 1; }
+# err.md E2：前置版本校验（低版本建 venv 后到运行期才报错，排障困难）
+"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+  || { echo "错误：需要 Python 3.11+（当前：$("$PY" -V 2>&1)）"; exit 1; }
 
 # 1. 虚拟环境 + 依赖（幂等：已安装则 pip 秒过）
-if [ ! -d backend/.venv ]; then
+VENV_PY=backend/.venv/bin/python
+# err.md E1：检测 venv python 可执行而非目录存在——venv 创建被中断时目录在但
+# 无 python，此前后续运行跳过重建直接 pip 失败；残留半成品先清再建
+if [ ! -x "$VENV_PY" ]; then
+  [ -d backend/.venv ] && rm -rf backend/.venv
   echo "==> 创建虚拟环境 backend/.venv"
   "$PY" -m venv backend/.venv
 fi
-VENV_PY=backend/.venv/bin/python
 echo "==> 安装/校验后端依赖"
 "$VENV_PY" -m pip install -q -r backend/requirements.txt
 

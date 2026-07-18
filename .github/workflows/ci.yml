@@ -7,7 +7,12 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # err.md E4：Windows 矩阵（项目主开发/部署平台为 Windows，路径/换行差异需覆盖）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: backend
