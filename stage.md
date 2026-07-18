@@ -234,6 +234,11 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 115（功能线：错题重练，✅ 完成）**：答错题目可零成本原题重练（不消耗 LLM 额度）。**编号说明**：本切片代码注释自标 iter 114，与并行美化轨 iter 114（第 21 轮）撞号，本条按共享序号取 115。
+  - **后端**（commit `a7a5f6c`）：[plans.py](backend/app/api/plans.py) 新增 `GET /plans/{id}/quiz/wrong`——每题取最新一条 QuizAttempt（created_at 倒序、同刻 id 大者优先），`correct IS False` 计入；自评题（correct=None）与未作答题不计；全部作答单查询取回按 quiz 分组（防逐题 N+1）；响应复用 `_quiz_result` 形状（title 为「{topic}错题重练」）；P4 隔离他人方案 404。答错 -> 重练答对 -> 自动出列（无需刷新题）。
+  - **前端**（commit `f902bd6`）：[QuizModal.tsx](frontend/src/components/QuizModal.tsx) 加 `wrong` 模式（数据源换 `getWrongQuizzes`、加载文案「加载错题…」、无错题 🎉 空态引导去完整测验）；[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 测验旁「错题重练」次按钮（emerald 描边款，title 注明零额度），关闭后照常 progressKey+1 刷新看板；[api.ts](frontend/src/lib/api.ts) `getWrongQuizzes`。
+  - **测试**：[test_api_quiz_wrong.py](backend/tests/test_api_quiz_wrong.py) 4 例（q1 最新判错入选/q2 改对出列/q3 自评 None 不计/q4 未作答不计、无作答空态、他人 404+未鉴权 401、重练答对后 quiz_count 归零）。**验证**：后端全量 474 通过（470→474，+4）；ruff 零告警；`npm run build` 通过。
+
 - **2026-07-19 iter 114（前端美化第 21 轮：Wiki/笔记编辑器风格对齐）**：并行会话知识库笔记功能（commit `6b2b7de`）落成后走查：[Wiki.tsx](frontend/src/pages/Wiki.tsx) ①加载失败提示升级为品牌错误横幅（红边框 + 浅红底 + fade-in，原裸文字）；②「清除筛选」按钮补 `dark:border-slate-600`（原深色下边框沿用浅色系过亮）；③节点掌握度条过渡补 `duration-500 ease-out`（掌握度更新时宽度缓动而非跳变）。[NodeNoteEditor.tsx](frontend/src/components/NodeNoteEditor.tsx) 保存按钮对齐品牌主按钮模式（hover:blue-700 + shadow-md + 按压 .98 + disabled 还原，原 hover:blue-500/scale-95 变体）。**验证**：`npm run build` 通过。
 
 - **2026-07-19 iter 113（功能线：知识点笔记 node_notes，✅ 完成）**：个人 LLM Wiki 深化——知识节点可挂私人笔记，随备份迁移。**编号说明**：本切片代码注释自标 iter 105，与并行美化轨 iter 105（第 13 轮）撞号，本条按共享序号取 113。
