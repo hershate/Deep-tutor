@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getReviewDue, getStatsCalendar, getStudyStats, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -277,18 +277,30 @@ export default function Wiki() {
                         <span className="tabular-nums">{Math.round(n.mastery * 100)}%</span>
                       </div>
                     </Link>
-                    {/* 笔记开关（iter 105）：有笔记时 📝 常驻着色 */}
-                    <button
-                      onClick={() => setOpenNoteId((prev) => (prev === n.node_id ? null : n.node_id))}
-                      aria-expanded={openNoteId === n.node_id}
-                      aria-label={`${n.name} 笔记`}
-                      title={n.has_note ? '查看/编辑笔记' : '添加笔记'}
-                      className={`shrink-0 rounded-lg px-2 py-2 text-sm transition-all hover:bg-slate-100 active:scale-90 dark:hover:bg-slate-700 ${
-                        n.has_note ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'
-                      }`}
-                    >
-                      📝
-                    </button>
+                    <div className="flex shrink-0 flex-col items-end gap-1 px-1 py-1.5">
+                      {/* 快捷状态标记（iter 142）：点击循环 未开始->学习中->已掌握->未开始 */}
+                      <button
+                        onClick={() => cycleStatus(n)}
+                        disabled={statusBusyId !== null}
+                        aria-label={`${n.name} 当前 ${STATUS_LABEL[n.status]}，点击切换状态`}
+                        title="点击切换状态（未开始 → 学习中 → 已掌握）"
+                        className={`rounded-full px-2 py-0.5 text-xs transition-all hover:ring-2 hover:ring-blue-300 active:scale-95 disabled:opacity-50 dark:hover:ring-blue-700 ${STATUS_STYLE[n.status]}`}
+                      >
+                        {statusBusyId === n.node_id ? '…' : STATUS_LABEL[n.status]}
+                      </button>
+                      {/* 笔记开关（iter 105）：有笔记时 📝 常驻着色 */}
+                      <button
+                        onClick={() => setOpenNoteId((prev) => (prev === n.node_id ? null : n.node_id))}
+                        aria-expanded={openNoteId === n.node_id}
+                        aria-label={`${n.name} 笔记`}
+                        title={n.has_note ? '查看/编辑笔记' : '添加笔记'}
+                        className={`rounded-lg px-2 py-1 text-sm transition-all hover:bg-slate-100 active:scale-90 dark:hover:bg-slate-700 ${
+                          n.has_note ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'
+                        }`}
+                      >
+                        📝
+                      </button>
+                    </div>
                   </div>
                   {openNoteId === n.node_id && (
                     <NodeNoteEditor
