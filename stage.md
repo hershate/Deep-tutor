@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 128（前端美化第 29 轮：自学材料弹窗二次走查）**：[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) 选择重生成区（iter 98 功能）——①「重新生成选中单元」主按钮对齐品牌模式（hover:blue-700 + disabled:hover:shadow-sm/active:scale-100 还原，原 hover:blue-500 变体）；②按钮内选中计数包 `tabular-nums`（勾选时宽度不跳动）；③「全选/清空」「取消」按钮补 `dark:border-slate-600`。iter 116 走查遗漏的深水区，本轮清零。**验证**：`npm run build` 通过。
+
 - **2026-07-19 iter 127（功能线增量真机冒烟：iter 113-122 六切片，✅ 全过）**：:18942 开放模式 + 临时 DB/DATA_DIR 种子（1 方案 2 节点：节点一低掌握度+10 天前+笔记，节点二无笔记；1 题最新判错；今昨两天打卡）。**结果**：health ok；`/knowledge` has_note 一 True 二 False；`GET /knowledge/notes/1` 返回双行笔记 + updated_at；`PUT /knowledge/notes/2`（Python urllib 发 UTF-8）200 落库；`/plans/1/quiz/wrong` quiz_count=1 标题「冒烟主题错题重练」；`/progress/review/due` 到期 1 项（复习日 2026-07-10，方案标题正确）；`/progress/stats/summary` `{total:60, week:60, streak:2, logs:2}`；`/knowledge/export` 响应头 RFC 5987 `知识手册-20260719.md` + 内容 8 项断言全 PASS（标题/计数/分组/★必学/掌握度行/笔记双行引用块/PUT 后新笔记入手册）。**旧库升级路径**：alembic 建 a3b91c2e4f56 代旧库（无 node_notes）-> uvicorn 启动自动 upgrade 到 e5b21c8f90a3，node_notes 建表成功、health ok。**坑记**：①Git Bash curl `-d` 含中文按 GBK 发出 -> FastAPI 400 parsing body（非端点问题，Python urllib 验证通过）；②curl `-o /tmp/...` 落 MSYS 映射目录，Windows Python 读须用 `C:/Users/.../Temp/...` 全路径。冒烟后 PID 精确清理 + 临时目录删除（种子脚本一次性未入库）。
 
 - **2026-07-19 iter 126（前端美化第 28 轮：方案详情下拉聚焦态）**：[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 两个 `<select>`（导出格式 / 重生成起点）为全站最后无聚焦反馈的表单控件——补 `transition-shadow focus:ring-2 focus:ring-blue-500`，重生成起点另补 `disabled:opacity-50`（重生成中禁用态此前无视觉反馈）。iter 125 号预留给并行会话冒烟种子脚本（`smoke_seed_iter125.py`）。**验证**：`npm run build` 通过。
