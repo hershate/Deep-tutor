@@ -140,6 +140,50 @@ def list_knowledge(
     return {"items": items, "total": len(items), "stats": stats}
 
 
+@router.get("/notes")
+def list_notes(
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """个人笔记总览（iter 161，Wiki「笔记」视图）：当前用户全部节点笔记，更新近者在前。
+
+    content 截断为 300 字符预览（完整内容走 GET /notes/{node_id} 按需取）。
+    """
+    from app.api.plans import _load_plan_content
+
+    rows = (
+        db.query(models.NodeNote, models.KnowledgeNode)
+        .join(models.KnowledgeNode, models.NodeNote.node_id == models.KnowledgeNode.id)
+        .filter(models.NodeNote.user_id == user.id, models.NodeNote.content != "")
+        .order_by(models.NodeNote.updated_at.desc(), models.NodeNote.node_id)
+        .limit(limit)
+        .all()
+    )
+    topics: dict[int, str] = {}
+    items = []
+    for note, node in rows:
+        if node.plan_id not in topics:
+            plan = db.get(models.Plan, node.plan_id)
+            content = _load_plan_content(plan) if plan else {}
+            topics[node.plan_id] = str(
+                (content.get("intent") or {}).get("topic") or content.get("title") or ""
+            )
+        text = note.content or ""
+        items.append(
+            {
+                "node_id": node.id,
+                "node_name": node.name,
+                "plan_id": node.plan_id,
+                "plan_topic": topics[node.plan_id],
+                "content_preview": text[:300],
+                "truncated": len(text) > 300,
+                "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+            }
+        )
+    return {"items": items, "total": len(items)}
+
+
 # --- 知识手册导出（iter 116）：跨方案知识节点 + 笔记 -> 单个 Markdown 下载 ---
 
 _STATUS_LABEL = {"not_started": "未开始", "learning": "学习中", "done": "已掌握"}
