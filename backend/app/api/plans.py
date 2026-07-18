@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -1289,6 +1289,65 @@ async def generate_materials(
     if spec_out.status != "ok":
         result["warning"] = "自学材料规约生成降级，使用默认结构"
     return result
+
+
+@router.get("/{plan_id}/materials/export")
+def export_materials_zip(
+    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> Response:
+    """全案自学材料打包下载（iter 99，用户需求：整理好的学习材料能导出）：
+    zip = 00-路线图.md（index 文档，如有）+ 每单元一个 md（按 order 编号）。
+    单元内容经 read_unit_content 自动串联拆分子文件；无单元 -> 404。"""
+    import io
+    import zipfile
+    from urllib.parse import quote
+
+    plan, content = _plan_or_404(db, plan_id, user)
+    units = (
+        db.query(models.StudyUnit)
+        .filter_by(plan_id=plan.id)
+        .order_by(models.StudyUnit.order)
+        .all()
+    )
+    if not units:
+        raise ApiError("not_found", "该方案尚无自学材料，请先生成", status=404)
+
+    topic = (content.get("intent") or {}).get("topic") or "学习方案"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        index_md = _read_materials_index(plan.session_id)
+        if index_md:
+            zf.writestr("00-路线图.md", index_md)
+        for i, u in enumerate(units, 1):
+            md = ""
+            if u.materials:
+                try:
+                    md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
+                except OSError:
+                    log.warning("导出材料：单元 %s 内容文件缺失", u.id)
+            zf.writestr(
+                f"{i:02d}-{_safe_download_name(u.title)}.md",
+                md or f"# {u.title}\n\n（本单元暂无内容）",
+            )
+    filename = f"{_safe_download_name(topic)}-自学材料.zip"
+    log.info("材料导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(buf.getvalue()) / 1024)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        # RFC 5987：中文文件名经 filename* 百分号编码（UA 不支持时回退 ASCII 名）
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"materials-{plan_id}.zip\"; "
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
+
+
+def _safe_download_name(name: str) -> str:
+    """文件名清洗：剔除 Windows/zip 非法字符，限长 50。"""
+    cleaned = "".join("_" if c in '\\/:*?"<>|' else c for c in name).strip(". ") or "材料"
+    return cleaned[:50]
 
 
 @router.get("/{plan_id}/materials")
