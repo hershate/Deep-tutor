@@ -1,11 +1,13 @@
 // 测验弹窗（P2，plan/02 §8：choice 服务器判分（/quizzes/{id}/submit，iter 42）；fill/short 展示参考答案自评）。
 // 打开即生成（幂等：已持久化直接返回）；全部选择题判定后按知识点聚合正确率回写进度（POST /progress，iter 40）。
+// wrong 模式（iter 114 错题重练）：GET /plans/{id}/quiz/wrong 取最近作答判错的题，零 LLM 成本。
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, generateQuiz, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
+import { ApiError, generateQuiz, getWrongQuizzes, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
 
 interface Props {
   planId: number
   onClose: () => void
+  wrong?: boolean // 错题重练模式
 }
 
 interface AnswerState {
@@ -17,7 +19,7 @@ interface AnswerState {
 
 const TYPE_LABEL: Record<string, string> = { choice: '单选', fill: '填空', short: '简答' }
 
-export default function QuizModal({ planId, onClose }: Props) {
+export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   const [loading, setLoading] = useState(true)
   const [title, setTitle] = useState('')
   const [quizzes, setQuizzes] = useState<QuizItemData[]>([])
@@ -31,7 +33,8 @@ export default function QuizModal({ planId, onClose }: Props) {
   useEffect(() => {
     const ac = new AbortController()
     acRef.current = ac
-    generateQuiz(planId, ac.signal)
+    const fetcher = wrong ? getWrongQuizzes(planId, ac.signal) : generateQuiz(planId, ac.signal)
+    fetcher
       .then((r) => {
         if (ac.signal.aborted) return
         setTitle(r.title)
@@ -46,7 +49,7 @@ export default function QuizModal({ planId, onClose }: Props) {
         if (!ac.signal.aborted) setLoading(false)
       })
     return () => ac.abort()
-  }, [planId])
+  }, [planId, wrong])
 
   // Esc 关闭
   useEffect(() => {
@@ -164,12 +167,17 @@ export default function QuizModal({ planId, onClose }: Props) {
           {loading && (
             <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400" role="status">
               <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
-              出题中…（按知识点组织题目，约需数十秒）
+              {wrong ? '加载错题…' : '出题中…（按知识点组织题目，约需数十秒）'}
             </p>
           )}
           {error && (
             <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
               {error}
+            </div>
+          )}
+          {!loading && !error && quizzes.length === 0 && wrong && (
+            <div className="animate-fade-in rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+              🎉 暂无错题——全部答对或尚未作答，去完整测验挑战一下吧
             </div>
           )}
           {!loading && !error && (

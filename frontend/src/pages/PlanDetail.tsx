@@ -68,6 +68,7 @@ export default function PlanDetail() {
   const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki' | 'pdf'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
+  const [showWrongQuiz, setShowWrongQuiz] = useState(false) // 错题重练（iter 114）
   const [share, setShare] = useState<ShareStatus | null>(null)
   const [shareMsg, setShareMsg] = useState('')
   const [progressKey, setProgressKey] = useState(0) // 测验回写后刷新进度看板
@@ -275,6 +276,13 @@ export default function PlanDetail() {
           >
             测验
           </button>
+          <button
+            onClick={() => setShowWrongQuiz(true)}
+            title="只练最近答错的题（不消耗 API 额度）"
+            className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 shadow-sm transition-all hover:bg-emerald-50 hover:shadow-md active:scale-[.98] dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
+          >
+            错题重练
+          </button>
         </div>
       </div>
       {exportUrl && <div className="text-xs text-slate-500 dark:text-slate-400">已导出: {exportUrl}</div>}
@@ -296,6 +304,16 @@ export default function PlanDetail() {
           onClose={() => {
             setShowQuiz(false)
             setProgressKey((k) => k + 1) // 测验可能已回写进度，关闭后刷新看板
+          }}
+        />
+      )}
+      {showWrongQuiz && planId && (
+        <QuizModal
+          wrong
+          planId={Number(planId)}
+          onClose={() => {
+            setShowWrongQuiz(false)
+            setProgressKey((k) => k + 1) // 重练同样回写进度
           }}
         />
       )}

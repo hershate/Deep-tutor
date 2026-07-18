@@ -296,6 +296,13 @@ export const generateQuiz = (planId: number, signal?: AbortSignal) =>
     { method: 'POST', body: JSON.stringify({}), signal, timeoutMs: 300_000 },
   )
 
+// 错题重练（iter 114）：最近作答判错的题原题重练，零 LLM 成本（同步 GET）
+export const getWrongQuizzes = (planId: number, signal?: AbortSignal) =>
+  apiFetch<{ title: string; quiz_count: number; quizzes: QuizItemData[]; warning?: string }>(
+    `/plans/${planId}/quiz/wrong`,
+    { signal },
+  )
+
 // 提交作答（plan/03 §一）：choice 服务器判分；fill/short 自评 correct=null
 export const submitQuiz = (quizId: number, userAnswer: Record<string, unknown>) =>
   apiFetch<{ correct: boolean | null; answer: string; explanation: string }>(
