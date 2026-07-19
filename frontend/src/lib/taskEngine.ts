@@ -151,6 +151,8 @@ interface AttachOpts {
   failFast?: boolean
   /** 任何 4xx 抛给调用方（clarify 页内联错误）。 */
   rethrow4xx?: boolean
+  /** 收到首个流事件时回调（clarify 提交后「成功发起即跳进度页」的时机信号）。 */
+  onFirstEvent?: () => void
 }
 
 /** 挂接一条 SSE 流到台账任务：事件 -> applyEvent，相位迁移 -> 副作用，异常按 opts 分流。 */
@@ -163,7 +165,10 @@ function attachStream(taskId: string, start: StreamStart, opts: AttachOpts = {})
   return Promise.resolve(
     start(
       (event, data) => {
-        receivedAny = true
+        if (!receivedAny) {
+          receivedAny = true
+          opts.onFirstEvent?.()
+        }
         const prev = entryOf(taskId)?.phase
         store().applyEvent(taskId, event, data)
         onPhaseTransition(taskId, prev, entryOf(taskId)?.phase)
@@ -328,14 +333,25 @@ export const engine = {
     }
   },
 
-  /** 提交澄清回答（流与 generate 同构；409 状态冲突抛给调用方内联展示）。 */
+  /** 提交澄清回答（流与 generate 同构；409 状态冲突抛给调用方内联展示）。
+   *  返回的 Promise 在「成功发起（收到首个流事件）」时兑现——调用方据此跳进度页；
+   *  启动即败（409 等）则拒绝，流后续生命周期由引擎内部托管。 */
   async submitClarify(sessionId: number, answers: Record<string, unknown>): Promise<void> {
     const id = planTaskId(sessionId)
     store().upsert({ id, kind: 'plan', sessionId })
     store().update(id, { phase: 'running', questions: undefined })
-    await attachStream(id, (onEvent, signal) => clarifyStream(sessionId, answers, onEvent, signal), {
-      rethrow4xx: true,
+    let onFirst: () => void = () => undefined
+    const started = new Promise<void>((res) => {
+      onFirst = res
     })
+    const done = attachStream(id, (onEvent, signal) => clarifyStream(sessionId, answers, onEvent, signal), {
+      rethrow4xx: true,
+      onFirstEvent: () => onFirst(),
+    })
+    // race 之后 done 的拒绝已被 race 观察过一次；race 已兑现时的迟到拒绝补吞防空 unhandled
+    const raced = Promise.race([started, done])
+    void done.catch(() => undefined)
+    await raced
   },
 
   /** 取消生成（后端取消编排器任务；本地流会经扇出收到 error{cancelled}）。 */
