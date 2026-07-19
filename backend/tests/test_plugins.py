@@ -391,6 +391,83 @@ def test_learning_log_added_event_emitted(client, auth_headers):
     assert payload["date"]  # ISO 日期非空
 
 
+# --- v1.0.0 首批三事件 payload 契约回填（iter 208：此前仅事件名有守卫，payload 无断言）---
+
+
+def test_plan_created_event_payload(client, auth_headers):
+    """方案生成落库 -> plan_created 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    from test_api_plans_materials import _make_plan
+
+    from app.plugins import bus
+
+    captured = []
+    bus.on("plan_created", captured.append)
+
+    plan_id = _make_plan(client, auth_headers)
+
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload["plan_id"] == plan_id
+    assert isinstance(payload["session_id"], int)
+    assert payload["version"] >= 1  # 生成/重生成/重试统一收口，版本号递增
+    assert payload["topic"] == "React"  # 罐头 intent topic
+
+
+def test_progress_updated_event_payload(client, auth_headers):
+    """单节点进度更新 -> progress_updated 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    from test_api_plans_materials import _make_plan
+
+    from app.plugins import bus
+
+    captured = []
+    bus.on("progress_updated", captured.append)
+
+    plan_id = _make_plan(client, auth_headers)
+    r = client.post(
+        "/api/progress",
+        json={"plan_id": plan_id, "node_id": "k1", "status": "done"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload["plan_id"] == plan_id
+    assert payload["node_id"] == "k1"  # 对外暴露 sid 而非 DB 主键
+    assert payload["status"] == "done"
+    assert isinstance(payload["user_id"], int)
+    assert isinstance(payload["mastery"], float)
+
+
+def test_quiz_submitted_event_payload(client, auth_headers, monkeypatch):
+    """测验作答提交 -> quiz_submitted 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    from test_api_quizzes import _QuizProvider, _gen_quiz, _make_plan, _quizzes_of
+
+    from app.plugins import bus
+
+    captured = []
+    bus.on("quiz_submitted", captured.append)
+
+    plan_id = _make_plan(client, auth_headers, monkeypatch)
+    _gen_quiz(client, auth_headers, monkeypatch, plan_id, _QuizProvider())
+    quiz = next(q for q in _quizzes_of(plan_id) if q.type and q.type.value == "choice")
+
+    r = client.post(
+        f"/api/quizzes/{quiz.id}/submit",
+        json={"user_answer": {"selected": "const"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload["quiz_id"] == quiz.id
+    assert payload["plan_id"] == plan_id
+    assert payload["type"] == "choice"
+    assert payload["correct"] is True  # selected 命中罐头答案
+    assert isinstance(payload["user_id"], int)
+
+
 # --- 仓库自带示例插件防腐（API.md §8.7 指向的示例必须始终可加载/可运行）---
 
 
