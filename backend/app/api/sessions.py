@@ -93,6 +93,7 @@ class SessionStatusOut(BaseModel):
     updated_at: str | None  # 状态行更新时间（无状态行为 None）
     has_materials: bool
     latest_plan: LatestPlanOut | None
+    error: dict | None = None  # 终态错误详情 {code, message}（iter 184 B4 last_error；无/空为 None）
     live: dict | None = None  # 运行中实时进度（iter 185 B5 填；非 running 恒 None）
 
 
@@ -127,6 +128,7 @@ def _session_status_out(
     latest: models.Plan | None,
     has_materials: bool,
 ) -> SessionStatusOut:
+    last_error = (state.last_error or {}) if state is not None else {}
     return SessionStatusOut(
         session_id=sess.id,
         title=sess.title or "",
@@ -139,6 +141,7 @@ def _session_status_out(
             if latest is not None
             else None
         ),
+        error=(last_error or None),
     )
 
 

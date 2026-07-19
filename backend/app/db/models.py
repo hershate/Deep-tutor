@@ -157,6 +157,8 @@ class OrchestratorState(Base):
     )
     current_tool: Mapped[str | None] = mapped_column(String(64))
     partial_plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    # iter 184 B4：终态错误详情 {code, message}（done 清空 {}；列表/回放/重试展示用）
+    last_error: Mapped[dict] = mapped_column(JSON, default=dict)
     tool_call_ids: Mapped[list] = mapped_column(JSON, default=list)
     budget_used: Mapped[float] = mapped_column(Float, default=0.0)
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")

@@ -259,10 +259,13 @@ def _terminal_event(
             return "clarify_needed", {"questions": questions}
         return None
     if state.status in (models.OrchestratorStatus.error, models.OrchestratorStatus.interrupted):
+        # iter 184 B4：回放持久化的真实错误详情（此前笼统 previous_failed）；retryable 供前端显示重试入口
+        le = state.last_error or {}
         return "error", {
-            "code": "previous_failed",
-            "message": "上次生成未完成，请返回首页重新生成",
+            "code": le.get("code") or "previous_failed",
+            "message": le.get("message") or "上次生成未完成，可重试",
             "stage": "",
+            "retryable": True,
         }
     return None
 
@@ -329,6 +332,19 @@ def generate(
         check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, body.session_id, raw_text)
 
+    return _start_full_generation(stream, body.session_id, raw_text, parsed, request, user)
+
+
+def _start_full_generation(
+    stream: "_SessionStream",
+    session_id: int,
+    raw_text: str,
+    parsed: list[dict],
+    request: Request,
+    user: User,
+) -> StreamingResponse:
+    """全量生成启动（iter 184 B4 抽取，generate 与 retry 复用）：
+    拼接已解析资料 -> 组装 args/initial_upstream -> 返回生成 SSE 流。"""
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
     if len(concatenated) > _MAX_MATERIALS_TOTAL_CHARS:
         concatenated = concatenated[:_MAX_MATERIALS_TOTAL_CHARS] + "\n…[资料总量超限，已截断]"
@@ -347,11 +363,42 @@ def generate(
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed_metas}}
     return StreamingResponse(
         _run_start(
-            stream, body.session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
+            stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+@router.post("/{session_id}/retry")
+def retry(
+    session_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """失败/中断后重试（iter 184 B4）：以持久化的原始输入（partial_plan.raw_text）重新全量生成。
+
+    - 仅 error/interrupted 终态可重试（running/done/paused_clarify -> 409）；
+    - 原始需求与材料均丢失（B4 前的旧失败会话）-> 409 引导回首页；
+    - 响应即标准生成 SSE 流（事件与 /generate 完全一致，前端同一消费路径）。
+    """
+    get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
+    parsed = _load_parsed_materials(db, session_id)
+    with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
+        state = db.get(models.OrchestratorState, session_id)
+        if state is None or state.status not in (
+            models.OrchestratorStatus.error,
+            models.OrchestratorStatus.interrupted,
+        ):
+            raise ApiError("conflict", "仅失败或中断的会话可重试", status=409)
+        raw_text = ((state.partial_plan or {}).get("raw_text") or "")[:_MAX_RAW_TEXT_CHARS]
+        if not raw_text and not any(p["text"] for p in parsed):
+            raise ApiError("conflict", "无法重试：原始需求已丢失，请返回首页重新生成", status=409)
+        _check_generate_quota(db, user, session_id)
+        check_daily_budget(db, user.id)
+        stream = _occupy_generation(db, session_id, raw_text)
+    return _start_full_generation(stream, session_id, raw_text, parsed, request, user)
 
 
 @router.post("/{session_id}/clarify")
@@ -518,7 +565,14 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 stream.mark_terminal(eid)
             return
         if task.cancelled():
-            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            # iter 184 B4：取消亦持久化原始输入与错误详情（可重试）
+            partial = {"raw_text": stream.raw_text, "outputs": {}}
+            _set_state(
+                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                partial=partial, last_event_id=str(stream.seq),
+                last_error={"code": "cancelled", "message": "生成已取消"},
+                budget_used=stream.budget.spent if stream.budget else 0.0,
+            )
             eid = stream.publish("error", {"code": "cancelled", "message": "生成已取消", "stage": ""})
             stream.mark_terminal(eid)
             return
@@ -526,7 +580,13 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             result = task.result()
         except Exception as exc:  # noqa: BLE001
             log.exception("orchestrator 任务异常: %s", exc)
-            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            partial = {"raw_text": stream.raw_text, "outputs": {}}
+            _set_state(
+                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                partial=partial, last_event_id=str(stream.seq),
+                last_error={"code": "internal_error", "message": "生成失败"},
+                budget_used=stream.budget.spent if stream.budget else 0.0,
+            )
             eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
             stream.mark_terminal(eid)
             return
@@ -537,7 +597,10 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             data = {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(cost, 6)}}
             eid = stream.publish("done", data)
             stream.mark_terminal(eid)
-            _set_state(db, session_id, models.OrchestratorStatus.done, stream.trace_id, last_event_id=str(stream.seq))
+            _set_state(
+                db, session_id, models.OrchestratorStatus.done, stream.trace_id,
+                last_event_id=str(stream.seq), last_error={}, budget_used=cost,
+            )
             # iter 184 B3：自动标题回填——空标题/「学习方案」/raw_text 截断前缀标题
             # （Home 传 rawText.slice(0,40)）-> intent.topic；手工标题不满足前缀条件不覆盖
             intent_out = result.outputs.get("understand_intent")
@@ -561,6 +624,8 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 stream.trace_id,
                 partial=partial,
                 last_event_id=str(stream.seq),
+                last_error={},
+                budget_used=stream.budget.spent if stream.budget else 0.0,
             )
             # clarify_needed 已由编排器 emit（stream.seq 即其 id）；标记终态使流结束
             stream.mark_terminal(stream.seq)
@@ -569,7 +634,17 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             data = {"code": "generation_failed", "message": msg, "stage": ""}
             eid = stream.publish("error", data)
             stream.mark_terminal(eid)
-            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            # iter 184 B4：失败亦持久化原始输入与已产出 outputs（可重试；续跑升级留路）
+            partial = {
+                "raw_text": stream.raw_text,
+                "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
+            }
+            _set_state(
+                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                partial=partial, last_event_id=str(stream.seq),
+                last_error={"code": "generation_failed", "message": msg},
+                budget_used=stream.budget.spent if stream.budget else 0.0,
+            )
     except Exception:  # noqa: BLE001  持久化失败不阻塞流；兜底发终态防挂死
         log.exception("finalize 异常 session=%s", session_id)
         if stream.terminal_id is None:
@@ -605,7 +680,13 @@ async def _run_start(
         stream.mark_terminal(eid)
         db = SessionLocal()
         try:  # err.md A22：try/finally 保证 Session 关闭
-            _set_state(db, session_id, models.OrchestratorStatus.error, stream.trace_id, last_event_id=str(stream.seq))
+            # iter 184 B4：无 provider 失败亦持久化原始输入（可重试）
+            _set_state(
+                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                partial={"raw_text": stream.raw_text, "outputs": {}},
+                last_event_id=str(stream.seq),
+                last_error={"code": "no_llm_provider", "message": str(exc)[:500]},
+            )
         finally:
             db.close()
         _schedule_cleanup(session_id)
@@ -673,6 +754,8 @@ def _set_state(
     trace_id: str,
     partial: dict | None = None,
     last_event_id: str | None = None,
+    last_error: dict | None = None,
+    budget_used: float | None = None,
 ) -> None:
     state = db.get(models.OrchestratorState, session_id)
     if state is None:
@@ -685,6 +768,13 @@ def _set_state(
         state.partial_plan = partial
     if last_event_id is not None:
         state.last_event_id = last_event_id
+    # iter 184 B4：错误详情持久化（done/paused 清空 {}）+ 启用死列 budget_used；
+    # current_tool 在状态迁移点统一清空（运行中的实时当前工具由 _STREAMS 内存提供，见 B5）
+    if last_error is not None:
+        state.last_error = last_error
+    if budget_used is not None:
+        state.budget_used = budget_used
+    state.current_tool = None
     db.commit()
 
 

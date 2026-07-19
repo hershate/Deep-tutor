@@ -127,6 +127,19 @@ def test_stamp_provider_profiles_generation(tmp_path):
     assert "username" in user_cols
 
 
+def test_stamp_user_prefs_generation(tmp_path):
+    """b4e19f0c7a25 代（iter 184 B4 新增探测）：user_prefs 在但 orchestrator_state 无 last_error。"""
+    url = _url(tmp_path)
+    command.upgrade(_alembic_config(url), "b4e19f0c7a25")
+    _drop_version_table(url)
+
+    assert detect_stamp(url) == "b4e19f0c7a25"
+    run_migrations(url)
+    assert _version(url) == HEAD
+    cols = {c["name"] for c in inspect(create_engine(url)).get_columns("orchestrator_state")}
+    assert "last_error" in cols
+
+
 def test_run_migrations_preserves_app_logging(tmp_path):
     """iter 90 回归：env.py 模板自带的 fileConfig 默认 disable_existing_loggers=True，
     应用进程内跑迁移（lifespan -> run_migrations）曾把 deep_tutor/uvicorn 等既有

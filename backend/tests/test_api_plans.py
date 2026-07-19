@@ -296,7 +296,7 @@ def test_generate_error_fast_path(client, auth_headers, monkeypatch):
     )
     assert any(e == "error" for e, _ in _parse_sse(r1.text))
 
-    # 重连：回放终态 error（previous_failed），不重跑（_raise 不会再被调用）
+    # 重连：回放终态 error（iter 184 B4：带持久化的真实错误码 + retryable），不重跑（_raise 不会再被调用）
     r2 = client.post(
         "/api/plans/generate",
         json={"session_id": sid, "raw_text": "x"},
@@ -305,7 +305,8 @@ def test_generate_error_fast_path(client, auth_headers, monkeypatch):
     assert r2.status_code == 200, r2.text
     ev2 = _parse_sse(r2.text)
     assert len(ev2) == 1 and ev2[0][0] == "error", ev2
-    assert ev2[0][1]["code"] == "previous_failed"
+    assert ev2[0][1]["code"] == "no_llm_provider"
+    assert ev2[0][1]["retryable"] is True
 
 
 def test_cancel_no_running_generation(client, auth_headers):
