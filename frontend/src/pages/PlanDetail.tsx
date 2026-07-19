@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import MaterialsModal from '../components/MaterialsModal'
 import MaterialsPanel from '../components/MaterialsPanel'
 import EmptyState from '../components/EmptyState'
@@ -67,6 +67,11 @@ export default function PlanDetail() {
   const [exportBusy, setExportBusy] = useState(false) // err.md D8：导出防重复提交
   const [exportFormat, setExportFormat] = useState<'md' | 'slides' | 'ics' | 'anki' | 'pdf'>('md')
   const [showMaterials, setShowMaterials] = useState(false)
+  // iter 192 F7：?materials=1 深链自动开材料弹窗（任务中心/终态 toast「打开」跳转用）
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    if (searchParams.get('materials') === '1') setShowMaterials(true)
+  }, [searchParams])
   const [showQuiz, setShowQuiz] = useState(false)
   const [showWrongQuiz, setShowWrongQuiz] = useState(false) // 错题重练（iter 114）
   const [share, setShare] = useState<ShareStatus | null>(null)
@@ -369,6 +374,7 @@ export default function PlanDetail() {
       {showMaterials && planId && (
         <MaterialsModal
           planId={Number(planId)}
+          planTitle={plan.intent?.topic}
           onClose={() => setShowMaterials(false)}
           onOpenQuiz={() => {
             setShowMaterials(false) // 「去测验」：关材料弹窗开测验弹窗（plan/07 §六 检查理解可跳测验）
