@@ -866,7 +866,7 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
             "plan_id": plan.id,
             "session_id": session_id,
             "version": plan.version,
-            "topic": str((plan_dict or {}).get("topic") or ""),
+            "topic": str(((plan_dict or {}).get("intent") or {}).get("topic") or ""),
         },
     )
     return plan.id
