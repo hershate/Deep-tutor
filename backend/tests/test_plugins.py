@@ -309,6 +309,11 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
         r = client.get("/api/plugins", headers=auth_headers)
         assert r.status_code == 200, r.text
         body = r.json()
+        # 响应结构契约（API.md §8.6 示例键集合；前端插件管理页直接消费，键集合锁死）
+        assert set(body) == {"api_version", "plugins", "subscribed_events"}
+        for row in body["plugins"]:
+            assert set(row) == {"id", "name", "version", "state", "error", "file", "routes", "events", "tools"}
+        assert isinstance(body["subscribed_events"], list)
         assert body["api_version"] == "1.2.0"
         rows = {p["id"]: p for p in body["plugins"]}
         assert rows["boot"]["state"] == "loaded"
