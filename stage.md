@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）；「后端启动即死」实机故障已修复——alembic fileConfig 日志劫持 + 旧脚本模板 .env 占位值锁死登录双根因（iter 90）。**插件 API 基线已立（iter 196-199）**：前端 `window.DeepTutor` v1.2.0 + 后端 `plugins/` 目录插件系统 v1.0.0，契约与开发规范见 [API.md](API.md)（双版本线、只增不改）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 插件生态增强（热重载、更多插槽与核心事件、前端插件管理 UI）/ 用户新需求。详见 §五 iter 199-196、90/89 条。
+**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）；「后端启动即死」实机故障已修复——alembic fileConfig 日志劫持 + 旧脚本模板 .env 占位值锁死登录双根因（iter 90）。**插件 API 基线已立并持续演进（iter 196-203）**：前端 `window.DeepTutor` v1.3.0 + 后端 `plugins/` 目录插件系统 v1.2.0，契约与开发规范见 [API.md](API.md)（双版本线、只增不改）；**前端插件管理界面已落地（iter 204，/plugins 页）**。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 插件生态增强（热重载、更多插槽与核心事件——须过新增门槛）/ 用户新需求。详见 §五 iter 204-196、90/89 条。
 
 ---
 
@@ -233,6 +233,8 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-19 iter 204（前端插件管理界面，✅ 完成）**：用户需求「在前端添加插件管理界面，让用户可以可视化的直接管理加载的插件」。新增 [Plugins.tsx](frontend/src/pages/Plugins.tsx) 三区块——① **前端插件**：URL 输入 + 加载按钮（`plugins.load` 持久化，刷新自动加载）+ 已持久化列表逐条移除（`plugins.unload` + toast 提示刷新清副作用）+ 安全警示（插件以页面完整权限运行，只加载信任 URL）；② **当前生效**：皮肤下拉即选即用（`skins.list/active/apply`，订阅注册表即时刷新）+ 各插槽小组件计数与 id 清单（`widgets.slots/list`，插槽名映射中文标签）；③ **后端插件状态（管理员只读）**：useQuery 拉 `GET /api/plugins`——403 非管理员显示「仅管理员可见」而非报错，加载/失败态分列，逐插件 ✅/❌ + id/version/error + 路由/事件/工具计数 + API 版本 + 安装指引（`.py` 入 `plugins/` 重启，详见 plugins/README.md 与 API.md）。支撑改动：[plugins.ts](frontend/src/lib/plugins.ts) 内部导出 `pluginsApi`（与 `window.DeepTutor.plugins` 同一对象）；[api.ts](frontend/src/lib/api.ts) 新增 `BackendPluginStatus` + `getBackendPlugins()`。接入：[App.tsx](frontend/src/App.tsx) `/plugins` 路由 + [Layout.tsx](frontend/src/components/Layout.tsx) 侧栏导航 🧩 插件（设置之前）。**纯应用 UI 复用既有插件 API，无契约变更、无版本号变动、API.md 无需更新**。**终验**：前端 `npm run build` 通过（tsc 零错，主包 260.51kB）。commit `e926660` `9ae7b80` `684825e`。**真机待用户确认**：加载一个示例插件 URL 后皮肤/小组件即时出现在「当前生效」区；管理员账号可见后端插件列表，普通账号显示「仅管理员可见」。
 
 - **2026-07-19 iter 203（后端插件 API v1.2.0：learning_log_added 事件，✅ 完成）**：用户行为事件目录最后一块拼图——节点进度有 progress_updated、打卡（时间维度独立动作）却无事件，插件无法做外部习惯追踪同步/激励反馈/打卡 webhook。[progress.py](backend/app/api/progress.py) 打卡端点埋点 `{user_id, plan_id, log_id, date, minutes, note}`；API_VERSION 1.1.0→1.2.0；[API.md](API.md) 事件清单/版本历史同步。测试 +1（payload 契约）。**终验**：插件+进度涉及面 36 测试全过、ruff 零告警。commit `fb0707b`。事件目录至此覆盖：应用生命周期（startup/shutdown）+ 方案（plan_created）+ 材料（materials_completed）+ 进度（progress_updated）+ 测验（quiz_submitted）+ 打卡（learning_log_added）——**后续新增事件须过「明确插件用例 + 现有目录无覆盖」门槛，防目录膨胀**。
 
