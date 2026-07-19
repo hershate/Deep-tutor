@@ -253,10 +253,14 @@ def _py_registry(order: list[str], validate_plan_fn=None, design_stages_fn=None)
 def test_orchestrator_pipeline_order_and_done():
     order: list[str] = []
     reg = _py_registry(order)
-    orch = Orchestrator(reg, _ctx(registry=reg))
+    events: list[tuple] = []
+    orch = Orchestrator(reg, _ctx(registry=reg), event_cb=lambda e, d: events.append((e, d)))
     result = asyncio.run(orch.run({}))
     assert result.status == "done"
     assert order == PIPELINE  # 按固定顺序执行
+    # iter 184 B2：主流程事件 step_index 与 PIPELINE 顺序一致、attempt=1
+    starts = [(d["tool"], d["step_index"], d["total_steps"], d["attempt"]) for e, d in events if e == "tool_start"]
+    assert starts == [(name, i + 1, len(PIPELINE), 1) for i, name in enumerate(PIPELINE)]
     # _assemble 组装完整方案（各组件聚合，非 export_plan 的 file_url）
     assert result.plan["intent"]["topic"] == "Go"
     assert result.plan["validation_report"]["passed"] is True
@@ -314,6 +318,16 @@ def test_orchestrator_feedback_loop_reruns_design_stages():
     assert order.count("validate_plan") == 2
     # 触发了 warn 事件
     assert any(e == "warn" for e, _ in events)
+    # iter 184 B2：事件携带步骤序号与重跑轮次
+    starts = [(d["tool"], d["step_index"], d["total_steps"], d["attempt"]) for e, d in events if e == "tool_start"]
+    # 主流程首发 attempt=1，序号与 PIPELINE 全局位置一致
+    assert ("design_stages", PIPELINE.index("design_stages") + 1, len(PIPELINE), 1) in starts
+    # 反馈循环重跑 attempt=2（design_stages 与其下游 validate_plan 均重跑）
+    assert ("design_stages", PIPELINE.index("design_stages") + 1, len(PIPELINE), 2) in starts
+    assert ("validate_plan", PIPELINE.index("validate_plan") + 1, len(PIPELINE), 2) in starts
+    # tool_end 同样携带
+    ends = [(d["tool"], d["attempt"]) for e, d in events if e == "tool_end"]
+    assert ("design_stages", 2) in ends
 
 
 def test_orchestrator_budget_interrupts():

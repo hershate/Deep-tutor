@@ -164,7 +164,9 @@ class Orchestrator:
                     if not target or target not in PIPELINE:
                         break
                     self._emit("warn", {"code": "validation_failed", "message": f"反馈循环第 {rounds} 轮，重跑 {target}"})
-                    reran, rerun_err = await self._rerun_from(target, args_by_tool, outputs, fixes=out.data.get("fixes", []))
+                    reran, rerun_err = await self._rerun_from(
+                        target, args_by_tool, outputs, fixes=out.data.get("fixes", []), attempt=rounds + 1
+                    )
                     call_count += reran
                     if rerun_err is not None:
                         # err.md B10：重跑链路工具 error 不得被吞——此前重跑未到达
@@ -204,27 +206,32 @@ class Orchestrator:
         args_by_tool: dict[str, dict[str, Any]],
         outputs: dict[str, ToolOutput],
         fixes: list[str] | None = None,
+        attempt: int = 1,
     ) -> ToolOutput:
         tool = self.registry.get(name)
+        # iter 184 B2：事件携带步骤序号（前端进度条 i/N + 反馈循环重跑轮次标识）。
+        # step_index 为 PIPELINE 全局序号（局部重生成如 design_stages 起 = 4/8，语义自洽）；
+        # attempt：主流程首发 1，validate 反馈循环重跑 2/3。向后兼容（旧前端忽略新字段）。
+        step = {"tool": name, "step_index": PIPELINE.index(name) + 1, "total_steps": len(PIPELINE), "attempt": attempt}
         # 字段覆盖检查
         missing = check_field_coverage(tool, outputs)
         if missing:
-            self._emit("tool_start", {"tool": name})
+            self._emit("tool_start", dict(step))
             out = ToolOutput(
                 tool=name,
                 status="error",
                 errors=[ToolError(code="missing_upstream_field", message=f"缺少上游字段: {missing}")],
             )
-            self._emit("tool_end", {"tool": name, "status": "error", "metadata": {}})
+            self._emit("tool_end", {**step, "status": "error", "metadata": {}})
             return out
 
-        self._emit("tool_start", {"tool": name})
+        self._emit("tool_start", dict(step))
         inp = self._build_input(name, args_by_tool, outputs, fixes)
         out = await run_tool(name, inp, self.ctx)
         self._emit(
             "tool_end",
             {
-                "tool": name,
+                **step,
                 "status": out.status,
                 "metadata": out.metadata.model_dump(),
             },
@@ -237,6 +244,7 @@ class Orchestrator:
         args_by_tool: dict[str, dict[str, Any]],
         outputs: dict[str, ToolOutput],
         fixes: list[str],
+        attempt: int = 2,
     ) -> tuple[int, ToolOutput | None]:
         """从 target 重跑到 validate_plan（含）；返回 (重跑工具数, 首个 error 输出或 None)。"""
         start = PIPELINE.index(target)
@@ -245,7 +253,7 @@ class Orchestrator:
         for name in PIPELINE[start : end + 1]:
             if not self.registry.has(name):
                 continue
-            out = await self._exec(name, args_by_tool, outputs, fixes=fixes if name == target else None)
+            out = await self._exec(name, args_by_tool, outputs, fixes=fixes if name == target else None, attempt=attempt)
             outputs[name] = out
             count += 1
             if out.status == "error":

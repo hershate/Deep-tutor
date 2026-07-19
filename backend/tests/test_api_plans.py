@@ -68,6 +68,11 @@ def test_generate_happy_path(client, auth_headers, monkeypatch):
     assert "tool_start" in ev_names
     assert "tool_end" in ev_names
     assert "done" in ev_names
+    # iter 184 B2：SSE 事件携带步骤序号（前端进度条）
+    first_start = next(d for e, d in events if e == "tool_start")
+    assert first_start["step_index"] >= 1
+    assert first_start["total_steps"] == 8
+    assert first_start["attempt"] == 1
 
     done_data = next(d for e, d in events if e == "done")
     plan_id = done_data["plan_id"]
