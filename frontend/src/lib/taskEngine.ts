@@ -300,7 +300,6 @@ export const engine = {
   /** 发起新一次方案生成（Home/F5「继续生成」）。启动即败抛给调用方（F9 引导矩阵）。 */
   async startPlan(sessionId: number, rawText: string, title = ''): Promise<void> {
     const id = planTaskId(sessionId)
-    const existed = !!entryOf(id)
     store().upsert({ id, kind: 'plan', sessionId, title, rawText })
     resetForNewRun(id)
     try {
@@ -308,9 +307,15 @@ export const engine = {
         failFast: true,
       })
     } catch (e) {
-      // 新建即启动失败（配额/预算/冲突）：会话仍是 idle，不留错误台账；既有条目（继续生成）恢复 interrupted 供再试
-      if (!existed) store().remove(id)
-      else store().update(id, { phase: 'interrupted', conn: 'closed' })
+      // 启动即败（配额/预算/冲突）：会话仍是 idle。保留条目与 rawText（errorCode
+      // start_rejected）——方案列表占位行/进度页 idle 视图的「继续生成」依赖它；
+      // 重试入口对 start_rejected 走 startPlan 而非 retry（服务端 idle retry 必 409）
+      store().update(id, {
+        phase: 'interrupted',
+        errorCode: 'start_rejected',
+        errorMessage: '生成未开始（并发/预算限制），可稍后继续',
+        conn: 'closed',
+      })
       throw e
     }
   },

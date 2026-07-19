@@ -104,7 +104,9 @@ export default function GenerateProgress() {
     })
   }
   const onRetry = () => {
-    void engine.retry(sid).catch((e: unknown) => {
+    // start_rejected（启动即败，服务端 idle）：走 startPlan 重新发起而非 retry（retry 必 409）
+    const p = task?.errorCode === 'start_rejected' && task.rawText ? engine.startPlan(sid, task.rawText) : engine.retry(sid)
+    void p.catch((e: unknown) => {
       toast.error(e instanceof Error ? e.message : '重试失败，请稍后再试')
     })
   }

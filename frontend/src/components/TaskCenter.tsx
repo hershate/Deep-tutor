@@ -100,7 +100,12 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
   }
   const onRetry = () => {
     if (task.sessionId == null) return
-    void engine.retry(task.sessionId).catch((e: unknown) => {
+    // start_rejected（启动即败，服务端 idle）：走 startPlan 重新发起而非 retry（retry 必 409）
+    const p =
+      task.errorCode === 'start_rejected' && task.rawText
+        ? engine.startPlan(task.sessionId, task.rawText)
+        : engine.retry(task.sessionId)
+    void p.catch((e: unknown) => {
       toast.error(e instanceof Error ? e.message : '重试失败，请稍后再试')
     })
     go(`/generate/${task.sessionId}`)

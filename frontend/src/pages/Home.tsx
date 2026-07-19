@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, createSession, createUrlMaterial, deleteSession, uploadMaterial } from '../lib/api'
+import { SseError } from '../lib/sse'
+import { engine } from '../lib/taskEngine'
+import { toast } from '../components/Toast'
 import WidgetSlot from '../components/WidgetSlot'
 
 // iter 137：首页草稿 localStorage 持久化——刷新/误关页面不丢需求描述与链接（文件句柄无法持久化）
@@ -109,7 +112,34 @@ export default function Home() {
         deleteSession(session_id).catch(() => {})
         throw uploadErr
       }
-      nav(`/generate/${session_id}`, { state: { rawText } })
+      // iter 194 F9：生成由任务引擎发起（SSE 连接 App 级常驻，切页不丢）；
+      // 启动即败按异常码引导——已建会话不删（区别于上传失败），留 idle 占位可稍后继续
+      try {
+        await engine.startPlan(session_id, rawText, rawText.slice(0, 40) || '学习方案')
+      } catch (genErr) {
+        if (genErr instanceof SseError && genErr.status === 409) {
+          toast.error('你已有生成任务运行中：本次会话已保留在方案列表，完成后可继续', {
+            label: '查看任务',
+            onClick: () => nav('/plans'),
+          })
+        } else if (genErr instanceof SseError && genErr.status === 503) {
+          toast.error('当前生成任务较多，请稍后重试（会话已保留在方案列表）', {
+            label: '查看任务',
+            onClick: () => nav('/plans'),
+          })
+        } else if (genErr instanceof SseError && genErr.status === 402) {
+          toast.error('今日预算已用完：会话已保留，可明日继续或调整日预算', {
+            label: '调整日预算',
+            onClick: () => nav('/settings'),
+          })
+        } else {
+          setError(genErr instanceof Error ? genErr.message : '发起生成失败，请重试')
+        }
+        setLoading(false)
+        setUploadProgress('')
+        return
+      }
+      nav(`/generate/${session_id}`)
       localStorage.removeItem(DRAFT_KEY) // 生成成功 -> 草稿使命完成
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '创建失败')
