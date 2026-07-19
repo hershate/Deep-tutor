@@ -1011,12 +1011,13 @@ export const kbGenerate = (documentIds: number[], title?: string) =>
     body: JSON.stringify({ document_ids: documentIds, ...(title?.trim() ? { title: title.trim() } : {}) }),
   })
 
-// 知识库问答（iter 216）：聊天不持久化（前端内存历史，刷新即清）
+// 知识库问答（iter 216；iter 220 持久化：成功问答落 kb_chat_records，返回 record_id）
 export interface KbCitation {
   doc_id: number
   title: string
 }
 export interface KbChatResponse {
+  record_id: number
   answer: string
   citations: KbCitation[]
   omitted_titles: string[]
@@ -1028,6 +1029,28 @@ export const kbChat = (question: string, documentIds?: number[]) =>
     body: JSON.stringify({ question, ...(documentIds?.length ? { document_ids: documentIds } : {}) }),
     timeoutMs: 300_000, // LLM 问答链放宽超时（同导出/测验长任务端点约定）
   })
+
+// 问答记录（iter 220 持久化历史）
+export interface KbChatRecord {
+  id: number
+  question: string
+  answer: string
+  citations: KbCitation[]
+  omitted_titles: string[]
+  doc_ids: number[]
+  context_docs: number
+  created_at: string
+}
+export const listKbChats = (params: { q?: string; limit?: number; offset?: number } = {}) => {
+  const sp = new URLSearchParams()
+  if (params.q?.trim()) sp.set('q', params.q.trim())
+  if (params.limit) sp.set('limit', String(params.limit))
+  if (params.offset) sp.set('offset', String(params.offset))
+  const qs = sp.toString()
+  return apiFetch<{ items: KbChatRecord[]; total: number }>(`/kb/chats${qs ? `?${qs}` : ''}`)
+}
+export const deleteKbChat = (id: number) =>
+  apiFetch<{ ok: boolean }>(`/kb/chats/${id}`, { method: 'DELETE' })
 
 /** 知识库 ZIP 打包导出（ids 缺省全库；含原件+解析文本+index.md 清单）。 */
 export async function downloadKbExport(ids?: number[]): Promise<void> {
