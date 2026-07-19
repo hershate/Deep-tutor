@@ -538,6 +538,16 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             eid = stream.publish("done", data)
             stream.mark_terminal(eid)
             _set_state(db, session_id, models.OrchestratorStatus.done, stream.trace_id, last_event_id=str(stream.seq))
+            # iter 184 B3：自动标题回填——空标题/「学习方案」/raw_text 截断前缀标题
+            # （Home 传 rawText.slice(0,40)）-> intent.topic；手工标题不满足前缀条件不覆盖
+            intent_out = result.outputs.get("understand_intent")
+            topic = str((intent_out.data.get("topic") or "") if intent_out is not None else "").strip()
+            sess = db.get(models.Session, session_id)
+            if sess is not None and topic:
+                t = sess.title or ""
+                if t == "" or t == "学习方案" or (stream.raw_text or "").startswith(t):
+                    sess.title = topic[:256]
+                    db.commit()
         elif result.status == "paused_clarify":
             _persist_tool_calls(db, session_id, stream.trace_id, result.outputs)
             partial = {

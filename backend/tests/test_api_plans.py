@@ -91,6 +91,29 @@ def test_generate_happy_path(client, auth_headers, monkeypatch):
     assert isinstance(plan, dict)
 
 
+def test_generate_backfills_auto_title(client, auth_headers, monkeypatch):
+    """iter 184 B3：生成完成后用 intent.topic 回填自动标题（空/「学习方案」/raw_text 前缀截断）。"""
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
+    raw = "我想学 React，零基础，每天一小时"
+    # Home 同款截断标题（raw_text 前缀）-> 应被 topic 覆盖
+    sid = client.post("/api/sessions", json={"title": raw[:40]}, headers=auth_headers).json()["session_id"]
+    r = client.post("/api/plans/generate", json={"session_id": sid, "raw_text": raw}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert "event: done" in r.text
+    d = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    assert d["title"] == "React"
+
+    # 手工标题（非 raw_text 前缀）-> 不覆盖
+    sid2 = client.post("/api/sessions", json={"title": "我的手工标题"}, headers=auth_headers).json()["session_id"]
+    r2 = client.post("/api/plans/generate", json={"session_id": sid2, "raw_text": raw}, headers=auth_headers)
+    assert r2.status_code == 200, r2.text
+    assert "event: done" in r2.text
+    d2 = client.get(f"/api/sessions/{sid2}", headers=auth_headers).json()
+    assert d2["title"] == "我的手工标题"
+
+
 def test_generate_multi_materials_concatenated(client, auth_headers, monkeypatch):
     """批量导入（P2，plan/README §输入形式9）：多份资料全部拼接注入 understand_intent。"""
     from app.api import plans as plans_mod
