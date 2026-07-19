@@ -320,3 +320,41 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
 def test_status_endpoint_requires_admin(client):
     # 无任何凭证 -> 401（require_admin 先经 get_current_user 认证）
     assert client.get("/api/plugins").status_code == 401
+
+
+# --- 仓库自带示例插件防腐（API.md §8.7 指向的示例必须始终可加载/可运行）---
+
+
+def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
+    import shutil
+
+    example = Path(__file__).resolve().parents[2] / "plugins" / "example_hello.py.disabled"
+    assert example.is_file(), "仓库自带示例插件缺失"
+    shutil.copy(example, tmp_path / "example_hello.py")
+
+    app = _fresh_app()
+    statuses = _load(app, tmp_path)
+    assert len(statuses) == 1 and statuses[0].state == "loaded", statuses[0].error
+    assert statuses[0].id == "example_hello"
+
+    client = TestClient(app)
+    r = client.get("/api/plugins/example_hello/hello", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["plugin"] == "example_hello" and body["api_version"] == "1.0.0"
+    assert "message" in body and "model" in body
+
+    # 示例注册的工具已汇入注册表
+    from app.tools import default_registry
+
+    assert default_registry().has("example_hello.word_count")
+
+    # 示例订阅的 progress_updated 事件：广播后写入插件数据目录日志
+    from app.plugins import bus
+
+    bus.emit("progress_updated", {"user_id": 1, "plan_id": 2, "node_id": "n1", "status": "done"})
+    from app.core.settings import settings
+
+    log_file = Path(settings.data_dir) / "plugins" / "example_hello" / "progress.log"
+    assert log_file.exists()
+    assert "plan=2" in log_file.read_text(encoding="utf-8")
