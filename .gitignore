@@ -18,6 +18,11 @@ env/
 # 运行时数据（SQLite + 上传/解析/导出等，plan/01 §五 存储策略）
 data/
 
+# 用户自装后端插件（仓库仅收录装载约定 README 与官方示例；自己的插件不入库）
+plugins/*
+!plugins/README.md
+!plugins/example_hello.py.disabled
+
 # 前端
 frontend/node_modules/
 frontend/dist/

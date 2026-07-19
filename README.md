@@ -18,11 +18,13 @@
 Deep-tutor/
 ├── plan/            # 实施计划文档（11 份）
 ├── stage.md         # 分阶段实施进度跟踪
+├── API.md           # 插件 API 权威契约（前端 + 后端，双版本线）
 ├── backend/         # FastAPI 后端
-│   ├── app/         # main / core / db / llm / agent / tools / skills / api
+│   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
+├── plugins/         # 后端插件目录（自动发现装载；约定与示例见其 README）
 ├── skills/          # vendor 复用的 Skill（step 5 填充）
 ├── data/            # 运行时数据（gitignore，启动时自动创建）
 ├── scripts/         # 本地直起脚本（start.sh / start.ps1）
@@ -117,6 +119,13 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 - **OCR / 音视频转写**：默认未装依赖（R9 降级设计）。上传图片 OCR 需安装 `tesseract`（+ 中文语言包）与 `pip install pytesseract`，音视频转写需 `pip install faster-whisper`（装进 `backend/.venv`）；缺失时对应入口报 `dependency_missing`，其余功能不受影响。
 - **HTTPS**：本机/局域网部署不需要；若暴露公网，请在前面加一层反代（Caddy / Nginx Proxy Manager 等）终止 TLS 并转发到 `:41173`。
+
+## 插件开发
+
+Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；权威契约与开发规范见 [API.md](./API.md)）：
+
+- **前端插件**（`window.DeepTutor`，v1.2.0）：浏览器端 JS 插件——首页/侧栏小组件插槽、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、插件 URL 持久化加载。控制台即可试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
+- **后端插件**（`plugins/` 目录，v1.0.0）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案创建/进度更新/测验提交/启动关闭）、Agent 工具注册。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；可启用示例见 [plugins/example_hello.py.disabled](./plugins/example_hello.py.disabled)，装载约定见 [plugins/README.md](./plugins/README.md)。
 
 ## 进度与计划
 
