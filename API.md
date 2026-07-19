@@ -6,7 +6,7 @@
 >
 > 实现源码：[frontend/src/lib/plugins.ts](frontend/src/lib/plugins.ts)
 
-- **API 版本**：`1.1.0`（`DeepTutor.version`，语义化版本）
+- **API 版本**：`1.2.0`（`DeepTutor.version`，语义化版本）
 - **兼容性承诺**：minor / patch 版本向后兼容（只增不改）；major 版本变更会在本文记录迁移说明。
 - **运行环境**：浏览器端。应用启动后全局对象 `window.DeepTutor` 可用（在 React 树渲染前挂载）。
 
@@ -105,6 +105,17 @@ interface WidgetDef {
 
 订阅注册表变化，返回退订函数。一般无需使用（插槽渲染器已自动响应）。
 
+#### `widgets.slots(): readonly string[]`（v1.2.0）
+
+返回当前宿主支持的全部插槽名（只读）。用于**能力发现**：插件在旧宿主上可跳过新插槽降级，
+在新宿主上自动可用，无需解析/比较版本号：
+
+```js
+if (DeepTutor.widgets.slots().includes('sidebar.footer')) {
+  DeepTutor.widgets.register({ id: 'my.x', slot: 'sidebar.footer', component: X })
+}
+```
+
 ### 小组件开发建议
 
 - **无数据时返回 `null` 自行隐藏**（内置组件均如此），避免给新用户渲染空卡片。
@@ -113,7 +124,9 @@ interface WidgetDef {
   这样皮肤令牌（§三）能覆盖到你的组件。
 - 暗色模式：使用 Tailwind `dark:` 变体或 CSS 变量，两种外观都要可读。
 - 数字使用 `tabular-nums`（等宽数字），避免刷新时跳动。
-- 组件渲染异常目前**没有**错误边界隔离——请保证你的组件不抛异常。
+- 组件渲染异常会被**单组件级错误边界**隔离（v1.2.0）：抛异常的组件自身隐藏、
+  错误输出到控制台，不影响应用与其余小组件；同 id 重新注册新组件后该组件获得重试机会。
+  即便如此，仍请保证组件不抛异常——被隔离的组件对用户不可见。
 
 ---
 
@@ -178,6 +191,9 @@ interface SkinDef {
 
 > 事件只增不改：新版本可能追加事件，已有事件名与 payload 结构向后兼容。
 >
+> **前向兼容**：订阅宿主尚不存在的事件名不会报错——监听器只是永不触发。
+> 插件因此可以放心订阅新版本事件，在旧宿主上自然降级为无操作。
+>
 > `taskchange` 仅通知相位变化这一事实；任务的全量状态（进度步骤、费用、错误详情等）
 > 可经 `api.get('/sessions')` / `api.get('/sessions/<id>')` 主动查询（含 `status`、
 > `live`（running 时实时进度）、`error`、`latest_plan` 字段）。
@@ -216,6 +232,29 @@ const due = await DeepTutor.api.get('/progress/review/due')
 - 失败抛出 `ApiError`（含 HTTP 状态码）；401 时若为过期的 JWT 会话，前端会自动跳转登录页（与自身请求行为一致）。
 - 后端 REST 端点全集见 [plan/03-api-frontend.md](plan/03-api-frontend.md) §一
   （REST 端点为内部契约，可能随版本演进；插件应做好兼容）。
+
+#### `api.request<T = unknown>(path: string, init?: ApiRequestInit): Promise<T>`（v1.2.0）
+
+全方法 REST 代理（`api.get` 即 `api.request` 的 GET 便捷形式）：
+
+```ts
+interface ApiRequestInit {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' // 缺省 GET
+  body?: unknown        // 任意可 JSON 序列化值，自动 stringify
+  timeoutMs?: number    // 缺省 120s；长任务端点（导出/生成类）建议 300_000
+  signal?: AbortSignal  // 组件卸载时中断请求
+}
+```
+
+```js
+// 例：插件为用户打卡 25 分钟学习记录
+await DeepTutor.api.request('/progress/logs', {
+  method: 'POST',
+  body: { plan_id: 1, minutes: 25, note: '番茄钟插件自动打卡' },
+})
+```
+
+错误语义（`ApiError`、401 跳登录）与 `api.get` 完全一致。
 
 ---
 
@@ -275,5 +314,6 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| 1.2.0 | 2026-07-19 | 新增 `api.request`（全方法 REST 代理）、`widgets.slots()`（插槽能力发现）；小组件渲染异常改为单组件级错误边界隔离（此前会拖垮整个应用）；widgets/skins 订阅回调异常隔离（与 events 语义一致）；文档补事件前向兼容说明 |
 | 1.1.0 | 2026-07-19 | 新增 `taskchange` 事件（任务相位迁移；配合 `api.get('/sessions')` 查询任务全量状态） |
 | 1.0.0 | 2026-07-19 | 首个预留版本：`widgets`（插槽 `home.dashboard` / `sidebar.footer`）、`skins`（令牌 `--dt-card-radius` / `--dt-font-sans`）、`events`（`skinchange`）、`api.get`、`plugins.load/unload/list` |

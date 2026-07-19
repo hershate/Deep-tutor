@@ -3,7 +3,7 @@
 // 第三方插件通过全局 `window.DeepTutor` 访问本模块，可：
 //   - widgets：向命名插槽（slot）注册小组件（React 组件，可用 DeepTutor.React 免打包 React）
 //   - skins：注册/应用外观皮肤（CSS 变量令牌集，亮/暗双态，选择持久化）
-//   - api：以当前登录态调用后端 REST（GET）
+//   - api：以当前登录态调用后端 REST（get 便捷方法 + request 全方法）
 //   - events：订阅 API 事件
 //   - plugins：加载/卸载外部插件脚本（URL 持久化，刷新后自动加载）
 //
@@ -12,7 +12,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.1.0'
+export const API_VERSION = '1.2.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -39,7 +39,14 @@ const widgetListeners = new Set<() => void>()
 
 function notifyWidgets() {
   registryVersion += 1
-  widgetListeners.forEach((fn) => fn())
+  // 单个订阅回调异常不影响其他订阅者与应用（与 events.emit 同一隔离语义）
+  widgetListeners.forEach((fn) => {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[DeepTutor] widgets 订阅回调异常', e)
+    }
+  })
 }
 
 const widgetsApi = {
@@ -66,6 +73,11 @@ const widgetsApi = {
   subscribe(fn: () => void): () => void {
     widgetListeners.add(fn)
     return () => widgetListeners.delete(fn)
+  },
+  /** v1.2.0：当前宿主支持的全部插槽名（只读）。插件可据此做能力发现，
+   *  在旧宿主上降级（跳过新插槽），在新宿主上自动可用——无需解析版本号。 */
+  slots(): readonly WidgetSlot[] {
+    return WIDGET_SLOTS
   },
   getVersion(): number {
     return registryVersion
@@ -123,7 +135,13 @@ function applySkin(name: string): boolean {
   } catch {
     /* 隐私模式等：皮肤仍当场生效 */
   }
-  skinListeners.forEach((fn) => fn())
+  skinListeners.forEach((fn) => {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[DeepTutor] skins 订阅回调异常', e)
+    }
+  })
   eventsApi.emit('skinchange', { name })
   return true
 }
@@ -185,6 +203,35 @@ const eventsApi = {
       }
     })
   },
+}
+
+// ---------------------------------------------------------------------------
+// REST 代理（api）
+// ---------------------------------------------------------------------------
+
+/** v1.2.0：api.request 的选项。body 为任意可 JSON 序列化值（自动 stringify + json 头）。 */
+export interface ApiRequestInit {
+  /** HTTP 方法，缺省 GET */
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  /** 请求体（自动 JSON.stringify；GET/DELETE 一般省略） */
+  body?: unknown
+  /** 超时毫秒（缺省 120s；长任务端点可放宽，如 300_000） */
+  timeoutMs?: number
+  /** 调用方取消信号（组件卸载时中断请求） */
+  signal?: AbortSignal
+}
+
+const apiProxy = {
+  /** GET 便捷方法 */
+  get: <T,>(path: string) => apiFetch<T>(path),
+  /** v1.2.0：全方法 REST 代理。与前端自身请求同一机制（登录态/超时/401 跳登录）。 */
+  request: <T,>(path: string, init?: ApiRequestInit) =>
+    apiFetch<T>(path, {
+      method: init?.method ?? 'GET',
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+      timeoutMs: init?.timeoutMs,
+      signal: init?.signal,
+    }),
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +302,8 @@ export interface DeepTutorAPI {
   skins: typeof skinsApi
   events: typeof eventsApi
   plugins: typeof pluginsApi
-  /** 以当前登录态调用后端 REST（GET 语义；路径如 '/progress/stats/summary'） */
-  api: { get: <T = unknown>(path: string) => Promise<T> }
+  /** 以当前登录态调用后端 REST（路径如 '/progress/stats/summary'，相对 /api 前缀） */
+  api: typeof apiProxy
   /** 暴露 React，供无构建链的纯 JS 插件创建组件（const h = DeepTutor.React.createElement） */
   React: unknown
 }
@@ -274,7 +321,7 @@ export async function initPlugins(React: unknown): Promise<void> {
     skins: skinsApi,
     events: eventsApi,
     plugins: pluginsApi,
-    api: { get: <T,>(path: string) => apiFetch<T>(path) },
+    api: apiProxy,
     React,
   }
   ;(window as unknown as { DeepTutor: DeepTutorAPI }).DeepTutor = api

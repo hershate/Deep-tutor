@@ -1,8 +1,39 @@
-import { useSyncExternalStore, type ComponentType } from 'react'
+import { Component, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { widgets as _widgets } from '../lib/plugins'
 
 // 小组件插槽渲染器：把插件 API 注册到指定 slot 的组件按 order 渲染出来。
 // 自身无任何内置样式假设；layout 只决定排布容器。
+
+interface ErrorBoundaryProps {
+  id: string
+  /** 当前组件引用：插件重新注册同 id 的新组件时重置失败态（给修复后的组件第二次机会） */
+  component: ComponentType
+  children: ReactNode
+}
+
+// 单组件级错误边界（v1.2.0）：插件组件渲染异常只隐藏该组件本身，
+// 不影响应用其余部分与同插槽的其他小组件；异常输出到控制台便于插件作者排查。
+class WidgetErrorBoundary extends Component<ErrorBoundaryProps, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidCatch(err: unknown): void {
+    console.error(`[DeepTutor] 小组件渲染异常已隔离 (${this.props.id})`, err)
+  }
+
+  componentDidUpdate(prev: ErrorBoundaryProps): void {
+    if (this.state.failed && prev.component !== this.props.component) {
+      this.setState({ failed: false })
+    }
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children
+  }
+}
 
 interface WidgetSlotProps {
   slot: Parameters<typeof _widgets.list>[0]
@@ -24,7 +55,11 @@ export default function WidgetSlot({ slot, layout = 'stack', className = '' }: W
     <div className={container} data-widget-slot={slot}>
       {defs.map((d) => {
         const C = d.component as ComponentType
-        return <C key={d.id} />
+        return (
+          <WidgetErrorBoundary key={d.id} id={d.id} component={C}>
+            <C />
+          </WidgetErrorBoundary>
+        )
       })}
     </div>
   )
