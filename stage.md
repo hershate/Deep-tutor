@@ -234,6 +234,26 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 195（任务管理器前端收官：F10 插件 taskchange 事件 + API.md v1.1.0，✅ 完成）**：15 切片（B1-B5 + F1-F10）全部落地。[plugins.ts](frontend/src/lib/plugins.ts) `DeepTutorEventMap` 新增 `taskchange{id,kind:'plan'|'materials',phase,title}`（任务引擎每次相位迁移广播），`API_VERSION` 1.0.0→1.1.0（minor 追加向后兼容）；[API.md](API.md) 同 commit（用户硬性约定）：事件清单加行 + 说明任务全量状态可经 `api.get('/sessions')` 主动查询 + 版本历史 1.1.0 行。commit `d54cf3b`。**终验**：后端 540 测试全过 + ruff 零告警；前端 `npm run build` 通过（tsc 零错，主包 253.63kB）。**真机回归矩阵待用户验证**：生成全流程 ×（切页/刷新/断网/kill 后端/双标签/材料关弹窗/深链 /clarify/多轮澄清）；控制台 `DeepTutor.events.on('taskchange', console.log)` 观察事件流。
+
+- **2026-07-19 iter 194（F9 异常码引导矩阵，✅ 完成）**：[Home.tsx](frontend/src/pages/Home.tsx) 改经任务引擎发起生成；启动即败按码引导（已建会话不删，区别于上传失败删空会话）——409 配额 toast「已有生成任务运行中」+「查看任务」→/plans；503 全局满「稍后重试」；402 日预算 toast+「调整日预算」→/settings。引擎 startPlan 失败保留台账条目与 rawText（`errorCode=start_rejected`），占位行/idle 视图「继续生成」依赖它；任务中心/进度页重试入口对 start_rejected 走 startPlan 而非 retry（服务端 idle 时 retry 必 409）。commit `620ebbc`。
+
+- **2026-07-19 iter 193（F8 测验生成反馈改善，✅ 完成）**：[QuizModal.tsx](frontend/src/components/QuizModal.tsx) 出题 loading 加已用秒数 + 轮换文案（<10s 分析知识点/<30s 组织题目/更久题目较多）+「出题约需 30–90 秒；关闭不会浪费结果——若后台已出完，重新打开即可看到」；生成中关闭（Esc/遮罩/按钮统一 requestClose）toast.info 提示重开可见（服务端幂等持久化）。commit `8570ffd`。
+
+- **2026-07-19 iter 192（F7 材料生成接入任务引擎，✅ 完成）**：[MaterialsModal.tsx](frontend/src/components/MaterialsModal.tsx) 删本地 SSE+abort，engine.startMaterials 托管流、进度渲染自台账（关弹窗不中断，任务中心「材料 · x/total」持续可见）；running→done 相位迁移重读单元列表（逐单元落库重读即真相）+ 降级计数；running→error 台账错误+「重试生成」；曾刷新恢复（台账 running 但本页无活动流）提示+「刷新查看」。[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) `?materials=1` 深链自动开弹窗 + 传 planTitle。commit `9085433`。
+
+- **2026-07-19 iter 191（F6 澄清页深链修复 + 提交后过程反馈，✅ 完成）**：[Clarify.tsx](frontend/src/pages/Clarify.tsx) 问题三级回退（location.state→台账→GET /sessions/{id}.clarify_questions，此前深链无 state 即死胡同）；回答草稿 `localStorage('dt_clarify_draft_<id>')`（对齐 Home 草稿先例）提交成功清除；提交改 engine.submitClarify（引擎新增 onFirstEvent 时机信号）成功发起即 replace 跳 /generate/:id 复用进度页全套 UI（消灭黑窗；多轮澄清自动回本页）；409 内联「会话状态已变化」+「查看任务」。commit `0cbac10`。
+
+- **2026-07-19 iter 190（F5 进度页纯订阅视图重构，✅ 完成）**：[GenerateProgress.tsx](frontend/src/pages/GenerateProgress.tsx) 删组件内 generateStream+abort，渲染纯订阅 store/tasks、挂载 engine.attach 判态、卸载不 abort。running：进度条「n/8 步 · NN%」（role=progressbar，重跑按 stepIndex 去重）+ 步骤序号/中文名/「↻ 第 n 次」徽标 + 秒表从 startedAt 连续 + token/费用累计 +「可安全离开」提示条；reconnecting 琥珀横幅/offline 橙横幅「重试连接」「重试生成」；done ✅+1.5s 倒计时条自动跳（新增 countdown-shrink keyframes）；error/interrupted 持久化 message+重试生成；cancelled 中性视图；idle 引导视图（台账有 rawText「继续生成」）；404 视图；clarify 相位自动转澄清页。[tasks.ts](frontend/src/store/tasks.ts) tool_end 兜底补完成态步骤（缓冲截断）。commit `b02d7b6`。
+
+- **2026-07-19 iter 189（F4 方案列表占位行，✅ 完成）**：[Plans.tsx](frontend/src/pages/Plans.tsx) 顶部「进行中的会话」占位区（分区渲染防跳动；不受方案搜索影响）：running/待澄清/失败/中断/草稿（idle 无方案）占位行——状态徽标（cancelled 归「已取消」）+标题/相对时间+running 迷你进度条（live.step_index/8+当前步骤中文名）+error message；点击按状态路由；取消/删除（running 提示将取消）同步清台账。useQuery ['sessions'] 活跃时 5s 轮询（静默期零轮询，引擎 SSE 失效推动为主）。commit `3083c2a`。
+
+- **2026-07-19 iter 188（F3 任务中心双形态 + 标题角标，✅ 完成）**：[TaskCenter.tsx](frontend/src/components/TaskCenter.tsx) 顶栏指示器（活动计数+呼吸点）+下拉面板（外点/Esc 关闭，空态/「清空已完成记录」）；[TaskPanel.tsx](frontend/src/components/TaskPanel.tsx) 侧栏展开态常驻面板（复用同一 TaskRow）。TaskRow：六态徽标+进度条%（方案去重 stepIndex/8、材料单元 x/total）+当前步骤中文名/已用时/费用；动作按相位（running 取消、失败/中断/取消 重试、终态移除）。document.title：活动 n>0 → `(n) Deep-tutor`。commit `07d9cd5`。
+
+- **2026-07-19 iter 187（F2 App 级任务引擎，✅ 完成）**：[taskEngine.ts](frontend/src/lib/taskEngine.ts) 模块单例：live map 防重复挂接；startPlan/attach/retry/submitClarify/cancel/startMaterials 全任务入口；事件→台账、相位迁移→集中副作用（失效查询+打扰抑制 toast）；attach 判态（running 续接取持久化游标/待澄清直落问题/终态静默对账/idle 不发起）；异常分流（failFast 启动即败抛调用方；409 stale→interrupted；404 移除台账；重连耗尽 conn=offline）；boot() 对账后 running 自动 attach 无感续看。[api.ts](frontend/src/lib/api.ts) ssePostWithReconnect 开放 initialLastEventId/onEventId/onRetry + retryStream/listSessions/getSession；[TaskEngineBridge.tsx](frontend/src/components/TaskEngineBridge.tsx) 挂 Layout 注入 navigate/queryClient。commit `0a8e4d7`。
+
+- **2026-07-19 iter 186（F1 任务台账 store + Toast action，✅ 完成）**：[tasks.ts](frontend/src/store/tasks.ts) 全局任务账本（zustand）：六相位+连接态+步骤列表+费用 token 累计+材料单元进度；applyEvent 按任务类型应用 SSE 事件（终态费用权威校准）；持久化仅恢复字段落 `localStorage('dt_tasks_v1')`（steps/cost 靠 attach 重放重建）；reconcile 服务端对账（活动补条目、终态单向覆盖）；多标签 storage 事件按 updatedAt 大者合并（采纳不 bump 防 ping-pong）。[Toast.tsx](frontend/src/components/Toast.tsx) 可选动作按钮（点击执行并关闭，TTL 3s→8s），现有调用点零改动。commit `aa4f7d0`。
+
 - **2026-07-19 iter 185（任务管理器后端 B5：只读端点实时进度 live 字段，✅ 完成）**：B1-B5 后端收官。[plans.py](backend/app/api/plans.py) `_SessionStream` 新增流级属性 current_tool/step_index/total_steps/cost；`_run_start` 事件回调改闭包 `_on_event`（tool_start 记步骤序号、tool_end 从 metadata 累计费用，再 publish，单事件源不变）；[sessions.py](backend/app/api/sessions.py) 列表/详情在 `running 且活动流未标终态` 时返回 `live{current_tool,step_index,total_steps,cost,last_event_id}`，否则 null（任务管理器/占位行进度条数据源）。测试 +1（合成 running 流断言 live 全字段 + 列表暴露 + 终态流不报）。全量 540 后端测试通过，ruff 零告警。commit `9f8f81b`。**后端 5 切片全部完成**，转前端 F1-F10。
 
 - **2026-07-19 iter 184（任务管理器后端 B1-B4：会话状态只读查询 / 步骤序号 / 标题回填 / 失败持久化+重试，✅ 完成）**：用户需求「生成实时反馈 + 疑问及时交互 + 全局任务管理器」（经计划模式批准 15 切片 B1-B5+F1-F10；用户已定任务管理器双形态=顶栏指示器+侧栏面板、通知仅应用内 toast+标题角标）。
