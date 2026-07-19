@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 211（稳定性全量复验，✅ 零缺陷通过）**：用户指令「再检查一遍确保稳定性」。五轨复验：① 工作树干净（iter 210 全部已提交）；② 后端 **567 测试全过**（107s，含全部漂移守卫/契约测试）；③ ruff（E4/E7/E9/F, lw=120）零告警；④ 前端 `npm run build` 通过（tsc 零错，主包 260.65kB）；⑤ 启动链路：alembic 单一 head `c4d91e7b2a05`、`create_app()` 构建正常。一个疑点排除：`len(app.routes)==5` 疑似路由丢失，实为当前 FastAPI 版本 `include_router` 惰性 `_IncludedRouter` 包装表示（4 文档路由 + 1 包装器），567 测试端到端打穿各端点即铁证。613 条 pytest warnings 均为 Starlette TestClient/httpx 外部弃用噪音，非应用问题。零代码变更，无需版本动作。
+
 - **2026-07-19 iter 210（插件巡检 R11：README 版本腐化治理 + 状态端点结构契约，✅ 完成）**：README 插件章节钉死版本号已腐化（前端写 v1.2.0 实际 v1.3.1、后端写 v1.0.0 实际 v1.2.0），且缺第三插槽/管理页/两个新事件。治理选**消灭重复事实**而非加守卫（README 措辞自由，正则守卫易脆）：版本号改为「以 API.md 文首版本线表为准」不再钉死，内容补齐三插槽/🧩管理页/事件全谱。另一缺口锁定：`GET /api/plugins` 响应结构（§8.6 示例 9 键）是前端管理页的直接消费面但无测试——lifespan 测试内补结构断言（顶层 3 键 + 每插件行 9 键精确集合，前后端形态漂移即红）。**终验**：插件 27 测试全过、ruff 零告警。commit `2f56dc5` `6c9c595`。
 
 - **2026-07-19 iter 209（插件巡检 R10：插件加载 15s 超时修复，前端 API v1.3.1，✅ 完成——循环终止切片）**：稳定性疑点坐实并修复——`initPlugins` 自动加载持久化插件顺序 `await injectScript`（契约要求按序），但脚本加载**无超时**：服务器不应答的 URL 其 promise 永不 settle，应用启动不受影响（`void initPlugins` 不阻塞渲染），但**其后全部持久化插件被静默饿死**；手动 `plugins.load` 同样永不返回（管理页按钮永久「加载中…」）。修复 [plugins.ts](frontend/src/lib/plugins.ts) `injectScript` 加 15s 超时（`s.remove()` 取消挂起请求防迟到 settle；硬错误仍立即 reject），API_VERSION 1.3.0→**1.3.1**（patch：可观察行为修复，无契约变更）。[API.md](API.md) 同步：§六 `plugins.load` 补「失败界定」段（硬错误立即 reject / 15s 超时 reject + 设计理由）、文首版本线表 1.3.1、§十 版本历史 1.3.1 行。**终验**：前端 `npm run build` 通过（主包 260.65kB）、插件 27 测试全过（漂移守卫自动验证 1.3.1 三处同步）、ruff 零告警。commit `780de1f` `655388a`。**用户指令：保存工作并结束循环**——本条为本循环收尾，定时任务已删除。
