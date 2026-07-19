@@ -187,3 +187,73 @@ def delete_material_files(session_id: int | str, material_id: int) -> None:
         for path in originals.glob(f"{material_id}.*"):
             path.unlink(missing_ok=True)
     (base / "parsed" / f"{material_id}.txt").unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# 知识库文档存储（iter 212：LLMWiki 式独立文档库 /kb）
+#
+# 目录：data/kb/<user_id>/{originals/<doc_id>.<ext>, parsed/<doc_id>.txt}。
+# 与 sessions 族同构：大内容入文件系统，DB（kb_documents）存路径；
+# maintenance.py 只扫 data/sessions/ 数字目录，kb 目录不受影响（不随会话过期清理）。
+# ---------------------------------------------------------------------------
+
+
+def _kb_root(user_id: int | str) -> Path:
+    """用户知识库目录，确保在 data_dir 内（R20 防路径遍历，同 _session_root）。"""
+    root = _root()
+    uid = str(user_id)
+    if not uid.replace("_", "").isalnum():
+        raise ValueError(f"非法 user_id: {user_id}")
+    base = (root / "kb" / uid).resolve()
+    try:
+        base.relative_to(root)  # 不在 root 内则抛 ValueError
+    except ValueError as exc:
+        raise ValueError(f"路径越界: {base}") from exc
+    return base
+
+
+def kb_originals_dir(user_id: int | str) -> Path:
+    d = _kb_root(user_id) / "originals"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def kb_parsed_dir(user_id: int | str) -> Path:
+    d = _kb_root(user_id) / "parsed"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def save_kb_upload(user_id: int | str, doc_id: int, content: bytes, ext: str) -> Path:
+    """保存知识库上传原件（用 doc_id 命名，非原始文件名，R20）。"""
+    safe = _safe_ext(ext)
+    name = f"{doc_id}.{safe}" if safe else str(doc_id)
+    path = kb_originals_dir(user_id) / name
+    path.write_bytes(content)
+    return path
+
+
+def write_kb_parsed_text(user_id: int | str, doc_id: int, text: str) -> Path:
+    path = kb_parsed_dir(user_id) / f"{doc_id}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def delete_kb_document_files(user_id: int | str, doc_id: int) -> None:
+    """删除单篇知识库文档的磁盘文件（原件按 "<doc_id>." 前缀 glob，解析文本精确路径）。
+
+    目录不存在即无文件可删（不创建目录）。缺文件不报错（幂等清理）。
+    """
+    base = _kb_root(user_id)
+    originals = base / "originals"
+    if originals.is_dir():
+        for path in originals.glob(f"{doc_id}.*"):
+            path.unlink(missing_ok=True)
+    (base / "parsed" / f"{doc_id}.txt").unlink(missing_ok=True)
+
+
+def delete_kb_files(user_id: int | str) -> None:
+    """删除用户整个知识库目录（删用户级联清理，供 users.py delete_user 调用）。"""
+    base = _kb_root(user_id)
+    if base.exists():
+        shutil.rmtree(base, ignore_errors=True)

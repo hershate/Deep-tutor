@@ -119,6 +119,9 @@ class User(Base):
     prefs: Mapped[list[UserPref]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    kb_documents: Mapped[list[KbDocument]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -185,6 +188,39 @@ class Material(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="materials")
+
+
+class KbDocument(Base):
+    """知识库文档（iter 212 LLMWiki 式独立文档库 /kb）：用户直接上传，不依赖学习方案。
+
+    定位仿 LLMWiki raw 层：原件落 data/kb/<user_id>/originals/，解析文本落 parsed/，
+    本表为索引层（标题/类型/哈希/路径）。kind 复用 MaterialKind 枚举（按扩展名归类：
+    image/audio/video 各自归族，其余归 file）。content_hash 去重为应用层行为
+    （同 Material——同用户重复上传复用解析结果、标记 meta.deduped，不加唯一约束）。
+    text/url 类文档无原件（original_path 为 None）。删用户 ORM 级联删行，
+    磁盘文件由 users.py delete_user 调 storage.delete_kb_files 清理。
+    """
+
+    __tablename__ = "kb_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    kind: Mapped[MaterialKind] = mapped_column(Enum(MaterialKind), nullable=False)
+    ext: Mapped[str] = mapped_column(String(16), default="")
+    # 可读来源摘要（原始文件名 / URL / 「手动输入」），仅展示用
+    source: Mapped[str] = mapped_column(String(1024), default="")
+    original_path: Mapped[str | None] = mapped_column(String(512))  # text/url 类无原件
+    parsed_text_path: Mapped[str | None] = mapped_column(String(512))
+    parsed_chars: Mapped[int] = mapped_column(Integer, default=0)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="kb_documents")
 
 
 class Plan(Base):

@@ -140,6 +140,18 @@ def test_stamp_user_prefs_generation(tmp_path):
     assert "last_error" in cols
 
 
+def test_stamp_last_error_generation(tmp_path):
+    """c4d91e7b2a05 代（iter 212 新增探测）：orchestrator_state 有 last_error 但无 kb_documents。"""
+    url = _url(tmp_path)
+    command.upgrade(_alembic_config(url), "c4d91e7b2a05")
+    _drop_version_table(url)
+
+    assert detect_stamp(url) == "c4d91e7b2a05"
+    run_migrations(url)
+    assert _version(url) == HEAD
+    assert "kb_documents" in _tables(url)
+
+
 def test_run_migrations_preserves_app_logging(tmp_path):
     """iter 90 回归：env.py 模板自带的 fileConfig 默认 disable_existing_loggers=True，
     应用进程内跑迁移（lifespan -> run_migrations）曾把 deep_tutor/uvicorn 等既有

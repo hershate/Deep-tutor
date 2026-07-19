@@ -44,6 +44,7 @@ CODE_STATUS: dict[str, int] = {
     "payload_too_large": 413,
     "upstream_timeout": 504,
     "no_search_key": 503,
+    "no_llm_provider": 503,  # iter 212：知识库问答/生成需 LLM 但用户未配置任何供应商
     "ssrf_blocked": 400,
     "validation_error": 422,
     "missing_upstream_field": 400,
