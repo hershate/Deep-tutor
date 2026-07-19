@@ -466,3 +466,45 @@ def test_api_doc_widget_slots_match_implementation():
     assert m, "前端 plugins.ts 缺少 WIDGET_SLOTS"
     for slot in re.findall(r"'([^']+)'", m.group(1)):
         assert slot in doc, f"插槽 {slot} 未写入 API.md"
+
+
+def _doc_event_table(doc: str, start: str, end: str) -> set[str]:
+    """提取 API.md 指定区间事件表首列（`| `name` |` 行）的事件名集合。"""
+    import re
+
+    i = doc.index(start)
+    section = doc[i : doc.index(end, i)]
+    return set(re.findall(r"^\| `(\w+)`", section, flags=re.M))
+
+
+def test_api_doc_backend_events_match_emit_sites():
+    """API.md §8.5 事件清单 == 宿主实际发射的核心事件（双向集合相等：
+
+    新增发射点忘同步文档 -> 红（漏文档）；文档写了但代码不发射 -> 红（虚假承诺）。
+    扫描以 `bus.emit/emit_async` 调用为事实源（orchestrator 的 `self._emit` 是 SSE 流事件，不匹配）。
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    emitted: set[str] = set()
+    for py in (root / "backend" / "app").rglob("*.py"):
+        emitted.update(re.findall(r'bus\.emit(?:_async)?\(\s*"([^"]+)"', py.read_text(encoding="utf-8")))
+    assert emitted, "扫描不到任何插件事件发射点（正则失效？）"
+    doc = (root / "API.md").read_text(encoding="utf-8")
+    documented = _doc_event_table(doc, "### 8.5", "### 8.6")
+    assert emitted == documented, f"发射点={sorted(emitted)} 文档={sorted(documented)}"
+
+
+def test_api_doc_frontend_events_match_event_map():
+    """API.md §四事件清单 == 前端 DeepTutorEventMap 键（双向集合相等）。"""
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
+    m = re.search(r"export interface DeepTutorEventMap \{(.*?)\n\}", fe_src, flags=re.S)
+    assert m, "前端 plugins.ts 缺少 DeepTutorEventMap"
+    declared = set(re.findall(r"^\s{2}(\w+):", m.group(1), flags=re.M))
+    assert declared, "DeepTutorEventMap 键提取失败（正则失效？）"
+    doc = (root / "API.md").read_text(encoding="utf-8")
+    documented = _doc_event_table(doc, "### 事件清单", "### 方法")
+    assert declared == documented, f"事件映射={sorted(declared)} 文档={sorted(documented)}"
