@@ -198,6 +198,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             type="button"
             onClick={toggleSidebar}
             aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+            aria-expanded={!collapsed}
             className="mt-auto self-start rounded-lg border px-2 py-1 text-xs text-slate-500 transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             {collapsed ? '»' : '« 收起'}
