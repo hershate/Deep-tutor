@@ -67,7 +67,10 @@ class RoutesNamespace:
         self._status = status
 
     def mount(self, router: APIRouter, *, auth: bool = True, prefix: str = "") -> str:
-        """挂载 APIRouter，返回实际前缀 /api/plugins/<pid>[prefix]（幂等追加，可多次挂载）。"""
+        """挂载 APIRouter，返回实际前缀 /api/plugins/<pid>[prefix]（幂等追加，可多次挂载）。
+
+        路由自动带 OpenAPI 标签 `plugin:<id>`（/docs 中按插件分组，便于发现与调试）。
+        """
         from fastapi import Depends
 
         from app.api.deps import require_auth
@@ -76,7 +79,9 @@ class RoutesNamespace:
             raise ValueError("prefix 需以 / 开头")
         full = f"/api/plugins/{self._pid}{prefix}"
         dependencies = [Depends(require_auth)] if auth else []
-        self._app.include_router(router, prefix=full, dependencies=dependencies)
+        self._app.include_router(
+            router, prefix=full, dependencies=dependencies, tags=[f"plugin:{self._pid}"]
+        )
         self._status.routes.append(full)
         return full
 
