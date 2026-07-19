@@ -214,7 +214,7 @@ def test_route_mount_requires_auth_by_default(tmp_path, auth_headers):
     client = TestClient(app)
     r = client.get("/api/plugins/ping/ping", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"pong": True, "plugin": "ping", "api_version": "1.0.0"}
+    assert r.json() == {"pong": True, "plugin": "ping", "api_version": "1.1.0"}
     # 默认认证：无凭证 -> 401（与宿主端点语义一致）
     assert client.get("/api/plugins/ping/ping").status_code == 401
 
@@ -309,7 +309,7 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
         r = client.get("/api/plugins", headers=auth_headers)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["api_version"] == "1.0.0"
+        assert body["api_version"] == "1.1.0"
         rows = {p["id"]: p for p in body["plugins"]}
         assert rows["boot"]["state"] == "loaded"
         assert "startup" in body["subscribed_events"]
@@ -320,6 +320,47 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
 def test_status_endpoint_requires_admin(client):
     # 无任何凭证 -> 401（require_admin 先经 get_current_user 认证）
     assert client.get("/api/plugins").status_code == 401
+
+
+# --- 核心事件埋点（API.md §8.5 事件清单必须与宿主行为一致）---
+
+
+def test_materials_completed_event_emitted(client, auth_headers, monkeypatch):
+    """材料 SSE 生成完成 -> materials_completed 广播（v1.1.0；payload 契约见 API.md §8.5）。"""
+    from test_api_plans_materials import _make_plan
+    from test_api_plans_materials_sse import _UnitProvider, _unit_resp
+
+    from app.api import plans as plans_mod
+    from app.plugins import bus
+
+    async def _no_search(query, ctx):  # 防 .env BING_API_KEY 致真实联网（同材料 SSE 套件）
+        return []
+
+    monkeypatch.setattr(plans_mod, "search_unit_resources", _no_search)
+
+    captured = []
+    bus.on("materials_completed", captured.append)
+
+    plan_id = _make_plan(client, auth_headers)
+    provider = _UnitProvider([_unit_resp("### 一"), _unit_resp("### 二"), _unit_resp("### 三")])
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
+
+    headers = {**auth_headers, "Accept": "text/event-stream"}
+    r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=headers)
+    assert r.status_code == 200, r.text
+
+    assert len(captured) == 1  # 全量生成一次广播（幂等重渲染不广播）
+    payload = captured[0]
+    assert payload["plan_id"] == plan_id
+    assert isinstance(payload["session_id"], int)
+    assert payload["unit_count"] == 3
+    assert payload["degraded_count"] == 0
+    assert payload["partial"] is False
+
+    # 幂等命中（已持久化未 refresh -> JSON 重渲染）：不再广播
+    r2 = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
+    assert r2.status_code == 200
+    assert len(captured) == 1
 
 
 # --- 仓库自带示例插件防腐（API.md §8.7 指向的示例必须始终可加载/可运行）---
@@ -341,7 +382,7 @@ def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
     r = client.get("/api/plugins/example_hello/hello", headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["plugin"] == "example_hello" and body["api_version"] == "1.0.0"
+    assert body["plugin"] == "example_hello" and body["api_version"] == "1.1.0"
     assert "message" in body and "model" in body
 
     # 示例注册的工具已汇入注册表

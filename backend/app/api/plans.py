@@ -1301,6 +1301,19 @@ async def _materials_sse(
         _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
         db.commit()
         _cleanup_stale_material_files(old_paths, new_paths)
+        # 后端插件事件（API.md §8.5）：材料生成完成（全量/局部均广播；监听器异常隔离）
+        from app.plugins import bus as plugin_bus
+
+        plugin_bus.emit(
+            "materials_completed",
+            {
+                "plan_id": plan_id,
+                "session_id": session_id,
+                "unit_count": total,
+                "degraded_count": degraded_count,
+                "partial": body.scope is not None or bool(body.unit_ids),
+            },
+        )
         yield _sse("done", {"unit_count": total, "degraded_count": degraded_count})
     except Exception:  # noqa: BLE001  统一兜底：流以 error 事件收尾而非裸断
         log.exception("材料流式生成异常: plan %s", plan_id)
@@ -1415,6 +1428,20 @@ async def generate_materials(
         spec = default_materials_from_plan(prompt_content)
 
     _persist_study_units(db, plan, spec, content)
+    # 后端插件事件（API.md §8.5）：同步 JSON 生成路径同样广播（幂等重渲染不广播——
+    # 无新生成；spec 级降级视为全部单元降级）
+    from app.plugins import bus as plugin_bus
+
+    plugin_bus.emit(
+        "materials_completed",
+        {
+            "plan_id": plan.id,
+            "session_id": plan.session_id,
+            "unit_count": len(spec.units),
+            "degraded_count": len(spec.units) if spec_out.status != "ok" else 0,
+            "partial": body.scope is not None,
+        },
+    )
     md = render_materials_md(spec)
     result: dict = {
         "unit_count": len(spec.units),

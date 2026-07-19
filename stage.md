@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 201（后端插件 API v1.1.0：materials_completed 事件，✅ 完成）**：补齐两条版本线最明显的事件 asymmetry——前端 taskchange 早已覆盖材料任务相位，后端插件却无从感知材料生成完成。[plans.py](backend/app/api/plans.py) 两处收口埋点：SSE 逐单元流 done 前（全量/局部均广播，payload 含 partial 标志）+ 同步 JSON 生成路径 `_persist_study_units` 后（spec 级降级视为全部单元降级；幂等重渲染不广播——无新生成）。API_VERSION 1.0.0→1.1.0（minor 追加向后兼容）；[API.md](API.md) 同步：版本线/§8.5 事件清单/§十 版本历史。测试 +1（事件 payload 契约 + 幂等不广播，复用材料 SSE 套件模式）。commit 见 git log。
+
 - **2026-07-19 iter 200（插件巡检 R3：漂移扫描 + README/.gitignore 适配，✅ 完成）**：API.md↔实现漂移扫描通过（后端 5 核心事件埋点、前端 2 事件、双版本号 1.2.0/1.0.0 全部一致，零漂移）。修两个可维护性缺口：[README.md](README.md) 此前零插件入口指引——目录结构补 API.md/plugins/ + 新增「插件开发」一节（双版本线入口与快速体验）；[.gitignore](.gitignore) 豁免 `plugins/*`（保留官方 README/示例）——用户自装插件不再污染 git status。**终验**：插件+进度+测验 34 测试全过、ruff 零告警、前端 build 通过。commit `b93d3b3`。
 
 - **2026-07-19 iter 199（插件体系巡检：示例防腐测试 + ruff/回归验证，✅ 完成）**：定时巡检增量——[test_plugins.py](backend/tests/test_plugins.py) 新增仓库自带示例插件防腐测试（`example_hello.py.disabled` 装载 + 路由 200 + 工具入注册表 + 事件写日志，API.md §8.7 指向的示例永不腐烂）。**终验**：后端 558 测试全过（557+1）、ruff（E4/E7/E9/F, lw=120）零告警、前端 `npm run build` 通过（主包 254.57kB）。commit `e21192f`。
