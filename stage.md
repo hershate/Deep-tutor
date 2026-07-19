@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 200（插件巡检 R3：漂移扫描 + README/.gitignore 适配，✅ 完成）**：API.md↔实现漂移扫描通过（后端 5 核心事件埋点、前端 2 事件、双版本号 1.2.0/1.0.0 全部一致，零漂移）。修两个可维护性缺口：[README.md](README.md) 此前零插件入口指引——目录结构补 API.md/plugins/ + 新增「插件开发」一节（双版本线入口与快速体验）；[.gitignore](.gitignore) 豁免 `plugins/*`（保留官方 README/示例）——用户自装插件不再污染 git status。**终验**：插件+进度+测验 34 测试全过、ruff 零告警、前端 build 通过。commit `b93d3b3`。
+
 - **2026-07-19 iter 199（插件体系巡检：示例防腐测试 + ruff/回归验证，✅ 完成）**：定时巡检增量——[test_plugins.py](backend/tests/test_plugins.py) 新增仓库自带示例插件防腐测试（`example_hello.py.disabled` 装载 + 路由 200 + 工具入注册表 + 事件写日志，API.md §8.7 指向的示例永不腐烂）。**终验**：后端 558 测试全过（557+1）、ruff（E4/E7/E9/F, lw=120）零告警、前端 `npm run build` 通过（主包 254.57kB）。commit `e21192f`。
 
 - **2026-07-19 iter 198（API.md 双版本线文档 + 插件开发规范，✅ 完成）**：[API.md](API.md) 扩为前后端双版本线（前端 1.2.0 / 后端 1.0.0 独立演进、各自 semver 只增不改）；新增 §八 后端插件 API 完整参考（装载方式/PLUGIN_META 与 min_api 协商/api 门面 routes·deps·events·tools·settings/核心事件清单/GET /api/plugins 可观测性）、§九 插件开发规范六章（稳定性/安全/数据隔离/兼容性与版本/性能/测试与发布）、§十 统一版本历史。commit `7d05fe4`。
