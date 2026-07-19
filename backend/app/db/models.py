@@ -122,6 +122,9 @@ class User(Base):
     kb_documents: Mapped[list[KbDocument]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    kb_chat_records: Mapped[list[KbChatRecord]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -221,6 +224,30 @@ class KbDocument(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="kb_documents")
+
+
+class KbChatRecord(Base):
+    """知识库问答记录（iter 220：/kb/chat 持久化，便于日后参考——取代 iter 216 不持久化决策）。
+
+    每次成功问答写一行（失败路径 502/503/504/402 不记账——无答案可存）。
+    citations/omitted_titles/doc_ids 为 JSON 快照：doc_id 引用的文档日后可能被删，
+    快照保证记录自包含可读（标题不落外链）。doc_ids 空列表 = 当时缺省全库上下文。
+    无文件资产，删用户 ORM 级联删行即可。
+    """
+
+    __tablename__ = "kb_chat_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[list] = mapped_column(JSON, default=list)  # [{doc_id, title}]
+    omitted_titles: Mapped[list] = mapped_column(JSON, default=list)
+    doc_ids: Mapped[list] = mapped_column(JSON, default=list)  # 限定范围；[] = 全部
+    context_docs: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="kb_chat_records")
 
 
 class Plan(Base):

@@ -680,7 +680,8 @@ async def chat_with_kb(
 
     上下文：指定 document_ids（归属校验，缺失/他人 -> 404）或缺省最近 20 篇已解析文档；
     端点侧预截断（单篇 ≤19.9k 带标注，总量 ≤150k，耗尽篇目列 omitted_titles）。
-    聊天不持久化（前端内存历史）。错误映射：无供应商 -> 503 no_llm_provider；
+    成功问答持久化到 kb_chat_records（iter 220，便于日后参考；失败路径不记账——
+    无答案可存）。错误映射：无供应商 -> 503 no_llm_provider；
     upstream_timeout -> 504；其余 LLM 失败 -> 502 bad_gateway 笼统消息（R35 不回显细节）。
     """
     question = body.question.strip()
@@ -747,9 +748,73 @@ async def chat_with_kb(
     spec = KbAnswerSpec.model_validate(out.data)
     titles = {d["doc_id"]: d["title"] for d in payload}
     citations = [{"doc_id": i, "title": titles[i]} for i in spec.used_doc_ids if i in titles]
+    # iter 220：成功问答持久化（citations/omitted/doc_ids 存 JSON 快照——
+    # 被引文档日后可删，记录须自包含可读）
+    record = models.KbChatRecord(
+        user_id=user.id,
+        question=question,
+        answer=spec.answer,
+        citations=citations,
+        omitted_titles=omitted,
+        doc_ids=[d["doc_id"] for d in payload] if body.document_ids is not None else [],
+        context_docs=len(payload),
+    )
+    db.add(record)
+    db.commit()
     return {
+        "record_id": record.id,
         "answer": spec.answer,
         "citations": citations,
         "omitted_titles": omitted,
         "context_docs": len(payload),
     }
+
+
+# --- 问答记录（iter 220：持久化历史的查询/删除） ---
+
+
+def _record_out(r: models.KbChatRecord) -> dict:
+    return {
+        "id": r.id,
+        "question": r.question,
+        "answer": r.answer,
+        "citations": r.citations,
+        "omitted_titles": r.omitted_titles,
+        "doc_ids": r.doc_ids,
+        "context_docs": r.context_docs,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+@router.get("/chats")
+def list_chat_records(
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """问答记录列表（新→旧）：q=问题子串；分页 limit+offset，返回 total 供前端翻页。"""
+    stmt = select(models.KbChatRecord).where(models.KbChatRecord.user_id == user.id)
+    if q and q.strip():
+        stmt = stmt.where(models.KbChatRecord.question.contains(q.strip()))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = db.scalars(stmt.order_by(models.KbChatRecord.id.desc()).offset(offset).limit(limit)).all()
+    return {"items": [_record_out(r) for r in rows], "total": total}
+
+
+@router.delete("/chats/{record_id}")
+def delete_chat_record(
+    record_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """删除单条问答记录；他人记录一律 404（防枚举，同文档删除）。"""
+    record = db.scalar(
+        select(models.KbChatRecord).where(
+            models.KbChatRecord.id == record_id, models.KbChatRecord.user_id == user.id
+        )
+    )
+    if record is None:
+        raise ApiError("not_found", f"问答记录 {record_id} 不存在")
+    db.delete(record)
+    db.commit()
+    return {"ok": True}

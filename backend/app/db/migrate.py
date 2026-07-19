@@ -58,6 +58,7 @@ def _progress_has_plan_node_unique(insp) -> bool:
 
 
 _REVISION_PROBES = [
+    ("b7e3f1a92c48", _has_table("kb_chat_records")),
     ("5226d813e363", _has_table("kb_documents")),
     ("c4d91e7b2a05", _has_column("orchestrator_state", "last_error")),
     ("b4e19f0c7a25", _has_table("user_prefs")),
