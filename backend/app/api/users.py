@@ -28,7 +28,7 @@ from app.api.deps import get_db, require_admin
 from app.api.errors import ApiError
 from app.api.plans import cancel_running_generation
 from app.core.security import hash_password
-from app.core.storage import delete_session_files
+from app.core.storage import delete_kb_files, delete_session_files
 from app.db import models
 from app.db.models import User
 
@@ -152,4 +152,8 @@ def delete_user(
             delete_session_files(sid)
         except Exception:  # noqa: BLE001
             log.warning("删除用户 %s 的会话文件失败: session=%s", user_id, sid)
+    try:  # iter 213：知识库文档目录级联清理（kb_documents 行已随 ORM 级联删除）
+        delete_kb_files(u.id)
+    except Exception:  # noqa: BLE001
+        log.warning("删除用户 %s 的知识库文件失败", user_id)
     return {"ok": True}
