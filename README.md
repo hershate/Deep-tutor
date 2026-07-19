@@ -122,10 +122,10 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 ## 插件开发
 
-Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；权威契约与开发规范见 [API.md](./API.md)）：
+Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；**当前版本号以 [API.md](./API.md) 文首版本线表为准**，本文件不钉版本防过期）：
 
-- **前端插件**（`window.DeepTutor`，v1.2.0）：浏览器端 JS 插件——首页/侧栏小组件插槽、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、插件 URL 持久化加载。控制台即可试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
-- **后端插件**（`plugins/` 目录，v1.0.0）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案创建/进度更新/测验提交/启动关闭）、Agent 工具注册。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；可启用示例见 [plugins/example_hello.py.disabled](./plugins/example_hello.py.disabled)，装载约定见 [plugins/README.md](./plugins/README.md)。
+- **前端插件**（`window.DeepTutor`）：浏览器端 JS 插件——小组件插槽（首页仪表盘/侧栏底部/方案详情）、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、插件 URL 持久化加载。侧栏 🧩「插件」页可视化加载/移除（免控制台）；也可控制台试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
+- **后端插件**（`plugins/` 目录）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案/材料/进度/测验/打卡/启动关闭）、Agent 工具注册。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；可启用示例见 [plugins/example_hello.py.disabled](./plugins/example_hello.py.disabled)，装载约定见 [plugins/README.md](./plugins/README.md)。
 
 ## 进度与计划
 
