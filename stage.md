@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 203（后端插件 API v1.2.0：learning_log_added 事件，✅ 完成）**：用户行为事件目录最后一块拼图——节点进度有 progress_updated、打卡（时间维度独立动作）却无事件，插件无法做外部习惯追踪同步/激励反馈/打卡 webhook。[progress.py](backend/app/api/progress.py) 打卡端点埋点 `{user_id, plan_id, log_id, date, minutes, note}`；API_VERSION 1.1.0→1.2.0；[API.md](API.md) 事件清单/版本历史同步。测试 +1（payload 契约）。**终验**：插件+进度涉及面 36 测试全过、ruff 零告警。commit `fb0707b`。事件目录至此覆盖：应用生命周期（startup/shutdown）+ 方案（plan_created）+ 材料（materials_completed）+ 进度（progress_updated）+ 测验（quiz_submitted）+ 打卡（learning_log_added）——**后续新增事件须过「明确插件用例 + 现有目录无覆盖」门槛，防目录膨胀**。
+
 - **2026-07-19 iter 202（插件巡检 R5：plan.detail 插槽 v1.3.0 + 插件路由 OpenAPI 分组，✅ 完成）**：前端扩展性缺口——插槽此前仅首页/侧栏，插件无法做方案级面板。[plugins.ts](frontend/src/lib/plugins.ts) `WIDGET_SLOTS` 追加 `plan.detail`（方案详情页头部操作区下方宫格，组件内 `useParams()` 取 planId），API_VERSION 1.2.0→1.3.0（minor 追加向后兼容）；[PlanDetail.tsx](frontend/src/pages/PlanDetail.tsx) 挂接 `<WidgetSlot slot="plan.detail" layout="grid" />`；[API.md](API.md) 同步。后端 DX：[api.py](backend/app/plugins/api.py) `routes.mount` 自动打 OpenAPI 标签 `plugin:<id>`（/docs 按插件分组，非契约变更）。**终验**：前端 build 通过（主包 254.63kB）、插件 19 测试全过、ruff 零告警。commit `1eff4e4` `0f9ace9`。
 
 - **2026-07-19 iter 201（后端插件 API v1.1.0：materials_completed 事件，✅ 完成）**：补齐两条版本线最明显的事件 asymmetry——前端 taskchange 早已覆盖材料任务相位，后端插件却无从感知材料生成完成。[plans.py](backend/app/api/plans.py) 两处收口埋点：SSE 逐单元流 done 前（全量/局部均广播，payload 含 partial 标志）+ 同步 JSON 生成路径 `_persist_study_units` 后（spec 级降级视为全部单元降级；幂等重渲染不广播——无新生成）。API_VERSION 1.0.0→1.1.0（minor 追加向后兼容）；[API.md](API.md) 同步：版本线/§8.5 事件清单/§十 版本历史。测试 +1（事件 payload 契约 + 幂等不广播，复用材料 SSE 套件模式）。commit `3f2255d`。
