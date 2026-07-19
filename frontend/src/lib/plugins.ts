@@ -12,7 +12,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.3.0'
+export const API_VERSION = '1.3.1'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -258,13 +258,26 @@ function writePluginUrls(urls: string[]): void {
   }
 }
 
+/** 单个插件脚本加载超时（毫秒）：超时按失败处理——防挂起 URL 饿死其后持久化插件 */
+const SCRIPT_TIMEOUT_MS = 15_000
+
 function injectScript(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
+    const timer = setTimeout(() => {
+      s.remove() // 移除元素取消挂起的请求，防迟到 onload 再 settle
+      reject(new Error(`[DeepTutor] 插件脚本加载超时（${SCRIPT_TIMEOUT_MS / 1000}s）: ${url}`))
+    }, SCRIPT_TIMEOUT_MS)
     s.src = url
     s.async = true
-    s.onload = () => resolve()
-    s.onerror = () => reject(new Error(`[DeepTutor] 插件脚本加载失败: ${url}`))
+    s.onload = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    s.onerror = () => {
+      clearTimeout(timer)
+      reject(new Error(`[DeepTutor] 插件脚本加载失败: ${url}`))
+    }
     document.head.appendChild(s)
   })
 }
