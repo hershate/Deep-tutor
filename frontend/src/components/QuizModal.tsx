@@ -1,7 +1,10 @@
 // 测验弹窗（P2，plan/02 §8：choice 服务器判分（/quizzes/{id}/submit，iter 42）；fill/short 展示参考答案自评）。
 // 打开即生成（幂等：已持久化直接返回）；全部选择题判定后按知识点聚合正确率回写进度（POST /progress，iter 40）。
 // wrong 模式（iter 114 错题重练）：GET /plans/{id}/quiz/wrong 取最近作答判错的题，零 LLM 成本。
+// iter 193 F8：出题反馈改善——loading 加已用秒数+轮换文案+「关闭不浪费结果」说明；
+// 生成中关闭（Esc/遮罩/按钮）toast 提示重开可见（服务端幂等持久化，重开即取回结果）。
 import { useEffect, useRef, useState } from 'react'
+import { toast } from './Toast'
 import { ApiError, generateQuiz, getWrongQuizzes, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
 
 interface Props {
@@ -30,6 +33,22 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   const acRef = useRef<AbortController | null>(null)
   const writebackRef = useRef(false)
 
+  // iter 193 F8：出题已用秒数（loading 期间每秒走动）
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!loading) return
+    setElapsed(0)
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [loading])
+
+  // 生成中（非错题模式）：关闭不浪费结果——服务端幂等持久化，重开即取回
+  const generating = loading && !wrong && !error
+  function requestClose() {
+    if (generating) toast.info('出题在后台继续：若已出完，重新打开测验即可看到结果')
+    onClose()
+  }
+
   useEffect(() => {
     const ac = new AbortController()
     acRef.current = ac
@@ -51,14 +70,15 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     return () => ac.abort()
   }, [planId, wrong])
 
-  // Esc 关闭
+  // Esc 关闭（生成中经 requestClose 提示重开可见）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') requestClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, generating])
 
   // 测验回写（iter 40）：全部选择题判定后，按知识点聚合正确率 -> POST /progress。
   // 状态映射：score >= 0.8 -> done（与 record_progress 主观 done 下限 0.8 一致），否则 learning。
@@ -132,7 +152,7 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     <div
       className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
@@ -155,7 +175,7 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
               </span>
             )}
             <button
-              onClick={onClose}
+              onClick={requestClose}
               aria-label="关闭"
               className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
@@ -165,10 +185,18 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
         </div>
         <div className="space-y-4 overflow-y-auto px-6 py-4">
           {loading && (
-            <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400" role="status">
-              <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
-              {wrong ? '加载错题…' : '出题中…（按知识点组织题目，约需数十秒）'}
-            </p>
+            <div role="status">
+              <p className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
+                {wrong ? '加载错题…' : `出题中…（已用 ${elapsed} 秒）`}
+              </p>
+              {!wrong && (
+                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                  {elapsed < 10 ? '正在分析知识点与掌握情况…' : elapsed < 30 ? '正在按知识点组织题目…' : '题目较多，仍在生成中，请稍候…'}
+                  出题约需 30–90 秒。关闭弹窗不会浪费结果——若后台已出完，重新打开即可看到。
+                </p>
+              )}
+            </div>
           )}
           {error && (
             <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
