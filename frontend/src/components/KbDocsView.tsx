@@ -353,7 +353,7 @@ export default function KbDocsView() {
         </div>
       )}
 
-      {/* 问答面板（iter 217 挂壳；iter 218 完善文档筛选/错误特化） */}
+      {/* 问答面板（iter 218：文档范围 chips + 错误特化） */}
       {chatOpen && <KbChatPanel docs={docs} onOpenDoc={(d) => setViewingDoc(d)} />}
 
       {/* 上传区（拖拽 + 多选，顺序上传逐文件进度） */}
@@ -548,7 +548,7 @@ export default function KbDocsView() {
         ))}
       </ul>
 
-      {/* 查看器（iter 217 挂壳=解析文本视图；iter 218 媒体原件渲染） */}
+      {/* 查看器（iter 218：pdf/图片/音频/视频 blob 原生渲染，其余解析文本视图） */}
       {viewingDoc && (
         <KbViewerModal doc={viewingDoc} docs={docs} onClose={() => setViewingDoc(null)} onNavigate={(d) => setViewingDoc(d)} />
       )}
