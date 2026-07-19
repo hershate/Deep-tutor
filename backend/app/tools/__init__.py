@@ -13,6 +13,7 @@ from app.tools.design_stages import design_stages_tool
 from app.tools.export_plan import export_plan_tool
 from app.tools.generate_quiz import generate_quiz_tool
 from app.tools.generate_study_materials import generate_study_materials_tool, generate_unit_content_tool
+from app.tools.kb_answer import kb_answer_tool
 from app.tools.parse_material import parse_material_tool
 from app.tools.schedule_plan import schedule_plan_tool
 from app.tools.search_resources import search_resources_tool
@@ -37,6 +38,7 @@ def default_registry() -> ToolRegistry:
     reg.register(generate_study_materials_tool)  # P2 自学材料（POST /plans/{id}/materials 调用，不在 PIPELINE）
     reg.register(generate_unit_content_tool)  # P2 逐单元材料（materials SSE 流式路径，iter 46）
     reg.register(generate_quiz_tool)  # P2 测验（POST /plans/{id}/quiz 调用，不在 PIPELINE）
+    reg.register(kb_answer_tool)  # iter 216 知识库问答（POST /kb/chat 调用，不在 PIPELINE）
     # 后端插件工具（API.md「后端插件 API」§工具）：插件经 api.tools.register 注册，
     # 随每次新建的注册表汇入。与核心工具同名 -> 覆盖并告警（registry.register 既有
     # 行为），插件可借此替换核心工具实现（高级用法，见 API.md 开发规范）。
@@ -62,4 +64,5 @@ __all__ = [
     "generate_study_materials_tool",
     "generate_unit_content_tool",
     "generate_quiz_tool",
+    "kb_answer_tool",
 ]

@@ -27,8 +27,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.agent import BudgetTracker, run_tool
 from app.agent.context import ExecContext
-from app.api.deps import get_current_user, get_db, require_auth
+from app.agent.cost import record_metadata_usage
+from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.api.materials import _URL_RATE_PER_MIN, _hash_source, _read_capped, _validate_upload
 from app.api.plans import _safe_download_name
@@ -45,7 +47,10 @@ from app.core.storage import (
 )
 from app.db import models
 from app.db.models import User
+from app.llm import get_provider
+from app.tools import default_registry
 from app.tools.base import ToolInput
+from app.tools.kb_answer import KbAnswerSpec
 from app.tools.parse_material import AUDIO_EXTS, IMAGE_EXTS, VIDEO_EXTS, parse_material
 
 log = logging.getLogger("deep_tutor.api.kb")
@@ -615,4 +620,136 @@ def generate_from_documents(
         "session_id": sess.id,
         "open_path": f"/generate/{sess.id}",
         "material_count": material_count,
+    }
+
+
+# --- 知识库问答（iter 216） ---
+
+# 端点侧显式预截断（对齐 loop.py prompt 守卫：字段级 >20k 静默截断、总量 >200k 硬截断——
+# 预截断带标注，让截断行为对用户/模型可见而非静默）
+_CHAT_DOC_CHARS = 19_900  # 单文档注入上限（+截断标注后仍 < loop._MAX_PROMPT_FIELD_CHARS=20k）
+_CHAT_TOTAL_CHARS = 150_000  # 全部文档注入总量上限（loop._MAX_PROMPT_CHARS=200k 内留余量）
+_CHAT_DEFAULT_DOCS = 20  # 缺省上下文：最近 20 篇已解析文档
+
+
+class KbChatIn(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    document_ids: list[int] | None = Field(default=None, max_length=20)  # None -> 缺省全库最近 20 篇
+
+
+def _read_doc_text(doc: models.KbDocument) -> str:
+    """读文档解析文本；缺失/读失败 -> ""（调用方归入 omitted）。"""
+    if not doc.parsed_text_path:
+        return ""
+    try:
+        return Path(doc.parsed_text_path).read_text(encoding="utf-8")
+    except OSError:
+        log.warning("知识库问答：文档 %s 解析文本缺失", doc.id)
+        return ""
+
+
+def _assemble_chat_context(docs: list[models.KbDocument]) -> tuple[list[dict], list[str]]:
+    """组装注入上下文：单文档 ≤19.9k（带「…[已截断]」标注）、总量 ≤150k。
+
+    返回 (documents payload, omitted_titles)——解析文本缺失或总量预算耗尽的篇目
+    进 omitted（响应回传给前端标注，非静默丢弃）。
+    """
+    payload: list[dict] = []
+    omitted: list[str] = []
+    total = 0
+    for doc in docs:
+        text = _read_doc_text(doc)
+        if not text.strip():
+            omitted.append(doc.title)
+            continue
+        if len(text) > _CHAT_DOC_CHARS:
+            text = text[:_CHAT_DOC_CHARS] + "…[已截断]"
+        if total + len(text) > _CHAT_TOTAL_CHARS:
+            omitted.append(doc.title)
+            continue
+        total += len(text)
+        payload.append({"doc_id": doc.id, "title": doc.title, "text": text})
+    return payload, omitted
+
+
+@router.post("/chat")
+async def chat_with_kb(
+    body: KbChatIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """知识库问答：仅依据库内文档经 LLM 回答（kb_answer 工具），返回 answer + 引用映射。
+
+    上下文：指定 document_ids（归属校验，缺失/他人 -> 404）或缺省最近 20 篇已解析文档；
+    端点侧预截断（单篇 ≤19.9k 带标注，总量 ≤150k，耗尽篇目列 omitted_titles）。
+    聊天不持久化（前端内存历史）。错误映射：无供应商 -> 503 no_llm_provider；
+    upstream_timeout -> 504；其余 LLM 失败 -> 502 bad_gateway 笼统消息（R35 不回显细节）。
+    """
+    question = body.question.strip()
+    if not question:
+        raise ApiError("empty_content", "问题为空")
+
+    if body.document_ids is not None:
+        ordered_ids = list(dict.fromkeys(body.document_ids))
+        docs_by_id = {
+            d.id: d
+            for d in db.scalars(
+                select(models.KbDocument).where(
+                    models.KbDocument.user_id == user.id, models.KbDocument.id.in_(ordered_ids)
+                )
+            ).all()
+        }
+        for doc_id in ordered_ids:
+            if doc_id not in docs_by_id:
+                raise ApiError("not_found", f"知识库文档 {doc_id} 不存在")
+        docs = [docs_by_id[i] for i in ordered_ids]
+    else:
+        docs = db.scalars(
+            select(models.KbDocument)
+            .where(models.KbDocument.user_id == user.id, models.KbDocument.parsed_text_path.is_not(None))
+            .order_by(models.KbDocument.id.desc())
+            .limit(_CHAT_DEFAULT_DOCS)
+        ).all()
+
+    payload, omitted = _assemble_chat_context(list(docs))
+    if not payload:
+        raise ApiError("empty_content", "知识库暂无可用文档（请先上传文档）")
+
+    check_daily_budget(db, user.id)  # err.md A6：日预算守卫（LLM 计费端点）
+    try:
+        provider = get_provider(user.id)
+    except Exception:  # noqa: BLE001  无 key/无 active 档案
+        raise ApiError(
+            "no_llm_provider", "未配置 LLM 供应商，请先在设置页配置 API Key 或启用供应商档案"
+        ) from None
+
+    ctx = ExecContext(
+        session_id=f"kb-{user.id}",
+        trace_id=f"kb-chat-{user.id}",
+        registry=default_registry(),
+        llm_provider=provider,
+        data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),
+    )
+    inp = ToolInput(
+        tool="kb_answer",
+        session_id=f"kb-{user.id}",
+        args={"question": question, "documents": payload},
+    )
+    out = await run_tool("kb_answer", inp, ctx)
+    record_metadata_usage(db, out.metadata, user.id)  # err.md A6：计量（含失败路径的已耗 tokens）
+
+    if out.status != "ok":
+        code = out.errors[0].code if out.errors else "tool_exception"
+        if code == "upstream_timeout":
+            raise ApiError("upstream_timeout", "LLM 响应超时，请稍后重试")
+        log.warning("知识库问答失败: user=%s code=%s msg=%s", user.id, code, out.errors[0].message if out.errors else "")
+        raise ApiError("bad_gateway", "LLM 调用失败，请稍后重试")
+
+    spec = KbAnswerSpec.model_validate(out.data)
+    titles = {d["doc_id"]: d["title"] for d in payload}
+    citations = [{"doc_id": i, "title": titles[i]} for i in spec.used_doc_ids if i in titles]
+    return {
+        "answer": spec.answer,
+        "citations": citations,
+        "omitted_titles": omitted,
+        "context_docs": len(payload),
     }
