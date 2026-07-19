@@ -234,6 +234,14 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 182（卡片化 + 首页小组件 + 前端美化插件 API 预留，✅ 完成）**：用户需求「卡片式风格 + 小组件 + 预留前端美化插件接口 API，所有预留 API 写入 API.md」。
+  - **插件 API 基础设施**（commit `a002fcf`）：[plugins.ts](frontend/src/lib/plugins.ts)——`window.DeepTutor`（`API_VERSION=1.0.0`）：① `widgets` 命名插槽注册表（插槽 `home.dashboard`/`sidebar.footer`，order 排序、覆盖注册、订阅通知）；② `skins` CSS 变量令牌皮肤（`--dt-*` 命名空间白名单、亮/暗双态令牌、`localStorage('dt_skin')` 持久化、亮暗切换自动重放、`skinchange` 事件）；③ `events` 订阅（监听器异常隔离）；④ `api.get` REST 代理（当前登录态）；⑤ `plugins.load/unload/list` 外部插件脚本 URL 加载 + `localStorage('dt_plugins')` 持久化自动加载（http(s) 校验）；暴露 `DeepTutor.React` 供无构建链纯 JS 插件建组件。
+  - **共享卡片范式**：[Card.tsx](frontend/src/components/Card.tsx)（圆角走 `var(--dt-card-radius,0.75rem)` 令牌、interactive hover 上浮变体）；[index.css](frontend/src/index.css) body 字体走 `--dt-font-sans` 令牌（皮肤实际消费点，字体栈补中文 PingFang/YaHei）。
+  - **插槽渲染器**：[WidgetSlot.tsx](frontend/src/components/WidgetSlot.tsx)（useSyncExternalStore 订阅注册表版本号；grid/stack 排布；空插槽不渲染）。
+  - **内置小组件**（吃自己狗粮，与第三方同机制注册）：[homeDashboard.tsx](frontend/src/widgets/homeDashboard.tsx)——🔥连续打卡/📊本周已学/📅今日待复习/💰今日费用÷预算 4 张 StatCard（Link 跳 wiki/usage；复用 getStudyStats/getReviewDue/getUsage；**无数据返回 null 自行隐藏**，新用户首页保持清爽）；[Home.tsx](frontend/src/pages/Home.tsx) 标题下接 `home.dashboard` 宫格；[Layout.tsx](frontend/src/components/Layout.tsx) 侧栏展开态接 `sidebar.footer`（内置为空，供插件挂接）；[main.tsx](frontend/src/main.tsx) 启动注册内置组件 + `initPlugins(React)`。
+  - **API.md**（commit `db7e8bc`）：仓库根新增插件 API 权威契约文档——快速开始、插槽清单、widgets/skins/events/api/plugins 全方法签名与语义、皮肤令牌表、番茄钟完整示例、安全提示、版本历史；文首硬性约定「新增/变更任何预留 API 必须同步更新本文件」。
+  - **验证**：`npm run build` 通过（tsc 零错，1.82s，主包 219.74kB / +5.4kB）。**真机待确认**：dashboard 组件显示、皮肤 apply 效果、控制台插件加载。
+
 - **2026-07-19 iter 182（美化轨：第 123 轮——布局重构审查，✅ 完成）**：审查并行轨全宽贴边布局（`ac04637`）——质量高（sticky 侧栏 + ResizeObserver 实测顶栏高 + 主内容 max-w-5xl 居中保阅读宽 + 折叠钮 mt-auto 沉底），仅补一处：侧栏折叠按钮加 `aria-expanded`（读屏可辨展开/收起态，commit `8668b7d`）。第 83-122 轮除 iter 180 外均为无新料监视轮（其间 5 次定期构建健康检查全过），未记空轮。验证：`npm run build` 通过（1.69s，主包 214.37kB）。
 
 - **2026-07-19 iter 181（布局修复：应用外壳全宽贴边，✅ 完成）**：用户实机反馈「侧边栏没有靠边」——根因：[Layout.tsx](frontend/src/components/Layout.tsx) 的「侧栏+主区」行被 `mx-auto max-w-6xl` 居中包裹，宽屏下侧栏悬浮屏幕中部、左缘大片空白。修复为全宽 App Shell：① 顶栏/状态横幅/页脚去 `max-w-6xl` 居中改全宽 `px-4`（logo 与侧栏左缘对齐）；② 侧栏贴视口左缘：`sticky self-start` 吸于顶栏下、`height: calc(100vh - 顶栏高)` 始终撑满可视高度、`overflow-y-auto` 独立滚动、白底（dark:slate-800）与主区 slate-50 分层；顶栏高度用 ref+ResizeObserver 实测（随视口/换行自适应，不硬编码）；收起按钮 `mt-auto` 沉底；③ 主内容在剩余空间内 `max-w-5xl` 居中（近似等效原 6xl 减侧栏后的阅读宽度），`sm:px-6` 稍宽内边距。窄屏抽屉不变；打印样式（隐藏 aside）不受影响。**验证**：`npm run build` 通过（tsc 零错，1.74s，主包 214.35kB）。commit `ac04637`。**待用户实机确认**并指出其余美观问题（用户称「等等问题」，目前仅此一例具体）。
