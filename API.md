@@ -266,6 +266,10 @@ await DeepTutor.api.request('/progress/logs', {
 
 ## 六、插件加载管理（`DeepTutor.plugins`）
 
+> 💡 应用内置「插件」管理页（侧栏 🧩 插件，`/plugins`）已对本节方法提供可视化操作：
+> 用户无需打开控制台即可按 URL 加载/移除插件、查看并切换已注册皮肤与小组件。
+> 分发插件时可直接把 URL 交给用户到该页粘贴加载。
+
 #### `plugins.load(url: string): Promise<void>`
 
 加载外部插件脚本并**持久化**到 `localStorage('dt_plugins')`（刷新/重开自动按序加载）。
@@ -490,6 +494,9 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 ```
 
 `state: "failed"` 时 `error` 给出失败原因（import/register/id 非法/重复/min_api 不兼容）。
+
+本端点同时是内置「插件」管理页（`/plugins`，后端插件区块）的数据源——
+管理员可在页面直接查看各插件装载状态与错误，无需手工调用。
 
 ### 8.7 完整示例
 
