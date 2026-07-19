@@ -234,7 +234,7 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
-- **2026-07-19 iter 182（卡片化 + 首页小组件 + 前端美化插件 API 预留，✅ 完成）**：用户需求「卡片式风格 + 小组件 + 预留前端美化插件接口 API，所有预留 API 写入 API.md」。
+- **2026-07-19 iter 183（卡片化 + 首页小组件 + 前端美化插件 API 预留，✅ 完成）**：用户需求「卡片式风格 + 小组件 + 预留前端美化插件接口 API，所有预留 API 写入 API.md」。**编号说明**：本条与代码注释初标 iter 182，与并行美化轨 iter 182（第 123 轮布局重构审查）撞号，本条取 183（注释随改标 commit 同步）。
   - **插件 API 基础设施**（commit `a002fcf`）：[plugins.ts](frontend/src/lib/plugins.ts)——`window.DeepTutor`（`API_VERSION=1.0.0`）：① `widgets` 命名插槽注册表（插槽 `home.dashboard`/`sidebar.footer`，order 排序、覆盖注册、订阅通知）；② `skins` CSS 变量令牌皮肤（`--dt-*` 命名空间白名单、亮/暗双态令牌、`localStorage('dt_skin')` 持久化、亮暗切换自动重放、`skinchange` 事件）；③ `events` 订阅（监听器异常隔离）；④ `api.get` REST 代理（当前登录态）；⑤ `plugins.load/unload/list` 外部插件脚本 URL 加载 + `localStorage('dt_plugins')` 持久化自动加载（http(s) 校验）；暴露 `DeepTutor.React` 供无构建链纯 JS 插件建组件。
   - **共享卡片范式**：[Card.tsx](frontend/src/components/Card.tsx)（圆角走 `var(--dt-card-radius,0.75rem)` 令牌、interactive hover 上浮变体）；[index.css](frontend/src/index.css) body 字体走 `--dt-font-sans` 令牌（皮肤实际消费点，字体栈补中文 PingFang/YaHei）。
   - **插槽渲染器**：[WidgetSlot.tsx](frontend/src/components/WidgetSlot.tsx)（useSyncExternalStore 订阅注册表版本号；grid/stack 排布；空插槽不渲染）。

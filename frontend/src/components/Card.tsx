@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 
-// 共享卡片范式（iter 182）：统一全站「圆角+边框+白底+浅阴影」卡片外观。
+// 共享卡片范式（iter 183）：统一全站「圆角+边框+白底+浅阴影」卡片外观。
 // 圆角走 CSS 变量 --dt-card-radius（默认 0.75rem），皮肤插件可全局调整（见 API.md「皮肤令牌」）。
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {

@@ -129,7 +129,7 @@ export default function Home() {
         <p className="text-slate-600 dark:text-slate-300">描述你想学的内容，可选上传资料（PDF/Word/PPT/TXT/MD，可多选合并为一个资料集）或添加网页链接。</p>
       </div>
 
-      {/* iter 182：学习概览小组件宫格（插件 API home.dashboard 插槽；各组件无数据自行隐藏） */}
+      {/* iter 183：学习概览小组件宫格（插件 API home.dashboard 插槽；各组件无数据自行隐藏） */}
       <WidgetSlot slot="home.dashboard" layout="grid" className="animate-fade-in-up" />
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '60ms' }}>

@@ -195,7 +195,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
         >
           {sidebarNav}
-          {/* iter 182：插件 API sidebar.footer 插槽（内置为空，供第三方插件挂接） */}
+          {/* iter 183：插件 API sidebar.footer 插槽（内置为空，供第三方插件挂接） */}
           {!collapsed && <WidgetSlot slot="sidebar.footer" layout="stack" className="mt-4" />}
           <button
             type="button"
