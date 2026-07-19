@@ -12,7 +12,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.0.0'
+export const API_VERSION = '1.1.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -156,6 +156,10 @@ const skinsApi = {
 export interface DeepTutorEventMap {
   /** 皮肤切换后触发 */
   skinchange: { name: string }
+  /** 任务相位迁移（iter 195 F10，v1.1.0）：方案/材料生成任务每次相位变化时触发。
+   *  phase: running|clarify|done|error|cancelled|interrupted；
+   *  任务全量状态可经 api.get('/sessions') 主动查询。 */
+  taskchange: { id: string; kind: 'plan' | 'materials'; phase: string; title: string }
 }
 
 type EventName = keyof DeepTutorEventMap

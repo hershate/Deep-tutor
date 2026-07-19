@@ -21,6 +21,7 @@ import {
   type SseReconnectOpts,
 } from './api'
 import { SseError } from './sse'
+import { events as pluginEvents } from './plugins'
 import {
   materialsTaskId,
   planTaskId,
@@ -109,7 +110,10 @@ function notifySettled(t: TaskEntry): void {
 function onPhaseTransition(taskId: string, prev: TaskPhase | undefined, next: TaskPhase | undefined): void {
   if (!next || prev === next) return
   const t = entryOf(taskId)
-  if (t) notifySettled(t)
+  if (!t) return
+  // iter 195 F10：插件 API taskchange 事件（v1.1.0）——每次相位迁移广播
+  pluginEvents.emit('taskchange', { id: t.id, kind: t.kind, phase: t.phase, title: t.title })
+  notifySettled(t)
 }
 
 /** 流异常内部处理（非 failFast 路径）：404 移除台账；409 stale -> interrupted；其余 -> offline。 */

@@ -6,7 +6,7 @@
 >
 > 实现源码：[frontend/src/lib/plugins.ts](frontend/src/lib/plugins.ts)
 
-- **API 版本**：`1.0.0`（`DeepTutor.version`，语义化版本）
+- **API 版本**：`1.1.0`（`DeepTutor.version`，语义化版本）
 - **兼容性承诺**：minor / patch 版本向后兼容（只增不改）；major 版本变更会在本文记录迁移说明。
 - **运行环境**：浏览器端。应用启动后全局对象 `window.DeepTutor` 可用（在 React 树渲染前挂载）。
 
@@ -174,8 +174,13 @@ interface SkinDef {
 | 事件名 | payload | 触发时机 |
 |---|---|---|
 | `skinchange` | `{ name: string }` | 皮肤切换后（含亮/暗切换引起的令牌重放） |
+| `taskchange`（v1.1.0） | `{ id: string; kind: 'plan' \| 'materials'; phase: string; title: string }` | 方案/材料生成任务的每次相位迁移（`phase`：`running` / `clarify` / `done` / `error` / `cancelled` / `interrupted`；`id` 形如 `plan:<sessionId>`、`materials:<planId>`） |
 
 > 事件只增不改：新版本可能追加事件，已有事件名与 payload 结构向后兼容。
+>
+> `taskchange` 仅通知相位变化这一事实；任务的全量状态（进度步骤、费用、错误详情等）
+> 可经 `api.get('/sessions')` / `api.get('/sessions/<id>')` 主动查询（含 `status`、
+> `live`（running 时实时进度）、`error`、`latest_plan` 字段）。
 
 ### 方法
 
@@ -270,4 +275,5 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| 1.1.0 | 2026-07-19 | 新增 `taskchange` 事件（任务相位迁移；配合 `api.get('/sessions')` 查询任务全量状态） |
 | 1.0.0 | 2026-07-19 | 首个预留版本：`widgets`（插槽 `home.dashboard` / `sidebar.footer`）、`skins`（令牌 `--dt-card-radius` / `--dt-font-sans`）、`events`（`skinchange`）、`api.get`、`plugins.load/unload/list` |
