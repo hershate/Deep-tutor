@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.2.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.3.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.1.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -80,6 +80,7 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 |---|---|---|---|
 | `home.dashboard` | 首页标题区下方、表单卡上方 | 响应式宫格（2 列，宽屏 4 列） | 学习概览小组件；内置 4 个（连续打卡/本周已学/今日待复习/今日费用），无数据自行隐藏 |
 | `sidebar.footer` | 桌面端侧栏导航下方、收起按钮上方 | 纵向堆叠 | 仅在侧栏展开态渲染（折叠为图标态时不渲染） |
+| `plan.detail`（v1.3.0） | 方案详情页头部操作区下方、学习意图卡上方 | 响应式宫格（2 列，宽屏 4 列） | 方案级插件面板；组件内可经 React Router `useParams()` 取 `planId` 做方案级数据展示/操作 |
 
 > 插槽只增不改：新版本可能追加插槽，已有插槽名不会改名或删除。
 
@@ -90,7 +91,7 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 ```ts
 interface WidgetDef {
   id: string              // 全局唯一；重复注册同 id 视为覆盖更新
-  slot: WidgetSlot        // 'home.dashboard' | 'sidebar.footer'
+  slot: WidgetSlot        // 'home.dashboard' | 'sidebar.footer' | 'plan.detail'
   component: ComponentType // React 组件，无 props
   order?: number          // 排序权重，小的在前；缺省 100；0-99 内置保留
 }
@@ -403,6 +404,7 @@ api.routes.mount(router, *, auth: bool = True, prefix: str = "") -> str
 ```
 
 - 将 FastAPI `APIRouter` 挂载到 `/api/plugins/<插件id>[prefix]`，返回实际前缀。
+- 路由自动带 OpenAPI 标签 `plugin:<插件id>`（`/docs` 中按插件分组，便于发现与调试）。
 - `auth=True`（默认）：整个路由器套宿主同一认证（JWT / AUTH_TOKEN / 开放本机模式），
   未认证 401 与宿主端点语义一致。`auth=False` 用于公开 webhook 等场景——**必须自行验签**（§九）。
 - `api.routes.base_path`：本插件命名空间前缀（拼绝对路径用）。
@@ -559,6 +561,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 前端 | 1.3.0 | 2026-07-19 | 新增插槽 `plan.detail`（方案详情页头部下方宫格；组件内可 `useParams()` 取 planId 做方案级面板） |
 | 后端 | 1.1.0 | 2026-07-19 | 新增 `materials_completed` 事件（材料生成完成；SSE/同步两路径均广播，幂等重渲染不广播） |
 | 后端 | 1.0.0 | 2026-07-19 | 首个后端插件 API：`plugins/` 目录自动发现装载（单文件/包插件、`_` 前缀停用）、`api` 门面（routes/events/tools/settings/deps/data_dir/log）、核心事件（startup/shutdown/plan_created/progress_updated/quiz_submitted）、路由命名空间 `/api/plugins/<id>/`（默认认证）、状态端点 `GET /api/plugins`、插件工具汇入 `default_registry()` |
 | 前端 | 1.2.0 | 2026-07-19 | 新增 `api.request`（全方法 REST 代理）、`widgets.slots()`（插槽能力发现）；小组件渲染异常改为单组件级错误边界隔离（此前会拖垮整个应用）；widgets/skins 订阅回调异常隔离（与 events 语义一致）；文档补事件前向兼容说明 |

@@ -9,6 +9,7 @@ import QuizModal from '../components/QuizModal'
 import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
+import WidgetSlot from '../components/WidgetSlot'
 import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, listPlans, regenerateStream, revokeShare, type PlanSummary, type QuizStats, type ShareStatus } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
@@ -370,6 +371,10 @@ export default function PlanDetail() {
       )}
       {exportUrl && <div className="text-xs text-slate-500 dark:text-slate-400">已导出: {exportUrl}</div>}
       {shareMsg && <div className="break-all text-xs text-emerald-600 dark:text-emerald-400">{shareMsg}</div>}
+
+      {/* 插件小组件插槽（API.md §二 plan.detail，v1.3.0）：方案级插件面板；
+          插件组件内可经 React Router useParams() 取 planId 做方案级数据展示/操作 */}
+      <WidgetSlot slot="plan.detail" layout="grid" />
 
       {showMaterials && planId && (
         <MaterialsModal
