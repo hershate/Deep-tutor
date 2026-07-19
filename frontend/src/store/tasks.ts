@@ -258,11 +258,22 @@ export const useTaskStore = create<TasksState>((set, get) => ({
       } else if (event === 'tool_end') {
         const tool = String(data.tool ?? '')
         const attempt = Number(data.attempt ?? 1)
-        patch.steps = cur.steps.map((s) =>
-          s.tool === tool && s.attempt === attempt
-            ? { ...s, status: data.status === 'ok' ? 'done' : 'error' }
-            : s,
-        )
+        const status: TaskStep['status'] = data.status === 'ok' ? 'done' : 'error'
+        if (cur.steps.some((s) => s.tool === tool && s.attempt === attempt)) {
+          patch.steps = cur.steps.map((s) => (s.tool === tool && s.attempt === attempt ? { ...s, status } : s))
+        } else {
+          // 中途挂接且缓冲截断（>500 事件）时 tool_start 可能已不可见——补一条完成态步骤
+          patch.steps = [
+            ...cur.steps,
+            {
+              tool,
+              stepIndex: Number(data.step_index ?? 0),
+              totalSteps: Number(data.total_steps ?? 0),
+              attempt,
+              status,
+            },
+          ]
+        }
         const md = (data.metadata ?? {}) as Record<string, unknown>
         patch.cost = cur.cost + (Number(md.cost) || 0)
         patch.tokens = cur.tokens + (Number(md.input_tokens) || 0) + (Number(md.output_tokens) || 0)

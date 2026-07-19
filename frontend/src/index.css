@@ -177,3 +177,13 @@ body {
 .markdown-body input[type='checkbox'] {
   @apply mr-1 accent-blue-600;
 }
+
+/* iter 190 F5：生成完成 1.5s 倒计时条（宽度收缩，与 done 自动跳转同长） */
+@keyframes countdown-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
