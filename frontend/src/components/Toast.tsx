@@ -5,30 +5,37 @@ import { create } from 'zustand'
 
 export type ToastKind = 'success' | 'info' | 'error'
 
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface ToastItem {
   id: number
   kind: ToastKind
   message: string
+  action?: ToastAction // iter 186 F1：动作按钮（如「查看方案」）；有动作时 TTL 延至 8s
   leaving?: boolean // iter 104：退场阶段（播完 fade-out 再移除）
 }
 
 interface ToastState {
   toasts: ToastItem[]
-  push: (kind: ToastKind, message: string) => void
+  push: (kind: ToastKind, message: string, action?: ToastAction) => void
   remove: (id: number) => void
   beginRemove: (id: number) => void
 }
 
 let nextId = 1
 const TTL_MS = 3000
+const ACTION_TTL_MS = 8000 // 带动作的通知给用户留足点击时间
 const EXIT_MS = 200 // 与 tailwind animate-fade-out 时长一致
 
 export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
-  push: (kind, message) => {
+  push: (kind, message, action) => {
     const id = nextId++
-    set((s) => ({ toasts: [...s.toasts.slice(-3), { id, kind, message }] })) // 最多叠 4 条
-    setTimeout(() => get().beginRemove(id), TTL_MS)
+    set((s) => ({ toasts: [...s.toasts.slice(-3), { id, kind, message, action }] })) // 最多叠 4 条
+    setTimeout(() => get().beginRemove(id), action ? ACTION_TTL_MS : TTL_MS)
   },
   // 先标 leaving 播退场动画，再真正移除（手动关闭与 TTL 到期同路径）
   beginRemove: (id) => {
@@ -40,11 +47,11 @@ export const useToastStore = create<ToastState>((set, get) => ({
   remove: (id) => get().beginRemove(id),
 }))
 
-/** 便捷调用（非组件环境也可用）。 */
+/** 便捷调用（非组件环境也可用）。可选动作按钮（点击后自动关闭）。 */
 export const toast = {
-  success: (message: string) => useToastStore.getState().push('success', message),
-  info: (message: string) => useToastStore.getState().push('info', message),
-  error: (message: string) => useToastStore.getState().push('error', message),
+  success: (message: string, action?: ToastAction) => useToastStore.getState().push('success', message, action),
+  info: (message: string, action?: ToastAction) => useToastStore.getState().push('info', message, action),
+  error: (message: string, action?: ToastAction) => useToastStore.getState().push('error', message, action),
 }
 
 const KIND_STYLE: Record<ToastKind, string> = {
@@ -68,6 +75,18 @@ export function Toaster() {
         >
           <span aria-hidden="true">{KIND_ICON[t.kind]}</span>
           <span className="min-w-0 flex-1 break-all">{t.message}</span>
+          {t.action && (
+            <button
+              type="button"
+              onClick={() => {
+                t.action?.onClick()
+                remove(t.id)
+              }}
+              className="shrink-0 rounded px-1.5 py-0.5 font-medium underline underline-offset-2 transition-opacity hover:opacity-80"
+            >
+              {t.action.label}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => remove(t.id)}
