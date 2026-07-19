@@ -14,8 +14,15 @@ SSRF 防护随 parse_material（verify_url._is_safe_url）、URL 抓取与 mater
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -24,9 +31,10 @@ from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.api.materials import _URL_RATE_PER_MIN, _hash_source, _read_capped, _validate_upload
+from app.api.plans import _safe_download_name
 from app.core.ratelimit import limiter
 from app.core.settings import settings
-from app.core.storage import delete_kb_document_files, save_kb_upload, write_kb_parsed_text
+from app.core.storage import _kb_root, delete_kb_document_files, save_kb_upload, write_kb_parsed_text
 from app.db import models
 from app.db.models import User
 from app.tools.base import ToolInput
@@ -334,3 +342,178 @@ def delete_document(
     except Exception:  # noqa: BLE001
         log.warning("删除知识库文档文件失败: user=%s doc=%s", user.id, document_id)
     return {"ok": True}
+
+
+# --- 原件 / 解析文本读取（iter 214） ---
+
+# 查看器内联渲染的 media_type 静态映射；docx/pptx 等浏览器不支持内联 -> octet-stream（下载）
+_RAW_MEDIA_TYPES = {
+    "pdf": "application/pdf",
+    "txt": "text/plain",
+    "md": "text/markdown",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
+    "webp": "image/webp",
+    "tiff": "image/tiff",
+    "tif": "image/tiff",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
+    "ogg": "audio/ogg",
+    "flac": "audio/flac",
+    "mp4": "video/mp4",
+    "mkv": "video/x-matroska",
+    "mov": "video/quicktime",
+    "webm": "video/webm",
+    "avi": "video/x-msvideo",
+}
+
+
+@router.get("/documents/{document_id}/raw")
+def get_document_raw(
+    document_id: int,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    """原件读取（单端点双模式）：默认 inline 供前端查看器（PDF/图片/音频/视频浏览器原生
+    渲染），?download=1 为 attachment 下载。text/url 类无原件 -> 404。"""
+    doc = _owned_doc_or_404(db, document_id, user)
+    if not doc.original_path:
+        raise ApiError("not_found", f"知识库文档 {document_id} 无原件（text/url 类仅有解析文本）")
+    # R20 防线：DB 路径 resolve 后须仍在本用户 kb 目录内（防库被篡改后路径穿越）
+    try:
+        resolved = Path(doc.original_path).resolve()
+        resolved.relative_to(_kb_root(user.id))
+    except (ValueError, OSError):
+        log.warning("知识库原件路径越界: doc=%s", document_id)
+        raise ApiError("not_found", f"知识库文档 {document_id} 的原件缺失") from None
+    if not resolved.is_file():
+        raise ApiError("not_found", f"知识库文档 {document_id} 的原件缺失")
+    media_type = _RAW_MEDIA_TYPES.get(doc.ext.lower(), "application/octet-stream")
+    filename = doc.title or f"kb-{doc.id}"
+    if download and doc.ext and not filename.lower().endswith(f".{doc.ext.lower()}"):
+        filename = f"{filename}.{doc.ext}"  # 重命名后标题可能无扩展名，下载名补齐
+    return FileResponse(
+        resolved,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="attachment" if download else "inline",
+    )
+
+
+@router.get("/documents/{document_id}/parsed")
+def get_document_parsed(
+    document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """解析文本（AI 消费面 / 查看器文档类渲染源）：缺失 -> 404，不回显服务器路径（R35）。"""
+    doc = _owned_doc_or_404(db, document_id, user)
+    if not doc.parsed_text_path:
+        raise ApiError("not_found", f"知识库文档 {document_id} 无解析文本")
+    try:
+        text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
+    except OSError:
+        log.warning("知识库解析文本缺失: doc=%s", document_id)
+        raise ApiError("not_found", f"知识库文档 {document_id} 的解析文本缺失") from None
+    return {
+        "document_id": doc.id,
+        "title": doc.title,
+        "text": text,
+        "parsed_chars": doc.parsed_chars,
+        "truncated": bool((doc.meta or {}).get("truncated")),
+    }
+
+
+# --- ZIP 打包导出（iter 214） ---
+
+
+def _export_stem(doc: models.KbDocument) -> str:
+    """zip 条目名主干：<safe_title>（标题自带扩展名时先去掉，防 a.md.md 双扩展名）。"""
+    title = doc.title or f"doc-{doc.id}"
+    if doc.ext and title.lower().endswith(f".{doc.ext.lower()}"):
+        title = title[: -(len(doc.ext) + 1)]
+    return _safe_download_name(title)
+
+
+def _export_index_md(docs: list[models.KbDocument]) -> str:
+    lines = [
+        "# 知识库导出清单",
+        "",
+        f"- 导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 文档数：{len(docs)}",
+        "",
+        "| ID | 标题 | 类型 | 扩展名 | 解析字数 | 原件 | 创建时间 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for d in docs:
+        kind = d.kind.value if hasattr(d.kind, "value") else str(d.kind)
+        lines.append(
+            f"| {d.id} | {d.title.replace('|', '/')} | {kind} | {d.ext or '-'} "
+            f"| {d.parsed_chars} | {'有' if d.original_path else '无'} | {d.created_at} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+@router.get("/export")
+def export_kb_zip(
+    ids: str | None = Query(default=None, max_length=2000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """知识库打包导出（ZIP）：index.md 清单 + originals/ + parsed/。
+
+    ids=1,2,3 过滤（缺省全库；他人/不存在 id 静默排除——导出是批量便利操作而非查询）。
+    空库或过滤后为空 -> 404。流式：SpooledTemporaryFile(64MB) 防大库 OOM
+    （相对 materials export BytesIO 范本的有依据偏离——200 文档×50MB 极端下整个 zip
+    压进内存会 OOM），原件经 zf.open+copyfileobj(1MB) 流式写入。
+    """
+    stmt = select(models.KbDocument).where(models.KbDocument.user_id == user.id)
+    if ids:
+        wanted = {int(p) for p in (p.strip() for p in ids.split(",")) if p.isdigit()}
+        stmt = stmt.where(models.KbDocument.id.in_(wanted)) if wanted else stmt.where(models.KbDocument.id == -1)
+    docs = db.scalars(stmt.order_by(models.KbDocument.id)).all()
+    if not docs:
+        raise ApiError("not_found", "知识库为空，无可导出文档")
+
+    spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("index.md", _export_index_md(docs))
+        for doc in docs:
+            stem = f"{doc.id}-{_export_stem(doc)}"
+            for arc_dir, path_str, suffix in (
+                ("originals", doc.original_path, doc.ext or "bin"),
+                ("parsed", doc.parsed_text_path, "txt"),
+            ):
+                if not path_str:
+                    continue
+                src = Path(path_str)
+                if not src.is_file():
+                    log.warning("知识库导出：文档 %s 文件缺失 %s", doc.id, arc_dir)
+                    continue
+                with src.open("rb") as fin, zf.open(f"{arc_dir}/{stem}.{suffix}", mode="w") as fout:
+                    shutil.copyfileobj(fin, fout, 1024 * 1024)
+    spool.seek(0)
+
+    def _iter_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    filename = f"知识库导出-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    log.info("知识库导出：user=%s 文档=%d", user.id, len(docs))
+    return StreamingResponse(
+        _iter_chunks(),
+        media_type="application/zip",
+        # RFC 5987：中文文件名经 filename* 百分号编码（UA 不支持时回退 ASCII 名）
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"kb-export-{user.id}.zip\"; filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
