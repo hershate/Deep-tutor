@@ -294,6 +294,8 @@ const pluginsApi = {
 export const widgets = widgetsApi
 export const skins = skinsApi
 export const events = eventsApi
+/** 内部使用：插件管理页（与 window.DeepTutor.plugins 同一对象） */
+export const plugins = pluginsApi
 
 export interface DeepTutorAPI {
   /** API 语义化版本 */
