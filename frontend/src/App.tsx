@@ -12,6 +12,7 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import PlanDetail from './pages/PlanDetail'
 import Plans from './pages/Plans'
+import Plugins from './pages/Plugins'
 import Setup from './pages/Setup'
 import SharedPlan from './pages/SharedPlan'
 import Usage from './pages/Usage'
@@ -72,6 +73,8 @@ export default function App() {
                 <Route path="/learn/:planId" element={<Learn />} />
                 <Route path="/wiki" element={<Wiki />} />
                 <Route path="/usage" element={<Usage />} />
+                {/* iter 204：插件管理页（前端插件加载/移除 + 生效概览 + 后端状态） */}
+                <Route path="/plugins" element={<Plugins />} />
                 <Route path="/settings" element={<Settings />} />
                 {/* iter 157：未知路由显式 404（原静默重定向首页，输错 URL 无感知） */}
                 <Route path="*" element={<NotFound />} />
