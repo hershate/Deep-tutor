@@ -234,6 +234,8 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 182（美化轨：第 123 轮——布局重构审查，✅ 完成）**：审查并行轨全宽贴边布局（`ac04637`）——质量高（sticky 侧栏 + ResizeObserver 实测顶栏高 + 主内容 max-w-5xl 居中保阅读宽 + 折叠钮 mt-auto 沉底），仅补一处：侧栏折叠按钮加 `aria-expanded`（读屏可辨展开/收起态，commit `8668b7d`）。第 83-122 轮除 iter 180 外均为无新料监视轮（其间 5 次定期构建健康检查全过），未记空轮。验证：`npm run build` 通过（1.69s，主包 214.37kB）。
+
 - **2026-07-19 iter 181（布局修复：应用外壳全宽贴边，✅ 完成）**：用户实机反馈「侧边栏没有靠边」——根因：[Layout.tsx](frontend/src/components/Layout.tsx) 的「侧栏+主区」行被 `mx-auto max-w-6xl` 居中包裹，宽屏下侧栏悬浮屏幕中部、左缘大片空白。修复为全宽 App Shell：① 顶栏/状态横幅/页脚去 `max-w-6xl` 居中改全宽 `px-4`（logo 与侧栏左缘对齐）；② 侧栏贴视口左缘：`sticky self-start` 吸于顶栏下、`height: calc(100vh - 顶栏高)` 始终撑满可视高度、`overflow-y-auto` 独立滚动、白底（dark:slate-800）与主区 slate-50 分层；顶栏高度用 ref+ResizeObserver 实测（随视口/换行自适应，不硬编码）；收起按钮 `mt-auto` 沉底；③ 主内容在剩余空间内 `max-w-5xl` 居中（近似等效原 6xl 减侧栏后的阅读宽度），`sm:px-6` 稍宽内边距。窄屏抽屉不变；打印样式（隐藏 aside）不受影响。**验证**：`npm run build` 通过（tsc 零错，1.74s，主包 214.35kB）。commit `ac04637`。**待用户实机确认**并指出其余美观问题（用户称「等等问题」，目前仅此一例具体）。
 
 - **2026-07-19 iter 180（美化轨：第 82 轮——周目标条审查，✅ 完成）**：审查并行轨周目标进度条（`5dbe6c5`）——**零缺口**：完整复用 iter 165 进度条语义模式（role=progressbar + aria-value* + aria-label）、tabular-nums、500ms ease-out、达标变绿 ✓、暗色全配，并行轨已稳定内化品牌基线，无需任何改动。第 72-81 轮除 iter 178 外均为无新料监视轮，未记空轮。验证：`npm run build` 通过（1.73s，主包 214.07kB）。
