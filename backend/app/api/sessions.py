@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
-from app.api.plans import _clarify_questions_from_state, _plan_topic, cancel_running_generation
+from app.api.plans import _STREAMS, _clarify_questions_from_state, _plan_topic, cancel_running_generation
 from app.core.storage import delete_material_files, delete_session_files
 from app.db import models
 from app.db.models import User
@@ -129,6 +129,18 @@ def _session_status_out(
     has_materials: bool,
 ) -> SessionStatusOut:
     last_error = (state.last_error or {}) if state is not None else {}
+    # iter 185 B5：running 且有活动流 -> 暴露实时进度（终态流已标记的不报，状态即将翻转）
+    live: dict | None = None
+    if state is not None and state.status == models.OrchestratorStatus.running:
+        stream = _STREAMS.get(sess.id)
+        if stream is not None and stream.terminal_id is None:
+            live = {
+                "current_tool": stream.current_tool or None,
+                "step_index": stream.step_index,
+                "total_steps": stream.total_steps,
+                "cost": round(stream.cost, 6),
+                "last_event_id": stream.seq,
+            }
     return SessionStatusOut(
         session_id=sess.id,
         title=sess.title or "",
@@ -142,6 +154,7 @@ def _session_status_out(
             else None
         ),
         error=(last_error or None),
+        live=live,
     )
 
 

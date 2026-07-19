@@ -1,7 +1,8 @@
 """会话列表与状态只读端点测试（iter 184 B1，GET /sessions、GET /sessions/{id}）。
 
 覆盖：空库/分页/排序（running 置顶+最近活动倒序）/q 过滤/latest_plan 提取/
-无状态行 idle/详情 clarify_questions/跨用户 404（不泄露存在性）。
+无状态行 idle/详情 clarify_questions/跨用户 404（不泄露存在性）/
+iter 185 B5 live 实时进度字段。
 """
 
 from __future__ import annotations
@@ -183,6 +184,38 @@ def test_cross_user_404(client, auth_headers):
     ha = _login(client, "alice")
     assert client.get(f"{BASE}/{sid}", headers=ha).status_code == 404
     assert client.get(BASE, headers=ha).json()["total"] == 0
+
+
+def test_live_progress_when_running(client, auth_headers):
+    """iter 185 B5：running + 活动流 -> live 实时进度；流已终态（状态将翻转）-> live=None。"""
+    from app.api.plans import _STREAMS, _SessionStream
+
+    sid = client.post(BASE, json={"title": "t"}, headers=auth_headers).json()["session_id"]
+    _set_state(sid, "running")
+    stream = _SessionStream(sid, "trace")
+    stream.current_tool = "design_stages"
+    stream.step_index = 4
+    stream.total_steps = 8
+    stream.cost = 0.0123
+    stream.publish("tool_start", {"tool": "design_stages", "step_index": 4, "total_steps": 8, "attempt": 1})
+    _STREAMS[sid] = stream
+
+    d = client.get(f"{BASE}/{sid}", headers=auth_headers).json()
+    assert d["live"] == {
+        "current_tool": "design_stages",
+        "step_index": 4,
+        "total_steps": 8,
+        "cost": 0.0123,
+        "last_event_id": 1,
+    }
+    # 列表同样暴露
+    item = client.get(BASE, headers=auth_headers).json()["items"][0]
+    assert item["live"]["step_index"] == 4
+
+    # 流已标记终态（_finalize 置态窗口期）-> 不报 live
+    stream.mark_terminal(1)
+    d2 = client.get(f"{BASE}/{sid}", headers=auth_headers).json()
+    assert d2["live"] is None
 
 
 def test_requires_auth(client):

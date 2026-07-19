@@ -131,6 +131,12 @@ class _SessionStream:
         self.task: asyncio.Task | None = None
         self.raw_text: str = ""
         self.budget: "BudgetTracker | None" = None
+        # iter 185 B5：运行中实时进度——_run_start 的 event_cb 闭包随事件更新，
+        # 供 GET /sessions 只读端点 live 字段暴露（任务管理器/列表占位行进度条数据源）
+        self.current_tool: str = ""
+        self.step_index: int = 0
+        self.total_steps: int = 0
+        self.cost: float = 0.0
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -705,8 +711,18 @@ async def _run_start(
         skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
         budget=budget,
     )
+    def _on_event(e: str, d: dict) -> int:
+        # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
+        if e == "tool_start":
+            stream.current_tool = str(d.get("tool") or "")
+            stream.step_index = int(d.get("step_index") or 0)
+            stream.total_steps = int(d.get("total_steps") or 0)
+        elif e == "tool_end":
+            stream.cost += float((d.get("metadata") or {}).get("cost") or 0.0)
+        return stream.publish(e, d)
+
     orch = Orchestrator(
-        registry, ctx, event_cb=lambda e, d: stream.publish(e, d), max_tool_calls=settings.max_tool_calls
+        registry, ctx, event_cb=_on_event, max_tool_calls=settings.max_tool_calls
     )
     task = asyncio.create_task(
         orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
