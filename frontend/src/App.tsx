@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import { TaskEngineBridge } from './components/TaskEngineBridge'
 import { getToken } from './lib/auth'
 import { useSetupStatus } from './lib/setup'
 import Home from './pages/Home'
@@ -60,6 +61,8 @@ export default function App() {
         element={
           <RequireAuth>
             <Layout>
+              {/* iter 187 F2：任务引擎桥（注入 navigate/queryClient + boot 对账 + 路由同步） */}
+              <TaskEngineBridge />
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />

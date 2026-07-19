@@ -3,6 +3,7 @@
 // dev 环境经 Vite 代理 /api -> :8000；生产经 nginx 反代。
 
 import { getToken, handleUnauthorized, setAuth, type AuthUser } from './auth'
+import type { SessionStatusItem } from '../store/tasks'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -118,6 +119,22 @@ export const createSession = (title = '') =>
 
 export const deleteSession = (id: number) =>
   apiFetch<{ ok: boolean }>(`/sessions/${id}`, { method: 'DELETE' })
+
+// 会话状态只读查询（iter 184 B1，任务管理器/方案列表占位行数据源；iter 187 F2 接入）
+export interface SessionListResult {
+  items: SessionStatusItem[]
+  total: number
+}
+export const listSessions = (params: { page?: number; limit?: number; q?: string } = {}) => {
+  const sp = new URLSearchParams()
+  if (params.page) sp.set('page', String(params.page))
+  if (params.limit) sp.set('limit', String(params.limit))
+  if (params.q) sp.set('q', params.q)
+  const qs = sp.toString()
+  return apiFetch<SessionListResult>(`/sessions${qs ? `?${qs}` : ''}`)
+}
+export type SessionStatusDetail = SessionStatusItem & { clarify_questions: string[] }
+export const getSession = (id: number) => apiFetch<SessionStatusDetail>(`/sessions/${id}`)
 
 // 会话源资料管理（iter 104）：清单 + 单个删除（传错资料可移除后重生成）
 export interface SessionMaterial {
@@ -561,13 +578,22 @@ export const updatePrefs = (dailyBudgetUsd: number | null) =>
 // --- generate / clarify（SSE POST，见 lib/sse.ts）---
 // generate 支持断线续接：流未到终态即带 Last-Event-ID 重连，指数退避≤3（plan/06 §七）。
 // clarify 不重连（端点非幂等；续接应走 /generate attach，非 /clarify）。
+
+/** SSE 重连可选回调（iter 187 F2 任务引擎）：游标种子化 + 游标实时上报 + 重连可见。 */
+export interface SseReconnectOpts {
+  initialLastEventId?: string
+  onEventId?: (lastEventId: string) => void
+  onRetry?: (attempt: number) => void
+}
+
 export function generateStream(
   sessionId: number,
   rawText: string,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
+  opts?: SseReconnectOpts,
 ): Promise<void> {
-  return ssePostWithReconnect(`/plans/generate`, { session_id: sessionId, raw_text: rawText }, onEvent, signal)
+  return ssePostWithReconnect(`/plans/generate`, { session_id: sessionId, raw_text: rawText }, onEvent, signal, opts)
 }
 
 // 局部重生成（plan/10 §十三）：从 scope 起级联重跑，复用断线重连。
@@ -577,8 +603,19 @@ export function regenerateStream(
   feedback: string,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
+  opts?: SseReconnectOpts,
 ): Promise<void> {
-  return ssePostWithReconnect(`/plans/${planId}/regenerate`, { scope, feedback }, onEvent, signal)
+  return ssePostWithReconnect(`/plans/${planId}/regenerate`, { scope, feedback }, onEvent, signal, opts)
+}
+
+// 失败/中断后重试（iter 184 B4）：以持久化的原始输入重新全量生成，事件与 /generate 同构。
+export function retryStream(
+  sessionId: number,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+  signal?: AbortSignal,
+  opts?: SseReconnectOpts,
+): Promise<void> {
+  return ssePostWithReconnect(`/plans/${sessionId}/retry`, {}, onEvent, signal, opts)
 }
 
 export function clarifyStream(
@@ -751,14 +788,17 @@ async function ssePost(
  * - 4xx 非瞬态（如 409 stale 会话）-> 不重连，直接抛。
  * - 网络错误 / 5xx / 超时 -> 重连；超限抛「连接中断，重连失败」。
  * 后端按 id > last_event_id 重放，故无重复事件/重复计费。
+ * opts（iter 187 F2）：initialLastEventId 游标种子化（跨刷新续看）、onEventId 实时上报游标、
+ * onRetry 重连可见（任务引擎据此把台账连接态置 reconnecting）。
  */
 async function ssePostWithReconnect(
   path: string,
   body: Record<string, unknown>,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
+  opts?: SseReconnectOpts,
 ): Promise<void> {
-  let lastId: string | undefined
+  let lastId: string | undefined = opts?.initialLastEventId
   let attempt = 0
   for (;;) {
     if (signal?.aborted) return
@@ -774,7 +814,10 @@ async function ssePostWithReconnect(
           // 边投递边推进游标：openSSE 的返回值只在流「干净结束」时拿到，
           // 网络中断时 readSSEStream 直接抛出、返回值丢失——若不在这里
           // 实时记录 lastId，重连将从 undefined 重放全部事件（事件重复送达）
-          if (ev.id) lastId = ev.id
+          if (ev.id) {
+            lastId = ev.id
+            opts?.onEventId?.(ev.id)
+          }
           const eventName = ev.event ?? 'message'
           if (isTerminalEvent(eventName)) terminalReached = true
           onEvent(eventName, parseSseData(ev.data))
@@ -800,6 +843,7 @@ async function ssePostWithReconnect(
     if (attempt > SSE_MAX_RETRIES) {
       throw new Error('连接中断，重连失败，请重试')
     }
+    opts?.onRetry?.(attempt)
     await sseSleep(sseBackoff(attempt), signal)
   }
 }
