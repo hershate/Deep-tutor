@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.3.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.1.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.2.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -321,7 +321,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.1.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.2.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -465,9 +465,10 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 | `progress_updated` | `{ user_id: int, plan_id: int, node_id: str, status: str, mastery: float }` | 单节点进度更新提交后 |
 | `quiz_submitted` | `{ user_id: int, quiz_id: int, plan_id: int, type: str \| null, correct: bool \| null }` | 测验作答提交后 |
 | `materials_completed`（v1.1.0） | `{ plan_id: int, session_id: int, unit_count: int, degraded_count: int, partial: bool }` | 自学材料生成完成（SSE 逐单元流与同步 JSON 生成两路径均广播；`partial: true` 表示 scope/unit_ids 局部重生成；幂等重渲染不广播——无新生成） |
+| `learning_log_added`（v1.2.0） | `{ user_id: int, plan_id: int, log_id: int, date: str, minutes: int, note: str \| null }` | 学习打卡提交后（`date` 为 ISO 日期） |
 
 > 事件只增不改：新版本可能追加事件与 payload 键；已有事件名与既有键向后兼容。
-> 请求路径上的事件（后四个）以「不阻塞响应」方式广播：同步监听器就地执行，
+> 请求路径上的事件（后五个）以「不阻塞响应」方式广播：同步监听器就地执行，
 > 协程监听器调度为后台任务。**监听器务必轻量**，重活（网络调用/大计算）请自行后台化。
 
 ### 8.6 可观测性：`GET /api/plugins`（管理员）
@@ -561,6 +562,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.2.0 | 2026-07-19 | 新增 `learning_log_added` 事件（学习打卡提交后广播，用户行为事件目录补齐） |
 | 前端 | 1.3.0 | 2026-07-19 | 新增插槽 `plan.detail`（方案详情页头部下方宫格；组件内可 `useParams()` 取 planId 做方案级面板） |
 | 后端 | 1.1.0 | 2026-07-19 | 新增 `materials_completed` 事件（材料生成完成；SSE/同步两路径均广播，幂等重渲染不广播） |
 | 后端 | 1.0.0 | 2026-07-19 | 首个后端插件 API：`plugins/` 目录自动发现装载（单文件/包插件、`_` 前缀停用）、`api` 门面（routes/events/tools/settings/deps/data_dir/log）、核心事件（startup/shutdown/plan_created/progress_updated/quiz_submitted）、路由命名空间 `/api/plugins/<id>/`（默认认证）、状态端点 `GET /api/plugins`、插件工具汇入 `default_registry()` |

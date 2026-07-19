@@ -290,6 +290,20 @@ def add_learning_log(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # 后端插件事件（API.md §8.5）：学习打卡（监听器异常隔离，不影响响应）
+    from app.plugins import bus as plugin_bus
+
+    plugin_bus.emit(
+        "learning_log_added",
+        {
+            "user_id": user.id,
+            "plan_id": body.plan_id,
+            "log_id": row.id,
+            "date": row.date.isoformat(),
+            "minutes": row.minutes,
+            "note": row.note,
+        },
+    )
     return {"id": row.id, "date": row.date.isoformat(), "minutes": row.minutes, "note": row.note}
 
 

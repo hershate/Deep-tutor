@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from app.plugins.runtime import PluginStatus
 
 # 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 API.md §版本线）
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 
 
 class ToolsNamespace:
