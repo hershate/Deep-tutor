@@ -32,9 +32,17 @@ from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.api.materials import _URL_RATE_PER_MIN, _hash_source, _read_capped, _validate_upload
 from app.api.plans import _safe_download_name
+from app.api.sessions import _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
 from app.core.settings import settings
-from app.core.storage import _kb_root, delete_kb_document_files, save_kb_upload, write_kb_parsed_text
+from app.core.storage import (
+    _kb_root,
+    delete_kb_document_files,
+    delete_session_files,
+    save_kb_upload,
+    write_kb_parsed_text,
+    write_parsed_text,
+)
 from app.db import models
 from app.db.models import User
 from app.tools.base import ToolInput
@@ -517,3 +525,94 @@ def export_kb_zip(
             )
         },
     )
+
+
+# --- 一键生成学习方案（iter 215） ---
+
+
+class KbGenerateIn(BaseModel):
+    document_ids: list[int] = Field(min_length=1, max_length=20)
+    title: str | None = Field(default=None, max_length=256)
+
+
+@router.post("/generate")
+def generate_from_documents(
+    body: KbGenerateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """一键用库内文档生成学习方案：建会话 + 逐文档复制解析文本为会话资料（Material），
+    返回 /generate/{sid} 路径——前端打开即走既有生成管线（零改动复用
+    plans._load_parsed_materials 注入链，资料总量 100k 截断护栏同既有）。
+
+    逐行仿 materials clip 孤儿清理：归属校验（缺失/他人 -> 404）-> 会话配额 ->
+    建 Session -> 逐文档读 parsed 全文 -> 建 Material 行（meta 带 kb_document_id 溯源）
+    -> write_parsed_text 复制到会话目录 -> 一次 commit；任一异常回滚 +
+    delete_session_files 上抛。不复制原件（会话材料仅需解析文本注入）。
+    """
+    # 请求内 id 去重（保序），防同一文档重复建料
+    ordered_ids = list(dict.fromkeys(body.document_ids))
+    docs_by_id = {
+        d.id: d
+        for d in db.scalars(
+            select(models.KbDocument).where(
+                models.KbDocument.user_id == user.id, models.KbDocument.id.in_(ordered_ids)
+            )
+        ).all()
+    }
+    for doc_id in ordered_ids:
+        if doc_id not in docs_by_id:
+            raise ApiError("not_found", f"知识库文档 {doc_id} 不存在")
+
+    # 会话数配额（与 POST /sessions、materials clip 同口径）
+    if db.query(models.Session).filter_by(user_id=user.id).count() >= _MAX_SESSIONS_PER_USER:
+        raise ApiError(
+            "quota_exceeded",
+            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
+        )
+
+    first = docs_by_id[ordered_ids[0]]
+    title = (body.title or "").strip() or f"知识库：{first.title}"
+    sess = models.Session(user_id=user.id, title=title[:256])
+    db.add(sess)
+    db.flush()
+    material_count = 0
+    try:
+        seen_hashes: set[str] = set()
+        for doc_id in ordered_ids:
+            doc = docs_by_id[doc_id]
+            # 请求内内容哈希去重（正常库内同哈希文档已被创建期去重拦截，此为双保险）
+            if doc.content_hash and doc.content_hash in seen_hashes:
+                continue
+            if doc.content_hash:
+                seen_hashes.add(doc.content_hash)
+            if not doc.parsed_text_path:
+                raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失")
+            try:
+                text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
+            except OSError:
+                raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失") from None
+            material = models.Material(
+                session_id=sess.id,
+                kind=doc.kind,
+                source=doc.source,
+                parsed_chars=len(text),
+                meta={**(doc.meta or {}), "kb_document_id": doc.id},
+                content_hash=doc.content_hash,
+            )
+            db.add(material)
+            db.flush()
+            material.parsed_text_path = str(write_parsed_text(sess.id, material.id, text))
+            material_count += 1
+        db.commit()
+    except Exception:
+        # 任一失败：回滚（会话/资料行随回滚消失）+ 清会话目录，防孤儿
+        db.rollback()
+        try:
+            delete_session_files(sess.id)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    return {
+        "session_id": sess.id,
+        "open_path": f"/generate/{sess.id}",
+        "material_count": material_count,
+    }
