@@ -108,7 +108,22 @@ async def lifespan(app: FastAPI):
     if not whisper_available():
         log.warning("音视频转写不可用：未安装 faster-whisper（pip install faster-whisper）")
     skills = get_skill_registry()  # plan/05 §三.2 启动扫描 skills/ -> 注册表
-    log.info("Deep-tutor 后端启动完成 (model=%s, skills=%d)", settings.anthropic_model, len(skills))
+    # 后端插件（API.md「后端插件 API」）：PLUGINS_DIR 目录自动发现 + 隔离加载，
+    # 坏插件记 failed 不阻塞启动；随后广播 startup 事件（监听器异常各自隔离）
+    from app.plugins import bus as plugin_bus
+    from app.plugins.loader import load_plugins
+
+    plugin_statuses = load_plugins(app)
+    plugin_failed = sum(1 for s in plugin_statuses if s.state == "failed")
+    log.info(
+        "Deep-tutor 后端启动完成 (model=%s, skills=%d, plugins=%d/%d failed=%d)",
+        settings.anthropic_model,
+        len(skills),
+        len(plugin_statuses) - plugin_failed,
+        len(plugin_statuses),
+        plugin_failed,
+    )
+    await plugin_bus.emit_async("startup", {})
     # 定期运维（plan/09 §一：VACUUM + 清孤儿文件，每 24h 后台执行）
     import asyncio
 
@@ -117,6 +132,7 @@ async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
     maintenance_task = asyncio.create_task(maintenance_loop(stop_event))
     yield
+    await plugin_bus.emit_async("shutdown", {})
     stop_event.set()
     maintenance_task.cancel()
     try:

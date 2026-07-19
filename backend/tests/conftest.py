@@ -8,10 +8,12 @@ import tempfile
 from pathlib import Path
 
 _TEST_DATA = os.path.join(tempfile.gettempdir(), "dt_api_data")
+_TEST_PLUGINS = os.path.join(tempfile.gettempdir(), "dt_api_plugins")
 os.environ.setdefault("AUTH_TOKEN", "test-token")
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.gettempdir(), "dt_api_test.db"))
 os.environ.setdefault("DATA_DIR", _TEST_DATA)
 os.environ.setdefault("SKILLS_DIR", os.path.join(tempfile.gettempdir(), "dt_api_skills"))
+os.environ.setdefault("PLUGINS_DIR", _TEST_PLUGINS)
 
 import pytest  # noqa: E402
 
@@ -33,6 +35,9 @@ def isolate():
     from app.core.ratelimit import reset_rate_limiter
 
     reset_rate_limiter()  # 速率限制计数跨测试隔离（plan/09 §十八）
+    from app.plugins.loader import reset_plugins
+
+    reset_plugins()  # 插件台账/工具表/事件订阅跨测试隔离（API.md「后端插件 API」）
     Base.metadata.drop_all(bind=engine)
     # alembic_version 非 ORM 表，drop_all 不会清：残留旧版本号会让启动迁移对
     # create_all 已建的新表再执行 CREATE -> "table already exists"（iter 176 实证）
@@ -45,6 +50,10 @@ def isolate():
     if p.exists():
         shutil.rmtree(p, ignore_errors=True)
     p.mkdir(parents=True, exist_ok=True)
+    pp = Path(_TEST_PLUGINS)
+    if pp.exists():
+        shutil.rmtree(pp, ignore_errors=True)
+    pp.mkdir(parents=True, exist_ok=True)
     yield
 
 

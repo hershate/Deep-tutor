@@ -856,6 +856,19 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     _persist_knowledge_nodes(db, plan.id, plan_dict)
     db.commit()
     db.refresh(plan)
+    # 后端插件事件（API.md「后端插件 API」§事件清单）：生成/重生成/重试均经本函数
+    # 落库新版本，统一在此广播；监听器异常隔离，不影响主流程
+    from app.plugins import bus as plugin_bus
+
+    plugin_bus.emit(
+        "plan_created",
+        {
+            "plan_id": plan.id,
+            "session_id": session_id,
+            "version": plan.version,
+            "topic": str((plan_dict or {}).get("topic") or ""),
+        },
+    )
     return plan.id
 
 

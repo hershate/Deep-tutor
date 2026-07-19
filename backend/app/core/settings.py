@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     )
     data_dir: str = Field(default="data", description="文件存储根（相对路径锚定仓库根）")
     skills_dir: str = Field(default="skills", description="Skill 目录（相对路径锚定仓库根）")
+    plugins_dir: str = Field(default="plugins", description="后端插件目录（相对路径锚定仓库根；API.md「后端插件 API」）")
     frontend_dist: str = Field(
         default="",
         description="前端构建产物目录（设置后由后端托管 SPA + /api 同端口，免 nginx；空=不托管）",
@@ -128,6 +129,7 @@ class Settings(BaseSettings):
         self.db_path = _anchor(self.db_path)
         self.data_dir = _anchor(self.data_dir)
         self.skills_dir = _anchor(self.skills_dir)
+        self.plugins_dir = _anchor(self.plugins_dir)
         self.frontend_dist = _anchor(self.frontend_dist)
         return self
 
@@ -137,10 +139,11 @@ class Settings(BaseSettings):
 
     # --- 目录与校验 ---
     def ensure_dirs(self) -> None:
-        """创建运行时所需目录（DB 父目录 + 文件存储根 + skills 目录）。"""
+        """创建运行时所需目录（DB 父目录 + 文件存储根 + skills/插件目录）。"""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)
         Path(self.skills_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.plugins_dir).mkdir(parents=True, exist_ok=True)
 
     def validate_required(self) -> list[str]:
         """启动时校验必填项，返回缺失项列表。

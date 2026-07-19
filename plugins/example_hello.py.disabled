@@ -1,0 +1,54 @@
+"""Deep-tutor 后端插件完整示例（改名去掉 .disabled 后缀即启用）。
+
+演示后端插件 API（契约见仓库根 API.md「后端插件 API」）的全部命名空间：
+- routes：挂载 REST 端点（默认带宿主认证；DI 用 api.deps 取当前用户）
+- events：订阅核心事件（progress_updated / plan_created / quiz_submitted / startup / shutdown）
+- tools：注册 Agent Python 工具（汇入每次请求新建的工具注册表）
+- settings：只读非机密配置；data_dir：插件私有数据目录；log：插件专属 logger
+"""
+
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {
+    "id": "example_hello",          # 路由命名空间 /api/plugins/example_hello/（小写字母开头）
+    "name": "示例插件 Hello",
+    "version": "0.1.0",
+    "description": "演示后端插件 API 的完整示例",
+    "min_api": "1.0",               # 要求的最低后端插件 API 版本
+}
+
+
+def register(api):
+    # --- 1) REST 路由：GET /api/plugins/example_hello/hello（默认带宿主认证）---
+    router = APIRouter()
+
+    @router.get("/hello")
+    def hello(user=Depends(api.deps.get_current_user)):
+        return {
+            "message": f"你好，{user.name}！",
+            "plugin": api.id,
+            "api_version": api.version,
+            "model": api.settings.get("anthropic_model"),
+        }
+
+    api.routes.mount(router)
+
+    # --- 2) 事件订阅：学习进度每次更新时记一行日志到插件数据目录 ---
+    def on_progress(payload):
+        # 监听器必须轻量 & 不抛异常（异常会被宿主隔离并记日志，但你的逻辑会中断）
+        with open(api.data_dir / "progress.log", "a", encoding="utf-8") as f:
+            f.write(f"user={payload.get('user_id')} plan={payload.get('plan_id')} "
+                    f"node={payload.get('node_id')} status={payload.get('status')}\n")
+
+    api.events.on("progress_updated", on_progress)
+    api.events.on("startup", lambda p: api.log.info("example_hello 已随宿主启动"))
+    api.events.on("shutdown", lambda p: api.log.info("example_hello 随宿主关闭"))
+
+    # --- 3) Agent 工具：注册一个 Python 工具（可被插件路由/其他插件经注册表调用）---
+    async def word_count(inp, ctx):
+        text = str(inp.args.get("text", ""))
+        return {"chars": len(text), "words": len(text.split())}
+
+    api.tools.register_python("example_hello.word_count", word_count)
+
+    api.log.info("example_hello 插件已加载（数据目录 %s）", api.data_dir)

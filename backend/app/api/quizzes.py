@@ -54,6 +54,19 @@ def submit_quiz(
             correct = body.user_answer.get("selected") == answer
     db.add(models.QuizAttempt(quiz_id=quiz.id, user_answer=body.user_answer, correct=correct))
     db.commit()
+    # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应
+    from app.plugins import bus as plugin_bus
+
+    plugin_bus.emit(
+        "quiz_submitted",
+        {
+            "user_id": user.id,
+            "quiz_id": quiz.id,
+            "plan_id": quiz.plan_id,
+            "type": quiz.type.value if quiz.type is not None else None,
+            "correct": correct,
+        },
+    )
     return {
         "correct": correct,
         "answer": payload.get("answer", ""),

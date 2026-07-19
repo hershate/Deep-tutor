@@ -102,6 +102,19 @@ def update_progress(
             db.commit()
     db.refresh(row)
     mastery = row.mastery
+    # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应
+    from app.plugins import bus as plugin_bus
+
+    plugin_bus.emit(
+        "progress_updated",
+        {
+            "user_id": user.id,
+            "plan_id": body.plan_id,
+            "node_id": node.sid,
+            "status": row.status.value,
+            "mastery": round(mastery, 3),
+        },
+    )
     return {
         "updated": True,
         "node_id": node.sid,

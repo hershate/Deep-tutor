@@ -37,6 +37,13 @@ def default_registry() -> ToolRegistry:
     reg.register(generate_study_materials_tool)  # P2 自学材料（POST /plans/{id}/materials 调用，不在 PIPELINE）
     reg.register(generate_unit_content_tool)  # P2 逐单元材料（materials SSE 流式路径，iter 46）
     reg.register(generate_quiz_tool)  # P2 测验（POST /plans/{id}/quiz 调用，不在 PIPELINE）
+    # 后端插件工具（API.md「后端插件 API」§工具）：插件经 api.tools.register 注册，
+    # 随每次新建的注册表汇入。与核心工具同名 -> 覆盖并告警（registry.register 既有
+    # 行为），插件可借此替换核心工具实现（高级用法，见 API.md 开发规范）。
+    from app.plugins import runtime as plugin_runtime
+
+    for plugin_tool in plugin_runtime.plugin_tools():
+        reg.register(plugin_tool)
     return reg
 
 
