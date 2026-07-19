@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import EmptyState from '../components/EmptyState'
+import KbDocsView from '../components/KbDocsView'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
@@ -104,8 +105,8 @@ export default function Wiki() {
     staleTime: 60_000,
   })
 
-  // 笔记视图（iter 161）：知识点 / 我的笔记 tab 切换
-  const [view, setView] = useState<'nodes' | 'notes'>('nodes')
+  // 视图切换（iter 161 知识点/我的笔记；iter 217 文档库为首 tab，LLMWiki 式独立文档库）
+  const [view, setView] = useState<'docs' | 'nodes' | 'notes'>('docs')
   const { data: notesOv } = useQuery({
     queryKey: ['notes-overview'],
     queryFn: getNotesOverview,
@@ -142,6 +143,8 @@ export default function Wiki() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">知识库</h2>
+        {/* 头部控制（导出手册/排序/搜索）仅知识点与笔记视图使用；文档库视图自带工具栏（iter 217） */}
+        {view !== 'docs' && (
         <div className="flex items-center gap-2">
           {/* 知识手册导出（iter 116）：全部节点+笔记 -> Markdown 下载 */}
           <button
@@ -173,10 +176,11 @@ export default function Wiki() {
             className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
           />
         </div>
+        )}
       </div>
 
-      {/* 学习统计行（iter 122）：有打卡记录时显示 */}
-      {studyStats && studyStats.total_logs > 0 && (
+      {/* 学习统计行（iter 122）：有打卡记录时显示（仅知识点/笔记视图，iter 217） */}
+      {view !== 'docs' && studyStats && studyStats.total_logs > 0 && (
         <div className="flex animate-fade-in-up flex-wrap gap-2 text-xs" aria-label="学习统计">
           <span className="animate-fade-in rounded-full bg-orange-100 px-3 py-1 font-medium text-orange-700 dark:bg-orange-950 dark:text-orange-300" style={{ animationDelay: '40ms' }} title="连续打卡天数">
             🔥 连续 <span className="tabular-nums">{studyStats.streak_days}</span> 天
@@ -191,12 +195,12 @@ export default function Wiki() {
       )}
 
       {/* 打卡热力图（iter 139）：近 12 周学习分钟，GitHub 风格周列 */}
-      {studyStats && studyStats.total_logs > 0 && calendar && (
+      {view !== 'docs' && studyStats && studyStats.total_logs > 0 && calendar && (
         <StudyHeatmap items={calendar.items} />
       )}
 
       {/* 今日待复习提醒（iter 119）：有到期节点时置顶 */}
-      {due && due.total > 0 && (
+      {view !== 'docs' && due && due.total > 0 && (
         <section className="animate-fade-in-up rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
           <h3 className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
             📅 今日待复习 · <span className="tabular-nums">{due.total}</span> 个知识点
@@ -221,7 +225,7 @@ export default function Wiki() {
       )}
 
       {/* 全局错题（iter 156）：跨方案错题总览，有错题时显示 */}
-      {wrongOv && wrongOv.total > 0 && (
+      {view !== 'docs' && wrongOv && wrongOv.total > 0 && (
         <section className="animate-fade-in-up rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
           <h3 className="mb-2 text-sm font-semibold text-red-800 dark:text-red-200">
             <span aria-hidden="true">🎯</span> 当前错题 · <span className="tabular-nums">{wrongOv.total}</span> 道
@@ -242,9 +246,9 @@ export default function Wiki() {
         </section>
       )}
 
-      {/* 视图切换（iter 161）：知识点 / 我的笔记 */}
+      {/* 视图切换（iter 161 知识点/我的笔记；iter 217 文档库首 tab） */}
       <div className="flex gap-2" role="tablist" aria-label="知识库视图">
-        {([['nodes', '知识点'], ['notes', '我的笔记']] as const).map(([v, label]) => (
+        {([['docs', '📚 文档库'], ['nodes', '知识点'], ['notes', '我的笔记']] as const).map(([v, label]) => (
           <button
             key={v}
             role="tab"
@@ -263,7 +267,10 @@ export default function Wiki() {
 
       {/* key=view：切换 tab 时内容淡入（iter 163） */}
       <div key={view} className="animate-fade-in space-y-4">
-      {view === 'notes' ? (
+      {view === 'docs' ? (
+        /* 文档库（iter 217）：LLMWiki 式独立文档库，不依赖学习方案 */
+        <KbDocsView />
+      ) : view === 'notes' ? (
         /* 我的笔记（iter 161）：跨方案全部笔记，更新近者在前 */
         !notesOv ? (
           <SkeletonCards count={3} />

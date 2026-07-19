@@ -917,3 +917,143 @@ export const getSetupStatus = () => apiFetch<SetupStatus>('/setup/status')
 export const postSetup = (body: SetupInput) =>
   apiFetch<SetupResult>('/setup', { method: 'POST', body: JSON.stringify(body) })
 export const dismissSetup = () => apiFetch<{ ok: boolean }>('/setup/dismiss', { method: 'POST' })
+
+// --- 知识库文档库（iter 217：LLMWiki 式独立文档库 /kb，不依赖学习方案）---
+export interface KbDocument {
+  id: number
+  title: string
+  kind: 'file' | 'text' | 'url' | 'image' | 'audio' | 'video'
+  ext: string
+  source: string
+  has_original: boolean
+  parsed_chars: number
+  meta: Record<string, unknown>
+  content_hash: string | null
+  created_at: string
+  updated_at: string
+}
+
+export const listKbDocuments = (params: { q?: string; kind?: string; limit?: number } = {}) => {
+  const sp = new URLSearchParams()
+  if (params.q?.trim()) sp.set('q', params.q.trim())
+  if (params.kind) sp.set('kind', params.kind)
+  if (params.limit) sp.set('limit', String(params.limit))
+  const qs = sp.toString()
+  return apiFetch<{ documents: KbDocument[] }>(`/kb/documents${qs ? `?${qs}` : ''}`)
+}
+
+// XHR 上传（字节级进度，同 uploadMaterial——fetch 上传进度浏览器支持差，XHR upload.onprogress 全量可用）
+export function uploadKbDocument(file: File, onProgress?: (percent: number) => void): Promise<KbDocument> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE}/kb/documents/upload`)
+    xhr.setRequestHeader('Authorization', `Bearer ${token()}`)
+    xhr.timeout = 10 * 60 * 1000 // 大文件上传 10 分钟超时（同 uploadMaterial）
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      const body = (() => {
+        try {
+          return JSON.parse(xhr.responseText)
+        } catch {
+          return {}
+        }
+      })()
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as KbDocument)
+      } else {
+        handleUnauthorized(xhr.status)
+        const err = body?.error ?? {}
+        reject(new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${xhr.status}`, xhr.status))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError('network_error', '网络错误', 0))
+    xhr.ontimeout = () => reject(new ApiError('upstream_timeout', '上传超时', 504))
+    const form = new FormData()
+    form.append('file', file)
+    xhr.send(form)
+  })
+}
+
+export const createKbTextDoc = (text: string, title?: string) =>
+  apiFetch<KbDocument>('/kb/documents/text', {
+    method: 'POST',
+    body: JSON.stringify({ text, ...(title?.trim() ? { title: title.trim() } : {}) }),
+  })
+
+export const createKbUrlDoc = (url: string, title?: string) =>
+  apiFetch<KbDocument>('/kb/documents/url', {
+    method: 'POST',
+    body: JSON.stringify({ url, ...(title?.trim() ? { title: title.trim() } : {}) }),
+  })
+
+export const renameKbDocument = (id: number, title: string) =>
+  apiFetch<KbDocument>(`/kb/documents/${id}`, { method: 'PUT', body: JSON.stringify({ title }) })
+
+export const deleteKbDocument = (id: number) =>
+  apiFetch<{ ok: boolean }>(`/kb/documents/${id}`, { method: 'DELETE' })
+
+// 解析文本（查看器文档类渲染源 / AI 消费面）
+export interface KbParsed {
+  document_id: number
+  title: string
+  text: string
+  parsed_chars: number
+  truncated: boolean
+}
+export const getKbParsed = (id: number) => apiFetch<KbParsed>(`/kb/documents/${id}/parsed`)
+
+// 一键用库内文档生成学习方案（iter 215）：返回 open_path 直接跳转生成页
+export const kbGenerate = (documentIds: number[], title?: string) =>
+  apiFetch<{ session_id: number; open_path: string; material_count: number }>('/kb/generate', {
+    method: 'POST',
+    body: JSON.stringify({ document_ids: documentIds, ...(title?.trim() ? { title: title.trim() } : {}) }),
+  })
+
+// 知识库问答（iter 216）：聊天不持久化（前端内存历史，刷新即清）
+export interface KbCitation {
+  doc_id: number
+  title: string
+}
+export interface KbChatResponse {
+  answer: string
+  citations: KbCitation[]
+  omitted_titles: string[]
+  context_docs: number
+}
+export const kbChat = (question: string, documentIds?: number[]) =>
+  apiFetch<KbChatResponse>('/kb/chat', {
+    method: 'POST',
+    body: JSON.stringify({ question, ...(documentIds?.length ? { document_ids: documentIds } : {}) }),
+    timeoutMs: 300_000, // LLM 问答链放宽超时（同导出/测验长任务端点约定）
+  })
+
+/** 知识库 ZIP 打包导出（ids 缺省全库；含原件+解析文本+index.md 清单）。 */
+export async function downloadKbExport(ids?: number[]): Promise<void> {
+  const qs = ids && ids.length ? `?ids=${ids.join(',')}` : ''
+  const res = await fetch(`${BASE}/kb/export${qs}`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), 'kb-export.zip')
+}
+
+/** 原件 blob（查看器用：img/iframe/video 不能带 Authorization 头，fetch 带 Bearer 取 blob -> objectURL）。 */
+export async function fetchKbRawBlob(id: number, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch(`${BASE}/kb/documents/${id}/raw`, {
+    headers: { Authorization: `Bearer ${token()}` },
+    signal,
+  })
+  await throwIfNotOk(res)
+  return res.blob()
+}
+
+/** 原件下载（attachment 模式，文件名取后端 Content-Disposition）。 */
+export async function downloadKbRaw(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/kb/documents/${id}/raw?download=1`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), `kb-${id}`)
+}
