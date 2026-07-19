@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
+import TaskCenter from './TaskCenter'
+import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
 import WidgetSlot from './WidgetSlot'
 import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
@@ -145,6 +147,8 @@ export default function Layout({ children }: { children: ReactNode }) {
               <span aria-hidden="true" className="inline-block transition-transform duration-300 hover:rotate-12">{theme === 'dark' ? '☀️' : '🌙'}</span>
             </button>
             <UsageMeter />
+            {/* iter 188 F3：任务中心（顶栏指示器+下拉面板；窄屏/折叠态唯一入口） */}
+            <TaskCenter />
             {hasJwtSession() && user && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-slate-600 dark:text-slate-300" title={user.username}>
@@ -195,6 +199,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
         >
           {sidebarNav}
+          {/* iter 188 F3：侧栏常驻任务面板（仅展开态；折叠/窄屏走顶栏任务中心） */}
+          {!collapsed && <TaskPanel />}
           {/* iter 183：插件 API sidebar.footer 插槽（内置为空，供第三方插件挂接） */}
           {!collapsed && <WidgetSlot slot="sidebar.footer" layout="stack" className="mt-4" />}
           <button
