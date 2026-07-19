@@ -479,7 +479,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.0.0",
+  "api_version": "1.2.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
