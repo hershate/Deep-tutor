@@ -15,7 +15,7 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）；「后端启动即死」实机故障已修复——alembic fileConfig 日志劫持 + 旧脚本模板 .env 占位值锁死登录双根因（iter 90）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 用户新需求。详见 §五 iter 90/89 条。
+**当前下一步**：**P1-P5 全部完成**；零配置开箱即用（首次设置向导 + 开放本机模式）已落地并真机冒烟通过（iter 89）；「后端启动即死」实机故障已修复——alembic fileConfig 日志劫持 + 旧脚本模板 .env 占位值锁死登录双根因（iter 90）。**插件 API 基线已立（iter 196-199）**：前端 `window.DeepTutor` v1.2.0 + 后端 `plugins/` 目录插件系统 v1.0.0，契约与开发规范见 [API.md](API.md)（双版本线、只增不改）。**候选下一步**：扩展真机加载验证（需用户装扩展）/ 真 key 端到端生成验证 / 插件生态增强（热重载、更多插槽与核心事件、前端插件管理 UI）/ 用户新需求。详见 §五 iter 199-196、90/89 条。
 
 ---
 
@@ -233,6 +233,14 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-19 iter 199（插件体系巡检：示例防腐测试 + ruff/回归验证，✅ 完成）**：定时巡检增量——[test_plugins.py](backend/tests/test_plugins.py) 新增仓库自带示例插件防腐测试（`example_hello.py.disabled` 装载 + 路由 200 + 工具入注册表 + 事件写日志，API.md §8.7 指向的示例永不腐烂）。**终验**：后端 558 测试全过（557+1）、ruff（E4/E7/E9/F, lw=120）零告警、前端 `npm run build` 通过（主包 254.57kB）。commit `e21192f`。
+
+- **2026-07-19 iter 198（API.md 双版本线文档 + 插件开发规范，✅ 完成）**：[API.md](API.md) 扩为前后端双版本线（前端 1.2.0 / 后端 1.0.0 独立演进、各自 semver 只增不改）；新增 §八 后端插件 API 完整参考（装载方式/PLUGIN_META 与 min_api 协商/api 门面 routes·deps·events·tools·settings/核心事件清单/GET /api/plugins 可观测性）、§九 插件开发规范六章（稳定性/安全/数据隔离/兼容性与版本/性能/测试与发布）、§十 统一版本历史。commit `7d05fe4`。
+
+- **2026-07-19 iter 197（后端插件系统 v1.0.0，✅ 完成）**：[backend/app/plugins/](backend/app/plugins/) 新包——loader（`plugins/` 目录自动发现：单文件/包插件、`_` 前缀停用；id 校验 + min_api 协商；坏插件记 failed 绝不阻塞宿主）+ api 门面（routes 命名空间 `/api/plugins/<id>/` 默认带宿主认证、events 异常隔离总线、tools 汇入 `default_registry()`、settings 机密隐藏、deps 稳定引用、私有 data_dir、专属 log）+ bus（同步安全 emit/异步 emit_async）。核心事件埋点：startup/shutdown（lifespan）、plan_created（`_persist_plan` 收口）、progress_updated、quiz_submitted。可观测性：`GET /api/plugins`（管理员）。配套 [plugins/README.md](plugins/README.md) + 可启用示例 + `PLUGINS_DIR` 配置；测试 17 个。commit `5da376f`。
+
+- **2026-07-19 iter 196（前端插件 API v1.2.0：稳定性缺口补齐，✅ 完成）**：[WidgetSlot.tsx](frontend/src/components/WidgetSlot.tsx) 加单组件级错误边界——插件组件渲染异常不再拖垮整个应用（此前 API.md 自己标注的缺口），同 id 重注册新组件自动重试；[plugins.ts](frontend/src/lib/plugins.ts) widgets/skins 订阅回调异常隔离（与 events 一致）；新增 `api.request`（全方法 REST 代理，插件可写操作如打卡）与 `widgets.slots()`（插槽能力发现，跨宿主版本平滑降级）；API_VERSION 1.1.0→1.2.0 + API.md 同步。**终验**：后端 540 全过、前端 build 通过。commit `485de4f`。
 
 - **2026-07-19 iter 195（任务管理器前端收官：F10 插件 taskchange 事件 + API.md v1.1.0，✅ 完成）**：15 切片（B1-B5 + F1-F10）全部落地。[plugins.ts](frontend/src/lib/plugins.ts) `DeepTutorEventMap` 新增 `taskchange{id,kind:'plan'|'materials',phase,title}`（任务引擎每次相位迁移广播），`API_VERSION` 1.0.0→1.1.0（minor 追加向后兼容）；[API.md](API.md) 同 commit（用户硬性约定）：事件清单加行 + 说明任务全量状态可经 `api.get('/sessions')` 主动查询 + 版本历史 1.1.0 行。commit `d54cf3b`。**终验**：后端 540 测试全过 + ruff 零告警；前端 `npm run build` 通过（tsc 零错，主包 253.63kB）。**真机回归矩阵待用户验证**：生成全流程 ×（切页/刷新/断网/kill 后端/双标签/材料关弹窗/深链 /clarify/多轮澄清）；控制台 `DeepTutor.events.on('taskchange', console.log)` 观察事件流。
 
