@@ -234,6 +234,14 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-19 iter 185（任务管理器后端 B5：只读端点实时进度 live 字段，✅ 完成）**：B1-B5 后端收官。[plans.py](backend/app/api/plans.py) `_SessionStream` 新增流级属性 current_tool/step_index/total_steps/cost；`_run_start` 事件回调改闭包 `_on_event`（tool_start 记步骤序号、tool_end 从 metadata 累计费用，再 publish，单事件源不变）；[sessions.py](backend/app/api/sessions.py) 列表/详情在 `running 且活动流未标终态` 时返回 `live{current_tool,step_index,total_steps,cost,last_event_id}`，否则 null（任务管理器/占位行进度条数据源）。测试 +1（合成 running 流断言 live 全字段 + 列表暴露 + 终态流不报）。全量 540 后端测试通过，ruff 零告警。commit `9f8f81b`。**后端 5 切片全部完成**，转前端 F1-F10。
+
+- **2026-07-19 iter 184（任务管理器后端 B1-B4：会话状态只读查询 / 步骤序号 / 标题回填 / 失败持久化+重试，✅ 完成）**：用户需求「生成实时反馈 + 疑问及时交互 + 全局任务管理器」（经计划模式批准 15 切片 B1-B5+F1-F10；用户已定任务管理器双形态=顶栏指示器+侧栏面板、通知仅应用内 toast+标题角标）。
+  - **B1 只读状态端点**（commit `dc00130`）：[sessions.py](backend/app/api/sessions.py) 新增 `GET /sessions`（Session OUTERJOIN OrchestratorState，running 置顶 + 最近活动倒序，q 标题子串，分页；三次查询避免 N+1）与 `GET /sessions/{id}`（+paused_clarify 时 clarify_questions）。此前唯一状态查询途径是 POST /plans/generate（idle 态会误触发新生成）。测试 +6。
+  - **B2 步骤序号**（commit `f81fc3f`）：[orchestrator.py](backend/app/agent/orchestrator.py) tool_start/tool_end 事件携带 step_index（PIPELINE.index+1）/total_steps(8)/attempt（主流程 1，反馈循环重跑 2/3），向后兼容。测试随改。
+  - **B3 标题回填**（commit `927a80d`）：`_finalize` done 分支以 intent.topic 回填自动标题（空/「学习方案」/raw_text 前缀截断判定；手工标题不覆盖）。测试 +1。
+  - **B4 失败持久化 + 重试**（commit `a6ed650`）：OrchestratorState 新增 `last_error` JSON 列（迁移 `c4d91e7b2a05` 幂等加列——先带默认加 NOT NULL 再二批重建去默认，与 models 零漂移；migrate.py 探测链同步加代）；`_finalize` 全终态落盘 partial_plan.raw_text+outputs 与 last_error{code,message}（done/待澄清清空）；终态快路径回放改带真实错误 + retryable；抽取 `_start_full_generation` 供 generate/retry 复用；新增 `POST /plans/{id}/retry`（仅 error/interrupted，原始需求与材料均丢失 409 引导回首页，响应即标准生成 SSE）；会话端点暴露 error 字段。测试 +7（含 migrate 新代探测）。全量 539 通过。
+
 - **2026-07-19 iter 183（卡片化 + 首页小组件 + 前端美化插件 API 预留，✅ 完成）**：用户需求「卡片式风格 + 小组件 + 预留前端美化插件接口 API，所有预留 API 写入 API.md」。**编号说明**：本条与代码注释初标 iter 182，与并行美化轨 iter 182（第 123 轮布局重构审查）撞号，本条取 183（注释随改标 commit 同步）。
   - **插件 API 基础设施**（commit `a002fcf`）：[plugins.ts](frontend/src/lib/plugins.ts)——`window.DeepTutor`（`API_VERSION=1.0.0`）：① `widgets` 命名插槽注册表（插槽 `home.dashboard`/`sidebar.footer`，order 排序、覆盖注册、订阅通知）；② `skins` CSS 变量令牌皮肤（`--dt-*` 命名空间白名单、亮/暗双态令牌、`localStorage('dt_skin')` 持久化、亮暗切换自动重放、`skinchange` 事件）；③ `events` 订阅（监听器异常隔离）；④ `api.get` REST 代理（当前登录态）；⑤ `plugins.load/unload/list` 外部插件脚本 URL 加载 + `localStorage('dt_plugins')` 持久化自动加载（http(s) 校验）；暴露 `DeepTutor.React` 供无构建链纯 JS 插件建组件。
   - **共享卡片范式**：[Card.tsx](frontend/src/components/Card.tsx)（圆角走 `var(--dt-card-radius,0.75rem)` 令牌、interactive hover 上浮变体）；[index.css](frontend/src/index.css) body 字体走 `--dt-font-sans` 令牌（皮肤实际消费点，字体栈补中文 PingFang/YaHei）。
