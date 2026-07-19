@@ -427,3 +427,42 @@ def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
     log_file = Path(settings.data_dir) / "plugins" / "example_hello" / "progress.log"
     assert log_file.exists()
     assert "plan=2" in log_file.read_text(encoding="utf-8")
+
+
+# --- API.md 文档 ↔ 实现漂移守卫（版本号/插槽单一事实源在代码，文档声明必须同步）---
+
+
+def test_api_doc_versions_match_implementation():
+    """API.md 声明的「当前版本」必须与代码 API_VERSION 一致（防 §8.6 示例式腐化）。"""
+    import re
+
+    from app.plugins.api import API_VERSION as BACKEND_VERSION
+
+    root = Path(__file__).resolve().parents[2]
+    doc = (root / "API.md").read_text(encoding="utf-8")
+    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
+    m = re.search(r"export const API_VERSION = '([^']+)'", fe_src)
+    assert m, "前端 plugins.ts 缺少 API_VERSION 导出"
+    fe_version = m.group(1)
+
+    # 文首版本线表：两条当前版本行
+    assert re.search(rf"\| 前端插件 API \| `{re.escape(fe_version)}` \|", doc), "版本线表前端行过期"
+    assert re.search(rf"\| 后端插件 API \| `{re.escape(BACKEND_VERSION)}` \|", doc), "版本线表后端行过期"
+    # §八「API 版本」行
+    assert re.search(rf"\*\*API 版本\*\*：`{re.escape(BACKEND_VERSION)}`", doc), "§八 API 版本行过期"
+    # §8.6 状态端点示例 JSON（全文恰好一处）
+    examples = re.findall(r'"api_version":\s*"([^"]+)"', doc)
+    assert examples == [BACKEND_VERSION], f"§8.6 示例 api_version 过期: {examples}"
+
+
+def test_api_doc_widget_slots_match_implementation():
+    """代码 WIDGET_SLOTS 每个插槽都必须出现在 API.md（新增插槽忘同步文档即红）。"""
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    doc = (root / "API.md").read_text(encoding="utf-8")
+    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
+    m = re.search(r"WIDGET_SLOTS = \[([^\]]+)\]", fe_src)
+    assert m, "前端 plugins.ts 缺少 WIDGET_SLOTS"
+    for slot in re.findall(r"'([^']+)'", m.group(1)):
+        assert slot in doc, f"插槽 {slot} 未写入 API.md"
