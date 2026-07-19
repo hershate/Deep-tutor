@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.3.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.3.1` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.2.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -274,6 +274,8 @@ await DeepTutor.api.request('/progress/logs', {
 
 加载外部插件脚本并**持久化**到 `localStorage('dt_plugins')`（刷新/重开自动按序加载）。
 URL 必须 `http(s)://` 开头；脚本加载失败 reject。
+**失败界定**：硬错误（404/拒绝连接等）立即 reject；**15 秒无响应按超时 reject**（v1.3.1）——
+自动加载按序等待每个脚本 settle，超时保证一个挂起 URL 不会饿死其后的插件。
 
 #### `plugins.unload(url: string): void`
 
@@ -570,6 +572,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
 | 后端 | 1.2.0 | 2026-07-19 | 新增 `learning_log_added` 事件（学习打卡提交后广播，用户行为事件目录补齐） |
+| 前端 | 1.3.1 | 2026-07-19 | 修复：插件脚本 15 秒无响应按超时 reject（此前永不 settle，自动加载时一个挂起 URL 会饿死其后全部持久化插件） |
 | 前端 | 1.3.0 | 2026-07-19 | 新增插槽 `plan.detail`（方案详情页头部下方宫格；组件内可 `useParams()` 取 planId 做方案级面板） |
 | 后端 | 1.1.0 | 2026-07-19 | 新增 `materials_completed` 事件（材料生成完成；SSE/同步两路径均广播，幂等重渲染不广播） |
 | 后端 | 1.0.0 | 2026-07-19 | 首个后端插件 API：`plugins/` 目录自动发现装载（单文件/包插件、`_` 前缀停用）、`api` 门面（routes/events/tools/settings/deps/data_dir/log）、核心事件（startup/shutdown/plan_created/progress_updated/quiz_submitted）、路由命名空间 `/api/plugins/<id>/`（默认认证）、状态端点 `GET /api/plugins`、插件工具汇入 `default_registry()` |
