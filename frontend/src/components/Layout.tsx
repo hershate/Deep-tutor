@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
@@ -6,8 +6,9 @@ import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthU
 import { useSetupStatus } from '../lib/setup'
 import { useUIStore } from '../store/ui'
 
-// AppShell（plan/06 §三）：顶栏 + 可折叠侧栏（图标态；窄屏收起为抽屉）。
-// 侧栏：＋新建方案 / 方案列表 / 用量 / 设置 + 底部用量小窗；折叠态持久化（useUIStore）。
+// AppShell（plan/06 §三）：全宽顶栏 + 贴边侧栏（图标态可折叠；窄屏收起为抽屉）。
+// 侧栏贴视口左缘、sticky 吸于顶栏下（顶栏高度实测，随视口变化自适应）；
+// 主内容在剩余空间内居中（max-w-5xl 保持阅读宽度）；折叠态持久化（useUIStore）。
 
 const NAV_ITEMS = [
   { to: '/', icon: '＋', label: '新建方案', end: true },
@@ -40,6 +41,19 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false) // 窄屏抽屉
   // iter 89：开放模式（未设密码）/ 未配 API Key 的常驻提示横幅（状态查询失败不渲染）
   const { data: setupStatus } = useSetupStatus()
+
+  // 贴边侧栏：实测吸顶高度（sticky 偏移 + 可视高度），ResizeObserver 随视口/换行自适应
+  const headerRef = useRef<HTMLElement | null>(null)
+  const [headerH, setHeaderH] = useState(0)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const update = () => setHeaderH(el.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // iter 106：路由切换回到页面顶部（此前停留在前一页的滚动位置，长列表跳详情体验突兀）
   useEffect(() => {
@@ -102,9 +116,9 @@ export default function Layout({ children }: { children: ReactNode }) {
       >
         跳到主内容
       </a>
-      {/* iter 92：吸顶 + 毛玻璃顶栏，滚动时内容从其下滑过 */}
-      <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/80">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
+      {/* iter 92：吸顶 + 毛玻璃顶栏，滚动时内容从其下滑过；全宽贴边 */}
+      <header ref={headerRef} className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/80">
+        <div className="flex w-full items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             {/* 窄屏抽屉开关 */}
             <button
@@ -152,7 +166,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       {/* iter 89 状态横幅：开放模式安全提示 / 未配 API Key 功能提示 */}
       {setupStatus?.open_mode && (
         <div role="status" className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+          <div className="flex w-full items-center justify-between px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
             <span>当前未设置访问密码，本机局域网内任何人可访问此应用。</span>
             <Link to="/settings" className="font-medium underline underline-offset-2 transition-colors hover:text-amber-900 dark:hover:text-amber-100">
               去设置密码
@@ -162,7 +176,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       )}
       {setupStatus && !setupStatus.llm_configured && (
         <div role="status" className="border-b border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-1.5 text-xs text-blue-800 dark:text-blue-200">
+          <div className="flex w-full items-center justify-between px-4 py-1.5 text-xs text-blue-800 dark:text-blue-200">
             <span>尚未配置 AI API Key，学习方案生成功能暂不可用。</span>
             <Link to="/settings" className="font-medium underline underline-offset-2 transition-colors hover:text-blue-900 dark:hover:text-blue-100">
               去配置
@@ -171,19 +185,20 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-6xl flex-1">
-        {/* 桌面侧栏（md+）：可折叠为图标态 */}
+      <div className="flex w-full flex-1">
+        {/* 桌面侧栏（md+）：贴视口左缘，sticky 吸于顶栏下，可折叠为图标态；白底与主区（slate-50）分层 */}
         <aside
-          className={`hidden shrink-0 border-r py-4 pl-4 transition-all md:flex md:flex-col dark:border-slate-700 ${
+          className={`sticky hidden shrink-0 self-start overflow-y-auto border-r bg-white px-3 py-4 transition-all md:flex md:flex-col dark:border-slate-700 dark:bg-slate-800 ${
             collapsed ? 'w-16' : 'w-48'
           }`}
+          style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
         >
           {sidebarNav}
           <button
             type="button"
             onClick={toggleSidebar}
             aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
-            className="mt-4 self-start rounded-lg border px-2 py-1 text-xs text-slate-500 transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700"
+            className="mt-auto self-start rounded-lg border px-2 py-1 text-xs text-slate-500 transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             {collapsed ? '»' : '« 收起'}
           </button>
@@ -235,11 +250,14 @@ export default function Layout({ children }: { children: ReactNode }) {
         )}
 
         {/* iter 92：key=路由路径，切换页面时主区淡入上移；id 供 skip link 跳转；scroll-mt 防吸顶 header 遮挡跳转落点 */}
-        <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up scroll-mt-16 px-4 py-6">{children}</main>
+        {/* 内容在剩余空间内居中，max-w-5xl 保持阅读宽度（原 max-w-6xl 减去侧栏宽度后的近似等效） */}
+        <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up scroll-mt-16 px-4 py-6 sm:px-6">
+          <div className="mx-auto w-full max-w-5xl">{children}</div>
+        </main>
       </div>
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">
-        <div className="mx-auto w-full max-w-6xl px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
+        <div className="w-full px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
           Deep-tutor · Phase 1 MVP
         </div>
       </footer>
