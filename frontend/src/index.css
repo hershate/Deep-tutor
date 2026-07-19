@@ -16,6 +16,21 @@ body {
   @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
   /* iter 92：深浅主题切换时背景/文字颜色平滑过渡 */
   transition: background-color 0.25s ease, color 0.25s ease;
+  /* iter 182：字体族走 --dt-font-sans 令牌，皮肤插件可全局替换（API.md「皮肤令牌」） */
+  font-family: var(
+    --dt-font-sans,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif
+  );
 }
 
 /* iter 92 前端美化：全局细节增强 */

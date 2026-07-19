@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from './Toast'
 import UsageMeter from './UsageMeter'
+import WidgetSlot from './WidgetSlot'
 import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
 import { useSetupStatus } from '../lib/setup'
 import { useUIStore } from '../store/ui'
@@ -194,6 +195,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
         >
           {sidebarNav}
+          {/* iter 182：插件 API sidebar.footer 插槽（内置为空，供第三方插件挂接） */}
+          {!collapsed && <WidgetSlot slot="sidebar.footer" layout="stack" className="mt-4" />}
           <button
             type="button"
             onClick={toggleSidebar}
