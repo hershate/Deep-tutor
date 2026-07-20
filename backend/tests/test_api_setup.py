@@ -88,6 +88,15 @@ def test_status_llm_configured_via_env_key(client, monkeypatch):
     assert client.get(f"{BASE}/status").json()["llm_configured"] is True
 
 
+def test_bing_key_not_required(monkeypatch):
+    """iter 222：BING_API_KEY 转可选（不配时 auto 模式用 Bing 网页抓取兜底），
+    不再计入 validate_feature_keys 缺失项——锁定「可选」语义防回归。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+    assert "BING_API_KEY" not in settings_mod.settings.validate_feature_keys()
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    assert "BING_API_KEY" not in settings_mod.settings.validate_feature_keys()
+
+
 def test_status_llm_placeholder_env_key_counts_as_unconfigured(client, monkeypatch):
     """iter 90：模板占位 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx 视为未配置——
     否则旧脚本生成的 .env 会标记 LLM 已配而不进设置向导（叠加占位 AUTH_TOKEN

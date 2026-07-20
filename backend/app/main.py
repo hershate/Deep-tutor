@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     soft_missing = settings.validate_feature_keys()
     if soft_missing:
         log.warning(
-            "功能级 key 缺失（生成/搜索将不可用直到配置，可在前端 设置->供应商档案 添加）: %s",
+            "功能级 key 缺失（生成将不可用直到配置，可在前端 设置->供应商档案 添加）: %s",
             soft_missing,
         )
     # err.md E5：弱/默认 AUTH_TOKEN 告警（.env.example 的 change-me-please 忘改即弱认证）

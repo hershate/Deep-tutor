@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from pydantic import Field, ValidationError, model_validator
@@ -81,8 +82,14 @@ class Settings(BaseSettings):
     daily_budget_usd: float = Field(default=10.0, description="每日预算")
 
     # --- 搜索 ---
-    search_engine: str = Field(default="bing", description="搜索引擎")
-    bing_api_key: str = Field(default="", description="Bing Search API key（search_resources 必填）")
+    search_engine: str = Field(
+        default="auto",
+        description="搜索引擎：auto（有 BING_API_KEY 用付费 API，无 key 用免 Key 网页版）"
+        " | bing（仅付费 API，无 key 时检索降级为关键词建议） | bing_web（仅免 Key 网页版）",
+    )
+    bing_api_key: str = Field(
+        default="", description="Bing Search API key（可选；配置后 auto 模式用付费 API，未配置用 Bing 网页版）"
+    )
 
     # --- 多模态（P3；R9：依赖缺失则对应入口禁用 + 提示安装）---
     ocr_languages: str = Field(default="eng+chi_sim", description="图片 OCR 语言（tesseract -l）")
@@ -156,13 +163,47 @@ class Settings(BaseSettings):
         return []
 
     def validate_feature_keys(self) -> list[str]:
-        """功能级必填 key 检查（调用对应功能前用），返回缺失项。"""
+        """功能级必填 key 检查（调用对应功能前用），返回缺失项。
+
+        BING_API_KEY 自 iter 222 起为可选项（不配时 auto 模式用 Bing 网页抓取兜底），
+        不再计入缺失——搜索功能无 key 亦可用（R9 可选依赖降级哲学）。
+        """
         missing: list[str] = []
         if not self.anthropic_key_configured:
             missing.append("ANTHROPIC_API_KEY")
-        if not self.bing_api_key:
-            missing.append("BING_API_KEY")
         return missing
+
+
+# --- 搜索引擎决策（iter 222：BING_API_KEY 可选化）---
+# 纯函数放 core（tools/api 共用，避免 tools <-> api 循环依赖）；调用时读取 settings 单例，
+# 支持运行时 monkeypatch 与测试隔离。
+
+SEARCH_ENGINES = ("auto", "bing", "bing_web")  # 合法值；新增引擎在此追加 + 工具层 dispatch 加分支
+
+
+def normalize_search_engine(value: str) -> str:
+    """SEARCH_ENGINE 归一化：strip/lower；非法值 -> "auto" + 告警（稳定优先，不崩启动）。"""
+    v = (value or "").strip().lower()
+    if v not in SEARCH_ENGINES:
+        logging.getLogger("deep_tutor.settings").warning(
+            "非法 SEARCH_ENGINE=%r，按 auto 处理（合法值: %s）", value, SEARCH_ENGINES
+        )
+        return "auto"
+    return v
+
+
+def effective_search_engine() -> str:
+    """实际生效的检索引擎 -> "bing_api" | "bing_web" | "none"。
+
+    矩阵：auto+key -> bing_api；auto/bing_web 无 key -> bing_web；
+    bing 无 key -> none（走 no_search_key 兼容降级路径）。
+    """
+    engine = normalize_search_engine(settings.search_engine)
+    if engine == "bing_web":
+        return "bing_web"
+    if settings.bing_api_key:
+        return "bing_api"
+    return "none" if engine == "bing" else "bing_web"
 
 
 # err.md C14：环境变量解析错误给可读提示而非裸 ValidationError traceback
