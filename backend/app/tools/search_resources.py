@@ -79,9 +79,16 @@ def _derive_stage_topics(inp: ToolInput) -> list[list[str]]:
     return derived
 
 
+def _ctx_bing_key(ctx: ExecContext) -> str:
+    """本次执行实际使用的 Bing Key（iter 223）：ctx 注入的凭证档案有效 key，
+    空 -> .env BING_API_KEY（测试/脚本不经 API 层注入时的回退）。"""
+    return (getattr(ctx, "bing_api_key", "") or "") or settings.bing_api_key
+
+
 async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     stage_topics: list[list[str]] = _derive_stage_topics(inp)
-    engine = effective_search_engine()
+    bing_key = _ctx_bing_key(ctx)
+    engine = effective_search_engine(bing_key)
 
     if engine == "none":
         # SEARCH_ENGINE=bing 且未配置 key（兼容旧行为）：不编造 URL，返回空 + 关键词建议
@@ -107,7 +114,7 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 break
             attempted += 1
             try:
-                candidates = await _search_web(topic, engine)
+                candidates = await _search_web(topic, engine, key=bing_key)
             except Exception as exc:  # noqa: BLE001  单查询检索失败不中断
                 log.warning("Web 检索失败 topic=%s: %s", topic[:MAX_QUERY_CHARS], exc)
                 continue
@@ -321,8 +328,10 @@ def _parse_bing_web_html(html_text: str, count: int) -> list[dict]:
     return results
 
 
-async def _bing_web_search(query: str, count: int = 5) -> list[dict]:
+async def _bing_web_search(query: str, count: int = 5, key: str = "") -> list[dict]:
     """免 Key Bing 网页版检索（cn.bing.com 搜索页抓取，国内可达），返回 [{title,url}]。
+
+    key 参数仅为统一引擎签名（免 Key 引擎不使用）。
 
     安全：endpoint 为模块常量、query 走 params 编码（无 SSRF 面）；follow_redirects
     容忍区域跳转，但终态 host 非 bing.com -> 抛（防重定向劫持到外站）；2MB 流式上限
@@ -352,22 +361,22 @@ async def _bing_web_search(query: str, count: int = 5) -> list[dict]:
     return _parse_bing_web_html(html_text, count)
 
 
-async def _bing_api_search_with_settings(query: str, count: int = 5) -> list[dict]:
-    """bing_api 引擎适配：补传 settings.bing_api_key，统一引擎签名。"""
-    return await _bing_api_search(query, settings.bing_api_key, count=count)
+async def _bing_api_search_with_settings(query: str, count: int = 5, key: str = "") -> list[dict]:
+    """bing_api 引擎适配：补传有效 Bing Key（iter 223 凭证档案解析值），统一引擎签名。"""
+    return await _bing_api_search(query, key or settings.bing_api_key, count=count)
 
 
-# 引擎注册表：新增引擎 = 实现 `_xxx_search(query, count)` + 在此注册一行
+# 引擎注册表：新增引擎 = 实现 `_xxx_search(query, count, key)` + 在此注册一行
 # + settings.SEARCH_ENGINES 加值（决策函数 effective_search_engine 同步分支）
 _ENGINE_FUNCS = {"bing_api": _bing_api_search_with_settings, "bing_web": _bing_web_search}
 
 
-async def _search_web(query: str, engine: str, count: int = 5) -> list[dict]:
-    """统一检索调度入口（测试 monkeypatch seam）。"""
+async def _search_web(query: str, engine: str, count: int = 5, key: str = "") -> list[dict]:
+    """统一检索调度入口（测试 monkeypatch seam）。key 为有效 Bing Key（免 Key 引擎忽略）。"""
     func = _ENGINE_FUNCS.get(engine)
     if func is None:
         raise ValueError(f"未知搜索引擎: {engine}")
-    return await func(query[:MAX_QUERY_CHARS], count=count)
+    return await func(query[:MAX_QUERY_CHARS], count=count, key=key)
 
 
 MAX_PER_UNIT = 3  # 单单元补充资料上限（iter 48，plan/07 §三 步骤 2）
@@ -380,11 +389,12 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     丢弃 invalid，保留 ≤limit 条 {title,url,verified,note}。
     引擎不可用（bing 无 key）/ 空 query / 检索失败 / 无结果 -> []（不编造 URL；内容侧由 LLM 标「无外部资料参考」）。
     """
-    engine = effective_search_engine()
+    bing_key = _ctx_bing_key(ctx)
+    engine = effective_search_engine(bing_key)
     if engine == "none" or not query.strip():
         return []
     try:
-        candidates = await _search_web(query, engine, count=limit)
+        candidates = await _search_web(query, engine, count=limit, key=bing_key)
     except Exception as exc:  # noqa: BLE001  检索失败不中断单元生成
         log.warning("单元补充资料检索失败 query=%s: %s", query[:MAX_QUERY_CHARS], exc)
         return []

@@ -30,6 +30,7 @@ from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_to
 from app.agent.cost import record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
+from app.core.credentials import resolve_bing_api_key
 from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
@@ -710,6 +711,8 @@ async def _run_start(
         llm_provider=provider,
         skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
         budget=budget,
+        # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
+        bing_api_key=resolve_bing_api_key(user_id),
     )
     def _on_event(e: str, d: dict) -> int:
         # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
@@ -1232,6 +1235,7 @@ async def _materials_sse(
             llm_provider=provider,
             data_dir=settings.data_dir,
             budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
+            bing_api_key=resolve_bing_api_key(user_id),  # iter 223：凭证档案有效 Bing Key
         )
         topic = (content.get("intent") or {}).get("topic") or "概述"
         degraded_count = 0

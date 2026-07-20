@@ -192,16 +192,19 @@ def normalize_search_engine(value: str) -> str:
     return v
 
 
-def effective_search_engine() -> str:
+def effective_search_engine(bing_key: str | None = None) -> str:
     """实际生效的检索引擎 -> "bing_api" | "bing_web" | "none"。
 
     矩阵：auto+key -> bing_api；auto/bing_web 无 key -> bing_web；
     bing 无 key -> none（走 no_search_key 兼容降级路径）。
+    bing_key 缺省 -> settings.bing_api_key；iter 223 起调用方可传入
+    凭证档案解析后的有效 key（app.core.credentials.resolve_bing_api_key）。
     """
     engine = normalize_search_engine(settings.search_engine)
     if engine == "bing_web":
         return "bing_web"
-    if settings.bing_api_key:
+    key = settings.bing_api_key if bing_key is None else bing_key
+    if key:
         return "bing_api"
     return "none" if engine == "bing" else "bing_web"
 

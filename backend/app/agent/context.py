@@ -38,3 +38,6 @@ class ExecContext:
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     db: object | None = None  # SQLAlchemy Session（step 6 接入；step 3 测试可不传）
     budget: BudgetTracker | None = None
+    # iter 223：凭证档案解析后的有效 Bing Key（空 -> 工具内回退 settings.bing_api_key）；
+    # 由 API 层按发起用户解析注入（app.core.credentials.resolve_bing_api_key）
+    bing_api_key: str = ""

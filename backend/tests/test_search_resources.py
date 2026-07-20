@@ -35,7 +35,7 @@ def test_no_key_degraded(monkeypatch):
 def test_aggregation_with_mocks(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         return [
             {"title": f"{query} 教程", "url": f"https://example.com/{query}"},
             {"title": f"{query} 文档", "url": f"https://example.com/doc/{query}"},
@@ -63,7 +63,7 @@ def test_aggregation_with_mocks(monkeypatch):
 def test_invalid_candidates_dropped(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         return [{"title": "good", "url": "https://example.com/ok"}, {"title": "bad", "url": "https://example.com/dead"}]
 
     async def fake_verify(inp, ctx):
@@ -88,7 +88,7 @@ def test_derive_stage_topics_from_upstream(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     seen_queries: list[str] = []
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         seen_queries.append(query)
         return [{"title": f"{query} 教程", "url": f"https://example.com/{query}"}]
 
@@ -125,7 +125,7 @@ def test_explicit_stage_topics_take_precedence(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     seen_queries: list[str] = []
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         seen_queries.append(query)
         return []
 
@@ -160,7 +160,7 @@ def test_unit_resources_verify_and_cap(monkeypatch):
     """候选逐个 verify_url：invalid 丢弃；保留 ≤limit 条 {title,url,verified,note}。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         assert count == 2  # limit 传递给 Bing count
         return [
             {"title": "good", "url": "https://example.com/ok"},
@@ -186,7 +186,7 @@ def test_unit_resources_search_failure_returns_empty(monkeypatch):
     """Bing 检索异常 -> []（不中断单元生成）。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         raise RuntimeError("网络故障")
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
@@ -217,7 +217,7 @@ def _setup_two_candidates(monkeypatch):
     """两候选（ok/deep）经 fake Bing + fake verify 均可达 ok。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         return [
             {"title": f"{query} 入门教程", "url": "https://example.com/intro"},
             {"title": f"{query} 内核源码剖析", "url": "https://example.com/deep"},
@@ -362,7 +362,7 @@ def test_auto_no_key_uses_web_engine(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
     seen: list[str] = []
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         seen.append(engine)
         return [{"title": "t", "url": "https://example.com/x"}]
 
@@ -386,7 +386,7 @@ def test_bing_web_preferred_even_with_key(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     seen: list[str] = []
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         seen.append(engine)
         return []
 
@@ -401,7 +401,7 @@ def test_web_scrape_total_failure_degraded(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         raise RuntimeError("反爬拦截")
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
@@ -418,7 +418,7 @@ def test_web_scrape_empty_results_ok(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         return []
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
@@ -433,7 +433,7 @@ def test_no_topics_not_unavailable(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         raise AssertionError("不应发起检索")
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
@@ -448,7 +448,7 @@ def test_unit_resources_auto_no_key(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
     seen: list[str] = []
 
-    async def fake_search(query, engine, count=5):
+    async def fake_search(query, engine, count=5, key=""):
         seen.append(engine)
         return [{"title": "t", "url": "https://example.com/u"}]
 
