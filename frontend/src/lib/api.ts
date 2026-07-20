@@ -144,6 +144,7 @@ export interface SessionMaterial {
   parsed_chars: number
   meta: Record<string, unknown>
   created_at: string | null
+  status: string // pending 待确认 / confirmed 已添加未解析 / parsed 已解析（iter 225）
 }
 
 export const getSessionMaterials = (sessionId: number) =>
@@ -153,18 +154,33 @@ export const deleteSessionMaterial = (sessionId: number, materialId: number) =>
   apiFetch<{ ok: boolean }>(`/sessions/${sessionId}/materials/${materialId}`, { method: 'DELETE' })
 
 // --- materials ---
+// iter 225 上传确认流程：上传仅落原件建 pending（不解析），confirm 确认添加，
+// parse（mode: full=marker 高质量 / fast=pypdf 快速提取，仅 PDF 有别）按需转换。
+export interface MaterialOut {
+  material_id: number
+  kind: string
+  meta: Record<string, unknown>
+  status: string // pending / confirmed / parsed
+}
+
 export const createTextMaterial = (sessionId: number, text: string) =>
-  apiFetch<{ material_id: number; kind: string; meta: Record<string, unknown> }>('/materials/text', {
+  apiFetch<MaterialOut>('/materials/text', {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId, text }),
   })
 
 // 网页链接资料（plan/03 §二 输入形式「网页链接」）：后端抓取+正文提取（trafilatura）
 export const createUrlMaterial = (sessionId: number, url: string) =>
-  apiFetch<{ material_id: number; kind: string; meta: Record<string, unknown> }>('/materials/url', {
+  apiFetch<MaterialOut>('/materials/url', {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId, url }),
   })
+
+export const confirmMaterial = (materialId: number) =>
+  apiFetch<MaterialOut>(`/materials/${materialId}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+
+export const parseMaterial = (materialId: number, mode: 'full' | 'fast' = 'full') =>
+  apiFetch<MaterialOut>(`/materials/${materialId}/parse`, { method: 'POST', body: JSON.stringify({ mode }) })
 
 // 大文件上传（plan/09 §七 前端边界：字节级进度）。用 XHR 而非 fetch——
 // fetch 的上传进度（Request duplex stream）浏览器支持差，XHR upload.onprogress 全量可用。
@@ -172,7 +188,7 @@ export function uploadMaterial(
   sessionId: number,
   file: File,
   onProgress?: (percent: number) => void,
-): Promise<{ material_id: number; kind: string; meta: Record<string, unknown> }> {
+): Promise<MaterialOut> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${BASE}/materials/upload`)
@@ -975,6 +991,7 @@ export interface KbDocument {
   content_hash: string | null
   created_at: string
   updated_at: string
+  status: string // pending 待确认 / confirmed 已添加未解析 / parsed 已解析（iter 225）
 }
 
 export const listKbDocuments = (params: { q?: string; kind?: string; limit?: number } = {}) => {
@@ -1037,6 +1054,13 @@ export const renameKbDocument = (id: number, title: string) =>
 
 export const deleteKbDocument = (id: number) =>
   apiFetch<{ ok: boolean }>(`/kb/documents/${id}`, { method: 'DELETE' })
+
+// iter 225 上传确认流程：确认添加（pending->confirmed）/ 按需解析（mode 仅 PDF 有别）
+export const confirmKbDocument = (id: number) =>
+  apiFetch<KbDocument>(`/kb/documents/${id}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+
+export const parseKbDocument = (id: number, mode: 'full' | 'fast' = 'full') =>
+  apiFetch<KbDocument>(`/kb/documents/${id}/parse`, { method: 'POST', body: JSON.stringify({ mode }) })
 
 // 解析文本（查看器文档类渲染源 / AI 消费面）
 export interface KbParsed {

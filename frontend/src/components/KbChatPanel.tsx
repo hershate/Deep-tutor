@@ -148,21 +148,23 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
             >
               重置为全部
             </button>
-            {docs.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => togglePick(d.id)}
-                aria-pressed={picked.has(d.id)}
-                title={d.title}
-                className={`max-w-40 truncate rounded-full px-2 py-0.5 text-xs transition-all active:scale-95 ${
-                  picked.has(d.id)
-                    ? 'bg-violet-600 text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
-                }`}
-              >
-                {d.title}
-              </button>
-            ))}
+            {docs
+              .filter((d) => d.status === 'parsed') // iter 225：未解析文档无文本可答，不出现在范围选择
+              .map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => togglePick(d.id)}
+                  aria-pressed={picked.has(d.id)}
+                  title={d.title}
+                  className={`max-w-40 truncate rounded-full px-2 py-0.5 text-xs transition-all active:scale-95 ${
+                    picked.has(d.id)
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {d.title}
+                </button>
+              ))}
           </div>
           <p className="mt-1 text-xs text-slate-400">
             不选任何篇目 = 基于全部文档作答；点选后仅依据所选篇目（≤{MAX_CHAT_DOCS} 篇）

@@ -57,12 +57,18 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
     setParsed(null)
     setObjectUrl(null)
     if (mode === 'parsed') {
-      getKbParsed(doc.id)
-        .then((p) => !ac.signal.aborted && setParsed(p))
-        .catch((e) => {
-          if (!ac.signal.aborted) setLoadError(e instanceof ApiError ? e.message : '解析文本加载失败')
-        })
-        .finally(() => !ac.signal.aborted && setLoading(false))
+      // iter 225：未解析文档直接引导，不发 404 请求
+      if (doc.status && doc.status !== 'parsed') {
+        setLoadError('该文档尚未解析——请先在文档列表中确认并解析')
+        setLoading(false)
+      } else {
+        getKbParsed(doc.id)
+          .then((p) => !ac.signal.aborted && setParsed(p))
+          .catch((e) => {
+            if (!ac.signal.aborted) setLoadError(e instanceof ApiError ? e.message : '解析文本加载失败')
+          })
+          .finally(() => !ac.signal.aborted && setLoading(false))
+      }
     } else {
       fetchKbRawBlob(doc.id, ac.signal)
         .then((blob) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, createSession, createUrlMaterial, deleteSession, uploadMaterial } from '../lib/api'
+import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, parseMaterial, uploadMaterial } from '../lib/api'
 import { SseError } from '../lib/sse'
 import { engine } from '../lib/taskEngine'
 import { toast } from '../components/Toast'
@@ -10,6 +10,11 @@ import WidgetSlot from '../components/WidgetSlot'
 const DRAFT_KEY = 'dt-home-draft'
 
 interface HomeDraft { rawText: string; urls: string[] }
+
+// iter 225：每份资料的处理方式由用户决定——full=高质量解析（PDF 走 marker）/
+// fast=快速提取（仅 PDF 有别，pypdf 秒级）/ none=不解析（仅存档，不参与生成）
+type ParseChoice = 'full' | 'fast' | 'none'
+interface UploadEntry { file: File; mode: ParseChoice }
 
 function loadDraft(): HomeDraft | null {
   try {
@@ -28,7 +33,7 @@ function loadDraft(): HomeDraft | null {
 export default function Home() {
   const [draft] = useState<HomeDraft | null>(loadDraft)
   const [rawText, setRawText] = useState(draft?.rawText ?? '')
-  const [files, setFiles] = useState<File[]>([])
+  const [files, setFiles] = useState<UploadEntry[]>([])
   const [urls, setUrls] = useState<string[]>(draft?.urls ?? []) // 网页链接资料（plan/03 §二）
   const [draftRestored, setDraftRestored] = useState(Boolean(draft && (draft.rawText || draft.urls.length)))
   const [urlInput, setUrlInput] = useState('')
@@ -54,7 +59,11 @@ export default function Home() {
 
   function addFiles(list: FileList | null) {
     if (!list?.length) return
-    setFiles((prev) => [...prev, ...Array.from(list)])
+    setFiles((prev) => [...prev, ...Array.from(list).map((file) => ({ file, mode: 'full' as const }))])
+  }
+
+  function setFileMode(index: number, mode: ParseChoice) {
+    setFiles((prev) => prev.map((f, i) => (i === index ? { ...f, mode } : f)))
   }
 
   function addUrl() {
@@ -83,15 +92,34 @@ export default function Home() {
     try {
       const { session_id } = await createSession(rawText.slice(0, 40) || '学习方案')
       try {
-        // 批量导入（P2，plan/README §输入形式9）：多文件合并为一个资料集，逐份上传
+        // 批量导入（P2，plan/README §输入形式9）：多文件合并为一个资料集，逐份上传。
+        // iter 225：上传仅落原件（pending）；处理方式由用户在文件列表逐项选定——
+        // full/fast 再调解析（隐含确认），none 仅确认添加（不参与生成）
         for (let i = 0; i < files.length; i++) {
-          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].name}）`)
+          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].file.name}）`)
           setUploadPct(null)
+          let materialId: number
           try {
-            await uploadMaterial(session_id, files[i], (pct) => setUploadPct(pct))
+            const m = await uploadMaterial(session_id, files[i].file, (pct) => setUploadPct(pct))
+            materialId = m.material_id
           } catch (e) {
             throw new Error(
-              `${files[i].name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
+              `${files[i].file.name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
+            )
+          }
+          const mode = files[i].mode
+          setUploadProgress(
+            mode === 'none'
+              ? `添加资料 ${i + 1}/${files.length}（${files[i].file.name}，不解析）`
+              : `解析资料 ${i + 1}/${files.length}（${files[i].file.name}）`,
+          )
+          setUploadPct(null)
+          try {
+            if (mode === 'none') await confirmMaterial(materialId)
+            else await parseMaterial(materialId, mode)
+          } catch (e) {
+            throw new Error(
+              `${files[i].file.name} ${mode === 'none' ? '添加' : '解析'}失败：${e instanceof ApiError ? e.message : '网络错误'}`,
             )
           }
         }
@@ -232,19 +260,39 @@ export default function Home() {
         </div>
         {files.length > 0 && (
           <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex animate-fade-in items-center gap-2">
-                <span className="truncate">{f.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-                  aria-label={`移除 ${f.name}`}
-                  className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
-                >
-                  移除
-                </button>
-              </li>
-            ))}
+            {files.map((f, i) => {
+              const isPdf = /\.pdf$/i.test(f.file.name)
+              return (
+                <li key={`${f.file.name}-${i}`} className="flex animate-fade-in items-center gap-2">
+                  <span className="truncate">{f.file.name}</span>
+                  {/* iter 225：处理方式由用户逐项决定（PDF 双档，其他类型默认管线） */}
+                  <select
+                    value={f.mode}
+                    onChange={(e) => setFileMode(i, e.target.value as ParseChoice)}
+                    aria-label={`${f.file.name} 处理方式`}
+                    className="shrink-0 rounded border bg-white px-1.5 py-0.5 text-xs transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+                  >
+                    {isPdf ? (
+                      <>
+                        <option value="full">高质量解析（marker，较慢）</option>
+                        <option value="fast">快速提取（pypdf，秒级）</option>
+                      </>
+                    ) : (
+                      <option value="full">解析（默认管线）</option>
+                    )}
+                    <option value="none">不解析（仅存档）</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label={`移除 ${f.file.name}`}
+                    className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
+                  >
+                    移除
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

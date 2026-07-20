@@ -1,8 +1,9 @@
 // 会话源资料清单（iter 104）：方案详情页展示生成所用资料，可单个删除（传错资料移除后重生成）。
+// iter 225：待确认/未解析资料显示状态徽标 + 确认/解析动作（未解析资料不参与生成）。
 // 数据：GET /sessions/{id}/materials；删除：DELETE /sessions/{id}/materials/{mid}（生成中后端 409）。
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, deleteSessionMaterial, getSessionMaterials, type SessionMaterial } from '../lib/api'
+import { ApiError, confirmMaterial, deleteSessionMaterial, getSessionMaterials, parseMaterial, type SessionMaterial } from '../lib/api'
 import { SkeletonLines } from './Skeleton'
 import { toast } from './Toast'
 
@@ -24,19 +25,22 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
     staleTime: 30_000,
   })
 
-  async function onDelete(m: SessionMaterial) {
+  async function run(m: SessionMaterial, action: () => Promise<unknown>, failMsg: string) {
     if (busyId !== null) return
-    if (!window.confirm(`确定删除资料「${displayName(m)}」？\n删除后可重新生成方案使其不再参考该资料。`)) return
     setBusyId(m.material_id)
     try {
-      await deleteSessionMaterial(sessionId, m.material_id)
-      toast.success('资料已删除')
+      await action()
       await qc.invalidateQueries({ queryKey: ['session-materials', sessionId] })
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '删除失败，请重试')
+      toast.error(e instanceof ApiError ? e.message : failMsg)
     } finally {
       setBusyId(null)
     }
+  }
+
+  async function onDelete(m: SessionMaterial) {
+    if (!window.confirm(`确定删除资料「${displayName(m)}」？\n删除后可重新生成方案使其不再参考该资料。`)) return
+    await run(m, () => deleteSessionMaterial(sessionId, m.material_id), '删除失败，请重试')
   }
 
   return (
@@ -63,16 +67,45 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
               <span className="min-w-0 flex-1 truncate" title={m.source}>
                 {displayName(m)}
               </span>
-              <span className="shrink-0 text-xs text-slate-400 tabular-nums">
-                {m.parsed_chars > 0 ? `约 ${m.parsed_chars} 字` : '未解析'}
-              </span>
+              {m.status === 'pending' ? (
+                <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                  待确认
+                </span>
+              ) : m.status !== 'parsed' ? (
+                <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                  未解析
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+                  {m.parsed_chars > 0 ? `约 ${m.parsed_chars} 字` : '未解析'}
+                </span>
+              )}
+              {m.status === 'pending' && (
+                <button
+                  onClick={() => run(m, () => confirmMaterial(m.material_id), '确认失败')}
+                  disabled={busyId !== null}
+                  className="shrink-0 rounded-lg bg-green-600 px-2 py-0.5 text-xs font-medium text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50"
+                >
+                  确认
+                </button>
+              )}
+              {m.status !== 'parsed' && m.kind === 'file' && (
+                <button
+                  onClick={() => run(m, () => parseMaterial(m.material_id, 'full'), '解析失败，可在知识库换档重试')}
+                  disabled={busyId !== null}
+                  title="按默认管线解析（高质量）；PDF 快速提取请到知识库操作"
+                  className="shrink-0 rounded-lg border border-violet-200 px-2 py-0.5 text-xs text-violet-600 transition-all hover:bg-violet-50 active:scale-95 disabled:opacity-50 dark:border-violet-900 dark:text-violet-400 dark:hover:bg-violet-950"
+                >
+                  解析
+                </button>
+              )}
               <button
                 onClick={() => onDelete(m)}
                 disabled={busyId !== null}
                 aria-label={`删除资料 ${displayName(m)}`}
                 className="shrink-0 rounded-lg border border-red-200 px-2 py-0.5 text-xs text-red-600 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
               >
-                {busyId === m.material_id ? '删除中…' : '删除'}
+                {busyId === m.material_id ? '处理中…' : '删除'}
               </button>
             </li>
           ))}

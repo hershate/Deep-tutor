@@ -11,12 +11,14 @@ import { SkeletonCards } from './Skeleton'
 import { toast } from './Toast'
 import {
   ApiError,
+  confirmKbDocument,
   createKbTextDoc,
   createKbUrlDoc,
   deleteKbDocument,
   downloadKbExport,
   kbGenerate,
   listKbDocuments,
+  parseKbDocument,
   renameKbDocument,
   uploadKbDocument,
   type KbDocument,
@@ -71,6 +73,11 @@ export default function KbDocsView() {
   const [exportBusy, setExportBusy] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [viewingDoc, setViewingDoc] = useState<KbDocument | null>(null)
+  // iter 225：解析方式弹窗（是否转换/怎么转换由用户决定）
+  const [parseTarget, setParseTarget] = useState<KbDocument | null>(null)
+  const [parseMode, setParseMode] = useState<'full' | 'fast'>('full')
+  const [parseBusy, setParseBusy] = useState(false)
+  const [confirmBusyId, setConfirmBusyId] = useState<number | null>(null)
   const uploadingRef = useRef(false)
 
   // 搜索防抖（300ms）：避免每击键一次请求（同 Wiki 知识点搜索）
@@ -113,6 +120,7 @@ export default function KbDocsView() {
       .then((doc) => {
         setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, status: 'done', progress: 100 } : u)))
         if (doc.meta?.deduped) toast.info(`「${doc.title}」内容已存在，已复用既有文档`)
+        else toast.info(`「${doc.title}」已暂存——请在列表中确认添加`)
         invalidate()
       })
       .catch((e) => {
@@ -188,6 +196,43 @@ export default function KbDocsView() {
       invalidate()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '删除失败')
+    }
+  }
+
+  // --- iter 225：确认添加 / 按需解析（是否转换、怎么转换由用户决定） ---
+  async function onConfirm(d: KbDocument) {
+    if (confirmBusyId !== null) return
+    setConfirmBusyId(d.id)
+    try {
+      await confirmKbDocument(d.id)
+      toast.success(`「${d.title}」已添加到知识库`)
+      invalidate()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '确认失败')
+    } finally {
+      setConfirmBusyId(null)
+    }
+  }
+
+  function openParse(d: KbDocument) {
+    setParseTarget(d)
+    setParseMode('full')
+  }
+
+  async function submitParse() {
+    if (!parseTarget || parseBusy) return
+    setParseBusy(true)
+    const target = parseTarget
+    try {
+      await parseKbDocument(target.id, parseMode)
+      toast.success(`「${target.title}」解析完成`)
+      setParseTarget(null)
+      invalidate()
+    } catch (e) {
+      // 解析失败文档保留原状态（可换档重试）
+      toast.error(e instanceof ApiError ? e.message : '解析失败，可换档重试')
+    } finally {
+      setParseBusy(false)
     }
   }
 
@@ -398,7 +443,7 @@ export default function KbDocsView() {
                     {u.status === 'uploading'
                       ? `${u.progress}%`
                       : u.status === 'done'
-                        ? '✅ 完成'
+                        ? '✅ 已暂存'
                         : u.status === 'error'
                           ? `❌ ${u.error ?? '失败'}`
                           : '排队中'}
@@ -487,8 +532,10 @@ export default function KbDocsView() {
                 type="checkbox"
                 checked={selected.has(d.id)}
                 onChange={() => toggleSelect(d.id)}
+                disabled={d.status !== 'parsed'}
+                title={d.status !== 'parsed' ? '解析完成后才可用于生成/问答' : undefined}
                 aria-label={`选择 ${d.title}`}
-                className="mt-1 h-4 w-4 shrink-0 accent-blue-600"
+                className="mt-1 h-4 w-4 shrink-0 accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
               />
               <div className="min-w-0 flex-1">
                 {editingId === d.id ? (
@@ -519,12 +566,44 @@ export default function KbDocsView() {
                 )}
                 <p className="mt-1 text-xs text-slate-400">
                   {KIND_LABEL[d.kind]}
-                  {d.ext ? ` · ${d.ext}` : ''} · <span className="tabular-nums">{d.parsed_chars.toLocaleString()}</span> 字
+                  {d.ext ? ` · ${d.ext}` : ''}
+                  {/* iter 225：状态徽标——待确认/未解析/已解析字数 */}
+                  {d.status === 'pending' ? (
+                    <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                      待确认
+                    </span>
+                  ) : d.status !== 'parsed' ? (
+                    <span className="ml-1 rounded bg-sky-100 px-1.5 py-0.5 font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                      未解析
+                    </span>
+                  ) : (
+                    <>
+                      {' '}· <span className="tabular-nums">{d.parsed_chars.toLocaleString()}</span> 字
+                    </>
+                  )}
                   {d.created_at ? ` · ${d.created_at.slice(0, 10)}` : ''}
                 </p>
               </div>
             </div>
             <div className="mt-2 flex items-center gap-1 pl-6 text-xs">
+              {/* iter 225：按状态给动作——待确认先确认添加；未解析/已解析可（重）解析选档 */}
+              {d.status === 'pending' && (
+                <button
+                  onClick={() => onConfirm(d)}
+                  disabled={confirmBusyId === d.id}
+                  className="rounded bg-green-600 px-2 py-1 font-medium text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50"
+                >
+                  {confirmBusyId === d.id ? '确认中…' : '确认添加'}
+                </button>
+              )}
+              {d.has_original && (
+                <button
+                  onClick={() => openParse(d)}
+                  className="rounded px-2 py-1 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-950"
+                >
+                  {d.status === 'parsed' ? '重新解析' : '解析…'}
+                </button>
+              )}
               <button
                 onClick={() => setViewingDoc(d)}
                 className="rounded px-2 py-1 text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
@@ -551,6 +630,89 @@ export default function KbDocsView() {
       {/* 查看器（iter 218：pdf/图片/音频/视频 blob 原生渲染，其余解析文本视图） */}
       {viewingDoc && (
         <KbViewerModal doc={viewingDoc} docs={docs} onClose={() => setViewingDoc(null)} onNavigate={(d) => setViewingDoc(d)} />
+      )}
+
+      {/* 解析方式弹窗（iter 225）：是否转换、怎么转换由用户决定——PDF 双档，其他类型默认管线 */}
+      {parseTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`解析 ${parseTarget.title}`}
+          onClick={() => !parseBusy && setParseTarget(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              解析「{parseTarget.title}」
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              解析后文本入库，可用于查看 / AI 问答 / 生成学习方案；失败不改变文档状态，可换档重试。
+            </p>
+            {parseTarget.ext === 'pdf' ? (
+              <div className="mt-3 space-y-2" role="radiogroup" aria-label="PDF 解析方式">
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition-colors has-[:checked]:border-blue-400 has-[:checked]:bg-blue-50 dark:border-slate-600 dark:has-[:checked]:border-blue-600 dark:has-[:checked]:bg-blue-950">
+                  <input
+                    type="radio"
+                    name="kb-parse-mode"
+                    checked={parseMode === 'full'}
+                    onChange={() => setParseMode('full')}
+                    className="mt-0.5 accent-blue-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">高质量（marker）</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                      版面保留好、支持扫描件 OCR；大文件可能需要几分钟
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition-colors has-[:checked]:border-blue-400 has-[:checked]:bg-blue-50 dark:border-slate-600 dark:has-[:checked]:border-blue-600 dark:has-[:checked]:bg-blue-950">
+                  <input
+                    type="radio"
+                    name="kb-parse-mode"
+                    checked={parseMode === 'fast'}
+                    onChange={() => setParseMode('fast')}
+                    className="mt-0.5 accent-blue-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">快速提取（pypdf）</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                      秒级纯文本抽取；无 OCR，扫描件会得到空文本
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                该类型使用默认解析管线
+                {parseTarget.kind === 'image'
+                  ? '（图片 OCR，需 tesseract）'
+                  : parseTarget.kind === 'audio' || parseTarget.kind === 'video'
+                    ? '（faster-whisper 转写，较慢）'
+                    : ''}
+                。
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setParseTarget(null)}
+                disabled={parseBusy}
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                取消
+              </button>
+              <button
+                onClick={submitParse}
+                disabled={parseBusy}
+                className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-violet-700 active:scale-[.98] disabled:opacity-50"
+              >
+                {parseBusy ? '解析中…' : '开始解析'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
