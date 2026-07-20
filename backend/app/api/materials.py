@@ -11,6 +11,7 @@ SSRF 防护(/materials/url，复用 verify_url._is_safe_url)、解析失败统�
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -27,7 +28,13 @@ from app.api.deps import get_current_user, get_db, get_owned_session, require_au
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.settings import settings
-from app.core.storage import delete_session_files, read_unit_content, save_upload, write_parsed_text
+from app.core.storage import (
+    delete_material_files,
+    delete_session_files,
+    read_unit_content,
+    save_upload,
+    write_parsed_text,
+)
 from app.db import models
 from app.db.models import User
 from app.tools.base import ToolInput
@@ -36,6 +43,12 @@ from app.tools.parse_material import parse_material, SUPPORTED_FILE_EXTS
 log = logging.getLogger("deep_tutor.api.materials")
 
 router = APIRouter(prefix="/materials", tags=["materials"], dependencies=[Depends(require_auth)])
+
+# err.md B22（同 kb）：同会话上传互斥锁。旧实现 flush INSERT 后在未提交写事务内做
+# 分钟级 parse_material，持写锁期间其他写请求等 busy_timeout(5s) 后 500
+# "database is locked"。新实现解析期间不持有事务（见 upload_material）+ 锁防
+# 双击/重试并发写-写互等。锁对象只增不减，每会话一个，实例会话数有限，不做淘汰。
+_UPLOAD_LOCKS: dict[int, asyncio.Lock] = {}
 
 _MAGIC = {
     ".pdf": b"%PDF",
@@ -192,6 +205,14 @@ async def upload_material(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> MaterialOut:
+    """上传文件解析入会话资料。
+
+    err.md B22：解析（大 PDF marker 可达分钟级）不得在未提交写事务内进行。流程：
+    SELECT（去重/配额）后 rollback 释放读事务 -> 同会话互斥锁 -> 建行即提交拿 id
+    （R20 用 id 命名原件）-> 解析（无事务）-> UPDATE 提交；失败回滚 + 删行 + 清理
+    文件（防孤儿，err.md A15）。崩溃窗口留 parsed_text_path=NULL 孤儿行：去重查询
+    已过滤（不计入），用户可正常删除（幂等清理）。
+    """
     _get_session_or_404(db, session_id, user)
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
@@ -203,47 +224,49 @@ async def upload_material(
     if deduped is not None:
         return deduped
     _check_material_quota(db, session_id)
+    db.rollback()  # 释放 SELECT 打开的读事务：自此至建行提交前不持有任何 DB 锁
 
-    # 先建 material 行拿 id，再用 id 命名保存原件（R20：不使用原始文件名）
-    material = models.Material(
-        session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
-        content_hash=content_hash,
-    )
-    db.add(material)
-    db.flush()
-    path = save_upload(session_id, material.id, content, ext)
-
-    out = await parse_material(
-        ToolInput(
-            tool="parse_material",
-            session_id=str(session_id),
-            args={"kind": "file", "source": str(path)},
-        ),
-        _ctx(session_id),
-    )
-    if out.status == "error" and out.errors:
-        db.rollback()
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
-        raise ApiError(out.errors[0].code, out.errors[0].message)
-
-    text = out.data.get("text", "")
-    meta = out.data.get("meta", {})
-    # err.md A15：解析文本落盘失败需回滚 DB 并清理原件，防孤儿文件
-    try:
-        material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
-        material.parsed_chars = len(text)
-        material.meta = meta
+    # 同会话上传互斥：双击/重试并发直接 409（不再写-写互等 5s 后 500）
+    lock = _UPLOAD_LOCKS.setdefault(session_id, asyncio.Lock())
+    if lock.locked():
+        raise ApiError("conflict", "该会话有文件正在上传解析中，请稍候完成后再试", status=409)
+    async with lock:
+        # 先建行拿 id 并立即提交（写事务极短），再用 id 命名保存原件——解析期间无事务
+        material = models.Material(
+            session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
+            content_hash=content_hash,
+        )
+        db.add(material)
         db.commit()
-    except Exception:
-        db.rollback()
+        db.refresh(material)
         try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
+            path = save_upload(session_id, material.id, content, ext)
+            out = await parse_material(
+                ToolInput(
+                    tool="parse_material",
+                    session_id=str(session_id),
+                    args={"kind": "file", "source": str(path)},
+                ),
+                _ctx(session_id),
+            )
+            if out.status == "error" and out.errors:
+                raise ApiError(out.errors[0].code, out.errors[0].message)
+            text = out.data.get("text", "")
+            meta = out.data.get("meta", {})
+            material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
+            material.parsed_chars = len(text)
+            material.meta = meta
+            db.commit()
+        except Exception:
+            # err.md A15：失败回滚 + 删行 + 幂等清理文件，防孤儿
+            db.rollback()
+            try:
+                db.delete(material)
+                db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
+            delete_material_files(session_id, material.id)
+            raise
     db.refresh(material)
     return MaterialOut(material_id=material.id, kind="file", meta=meta)
 

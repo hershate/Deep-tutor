@@ -224,7 +224,7 @@ def kb_parsed_dir(user_id: int | str) -> Path:
     return d
 
 
-def save_kb_upload(user_id: int | str, doc_id: int, content: bytes, ext: str) -> Path:
+def save_kb_upload(user_id: int | str, doc_id: int | str, content: bytes, ext: str) -> Path:
     """保存知识库上传原件（用 doc_id 命名，非原始文件名，R20）。"""
     safe = _safe_ext(ext)
     name = f"{doc_id}.{safe}" if safe else str(doc_id)
@@ -233,13 +233,13 @@ def save_kb_upload(user_id: int | str, doc_id: int, content: bytes, ext: str) ->
     return path
 
 
-def write_kb_parsed_text(user_id: int | str, doc_id: int, text: str) -> Path:
+def write_kb_parsed_text(user_id: int | str, doc_id: int | str, text: str) -> Path:
     path = kb_parsed_dir(user_id) / f"{doc_id}.txt"
     path.write_text(text, encoding="utf-8")
     return path
 
 
-def delete_kb_document_files(user_id: int | str, doc_id: int) -> None:
+def delete_kb_document_files(user_id: int | str, doc_id: int | str) -> None:
     """删除单篇知识库文档的磁盘文件（原件按 "<doc_id>." 前缀 glob，解析文本精确路径）。
 
     目录不存在即无文件可删（不创建目录）。缺文件不报错（幂等清理）。
