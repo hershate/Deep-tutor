@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ProviderManager from '../components/ProviderManager'
+import CredentialManager from '../components/CredentialManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
@@ -8,7 +9,8 @@ import { ApiError, downloadBackup, getSettings, importBackup, postSetup, preview
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
-/** 设置页（/settings）：用户管理（admin，iter 60）+ LLM 供应商档案管理（iter 52，可编辑，优先于 .env）+ 后端配置只读快照。
+/** 设置页（/settings）：用户管理（admin，iter 60）+ LLM 供应商档案管理（iter 52，可编辑，优先于 .env）
+ *  + API Key 档案管理（iter 223：Anthropic 回退 / Bing / 访问令牌三类卡片切换）+ 生效配置只读快照。
  *  iter 89：开放模式（零配置未设密码）时顶部显示「访问密码」卡——设置后用返回 JWT 无感切换为登录态。 */
 export default function Settings() {
   const { data, isLoading, error } = useQuery({
@@ -37,12 +39,17 @@ export default function Settings() {
         <ProviderManager />
       </div>
 
+      {/* iter 223：全部 Key（Anthropic 回退 / Bing / 访问令牌）档案卡片管理 */}
       <div className="animate-fade-in-up" style={{ animationDelay: '180ms' }}>
+        <CredentialManager />
+      </div>
+
+      <div className="animate-fade-in-up" style={{ animationDelay: '240ms' }}>
         <BackupCard />
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        以下为服务端 .env 配置快照（只读）；启用供应商档案后 LLM 调用以档案为准。
+        以下为生效配置快照（只读）；供应商档案与 Key 档案在上方卡片管理，启用后优先于 .env。
       </p>
 
       {isLoading && <SkeletonLines lines={4} />}
@@ -64,14 +71,14 @@ export default function Settings() {
           <Row label="搜索引擎" value={searchEngineLabel(data)} />
           <Row
             label="Anthropic API Key"
-            value={data.anthropic_api_key_set ? '已配置' : '未配置'}
+            value={anthropicKeyLabel(data)}
             status={data.anthropic_api_key_set ? 'ok' : 'warn'}
           />
           <Row
             label="Bing API Key"
             value={
               data.bing_api_key_set
-                ? '已配置'
+                ? bingKeyLabel(data)
                 : data.search_engine_effective === 'bing_web'
                   ? '未配置（使用网页版兜底）'
                   : '未配置'
@@ -81,7 +88,7 @@ export default function Settings() {
           />
           <Row
             label="认证 Token"
-            value={data.auth_token_set ? '已配置' : '未配置'}
+            value={authTokenLabel(data)}
             status={data.auth_token_set ? 'ok' : 'warn'}
           />
           <Row
@@ -111,6 +118,28 @@ function searchEngineLabel(d: AppSettings): string {
   return d.search_engine === 'auto'
     ? `auto（当前：${effText}）`
     : `${d.search_engine}（${effText}）`
+}
+
+/** iter 223：Key 快照行标注生效来源（Key 档案可管理，.env 为回退）。 */
+function anthropicKeyLabel(d: AppSettings): string {
+  if (!d.anthropic_api_key_set) return '未配置'
+  if (d.anthropic_key_source === 'provider_profile') return '已配置（供应商档案）'
+  if (d.anthropic_key_source === 'credential') return '已配置（Key 档案）'
+  if (d.anthropic_key_source === 'env') return '已配置（.env）'
+  return '已配置'
+}
+
+function bingKeyLabel(d: AppSettings): string {
+  if (d.bing_key_source === 'credential') return '已配置（Key 档案）'
+  if (d.bing_key_source === 'env') return '已配置（.env）'
+  return '已配置'
+}
+
+function authTokenLabel(d: AppSettings): string {
+  if (!d.auth_token_set) return '未配置'
+  if (d.auth_token_source === 'credential') return '已配置（个人令牌）'
+  if (d.auth_token_source === 'env') return '已配置（.env）'
+  return '已配置'
 }
 
 function Row({

@@ -570,8 +570,12 @@ export interface AppSettings {
   search_engine: string
   search_engine_effective: string // iter 222：实际生效引擎 bing_api/bing_web/none（string 而非字面量联合，后端加引擎前端免改）
   anthropic_api_key_set: boolean
+  // iter 223：Key 生效来源 provider_profile/credential/env/none（string 而非字面量联合，后端加来源前端免改）
+  anthropic_key_source: string
   bing_api_key_set: boolean
+  bing_key_source: string
   auth_token_set: boolean
+  auth_token_source: string
   ocr_available: boolean // 图片 OCR 依赖可用（P3，R9）
   whisper_available: boolean // 音视频转写依赖可用（P3，R9）
   whisper_model: string
@@ -589,6 +593,45 @@ export const updatePrefs = (dailyBudgetUsd: number | null) =>
   apiFetch<PrefsResult>('/settings/prefs', {
     method: 'PUT',
     body: JSON.stringify({ daily_budget_usd: dailyBudgetUsd }),
+  })
+
+// --- API Key 凭证档案（iter 223：设置页可视化管理全部 Key，多档案卡片切换）---
+// 三类 kind：anthropic（Anthropic 回退主 Key，单活）/ bing（Bing 搜索 Key，单活）/
+// auth_token（个人访问令牌，多活——任一 active 令牌均以本人身份通过认证）。
+// api_key 只写不读：响应仅含掩码末 4 位；更新时 api_key 留空 -> 保留原值。
+export type CredentialKind = 'anthropic' | 'bing' | 'auth_token'
+export interface CredentialProfile {
+  id: number
+  kind: CredentialKind
+  name: string
+  is_active: boolean
+  api_key_masked: string
+  created_at: string
+}
+export interface CredentialInput {
+  kind: CredentialKind
+  name: string
+  api_key?: string // 创建必填；更新可留空（保留原值）
+  activate?: boolean // 创建后立即启用（单活类互斥停用同类其他档案）
+}
+export const listCredentials = (kind?: CredentialKind) =>
+  apiFetch<{ credentials: CredentialProfile[]; kinds: CredentialKind[] }>(
+    kind ? `/credentials?kind=${kind}` : '/credentials',
+  )
+export const createCredential = (body: CredentialInput) =>
+  apiFetch<CredentialProfile>('/credentials', { method: 'POST', body: JSON.stringify(body) })
+export const updateCredential = (id: number, body: Partial<Omit<CredentialInput, 'kind'>>) =>
+  apiFetch<CredentialProfile>(`/credentials/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteCredential = (id: number) =>
+  apiFetch<{ ok: boolean }>(`/credentials/${id}`, { method: 'DELETE' })
+export const activateCredential = (id: number) =>
+  apiFetch<CredentialProfile>(`/credentials/${id}/activate`, { method: 'POST', body: JSON.stringify({}) })
+export const deactivateCredential = (id: number) =>
+  apiFetch<CredentialProfile>(`/credentials/${id}/deactivate`, { method: 'POST', body: JSON.stringify({}) })
+export const deactivateAllCredentials = (kind: CredentialKind) =>
+  apiFetch<{ ok: boolean }>(`/credentials/deactivate-all?kind=${kind}`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   })
 
 // --- generate / clarify（SSE POST，见 lib/sse.ts）---
