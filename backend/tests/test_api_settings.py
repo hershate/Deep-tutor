@@ -14,6 +14,8 @@ def test_settings_returns_no_secrets(client, auth_headers):
     assert "max_tool_calls" in data
     assert "max_upload_mb" in data
     assert "search_engine" in data
+    # iter 222：实际生效引擎（auto 语义解析结果，供设置页展示）
+    assert data["search_engine_effective"] in ("bing_api", "bing_web", "none")
     # Key 仅返回是否已设（bool），不返回明文
     assert isinstance(data["anthropic_api_key_set"], bool)
     assert isinstance(data["bing_api_key_set"], bool)

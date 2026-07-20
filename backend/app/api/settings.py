@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_daily_budget, get_db, require_auth
-from app.core.settings import settings
+from app.core.settings import effective_search_engine, settings
 from app.db import models
 from app.db.models import User
 
@@ -53,6 +53,8 @@ def get_settings(
         "max_tool_calls": settings.max_tool_calls,
         "max_upload_mb": settings.max_upload_mb,
         "search_engine": settings.search_engine,
+        # iter 222：实际生效引擎（auto 三值语义 + key 配置的解析结果，供设置页展示）
+        "search_engine_effective": effective_search_engine(),
         "anthropic_api_key_set": settings.anthropic_key_configured,
         "bing_api_key_set": bool(settings.bing_api_key),
         "auth_token_set": settings.auth_token_configured,
