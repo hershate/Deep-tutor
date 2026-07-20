@@ -75,8 +75,15 @@ class SetupIn(BaseModel):
 
 
 def _llm_configured() -> bool:
-    """「get_provider() 可用」语义：env key（模板占位值不算，iter 90）或任一 active 供应商档案。"""
-    return settings.anthropic_key_configured or get_active_profile() is not None
+    """「get_provider() 可用」语义：env key（模板占位值不算，iter 90）、任一 active
+    供应商档案、或任一 active Anthropic 回退 Key 凭证档案（iter 223）。"""
+    from app.core.credentials import KIND_ANTHROPIC, get_active_credential
+
+    return (
+        settings.anthropic_key_configured
+        or get_active_profile() is not None
+        or get_active_credential(None, KIND_ANTHROPIC) is not None
+    )
 
 
 @router.get("/status")
