@@ -656,6 +656,9 @@ def generate_from_documents(
                 continue
             if doc.content_hash:
                 seen_hashes.add(doc.content_hash)
+            if doc.status != "parsed":
+                # iter 225：暂存/未解析文档无文本可注入，引导用户先完成确认+解析
+                raise ApiError("not_found", f"知识库文档 {doc.id} 尚未解析——请先在文档列表中确认并解析")
             if not doc.parsed_text_path:
                 raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失")
             try:

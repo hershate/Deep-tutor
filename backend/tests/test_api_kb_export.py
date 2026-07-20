@@ -28,12 +28,21 @@ def _doc_row(doc_id: int):
         db.close()
 
 
-def _upload(client, headers, name="a.md", body=None, mime="text/markdown") -> dict:
+def _upload(client, headers, name="a.md", body=None, mime="text/markdown", parse=True) -> dict:
+    # iter 225：上传仅落原件（pending）；默认补确认+解析两步还原旧「上传即解析」语义，
+    # parse=False 可单独考察暂存态。pdf 等重解析场景由调用方先 stub parse_material。
     if body is None:
         body = "# 标题\n\n知识库内容".encode("utf-8")
     r = client.post(f"{BASE}/upload", files={"file": (name, BytesIO(body), mime)}, headers=headers)
     assert r.status_code == 200, r.text
-    return r.json()
+    doc = r.json()
+    if parse:
+        r = client.post(f"{BASE}/{doc['id']}/confirm", headers=headers)
+        assert r.status_code == 200, r.text
+        r = client.post(f"{BASE}/{doc['id']}/parse", json={"mode": "full"}, headers=headers)
+        assert r.status_code == 200, r.text
+        doc = r.json()
+    return doc
 
 
 def _mk_text_doc(client, headers, text="知识库笔记", title=None) -> dict:

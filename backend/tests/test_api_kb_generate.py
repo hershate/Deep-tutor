@@ -172,6 +172,10 @@ def test_generate_upload_doc_kind_and_source(client, auth_headers):
     )
     assert r.status_code == 200, r.text
     doc = r.json()
+    # iter 225：上传仅暂存 pending，需确认 + 解析后才可参与生成
+    assert client.post(f"{BASE}/documents/{doc['id']}/confirm", headers=auth_headers).status_code == 200
+    r = client.post(f"{BASE}/documents/{doc['id']}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
     r = client.post(f"{BASE}/generate", json={"document_ids": [doc["id"]]}, headers=auth_headers)
     assert r.status_code == 200
     mats = _materials_of(r.json()["session_id"])
