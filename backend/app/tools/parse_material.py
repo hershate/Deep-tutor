@@ -64,8 +64,10 @@ async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         elif kind == "url":
             text, meta = await _parse_url(source)
         else:
-            # file / image / audio / video：均按路径 + 扩展名分发（kind 仅语义标注）
-            text, meta = await asyncio.to_thread(_parse_file, source)
+            # file / image / audio / video：均按路径 + 扩展名分发（kind 仅语义标注）；
+            # parse_mode（iter 225 解析质量多档）仅影响 PDF（full=marker 高质量 / fast=pypdf 快速提取）
+            parse_mode = args.get("parse_mode") or "full"
+            text, meta = await asyncio.to_thread(_parse_file, source, parse_mode)
     except _ParseError as e:
         return _err(e.code, e.message)
     except Exception as exc:  # noqa: BLE001  降级为纯文本提取
@@ -120,7 +122,7 @@ def _parse_text(source: str) -> tuple[str, dict]:
     return source, {"source_type": "text"}
 
 
-def _parse_file(source: str) -> tuple[str, dict]:
+def _parse_file(source: str, parse_mode: str = "full") -> tuple[str, dict]:
     path = Path(source)
     if not path.exists():
         raise _ParseError("unsupported_format", f"文件不存在: {source}")
@@ -130,7 +132,7 @@ def _parse_file(source: str) -> tuple[str, dict]:
             "unsupported_format", f"不支持的扩展名 {ext}（支持 {sorted(SUPPORTED_FILE_EXTS)}）"
         )
     if ext == ".pdf":
-        return _parse_pdf(path)
+        return _parse_pdf(path, parse_mode)
     if ext == ".docx":
         _check_zip_safety(path)
         return _parse_docx(path)
@@ -269,12 +271,15 @@ def _parse_media(path: Path) -> tuple[str, dict]:
     return text, meta
 
 
-def _parse_pdf(path: Path) -> tuple[str, dict]:
-    """PDF 解析用 Marker（marker_single CLI，--force_ocr）。
+def _parse_pdf(path: Path, parse_mode: str = "full") -> tuple[str, dict]:
+    """PDF 解析（iter 225 解析质量多档，由用户在上传后选择）。
 
-    按用户指示：`marker_single <文件> --force_ocr --output_dir <输出目录>`，默认参数。
-    输出结构：<output_dir>/<stem>/<stem>.md + <stem>_meta.json。
+    - full（默认）：Marker（marker_single CLI，--force_ocr）——高质量版面/扫描件 OCR，慢。
+    - fast：pypdf 纯文本抽取——秒级，但无 OCR、版面差（扫描件会得到空文本 ->
+      empty_content，提示改用高质量档）。
     """
+    if parse_mode == "fast":
+        return _parse_pdf_fast(path)
     marker_bin = shutil.which("marker_single")
     if not marker_bin:
         raise _ParseError(
@@ -304,7 +309,35 @@ def _parse_pdf(path: Path) -> tuple[str, dict]:
         if not text:
             raise _ParseError("empty_content", "marker 产出空文本")
         pages = _marker_page_count(Path(out_dir) / stem / f"{stem}_meta.json")
-        return text, {"source_type": "pdf", "pages": pages, "parser": "marker"}
+        return text, {"source_type": "pdf", "pages": pages, "parser": "marker", "parse_mode": "full"}
+
+
+def _parse_pdf_fast(path: Path) -> tuple[str, dict]:
+    """PDF 快速提取档（pypdf 纯文本抽取，无 OCR/版面分析）。"""
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise _ParseError(
+            "dependency_missing", "PDF 快速提取依赖 pypdf（pip install pypdf）"
+        ) from exc
+    try:
+        reader = PdfReader(str(path))
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception as exc:  # noqa: BLE001
+                raise _ParseError("parse_failed", "PDF 已加密，无法提取文本") from exc
+        parts = [(page.extract_text() or "") for page in reader.pages]
+    except _ParseError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _ParseError("parse_failed", f"PDF 快速提取失败: {exc}") from exc
+    text = "\n\n".join(p.strip() for p in parts if p.strip()).strip()
+    if not text:
+        raise _ParseError(
+            "empty_content", "快速提取未得到文本（可能是扫描件/图片型 PDF，请改用高质量解析）"
+        )
+    return text, {"source_type": "pdf", "pages": len(reader.pages), "parser": "pypdf", "parse_mode": "fast"}
 
 
 def _marker_page_count(meta_path: Path) -> int:
