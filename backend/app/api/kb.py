@@ -22,6 +22,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -62,12 +63,9 @@ router = APIRouter(prefix="/kb", tags=["kb"], dependencies=[Depends(require_auth
 # 配额（沿用 plan/09 §二十 思路）：每用户知识库文档数上限
 _MAX_KB_DOCS_PER_USER = 200
 
-# err.md B22：同用户上传互斥锁（进程内，按 user_id）。旧实现在未提交写事务内做
-# 分钟级 parse_material（大 PDF marker），持写锁期间其他写请求等 busy_timeout(5s) 后
-# 500 "database is locked"。新实现解析移出事务（见 upload_document）+ 锁防同用户
-# 双击/重试并发写-写互等——第二个请求直接 409，而非 5s 后 500。锁对象只增不减，
-# 每用户一个（~百字节），实例用户数有限，不做淘汰。
-_UPLOAD_LOCKS: dict[int, asyncio.Lock] = {}
+# per-doc 解析互斥锁（iter 225）：同文档并发解析 -> 409；不同文档可并行（事务外解析 +
+# 短写事务，err.md B22）。锁对象只增不减，每文档一个（~百字节），不做淘汰。
+_PARSE_LOCKS: dict[int, asyncio.Lock] = {}
 
 
 def _ctx(user_id: int) -> ExecContext:
@@ -94,6 +92,7 @@ def _doc_out(d: models.KbDocument, *, deduped: bool = False) -> dict:
         "source": d.source,
         "has_original": d.original_path is not None,
         "parsed_chars": d.parsed_chars,
+        "status": d.status,  # iter 225：pending 待确认 / confirmed 已添加未解析 / parsed 已解析
         "meta": {**(d.meta or {}), **({"deduped": True} if deduped else {})},
         "content_hash": d.content_hash,
         "created_at": str(d.created_at),
@@ -122,12 +121,15 @@ def _check_kb_quota(db: Session, user_id: int) -> None:
 
 
 def _dedup_lookup(db: Session, user_id: int, content_hash: str) -> models.KbDocument | None:
-    """同用户相同内容哈希的已解析文档 -> 直接复用（plan/11 §九），不重复解析/扣配额。"""
+    """同用户相同内容哈希的文档 -> 直接复用（plan/11 §九），不重复建行/扣配额。
+
+    iter 225：不再限已解析——pending 暂存/confirmed 未解析行同样复用（重复上传
+    同一文件返回该行，前端按其 status 展示，不重复占配额）。
+    """
     return db.scalar(
         select(models.KbDocument).where(
             models.KbDocument.user_id == user_id,
             models.KbDocument.content_hash == content_hash,
-            models.KbDocument.parsed_text_path.is_not(None),
         )
     )
 
@@ -154,64 +156,108 @@ async def upload_document(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """上传文件到知识库：限量读取 -> 扩展名/magic 校验 -> 去重 -> 配额 -> 解析 -> 落盘。
-
-    err.md B22：解析（大 PDF marker 可达分钟级）不得在未提交写事务内进行——否则持写锁
-    期间其他写请求等 busy_timeout 后 500 "database is locked"。流程：SELECT 后 rollback
-    释放读事务 -> 同用户互斥锁 -> 随机 id 落盘原件 -> 解析（无任何 DB 事务）-> 单事务
-    INSERT 提交；失败统一回滚 + 幂等清理文件（防孤儿，err.md A15）。
+    """上传文件到知识库（iter 225 上传确认流程）：校验 -> 去重 -> 配额 -> 落原件 +
+    建 pending 暂存行，**不做任何解析**——是否转换/怎么转换由用户在确认后调
+    /documents/{id}/parse 决定（全异步可控，不再上传即默认解析）。
     """
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
 
-    # 内容哈希去重（plan/11 §九）：同用户重复上传同一文件 -> 复用已解析结果
+    # 内容哈希去重（plan/11 §九）：同用户重复上传同一文件 -> 复用已有行（含 pending 暂存）
     content_hash = _hash_source(content)
     existing = _dedup_lookup(db, user.id, content_hash)
     if existing is not None:
         return _doc_out(existing, deduped=True)
     _check_kb_quota(db, user.id)
-    db.rollback()  # 释放 SELECT 打开的读事务：自此至解析完成本请求不持有任何 DB 锁
 
-    # 同用户上传互斥：双击/重试并发直接 409（不再写-写互等 5s 后 500）
-    lock = _UPLOAD_LOCKS.setdefault(user.id, asyncio.Lock())
+    # 随机 id 预命名原件（R20 不用原始文件名；err.md B22 不依赖行 id）
+    doc_id = uuid.uuid4().hex[:12]
+    path = save_kb_upload(user.id, doc_id, content, ext)
+    doc = models.KbDocument(
+        user_id=user.id,
+        title=filename[:256],
+        kind=_kind_for_ext(ext),
+        ext=ext.lstrip("."),
+        source=filename,
+        original_path=str(path),
+        parsed_chars=0,
+        meta={},
+        content_hash=content_hash,
+        status="pending",  # 暂存待确认：计配额、可确认/删除
+    )
+    db.add(doc)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        path.unlink(missing_ok=True)  # 防孤儿原件（err.md A15）
+        raise
+    db.refresh(doc)
+    return _doc_out(doc)
+
+
+@router.post("/documents/{document_id}/confirm")
+def confirm_document(
+    document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """确认添加到知识库：pending（暂存待确认）-> confirmed（已添加，未解析）。幂等。"""
+    doc = _owned_doc_or_404(db, document_id, user)
+    if doc.status == "pending":
+        doc.status = "confirmed"
+        db.commit()
+        db.refresh(doc)
+    return _doc_out(doc)
+
+
+class KbParseIn(BaseModel):
+    # 解析质量档（iter 225）：仅 PDF 有别——full=marker（高质量/扫描件 OCR，慢）/ fast=pypdf（秒级纯文本）
+    mode: Literal["full", "fast"] = "full"
+
+
+@router.post("/documents/{document_id}/parse")
+async def parse_document(
+    document_id: int,
+    body: KbParseIn | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """按需解析/转换文档（iter 225：用户确认后触发，是否转换与方式由用户决定）。
+
+    pending/confirmed -> parsed；pending 解析隐含确认。已 parsed 可重解析换档
+    （覆盖解析文本）。解析失败**行保留状态不变**（用户可换档重试），不删文档。
+    事务外解析（err.md B22）；同文档并发解析 -> 409。
+    """
+    mode = (body.mode if body else "full")
+    doc = _owned_doc_or_404(db, document_id, user)
+    if doc.original_path is None:
+        raise ApiError("bad_request", "该文档无原件（text/url 类创建时已解析入库）", status=400)
+    source_path = doc.original_path
+    db.rollback()  # 释放 SELECT 事务：解析期间不持有任何 DB 锁（err.md B22）
+
+    lock = _PARSE_LOCKS.setdefault(document_id, asyncio.Lock())
     if lock.locked():
-        raise ApiError("conflict", "有文件正在上传解析中，请稍候完成后再试", status=409)
+        raise ApiError("conflict", "该文档正在解析中，请稍候", status=409)
     async with lock:
-        # 解析前尚无 DB 行：先以随机 id 落盘（R20 不用原始文件名），解析后随事务建行
-        doc_id = uuid.uuid4().hex[:12]
-        path = save_kb_upload(user.id, doc_id, content, ext)
-        try:
-            out = await parse_material(
-                ToolInput(
-                    tool="parse_material",
-                    session_id=f"kb-{user.id}",
-                    args={"kind": "file", "source": str(path)},
-                ),
-                _ctx(user.id),
-            )
-            if out.status == "error" and out.errors:
-                raise ApiError(out.errors[0].code, out.errors[0].message)
-            text = out.data.get("text", "")
-            parsed_path = write_kb_parsed_text(user.id, doc_id, text)
-            doc = models.KbDocument(
-                user_id=user.id,
-                title=filename[:256],
-                kind=_kind_for_ext(ext),
-                ext=ext.lstrip("."),
-                source=filename,
-                original_path=str(path),
-                parsed_text_path=str(parsed_path),
-                parsed_chars=len(text),
-                meta=out.data.get("meta", {}),
-                content_hash=content_hash,
-            )
-            db.add(doc)
-            db.commit()
-        except Exception:
-            db.rollback()
-            delete_kb_document_files(user.id, doc_id)  # 幂等清理原件+解析文本
-            raise
+        out = await parse_material(
+            ToolInput(
+                tool="parse_material",
+                session_id=f"kb-{user.id}",
+                args={"kind": "file", "source": source_path, "parse_mode": mode},
+            ),
+            _ctx(user.id),
+        )
+        if out.status == "error" and out.errors:
+            raise ApiError(out.errors[0].code, out.errors[0].message)
+        text = out.data.get("text", "")
+        stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
+        parsed_path = write_kb_parsed_text(user.id, stem, text)
+        doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
+        doc.parsed_text_path = str(parsed_path)
+        doc.parsed_chars = len(text)
+        doc.meta = {**(doc.meta or {}), **out.data.get("meta", {})}
+        doc.status = "parsed"
+        db.commit()
         db.refresh(doc)
         return _doc_out(doc)
 

@@ -76,18 +76,41 @@ def _stub_parse_ok(monkeypatch, text="抓取正文"):
 # --- upload ---
 
 
-def test_upload_md_success(client, auth_headers):
+def _confirm(client, headers, doc_id: int) -> dict:
+    r = client.post(f"{BASE}/{doc_id}/confirm", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _parse(client, headers, doc_id: int, mode: str = "full") -> dict:
+    r = client.post(f"{BASE}/{doc_id}/parse", json={"mode": mode}, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_upload_md_pending_then_confirm_then_parse(client, auth_headers):
+    """iter 225 三段式：上传（仅落原件 pending，不解析）-> 确认（confirmed）-> 解析（parsed）。"""
+    from pathlib import Path
+
     r = _upload(client, auth_headers)
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["kind"] == "file" and d["ext"] == "md"
     assert d["title"] == "a.md" and d["source"] == "a.md"
-    assert d["has_original"] is True and d["parsed_chars"] > 0
-    # 原件 + 解析文本落盘
-    from pathlib import Path
-
+    # 上传不解析：pending、无解析文本、原件已落盘
+    assert d["status"] == "pending"
+    assert d["has_original"] is True and d["parsed_chars"] == 0
     original, parsed = _doc_paths(d["id"])
     assert original and Path(original).exists()
+    assert parsed is None
+
+    d = _confirm(client, auth_headers, d["id"])
+    assert d["status"] == "confirmed" and d["parsed_chars"] == 0
+    assert _doc_paths(d["id"])[1] is None  # 确认仍不解析
+
+    d = _parse(client, auth_headers, d["id"])
+    assert d["status"] == "parsed" and d["parsed_chars"] > 0
+    original, parsed = _doc_paths(d["id"])
     assert parsed and Path(parsed).exists()
     assert "知识库内容" in Path(parsed).read_text(encoding="utf-8")
 
@@ -116,10 +139,9 @@ def test_upload_unsupported_ext_400(client, auth_headers):
     assert r.json()["error"]["code"] == "unsupported_format"
 
 
-def test_upload_parse_failure_rolls_back(client, auth_headers, monkeypatch):
-    """解析失败：DB 行回滚 + 原件清理（防孤儿，err.md A15 同型）。"""
+def test_parse_failure_keeps_doc_status(client, auth_headers, monkeypatch):
+    """解析失败（iter 225）：行保留、status 不变、原件不删——用户可换档重试。"""
     from app.api import kb as kb_mod
-    from app.core.storage import _kb_root
     from app.tools.base import ToolError, ToolOutput
 
     async def _fail(inp, ctx):
@@ -131,22 +153,75 @@ def test_upload_parse_failure_rolls_back(client, auth_headers, monkeypatch):
         )
 
     monkeypatch.setattr(kb_mod, "parse_material", _fail)
-    r = _upload(client, auth_headers)
+    d = _upload(client, auth_headers).json()
+    r = client.post(f"{BASE}/{d['id']}/parse", json={"mode": "full"}, headers=auth_headers)
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "empty_content"
-    assert _doc_count() == 0
-    # 原件文件已清理（空目录壳可留，同 materials 会话目录行为；关键是无孤儿文件）
-    originals = _kb_root(_first_user_id()) / "originals"
-    assert not originals.exists() or list(originals.iterdir()) == []
+    assert _doc_count() == 1  # 行保留
+    r = client.get(f"{BASE}/{d['id']}", headers=auth_headers)
+    assert r.json()["status"] == "pending"  # 状态不变，可换档重试
 
 
 def test_upload_dedup_by_hash(client, auth_headers):
+    """iter 225：dedup 命中任意状态行（pending 暂存亦复用，不重复建行占配额）。"""
     r1 = _upload(client, auth_headers)
     r2 = _upload(client, auth_headers)
     assert r1.status_code == 200 and r2.status_code == 200
     assert r1.json()["id"] == r2.json()["id"]
+    assert r2.json()["status"] == "pending"
     assert r2.json()["meta"].get("deduped") is True
     assert _doc_count() == 1
+    # 解析后重复上传同文件：仍命中（parsed 行），不重复解析
+    _parse(client, auth_headers, r1.json()["id"])
+    r3 = _upload(client, auth_headers)
+    assert r3.json()["id"] == r1.json()["id"] and r3.json()["status"] == "parsed"
+    assert _doc_count() == 1
+
+
+def test_confirm_idempotent(client, auth_headers):
+    """confirm 幂等：pending->confirmed；confirmed/parsed 再调不变仍 200。"""
+    d = _upload(client, auth_headers).json()
+    assert _confirm(client, auth_headers, d["id"])["status"] == "confirmed"
+    assert _confirm(client, auth_headers, d["id"])["status"] == "confirmed"
+    _parse(client, auth_headers, d["id"])
+    assert _confirm(client, auth_headers, d["id"])["status"] == "parsed"
+
+
+def test_parse_text_document_400(client, auth_headers):
+    """text/url 类无原件（创建时已解析入库）：调 parse -> 400。"""
+    d = _mk_text_doc(client, auth_headers)
+    r = client.post(f"{BASE}/{d['id']}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 400
+
+
+def test_parse_reparse_switches_mode(client, auth_headers, monkeypatch):
+    """已解析文档可重解析换档：mode 透传 parse_material，解析文本覆盖更新。"""
+    from app.api import kb as kb_mod
+    from app.tools.base import ToolOutput
+
+    modes: list[str] = []
+
+    async def _fake(inp, ctx):
+        modes.append(inp.args.get("parse_mode") or "full")
+        return ToolOutput(
+            tool="parse_material",
+            status="ok",
+            data={"text": f"第{len(modes)}次解析", "meta": {"parse_mode": modes[-1]}},
+        )
+
+    monkeypatch.setattr(kb_mod, "parse_material", _fake)
+    d = _upload(client, auth_headers).json()
+    d = _parse(client, auth_headers, d["id"], "full")
+    assert d["status"] == "parsed" and d["meta"]["parse_mode"] == "full"
+    d = _parse(client, auth_headers, d["id"], "fast")
+    assert d["meta"]["parse_mode"] == "fast"
+    assert modes == ["full", "fast"]
+
+
+def test_parse_invalid_mode_422(client, auth_headers):
+    d = _upload(client, auth_headers).json()
+    r = client.post(f"{BASE}/{d['id']}/parse", json={"mode": "turbo"}, headers=auth_headers)
+    assert r.status_code == 422
 
 
 def _stub_parse_slow(monkeypatch, started, release, text="正文"):
@@ -165,42 +240,37 @@ def _stub_parse_slow(monkeypatch, started, release, text="正文"):
     monkeypatch.setattr(kb_mod, "parse_material", _fake)
 
 
-def test_upload_concurrent_same_user_409(client, auth_headers, monkeypatch):
-    """err.md B22：同用户并发上传 -> 第二个 409（不再写-写互等 busy_timeout 后 500）。"""
+def test_parse_concurrent_same_doc_409(client, auth_headers, monkeypatch):
+    """同文档并发解析 -> 第二个 409（per-doc 互斥锁；分钟级解析不重入）。"""
     import threading
 
     started, release = threading.Event(), threading.Event()
     _stub_parse_slow(monkeypatch, started, release)
 
+    d = _upload(client, auth_headers).json()
     first: dict = {}
 
-    def _upload_first():
+    def _parse_first():
         first["r"] = client.post(
-            f"{BASE}/upload",
-            files={"file": ("a.md", BytesIO(b"# A"), "text/markdown")},
-            headers=auth_headers,
+            f"{BASE}/{d['id']}/parse", json={"mode": "full"}, headers=auth_headers
         )
 
-    t = threading.Thread(target=_upload_first)
+    t = threading.Thread(target=_parse_first)
     t.start()
     try:
-        assert started.wait(5), "第一个上传未进入解析"
-        r2 = client.post(
-            f"{BASE}/upload",
-            files={"file": ("b.md", BytesIO(b"# B"), "text/markdown")},
-            headers=auth_headers,
-        )
+        assert started.wait(5), "第一个解析未开始"
+        r2 = client.post(f"{BASE}/{d['id']}/parse", json={"mode": "fast"}, headers=auth_headers)
         assert r2.status_code == 409
         assert r2.json()["error"]["code"] == "conflict"
     finally:
         release.set()
         t.join(timeout=15)
     assert first["r"].status_code == 200, first["r"].text
-    assert _doc_count() == 1
+    assert client.get(f"{BASE}/{d['id']}", headers=auth_headers).json()["status"] == "parsed"
 
 
-def test_upload_during_parse_other_write_not_locked(client, auth_headers, monkeypatch):
-    """err.md B22 核心回归：上传解析（分钟级）期间其他写请求不再 database is locked 500。
+def test_parse_during_other_write_not_locked(client, auth_headers, monkeypatch):
+    """err.md B22 核心回归：解析（分钟级）期间其他写请求不再 database is locked 500。
 
     旧实现 flush INSERT 后在未提交写事务内 await parse_material，持写锁期间这里并发
     的 /documents/text INSERT 会等 busy_timeout(5s) 后 OperationalError -> 500。
@@ -210,20 +280,19 @@ def test_upload_during_parse_other_write_not_locked(client, auth_headers, monkey
     started, release = threading.Event(), threading.Event()
     _stub_parse_slow(monkeypatch, started, release)
 
+    d = _upload(client, auth_headers).json()
     first: dict = {}
 
-    def _upload_first():
+    def _parse_first():
         first["r"] = client.post(
-            f"{BASE}/upload",
-            files={"file": ("a.md", BytesIO(b"# A"), "text/markdown")},
-            headers=auth_headers,
+            f"{BASE}/{d['id']}/parse", json={"mode": "full"}, headers=auth_headers
         )
 
-    t = threading.Thread(target=_upload_first)
+    t = threading.Thread(target=_parse_first)
     t.start()
     try:
-        assert started.wait(5), "第一个上传未进入解析"
-        r = client.post(f"{BASE}/text", json={"text": "上传期间的笔记"}, headers=auth_headers)
+        assert started.wait(5), "第一个解析未开始"
+        r = client.post(f"{BASE}/text", json={"text": "解析期间的笔记"}, headers=auth_headers)
         assert r.status_code == 200, r.text
     finally:
         release.set()
@@ -406,10 +475,23 @@ def test_delete_removes_files(client, auth_headers):
     from pathlib import Path
 
     d = _upload(client, auth_headers).json()
+    _parse(client, auth_headers, d["id"])  # 解析后才有 parsed 文件（iter 225 三段式）
     original, parsed = _doc_paths(d["id"])
     assert client.delete(f"{BASE}/{d['id']}", headers=auth_headers).status_code == 200
     assert not Path(original).exists()
     assert not Path(parsed).exists()
+
+
+def test_delete_pending_doc_removes_original(client, auth_headers):
+    """待确认（pending，未解析）文档删除：原件清理（无 parsed 文件亦正常）。"""
+    from pathlib import Path
+
+    d = _upload(client, auth_headers).json()
+    original, parsed = _doc_paths(d["id"])
+    assert original and parsed is None
+    assert client.delete(f"{BASE}/{d['id']}", headers=auth_headers).status_code == 200
+    assert not Path(original).exists()
+    assert _doc_count() == 0
 
 
 # --- 删用户级联（行随 ORM 级联 + 磁盘目录清理） ---
