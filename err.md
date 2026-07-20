@@ -120,6 +120,7 @@
 - [x] **B19. search_resources stage_level 硬编码为 1** — `search_resources.py:64`。
 - [x] **B20. registry.register 重名静默覆盖** — `registry.py:49-50`。
 - [x] **B21. search_resources stage_topics 生产空转** — `search_resources.py`。工具从 `inp.args["stage_topics"]` 读主题，但 args_by_tool 全部构造点（plans.py generate/clarify/regenerate）只给 understand_intent 传参 -> stage_topics 恒空，主 pipeline 检索空转、plan.resources 恒空。iter 222 修复：args 缺省时从 upstream.design_stages 派生（args 显式提供优先，契约不变）。
+- [x] **B22. 上传解析在未提交写事务内进行，分钟级持写锁致并发写 500（database is locked）** — `api/kb.py upload_document` / `api/materials.py upload_material`（用户实报：知识库上传大 PDF 500）。旧流程 flush INSERT 建行拿 id 后，在同事务内 `await parse_material`（大 PDF marker 可达分钟级）——未提交事务持写锁期间，任何其他写请求（含同用户双击/重试的第二次上传）等 busy_timeout(5s，err.md C4) 后抛 `sqlite3.OperationalError: database is locked` -> 500；WAL 只解读写互斥，写-写仍互斥。iter 224 修复：解析移出写事务——kb 改为 SELECT 后 rollback 释放读事务、随机 id 预命名落盘原件（R20 不变）、解析后单事务 INSERT（删除端点连带改按行内路径删 + id 前缀 glob 兜底）；materials 改为建行即提交（写事务极短）、解析后 UPDATE（崩溃孤儿行 parsed_text_path=NULL 被去重查询过滤、用户可删除）；两端点各加进程内互斥锁（kb 按 user、materials 按 session），并发上传直接 409 而非互等 5s 后 500。测试 +3（并发 409 ×2 + 解析期间他写不锁 ×2 合并为三项）。
 
 ---
 
