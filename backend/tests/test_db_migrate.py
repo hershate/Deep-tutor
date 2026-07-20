@@ -178,6 +178,21 @@ def test_stamp_kb_chat_records_generation(tmp_path):
     assert {"id", "user_id", "kind", "name", "api_key", "is_active", "created_at"} <= cols
 
 
+def test_stamp_credential_profiles_generation(tmp_path):
+    """d9e4b2c17f05 代（iter 225 新增探测）：有 credential_profiles 但 kb_documents 无 status。"""
+    url = _url(tmp_path)
+    command.upgrade(_alembic_config(url), "d9e4b2c17f05")
+    _drop_version_table(url)
+
+    assert detect_stamp(url) == "d9e4b2c17f05"
+    run_migrations(url)
+    assert _version(url) == HEAD
+    kb_cols = {c["name"] for c in inspect(create_engine(url)).get_columns("kb_documents")}
+    assert "status" in kb_cols
+    mat_cols = {c["name"] for c in inspect(create_engine(url)).get_columns("materials")}
+    assert "status" in mat_cols
+
+
 def test_run_migrations_preserves_app_logging(tmp_path):
     """iter 90 回归：env.py 模板自带的 fileConfig 默认 disable_existing_loggers=True，
     应用进程内跑迁移（lifespan -> run_migrations）曾把 deep_tutor/uvicorn 等既有

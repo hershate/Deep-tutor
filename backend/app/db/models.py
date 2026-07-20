@@ -191,6 +191,10 @@ class Material(Base):
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
     # 来源内容哈希（sha256，plan/11 §九：重复资料按 content hash 去重、复用已解析结果）
     content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    # 处理状态（iter 225 上传确认流程）：pending=暂存待确认（上传仅落原件，未解析）、
+    # confirmed=已确认添加（未解析，可随时触发解析）、parsed=已解析。
+    # text/url 类建行即 parsed；文件上传建行 pending。
+    status: Mapped[str] = mapped_column(String(16), default="parsed", server_default="parsed")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="materials")
@@ -221,6 +225,8 @@ class KbDocument(Base):
     parsed_chars: Mapped[int] = mapped_column(Integer, default=0)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
     content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    # 处理状态（iter 225，同 materials.status）：pending/confirmed/parsed
+    status: Mapped[str] = mapped_column(String(16), default="parsed", server_default="parsed")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
