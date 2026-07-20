@@ -149,6 +149,89 @@ def test_upload_dedup_by_hash(client, auth_headers):
     assert _doc_count() == 1
 
 
+def _stub_parse_slow(monkeypatch, started, release, text="正文"):
+    """解析桩：file 类阻塞至 release（模拟大 PDF 分钟级解析），text/url 类立即返回。"""
+    import asyncio
+
+    from app.api import kb as kb_mod
+    from app.tools.base import ToolOutput
+
+    async def _fake(inp, ctx):
+        if inp.args.get("kind") == "file":
+            started.set()
+            await asyncio.to_thread(release.wait, 10)
+        return ToolOutput(tool="parse_material", status="ok", data={"text": text, "meta": {}})
+
+    monkeypatch.setattr(kb_mod, "parse_material", _fake)
+
+
+def test_upload_concurrent_same_user_409(client, auth_headers, monkeypatch):
+    """err.md B22：同用户并发上传 -> 第二个 409（不再写-写互等 busy_timeout 后 500）。"""
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    _stub_parse_slow(monkeypatch, started, release)
+
+    first: dict = {}
+
+    def _upload_first():
+        first["r"] = client.post(
+            f"{BASE}/upload",
+            files={"file": ("a.md", BytesIO(b"# A"), "text/markdown")},
+            headers=auth_headers,
+        )
+
+    t = threading.Thread(target=_upload_first)
+    t.start()
+    try:
+        assert started.wait(5), "第一个上传未进入解析"
+        r2 = client.post(
+            f"{BASE}/upload",
+            files={"file": ("b.md", BytesIO(b"# B"), "text/markdown")},
+            headers=auth_headers,
+        )
+        assert r2.status_code == 409
+        assert r2.json()["error"]["code"] == "conflict"
+    finally:
+        release.set()
+        t.join(timeout=15)
+    assert first["r"].status_code == 200, first["r"].text
+    assert _doc_count() == 1
+
+
+def test_upload_during_parse_other_write_not_locked(client, auth_headers, monkeypatch):
+    """err.md B22 核心回归：上传解析（分钟级）期间其他写请求不再 database is locked 500。
+
+    旧实现 flush INSERT 后在未提交写事务内 await parse_material，持写锁期间这里并发
+    的 /documents/text INSERT 会等 busy_timeout(5s) 后 OperationalError -> 500。
+    """
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    _stub_parse_slow(monkeypatch, started, release)
+
+    first: dict = {}
+
+    def _upload_first():
+        first["r"] = client.post(
+            f"{BASE}/upload",
+            files={"file": ("a.md", BytesIO(b"# A"), "text/markdown")},
+            headers=auth_headers,
+        )
+
+    t = threading.Thread(target=_upload_first)
+    t.start()
+    try:
+        assert started.wait(5), "第一个上传未进入解析"
+        r = client.post(f"{BASE}/text", json={"text": "上传期间的笔记"}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+    finally:
+        release.set()
+        t.join(timeout=15)
+    assert first["r"].status_code == 200, first["r"].text
+    assert _doc_count() == 2
+
+
 def test_kind_classification_by_ext():
     from app.api.kb import _kind_for_ext
 

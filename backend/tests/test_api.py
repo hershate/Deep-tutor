@@ -124,6 +124,65 @@ def test_upload_too_large(client, auth_headers, monkeypatch):
     assert r.json()["error"]["code"] == "payload_too_large"
 
 
+def test_upload_concurrent_same_session_409_and_writes_not_locked(client, auth_headers, monkeypatch):
+    """err.md B22：同会话并发上传 -> 第二个 409；解析期间其他写请求不再 locked 500。
+
+    旧实现 flush INSERT 后在未提交写事务内 await parse_material（分钟级），持写锁期间
+    第二个上传 flush 与 /materials/text INSERT 均会等 busy_timeout(5s) 后
+    sqlite3.OperationalError: database is locked -> 500。
+    """
+    import threading
+
+    from app.api import materials as materials_mod
+    from app.tools.base import ToolOutput
+
+    started, release = threading.Event(), threading.Event()
+
+    async def _fake(inp, ctx):
+        if inp.args.get("kind") == "file":
+            started.set()
+            await asyncio.to_thread(release.wait, 10)
+        return ToolOutput(tool="parse_material", status="ok", data={"text": "解析文本", "meta": {}})
+
+    monkeypatch.setattr(materials_mod, "parse_material", _fake)
+
+    sid = _session(client, auth_headers)
+    first: dict = {}
+
+    def _upload_first():
+        first["r"] = client.post(
+            "/api/materials/upload",
+            data={"session_id": sid},
+            files={"file": ("a.txt", BytesIO(b"aaa first content"), "text/plain")},
+            headers=auth_headers,
+        )
+
+    t = threading.Thread(target=_upload_first)
+    t.start()
+    try:
+        assert started.wait(5), "第一个上传未进入解析"
+        # 同会话第二个上传 -> 409（互斥锁，而非写-写互等 5s 后 500）
+        r2 = client.post(
+            "/api/materials/upload",
+            data={"session_id": sid},
+            files={"file": ("b.txt", BytesIO(b"bbb second content"), "text/plain")},
+            headers=auth_headers,
+        )
+        assert r2.status_code == 409
+        assert r2.json()["error"]["code"] == "conflict"
+        # 解析期间其他写（/materials/text）不再被锁 -> 200
+        r3 = client.post(
+            "/api/materials/text",
+            json={"session_id": sid, "text": "上传解析期间的文本资料"},
+            headers=auth_headers,
+        )
+        assert r3.status_code == 200, r3.text
+    finally:
+        release.set()
+        t.join(timeout=15)
+    assert first["r"].status_code == 200, first["r"].text
+
+
 class _FakeUpload:
     """模拟 UploadFile：记录 read 调用的 n 上限，证明限量读取。"""
 
