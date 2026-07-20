@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from app.core.credentials import KIND_ANTHROPIC, get_active_credential
 from app.core.settings import settings
 from app.llm.anthropic_provider import AnthropicProvider
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
@@ -42,12 +43,16 @@ def get_active_profile(user_id: int | None = None) -> "dict | None":
 
 
 def get_provider(user_id: int | None = None) -> LLMProvider:
-    """构造 LLM Provider：DB active 供应商档案优先（iter 50），否则 .env（ANTHROPIC_API_KEY）。
+    """构造 LLM Provider，三级回退（iter 50/58/223）：
+
+    1. DB active LLM 供应商档案（自定义 base_url/model）；
+    2. DB active Anthropic 回退 Key 凭证档案（credential_profiles，官方端点 + 默认模型）；
+    3. .env ANTHROPIC_API_KEY。
 
     P4 按用户隔离（iter 58）：user_id 指定 -> 仅用该用户的档案（他人档案不可见）；
     user_id=None -> 任意 active 档案（无用户上下文回退）。
     档案的 base_url/model 为空时分别回退官方端点 / settings.anthropic_model。
-    两者皆无 -> 抛 RuntimeError（功能级必填，见 settings.validate_feature_keys）。
+    三者皆无 -> 抛 RuntimeError（功能级必填，见 settings.validate_feature_keys）。
     """
     profile = get_active_profile(user_id)
     if profile is not None:
@@ -56,8 +61,14 @@ def get_provider(user_id: int | None = None) -> LLMProvider:
             model=profile["model"] or settings.anthropic_model,
             base_url=profile["base_url"] or None,
         )
+    credential = get_active_credential(user_id, KIND_ANTHROPIC)
+    if credential is not None:
+        return AnthropicProvider(
+            api_key=credential["api_key"],
+            model=settings.anthropic_model,
+        )
     if not settings.anthropic_key_configured:
-        raise RuntimeError("ANTHROPIC_API_KEY 未配置且无生效供应商档案，无法构造 LLM Provider")
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置且无生效供应商/Key 档案，无法构造 LLM Provider")
     return AnthropicProvider(
         api_key=settings.anthropic_api_key,
         model=settings.anthropic_model,
