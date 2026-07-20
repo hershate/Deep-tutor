@@ -78,6 +78,67 @@ def test_invalid_candidates_dropped(monkeypatch):
     assert out.data["resources"][0]["verified"] == "ok"
 
 
+# --- err.md B21：stage_topics 缺省时从 upstream.design_stages 派生（生产空转修复）---
+
+
+def test_derive_stage_topics_from_upstream(monkeypatch):
+    """args 无 stage_topics -> 从 upstream.design_stages 派生（每阶段 topics[].name，去重）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    seen_queries: list[str] = []
+
+    async def fake_bing(query, api_key, count=5):
+        seen_queries.append(query)
+        return [{"title": f"{query} 教程", "url": f"https://example.com/{query}"}]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    inp = ToolInput(
+        tool="search_resources",
+        session_id="s",
+        args={},  # 生产形态：args_by_tool 不含 stage_topics
+        upstream={
+            "design_stages": {
+                "data": {
+                    "stages": [
+                        {"name": "入门", "topics": [{"name": "React 基础"}, {"name": "JSX"}, {"name": "React 基础"}]},
+                        {"name": "进阶", "topics": [{"name": "Hooks"}, "非字典项", {"name": "  "}]},
+                    ]
+                }
+            }
+        },
+    )
+    out = asyncio.run(search_resources(inp, _ctx()))
+    assert out.status == "ok"
+    assert seen_queries == ["React 基础", "JSX", "Hooks"]  # 派生 + 阶段内去重 + 非法项剔除
+    assert {r["stage_index"] for r in out.data["resources"]} == {0, 1}
+
+
+def test_explicit_stage_topics_take_precedence(monkeypatch):
+    """args 显式提供 stage_topics -> 优先于 upstream 派生（契约/测试兼容）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    seen_queries: list[str] = []
+
+    async def fake_bing(query, api_key, count=5):
+        seen_queries.append(query)
+        return []
+
+    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+
+    inp = ToolInput(
+        tool="search_resources",
+        session_id="s",
+        args={"stage_topics": [["显式主题"]]},
+        upstream={"design_stages": {"data": {"stages": [{"name": "x", "topics": [{"name": "派生主题"}]}]}}},
+    )
+    asyncio.run(search_resources(inp, _ctx()))
+    assert seen_queries == ["显式主题"]
+
+
 # --- iter 48：search_unit_resources（单单元 WebSearch 补充资料，plan/07 §三 步骤 2）---
 
 

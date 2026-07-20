@@ -32,8 +32,33 @@ BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 SEARCH_TIMEOUT = 30.0
 
 
+def _derive_stage_topics(inp: ToolInput) -> list[list[str]]:
+    """stage_topics：args 显式提供优先；缺省时从 upstream.design_stages 派生（err.md B21）。
+
+    B21：生产环境 args_by_tool 的全部构造点（plans.py generate/clarify/regenerate）只给
+    understand_intent 传参，stage_topics 恒为空 -> 主 pipeline 检索空转、plan.resources 恒空。
+    缺省时改从 design_stages 输出的 stages[].topics[].name 派生（阶段内去重保序）。
+    """
+    explicit = inp.args.get("stage_topics")
+    if explicit:
+        return explicit
+    stages_data = ((inp.upstream or {}).get("design_stages") or {}).get("data") or {}
+    derived: list[list[str]] = []
+    for s in stages_data.get("stages") or []:
+        if not isinstance(s, dict):
+            continue
+        names: list[str] = []
+        for t in s.get("topics") or []:
+            if isinstance(t, dict):
+                name = str(t.get("name", "")).strip()
+                if name and name not in names:
+                    names.append(name)
+        derived.append(names)
+    return derived
+
+
 async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
-    stage_topics: list[list[str]] = inp.args.get("stage_topics") or []
+    stage_topics: list[list[str]] = _derive_stage_topics(inp)
 
     if not settings.bing_api_key:
         # 不编造 URL：返回空 + 关键词建议
