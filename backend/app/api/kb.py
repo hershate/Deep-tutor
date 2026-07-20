@@ -13,9 +13,11 @@ SSRF 防护随 parse_material（verify_url._is_safe_url）、URL 抓取与 mater
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import tempfile
+import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +61,13 @@ router = APIRouter(prefix="/kb", tags=["kb"], dependencies=[Depends(require_auth
 
 # 配额（沿用 plan/09 §二十 思路）：每用户知识库文档数上限
 _MAX_KB_DOCS_PER_USER = 200
+
+# err.md B22：同用户上传互斥锁（进程内，按 user_id）。旧实现在未提交写事务内做
+# 分钟级 parse_material（大 PDF marker），持写锁期间其他写请求等 busy_timeout(5s) 后
+# 500 "database is locked"。新实现解析移出事务（见 upload_document）+ 锁防同用户
+# 双击/重试并发写-写互等——第二个请求直接 409，而非 5s 后 500。锁对象只增不减，
+# 每用户一个（~百字节），实例用户数有限，不做淘汰。
+_UPLOAD_LOCKS: dict[int, asyncio.Lock] = {}
 
 
 def _ctx(user_id: int) -> ExecContext:
@@ -145,7 +154,13 @@ async def upload_document(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """上传文件到知识库：限量读取 -> 扩展名/magic 校验 -> 去重 -> 配额 -> 解析 -> 落盘。"""
+    """上传文件到知识库：限量读取 -> 扩展名/magic 校验 -> 去重 -> 配额 -> 解析 -> 落盘。
+
+    err.md B22：解析（大 PDF marker 可达分钟级）不得在未提交写事务内进行——否则持写锁
+    期间其他写请求等 busy_timeout 后 500 "database is locked"。流程：SELECT 后 rollback
+    释放读事务 -> 同用户互斥锁 -> 随机 id 落盘原件 -> 解析（无任何 DB 事务）-> 单事务
+    INSERT 提交；失败统一回滚 + 幂等清理文件（防孤儿，err.md A15）。
+    """
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
@@ -156,55 +171,49 @@ async def upload_document(
     if existing is not None:
         return _doc_out(existing, deduped=True)
     _check_kb_quota(db, user.id)
+    db.rollback()  # 释放 SELECT 打开的读事务：自此至解析完成本请求不持有任何 DB 锁
 
-    # 先建行拿 id，再用 id 命名保存原件（R20：不使用原始文件名）
-    doc = models.KbDocument(
-        user_id=user.id,
-        title=filename[:256],
-        kind=_kind_for_ext(ext),
-        ext=ext.lstrip("."),
-        source=filename,
-        parsed_chars=0,
-        meta={},
-        content_hash=content_hash,
-    )
-    db.add(doc)
-    db.flush()
-    path = save_kb_upload(user.id, doc.id, content, ext)
-
-    out = await parse_material(
-        ToolInput(
-            tool="parse_material",
-            session_id=f"kb-{user.id}",
-            args={"kind": "file", "source": str(path)},
-        ),
-        _ctx(user.id),
-    )
-    if out.status == "error" and out.errors:
-        db.rollback()
+    # 同用户上传互斥：双击/重试并发直接 409（不再写-写互等 5s 后 500）
+    lock = _UPLOAD_LOCKS.setdefault(user.id, asyncio.Lock())
+    if lock.locked():
+        raise ApiError("conflict", "有文件正在上传解析中，请稍候完成后再试", status=409)
+    async with lock:
+        # 解析前尚无 DB 行：先以随机 id 落盘（R20 不用原始文件名），解析后随事务建行
+        doc_id = uuid.uuid4().hex[:12]
+        path = save_kb_upload(user.id, doc_id, content, ext)
         try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
-        raise ApiError(out.errors[0].code, out.errors[0].message)
-
-    text = out.data.get("text", "")
-    try:
-        doc.original_path = str(path)
-        doc.parsed_text_path = str(write_kb_parsed_text(user.id, doc.id, text))
-        doc.parsed_chars = len(text)
-        doc.meta = out.data.get("meta", {})
-        db.commit()
-    except Exception:
-        # err.md A15：解析文本落盘失败需回滚 DB 并清理原件，防孤儿文件
-        db.rollback()
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
-    db.refresh(doc)
-    return _doc_out(doc)
+            out = await parse_material(
+                ToolInput(
+                    tool="parse_material",
+                    session_id=f"kb-{user.id}",
+                    args={"kind": "file", "source": str(path)},
+                ),
+                _ctx(user.id),
+            )
+            if out.status == "error" and out.errors:
+                raise ApiError(out.errors[0].code, out.errors[0].message)
+            text = out.data.get("text", "")
+            parsed_path = write_kb_parsed_text(user.id, doc_id, text)
+            doc = models.KbDocument(
+                user_id=user.id,
+                title=filename[:256],
+                kind=_kind_for_ext(ext),
+                ext=ext.lstrip("."),
+                source=filename,
+                original_path=str(path),
+                parsed_text_path=str(parsed_path),
+                parsed_chars=len(text),
+                meta=out.data.get("meta", {}),
+                content_hash=content_hash,
+            )
+            db.add(doc)
+            db.commit()
+        except Exception:
+            db.rollback()
+            delete_kb_document_files(user.id, doc_id)  # 幂等清理原件+解析文本
+            raise
+        db.refresh(doc)
+        return _doc_out(doc)
 
 
 class KbTextIn(BaseModel):
@@ -346,10 +355,22 @@ def rename_document(
 def delete_document(
     document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    """删除文档：先删行提交，再尽力清磁盘文件（文件清理失败不阻塞，幂等）。"""
+    """删除文档：先删行提交，再尽力清磁盘文件（文件清理失败不阻塞，幂等）。
+
+    err.md B22：文件名不再等于行 id（上传改随机 id 预命名）——按行内记录的路径删，
+    再按 id 前缀 glob 兜底清理旧命名/孤儿残留。
+    """
     doc = _owned_doc_or_404(db, document_id, user)
+    paths = [doc.original_path, doc.parsed_text_path]
     db.delete(doc)
     db.commit()
+    for p in paths:
+        if not p:
+            continue
+        try:
+            Path(p).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            log.warning("删除知识库文档文件失败: %s", p)
     try:
         delete_kb_document_files(user.id, document_id)
     except Exception:  # noqa: BLE001
