@@ -138,16 +138,20 @@ def decode_token(token: str) -> dict | None:
 
 
 def passwordless_open(db) -> bool:
-    """免登录开放模式（零配置开箱即用，iter 89）：未配 AUTH_TOKEN 且库中无任何
-    用户设过密码（password_hash 非空）。
+    """免登录开放模式（零配置开箱即用，iter 89）：未配 AUTH_TOKEN、库中无任何
+    用户设过密码（password_hash 非空）、且无 active 个人访问令牌（iter 223）。
 
-    任一用户设密码或配置 AUTH_TOKEN 即自动关闭，无需状态迁移。
+    任一用户设密码、配置 AUTH_TOKEN 或存在 active auth_token 凭证档案即自动关闭
+    （令牌档案的存在即代表用户要认证，开放模式须让位），无需状态迁移。
     每次请求实时查询（单行 EXISTS，本地 SQLite 成本可忽略），不缓存——
     避免密码设置后认证模式滞留的陈旧状态风险。
     """
+    from app.core.credentials import has_active_auth_token_credential
     from app.db.models import User
 
     if settings.auth_token_configured:
+        return False
+    if has_active_auth_token_credential(db):
         return False
     return db.query(User.id).filter(User.password_hash != "").first() is None
 

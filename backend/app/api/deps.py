@@ -1,8 +1,10 @@
 """API 公共依赖：认证、数据库会话、当前用户（plan/03 §一、plan/09 §十八）。
 
-认证（P4 多用户，iter 57）：
+认证（P4 多用户，iter 57；个人访问令牌 iter 223）：
 - 首选 JWT（Authorization: Bearer <jwt>，/auth/login 签发）-> 解析为用户。
 - 兼容回退 AUTH_TOKEN（.env 配置；Bearer 或 X-Auth-Token）-> 映射为首个管理员（无则首个用户）。
+- 个人访问令牌（credential_profiles kind=auth_token 且 active）-> 映射为档案归属用户；
+  .env AUTH_TOKEN 始终有效作回退（防切换令牌后锁死）。
 常量时间比较防时序攻击（secrets.compare_digest）。
 """
 
@@ -34,6 +36,19 @@ def _is_env_token(token: str) -> bool:
     return settings.auth_token_configured and secrets.compare_digest(token, settings.auth_token)
 
 
+def _user_by_token_credential(db: Session, token: str) -> User | None:
+    """个人访问令牌（iter 223）：token 命中 active auth_token 凭证档案 -> 档案归属用户。
+
+    仅在 JWT 与 .env token 均失败后的路径调用；档案 user 已删（应被级联清理）-> None。
+    """
+    from app.core.credentials import match_auth_token_credential
+
+    cred = match_auth_token_credential(db, token)
+    if cred is None:
+        return None
+    return db.get(User, cred["user_id"])
+
+
 def get_db() -> Iterator[SessionLocal]:  # type: ignore[type-arg]
     db = SessionLocal()
     try:
@@ -47,13 +62,15 @@ async def require_auth(
     x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
     db: Session = Depends(get_db),
 ) -> None:
-    """校验请求认证：JWT 或 AUTH_TOKEN 任一通过即可；
+    """校验请求认证：JWT / AUTH_TOKEN / 个人访问令牌任一通过即可；
     零配置开放本机模式（passwordless_open，iter 89）直接放行。"""
     token = _extract_token(authorization, x_auth_token)
     if token:
         if decode_token(token) is not None:
             return
         if _is_env_token(token):
+            return
+        if _user_by_token_credential(db, token) is not None:
             return
     # 失败路径才查库：已认证请求不新增 DB 查询
     from app.core.security import passwordless_open
@@ -103,6 +120,10 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
             return user
         if _is_env_token(token):
             return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
+        # 个人访问令牌（iter 223）：命中 active auth_token 档案 -> 档案归属用户
+        token_user = _user_by_token_credential(db, token)
+        if token_user is not None:
+            return token_user
     # 零配置开放本机模式（iter 89）：无有效 token 且未设任何密码/未配 AUTH_TOKEN
     # -> 首个管理员（无则懒创建空密码 admin，数据自始归属 admin）
     from app.core.security import get_or_create_open_admin, passwordless_open
