@@ -139,6 +139,11 @@ def build_export(db: DbSession, user: models.User) -> dict:
         for r in db.query(models.UserPref).filter_by(user_id=user.id).all()
     }
 
+    notes_out = [  # 独立自由笔记（iter 227）：顶层 notes 键，v1 兼容（旧备份无该键不还原）
+        {"title": n.title, "content": n.content, "updated_at": _iso(n.updated_at)}
+        for n in db.query(models.Note).filter_by(user_id=user.id).order_by(models.Note.id).all()
+    ]
+
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -146,6 +151,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
         "user": {"username": user.username or "", "name": user.name},
         "provider_profiles": profiles_out,
         "prefs": prefs_out,
+        "notes": notes_out,
         "sessions": sessions_out,
     }
 
@@ -317,6 +323,7 @@ def preview_backup(data: Any) -> dict:
         "study_units": sum(len(p.get("study_units") or []) for p in plans),
         "provider_profiles": len(data.get("provider_profiles") or []),
         "prefs": len(data.get("prefs")) if isinstance(data.get("prefs"), dict) else 0,
+        "notes": len(data.get("notes") or []),
     }
 
 
@@ -346,6 +353,7 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         "provider_profiles": 0,
         "node_notes": 0,
         "prefs": 0,
+        "notes": 0,
         "skipped": [],
     }
 
@@ -389,7 +397,28 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
     _restore_prefs(db, user, data.get("prefs") or {}, summary)
+    _restore_notes(db, user, data.get("notes") or [], summary)
     return summary
+
+
+def _restore_notes(db: DbSession, user: models.User, notes: Any, summary: dict) -> None:
+    """独立自由笔记（iter 227）：追加式还原（不去重，导入即新增）；标题/正文同 API
+    上限截断，双空条目跳过；旧备份无 notes 字段 -> 空列表直接返回。"""
+    if not isinstance(notes, list):
+        return
+    for n in notes:
+        if not isinstance(n, dict):
+            continue
+        title = str(n.get("title") or "").strip()[:256]
+        content = str(n.get("content") or "").strip()[:20_000]
+        if not title and not content:
+            continue
+        note = models.Note(user_id=user.id, title=title, content=content)
+        if dt := _parse_dt(n.get("updated_at")):
+            note.updated_at = dt
+        db.add(note)
+        summary["notes"] += 1
+    db.flush()
 
 
 def _restore_prefs(db: DbSession, user: models.User, prefs: Any, summary: dict) -> None:
