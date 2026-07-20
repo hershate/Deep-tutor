@@ -5,6 +5,8 @@
 // 鉴权：img/iframe/video 不能带 Authorization 头，一律 fetch 带 Bearer 取 blob
 //   → URL.createObjectURL；切文档/卸载时 AbortController 中止 + revokeObjectURL。
 // blob 加载失败（或浏览器禁用内嵌 PDF）自动退化解析文本视图 + 固定「下载原件」兜底。
+// iter 226：弹窗固定 h-[88vh]（原 max-h 由内容撑高，flex-1 的 iframe 无固有高度致弹窗塌陷成扁条）；
+//   已解析且有原件的文档头部提供「📝 解析文本 / 📄 原件」切换（PDF 解析结果此前无入口查看）。
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
@@ -38,6 +40,8 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
   const [parsed, setParsed] = useState<KbParsed | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // iter 226：原件/解析文本切换——PDF 等原件视图下也可查看解析结果（默认原件，切换置 'parsed'）
+  const [viewOverride, setViewOverride] = useState<'parsed' | null>(null)
 
   // Esc 关闭（仿 QuizModal）
   useEffect(() => {
@@ -56,7 +60,8 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
     setBlobFailed(false)
     setParsed(null)
     setObjectUrl(null)
-    if (mode === 'parsed') {
+    const wantParsed = mode === 'parsed' || viewOverride === 'parsed'
+    if (wantParsed) {
       // iter 225：未解析文档直接引导，不发 404 请求
       if (doc.status && doc.status !== 'parsed') {
         setLoadError('该文档尚未解析——请先在文档列表中确认并解析')
@@ -96,7 +101,7 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.id, mode])
+  }, [doc.id, mode, viewOverride])
 
   // blob 成功到达后结束 loading（objectUrl 设置即渲染）
   useEffect(() => {
@@ -106,7 +111,7 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
   const idx = docs.findIndex((d) => d.id === doc.id)
   const prev = idx > 0 ? docs[idx - 1] : null
   const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null
-  const showParsed = mode === 'parsed' || blobFailed
+  const showParsed = mode === 'parsed' || blobFailed || viewOverride === 'parsed'
 
   return (
     <div
@@ -117,7 +122,7 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-4xl animate-fade-in flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
+        className="flex h-[88vh] w-full max-w-4xl animate-fade-in flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部：标题 + 导航 + 下载 + 关闭 */}
@@ -145,6 +150,20 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
           >
             →
           </button>
+          {doc.has_original && doc.status === 'parsed' && !blobFailed && (
+            <button
+              onClick={() => setViewOverride((v) => (v === 'parsed' ? null : 'parsed'))}
+              aria-pressed={viewOverride === 'parsed'}
+              title={viewOverride === 'parsed' ? '切回原件视图' : '查看解析提取的文本'}
+              className={`rounded-lg border px-2.5 py-1 text-sm transition-all active:scale-95 ${
+                viewOverride === 'parsed'
+                  ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300'
+                  : 'hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700'
+              }`}
+            >
+              {viewOverride === 'parsed' ? '📄 原件' : '📝 解析文本'}
+            </button>
+          )}
           {doc.has_original && (
             <button
               onClick={() => {
