@@ -91,7 +91,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 | `AUTH_TOKEN` | 简单 token 回退（与 JWT 双轨；API/浏览器扩展可用它认证） |
 | `DATABASE_URL` | 可选。完整 SQLAlchemy URL（如切换 PostgreSQL）；留空则使用 `DB_PATH` 的 SQLite（默认 `data/deep-tutor.db`） |
 | `ANTHROPIC_API_KEY` | 生成功能必需（也可在首次设置向导或 Web 设置页配置供应商档案，无需写入 .env） |
-| `BING_API_KEY` | 资源搜索可选 |
+| `BING_API_KEY` | 资源搜索可选（不配置时自动使用免 Key 的 Bing 网页版；`SEARCH_ENGINE=auto|bing|bing_web` 控制） |
 
 > **安全提示（认证设计权衡）**：前端 JWT 明文存于 localStorage，且 `VITE_AUTH_TOKEN`（若设置）会打包进客户端 bundle——两者都假定本机/受信局域网部署。多用户或公网部署请勿设置 `VITE_AUTH_TOKEN`（走登录页 JWT），并在公网前加 HTTPS 反代。
 

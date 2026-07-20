@@ -119,6 +119,7 @@
 - [x] **B18. orchestrator start_tool 不在 PIPELINE 时静默从头执行** — `orchestrator.py:116`。
 - [x] **B19. search_resources stage_level 硬编码为 1** — `search_resources.py:64`。
 - [x] **B20. registry.register 重名静默覆盖** — `registry.py:49-50`。
+- [x] **B21. search_resources stage_topics 生产空转** — `search_resources.py`。工具从 `inp.args["stage_topics"]` 读主题，但 args_by_tool 全部构造点（plans.py generate/clarify/regenerate）只给 understand_intent 传参 -> stage_topics 恒空，主 pipeline 检索空转、plan.resources 恒空。iter 222 修复：args 缺省时从 upstream.design_stages 派生（args 显式提供优先，契约不变）。
 
 ---
 
