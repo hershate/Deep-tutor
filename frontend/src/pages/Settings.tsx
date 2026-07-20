@@ -61,7 +61,7 @@ export default function Settings() {
           <BudgetRow data={data} />
           <Row label="工具调用上限 / 会话" value={String(data.max_tool_calls)} />
           <Row label="上传上限 (MB)" value={String(data.max_upload_mb)} />
-          <Row label="搜索引擎" value={data.search_engine} />
+          <Row label="搜索引擎" value={searchEngineLabel(data)} />
           <Row
             label="Anthropic API Key"
             value={data.anthropic_api_key_set ? '已配置' : '未配置'}
@@ -69,8 +69,15 @@ export default function Settings() {
           />
           <Row
             label="Bing API Key"
-            value={data.bing_api_key_set ? '已配置' : '未配置'}
-            status={data.bing_api_key_set ? 'ok' : 'warn'}
+            value={
+              data.bing_api_key_set
+                ? '已配置'
+                : data.search_engine_effective === 'bing_web'
+                  ? '未配置（使用网页版兜底）'
+                  : '未配置'
+            }
+            // iter 222：auto/bing_web 未配置 key 是正常状态（网页版兜底），仅显式 bing 无 key 时告警
+            status={data.bing_api_key_set ? 'ok' : data.search_engine === 'bing' ? 'warn' : undefined}
           />
           <Row
             label="认证 Token"
@@ -91,6 +98,19 @@ export default function Settings() {
       )}
     </div>
   )
+}
+
+/** iter 222：搜索引擎行展示——配置值 + auto 语义解析后的实际生效引擎。 */
+function searchEngineLabel(d: AppSettings): string {
+  const effText =
+    d.search_engine_effective === 'bing_api'
+      ? 'Bing API（付费，质量更高）'
+      : d.search_engine_effective === 'bing_web'
+        ? 'Bing 网页版（免 Key）'
+        : '不可用'
+  return d.search_engine === 'auto'
+    ? `auto（当前：${effText}）`
+    : `${d.search_engine}（${effText}）`
 }
 
 function Row({

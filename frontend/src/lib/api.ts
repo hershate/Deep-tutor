@@ -568,6 +568,7 @@ export interface AppSettings {
   max_tool_calls: number
   max_upload_mb: number
   search_engine: string
+  search_engine_effective: string // iter 222：实际生效引擎 bing_api/bing_web/none（string 而非字面量联合，后端加引擎前端免改）
   anthropic_api_key_set: boolean
   bing_api_key_set: boolean
   auth_token_set: boolean
