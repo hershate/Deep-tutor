@@ -193,6 +193,20 @@ def test_stamp_credential_profiles_generation(tmp_path):
     assert "status" in mat_cols
 
 
+def test_stamp_upload_status_generation(tmp_path):
+    """e5f7a3c82d19 代（iter 227 新增探测）：kb_documents 有 status 但无 notes 表。"""
+    url = _url(tmp_path)
+    command.upgrade(_alembic_config(url), "e5f7a3c82d19")
+    _drop_version_table(url)
+
+    assert detect_stamp(url) == "e5f7a3c82d19"
+    run_migrations(url)
+    assert _version(url) == HEAD
+    assert "notes" in _tables(url)
+    cols = {c["name"] for c in inspect(create_engine(url)).get_columns("notes")}
+    assert {"id", "user_id", "title", "content", "created_at", "updated_at"} <= cols
+
+
 def test_run_migrations_preserves_app_logging(tmp_path):
     """iter 90 回归：env.py 模板自带的 fileConfig 默认 disable_existing_loggers=True，
     应用进程内跑迁移（lifespan -> run_migrations）曾把 deep_tutor/uvicorn 等既有

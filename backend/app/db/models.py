@@ -119,6 +119,9 @@ class User(Base):
     node_notes: Mapped[list[NodeNote]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    notes: Mapped[list[Note]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     prefs: Mapped[list[UserPref]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -409,6 +412,28 @@ class NodeNote(Base):
 
     user: Mapped[User] = relationship(back_populates="node_notes")
     node: Mapped[KnowledgeNode] = relationship(back_populates="notes")
+
+
+class Note(Base):
+    """独立笔记（iter 227 自由笔记本）：不依附方案/知识点，随建随记，标题+正文。
+
+    与 NodeNote 并存：NodeNote 是知识点批注（挂节点、随节点级联），本表是用户
+    自由笔记本（仅挂用户）。删用户 ORM 级联（同 node_notes）。备份走 backup.py
+    顶层 notes 键（v1 兼容：旧备份无该键不还原）。
+    """
+
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="notes")
 
 
 class UserPref(Base):
