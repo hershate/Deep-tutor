@@ -22,6 +22,8 @@ def _run(args):
 
 
 def test_no_key_degraded(monkeypatch):
+    """SEARCH_ENGINE=bing 且未配置 key -> 兼容旧降级路径（no_search_key + 关键词建议）。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "bing")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
     out = _run({"stage_topics": [["React"], ["JS 基础"]]})
     assert out.status == "repaired"
@@ -33,7 +35,7 @@ def test_no_key_degraded(monkeypatch):
 def test_aggregation_with_mocks(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         return [
             {"title": f"{query} 教程", "url": f"https://example.com/{query}"},
             {"title": f"{query} 文档", "url": f"https://example.com/doc/{query}"},
@@ -47,7 +49,7 @@ def test_aggregation_with_mocks(monkeypatch):
             data={"ok": True, "status": 200, "suitable": True, "final_url": url, "label": "ok"},
         )
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
     out = _run({"stage_topics": [["React"], ["JS"]]})
@@ -61,7 +63,7 @@ def test_aggregation_with_mocks(monkeypatch):
 def test_invalid_candidates_dropped(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         return [{"title": "good", "url": "https://example.com/ok"}, {"title": "bad", "url": "https://example.com/dead"}]
 
     async def fake_verify(inp, ctx):
@@ -69,7 +71,7 @@ def test_invalid_candidates_dropped(monkeypatch):
         label = "invalid" if "dead" in url else "ok"
         return ToolOutput(tool="verify_url", status="ok", data={"ok": label == "ok", "status": 200 if label == "ok" else 404, "suitable": label == "ok", "final_url": url, "label": label})
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
     out = _run({"stage_topics": [["React"]]})
@@ -86,7 +88,7 @@ def test_derive_stage_topics_from_upstream(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     seen_queries: list[str] = []
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         seen_queries.append(query)
         return [{"title": f"{query} 教程", "url": f"https://example.com/{query}"}]
 
@@ -94,7 +96,7 @@ def test_derive_stage_topics_from_upstream(monkeypatch):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
     inp = ToolInput(
@@ -123,11 +125,11 @@ def test_explicit_stage_topics_take_precedence(monkeypatch):
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     seen_queries: list[str] = []
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         seen_queries.append(query)
         return []
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
 
     inp = ToolInput(
         tool="search_resources",
@@ -147,6 +149,7 @@ def _run_unit(query, limit=3):
 
 
 def test_unit_resources_no_key_or_empty_query(monkeypatch):
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "bing")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
     assert _run_unit("React 基础") == []  # 无 key -> 空（不编造 URL）
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
@@ -157,7 +160,7 @@ def test_unit_resources_verify_and_cap(monkeypatch):
     """候选逐个 verify_url：invalid 丢弃；保留 ≤limit 条 {title,url,verified,note}。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         assert count == 2  # limit 传递给 Bing count
         return [
             {"title": "good", "url": "https://example.com/ok"},
@@ -170,7 +173,7 @@ def test_unit_resources_verify_and_cap(monkeypatch):
         label = "invalid" if "dead" in url else "ok"
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": label})
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
     res = _run_unit("React 基础", limit=2)
@@ -183,10 +186,10 @@ def test_unit_resources_search_failure_returns_empty(monkeypatch):
     """Bing 检索异常 -> []（不中断单元生成）。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         raise RuntimeError("网络故障")
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     assert _run_unit("React 基础") == []
 
 
@@ -214,7 +217,7 @@ def _setup_two_candidates(monkeypatch):
     """两候选（ok/deep）经 fake Bing + fake verify 均可达 ok。"""
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
 
-    async def fake_bing(query, api_key, count=5):
+    async def fake_search(query, engine, count=5):
         return [
             {"title": f"{query} 入门教程", "url": "https://example.com/intro"},
             {"title": f"{query} 内核源码剖析", "url": "https://example.com/deep"},
@@ -224,7 +227,7 @@ def _setup_two_candidates(monkeypatch):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
-    monkeypatch.setattr(sr_mod, "_bing_search", fake_bing)
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
 
@@ -326,3 +329,235 @@ def test_screening_uses_skill_prompt_when_available(monkeypatch):
     provider2 = _ScreenProvider("[]")
     _run_with_provider(provider2)  # 无 skill -> inline 回退
     assert provider2.calls[0]["system"] == sr_mod.SCREEN_PROMPT
+
+
+# --- iter 222：BING_API_KEY 可选化——引擎决策矩阵 + Bing 网页抓取兜底引擎 ---
+
+import httpx  # noqa: E402,F401
+import pytest  # noqa: E402
+
+
+def test_effective_engine_matrix(monkeypatch):
+    """决策矩阵：auto+key->bing_api；auto/bing_web 无 key->bing_web；bing 无 key->none；非法值归一化 auto。"""
+    eff = settings_mod.effective_search_engine
+    for engine, key, expected in [
+        ("auto", "k", "bing_api"),
+        ("auto", "", "bing_web"),
+        ("bing", "k", "bing_api"),
+        ("bing", "", "none"),
+        ("bing_web", "k", "bing_web"),
+        ("bing_web", "", "bing_web"),
+        ("google", "", "bing_web"),  # 非法值 -> 归一化 auto -> 无 key -> bing_web
+        (" AUTO ", "k", "bing_api"),  # strip/lower
+    ]:
+        monkeypatch.setattr(settings_mod.settings, "search_engine", engine)
+        monkeypatch.setattr(settings_mod.settings, "bing_api_key", key)
+        assert eff() == expected, f"{engine=},{key=}"
+    assert settings_mod.normalize_search_engine("google") == "auto"
+
+
+def test_auto_no_key_uses_web_engine(monkeypatch):
+    """auto + 无 key -> 以 bing_web 引擎检索（零配置可用）。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+    seen: list[str] = []
+
+    async def fake_search(query, engine, count=5):
+        seen.append(engine)
+        return [{"title": "t", "url": "https://example.com/x"}]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    out = _run({"stage_topics": [["React"]]})
+    assert out.status == "ok"
+    assert seen == ["bing_web"]
+    assert out.data["engine"] == "bing_web"
+    assert len(out.data["resources"]) == 1
+
+
+def test_bing_web_preferred_even_with_key(monkeypatch):
+    """SEARCH_ENGINE=bing_web 显式强制网页版（即使已配 key）。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "bing_web")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    seen: list[str] = []
+
+    async def fake_search(query, engine, count=5):
+        seen.append(engine)
+        return []
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    out = _run({"stage_topics": [["React"]]})
+    assert seen == ["bing_web"]
+    assert out.data["engine"] == "bing_web"
+
+
+def test_web_scrape_total_failure_degraded(monkeypatch):
+    """网页引擎全面失败（attempted>0 且全部异常）-> repaired + search_unavailable + 关键词建议。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+
+    async def fake_search(query, engine, count=5):
+        raise RuntimeError("反爬拦截")
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    out = _run({"stage_topics": [["React"], ["JS"]]})
+    assert out.status == "repaired"
+    assert out.data["resources"] == []
+    assert out.data["engine"] == "bing_web"
+    assert out.errors[0].code == "search_unavailable"
+    assert "React" in out.data["suggested_keywords"]
+
+
+def test_web_scrape_empty_results_ok(monkeypatch):
+    """引擎成功但真空结果（不抛异常）-> ok + 空 resources（真空 ≠ 引擎故障）。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+
+    async def fake_search(query, engine, count=5):
+        return []
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    out = _run({"stage_topics": [["生僻主题"]]})
+    assert out.status == "ok"
+    assert out.data["resources"] == []
+    assert out.data["engine"] == "bing_web"
+
+
+def test_no_topics_not_unavailable(monkeypatch):
+    """空主题（attempted==0）不得误报 search_unavailable（守卫回归）。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+
+    async def fake_search(query, engine, count=5):
+        raise AssertionError("不应发起检索")
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    out = _run({"stage_topics": []})
+    assert out.status == "ok"
+    assert out.data["resources"] == []
+
+
+def test_unit_resources_auto_no_key(monkeypatch):
+    """单元补充资料：auto + 无 key -> 走网页引擎正常返回。"""
+    monkeypatch.setattr(settings_mod.settings, "search_engine", "auto")
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+    seen: list[str] = []
+
+    async def fake_search(query, engine, count=5):
+        seen.append(engine)
+        return [{"title": "t", "url": "https://example.com/u"}]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+    res = _run_unit("React 基础")
+    assert seen == ["bing_web"]
+    assert len(res) == 1 and res[0]["verified"] == "ok"
+
+
+# --- _parse_bing_web_html 纯函数（罐头 HTML，不触网）---
+
+_BING_WEB_HTML = """
+<html><body><ol id="b_results">
+<li class="b_algo"><h2><a href="https://example.com/a">示例 <strong>标题</strong> A</a></h2></li>
+<li class="b_algo"><h2><a href="https://example.com/b">标题 &amp; B</a></h2></li>
+<li class="b_algo"><h2><a href="https://example.com/a">重复 URL 应去重</a></h2></li>
+<li class="b_algo"><h2><a href="https://cn.bing.com/ck/a?u=a1">跳转壳应剔除</a></h2></li>
+<li class="b_algo"><h2><a href="javascript:void(0)">非 http 链接应剔除</a></h2></li>
+</ol></body></html>
+"""
+
+
+def test_parse_bing_web_html_extracts_direct_links():
+    res = sr_mod._parse_bing_web_html(_BING_WEB_HTML, 10)
+    assert [r["url"] for r in res] == ["https://example.com/a", "https://example.com/b"]
+    assert res[0]["title"] == "示例 标题 A"  # 内层标签去除
+    assert res[1]["title"] == "标题 & B"  # HTML 实体 unescape
+
+
+def test_parse_bing_web_html_count_and_malformed():
+    assert len(sr_mod._parse_bing_web_html(_BING_WEB_HTML, 1)) == 1  # count 截断
+    assert sr_mod._parse_bing_web_html("", 5) == []
+    assert sr_mod._parse_bing_web_html("<html>无关内容</html>", 5) == []  # 不抛
+
+
+# --- _bing_web_search HTTP 层（假 httpx 客户端，不触网）---
+
+
+class _FakeStreamResp:
+    def __init__(self, body: bytes, *, url="https://cn.bing.com/search?q=x", content_type="text/html; charset=utf-8"):
+        self._body = body
+        self.url = url
+        self.headers = {"content-type": content_type}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    async def aiter_bytes(self):
+        yield self._body
+
+
+class _FakeClient:
+    def __init__(self, resp):
+        self._resp = resp
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def stream(self, method, url, headers=None, params=None):
+        return self._resp
+
+
+def _patch_client(monkeypatch, resp):
+    monkeypatch.setattr(sr_mod.httpx, "AsyncClient", lambda **kw: _FakeClient(resp))
+
+
+def test_bing_web_search_ok(monkeypatch):
+    _patch_client(monkeypatch, _FakeStreamResp(_BING_WEB_HTML.encode()))
+    res = asyncio.run(sr_mod._bing_web_search("计算机组成原理"))
+    assert len(res) == 2
+    assert res[0]["url"] == "https://example.com/a"
+
+
+def test_bing_web_search_antibot_page_raises(monkeypatch):
+    """无 b_results 容器（疑似反爬/验证码页）-> 抛（引擎失败，非静默空结果）。"""
+    _patch_client(monkeypatch, _FakeStreamResp(b"<html><body>verify you are human</body></html>"))
+    with pytest.raises(ValueError, match="b_results"):
+        asyncio.run(sr_mod._bing_web_search("x"))
+
+
+def test_bing_web_search_redirect_offsite_raises(monkeypatch):
+    """终态 host 非 bing.com -> 抛（防重定向劫持）。"""
+    _patch_client(monkeypatch, _FakeStreamResp(_BING_WEB_HTML.encode(), url="https://evil.example.com/x"))
+    with pytest.raises(ValueError, match="Bing"):
+        asyncio.run(sr_mod._bing_web_search("x"))
+
+
+def test_bing_web_search_non_html_raises(monkeypatch):
+    _patch_client(monkeypatch, _FakeStreamResp(b"{}", content_type="application/json"))
+    with pytest.raises(ValueError, match="HTML"):
+        asyncio.run(sr_mod._bing_web_search("x"))
+
+
+def test_bing_web_search_oversize_raises(monkeypatch):
+    body = b'<ol id="b_results">' + b"x" * (sr_mod.BING_WEB_MAX_BYTES + 1)
+    _patch_client(monkeypatch, _FakeStreamResp(body))
+    with pytest.raises(ValueError, match="上限"):
+        asyncio.run(sr_mod._bing_web_search("x"))
