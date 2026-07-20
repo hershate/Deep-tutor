@@ -9,7 +9,9 @@ from pathlib import Path
 
 _TEST_DATA = os.path.join(tempfile.gettempdir(), "dt_api_data")
 _TEST_PLUGINS = os.path.join(tempfile.gettempdir(), "dt_api_plugins")
-os.environ.setdefault("AUTH_TOKEN", "test-token")
+# 强制赋值而非 setdefault：测试固件硬编码 Bearer test-token（见 auth_headers），
+# 外部环境（如 CI 的 AUTH_TOKEN=ci-token）若经 setdefault 渗入会导致全量 401。
+os.environ["AUTH_TOKEN"] = "test-token"
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.gettempdir(), "dt_api_test.db"))
 os.environ.setdefault("DATA_DIR", _TEST_DATA)
 os.environ.setdefault("SKILLS_DIR", os.path.join(tempfile.gettempdir(), "dt_api_skills"))
