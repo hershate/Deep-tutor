@@ -227,6 +227,8 @@ class SessionMaterialOut(BaseModel):
     parsed_chars: int
     meta: dict
     created_at: datetime | None
+    # 处理状态（iter 225）：pending 待确认 / confirmed 已添加未解析 / parsed 已解析
+    status: str = "parsed"
 
 
 @router.get("/{session_id}/materials")
@@ -249,6 +251,7 @@ def list_session_materials(
             parsed_chars=m.parsed_chars,
             meta=m.meta or {},
             created_at=m.created_at,
+            status=m.status,
         ).model_dump()
         for m in rows
     ]

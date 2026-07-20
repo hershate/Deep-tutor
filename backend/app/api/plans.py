@@ -208,6 +208,9 @@ def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
                     text = p.read_text(encoding="utf-8")[:_MAX_PARSED_FILE_CHARS]
             except Exception:  # noqa: BLE001
                 log.warning("读取 parsed_text 失败: %s", m.parsed_text_path)
+        # iter 225：pending/confirmed 未解析资料不参与生成（无文本可注入）
+        if not text:
+            continue
         parsed.append({"text": text, "meta": m.meta or {}})
     return parsed
 

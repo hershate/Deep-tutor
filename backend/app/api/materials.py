@@ -29,8 +29,8 @@ from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.core.storage import (
-    delete_material_files,
     delete_session_files,
+    originals_dir,
     read_unit_content,
     save_upload,
     write_parsed_text,
@@ -44,11 +44,9 @@ log = logging.getLogger("deep_tutor.api.materials")
 
 router = APIRouter(prefix="/materials", tags=["materials"], dependencies=[Depends(require_auth)])
 
-# err.md B22（同 kb）：同会话上传互斥锁。旧实现 flush INSERT 后在未提交写事务内做
-# 分钟级 parse_material，持写锁期间其他写请求等 busy_timeout(5s) 后 500
-# "database is locked"。新实现解析期间不持有事务（见 upload_material）+ 锁防
-# 双击/重试并发写-写互等。锁对象只增不减，每会话一个，实例会话数有限，不做淘汰。
-_UPLOAD_LOCKS: dict[int, asyncio.Lock] = {}
+# per-material 解析互斥锁（iter 225）：同资料并发解析 -> 409；不同资料可并行
+# （事务外解析 + 短写事务，err.md B22）。锁对象只增不减，每资料一个，不做淘汰。
+_PARSE_LOCKS: dict[int, asyncio.Lock] = {}
 
 _MAGIC = {
     ".pdf": b"%PDF",
@@ -76,6 +74,9 @@ class MaterialOut(BaseModel):
     material_id: int
     kind: str
     meta: dict
+    # 处理状态（iter 225）：pending 待确认 / confirmed 已添加未解析 / parsed 已解析。
+    # 默认 parsed 兼容 text/url 等「创建即解析」构造点。
+    status: str = "parsed"
 
 
 def _get_session_or_404(db: Session, session_id: int, user: User) -> models.Session:
@@ -110,22 +111,41 @@ def _check_material_quota(db: Session, session_id: int) -> None:
         )
 
 
+def _material_out(mat: models.Material, *, deduped: bool = False) -> MaterialOut:
+    return MaterialOut(
+        material_id=mat.id,
+        kind=mat.kind.value if hasattr(mat.kind, "value") else str(mat.kind),
+        meta={**(mat.meta or {}), **({"deduped": True} if deduped else {})},
+        status=mat.status,
+    )
+
+
+def _owned_material_or_404(db: Session, material_id: int, user: User) -> models.Material:
+    """当前用户拥有的资料（经 session 归属校验）；不存在/属他人 -> 404。"""
+    mat = db.get(models.Material, material_id)
+    if mat is None:
+        raise ApiError("not_found", f"资料 {material_id} 不存在")
+    sess = db.get(models.Session, mat.session_id)
+    if sess is None or sess.user_id != user.id:
+        raise ApiError("not_found", f"资料 {material_id} 不存在")
+    return mat
+
+
 def _dedup_lookup(db: Session, session_id: int, content_hash: str) -> MaterialOut | None:
-    """同会话相同内容哈希的已解析资料 -> 直接复用（plan/11 §九），不重复解析/扣配额。"""
+    """同会话相同内容哈希的资料 -> 直接复用（plan/11 §九），不重复建行/扣配额。
+
+    iter 225：不再限已解析——pending 暂存/confirmed 未解析行同样复用（重复上传
+    同一文件返回该行，前端按其 status 展示，不重复占配额）。
+    """
     existing = db.scalar(
         select(models.Material).where(
             models.Material.session_id == session_id,
             models.Material.content_hash == content_hash,
-            models.Material.parsed_text_path.is_not(None),
         )
     )
     if existing is None:
         return None
-    return MaterialOut(
-        material_id=existing.id,
-        kind=existing.kind.value if hasattr(existing.kind, "value") else str(existing.kind),
-        meta={**(existing.meta or {}), "deduped": True},
-    )
+    return _material_out(existing, deduped=True)
 
 
 async def _store(
@@ -205,70 +225,105 @@ async def upload_material(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> MaterialOut:
-    """上传文件解析入会话资料。
-
-    err.md B22：解析（大 PDF marker 可达分钟级）不得在未提交写事务内进行。流程：
-    SELECT（去重/配额）后 rollback 释放读事务 -> 同会话互斥锁 -> 建行即提交拿 id
-    （R20 用 id 命名原件）-> 解析（无事务）-> UPDATE 提交；失败回滚 + 删行 + 清理
-    文件（防孤儿，err.md A15）。崩溃窗口留 parsed_text_path=NULL 孤儿行：去重查询
-    已过滤（不计入），用户可正常删除（幂等清理）。
+    """上传文件到会话资料（iter 225 上传确认流程）：校验 -> 去重 -> 配额 -> 建行
+    pending + 落原件，**不做任何解析**——是否转换/怎么转换由用户在确认后调
+    /materials/{id}/parse 决定（秒级响应，不再上传即默认解析）。
     """
     _get_session_or_404(db, session_id, user)
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
 
-    # 内容哈希去重（plan/11 §九）：同会话重复上传同一文件 -> 复用已解析结果
+    # 内容哈希去重（plan/11 §九）：同会话重复上传同一文件 -> 复用已有行（含 pending 暂存）
     content_hash = _hash_source(content)
     deduped = _dedup_lookup(db, session_id, content_hash)
     if deduped is not None:
         return deduped
     _check_material_quota(db, session_id)
-    db.rollback()  # 释放 SELECT 打开的读事务：自此至建行提交前不持有任何 DB 锁
 
-    # 同会话上传互斥：双击/重试并发直接 409（不再写-写互等 5s 后 500）
-    lock = _UPLOAD_LOCKS.setdefault(session_id, asyncio.Lock())
-    if lock.locked():
-        raise ApiError("conflict", "该会话有文件正在上传解析中，请稍候完成后再试", status=409)
-    async with lock:
-        # 先建行拿 id 并立即提交（写事务极短），再用 id 命名保存原件——解析期间无事务
-        material = models.Material(
-            session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
-            content_hash=content_hash,
-        )
-        db.add(material)
-        db.commit()
-        db.refresh(material)
-        try:
-            path = save_upload(session_id, material.id, content, ext)
-            out = await parse_material(
-                ToolInput(
-                    tool="parse_material",
-                    session_id=str(session_id),
-                    args={"kind": "file", "source": str(path)},
-                ),
-                _ctx(session_id),
-            )
-            if out.status == "error" and out.errors:
-                raise ApiError(out.errors[0].code, out.errors[0].message)
-            text = out.data.get("text", "")
-            meta = out.data.get("meta", {})
-            material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
-            material.parsed_chars = len(text)
-            material.meta = meta
-            db.commit()
-        except Exception:
-            # err.md A15：失败回滚 + 删行 + 幂等清理文件，防孤儿
-            db.rollback()
-            try:
-                db.delete(material)
-                db.commit()
-            except Exception:  # noqa: BLE001
-                db.rollback()
-            delete_material_files(session_id, material.id)
-            raise
+    # 建行 pending 即提交拿 id（R20 用 id 命名原件；写事务极短，err.md B22）
+    material = models.Material(
+        session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
+        content_hash=content_hash, status="pending",
+    )
+    db.add(material)
+    db.commit()
     db.refresh(material)
-    return MaterialOut(material_id=material.id, kind="file", meta=meta)
+    try:
+        save_upload(session_id, material.id, content, ext)
+    except Exception:
+        # 原件落盘失败：删行防孤儿（err.md A15）
+        db.delete(material)
+        db.commit()
+        raise
+    return MaterialOut(material_id=material.id, kind="file", meta={}, status="pending")
+
+
+class ParseIn(BaseModel):
+    # 解析质量档（iter 225）：仅 PDF 有别——full=marker（高质量/扫描件 OCR，慢）/ fast=pypdf（秒级纯文本）
+    mode: Literal["full", "fast"] = "full"
+
+
+@router.post("/{material_id}/confirm", response_model=MaterialOut)
+def confirm_material(
+    material_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> MaterialOut:
+    """确认添加资料：pending（暂存待确认）-> confirmed（已添加，未解析）。幂等。"""
+    mat = _owned_material_or_404(db, material_id, user)
+    if mat.status == "pending":
+        mat.status = "confirmed"
+        db.commit()
+        db.refresh(mat)
+    return _material_out(mat)
+
+
+@router.post("/{material_id}/parse", response_model=MaterialOut)
+async def parse_material_document(
+    material_id: int,
+    body: ParseIn | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> MaterialOut:
+    """按需解析/转换资料（iter 225：用户确认后触发，是否转换与方式由用户决定）。
+
+    pending/confirmed -> parsed（pending 隐含确认）；已 parsed 可重解析换档（覆盖
+    解析文本）。解析失败**行保留状态不变**（可换档重试）。事务外解析（err.md B22）；
+    同资料并发解析 -> 409。无原件（text/url 类）-> 400。
+    """
+    mode = body.mode if body else "full"
+    mat = _owned_material_or_404(db, material_id, user)
+    originals = originals_dir(mat.session_id)
+    matches = sorted(originals.glob(f"{mat.id}.*"))
+    if not matches:
+        raise ApiError("bad_request", "该资料无原件（text/url 类创建时已解析入库）", status=400)
+    source_path = str(matches[0])
+    session_id = mat.session_id
+    db.rollback()  # 释放 SELECT 事务：解析期间不持有任何 DB 锁（err.md B22）
+
+    lock = _PARSE_LOCKS.setdefault(material_id, asyncio.Lock())
+    if lock.locked():
+        raise ApiError("conflict", "该资料正在解析中，请稍候", status=409)
+    async with lock:
+        out = await parse_material(
+            ToolInput(
+                tool="parse_material",
+                session_id=str(session_id),
+                args={"kind": "file", "source": source_path, "parse_mode": mode},
+            ),
+            _ctx(session_id),
+        )
+        if out.status == "error" and out.errors:
+            raise ApiError(out.errors[0].code, out.errors[0].message)
+        text = out.data.get("text", "")
+        parsed_path = write_parsed_text(session_id, material_id, text)
+        mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
+        mat.parsed_text_path = str(parsed_path)
+        mat.parsed_chars = len(text)
+        mat.meta = {**(mat.meta or {}), **out.data.get("meta", {})}
+        mat.status = "parsed"
+        db.commit()
+        db.refresh(mat)
+        return _material_out(mat)
 
 
 @router.post("/url", response_model=MaterialOut)

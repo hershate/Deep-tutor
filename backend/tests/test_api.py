@@ -124,12 +124,12 @@ def test_upload_too_large(client, auth_headers, monkeypatch):
     assert r.json()["error"]["code"] == "payload_too_large"
 
 
-def test_upload_concurrent_same_session_409_and_writes_not_locked(client, auth_headers, monkeypatch):
-    """err.md B22：同会话并发上传 -> 第二个 409；解析期间其他写请求不再 locked 500。
+def test_parse_concurrent_same_material_409_and_writes_not_locked(client, auth_headers, monkeypatch):
+    """同资料并发解析 -> 第二个 409；解析（分钟级）期间其他写请求不再 locked 500。
 
-    旧实现 flush INSERT 后在未提交写事务内 await parse_material（分钟级），持写锁期间
-    第二个上传 flush 与 /materials/text INSERT 均会等 busy_timeout(5s) 后
-    sqlite3.OperationalError: database is locked -> 500。
+    err.md B22：旧实现 flush INSERT 后在未提交写事务内 await parse_material，持写锁
+    期间第二个写请求会等 busy_timeout(5s) 后 sqlite3.OperationalError -> 500。
+    iter 225：上传不解析（秒级），解析独立端点 + per-material 互斥锁 + 事务外解析。
     """
     import threading
 
@@ -147,33 +147,34 @@ def test_upload_concurrent_same_session_409_and_writes_not_locked(client, auth_h
     monkeypatch.setattr(materials_mod, "parse_material", _fake)
 
     sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("a.txt", BytesIO(b"aaa first content"), "text/plain")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+    mid = r.json()["material_id"]
+
     first: dict = {}
 
-    def _upload_first():
+    def _parse_first():
         first["r"] = client.post(
-            "/api/materials/upload",
-            data={"session_id": sid},
-            files={"file": ("a.txt", BytesIO(b"aaa first content"), "text/plain")},
-            headers=auth_headers,
+            f"/api/materials/{mid}/parse", json={"mode": "full"}, headers=auth_headers
         )
 
-    t = threading.Thread(target=_upload_first)
+    t = threading.Thread(target=_parse_first)
     t.start()
     try:
-        assert started.wait(5), "第一个上传未进入解析"
-        # 同会话第二个上传 -> 409（互斥锁，而非写-写互等 5s 后 500）
-        r2 = client.post(
-            "/api/materials/upload",
-            data={"session_id": sid},
-            files={"file": ("b.txt", BytesIO(b"bbb second content"), "text/plain")},
-            headers=auth_headers,
-        )
+        assert started.wait(5), "第一个解析未开始"
+        # 同资料并发解析 -> 409（互斥锁）
+        r2 = client.post(f"/api/materials/{mid}/parse", json={"mode": "fast"}, headers=auth_headers)
         assert r2.status_code == 409
         assert r2.json()["error"]["code"] == "conflict"
         # 解析期间其他写（/materials/text）不再被锁 -> 200
         r3 = client.post(
             "/api/materials/text",
-            json={"session_id": sid, "text": "上传解析期间的文本资料"},
+            json={"session_id": sid, "text": "解析期间的文本资料"},
             headers=auth_headers,
         )
         assert r3.status_code == 200, r3.text
@@ -181,6 +182,130 @@ def test_upload_concurrent_same_session_409_and_writes_not_locked(client, auth_h
         release.set()
         t.join(timeout=15)
     assert first["r"].status_code == 200, first["r"].text
+    assert first["r"].json()["status"] == "parsed"
+
+
+def test_material_upload_pending_confirm_parse_flow(client, auth_headers):
+    """iter 225 三段式：上传（仅落原件 pending，不解析）-> 确认 -> 解析（parsed）。"""
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("note.txt", BytesIO(b"hello upload content"), "text/plain")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["status"] == "pending"
+    mid = d["material_id"]
+    # 清单可见 pending 状态
+    items = client.get(f"/api/sessions/{sid}/materials", headers=auth_headers).json()["items"]
+    assert items[0]["status"] == "pending" and items[0]["parsed_chars"] == 0
+
+    r = client.post(f"/api/materials/{mid}/confirm", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["status"] == "confirmed"
+    # confirm 幂等
+    assert client.post(f"/api/materials/{mid}/confirm", headers=auth_headers).json()["status"] == "confirmed"
+
+    r = client.post(f"/api/materials/{mid}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 200 and r.json()["status"] == "parsed"
+    items = client.get(f"/api/sessions/{sid}/materials", headers=auth_headers).json()["items"]
+    assert items[0]["status"] == "parsed" and items[0]["parsed_chars"] > 0
+
+
+def test_material_upload_dedup_pending(client, auth_headers):
+    """iter 225：dedup 命中任意状态行——重复上传同文件复用 pending 暂存，不重复建行。"""
+    sid = _session(client, auth_headers)
+    body = b"same content for dedup"
+    r1 = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("a.txt", BytesIO(body), "text/plain")},
+        headers=auth_headers,
+    )
+    r2 = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("a.txt", BytesIO(body), "text/plain")},
+        headers=auth_headers,
+    )
+    assert r1.json()["material_id"] == r2.json()["material_id"]
+    assert r2.json()["status"] == "pending"
+    assert r2.json()["meta"].get("deduped") is True
+
+
+def test_material_parse_text_material_400(client, auth_headers):
+    """text/url 类资料无原件（创建时已解析入库）：调 parse -> 400。"""
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/materials/text", json={"session_id": sid, "text": "文本资料"}, headers=auth_headers
+    )
+    mid = r.json()["material_id"]
+    r = client.post(f"/api/materials/{mid}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 400
+
+
+def test_material_confirm_parse_isolation_404(client, auth_headers):
+    """他人会话的资料：confirm/parse 均 404（不泄露存在性）。"""
+    from app.db.base import SessionLocal
+
+    from app.db import models
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        # 先建管理员：AUTH_TOKEN(env token) 解析为「首个管理员/首个用户」，
+        # 确保 auth_headers 身份是 admin 而非 other
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        other = User(name="other", username="other", password_hash="x", is_admin=False)
+        db.add(other)
+        db.flush()
+        sess = models.Session(user_id=other.id, title="他人会话")
+        db.add(sess)
+        db.flush()
+        mat = models.Material(
+            session_id=sess.id, kind="file", source="a.txt", parsed_chars=0, meta={},
+            status="pending",
+        )
+        db.add(mat)
+        db.commit()
+        mid = mat.id
+    finally:
+        db.close()
+
+    r = client.post(f"/api/materials/{mid}/confirm", headers=auth_headers)
+    assert r.status_code == 404
+    r = client.post(f"/api/materials/{mid}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_load_parsed_materials_excludes_unparsed(client, auth_headers):
+    """iter 225：pending/confirmed 未解析资料不参与生成（_load_parsed_materials 跳过无文本条目）。"""
+    from app.api.plans import _load_parsed_materials
+    from app.core.storage import write_parsed_text
+    from app.db.base import SessionLocal
+
+    from app.db import models
+
+    sid = _session(client, auth_headers)
+    db = SessionLocal()
+    try:
+        m_pending = models.Material(
+            session_id=sid, kind="file", source="p.txt", parsed_chars=0, meta={}, status="pending"
+        )
+        m_parsed = models.Material(
+            session_id=sid, kind="file", source="ok.txt", parsed_chars=5, meta={}, status="parsed"
+        )
+        db.add_all([m_pending, m_parsed])
+        db.flush()
+        m_parsed.parsed_text_path = str(write_parsed_text(sid, m_parsed.id, "已解析文本"))
+        db.commit()
+        loaded = _load_parsed_materials(db, sid)
+    finally:
+        db.close()
+    assert len(loaded) == 1
+    assert loaded[0]["text"] == "已解析文本"
 
 
 class _FakeUpload:
@@ -278,7 +403,8 @@ def test_auth_wrong_token(client):
 
 
 def test_upload_image_png_passes_validation(client, auth_headers, monkeypatch):
-    """P3：png 扩展名+magic 校验通过；解析层 dependency_missing（无 tesseract）-> 400 清晰报错（R9）。"""
+    """P3：png 扩展名+magic 校验通过 -> 上传建 pending（iter 225 不解析）；
+    解析层 dependency_missing（无 tesseract）-> parse 端点 400 清晰报错（R9）。"""
     sid = _session(client, auth_headers)
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
     r = client.post(
@@ -287,7 +413,14 @@ def test_upload_image_png_passes_validation(client, auth_headers, monkeypatch):
         files={"file": ("p.png", BytesIO(png), "image/png")},
         headers=auth_headers,
     )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "pending"
     # 本环境无 tesseract -> dependency_missing（有 tesseract 的环境则应 200）
+    r = client.post(
+        f"/api/materials/{r.json()['material_id']}/parse",
+        json={"mode": "full"},
+        headers=auth_headers,
+    )
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "dependency_missing"
     assert "tesseract" in r.json()["error"]["message"]
