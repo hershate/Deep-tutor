@@ -37,12 +37,38 @@ def get_settings(
     """
     from app.tools.parse_material import ocr_available, whisper_available
 
+    from app.core.credentials import (
+        KIND_ANTHROPIC,
+        KIND_AUTH_TOKEN,
+        KIND_BING,
+        get_active_credential,
+        resolve_bing_api_key,
+    )
+    from app.llm import get_active_profile
+
     effective = get_daily_budget(db, user.id)
     has_override = (
         db.query(models.UserPref.id)
         .filter_by(user_id=user.id, key="daily_budget_usd")
         .first()
         is not None
+    )
+    # iter 223：Key 生效状态纳入凭证档案（该用户 active 档案优先，回退 .env）
+    anthropic_cred = get_active_credential(user.id, KIND_ANTHROPIC, db)
+    if get_active_profile(user.id) is not None:
+        anthropic_source = "provider_profile"
+    elif anthropic_cred is not None:
+        anthropic_source = "credential"
+    elif settings.anthropic_key_configured:
+        anthropic_source = "env"
+    else:
+        anthropic_source = "none"
+    bing_key = resolve_bing_api_key(user.id, db)
+    bing_cred = get_active_credential(user.id, KIND_BING, db)
+    bing_source = "credential" if bing_cred is not None else ("env" if settings.bing_api_key else "none")
+    auth_cred = get_active_credential(user.id, KIND_AUTH_TOKEN, db)
+    auth_source = (
+        "credential" if auth_cred is not None else ("env" if settings.auth_token_configured else "none")
     )
     return {
         "anthropic_model": settings.anthropic_model,
@@ -53,11 +79,15 @@ def get_settings(
         "max_tool_calls": settings.max_tool_calls,
         "max_upload_mb": settings.max_upload_mb,
         "search_engine": settings.search_engine,
-        # iter 222：实际生效引擎（auto 三值语义 + key 配置的解析结果，供设置页展示）
-        "search_engine_effective": effective_search_engine(),
-        "anthropic_api_key_set": settings.anthropic_key_configured,
-        "bing_api_key_set": bool(settings.bing_api_key),
-        "auth_token_set": settings.auth_token_configured,
+        # iter 222：实际生效引擎（auto 三值语义 + key 配置的解析结果，供设置页展示）；
+        # iter 223：key 含凭证档案解析值
+        "search_engine_effective": effective_search_engine(bing_key),
+        "anthropic_api_key_set": anthropic_source != "none",
+        "anthropic_key_source": anthropic_source,
+        "bing_api_key_set": bool(bing_key),
+        "bing_key_source": bing_source,
+        "auth_token_set": auth_source != "none",
+        "auth_token_source": auth_source,
         "ocr_available": ocr_available(),
         "whisper_available": whisper_available(),
         "whisper_model": settings.whisper_model,
