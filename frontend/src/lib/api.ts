@@ -396,6 +396,23 @@ export const putNodeNote = (nodeId: number, content: string) =>
     body: JSON.stringify({ content }),
   })
 
+// 独立自由笔记（iter 227）：标题+正文，不依附方案；列表 content 为 300 字预览
+export interface FreeNote {
+  id: number
+  title: string
+  content: string
+  truncated: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+export const listFreeNotes = () => apiFetch<{ items: FreeNote[]; total: number }>('/notes')
+export const createFreeNote = (title: string, content: string) =>
+  apiFetch<FreeNote>('/notes', { method: 'POST', body: JSON.stringify({ title, content }) })
+export const getFreeNote = (id: number) => apiFetch<FreeNote>(`/notes/${id}`)
+export const updateFreeNote = (id: number, title: string, content: string) =>
+  apiFetch<FreeNote>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ title, content }) })
+export const deleteFreeNote = (id: number) => apiFetch<{ ok: boolean }>(`/notes/${id}`, { method: 'DELETE' })
+
 // --- progress（P2，plan/03 §一）---
 export type ProgressStatus = 'not_started' | 'learning' | 'done'
 // 全局今日待复习（iter 119）：跨方案到期节点
