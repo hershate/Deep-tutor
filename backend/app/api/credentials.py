@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -61,11 +61,6 @@ class CredentialIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     api_key: str = Field(min_length=1, max_length=256)
     activate: bool = False  # 创建后立即启用（单活类会互斥停用同类其他档案）
-
-    @model_validator(mode="after")
-    def _strength(self) -> "CredentialIn":
-        _check_key_strength(self.kind, self.api_key)
-        return self
 
 
 class CredentialUpdate(BaseModel):
@@ -118,6 +113,7 @@ def create_credential(
             "quota_exceeded", f"每用户每类凭证档案上限 {_MAX_PER_KIND} 个", status=429
         )
     _check_dup_name(db, user, body.kind, body.name)
+    _check_key_strength(body.kind, body.api_key)
     p = models.CredentialProfile(
         user_id=user.id, kind=body.kind, name=body.name, api_key=body.api_key, is_active=False
     )
