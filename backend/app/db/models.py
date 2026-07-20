@@ -113,6 +113,9 @@ class User(Base):
     provider_profiles: Mapped[list[LlmProviderProfile]] = relationship(
         cascade="all, delete-orphan"
     )
+    credential_profiles: Mapped[list[CredentialProfile]] = relationship(
+        cascade="all, delete-orphan"
+    )
     node_notes: Mapped[list[NodeNote]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -526,6 +529,35 @@ class LlmProviderProfile(Base):
     base_url: Mapped[str] = mapped_column(String(512), default="")
     api_key: Mapped[str] = mapped_column(String(256), nullable=False)
     model: Mapped[str] = mapped_column(String(128), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CredentialProfile(Base):
+    """API Key 凭证档案（iter 223：设置页可视化管理全部 Key，多档案卡片切换）。
+
+    kind 三类：
+    - "anthropic"：Anthropic 回退主 Key（官方端点 + 默认模型）。每用户同时至多一个
+      active；get_provider 优先级：LLM 供应商档案 > 本类 active 档案 > .env
+      ANTHROPIC_API_KEY；全部停用回退 .env。
+    - "bing"：Bing 搜索 Key。每用户同时至多一个 active；资源检索取 active 档案 key，
+      无 -> .env BING_API_KEY（再无 -> auto 语义走免 Key 网页版）。
+    - "auth_token"：个人访问令牌（PAT）。可多个同时 active——任一 active 令牌即可以
+      档案归属用户身份认证（API/浏览器扩展）；.env AUTH_TOKEN 始终有效作回退。
+    api_key 仅存本机 SQLite，API 层不回显明文（仅掩码末 4 位）。
+    P4 按用户隔离（user_id + (user_id,kind,name) 唯一）；跨用户访问一律 404。
+    """
+
+    __tablename__ = "credential_profiles"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "name", name="uq_credential_user_kind_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    api_key: Mapped[str] = mapped_column(String(256), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
