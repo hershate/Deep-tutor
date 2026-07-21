@@ -52,6 +52,11 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
   const [error, setError] = useState('')
   const [doneBusy, setDoneBusy] = useState(false)
   const acRef = useRef<AbortController | null>(null)
+  // iter 261：滚动位置记忆（会话级）——内容区 key=currentId 切单元即重挂载滚动必丢，
+  // 「切去下一单元瞥一眼再切回来从头找」是阅读流断点。仅会话内有效（组件卸载即清）：
+  // 不碰 localStorage——跨会话陈旧位置 + 字号调节改变偏移，恢复错误位置比不恢复更糟
+  const scrollMemRef = useRef(new Map<number, number>())
+  const contentRef = useRef<HTMLDivElement | null>(null)
 
   const isIndex = currentId === INDEX_ID
   const idx = units.findIndex((u) => u.id === currentId)
@@ -81,6 +86,19 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
       })
     return () => ac.abort()
   }, [currentId])
+
+  // iter 261：内容就绪（加载完成/路线图直出）后恢复本单元上次滚动位置；
+  // rAF 等一帧布局完成再设 scrollTop，卸载/再切换取消
+  useEffect(() => {
+    if (loading || currentId === null) return
+    const saved = scrollMemRef.current.get(currentId)
+    if (!saved) return
+    const raf = requestAnimationFrame(() => {
+      const el = contentRef.current
+      if (el) el.scrollTop = saved
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [loading, currentId])
 
   async function toggleDone() {
     if (!current || doneBusy) return
@@ -137,8 +155,16 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
         </ul>
       </nav>
 
-      {/* 内容区（iter 101：切单元按 key 淡入；iter 256：reader-font 字号调节作用域） */}
-      <div key={currentId} className="reader-font min-w-0 flex-1 animate-fade-in overflow-y-auto">
+      {/* 内容区（iter 101：切单元按 key 淡入；iter 256：reader-font 字号调节作用域；
+          iter 261：ref+onScroll 滚动位置会话级记忆/恢复） */}
+      <div
+        key={currentId}
+        ref={contentRef}
+        onScroll={(e) => {
+          if (currentId !== null) scrollMemRef.current.set(currentId, e.currentTarget.scrollTop)
+        }}
+        className="reader-font min-w-0 flex-1 animate-fade-in overflow-y-auto"
+      >
         {/* iter 256：字号调节工具条（路线图/单元两视图同位置） */}
         <div
           className="mb-2 flex items-center justify-end gap-1"
