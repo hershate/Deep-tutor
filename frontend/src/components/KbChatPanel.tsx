@@ -94,6 +94,8 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
               ? e.message
               : '问答失败，请重试'
       setErrors((prev) => [...prev, { text, code }])
+      // iter 248：失败回填问题原文——长问题（如未配供应商时）此前需凭记忆重打
+      setInput((cur) => (cur.trim() ? cur : question))
       scrollToBottom()
     } finally {
       setBusy(false)
@@ -266,7 +268,8 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // iter 248：中文/日文输入法候选词确认也是 Enter——组合态下不得当发送
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               send()
             }
