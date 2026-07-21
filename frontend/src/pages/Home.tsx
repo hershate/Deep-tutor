@@ -320,7 +320,8 @@ export default function Home() {
             onChange={(e) => setUrlInput(e.target.value)}
             maxLength={2048} // err.md D14：对齐后端 UrlIn.url 上限
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              // iter 248：输入法组合态 Enter 是候选词确认，不触发提交
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 addUrl()
               }

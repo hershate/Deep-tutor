@@ -91,7 +91,8 @@ export default function Plugins() {
             value={newUrl}
             onChange={(e) => setNewUrl(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void addPlugin()
+              // iter 248：输入法组合态 Enter 是候选词确认，不触发提交
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) void addPlugin()
             }}
             placeholder="https://example.com/my-plugin.js"
             aria-label="插件 URL"
