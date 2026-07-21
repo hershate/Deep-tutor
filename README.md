@@ -24,6 +24,7 @@
 ### 知识库与笔记
 
 - **知识库**：文档直传（不依赖方案）——上传 / 文本 / 链接入库，搜索与类型筛选，原件查看（PDF / 图片 / 音视频原生渲染）+ 解析文本对照；**知识库问答**（带引用出处，记录持久化）；选中文档**一键生成学习方案**；ZIP 导出
+- **全局搜索**：方案 / 笔记 / 知识库文档 / 知识节点统一入口（`GET /api/search`），分域计数 + 命中上下文摘要
 - **Wiki 个人知识手册**：跨方案知识点汇总 + 笔记总览 + 导出
 - **独立笔记**：自由创建（标题 + Markdown 正文），节点批注与方案解耦
 
@@ -62,7 +63,7 @@ Deep-tutor/
 ├── backend/         # FastAPI 后端
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（733 项）
+│   ├── tests/       # pytest 测试套件（797 项）
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
 ├── extension/       # 浏览器扩展（MV3 网页剪藏）
@@ -180,7 +181,7 @@ Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、�
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 733 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 797 项测试（含契约/漂移守卫）
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```

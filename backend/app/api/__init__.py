@@ -5,7 +5,7 @@ health/sessions/materials/plans/export/usage/settings/progress/quizzes 已接入
 
 from fastapi import APIRouter
 
-from app.api import auth, backup, credentials, deps, exports, health, kb, knowledge, materials, notes, plans, plugins, progress, providers, quizzes, sessions, settings, setup, share, usage, users
+from app.api import auth, backup, credentials, deps, exports, health, kb, knowledge, materials, notes, plans, plugins, progress, providers, quizzes, search, sessions, settings, setup, share, usage, users
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
@@ -18,6 +18,7 @@ api_router.include_router(usage.router)
 api_router.include_router(settings.router)
 api_router.include_router(progress.router)
 api_router.include_router(quizzes.router)
+api_router.include_router(search.router)  # iter 249：全局统一搜索（/search）
 api_router.include_router(providers.router)
 api_router.include_router(users.router)
 api_router.include_router(share.router)
@@ -31,4 +32,4 @@ api_router.include_router(notes.router)  # iter 227：独立自由笔记（/note
 api_router.include_router(plugins.router)  # 后端插件状态（管理员）
 
 
-__all__ = ["api_router", "auth", "backup", "credentials", "deps", "exports", "health", "kb", "knowledge", "materials", "notes", "plans", "plugins", "progress", "providers", "quizzes", "sessions", "settings", "setup", "share", "usage", "users"]
+__all__ = ["api_router", "auth", "backup", "credentials", "deps", "exports", "health", "kb", "knowledge", "materials", "notes", "plans", "plugins", "progress", "providers", "quizzes", "search", "sessions", "settings", "setup", "share", "usage", "users"]
