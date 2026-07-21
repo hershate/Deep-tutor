@@ -44,6 +44,24 @@ export default function Layout({ children }: { children: ReactNode }) {
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const [drawerOpen, setDrawerOpen] = useState(false) // 窄屏抽屉
+  // iter 248：抽屉可访问性——Esc 关闭（其他弹窗均有）、打开时焦点移入关闭按钮、
+  // 关闭后焦点还原触发按钮（此前焦点停在原按钮上，Tab 会穿过遮罩进主内容区）
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
+  const drawerTriggerRef = useRef<Element | null>(null)
+  useEffect(() => {
+    if (!drawerOpen) return
+    drawerTriggerRef.current = document.activeElement
+    drawerCloseRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      const trigger = drawerTriggerRef.current
+      if (trigger instanceof HTMLElement) trigger.focus()
+    }
+  }, [drawerOpen])
   // iter 89：开放模式（未设密码）/ 未配 API Key 的常驻提示横幅（状态查询失败不渲染）
   const { data: setupStatus } = useSetupStatus()
 
@@ -233,6 +251,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <span className="font-semibold">Deep-tutor</span>
                 <button
                   type="button"
+                  ref={drawerCloseRef}
                   onClick={() => setDrawerOpen(false)}
                   aria-label="关闭导航菜单"
                   className="rounded px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
