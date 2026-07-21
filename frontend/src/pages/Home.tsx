@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, getTodayTasks, listPlans, parseMaterial, uploadMaterial } from '../lib/api'
@@ -32,6 +32,18 @@ function loadDraft(): HomeDraft | null {
   }
 }
 
+// iter 284：首页需求示例 chips——降低新用户冷启动摩擦（目标用户多无技术水平，
+// 空白 textarea 是已知门槛）。仅空内容时展示（一旦用户开始输入即隐去，无覆盖困扰）；
+// 点击填入并聚焦，引导完成首次方案生成（最高价值动作）。
+const EXAMPLE_PROMPTS = [
+  '零基础学 Python，目标是能写简单脚本',
+  '30 天入门 SQL 数据库',
+  '备考数据结构与算法',
+  '每天 30 分钟练英语口语',
+  '从零理解 React 前端开发',
+  '机器学习的数学基础',
+]
+
 export default function Home() {
   const [draft] = useState<HomeDraft | null>(loadDraft)
   const [rawText, setRawText] = useState(draft?.rawText ?? '')
@@ -44,6 +56,7 @@ export default function Home() {
   const [uploadPct, setUploadPct] = useState<number | null>(null) // 当前文件字节级进度（plan/09 §七）
   const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
+  const rawTextRef = useRef<HTMLTextAreaElement>(null)
   const nav = useNavigate()
 
   // iter 254：继续学习快捷区——最近 3 个方案一键直达学习中心/详情
@@ -104,6 +117,11 @@ export default function Home() {
     setError('')
     setUrls((prev) => [...prev, u])
     setUrlInput('')
+  }
+
+  function fillExample(text: string) {
+    setRawText(text)
+    rawTextRef.current?.focus()
   }
 
   async function start() {
@@ -310,6 +328,7 @@ export default function Home() {
         </div>
         <textarea
           id="home-rawtext"
+          ref={rawTextRef}
           className="w-full min-h-[120px] rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-900 p-3 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="例如：我想学 React，零基础，目标是能独立做项目，每天 1-2 小时"
           value={rawText}
@@ -320,6 +339,22 @@ export default function Home() {
         <p className={`text-right text-xs tabular-nums transition-colors ${rawText.length > 18000 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} aria-live="polite">
           {rawText.length.toLocaleString()} / 20,000
         </p>
+        {/* iter 284：空内容时展示示例 chips（点击填入并聚焦）；有内容即隐去 */}
+        {rawText.trim() === '' && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-xs text-slate-400">不知道写什么？试试：</span>
+            {EXAMPLE_PROMPTS.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => fillExample(ex)}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:scale-95 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:border-blue-700 dark:hover:bg-blue-950 dark:hover:text-blue-300"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '120ms' }}>
