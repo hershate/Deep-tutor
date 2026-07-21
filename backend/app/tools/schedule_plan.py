@@ -58,6 +58,17 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
     except (TypeError, ValueError):
         daily = 0
     if daily <= 0:
+        # iter 245：生产 args 从不携带 daily_minutes（args_by_tool 仅给 understand_intent
+        # 传需求、给 start_tool 传 fixes）——容量校验曾因此整体失效（daily 恒 0 跳过）。
+        # 从 upstream.understand_intent 派生（已校验 1..1440 或 None；对齐 err.md B21
+        # search_resources 的 stage_topics 派生模式）
+        try:
+            daily = int(
+                (((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}).get("daily_minutes") or 0
+            )
+        except (TypeError, ValueError):
+            daily = 0
+    if daily <= 0:
         daily = 0
     total = sum(int(s.get("est_minutes", 0) or 0) for s in schedule)
     data["total_minutes"] = total
@@ -71,7 +82,8 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
                 dates.append(datetime.fromisoformat(s.get("date", "")).date())
             except ValueError:
                 continue
-        if len(dates) >= 2:
+        # iter 245：单日排期同样做容量校验（1 天排 600 分钟此前无任何警告）
+        if len(dates) >= 1:
             span = (max(dates) - min(dates)).days + 1
             capacity = span * daily
             data["span_days"] = span
