@@ -137,7 +137,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -186,7 +186,7 @@ class Material(Base):
     __tablename__ = "materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False, index=True)
     kind: Mapped[MaterialKind] = mapped_column(Enum(MaterialKind), nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False, default="")
     parsed_text_path: Mapped[str | None] = mapped_column(String(512))
@@ -266,7 +266,7 @@ class Plan(Base):
     __tablename__ = "plans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False, index=True)
     content: Mapped[dict] = mapped_column(JSON, default=dict)
     content_path: Mapped[str | None] = mapped_column(String(512))
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -294,7 +294,7 @@ class KnowledgeNode(Base):
     __tablename__ = "knowledge_nodes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False, index=True)
     sid: Mapped[str] = mapped_column(String(64), default="")  # plan 内容 knowledge_map 中的原始字符串 id（如 "k1"）
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     difficulty: Mapped[int] = mapped_column(Integer, default=1)  # 1-5
@@ -463,7 +463,7 @@ class ToolCall(Base):
     __tablename__ = "tool_calls"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False, index=True)
     tool: Mapped[str] = mapped_column(String(64), nullable=False)
     input: Mapped[dict] = mapped_column(JSON, default=dict)
     output: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -490,7 +490,7 @@ class ApiUsage(Base):
     __tablename__ = "api_usage"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # P4 iter 58 按用户隔离
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)  # P4 iter 58 按用户隔离
     provider: Mapped[str] = mapped_column(String(32), default="anthropic")
     model: Mapped[str] = mapped_column(String(64), default="")
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
@@ -507,7 +507,7 @@ class StudyUnit(Base):
     __tablename__ = "study_units"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False, index=True)
     node_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_nodes.id"))
     stage_index: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(256), nullable=False)

@@ -57,7 +57,17 @@ def _progress_has_plan_node_unique(insp) -> bool:
     return False
 
 
+def _has_index(table: str, index: str):
+    def _det(insp) -> bool:
+        if table not in insp.get_table_names():
+            return False
+        return index in {i["name"] for i in insp.get_indexes(table)}
+
+    return _det
+
+
 _REVISION_PROBES = [
+    ("a7f3e5c91d02", _has_index("sessions", "ix_sessions_user_id")),
     ("f6a1c3d58e42", _has_table("notes")),
     ("e5f7a3c82d19", _has_column("kb_documents", "status")),
     ("d9e4b2c17f05", _has_table("credential_profiles")),
