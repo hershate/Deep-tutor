@@ -63,6 +63,16 @@ function isOnTaskPage(t: TaskEntry): boolean {
 /** 相位落定（done/clarify/error/cancelled/interrupted）的集中副作用：失效查询 + 打扰抑制 toast。 */
 function notifySettled(t: TaskEntry): void {
   invalidate(['sessions'])
+  // iter 233 W2：方案进入终态 -> 该会话的澄清草稿使命终结（问题文本可能随重生成变化，
+  // 旧草稿按旧问题键存储已无意义）。此前仅「提交成功」路径清除，放弃澄清/他端完成
+  // 的草稿会在 localStorage 里按会话 id 逐条累积（无界键泄漏）。
+  if (t.kind === 'plan' && t.sessionId != null) {
+    try {
+      localStorage.removeItem(`dt_clarify_draft_${t.sessionId}`)
+    } catch {
+      /* 隐私模式等：忽略 */
+    }
+  }
   const name = t.title || (t.kind === 'plan' ? '学习方案' : '学习材料')
   if (t.phase === 'done' && t.kind === 'plan') {
     invalidate(['plans'], ['usage'])

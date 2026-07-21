@@ -155,7 +155,9 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[int, str, bytes]:
             raise UnsafeRedirectError(f"重定向次数超上限 {_MAX_REDIRECTS}")
         except httpx.TimeoutException as exc:
             last_exc = exc
-            log.info("verify_url 超时（第 %d 次）%s", attempt + 1, url)
+            # debug（iter 233 W2）：批量校验并行化后失败按 URL 逐个出现，属常态候选
+            # 淘汰路径而非系统异常——info 级会让死链成批刷日志（聚合判定见 search_resources）
+            log.debug("verify_url 超时（第 %d 次）%s", attempt + 1, url)
     assert last_exc is not None
     raise last_exc
 
@@ -212,13 +214,13 @@ async def _fetch_and_label(client: httpx.AsyncClient, url: str) -> ToolOutput:
             return out
         status, final_url, prefix = await _fetch(client, url)
     except UnsafeRedirectError as exc:
-        log.info("verify_url 重定向被拦截 %s: %s", url, exc)
+        log.debug("verify_url 重定向被拦截 %s: %s", url, exc)  # iter 233：常态拦截，降 debug
         out = _ok_data(url, ok=False, status=None, label="invalid")
         out.data["reason"] = f"ssrf_blocked_redirect: {exc}"
         _cache_put(url, out.data, ok=False)
         return out
     except httpx.HTTPError as exc:
-        log.info("verify_url 抓取失败 %s: %s", url, exc)
+        log.debug("verify_url 抓取失败 %s: %s", url, exc)  # iter 233：常态死链，降 debug
         out = _ok_data(url, ok=False, status=None, label="invalid")
         _cache_put(url, out.data, ok=False)
         return out

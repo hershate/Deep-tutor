@@ -1,7 +1,9 @@
 // 澄清页（iter 191 F6 重构）：深链可恢复 + 提交后全程进度可见。
 // - 问题三级回退：location.state -> 任务台账 -> GET /sessions/{id}.clarify_questions
 //   （此前深链无 state 即死胡同，用户离开后 paused_clarify 会话无任何入口能发现）
-// - 回答草稿：输入即写 localStorage('dt_clarify_draft_<id>')（对齐 Home 草稿先例），提交成功清除
+// - 回答草稿：输入即写 localStorage('dt_clarify_draft_<id>')（对齐 Home 草稿先例），
+//   提交成功即清除；任务引擎在方案进入任意终态（done/error/cancelled/interrupted）
+//   时同样清除对应会话草稿（iter 233 W2）——放弃澄清/他端完成不留孤儿键
 // - 提交走任务引擎：成功发起（收到首个流事件）即 replace 跳 /generate/:id——
 //   clarify 流与 generate 同构，复用进度页全套 UI（消灭此前提交后黑窗等待）
 import { useEffect, useMemo, useState } from 'react'

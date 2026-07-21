@@ -80,6 +80,12 @@ export const isTerminalPhase = (p: TaskPhase) => TERMINAL.includes(p)
 export const isActivePhase = (p: TaskPhase) => p === 'running' || p === 'clarify'
 
 const STORAGE_KEY = 'dt_tasks_v1'
+// iter 233 W2：持久化台账容量护栏。终态条目仅当用户点「清空已完成记录」才移除，
+// 此前 localStorage 内台账无界增长（每方案一条，含 rawText/questions 大字段）——
+// 序列化成本随条目线性涨且逼近 5MB 配额后静默写失败。上限 200 条（单会话原始输入
+// ≤10k 字符 -> 最坏 ~4MB，仍在配额内；实际远小于此）；超限淘汰最旧的终态条目，
+// 活动条目（running/clarify）永不淘汰。
+const _MAX_PERSISTED_TASKS = 200
 
 interface PersistedTask {
   id: string
@@ -131,6 +137,21 @@ function fromPersisted(p: PersistedTask): TaskEntry {
   }
 }
 
+/** 容量裁剪（iter 233）：超上限时按 updatedAt 淘汰最旧的终态条目；活动条目不动。 */
+function trimTasks(tasks: Record<string, TaskEntry>): Record<string, TaskEntry> {
+  const entries = Object.values(tasks)
+  if (entries.length <= _MAX_PERSISTED_TASKS) return tasks
+  const terminal = entries
+    .filter((t) => isTerminalPhase(t.phase))
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+  const doomed = new Set(terminal.slice(0, entries.length - _MAX_PERSISTED_TASKS).map((t) => t.id))
+  const out: Record<string, TaskEntry> = {}
+  for (const t of entries) {
+    if (!doomed.has(t.id)) out[t.id] = t
+  }
+  return out
+}
+
 function loadPersisted(): Record<string, TaskEntry> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -141,7 +162,7 @@ function loadPersisted(): Record<string, TaskEntry> {
     for (const p of arr) {
       if (p && typeof p.id === 'string' && p.id) out[p.id] = fromPersisted(p)
     }
-    return out
+    return trimTasks(out) // 旧版本累积的超大台账：载入即裁剪
   } catch {
     return {}
   }
@@ -396,8 +417,14 @@ export const useTaskStore = create<TasksState>((set, get) => ({
   },
 }))
 
-// 任意变更后持久化恢复字段（steps/cost 等易变数据不落盘，attach 重放重建）
-useTaskStore.subscribe((s) => persist(s.tasks))
+// 任意变更后持久化恢复字段（steps/cost 等易变数据不落盘，attach 重放重建）。
+// 容量护栏在此统一施加：所有 mutator 的 set 结果经 trimTasks 后再写盘（内存台账
+// 亦同步裁剪——否则内存有界性靠用户手动清理，持久化与内存口径不一致）。
+useTaskStore.subscribe((s) => {
+  const trimmed = trimTasks(s.tasks)
+  if (trimmed !== s.tasks) useTaskStore.setState({ tasks: trimmed })
+  persist(trimmed)
+})
 
 // 多标签页：他页写入 -> 按 updatedAt 大者合并恢复字段（各标签页各自挂 SSE，
 // 后端扇出，故易变进度无需跨页同步；仅终态/恢复字段需要）。本页写入不触发本页事件，无回环。
