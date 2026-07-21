@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, parseMaterial, uploadMaterial } from '../lib/api'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, listPlans, parseMaterial, uploadMaterial } from '../lib/api'
 import { SseError } from '../lib/sse'
 import { engine } from '../lib/taskEngine'
+import Card from '../components/Card'
 import { toast } from '../components/Toast'
 import WidgetSlot from '../components/WidgetSlot'
 
@@ -43,6 +45,14 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
   const nav = useNavigate()
+
+  // iter 254：继续学习快捷区——最近 3 个方案一键直达学习中心/详情
+  // （返回用户最高频意图是继续已有学习，此前需 方案列表→详情→学习中心 2-3 次点击）
+  const { data: recentPlans } = useQuery({
+    queryKey: ['home-recent-plans'],
+    queryFn: () => listPlans(undefined, 1),
+    staleTime: 30_000,
+  })
 
   // 草稿自动保存（输入即存，localStorage 同步写开销可忽略；空内容清除 key 防恢复空草稿）
   useEffect(() => {
@@ -199,6 +209,37 @@ export default function Home() {
 
       {/* iter 183：学习概览小组件宫格（插件 API home.dashboard 插槽；各组件无数据自行隐藏） */}
       <WidgetSlot slot="home.dashboard" layout="grid" className="animate-fade-in-up" />
+
+      {/* iter 254：继续学习——最近 3 个方案一键直达；无方案（新用户）整区隐藏保持表单清爽。
+          不嵌套链接：标题与「学习中心」为两个独立 Link */}
+      {recentPlans && recentPlans.items.length > 0 && (
+        <section aria-label="继续学习" className="animate-fade-in-up space-y-2" style={{ animationDelay: '40ms' }}>
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">继续学习</h2>
+          <ul className="grid gap-2 sm:grid-cols-3">
+            {recentPlans.items.slice(0, 3).map((p) => (
+              <li key={p.id}>
+                <Card className="flex h-full flex-col gap-1 !p-3">
+                  <Link
+                    to={`/plans/${p.id}`}
+                    className="line-clamp-2 text-sm font-medium transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                    {p.topic || `方案 #${p.id}`}
+                  </Link>
+                  <span className="text-xs tabular-nums text-slate-400 dark:text-slate-500">
+                    v{p.version} · {p.created_at.slice(0, 10)}
+                  </span>
+                  <Link
+                    to={`/learn/${p.id}`}
+                    className="mt-auto inline-flex w-fit items-center rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                  >
+                    学习中心 →
+                  </Link>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '60ms' }}>
         <div className="flex items-center justify-between">
