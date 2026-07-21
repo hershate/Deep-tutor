@@ -22,6 +22,7 @@ api_router.include_router(search.router)  # iter 249：全局统一搜索（/sea
 api_router.include_router(providers.router)
 api_router.include_router(users.router)
 api_router.include_router(share.router)
+api_router.include_router(share.manage_router)  # iter 258：全局分享管理（/shares）
 api_router.include_router(share.public_router)  # P5：无认证的只读分享访问
 api_router.include_router(setup.router)  # iter 89：首次设置向导（公开端点）
 api_router.include_router(backup.router)  # iter 93：数据备份导出/导入

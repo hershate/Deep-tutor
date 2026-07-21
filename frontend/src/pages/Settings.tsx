@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import ProviderManager from '../components/ProviderManager'
 import CredentialManager from '../components/CredentialManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadBackup, getSettings, importBackup, postSetup, previewBackup, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview } from '../lib/api'
+import { ApiError, downloadBackup, getSettings, importBackup, listShares, postSetup, previewBackup, revokeShare, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview, type ShareItem } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -45,6 +46,10 @@ export default function Settings() {
       </div>
 
       <div className="animate-fade-in-up" style={{ animationDelay: '240ms' }}>
+        <SharesCard />
+      </div>
+
+      <div className="animate-fade-in-up" style={{ animationDelay: '300ms' }}>
         <BackupCard />
       </div>
 
@@ -254,6 +259,79 @@ function BudgetRow({ data }: { data: AppSettings }) {
         )}
       </dd>
     </div>
+  )
+}
+
+/** 分享链接管理卡（iter 258）：当前用户全部活跃只读分享一览 + 复制/撤销。
+ *  安全审计面——逐方案创建/撤销在方案详情页，但「我当前到底分享出去了哪些」
+ *  此前无全局视图，遗忘的公开链接长期有效。无活跃分享时整卡自隐（全局自隐惯例）。 */
+function SharesCard() {
+  const qc = useQueryClient()
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const { data } = useQuery({ queryKey: ['shares'], queryFn: listShares, staleTime: 30_000 })
+  const shares = data?.shares ?? []
+  if (!data || shares.length === 0) return null
+
+  async function copy(path: string) {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${path}`)
+      toast.success('分享链接已复制到剪贴板')
+    } catch {
+      toast.info('剪贴板不可用，请手动复制链接')
+    }
+  }
+
+  async function revoke(s: ShareItem) {
+    if (busyId !== null) return
+    if (!window.confirm(`确定撤销「${s.topic || `方案 #${s.plan_id}`}」的分享链接？\n撤销后链接立即失效。`)) return
+    setBusyId(s.plan_id)
+    try {
+      await revokeShare(s.plan_id)
+      toast.success('已撤销分享')
+      qc.invalidateQueries({ queryKey: ['shares'] })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '撤销失败')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">分享链接</h3>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        当前活跃的只读分享——知道链接的任何人无需登录即可查看对应方案；不再需要的链接请及时撤销。
+      </p>
+      <ul className="mt-3 divide-y dark:divide-slate-700">
+        {shares.map((s) => (
+          <li key={s.plan_id} className="flex flex-wrap items-center gap-2 py-2">
+            <Link
+              to={`/plans/${s.plan_id}`}
+              className="min-w-0 flex-1 truncate text-sm font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+              title="查看方案"
+            >
+              {s.topic || `方案 #${s.plan_id}`}
+            </Link>
+            <span className="text-xs tabular-nums text-slate-400" title="创建时间">
+              {s.created_at.slice(0, 10)}
+            </span>
+            <button
+              onClick={() => copy(s.path)}
+              className="rounded px-2 py-1 text-xs text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
+            >
+              复制链接
+            </button>
+            <button
+              onClick={() => revoke(s)}
+              disabled={busyId !== null}
+              className="rounded px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              {busyId === s.plan_id ? '撤销中…' : '撤销'}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

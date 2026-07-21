@@ -152,3 +152,56 @@ def test_shared_strips_non_http_resource_urls(client, auth_headers):
         assert stored["stages"][0]["resources"][1]["url"] == "javascript:alert(1)"
     finally:
         db.close()
+
+
+# --- iter 258：全局分享管理 GET /api/shares（安全审计面：活跃链接全局可见可撤销） ---
+
+
+def _login(client, username: str, password: str = "pw12345678") -> dict:
+    from app.core.security import hash_password
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        db.add(User(name=username, username=username, password_hash=hash_password(password)))
+        db.commit()
+    finally:
+        db.close()
+    tok = client.post("/api/auth/login", json={"username": username, "password": password}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def test_list_shares_empty(client, auth_headers):
+    r = client.get("/api/shares", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {"shares": []}
+
+
+def test_list_shares_isolation_and_revoke(client, auth_headers):
+    p1 = _mk_plan(client, auth_headers, PLAN)
+    p2 = _mk_plan(client, auth_headers, {**PLAN, "title": "方案乙"})
+    client.post(f"/api/plans/{p1}/share", headers=auth_headers)
+    client.post(f"/api/plans/{p2}/share", headers=auth_headers)
+    # 他人的分享不可见
+    h2 = _login(client, "u-share-other")
+    p3 = _mk_plan(client, h2, PLAN)
+    client.post(f"/api/plans/{p3}/share", headers=h2)
+
+    mine = client.get("/api/shares", headers=auth_headers).json()["shares"]
+    assert {s["plan_id"] for s in mine} == {p1, p2}
+    assert {s["topic"] for s in mine} == {"Python 入门", "方案乙"}  # _plan_topic 取 title
+    assert all(s["token"] and s["path"] == f"/shared/{s['token']}" for s in mine)
+    assert all(s["created_at"] for s in mine)
+
+    theirs = client.get("/api/shares", headers=h2).json()["shares"]
+    assert [s["plan_id"] for s in theirs] == [p3]
+
+    # 撤销后从列表消失
+    client.delete(f"/api/plans/{p1}/share", headers=auth_headers)
+    mine2 = client.get("/api/shares", headers=auth_headers).json()["shares"]
+    assert [s["plan_id"] for s in mine2] == [p2]
+
+
+def test_list_shares_unauthenticated_401(client):
+    assert client.get("/api/shares").status_code == 401

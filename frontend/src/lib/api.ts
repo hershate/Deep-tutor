@@ -994,6 +994,16 @@ export const revokeShare = (planId: number) => apiFetch<void>(`/plans/${planId}/
 export const getShare = (planId: number) => apiFetch<ShareStatus>(`/plans/${planId}/share`)
 export const getShared = (token: string) => apiFetch<SharedPlanData>(`/shared/${token}`)
 
+// 全局分享管理（iter 258）：当前用户全部活跃分享链接（设置页安全审计面——遗忘的公开链接可见可撤销）
+export interface ShareItem {
+  plan_id: number
+  topic: string
+  token: string
+  path: string
+  created_at: string
+}
+export const listShares = () => apiFetch<{ shares: ShareItem[] }>('/shares')
+
 // --- 首次设置向导（iter 89 零配置开箱即用）---
 // /setup/* 为公开端点：status 无需认证；setup/dismiss 在开放模式或 admin JWT 下可用。
 export interface SetupStatus {

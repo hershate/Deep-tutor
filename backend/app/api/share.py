@@ -2,6 +2,8 @@
 
 - POST   /api/plans/{plan_id}/share  创建（或返回既有）分享链接（仅方案所有者）
 - DELETE /api/plans/{plan_id}/share  撤销链接（仅方案所有者）
+- GET    /api/plans/{plan_id}/share  查询单方案分享状态（仅方案所有者）
+- GET    /api/shares                 当前用户全部活跃分享链接（iter 258 全局管理面）
 - GET    /api/shared/{token}         公开只读访问（无认证；只含方案内容，不含用户/会话/资料）
 
 安全约定：token 为 192bit 随机串（secrets.token_urlsafe(24)），不可枚举；
@@ -20,11 +22,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
+from app.api.plans import _plan_topic
 from app.core.ratelimit import limiter
+from app.db import models
 from app.db.models import Plan, ShareLink, User
 
 # 认证轨：挂在 /plans 下（与 plans.py 同前缀，所有权校验 404 防枚举）
 router = APIRouter(prefix="/plans", tags=["share"], dependencies=[Depends(require_auth)])
+# 认证轨：全局分享管理（iter 258）
+manage_router = APIRouter(prefix="/shares", tags=["share"], dependencies=[Depends(require_auth)])
 # 公开轨：无认证
 public_router = APIRouter(prefix="/shared", tags=["share"])
 
@@ -77,6 +83,32 @@ def get_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(
 
 # 公开读限流（防 token 探测/抓取滥用；192bit token 本身不可枚举，此为纵深防御）
 _SHARED_READ_RATE_PER_MIN = 30
+
+
+@manage_router.get("")
+def list_shares(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """当前用户全部活跃分享链接（新→旧）——安全审计面：逐方案创建/撤销之外，
+    「我到底分享出去了哪些」需要全局视图，遗忘的公开链接长期有效。"""
+    rows = (
+        db.query(ShareLink, Plan)
+        .join(Plan, ShareLink.plan_id == Plan.id)  # INNER JOIN：方案已删的孤儿链接自动不可见
+        .join(models.Session, Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .order_by(ShareLink.created_at.desc(), ShareLink.id.desc())  # 同秒并列按 id 保底确定序
+        .all()
+    )
+    return {
+        "shares": [
+            {
+                "plan_id": plan.id,
+                "topic": _plan_topic(plan),
+                "token": link.token,
+                "path": f"/shared/{link.token}",
+                "created_at": link.created_at.isoformat(),
+            }
+            for link, plan in rows
+        ]
+    }
 
 
 def _sanitize_shared_content(content: dict) -> dict:

@@ -31,7 +31,7 @@
 ### 导出与分享
 
 - 方案导出 **Markdown / PDF / PPT 风格幻灯片（HTML）/ 日历 .ics / Anki 卡片包**
-- 只读**分享链接**（免登录查看）；全量数据**备份导出 / 导入**（含预检）
+- 只读**分享链接**（免登录查看；设置页可全局查看活跃链接、一键撤销）；全量数据**备份导出 / 导入**（含预检）
 
 ### 账号与配置
 
@@ -63,7 +63,7 @@ Deep-tutor/
 ├── backend/         # FastAPI 后端
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（797 项）
+│   ├── tests/       # pytest 测试套件（804 项）
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
 ├── extension/       # 浏览器扩展（MV3 网页剪藏）
@@ -181,7 +181,7 @@ Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、�
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 797 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 804 项测试（含契约/漂移守卫）
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```
