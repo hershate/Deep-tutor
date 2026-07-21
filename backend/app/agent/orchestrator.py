@@ -70,6 +70,34 @@ assert set(FEEDBACK_TARGETS.values()) <= set(PIPELINE), "FEEDBACK_TARGETS 指向
 assert set(PLAN_SECTIONS) <= set(PIPELINE), "PLAN_SECTIONS 登记了不在 PIPELINE 的工具"
 assert [t for g in _PARALLEL_GROUPS for t in g] == PIPELINE, "执行分组须与 PIPELINE 同序等集"
 
+
+def check_parallel_groups_safe(tools: dict[str, Tool]) -> None:
+    """校验 _PARALLEL_GROUPS 的并行安全性（iter 235 W4b）：同组工具互不读取对方输出。
+
+    并行组成员共享同一 outputs 快照、并发执行——若某成员的上游读取（Tool.upstream_reads，
+    声明式事实源）指向同组另一成员，它会读到「快照里尚未写入/陈旧」的数据，且无任何
+    运行时拦截。此前该约束仅靠 _PARALLEL_GROUPS 上方注释约定，新人误加依赖型工具进
+    并行组会静默出错。本函数把约定升级为 import 期强制（由 default_registry() 在集齐
+    工具实例后调用），违例 -> ValueError 启动即炸，而非线上静默错数据。
+
+    tools：工具名 -> Tool 实例（须至少覆盖所有多成员组的组员；缺省 upstream_reads 视为
+    不读上游，与 registry.Tool 默认一致）。
+    """
+    for group in _PARALLEL_GROUPS:
+        if len(group) < 2:
+            continue
+        members = set(group)
+        for name in group:
+            tool = tools.get(name)
+            reads = set(tool.upstream_reads) if tool is not None else set()
+            conflict = reads & (members - {name})
+            if conflict:
+                raise ValueError(
+                    f"并行组成员 {name} 读取同组工具输出 {sorted(conflict)}——"
+                    f"并发执行下会读到缺失/陈旧数据；请将其移出并行组或消除该上游依赖"
+                )
+
+
 EventCb = Callable[[str, dict[str, Any]], None]
 
 

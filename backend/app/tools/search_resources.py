@@ -493,4 +493,11 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     return resources
 
 
-search_resources_tool = Tool(name="search_resources", llm=False, func=search_resources)
+search_resources_tool = Tool(
+    name="search_resources",
+    llm=False,
+    func=search_resources,
+    # 实际读取 understand_intent（资源筛选意图）与 design_stages（B21 主题派生）的上游输出；
+    # 据此声明使 orchestrator 能静态校验它不与其他读取它的工具同组并行（见 _PARALLEL_GROUPS 断言）。
+    upstream_reads=frozenset({"understand_intent", "design_stages"}),
+)

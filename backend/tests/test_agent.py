@@ -472,6 +472,43 @@ def test_orchestrator_parallel_span_concurrent():
     assert result.outputs["schedule_plan"].status == "ok"
 
 
+def test_check_parallel_groups_safe_catches_intra_group_read():
+    """iter 235 W4b：同组成员读取另一成员输出 -> ValueError（并行安全断言）。
+
+    并行组成员共享同一 outputs 快照，读同组成员即读到缺失/陈旧数据；本断言把
+    「同组互不依赖」从注释约定升级为 import 期强制，违例启动即炸而非线上静默错数据。
+    """
+    import pytest
+
+    from app.agent import check_parallel_groups_safe
+
+    def _pytool(name, reads=frozenset()):
+        async def _f(inp, ctx):  # noqa: ANN001
+            return {}
+
+        return Tool(name=name, llm=False, func=_f, upstream_reads=reads)
+
+    # 当前真实配置：search 读 understand/design_stages，schedule 不读上游 -> 通过
+    check_parallel_groups_safe({
+        "search_resources": _pytool("search_resources", frozenset({"understand_intent", "design_stages"})),
+        "schedule_plan": _pytool("schedule_plan"),
+    })
+    # 坏配置：schedule_plan 读同组成员 search_resources -> 抛 ValueError
+    with pytest.raises(ValueError, match="读取同组工具输出"):
+        check_parallel_groups_safe({
+            "search_resources": _pytool("search_resources"),
+            "schedule_plan": _pytool("schedule_plan", frozenset({"search_resources"})),
+        })
+
+
+def test_default_registry_passes_parallel_safety_check():
+    """iter 235 W4b：真实 default_registry 构建即触发并行安全校验（不抛即通过）。"""
+    from app.tools import default_registry
+
+    reg = default_registry()  # 构建内部已调用 check_parallel_groups_safe
+    assert reg.has("search_resources") and reg.has("schedule_plan")
+
+
 def test_orchestrator_parallel_span_error_deterministic():
     """R2：组内错误按 PIPELINE 顺序确定性报告；成功成员输出保留在 outputs。"""
     from app.tools.base import ToolError

@@ -34,6 +34,11 @@ class Tool:
     output_model: type[BaseModel] | None = None
     default_data: dict[str, Any] | None = None
     requires: list[str] = field(default_factory=list)  # 如 "understand_intent.topic"
+    # 工具实际读取的上游工具名集合（声明式，err.md B13/iter 235 W4b）。
+    # 仅作「并行组同组工具互不依赖」静态断言的事实源，不参与 check_field_coverage、
+    # 不触发 missing_upstream_field——故填充它是**零运行时行为变更**。缺省空集
+    # （不读上游）。应由工具作者据 func/Skill 的 inp.upstream 实际读取面如实填写。
+    upstream_reads: frozenset[str] = field(default_factory=frozenset)
     inline_prompt: str | None = None  # LLM 工具内联 prompt（step 5 Skill 未接入时的兜底）
     post_process: Callable[[dict[str, Any], "ToolInput"], dict[str, Any]] | None = None  # 校验后清洗(data, inp)
     func: ToolFunc | None = None  # Python 工具

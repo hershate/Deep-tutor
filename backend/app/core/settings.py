@@ -73,9 +73,6 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=50, description="上传单文件上限 MB")
     max_tool_calls: int = Field(default=20, description="工具调用轮次上限/会话")
     max_regenerations: int = Field(default=2, description="重生成上限")
-    context_token_threshold: int = Field(
-        default=0, description="上下文溢出阈值；0=按模型自动"
-    )
 
     # --- 预算（成本控制 Pillar 3）---
     budget_per_session_usd: float = Field(default=1.0, description="会话预算")

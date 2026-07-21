@@ -46,6 +46,12 @@ def default_registry() -> ToolRegistry:
 
     for plugin_tool in plugin_runtime.plugin_tools():
         reg.register(plugin_tool)
+
+    # iter 235 W4b：集齐全部工具实例后，校验并行组同组工具互不读取对方输出
+    # （约定从注释升级为 import 期强制；违例启动即炸而非线上静默读陈旧数据）。
+    from app.agent.orchestrator import check_parallel_groups_safe
+
+    check_parallel_groups_safe({name: reg.get(name) for name in reg.names()})
     return reg
 
 

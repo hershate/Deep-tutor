@@ -18,6 +18,7 @@ from app.agent.orchestrator import (
     Orchestrator,
     OrchestratorResult,
     check_field_coverage,
+    check_parallel_groups_safe,
 )
 from app.agent.registry import Tool, ToolRegistry
 
@@ -33,6 +34,7 @@ __all__ = [
     "Orchestrator",
     "OrchestratorResult",
     "check_field_coverage",
+    "check_parallel_groups_safe",
     "Tool",
     "ToolRegistry",
 ]
