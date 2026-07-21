@@ -129,6 +129,46 @@ def update_progress(
     }
 
 
+@router.get("/logs")
+def list_day_logs(
+    date_: dt_date = Query(alias="date"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """某日跨方案学习日志（iter 268：热力图当日明细——点击格子看「那天学了什么」）。
+
+    此前日志仅按方案隔离可查（/logs/{plan_id}），全局时间视图（热力图）与
+    按方案日志列表之间无桥梁；本端点按日聚合当前用户全部方案的打卡。
+    date 为 ISO 日期（FastAPI 解析，非法 422）；结果按 id 倒序（后打的在前）。
+    注意：必须注册在 /{plan_id} 之前——/logs 与 /{plan_id} 同为两段路径，
+    注册顺序决定匹配（否则 "logs" 被当 plan_id 解析报 422，开发期实查暴露）。
+    """
+    from app.api.plans import _plan_topic  # 方案主题（content_path 文件回读同款口径）
+
+    rows = (
+        db.query(models.LearningLog, models.Plan)
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id, models.LearningLog.date == date_)
+        .order_by(models.LearningLog.id.desc())
+        .limit(100)  # 防御上界（正常一日打卡数条；配额见 add_learning_log）
+        .all()
+    )
+    return {
+        "date": date_.isoformat(),
+        "items": [
+            {
+                "id": log.id,
+                "plan_id": log.plan_id,
+                "topic": _plan_topic(plan),
+                "minutes": log.minutes,
+                "note": log.note,
+            }
+            for log, plan in rows
+        ],
+    }
+
+
 @router.get("/{plan_id}")
 def get_progress(
     plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)

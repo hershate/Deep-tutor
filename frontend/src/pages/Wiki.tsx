@@ -8,7 +8,7 @@ import KbDocsView from '../components/KbDocsView'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, listDayLogs, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 import { onTablistKeyDown } from '../lib/tabs'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
@@ -463,8 +463,18 @@ export default function Wiki() {
   )
 }
 
-/** iter 139：打卡热力图——近 12 周（84 天）学习分钟，GitHub 风格周列，悬浮看 日期+分钟 */
+/** iter 139：打卡热力图——近 12 周（84 天）学习分钟，GitHub 风格周列，悬浮看 日期+分钟；
+ *  iter 268：格子可点击展开「当日明细」（跨方案打卡列表——「那天学了什么」全局视图），
+ *  再点同一格/其他格切换；格子从 div 改 button 后 role=img 不再适用（会吞掉交互语义），
+ *  改 group + 每格独立 aria-label。 */
 function StudyHeatmap({ items }: { items: CalendarDay[] }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const { data: dayLogs, isFetching: dayLoading } = useQuery({
+    queryKey: ['day-logs', selected],
+    queryFn: () => listDayLogs(selected as string),
+    enabled: selected !== null,
+    staleTime: 30_000, // 当日可能继续打卡，短 stale 平衡新鲜度与点击往返
+  })
   // 顺序 7 天一列（最旧在左），列内自上而下时间递增
   const weeks: CalendarDay[][] = []
   for (let i = 0; i < items.length; i += 7) weeks.push(items.slice(i, i + 7))
@@ -474,14 +484,20 @@ function StudyHeatmap({ items }: { items: CalendarDay[] }) {
       aria-label="近12周学习打卡热力图"
     >
       <h3 className="mb-2 text-sm font-medium text-slate-600 dark:text-slate-300">学习打卡 · 近 12 周</h3>
-      <div className="flex gap-1 overflow-x-auto pb-1" role="img" aria-label={`近 ${items.length} 天学习打卡热力图，颜色越深分钟越多`}>
+      <div className="flex gap-1 overflow-x-auto pb-1" role="group" aria-label={`近 ${items.length} 天学习打卡热力图，颜色越深分钟越多；点击格子看当日明细`}>
         {weeks.map((week, wi) => (
           <div key={wi} className="flex shrink-0 animate-fade-in flex-col gap-1" style={{ animationDelay: `${Math.min(wi, 11) * 30}ms` }}>
             {week.map((d) => (
-              <div
+              <button
                 key={d.date}
+                type="button"
+                onClick={() => setSelected((s) => (s === d.date ? null : d.date))}
                 title={`${d.date} · ${d.minutes > 0 ? `${d.minutes} 分钟` : '未打卡'}`}
-                className={`h-3.5 w-3.5 rounded-sm transition-all hover:scale-125 hover:shadow-sm ${heatClass(d.minutes)}`}
+                aria-label={`${d.date}，${d.minutes > 0 ? `${d.minutes} 分钟` : '未打卡'}，点击查看当日明细`}
+                aria-pressed={selected === d.date}
+                className={`h-3.5 w-3.5 rounded-sm transition-all hover:scale-125 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/60 ${heatClass(d.minutes)} ${
+                  selected === d.date ? 'ring-2 ring-blue-500 dark:ring-blue-400' : ''
+                }`}
               />
             ))}
           </div>
@@ -496,6 +512,42 @@ function StudyHeatmap({ items }: { items: CalendarDay[] }) {
         <span className={`h-3 w-3 rounded-sm ${heatClass(150)}`} />
         多
       </div>
+      {/* iter 268：当日明细（选中日期才渲染）——跨方案打卡：主题直达方案 + 分钟 + 备注 */}
+      {selected !== null && (
+        <div className="mt-3 animate-fade-in rounded-lg border bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900" aria-live="polite">
+          <div className="mb-1.5 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span className="font-medium tabular-nums">{selected} 打卡明细</span>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              aria-label="关闭当日明细"
+              className="rounded px-1.5 py-0.5 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700"
+            >
+              ✕
+            </button>
+          </div>
+          {dayLoading && <p className="text-xs text-slate-400" role="status">加载中…</p>}
+          {!dayLoading && dayLogs && dayLogs.items.length === 0 && (
+            <p className="text-xs text-slate-400">该日未打卡</p>
+          )}
+          {!dayLoading && dayLogs && dayLogs.items.length > 0 && (
+            <ul className="space-y-1">
+              {dayLogs.items.map((log) => (
+                <li key={log.id} className="flex items-baseline gap-2 text-sm">
+                  <Link
+                    to={`/plans/${log.plan_id}`}
+                    className="shrink-0 text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    {log.topic || `方案 #${log.plan_id}`}
+                  </Link>
+                  <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">{log.minutes} 分钟</span>
+                  {log.note && <span className="min-w-0 truncate text-xs text-slate-400 dark:text-slate-500">{log.note}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   )
 }

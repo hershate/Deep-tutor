@@ -523,6 +523,16 @@ export const addLearningLog = (planId: number, minutes: number, note = '') =>
 // iter 150：删除打错的卡
 export const deleteLearningLog = (logId: number) =>
   apiFetch<{ deleted: boolean; id: number }>(`/progress/logs/${logId}`, { method: 'DELETE' })
+// iter 268：某日跨方案打卡明细（Wiki 热力图点击格子——「那天学了什么」全局视图此前不存在）
+export interface DayLogItem {
+  id: number
+  plan_id: number
+  topic: string
+  minutes: number
+  note: string | null
+}
+export const listDayLogs = (date: string) =>
+  apiFetch<{ date: string; items: DayLogItem[] }>(`/progress/logs?date=${encodeURIComponent(date)}`)
 
 // --- cancel（取消运行中生成，plan/10 §十一）---
 export const cancelGeneration = (sessionId: number) =>
