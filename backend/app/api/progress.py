@@ -22,11 +22,16 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
 from app.tools.record_progress import compute_mastery, next_review_date
 
 router = APIRouter(prefix="/progress", tags=["progress"], dependencies=[Depends(require_auth)])
+
+# iter 246：打卡限流 + 条数配额——此前是写入面无防的遗漏点，脚本可无限灌行拖垮库
+_LOG_RATE_PER_MIN = 60
+_MAX_LOGS_PER_USER = 10_000
 
 
 class ProgressUpdate(BaseModel):
@@ -280,7 +285,18 @@ def add_learning_log(
     body: LearningLogIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     """打卡：记一条学习日志（plan_id, date, minutes, note）。"""
+    if not limiter.check(f"learning_log:{user.id}", _LOG_RATE_PER_MIN):
+        raise ApiError("rate_limited", "打卡过于频繁，请稍后再试", status=429)
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
+    total_logs = (
+        db.query(func.count(models.LearningLog.id))
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .scalar()
+    )
+    if (total_logs or 0) >= _MAX_LOGS_PER_USER:
+        raise ApiError("quota_exceeded", f"打卡记录已达上限 {_MAX_LOGS_PER_USER} 条", status=429)
     row = models.LearningLog(
         plan_id=body.plan_id,
         date=body.date or dt_date.today(),
