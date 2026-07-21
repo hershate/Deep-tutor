@@ -38,6 +38,13 @@ MAX_TOTAL = 40
 BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 SEARCH_TIMEOUT = 30.0
 
+# 并发限额（iter 228 并行优化：检索/校验原为全串行网络调用，是生成 pipeline
+# 最长的 wall-clock 阶段）：
+# - 检索并发 2：bing_web 为网页抓取，并发过高易触发反爬（验证码页 -> 判引擎失败），保守取 2；
+# - 校验并发 4：候选 host 分散，verify_url 内部另有 TTL 缓存/robots 缓存去重兜底。
+_SEARCH_CONCURRENCY = 2
+_VERIFY_CONCURRENCY = 4
+
 # --- Bing 网页版抓取（免 Key 兜底引擎，iter 222）---
 BING_WEB_ENDPOINT = "https://cn.bing.com/search"
 BING_WEB_MKT = "zh-CN"
@@ -85,6 +92,64 @@ def _ctx_bing_key(ctx: ExecContext) -> str:
     return (getattr(ctx, "bing_api_key", "") or "") or settings.bing_api_key
 
 
+async def _run_web_queries(
+    queries: list[tuple[int, str]], engine: str, bing_key: str
+) -> list[list[dict] | None]:
+    """并发执行全部检索查询（有界 _SEARCH_CONCURRENCY，iter 228）。
+
+    返回与 queries 等长对齐的结果列表；单查询失败 -> 对应位 None（记 warning，
+    不中断整批，同旧串行 continue 语义）。gather 保持入参顺序，与并发完成先后无关。
+    """
+    sem = asyncio.Semaphore(_SEARCH_CONCURRENCY)
+
+    async def _one(topic: str) -> list[dict] | None:
+        async with sem:
+            try:
+                return await _search_web(topic, engine, key=bing_key)
+            except Exception as exc:  # noqa: BLE001  单查询检索失败不中断
+                log.warning("Web 检索失败 topic=%s: %s", topic[:MAX_QUERY_CHARS], exc)
+                return None
+
+    return await asyncio.gather(*(_one(topic) for _, topic in queries))
+
+
+async def _verify_candidates(
+    items: list[tuple[int, dict]], session_id: str, ctx: ExecContext
+) -> dict[str, dict]:
+    """并发校验候选 URL（有界 _VERIFY_CONCURRENCY，iter 228），返回 {候选原 url: verify data}。
+
+    - 按 URL 去重：同 URL 只验一次（stage_level 取首个出现阶段；verify_url 进程内
+      TTL 缓存进一步兜底——缓存/robots 缓存为普通 dict，并发下同 URL 仍可能各抓
+      一次，无害仅浪费，去重已把此窗口压到最小）。
+    - 单候选校验异常不中断整批：记 warning 按 invalid 跳过。与旧串行「异常上抛
+      致整工具失败、pipeline 中断」的有意偏离（稳定优先：单候选病害不拖垮检索）。
+    """
+    first_seen: dict[str, int] = {}  # url -> stage_level（保留首个出现阶段，dict 保序）
+    for stage_index, cand in items:
+        url = cand.get("url", "")
+        if url and url not in first_seen:
+            # err.md B19：阶段水平随 stage_index 递进（高级阶段资源不按入门水平校验）
+            first_seen[url] = stage_index + 1
+    sem = asyncio.Semaphore(_VERIFY_CONCURRENCY)
+
+    async def _one(url: str, stage_level: int) -> tuple[str, dict]:
+        async with sem:
+            v_inp = ToolInput(
+                tool="verify_url",
+                session_id=session_id,
+                args={"url": url, "stage_level": stage_level},
+            )
+            try:
+                v_out = await verify_url(v_inp, ctx)
+            except Exception as exc:  # noqa: BLE001  单候选病害不拖垮整批
+                log.warning("候选校验异常 url=%s: %s", url, exc)
+                return url, {"label": "invalid"}
+            return url, (v_out.data or {})
+
+    pairs = await asyncio.gather(*(_one(u, lvl) for u, lvl in first_seen.items()))
+    return dict(pairs)
+
+
 async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     stage_topics: list[list[str]] = _derive_stage_topics(inp)
     bing_key = _ctx_bing_key(ctx)
@@ -105,46 +170,50 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             errors=[ToolError(code="no_search_key", message="SEARCH_ENGINE=bing 但未配置 BING_API_KEY，search_resources 不可用")],
         )
 
+    # --- 阶段 1：并发检索（iter 228；旧串行逐主题 await，wall-clock 为各查询之和）---
+    queries: list[tuple[int, str]] = [
+        (stage_index, topic)
+        for stage_index, topics in enumerate(stage_topics)
+        for topic in topics[:3]  # 每阶段取前 3 个主题检索
+    ]
+    attempted = len(queries)  # 实际发起的检索数（空主题时不得误报引擎不可用）
+    results = await _run_web_queries(queries, engine, bing_key)
+    succeeded = sum(1 for r in results if r is not None)
+
+    # --- 阶段 2：并发校验（URL 去重，同 URL 只验一次）---
+    items: list[tuple[int, dict]] = [
+        (stage_index, cand)
+        for (stage_index, _), cands in zip(queries, results, strict=True)
+        if cands
+        for cand in cands
+    ]
+    verdicts = await _verify_candidates(items, inp.session_id, ctx)
+
+    # --- 阶段 3：确定性选择（顺序/配额语义与旧串行逐字一致：
+    # 按 阶段->主题->候选 原顺序遍历，invalid 换源不占位，每阶段 ≤MAX_PER_STAGE、总 ≤MAX_TOTAL）---
     resources: list[dict] = []
-    attempted = 0  # 实际发起的检索数（空主题时不得误报引擎不可用）
-    succeeded = 0  # 引擎层面成功的检索数（区别于「成功但真空结果」）
-    for stage_index, topics in enumerate(stage_topics):
-        for topic in topics[:3]:  # 每阶段取前 3 个主题检索
-            if len(resources) >= MAX_TOTAL:
+    per_stage: dict[int, int] = {}
+    for (stage_index, _), cands in zip(queries, results, strict=True):
+        if not cands:
+            continue
+        for cand in cands:
+            if per_stage.get(stage_index, 0) >= MAX_PER_STAGE or len(resources) >= MAX_TOTAL:
                 break
-            attempted += 1
-            try:
-                candidates = await _search_web(topic, engine, key=bing_key)
-            except Exception as exc:  # noqa: BLE001  单查询检索失败不中断
-                log.warning("Web 检索失败 topic=%s: %s", topic[:MAX_QUERY_CHARS], exc)
-                continue
-            succeeded += 1
-            for cand in candidates:
-                if sum(1 for r in resources if r["stage_index"] == stage_index) >= MAX_PER_STAGE:
-                    break
-                if len(resources) >= MAX_TOTAL:
-                    break
-                v_inp = ToolInput(
-                    tool="verify_url",
-                    session_id=inp.session_id,
-                    # err.md B19：阶段水平随 stage_index 递进（此前硬编码 1，
-                    # 高级阶段资源按入门水平校验，verify 难度判定失真）
-                    args={"url": cand.get("url", ""), "stage_level": stage_index + 1},
-                )
-                v_out = await verify_url(v_inp, ctx)
-                vdata = v_out.data or {}
-                if vdata.get("label") == "invalid":
-                    continue  # 失效换源
-                resources.append(
-                    {
-                        "stage_index": stage_index,
-                        "title": cand.get("title", ""),
-                        "url": vdata.get("final_url", cand.get("url", "")),
-                        "type": "doc",
-                        "verified": vdata.get("label", "uncertain"),
-                        "note": "",
-                    }
-                )
+            url = cand.get("url", "")
+            vdata = verdicts.get(url) or {}
+            if vdata.get("label", "invalid") == "invalid":
+                continue  # 失效换源
+            resources.append(
+                {
+                    "stage_index": stage_index,
+                    "title": cand.get("title", ""),
+                    "url": vdata.get("final_url", url),
+                    "type": "doc",
+                    "verified": vdata.get("label", "uncertain"),
+                    "note": "",
+                }
+            )
+            per_stage[stage_index] = per_stage.get(stage_index, 0) + 1
 
     # 网页引擎全面失败（网络/反爬，区别于真空结果）：降级为关键词建议，不中断 pipeline
     if engine == "bing_web" and attempted > 0 and succeeded == 0:
@@ -398,22 +467,14 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     except Exception as exc:  # noqa: BLE001  检索失败不中断单元生成
         log.warning("单元补充资料检索失败 query=%s: %s", query[:MAX_QUERY_CHARS], exc)
         return []
+    # iter 228：复用并发校验（stage_level 恒 1，与旧硬编码一致；单候选异常按 invalid 跳过）
+    verdicts = await _verify_candidates([(0, c) for c in candidates], ctx.session_id, ctx)
     resources: list[dict] = []
     for cand in candidates:
         if len(resources) >= limit:
             break
-        v_inp = ToolInput(
-            tool="verify_url",
-            session_id=ctx.session_id,
-            args={"url": cand.get("url", ""), "stage_level": 1},
-        )
-        try:
-            v_out = await verify_url(v_inp, ctx)
-        except Exception as exc:  # noqa: BLE001  单候选校验失败跳过
-            log.warning("单元补充资料校验失败 url=%s: %s", cand.get("url", ""), exc)
-            continue
-        vdata = v_out.data or {}
-        if vdata.get("label") == "invalid":
+        vdata = verdicts.get(cand.get("url", "")) or {}
+        if vdata.get("label", "invalid") == "invalid":
             continue  # 失效换源（同主流程）
         resources.append(
             {

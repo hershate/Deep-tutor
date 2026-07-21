@@ -561,3 +561,93 @@ def test_bing_web_search_oversize_raises(monkeypatch):
     _patch_client(monkeypatch, _FakeStreamResp(body))
     with pytest.raises(ValueError, match="上限"):
         asyncio.run(sr_mod._bing_web_search("x"))
+
+
+# ---------------------------------------------------------------------------
+# iter 228：检索/校验有界并发
+# ---------------------------------------------------------------------------
+
+
+def test_parallel_selection_order_deterministic(monkeypatch):
+    """并发完成顺序不泄漏到结果：选择按 阶段->主题->候选 原顺序（与旧串行逐字一致）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+
+    async def fake_search(query, engine, count=5, key=""):
+        # 先发的查询反而更慢——若并发完成顺序泄漏，结果将乱序
+        await asyncio.sleep(0.05 if query == "t0" else 0)
+        return [{"title": f"{query}-c{i}", "url": f"https://example.com/{query}/{i}"} for i in range(2)]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        return ToolOutput(
+            tool="verify_url",
+            status="ok",
+            data={"ok": True, "status": 200, "suitable": True, "final_url": url, "label": "ok"},
+        )
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    out = _run({"stage_topics": [["t0", "t1"], ["t2"]]})
+    assert out.status == "ok"
+    got = [(r["stage_index"], r["url"]) for r in out.data["resources"]]
+    assert got == [
+        (0, "https://example.com/t0/0"),
+        (0, "https://example.com/t0/1"),
+        (0, "https://example.com/t1/0"),
+        (0, "https://example.com/t1/1"),
+        (1, "https://example.com/t2/0"),
+        (1, "https://example.com/t2/1"),
+    ]
+
+
+def test_search_concurrency_bounded(monkeypatch):
+    """检索并发真实发生且不超过 _SEARCH_CONCURRENCY（bing_web 反爬保守上限）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    state = {"cur": 0, "max": 0}
+
+    async def fake_search(query, engine, count=5, key=""):
+        state["cur"] += 1
+        state["max"] = max(state["max"], state["cur"])
+        await asyncio.sleep(0.05)
+        state["cur"] -= 1
+        return []
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    out = _run({"stage_topics": [["q0", "q1", "q2"], ["q3"]]})
+    assert out.status == "ok"
+    assert state["max"] == sr_mod._SEARCH_CONCURRENCY
+
+
+def test_verify_dedup_and_exception_skips(monkeypatch):
+    """同 URL 跨阶段只验一次；单候选校验异常按 invalid 跳过、不拖垮整批。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    calls: list[str] = []
+
+    async def fake_search(query, engine, count=5, key=""):
+        return [
+            {"title": "shared", "url": "https://example.com/shared"},
+            {"title": "boom", "url": "https://example.com/boom"},
+        ]
+
+    async def fake_verify(inp, ctx):
+        url = inp.args.get("url", "")
+        calls.append(url)
+        if "boom" in url:
+            raise RuntimeError("verify bug")
+        return ToolOutput(
+            tool="verify_url",
+            status="ok",
+            data={"ok": True, "status": 200, "suitable": True, "final_url": url, "label": "ok"},
+        )
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    out = _run({"stage_topics": [["a"], ["b"]]})
+    assert out.status == "ok"  # 异常候选未拖垮整批
+    assert calls.count("https://example.com/shared") == 1  # 去重只验一次
+    got = {(r["stage_index"], r["url"]) for r in out.data["resources"]}
+    assert (0, "https://example.com/shared") in got
+    assert (1, "https://example.com/shared") in got  # 两阶段仍各自收录（同旧行为）
+    assert all("boom" not in u for _, u in got)
