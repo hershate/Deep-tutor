@@ -234,6 +234,10 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-21 iter 241（后端安全加固 8 项落地，commit `6c68397`；iter 240 审计 12 项中 8 项修复、2 项诚实不改、2 项留待）**：修复：①test_provider 错误去原文回显（异常类型名+HTTP 状态码，断内网探测回读通道；providers.py）；②export_plan 路径清洗 `_safe_seg`+resolve containment（对齐 storage 语义）；③登录限流账号维度聚合桶 `login:acct:{username}` 20/min（auth.py，防多 IP 分布式爆破绕过 ip+username 桶）；④解析错误统一服务器路径清洗（_ParseError 构造处 `_scrub_server_paths`：data_dir/tempdir/cwd -> <服务器路径>，覆盖 marker stderr/pypdf 异常全部出口）；⑤quiz user_answer ≤1 万字符（field_validator）；⑥weasyprint 导出 wait_for 120s 超时降级 md；⑦materials.py/kb.py 直调 parse_material 补 `asyncio.wait_for(Timeouts().parse)`（whisper 无内部超时 + ffprobe 缺失守卫失效的兜底，此前 run_tool 外层超时在这两条路径不生效）；⑧备份导入配额对齐 API（sessions 200/materials 20 per session/notes 500 超限跳过记 skipped）+ learning_logs.minutes 钳制 1-1440。测试 +8（test_iter241_hardening.py：账号桶 spy/回显断言/路径清洗/穿越安全/422/配额/钳制），test_api_providers 连通性测试契约更新为「状态码保留+正文不回显」，**全量 741 通过**。
+  - **诚实不改 2 项**：中②后半「自定义 base_url 不过 _is_safe_url」——base_url 合法用途就是 localhost/局域网自建代理（ollama/one-api），封私网会打断主用例，仅修回显面；低③CGNAT 100.64/10 与 site-local fec0::/10 未拦——本地优先威胁模型下收益极低，记录留待。
+  - **留待 2 项**：中①SSRF DNS rebinding TOCTOU（校验与连接两次独立解析）——标准修法需传输层 IP 钉扎（httpx 无 resolver 钩子，自研 HTTP 栈代价过大），候选方案：响应经 extensions 取实际连接 IP 复检，下轮评估；前端低优 3 项（Toast aria-live 常驻/tablist 方向键导航/slate-400 小字对比度）。
+
 - **2026-07-21 iter 240（UX 细节深挖 + 文档一致性：20 项前端 UX 发现修复 16 项 + 文档漂移 4 处修复 + 扩展剪藏反馈闭环）**：/loop 循环第十三轮（用户新指令：反复检查稳定性/安全性/UX/可维护性/文档，禁止走过场）。基线：后端 733 测试通过、前端 build 通过。三路并行审计（后端安全/前端 UX/文档一致性）+ 自审 XSS 面与浏览器扩展。
   - **自审 XSS 渲染面（结论：无问题）**：react-markdown 全部配 rehypeSanitize（KbChatPanel/Notes/KbViewerModal/StudyMaterialReader）、无 dangerouslySetInnerHTML；build_plan_slides/build_anki 服务端 html.escape；分享端点 _sanitize_shared_content 剥答案+非 http(s) 资源 URL 置空+公开读限流 30/分。
   - **扩展剪藏反馈闭环（commit `5f5f96f`）**：右键剪藏失败此前仅 3 秒红 badge 用户无从得知原因（未配 Token/Token 过期/连接失败）——dtClip 失败结果持久化 lastResult，popup 最近结果区展示相对时间（刚刚/x 分钟前）与失败原因；非 http(s) 页面右键剪藏补 ✗ badge 替代静默返回。node --check 4 文件通过。
