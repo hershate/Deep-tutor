@@ -188,6 +188,9 @@ def list_notes(
 
 _STATUS_LABEL = {"not_started": "未开始", "learning": "学习中", "done": "已掌握"}
 _DIFFICULTY_LABEL = {1: "入门", 2: "基础", 3: "中等", 4: "进阶", 5: "挑战"}
+# iter 248：导出行数截断（与列表端点 limit≤2000 口径一致）——此前全量拉取，
+# 重度用户（数千节点 + 每条 ≤2 万字符笔记）单请求内存峰值数十 MB
+_EXPORT_MAX_NODES = 2000
 
 
 @router.get("/export")
@@ -205,8 +208,12 @@ def export_knowledge_handbook(
         .join(models.Session, models.Plan.session_id == models.Session.id)
         .filter(models.Session.user_id == user.id)
         .order_by(models.KnowledgeNode.plan_id.desc(), models.KnowledgeNode.id)
+        .limit(_EXPORT_MAX_NODES + 1)  # iter 248：+1 探测截断（此前全量拉取无上限）
         .all()
     )
+    truncated = len(nodes) > _EXPORT_MAX_NODES
+    if truncated:
+        nodes = nodes[:_EXPORT_MAX_NODES]
     progress_map: dict[tuple[int, int], models.Progress] = {}
     note_map: dict[int, str] = {}
     if nodes:
@@ -241,6 +248,11 @@ def export_knowledge_handbook(
         f"> 导出于 {now:%Y-%m-%d %H:%M} · {len(nodes)} 个知识点 · {len(topics)} 个方案（Deep-tutor）",
         "",
     ]
+    if truncated:
+        lines += [
+            f"> ⚠️ 知识点超过 {_EXPORT_MAX_NODES} 个，本手册仅含最新 {_EXPORT_MAX_NODES} 个（按方案倒序）",
+            "",
+        ]
     current_plan: int | None = None
     for n in nodes:
         if n.plan_id != current_plan:
