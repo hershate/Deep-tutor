@@ -160,7 +160,9 @@ function loadPersisted(): Record<string, TaskEntry> {
     if (!Array.isArray(arr)) return {}
     const out: Record<string, TaskEntry> = {}
     for (const p of arr) {
-      if (p && typeof p.id === 'string' && p.id) out[p.id] = fromPersisted(p)
+      if (p && typeof p.id === 'string' && p.id && !isTombstoned(p.id, p.updatedAt)) {
+        out[p.id] = fromPersisted(p) // iter 244 F6：他页已删（墓碑较新）的不复活
+      }
     }
     return trimTasks(out) // 旧版本累积的超大台账：载入即裁剪
   } catch {
@@ -175,6 +177,49 @@ function persist(tasks: Record<string, TaskEntry>): void {
     /* 隐私模式等：台账仍在内存中工作 */
   }
 }
+
+// iter 244 F6：删除墓碑（多标签页复活修复）。A 页删除任务后，B 页内存台账仍有该条，
+// 其后续任意写盘会把它重新广播，A 页按「他页新建」补建——删除被静默撤销。
+// 墓碑记录删除时间戳：合并/载入时墓碑比任务 updatedAt 新则跳过；任务以更新的
+// updatedAt 重建（同 id 新一次生成）自然胜过墓碑并被清除。
+const TOMBSTONE_KEY = 'dt_tasks_v1_tombstones'
+const _MAX_TOMBSTONES = 200 // 有界：超出淘汰最旧（此时对应任务早已超台账上限被裁剪）
+
+function loadTombstones(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(TOMBSTONE_KEY)
+    const v = raw ? (JSON.parse(raw) as Record<string, number>) : {}
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+let tombstones: Record<string, number> = loadTombstones()
+
+function writeTombstones(): void {
+  try {
+    const entries = Object.entries(tombstones)
+    if (entries.length > _MAX_TOMBSTONES) {
+      entries.sort((a, b) => b[1] - a[1]) // 新者优先
+      tombstones = Object.fromEntries(entries.slice(0, _MAX_TOMBSTONES))
+    }
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(tombstones))
+  } catch {
+    /* 隐私模式等：墓碑仅内存生效 */
+  }
+}
+
+function markDeleted(ids: string[]): void {
+  if (ids.length === 0) return
+  const now = Date.now()
+  for (const id of ids) tombstones[id] = now
+  writeTombstones()
+}
+
+/** 墓碑是否压过该任务（删除晚于任务最后更新）。 */
+const isTombstoned = (id: string, updatedAt: number | undefined): boolean =>
+  (tombstones[id] ?? 0) > (updatedAt ?? 0)
 
 export interface UpsertTaskInput {
   id: string
@@ -358,16 +403,20 @@ export const useTaskStore = create<TasksState>((set, get) => ({
       delete tasks[id]
       return { tasks }
     })
+    markDeleted([id]) // iter 244 F6：墓碑防他页写盘复活
   },
 
   clearFinished: () => {
+    const doomed: string[] = []
     set((s) => {
       const tasks: Record<string, TaskEntry> = {}
       for (const [id, t] of Object.entries(s.tasks)) {
         if (!isTerminalPhase(t.phase)) tasks[id] = t
+        else doomed.push(id)
       }
       return { tasks }
     })
+    markDeleted(doomed) // iter 244 F6
   },
 
   reconcile: (items) => {
@@ -428,8 +477,40 @@ useTaskStore.subscribe((s) => {
 
 // 多标签页：他页写入 -> 按 updatedAt 大者合并恢复字段（各标签页各自挂 SSE，
 // 后端扇出，故易变进度无需跨页同步；仅终态/恢复字段需要）。本页写入不触发本页事件，无回环。
+// iter 244 F6：墓碑键同步删除——他页删除的任务本页同步移除（墓碑较新时）；
+// 任务合并时墓碑较新的一律跳过（防复活）；任务以更新 updatedAt 重建则清墓碑。
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
+    if (e.key === TOMBSTONE_KEY && e.newValue != null) {
+      let incoming: Record<string, number>
+      try {
+        const v = JSON.parse(e.newValue) as Record<string, number>
+        if (!v || typeof v !== 'object') return
+        incoming = v
+      } catch {
+        return
+      }
+      let tsChanged = false
+      for (const [id, ts] of Object.entries(incoming)) {
+        if (typeof ts === 'number' && ts > (tombstones[id] ?? 0)) {
+          tombstones[id] = ts // 大者合并（删除时间最新者胜）
+          tsChanged = true
+        }
+      }
+      if (!tsChanged) return
+      useTaskStore.setState((state) => {
+        let changed = false
+        const tasks = { ...state.tasks }
+        for (const [id, t] of Object.entries(tasks)) {
+          if (isTombstoned(id, t.updatedAt)) {
+            delete tasks[id]
+            changed = true
+          }
+        }
+        return changed ? { tasks } : state
+      })
+      return
+    }
     if (e.key !== STORAGE_KEY || e.newValue == null) return
     let incoming: PersistedTask[]
     try {
@@ -439,11 +520,17 @@ if (typeof window !== 'undefined') {
     } catch {
       return
     }
+    let clearedTs = false
     useTaskStore.setState((state) => {
       let changed = false
       const tasks = { ...state.tasks }
       for (const p of incoming) {
         if (!p || typeof p.id !== 'string') continue
+        if (isTombstoned(p.id, p.updatedAt)) continue // 他页已删（墓碑较新）：不补建不更新
+        if (tombstones[p.id]) {
+          delete tombstones[p.id] // 任务以更新 updatedAt 重建 -> 胜过旧墓碑，清除
+          clearedTs = true
+        }
         const local = tasks[p.id]
         if (!local) {
           tasks[p.id] = fromPersisted(p) // 他页新建的任务 -> 本页补建
@@ -457,5 +544,6 @@ if (typeof window !== 'undefined') {
       }
       return changed ? { tasks } : state
     })
+    if (clearedTs) writeTombstones()
   })
 }
