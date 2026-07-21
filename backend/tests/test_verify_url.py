@@ -296,3 +296,33 @@ def test_verify_url_content_too_short_uncertain(monkeypatch):
     out = _run("http://example.com/empty-shell")
     assert out.data["label"] == "uncertain"
     assert out.data["reason"] == "content_too_short"
+
+
+def test_verify_url_injected_client_and_factory_config():
+    """R4（iter 231）：注入共享 client 直接复用；make_verify_client 安全工厂配置断言。"""
+    import httpx as _httpx
+
+    from app.tools import verify_url as vu
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return _httpx.Response(404)
+        return _httpx.Response(200, text="x" * 1024)
+
+    injected = _httpx.AsyncClient(follow_redirects=False, transport=_httpx.MockTransport(handler))
+    try:
+        inp = ToolInput(tool="verify_url", session_id="s", args={"url": "https://example.com/page"})
+        out = asyncio.run(verify_url(inp, _ctx(), client=injected))
+        assert out.status == "ok"
+        assert out.data["label"] == "ok"
+        assert out.data["status"] == 200
+    finally:
+        asyncio.run(injected.aclose())
+
+    # 安全工厂：SSRF 不变量 follow_redirects=False + UA 头（共享/注入客户端的唯一合法来源）
+    factory_client = vu.make_verify_client(_ctx())
+    try:
+        assert factory_client.follow_redirects is False
+        assert factory_client.headers["User-Agent"] == vu._USER_AGENT
+    finally:
+        asyncio.run(factory_client.aclose())

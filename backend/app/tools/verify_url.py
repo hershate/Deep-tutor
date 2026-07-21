@@ -160,7 +160,24 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[int, str, bytes]:
     raise last_exc
 
 
-async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
+def make_verify_client(ctx: ExecContext) -> httpx.AsyncClient:
+    """构造校验用 AsyncClient（配置单一来源；调用方负责 `aclose()`）。
+
+    `follow_redirects=False` 为 SSRF 安全不变量（重定向由 _fetch 手动逐跳过检，
+    err.md B4）——共享/注入的客户端必须经本工厂构造，不得自带 follow_redirects=True。
+    R4（iter 231）：批量校验（search_resources._verify_candidates）共享一个 client
+    复用连接池（同 host 候选 TLS 握手摊销、减少临时端口 churn）。
+    """
+    return httpx.AsyncClient(
+        follow_redirects=False,  # err.md B4：重定向由 _fetch 手动逐跳过 SSRF 校验
+        timeout=httpx.Timeout(ctx.timeouts.url),
+        headers={"User-Agent": _USER_AGENT},
+    )
+
+
+async def verify_url(inp: ToolInput, ctx: ExecContext, client: httpx.AsyncClient | None = None) -> ToolOutput:
+    """校验单个 URL。client：可选注入的共享客户端（R4 批量校验连接复用；
+    必须为 make_verify_client 构造的安全配置）；缺省自建自闭（行为同旧）。"""
     url = inp.args.get("url", "")
     if not url:
         return _err("invalid_url", "空 URL")
@@ -178,19 +195,22 @@ async def verify_url(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if cached is not None:
         return ToolOutput(tool="verify_url", status="ok", data={**cached, "cached": True})
 
+    if client is not None:
+        return await _fetch_and_label(client, url)
+    async with make_verify_client(ctx) as own:
+        return await _fetch_and_label(own, url)
+
+
+async def _fetch_and_label(client: httpx.AsyncClient, url: str) -> ToolOutput:
+    """抓取 + 判定 + 缓存写回（verify_url 主体；client 由调用方提供/管理）。"""
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=False,  # err.md B4：重定向由 _fetch 手动逐跳过 SSRF 校验
-            timeout=httpx.Timeout(ctx.timeouts.url),
-            headers={"User-Agent": _USER_AGENT},
-        ) as client:
-            # 遵守 robots.txt（plan/09 §一）；disallow -> ⚠️ 不抓取
-            if not await _robots_allows(client, url):
-                out = _ok_data(url, ok=False, status=None, label="uncertain")
-                out.data["reason"] = "robots_disallowed"
-                _cache_put(url, out.data, ok=False)
-                return out
-            status, final_url, prefix = await _fetch(client, url)
+        # 遵守 robots.txt（plan/09 §一）；disallow -> ⚠️ 不抓取
+        if not await _robots_allows(client, url):
+            out = _ok_data(url, ok=False, status=None, label="uncertain")
+            out.data["reason"] = "robots_disallowed"
+            _cache_put(url, out.data, ok=False)
+            return out
+        status, final_url, prefix = await _fetch(client, url)
     except UnsafeRedirectError as exc:
         log.info("verify_url 重定向被拦截 %s: %s", url, exc)
         out = _ok_data(url, ok=False, status=None, label="invalid")

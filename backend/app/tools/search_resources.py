@@ -29,7 +29,7 @@ from app.agent.registry import Tool
 from app.core.settings import effective_search_engine, settings
 from app.llm.base import LLMUsage
 from app.tools.base import ToolError, ToolInput, ToolOutput
-from app.tools.verify_url import verify_url
+from app.tools.verify_url import make_verify_client, verify_url
 
 log = logging.getLogger("deep_tutor.tools.search")
 
@@ -123,6 +123,8 @@ async def _verify_candidates(
       一次，无害仅浪费，去重已把此窗口压到最小）。
     - 单候选校验异常不中断整批：记 warning 按 invalid 跳过。与旧串行「异常上抛
       致整工具失败、pipeline 中断」的有意偏离（稳定优先：单候选病害不拖垮检索）。
+    - R4（iter 231）：全批共享一个 make_verify_client 安全工厂构造的 client
+      （连接池复用；follow_redirects=False 的 SSRF 不变量由工厂保证），用毕关闭。
     """
     first_seen: dict[str, int] = {}  # url -> stage_level（保留首个出现阶段，dict 保序）
     for stage_index, cand in items:
@@ -132,7 +134,7 @@ async def _verify_candidates(
             first_seen[url] = stage_index + 1
     sem = asyncio.Semaphore(_VERIFY_CONCURRENCY)
 
-    async def _one(url: str, stage_level: int) -> tuple[str, dict]:
+    async def _one(client: httpx.AsyncClient, url: str, stage_level: int) -> tuple[str, dict]:
         async with sem:
             v_inp = ToolInput(
                 tool="verify_url",
@@ -140,13 +142,17 @@ async def _verify_candidates(
                 args={"url": url, "stage_level": stage_level},
             )
             try:
-                v_out = await verify_url(v_inp, ctx)
+                v_out = await verify_url(v_inp, ctx, client=client)
             except Exception as exc:  # noqa: BLE001  单候选病害不拖垮整批
                 log.warning("候选校验异常 url=%s: %s", url, exc)
                 return url, {"label": "invalid"}
             return url, (v_out.data or {})
 
-    pairs = await asyncio.gather(*(_one(u, lvl) for u, lvl in first_seen.items()))
+    shared = make_verify_client(ctx)
+    try:
+        pairs = await asyncio.gather(*(_one(shared, u, lvl) for u, lvl in first_seen.items()))
+    finally:
+        await shared.aclose()
     return dict(pairs)
 
 

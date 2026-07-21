@@ -41,7 +41,7 @@ def test_aggregation_with_mocks(monkeypatch):
             {"title": f"{query} 文档", "url": f"https://example.com/doc/{query}"},
         ]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(
             tool="verify_url",
@@ -66,7 +66,7 @@ def test_invalid_candidates_dropped(monkeypatch):
     async def fake_search(query, engine, count=5, key=""):
         return [{"title": "good", "url": "https://example.com/ok"}, {"title": "bad", "url": "https://example.com/dead"}]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         label = "invalid" if "dead" in url else "ok"
         return ToolOutput(tool="verify_url", status="ok", data={"ok": label == "ok", "status": 200 if label == "ok" else 404, "suitable": label == "ok", "final_url": url, "label": label})
@@ -92,7 +92,7 @@ def test_derive_stage_topics_from_upstream(monkeypatch):
         seen_queries.append(query)
         return [{"title": f"{query} 教程", "url": f"https://example.com/{query}"}]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
@@ -168,7 +168,7 @@ def test_unit_resources_verify_and_cap(monkeypatch):
             {"title": "good2", "url": "https://example.com/ok2"},
         ]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         label = "invalid" if "dead" in url else "ok"
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": label})
@@ -223,7 +223,7 @@ def _setup_two_candidates(monkeypatch):
             {"title": f"{query} 内核源码剖析", "url": "https://example.com/deep"},
         ]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
@@ -366,7 +366,7 @@ def test_auto_no_key_uses_web_engine(monkeypatch):
         seen.append(engine)
         return [{"title": "t", "url": "https://example.com/x"}]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
@@ -452,7 +452,7 @@ def test_unit_resources_auto_no_key(monkeypatch):
         seen.append(engine)
         return [{"title": "t", "url": "https://example.com/u"}]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
 
@@ -577,7 +577,7 @@ def test_parallel_selection_order_deterministic(monkeypatch):
         await asyncio.sleep(0.05 if query == "t0" else 0)
         return [{"title": f"{query}-c{i}", "url": f"https://example.com/{query}/{i}"} for i in range(2)]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         return ToolOutput(
             tool="verify_url",
@@ -630,7 +630,7 @@ def test_verify_dedup_and_exception_skips(monkeypatch):
             {"title": "boom", "url": "https://example.com/boom"},
         ]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         url = inp.args.get("url", "")
         calls.append(url)
         if "boom" in url:
@@ -651,3 +651,40 @@ def test_verify_dedup_and_exception_skips(monkeypatch):
     assert (0, "https://example.com/shared") in got
     assert (1, "https://example.com/shared") in got  # 两阶段仍各自收录（同旧行为）
     assert all("boom" not in u for _, u in got)
+
+
+def test_verify_candidates_shares_one_client(monkeypatch):
+    """R4（iter 231）：一批候选共享同一安全工厂 client（连接池复用），用毕恰好关闭一次。"""
+    seen_clients: list[object] = []
+
+    class _SentinelClient:
+        def __init__(self):
+            self.closed = 0
+
+        async def aclose(self):
+            self.closed += 1
+
+    sentinel = _SentinelClient()
+    monkeypatch.setattr(sr_mod, "make_verify_client", lambda ctx: sentinel)
+
+    async def fake_verify(inp, ctx, client=None):
+        seen_clients.append(client)
+        url = inp.args.get("url", "")
+        return ToolOutput(
+            tool="verify_url",
+            status="ok",
+            data={"ok": True, "status": 200, "suitable": True, "final_url": url, "label": "ok"},
+        )
+
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    out = asyncio.run(
+        sr_mod._verify_candidates(
+            [(0, {"url": "https://a.com/x"}), (1, {"url": "https://b.com/y"}), (1, {"url": "https://a.com/x"})],
+            "s",
+            _ctx(),
+        )
+    )
+    assert set(out) == {"https://a.com/x", "https://b.com/y"}  # URL 去重后两候选
+    assert len(seen_clients) == 2 and all(c is sentinel for c in seen_clients)  # 全批共享
+    assert sentinel.closed == 1  # 用毕恰好关闭一次

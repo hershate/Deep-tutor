@@ -295,7 +295,7 @@ def test_search_resources_uses_credential_key(client, auth_headers, monkeypatch)
         captured["key"] = key
         return [{"title": "t", "url": "https://example.com/x"}]
 
-    async def fake_verify(inp, ctx):
+    async def fake_verify(inp, ctx, client=None):
         return ToolOutput(
             tool="verify_url", status="ok",
             data={"ok": True, "status": 200, "suitable": True, "final_url": inp.args["url"], "label": "ok"},
