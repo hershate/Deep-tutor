@@ -72,7 +72,9 @@ def _cache_get(url: str) -> dict | None:
 
 def _cache_put(url: str, data: dict, ok: bool) -> None:
     if len(_cache) >= _CACHE_MAX:
-        _cache.pop(next(iter(_cache)))  # FIFO 淘汰最旧
+        # 并发共享（R3 起 _verify_candidates / 材料 _gen_one / 编排器并行组三线并发）：
+        # pop 加缺省 None——单事件循环下虽无 await 间交错，防御复位/测试清空致空 dict 的边界
+        _cache.pop(next(iter(_cache)), None)  # FIFO 淘汰最旧
     ttl = _CACHE_OK_TTL if ok else _CACHE_ERR_TTL
     _cache[url] = (time.monotonic() + ttl, data)
 
@@ -85,7 +87,16 @@ def reset_verify_cache() -> None:
 
 # robots.txt 缓存（plan/09 §一 遵守 robots）：host -> (过期时间, 允许抓取)
 _ROBOTS_TTL = 3600.0
+# iter 236：补条目数上界——此前仅 TTL 无容量上限，是唯一无界缓存（_cache 有 4096+FIFO）。
+# 长期运行/多并发线共享下 host 数随时间累积；对齐 _cache 用 FIFO 淘汰最旧。
+_ROBOTS_CACHE_MAX = 4096
 _robots_cache: dict[str, tuple[float, bool]] = {}
+
+
+def _robots_put(host: str, allowed: bool) -> None:
+    if len(_robots_cache) >= _ROBOTS_CACHE_MAX:
+        _robots_cache.pop(next(iter(_robots_cache)), None)  # FIFO 淘汰最旧
+    _robots_cache[host] = (time.monotonic() + _ROBOTS_TTL, allowed)
 
 
 async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
@@ -104,7 +115,7 @@ async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
             allowed = rp.can_fetch(_USER_AGENT, url)
     except httpx.HTTPError:
         pass
-    _robots_cache[host] = (time.monotonic() + _ROBOTS_TTL, allowed)
+    _robots_put(host, allowed)  # iter 236：经有界写入（FIFO 上界）
     return allowed
 
 

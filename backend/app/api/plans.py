@@ -83,6 +83,9 @@ _STREAMS: dict[int, "_SessionStream"] = {}
 # （双编排器并行 / 绕过每用户并发配额）；单进程内部署用线程锁即可保证原子。
 _OCCUPY_LOCK = threading.Lock()
 _MAX_BUFFERED_EVENTS = 500  # 单会话最大缓冲；超限丢最旧（降级重放）
+# iter 236：单订阅者扇出队列上界（背压）。≥ _MAX_BUFFERED_EVENTS 保证 subscribe 重放
+# 整段历史不溢出；慢订阅缓冲超限即剔除（客户端 Last-Event-ID 重连自愈，不丢数据）。
+_SUB_QUEUE_MAX = 512
 # 生成并发配额（plan/09 §十八 每用户并发 1；§二十 R31 全局同时生成 ≤2）
 _MAX_GENERATE_PER_USER = 1
 _MAX_GENERATE_GLOBAL = 2
@@ -147,8 +150,16 @@ class _SessionStream:
         self._events.append(item)
         if len(self._events) > _MAX_BUFFERED_EVENTS:
             del self._events[: len(self._events) - _MAX_BUFFERED_EVENTS]
-        for q in self._subs:
-            q.put_nowait(item)
+        # iter 236：订阅队列有界（_SUB_QUEUE_MAX）。put_nowait 在无界队列下，慢/停滞
+        # 客户端（relay 崩溃未 unsubscribe、网络挂起）的缓冲随事件数无界增长——事件
+        # 含 plan_chunk 部分方案可达数百 KB。满则踢掉该慢订阅（其连接随之断开，
+        # 客户端按 Last-Event-ID 重连自愈，事件经 _events 历史重放补齐，不丢数据）。
+        for q in list(self._subs):
+            try:
+                q.put_nowait(item)
+            except asyncio.QueueFull:
+                self.unsubscribe(q)
+                log.warning("SSE 慢订阅缓冲超限剔除 session=%s", self.session_id)
         return eid
 
     def mark_terminal(self, eid: int) -> None:
@@ -156,12 +167,12 @@ class _SessionStream:
         self.terminal_id = eid
 
     def subscribe(self, last_event_id: int) -> asyncio.Queue:
-        """订阅：新建队列，先重放历史 (id > last_event_id)，再接实时。"""
-        q: asyncio.Queue = asyncio.Queue()
+        """订阅：新建有界队列，先重放历史 (id > last_event_id)，再接实时。"""
+        q: asyncio.Queue = asyncio.Queue(maxsize=_SUB_QUEUE_MAX)
         start = max(last_event_id, 0)
         for item in self._events:
             if item[0] > start:
-                q.put_nowait(item)
+                q.put_nowait(item)  # 重放上限 _MAX_BUFFERED_EVENTS ≤ _SUB_QUEUE_MAX，不溢出
         self._subs.append(q)
         return q
 
