@@ -229,6 +229,7 @@ export interface PlanSummary {
   version: number
   created_at: string
   topic: string
+  avg_mastery?: number | null // iter 263：平均掌握度（无知识节点 -> null）
 }
 export const listPlans = (sessionId?: number, page = 1, q = '') => {
   // err.md D18：URLSearchParams 拼 query（此前手工插值，session_id 异常值可注入额外参数）

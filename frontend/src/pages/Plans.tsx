@@ -295,6 +295,22 @@ export default function Plans() {
                       </span>
                     )}
                   </span>
+                  {/* iter 263：平均掌握度条——免开详情即知哪个方案滞后（无知识节点不显示） */}
+                  {p.avg_mastery != null && (
+                    <span
+                      className="ml-3 flex w-24 shrink-0 items-center gap-1.5"
+                      title={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
+                      aria-label={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
+                    >
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                        <span
+                          className="block h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.round(p.avg_mastery * 100)}%` }}
+                        />
+                      </span>
+                      <span className="text-xs tabular-nums text-slate-400">{Math.round(p.avg_mastery * 100)}%</span>
+                    </span>
+                  )}
                   <span className="ml-3 shrink-0 text-xs tabular-nums text-slate-400">
                     {p.created_at.slice(0, 16).replace('T', ' ')}
                   </span>

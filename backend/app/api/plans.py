@@ -990,6 +990,7 @@ class PlanSummary(BaseModel):
     version: int
     created_at: str
     topic: str = ""  # 列表展示用（iter 84：侧栏/方案列表页需要标题，免 N+1 详情查询）
+    avg_mastery: float | None = None  # iter 263：平均掌握度（无知识节点 -> None）
 
 
 def _plan_topic(p: models.Plan) -> str:
@@ -1027,11 +1028,34 @@ def list_plans(
         q_ = q_.filter(models.Plan.content["intent"]["topic"].as_string().contains(q.strip()))
     total = q_.count()
     items = q_.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    # iter 263：方案平均掌握度（列表页进度条，免逐方案开详情判断滞后）——
+    # progress 行惰性创建，无行节点按 0 计（knowledge.py 同款口径），LEFT JOIN 防只算已触节点虚高
+    plan_ids = [p.id for p in items]
+    mastery_map: dict[int, float] = {}
+    if plan_ids:
+        mastery_map = {
+            pid: float(avg or 0.0)
+            for pid, avg in (
+                db.query(
+                    models.KnowledgeNode.plan_id,
+                    func.avg(func.coalesce(models.Progress.mastery, 0.0)),
+                )
+                .outerjoin(
+                    models.Progress,
+                    (models.Progress.node_id == models.KnowledgeNode.id)
+                    & (models.Progress.plan_id == models.KnowledgeNode.plan_id),
+                )
+                .filter(models.KnowledgeNode.plan_id.in_(plan_ids))
+                .group_by(models.KnowledgeNode.plan_id)
+                .all()
+            )
+        }
     return {
         "items": [
             PlanSummary(
                 id=p.id, session_id=p.session_id, version=p.version,
                 created_at=str(p.created_at), topic=_plan_topic(p),
+                avg_mastery=mastery_map.get(p.id),
             ).model_dump()
             for p in items
         ],

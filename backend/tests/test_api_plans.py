@@ -589,3 +589,39 @@ def test_today_isolation_and_version_dedupe(client, auth_headers):
 
 def test_today_unauthenticated_401(client):
     assert client.get("/api/plans/today").status_code == 401
+
+
+# --- iter 263：方案列表平均掌握度（avg_mastery） ---
+
+
+def test_list_plans_avg_mastery(client, auth_headers):
+    from app.db import models
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.commit()
+        s = models.Session(user_id=admin.id, title="t")
+        db.add(s)
+        db.flush()
+        p1 = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "有节点"}})
+        p2 = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "无节点"}})
+        db.add_all([p1, p2])
+        db.flush()
+        n1 = models.KnowledgeNode(plan_id=p1.id, sid="k1", name="A", difficulty=1)
+        n2 = models.KnowledgeNode(plan_id=p1.id, sid="k2", name="B", difficulty=1)
+        db.add_all([n1, n2])
+        db.flush()
+        # 仅 n1 有 progress 行（0.8）；n2 无行按 0 计——惰性创建口径，防虚高
+        db.add(models.Progress(plan_id=p1.id, node_id=n1.id, status=models.ProgressStatus.done, mastery=0.8))
+        db.commit()
+        ids = (p1.id, p2.id)
+    finally:
+        db.close()
+    items = client.get("/api/plans", headers=auth_headers).json()["items"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id[ids[0]]["avg_mastery"] == 0.4  # (0.8 + 0) / 2
+    assert by_id[ids[1]]["avg_mastery"] is None  # 无知识节点
