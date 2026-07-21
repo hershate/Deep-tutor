@@ -28,12 +28,51 @@ const KIND_LABEL: Record<string, string> = {
   file: '文件', text: '文本', url: '链接', image: '图片', audio: '音频', video: '视频',
 }
 
+// iter 275：最近搜索历史（localStorage，最多 8 条去重，最新在前）——复搜高频场景
+// （反复查同一概念）免重打；本页提交与顶栏搜索跳转均经 ?q= 执行，统一在 q 生效时记录。
+// 仅本机存储不上传；读写失败静默降级（iter 145 同款）。
+const HISTORY_KEY = 'dt-search-history'
+const HISTORY_MAX = 8
+
+function readHistory(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, HISTORY_MAX) : []
+  } catch {
+    return []
+  }
+}
+
+function pushHistory(q: string) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([q, ...readHistory().filter((x) => x !== q)].slice(0, HISTORY_MAX)))
+  } catch {
+    /* 写失败仅失去历史记录 */
+  }
+}
+
 export default function Search() {
   const [params, setParams] = useSearchParams()
   const q = (params.get('q') ?? '').trim()
   const [input, setInput] = useState(q)
   // URL 变化（前进/后退/顶栏提交）同步输入框
   useEffect(() => setInput(q), [q])
+  // iter 275：搜索历史——q 生效（本页提交/顶栏跳转/深链）即记录
+  const [history, setHistory] = useState<string[]>(readHistory)
+  useEffect(() => {
+    if (!q) return
+    pushHistory(q)
+    setHistory(readHistory())
+  }, [q])
+
+  function clearHistory() {
+    try {
+      localStorage.removeItem(HISTORY_KEY)
+    } catch {
+      /* 同上 */
+    }
+    setHistory([])
+  }
 
   const { data, isLoading, isError, error, refetch } = useQuery<GlobalSearchResult>({
     queryKey: ['global-search', q],
@@ -122,6 +161,35 @@ export default function Search() {
           搜索
         </button>
       </form>
+
+      {!q && history.length > 0 && (
+        // iter 275：最近搜索（空查询时展示；点击即搜，可一键清除）
+        <section aria-label="最近搜索" className="animate-fade-in rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">🕘 最近搜索</h2>
+            <button
+              type="button"
+              onClick={clearHistory}
+              className="text-xs text-slate-400 underline-offset-2 transition-colors hover:text-slate-600 hover:underline dark:hover:text-slate-300"
+            >
+              清除
+            </button>
+          </div>
+          <ul className="flex flex-wrap gap-1.5">
+            {history.map((h) => (
+              <li key={h}>
+                <button
+                  type="button"
+                  onClick={() => setParams({ q: h })}
+                  className="rounded-full border px-2.5 py-1 text-xs text-slate-600 transition-all hover:border-blue-300 hover:text-blue-600 active:scale-95 dark:border-slate-600 dark:text-slate-300 dark:hover:border-blue-700 dark:hover:text-blue-400"
+                >
+                  {h}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {!q && (
         <EmptyState icon="🔍" title="输入关键词开始搜索" description="一次搜索方案、笔记、知识库文档与知识节点" />
