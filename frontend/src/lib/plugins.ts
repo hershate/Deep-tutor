@@ -377,9 +377,10 @@ export async function initPlugins(React: unknown): Promise<void> {
   }
   applySkin(saved)
 
-  // 亮/暗切换后重放皮肤（darkTokens 覆盖需重算）
+  // 亮/暗切换后重放皮肤（darkTokens 覆盖需重算）；
+  // iter 278：订阅 resolvedTheme（system 模式下 OS 切换也触发重放）
   useUIStore.subscribe((state, prev) => {
-    if (state.theme !== prev.theme) applySkin(activeSkin)
+    if (state.resolvedTheme !== prev.resolvedTheme) applySkin(activeSkin)
   })
 
   // 自动加载持久化插件（失败仅告警，不阻塞应用）

@@ -27,6 +27,14 @@ const NAV_ITEMS = [
   { to: '/settings', icon: '⚙️', label: '设置', end: false },
 ]
 
+// iter 278：三态主题（light→dark→system 循环）——图标显示当前模式（三态下「下一动作」
+// 图标语义不明，当前模式+提示文字更清晰）
+const THEME_META = {
+  light: { icon: '☀️', label: '浅色' },
+  dark: { icon: '🌙', label: '深色' },
+  system: { icon: '🖥️', label: '跟随系统' },
+} as const
+
 // iter 253：顶栏「今日待复习」徽标——间隔重复到期节点全局可见（此前唯一入口是
 // 首页仪表盘组件，用户须主动到首页才发现；比浏览器 Notification 零权限零打扰）。
 // 与首页 ReviewDueWidget 共用 queryKey 缓存；无到期/查询失败自隐藏。
@@ -229,11 +237,11 @@ export default function Layout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={toggleTheme}
-              aria-label={theme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
-              title={theme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
+              aria-label={`主题：${THEME_META[theme].label}（点击切换）`}
+              title={`主题：${THEME_META[theme].label}（点击切换）`}
               className="rounded-lg border px-2 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
             >
-              <span aria-hidden="true" className="inline-block transition-transform duration-300 hover:rotate-12">{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span aria-hidden="true" className="inline-block transition-transform duration-300 hover:rotate-12">{THEME_META[theme].icon}</span>
             </button>
             <UsageMeter />
             {/* iter 253：今日待复习徽标（有到期才渲染） */}
