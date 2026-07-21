@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -335,6 +336,25 @@ def _enum_or(enum_cls, value: Any):
         return None
 
 
+def _int_or(v: Any, default: int) -> int:
+    """容错强转（iter 246）：备份字段类型非法取默认值——此前 int()/float() 直抛
+    ValueError，坏备份文件落 500 import_failed 而非 400（端点只映 BackupFormatError），
+    与同函数内 learning_logs.minutes 的容错跳过语义不一致。"""
+    try:
+        return int(v or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_or(v: Any, default: float) -> float:
+    """同 _int_or；非有限值（nan/inf 字符串可过 float()）亦取默认。"""
+    try:
+        out = float(v or default)
+    except (TypeError, ValueError):
+        return default
+    return out if math.isfinite(out) else default
+
+
 def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
     """把备份数据追加还原为当前用户的新数据；返回各项计数摘要。
 
@@ -360,6 +380,7 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
     # 配额与 API 路径一致（对齐 sessions.py/materials.py/notes.py 上限）：
     # 导入不放大用户的资源占用，超限部分跳过并记入 skipped（导入不硬失败）
     _MAX_SESSIONS, _MAX_MATERIALS_PER_SESSION, _MAX_NOTES = 200, 20, 500
+    _MAX_PLANS_PER_SESSION = 50  # iter 246：方案每会话上限（此前子对象仅校验类型，构造备份可无限放大行数）
     sessions_room = _MAX_SESSIONS - db.query(models.Session).filter_by(user_id=user.id).count()
 
     for s in data.get("sessions") or []:
@@ -393,7 +414,7 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
                 session_id=sess.id,
                 kind=kind,
                 source=str(m.get("source") or ""),
-                parsed_chars=int(m.get("parsed_chars") or 0),
+                parsed_chars=_int_or(m.get("parsed_chars"), 0),
                 meta=m.get("meta") if isinstance(m.get("meta"), dict) else {},
                 content_hash=(str(m.get("content_hash"))[:64] if m.get("content_hash") else None),
             )
@@ -408,9 +429,18 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         if mats_skipped:
             summary["skipped"].append(f"会话「{sess.title or sess.id}」资料超每会话 {_MAX_MATERIALS_PER_SESSION} 份上限，{mats_skipped} 份未导入")
 
+        plans_room = _MAX_PLANS_PER_SESSION
+        plans_skipped = 0
         for p in s.get("plans") or []:
-            if isinstance(p, dict):
-                _restore_plan(db, sess, p, summary, user.id)
+            if not isinstance(p, dict):
+                continue
+            if plans_room <= 0:
+                plans_skipped += 1
+                continue
+            plans_room -= 1
+            _restore_plan(db, sess, p, summary, user.id)
+        if plans_skipped:
+            summary["skipped"].append(f"会话「{sess.title or sess.id}」方案超每会话 {_MAX_PLANS_PER_SESSION} 个上限，{plans_skipped} 个未导入")
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
     _restore_prefs(db, user, data.get("prefs") or {}, summary)
@@ -453,6 +483,9 @@ def _restore_prefs(db: DbSession, user: models.User, prefs: Any, summary: dict) 
     if not isinstance(prefs, dict):
         return
     existing = {r.key for r in db.query(models.UserPref).filter_by(user_id=user.id).all()}
+    _MAX_PREFS = 200  # iter 246：偏好 KV 上限（构造备份可无限写键）
+    room = _MAX_PREFS - len(existing)
+    prefs_skipped = 0
     for k, v in prefs.items():
         key = str(k)[:64]
         if not key:
@@ -460,17 +493,32 @@ def _restore_prefs(db: DbSession, user: models.User, prefs: Any, summary: dict) 
         if key in existing:
             summary["skipped"].append(f"偏好「{key}」本机已有值，已跳过")
             continue
+        if room <= 0:
+            prefs_skipped += 1
+            continue
+        room -= 1
         db.add(models.UserPref(user_id=user.id, key=key, value=str(v)[:4000]))
         existing.add(key)
         summary["prefs"] += 1
+    if prefs_skipped:
+        summary["skipped"].append(f"偏好数达上限 {_MAX_PREFS} 条，{prefs_skipped} 条未导入")
 
 
 def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, user_id: int) -> None:
+    # iter 246：单方案子对象配额——构造备份此前可在一次导入里写入无限行
+    # （外层仅有会话/资料/笔记配额）；超限跳过并计入 skipped（对齐外层配额语义）
+    _MAX_NODES, _MAX_RESOURCES, _MAX_PROGRESS = 100, 200, 500
+    _MAX_LOGS, _MAX_QUIZZES, _MAX_ATTEMPTS, _MAX_UNITS = 2000, 200, 100, 100
+    over: dict[str, int] = {}  # 标签 -> 跳过条数（函数末尾汇总进 summary["skipped"]）
+
+    def _skip(tag: str) -> None:
+        over[tag] = over.get(tag, 0) + 1
+
     content = p.get("content") if isinstance(p.get("content"), dict) else {}
     plan = models.Plan(
         session_id=sess.id,
         content=content,
-        version=int(p.get("version") or 1),
+        version=_int_or(p.get("version"), 1),
     )
     if dt := _parse_dt(p.get("created_at")):
         plan.created_at = dt
@@ -489,17 +537,22 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
 
     # 知识节点两遍插入（先建行取 id，再按 sid 回填父引用），sid -> 新行映射
     sid_to_node: dict[str, models.KnowledgeNode] = {}
+    nodes_room = _MAX_NODES
     for n in p.get("knowledge_nodes") or []:
         if not isinstance(n, dict):
             continue
         name = str(n.get("name") or "")[:256]
         if not name:
             continue
+        if nodes_room <= 0:
+            _skip("知识节点")
+            continue
+        nodes_room -= 1
         row = models.KnowledgeNode(
             plan_id=plan.id,
             sid=str(n.get("sid") or "")[:64],
             name=name,
-            difficulty=max(1, min(5, int(n.get("difficulty") or 1))),
+            difficulty=max(1, min(5, _int_or(n.get("difficulty"), 1))),
             must_learn=bool(n.get("must_learn")),
         )
         db.add(row)
@@ -534,12 +587,17 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
         summary["node_notes"] += 1
     db.flush()
 
+    resources_room = _MAX_RESOURCES
     for r in p.get("resources") or []:
         if not isinstance(r, dict):
             continue
         node = sid_to_node.get(str(r.get("node_sid") or ""))
         if node is None:
             continue  # 无锚点资源跳过（节点未导入时无归属）
+        if resources_room <= 0:
+            _skip("资源")
+            continue
+        resources_room -= 1
         rtype = _enum_or(models.ResourceType, r.get("type")) or models.ResourceType.doc
         verified = _enum_or(models.VerifyLabel, r.get("verified")) or models.VerifyLabel.uncertain
         db.add(
@@ -553,23 +611,29 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             )
         )
 
+    progress_room = _MAX_PROGRESS
     for pr in p.get("progress") or []:
         if not isinstance(pr, dict):
             continue
         node = sid_to_node.get(str(pr.get("node_sid") or ""))
         if node is None:
             continue
+        if progress_room <= 0:
+            _skip("进度记录")
+            continue
+        progress_room -= 1
         status = _enum_or(models.ProgressStatus, pr.get("status")) or models.ProgressStatus.not_started
         db.add(
             models.Progress(
                 plan_id=plan.id,
                 node_id=node.id,
                 status=status,
-                mastery=max(0.0, min(1.0, float(pr.get("mastery") or 0.0))),
+                mastery=max(0.0, min(1.0, _float_or(pr.get("mastery"), 0.0))),
             )
         )
         summary["progress"] += 1
 
+    logs_room = _MAX_LOGS
     for lg in p.get("learning_logs") or []:
         if not isinstance(lg, dict):
             continue
@@ -581,6 +645,10 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             minutes = int(lg.get("minutes") or 0)
         except (TypeError, ValueError):
             continue
+        if logs_room <= 0:
+            _skip("打卡记录")
+            continue
+        logs_room -= 1
         minutes = max(1, min(1440, minutes))
         db.add(
             models.LearningLog(
@@ -592,9 +660,14 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
         )
         summary["learning_logs"] += 1
 
+    quizzes_room = _MAX_QUIZZES
     for q in p.get("quizzes") or []:
         if not isinstance(q, dict):
             continue
+        if quizzes_room <= 0:
+            _skip("测验")
+            continue
+        quizzes_room -= 1
         qtype = _enum_or(models.QuizType, q.get("type")) or models.QuizType.choice
         node = sid_to_node.get(str(q.get("node_sid") or ""))
         quiz = models.Quiz(
@@ -606,9 +679,14 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
         db.add(quiz)
         db.flush()
         summary["quizzes"] += 1
+        attempts_room = _MAX_ATTEMPTS
         for a in q.get("attempts") or []:
             if not isinstance(a, dict):
                 continue
+            if attempts_room <= 0:
+                _skip("作答记录")
+                continue
+            attempts_room -= 1
             att = models.QuizAttempt(
                 quiz_id=quiz.id,
                 user_answer=a.get("user_answer") if isinstance(a.get("user_answer"), dict) else {},
@@ -618,12 +696,17 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
                 att.created_at = dt
             db.add(att)
 
+    units_room = _MAX_UNITS
     for u in p.get("study_units") or []:
         if not isinstance(u, dict):
             continue
         title = str(u.get("title") or "")[:256]
         if not title:
             continue
+        if units_room <= 0:
+            _skip("自学单元")
+            continue
+        units_room -= 1
         node = sid_to_node.get(str(u.get("node_sid") or ""))
         unit = models.StudyUnit(
             plan_id=plan.id,
@@ -633,7 +716,7 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             prerequisites=u.get("prerequisites") if isinstance(u.get("prerequisites"), list) else [],
             objectives=u.get("objectives") if isinstance(u.get("objectives"), list) else [],
             estimated_time=str(u.get("estimated_time") or "")[:64],
-            order=int(u.get("order") or 0),
+            order=_int_or(u.get("order"), 0),
         )
         if dt := _parse_dt(u.get("done_at")):
             unit.done_at = dt
@@ -651,6 +734,10 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
                     resources=u.get("material_resources") if isinstance(u.get("material_resources"), list) else [],
                 )
             )
+
+    if over:
+        detail = "、".join(f"{tag} {n} 条" for tag, n in over.items())
+        summary["skipped"].append(f"方案「{str(p.get('title') or plan.id)[:64]}」子对象超上限，跳过：{detail}")
 
 
 def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary: dict) -> None:
