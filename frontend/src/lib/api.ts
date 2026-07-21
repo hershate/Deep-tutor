@@ -489,6 +489,18 @@ export interface StudyUnitMeta {
 }
 export const listStudyUnits = (planId: number, signal?: AbortSignal) =>
   apiFetch<{ units: StudyUnitMeta[]; index_md?: string }>(`/plans/${planId}/materials`, { signal })
+// iter 269：单元内容检索——「这个方案里哪里讲过 X」（标题或正文命中，正文带片段；
+// 有界扫描 ≤50 单元，truncated=true 表示超出上界未扫）
+export interface UnitSearchHit {
+  unit_id: number
+  title: string
+  match: 'title' | 'content'
+  snippet: string
+}
+export const searchStudyUnits = (planId: number, q: string) =>
+  apiFetch<{ items: UnitSearchHit[]; scanned_units: number; truncated: boolean }>(
+    `/plans/${planId}/materials/search?q=${encodeURIComponent(q.trim())}`,
+  )
 export interface UnitResource {
   title: string
   url: string

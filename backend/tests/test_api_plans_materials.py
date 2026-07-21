@@ -302,3 +302,117 @@ def test_unit_done_mark_and_list(client, auth_headers, monkeypatch):
     assert {u["id"]: u for u in units}[unit_id]["done"] is False
 
     assert client.post("/api/materials/999999/done", json={"done": True}, headers=auth_headers).status_code == 404
+
+
+# --- iter 269：单元内容检索 GET /plans/{id}/materials/search（标题/正文命中，有界扫描） ---
+
+
+def _seed_units(admin_id: int, spec: list[tuple[str, str | None]]) -> int:
+    """建方案 + 单元（标题, 正文|None）；正文经 write_unit_text 落盘（同生成路径）。返回 plan_id。"""
+    from app.core.storage import write_unit_text
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        s = models.Session(user_id=admin_id, title="t")
+        db.add(s)
+        db.flush()
+        p = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "机器学习"}})
+        db.add(p)
+        db.flush()
+        for i, (title, md) in enumerate(spec):
+            u = models.StudyUnit(
+                plan_id=p.id, title=title, prerequisites=[], objectives=[], estimated_time="", order=i
+            )
+            db.add(u)
+            db.flush()
+            if md is not None:
+                path = write_unit_text(s.id, u.id, md)
+                db.add(models.StudyMaterial(unit_id=u.id, content_md_path=str(path), size=len(md), resources=[]))
+        db.commit()
+        return p.id
+    finally:
+        db.close()
+
+
+def _seed_admin() -> int:
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.commit()
+        return admin.id
+    finally:
+        db.close()
+
+
+def test_materials_search_hits(client, auth_headers):
+    admin_id = _seed_admin()
+    plan_id = _seed_units(
+        admin_id,
+        [
+            ("梯度下降入门", "本单元讲优化基础。"),  # 标题命中
+            ("学习率调度", "训练时梯度会震荡，需要衰减策略。"),  # 正文命中
+            ("模型评估", "精确率与召回率。"),  # 不命中
+        ],
+    )
+    r = client.get(f"/api/plans/{plan_id}/materials/search?q=梯度", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["scanned_units"] == 3
+    assert body["truncated"] is False
+    items = body["items"]
+    assert len(items) == 2
+    # 标题命中在前（KB iter 255 同款口径）
+    assert items[0]["match"] == "title" and items[0]["title"] == "梯度下降入门" and items[0]["snippet"] == ""
+    assert items[1]["match"] == "content" and items[1]["title"] == "学习率调度"
+    assert "梯度" in items[1]["snippet"]
+    # 无命中 -> 空列表（单元本身仍在）
+    r2 = client.get(f"/api/plans/{plan_id}/materials/search?q=不存在的词", headers=auth_headers)
+    assert r2.json()["items"] == []
+    # 大小写不敏感
+    plan_id2 = _seed_units(admin_id, [("English Basics", "hello WORLD")])
+    items2 = client.get(f"/api/plans/{plan_id2}/materials/search?q=world", headers=auth_headers).json()["items"]
+    assert len(items2) == 1 and items2[0]["match"] == "content"
+
+
+def test_materials_search_isolation_and_validation(client, auth_headers):
+    admin_id = _seed_admin()
+    plan_id = _seed_units(admin_id, [("单元", "内容")])
+    # 他人方案 404（不泄露存在性）
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        other = User(name="other", username="other", password_hash="x", is_admin=False)
+        db.add(other)
+        db.commit()
+        other_plan = _seed_units(other.id, [("他人单元", "他人内容")])
+    finally:
+        db.close()
+    assert client.get(f"/api/plans/{other_plan}/materials/search?q=内容", headers=auth_headers).status_code == 404
+    assert plan_id != other_plan
+    # 缺 q / q 超长 -> 422
+    assert client.get(f"/api/plans/{plan_id}/materials/search", headers=auth_headers).status_code == 422
+    assert client.get(f"/api/plans/{plan_id}/materials/search?q={'x' * 101}", headers=auth_headers).status_code == 422
+
+
+def test_materials_search_truncated_flag(client, auth_headers):
+    admin_id = _seed_admin()
+    # 51 个无正文单元（无文件读取，便宜）——超出 50 扫描上界
+    plan_id = _seed_units(admin_id, [(f"单元{i}", None) for i in range(51)])
+    body = client.get(f"/api/plans/{plan_id}/materials/search?q=单元", headers=auth_headers).json()
+    assert body["truncated"] is True
+    assert body["scanned_units"] == 50
+    assert len(body["items"]) == 50  # 全部标题命中，截断到扫描上界
+
+
+def test_materials_search_requires_auth(client):
+    admin_id = _seed_admin()
+    plan_id = _seed_units(admin_id, [("单元", "内容")])
+    assert client.get(f"/api/plans/{plan_id}/materials/search?q=内容").status_code == 401

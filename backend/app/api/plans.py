@@ -1749,6 +1749,62 @@ def list_materials(
     }
 
 
+_MATERIALS_SCAN_MAX_UNITS = 50  # 单元内容检索扫描上界（KB iter 255 同款诚实边界：不建索引，有界扫描）
+_MATERIALS_SCAN_MAX_CHARS = 500_000  # 每单元正文中扫描上界
+
+
+@router.get("/{plan_id}/materials/search")
+def search_materials(
+    plan_id: int,
+    q: str = Query(min_length=1, max_length=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """单元内容检索（iter 269）：「这个方案里哪里讲过 X」——标题或正文命中。
+
+    此前单元只能按标题逐个点开找；KB 内容检索（iter 255）验证过有界扫描模式的价值，
+    学习材料作为核心学习内容同缺口更痛。不建索引（FTS5 需内容入库副本，与
+    「大内容入文件」存储策略冲突）：≤50 单元、每单元 ≤500K 字符有界扫描；
+    sync def 端点跑线程池，读文件不阻塞事件循环。
+    标题命中在前（KB 同款口径）；index.md 路线图不在扫描范围（导航文档非学习内容）。
+    """
+    from app.api.kb import _hit_snippet  # 函数内 import 防循环（kb 可能依赖 plans）
+
+    plan, _c = _plan_or_404(db, plan_id, user)
+    qs = q.strip()
+    units = (
+        db.query(models.StudyUnit)
+        .filter_by(plan_id=plan.id)
+        .order_by(models.StudyUnit.order)
+        .limit(_MATERIALS_SCAN_MAX_UNITS + 1)  # +1 探测截断
+        .all()
+    )
+    truncated = len(units) > _MATERIALS_SCAN_MAX_UNITS
+    units = units[:_MATERIALS_SCAN_MAX_UNITS]
+    title_hits: list[dict] = []
+    content_hits: list[dict] = []
+    for u in units:
+        if qs.lower() in (u.title or "").lower():
+            title_hits.append({"unit_id": u.id, "title": u.title, "match": "title", "snippet": ""})
+            continue
+        if not u.materials:
+            continue
+        try:
+            text = read_unit_content(u.materials[0].content_md_path)[
+                : _MATERIALS_SCAN_MAX_CHARS
+            ]  # 自动串联拆分子文件
+        except OSError:  # 内容文件缺失：跳过不报错（与 get_study_unit_content 的 404 不同——检索宜宽）
+            continue
+        snippet = _hit_snippet(text, qs)
+        if snippet:
+            content_hits.append({"unit_id": u.id, "title": u.title, "match": "content", "snippet": snippet})
+    return {
+        "items": title_hits + content_hits,
+        "scanned_units": len(units),
+        "truncated": truncated,  # 诚实边界：超出上界的单元未扫描
+    }
+
+
 # --- 测验（P2，plan/02 §8；简化 MVP：同步一次 LLM 调用 -> JSON；iter 42 起 quizzes 表持久化）---
 
 

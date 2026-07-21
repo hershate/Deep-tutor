@@ -337,7 +337,7 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
               {warning && (
                 <div className="mb-3 animate-fade-in rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">{warning}</div>
               )}
-              <StudyMaterialReader units={units} indexMd={indexMd} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
+              <StudyMaterialReader planId={planId} units={units} indexMd={indexMd} onUnitsChange={setUnits} onOpenQuiz={onOpenQuiz} />
             </>
           )}
         </div>

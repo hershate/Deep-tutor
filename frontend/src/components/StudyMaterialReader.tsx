@@ -5,10 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import { ApiError, getStudyUnitContent, markUnitDone, saveTextFile, type StudyUnitMeta, type UnitResource } from '../lib/api'
+import { ApiError, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
 interface Props {
+  planId: number // iter 269：单元内容检索需要
   units: StudyUnitMeta[]
   indexMd?: string // plan/02 §13 index 文档：导航首部「📑 路线图」伪单元（id=-1）
   onUnitsChange: (units: StudyUnitMeta[]) => void
@@ -63,8 +64,38 @@ const FONT_LABELS = ['较小', '标准', '较大', '特大'] as const
 const FONT_STORAGE_KEY = 'dt-reader-font-step'
 const FONT_DEFAULT = 1
 
-export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange, onOpenQuiz }: Props) {
+export default function StudyMaterialReader({ planId, units, indexMd = '', onUnitsChange, onOpenQuiz }: Props) {
   const [currentId, setCurrentId] = useState<number | null>(indexMd ? INDEX_ID : (units[0]?.id ?? null))
+  // iter 269：单元内容检索（「这个方案里哪里讲过 X」）——300ms 防抖，命中列表替换单元导航；
+  // 点击命中打开该单元；检索期间保留查询便于连试多个命中（✕ 清空回导航）
+  const [unitQuery, setUnitQuery] = useState('')
+  const [debouncedUnitQ, setDebouncedUnitQ] = useState('')
+  const [unitHits, setUnitHits] = useState<UnitSearchHit[] | null>(null)
+  const [unitSearchTruncated, setUnitSearchTruncated] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedUnitQ(unitQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [unitQuery])
+  useEffect(() => {
+    if (!debouncedUnitQ) {
+      setUnitHits(null)
+      setUnitSearchTruncated(false)
+      return
+    }
+    let cancelled = false
+    searchStudyUnits(planId, debouncedUnitQ)
+      .then((r) => {
+        if (cancelled) return
+        setUnitHits(r.items)
+        setUnitSearchTruncated(r.truncated)
+      })
+      .catch(() => {
+        if (!cancelled) setUnitHits([]) // 检索失败按无命中呈现（导航仍可用——清空即回）
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [planId, debouncedUnitQ])
   const [fontStep, setFontStep] = useState(() => {
     try {
       const v = Number(localStorage.getItem(FONT_STORAGE_KEY))
@@ -194,6 +225,58 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
             />
           </div>
         </div>
+        {/* iter 269：单元内容检索——输入即搜（300ms 防抖）；命中列表替换导航，✕ 清空恢复 */}
+        <div className="relative mb-2">
+          <input
+            type="search"
+            value={unitQuery}
+            onChange={(e) => setUnitQuery(e.target.value)}
+            placeholder="搜单元内容…"
+            aria-label="搜索本方案单元内容"
+            className="w-full rounded-lg border px-2 py-1 text-xs transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+          />
+          {unitQuery && (
+            <button
+              type="button"
+              onClick={() => setUnitQuery('')}
+              aria-label="清空搜索"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1 text-xs text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        {unitHits !== null ? (
+          <ul className="space-y-1" aria-label={`单元内容检索结果，${unitHits.length} 个命中`}>
+            {unitHits.length === 0 && (
+              <li className="px-1 text-xs text-slate-400 dark:text-slate-500">无命中单元</li>
+            )}
+            {unitSearchTruncated && (
+              <li className="px-1 text-[10px] text-amber-600 dark:text-amber-400">单元较多，仅扫描前 50 个</li>
+            )}
+            {unitHits.map((h) => (
+              <li key={h.unit_id}>
+                <button
+                  onClick={() => setCurrentId(h.unit_id)}
+                  aria-current={h.unit_id === currentId ? 'true' : undefined}
+                  className={`w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                    h.unit_id === currentId ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-1">
+                    <span className="min-w-0 truncate">{h.title}</span>
+                    {h.match === 'content' && (
+                      <span className="shrink-0 rounded bg-emerald-100 px-1 text-[10px] text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">内容</span>
+                    )}
+                  </span>
+                  {h.snippet && (
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-slate-400 dark:text-slate-500">{h.snippet}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
         <ul className="space-y-1">
           {indexMd && (
             <li>
@@ -228,6 +311,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
             </li>
           ))}
         </ul>
+        )}
       </nav>
 
       {/* 内容区（iter 101：切单元按 key 淡入；iter 256：reader-font 字号调节作用域；
