@@ -101,6 +101,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
   const isIndex = currentId === INDEX_ID
   const idx = units.findIndex((u) => u.id === currentId)
   const current = idx >= 0 ? units[idx] : null
+  const doneCount = units.filter((u) => u.done).length // iter 265：导航顶部已学进度
 
   // iter 262：当前视图（路线图/单元）markdown 的标题大纲
   const toc = useMemo(() => extractToc(isIndex ? indexMd : content), [isIndex, indexMd, content])
@@ -168,6 +169,31 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
     <div className="flex min-h-0 flex-1 gap-4">
       {/* 单元导航 */}
       <nav aria-label="自学单元" className="w-44 shrink-0 overflow-y-auto border-r pr-2 dark:border-slate-700">
+        {/* iter 265：已学进度（导航顶部）——每单元 ✓ 之外的整体方位感与完成激励；
+            路线图伪单元不计入分母（它不是学习单元） */}
+        <div className="mb-2 border-b pb-2 dark:border-slate-700">
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span>
+              已学 <span className="tabular-nums">{doneCount}</span>/<span className="tabular-nums">{units.length}</span>
+            </span>
+            {doneCount === units.length && (
+              <span className="text-emerald-600 dark:text-emerald-400">🎉 全部完成</span>
+            )}
+          </div>
+          <div
+            className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
+            role="progressbar"
+            aria-valuenow={Math.round((doneCount / units.length) * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`已学进度 ${doneCount}/${units.length} 单元`}
+          >
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+              style={{ width: `${Math.round((doneCount / units.length) * 100)}%` }}
+            />
+          </div>
+        </div>
         <ul className="space-y-1">
           {indexMd && (
             <li>
