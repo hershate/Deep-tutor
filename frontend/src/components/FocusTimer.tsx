@@ -2,7 +2,9 @@
 // 设计要点：
 // - 终点时间戳计算剩余（Date.now() 差值），后台标签页 setInterval 被节流时不漂移——
 //   回到前台下一次 tick 即校正（不用计数递减，iter 231 并发面同款时间语义）；
-// - 页面 title 同步剩余时间（切走标签页仍可见剩余），结束/取消/卸载还原；
+// - 暂停/继续（iter 259）：暂停时冻结剩余毫秒并清 interval，继续时以 当前时间+冻结剩余 重设终点——
+//   暂停期间后台节流/锁屏均不计时（真实「暂停」而非「慢走」）；
+// - 页面 title 同步剩余时间（切走标签页仍可见剩余；暂停时显示 ⏸），结束/取消/卸载还原；
 // - 中途离开页面 = 放弃本次计时（不持久化——跨页持久涉全局状态/恢复 UX，有意取舍见 stage.md）；
 // - 倒计时不用 aria-live（每秒更新会刷屏读屏器），role=timer + 静态 aria-label。
 import { useEffect, useRef, useState } from 'react'
@@ -20,7 +22,9 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
   const [preset, setPreset] = useState(25)
   const [custom, setCustom] = useState('')
   const [remainMs, setRemainMs] = useState<number | null>(null) // null = 空闲
+  const [paused, setPaused] = useState(false)
   const endAtRef = useRef(0)
+  const pausedLeftRef = useRef(0) // 暂停时刻冻结的剩余毫秒
   const minsRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const titleRef = useRef<string | null>(null)
@@ -76,7 +80,30 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     endAtRef.current = Date.now() + mins * 60_000
     if (titleRef.current === null) titleRef.current = document.title
     clearTimer()
+    setPaused(false)
     setRemainMs(mins * 60_000)
+    timerRef.current = setInterval(tick, 250)
+    tick()
+  }
+
+  // iter 259：暂停/继续——暂停冻结剩余并停 interval（期间不计时），继续重设终点
+  function pause() {
+    const left = endAtRef.current - Date.now()
+    if (left <= 0) return // 已到点，交给 tick 走完完成流程
+    pausedLeftRef.current = left
+    clearTimer()
+    setRemainMs(left)
+    setPaused(true)
+    const totalSec = Math.ceil(left / 1000)
+    const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
+    const ss = String(totalSec % 60).padStart(2, '0')
+    document.title = `⏸ ${mm}:${ss} · Deep-tutor`
+  }
+
+  function resume() {
+    endAtRef.current = Date.now() + pausedLeftRef.current
+    setPaused(false)
+    clearTimer()
     timerRef.current = setInterval(tick, 250)
     tick()
   }
@@ -85,6 +112,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     if (!window.confirm('放弃本次专注计时？已进行的时间不会记录。')) return
     clearTimer()
     setRemainMs(null)
+    setPaused(false)
     restoreTitle()
   }
 
@@ -94,21 +122,38 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
 
   if (running) {
     return (
-      <div className="mb-3 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950">
+      <div
+        className={`mb-3 flex items-center justify-between rounded-lg border px-3 py-2 ${
+          paused
+            ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950'
+            : 'border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950'
+        }`}
+      >
         <span
           role="timer"
-          aria-label={`专注计时进行中，剩余 ${mm} 分 ${ss} 秒`}
-          className="text-2xl font-semibold tabular-nums text-blue-700 dark:text-blue-300"
+          aria-label={paused ? `专注计时已暂停，剩余 ${mm} 分 ${ss} 秒` : `专注计时进行中，剩余 ${mm} 分 ${ss} 秒`}
+          className={`text-2xl font-semibold tabular-nums ${
+            paused ? 'text-amber-700 dark:text-amber-300' : 'text-blue-700 dark:text-blue-300'
+          }`}
         >
-          ⏱ {mm}:{ss}
+          {paused ? '⏸' : '⏱'} {mm}:{ss}
         </span>
-        <button
-          type="button"
-          onClick={cancel}
-          className="rounded-lg border px-3 py-1 text-sm text-slate-600 transition-colors hover:bg-white dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          放弃
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={paused ? resume : pause}
+            className="rounded-lg border px-3 py-1 text-sm text-slate-600 transition-colors hover:bg-white dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            {paused ? '继续' : '暂停'}
+          </button>
+          <button
+            type="button"
+            onClick={cancel}
+            className="rounded-lg border px-3 py-1 text-sm text-slate-600 transition-colors hover:bg-white dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            放弃
+          </button>
+        </div>
       </div>
     )
   }
@@ -155,7 +200,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
         </button>
       </div>
       <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-        计时结束自动按该时长打卡（备注取下方打卡备注，留空记「番茄钟专注」）；离开本页将放弃计时。
+        计时结束自动按该时长打卡（备注取下方打卡备注，留空记「番茄钟专注」）；可暂停/继续；离开本页将放弃计时。
       </p>
     </div>
   )
