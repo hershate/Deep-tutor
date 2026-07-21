@@ -375,6 +375,9 @@ curl -H "Authorization: Bearer <token>" http://localhost:8000/api/plugins
 - 每个插件获得私有数据目录 `<DATA_DIR>/plugins/<插件id>/`（自动创建，`api.data_dir` 取得）。
 - 单个插件导入失败、`register` 抛异常、缺 `register`、id 非法/重复、`min_api` 不兼容
   均只记该插件 `failed`，**不阻塞其余插件与宿主启动**。
+- `register` 抛异常时，该插件在异常前已完成的注册（挂载的路由、订阅的事件、注册的
+  工具）会被**逆序回滚**——`failed` 状态与真实运行态一致，失败插件的代码不会在
+  宿主内继续存活（iter 247）。
 
 ### 8.3 PLUGIN_META 与版本协商
 
