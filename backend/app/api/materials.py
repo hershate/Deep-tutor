@@ -27,6 +27,7 @@ from app.agent.context import ExecContext
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
+from app.core.locks import drop_lock
 from app.core.settings import settings
 from app.core.storage import (
     delete_session_files,
@@ -303,27 +304,31 @@ async def parse_material_document(
     lock = _PARSE_LOCKS.setdefault(material_id, asyncio.Lock())
     if lock.locked():
         raise ApiError("conflict", "该资料正在解析中，请稍候", status=409)
-    async with lock:
-        out = await parse_material(
-            ToolInput(
-                tool="parse_material",
-                session_id=str(session_id),
-                args={"kind": "file", "source": source_path, "parse_mode": mode},
-            ),
-            _ctx(session_id),
-        )
-        if out.status == "error" and out.errors:
-            raise ApiError(out.errors[0].code, out.errors[0].message)
-        text = out.data.get("text", "")
-        parsed_path = write_parsed_text(session_id, material_id, text)
-        mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
-        mat.parsed_text_path = str(parsed_path)
-        mat.parsed_chars = len(text)
-        mat.meta = {**(mat.meta or {}), **out.data.get("meta", {})}
-        mat.status = "parsed"
-        db.commit()
-        db.refresh(mat)
-        return _material_out(mat)
+    try:
+        async with lock:
+            out = await parse_material(
+                ToolInput(
+                    tool="parse_material",
+                    session_id=str(session_id),
+                    args={"kind": "file", "source": source_path, "parse_mode": mode},
+                ),
+                _ctx(session_id),
+            )
+            if out.status == "error" and out.errors:
+                raise ApiError(out.errors[0].code, out.errors[0].message)
+            text = out.data.get("text", "")
+            parsed_path = write_parsed_text(session_id, material_id, text)
+            mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
+            mat.parsed_text_path = str(parsed_path)
+            mat.parsed_chars = len(text)
+            mat.meta = {**(mat.meta or {}), **out.data.get("meta", {})}
+            mat.status = "parsed"
+            db.commit()
+            db.refresh(mat)
+            result = _material_out(mat)
+    finally:
+        drop_lock(_PARSE_LOCKS, material_id, lock)  # 与锁释放间无 await（iter 232 台账有界）
+    return result
 
 
 @router.post("/url", response_model=MaterialOut)

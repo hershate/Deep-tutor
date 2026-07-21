@@ -437,3 +437,42 @@ def test_upload_image_magic_mismatch(client, auth_headers):
     )
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "unsupported_format"
+
+
+def test_material_parse_lock_registry_bounded(client, auth_headers, monkeypatch):
+    """解析锁台账有界（iter 232）：成功/失败解析后 _PARSE_LOCKS 不残留条目（防无界增长泄漏）。"""
+    from app.api import materials as materials_mod
+    from app.tools.base import ToolError, ToolOutput
+
+    async def _ok(inp, ctx):
+        return ToolOutput(tool="parse_material", status="ok", data={"text": "解析文本", "meta": {}})
+
+    monkeypatch.setattr(materials_mod, "parse_material", _ok)
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("lk1.txt", BytesIO(b"lock registry content one"), "text/plain")},
+        headers=auth_headers,
+    )
+    mid = r.json()["material_id"]
+    r = client.post(f"/api/materials/{mid}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert mid not in materials_mod._PARSE_LOCKS  # 成功路径清理
+
+    async def _fail(inp, ctx):
+        return ToolOutput(
+            tool="parse_material", status="error", errors=[ToolError(code="parse_failed", message="坏文件")]
+        )
+
+    monkeypatch.setattr(materials_mod, "parse_material", _fail)
+    r = client.post(
+        "/api/materials/upload",
+        data={"session_id": sid},
+        files={"file": ("lk2.txt", BytesIO(b"lock registry content two"), "text/plain")},
+        headers=auth_headers,
+    )
+    mid2 = r.json()["material_id"]
+    r = client.post(f"/api/materials/{mid2}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code != 200
+    assert mid2 not in materials_mod._PARSE_LOCKS  # 失败路径同样清理

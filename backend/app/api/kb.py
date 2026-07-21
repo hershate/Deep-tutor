@@ -39,6 +39,7 @@ from app.api.materials import _URL_RATE_PER_MIN, _hash_source, _read_capped, _va
 from app.api.plans import _safe_download_name
 from app.api.sessions import _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
+from app.core.locks import drop_lock
 from app.core.settings import settings
 from app.core.storage import (
     _kb_root,
@@ -256,28 +257,32 @@ async def parse_document(
     lock = _PARSE_LOCKS.setdefault(document_id, asyncio.Lock())
     if lock.locked():
         raise ApiError("conflict", "该文档正在解析中，请稍候", status=409)
-    async with lock:
-        out = await parse_material(
-            ToolInput(
-                tool="parse_material",
-                session_id=f"kb-{user.id}",
-                args={"kind": "file", "source": source_path, "parse_mode": mode},
-            ),
-            _ctx(user.id),
-        )
-        if out.status == "error" and out.errors:
-            raise ApiError(out.errors[0].code, out.errors[0].message)
-        text = out.data.get("text", "")
-        stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
-        parsed_path = write_kb_parsed_text(user.id, stem, text)
-        doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
-        doc.parsed_text_path = str(parsed_path)
-        doc.parsed_chars = len(text)
-        doc.meta = {**(doc.meta or {}), **out.data.get("meta", {})}
-        doc.status = "parsed"
-        db.commit()
-        db.refresh(doc)
-        return _doc_out(doc)
+    try:
+        async with lock:
+            out = await parse_material(
+                ToolInput(
+                    tool="parse_material",
+                    session_id=f"kb-{user.id}",
+                    args={"kind": "file", "source": source_path, "parse_mode": mode},
+                ),
+                _ctx(user.id),
+            )
+            if out.status == "error" and out.errors:
+                raise ApiError(out.errors[0].code, out.errors[0].message)
+            text = out.data.get("text", "")
+            stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
+            parsed_path = write_kb_parsed_text(user.id, stem, text)
+            doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
+            doc.parsed_text_path = str(parsed_path)
+            doc.parsed_chars = len(text)
+            doc.meta = {**(doc.meta or {}), **out.data.get("meta", {})}
+            doc.status = "parsed"
+            db.commit()
+            db.refresh(doc)
+            result = _doc_out(doc)
+    finally:
+        drop_lock(_PARSE_LOCKS, document_id, lock)  # 与锁释放间无 await（iter 232 台账有界）
+    return result
 
 
 class KbTextIn(BaseModel):

@@ -534,3 +534,25 @@ def test_fresh_doc_id_collision_retry(monkeypatch):
     seq = iter([SimpleNamespace(hex="a" * 32), SimpleNamespace(hex="b" * 32)])
     monkeypatch.setattr(kb_mod.uuid, "uuid4", lambda: next(seq))
     assert kb_mod._fresh_doc_id(1) == "b" * 12
+
+
+def test_kb_parse_lock_registry_bounded(client, auth_headers, monkeypatch):
+    """解析锁台账有界（iter 232）：成功/失败解析后 _PARSE_LOCKS 不残留条目（防无界增长泄漏）。"""
+    from app.api import kb as kb_mod
+    from app.tools.base import ToolError, ToolOutput
+
+    _stub_parse_ok(monkeypatch)
+    doc_id = _upload(client, auth_headers, name="lock-a.md").json()["id"]
+    _parse(client, auth_headers, doc_id)
+    assert doc_id not in kb_mod._PARSE_LOCKS  # 成功路径清理
+
+    async def _fail(inp, ctx):
+        return ToolOutput(
+            tool="parse_material", status="error", errors=[ToolError(code="parse_failed", message="坏文件")]
+        )
+
+    monkeypatch.setattr(kb_mod, "parse_material", _fail)
+    doc_id2 = _upload(client, auth_headers, name="lock-b.md", body=b"distinct bad content").json()["id"]
+    r = client.post(f"{BASE}/{doc_id2}/parse", json={"mode": "full"}, headers=auth_headers)
+    assert r.status_code != 200
+    assert doc_id2 not in kb_mod._PARSE_LOCKS  # 失败路径同样清理
