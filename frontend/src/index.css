@@ -178,6 +178,18 @@ body {
   @apply mr-1 accent-blue-600;
 }
 
+/* iter 256：阅读器字号调节——.reader-font 内把固定标题/表格字号改为 em 相对值，
+   随容器档位（text-xs/sm/base/lg）整体缩放；1.43/1.29em 在默认 text-sm 下与 text-xl/lg 像素一致（零视觉回归） */
+.reader-font .markdown-body h1 {
+  font-size: 1.43em;
+}
+.reader-font .markdown-body h2 {
+  font-size: 1.29em;
+}
+.reader-font .markdown-body table {
+  font-size: 1em;
+}
+
 /* iter 190 F5：生成完成 1.5s 倒计时条（宽度收缩，与 done 自动跳转同长） */
 @keyframes countdown-shrink {
   from {

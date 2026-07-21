@@ -16,9 +16,35 @@ interface Props {
 }
 
 const INDEX_ID = -1
+// iter 256：阅读器字号调节（A−/A+ 四档，默认标准=text-sm）——localStorage 记忆（iter 145 同款模式，
+// 隐私模式等读写失败静默降级）；.reader-font 内标题/表格在 index.css 改 em 相对尺寸，随档位整体缩放
+const FONT_STEPS = ['text-xs', 'text-sm', 'text-base', 'text-lg'] as const
+const FONT_LABELS = ['较小', '标准', '较大', '特大'] as const
+const FONT_STORAGE_KEY = 'dt-reader-font-step'
+const FONT_DEFAULT = 1
 
 export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange, onOpenQuiz }: Props) {
   const [currentId, setCurrentId] = useState<number | null>(indexMd ? INDEX_ID : (units[0]?.id ?? null))
+  const [fontStep, setFontStep] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem(FONT_STORAGE_KEY))
+      return Number.isInteger(v) && v >= 0 && v < FONT_STEPS.length ? v : FONT_DEFAULT
+    } catch {
+      return FONT_DEFAULT
+    }
+  })
+
+  function changeFont(delta: number) {
+    setFontStep((s) => {
+      const next = Math.min(FONT_STEPS.length - 1, Math.max(0, s + delta))
+      try {
+        localStorage.setItem(FONT_STORAGE_KEY, String(next))
+      } catch {
+        // 写失败仅本次会话生效
+      }
+      return next
+    })
+  }
   const [content, setContent] = useState('')
   const [contentTitle, setContentTitle] = useState('')
   const [resources, setResources] = useState<UnitResource[]>([])
@@ -111,11 +137,35 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
         </ul>
       </nav>
 
-      {/* 内容区（iter 101：切单元按 key 淡入） */}
-      <div key={currentId} className="min-w-0 flex-1 animate-fade-in overflow-y-auto">
+      {/* 内容区（iter 101：切单元按 key 淡入；iter 256：reader-font 字号调节作用域） */}
+      <div key={currentId} className="reader-font min-w-0 flex-1 animate-fade-in overflow-y-auto">
+        {/* iter 256：字号调节工具条（路线图/单元两视图同位置） */}
+        <div
+          className="mb-2 flex items-center justify-end gap-1"
+          role="group"
+          aria-label="正文字号"
+          title={`正文字号：${FONT_LABELS[fontStep]}`}
+        >
+          <button
+            onClick={() => changeFont(-1)}
+            disabled={fontStep <= 0}
+            aria-label="减小字号"
+            className="rounded border px-2 py-0.5 text-xs transition-colors hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-40"
+          >
+            A−
+          </button>
+          <button
+            onClick={() => changeFont(1)}
+            disabled={fontStep >= FONT_STEPS.length - 1}
+            aria-label="增大字号"
+            className="rounded border px-2 py-0.5 text-xs transition-colors hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-40"
+          >
+            A+
+          </button>
+        </div>
         {isIndex ? (
           <>
-            <div className="markdown-body text-sm">
+            <div className={`markdown-body ${FONT_STEPS[fontStep]}`}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                 {indexMd}
               </ReactMarkdown>
@@ -148,7 +198,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
               {current.estimated_time && <span>预计 {current.estimated_time}</span>}
               {current.objectives.length > 0 && <span>目标：{current.objectives.join('；')}</span>}
             </div>
-            <div className="markdown-body text-sm">
+            <div className={`markdown-body ${FONT_STEPS[fontStep]}`}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                 {content || `## ${contentTitle}\n\n（本单元暂无内容）`}
               </ReactMarkdown>
