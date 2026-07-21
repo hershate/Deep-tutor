@@ -506,3 +506,86 @@ def test_regenerate_unsupported_scope(client, auth_headers, monkeypatch):
         headers=auth_headers,
     )
     assert r2.status_code == 400
+
+
+# --- iter 260：今日任务 GET /api/plans/today（首页聚合，有界扫描） ---
+
+
+def _seed_plan(db, user_id: int, topic: str, schedule: list, version: int = 1) -> int:
+    from app.db import models
+
+    s = models.Session(user_id=user_id, title="t")
+    db.add(s)
+    db.flush()
+    p = models.Plan(session_id=s.id, version=version, content={"intent": {"topic": topic}, "schedule": schedule})
+    db.add(p)
+    db.commit()
+    return p.id
+
+
+def test_today_returns_only_todays_days(client, auth_headers):
+    from datetime import date
+
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    today = date.today().isoformat()
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.commit()
+        pid = _seed_plan(
+            db,
+            admin.id,
+            "Python 入门",
+            [
+                {"date": today, "stage_index": 0, "tasks": ["学变量", "做练习"], "est_minutes": 45},
+                {"date": "2000-01-01", "stage_index": 1, "tasks": ["历史任务"], "est_minutes": 30},
+            ],
+        )
+    finally:
+        db.close()
+    r = client.get("/api/plans/today", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["date"] == today
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["plan_id"] == pid and item["topic"] == "Python 入门"
+    assert item["days"] == [{"stage_index": 0, "tasks": ["学变量", "做练习"], "est_minutes": 45}]
+
+
+def test_today_isolation_and_version_dedupe(client, auth_headers):
+    """他人方案的今日任务不可见；同会话多版本只扫最新版。"""
+    from datetime import date
+
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    today = date.today().isoformat()
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        other = User(name="other", username="other", password_hash="x", is_admin=False)
+        db.add_all([admin, other])
+        db.commit()
+        # 他人：今天有任务——不可见
+        _seed_plan(db, other.id, "他人方案", [{"date": today, "tasks": ["他人任务"], "est_minutes": 10}])
+        # 自己：同会话 v1 有今日任务、v2 无（重生成后改期）——只扫最新版 v2 -> 空
+        from app.db import models
+
+        s = models.Session(user_id=admin.id, title="t")
+        db.add(s)
+        db.flush()
+        db.add(models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "旧版"}, "schedule": [{"date": today, "tasks": ["旧任务"]}]}))
+        db.add(models.Plan(session_id=s.id, version=2, content={"intent": {"topic": "新版"}, "schedule": [{"date": "2000-01-01", "tasks": ["改期"]}]}))
+        db.commit()
+    finally:
+        db.close()
+    body = client.get("/api/plans/today", headers=auth_headers).json()
+    assert body["items"] == []
+
+
+def test_today_unauthenticated_401(client):
+    assert client.get("/api/plans/today").status_code == 401

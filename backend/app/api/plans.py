@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -1036,6 +1037,54 @@ def list_plans(
         ],
         "total": total,
     }
+
+
+# 首页「今日任务」（iter 260）：仅扫最近若干方案的排程（有界——防大库全表回读内容文件）
+_TODAY_SCAN_SESSIONS = 5  # 去重后的会话数
+_TODAY_SCAN_ROWS = 30  # 行扫描上界（版本行多于会话数——每次重生成产生新行）
+
+
+@router.get("/today")
+def today_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """今日学习任务：最近 N 个会话最新版方案排程中「日期=今天」的条目聚合。
+    服务器本地日期即用户日期（本地部署语义）；无排程/今天休息日 -> items 空。
+    注：须在 /{plan_id} 之前可正确路由（int 转换器本就不匹配 "today"，双保险）。"""
+    rows = (
+        db.query(models.Plan)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .order_by(models.Plan.created_at.desc(), models.Plan.id.desc())
+        .limit(_TODAY_SCAN_ROWS)
+        .all()
+    )
+    # 按会话去重：created_at 降序下首见即该会话最新版（重生成每版一行，不去重会 5 版同会话挤占名额）
+    seen: set[int] = set()
+    plans: list[models.Plan] = []
+    for p in rows:
+        if p.session_id in seen:
+            continue
+        seen.add(p.session_id)
+        plans.append(p)
+        if len(plans) >= _TODAY_SCAN_SESSIONS:
+            break
+    today = date.today().isoformat()
+    items = []
+    for p in plans:
+        schedule = _load_plan_content(p).get("schedule")
+        if not isinstance(schedule, list):
+            continue
+        days = [
+            {
+                "stage_index": d.get("stage_index"),
+                "tasks": [str(t) for t in (d.get("tasks") or []) if t is not None][:10],
+                "est_minutes": d.get("est_minutes"),
+            }
+            for d in schedule
+            if isinstance(d, dict) and str(d.get("date") or "") == today
+        ]
+        if days:
+            items.append({"plan_id": p.id, "topic": _plan_topic(p), "days": days})
+    return {"date": today, "items": items}
 
 
 @router.get("/{plan_id}")

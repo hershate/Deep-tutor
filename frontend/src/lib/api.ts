@@ -240,6 +240,14 @@ export const listPlans = (sessionId?: number, page = 1, q = '') => {
 
 export const getPlan = (id: number) => apiFetch<unknown>(`/plans/${id}`)
 
+// 今日任务（iter 260）：最近 5 个会话最新版方案排程中「今天」的条目聚合（首页「今日学习」区）
+export interface TodayPlanTasks {
+  plan_id: number
+  topic: string
+  days: Array<{ stage_index: number | null; tasks: string[]; est_minutes: number | null }>
+}
+export const getTodayTasks = () => apiFetch<{ date: string; items: TodayPlanTasks[] }>('/plans/today')
+
 export const exportPlan = (planId: number, format = 'md', wrongOnly = false) =>
   apiFetch<{
     file_url: string

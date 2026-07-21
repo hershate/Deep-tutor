@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, listPlans, parseMaterial, uploadMaterial } from '../lib/api'
+import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, getTodayTasks, listPlans, parseMaterial, uploadMaterial } from '../lib/api'
 import { SseError } from '../lib/sse'
 import { engine } from '../lib/taskEngine'
 import Card from '../components/Card'
@@ -52,6 +52,14 @@ export default function Home() {
     queryKey: ['home-recent-plans'],
     queryFn: () => listPlans(undefined, 1),
     staleTime: 30_000,
+  })
+
+  // iter 260：今日学习——最近方案排程中「今天」的任务聚合（打开 app 即知今日该学什么）；
+  // 今天无任务（休息日/无排程）整区自隐
+  const { data: todayData } = useQuery({
+    queryKey: ['today-tasks'],
+    queryFn: getTodayTasks,
+    staleTime: 60_000,
   })
 
   // 草稿自动保存（输入即存，localStorage 同步写开销可忽略；空内容清除 key 防恢复空草稿）
@@ -209,6 +217,46 @@ export default function Home() {
 
       {/* iter 183：学习概览小组件宫格（插件 API home.dashboard 插槽；各组件无数据自行隐藏） */}
       <WidgetSlot slot="home.dashboard" layout="grid" className="animate-fade-in-up" />
+
+      {/* iter 260：今日学习——排程中今天的任务（比「继续学习」更可执行，置于其上）；
+          不嵌套链接：标题与「学习中心」为两个独立 Link */}
+      {todayData && todayData.items.length > 0 && (
+        <section aria-label="今日学习" className="animate-fade-in-up space-y-2" style={{ animationDelay: '20ms' }}>
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            📅 今日学习 · <span className="tabular-nums">{todayData.date.slice(5).replace('-', '月')}日</span>
+          </h2>
+          <ul className="space-y-2">
+            {todayData.items.map((it) => (
+              <li key={it.plan_id}>
+                <Card className="flex flex-col gap-1.5 !p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      to={`/plans/${it.plan_id}`}
+                      className="min-w-0 truncate text-sm font-medium transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+                    >
+                      {it.topic || `方案 #${it.plan_id}`}
+                    </Link>
+                    <Link
+                      to={`/learn/${it.plan_id}`}
+                      className="inline-flex shrink-0 items-center rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                    >
+                      学习中心 →
+                    </Link>
+                  </div>
+                  {it.days.map((d, i) => (
+                    <p key={i} className="text-xs text-slate-600 dark:text-slate-300">
+                      {d.tasks.join('、') || '（今日无具体任务）'}
+                      {typeof d.est_minutes === 'number' && (
+                        <span className="ml-1.5 tabular-nums text-slate-400">约 {d.est_minutes} 分钟</span>
+                      )}
+                    </p>
+                  ))}
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* iter 254：继续学习——最近 3 个方案一键直达；无方案（新用户）整区隐藏保持表单清爽。
           不嵌套链接：标题与「学习中心」为两个独立 Link */}

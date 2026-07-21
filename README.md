@@ -17,7 +17,7 @@
 ### 学习过程
 
 - **练习测验**：按知识点出题（选择 / 填空 / 简答），服务器判分，错题重练与跨方案错题总览
-- **进度跟踪**：知识点掌握度（测验成绩加权）+ SM-2-lite 复习调度 + 三态看板 + 全局待复习提醒（顶栏徽标 + 首页组件，到期全局可见）
+- **进度跟踪**：知识点掌握度（测验成绩加权）+ SM-2-lite 复习调度 + 三态看板 + 全局待复习提醒（顶栏徽标 + 首页组件）+ 首页「今日学习」任务（排程中今天的任务聚合）
 - **自学材料**：逐单元生成（SSE 渐进显示），单元阅读器（A−/A+ 字号调节记忆 + 单篇 .md 下载）+ 已学标记 + 深度偏好记忆
 - **打卡与统计**：学习日志打卡、连续天数、打卡热力图、今日 / 本周目标进度、全局学习统计；**专注计时器**（学习中心内嵌番茄钟，可暂停/继续，计时结束自动打卡）
 
@@ -63,7 +63,7 @@ Deep-tutor/
 ├── backend/         # FastAPI 后端
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（804 项）
+│   ├── tests/       # pytest 测试套件（807 项）
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
 ├── extension/       # 浏览器扩展（MV3 网页剪藏）
@@ -181,7 +181,7 @@ Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、�
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 804 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 807 项测试（含契约/漂移守卫）
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```
