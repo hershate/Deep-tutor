@@ -29,6 +29,53 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { id: null, title: '', content: '', updatedAt: null }
 
+// iter 272：未保存草稿保护——dirty 此前仅守卫页内切换（confirmDiscard），
+// 刷新/关标签/侧栏跳路由均静默丢稿（BrowserRouter 无 useBlocker，迁数据路由器风险不值）。
+// 双保险：① dirty 时 beforeunload 浏览器原生确认（刷新/关标签）；
+// ② localStorage 自动草稿（500ms 防抖写）——路由跳走回来可恢复。
+// 恢复仅当草稿基于同一服务器版本（baseUpdatedAt 一致，防他端已保存后旧草稿复活）；
+// 保存/删除/确认放弃时清除；隐私模式等读写失败静默降级（iter 145 同款模式）。
+interface StoredDraft {
+  title: string
+  content: string
+  baseUpdatedAt: string | null
+  savedAt: string
+}
+const draftKey = (id: number | null) => `dt-note-draft-${id ?? 'new'}`
+
+function readStoredDraft(id: number | null): StoredDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(id))
+    if (!raw) return null
+    const p = JSON.parse(raw) as Partial<StoredDraft>
+    if (typeof p.title === 'string' && typeof p.content === 'string') {
+      return { title: p.title, content: p.content, baseUpdatedAt: p.baseUpdatedAt ?? null, savedAt: p.savedAt ?? '' }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredDraft(id: number | null, d: Draft) {
+  try {
+    localStorage.setItem(
+      draftKey(id),
+      JSON.stringify({ title: d.title, content: d.content, baseUpdatedAt: d.updatedAt, savedAt: new Date().toISOString() } satisfies StoredDraft),
+    )
+  } catch {
+    /* 写失败仅失去草稿保护，不影响编辑 */
+  }
+}
+
+function clearStoredDraft(id: number | null) {
+  try {
+    localStorage.removeItem(draftKey(id))
+  } catch {
+    /* 同上 */
+  }
+}
+
 export default function Notes() {
   const qc = useQueryClient()
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
@@ -37,6 +84,32 @@ export default function Notes() {
   const [busy, setBusy] = useState(false)
   const [loadingId, setLoadingId] = useState<number | null>(null)
   const openSeq = useRef(0) // iter 248：openNote 在途序号（迟到响应丢弃）
+
+  // iter 272 ①：刷新/关标签时浏览器原生确认（仅 dirty 期间挂监听）
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
+
+  // iter 272 ②：自动草稿（防抖 500ms）——路由跳走/崩溃后回来可恢复
+  useEffect(() => {
+    if (!dirty) return
+    const t = setTimeout(() => writeStoredDraft(draft.id, draft), 500)
+    return () => clearTimeout(t)
+  }, [draft, dirty])
+
+  // iter 272 ②：进页恢复「新建」草稿（编辑器为空才恢复，静默——无可失内容）
+  useEffect(() => {
+    const sd = readStoredDraft(null)
+    if (sd && (sd.title.trim() || sd.content.trim())) {
+      setDraft({ id: null, title: sd.title, content: sd.content, updatedAt: null })
+      setDirty(true)
+    }
+  }, [])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['free-notes'],
@@ -72,9 +145,13 @@ export default function Notes() {
     return qc.invalidateQueries({ queryKey: ['free-notes'] })
   }
 
-  // 有未保存修改时切换对象需用户确认（防草稿被静默覆盖）
+  // 有未保存修改时切换对象需用户确认（防草稿被静默覆盖）；
+  // iter 272：确认放弃即清本地自动草稿（用户明示丢弃，不应之后复活提示）
   function confirmDiscard(): boolean {
-    return !dirty || window.confirm('当前笔记有未保存的修改，继续将丢失这些修改。确定继续？')
+    if (!dirty) return true
+    if (!window.confirm('当前笔记有未保存的修改，继续将丢失这些修改。确定继续？')) return false
+    clearStoredDraft(draft.id)
+    return true
   }
 
   async function openNote(n: FreeNote) {
@@ -86,6 +163,18 @@ export default function Notes() {
     try {
       const full = await getFreeNote(n.id) // 列表仅 300 字预览，取全文编辑
       if (seq !== openSeq.current) return // 已有更新的选择（新建/另开），丢弃迟到响应
+      // iter 272：同版本本地草稿提示恢复（baseUpdatedAt 不一致 = 他端已保存，旧草稿静默清除）
+      const sd = readStoredDraft(full.id)
+      if (sd && sd.baseUpdatedAt === full.updated_at && (sd.title !== full.title || sd.content !== full.content)) {
+        const when = sd.savedAt ? sd.savedAt.slice(0, 16).replace('T', ' ') : ''
+        if (window.confirm(`检测到该笔记的未保存草稿${when ? `（${when}）` : ''}，恢复吗？\n「确定」恢复草稿，「取消」丢弃草稿使用已保存版本。`)) {
+          setDraft({ id: full.id, title: sd.title, content: sd.content, updatedAt: full.updated_at })
+          setDirty(true)
+          setPreview(false)
+          return
+        }
+      }
+      if (sd) clearStoredDraft(full.id)
       setDraft({ id: full.id, title: full.title, content: full.content, updatedAt: full.updated_at })
       setDirty(false)
       setPreview(false)
@@ -107,6 +196,7 @@ export default function Notes() {
       const saved = draft.id
         ? await updateFreeNote(draft.id, draft.title, draft.content)
         : await createFreeNote(draft.title, draft.content)
+      clearStoredDraft(draft.id) // iter 272：保存成功清草稿（防下次打开复活已存内容）
       setDraft({ id: saved.id, title: saved.title, content: saved.content, updatedAt: saved.updated_at })
       setDirty(false)
       toast.success('笔记已保存')
@@ -136,6 +226,7 @@ export default function Notes() {
     setBusy(true)
     try {
       await deleteFreeNote(draft.id)
+      clearStoredDraft(draft.id) // iter 272：删除即清草稿
       toast.success('笔记已删除')
       setDraft(EMPTY_DRAFT)
       await refresh()
