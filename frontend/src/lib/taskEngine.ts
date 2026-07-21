@@ -155,16 +155,28 @@ function handleStreamError(taskId: string, e: unknown): void {
     if (nt) notifySettled(nt)
     return
   }
+  // iter 243 F3：材料流无断线续传（一次性 POST 流），断连后服务端 worker 被取消、
+  // 相位永远卡 running（任务中心无重试入口）——直接落失败并指引恢复路径：
+  // 已生成单元服务端逐单元持久化（_insert_study_unit），材料页可见、可重发补齐
+  if (t.kind === 'materials') {
+    store().update(taskId, {
+      phase: 'error',
+      errorCode: 'conn_lost',
+      errorMessage: '连接中断：已生成的单元已保存，打开材料页可查看并重新生成',
+      conn: 'closed',
+    })
+    const nt = entryOf(taskId)
+    if (nt) notifySettled(nt)
+    return
+  }
   // 重连耗尽/网络错误：标离线（UI「连接中断」+ 重试连接）；相位保持 running（后端仍在跑）
   store().setConn(taskId, 'offline')
 }
 
 interface AttachOpts {
   initialLastEventId?: string
-  /** 首事件前的启动错误（409 配额/402 预算/404/409 状态冲突）抛给调用方做引导。 */
+  /** 首事件前的启动错误（409 配额/402 预算/404/网络/5xx）抛给调用方做引导。 */
   failFast?: boolean
-  /** 任何 4xx 抛给调用方（clarify 页内联错误）。 */
-  rethrow4xx?: boolean
   /** 收到首个流事件时回调（clarify 提交后「成功发起即跳进度页」的时机信号）。 */
   onFirstEvent?: () => void
 }
@@ -204,10 +216,6 @@ function attachStream(taskId: string, start: StreamStart, opts: AttachOpts = {})
     .catch((e: unknown) => {
       if (ac.signal.aborted) return
       if (opts.failFast && !receivedAny) {
-        if (entryOf(taskId)) store().setConn(taskId, 'closed')
-        throw e
-      }
-      if (opts.rethrow4xx && e instanceof SseError && e.status !== undefined && e.status >= 400 && e.status < 500) {
         if (entryOf(taskId)) store().setConn(taskId, 'closed')
         throw e
       }
@@ -321,6 +329,17 @@ export const engine = {
         failFast: true,
       })
     } catch (e) {
+      // iter 243 F2：409「已有生成任务运行中」（他端/他标签发起，或本端刷新后状态
+      // 未对账）——直接挂接现有流视为成功；此前一律标 start_rejected，任务中心
+      // 「重试」再走 startPlan -> 409 死循环，永远接不上正在运行的生成
+      if (e instanceof SseError && e.status === 409) {
+        try {
+          const detail = await engine.attach(sessionId)
+          if (detail?.status === 'running') return
+        } catch {
+          /* 挂接失败按原启动失败处理 */
+        }
+      }
       // 启动即败（配额/预算/冲突）：会话仍是 idle。保留条目与 rawText（errorCode
       // start_rejected）——方案列表占位行/进度页 idle 视图的「继续生成」依赖它；
       // 重试入口对 start_rejected 走 startPlan 而非 retry（服务端 idle retry 必 409）
@@ -352,11 +371,14 @@ export const engine = {
     }
   },
 
-  /** 提交澄清回答（流与 generate 同构；409 状态冲突抛给调用方内联展示）。
+  /** 提交澄清回答（流与 generate 同构；启动即败抛给调用方内联展示）。
    *  返回的 Promise 在「成功发起（收到首个流事件）」时兑现——调用方据此跳进度页；
-   *  启动即败（409 等）则拒绝，流后续生命周期由引擎内部托管。 */
+   *  启动阶段任何失败（网络/5xx/4xx）均拒绝并恢复待澄清相位（iter 243 F1：此前仅
+   *  4xx 上抛，网络错误被吞为「成功发起」——草稿被清、跳进度页，实际服务端从未
+   *  启动，答案丢失 + 假 running）；流后续生命周期由引擎内部托管。 */
   async submitClarify(sessionId: number, answers: Record<string, unknown>): Promise<void> {
     const id = planTaskId(sessionId)
+    const prev = entryOf(id)
     store().upsert({ id, kind: 'plan', sessionId })
     store().update(id, { phase: 'running', questions: undefined })
     let onFirst: () => void = () => undefined
@@ -364,13 +386,19 @@ export const engine = {
       onFirst = res
     })
     const done = attachStream(id, (onEvent, signal) => clarifyStream(sessionId, answers, onEvent, signal), {
-      rethrow4xx: true,
+      failFast: true,
       onFirstEvent: () => onFirst(),
     })
     // race 之后 done 的拒绝已被 race 观察过一次；race 已兑现时的迟到拒绝补吞防空 unhandled
     const raced = Promise.race([started, done])
     void done.catch(() => undefined)
-    await raced
+    try {
+      await raced
+    } catch (e) {
+      // 启动即败：恢复待澄清相位与问题（答案草稿仍在 localStorage，用户可修正后重提）
+      store().update(id, { phase: 'clarify', questions: prev?.questions, conn: 'closed' })
+      throw e
+    }
   },
 
   /** 取消生成（后端取消编排器任务；本地流会经扇出收到 error{cancelled}）。 */
