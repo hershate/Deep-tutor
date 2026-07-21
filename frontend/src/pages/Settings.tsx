@@ -337,6 +337,21 @@ function SharesCard() {
 
 /** 数据备份卡（iter 93）：导出整库 JSON / 追加式导入还原。
  *  凭证（api_key 等）不随备份走——导入后需在供应商档案补填并激活。 */
+// iter 274：上次导出时间记忆——用户遗忘定期备份是真实数据安全盲区（本地优先 app
+// 无服务端副本，硬盘故障即全损）；导出成功写 localStorage，卡片显示距今天数，
+// ≥14 天琥珀色提醒。仅本浏览器口径（localStorage 语义，本地部署下人-机基本对应），
+// 读写失败静默降级（iter 145 同款）。
+const LAST_BACKUP_KEY = 'dt-last-backup'
+const BACKUP_STALE_DAYS = 14
+
+function readLastBackup(): string | null {
+  try {
+    return localStorage.getItem(LAST_BACKUP_KEY)
+  } catch {
+    return null
+  }
+}
+
 function BackupCard() {
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -346,12 +361,20 @@ function BackupCard() {
   // iter 159：导入预检——选文件后先预览计数，确认后才真正导入
   const [pending, setPending] = useState<{ file: File; preview: BackupPreview } | null>(null)
   const [previewing, setPreviewing] = useState(false)
+  const [lastBackup, setLastBackup] = useState<string | null>(readLastBackup)
 
   async function doExport() {
     if (exporting) return
     setExporting(true)
     try {
       await downloadBackup()
+      const now = new Date().toISOString()
+      try {
+        localStorage.setItem(LAST_BACKUP_KEY, now)
+      } catch {
+        /* 写失败仅失去时间提示 */
+      }
+      setLastBackup(now)
       toast.success('备份已开始下载')
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
@@ -428,6 +451,20 @@ function BackupCard() {
             if (f) void doPreview(f)
           }}
         />
+        {/* iter 274：上次导出时间（本浏览器口径）；≥14 天琥珀色提醒 */}
+        {(() => {
+          if (!lastBackup) {
+            return <span className="text-xs text-slate-400 dark:text-slate-500">尚未导出过备份，建议立即导出一份存档</span>
+          }
+          const days = Math.floor((Date.now() - Date.parse(lastBackup)) / 86_400_000)
+          const stale = days >= BACKUP_STALE_DAYS
+          return (
+            <span className={`text-xs tabular-nums ${stale ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}>
+              上次导出：{days <= 0 ? '今天' : `${days} 天前`}
+              {stale && '——建议定期备份防数据丢失'}
+            </span>
+          )
+        })()}
       </div>
       {/* 导入预检（iter 159）：确认前看清备份内容 */}
       {pending && (
