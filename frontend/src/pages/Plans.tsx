@@ -71,6 +71,11 @@ export default function Plans() {
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<number | null>(null) // 删除防重入（iter 130）
   const [reloadKey, setReloadKey] = useState(0) // 删除后重取本页
+  // iter 282：批量选择 + 批量删除（选择模式仅作用于当前页方案行）
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [batchDeleting, setBatchDeleting] = useState(false)
+  const [batchProgress, setBatchProgress] = useState('')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const removeTask = useTaskStore((s) => s.remove)
@@ -103,6 +108,66 @@ export default function Plans() {
     } finally {
       setDeletingId(null)
     }
+  }
+
+  // iter 282：批量删除——选择模式仅作用于当前页方案行；占位会话区不参与（删除 running
+  // 会话会取消生成，批量场景风险高）。删除走顺序 await（SQLite 单写者，并发 deleteSession
+  // 易触发 database is locked，见 err.md B22 同族），逐条复用既有级联，失败计数上报。
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+  async function onBatchDelete() {
+    const targets = items.filter((p) => selected.has(p.id))
+    if (targets.length === 0 || batchDeleting) return
+    const preview = targets.map((p) => p.topic || `#${p.id}`).slice(0, 5).join('、')
+    const more = targets.length > 5 ? ` 等 ${targets.length} 个方案` : ''
+    if (
+      !window.confirm(
+        `确定删除选中的 ${targets.length} 个方案？\n${preview}${more}\n将同时删除其全部版本、学习进度、自学材料与源资料，且不可恢复。`,
+      )
+    )
+      return
+    setBatchDeleting(true)
+    setBatchProgress('')
+    // 同 session 多版本去重（listPlans 通常每会话仅最新版，稳妥起见去重防重复删）
+    const seen = new Set<number>()
+    let ok = 0
+    let failed = 0
+    for (let i = 0; i < targets.length; i++) {
+      const p = targets[i]
+      if (seen.has(p.session_id)) {
+        ok++
+        continue
+      }
+      seen.add(p.session_id)
+      setBatchProgress(`删除中 ${i + 1}/${targets.length}`)
+      try {
+        await deleteSession(p.session_id)
+        removeTask(planTaskId(p.session_id))
+        ok++
+      } catch {
+        failed++
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    setSelected(new Set())
+    setSelectMode(false)
+    setBatchProgress('')
+    setBatchDeleting(false)
+    // 当前页所选全删且非首页 -> 回一页；否则原地刷新
+    if (ok > 0 && ok >= items.length && page > 1) setPage((v) => v - 1)
+    else setReloadKey((k) => k + 1)
+    if (failed > 0) toast.error(`已删除 ${ok} 个，${failed} 个失败`)
+    else if (ok > 0) toast.success(`已删除 ${ok} 个方案`)
   }
 
   // 删除占位会话（iter 189 F4）：running 时明确提示将取消生成
@@ -169,6 +234,11 @@ export default function Plans() {
     return () => { cancelled = true }
   }, [page, debouncedQ, sort, reloadKey])
 
+  // iter 282：翻页/搜索/排序变化清空选择（选择是当前页作用域，跨页保留会指向已离开视图的行）
+  useEffect(() => {
+    setSelected(new Set())
+  }, [page, debouncedQ, sort])
+
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
@@ -176,6 +246,19 @@ export default function Plans() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">方案列表（{total}）</h2>
         <div className="flex items-center gap-2">
+          {/* iter 282：批量选择模式开关（方案积累后「大扫除」——此前仅逐条🗑删除） */}
+          <button
+            type="button"
+            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+            aria-pressed={selectMode}
+            className={`rounded-lg border px-3 py-1.5 text-sm transition-all active:scale-95 dark:border-slate-600 ${
+              selectMode
+                ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+            }`}
+          >
+            {selectMode ? '完成' : '选择'}
+          </button>
           {/* iter 267：排序——薄弱优先找滞后方案（iter 263 掌握度条的自然延伸） */}
           <select
             value={sort}
@@ -206,6 +289,44 @@ export default function Plans() {
           />
         </div>
       </div>
+      {/* iter 282：选择模式工具栏（已选计数 + 全选本页/清空 + 批量删除 + 取消） */}
+      {selectMode && !loading && items.length > 0 && (
+        <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm backdrop-blur dark:border-blue-900 dark:bg-slate-800/80">
+          <span className="font-medium tabular-nums text-blue-700 dark:text-blue-300">已选 {selected.size}</span>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set(items.map((p) => p.id)))}
+            className="rounded px-2 py-0.5 text-xs text-slate-600 transition-colors hover:bg-white dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            全选本页
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            disabled={selected.size === 0}
+            className="rounded px-2 py-0.5 text-xs text-slate-600 transition-colors hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            清空
+          </button>
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={onBatchDelete}
+            disabled={selected.size === 0 || batchDeleting}
+            className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 transition-all hover:bg-red-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:bg-slate-800 dark:text-red-300 dark:hover:bg-red-950"
+          >
+            {batchDeleting ? batchProgress || '删除中…' : `删除选中（${selected.size}）`}
+          </button>
+          <button
+            type="button"
+            onClick={exitSelectMode}
+            disabled={batchDeleting}
+            className="rounded-lg px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-white disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
+          >
+            取消
+          </button>
+        </div>
+      )}
       {error && (loading || items.length > 0) && (
         // 列表有内容（或加载中）时错误以 banner 提示；列表为空时由下方错误卡承担（避免双份错误文案）
         <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -320,54 +441,97 @@ export default function Plans() {
         />
       ) : (
         <ul className="space-y-2">
-          {items.map((p, idx) => (
-            <li key={p.id} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(idx, 10) * 40}ms` }}>
-              <div className="group flex items-center rounded-lg border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900 dark:hover:bg-slate-700">
-                <Link to={`/plans/${p.id}`} className="flex min-w-0 flex-1 items-center justify-between px-4 py-3">
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {p.topic || `方案 #${p.id}`}
-                    {p.version > 1 && (
-                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                        v{p.version}
-                      </span>
-                    )}
-                  </span>
-                  {/* iter 263：平均掌握度条——免开详情即知哪个方案滞后（无知识节点不显示） */}
-                  {p.avg_mastery != null && (
-                    <span
-                      className="ml-3 flex w-24 shrink-0 items-center gap-1.5"
-                      title={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
-                      aria-label={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
-                    >
-                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                        <span
-                          className="block h-full rounded-full bg-emerald-500"
-                          style={{ width: `${Math.round(p.avg_mastery * 100)}%` }}
-                        />
-                      </span>
-                      <span className="text-xs tabular-nums text-slate-400">{Math.round(p.avg_mastery * 100)}%</span>
+          {items.map((p, idx) => {
+            const checked = selected.has(p.id)
+            // 行内内容（选择/非选择模式共用，避免重复维护两份）
+            const rowInner = (
+              <>
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {p.topic || `方案 #${p.id}`}
+                  {p.version > 1 && (
+                    <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                      v{p.version}
                     </span>
                   )}
-                  <span className="ml-3 shrink-0 text-xs tabular-nums text-slate-400">
-                    {p.created_at.slice(0, 16).replace('T', ' ')}
+                </span>
+                {/* iter 263：平均掌握度条——免开详情即知哪个方案滞后（无知识节点不显示） */}
+                {p.avg_mastery != null && (
+                  <span
+                    className="ml-3 flex w-24 shrink-0 items-center gap-1.5"
+                    title={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
+                    aria-label={`平均掌握度 ${Math.round(p.avg_mastery * 100)}%`}
+                  >
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                      <span
+                        className="block h-full rounded-full bg-emerald-500"
+                        style={{ width: `${Math.round(p.avg_mastery * 100)}%` }}
+                      />
+                    </span>
+                    <span className="text-xs tabular-nums text-slate-400">{Math.round(p.avg_mastery * 100)}%</span>
                   </span>
+                )}
+                <span className="ml-3 shrink-0 text-xs tabular-nums text-slate-400">
+                  {p.created_at.slice(0, 16).replace('T', ' ')}
+                </span>
+                {!selectMode && (
                   <span aria-hidden="true" className="ml-2 shrink-0 text-slate-300 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-500 dark:text-slate-600 dark:group-hover:text-blue-400">
                     →
                   </span>
-                </Link>
-                {/* 删除（iter 130）：级联删会话（全部版本/进度/材料），confirm 确认 */}
-                <button
-                  onClick={() => onDelete(p)}
-                  disabled={deletingId !== null}
-                  aria-label={`删除方案 ${p.topic || p.id}`}
-                  title="删除该方案（含其全部版本/进度/材料）"
-                  className="mr-2 shrink-0 rounded-lg border border-transparent px-2 py-1 text-xs text-slate-300 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600 active:scale-95 disabled:opacity-50 dark:text-slate-600 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
+                )}
+              </>
+            )
+            return (
+              <li key={p.id} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(idx, 10) * 40}ms` }}>
+                <div
+                  className={`group flex items-center rounded-lg border transition-all duration-200 ${
+                    selectMode
+                      ? `cursor-pointer ${checked ? 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800'}`
+                      : 'bg-white hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900 dark:hover:bg-slate-700'
+                  }`}
                 >
-                  {deletingId === p.id ? '…' : '🗑'}
-                </button>
-              </div>
-            </li>
-          ))}
+                  {selectMode && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelect(p.id)}
+                      aria-label={checked ? `取消选择 ${p.topic || p.id}` : `选择 ${p.topic || p.id}`}
+                      aria-pressed={checked}
+                      className="ml-3 flex shrink-0 items-center"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-5 w-5 items-center justify-center rounded border text-xs transition-colors ${
+                          checked ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-300 text-transparent dark:border-slate-500'
+                        }`}
+                      >
+                        ✓
+                      </span>
+                    </button>
+                  )}
+                  {selectMode ? (
+                    <button type="button" onClick={() => toggleSelect(p.id)} className="flex min-w-0 flex-1 items-center justify-between px-4 py-3 text-left">
+                      {rowInner}
+                    </button>
+                  ) : (
+                    <Link to={`/plans/${p.id}`} className="flex min-w-0 flex-1 items-center justify-between px-4 py-3">
+                      {rowInner}
+                    </Link>
+                  )}
+                  {!selectMode && (
+                    /* 删除（iter 130）：级联删会话（全部版本/进度/材料），confirm 确认 */
+                    <button
+                      onClick={() => onDelete(p)}
+                      disabled={deletingId !== null}
+                      aria-label={`删除方案 ${p.topic || p.id}`}
+                      title="删除该方案（含其全部版本/进度/材料）"
+                      className="mr-2 shrink-0 rounded-lg border border-transparent px-2 py-1 text-xs text-slate-300 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600 active:scale-95 disabled:opacity-50 dark:text-slate-600 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
+                    >
+                      {deletingId === p.id ? '…' : '🗑'}
+                    </button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
       {pages > 1 && (
