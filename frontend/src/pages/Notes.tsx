@@ -13,6 +13,7 @@ import {
   deleteFreeNote,
   getFreeNote,
   listFreeNotes,
+  saveTextFile,
   updateFreeNote,
   type FreeNote,
 } from '../lib/api'
@@ -115,6 +116,18 @@ export default function Notes() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // iter 252：单篇导出 .md——导出当前编辑器内容（未保存草稿亦可），
+  // 文件名取标题（清洗路径不安全字符），正文前补一级标题
+  function exportNote() {
+    const title = draft.title.trim()
+    const content = draft.content
+    if (!title && !content.trim()) return
+    const md = title ? `# ${title}\n\n${content}` : content
+    const safe = (title || '笔记').replace(/[\\/:*?"<>|\r\n]+/g, '_').trim().slice(0, 50) || '笔记'
+    saveTextFile(md, `${safe}.md`)
+    toast.success('已导出 Markdown 文件')
   }
 
   async function remove() {
@@ -271,6 +284,14 @@ export default function Notes() {
                     : ''}
             </span>
             <div className="flex gap-2">
+              <button
+                onClick={exportNote}
+                disabled={busy || (!draft.title.trim() && !draft.content.trim())}
+                title="导出当前内容为 Markdown 文件"
+                className="rounded-lg border px-3 py-1.5 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                导出 .md
+              </button>
               {draft.id !== null && (
                 <button
                   onClick={remove}

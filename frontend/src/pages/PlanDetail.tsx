@@ -15,7 +15,7 @@ import { isHttpUrl } from '../lib/url'
 import { onTablistKeyDown } from '../lib/tabs'
 
 interface PlanData {
-  intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number }
+  intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number; deadline?: string | null }
   stages?: Array<{
     index: number
     name: string
@@ -36,6 +36,43 @@ interface PlanData {
 
 const VERIFY_LABEL: Record<string, string> = { ok: '✅', uncertain: '⚠️', invalid: '❌' }
 const VERIFY_TEXT: Record<string, string> = { ok: '已验证', uncertain: '不确定', invalid: '无效' }
+
+// iter 252：截止倒计时——intent.deadline 由 understand_intent 抽取入库，此前不展示。
+// 本地日口径（yyyy-mm-dd 按本地零点解析），避免 UTC 解析跨时区差一天。
+function deadlineText(deadline: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(deadline)
+  if (!m) return ''
+  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(target.getTime())) return ''
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = Math.round((target.getTime() - startOfToday.getTime()) / 86_400_000)
+  if (days > 0) return `剩 ${days} 天`
+  if (days === 0) return '今天截止'
+  return `已过 ${-days} 天`
+}
+
+function DeadlineItem({ deadline }: { deadline: string }) {
+  const t = deadlineText(deadline)
+  return (
+    <li>
+      截止: {deadline.slice(0, 10)}
+      {t && (
+        <span
+          className={
+            t.startsWith('已过')
+              ? 'ml-1 font-medium text-red-600 dark:text-red-400'
+              : t === '今天截止'
+                ? 'ml-1 font-medium text-amber-600 dark:text-amber-400'
+                : 'ml-1 text-slate-500 dark:text-slate-400'
+          }
+        >
+          （{t}）
+        </span>
+      )}
+    </li>
+  )
+}
 
 // Tabs（plan/06 §四.4）：学习路径 / 时间线 / 资源 / 校验报告
 type TabKey = 'path' | 'timeline' | 'resources' | 'report'
@@ -423,6 +460,7 @@ export default function PlanDetail() {
             {plan.intent.level && <li>基础: {plan.intent.level}</li>}
             {plan.intent.goal && <li>目标: {plan.intent.goal}</li>}
             {plan.intent.daily_minutes && <li>每日: {plan.intent.daily_minutes} 分钟</li>}
+            {plan.intent.deadline && <DeadlineItem deadline={plan.intent.deadline} />}
           </ul>
         </section>
       )}
