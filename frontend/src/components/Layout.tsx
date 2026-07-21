@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Toaster } from './Toast'
 import TaskCenter from './TaskCenter'
 import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
 import WidgetSlot from './WidgetSlot'
+import { getReviewDue } from '../lib/api'
 import { AUTH_CHANGED_EVENT, clearAuth, getStoredUser, hasJwtSession, type AuthUser } from '../lib/auth'
 import { useSetupStatus } from '../lib/setup'
 import { useUIStore } from '../store/ui'
@@ -23,6 +25,25 @@ const NAV_ITEMS = [
   { to: '/plugins', icon: '🧩', label: '插件', end: false },
   { to: '/settings', icon: '⚙️', label: '设置', end: false },
 ]
+
+// iter 253：顶栏「今日待复习」徽标——间隔重复到期节点全局可见（此前唯一入口是
+// 首页仪表盘组件，用户须主动到首页才发现；比浏览器 Notification 零权限零打扰）。
+// 与首页 ReviewDueWidget 共用 queryKey 缓存；无到期/查询失败自隐藏。
+function ReviewDueBadge() {
+  const { data } = useQuery({ queryKey: ['review-due'], queryFn: getReviewDue, staleTime: 60_000 })
+  if (!data || data.total === 0) return null
+  return (
+    <Link
+      to="/wiki"
+      aria-label={`今日待复习 ${data.total} 项，前往知识库复习`}
+      title={`今日待复习 ${data.total} 项（间隔重复到期）`}
+      className="rounded-lg border px-2 py-1 text-sm transition-colors hover:bg-amber-50 dark:border-slate-600 dark:hover:bg-slate-700"
+    >
+      <span aria-hidden="true">📅</span>
+      <span className="ml-1 font-medium tabular-nums text-amber-600 dark:text-amber-400">{data.total}</span>
+    </Link>
+  )
+}
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
@@ -193,6 +214,8 @@ export default function Layout({ children }: { children: ReactNode }) {
               <span aria-hidden="true" className="inline-block transition-transform duration-300 hover:rotate-12">{theme === 'dark' ? '☀️' : '🌙'}</span>
             </button>
             <UsageMeter />
+            {/* iter 253：今日待复习徽标（有到期才渲染） */}
+            <ReviewDueBadge />
             {/* iter 188 F3：任务中心（顶栏指示器+下拉面板；窄屏/折叠态唯一入口） */}
             <TaskCenter />
             {hasJwtSession() && user && (
