@@ -13,9 +13,16 @@ async function dtGetConfig() {
 
 // 剪藏：POST /api/materials/clip {kind, content, title}
 // 成功 -> { ok: true, sessionId, openUrl }；失败 -> { ok: false, error }
+// 成功与失败都持久化到 lastResult（popup 可展示最近一次的失败原因，
+// 否则右键剪藏失败只有 3 秒红 badge，用户无从得知原因）
 async function dtClip(kind, content, title) {
   const { serverUrl, token } = await dtGetConfig()
-  if (!token) return { ok: false, error: '未配置 Token（请在扩展选项页填写）' }
+  async function fail(error) {
+    const result = { ok: false, error, at: Date.now() }
+    await chrome.storage.local.set({ lastResult: result })
+    return result
+  }
+  if (!token) return fail('未配置 Token（请在扩展选项页填写）')
   let res
   try {
     res = await fetch(`${serverUrl}/api/materials/clip`, {
@@ -27,12 +34,12 @@ async function dtClip(kind, content, title) {
       body: JSON.stringify({ kind, content, title: title || null }),
     })
   } catch {
-    return { ok: false, error: `无法连接 ${serverUrl}（后端未启动？）` }
+    return fail(`无法连接 ${serverUrl}（后端未启动？）`)
   }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
     const msg = body?.error?.message || `HTTP ${res.status}`
-    return { ok: false, error: res.status === 401 ? 'Token 无效（请在选项页更新）' : msg }
+    return fail(res.status === 401 ? 'Token 无效或已过期（请在选项页更新）' : msg)
   }
   const result = {
     ok: true,

@@ -22,7 +22,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     result = await dtClip('text', text, tab?.title || '')
   } else if (info.menuItemId === 'dt-clip-page') {
     const url = info.pageUrl || tab?.url || ''
-    if (!/^https?:\/\//i.test(url)) return
+    // 非 http(s) 页面（chrome:// 等）不可剪藏：此前静默返回用户毫无感知，给 ✗ badge 反馈
+    if (!/^https?:\/\//i.test(url)) {
+      await dtBadge(false)
+      return
+    }
     result = await dtClip('url', url, tab?.title || '')
   } else {
     return
