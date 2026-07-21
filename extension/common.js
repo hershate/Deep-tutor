@@ -32,9 +32,12 @@ async function dtClip(kind, content, title) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ kind, content, title: title || null }),
+      // iter 246：15s 超时——服务端挂起时此前 fetch 永无结论
+      //（badge 不亮、lastResult 不写，用户完全无反馈）
+      signal: AbortSignal.timeout(15_000),
     })
   } catch {
-    return fail(`无法连接 ${serverUrl}（后端未启动？）`)
+    return fail(`无法连接 ${serverUrl}（后端未启动或响应超时？）`)
   }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {

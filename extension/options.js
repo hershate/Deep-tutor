@@ -39,6 +39,8 @@ async function test() {
   try {
     const res = await fetch(`${serverUrl}/api/settings`, {
       headers: { Authorization: `Bearer ${token}` },
+      // iter 246：8s 超时——服务端挂起时此前状态永远停「测试中…」
+      signal: AbortSignal.timeout(8_000),
     })
     if (res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -49,7 +51,7 @@ async function test() {
       showStatus(`服务器响应异常：HTTP ${res.status}`, false)
     }
   } catch {
-    showStatus(`无法连接 ${serverUrl}（后端未启动？）`, false)
+    showStatus(`无法连接 ${serverUrl}（后端未启动或响应超时？）`, false)
   }
 }
 
