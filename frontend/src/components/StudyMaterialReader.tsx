@@ -1,7 +1,7 @@
 // 自学材料阅读器（P2，plan/07 §六 / plan/06 §五 StudyMaterialReader）：
 // 单元导航 + 内容渲染（react-markdown + sanitize）+ 上一/下一单元 + 标记已学 + 去测验。
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
@@ -16,6 +16,46 @@ interface Props {
 }
 
 const INDEX_ID = -1
+
+// iter 262：单元内目录（本节导航）——从 markdown 提取 h1-h3 大纲，点击滚动到对应标题。
+// 无需标题 id（rehype-sanitize schema 不保证保留 id 属性）：提取顺序与渲染容器内
+// querySelectorAll('h1,h2,h3') 文档序一一对齐，按索引 scrollIntoView。
+interface TocItem {
+  level: number
+  text: string
+}
+
+function extractToc(md: string): TocItem[] {
+  const out: TocItem[] = []
+  let inCode = false
+  let prevText = '' // setext 标题（===/--- 下划线式）兜底：上一非空纯文本行
+  for (const line of md.split('\n')) {
+    if (/^\s*```/.test(line)) {
+      inCode = !inCode
+      prevText = ''
+      continue
+    }
+    if (inCode) continue
+    const atx = /^(#{1,3})\s+(.+?)\s*#*\s*$/.exec(line)
+    if (atx) {
+      const text = atx[2].replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim()
+      if (text) out.push({ level: atx[1].length, text })
+      prevText = ''
+      continue
+    }
+    if (/^(=+|-+)\s*$/.test(line) && prevText) {
+      out.push({ level: line.startsWith('=') ? 1 : 2, text: prevText })
+      prevText = ''
+      continue
+    }
+    // 纯文本行才可能是 setext 标题上一行（排除列表/引用/表格/空行）
+    prevText = /^[^#>\-*|\s].*\S/.test(line)
+      ? line.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim()
+      : ''
+  }
+  return out.slice(0, 50) // 防御：畸形文档超长目录截断
+}
+
 // iter 256：阅读器字号调节（A−/A+ 四档，默认标准=text-sm）——localStorage 记忆（iter 145 同款模式，
 // 隐私模式等读写失败静默降级）；.reader-font 内标题/表格在 index.css 改 em 相对尺寸，随档位整体缩放
 const FONT_STEPS = ['text-xs', 'text-sm', 'text-base', 'text-lg'] as const
@@ -61,6 +101,15 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
   const isIndex = currentId === INDEX_ID
   const idx = units.findIndex((u) => u.id === currentId)
   const current = idx >= 0 ? units[idx] : null
+
+  // iter 262：当前视图（路线图/单元）markdown 的标题大纲
+  const toc = useMemo(() => extractToc(isIndex ? indexMd : content), [isIndex, indexMd, content])
+
+  // iter 262：目录跳转——提取顺序与渲染标题文档序对齐，按索引 scrollIntoView
+  function jumpToHeading(index: number) {
+    const heads = contentRef.current?.querySelectorAll('.markdown-body h1, .markdown-body h2, .markdown-body h3')
+    heads?.[index]?.scrollIntoView({ block: 'start' })
+  }
 
   // 选中单元 -> 按需加载内容（卸载/切换中止进行中请求）；index 伪单元用传入的 indexMd 不请求
   useEffect(() => {
@@ -189,6 +238,26 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
             A+
           </button>
         </div>
+        {/* iter 262：本节导航——≥3 个标题才显示（短内容无导航价值）；加载/出错期间隐藏防过期目录 */}
+        {!loading && !error && toc.length >= 3 && (
+          <details className="mb-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs dark:border-slate-700">
+            <summary className="cursor-pointer select-none font-medium text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+              📑 本节导航（{toc.length}）
+            </summary>
+            <ul className="mt-1.5 space-y-0.5">
+              {toc.map((h, i) => (
+                <li key={i} style={{ paddingLeft: `${(h.level - 1) * 12}px` }}>
+                  <button
+                    onClick={() => jumpToHeading(i)}
+                    className="w-full truncate text-left text-slate-600 transition-colors hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400"
+                  >
+                    {h.text}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {isIndex ? (
           <>
             <div className={`markdown-body ${FONT_STEPS[fontStep]}`}>
