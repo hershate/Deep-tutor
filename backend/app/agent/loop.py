@@ -99,36 +99,50 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
     last_error: str | None = None
     last_model = ""
 
-    for attempt in range(1, REPAIR_MAX_RETRIES + 2):  # 1 + REPAIR_MAX_RETRIES 次尝试
-        if ctx.cancel_event.is_set():
-            return _error_output(tool, "cancelled", "取消信号已触发")
-        message = user if attempt == 1 else user + _repair_feedback(last_error)
-        resp = await _chat_with_retry(ctx, system, message)
-        accumulate_usage(total, resp.usage)
-        last_model = resp.usage.model or last_model
-        if resp.stop_reason == "max_tokens":
-            # err.md B5：截断输出必然 JSON 解析失败，白烧修复重试；
-            # 提高 max_tokens 重试一次，仍截断则直接降级
-            log.warning("工具 %s 输出被 max_tokens 截断，提高上限重试一次", tool.name)
-            resp = await _chat_with_retry(ctx, system, message, max_tokens=8192)
+    def _billed(out: ToolOutput) -> ToolOutput:
+        """iter 243：异常/取消出口亦回填已累积 usage——此前这些路径 metadata 全零，
+        已成功的重试轮次 token 不进 tool_calls/api_usage，而日预算只信 api_usage
+        -> 绕过入口守卫的成本黑洞（cancel/timeout/4xx 后重试成本全部隐形）。"""
+        out.metadata = build_metadata(total, last_model)
+        return out
+
+    try:
+        for attempt in range(1, REPAIR_MAX_RETRIES + 2):  # 1 + REPAIR_MAX_RETRIES 次尝试
+            if ctx.cancel_event.is_set():
+                return _billed(_error_output(tool, "cancelled", "取消信号已触发"))
+            message = user if attempt == 1 else user + _repair_feedback(last_error)
+            resp = await _chat_with_retry(ctx, system, message)
             accumulate_usage(total, resp.usage)
             last_model = resp.usage.model or last_model
             if resp.stop_reason == "max_tokens":
-                out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
-                out.metadata = build_metadata(total, last_model)
-                return out
-        data, err = _parse_and_validate(resp.content, tool.output_model)
-        if err is None:
-            if tool.post_process:
-                data = tool.post_process(data, inp)
-            return ToolOutput(
-                tool=tool.name,
-                status="ok",
-                data=data,
-                metadata=build_metadata(total, last_model),
-            )
-        last_error = err
-        log.warning("工具 %s 第 %d 次校验失败: %s", tool.name, attempt, err)
+                # err.md B5：截断输出必然 JSON 解析失败，白烧修复重试；
+                # 提高 max_tokens 重试一次，仍截断则直接降级
+                log.warning("工具 %s 输出被 max_tokens 截断，提高上限重试一次", tool.name)
+                resp = await _chat_with_retry(ctx, system, message, max_tokens=8192)
+                accumulate_usage(total, resp.usage)
+                last_model = resp.usage.model or last_model
+                if resp.stop_reason == "max_tokens":
+                    out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
+                    out.metadata = build_metadata(total, last_model)
+                    return out
+            data, err = _parse_and_validate(resp.content, tool.output_model)
+            if err is None:
+                if tool.post_process:
+                    data = tool.post_process(data, inp)
+                return ToolOutput(
+                    tool=tool.name,
+                    status="ok",
+                    data=data,
+                    metadata=build_metadata(total, last_model),
+                )
+            last_error = err
+            log.warning("工具 %s 第 %d 次校验失败: %s", tool.name, attempt, err)
+    except asyncio.TimeoutError:
+        # 与 run_tool 外层捕获同语义（upstream_timeout），但在此携带已累积 usage
+        return _billed(_error_output(tool, "upstream_timeout", f"{tool.name} 超时（{ctx.timeouts.llm}s）"))
+    except Exception as exc:  # noqa: BLE001  LLM 非瞬态错误（4xx 等）：记成本后按工具失败处理
+        log.exception("工具 %s LLM 调用异常", tool.name)
+        return _billed(_error_output(tool, "tool_exception", str(exc)))
 
     # 重试耗尽 -> 降级默认 + 告警（Pillar 2）
     out = _degraded(tool, "schema_violation", f"修复重试 {REPAIR_MAX_RETRIES} 次仍不符: {last_error}")

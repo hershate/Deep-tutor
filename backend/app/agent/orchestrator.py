@@ -120,6 +120,11 @@ class OrchestratorResult:
     outputs: dict[str, ToolOutput] = field(default_factory=dict)
     plan: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    # iter 243：本次运行**实际执行**的每次工具调用（执行序，含反馈循环被覆盖的
+    # 早轮输出）——outputs 每工具只留最后一轮（_rerun_from 覆盖），若按 outputs
+    # 落账则反馈重跑轮次的 token 不进 tool_calls/api_usage（日预算只信 api_usage
+    # -> 成本黑洞）。持久化以此为准；outputs 仅供方案组装/部分态。
+    executed: list[ToolOutput] = field(default_factory=list)
 
 
 def check_field_coverage(tool: Tool, outputs: dict[str, ToolOutput]) -> list[str]:
@@ -161,6 +166,9 @@ class Orchestrator:
         self.ctx = ctx
         self.event_cb = event_cb
         self.max_tool_calls = max_tool_calls
+        # iter 243：执行台账（_exec 唯一追加点；同列表对象经 stream.executed 暴露，
+        # 任务被取消/异常时 _finalize 仍能落账已执行部分）
+        self.executed: list[ToolOutput] = []
 
     # ---- 公开入口 ----
 
@@ -178,19 +186,20 @@ class Orchestrator:
         outputs: dict[str, ToolOutput] = dict(initial_upstream or {})
         errors: list[str] = []
         call_count = 0
+        self.executed.clear()  # 复用实例重跑时重置台账（生产一实例一跑，测试可复用）
 
         # err.md B18：不在 PIPELINE 的 start_tool 原会静默回退从头执行，与语义不符
         if start_tool is not None and start_tool not in PIPELINE:
             msg = f"start_tool 不在 PIPELINE: {start_tool}"
             log.error(msg)
-            return OrchestratorResult("error", outputs, {}, [msg])
+            return self._result("error", outputs, {}, [msg])
         for group in _window_groups(start_tool):
             names = [n for n in group if self.registry.has(n)]
             if not names:
                 continue  # 未注册的工具跳过（便于分步骤落地/测试）
             if call_count >= self.max_tool_calls:
                 errors.append(f"工具调用轮次达上限 {self.max_tool_calls}")
-                return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
+                return self._result("interrupted", outputs, self._assemble(outputs), errors)
 
             outs = await self._exec_group(names, args_by_tool, outputs)
             for n, o in zip(names, outs, strict=True):
@@ -205,7 +214,7 @@ class Orchestrator:
                 if self.ctx.budget.exceeded():
                     self._emit("budget_exceeded", {"spent": self.ctx.budget.spent, "limit": self.ctx.budget.limit})
                     errors.append("budget_exceeded")
-                    return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
+                    return self._result("interrupted", outputs, self._assemble(outputs), errors)
 
             # 错误：组内按 PIPELINE 顺序取首个 error 中断（确定性），保留部分
             for n, o in zip(names, outs, strict=True):
@@ -213,14 +222,14 @@ class Orchestrator:
                     for e in o.errors:
                         errors.append(f"{n}: {e.code} - {e.message}")
                     self._emit("error", {"code": o.errors[-1].code if o.errors else "error", "stage": n})
-                    return OrchestratorResult("error", outputs, self._assemble(outputs), errors)
+                    return self._result("error", outputs, self._assemble(outputs), errors)
 
             # 澄清：understand_intent 需澄清 -> 暂停
             if "understand_intent" in names:
                 intent_out = outputs["understand_intent"]
                 if intent_out.data.get("needs_clarify"):
                     self._emit("clarify_needed", {"questions": intent_out.data.get("clarify_questions", [])})
-                    return OrchestratorResult("paused_clarify", outputs, self._assemble(outputs), errors)
+                    return self._result("paused_clarify", outputs, self._assemble(outputs), errors)
 
             # 反馈循环：validate_plan 未过 -> 重跑上游
             if "validate_plan" in names:
@@ -245,7 +254,7 @@ class Orchestrator:
                             "code": rerun_err.errors[-1].code if rerun_err.errors else "error",
                             "stage": f"feedback:{target}",
                         })
-                        return OrchestratorResult("error", outputs, self._assemble(outputs), errors)
+                        return self._result("error", outputs, self._assemble(outputs), errors)
                     out = outputs.get("validate_plan", out)
                     if out.status == "error":
                         break
@@ -255,7 +264,7 @@ class Orchestrator:
                 if self.ctx.budget and self.ctx.budget.exceeded():
                     self._emit("budget_exceeded", {"spent": self.ctx.budget.spent, "limit": self.ctx.budget.limit})
                     errors.append("budget_exceeded")
-                    return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
+                    return self._result("interrupted", outputs, self._assemble(outputs), errors)
                 if not out.data.get("passed", True):
                     self._emit("warn", {"code": "validation_unresolved", "message": "校验仍不通过，交付当前方案 + 报告"})
 
@@ -264,9 +273,19 @@ class Orchestrator:
             # 事件经 _SessionStream 缓冲，断线重连自动重放最新片段。
             self._emit("plan_chunk", {"partial_plan": self._assemble(outputs)})
 
-        return OrchestratorResult("done", outputs, self._assemble(outputs), errors)
+        return self._result("done", outputs, self._assemble(outputs), errors)
 
     # ---- 内部 ----
+
+    def _result(
+        self,
+        status: str,
+        outputs: dict[str, ToolOutput],
+        plan: dict[str, Any],
+        errors: list[str],
+    ) -> OrchestratorResult:
+        """组装结果：快照执行台账（list 复制——调用方持有时台账不再增长）。"""
+        return OrchestratorResult(status, outputs, plan, errors, executed=list(self.executed))
 
     async def _exec(
         self,
@@ -291,6 +310,7 @@ class Orchestrator:
                 errors=[ToolError(code="missing_upstream_field", message=f"缺少上游字段: {missing}")],
             )
             self._emit("tool_end", {**step, "status": "error", "metadata": {}})
+            self.executed.append(out)  # 未真正调用 LLM，但事件已发——台账留痕（零成本行）
             return out
 
         self._emit("tool_start", dict(step))
@@ -304,6 +324,7 @@ class Orchestrator:
                 "metadata": out.metadata.model_dump(),
             },
         )
+        self.executed.append(out)  # iter 243：执行台账（成本落账唯一事实源）
         return out
 
     async def _exec_group(

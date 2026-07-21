@@ -146,6 +146,10 @@ class _SessionStream:
         # 须取消旧流的句柄——否则旧定时器到点 pop 掉正在运行的新流（台账误删：
         # 配额计数少算、无法取消、续接拿不到缓冲）。
         self._cleanup_timer: asyncio.TimerHandle | None = None
+        # iter 243：编排器执行台账（_run_start 挂接 orch.executed 同一列表对象）。
+        # 任务被取消/异常时 result 不可得，_finalize 借此落账已执行的工具调用
+        # （成本计量不留黑洞：日预算守卫只信 api_usage 每日求和）。
+        self.executed: list[ToolOutput] = []
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -606,6 +610,8 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             return
         if task.cancelled():
             # iter 184 B4：取消亦持久化原始输入与错误详情（可重试）
+            # iter 243：取消前已执行的工具调用亦落账（成本黑洞：日预算只信 api_usage）
+            _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
                 db, session_id, models.OrchestratorStatus.error, stream.trace_id,
@@ -620,6 +626,8 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             result = task.result()
         except Exception as exc:  # noqa: BLE001
             log.exception("orchestrator 任务异常: %s", exc)
+            # iter 243：异常前已执行的工具调用亦落账（同取消路径）
+            _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
                 db, session_id, models.OrchestratorStatus.error, stream.trace_id,
@@ -631,7 +639,7 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             stream.mark_terminal(eid)
             return
         if result.status == "done":
-            _persist_tool_calls(db, session_id, stream.trace_id, result.outputs)
+            _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
             plan_id = _persist_plan(db, session_id, result.plan)
             cost = stream.budget.spent if stream.budget else 0.0
             data = {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(cost, 6)}}
@@ -652,7 +660,7 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                     sess.title = topic[:256]
                     db.commit()
         elif result.status == "paused_clarify":
-            _persist_tool_calls(db, session_id, stream.trace_id, result.outputs)
+            _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
             partial = {
                 "raw_text": stream.raw_text,
                 "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
@@ -670,6 +678,9 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             # clarify_needed 已由编排器 emit（stream.seq 即其 id）；标记终态使流结束
             stream.mark_terminal(stream.seq)
         else:
+            # iter 243：error/interrupted 终态此前完全跳过落账——失败/预算中断前
+            # 已烧掉的 token 不进 api_usage，反复失败重试即可绕过日预算守卫
+            _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
             msg = result.errors[-1] if result.errors else "生成失败"
             data = {"code": "generation_failed", "message": msg, "stage": ""}
             eid = stream.publish("error", data)
@@ -760,6 +771,7 @@ async def _run_start(
     orch = Orchestrator(
         registry, ctx, event_cb=_on_event, max_tool_calls=settings.max_tool_calls
     )
+    stream.executed = orch.executed  # iter 243：台账共享（取消/异常时 _finalize 落账已执行部分）
     task = asyncio.create_task(
         orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
     )
@@ -830,15 +842,30 @@ def _set_state(
     db.commit()
 
 
-def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: dict[str, ToolOutput]) -> None:
+def _persist_tool_calls(
+    db: Session,
+    session_id: int,
+    trace_id: str,
+    outputs: dict[str, ToolOutput] | None = None,
+    executed: list[ToolOutput] | None = None,
+) -> None:
     """持久化 tool_calls + api_usage（成本计量 Pillar 3，plan/01 §三）。批量写，失败不阻塞。
 
+    iter 243 重构（日预算守卫 deps.check_daily_budget 只信 api_usage 每日求和，
+    落账缺口 = 预算绕过通道）：
+    - executed：本次运行**实际执行**的每次调用（执行序；含反馈循环被覆盖的早轮、
+      失败/取消/中断前已完成的调用）——全部落账，不再以 outputs 每工具最终值为准
+      （旧逻辑反馈重跑轮次的 token 整轮丢失）；
+    - outputs：仅用于补登「注入上游」行（如首跑的 parse_material 未经编排器执行），
+      且仅当 DB 尚无该工具记录时——重生成/澄清续接/重试的重建上游（_reconstruct_upstream
+      / partial dump，已在库）跳过，防重复 tool_calls 行。
     api_usage.user_id 取会话归属用户（P4 iter 58 按用户统计用量）。
     """
     try:
         sess = db.get(models.Session, session_id)
         usage_user_id = sess.user_id if sess is not None else None
-        for tool_name, out in outputs.items():
+
+        def _add_call(tool_name: str, out: ToolOutput) -> None:
             m = out.metadata
             err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
             db.add(
@@ -868,6 +895,19 @@ def _persist_tool_calls(db: Session, session_id: int, trace_id: str, outputs: di
                         cost=m.cost,
                     )
                 )
+
+        executed_names: set[str] = set()
+        for out in executed or []:
+            executed_names.add(out.tool)
+            _add_call(out.tool, out)
+        if outputs:
+            existing = {
+                r[0] for r in db.query(models.ToolCall.tool).filter_by(session_id=session_id).all()
+            }
+            for name, out in outputs.items():
+                if name in executed_names or name in existing:
+                    continue
+                _add_call(name, out)  # 注入上游首登（metadata 全零 -> 仅 tool_calls 行）
         db.commit()
     except Exception:  # noqa: BLE001  审计写入失败不阻塞主流程
         log.exception("持久化 tool_calls 失败")
