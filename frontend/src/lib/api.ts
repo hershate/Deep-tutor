@@ -903,6 +903,9 @@ async function ssePostWithReconnect(
         signal,
         lastEventId: lastId,
         onEvent: (ev) => {
+          // iter 244 F4：收到真实事件即证明连接健康——重试计数复位（此前单调递增，
+          // 长生命流间歇抖动累计 3 次即永久放弃；心跳为注释行不经此回调，不会误复位）
+          attempt = 0
           // 边投递边推进游标：openSSE 的返回值只在流「干净结束」时拿到，
           // 网络中断时 readSSEStream 直接抛出、返回值丢失——若不在这里
           // 实时记录 lastId，重连将从 undefined 重放全部事件（事件重复送达）
