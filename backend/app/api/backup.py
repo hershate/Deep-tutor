@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core import backup as backup_core
+from app.core.ratelimit import limiter
 from app.db.models import User
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,16 @@ router = APIRouter(prefix="/backup", tags=["backup"], dependencies=[Depends(requ
 
 # 导入文件大小上限（本地单用户应用，256MB 足以覆盖重度使用；防误传巨型文件拖垮内存）
 _MAX_BACKUP_BYTES = 256 * 1024 * 1024
+# iter 246：备份面限流（此前是限流覆盖遗漏点）——export 全量序列化、import/preview
+# 单次读入 ≤256MB 且 json.loads 内存峰值 2-3 倍；并发触发可拖垮小内存部署机
+_EXPORT_RATE_PER_MIN = 10
+_IMPORT_RATE_PER_MIN = 5
+_PREVIEW_RATE_PER_MIN = 10
+
+
+def _check_rate(user: User, bucket: str, limit: int) -> None:
+    if not limiter.check(f"backup:{bucket}:{user.id}", limit):
+        raise ApiError("rate_limited", "备份操作过于频繁，请稍后再试", status=429)
 
 
 @router.get("/export")
@@ -34,6 +45,7 @@ def export_backup(
     user: User = Depends(get_current_user),
 ) -> Response:
     """导出当前用户全部数据为 JSON 附件下载（自包含，可再导入）。"""
+    _check_rate(user, "export", _EXPORT_RATE_PER_MIN)
     payload = backup_core.build_export(db, user)
     blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     filename = f"deep-tutor-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
@@ -54,6 +66,7 @@ async def preview_backup_endpoint(
 
     与 /import 同的大小/JSON/结构校验；区别仅在不调用 restore。
     """
+    _check_rate(user, "preview", _PREVIEW_RATE_PER_MIN)
     raw = await file.read(_MAX_BACKUP_BYTES + 1)
     if len(raw) > _MAX_BACKUP_BYTES:
         raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
@@ -74,6 +87,7 @@ async def import_backup(
     user: User = Depends(get_current_user),
 ) -> dict:
     """导入备份 JSON（追加式：全部以新数据重建，不覆盖现有数据）。"""
+    _check_rate(user, "import", _IMPORT_RATE_PER_MIN)
     raw = await file.read(_MAX_BACKUP_BYTES + 1)
     if len(raw) > _MAX_BACKUP_BYTES:
         raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
