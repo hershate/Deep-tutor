@@ -86,6 +86,18 @@ export default function KbDocsView() {
     return () => clearTimeout(t)
   }, [q])
 
+  // iter 248：解析弹窗 Esc 关闭——解析期间（最长 10 分钟）此前遮罩/取消全锁死，
+  // 用户除刷新外无法脱离（刷新后服务端解析照跑，纯前端自锁）。关闭仅关弹窗，
+  // 解析请求继续（submitParse 已捕获 target，完成时 toast + 刷新列表）
+  useEffect(() => {
+    if (!parseTarget) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setParseTarget(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [parseTarget])
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['kb-docs', debouncedQ, kind],
     queryFn: () => listKbDocuments({ q: debouncedQ, kind: kind ?? undefined }),
@@ -646,7 +658,7 @@ export default function KbDocsView() {
           role="dialog"
           aria-modal="true"
           aria-label={`解析 ${parseTarget.title}`}
-          onClick={() => !parseBusy && setParseTarget(null)}
+          onClick={() => setParseTarget(null)}
         >
           <div
             className="w-full max-w-sm rounded-xl border bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-800"
@@ -702,13 +714,17 @@ export default function KbDocsView() {
                 。
               </p>
             )}
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex items-center justify-end gap-2">
+              {parseBusy && (
+                <span className="mr-auto text-xs text-slate-400 dark:text-slate-500">
+                  关闭弹窗后解析在后台继续，完成时将提示
+                </span>
+              )}
               <button
                 onClick={() => setParseTarget(null)}
-                disabled={parseBusy}
-                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+                className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
               >
-                取消
+                {parseBusy ? '后台继续' : '取消'}
               </button>
               <button
                 onClick={submitParse}
