@@ -172,6 +172,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   // rAF 等一帧布局完成再设 scrollTop，卸载/再切换取消
   useEffect(() => {
     if (loading || currentId === null) return
+    if (pendingLocateRef.current?.unitId === currentId) return // iter 271：检索定位优先于位置恢复
     const saved = scrollMemRef.current.get(currentId)
     if (!saved) return
     const raf = requestAnimationFrame(() => {
@@ -180,6 +181,61 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
     })
     return () => cancelAnimationFrame(raf)
   }, [loading, currentId])
+
+  // iter 271：内容命中定位（iter 269 闭环补全）——点击检索「内容」命中后单元打开，
+  // 但命中位置不可见（用户须在长文里再人工找一次）。加载完成后在渲染 DOM 找首个命中
+  // 文本节点：包临时 <mark> 高亮 + 滚动到视口中央。ref 带 unitId 防竞态
+  // （点击命中后未加载完又手动切单元，定位不会落在错单元）。
+  // mark 直接操作 DOM：react-markdown 子树仅在 content 变化时重建（命中标记随之自然消失），
+  // 容器 className（字号档）变化不重建子树，标记存活期内稳定。
+  const pendingLocateRef = useRef<{ unitId: number; q: string } | null>(null)
+
+  function clearLocateMarks() {
+    contentRef.current?.querySelectorAll('mark[data-locate-hit]').forEach((m) => {
+      const parent = m.parentNode
+      if (!parent) return
+      parent.replaceChild(document.createTextNode(m.textContent ?? ''), m)
+      parent.normalize() // 合并相邻文本节点，防反复定位后 DOM 碎片化
+    })
+  }
+
+  function locateFirstHit(q: string) {
+    const root = contentRef.current
+    if (!root || !q) return
+    const needle = q.toLowerCase()
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let node = walker.nextNode() as Text | null
+    while (node) {
+      const text = node.data
+      const idx = text.toLowerCase().indexOf(needle)
+      if (idx >= 0 && text.trim()) {
+        clearLocateMarks() // 同单元重复定位：先清上一处
+        const hit = node.splitText(idx) // hit 以命中词开头
+        hit.splitText(q.length) // hit 截为恰好命中词
+        const mark = document.createElement('mark')
+        mark.setAttribute('data-locate-hit', '1')
+        mark.className = 'rounded-sm bg-yellow-200 px-0 dark:bg-yellow-800'
+        node.parentNode?.replaceChild(mark, hit)
+        mark.appendChild(hit)
+        mark.scrollIntoView({ block: 'center' })
+        return
+      }
+      node = walker.nextNode() as Text | null
+    }
+  }
+
+  // 单元加载完成后执行挂起定位（rAF 等一帧布局）；查询清空时清残留标记
+  useEffect(() => {
+    if (loading || currentId === null) return
+    const pending = pendingLocateRef.current
+    if (!pending || pending.unitId !== currentId) return
+    pendingLocateRef.current = null
+    const raf = requestAnimationFrame(() => locateFirstHit(pending.q))
+    return () => cancelAnimationFrame(raf)
+  }, [loading, currentId, content])
+  useEffect(() => {
+    if (!debouncedUnitQ) clearLocateMarks()
+  }, [debouncedUnitQ])
 
   async function toggleDone() {
     if (!current || doneBusy) return
@@ -257,7 +313,18 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
             {unitHits.map((h) => (
               <li key={h.unit_id}>
                 <button
-                  onClick={() => setCurrentId(h.unit_id)}
+                  onClick={() => {
+                    // iter 271：内容命中 -> 挂起定位（加载完成后滚动到命中并高亮）；
+                    // 已在该单元则无需等加载立即定位；标题命中无定位必要
+                    if (h.match === 'content') {
+                      if (h.unit_id === currentId && !loading) {
+                        locateFirstHit(debouncedUnitQ)
+                      } else {
+                        pendingLocateRef.current = { unitId: h.unit_id, q: debouncedUnitQ }
+                      }
+                    }
+                    setCurrentId(h.unit_id)
+                  }}
                   aria-current={h.unit_id === currentId ? 'true' : undefined}
                   className={`w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
                     h.unit_id === currentId ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
