@@ -16,6 +16,20 @@ import { planTaskId, useTaskStore, type SessionStatusItem } from '../store/tasks
 
 const PAGE_SIZE = 20
 
+// iter 280：界面偏好记忆（iter 145/256 同款 localStorage 模式，读写失败静默降级）——
+// 排序是用户刻意选择（iter 267 薄弱优先找滞后方案的目标人群每次访问重选是日常摩擦）
+const SORT_KEY = 'dt-plans-sort'
+const SORT_VALUES: PlanSort[] = ['created_desc', 'mastery_asc', 'mastery_desc']
+
+function readSort(): PlanSort {
+  try {
+    const v = localStorage.getItem(SORT_KEY) as PlanSort | null
+    return v && SORT_VALUES.includes(v) ? v : 'created_desc'
+  } catch {
+    return 'created_desc'
+  }
+}
+
 /** 占位行状态徽标（服务端状态 -> 展示语义；error.code=cancelled 归「已取消」）。 */
 function statusMeta(s: SessionStatusItem): { label: string; badge: string } {
   if (s.status === 'running') return PHASE_META.running
@@ -52,7 +66,7 @@ export default function Plans() {
   const [page, setPage] = useState(1)
   const [q, setQ] = useState('') // 主题搜索输入（iter 128）
   const [debouncedQ, setDebouncedQ] = useState('')
-  const [sort, setSort] = useState<PlanSort>('created_desc') // iter 267：列表排序（切换回到第 1 页）
+  const [sort, setSort] = useState<PlanSort>(readSort) // iter 267：列表排序（切换回到第 1 页；iter 280：记忆）
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<number | null>(null) // 删除防重入（iter 130）
@@ -166,8 +180,14 @@ export default function Plans() {
           <select
             value={sort}
             onChange={(e) => {
-              setSort(e.target.value as PlanSort)
+              const v = e.target.value as PlanSort
+              setSort(v)
               setPage(1)
+              try {
+                localStorage.setItem(SORT_KEY, v) // iter 280：记忆排序偏好
+              } catch {
+                /* 写失败仅本次会话生效 */
+              }
             }}
             aria-label="方案排序"
             className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"

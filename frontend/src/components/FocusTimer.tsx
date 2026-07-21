@@ -15,6 +15,18 @@ import { toast } from './Toast'
 
 const PRESETS = [15, 25, 45] // 分钟；25 = 经典番茄钟
 const MAX_MINUTES = 180
+// iter 280：预设记忆（iter 145 同款静默降级）——常用 45 分钟的用户免每次重选；
+// 自定义分钟不记忆（每次显式输入，防陈旧值误用）
+const PRESET_KEY = 'dt-focus-preset'
+
+function readPreset(): number {
+  try {
+    const v = Number(localStorage.getItem(PRESET_KEY))
+    return PRESETS.includes(v) ? v : 25
+  } catch {
+    return 25
+  }
+}
 
 interface FocusTimerProps {
   busy: boolean // 打卡提交在途（开始避让；完成时父组件决定自动/回填）
@@ -22,7 +34,7 @@ interface FocusTimerProps {
 }
 
 export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
-  const [preset, setPreset] = useState(25)
+  const [preset, setPreset] = useState(readPreset)
   const [custom, setCustom] = useState('')
   const [remainMs, setRemainMs] = useState<number | null>(null) // null = 空闲
   const [paused, setPaused] = useState(false)
@@ -215,6 +227,11 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
             onClick={() => {
               setPreset(m)
               setCustom('')
+              try {
+                localStorage.setItem(PRESET_KEY, String(m)) // iter 280：记忆预设
+              } catch {
+                /* 写失败仅本次会话生效 */
+              }
             }}
             aria-pressed={preset === m && !custom.trim()}
             className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${

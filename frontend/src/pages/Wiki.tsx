@@ -2,7 +2,7 @@
 // 按方案分组浏览；点击节点跳方案详情。数据：GET /api/knowledge。
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/EmptyState'
 import KbDocsView from '../components/KbDocsView'
 import NodeNoteEditor from '../components/NodeNoteEditor'
@@ -106,8 +106,31 @@ export default function Wiki() {
     staleTime: 60_000,
   })
 
-  // 视图切换（iter 161 知识点/我的笔记；iter 217 文档库为首 tab，LLMWiki 式独立文档库）
-  const [view, setView] = useState<'docs' | 'nodes' | 'notes'>('docs')
+  // 视图切换（iter 161 知识点/我的笔记；iter 217 文档库为首 tab，LLMWiki 式独立文档库；
+  // iter 280：记忆上次视图——常用「我的笔记」tab 的用户免每次重切；非法值/读写失败回退 docs）
+  const [view, setView] = useState<'docs' | 'nodes' | 'notes'>(() => {
+    try {
+      const v = localStorage.getItem('dt-wiki-view')
+      return v === 'docs' || v === 'nodes' || v === 'notes' ? v : 'docs'
+    } catch {
+      return 'docs'
+    }
+  })
+  function switchView(v: 'docs' | 'nodes' | 'notes') {
+    setView(v)
+    try {
+      localStorage.setItem('dt-wiki-view', v)
+    } catch {
+      /* 写失败仅本次会话生效 */
+    }
+  }
+  // iter 280：记忆视图不得拦截深链——/wiki?doc=N（搜索结果直达，iter 257）由 KbDocsView
+  // 消费，仅 docs 视图渲染；深链到达时强制 docs 视图
+  const [params] = useSearchParams()
+  useEffect(() => {
+    if (params.get('doc')) switchView('docs')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params])
   const { data: notesOv } = useQuery({
     queryKey: ['notes-overview'],
     queryFn: getNotesOverview,
@@ -258,7 +281,7 @@ export default function Wiki() {
             key={v}
             role="tab"
             aria-selected={view === v}
-            onClick={() => setView(v)}
+            onClick={() => switchView(v)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-all active:scale-95 ${
               view === v
                 ? 'bg-blue-600 text-white shadow-sm'
