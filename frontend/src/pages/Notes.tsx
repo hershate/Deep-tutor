@@ -1,7 +1,7 @@
 // 独立自由笔记页（iter 227）：不依附方案的笔记本——左列表右编辑器双栏。
 // 列表 content 为 300 字预览，点选后 GET 全文进编辑器；正文支持 Markdown 预览切换；
 // 保存=新建 POST / 更新 PUT；删除有确认。空标题且空正文后端 400，前端先拦截提示。
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
@@ -34,6 +34,7 @@ export default function Notes() {
   const [preview, setPreview] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadingId, setLoadingId] = useState<number | null>(null)
+  const openSeq = useRef(0) // iter 248：openNote 在途序号（迟到响应丢弃）
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['free-notes'],
@@ -53,16 +54,19 @@ export default function Notes() {
   async function openNote(n: FreeNote) {
     if (busy || loadingId !== null) return
     if (draft.id !== n.id && !confirmDiscard()) return
+    // iter 248：在途序号——打开 A 期间点「新建」，A 的迟到响应不得覆写新草稿
+    const seq = ++openSeq.current
     setLoadingId(n.id)
     try {
       const full = await getFreeNote(n.id) // 列表仅 300 字预览，取全文编辑
+      if (seq !== openSeq.current) return // 已有更新的选择（新建/另开），丢弃迟到响应
       setDraft({ id: full.id, title: full.title, content: full.content, updatedAt: full.updated_at })
       setDirty(false)
       setPreview(false)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '笔记加载失败')
     } finally {
-      setLoadingId(null)
+      setLoadingId((cur) => (cur === n.id ? null : cur))
     }
   }
 
@@ -123,6 +127,7 @@ export default function Notes() {
             <button
               onClick={() => {
                 if (!confirmDiscard()) return
+                openSeq.current += 1 // 作废在途 openNote 响应（防覆写新草稿）
                 setDraft(EMPTY_DRAFT)
                 setDirty(false)
                 setPreview(false)
