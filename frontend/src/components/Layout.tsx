@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Toaster } from './Toast'
+import ErrorBoundary from './ErrorBoundary'
 import TaskCenter from './TaskCenter'
 import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
@@ -353,7 +354,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* iter 92：key=路由路径，切换页面时主区淡入上移；id 供 skip link 跳转；scroll-mt 防吸顶 header 遮挡跳转落点 */}
         {/* 内容在剩余空间内居中，max-w-5xl 保持阅读宽度（原 max-w-6xl 减去侧栏宽度后的近似等效） */}
         <main id="main-content" tabIndex={-1} key={location.pathname} className="min-w-0 flex-1 animate-fade-in-up scroll-mt-16 px-4 py-6 sm:px-6">
-          <div className="mx-auto w-full max-w-5xl">{children}</div>
+          <div className="mx-auto w-full max-w-5xl">
+            {/* iter 273：页面级错误边界——页面渲染异常不白屏，顶栏/侧栏保持可用，路由切换自愈 */}
+            <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>
+          </div>
         </main>
       </div>
 
