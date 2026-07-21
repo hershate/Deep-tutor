@@ -9,6 +9,7 @@ import asyncio
 
 from app.api.plans import (
     _MAX_BUFFERED_EVENTS,
+    _RETENTION_SECONDS,
     _STREAMS,
     _SessionStream,
     _relay,
@@ -199,5 +200,43 @@ def test_cancel_running_generation_schedules_cancel():
 
         # 不存在的会话 -> False
         assert cancel_running_generation(12345) is False
+
+    asyncio.run(scenario())
+
+
+def test_occupy_cancels_previous_cleanup_timer(monkeypatch):
+    """iter 237：同 session_id 在保留窗口内重新占位 -> 取消旧清理定时器，新流不被误删。
+
+    复现链路（修复前 bug）：_finalize -> _schedule_cleanup 排 300s 后 _STREAMS.pop(session_id)
+    -> 用户在窗口内重试/重生成 -> _occupy_generation 覆盖 _STREAMS[session_id] 但不取消旧
+    定时器 -> 旧定时器到点 pop 掉正在运行的新流（配额少算/无法取消/续接拿不到缓冲）。
+    修复：_schedule_cleanup 把句柄存到旧流 _cleanup_timer，_occupy_generation 取消之。
+    """
+    import app.api.plans as plans_mod
+
+    sid = 4242
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        # 旧流终态 + 排程清理（模拟 _schedule_cleanup；不建 DB，直接构造等价状态）
+        old = _SessionStream(sid, "old-trace")
+        old.mark_terminal(old.publish("done", {"plan_id": 1}))
+        _STREAMS[sid] = old
+        handle = loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, sid, None)
+        old._cleanup_timer = handle
+
+        # 窗口内重新占位（重试/重生成）：须取消旧定时器。
+        # _occupy_generation 需要 db；用 monkeypatch 桩掉 _set_state，传 None db。
+        monkeypatch.setattr(plans_mod, "_set_state", lambda *a, **k: None)
+        new_stream = plans_mod._occupy_generation(None, sid, "raw")
+
+        assert _STREAMS[sid] is new_stream
+        assert old._cleanup_timer is None  # 句柄已取消并清空
+        assert handle.cancelled()  # 旧定时器确已取消
+
+        # 到点后旧 pop 不应触发（已取消）；手动推进事件循环验证新流仍在
+        await asyncio.sleep(0)
+        assert _STREAMS.get(sid) is new_stream
+        _STREAMS.pop(sid, None)  # 清理测试现场
 
     asyncio.run(scenario())

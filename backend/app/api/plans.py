@@ -141,6 +141,11 @@ class _SessionStream:
         self.step_index: int = 0
         self.total_steps: int = 0
         self.cost: float = 0.0
+        # iter 237：本流终态后排程的清理定时器句柄（_schedule_cleanup 赋值）。
+        # 同 session_id 在保留窗口内重新占位（重试/重生成）时，_occupy_generation
+        # 须取消旧流的句柄——否则旧定时器到点 pop 掉正在运行的新流（台账误删：
+        # 配额计数少算、无法取消、续接拿不到缓冲）。
+        self._cleanup_timer: asyncio.TimerHandle | None = None
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -302,6 +307,12 @@ def _occupy_generation(db: Session, session_id: int, raw_text: str) -> "_Session
     占位在端点内、返回 StreamingResponse 之前完成，而非等到流式生成器首次迭代，
     使「状态检查 -> 占位」无窗口期。
     """
+    # iter 237：取消旧流的清理定时器——同 session_id 在 300s 保留窗口内重新占位
+    # （重试/重生成）时，旧 _schedule_cleanup 排程的 pop 仍会在到点删除本新流。
+    prev = _STREAMS.get(session_id)
+    if prev is not None and prev._cleanup_timer is not None:
+        prev._cleanup_timer.cancel()
+        prev._cleanup_timer = None
     trace_id = uuid.uuid4().hex
     stream = _SessionStream(session_id, trace_id)
     stream.raw_text = raw_text
@@ -556,10 +567,18 @@ def _parse_last_event_id(request: Request) -> int:
 
 
 def _schedule_cleanup(session_id: int) -> None:
-    """终态后延迟从 _STREAMS 移除（保留窗口供迟到重连）。无运行循环则立即移除。"""
+    """终态后延迟从 _STREAMS 移除（保留窗口供迟到重连）。无运行循环则立即移除。
+
+    iter 237：句柄存到对应流的 _cleanup_timer，供 _occupy_generation 在同 session_id
+    重新占位时取消（防旧定时器误删新流）。仅当台账当前条目仍是被清理的那条流时才
+    记录句柄（避免 finalize 与新占位交错时错挂）。
+    """
     try:
         loop = asyncio.get_running_loop()
-        loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
+        handle = loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
+        cur = _STREAMS.get(session_id)
+        if cur is not None and cur.terminal_id is not None:
+            cur._cleanup_timer = handle
     except RuntimeError:
         _STREAMS.pop(session_id, None)
 
