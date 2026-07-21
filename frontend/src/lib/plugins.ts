@@ -265,6 +265,11 @@ const SCRIPT_TIMEOUT_MS = 15_000
 // 原会重复注入执行脚本：插件重复注册 widget/重复订阅事件 -> 重复 toast/副作用）
 const injectedScripts = new Set<string>()
 
+// iter 247：加载进行中的 Promise 台账——F7 的幂等判定只在 onload 后生效，两次并发
+// load(同 URL)（如启动自动加载进行中 + 用户在 /plugins 页手动加载同一 URL）会双双
+// 通过 has 检查重复注入；并发调用改为共享同一注入 Promise（失败同样共享 reject）
+const inflightLoads = new Map<string, Promise<void>>()
+
 function injectScript(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
@@ -291,15 +296,26 @@ const pluginsApi = {
   /** 加载外部插件脚本并持久化（刷新后自动加载）；脚本以 window.DeepTutor 完成注册 */
   async load(url: string): Promise<void> {
     if (!/^https?:\/\//i.test(url)) throw new Error('[DeepTutor] 插件 URL 需以 http(s):// 开头')
-    if (injectedScripts.has(url)) {
-      // iter 244 F7：本会话已注入 -> 幂等返回（仅补持久化登记，不重复执行脚本）
+    const persist = () => {
       const urls = readPluginUrls()
       if (!urls.includes(url)) writePluginUrls([...urls, url])
+    }
+    if (injectedScripts.has(url)) {
+      // iter 244 F7：本会话已注入 -> 幂等返回（仅补持久化登记，不重复执行脚本）
+      persist()
       return
     }
-    await injectScript(url)
-    const urls = readPluginUrls()
-    if (!urls.includes(url)) writePluginUrls([...urls, url])
+    const inflight = inflightLoads.get(url)
+    if (inflight) {
+      // iter 247：同 URL 加载进行中 -> 共享其结果（成功则幂等，失败同样上抛）
+      await inflight
+      persist()
+      return
+    }
+    const p = injectScript(url).finally(() => inflightLoads.delete(url))
+    inflightLoads.set(url, p)
+    await p
+    persist()
   },
   /** 从持久化列表移除；已执行的脚本副作用需刷新页面才消除 */
   unload(url: string): void {
