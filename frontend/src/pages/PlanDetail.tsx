@@ -367,6 +367,34 @@ export default function PlanDetail() {
               撤销分享
             </button>
           )}
+          {/* iter 287：复制为新需求——以 intent 重构提示词预填首页（生成相似/进阶方案）。
+              原始 raw_text 未为完成方案持久化，故从 intent（始终在 plan 内容中）重构；资料需用户重新添加。 */}
+          <button
+            onClick={() => {
+              if (!plan) return
+              const it = plan.intent ?? {}
+              const parts: string[] = []
+              if (it.topic?.trim()) parts.push(`我想学${it.topic.trim()}`)
+              if (it.level?.trim()) parts.push(it.level.trim())
+              if (it.goal?.trim()) parts.push(`目标：${it.goal.trim()}`)
+              if (typeof it.daily_minutes === 'number' && it.daily_minutes > 0) parts.push(`每天约${it.daily_minutes}分钟`)
+              const prompt = parts.join('，')
+              if (!prompt) {
+                toast.error('该方案无可复制的需求信息')
+                return
+              }
+              try {
+                localStorage.setItem('dt-home-prefill', prompt)
+              } catch {
+                /* 存储不可用（隐私模式等）：降级为空首页，用户手动粘贴 */
+              }
+              nav('/')
+            }}
+            title="以此方案的学习目标预填首页需求，生成一个新方案（资料需重新添加）"
+            className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
+          >
+            📋 复制为新需求
+          </button>
           <button
             onClick={() => nav(`/learn/${planId}`)}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md active:scale-[.98]"

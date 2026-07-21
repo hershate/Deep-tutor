@@ -85,6 +85,22 @@ export default function Home() {
     }
   }, [rawText, urls])
 
+  // iter 287：PlanDetail「复制为新需求」预填——读 dt-home-prefill 后清键，
+  // 取代任何陈旧草稿（用户刻意从已有方案派生新需求，旧草稿不再相关）
+  useEffect(() => {
+    try {
+      const prefill = localStorage.getItem('dt-home-prefill')
+      if (!prefill) return
+      setRawText(prefill)
+      setDraftRestored(false)
+      localStorage.removeItem('dt-home-prefill')
+      localStorage.removeItem(DRAFT_KEY) // prefill 取代陈旧草稿
+      rawTextRef.current?.focus()
+    } catch {
+      /* 存储不可用，忽略 */
+    }
+  }, [])
+
   function clearDraft() {
     setRawText('')
     setUrls([])
