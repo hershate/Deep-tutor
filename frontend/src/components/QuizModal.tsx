@@ -81,6 +81,39 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, generating])
 
+  const choiceIdx = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
+  // iter 276：键盘作答——「当前题」= 首个未判定选择题；数字键 1-9 选选项、Enter 判定，
+  // 判完自动推进下一题（1→Enter→2→Enter 流畅答完）。文本输入态（fill/short 无输入框，
+  // 防御未来）与输入法组合态不劫持；选项前序号角标 + 当前题高亮圈标明显式作用域。
+  const currentChoiceIdx = choiceIdx.find(({ i }) => !answers[i]?.judged)?.i
+  useEffect(() => {
+    if (currentChoiceIdx === undefined) return
+    const cur = currentChoiceIdx // 收窄供闭包使用（TS 对跨函数捕获不保留 undefined 收窄）
+    function onKey(e: KeyboardEvent) {
+      if (e.isComposing) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t as HTMLInputElement).type === 'text'))) return
+      const q = quizzes[cur]
+      if (!q || q.type !== 'choice') return
+      if (/^[1-9]$/.test(e.key)) {
+        const opt = q.options[Number(e.key) - 1]
+        if (opt !== undefined) {
+          e.preventDefault()
+          patch(cur, { selected: opt })
+        }
+      } else if (e.key === 'Enter') {
+        const a = answers[cur]
+        if (a?.selected && !a.judged && !a.judging) {
+          e.preventDefault()
+          void judge(cur, q)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChoiceIdx, answers, quizzes])
+
   // 测验回写（iter 40）：全部选择题判定后，按知识点聚合正确率 -> POST /progress。
   // 状态映射：score >= 0.8 -> done（与 record_progress 主观 done 下限 0.8 一致），否则 learning。
   // 无 node_id 的题跳过（无法映射 knowledge_nodes）；单节点失败不阻塞其余（best-effort）。
@@ -146,7 +179,6 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     patch(i, { judged: true, judging: false, correct: a.selected === q.answer })
   }
 
-  const choiceIdx = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
   const judged = choiceIdx.filter(({ i }) => answers[i]?.judged)
   const correctCount = judged.filter(({ i }) => answers[i]?.correct).length
 
@@ -166,6 +198,11 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <h3 className="font-semibold">{title || '测验'}</h3>
           <div className="flex items-center gap-3">
+            {currentChoiceIdx !== undefined && (
+              <span className="hidden text-xs text-slate-400 sm:inline dark:text-slate-500" aria-hidden="true">
+                键盘：1-9 选项 · Enter 判定
+              </span>
+            )}
             {judged.length > 0 && (
               <span className="text-sm text-slate-600 dark:text-slate-300" aria-live="polite">
                 选择题得分：{correctCount} / {choiceIdx.length}
@@ -220,7 +257,9 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
                 return (
                   <div
                     key={i}
-                    className="animate-fade-in-up rounded-lg border p-4 dark:border-slate-700"
+                    className={`animate-fade-in-up rounded-lg border p-4 dark:border-slate-700 ${
+                      i === currentChoiceIdx ? 'ring-2 ring-blue-400/60 dark:ring-blue-500/50' : ''
+                    }`}
                     style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
                   >
                     <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -257,6 +296,11 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
                                 disabled={a.judged}
                                 onChange={() => patch(i, { selected: opt })}
                               />
+                              {!a.judged && j < 9 && (
+                                <span className="w-4 shrink-0 text-center text-xs text-slate-400 tabular-nums dark:text-slate-500" aria-hidden="true">
+                                  {j + 1}
+                                </span>
+                              )}
                               {opt}
                             </label>
                           )
