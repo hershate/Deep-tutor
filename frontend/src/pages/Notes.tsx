@@ -1,7 +1,7 @@
 // 独立自由笔记页（iter 227）：不依附方案的笔记本——左列表右编辑器双栏。
 // 列表 content 为 300 字预览，点选后 GET 全文进编辑器；正文支持 Markdown 预览切换；
 // 保存=新建 POST / 更新 PUT；删除有确认。空标题且空正文后端 400，前端先拦截提示。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -29,6 +29,9 @@ interface Draft {
 }
 
 const EMPTY_DRAFT: Draft = { id: null, title: '', content: '', updatedAt: null }
+
+// iter 288：置顶笔记——客户端 localStorage 记忆（本地单用户无需入库迁移），置顶笔记排前
+const PIN_KEY = 'dt-notes-pinned'
 
 // iter 272：未保存草稿保护——dirty 此前仅守卫页内切换（confirmDiscard），
 // 刷新/关标签/侧栏跳路由均静默丢稿（BrowserRouter 无 useBlocker，迁数据路由器风险不值）。
@@ -90,6 +93,31 @@ export default function Notes() {
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
   const [exporting, setExporting] = useState(false) // iter 286：全部笔记 zip 导出
+  // iter 288：置顶笔记 id 集（localStorage 持久化；读写失败静默降级，iter 145 同款模式）
+  const [pinned, setPinned] = useState<Set<number>>(() => {
+    try {
+      const raw = localStorage.getItem(PIN_KEY)
+      const arr = raw ? (JSON.parse(raw) as unknown) : []
+      return new Set(Array.isArray(arr) ? (arr as number[]) : [])
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(PIN_KEY, JSON.stringify([...pinned]))
+    } catch {
+      /* 存储不可用，仅本次会话生效 */
+    }
+  }, [pinned])
+  function togglePin(id: number) {
+    setPinned((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const openSeq = useRef(0) // iter 248：openNote 在途序号（迟到响应丢弃）
 
   // iter 272 ①：刷新/关标签时浏览器原生确认（仅 dirty 期间挂监听）
@@ -123,6 +151,26 @@ export default function Notes() {
     queryFn: listFreeNotes,
     staleTime: 10_000,
   })
+  // iter 288：展示序——置顶笔记排前（保持各自原相对序），非置顶在后
+  const ordered = useMemo(() => {
+    const items = data?.items ?? []
+    if (pinned.size === 0) return items
+    return [...items.filter((n) => pinned.has(n.id)), ...items.filter((n) => !pinned.has(n.id))]
+  }, [data, pinned])
+  // iter 288：笔记被删后清理失效的置顶 id（remove/批量删均经此收敛，无需各自特判）
+  useEffect(() => {
+    if (!data?.items) return
+    const valid = new Set(data.items.map((n) => n.id))
+    setPinned((prev) => {
+      let changed = false
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (valid.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [data])
 
   // iter 249：深链 /notes?note=<id>（全局搜索结果直达）——列表加载后打开该笔记；
   // 参数即消费（replace 不堆历史），目标不存在（已删）仅清参数不报错
@@ -429,7 +477,7 @@ export default function Notes() {
           )}
           {data && data.total > 0 && (
             <ul className="max-h-[60vh] space-y-1 overflow-y-auto">
-              {data.items.map((n) => (
+              {ordered.map((n) => (
                 <li key={n.id}>
                   {selectMode ? (
                     <button
@@ -467,29 +515,48 @@ export default function Notes() {
                       )}
                     </button>
                   ) : (
-                    <button
-                      onClick={() => openNote(n)}
-                      aria-current={draft.id === n.id}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-all hover:border-blue-300 dark:hover:border-blue-700 ${
+                    <div
+                      className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-700 ${
                         draft.id === n.id
                           ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950'
                           : 'border-transparent bg-slate-50 dark:bg-slate-900'
                       }`}
                     >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                          {loadingId === n.id ? '加载中…' : n.title || '无题'}
+                      <button
+                        onClick={() => openNote(n)}
+                        aria-current={draft.id === n.id}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                            {loadingId === n.id ? '加载中…' : n.title || '无题'}
+                          </span>
+                          <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                            {n.updated_at ? n.updated_at.slice(5, 10) : ''}
+                          </span>
                         </span>
-                        <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                          {n.updated_at ? n.updated_at.slice(5, 10) : ''}
-                        </span>
-                      </span>
-                      {n.content && (
-                        <span className="mt-0.5 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
-                          {n.content}
-                        </span>
-                      )}
-                    </button>
+                        {n.content && (
+                          <span className="mt-0.5 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                            {n.content}
+                          </span>
+                        )}
+                      </button>
+                      {/* iter 288：置顶/取消置顶（置顶笔记排前） */}
+                      <button
+                        type="button"
+                        onClick={() => togglePin(n.id)}
+                        aria-pressed={pinned.has(n.id)}
+                        aria-label={pinned.has(n.id) ? `取消置顶 ${n.title || '无题'}` : `置顶 ${n.title || '无题'}`}
+                        title={pinned.has(n.id) ? '取消置顶' : '置顶'}
+                        className={`shrink-0 rounded px-1 py-0.5 text-xs transition-colors ${
+                          pinned.has(n.id)
+                            ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950'
+                            : 'text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400'
+                        }`}
+                      >
+                        📌
+                      </button>
+                    </div>
                   )}
                 </li>
               ))}
