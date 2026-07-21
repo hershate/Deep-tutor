@@ -19,6 +19,7 @@ import Usage from './pages/Usage'
 import Settings from './pages/Settings'
 import Wiki from './pages/Wiki'
 import Notes from './pages/Notes'
+import Review from './pages/Review'
 import Search from './pages/Search'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
@@ -73,6 +74,8 @@ export default function App() {
                 <Route path="/plans" element={<Plans />} />
                 <Route path="/plans/:planId" element={<PlanDetail />} />
                 <Route path="/learn/:planId" element={<Learn />} />
+                {/* iter 281：跨方案统一复习工作流页（翻卡自评 + 掌握度回写） */}
+                <Route path="/review" element={<Review />} />
                 <Route path="/wiki" element={<Wiki />} />
                 <Route path="/notes" element={<Notes />} />
                 {/* iter 249：全局搜索页（方案/笔记/知识库文档/知识节点四域聚合） */}

@@ -183,17 +183,18 @@ def get_progress(
 
 
 # --- 全局今日待复习（iter 119）：跨方案聚合到期节点，Wiki 页顶部提醒 ---
+# iter 281：抽 _due_items 共享 due 计算，供 /review/due（轻量徽标/列表）与
+# /review/queue（翻卡复习，富化笔记+难度）复用——避免两处到期筛选逻辑分叉
+# （此前 review_due 内联，新增复习页若另写一份会随 SM-2 口径演进而失同步）。
 
 
-@router.get("/review/due")
-def review_due(
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> dict:
-    """当前用户全部方案的到期复习节点（next_review <= 今天），按复习日升序（最逾期在前）。
+def _due_items(db: Session, user: User) -> list[dict]:
+    """跨方案到期复习节点（next_review <= 今天），按 (next_review, mastery) 升序（最逾期在前）。
 
-    next_review 同 _node_view 语义：mastery + updated_at 即时推导（SM-2-lite），不入库。
+    返回富化字典（含 node_pk/difficulty/must_learn 等投影专用字段）；**不切片**——
+    调用方按 limit 自行截断并据 len(全量) 报 total（保留 /review/due 既有 total 语义：
+    total 为到期总数，items 为截断后的前 N 条）。
+    next_review 同 _node_view：mastery + updated_at 即时推导（SM-2-lite），不入库。
     """
     from app.api.plans import _load_plan_content
 
@@ -207,7 +208,7 @@ def review_due(
     )
     topics: dict[int, str] = {}
     today = dt_date.today()
-    items = []
+    items: list[dict] = []
     for prog, node in rows:
         due = next_review_date(round(prog.mastery, 3), today=prog.updated_at.date())
         if due > today:
@@ -223,14 +224,80 @@ def review_due(
                 "plan_id": node.plan_id,
                 "plan_topic": topics[node.plan_id],
                 "node_id": node.sid,
+                "node_pk": node.id,  # review_queue 批量查笔记用（数字主键，不入 /review/due 契约）
                 "name": node.name,
                 "status": prog.status.value,
                 "mastery": round(prog.mastery, 3),
                 "next_review": due.isoformat(),
+                "difficulty": node.difficulty,
+                "must_learn": bool(node.must_learn),
             }
         )
     items.sort(key=lambda i: (i["next_review"], i["mastery"]))
-    return {"items": items[: max(1, min(limit, 500))], "total": len(items)}
+    return items
+
+
+# /review/due 既有契约字段（不含 node_pk/difficulty/must_learn——review_queue 专用富化字段）
+_REVIEW_DUE_FIELDS = ("plan_id", "plan_topic", "node_id", "name", "status", "mastery", "next_review")
+
+
+@router.get("/review/due")
+def review_due(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """当前用户全部方案的到期复习节点（next_review <= 今天），按复习日升序（最逾期在前）。
+
+    next_review 同 _node_view 语义：mastery + updated_at 即时推导（SM-2-lite），不入库。
+    """
+    items = _due_items(db, user)
+    capped = items[: max(1, min(limit, 500))]
+    return {"items": [{k: it[k] for k in _REVIEW_DUE_FIELDS} for it in capped], "total": len(items)}
+
+
+@router.get("/review/queue")
+def review_queue(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """复习队列（iter 281，/review 翻卡复习页数据源）：到期节点 + 本人节点笔记原文 + 难度/必学。
+
+    due 计算与 GET /review/due 同源（_due_items）；本端点额外**一次请求批量 join** 笔记原文，
+    使翻卡背面有可刷新内容（有笔记展示笔记、无笔记前端降级为自评提示），避免逐卡 N+1 拉笔记。
+    只读、按用户隔离（_due_items 已 join Session.user_id）、limit 上界 500（与 /review/due 同口径）。
+    """
+    items = _due_items(db, user)
+    capped = items[: max(1, min(limit, 500))]
+    note_map: dict[int, str] = {}
+    if capped:
+        note_map = {
+            row.node_id: row.content
+            for row in db.query(models.NodeNote)
+            .filter(
+                models.NodeNote.user_id == user.id,
+                models.NodeNote.node_id.in_([it["node_pk"] for it in capped]),
+            )
+            .all()
+            if row.content
+        }
+    out = [
+        {
+            "plan_id": it["plan_id"],
+            "plan_topic": it["plan_topic"],
+            "node_id": it["node_id"],
+            "name": it["name"],
+            "status": it["status"],
+            "mastery": it["mastery"],
+            "next_review": it["next_review"],
+            "difficulty": it["difficulty"],
+            "must_learn": it["must_learn"],
+            "note": note_map.get(it["node_pk"], ""),
+        }
+        for it in capped
+    ]
+    return {"items": out, "total": len(items)}
 
 
 # --- 全局学习统计（iter 122）：跨方案累计/本周分钟数 + 连续打卡天数 ---

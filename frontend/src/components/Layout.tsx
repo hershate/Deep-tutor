@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/', icon: '＋', label: '新建方案', end: true },
   { to: '/plans', icon: '📚', label: '方案列表', end: false },
   { to: '/wiki', icon: '🧠', label: '知识库', end: false },
+  { to: '/review', icon: '🔁', label: '复习', end: false },
   { to: '/notes', icon: '📝', label: '笔记', end: false },
   { to: '/search', icon: '🔍', label: '搜索', end: false },
   { to: '/usage', icon: '📊', label: '用量', end: false },
@@ -38,14 +39,15 @@ const THEME_META = {
 // iter 253：顶栏「今日待复习」徽标——间隔重复到期节点全局可见（此前唯一入口是
 // 首页仪表盘组件，用户须主动到首页才发现；比浏览器 Notification 零权限零打扰）。
 // 与首页 ReviewDueWidget 共用 queryKey 缓存；无到期/查询失败自隐藏。
+// iter 281：落地直达 /review 翻卡复习页（此前跳 /wiki 仅列到期、无逐张复习流）。
 function ReviewDueBadge() {
   const { data } = useQuery({ queryKey: ['review-due'], queryFn: getReviewDue, staleTime: 60_000 })
   if (!data || data.total === 0) return null
   return (
     <Link
-      to="/wiki"
-      aria-label={`今日待复习 ${data.total} 项，前往知识库复习`}
-      title={`今日待复习 ${data.total} 项（间隔重复到期）`}
+      to="/review"
+      aria-label={`今日待复习 ${data.total} 项，开始复习`}
+      title={`今日待复习 ${data.total} 项（点击开始翻卡复习）`}
       className="rounded-lg border px-2 py-1 text-sm transition-colors hover:bg-amber-50 dark:border-slate-600 dark:hover:bg-slate-700"
     >
       <span aria-hidden="true">📅</span>

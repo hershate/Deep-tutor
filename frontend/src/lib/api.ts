@@ -440,6 +440,15 @@ export interface ReviewDueItem {
 export const getReviewDue = () =>
   apiFetch<{ items: ReviewDueItem[]; total: number }>('/progress/review/due')
 
+// 复习队列（iter 281，/review 翻卡复习页）：到期节点富化本人节点笔记 + 难度/必学
+export interface ReviewQueueItem extends ReviewDueItem {
+  difficulty: number | null // 1-5；历史数据可能为 null
+  must_learn: boolean
+  note: string // 本人节点笔记原文；无笔记为空串（前端背面降级为自评提示）
+}
+export const getReviewQueue = () =>
+  apiFetch<{ items: ReviewQueueItem[]; total: number }>('/progress/review/queue')
+
 // 全局学习统计（iter 122）：累计/本周分钟 + 连续打卡
 export interface StudyStats {
   total_minutes: number
