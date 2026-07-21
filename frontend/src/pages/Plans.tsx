@@ -198,12 +198,12 @@ export default function Plans() {
                       >
                         {s.title || '未命名会话'}
                       </button>
-                      <span className="shrink-0 text-xs text-slate-400">{relTime(s.updated_at ?? s.created_at)}</span>
+                      <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{relTime(s.updated_at ?? s.created_at)}</span>
                       {s.status === 'running' && (
                         <button
                           type="button"
                           onClick={() => onCancelSession(s)}
-                          className="shrink-0 text-xs text-slate-400 underline underline-offset-2 hover:text-red-600 dark:hover:text-red-400"
+                          className="shrink-0 text-xs text-slate-500 dark:text-slate-400 underline underline-offset-2 hover:text-red-600 dark:hover:text-red-400"
                         >
                           取消
                         </button>
@@ -231,7 +231,7 @@ export default function Plans() {
                         >
                           <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${pct}%` }} />
                         </div>
-                        <div className="mt-1 text-xs text-slate-400">
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           {live
                             ? `第 ${cur}/${total} 步${live.current_tool ? ` · ${TOOL_LABELS[live.current_tool] ?? live.current_tool}` : ''}`
                             : '生成进行中…'}

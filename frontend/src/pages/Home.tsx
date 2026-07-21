@@ -266,7 +266,7 @@ export default function Home() {
             // iter 105：file: 伪元素品牌化原生「选择文件」按钮
             className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 file:transition-colors hover:file:bg-blue-100 dark:file:bg-blue-950 dark:file:text-blue-300 dark:hover:file:bg-blue-900"
           />
-          <p className="mt-1 text-xs text-slate-400">或将文件拖拽到此处</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">或将文件拖拽到此处</p>
         </div>
         {files.length > 0 && (
           <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
@@ -296,7 +296,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                     aria-label={`移除 ${f.file.name}`}
-                    className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
+                    className="rounded px-1.5 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
                   >
                     移除
                   </button>
@@ -344,7 +344,7 @@ export default function Home() {
                   type="button"
                   onClick={() => setUrls((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`移除 ${u}`}
-                  className="rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
+                  className="rounded px-1.5 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-red-400"
                 >
                   移除
                 </button>

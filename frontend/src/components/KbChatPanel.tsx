@@ -132,7 +132,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
         >
           {picked.size ? `范围：已选 ${picked.size} 篇 ▾` : `范围：全部 ${docs.length} 篇 ▾`}
         </button>
-        <p className="ml-auto text-xs text-slate-400">
+        <p className="ml-auto text-xs text-slate-500 dark:text-slate-400">
           问答自动保存{data ? ` · 共 ${data.total} 条` : ''}
         </p>
       </header>
@@ -166,7 +166,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
                 </button>
               ))}
           </div>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             不选任何篇目 = 基于全部文档作答；点选后仅依据所选篇目（≤{MAX_CHAT_DOCS} 篇）
           </p>
         </div>
@@ -174,7 +174,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
 
       <div ref={listRef} className="max-h-96 min-h-24 space-y-3 overflow-y-auto px-4 py-3">
         {records.length === 0 && !pendingQ && errors.length === 0 && (
-          <p className="py-4 text-center text-xs text-slate-400">
+          <p className="py-4 text-center text-xs text-slate-500 dark:text-slate-400">
             向你的知识库提问——AI 仅依据库内文档回答并标注出处；问答记录自动保存，便于日后参考
           </p>
         )}
@@ -194,7 +194,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
                 </div>
                 {r.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-200 pt-2 dark:border-slate-700">
-                    <span className="text-xs text-slate-400">出处：</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">出处：</span>
                     {r.citations.map((c) => (
                       <button
                         key={c.doc_id}
@@ -212,7 +212,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
                     上下文超长，以下 {r.omitted_titles.length} 篇未纳入本轮：{r.omitted_titles.join('、')}
                   </p>
                 )}
-                <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
+                <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <time dateTime={r.created_at}>{r.created_at.slice(5, 16).replace('T', ' ')}</time>
                   <button
                     onClick={() => onDeleteRecord(r.id, r.question)}

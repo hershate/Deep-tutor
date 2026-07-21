@@ -40,7 +40,7 @@ export default function SharedPlan() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <header className="mb-6 animate-fade-in-up border-b pb-4 dark:border-slate-700">
-        <div className="text-xs text-slate-400">Deep-tutor 分享的学习方案（只读）</div>
+        <div className="text-xs text-slate-500 dark:text-slate-400">Deep-tutor 分享的学习方案（只读）</div>
         <h1 className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">{data.title}</h1>
         {data.content.topic && <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">主题：{data.content.topic}</div>}
       </header>
@@ -89,7 +89,7 @@ export default function SharedPlan() {
                   ) : (
                     r.title || r.url
                   )}
-                  {r.type && <span className="ml-1 text-xs text-slate-400">（{r.type}）</span>}
+                  {r.type && <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（{r.type}）</span>}
                 </li>
               ))}
             </ul>
@@ -98,7 +98,7 @@ export default function SharedPlan() {
       ))}
 
       {quizCount > 0 && <div className="text-sm text-slate-500 dark:text-slate-400">📝 配套测验题 {quizCount} 道（仅方案所有者可用）</div>}
-      <footer className="mt-8 text-center text-xs text-slate-400">由 Deep-tutor 生成并分享</footer>
+      <footer className="mt-8 text-center text-xs text-slate-500 dark:text-slate-400">由 Deep-tutor 生成并分享</footer>
     </div>
   )
 }

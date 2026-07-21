@@ -134,7 +134,7 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
         <div className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{doc.title}</h2>
-            <p className="mt-0.5 truncate text-xs text-slate-400">
+            <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
               {doc.kind}
               {doc.ext ? ` · ${doc.ext}` : ''} · 来源：{doc.source}
             </p>

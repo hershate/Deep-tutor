@@ -152,7 +152,7 @@ export default function Plugins() {
             <div key={slot} className="text-sm">
               <span className="text-slate-600 dark:text-slate-300">
                 {SLOT_LABEL[slot] ?? slot}
-                <span className="ml-1 text-xs text-slate-400">({slot})</span>：
+                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">({slot})</span>：
               </span>
               {items.length === 0 ? (
                 <span className="text-slate-400 dark:text-slate-500">无小组件</span>
@@ -186,7 +186,7 @@ export default function Plugins() {
         )}
         {backendQ.data && (
           <div className="space-y-3">
-            <p className="text-xs text-slate-400 dark:text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-500">
               后端插件 API v{backendQ.data.api_version} · 已订阅事件 {backendQ.data.subscribed_events.length} 个
             </p>
             {backendQ.data.plugins.length === 0 ? (
@@ -198,7 +198,7 @@ export default function Plugins() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span aria-hidden="true">{p.state === 'loaded' ? '✅' : '❌'}</span>
                       <span className="font-medium">{p.name}</span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
                         {p.id}
                         {p.version ? ` v${p.version}` : ''}
                       </span>
@@ -207,7 +207,7 @@ export default function Plugins() {
                       <p className="mt-1 break-all text-xs text-red-500">{p.error}</p>
                     )}
                     {p.state === 'loaded' && (
-                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
                         路由 {p.routes.length} · 事件 {p.events.length} · 工具 {p.tools.length}
                       </p>
                     )}

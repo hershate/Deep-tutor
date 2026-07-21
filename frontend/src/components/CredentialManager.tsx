@@ -209,7 +209,7 @@ function KindSection({ kind }: { kind: CredentialKind }) {
                 )}
               </div>
               {meta.keyHint && form.id === null && (
-                <span className="mt-0.5 block text-xs text-slate-400">{meta.keyHint}</span>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{meta.keyHint}</span>
               )}
             </label>
           </div>

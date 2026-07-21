@@ -52,7 +52,7 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
 
   if (loading) {
     return (
-      <p className="flex items-center gap-2 px-3 pb-2 text-xs text-slate-400" role="status">
+      <p className="flex items-center gap-2 px-3 pb-2 text-xs text-slate-500 dark:text-slate-400" role="status">
         <span aria-hidden="true" className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
         加载笔记…
       </p>
@@ -71,7 +71,7 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
         className="w-full rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-900"
       />
       <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
           {updatedAt ? `更新于 ${new Date(updatedAt).toLocaleString()}` : '尚未保存'}
         </span>
         <button

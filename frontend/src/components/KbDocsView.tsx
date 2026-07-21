@@ -436,7 +436,7 @@ export default function KbDocsView() {
           }}
           className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 file:transition-colors hover:file:bg-blue-100 dark:file:bg-blue-950 dark:file:text-blue-300 dark:hover:file:bg-blue-900"
         />
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           或将文件拖拽到此处——支持 PDF / Word / PPT / 文本 / 图片 / 音频 / 视频（单个 ≤50MB，重复内容自动去重）
         </p>
         {uploads.length > 0 && (
@@ -469,7 +469,7 @@ export default function KbDocsView() {
               <li>
                 <button
                   onClick={clearFinishedUploads}
-                  className="text-xs text-slate-400 underline-offset-2 transition-colors hover:text-slate-600 hover:underline dark:hover:text-slate-300"
+                  className="text-xs text-slate-500 dark:text-slate-400 underline-offset-2 transition-colors hover:text-slate-600 hover:underline dark:hover:text-slate-300"
                 >
                   清除已完成记录
                 </button>
@@ -570,7 +570,7 @@ export default function KbDocsView() {
                     {d.title}
                   </button>
                 )}
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {KIND_LABEL[d.kind]}
                   {d.ext ? ` · ${d.ext}` : ''}
                   {/* iter 225：状态徽标——待确认/未解析/已解析字数 */}

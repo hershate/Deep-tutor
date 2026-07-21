@@ -50,14 +50,14 @@ function NodeItem({ node: n, busyNode, onSetStatus, compact }: {
     <>
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{n.name}</span>
       <span
-        className={`text-xs text-slate-400 ${compact ? 'hidden sm:inline' : ''}`}
+        className={`text-xs text-slate-500 dark:text-slate-400 ${compact ? 'hidden sm:inline' : ''}`}
         aria-label={`掌握度 ${Math.round(n.mastery * 100)}%`}
       >
         掌握度 <span className="tabular-nums">{Math.round(n.mastery * 100)}%</span>
       </span>
       {n.next_review && (
         <span
-          className={`text-xs text-slate-400 ${compact ? 'hidden md:inline' : ''}`}
+          className={`text-xs text-slate-500 dark:text-slate-400 ${compact ? 'hidden md:inline' : ''}`}
           title="按间隔重复（SM-2-lite）推算"
         >
           复习 {n.next_review}

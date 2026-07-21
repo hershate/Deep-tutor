@@ -164,7 +164,7 @@ export default function Notes() {
                       <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
                         {loadingId === n.id ? '加载中…' : n.title || '无题'}
                       </span>
-                      <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+                      <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                         {n.updated_at ? n.updated_at.slice(5, 10) : ''}
                       </span>
                     </span>

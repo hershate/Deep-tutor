@@ -111,7 +111,7 @@ export default function CheckinCalendar({ logs }: { logs: LearningLogItem[] }) {
           ),
         )}
       </div>
-      <div className="mt-2 flex items-center gap-2 text-xs text-slate-400" aria-hidden="true">
+      <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400" aria-hidden="true">
         <span>少</span>
         <span className="h-3 w-3 rounded bg-emerald-100 dark:bg-emerald-900" />
         <span className="h-3 w-3 rounded bg-emerald-300 dark:bg-emerald-700" />

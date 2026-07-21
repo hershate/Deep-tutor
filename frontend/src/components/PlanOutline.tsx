@@ -59,7 +59,7 @@ function MapNode({ node, childrenMap, depth }: {
           {node.name}
         </span>
         {node.difficulty !== undefined && (
-          <span className="text-xs text-slate-400">难度 {node.difficulty}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">难度 {node.difficulty}</span>
         )}
       </div>
       {open && kids.length > 0 && (
@@ -93,7 +93,7 @@ function StageCard({ stage: s, defaultOpen }: { stage: OutlineStage; defaultOpen
           </span>
           {s.index + 1}. {s.name}
         </h4>
-        <span className="text-xs text-slate-400">难度 {s.difficulty} / {s.estimated_weeks} 周</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">难度 {s.difficulty} / {s.estimated_weeks} 周</span>
       </button>
       {open && (
         <div className="animate-fade-in border-t px-4 pb-4 pt-2 dark:border-slate-700">

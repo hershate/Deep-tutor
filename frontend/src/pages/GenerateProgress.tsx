@@ -264,7 +264,7 @@ export default function GenerateProgress() {
         <>
           {/* 进度条：n/8 步 + 百分比（反馈循环重跑按 stepIndex 去重，进度可回退） */}
           <div>
-            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span>
                 已完成 {doneCount}/{totalSteps} 步
               </span>

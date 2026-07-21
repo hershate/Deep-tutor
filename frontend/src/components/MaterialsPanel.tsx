@@ -76,7 +76,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
                   未解析
                 </span>
               ) : (
-                <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+                <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                   {m.parsed_chars > 0 ? `约 ${m.parsed_chars} 字` : '未解析'}
                 </span>
               )}

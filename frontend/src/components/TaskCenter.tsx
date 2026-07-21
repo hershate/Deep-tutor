@@ -125,7 +125,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
           {task.title || '未命名任务'}
         </button>
         {task.phase === 'running' && task.kind === 'plan' && (
-          <button type="button" onClick={onCancel} className="shrink-0 text-xs text-slate-400 underline underline-offset-2 hover:text-red-600 dark:hover:text-red-400">
+          <button type="button" onClick={onCancel} className="shrink-0 text-xs text-slate-500 dark:text-slate-400 underline underline-offset-2 hover:text-red-600 dark:hover:text-red-400">
             取消
           </button>
         )}
@@ -159,7 +159,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
               <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
           )}
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
             {task.conn === 'reconnecting' && <span className="text-amber-500">连接中断，重连中…</span>}
             {task.conn === 'offline' && <span className="text-orange-500">连接已断开（后台仍在生成）</span>}
             {task.conn !== 'reconnecting' && task.conn !== 'offline' && (
@@ -177,7 +177,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
         </div>
       )}
       {task.phase !== 'running' && (
-        <div className="mt-1 truncate text-xs text-slate-400">
+        <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
           {task.phase === 'error' && (task.errorMessage || '生成失败')}
           {task.phase === 'interrupted' && (task.errorMessage || '已中断，可重试')}
           {task.phase === 'cancelled' && '已取消，可重试'}
@@ -248,7 +248,7 @@ export default function TaskCenter() {
         <div className="absolute right-0 z-40 mt-2 w-80 animate-scale-in rounded-xl border bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-800">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold">任务中心</span>
-            {activeCount > 0 && <span className="text-xs text-slate-400">{activeCount} 个进行中</span>}
+            {activeCount > 0 && <span className="text-xs text-slate-500 dark:text-slate-400">{activeCount} 个进行中</span>}
           </div>
           {entries.length === 0 ? (
             <p className="py-4 text-center text-sm text-slate-400">暂无任务</p>
@@ -263,7 +263,7 @@ export default function TaskCenter() {
             <button
               type="button"
               onClick={clearFinished}
-              className="mt-2 w-full rounded-lg border px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 dark:border-slate-600 dark:hover:bg-slate-700"
+              className="mt-2 w-full rounded-lg border px-2 py-1 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 dark:border-slate-600 dark:hover:bg-slate-700"
             >
               清空已完成记录
             </button>

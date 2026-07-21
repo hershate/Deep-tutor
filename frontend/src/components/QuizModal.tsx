@@ -193,7 +193,7 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
                 {wrong ? '加载错题…' : `出题中…（已用 ${elapsed} 秒）`}
               </p>
               {!wrong && (
-                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-500">
                   {elapsed < 10 ? '正在分析知识点与掌握情况…' : elapsed < 30 ? '正在按知识点组织题目…' : '题目较多，仍在生成中，请稍候…'}
                   出题约需 30–90 秒。关闭弹窗不会浪费结果——若后台已出完，重新打开即可看到。
                 </p>
@@ -223,7 +223,7 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
                     className="animate-fade-in-up rounded-lg border p-4 dark:border-slate-700"
                     style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
                   >
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                       <span>第 {i + 1} 题</span>
                       <span className="rounded bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5">{TYPE_LABEL[q.type] ?? q.type}</span>
                       {q.node_name && <span>知识点：{q.node_name}</span>}

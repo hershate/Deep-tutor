@@ -12,6 +12,7 @@ import { toast } from '../components/Toast'
 import WidgetSlot from '../components/WidgetSlot'
 import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, listPlans, regenerateStream, revokeShare, type PlanSummary, type QuizStats, type ShareStatus } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
+import { onTablistKeyDown } from '../lib/tabs'
 
 interface PlanData {
   intent?: { topic?: string; level?: string; goal?: string; daily_minutes?: number }
@@ -429,7 +430,7 @@ export default function PlanDetail() {
       {/* 源资料清单（iter 104）：可单个删除后重生成 */}
       {sessionId !== null && <MaterialsPanel sessionId={sessionId} />}
 
-      <div role="tablist" aria-label="方案内容" className="flex gap-1 border-b dark:border-slate-700">
+      <div role="tablist" aria-label="方案内容" onKeyDown={onTablistKeyDown} className="flex gap-1 border-b dark:border-slate-700">
         {TABS.map((t) => (
           <button
             key={t.key}

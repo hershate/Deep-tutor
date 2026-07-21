@@ -9,6 +9,7 @@ import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
 import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { onTablistKeyDown } from '../lib/tabs'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
   not_started: '未开始',
@@ -251,7 +252,7 @@ export default function Wiki() {
       )}
 
       {/* 视图切换（iter 161 知识点/我的笔记；iter 217 文档库首 tab） */}
-      <div className="flex gap-2" role="tablist" aria-label="知识库视图">
+      <div className="flex gap-2" role="tablist" aria-label="知识库视图" onKeyDown={onTablistKeyDown}>
         {([['docs', '📚 文档库'], ['nodes', '知识点'], ['notes', '我的笔记']] as const).map(([v, label]) => (
           <button
             key={v}

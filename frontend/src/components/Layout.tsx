@@ -269,7 +269,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       </div>
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">
-        <div className="w-full px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
+        <div className="w-full px-4 py-3 text-xs text-slate-500 dark:text-slate-500">
           Deep-tutor · Phase 1 MVP
         </div>
       </footer>

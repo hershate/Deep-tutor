@@ -98,7 +98,7 @@ export default function StudyMaterialReader({ units, indexMd = '', onUnitsChange
                   u.id === currentId ? 'bg-blue-50 dark:bg-blue-950 font-medium text-blue-700 dark:text-blue-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
-                <span className="mr-1 text-xs text-slate-400">{i + 1}.</span>
+                <span className="mr-1 text-xs text-slate-500 dark:text-slate-400">{i + 1}.</span>
                 {u.title}
                 {u.done && (
                   <span className="ml-1 text-xs text-green-600 dark:text-green-400" aria-label="已学">

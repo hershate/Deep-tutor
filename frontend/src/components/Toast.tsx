@@ -61,16 +61,18 @@ const KIND_STYLE: Record<ToastKind, string> = {
 }
 const KIND_ICON: Record<ToastKind, string> = { success: '✓', info: 'ℹ', error: '✕' }
 
-/** 容器：挂 Layout 一次，固定右下角。 */
+/** 容器：挂 Layout 一次，固定右下角。
+ * aria-live 区域常驻挂载（空队列也渲染）——按需挂载会让部分读屏器错过首批公告；
+ * error 级用 role="alert"（assertive，及时播报），success/info 用 role="status"（polite）。 */
 export function Toaster() {
   const toasts = useToastStore((s) => s.toasts)
   const remove = useToastStore((s) => s.remove)
-  if (toasts.length === 0) return null
   return (
     <div aria-live="polite" className="fixed bottom-4 right-4 z-50 flex w-72 flex-col gap-2">
       {toasts.map((t) => (
         <div
           key={t.id}
+          role={t.kind === 'error' ? 'alert' : 'status'}
           className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${t.leaving ? 'animate-fade-out' : 'animate-fade-in-up'} ${KIND_STYLE[t.kind]}`}
         >
           <span aria-hidden="true">{KIND_ICON[t.kind]}</span>

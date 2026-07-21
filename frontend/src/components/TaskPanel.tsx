@@ -18,7 +18,7 @@ export default function TaskPanel() {
         {activeCount > 0 && <span className="text-xs text-blue-500 dark:text-blue-400">{activeCount} 进行中</span>}
       </div>
       {entries.length === 0 ? (
-        <p className="px-1 text-xs text-slate-400 dark:text-slate-500">暂无任务</p>
+        <p className="px-1 text-xs text-slate-500 dark:text-slate-500">暂无任务</p>
       ) : (
         <div className="flex flex-col gap-2">
           {entries.map((t) => (
@@ -30,7 +30,7 @@ export default function TaskPanel() {
         <button
           type="button"
           onClick={clearFinished}
-          className="mt-2 w-full rounded-lg border px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 dark:border-slate-600 dark:hover:bg-slate-700"
+          className="mt-2 w-full rounded-lg border px-2 py-1 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 dark:border-slate-600 dark:hover:bg-slate-700"
         >
           清空已完成记录
         </button>

@@ -198,7 +198,7 @@ function BudgetRow({ data }: { data: AppSettings }) {
       <dt className="text-sm text-slate-600 dark:text-slate-300">
         每日预算 (USD)
         {data.daily_budget_is_override && (
-          <span className="ml-1 text-xs text-slate-400">（默认 ${data.daily_budget_usd}）</span>
+          <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（默认 ${data.daily_budget_usd}）</span>
         )}
       </dt>
       <dd className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
@@ -233,7 +233,7 @@ function BudgetRow({ data }: { data: AppSettings }) {
             <button
               onClick={() => setEditing(false)}
               disabled={busy}
-              className="rounded-lg px-1 py-1 text-xs text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
+              className="rounded-lg px-1 py-1 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
             >
               取消
             </button>
