@@ -44,6 +44,8 @@ from app.core.storage import (
     _kb_root,
     delete_kb_document_files,
     delete_session_files,
+    kb_originals_dir,
+    kb_parsed_dir,
     save_kb_upload,
     write_kb_parsed_text,
     write_parsed_text,
@@ -150,6 +152,22 @@ def _persist_parsed(db: Session, user_id: int, doc: models.KbDocument, text: str
 # --- 创建（静态段先于 {document_id} 声明） ---
 
 
+def _fresh_doc_id(user_id: int) -> str:
+    """生成无冲突的随机文档 id（iter 228 命名冲突防护）。
+
+    uuid4 截断 12 位（48bit）生日界理论可撞——撞名会**静默覆盖同用户既有原件**
+    （save_kb_upload 直接 write_bytes）。生成后做存在性检查（原件 glob + 解析文本），
+    撞名重摇 ≤8 次，仍撞则退化为全 32 位 hex（实际不可达，纯兜底）。
+    """
+    originals = kb_originals_dir(user_id)
+    parsed = kb_parsed_dir(user_id)
+    for _ in range(8):
+        cand = uuid.uuid4().hex[:12]
+        if not any(originals.glob(f"{cand}.*")) and not (parsed / f"{cand}.txt").exists():
+            return cand
+    return uuid.uuid4().hex
+
+
 @router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
@@ -172,7 +190,7 @@ async def upload_document(
     _check_kb_quota(db, user.id)
 
     # 随机 id 预命名原件（R20 不用原始文件名；err.md B22 不依赖行 id）
-    doc_id = uuid.uuid4().hex[:12]
+    doc_id = _fresh_doc_id(user.id)
     path = save_kb_upload(user.id, doc_id, content, ext)
     doc = models.KbDocument(
         user_id=user.id,

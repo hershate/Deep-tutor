@@ -521,3 +521,16 @@ def test_delete_user_cascades_kb(client, auth_headers):
     assert r.status_code == 200, r.text
     assert _doc_count() == 0
     assert not _kb_root(uid).exists()
+
+
+def test_fresh_doc_id_collision_retry(monkeypatch):
+    """uuid 截断撞名 -> 存在性检查重摇（iter 228 命名冲突防护，防静默覆盖既有原件）。"""
+    from types import SimpleNamespace
+
+    from app.api import kb as kb_mod
+
+    originals = kb_mod.kb_originals_dir(1)
+    (originals / f"{'a' * 12}.pdf").write_bytes(b"x")
+    seq = iter([SimpleNamespace(hex="a" * 32), SimpleNamespace(hex="b" * 32)])
+    monkeypatch.setattr(kb_mod.uuid, "uuid4", lambda: next(seq))
+    assert kb_mod._fresh_doc_id(1) == "b" * 12
