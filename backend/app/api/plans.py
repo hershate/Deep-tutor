@@ -1201,6 +1201,8 @@ def _units_to_spec(db: Session, plan: models.Plan, units: list[models.StudyUnit]
 
 
 _MAX_MATERIAL_UNITS = 12  # 单元数上限（plan/07 §三 3-12 单元；超出截断）
+_MATERIALS_CONCURRENCY = 3  # R3（iter 230）单元生成并发上限：LLM 调用/WebSearch 均网络等待；
+# 3 路并发下单元 WebSearch 失败模式仍优雅（检索异常 -> 无补充资料，不中断单元生成）
 
 
 async def _materials_sse(
@@ -1241,65 +1243,92 @@ async def _materials_sse(
             bing_api_key=resolve_bing_api_key(user_id),  # iter 223：凭证档案有效 Bing Key
         )
         topic = (content.get("intent") or {}).get("topic") or "概述"
+        total = len(stages)
+        # R3（iter 230）单元生成有界并发：LLM 调用与单元 WebSearch 均为网络等待，
+        # 旧串行 wall-clock 为各单元之和。worker 信号量并发执行；结果由本生成器
+        # 按 order 顺序消费——unit_done 事件顺序 / 逐单元落库提交 / 预算归集 /
+        # usage 记账保持确定性与旧串行一致。unit_start 全部前置发出（前端按
+        # order 键控进度，tasks.ts applyEvent，前置/乱序安全）。
+        for i, (stage, _si) in enumerate(stages):
+            yield _sse("unit_start", {"order": i + 1, "title": stage.get("name") or topic, "total": total})
+
+        sem = asyncio.Semaphore(_MATERIALS_CONCURRENCY)
+
+        async def _gen_one(i: int, stage: dict):
+            """单单元生成 worker（LLM + WebSearch，无 DB 写——DB 由生成器顺序单写）。"""
+            async with sem:
+                order = i + 1
+                title = stage.get("name") or topic
+                unit: StudyUnitSpec | None = None
+                metadata = None
+                if provider is not None:
+                    inp = ToolInput(
+                        tool="generate_unit_content",
+                        session_id=str(session_id),
+                        args={
+                            "plan": content,
+                            "stage": stage,
+                            "order": order,
+                            "total": total,
+                            "depth": body.depth,
+                        },
+                    )
+                    out = await run_tool("generate_unit_content", inp, ctx)
+                    metadata = out.metadata
+                    if out.status == "ok":
+                        # model_validate 双检失败 -> 异常上抛（同旧串行：流以 error 收尾）
+                        data = UnitContentSpec.model_validate(out.data)
+                        unit = StudyUnitSpec(
+                            title=title,
+                            objectives=data.objectives,
+                            prerequisites=data.prerequisites,
+                            estimated_time=data.estimated_time,
+                            content_md=data.content_md,
+                        )
+                degraded = unit is None
+                if degraded:
+                    unit = brief_unit_from_stage(stage, fallback_title=title)
+                # 单元 WebSearch 补充资料（plan/07 §三 步骤 2，iter 48）：topic + 阶段名 + 首主题；
+                # 无 key / 检索失败 -> []（不中断单元生成；内容侧由 LLM 标「无外部资料参考」）
+                query_parts = [p for p in (topic, title) if p]
+                first_topic = ((stage.get("topics") or [{}])[0] or {}).get("name") if stage else None
+                if first_topic and first_topic not in query_parts:
+                    query_parts.append(first_topic)
+                resources = await search_unit_resources(" ".join(query_parts), ctx)
+                return unit, resources, degraded, metadata
+
+        pending = [asyncio.ensure_future(_gen_one(i, stage)) for i, (stage, _si) in enumerate(stages)]
         degraded_count = 0
-        for i, (stage, stage_idx) in enumerate(stages):
-            order = i + 1
-            title = stage.get("name") or topic
-            yield _sse("unit_start", {"order": order, "title": title, "total": total})
-            unit: StudyUnitSpec | None = None
-            if provider is not None:
-                inp = ToolInput(
-                    tool="generate_unit_content",
-                    session_id=str(session_id),
-                    args={
-                        "plan": content,
-                        "stage": stage,
-                        "order": order,
-                        "total": total,
-                        "depth": body.depth,
-                    },
-                )
-                task = asyncio.ensure_future(run_tool("generate_unit_content", inp, ctx))
+        try:
+            for i, task in enumerate(pending):
                 try:
                     while not task.done():
                         await asyncio.wait({task}, timeout=_HEARTBEAT_SECONDS)
                         if not task.done():
                             yield ": keepalive\n\n"  # 长 LLM 调用期间保活（plan/09 §十九）
-                    out = task.result()
                 except BaseException:
-                    task.cancel()  # 断连/取消 -> 不遗留后台 LLM 调用
-                    raise
-                # err.md A6：逐单元成本纳入预算守卫与 api_usage 计量
-                if ctx.budget:
-                    ctx.budget.add(out.metadata.cost)
-                record_metadata_usage(db, out.metadata, user_id)
+                    raise  # 断连/取消 -> finally 统一取消全部 worker，不遗留后台 LLM 调用
+                unit, resources, degraded, metadata = task.result()
+                # err.md A6：逐单元成本纳入预算守卫与 api_usage 计量（生成器内顺序归集）
+                if metadata is not None:
+                    if ctx.budget:
+                        ctx.budget.add(metadata.cost)
+                    record_metadata_usage(db, metadata, user_id)
                 if ctx.budget and ctx.budget.exceeded():
                     log.warning("材料生成预算超限 plan=%s spent=%.4f", plan_id, ctx.budget.spent)
                     yield _sse("error", {"code": "budget_exceeded", "message": "本次生成预算已用尽，已保留已生成单元"})
                     return
-                if out.status == "ok":
-                    data = UnitContentSpec.model_validate(out.data)
-                    unit = StudyUnitSpec(
-                        title=title,
-                        objectives=data.objectives,
-                        prerequisites=data.prerequisites,
-                        estimated_time=data.estimated_time,
-                        content_md=data.content_md,
-                    )
-            degraded = unit is None
-            if degraded:
-                degraded_count += 1
-                unit = brief_unit_from_stage(stage, fallback_title=title)
-            # 单元 WebSearch 补充资料（plan/07 §三 步骤 2，iter 48）：topic + 阶段名 + 首主题；
-            # 无 key / 检索失败 -> []（不中断单元生成；内容侧由 LLM 标「无外部资料参考」）
-            query_parts = [p for p in (topic, title) if p]
-            first_topic = ((stage.get("topics") or [{}])[0] or {}).get("name") if stage else None
-            if first_topic and first_topic not in query_parts:
-                query_parts.append(first_topic)
-            resources = await search_unit_resources(" ".join(query_parts), ctx)
-            new_paths.append(_insert_study_unit(db, plan_id, session_id, i, unit, resources, stage_index=stage_idx))
-            db.commit()  # 逐单元提交：断线保留已生成进度
-            yield _sse("unit_done", {"order": order, "title": unit.title, "degraded": degraded})
+                if degraded:
+                    degraded_count += 1
+                new_paths.append(
+                    _insert_study_unit(db, plan_id, session_id, i, unit, resources, stage_index=stages[i][1])
+                )
+                db.commit()  # 逐单元提交：断线保留已生成进度
+                yield _sse("unit_done", {"order": i + 1, "title": unit.title, "degraded": degraded})
+        finally:
+            for t in pending:
+                if not t.done():
+                    t.cancel()  # 断连/预算中断/异常 -> 取消在途 worker（已付费未消费结果丢弃，有界 ≤并发数-1）
         if body.scope is not None or body.unit_ids:
             _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
         all_units = (

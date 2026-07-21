@@ -79,7 +79,7 @@ def _post_sse(client, auth_headers, plan_id, body=None):
 
 
 def test_materials_sse_all_ok(client, auth_headers, monkeypatch):
-    """SSE 全 ok：unit_start/unit_done 逐单元交错 + done 收尾；落库 3 单元；文件含 LLM 内容。"""
+    """SSE 全 ok：unit_start 全部前置（iter 230 R3 并发）+ unit_done 按序 + done 收尾；落库 3 单元；文件含 LLM 内容。"""
     from app.api import plans as plans_mod
 
     plan_id = _make_plan(client, auth_headers)
@@ -97,20 +97,22 @@ def test_materials_sse_all_ok(client, auth_headers, monkeypatch):
     assert r.headers["content-type"].startswith("text/event-stream")
 
     events = _parse_sse(r.text)
-    # plan 有 3 阶段（基础/进阶/实战）-> 3 单元
+    # plan 有 3 阶段（基础/进阶/实战）-> 3 单元；
+    # iter 230 R3：worker 并发执行，unit_start 全部前置发出，unit_done 仍按 order 顺序
     assert [e for e, _ in events] == [
         "unit_start",
-        "unit_done",
+        "unit_start",
         "unit_start",
         "unit_done",
-        "unit_start",
+        "unit_done",
         "unit_done",
         "done",
     ]
     assert events[0][1] == {"order": 1, "title": "基础", "total": 3}
-    assert events[1][1] == {"order": 1, "title": "基础", "degraded": False}
-    assert events[2][1] == {"order": 2, "title": "进阶", "total": 3}
-    assert events[3][1]["degraded"] is False
+    assert events[1][1] == {"order": 2, "title": "进阶", "total": 3}
+    assert events[2][1] == {"order": 3, "title": "实战", "total": 3}
+    assert events[3][1] == {"order": 1, "title": "基础", "degraded": False}
+    assert [d["order"] for e, d in events if e == "unit_done"] == [1, 2, 3]
     assert events[6][1] == {"unit_count": 3, "degraded_count": 0}
 
     # 落库：3 单元，标题取 stage 名，order 0 起
@@ -261,3 +263,42 @@ def test_materials_sse_unit_resources_persisted(client, auth_headers, monkeypatc
     r2 = client.get(f"/api/materials/{unit_id}", headers=auth_headers)
     assert r2.status_code == 200, r2.text
     assert r2.json()["resources"] == canned
+
+
+def test_materials_sse_units_concurrent_and_ordered(client, auth_headers, monkeypatch):
+    """iter 230 R3：单元 worker 真实并发（重叠窗口 ≥2）；完成先后不泄漏——unit_done 严格按 order。"""
+    import asyncio as _aio
+
+    from app.tools.base import ToolOutput
+
+    plan_id = _make_plan(client, auth_headers)
+    track = {"cur": 0, "max": 0}
+
+    async def spy_run_tool(name, inp, ctx):
+        track["cur"] += 1
+        track["max"] = max(track["max"], track["cur"])
+        # 单元 1 故意最慢：若完成顺序泄漏到事件流，unit_done 将乱序
+        await _aio.sleep(0.06 if inp.args.get("order") == 1 else 0.01)
+        track["cur"] -= 1
+        return ToolOutput(
+            tool=name,
+            status="ok",
+            data={
+                "objectives": ["o"],
+                "prerequisites": [],
+                "estimated_time": "1h",
+                "content_md": f"### 概述\n\n单元 {inp.args.get('order')} 正文。",
+            },
+        )
+
+    from app.api import plans as plans_mod
+
+    monkeypatch.setattr(plans_mod, "run_tool", spy_run_tool)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: object())  # provider 非 None 即可（run_tool 已桩）
+
+    r = _post_sse(client, auth_headers, plan_id)
+    assert r.status_code == 200, r.text
+    events = _parse_sse(r.text)
+    assert track["max"] >= 2  # 并发真实发生（旧串行恒 1）
+    assert [d["order"] for e, d in events if e == "unit_done"] == [1, 2, 3]  # 确定性顺序
+    assert events[-1] == ("done", {"unit_count": 3, "degraded_count": 0})
