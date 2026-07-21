@@ -8,12 +8,43 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage, TransientLLMError
 from app.llm.pricing import estimate_cost
+
+# iter 243：AsyncAnthropic 进程内复用——此前每次 get_provider()（每次生成/测评/
+# 供应商连通性测试）新建 client 且从不 aclose；每个 client 一个 httpx 连接池 +
+# SSL 上下文，长期运行 fd/内存缓涨。按 (api_key, base_url) 有界缓存共享；
+# 记录创建时事件循环，跨循环使用（测试逐用例 asyncio.run 新循环）自动重建，
+# 防 "Event loop is closed"。FIFO 有界淘汰（淘汰条目由 GC 回收连接池）。
+_CLIENT_CACHE_MAX = 8
+_clients: dict[tuple[str, str | None], tuple[AsyncAnthropic, "asyncio.AbstractEventLoop | None"]] = {}
+
+
+def _shared_client(api_key: str, base_url: str | None) -> AsyncAnthropic:
+    try:
+        loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    key = (api_key, base_url)
+    hit = _clients.get(key)
+    if hit is not None and hit[1] is loop:
+        return hit[0]
+    if key not in _clients and len(_clients) >= _CLIENT_CACHE_MAX:
+        _clients.pop(next(iter(_clients)))  # FIFO 淘汰最旧
+    client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+    _clients[key] = (client, loop)
+    return client
+
+
+def reset_client_cache() -> None:
+    """测试隔离（conftest isolate）/ 需要强制重建时调用。"""
+    _clients.clear()
 
 
 def _map_transient(exc: Exception) -> Exception:
@@ -31,8 +62,8 @@ class AnthropicProvider(LLMProvider):
         self, api_key: str, model: str, *, base_url: str | None = None, client: AsyncAnthropic | None = None
     ) -> None:
         self._model = model
-        # 允许注入 client（测试用）；否则按 api_key 创建（base_url 支持自定义 Anthropic 兼容端点，iter 50）
-        self._client = client or AsyncAnthropic(api_key=api_key, base_url=base_url or None)
+        # 允许注入 client（测试用）；否则共享缓存 client（iter 243：防连接池累积泄漏）
+        self._client = client or _shared_client(api_key, base_url or None)
 
     async def chat(
         self,
