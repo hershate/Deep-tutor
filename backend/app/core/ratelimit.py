@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 
@@ -18,30 +19,36 @@ class SlidingWindowLimiter:
 
     def __init__(self) -> None:
         self._hits: dict[str, deque[float]] = {}
+        # iter 246：check 是"读-改-写"非原子——FastAPI 同步端点跑在 anyio 线程池，
+        # 并发同 key 请求可双双通过（限流形同虚设）；锁粒度为全实例，单进程内存
+        # 操作极快，无争用开销之忧
+        self._lock = threading.Lock()
 
     def check(self, key: str, limit: int, window_s: float = 60.0) -> bool:
         now = time.monotonic()
-        q = self._hits.get(key)
-        if q is not None:
-            cutoff = now - window_s
-            while q and q[0] <= cutoff:
-                q.popleft()
-            if not q:
-                del self._hits[key]  # err.md C6：窗口外空闲 key 惰性淘汰
-                q = None
-            elif len(q) >= limit:
-                return False
-        if q is None:
-            if len(self._hits) >= self._MAX_KEYS:
-                self._hits.clear()  # 兜底：异常量级时全清（限流短暂失效优于 OOM）
-            q = deque()
-            self._hits[key] = q
-        q.append(now)
-        return True
+        with self._lock:
+            q = self._hits.get(key)
+            if q is not None:
+                cutoff = now - window_s
+                while q and q[0] <= cutoff:
+                    q.popleft()
+                if not q:
+                    del self._hits[key]  # err.md C6：窗口外空闲 key 惰性淘汰
+                    q = None
+                elif len(q) >= limit:
+                    return False
+            if q is None:
+                if len(self._hits) >= self._MAX_KEYS:
+                    self._hits.clear()  # 兜底：异常量级时全清（限流短暂失效优于 OOM）
+                q = deque()
+                self._hits[key] = q
+            q.append(now)
+            return True
 
     def reset(self) -> None:
         """清空全部计数（测试隔离用）。"""
-        self._hits.clear()
+        with self._lock:
+            self._hits.clear()
 
 
 # 全局实例（同 verify_url 缓存模式）
