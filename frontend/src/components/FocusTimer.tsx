@@ -4,6 +4,9 @@
 //   回到前台下一次 tick 即校正（不用计数递减，iter 231 并发面同款时间语义）；
 // - 暂停/继续（iter 259）：暂停时冻结剩余毫秒并清 interval，继续时以 当前时间+冻结剩余 重设终点——
 //   暂停期间后台节流/锁屏均不计时（真实「暂停」而非「慢走」）；
+// - 完成提示音（iter 266：iter 251 支持切走标签页看 title 剩余，但结束瞬间后台无声——
+//   振荡器上行双音，无资源文件；AudioContext 需用户手势，在 start() 点击时创建/解锁，
+//   浏览器仍拒绝则静默降级——提示音是增强不是必需）；
 // - 页面 title 同步剩余时间（切走标签页仍可见剩余；暂停时显示 ⏸），结束/取消/卸载还原；
 // - 中途离开页面 = 放弃本次计时（不持久化——跨页持久涉全局状态/恢复 UX，有意取舍见 stage.md）；
 // - 倒计时不用 aria-live（每秒更新会刷屏读屏器），role=timer + 静态 aria-label。
@@ -28,8 +31,47 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
   const minsRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const titleRef = useRef<string | null>(null)
+  const audioRef = useRef<AudioContext | null>(null)
 
   const running = remainMs !== null
+
+  // iter 266：完成提示音——振荡器上行双音（A5→D6，0.45s 总量克制）；
+  // AudioContext 需用户手势解锁：start() 点击时创建/resume；任何失败静默降级
+  function ensureAudio() {
+    try {
+      const Ctor =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctor) return
+      audioRef.current ??= new Ctor()
+      if (audioRef.current.state === 'suspended') void audioRef.current.resume()
+    } catch {
+      // 音频不可用：忽略
+    }
+  }
+
+  function beep() {
+    const ctx = audioRef.current
+    if (!ctx) return
+    try {
+      const t0 = ctx.currentTime
+      ;[880, 1174.66].forEach((freq, i) => {
+        const offset = i * 0.22
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = freq
+        gain.gain.setValueAtTime(0.0001, t0 + offset)
+        gain.gain.exponentialRampToValueAtTime(0.18, t0 + offset + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + offset + 0.2)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(t0 + offset)
+        osc.stop(t0 + offset + 0.22)
+      })
+    } catch {
+      // 同上：提示音失败不影响打卡主流程
+    }
+  }
 
   function clearTimer() {
     if (timerRef.current) {
@@ -45,11 +87,13 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     }
   }
 
-  // 卸载清理：interval 与页面 title 都必须还原
+  // 卸载清理：interval、页面 title、AudioContext 都必须还原/释放
   useEffect(
     () => () => {
       clearTimer()
       restoreTitle()
+      void audioRef.current?.close().catch(() => {})
+      audioRef.current = null
     },
     [],
   )
@@ -60,6 +104,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
       clearTimer()
       setRemainMs(null)
       restoreTitle()
+      beep() // iter 266：后台标签页可闻的完成信号
       onComplete(minsRef.current)
       return
     }
@@ -79,6 +124,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     minsRef.current = mins
     endAtRef.current = Date.now() + mins * 60_000
     if (titleRef.current === null) titleRef.current = document.title
+    ensureAudio() // iter 266：借开始点击的用户手势解锁 AudioContext
     clearTimer()
     setPaused(false)
     setRemainMs(mins * 60_000)
@@ -200,7 +246,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
         </button>
       </div>
       <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-        计时结束自动按该时长打卡（备注取下方打卡备注，留空记「番茄钟专注」）；可暂停/继续；离开本页将放弃计时。
+        计时结束自动按该时长打卡（备注取下方打卡备注，留空记「番茄钟专注」）；可暂停/继续，结束有提示音；离开本页将放弃计时。
       </p>
     </div>
   )
