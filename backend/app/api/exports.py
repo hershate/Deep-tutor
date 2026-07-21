@@ -215,12 +215,16 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
         log.error("幻灯片模板缺失: %s", exc)
         raise ApiError("internal_error", "幻灯片模板缺失") from exc
 
-    check_daily_budget(None, user_id)  # err.md A6：slides LLM 调用纳入日预算守卫
-
     try:
         provider = get_provider(user_id)
     except Exception:  # noqa: BLE001  无 key -> 降级默认 deck
         provider = None
+
+    # err.md A6：slides LLM 调用纳入日预算守卫。iter 247：移到 provider 解析之后——
+    # 无 key 用户走纯 Python 默认 deck（零成本），预算耗尽可能性不该拦截免费兜底
+    # （md/pdf/ics/anki 等零成本格式本就无此拦截，口径对齐）
+    if provider is not None:
+        check_daily_budget(None, user_id)
 
     ctx = ExecContext(
         session_id=str(session_id),
