@@ -83,6 +83,11 @@ export default function Notes() {
   const [preview, setPreview] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadingId, setLoadingId] = useState<number | null>(null)
+  // iter 283：批量选择 + 批量删除（左列表作用域，与 Plans iter 282 同模式）
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [batchDeleting, setBatchDeleting] = useState(false)
+  const [batchProgress, setBatchProgress] = useState('')
   const openSeq = useRef(0) // iter 248：openNote 在途序号（迟到响应丢弃）
 
   // iter 272 ①：刷新/关标签时浏览器原生确认（仅 dirty 期间挂监听）
@@ -237,6 +242,60 @@ export default function Notes() {
     }
   }
 
+  // iter 283：批量删除——左列表作用域选择；顺序 await（同 Plans iter 282，避免并发写争用）；
+  // 复用既有 deleteFreeNote，逐条清草稿；若正在编辑的笔记被删则重置编辑器。
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+  async function onBatchDelete() {
+    const notes = data?.items ?? []
+    const targets = notes.filter((n) => selected.has(n.id))
+    if (targets.length === 0 || batchDeleting) return
+    const dirtyOpen = dirty && draft.id !== null && selected.has(draft.id)
+    const preview = targets.map((n) => n.title || '无题').slice(0, 5).join('、')
+    const more = targets.length > 5 ? ` 等 ${targets.length} 篇` : ''
+    const warn = dirtyOpen ? '\n⚠️ 其中包含你正在编辑且未保存的笔记，其未保存修改将一并丢失。' : ''
+    if (!window.confirm(`确定删除选中的 ${targets.length} 篇笔记？\n${preview}${more}${warn}\n删除后不可恢复。`)) return
+    setBatchDeleting(true)
+    setBatchProgress('')
+    let ok = 0
+    let failed = 0
+    let openDeleted = false
+    for (let i = 0; i < targets.length; i++) {
+      const n = targets[i]
+      setBatchProgress(`删除中 ${i + 1}/${targets.length}`)
+      try {
+        await deleteFreeNote(n.id)
+        clearStoredDraft(n.id)
+        if (draft.id === n.id) openDeleted = true
+        ok++
+      } catch {
+        failed++
+      }
+    }
+    if (openDeleted) {
+      setDraft(EMPTY_DRAFT)
+      setDirty(false)
+      setPreview(false)
+    }
+    setSelected(new Set())
+    setSelectMode(false)
+    setBatchProgress('')
+    setBatchDeleting(false)
+    await refresh()
+    if (failed > 0) toast.error(`已删除 ${ok} 篇，${failed} 篇失败`)
+    else if (ok > 0) toast.success(`已删除 ${ok} 篇笔记`)
+  }
+
   return (
     <div className="space-y-4">
       <div className="animate-fade-in-up space-y-1">
@@ -253,19 +312,76 @@ export default function Notes() {
         <section className="rounded-xl border bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold">全部笔记{data ? `（${data.total}）` : ''}</h3>
-            <button
-              onClick={() => {
-                if (!confirmDiscard()) return
-                openSeq.current += 1 // 作废在途 openNote 响应（防覆写新草稿）
-                setDraft(EMPTY_DRAFT)
-                setDirty(false)
-                setPreview(false)
-              }}
-              className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
-            >
-              ＋ 新建
-            </button>
+            <div className="flex items-center gap-1">
+              {/* iter 283：批量选择模式开关 */}
+              {data && data.total > 0 && (
+                <button
+                  type="button"
+                  onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                  aria-pressed={selectMode}
+                  className={`rounded-lg border px-2.5 py-1 text-xs transition-all active:scale-95 dark:border-slate-600 ${
+                    selectMode
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {selectMode ? '完成' : '选择'}
+                </button>
+              )}
+              {!selectMode && (
+                <button
+                  onClick={() => {
+                    if (!confirmDiscard()) return
+                    openSeq.current += 1 // 作废在途 openNote 响应（防覆写新草稿）
+                    setDraft(EMPTY_DRAFT)
+                    setDirty(false)
+                    setPreview(false)
+                  }}
+                  className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
+                >
+                  ＋ 新建
+                </button>
+              )}
+            </div>
           </div>
+          {/* iter 283：批量工具栏（已选计数 + 全选/清空 + 删除选中 + 取消） */}
+          {selectMode && data && data.total > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-1.5 text-xs dark:border-blue-900 dark:bg-slate-700/60">
+              <span className="font-medium tabular-nums text-blue-700 dark:text-blue-300">已选 {selected.size}</span>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set((data?.items ?? []).map((n) => n.id)))}
+                className="rounded px-1.5 py-0.5 text-slate-600 transition-colors hover:bg-white dark:text-slate-300 dark:hover:bg-slate-600"
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                disabled={selected.size === 0}
+                className="rounded px-1.5 py-0.5 text-slate-600 transition-colors hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-600"
+              >
+                清空
+              </button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={onBatchDelete}
+                disabled={selected.size === 0 || batchDeleting}
+                className="rounded border border-red-300 bg-white px-2 py-0.5 font-medium text-red-700 transition-all hover:bg-red-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:bg-slate-800 dark:text-red-300 dark:hover:bg-red-950"
+              >
+                {batchDeleting ? batchProgress || '删除中…' : `删除选中（${selected.size}）`}
+              </button>
+              <button
+                type="button"
+                onClick={exitSelectMode}
+                disabled={batchDeleting}
+                className="rounded px-1.5 py-0.5 text-slate-500 transition-colors hover:bg-white disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-600"
+              >
+                取消
+              </button>
+            </div>
+          )}
           {isLoading && <SkeletonLines lines={3} />}
           {error && (
             <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
@@ -285,29 +401,66 @@ export default function Notes() {
             <ul className="max-h-[60vh] space-y-1 overflow-y-auto">
               {data.items.map((n) => (
                 <li key={n.id}>
-                  <button
-                    onClick={() => openNote(n)}
-                    aria-current={draft.id === n.id}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-all hover:border-blue-300 dark:hover:border-blue-700 ${
-                      draft.id === n.id
-                        ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950'
-                        : 'border-transparent bg-slate-50 dark:bg-slate-900'
-                    }`}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                        {loadingId === n.id ? '加载中…' : n.title || '无题'}
+                  {selectMode ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelect(n.id)}
+                      aria-pressed={selected.has(n.id)}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-all ${
+                        selected.has(n.id)
+                          ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950'
+                          : 'border-transparent bg-slate-50 hover:border-slate-300 dark:bg-slate-900 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          aria-hidden="true"
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition-colors ${
+                            selected.has(n.id)
+                              ? 'border-blue-500 bg-blue-500 text-white'
+                              : 'border-slate-300 text-transparent dark:border-slate-500'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {n.title || '无题'}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                          {n.updated_at ? n.updated_at.slice(5, 10) : ''}
+                        </span>
                       </span>
-                      <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                        {n.updated_at ? n.updated_at.slice(5, 10) : ''}
+                      {n.content && (
+                        <span className="mt-0.5 block pl-6 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                          {n.content}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => openNote(n)}
+                      aria-current={draft.id === n.id}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-all hover:border-blue-300 dark:hover:border-blue-700 ${
+                        draft.id === n.id
+                          ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950'
+                          : 'border-transparent bg-slate-50 dark:bg-slate-900'
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {loadingId === n.id ? '加载中…' : n.title || '无题'}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                          {n.updated_at ? n.updated_at.slice(5, 10) : ''}
+                        </span>
                       </span>
-                    </span>
-                    {n.content && (
-                      <span className="mt-0.5 line-clamp-2 block text-xs text-slate-500 dark:text-slate-400">
-                        {n.content}
-                      </span>
-                    )}
-                  </button>
+                      {n.content && (
+                        <span className="mt-0.5 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                          {n.content}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
