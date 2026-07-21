@@ -8,6 +8,7 @@
 
 - **不采用**"自由 Agent 让 Claude 决定调哪个工具"（易跑偏、难复现、成本高）。
 - **外层 编排器（Orchestrator，Python）**：按固定顺序调度工具 pipeline：`parse -> understand -> map -> stage -> resource -> schedule -> validate（-> 反馈循环）-> export`（可选 `build_plan_slides` / `generate_study_materials`）。
+  > iter 229 修订（并行段）：`resource` 与 `schedule` 均仅依赖 `stage` 输出、彼此无依赖，执行时**同组并发**（编排器 `_PARALLEL_GROUPS`）；步骤序号/错误报告/预算归集仍按上述规范顺序保持确定性，反馈循环重跑覆盖该段时同样并发。后续仅当相邻工具**确认无依赖**才可新增并行组。
 - **内层 工具调用循环（每 LLM 工具）**：一次 Claude 调用，`system` = 对应 Skill 的 SKILL.md 指令（稳定前缀，`cache_control`），`user` = `ToolInput.args` + `upstream.data`；输出 pydantic 校验，不符走工具调用修复（重试≤3 -> 降级）。
 - **纯 Python 工具**（parse / schedule 的确定性部分 / record / export / slides 渲染）无 LLM 调用。
 - 01 的"Agent 循环"语义收窄为**工具内 LLM 调用循环**（call -> validate -> repair -> return）；编排器是外层确定性调度。原"收到 tool_use / 重复到 end_turn"的自由 Agent 语义废弃。

@@ -64,7 +64,7 @@
 ## 三、Agent 循环详细设计（借鉴 Reasonix 三支柱）
 
 ### 执行模型（两层，详见 [10-integration.md](./10-integration.md)）
-**外层 确定性编排器（Orchestrator）**：按固定顺序调度工具 pipeline：`parse -> understand -> map -> stage -> resource -> schedule -> validate（->反馈循环）-> export`（可选 slides/materials）。**非**"自由 Agent 让 Claude 选工具"（易跑偏、难复现、贵）。
+**外层 确定性编排器（Orchestrator）**：按固定顺序调度工具 pipeline：`parse -> understand -> map -> stage -> resource -> schedule -> validate（->反馈循环）-> export`（可选 slides/materials；iter 229 起 `resource` 与 `schedule` 无依赖段并发执行，规范顺序不变，详见 10 §一）。**非**"自由 Agent 让 Claude 选工具"（易跑偏、难复现、贵）。
 **内层 工具调用循环（每 LLM 工具）**：一次 Claude 调用，`system` = 对应 Skill 的 SKILL.md 指令（稳定前缀，`cache_control`），`user` = `ToolInput.args` + `upstream.data`；输出 pydantic 校验，不符走工具调用修复。纯 Python 工具无 LLM 调用。
 
 ### 工具调用循环步骤（内层，每 LLM 工具）
