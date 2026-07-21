@@ -411,3 +411,131 @@ def test_orchestrator_emits_plan_chunk_per_tool():
     assert any(i and i.get("topic") == "Go" for i in intents)
     # 最终 chunk 与 result.plan 一致（全组件聚合）
     assert chunks[-1]["validation_report"]["passed"] is True
+
+
+# === iter 229 R2：search_resources ∥ schedule_plan 并行段 ===
+
+
+def _overlap_registry(track, validate_plan_fn=None, schedule_fn=None):
+    """search/schedule 带重叠追踪的注册表（sleep 制造并发窗口，其余工具瞬时完成）。"""
+    reg = ToolRegistry()
+
+    def make(name, data):
+        async def func(inp, ctx):
+            return data
+        return Tool(name=name, llm=False, func=func)
+
+    reg.register(make("parse_material", {"text": "t"}))
+    reg.register(make("understand_intent", {"topic": "Go", "needs_clarify": False}))
+    reg.register(make("build_knowledge_map", {"nodes": [], "edges": []}))
+    reg.register(make("design_stages", {"stages": []}))
+
+    async def search_func(inp, ctx):
+        track["cur"] += 1
+        track["max"] = max(track["max"], track["cur"])
+        await asyncio.sleep(0.05)
+        track["cur"] -= 1
+        return {"resources": []}
+
+    async def schedule_func(inp, ctx):
+        track["cur"] += 1
+        track["max"] = max(track["max"], track["cur"])
+        await asyncio.sleep(0.05)
+        track["cur"] -= 1
+        return {"schedule": []}
+
+    reg.register(Tool(name="search_resources", llm=False, func=search_func))
+    reg.register(Tool(name="schedule_plan", llm=False, func=schedule_fn or schedule_func))
+
+    calls = {"n": 0}
+
+    async def validate_func(inp, ctx):
+        calls["n"] += 1
+        if validate_plan_fn:
+            return validate_plan_fn(calls["n"])
+        return {"report": {}, "passed": True, "fixes": []}
+
+    reg.register(Tool(name="validate_plan", llm=False, func=validate_func))
+    reg.register(make("export_plan", {"file_url": "/data/x.md"}))
+    return reg, calls
+
+
+def test_orchestrator_parallel_span_concurrent():
+    """R2：search_resources 与 schedule_plan 真实并发（重叠窗口 max==2），双输出落位。"""
+    track = {"cur": 0, "max": 0}
+    reg, _ = _overlap_registry(track)
+    orch = Orchestrator(reg, _ctx(registry=reg))
+    result = asyncio.run(orch.run({}))
+    assert result.status == "done"
+    assert track["max"] == 2  # 两工具执行窗口真实重叠（串行实现下恒为 1）
+    assert result.outputs["search_resources"].status == "ok"
+    assert result.outputs["schedule_plan"].status == "ok"
+
+
+def test_orchestrator_parallel_span_error_deterministic():
+    """R2：组内错误按 PIPELINE 顺序确定性报告；成功成员输出保留在 outputs。"""
+    from app.tools.base import ToolError
+
+    track = {"cur": 0, "max": 0}
+
+    async def bad_schedule(inp, ctx):
+        return ToolOutput(
+            tool="schedule_plan",
+            status="error",
+            errors=[ToolError(code="schedule_broken", message="排程失败")],
+        )
+
+    reg, _ = _overlap_registry(track, schedule_fn=bad_schedule)
+    events: list[tuple] = []
+    orch = Orchestrator(reg, _ctx(registry=reg), event_cb=lambda e, d: events.append((e, d)))
+    result = asyncio.run(orch.run({}))
+    assert result.status == "error"
+    assert result.errors == ["schedule_plan: schedule_broken - 排程失败"]
+    assert result.outputs["search_resources"].status == "ok"  # 成功成员输出保留
+    err_events = [d for e, d in events if e == "error"]
+    assert err_events and err_events[-1]["stage"] == "schedule_plan"
+    assert "export_plan" not in result.outputs  # 错误中断，下游未执行
+
+
+def test_orchestrator_regenerate_scope_skips_parallel_sibling():
+    """R2：start_tool 落在并行组中间（scope=schedule_plan）时同组上游成员不重跑。"""
+    track = {"cur": 0, "max": 0}
+    reg, calls = _overlap_registry(track)
+    order: list[str] = []
+    # 包一层记录执行顺序
+    for name in ("search_resources", "schedule_plan", "validate_plan", "export_plan"):
+        tool = reg.get(name)
+        inner = tool.func
+
+        async def wrapped(inp, ctx, _inner=inner, _name=name):
+            order.append(_name)
+            return await _inner(inp, ctx)
+
+        reg.register(Tool(name=name, llm=False, func=wrapped))
+    orch = Orchestrator(reg, _ctx(registry=reg))
+    upstream = {
+        "design_stages": ToolOutput(tool="design_stages", status="ok", data={"stages": []}),
+        "search_resources": ToolOutput(tool="search_resources", status="ok", data={"resources": []}),
+    }
+    result = asyncio.run(orch.run({}, start_tool="schedule_plan", initial_upstream=upstream))
+    assert result.status == "done"
+    assert "search_resources" not in order  # 同组上游成员由 initial_upstream 保留
+    assert order == ["schedule_plan", "validate_plan", "export_plan"]
+    assert calls["n"] == 1
+
+
+def test_orchestrator_feedback_rerun_uses_parallel_span():
+    """R2：反馈循环重跑区间覆盖并行段时，search/schedule 同样并发重跑。"""
+    track = {"cur": 0, "max": 0}
+
+    def validate_fn(n):
+        if n == 1:
+            return {"report": {"dependency_closure": "fail"}, "passed": False, "fixes": ["补依赖"]}
+        return {"report": {}, "passed": True, "fixes": []}
+
+    reg, calls = _overlap_registry(track, validate_plan_fn=validate_fn)
+    orch = Orchestrator(reg, _ctx(registry=reg))
+    result = asyncio.run(orch.run({}))
+    assert result.status == "done"
+    assert calls["n"] == 2  # 反馈循环重跑一轮
+    assert track["max"] == 2  # 重跑段内 search/schedule 同样并发

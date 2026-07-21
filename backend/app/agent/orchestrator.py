@@ -1,7 +1,10 @@
 """外层确定性编排器（plan/01 §三 两层执行模型 / plan/10 §一/§二/§六/§十一）。
 
-固定顺序 pipeline：parse -> understand -> map -> stage -> resource -> schedule
+执行分组 pipeline：parse -> understand -> map -> stage -> [resource ∥ schedule]
 -> validate（-> 反馈循环≤2）-> export。
+- search_resources 与 schedule_plan 均仅依赖 design_stages 输出、彼此无上下游
+  关系 -> 同组并发（iter 229 R2 并行段，消除串行 pipeline 最长 wall-clock 段）；
+  组内顺序即 PIPELINE 顺序，错误报告/预算归集/输出写回保持确定性。
 - 每工具：字段覆盖检查 -> run_tool -> 成本/预算 -> SSE 事件
 - understand_intent.needs_clarify -> paused_clarify（持久化部分，step 6 续接）
 - validate_plan.passed=false -> 据 report 重跑 design_stages/build_knowledge_map（反馈循环）
@@ -11,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -23,7 +27,8 @@ from app.tools.base import ToolError, ToolInput, ToolOutput
 
 log = logging.getLogger("deep_tutor.orchestrator")
 
-# 固定流水线顺序（plan/10 §一）
+# 流水线规范顺序（plan/10 §一）：步骤序号/局部重生成区间/反馈目标的唯一定义；
+# 实际执行按 _PARALLEL_GROUPS 分组（同序等集，静态断言保证）。
 PIPELINE: list[str] = [
     "parse_material",
     "understand_intent",
@@ -33,6 +38,20 @@ PIPELINE: list[str] = [
     "schedule_plan",
     "validate_plan",
     "export_plan",
+]
+
+# 执行分组（iter 229 R2 并行段）：search_resources 与 schedule_plan 均仅依赖
+# design_stages 输出（B21 主题派生 / 阶段+用户画像排程），彼此无上下游关系 ->
+# 同组并发执行；组内顺序即 PIPELINE 顺序（错误报告/预算归集/写回确定性）。
+# 新增工具时默认独立成组（串行）；仅当与相邻工具**确认无依赖**才可同组。
+_PARALLEL_GROUPS: list[list[str]] = [
+    ["parse_material"],
+    ["understand_intent"],
+    ["build_knowledge_map"],
+    ["design_stages"],
+    ["search_resources", "schedule_plan"],  # R2 并行段
+    ["validate_plan"],
+    ["export_plan"],
 ]
 
 # 反馈循环：validate_plan.report 失败项 -> 重跑目标（plan/10 §六）
@@ -49,8 +68,22 @@ MAX_FEEDBACK_ROUNDS = 2  # 对齐 settings.max_regenerations
 # err.md B13：静态一致性自检（新增工具漏登记时尽早暴露，而非静默丢输出/反馈无效）
 assert set(FEEDBACK_TARGETS.values()) <= set(PIPELINE), "FEEDBACK_TARGETS 指向不在 PIPELINE 的工具"
 assert set(PLAN_SECTIONS) <= set(PIPELINE), "PLAN_SECTIONS 登记了不在 PIPELINE 的工具"
+assert [t for g in _PARALLEL_GROUPS for t in g] == PIPELINE, "执行分组须与 PIPELINE 同序等集"
 
 EventCb = Callable[[str, dict[str, Any]], None]
+
+
+def _window_groups(start_tool: str | None, end_tool: str | None = None) -> list[list[str]]:
+    """PIPELINE [start_tool..end_tool] 闭区间按执行分组切分（区间内过滤、保序）。
+
+    start_tool 落在并行组中间时（如局部重生成 scope=schedule_plan），首组仅含
+    该工具及同组后续成员——同组上游成员（search_resources）由 initial_upstream
+    保留、不重跑（plan/10 §十三 重跑范围最小化）。
+    """
+    lo = PIPELINE.index(start_tool) if start_tool else 0
+    hi = PIPELINE.index(end_tool) if end_tool is not None else len(PIPELINE) - 1
+    window = PIPELINE[lo : hi + 1]
+    return [[n for n in g if n in window] for g in _PARALLEL_GROUPS if any(n in window for n in g)]
 
 
 @dataclass
@@ -123,40 +156,47 @@ class Orchestrator:
             msg = f"start_tool 不在 PIPELINE: {start_tool}"
             log.error(msg)
             return OrchestratorResult("error", outputs, {}, [msg])
-        start_idx = PIPELINE.index(start_tool) if start_tool else 0
-        for name in PIPELINE[start_idx:]:
-            if not self.registry.has(name):
+        for group in _window_groups(start_tool):
+            names = [n for n in group if self.registry.has(n)]
+            if not names:
                 continue  # 未注册的工具跳过（便于分步骤落地/测试）
             if call_count >= self.max_tool_calls:
                 errors.append(f"工具调用轮次达上限 {self.max_tool_calls}")
                 return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
 
-            out = await self._exec(name, args_by_tool, outputs)
-            outputs[name] = out
-            call_count += 1
+            outs = await self._exec_group(names, args_by_tool, outputs)
+            for n, o in zip(names, outs, strict=True):
+                outputs[n] = o
+            call_count += len(names)  # 并行组允许超出上限 ≤组内人数-1（两调用同时发起，软守卫语义不变）
 
-            # 预算
+            # 预算（组内成本全部归集后判定；并行组固有两调用已同时发起——超限判定
+            # 较旧串行晚一个组内工具，超支有界且仍中断，iter 229 有意的并行代价）
             if self.ctx.budget:
-                self.ctx.budget.add(out.metadata.cost)
+                for o in outs:
+                    self.ctx.budget.add(o.metadata.cost)
                 if self.ctx.budget.exceeded():
                     self._emit("budget_exceeded", {"spent": self.ctx.budget.spent, "limit": self.ctx.budget.limit})
                     errors.append("budget_exceeded")
                     return OrchestratorResult("interrupted", outputs, self._assemble(outputs), errors)
 
-            # 错误：中断保留部分（降级矩阵细化留 step 6）
-            if out.status == "error":
-                for e in out.errors:
-                    errors.append(f"{name}: {e.code} - {e.message}")
-                self._emit("error", {"code": out.errors[-1].code if out.errors else "error", "stage": name})
-                return OrchestratorResult("error", outputs, self._assemble(outputs), errors)
+            # 错误：组内按 PIPELINE 顺序取首个 error 中断（确定性），保留部分
+            for n, o in zip(names, outs, strict=True):
+                if o.status == "error":
+                    for e in o.errors:
+                        errors.append(f"{n}: {e.code} - {e.message}")
+                    self._emit("error", {"code": o.errors[-1].code if o.errors else "error", "stage": n})
+                    return OrchestratorResult("error", outputs, self._assemble(outputs), errors)
 
             # 澄清：understand_intent 需澄清 -> 暂停
-            if name == "understand_intent" and out.data.get("needs_clarify"):
-                self._emit("clarify_needed", {"questions": out.data.get("clarify_questions", [])})
-                return OrchestratorResult("paused_clarify", outputs, self._assemble(outputs), errors)
+            if "understand_intent" in names:
+                intent_out = outputs["understand_intent"]
+                if intent_out.data.get("needs_clarify"):
+                    self._emit("clarify_needed", {"questions": intent_out.data.get("clarify_questions", [])})
+                    return OrchestratorResult("paused_clarify", outputs, self._assemble(outputs), errors)
 
             # 反馈循环：validate_plan 未过 -> 重跑上游
-            if name == "validate_plan":
+            if "validate_plan" in names:
+                out = outputs["validate_plan"]
                 rounds = 0
                 while not out.data.get("passed", True) and rounds < MAX_FEEDBACK_ROUNDS:
                     rounds += 1
@@ -191,7 +231,7 @@ class Orchestrator:
                 if not out.data.get("passed", True):
                     self._emit("warn", {"code": "validation_unresolved", "message": "校验仍不通过，交付当前方案 + 报告"})
 
-            # plan/03 §一 SSE plan_chunk：每个工具产出后广播当前部分方案，
+            # plan/03 §一 SSE plan_chunk：每个工具组产出后广播当前部分方案，
             # 前端「查看部分」（plan/06 §四.3）生成中即可浏览已产出片段；
             # 事件经 _SessionStream 缓冲，断线重连自动重放最新片段。
             self._emit("plan_chunk", {"partial_plan": self._assemble(outputs)})
@@ -238,6 +278,36 @@ class Orchestrator:
         )
         return out
 
+    async def _exec_group(
+        self,
+        names: list[str],
+        args_by_tool: dict[str, dict[str, Any]],
+        outputs: dict[str, ToolOutput],
+        fixes_for: str | None = None,
+        fixes: list[str] | None = None,
+        attempt: int = 1,
+    ) -> list[ToolOutput]:
+        """执行一个工具组，返回与 names 顺序对齐的输出（iter 229 R2）。
+
+        单工具组：直接 _exec（行为与旧串行逐字一致）。
+        多工具组（并行段）：并发执行——组内工具互无依赖（_PARALLEL_GROUPS 静态约束），
+        输入均基于同一 outputs 快照、写回由调用方按 PIPELINE 顺序进行；
+        tool_start/tool_end 事件交错发出（前端按 (tool,attempt) 键控步骤，乱序安全；
+        后端 live.current_tool 显示最后开始者，仅展示语义）。
+        fixes 仅发给 fixes_for 指定的工具（反馈循环目标），其余为 None。
+        """
+        if len(names) == 1:
+            n = names[0]
+            return [await self._exec(n, args_by_tool, outputs, fixes=fixes if n == fixes_for else None, attempt=attempt)]
+        return list(
+            await asyncio.gather(
+                *(
+                    self._exec(n, args_by_tool, outputs, fixes=fixes if n == fixes_for else None, attempt=attempt)
+                    for n in names
+                )
+            )
+        )
+
     async def _rerun_from(
         self,
         target: str,
@@ -246,20 +316,26 @@ class Orchestrator:
         fixes: list[str],
         attempt: int = 2,
     ) -> tuple[int, ToolOutput | None]:
-        """从 target 重跑到 validate_plan（含）；返回 (重跑工具数, 首个 error 输出或 None)。"""
-        start = PIPELINE.index(target)
-        end = PIPELINE.index("validate_plan")
+        """从 target 重跑到 validate_plan（含）；返回 (重跑工具数, 首个 error 输出或 None)。
+
+        iter 229：与主循环同一分组执行——重跑区间覆盖并行段时 search/schedule 同样并发；
+        error 按组内 PIPELINE 顺序取首个上抛（确定性），预算按组归集后判定。
+        """
         count = 0
-        for name in PIPELINE[start : end + 1]:
-            if not self.registry.has(name):
+        for group in _window_groups(target, "validate_plan"):
+            names = [n for n in group if self.registry.has(n)]
+            if not names:
                 continue
-            out = await self._exec(name, args_by_tool, outputs, fixes=fixes if name == target else None, attempt=attempt)
-            outputs[name] = out
-            count += 1
-            if out.status == "error":
-                return count, out  # err.md B10：上抛给主循环按 error 中断，不得吞掉
+            outs = await self._exec_group(names, args_by_tool, outputs, fixes_for=target, fixes=fixes, attempt=attempt)
+            for n, o in zip(names, outs, strict=True):
+                outputs[n] = o
+            count += len(names)
+            for o in outs:
+                if o.status == "error":
+                    return count, o  # err.md B10：上抛给主循环按 error 中断，不得吞掉
             if self.ctx.budget:
-                self.ctx.budget.add(out.metadata.cost)
+                for o in outs:
+                    self.ctx.budget.add(o.metadata.cost)
                 if self.ctx.budget.exceeded():
                     break  # 预算超限，停止重跑（主循环将返回 interrupted）
         return count, None
