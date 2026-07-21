@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     )
 
     # --- 认证（本地单用户 token；P4 多用户 JWT）---
-    auth_token: str = Field(default="", description="本地单用户 token（启动必填；P4 起作 JWT 兼容回退）")
+    auth_token: str = Field(default="", description="本地单用户 token（可选；P4 起作 JWT 兼容回退，未设任何密码时进入开放本机模式 iter 89）")
     admin_username: str = Field(default="admin", description="P4 管理员登录名（启动自动创建/收敛）")
     admin_password: str = Field(default="", description="P4 管理员初始密码（空 -> 不创建登录账号，仅 token 回退）")
     jwt_secret: str = Field(default="", description="P4 JWT HMAC secret（空 -> 回退 AUTH_TOKEN；再无 -> 每启动随机）")

@@ -62,7 +62,7 @@ Deep-tutor/
 ├── backend/         # FastAPI 后端
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（717 项）
+│   ├── tests/       # pytest 测试套件（733 项）
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
 ├── extension/       # 浏览器扩展（MV3 网页剪藏）
@@ -180,7 +180,7 @@ Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、�
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 717 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 733 项测试（含契约/漂移守卫）
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```

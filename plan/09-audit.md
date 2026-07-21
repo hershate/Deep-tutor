@@ -219,26 +219,38 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 
 ## 十七、配置项目录（.env / settings）
 
+> 2026-07-21 按实现（backend/app/core/settings.py）重核：**全部可选**（iter 89 零配置开箱即用，
+> 无 .env 也可启动——无 AUTH_TOKEN 且无任何用户设密码时进入开放本机模式，功能级 key 调用前校验）。
+
 | key | 说明 | 默认 |
 |---|---|---|
-| ANTHROPIC_API_KEY | Claude API key | 必填 |
-| ANTHROPIC_MODEL | 模型（Haiku/Sonnet/Opus，影响成本/上下文/质量，实现时定） | claude-... |
-| AUTH_TOKEN | 本地单用户 token | 必填 |
-| DB_PATH | SQLite 路径 | data/deep-tutor.db |
-| DATA_DIR | 文件存储根 | data/ |
-| SKILLS_DIR | Skill 目录 | skills/ |
-| MAX_UPLOAD_MB | 上传上限 | 50 |
-| MAX_TOOL_CALLS | 工具调用轮次上限 | 20 |
+| ANTHROPIC_API_KEY | Claude API key（生成功能调用前校验；亦可在设置页「API Key 档案」界面内配置） | 空 |
+| ANTHROPIC_MODEL | 模型（Haiku/Sonnet/Opus，影响成本/上下文/质量） | claude-sonnet-5 |
+| AUTH_TOKEN | 简单 token 回退（与 JWT 双轨；空且无密码 -> 开放本机模式） | 空 |
+| ADMIN_USERNAME | 管理员登录名（启动自动创建/收敛） | admin |
+| ADMIN_PASSWORD | 管理员初始密码（空 -> 不创建登录账号，仅 token 回退） | 空 |
+| JWT_SECRET | JWT HMAC 签名密钥（空 -> 自动生成并持久化 data/.jwt_secret） | 空 |
+| JWT_EXPIRE_DAYS | JWT 有效期（天） | 7 |
+| DB_PATH | SQLite 路径（相对路径锚定仓库根） | data/deep-tutor.db |
+| DATABASE_URL | 完整 SQLAlchemy URL（切换 Postgres 等；空 -> 由 DB_PATH 拼 SQLite） | 空 |
+| DATA_DIR | 文件存储根 | data |
+| SKILLS_DIR | Skill 目录 | skills |
+| PLUGINS_DIR | 后端插件目录（API.md「后端插件 API」） | plugins |
+| FRONTEND_DIST | 前端构建产物目录（设置后后端托管 SPA + /api 同端口，免 nginx） | 空 |
+| MAX_UPLOAD_MB | 上传单文件上限 MB | 50 |
+| MAX_TOOL_CALLS | 工具调用轮次上限/会话 | 20 |
 | MAX_REGENERATIONS | 重生成上限 | 2 |
 | BUDGET_PER_SESSION_USD | 会话预算 | 1.0 |
 | DAILY_BUDGET_USD | 每日预算 | 10 |
-| CONTEXT_TOKEN_THRESHOLD | 上下文溢出阈值 | 按模型 |
 | SEARCH_ENGINE | 搜索引擎（auto=有 key 用 API 无 key 用网页版；bing=仅付费 API；bing_web=仅免 Key 网页版） | auto |
 | BING_API_KEY | Bing Search API key | 可选（不配则 auto 模式用 Bing 网页抓取兜底，iter 222） |
+| OCR_LANGUAGES | 图片 OCR 语言（tesseract -l） | eng+chi_sim |
+| WHISPER_MODEL | 音视频转写模型（faster-whisper 模型名/路径） | base |
+| MEDIA_MAX_MINUTES | 音视频转写时长上限（分钟，ffprobe 可得时强制） | 30 |
 | LOG_LEVEL | 日志级别 | info |
 | CORS_ORIGINS | 允许来源 | http://localhost:5173 |
 
-启动时校验必填项，缺失 -> 报错退出；`.env.example` 提供模板，`.env` 入 `.gitignore`。
+启动无硬必填（`validate_required` 恒空）；功能级 key 调用前校验（`validate_feature_keys`）；`.env.example` 提供模板，`.env` 入 `.gitignore`。
 
 ## 十八、CORS / 请求限额 / 速率限制
 
@@ -248,16 +260,20 @@ R18 上下文溢出、R19 SSRF、R20 路径遍历、R21 XSS、R22 工具调用�
 - **超时**：API 请求 300s（生成长）；LLM 调用 120s；URL 抓取 30s。
 - **MIME 校验**：上传按 magic bytes 校验类型，不只看扩展名（防伪造）。
 
-## 十九、部署配置（docker-compose）
+## 十九、部署配置（~~docker-compose~~ 已移除，见下）
 
-- **services**：`backend`(uvicorn) + `frontend`(nginx) + 可选 `redis`(P4)。
-- **backend**：挂载 `data/` 与 `skills/`(只读) 卷；`env_file: .env`；`healthcheck: /health`；`restart: unless-stopped`。
-- **frontend**：nginx 托管构建产物；反代 `/api -> backend`；SPA fallback。
-- **卷**：`deep-tutor-data`、`deep-tutor-skills`。
-- **网络**：内部；仅 frontend 暴露端口。
-- `.env` 不入镜像/仓库。
-- 本地一键 `docker compose up`。
-- P4 云部署：加 postgres + 对象存储 + TLS + 反代。
+> 2026-07-21 重核：Docker 方案已在实现期移除（iter 68，用户决定），仓库无任何 Docker 文件。
+> 现行部署：**scripts/start.sh / start.ps1 本地直起**——uvicorn 单进程托管 SPA（`FRONTEND_DIST`）+ `/api` 同端口（默认 :41173），免 nginx。
+> 以下为设计期原方案，仅存档参考：
+
+- ~~**services**：`backend`(uvicorn) + `frontend`(nginx) + 可选 `redis`(P4)。~~
+- ~~**backend**：挂载 `data/` 与 `skills/`(只读) 卷；`env_file: .env`；`healthcheck: /health`；`restart: unless-stopped`。~~
+- ~~**frontend**：nginx 托管构建产物；反代 `/api -> backend`；SPA fallback。~~
+- ~~**卷**：`deep-tutor-data`、`deep-tutor-skills`。~~
+- ~~**网络**：内部；仅 frontend 暴露端口。~~
+- `.env` 不入镜像/仓库。（仍适用：`.env` 入 `.gitignore`）
+- ~~本地一键 `docker compose up`。~~
+- P4 云部署：加 postgres（`DATABASE_URL` 已预留）+ 对象存储 + TLS + 反代。（仍属未来方向）
 
 ## 二十、容量与配额上限
 
