@@ -130,3 +130,76 @@ def test_search_requires_auth(client):
 
 def test_search_q_too_long_422(client, auth_headers):
     assert client.get("/api/search?q=" + "x" * 101, headers=auth_headers).status_code == 422
+
+
+# --- iter 255：知识库解析文本内容检索（有界扫描） ---
+
+
+def _mk_kb_text_doc(client, headers, text: str, title: str) -> dict:
+    r = client.post("/api/kb/documents/text", json={"text": text, "title": title}, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_search_kb_content_match(client, auth_headers):
+    _mk_kb_text_doc(client, auth_headers, "今天学了深度学习，反向传播很有收获", "无关标题")
+    _mk_kb_text_doc(client, auth_headers, "另一篇笔记", "深度学习入门")
+    body = client.get("/api/search?q=深度学习", headers=auth_headers).json()
+    kb = body["kb_docs"]
+    assert kb["total"] == 2
+    by_match = {i["match"]: i for i in kb["items"]}
+    assert by_match["title"]["title"] == "深度学习入门"
+    assert by_match["title"]["snippet"] is None
+    assert by_match["content"]["title"] == "无关标题"
+    assert "深度学习" in by_match["content"]["snippet"]
+
+
+def test_search_kb_content_isolation(client, auth_headers, tmp_path):
+    from app.db import models
+    from app.db.models import User
+
+    f = tmp_path / "other_parsed.txt"
+    f.write_text("含深度学习关键词的他人文档", encoding="utf-8")
+    db = SessionLocal()
+    try:
+        # 须先有种管理员——否则 AUTH_TOKEN 回退落到 get_default_user（唯一用户 other），
+        # 搜索身份即成 other 本人，隔离断言失去意义
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        other = User(name="other", username="other", password_hash="x", is_admin=False)
+        db.add_all([admin, other])
+        db.flush()
+        db.add(
+            models.KbDocument(
+                user_id=other.id,
+                title="他人文档",
+                kind=models.MaterialKind.text,
+                parsed_text_path=str(f),
+                parsed_chars=f.stat().st_size,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    body = client.get("/api/search?q=深度学习", headers=auth_headers).json()
+    assert body["kb_docs"] == {"total": 0, "items": []}
+
+
+def test_search_kb_content_scan_cap(client, auth_headers, monkeypatch):
+    from app.api import kb as kb_mod
+
+    monkeypatch.setattr(kb_mod, "_PARSED_SCAN_MAX_DOCS", 1)
+    _mk_kb_text_doc(client, auth_headers, "第一篇含深度学习", "无关A")
+    _mk_kb_text_doc(client, auth_headers, "第二篇含深度学习", "无关B")
+    body = client.get("/api/search?q=深度学习", headers=auth_headers).json()
+    kb = body["kb_docs"]
+    # 扫描上界 1：仅最新一篇被扫到（诚实边界——更老文档仅标题可搜）
+    assert kb["total"] == 1
+    assert kb["items"][0]["title"] == "无关B"
+    assert kb["items"][0]["match"] == "content"
+
+
+def test_kb_list_q_matches_content(client, auth_headers):
+    _mk_kb_text_doc(client, auth_headers, "正文提到梯度下降算法", "算法随记")
+    _mk_kb_text_doc(client, auth_headers, "完全无关的内容", "另一篇")
+    docs = client.get("/api/kb/documents?q=梯度下降", headers=auth_headers).json()["documents"]
+    assert [d["title"] for d in docs] == ["算法随记"]

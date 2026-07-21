@@ -164,7 +164,17 @@ export default function Search() {
                 {data.kb_docs.items.map((d) => (
                   <Link key={d.id} to="/wiki">
                     <Card interactive>
-                      <p className="text-sm font-medium"><Highlight text={d.title || `文档 #${d.id}`} q={q} /></p>
+                      <p className="text-sm font-medium">
+                        <Highlight text={d.title || `文档 #${d.id}`} q={q} />
+                        {d.match === 'content' && (
+                          <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                            内容命中
+                          </span>
+                        )}
+                      </p>
+                      {d.snippet && (
+                        <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400"><Highlight text={d.snippet} q={q} /></p>
+                      )}
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {(d.kind && KIND_LABEL[d.kind]) ?? '文档'} · {d.created_at.slice(0, 10)}
                       </p>

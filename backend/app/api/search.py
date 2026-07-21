@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.api.kb import content_search_docs
 from app.api.plans import _plan_topic
 from app.core.ratelimit import limiter
 from app.db import models
@@ -78,13 +79,15 @@ def global_search(
     )
     note_rows = notes_q.order_by(models.Note.updated_at.desc()).limit(limit).all()
 
-    # 知识库文档：标题子串（同 GET /kb/documents?q= 口径）
+    # 知识库文档：标题子串 + 解析文本内容（iter 255 扩展——有界扫描最近 N 篇已解析
+    # 文档，content_search_docs 同 GET /kb/documents?q= 口径；内容命中带命中片段）
     kb_q = (
         db.query(models.KbDocument)
         .filter(models.KbDocument.user_id == user.id)
         .filter(models.KbDocument.title.contains(qs))
     )
     kb_rows = kb_q.order_by(models.KbDocument.id.desc()).limit(limit).all()
+    kb_content_hits = content_search_docs(db, user.id, qs, limit - len(kb_rows), {d.id for d in kb_rows})
 
     # 知识节点：名称子串（join Plan->Session 取归属，同 GET /knowledge 口径）
     nodes_q = (
@@ -131,15 +134,29 @@ def global_search(
             ],
         },
         "kb_docs": {
-            "total": kb_q.count(),
+            # total = 标题精确计数 + 内容命中数（内容仅覆盖扫描范围，iter 255 诚实边界）
+            "total": kb_q.count() + len(kb_content_hits),
             "items": [
                 {
                     "id": d.id,
                     "title": d.title,
                     "kind": d.kind.value if d.kind else None,
                     "created_at": str(d.created_at),
+                    "match": "title",
+                    "snippet": None,
                 }
                 for d in kb_rows
+            ]
+            + [
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "kind": d.kind.value if d.kind else None,
+                    "created_at": str(d.created_at),
+                    "match": "content",
+                    "snippet": snip,
+                }
+                for d, snip in kb_content_hits
             ],
         },
         "nodes": {

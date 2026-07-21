@@ -420,15 +420,27 @@ def list_documents(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """文档列表（新→旧）：q=标题子串；kind 枚举过滤（非法 -> 400）；limit ≤1000。"""
+    """文档列表（新→旧）：q=标题**或解析文本内容**子串（iter 255 扩展——内容检索
+    有界扫描最近 _PARSED_SCAN_MAX_DOCS 篇已解析文档，标题命中在前、内容命中在后）；
+    kind 枚举过滤（非法 -> 400）；limit ≤1000。"""
     stmt = select(models.KbDocument).where(models.KbDocument.user_id == user.id)
-    if q and q.strip():
-        stmt = stmt.where(models.KbDocument.title.contains(q.strip()))
+    kind_filter: models.MaterialKind | None = None
     if kind:
         if kind not in {k.value for k in models.MaterialKind}:
             raise ApiError("bad_request", f"非法 kind: {kind}（支持 file/text/url/image/audio/video）", status=400)
-        stmt = stmt.where(models.KbDocument.kind == kind)
-    rows = db.scalars(stmt.order_by(models.KbDocument.id.desc()).limit(limit)).all()
+        kind_filter = models.MaterialKind(kind)
+        stmt = stmt.where(models.KbDocument.kind == kind_filter)
+    if q and q.strip():
+        qs = q.strip()
+        title_rows = list(
+            db.scalars(
+                stmt.where(models.KbDocument.title.contains(qs)).order_by(models.KbDocument.id.desc()).limit(limit)
+            ).all()
+        )
+        hits = content_search_docs(db, user.id, qs, limit - len(title_rows), {d.id for d in title_rows}, kind=kind_filter)
+        rows = title_rows + [d for d, _ in hits]
+    else:
+        rows = db.scalars(stmt.order_by(models.KbDocument.id.desc()).limit(limit)).all()
     return {"documents": [_doc_out(d) for d in rows]}
 
 
@@ -784,6 +796,61 @@ def _read_doc_text(doc: models.KbDocument) -> str:
     except OSError:
         log.warning("知识库问答：文档 %s 解析文本缺失", doc.id)
         return ""
+
+
+_PARSED_SCAN_MAX_DOCS = 50  # 内容检索扫描上界（最近 N 篇已解析文档）——更老文档仅标题可搜（诚实边界）
+
+
+def _hit_snippet(text: str, qs: str, ctx: int = 60) -> str:
+    """围绕首个命中（大小写不敏感）截取单行上下文片段（±ctx 字符，省略号标截断）。"""
+    idx = text.lower().find(qs.lower())
+    if idx < 0:
+        return ""
+    start = max(0, idx - ctx)
+    end = min(len(text), idx + len(qs) + ctx)
+    body = " ".join(text[start:end].split())  # 解析文本为 markdown，折叠换行/多余空白为单行
+    return ("…" if start > 0 else "") + body + ("…" if end < len(text) else "")
+
+
+def content_search_docs(
+    db: Session,
+    user_id: int,
+    qs: str,
+    limit: int,
+    exclude_ids: set[int] | None = None,
+    kind: models.MaterialKind | None = None,
+) -> list[tuple[models.KbDocument, str]]:
+    """有界解析文本内容检索（iter 255）：按新→旧扫描当前用户最近 _PARSED_SCAN_MAX_DOCS 篇
+    已解析文档，命中返回 [(doc, 命中片段)]（≤limit，exclude_ids 跳过标题已命中文档，
+    kind 非空时与列表端点同口径过滤类型）。
+
+    诚实边界：不建索引——FTS5 需库内存全文副本，与 plan/09 §一「大内容入文件系统」
+    存储策略冲突（trigram 索引 2-3 倍体积，见 stage.md iter 253 评估）；仅覆盖最近 N 篇，
+    更老文档只有标题可搜。逐篇同步文件读（≤N×500KB，解析截断上限），调用方须为
+    同步 def 端点（FastAPI 线程池执行，不阻塞事件循环）。
+    """
+    if limit <= 0 or not qs:
+        return []
+    skip = exclude_ids or set()
+    stmt = select(models.KbDocument).where(
+        models.KbDocument.user_id == user_id, models.KbDocument.parsed_text_path.is_not(None)
+    )
+    if kind is not None:
+        stmt = stmt.where(models.KbDocument.kind == kind)
+    stmt = stmt.order_by(models.KbDocument.id.desc()).limit(_PARSED_SCAN_MAX_DOCS)
+    hits: list[tuple[models.KbDocument, str]] = []
+    for doc in db.scalars(stmt).all():
+        if doc.id in skip:
+            continue
+        text = _read_doc_text(doc)
+        if not text:
+            continue
+        snippet = _hit_snippet(text, qs)
+        if snippet:
+            hits.append((doc, snippet))
+            if len(hits) >= limit:
+                break
+    return hits
 
 
 def _assemble_chat_context(docs: list[models.KbDocument]) -> tuple[list[dict], list[str]]:

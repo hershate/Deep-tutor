@@ -542,7 +542,14 @@ export interface GlobalSearchResult {
   q: string
   plans: SearchGroup<{ id: number; session_id: number; version: number; topic: string; created_at: string }>
   notes: SearchGroup<{ id: number; title: string; snippet: string; updated_at: string }>
-  kb_docs: SearchGroup<{ id: number; title: string; kind: string | null; created_at: string }>
+  kb_docs: SearchGroup<{
+    id: number
+    title: string
+    kind: string | null
+    created_at: string
+    match: 'title' | 'content' // iter 255：内容命中带 snippet 片段
+    snippet: string | null
+  }>
   nodes: SearchGroup<{ id: number; plan_id: number; name: string; plan_topic: string }>
 }
 export const globalSearch = (q: string, limit = 10) =>
