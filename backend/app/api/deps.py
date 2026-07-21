@@ -115,7 +115,9 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
                 iat = float(payload.get("iat", 0))
             except (TypeError, ValueError):
                 return None
-            if iat < (user.tokens_valid_after or 0):
+            if iat + 1 <= (user.tokens_valid_after or 0):  # iter 246：+1s 容差——iat 为
+                # int() 截断值而 tva 为 float，同秒"撤销后重登录"会被小数位误杀（born-revoked）；
+                # 同秒放行（同秒内"撤销前签发"概率对本地单用户可忽略），跨秒判定不变
                 return None
             return user
         if _is_env_token(token):

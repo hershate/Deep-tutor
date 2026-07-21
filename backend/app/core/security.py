@@ -116,7 +116,12 @@ def _load_or_create_persisted_secret() -> str:
 
 
 def create_token(user_id: int, username: str) -> str:
-    """签发 JWT（有效期 settings.jwt_expire_days 天）。"""
+    """签发 JWT（有效期 settings.jwt_expire_days 天）。
+
+    iat 保持 int(time)（iter 246 复核）：iat 在未来会被 PyJWT 硬校验拒绝
+    （ImmatureSignatureError），不能靠 ceil/+1 规避同秒 born-revoked；
+    该竞态的修复在 deps.py 的 tokens_valid_after 判定侧（+1s 容差）。
+    """
     now = int(time.time())
     payload = {
         "sub": str(user_id),
