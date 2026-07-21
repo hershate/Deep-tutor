@@ -143,7 +143,7 @@ export default function Wiki() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">知识库</h2>
-        {/* 头部控制（导出手册/排序/搜索）仅知识点与笔记视图使用；文档库视图自带工具栏（iter 217） */}
+        {/* 头部控制：导出手册在知识点/笔记视图可用；排序/搜索仅知识点视图生效（笔记视图查询不消费它们，显示即为死控件） */}
         {view !== 'docs' && (
         <div className="flex items-center gap-2">
           {/* 知识手册导出（iter 116）：全部节点+笔记 -> Markdown 下载 */}
@@ -155,6 +155,8 @@ export default function Wiki() {
             {exportBusy ? '导出中…' : '导出手册 (.md)'}
           </button>
           {/* 排序（iter 146） */}
+          {view === 'nodes' && (
+          <>
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
@@ -175,6 +177,8 @@ export default function Wiki() {
             aria-label="搜索知识点或笔记内容"
             className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
           />
+          </>
+          )}
         </div>
         )}
       </div>

@@ -103,23 +103,25 @@ function DailyChart({ items }: { items: { date: string; cost: number; tokens: nu
   )
 }
 
-/** iter 164：今日费用 / 日预算进度条（>=80% amber，超预算 red） */
+/** iter 164：今日费用 / 日预算进度条（>=80% amber，超预算 red）；budget=0 语义为「不限」（Settings 页约定） */
 function BudgetBar({ today, budget }: { today: number; budget: number }) {
-  const pct = budget > 0 ? (today / budget) * 100 : 0
+  const unlimited = budget <= 0
+  const pct = unlimited ? 0 : (today / budget) * 100
   const over = pct >= 100
   const warn = pct >= 80 && !over
   return (
     <section
       className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
-      aria-label={`今日预算：已用 ${today.toFixed(6)} 美元，预算 ${budget} 美元`}
+      aria-label={unlimited ? `今日费用 ${today.toFixed(6)} 美元，预算不限` : `今日预算：已用 ${today.toFixed(6)} 美元，预算 ${budget} 美元`}
     >
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium text-slate-600 dark:text-slate-300">今日预算</span>
         <span className={`tabular-nums ${over ? 'font-semibold text-red-600 dark:text-red-400' : warn ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
-          ${today.toFixed(6)} / ${budget}
+          {unlimited ? `$${today.toFixed(6)} / 不限` : `$${today.toFixed(6)} / $${budget}`}
           {over && '（已超预算）'}
         </span>
       </div>
+      {!unlimited && (
       <div
         className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
         role="progressbar"
@@ -133,6 +135,7 @@ function BudgetBar({ today, budget }: { today: number; budget: number }) {
           style={{ width: `${Math.min(100, Math.max(pct, today > 0 ? 2 : 0))}%` }}
         />
       </div>
+      )}
     </section>
   )
 }

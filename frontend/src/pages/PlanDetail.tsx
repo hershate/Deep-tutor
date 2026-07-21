@@ -123,9 +123,12 @@ export default function PlanDetail() {
     return () => { cancelled = true }
   }, [planId])
 
-  // 协作分享（P5）：创建（幂等）/复制/撤销只读链接
+  // 协作分享（P5）：创建（幂等）/复制/撤销只读链接；shareBusy 防连点重复请求/双 toast
+  const [shareBusy, setShareBusy] = useState(false)
+
   async function doShare() {
-    if (!planId) return
+    if (!planId || shareBusy) return
+    setShareBusy(true)
     try {
       const r = await createShare(Number(planId))
       const url = `${window.location.origin}${r.path}`
@@ -140,11 +143,14 @@ export default function PlanDetail() {
       }
     } catch (e) {
       setOpError(e instanceof ApiError ? e.message : '创建分享失败')
+    } finally {
+      setShareBusy(false)
     }
   }
 
   async function doRevokeShare() {
-    if (!planId) return
+    if (!planId || shareBusy) return
+    setShareBusy(true)
     try {
       await revokeShare(Number(planId))
       setShare({ shared: false })
@@ -152,6 +158,8 @@ export default function PlanDetail() {
       toast.success('分享已撤销')
     } catch (e) {
       setOpError(e instanceof ApiError ? e.message : '撤销失败')
+    } finally {
+      setShareBusy(false)
     }
   }
 
@@ -313,11 +321,11 @@ export default function PlanDetail() {
           >
             {exportBusy ? '导出中…' : '导出'}
           </button>
-          <button onClick={doShare} className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700">
-            {share?.shared ? '复制分享链接' : '分享'}
+          <button onClick={doShare} disabled={shareBusy} className="rounded-lg border px-4 py-2 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700">
+            {shareBusy ? '处理中…' : share?.shared ? '复制分享链接' : '分享'}
           </button>
           {share?.shared && (
-            <button onClick={doRevokeShare} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
+            <button onClick={doRevokeShare} disabled={shareBusy} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50 disabled:active:scale-100 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
               撤销分享
             </button>
           )}

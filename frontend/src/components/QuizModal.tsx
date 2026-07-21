@@ -16,6 +16,7 @@ interface Props {
 interface AnswerState {
   selected?: string
   judged?: boolean
+  judging?: boolean // 判分请求在途（双击防重入，防重复 attempt 落库）
   correct?: boolean
   showAnswer?: boolean
 }
@@ -131,17 +132,18 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   // 失败/无 id 回退本地比对（不阻塞答题，但 attempt 不落库）。
   async function judge(i: number, q: QuizItemData) {
     const a = answers[i]
-    if (!a?.selected || a.judged) return
+    if (!a?.selected || a.judged || a.judging) return
+    patch(i, { judging: true })
     if (q.id !== undefined) {
       try {
         const r = await submitQuiz(q.id, { selected: a.selected })
-        patch(i, { judged: true, correct: r.correct === true })
+        patch(i, { judged: true, judging: false, correct: r.correct === true })
         return
       } catch {
         // 网络/服务器异常 -> 本地判分兜底
       }
     }
-    patch(i, { judged: true, correct: a.selected === q.answer })
+    patch(i, { judged: true, judging: false, correct: a.selected === q.answer })
   }
 
   const choiceIdx = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
@@ -263,10 +265,10 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
                           {!a.judged ? (
                             <button
                               onClick={() => judge(i, q)}
-                              disabled={!a.selected}
+                              disabled={!a.selected || a.judging}
                               className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
                             >
-                              判定
+                              {a.judging ? '判定中…' : '判定'}
                             </button>
                           ) : (
                             <p className={`text-sm ${a.correct ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`} role="status">

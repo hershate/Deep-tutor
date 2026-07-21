@@ -18,10 +18,14 @@ interface Props {
 }
 
 export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz }: Props) {
-  // iter 145：深度偏好记忆——上次选用的深度作为下次默认值（localStorage）
+  // iter 145：深度偏好记忆——上次选用的深度作为下次默认值（localStorage；隐私模式等读写失败静默降级）
   const [depth, setDepth] = useState<'brief' | 'full'>(() => {
-    const d = localStorage.getItem('dt-materials-depth')
-    return d === 'brief' || d === 'full' ? d : 'full'
+    try {
+      const d = localStorage.getItem('dt-materials-depth')
+      return d === 'brief' || d === 'full' ? d : 'full'
+    } catch {
+      return 'full'
+    }
   })
   const taskId = materialsTaskId(planId)
   const task = useTaskStore((s) => s.tasks[taskId])
@@ -170,8 +174,17 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
               value={depth}
               onChange={(e) => {
                 const d = e.target.value as 'brief' | 'full'
+                // 已有材料时切换深度 = 强制重新生成全部单元（消耗 LLM 额度且替换现有内容），需确认防误触
+                if (
+                  units.length > 0 &&
+                  !window.confirm(`切换深度将重新生成全部 ${units.length} 个单元（消耗 LLM 额度并替换现有材料）。确定继续？`)
+                ) {
+                  return // 受控 select 未 setDepth，界面自动回弹原值
+                }
                 setDepth(d)
-                localStorage.setItem('dt-materials-depth', d) // iter 145：记忆偏好
+                try {
+                  localStorage.setItem('dt-materials-depth', d) // iter 145：记忆偏好
+                } catch { /* 存储不可用，忽略 */ }
                 startGeneration(d, true) // 切换深度 -> 强制重新生成（替换已持久化单元）
               }}
               disabled={loading}

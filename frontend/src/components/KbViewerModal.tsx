@@ -43,6 +43,11 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
   // iter 226：原件/解析文本切换——PDF 等原件视图下也可查看解析结果（默认原件，切换置 'parsed'）
   const [viewOverride, setViewOverride] = useState<'parsed' | null>(null)
 
+  // 切换文档时回到默认视图：上一篇手动切的「解析文本」不残留到下一篇
+  useEffect(() => {
+    setViewOverride(null)
+  }, [doc.id])
+
   // Esc 关闭（仿 QuizModal）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

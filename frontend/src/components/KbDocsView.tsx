@@ -182,8 +182,12 @@ export default function KbDocsView() {
     }
   }
 
+  const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null) // 删除防重入：在途再点会 404 出多余错误 toast
+
   async function onDelete(d: KbDocument) {
+    if (deleteBusyId !== null) return
     if (!window.confirm(`确定删除文档「${d.title}」？\n原件与解析文本将一并删除，且不可恢复。`)) return
+    setDeleteBusyId(d.id)
     try {
       await deleteKbDocument(d.id)
       setSelected((prev) => {
@@ -196,6 +200,8 @@ export default function KbDocsView() {
       invalidate()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '删除失败')
+    } finally {
+      setDeleteBusyId(null)
     }
   }
 
@@ -618,9 +624,10 @@ export default function KbDocsView() {
               </button>
               <button
                 onClick={() => onDelete(d)}
-                className="rounded px-2 py-1 text-red-500 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                disabled={deleteBusyId !== null}
+                className="rounded px-2 py-1 text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950"
               >
-                删除
+                {deleteBusyId === d.id ? '删除中…' : '删除'}
               </button>
             </div>
           </li>

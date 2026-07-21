@@ -147,6 +147,7 @@ export default function Plans() {
         if (cancelled) return
         setItems(r.items)
         setTotal(r.total)
+        setError('') // 重试成功后清除错误（否则错误 banner 残留）
       })
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -168,7 +169,8 @@ export default function Plans() {
           className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
         />
       </div>
-      {error && (
+      {error && (loading || items.length > 0) && (
+        // 列表有内容（或加载中）时错误以 banner 提示；列表为空时由下方错误卡承担（避免双份错误文案）
         <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {error}
         </div>
@@ -248,6 +250,17 @@ export default function Plans() {
       )}
       {loading ? (
         <SkeletonCards count={4} />
+      ) : error && items.length === 0 ? (
+        // 加载失败时不落「还没有学习方案」空态（老用户会误以为方案全丢）——给错误卡 + 重试
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
+          <p className="text-sm text-red-700 dark:text-red-300">方案列表加载失败：{error}</p>
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="mt-3 rounded-lg border border-red-300 px-4 py-1.5 text-sm text-red-700 transition-all hover:bg-red-100 active:scale-95 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900"
+          >
+            重试
+          </button>
+        </div>
       ) : items.length === 0 ? (
         <EmptyState
           icon="🗂️"

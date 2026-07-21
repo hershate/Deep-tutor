@@ -30,6 +30,7 @@ const EMPTY_DRAFT: Draft = { id: null, title: '', content: '', updatedAt: null }
 export default function Notes() {
   const qc = useQueryClient()
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  const [dirty, setDirty] = useState(false) // 有未保存修改（切换/新建前确认防静默丢失）
   const [preview, setPreview] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadingId, setLoadingId] = useState<number | null>(null)
@@ -44,12 +45,19 @@ export default function Notes() {
     return qc.invalidateQueries({ queryKey: ['free-notes'] })
   }
 
+  // 有未保存修改时切换对象需用户确认（防草稿被静默覆盖）
+  function confirmDiscard(): boolean {
+    return !dirty || window.confirm('当前笔记有未保存的修改，继续将丢失这些修改。确定继续？')
+  }
+
   async function openNote(n: FreeNote) {
     if (busy || loadingId !== null) return
+    if (draft.id !== n.id && !confirmDiscard()) return
     setLoadingId(n.id)
     try {
       const full = await getFreeNote(n.id) // 列表仅 300 字预览，取全文编辑
       setDraft({ id: full.id, title: full.title, content: full.content, updatedAt: full.updated_at })
+      setDirty(false)
       setPreview(false)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '笔记加载失败')
@@ -70,6 +78,7 @@ export default function Notes() {
         ? await updateFreeNote(draft.id, draft.title, draft.content)
         : await createFreeNote(draft.title, draft.content)
       setDraft({ id: saved.id, title: saved.title, content: saved.content, updatedAt: saved.updated_at })
+      setDirty(false)
       toast.success('笔记已保存')
       await refresh()
     } catch (e) {
@@ -113,7 +122,9 @@ export default function Notes() {
             <h3 className="text-sm font-semibold">全部笔记{data ? `（${data.total}）` : ''}</h3>
             <button
               onClick={() => {
+                if (!confirmDiscard()) return
                 setDraft(EMPTY_DRAFT)
+                setDirty(false)
                 setPreview(false)
               }}
               className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
@@ -123,9 +134,15 @@ export default function Notes() {
           </div>
           {isLoading && <SkeletonLines lines={3} />}
           {error && (
-            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
-              列表加载失败：{error instanceof ApiError ? error.message : '网络错误'}
-            </p>
+            <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+              <span>列表加载失败：{error instanceof ApiError ? error.message : '网络错误'}</span>
+              <button
+                onClick={() => refresh()}
+                className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs transition-colors hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+              >
+                重试
+              </button>
+            </div>
           )}
           {data && data.total === 0 && (
             <p className="px-1 py-4 text-center text-sm text-slate-400">还没有笔记——点「＋ 新建」写下第一条</p>
@@ -168,7 +185,10 @@ export default function Notes() {
           <div className="mb-2 flex items-center gap-2">
             <input
               value={draft.title}
-              onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, title: e.target.value }))
+                setDirty(true)
+              }}
               maxLength={256}
               placeholder="标题（可与正文二选一）"
               aria-label="笔记标题"
@@ -199,7 +219,10 @@ export default function Notes() {
           ) : (
             <textarea
               value={draft.content}
-              onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, content: e.target.value }))
+                setDirty(true)
+              }}
               rows={14}
               maxLength={20_000}
               placeholder="正文（支持 Markdown）…"
@@ -208,12 +231,14 @@ export default function Notes() {
             />
           )}
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-xs text-slate-400">
-              {draft.id === null
-                ? '新笔记（保存后入库）'
-                : draft.updatedAt
-                  ? `更新于 ${new Date(draft.updatedAt).toLocaleString()}`
-                  : ''}
+            <span className={`text-xs ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+              {dirty
+                ? '● 未保存的修改'
+                : draft.id === null
+                  ? '新笔记（保存后入库）'
+                  : draft.updatedAt
+                    ? `更新于 ${new Date(draft.updatedAt).toLocaleString()}`
+                    : ''}
             </span>
             <div className="flex gap-2">
               {draft.id !== null && (

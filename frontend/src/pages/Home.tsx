@@ -46,15 +46,21 @@ export default function Home() {
 
   // 草稿自动保存（输入即存，localStorage 同步写开销可忽略；空内容清除 key 防恢复空草稿）
   useEffect(() => {
-    if (!rawText.trim() && urls.length === 0) localStorage.removeItem(DRAFT_KEY)
-    else localStorage.setItem(DRAFT_KEY, JSON.stringify({ rawText, urls }))
+    try {
+      if (!rawText.trim() && urls.length === 0) localStorage.removeItem(DRAFT_KEY)
+      else localStorage.setItem(DRAFT_KEY, JSON.stringify({ rawText, urls }))
+    } catch {
+      // 隐私模式/存储禁用/配额满：草稿降级为不持久化，不影响主流程
+    }
   }, [rawText, urls])
 
   function clearDraft() {
     setRawText('')
     setUrls([])
     setDraftRestored(false)
-    localStorage.removeItem(DRAFT_KEY)
+    try {
+      localStorage.removeItem(DRAFT_KEY)
+    } catch { /* 同上，忽略 */ }
   }
 
   function addFiles(list: FileList | null) {
@@ -167,8 +173,12 @@ export default function Home() {
         setUploadProgress('')
         return
       }
+      setLoading(false) // 路由异常未卸载时按钮不卡「创建中…」
+      setUploadProgress('')
       nav(`/generate/${session_id}`)
-      localStorage.removeItem(DRAFT_KEY) // 生成成功 -> 草稿使命完成
+      try {
+        localStorage.removeItem(DRAFT_KEY) // 生成成功 -> 草稿使命完成
+      } catch { /* 存储不可用，忽略 */ }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '创建失败')
       setLoading(false)

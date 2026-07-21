@@ -1,6 +1,6 @@
 // 学习中心页（P2，plan/03 §二 /learn/:planId）：进度看板 + 复习提醒 + 打卡。
 // 复习提醒：GET /progress 节点 next_review <= 今日（间隔重复 SM-2-lite 到期节点）。
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import CheckinCalendar from '../components/CheckinCalendar'
 import ProgressBoard from '../components/ProgressBoard'
@@ -79,7 +79,7 @@ export default function Learn() {
         const intent = (p as { plan?: { intent?: { topic?: string; daily_minutes?: number } } }).plan?.intent
         setTopic(intent?.topic ?? '')
         setDailyGoal(typeof intent?.daily_minutes === 'number' && intent.daily_minutes > 0 ? intent.daily_minutes : null)
-        const today = new Date().toISOString().slice(0, 10)
+        const today = new Date().toLocaleDateString('sv') // 本地日口径（与 todayStr 及后端 date.today() 一致，UTC 日会在时区交界时段错位）
         setDueNodes(prog.nodes.filter((n) => n.next_review !== null && n.next_review <= today))
       })
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
@@ -93,11 +93,17 @@ export default function Learn() {
     if (progressKey === 0) return
     getProgress(id)
       .then((prog) => {
-        const today = new Date().toISOString().slice(0, 10)
+        const today = new Date().toLocaleDateString('sv') // 本地日口径，同上
         setDueNodes(prog.nodes.filter((n) => n.next_review !== null && n.next_review <= today))
       })
       .catch(() => {})
   }, [progressKey, id])
+
+  // 打卡成功提示 3 秒自动消失（定时器持 ref，卸载/重复打卡时清理，防卸载后 setState 与旧定时器误清新提示）
+  const checkinTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (checkinTimer.current) clearTimeout(checkinTimer.current)
+  }, [])
 
   async function checkin() {
     const m = Number(minutes)
@@ -113,7 +119,8 @@ export default function Learn() {
       setNote('')
       setCheckinMsg('已打卡')
       loadLogs()
-      setTimeout(() => setCheckinMsg(''), 3000)
+      if (checkinTimer.current) clearTimeout(checkinTimer.current)
+      checkinTimer.current = setTimeout(() => setCheckinMsg(''), 3000)
     } catch (e) {
       setOpError(e instanceof ApiError ? e.message : '打卡失败')
     } finally {

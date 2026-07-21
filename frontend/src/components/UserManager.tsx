@@ -44,6 +44,7 @@ export default function UserManager() {
   const users = data?.users ?? []
 
   async function run(action: () => Promise<unknown>) {
+    if (busy) return // 防重入：请求在途时表单 Enter 仍可触发 onSubmit
     setBusy(true)
     setOpError('')
     try {

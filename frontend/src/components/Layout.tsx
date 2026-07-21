@@ -218,10 +218,10 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         {/* 窄屏抽屉（iter 92：遮罩淡入 + 面板左滑入） */}
         {drawerOpen && (
+          // 外层不可 aria-hidden——它会级联隐藏内层 dialog 与全部导航链接（辅助技术不可达）
           <div
             className="fixed inset-0 z-40 animate-fade-in bg-black/40 md:hidden"
             onClick={() => setDrawerOpen(false)}
-            aria-hidden="true"
           >
             <aside
               className="h-full w-56 animate-slide-in-left bg-white p-4 shadow-xl dark:bg-slate-800"

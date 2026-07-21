@@ -97,6 +97,16 @@ export default function GenerateProgress() {
     return () => clearInterval(t)
   }, [phase])
 
+  // 部分方案预览弹窗：Esc 关闭（与 QuizModal/MaterialsModal/KbViewerModal 行为一致）
+  useEffect(() => {
+    if (!showPartial) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowPartial(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showPartial])
+
   const onCancel = () => {
     if (!window.confirm('确定取消生成吗？已产生的费用不会退回。')) return
     void engine.cancel(sid).catch((e: unknown) => {
