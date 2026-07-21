@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import CheckinCalendar from '../components/CheckinCalendar'
+import FocusTimer from '../components/FocusTimer'
 import ProgressBoard from '../components/ProgressBoard'
+import { toast } from '../components/Toast'
 import {
   addLearningLog,
   ApiError,
@@ -105,6 +107,26 @@ export default function Learn() {
     if (checkinTimer.current) clearTimeout(checkinTimer.current)
   }, [])
 
+  async function submitLog(m: number, noteText: string): Promise<boolean> {
+    if (checkinBusy) return false // 防重入（手动/专注完成双通道共用）
+    setCheckinBusy(true)
+    setOpError('')
+    try {
+      await addLearningLog(id, m, noteText)
+      setNote('')
+      setCheckinMsg('已打卡')
+      loadLogs()
+      if (checkinTimer.current) clearTimeout(checkinTimer.current)
+      checkinTimer.current = setTimeout(() => setCheckinMsg(''), 3000)
+      return true
+    } catch (e) {
+      setOpError(e instanceof ApiError ? e.message : '打卡失败')
+      return false
+    } finally {
+      setCheckinBusy(false)
+    }
+  }
+
   async function checkin() {
     const m = Number(minutes)
     // err.md D14：0 分钟打卡无意义且污染统计，下限 1
@@ -112,19 +134,18 @@ export default function Learn() {
       setOpError('分钟数须在 1-1440 之间')
       return
     }
-    setCheckinBusy(true)
-    setOpError('')
-    try {
-      await addLearningLog(id, m, note.trim())
-      setNote('')
-      setCheckinMsg('已打卡')
-      loadLogs()
-      if (checkinTimer.current) clearTimeout(checkinTimer.current)
-      checkinTimer.current = setTimeout(() => setCheckinMsg(''), 3000)
-    } catch (e) {
-      setOpError(e instanceof ApiError ? e.message : '打卡失败')
-    } finally {
-      setCheckinBusy(false)
+    await submitLog(m, note.trim())
+  }
+
+  // iter 251：专注计时完成——自动按该时长打卡（备注取打卡备注框，空记「番茄钟专注」）；
+  // 打卡在途/失败时分钟回填输入框，用户可手动重试，不丢记录
+  async function onFocusComplete(mins: number) {
+    const ok = await submitLog(mins, note.trim() || '番茄钟专注')
+    if (ok) {
+      toast.success(`专注完成，已自动打卡 ${mins} 分钟`)
+    } else {
+      setMinutes(String(mins))
+      toast.info(`专注 ${mins} 分钟已填入打卡框，请点击打卡提交`)
     }
   }
 
@@ -186,6 +207,8 @@ export default function Learn() {
 
       <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" style={{ animationDelay: '160ms' }} aria-label="学习打卡">
         <h3 className="mb-2 font-semibold">打卡（累计 <span className="tabular-nums">{totalMinutes}</span> 分钟）</h3>
+        {/* iter 251：专注计时器——计时结束自动打卡，打卡在途/失败回填分钟 */}
+        <FocusTimer busy={checkinBusy} onComplete={onFocusComplete} />
         {/* 今日目标进度（iter 163）：方案 intent.daily_minutes 为日目标 */}
         {dailyGoal && (
           <div className="mb-3" aria-label={`今日目标 ${dailyGoal} 分钟，已完成 ${todayMinutes} 分钟`}>
