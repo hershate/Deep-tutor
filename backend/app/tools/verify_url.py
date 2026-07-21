@@ -273,6 +273,10 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
     if host in _METADATA_HOSTS:
         return False, "云元数据端点"
     # 解析主机为 IP 判断私有/环回
+    # 已知限制（iter 242 评估后接受）：校验与 httpx 连接是两次独立 DNS 解析，
+    # DNS rebinding（TTL=0，二次应答内网地址）理论上可绕过——彻底修法需传输层
+    # IP 钉扎（httpx 无 resolver 钩子，HTTPS SNI 下需自研 HTTP 栈），与本地优先
+    # 威胁模型不成比例。现有缓解：重定向逐跳重检、响应 10MB 上限、content-type 校验。
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
@@ -296,7 +300,21 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
 
 
 def _is_private_ip(ip: ipaddress._BaseAddress) -> bool:
-    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    # CGNAT（100.64/10）与已废弃 site-local（fec0::/10）在 ipaddress 的
+    # is_private/is_reserved 下均为 False（部分云内网/校园网使用），显式补拦——
+    # 这两段无合法公网学习资源，拦截零误伤
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip in _CGNAT_NETWORK
+        or ip in _SITE_LOCAL_NETWORK
+    )
+
+
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+_SITE_LOCAL_NETWORK = ipaddress.ip_network("fec0::/10")
 
 
 def _err(code: str, message: str) -> ToolOutput:

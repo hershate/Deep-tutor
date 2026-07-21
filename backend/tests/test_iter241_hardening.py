@@ -30,6 +30,21 @@ def _mk_admin():
         db.close()
 
 
+# --- SSRF 私网判定补段（CGNAT / site-local） ---
+
+
+def test_is_private_ip_covers_cgnat_and_site_local():
+    import ipaddress
+
+    from app.tools.verify_url import _is_private_ip
+
+    assert _is_private_ip(ipaddress.ip_address("100.64.0.1"))  # CGNAT
+    assert _is_private_ip(ipaddress.ip_address("100.127.255.254"))
+    assert _is_private_ip(ipaddress.ip_address("fec0::1"))  # 已废弃 site-local
+    assert not _is_private_ip(ipaddress.ip_address("8.8.8.8"))  # 公网不误伤
+    assert not _is_private_ip(ipaddress.ip_address("100.63.255.255"))  # 段外不误伤
+
+
 # --- 登录账号维度限流桶 ---
 
 
