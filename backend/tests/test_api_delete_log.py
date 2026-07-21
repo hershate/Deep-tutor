@@ -137,3 +137,39 @@ def test_day_logs_isolation_and_validation(client, auth_headers):
 def test_day_logs_requires_auth(client):
     _seed_two_days()
     assert client.get(f"/api/progress/logs?date={date.today().isoformat()}").status_code == 401
+
+
+# --- iter 277：补卡（显式过去日期）+ 未来日期拒绝 ---
+
+
+def test_backfill_log_past_date(client, auth_headers):
+    """补卡：显式传过去日期 -> 200 且按该日期落库；缺省仍今天。"""
+    from datetime import timedelta
+
+    ids = _seed()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    r = client.post(
+        "/api/progress/logs",
+        json={"plan_id": ids["plan_id"], "minutes": 25, "note": "补昨天的", "date": yesterday},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["date"] == yesterday
+    # 缺省 date 仍记今天（回归）
+    r2 = client.post("/api/progress/logs", json={"plan_id": ids["plan_id"], "minutes": 10}, headers=auth_headers)
+    assert r2.json()["date"] == date.today().isoformat()
+
+
+def test_log_future_date_rejected(client, auth_headers):
+    """未来日期 -> 400（污染热力图/streak，无正当用途）。"""
+    from datetime import timedelta
+
+    ids = _seed()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    r = client.post(
+        "/api/progress/logs",
+        json={"plan_id": ids["plan_id"], "minutes": 30, "date": tomorrow},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_date"

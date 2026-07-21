@@ -527,10 +527,11 @@ export interface LearningLogItem {
 }
 export const listLearningLogs = (planId: number) =>
   apiFetch<{ logs: LearningLogItem[]; total_minutes: number }>(`/progress/logs/${planId}`)
-export const addLearningLog = (planId: number, minutes: number, note = '') =>
+export const addLearningLog = (planId: number, minutes: number, note = '', date?: string) =>
   apiFetch<{ id: number; date: string; minutes: number; note: string | null }>('/progress/logs', {
     method: 'POST',
-    body: JSON.stringify({ plan_id: planId, minutes, note: note || null }),
+    // iter 277：date 显式传过去日期即补卡（仅在与今天不同时传，后端缺省今天；未来日期后端 422）
+    body: JSON.stringify({ plan_id: planId, minutes, note: note || null, ...(date ? { date } : {}) }),
   })
 // iter 150：删除打错的卡
 export const deleteLearningLog = (logId: number) =>

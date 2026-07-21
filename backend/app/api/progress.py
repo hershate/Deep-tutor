@@ -324,9 +324,15 @@ class LearningLogIn(BaseModel):
 def add_learning_log(
     body: LearningLogIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    """打卡：记一条学习日志（plan_id, date, minutes, note）。"""
+    """打卡：记一条学习日志（plan_id, date, minutes, note）。
+
+    date 缺省今天；显式传过去日期即补卡（iter 277 前端放开）。未来日期拒绝——
+    会污染热力图/streak 统计（今天还没到的「已打卡」），且无任何正当用途。
+    """
     if not limiter.check(f"learning_log:{user.id}", _LOG_RATE_PER_MIN):
         raise ApiError("rate_limited", "打卡过于频繁，请稍后再试", status=429)
+    if body.date is not None and body.date > dt_date.today():
+        raise ApiError("invalid_date", "打卡日期不能是未来")
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     total_logs = (
         db.query(func.count(models.LearningLog.id))

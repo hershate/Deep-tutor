@@ -39,6 +39,9 @@ export default function Learn() {
 
   // 今日已学分钟（iter 163）：本地日口径（sv locale 出 YYYY-MM-DD，与后端服务器本地日一致）
   const todayStr = new Date().toLocaleDateString('sv')
+  // iter 277：补卡日期（默认今天）——忘打卡断 streak 的修复路径；后端已支持 date 字段，
+  // 此前前端不放开。成功打卡后复位今天（防把今天的学习误记到过去）
+  const [logDate, setLogDate] = useState(todayStr)
   const todayMinutes = logs.filter((l) => l.date === todayStr).reduce((s, l) => s + l.minutes, 0)
 
   // 本周已学分钟（iter 179）：近 7 天（含今天）本地日窗口；周目标 = 日目标 × 7
@@ -107,14 +110,15 @@ export default function Learn() {
     if (checkinTimer.current) clearTimeout(checkinTimer.current)
   }, [])
 
-  async function submitLog(m: number, noteText: string): Promise<boolean> {
+  async function submitLog(m: number, noteText: string, date?: string): Promise<boolean> {
     if (checkinBusy) return false // 防重入（手动/专注完成双通道共用）
     setCheckinBusy(true)
     setOpError('')
     try {
-      await addLearningLog(id, m, noteText)
+      await addLearningLog(id, m, noteText, date)
       setNote('')
-      setCheckinMsg('已打卡')
+      setCheckinMsg(date ? `已补卡（${date}）` : '已打卡')
+      setLogDate(todayStr) // iter 277：打卡成功复位今天（防下一条误记到补卡日）
       loadLogs()
       if (checkinTimer.current) clearTimeout(checkinTimer.current)
       checkinTimer.current = setTimeout(() => setCheckinMsg(''), 3000)
@@ -134,7 +138,11 @@ export default function Learn() {
       setOpError('分钟数须在 1-1440 之间')
       return
     }
-    await submitLog(m, note.trim())
+    if (!logDate || logDate > todayStr) {
+      setOpError('打卡日期不能是未来')
+      return
+    }
+    await submitLog(m, note.trim(), logDate === todayStr ? undefined : logDate)
   }
 
   // iter 251：专注计时完成——自动按该时长打卡（备注取打卡备注框，空记「番茄钟专注」）；
@@ -261,8 +269,21 @@ export default function Learn() {
         )}
         <div className="flex flex-wrap items-end gap-2">
           <div>
+            <label htmlFor="checkin-date" className="block text-xs text-slate-500 dark:text-slate-400">
+              日期（补卡选过去）
+            </label>
+            <input
+              id="checkin-date"
+              type="date"
+              value={logDate}
+              max={todayStr} // 未来日期后端 422，前端先拦
+              onChange={(e) => setLogDate(e.target.value)}
+              className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+            />
+          </div>
+          <div>
             <label htmlFor="checkin-minutes" className="block text-xs text-slate-500 dark:text-slate-400">
-              今日学习分钟数
+              {logDate === todayStr ? '今日学习分钟数' : '学习分钟数'}
             </label>
             <input
               id="checkin-minutes"
@@ -311,7 +332,7 @@ export default function Learn() {
             disabled={checkinBusy}
             className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-50 disabled:hover:shadow-sm disabled:active:scale-100"
           >
-            {checkinBusy ? '打卡中…' : '打卡'}
+            {checkinBusy ? '打卡中…' : logDate === todayStr ? '打卡' : `补卡 ${logDate.slice(5)}`}
           </button>
           {checkinMsg && (
             <span className="animate-fade-in text-sm text-green-700 dark:text-green-300" aria-live="polite">
