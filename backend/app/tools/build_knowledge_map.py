@@ -56,6 +56,19 @@ def clean_map(data: dict[str, Any], _inp: ToolInput) -> dict[str, Any]:
     nodes = data.get("nodes") or []
     edges = data.get("edges") or []
 
+    # iter 245：重复节点 id 去重（保首个）——同 id 多节点时 edges/下游按 id 引用
+    # 语义含糊（parent 指向不确定），且 prompt 已要求 id 唯一（违约属 LLM 输出病害）
+    seen_ids: set[str] = set()
+    deduped: list[dict] = []
+    for n in nodes:
+        nid = n.get("id")
+        if nid and nid in seen_ids:
+            continue
+        if nid:
+            seen_ids.add(nid)
+        deduped.append(n)
+    nodes = deduped
+
     valid_ids = {n.get("id") for n in nodes if n.get("id")}
     # 丢弃悬空边（端点不在 nodes）
     edges = [e for e in edges if e.get("from") in valid_ids and e.get("to") in valid_ids]
