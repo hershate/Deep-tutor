@@ -864,6 +864,15 @@ export async function downloadMaterialsZip(planId: number): Promise<void> {
   saveBlob(await res.blob(), res.headers.get('content-disposition'), `materials-${planId}.zip`)
 }
 
+/** 全部自由笔记 zip 下载（iter 286，便携导出：迁入 Obsidian/Notion 等）。 */
+export async function downloadNotesZip(): Promise<void> {
+  const res = await fetch(`${BASE}/notes/export`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), 'notes-export.zip')
+}
+
 /** 个人知识手册 Markdown 下载（iter 116）。 */
 export async function downloadKnowledgeHandbook(): Promise<void> {
   const res = await fetch(`${BASE}/knowledge/export`, {

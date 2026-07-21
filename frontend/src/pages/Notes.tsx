@@ -11,6 +11,7 @@ import {
   ApiError,
   createFreeNote,
   deleteFreeNote,
+  downloadNotesZip,
   getFreeNote,
   listFreeNotes,
   saveTextFile,
@@ -88,6 +89,7 @@ export default function Notes() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
+  const [exporting, setExporting] = useState(false) // iter 286：全部笔记 zip 导出
   const openSeq = useRef(0) // iter 248：openNote 在途序号（迟到响应丢弃）
 
   // iter 272 ①：刷新/关标签时浏览器原生确认（仅 dirty 期间挂监听）
@@ -296,6 +298,20 @@ export default function Notes() {
     else if (ok > 0) toast.success(`已删除 ${ok} 篇笔记`)
   }
 
+  // iter 286：全部笔记 zip 导出（便携 .md，迁入其他笔记应用）
+  async function exportAll() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await downloadNotesZip()
+      toast.success('已导出全部笔记（ZIP）')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="animate-fade-in-up space-y-1">
@@ -329,18 +345,32 @@ export default function Notes() {
                 </button>
               )}
               {!selectMode && (
-                <button
-                  onClick={() => {
-                    if (!confirmDiscard()) return
-                    openSeq.current += 1 // 作废在途 openNote 响应（防覆写新草稿）
-                    setDraft(EMPTY_DRAFT)
-                    setDirty(false)
-                    setPreview(false)
-                  }}
-                  className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
-                >
-                  ＋ 新建
-                </button>
+                <>
+                  {/* iter 286：全部笔记 zip 导出（便携 .md，迁入其他笔记应用） */}
+                  {data && data.total > 0 && (
+                    <button
+                      type="button"
+                      onClick={exportAll}
+                      disabled={exporting}
+                      title="导出全部笔记为 ZIP（每篇一个 .md）"
+                      className="rounded-lg border px-2.5 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+                    >
+                      {exporting ? '导出中…' : '⬇ 导出'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (!confirmDiscard()) return
+                      openSeq.current += 1 // 作废在途 openNote 响应（防覆写新草稿）
+                      setDraft(EMPTY_DRAFT)
+                      setDirty(false)
+                      setPreview(false)
+                    }}
+                    className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
+                  >
+                    ＋ 新建
+                  </button>
+                </>
               )}
             </div>
           </div>

@@ -9,7 +9,13 @@
 
 from __future__ import annotations
 
+import tempfile
+import zipfile
+from datetime import datetime
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -81,6 +87,77 @@ def create_note(body: NoteIn, db: Session = Depends(get_db), user: User = Depend
     db.commit()
     db.refresh(note)
     return _out(note)
+
+
+@router.get("/export")
+def export_notes_zip(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> StreamingResponse:
+    """全部自由笔记打包导出（iter 286，ZIP）：每篇一个 .md（# 标题 + 正文）+ index.md 清单。
+
+    便携导出（迁入 Obsidian/Notion 等）——区别于设置页全库 JSON 备份（内部恢复格式）：
+    本端点产出人类可读的独立 .md 文件。无笔记 -> 404（导出是批量便利操作，空态前端按钮禁用）。
+    SpooledTemporaryFile 防大笔记集 OOM（500 篇 × 2 万字上限约 10MB，仍走 spool 统一口径）。
+    路由须在 /{note_id} 之前注册，否则 "export" 被当 note_id 解析报 422。
+    """
+    from app.api.plans import _safe_download_name
+
+    notes = (
+        db.query(models.Note)
+        .filter_by(user_id=user.id)
+        .order_by(models.Note.updated_at.desc(), models.Note.id.desc())
+        .all()
+    )
+    if not notes:
+        raise ApiError("not_found", "还没有笔记，无可导出内容")
+
+    def _note_md(n: models.Note) -> str:
+        title = (n.title or "").strip()
+        content = n.content or ""
+        return f"# {title or '无题'}\n\n{content}".rstrip() + "\n"
+
+    index_lines = [
+        "# 笔记导出清单",
+        "",
+        f"- 导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 笔记数：{len(notes)}",
+        "",
+        "| 文件 | 标题 | 更新时间 |",
+        "| --- | --- | --- |",
+    ]
+
+    spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
+        used: set[str] = set()
+        for n in notes:
+            stem = _safe_download_name(n.title or f"note-{n.id}") or f"note-{n.id}"
+            name = f"{stem}.md"
+            if name in used:  # 同名笔记去重：追加 id
+                name = f"{n.id}-{stem}.md"
+            used.add(name)
+            zf.writestr(name, _note_md(n))
+            index_lines.append(f"| {name} | {(n.title or '无题').replace('|', '/')} | {n.updated_at} |")
+        index_lines.append("")
+        zf.writestr("index.md", "\n".join(index_lines))
+    spool.seek(0)
+
+    def _iter_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    filename = f"笔记导出-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    return StreamingResponse(
+        _iter_chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"notes-export-{user.id}.zip\"; filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
 
 
 @router.get("/{note_id}")
