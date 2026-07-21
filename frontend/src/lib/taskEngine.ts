@@ -44,6 +44,10 @@ const live = new Map<string, AbortController>()
 let deps: EngineDeps | null = null
 let currentPath = '/'
 let booted = false
+// iter 244 F5：boot 对账失败（服务冷启动/短暂离线）有限退避重试——此前 booted
+// 先置 true，失败即永久放弃（刷新前 running 任务不自动续接）
+let bootAttempts = 0
+const BOOT_MAX_RETRIES = 3
 
 const store = () => useTaskStore.getState()
 const entryOf = (taskId: string): TaskEntry | undefined => store().tasks[taskId]
@@ -270,8 +274,15 @@ export const engine = {
       const res = await listSessions({ limit: 50 })
       store().reconcile(res.items)
     } catch {
-      return // 未登录/离线：静默（登录后页面刷新会再 boot）
+      // iter 244 F5：对账失败复位 + 有限退避重试（10s/20s/30s），仍败则等登录后页面刷新再 boot
+      booted = false
+      if (bootAttempts < BOOT_MAX_RETRIES) {
+        bootAttempts += 1
+        setTimeout(() => void engine.boot(), bootAttempts * 10_000)
+      }
+      return
     }
+    bootAttempts = 0
     for (const t of Object.values(store().tasks)) {
       if (t.kind === 'plan' && t.phase === 'running' && t.sessionId != null) {
         void engine.attach(t.sessionId).catch(() => undefined)

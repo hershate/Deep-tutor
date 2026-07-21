@@ -261,6 +261,10 @@ function writePluginUrls(urls: string[]): void {
 /** 单个插件脚本加载超时（毫秒）：超时按失败处理——防挂起 URL 饿死其后持久化插件 */
 const SCRIPT_TIMEOUT_MS = 15_000
 
+// iter 244 F7：本会话已成功注入的脚本 URL——plugins.load 幂等判定（重复 load 同 URL
+// 原会重复注入执行脚本：插件重复注册 widget/重复订阅事件 -> 重复 toast/副作用）
+const injectedScripts = new Set<string>()
+
 function injectScript(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
@@ -272,6 +276,7 @@ function injectScript(url: string): Promise<void> {
     s.async = true
     s.onload = () => {
       clearTimeout(timer)
+      injectedScripts.add(url)
       resolve()
     }
     s.onerror = () => {
@@ -286,6 +291,12 @@ const pluginsApi = {
   /** 加载外部插件脚本并持久化（刷新后自动加载）；脚本以 window.DeepTutor 完成注册 */
   async load(url: string): Promise<void> {
     if (!/^https?:\/\//i.test(url)) throw new Error('[DeepTutor] 插件 URL 需以 http(s):// 开头')
+    if (injectedScripts.has(url)) {
+      // iter 244 F7：本会话已注入 -> 幂等返回（仅补持久化登记，不重复执行脚本）
+      const urls = readPluginUrls()
+      if (!urls.includes(url)) writePluginUrls([...urls, url])
+      return
+    }
     await injectScript(url)
     const urls = readPluginUrls()
     if (!urls.includes(url)) writePluginUrls([...urls, url])
