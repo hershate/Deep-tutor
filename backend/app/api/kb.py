@@ -66,6 +66,10 @@ router = APIRouter(prefix="/kb", tags=["kb"], dependencies=[Depends(require_auth
 # 配额（沿用 plan/09 §二十 思路）：每用户知识库文档数上限
 _MAX_KB_DOCS_PER_USER = 200
 
+# iter 247：上传限流（次/分钟/用户）——单文件上限 50MB 已由 _read_capped 保证，
+# 但并发 N 个上传的内存叠加此前无防（多用户部署 OOM 面）
+_UPLOAD_RATE_PER_MIN = 20
+
 # per-doc 解析互斥锁（iter 225）：同文档并发解析 -> 409；不同文档可并行（事务外解析 +
 # 短写事务，err.md B22）。锁对象只增不减，每文档一个（~百字节），不做淘汰。
 _PARSE_LOCKS: dict[int, asyncio.Lock] = {}
@@ -139,12 +143,18 @@ def _dedup_lookup(db: Session, user_id: int, content_hash: str) -> models.KbDocu
 
 def _persist_parsed(db: Session, user_id: int, doc: models.KbDocument, text: str) -> models.KbDocument:
     """解析文本落盘 + 提交（失败回滚，防孤儿行/文件，同 materials err.md A15）。"""
+    path = None
     try:
-        doc.parsed_text_path = str(write_kb_parsed_text(user_id, doc.id, text))
+        path = write_kb_parsed_text(user_id, doc.id, text)
+        doc.parsed_text_path = str(path)
         doc.parsed_chars = len(text)
         db.commit()
     except Exception:
         db.rollback()
+        # iter 247：commit 失败（磁盘满/库锁）时清理已落盘的解析文本——此前只回滚行，
+        # 文件成孤儿（行已不存在，无任何清理路径引用它），注释与行为不符
+        if path is not None:
+            path.unlink(missing_ok=True)
         raise
     db.refresh(doc)
     return doc
@@ -179,6 +189,10 @@ async def upload_document(
     建 pending 暂存行，**不做任何解析**——是否转换/怎么转换由用户在确认后调
     /documents/{id}/parse 决定（全异步可控，不再上传即默认解析）。
     """
+    # iter 247：上传限流——此前无防，多用户部署下认证用户并行 N 个 50MB 上传
+    # 内存峰值 N×50MB 可 OOM 单进程（_read_capped 只限单请求内存）
+    if not limiter.check(f"kb_upload:{user.id}", _UPLOAD_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"上传限每分钟 {_UPLOAD_RATE_PER_MIN} 次，请稍后再试")
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
@@ -192,7 +206,8 @@ async def upload_document(
 
     # 随机 id 预命名原件（R20 不用原始文件名；err.md B22 不依赖行 id）
     doc_id = _fresh_doc_id(user.id)
-    path = save_kb_upload(user.id, doc_id, content, ext)
+    # iter 247：大文件写盘移出事件循环（50MB 同步 write 阻塞数百毫秒，期间全服务无响应）
+    path = await asyncio.to_thread(save_kb_upload, user.id, doc_id, content, ext)
     doc = models.KbDocument(
         user_id=user.id,
         title=filename[:256],
@@ -252,6 +267,9 @@ async def parse_document(
     if doc.original_path is None:
         raise ApiError("bad_request", "该文档无原件（text/url 类创建时已解析入库）", status=400)
     source_path = doc.original_path
+    # iter 247：解析完成后据此校验重取行身份——解析窗口（最长 600s）内文档被删且
+    # rowid 复用（SQLite 最大 id 行删除后复用）时，重取到的会是新文档，须拒写
+    pre_content_hash = doc.content_hash
     db.rollback()  # 释放 SELECT 事务：解析期间不持有任何 DB 锁（err.md B22）
 
     lock = _PARSE_LOCKS.setdefault(document_id, asyncio.Lock())
@@ -279,12 +297,27 @@ async def parse_document(
             text = out.data.get("text", "")
             stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
             parsed_path = write_kb_parsed_text(user.id, stem, text)
-            doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
+            try:
+                doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
+            except ApiError:
+                # iter 247：解析期间文档被删 -> 刚写出的解析文件无人引用，清理防孤儿
+                parsed_path.unlink(missing_ok=True)
+                raise
+            if doc.content_hash != pre_content_hash or doc.original_path != source_path:
+                # iter 247：rowid 复用——重取到的是解析期间新建的另一篇文档，
+                # 解析文本不可错绑（原件与解析内容对不上），丢弃并提示重试
+                parsed_path.unlink(missing_ok=True)
+                raise ApiError("conflict", "文档在解析期间已变更，请重试", status=409)
             doc.parsed_text_path = str(parsed_path)
             doc.parsed_chars = len(text)
             doc.meta = {**(doc.meta or {}), **out.data.get("meta", {})}
             doc.status = "parsed"
-            db.commit()
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                parsed_path.unlink(missing_ok=True)  # iter 247：同 _persist_parsed 防孤儿
+                raise
             db.refresh(doc)
             result = _doc_out(doc)
     finally:
@@ -437,6 +470,11 @@ def delete_document(
     再按 id 前缀 glob 兜底清理旧命名/孤儿残留。
     """
     doc = _owned_doc_or_404(db, document_id, user)
+    # iter 247：解析进行中禁止删除——删除会让在途解析的结果错绑（rowid 复用）或
+    # 写出孤儿解析文件；409 给用户明确信号（等解析完再删）
+    lock = _PARSE_LOCKS.get(document_id)
+    if lock is not None and lock.locked():
+        raise ApiError("conflict", "该文档正在解析中，请解析完成后再删除", status=409)
     paths = [doc.original_path, doc.parsed_text_path]
     db.delete(doc)
     db.commit()
