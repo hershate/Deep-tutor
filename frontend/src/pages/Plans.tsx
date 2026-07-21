@@ -10,7 +10,7 @@ import EmptyState from '../components/EmptyState'
 import { SkeletonCards } from '../components/Skeleton'
 import { PHASE_META, TOOL_LABELS } from '../components/TaskCenter'
 import { toast } from '../components/Toast'
-import { ApiError, deleteSession, listPlans, listSessions, type PlanSummary } from '../lib/api'
+import { ApiError, deleteSession, listPlans, listSessions, type PlanSort, type PlanSummary } from '../lib/api'
 import { engine } from '../lib/taskEngine'
 import { planTaskId, useTaskStore, type SessionStatusItem } from '../store/tasks'
 
@@ -52,6 +52,7 @@ export default function Plans() {
   const [page, setPage] = useState(1)
   const [q, setQ] = useState('') // 主题搜索输入（iter 128）
   const [debouncedQ, setDebouncedQ] = useState('')
+  const [sort, setSort] = useState<PlanSort>('created_desc') // iter 267：列表排序（切换回到第 1 页）
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<number | null>(null) // 删除防重入（iter 130）
@@ -142,7 +143,7 @@ export default function Plans() {
   useEffect(() => {
     let cancelled = false // err.md D6：快速翻页时旧响应不得覆盖新数据
     setLoading(true)
-    listPlans(undefined, page, debouncedQ)
+    listPlans(undefined, page, debouncedQ, sort)
       .then((r) => {
         if (cancelled) return
         setItems(r.items)
@@ -152,7 +153,7 @@ export default function Plans() {
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [page, debouncedQ, reloadKey])
+  }, [page, debouncedQ, sort, reloadKey])
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -160,14 +161,30 @@ export default function Plans() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">方案列表（{total}）</h2>
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索方案主题…"
-          aria-label="搜索方案主题"
-          className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
-        />
+        <div className="flex items-center gap-2">
+          {/* iter 267：排序——薄弱优先找滞后方案（iter 263 掌握度条的自然延伸） */}
+          <select
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value as PlanSort)
+              setPage(1)
+            }}
+            aria-label="方案排序"
+            className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+          >
+            <option value="created_desc">最新创建</option>
+            <option value="mastery_asc">掌握度↑ 薄弱优先</option>
+            <option value="mastery_desc">掌握度↓ 熟练优先</option>
+          </select>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="搜索方案主题…"
+            aria-label="搜索方案主题"
+            className="w-56 rounded-lg border px-3 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-800"
+          />
+        </div>
       </div>
       {error && (loading || items.length > 0) && (
         // 列表有内容（或加载中）时错误以 banner 提示；列表为空时由下方错误卡承担（避免双份错误文案）

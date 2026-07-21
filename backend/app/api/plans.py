@@ -1012,6 +1012,7 @@ def list_plans(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None, max_length=100),
+    sort: Literal["created_desc", "mastery_asc", "mastery_desc"] = Query(default="created_desc"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
@@ -1027,7 +1028,34 @@ def list_plans(
         # content={} 无路径 -> NULL 不匹配，属已知限制见 stage.md）
         q_ = q_.filter(models.Plan.content["intent"]["topic"].as_string().contains(q.strip()))
     total = q_.count()
-    items = q_.order_by(models.Plan.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    # iter 267：按平均掌握度排序（薄弱优先/熟练优先）——聚合子查询 outerjoin 到方案主查询，
+    # 口径与下方展示用 mastery_map 一致（无 progress 行节点按 0 计；无知识节点的方案
+    # coalesce 为 0 = 未开始语义，薄弱排序时自然沉前/熟练排序时自然靠后）。
+    # 默认创建时间排序不变，不引入额外 join 开销。
+    if sort != "created_desc":
+        mastery_sq = (
+            db.query(
+                models.KnowledgeNode.plan_id.label("plan_id"),
+                func.avg(func.coalesce(models.Progress.mastery, 0.0)).label("avg_mastery"),
+            )
+            .outerjoin(
+                models.Progress,
+                (models.Progress.node_id == models.KnowledgeNode.id)
+                & (models.Progress.plan_id == models.KnowledgeNode.plan_id),
+            )
+            .group_by(models.KnowledgeNode.plan_id)
+            .subquery()
+        )
+        q_ = q_.outerjoin(mastery_sq, mastery_sq.c.plan_id == models.Plan.id)
+        sort_col = func.coalesce(mastery_sq.c.avg_mastery, 0.0)
+        if sort == "mastery_asc":
+            q_ = q_.order_by(sort_col.asc(), models.Plan.created_at.desc(), models.Plan.id.desc())
+        else:
+            q_ = q_.order_by(sort_col.desc(), models.Plan.created_at.desc(), models.Plan.id.desc())
+        items = q_.offset((page - 1) * limit).limit(limit).all()
+    else:
+        # id 倒序决胜：同秒创建的方案（批量/测试）默认排序确定性
+        items = q_.order_by(models.Plan.created_at.desc(), models.Plan.id.desc()).offset((page - 1) * limit).limit(limit).all()
     # iter 263：方案平均掌握度（列表页进度条，免逐方案开详情判断滞后）——
     # progress 行惰性创建，无行节点按 0 计（knowledge.py 同款口径），LEFT JOIN 防只算已触节点虚高
     plan_ids = [p.id for p in items]

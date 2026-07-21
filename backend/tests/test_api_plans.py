@@ -625,3 +625,89 @@ def test_list_plans_avg_mastery(client, auth_headers):
     by_id = {i["id"]: i for i in items}
     assert by_id[ids[0]]["avg_mastery"] == 0.4  # (0.8 + 0) / 2
     assert by_id[ids[1]]["avg_mastery"] is None  # 无知识节点
+
+
+# --- iter 267：方案列表按掌握度排序（sort=mastery_asc/mastery_desc） ---
+
+
+def _seed_three_plans_mastery(admin_id: int) -> tuple[int, int, int]:
+    """三个方案：高掌握 0.9 / 低掌握 0.1 / 无知识节点（按 0 计）。返回 (高, 低, 无节点) id。"""
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        s = models.Session(user_id=admin_id, title="t")
+        db.add(s)
+        db.flush()
+        # 依次创建，created_at 同秒时以 id 区分默认排序
+        p_high = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "高掌握"}})
+        p_low = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "低掌握"}})
+        p_none = models.Plan(session_id=s.id, version=1, content={"intent": {"topic": "无节点"}})
+        db.add_all([p_high, p_low, p_none])
+        db.flush()
+        nh = models.KnowledgeNode(plan_id=p_high.id, sid="h1", name="H", difficulty=1)
+        nl = models.KnowledgeNode(plan_id=p_low.id, sid="l1", name="L", difficulty=1)
+        db.add_all([nh, nl])
+        db.flush()
+        db.add_all(
+            [
+                models.Progress(plan_id=p_high.id, node_id=nh.id, status=models.ProgressStatus.done, mastery=0.9),
+                models.Progress(plan_id=p_low.id, node_id=nl.id, status=models.ProgressStatus.done, mastery=0.1),
+            ]
+        )
+        db.commit()
+        return p_high.id, p_low.id, p_none.id
+    finally:
+        db.close()
+
+
+def test_list_plans_sort_mastery(client, auth_headers):
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.commit()
+        admin_id = admin.id
+    finally:
+        db.close()
+    p_high, p_low, p_none = _seed_three_plans_mastery(admin_id)
+
+    asc_ids = [i["id"] for i in client.get("/api/plans?sort=mastery_asc", headers=auth_headers).json()["items"]]
+    # 薄弱优先：无节点（0）与 0.1 在前，0.9 最后；0.1 与无节点同 0 时新创建在前
+    assert asc_ids.index(p_high) > asc_ids.index(p_low)
+    assert asc_ids.index(p_high) > asc_ids.index(p_none)
+
+    desc_ids = [i["id"] for i in client.get("/api/plans?sort=mastery_desc", headers=auth_headers).json()["items"]]
+    assert desc_ids[0] == p_high  # 熟练优先：0.9 居首
+
+    # 排序不影响 avg_mastery 展示字段
+    by_id = {i["id"]: i for i in client.get("/api/plans?sort=mastery_asc", headers=auth_headers).json()["items"]}
+    assert by_id[p_high]["avg_mastery"] == 0.9
+    assert by_id[p_none]["avg_mastery"] is None
+
+
+def test_list_plans_sort_default_unchanged(client, auth_headers):
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        admin = User(name="admin", username="admin", password_hash="", is_admin=True)
+        db.add(admin)
+        db.commit()
+        admin_id = admin.id
+    finally:
+        db.close()
+    p_high, _p_low, p_none = _seed_three_plans_mastery(admin_id)
+
+    items = client.get("/api/plans", headers=auth_headers).json()["items"]
+    ids = [i["id"] for i in items]
+    # 默认仍按创建时间倒序：最后创建的无节点方案居首，最早创建的高掌握方案最后
+    assert ids[0] == p_none
+    assert ids[-1] == p_high
+    # 非法排序值 422（Literal 校验）
+    assert client.get("/api/plans?sort=bogus", headers=auth_headers).status_code == 422

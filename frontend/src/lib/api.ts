@@ -231,11 +231,14 @@ export interface PlanSummary {
   topic: string
   avg_mastery?: number | null // iter 263：平均掌握度（无知识节点 -> null）
 }
-export const listPlans = (sessionId?: number, page = 1, q = '') => {
+// iter 267：列表排序——created_desc 默认（最新创建）；mastery_asc 薄弱优先 / mastery_desc 熟练优先
+export type PlanSort = 'created_desc' | 'mastery_asc' | 'mastery_desc'
+export const listPlans = (sessionId?: number, page = 1, q = '', sort: PlanSort = 'created_desc') => {
   // err.md D18：URLSearchParams 拼 query（此前手工插值，session_id 异常值可注入额外参数）
   const params = new URLSearchParams({ page: String(page) })
   if (sessionId) params.set('session_id', String(sessionId))
   if (q.trim()) params.set('q', q.trim()) // iter 128：主题搜索
+  if (sort !== 'created_desc') params.set('sort', sort) // iter 267：非默认才传参，旧调用方零感知
   return apiFetch<{ items: PlanSummary[]; total: number }>(`/plans?${params.toString()}`)
 }
 
