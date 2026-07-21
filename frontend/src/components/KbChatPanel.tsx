@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm'
 import { toast } from './Toast'
 import {
   ApiError,
+  createFreeNote,
   deleteKbChat,
   kbChat,
   listKbChats,
@@ -111,6 +112,27 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
       qc.invalidateQueries({ queryKey: ['kb-chats'] })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '删除失败')
+    }
+  }
+
+  // iter 279：问答存为笔记——AI 回答是生成性内容，「看过即走」与「知识沉淀」间缺一环；
+  // 复用既有 createFreeNote（纯前端编排，零后端改动）。标题取问题截断，正文带出处列表
+  const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
+  async function onSaveAsNote(r: { id: number; question: string; answer: string; citations: KbCitation[] }) {
+    if (savingNoteId !== null) return
+    setSavingNoteId(r.id)
+    try {
+      const title = `KB 问答：${r.question.replace(/\s+/g, ' ').trim().slice(0, 40)}${r.question.length > 40 ? '…' : ''}`
+      const refs = r.citations.length
+        ? `\n\n---\n出处：\n${r.citations.map((c) => `- 《${c.title}》`).join('\n')}`
+        : ''
+      await createFreeNote(title, `**问**：${r.question}\n\n${r.answer}${refs}`)
+      toast.success('已存为笔记（笔记页可查看编辑）')
+      void qc.invalidateQueries({ queryKey: ['free-notes'] }) // 笔记页数据保鲜
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '保存笔记失败')
+    } finally {
+      setSavingNoteId(null)
     }
   }
 
@@ -216,6 +238,14 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
                 )}
                 <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <time dateTime={r.created_at}>{r.created_at.slice(5, 16).replace('T', ' ')}</time>
+                  <button
+                    onClick={() => onSaveAsNote(r)}
+                    disabled={savingNoteId !== null}
+                    aria-label="将这条问答存为笔记"
+                    className="rounded px-1 text-slate-300 opacity-0 transition-all hover:text-blue-500 group-hover:opacity-100 disabled:opacity-50 dark:text-slate-600 dark:hover:text-blue-400"
+                  >
+                    {savingNoteId === r.id ? '保存中…' : '📝 存为笔记'}
+                  </button>
                   <button
                     onClick={() => onDeleteRecord(r.id, r.question)}
                     aria-label="删除这条问答记录"
