@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -147,7 +147,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # 与全库 UTC 约定一致（其余时间戳均 func.now()/UTC；本地时间仅用于人类可读导出标题/文件名）
         "user": {"username": user.username or "", "name": user.name},
         "provider_profiles": profiles_out,
         "prefs": prefs_out,

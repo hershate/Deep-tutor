@@ -209,6 +209,7 @@
 - [-] **E4. CI 无前端 lint / 无后端 Windows 测试矩阵** — `.github/workflows/ci.yml`（低优先级，可暂缓）。
   部分修复：后端测试已加 Windows 矩阵（ubuntu + windows）；前端 lint 不修复——项目无 eslint 配置，引入新工具链属独立决策（`tsc --noEmit` 已在 CI 的 build 步骤强制执行）。
 - [x] **E5. .env.example 默认 `AUTH_TOKEN=change-me-please`，后端启动时未对弱默认值告警** — 部署者忘改即弱认证。
+- [-] **E6. esbuild ≤0.24.2 dev-server 任意站请求读取响应（GHSA-67mh-4wv8-2f99，moderate/high）** — `npm audit` 2 条均挂在 `vite`→`esbuild`（devDependency）。仅影响 `vite dev` 开发服务器（本机开发时访问恶意站点才可能被利用）；**生产构建产物不打包 esbuild dev server，运行时零暴露**。修复需 `npm audit fix --force` 升到 vite 8（breaking：插件/构建配置需回归）。**决策（iter 233）**：不强制升级——生产无暴露面、本地开发风险可接受；待 vite 大版本随依赖常规升级一并处理。`npm audit --omit=dev`（生产依赖）= 0 漏洞。
 
 ---
 
