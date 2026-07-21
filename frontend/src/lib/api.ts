@@ -1045,6 +1045,9 @@ export const listKbDocuments = (params: { q?: string; kind?: string; limit?: num
   return apiFetch<{ documents: KbDocument[] }>(`/kb/documents${qs ? `?${qs}` : ''}`)
 }
 
+// 单篇文档（iter 257：全局搜索结果深链 /wiki?doc=<id> 用——不受列表分页/筛选影响）
+export const getKbDocument = (id: number) => apiFetch<KbDocument>(`/kb/documents/${id}`)
+
 // XHR 上传（字节级进度，同 uploadMaterial——fetch 上传进度浏览器支持差，XHR upload.onprogress 全量可用）
 export function uploadKbDocument(file: File, onProgress?: (percent: number) => void): Promise<KbDocument> {
   return new Promise((resolve, reject) => {

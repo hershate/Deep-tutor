@@ -3,7 +3,7 @@
 // 数据：/api/kb/*（不依赖学习方案——LLMWiki raw 层，用户直传直看直用）。
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import EmptyState from './EmptyState'
 import KbChatPanel from './KbChatPanel'
 import KbViewerModal from './KbViewerModal'
@@ -16,6 +16,7 @@ import {
   createKbUrlDoc,
   deleteKbDocument,
   downloadKbExport,
+  getKbDocument,
   kbGenerate,
   listKbDocuments,
   parseKbDocument,
@@ -57,6 +58,7 @@ interface UploadItem {
 export default function KbDocsView() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   const [kind, setKind] = useState<KbDocument['kind'] | null>(null)
@@ -79,6 +81,30 @@ export default function KbDocsView() {
   const [parseBusy, setParseBusy] = useState(false)
   const [confirmBusyId, setConfirmBusyId] = useState<number | null>(null)
   const uploadingRef = useRef(false)
+  const deepLinkHandledRef = useRef(false)
+
+  // iter 257：全局搜索结果深链（/wiki?doc=<id>）——直接打开对应文档查看器。
+  // 不依赖列表分页/筛选状态，按 id 拉单篇（GET /kb/documents/{id} 后端已有）；
+  // 消费一次后清参（Notes ?note= 同款语义），id 非法静默清参，404 提示。
+  useEffect(() => {
+    const docParam = searchParams.get('doc')
+    if (!docParam || deepLinkHandledRef.current) return
+    deepLinkHandledRef.current = true
+    setSearchParams({}, { replace: true })
+    const id = Number(docParam)
+    if (!Number.isInteger(id) || id <= 0) return
+    let cancelled = false
+    getKbDocument(id)
+      .then((d) => {
+        if (!cancelled) setViewingDoc(d)
+      })
+      .catch((e) => {
+        if (!cancelled) toast.error(e instanceof ApiError ? e.message : '文档打开失败')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, setSearchParams])
 
   // 搜索防抖（300ms）：避免每击键一次请求（同 Wiki 知识点搜索）
   useEffect(() => {

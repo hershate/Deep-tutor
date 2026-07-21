@@ -1,6 +1,6 @@
 // 全局搜索页（iter 249）：消费 GET /api/search——方案/笔记/知识库文档/知识节点四域聚合。
 // URL ?q= 为唯一查询源（顶栏搜索框/本页输入/前进后退共享）；命中关键词 <mark> 高亮（首个命中）。
-// 深链落点：方案/节点 -> 方案详情；笔记 -> /notes?note=<id>（Notes 页读取并打开）；文档 -> /wiki（页内自带筛选）。
+// 深链落点：方案/节点 -> 方案详情；笔记 -> /notes?note=<id>（Notes 页读取并打开）；文档 -> /wiki?doc=<id>（iter 257：KbDocsView 消费深链直接打开查看器）。
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -162,7 +162,7 @@ export default function Search() {
               <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">🗄️ 知识库文档（{data.kb_docs.total}）</h2>
               <div className="flex flex-col gap-2">
                 {data.kb_docs.items.map((d) => (
-                  <Link key={d.id} to="/wiki">
+                  <Link key={d.id} to={`/wiki?doc=${d.id}`}>
                     <Card interactive>
                       <p className="text-sm font-medium">
                         <Highlight text={d.title || `文档 #${d.id}`} q={q} />
