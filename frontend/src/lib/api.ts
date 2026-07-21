@@ -356,6 +356,20 @@ export const submitQuiz = (quizId: number, userAnswer: Record<string, unknown>) 
     { method: 'POST', body: JSON.stringify({ user_answer: userAnswer }) },
   )
 
+// 错题复习队列（iter 285，/review 跨方案错题重练数据源）：choice 错题完整 payload
+export interface WrongQuizItem {
+  id: number
+  plan_id: number
+  plan_topic: string
+  type: string // 天然仅 choice（fill/short 自评 correct=null 不进错题集）
+  question: string
+  options: string[]
+  answer: string
+  explanation: string
+}
+export const getWrongQuizQueue = () =>
+  apiFetch<{ items: WrongQuizItem[]; total: number }>('/quizzes/wrong-queue')
+
 // --- 个人知识库（iter 100，Wiki 页）---
 export interface KnowledgeItem {
   node_id: number

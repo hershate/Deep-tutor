@@ -132,3 +132,67 @@ def wrong_overview(db: Session = Depends(get_db), user: User = Depends(get_curre
         for pid, cnt in sorted(per_plan.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
     return {"items": items, "total": sum(per_plan.values())}
+
+
+@router.get("/wrong-queue")
+def wrong_queue(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """错题复习队列（iter 285，/review 翻卡复习页数据源）：跨方案最新作答判错的题（choice），
+    返回完整 payload 供重答判分。判分口径同 GET /plans/{id}/quiz/wrong 与 /wrong-overview
+    （每题最新 attempt correct IS False）。
+
+    fill/short 自评题 correct 恒为 None（submit 不判分），不进错题集——故本队列天然仅含 choice，
+    无自评歧义（重答走 /quizzes/{id}/submit 服务器判分）。
+    排序：最近判错的在前（按最新 attempt 的 id 倒序，id 单调递增即时间序代理）；
+    total 为全部错题数（截断前，与 /wrong-overview 同口径），items 截断 limit（≤200）。
+    """
+    from app.api.plans import _load_plan_content
+
+    attempts = (
+        db.query(models.QuizAttempt)
+        .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
+        .join(models.Plan, models.Quiz.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .order_by(
+            models.QuizAttempt.quiz_id,
+            models.QuizAttempt.created_at.desc(),
+            models.QuizAttempt.id.desc(),
+        )
+        .all()
+    )
+    latest_by_quiz: dict[int, models.QuizAttempt] = {}
+    for a in attempts:
+        latest_by_quiz.setdefault(a.quiz_id, a)
+    wrong_ids = [qid for qid, a in latest_by_quiz.items() if a.correct is False]
+    if not wrong_ids:
+        return {"items": [], "total": 0}
+    total = len(wrong_ids)
+    capped = wrong_ids[: max(1, min(limit, 200))]
+    quizzes = db.query(models.Quiz).filter(models.Quiz.id.in_(capped)).all()
+    order = {qid: latest_by_quiz[qid].id for qid in capped}  # 最近判错在前
+    quizzes.sort(key=lambda q: order.get(q.id, 0), reverse=True)
+    topics: dict[int, str] = {}
+    items = []
+    for q in quizzes:
+        if q.plan_id not in topics:
+            plan = db.get(models.Plan, q.plan_id)
+            content = _load_plan_content(plan) if plan is not None else {}
+            topics[q.plan_id] = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+        payload = q.payload or {}
+        items.append(
+            {
+                "id": q.id,
+                "plan_id": q.plan_id,
+                "plan_topic": topics[q.plan_id],
+                "type": q.type.value if q.type is not None else "choice",
+                "question": payload.get("question", ""),
+                "options": payload.get("options", []) or [],
+                "answer": payload.get("answer", ""),
+                "explanation": payload.get("explanation", ""),
+            }
+        )
+    return {"items": items, "total": total}
