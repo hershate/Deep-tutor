@@ -92,6 +92,9 @@ def _ctx(session_id: int) -> ExecContext:
 # 配额（plan/09 §二十）：每会话资料数上限；URL 抓取速率（plan/09 §十八）
 _MAX_MATERIALS_PER_SESSION = 20
 _URL_RATE_PER_MIN = 10
+# iter 248：上传限流（次/分钟/用户）——_read_capped 只限单请求内存，并发 N 个
+# 50MB 上传的内存叠加此前无防（多用户部署 OOM 面；与 iter 247 kb 上传口径一致）
+_UPLOAD_RATE_PER_MIN = 20
 
 
 def _hash_source(data: bytes | str) -> str:
@@ -139,10 +142,13 @@ def _dedup_lookup(db: Session, session_id: int, content_hash: str) -> MaterialOu
     同一文件返回该行，前端按其 status 展示，不重复占配额）。
     """
     existing = db.scalar(
-        select(models.Material).where(
+        select(models.Material)
+        .where(
             models.Material.session_id == session_id,
             models.Material.content_hash == content_hash,
         )
+        .order_by(models.Material.id)  # iter 248：并发双建行（check-then-insert 竞态）
+        # 下取最旧行复用，结果确定（此前无 ORDER BY，多行命中时行为不定）
     )
     if existing is None:
         return None
@@ -179,11 +185,16 @@ async def _store(
     )
     db.add(material)
     db.flush()
+    parsed_path = None
     try:
-        material.parsed_text_path = str(write_parsed_text(session_id, material.id, text))
+        parsed_path = write_parsed_text(session_id, material.id, text)
+        material.parsed_text_path = str(parsed_path)
         db.commit()
     except Exception:
         db.rollback()
+        # iter 248：commit 失败（磁盘满/库锁）清理已落盘解析文本防孤儿（同 kb _persist_parsed）
+        if parsed_path is not None:
+            parsed_path.unlink(missing_ok=True)
         raise
     db.refresh(material)
     return MaterialOut(material_id=material.id, kind=kind, meta=meta)
@@ -231,6 +242,9 @@ async def upload_material(
     /materials/{id}/parse 决定（秒级响应，不再上传即默认解析）。
     """
     _get_session_or_404(db, session_id, user)
+    # iter 248：上传限流（与 iter 247 kb 同面补齐——materials 留口则 kb 白堵）
+    if not limiter.check(f"mat_upload:{user.id}", _UPLOAD_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"上传限每分钟 {_UPLOAD_RATE_PER_MIN} 次，请稍后再试")
     content = await _read_capped(file, settings.max_upload_bytes)
     ext = _validate_upload(file.filename or "", content)
     filename = (file.filename or "")[:1024]
@@ -251,7 +265,8 @@ async def upload_material(
     db.commit()
     db.refresh(material)
     try:
-        save_upload(session_id, material.id, content, ext)
+        # iter 248：大文件写盘移出事件循环（50MB 同步 write 阻塞数百毫秒，同 kb）
+        await asyncio.to_thread(save_upload, session_id, material.id, content, ext)
     except Exception:
         # 原件落盘失败：删行防孤儿（err.md A15）
         db.delete(material)
@@ -299,6 +314,9 @@ async def parse_material_document(
         raise ApiError("bad_request", "该资料无原件（text/url 类创建时已解析入库）", status=400)
     source_path = str(matches[0])
     session_id = mat.session_id
+    # iter 248：解析完成后据此校验重取行身份（同 iter 247 kb）——解析窗口（最长 900s）
+    # 内资料被删且 rowid 复用时，重取到的会是新资料，须拒写防错绑
+    pre_content_hash = mat.content_hash
     db.rollback()  # 释放 SELECT 事务：解析期间不持有任何 DB 锁（err.md B22）
 
     lock = _PARSE_LOCKS.setdefault(material_id, asyncio.Lock())
@@ -326,12 +344,27 @@ async def parse_material_document(
                 raise ApiError(out.errors[0].code, out.errors[0].message)
             text = out.data.get("text", "")
             parsed_path = write_parsed_text(session_id, material_id, text)
-            mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
+            try:
+                mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
+            except ApiError:
+                # iter 248：解析期间资料被删 -> 刚写出的解析文件无人引用，清理防孤儿
+                parsed_path.unlink(missing_ok=True)
+                raise
+            if mat.content_hash != pre_content_hash:
+                # iter 248：rowid 复用——重取到的是解析期间新建的另一份资料，
+                # 解析文本不可错绑（原件与解析内容对不上），丢弃并提示重试
+                parsed_path.unlink(missing_ok=True)
+                raise ApiError("conflict", "资料在解析期间已变更，请重试", status=409)
             mat.parsed_text_path = str(parsed_path)
             mat.parsed_chars = len(text)
             mat.meta = {**(mat.meta or {}), **out.data.get("meta", {})}
             mat.status = "parsed"
-            db.commit()
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                parsed_path.unlink(missing_ok=True)  # iter 248：commit 失败防孤儿
+                raise
             db.refresh(mat)
             result = _material_out(mat)
     finally:

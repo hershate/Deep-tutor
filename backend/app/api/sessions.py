@@ -62,6 +62,15 @@ def delete_session(
     session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     sess = get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404（不泄露存在性）
+    # iter 248：会话内任一资料解析进行中（窗口最长 900s）禁止整删——删除会让在途
+    # 解析结果错绑（rowid 复用）/ 写出孤儿解析文件并重建已删会话目录（同 kb 语义）
+    from app.api.materials import _PARSE_LOCKS
+
+    mat_ids = [m.id for m in db.query(models.Material.id).filter_by(session_id=sess.id)]
+    if any(
+        (lock := _PARSE_LOCKS.get(mid)) is not None and lock.locked() for mid in mat_ids
+    ):
+        raise ApiError("conflict", "会话内有资料正在解析中，请解析完成后再删除会话", status=409)
     # running 态：先 cancel 编排器任务再删（plan/10 §十一），防僵尸任务 _finalize 撞 FK
     cancel_running_generation(session_id)
     # 级联：DB 行（relationship cascade=all,delete-orphan）+ 文件目录
@@ -278,6 +287,13 @@ def delete_material(
     mat = db.get(models.Material, material_id)
     if mat is None or mat.session_id != sess.id:
         raise ApiError("not_found", f"资料 {material_id} 不存在")
+    # iter 248：解析进行中禁止删除（窗口最长 900s）——删除会让在途解析的结果
+    # 错绑（rowid 复用）或写出孤儿解析文件；409 给用户明确信号（同 iter 247 kb）
+    from app.api.materials import _PARSE_LOCKS
+
+    lock = _PARSE_LOCKS.get(material_id)
+    if lock is not None and lock.locked():
+        raise ApiError("conflict", "该资料正在解析中，请解析完成后再删除", status=409)
     db.delete(mat)
     db.commit()
     try:
