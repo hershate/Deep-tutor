@@ -6,10 +6,22 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
 from app.core.settings import settings
+
+log = logging.getLogger(__name__)
+
+
+def _rmtree_orphan_aware(base: Path) -> None:
+    """删目录并在失败时记日志（iter 246）——此前 ignore_errors=True 静默吞错：
+    Windows 文件锁（杀软索引/编辑器占用）下 rmtree 失败留下孤儿目录，
+    kb/exports 目录无维护清扫，磁盘悄悄膨胀且无从排查。"""
+    shutil.rmtree(base, ignore_errors=True)
+    if base.exists():
+        log.warning("目录删除不完整（可能文件被占用），遗留：%s", base)
 
 
 def _root() -> Path:
@@ -171,7 +183,7 @@ def delete_session_files(session_id: int | str) -> None:
     """删除会话目录（级联清理，plan/09 §五）。"""
     base = _session_root(session_id)
     if base.exists():
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_orphan_aware(base)
 
 
 def delete_material_files(session_id: int | str, material_id: int) -> None:
@@ -256,4 +268,4 @@ def delete_kb_files(user_id: int | str) -> None:
     """删除用户整个知识库目录（删用户级联清理，供 users.py delete_user 调用）。"""
     base = _kb_root(user_id)
     if base.exists():
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_orphan_aware(base)
