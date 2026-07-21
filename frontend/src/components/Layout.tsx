@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { to: '/plans', icon: '📚', label: '方案列表', end: false },
   { to: '/wiki', icon: '🧠', label: '知识库', end: false },
   { to: '/notes', icon: '📝', label: '笔记', end: false },
+  { to: '/search', icon: '🔍', label: '搜索', end: false },
   { to: '/usage', icon: '📊', label: '用量', end: false },
   { to: '/plugins', icon: '🧩', label: '插件', end: false },
   { to: '/settings', icon: '⚙️', label: '设置', end: false },
@@ -26,6 +27,8 @@ const NAV_ITEMS = [
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation() // iter 92：按路由 key 触发主区入场动画
+  // iter 249：顶栏全局搜索框（窄屏藏起走侧栏/抽屉「搜索」入口）
+  const [headerQuery, setHeaderQuery] = useState('')
   // err.md D17：getStoredUser() 直读 localStorage 非响应式（改名后顶栏不更新）——
   // 改 state + 监听 AUTH_CHANGED_EVENT（同源 setAuth/clearAuth/updateStoredUser）
   // 与 storage 事件（其他标签页）
@@ -155,6 +158,29 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Link to="/" className="text-lg font-semibold tracking-tight transition-colors hover:text-blue-600 dark:hover:text-blue-400">
               Deep-tutor
             </Link>
+            {/* iter 249：顶栏全局搜索（Enter 跳 /search?q=；CJK 输入法候选确认不提交） */}
+            <form
+              role="search"
+              className="hidden md:block"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const v = headerQuery.trim()
+                if (v) navigate(`/search?q=${encodeURIComponent(v)}`)
+              }}
+            >
+              <input
+                type="search"
+                value={headerQuery}
+                onChange={(e) => setHeaderQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault()
+                }}
+                placeholder="全局搜索…"
+                aria-label="全局搜索"
+                maxLength={100}
+                className="w-44 rounded-lg border bg-slate-50 px-2.5 py-1 text-sm transition-all focus:w-64 focus:bg-white dark:border-slate-600 dark:bg-slate-700 dark:focus:bg-slate-800"
+              />
+            </form>
           </div>
           <div className="flex items-center gap-3">
             <button

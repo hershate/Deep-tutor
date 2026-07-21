@@ -19,6 +19,7 @@ import Usage from './pages/Usage'
 import Settings from './pages/Settings'
 import Wiki from './pages/Wiki'
 import Notes from './pages/Notes'
+import Search from './pages/Search'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
 // - 状态加载中 -> 占位；查询失败 -> 回退旧逻辑（仅查 token，不让 status 端点故障阻塞应用）
@@ -74,6 +75,8 @@ export default function App() {
                 <Route path="/learn/:planId" element={<Learn />} />
                 <Route path="/wiki" element={<Wiki />} />
                 <Route path="/notes" element={<Notes />} />
+                {/* iter 249：全局搜索页（方案/笔记/知识库文档/知识节点四域聚合） */}
+                <Route path="/search" element={<Search />} />
                 <Route path="/usage" element={<Usage />} />
                 {/* iter 204：插件管理页（前端插件加载/移除 + 生效概览 + 后端状态） */}
                 <Route path="/plugins" element={<Plugins />} />

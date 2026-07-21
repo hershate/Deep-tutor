@@ -1,7 +1,8 @@
 // 独立自由笔记页（iter 227）：不依附方案的笔记本——左列表右编辑器双栏。
 // 列表 content 为 300 字预览，点选后 GET 全文进编辑器；正文支持 Markdown 预览切换；
 // 保存=新建 POST / 更新 PUT；删除有确认。空标题且空正文后端 400，前端先拦截提示。
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
@@ -41,6 +42,30 @@ export default function Notes() {
     queryFn: listFreeNotes,
     staleTime: 10_000,
   })
+
+  // iter 249：深链 /notes?note=<id>（全局搜索结果直达）——列表加载后打开该笔记；
+  // 参数即消费（replace 不堆历史），目标不存在（已删）仅清参数不报错
+  const [params, setParams] = useSearchParams()
+  const deepLinkConsumed = useRef<number | null>(null)
+  useEffect(() => {
+    const raw = params.get('note')
+    if (!raw || !data?.items) return
+    const id = Number(raw)
+    if (!Number.isInteger(id) || deepLinkConsumed.current === id) return
+    deepLinkConsumed.current = id
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('note')
+        return next
+      },
+      { replace: true },
+    )
+    const target = data.items.find((n) => n.id === id)
+    if (target) void openNote(target)
+    // openNote 为本渲染闭包（一次性消费，无需依赖）；data 变化仅在参数未消费时有意义
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, data])
 
   function refresh() {
     return qc.invalidateQueries({ queryKey: ['free-notes'] })

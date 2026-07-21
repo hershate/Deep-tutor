@@ -533,6 +533,21 @@ export interface WrongOverviewItem { plan_id: number; topic: string; wrong_count
 export const getWrongOverview = () =>
   apiFetch<{ items: WrongOverviewItem[]; total: number }>('/quizzes/wrong-overview')
 
+// --- 全局统一搜索（iter 249）：方案/笔记/知识库文档/知识节点四域聚合 ---
+export interface SearchGroup<T> {
+  total: number
+  items: T[]
+}
+export interface GlobalSearchResult {
+  q: string
+  plans: SearchGroup<{ id: number; session_id: number; version: number; topic: string; created_at: string }>
+  notes: SearchGroup<{ id: number; title: string; snippet: string; updated_at: string }>
+  kb_docs: SearchGroup<{ id: number; title: string; kind: string | null; created_at: string }>
+  nodes: SearchGroup<{ id: number; plan_id: number; name: string; plan_topic: string }>
+}
+export const globalSearch = (q: string, limit = 10) =>
+  apiFetch<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+
 // --- usage ---
 export const getUsage = () =>
   apiFetch<{ total_tokens: number; total_cost: number; cache_hit_rate: number; calls: number; today_cost: number; daily_budget_usd: number }>('/usage')
