@@ -167,7 +167,13 @@ def _load_one(app: FastAPI, path: Path) -> None:
         module.register(api)
     except Exception as exc:  # noqa: BLE001  隔离：register 异常不阻塞宿主
         log.exception("插件 %s register(api) 执行失败", pid)
-        status.error = f"register: {exc}"
+        # iter 247：回滚其失败前已完成的注册——此前仅记 failed，但路由仍在响应、
+        # 事件监听器仍触发、工具仍汇入注册表，状态台账与真实运行态不一致
+        api._rollback()
+        status.routes.clear()
+        status.events.clear()
+        status.tools.clear()
+        status.error = f"register: {exc}（其已注册的路由/事件/工具已回滚）"
         runtime.record(status)
         return
     status.state = "loaded"

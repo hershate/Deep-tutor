@@ -44,6 +44,14 @@ def add_tool(tool: Tool) -> None:
     _plugin_tools.append(tool)
 
 
+def remove_tool(tool: Tool) -> None:
+    """移除已注册工具（iter 247：register 中途失败的回滚用）。"""
+    try:
+        _plugin_tools.remove(tool)
+    except ValueError:
+        pass
+
+
 def plugin_tools() -> list[Tool]:
     return list(_plugin_tools)
 
