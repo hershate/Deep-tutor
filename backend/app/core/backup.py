@@ -357,23 +357,38 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         "skipped": [],
     }
 
+    # 配额与 API 路径一致（对齐 sessions.py/materials.py/notes.py 上限）：
+    # 导入不放大用户的资源占用，超限部分跳过并记入 skipped（导入不硬失败）
+    _MAX_SESSIONS, _MAX_MATERIALS_PER_SESSION, _MAX_NOTES = 200, 20, 500
+    sessions_room = _MAX_SESSIONS - db.query(models.Session).filter_by(user_id=user.id).count()
+
     for s in data.get("sessions") or []:
         if not isinstance(s, dict):
             continue
+        if sessions_room <= 0:
+            summary["skipped"].append(f"会话数达上限 {_MAX_SESSIONS}，其余会话未导入")
+            break
         sess = models.Session(user_id=user.id, title=str(s.get("title") or "")[:256])
         if dt := _parse_dt(s.get("created_at")):
             sess.created_at = dt
         db.add(sess)
         db.flush()  # 取新 session_id（文件落盘命名需要）
         summary["sessions"] += 1
+        sessions_room -= 1
 
+        mats_room = _MAX_MATERIALS_PER_SESSION
+        mats_skipped = 0
         for m in s.get("materials") or []:
             if not isinstance(m, dict):
+                continue
+            if mats_room <= 0:
+                mats_skipped += 1
                 continue
             kind = _enum_or(models.MaterialKind, m.get("kind"))
             if kind is None:
                 summary["skipped"].append(f"资料 kind 非法（{m.get('kind')!r}），已跳过")
                 continue
+            mats_room -= 1
             row = models.Material(
                 session_id=sess.id,
                 kind=kind,
@@ -390,6 +405,8 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
             if isinstance(text, str) and text:
                 row.parsed_text_path = str(write_parsed_text(sess.id, row.id, text))
             summary["materials"] += 1
+        if mats_skipped:
+            summary["skipped"].append(f"会话「{sess.title or sess.id}」资料超每会话 {_MAX_MATERIALS_PER_SESSION} 份上限，{mats_skipped} 份未导入")
 
         for p in s.get("plans") or []:
             if isinstance(p, dict):
@@ -397,15 +414,18 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
     _restore_prefs(db, user, data.get("prefs") or {}, summary)
-    _restore_notes(db, user, data.get("notes") or [], summary)
+    _restore_notes(db, user, data.get("notes") or [], summary, _MAX_NOTES)
     return summary
 
 
-def _restore_notes(db: DbSession, user: models.User, notes: Any, summary: dict) -> None:
+def _restore_notes(db: DbSession, user: models.User, notes: Any, summary: dict, max_notes: int = 500) -> None:
     """独立自由笔记（iter 227）：追加式还原（不去重，导入即新增）；标题/正文同 API
-    上限截断，双空条目跳过；旧备份无 notes 字段 -> 空列表直接返回。"""
+    上限截断，双空条目跳过；旧备份无 notes 字段 -> 空列表直接返回。
+    配额与 notes.py 一致（每用户 ≤500，含已有），超限跳过。"""
     if not isinstance(notes, list):
         return
+    room = max_notes - db.query(models.Note).filter_by(user_id=user.id).count()
+    skipped = 0
     for n in notes:
         if not isinstance(n, dict):
             continue
@@ -413,11 +433,17 @@ def _restore_notes(db: DbSession, user: models.User, notes: Any, summary: dict) 
         content = str(n.get("content") or "").strip()[:20_000]
         if not title and not content:
             continue
+        if room <= 0:
+            skipped += 1
+            continue
+        room -= 1
         note = models.Note(user_id=user.id, title=title, content=content)
         if dt := _parse_dt(n.get("updated_at")):
             note.updated_at = dt
         db.add(note)
         summary["notes"] += 1
+    if skipped:
+        summary["skipped"].append(f"笔记数达上限 {max_notes} 条，{skipped} 条未导入")
     db.flush()
 
 
@@ -550,11 +576,17 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
         d = _parse_date(lg.get("date"))
         if d is None:
             continue
+        # 分钟数钳制到 API 的 1-1440（progress.py LogIn 同约束；备份数据可能带 0/负数/超大值）
+        try:
+            minutes = int(lg.get("minutes") or 0)
+        except (TypeError, ValueError):
+            continue
+        minutes = max(1, min(1440, minutes))
         db.add(
             models.LearningLog(
                 plan_id=plan.id,
                 date=d,
-                minutes=int(lg.get("minutes") or 0),
+                minutes=minutes,
                 note=lg.get("note") if isinstance(lg.get("note"), str) else None,
             )
         )

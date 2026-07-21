@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent import BudgetTracker, run_tool
-from app.agent.context import ExecContext
+from app.agent.context import ExecContext, Timeouts
 from app.agent.cost import record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.errors import ApiError
@@ -259,14 +259,21 @@ async def parse_document(
         raise ApiError("conflict", "该文档正在解析中，请稍候", status=409)
     try:
         async with lock:
-            out = await parse_material(
-                ToolInput(
-                    tool="parse_material",
-                    session_id=f"kb-{user.id}",
-                    args={"kind": "file", "source": source_path, "parse_mode": mode},
-                ),
-                _ctx(user.id),
-            )
+            try:
+                # 直调路径不走 run_tool——Timeouts.parse 外层兜底在此补齐（同 materials.py）
+                out = await asyncio.wait_for(
+                    parse_material(
+                        ToolInput(
+                            tool="parse_material",
+                            session_id=f"kb-{user.id}",
+                            args={"kind": "file", "source": source_path, "parse_mode": mode},
+                        ),
+                        _ctx(user.id),
+                    ),
+                    timeout=Timeouts().parse,
+                )
+            except TimeoutError:
+                raise ApiError("upstream_timeout", f"解析超时（{int(Timeouts().parse)}s），请重试或换档") from None
             if out.status == "error" and out.errors:
                 raise ApiError(out.errors[0].code, out.errors[0].message)
             text = out.data.get("text", "")

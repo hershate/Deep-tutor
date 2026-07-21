@@ -9,8 +9,10 @@ GET /quizzes/wrong-overview（iter 156）：跨方案错题总览——每方案
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
@@ -23,10 +25,20 @@ router = APIRouter(prefix="/quizzes", tags=["quizzes"], dependencies=[Depends(re
 
 # 提交限流（err.md A23：此前可无限刷提交记录，quiz_attempts 行无限增长）
 _SUBMIT_RATE_PER_MIN = 60
+# 作答内容大小上限（防配合 body 上限写入数十 MB JSON 造成 DB 膨胀；choice 仅几字节，
+# fill/short 人工作答 1 万字符绰绰有余）
+_MAX_ANSWER_CHARS = 10_000
 
 
 class SubmitIn(BaseModel):
     user_answer: dict  # choice: {"selected": "..."}；fill/short: {"text": "..."}
+
+    @field_validator("user_answer")
+    @classmethod
+    def _cap_size(cls, v: dict) -> dict:
+        if len(json.dumps(v, ensure_ascii=False)) > _MAX_ANSWER_CHARS:
+            raise ValueError(f"作答内容超过 {_MAX_ANSWER_CHARS} 字符上限")
+        return v
 
 
 @router.post("/{quiz_id}/submit")

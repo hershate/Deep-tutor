@@ -101,7 +101,14 @@ async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
     import asyncio
 
     md = render_markdown(content)
-    pdf = await asyncio.to_thread(build_pdf, content, md)
+    try:
+        # 病态内容下 weasyprint 渲染可挂起——wait_for 释放请求（线程不可杀，
+        # 但有 12 次/分限流兜底，线程泄漏有界）；超时降级 md 而非 500
+        pdf = await asyncio.wait_for(asyncio.to_thread(build_pdf, content, md), timeout=120.0)
+    except TimeoutError:
+        result = await _export_md(plan_id, session_id, content, "md")
+        result["warning"] = "PDF 渲染超时（120s），已降级为 Markdown"
+        return result
     return {
         "file_url": "",
         "format": "pdf",

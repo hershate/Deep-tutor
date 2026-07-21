@@ -128,12 +128,15 @@ def test_provider_connectivity_test(client, auth_headers, monkeypatch):
 
     class _FailProvider(_OkProvider):
         async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
-            raise RuntimeError("401 invalid api key")
+            exc = RuntimeError("invalid api key; response body: SENSITIVE_BODY")
+            exc.status_code = 401  # 模拟 SDK APIStatusError 的 status_code 属性
+            raise exc
 
     monkeypatch.setattr(providers_mod, "AnthropicProvider", _FailProvider)
     r = client.post(f"{BASE}/{p['id']}/test", headers=auth_headers)
     assert r.json()["ok"] is False
-    assert "401" in r.json()["error"]
+    assert "401" in r.json()["error"]  # 状态码仍给（排障有用）
+    assert "SENSITIVE_BODY" not in r.text  # 但响应正文不回显（iter 241：防内网探测回读通道）
 
     # 档案未被激活（测试不改状态）
     rows = client.get(BASE, headers=auth_headers).json()["providers"]

@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.agent.context import ExecContext
+from app.agent.context import ExecContext, Timeouts
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
@@ -306,14 +306,22 @@ async def parse_material_document(
         raise ApiError("conflict", "该资料正在解析中，请稍候", status=409)
     try:
         async with lock:
-            out = await parse_material(
-                ToolInput(
-                    tool="parse_material",
-                    session_id=str(session_id),
-                    args={"kind": "file", "source": source_path, "parse_mode": mode},
-                ),
-                _ctx(session_id),
-            )
+            try:
+                # 直调路径不走 run_tool——Timeouts.parse 外层兜底在此补齐
+                # （whisper 转写无内部超时，ffprobe 缺失时时长守卫失效，兜无限挂起）
+                out = await asyncio.wait_for(
+                    parse_material(
+                        ToolInput(
+                            tool="parse_material",
+                            session_id=str(session_id),
+                            args={"kind": "file", "source": source_path, "parse_mode": mode},
+                        ),
+                        _ctx(session_id),
+                    ),
+                    timeout=Timeouts().parse,
+                )
+            except TimeoutError:
+                raise ApiError("upstream_timeout", f"解析超时（{int(Timeouts().parse)}s），请重试或换档") from None
             if out.status == "error" and out.errors:
                 raise ApiError(out.errors[0].code, out.errors[0].message)
             text = out.data.get("text", "")

@@ -196,7 +196,13 @@ async def test_provider(
             timeout=120.0,
         )
     except Exception as exc:  # noqa: BLE001  任何失败均作为测试结果返回（非 500）
-        # TimeoutError 的 str() 为空串，须显式给消息
-        msg = "连接超时（120s）" if isinstance(exc, asyncio.TimeoutError) else str(exc)[:200]
+        if isinstance(exc, asyncio.TimeoutError):
+            msg = "连接超时（120s）"  # TimeoutError 的 str() 为空串，须显式给消息
+        else:
+            # 安全：不回显异常原文——SDK 的 APIStatusError 消息含响应正文片段，
+            # 自定义 base_url 指向内网时会成为「服务器向内网发请求 + 回读响应」的探测通道。
+            # 给异常类型名 + HTTP 状态码（401/404 等对用户排障足够），不含正文。
+            status = getattr(exc, "status_code", None)
+            msg = type(exc).__name__ + (f"（HTTP {status}）" if isinstance(status, int) else "")
         return {"ok": False, "model": model, "error": msg}
     return {"ok": True, "model": model}

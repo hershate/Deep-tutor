@@ -41,13 +41,23 @@ VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
 SUPPORTED_FILE_EXTS = {".pdf", ".docx", ".pptx", ".txt", ".md"} | IMAGE_EXTS | AUDIO_EXTS | VIDEO_EXTS
 
 
+def _scrub_server_paths(msg: str) -> str:
+    """R35/A10：错误信息不回显服务器绝对路径——marker stderr / pypdf 异常原文常含
+    原件目录、临时目录、仓库根等绝对路径（materials.py 曾对存储路径单独处理过同一规则），
+    统一替换为占位符。长路径先替换（防子串误伤）。"""
+    roots = {settings.data_dir, tempfile.gettempdir(), str(Path.cwd())}
+    for root in sorted((r for r in roots if r), key=len, reverse=True):
+        msg = msg.replace(root, "<服务器路径>")
+    return msg
+
+
 class _ParseError(Exception):
-    """携带 code 的解析异常。"""
+    """携带 code 的解析异常。message 统一经服务器路径清洗（可进 HTTP 响应）。"""
 
     def __init__(self, code: str, message: str) -> None:
         self.code = code
-        self.message = message
-        super().__init__(message)
+        self.message = _scrub_server_paths(message)
+        super().__init__(self.message)
 
 
 async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:

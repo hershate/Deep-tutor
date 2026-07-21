@@ -29,11 +29,17 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         fmt = "md"
 
     md = render_markdown(plan)
-    sid = inp.session_id or "default"
-    out_dir = Path(ctx.data_dir or "data") / "sessions" / sid / "exports"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    plan_id = str(args.get("plan_id", "plan"))
-    file_path = out_dir / f"{plan_id}.md"
+    # 路径安全（对齐 storage.py `_session_root` 语义）：session_id/plan_id 清洗为
+    # 安全字符集 + resolve 后 containment 校验——当前 HTTP 路径传入均为 int 不可达，
+    # 但本工具在注册表中，插件/未来调用点可能传入外部字符串（"../.."），纵深防御。
+    sid = _safe_seg(inp.session_id or "default")
+    plan_id = _safe_seg(str(args.get("plan_id", "plan")))
+    base = (Path(ctx.data_dir or "data") / "sessions" / sid / "exports").resolve()
+    root = Path(ctx.data_dir or "data").resolve()
+    if not str(base).startswith(str(root)):
+        return _err("invalid_path", "非法的会话标识")
+    base.mkdir(parents=True, exist_ok=True)
+    file_path = base / f"{plan_id}.md"
     file_path.write_text(md, encoding="utf-8")
 
     data = {"file_url": str(file_path), "format": "md", "chars": len(md), "content": md, "filename": f"{plan_id}.md"}
@@ -45,6 +51,12 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             errors=[ToolError(code="unsupported_format", message=f"格式 {args.get('format')} 暂不支持，已降级为 md")],
         )
     return ToolOutput(tool="export_plan", status="ok", data=data)
+
+
+def _safe_seg(s: str) -> str:
+    """路径段清洗：仅保留字母数字与 -_.（中文等多字节字符 isalnum 为 True 可保留）。"""
+    cleaned = "".join(c for c in s if c.isalnum() or c in "-_")
+    return cleaned or "x"
 
 
 def _assemble_from_upstream(upstream: dict[str, Any]) -> dict[str, Any]:

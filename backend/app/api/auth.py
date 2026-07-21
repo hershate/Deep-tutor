@@ -22,6 +22,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # 登录限流（err.md A8：防在线爆破；按 IP+用户名维度，每分钟 10 次）
 _LOGIN_RATE_PER_MIN = 10
+# 账号维度聚合桶：ip+username 桶可被多 IP 分布式爆破绕过（每桶独立计数），
+# 账号维度再设一道较宽上限（正常用户不会从 >20 个不同 IP 一分钟内登录同一账号）
+_LOGIN_ACCT_RATE_PER_MIN = 20
 
 
 class LoginIn(BaseModel):
@@ -45,6 +48,8 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)) -> dic
     client_host = request.client.host if request.client else "unknown"
     if not limiter.check(f"login:{client_host}:{body.username}", _LOGIN_RATE_PER_MIN):
         raise ApiError("rate_limited", "登录尝试过于频繁，请稍后再试", status=429)
+    if not limiter.check(f"login:acct:{body.username}", _LOGIN_ACCT_RATE_PER_MIN):
+        raise ApiError("rate_limited", "该账号登录尝试过于频繁，请稍后再试", status=429)
     user = db.query(User).filter_by(username=body.username).first()
     if user is None:
         dummy_verify(body.password)
