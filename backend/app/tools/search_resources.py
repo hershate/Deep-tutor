@@ -70,7 +70,20 @@ def _derive_stage_topics(inp: ToolInput) -> list[list[str]]:
     """
     explicit = inp.args.get("stage_topics")
     if explicit:
-        return explicit
+        # iter 245：显式入参白名单校验——str 会按字符迭代成单字查询、dict 会在查询
+        # 推导处抛 TypeError 拖垮整工具、巨型 list 查询数无界（派生路径由 design_stages
+        # 的 3-6 阶段 validator 间接封顶，显式路径没有）。非法 -> 忽略并走派生
+        if isinstance(explicit, list) and len(explicit) <= 10:
+            cleaned: list[list[str]] = []
+            for topics in explicit:
+                if not isinstance(topics, list):
+                    cleaned.append([])
+                    continue
+                cleaned.append(
+                    [t for t in (str(x).strip()[:MAX_QUERY_CHARS] for x in topics[:5]) if t]
+                )
+            return cleaned
+        log.warning("stage_topics 显式入参非法（%s），忽略改派生", type(explicit).__name__)
     stages_data = ((inp.upstream or {}).get("design_stages") or {}).get("data") or {}
     derived: list[list[str]] = []
     for s in stages_data.get("stages") or []:
@@ -129,6 +142,10 @@ async def _verify_candidates(
     first_seen: dict[str, int] = {}  # url -> stage_level（保留首个出现阶段，dict 保序）
     for stage_index, cand in items:
         url = cand.get("url", "")
+        if not isinstance(url, str):
+            # iter 245：畸形候选（上游 API 返回 url 为 list/dict）单条丢弃——
+            # 此前 unhashable TypeError 延迟到此抛出，整工具失败丢失全部已得候选
+            continue
         if url and url not in first_seen:
             # err.md B19：阶段水平随 stage_index 递进（高级阶段资源不按入门水平校验）
             first_seen[url] = stage_index + 1
@@ -206,6 +223,8 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             if per_stage.get(stage_index, 0) >= MAX_PER_STAGE or len(resources) >= MAX_TOTAL:
                 break
             url = cand.get("url", "")
+            if not isinstance(url, str):
+                continue  # iter 245：畸形候选（unhashable url）单条丢弃，不拖垮整批
             vdata = verdicts.get(url) or {}
             if vdata.get("label", "invalid") == "invalid":
                 continue  # 失效换源
@@ -221,8 +240,10 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             )
             per_stage[stage_index] = per_stage.get(stage_index, 0) + 1
 
-    # 网页引擎全面失败（网络/反爬，区别于真空结果）：降级为关键词建议，不中断 pipeline
-    if engine == "bing_web" and attempted > 0 and succeeded == 0:
+    # 检索引擎全面失败（key 失效/欠费/网络/反爬，区别于真空结果）：降级为关键词建议，
+    # 不中断 pipeline。iter 245：判定推广到所有引擎——此前仅 bing_web，bing_api 全面
+    # 失败会被报成 ok+空结果（与「正常但真没结果」不可区分，排障零信号）
+    if attempted > 0 and succeeded == 0:
         keywords = [t for topics in stage_topics for t in topics]
         return ToolOutput(
             tool="search_resources",
@@ -230,10 +251,10 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             data={
                 "resources": [],
                 "engine": engine,
-                "note": "Bing 网页检索不可用，未执行检索；请人工补充资源",
+                "note": f"检索引擎（{engine}）不可用，未获得结果；请人工补充资源",
                 "suggested_keywords": keywords[:20],
             },
-            errors=[ToolError(code="search_unavailable", message="Bing 网页检索失败（网络/反爬），search_resources 降级")],
+            errors=[ToolError(code="search_unavailable", message=f"检索引擎（{engine}）全部查询失败，search_resources 降级")],
         )
 
     # err.md B9：筛选调用的 usage 须进入 ToolOutput.metadata —— 否则编排器
@@ -327,7 +348,11 @@ async def _screen_resources(
         "level": intent.get("level", "") or "",
         "stages": stage_names,
         "candidates": [
-            {"stage_index": r["stage_index"], "title": r["title"], "url": r["url"]} for r in resources
+            # iter 245：title 来自搜索页抓取的不可信内容——本调用不经 loop 的
+            # _sanitize_for_prompt 守卫，截断 80 字符压缩注入载荷空间（纵深防御；
+            # 筛选器输出仅丢/留/降级标记 + 短 note，影响面本就有界）
+            {"stage_index": r["stage_index"], "title": str(r["title"])[:80], "url": r["url"]}
+            for r in resources
         ],
     }
     system = (ctx.skill_registry or {}).get("deep-tutor-resources") or SCREEN_PROMPT
