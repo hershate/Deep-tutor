@@ -88,6 +88,28 @@ def list_providers(db: Session = Depends(get_db), user: User = Depends(get_curre
     return {"providers": [_out(p) for p in rows]}
 
 
+@router.get("/kinds")
+def list_provider_kinds() -> dict:
+    """发现端点（v1.6.0）：列出本实例可用的 LLM 协议——内置 'anthropic' + 插件注册的协议
+    （api.providers）。供前端/外部客户端动态渲染协议选择，或插件能力发现。认证同 router 级。"""
+    from app.plugins import providers as plugin_providers
+
+    return {
+        # 内置协议：Anthropic Messages API（宿主原生，档案 base_url 指向其端点）
+        "builtin": [{"kind": plugin_providers.KIND_ANTHROPIC, "label": "Anthropic（内置）"}],
+        # 插件协议：随插件装载/卸载变化（未装插件时为空）
+        "plugins": [
+            {
+                "kind": e.kind,
+                "label": e.label or e.kind,
+                "plugin_id": e.plugin_id,
+                "default_model": e.default_model,
+            }
+            for e in plugin_providers.all_entries()
+        ],
+    }
+
+
 @router.post("", status_code=201)
 def create_provider(
     body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)

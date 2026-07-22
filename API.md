@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.6.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.5.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.6.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -526,7 +526,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.5.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.6.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -606,7 +606,8 @@ PLUGIN_META = {
 | `api.data_dir` | `pathlib.Path` | 插件私有数据目录（已创建），持久化插件自身状态 |
 | `api.parsers` | `ParsersNamespace` | 文件解析器注册（v1.3.0）：为私有/小众格式注册解析器，上传与解析自动委托（§8.4a） |
 | `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
-| `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c） |
+| `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c）；v1.6.0 起 `complete(provider_kind=)` 可分发到插件注册的新协议 Provider |
+| `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -820,7 +821,9 @@ resp = await api.llm.complete(
     prompt: str,           # 用户消息（非空）
     *,
     system: str = "",      # 系统提示（可选）
-    max_tokens: int = 2048 # 收敛到 [1, 8192]（防失控调用；日预算守卫是底线）
+    max_tokens: int = 2048,          # 收敛到 [1, 8192]（防失控调用；日预算守卫是底线）
+    provider_kind: str | None = None # v1.6.0：指定时改为分发到该 kind 的插件 Provider（§8.4d），
+                                     #   凭证由插件自理；预算守卫+计量与默认路径同口径。None -> 用户已配置的供应商
 ) -> dict                  # {"content", "model", "stop_reason", "usage": {...}}（只增不改）
 ```
 
@@ -864,6 +867,128 @@ def register(api):
     api.routes.mount(router)  # -> POST /api/plugins/annotator/annotate（默认带宿主认证）
 ```
 
+#### `api.providers` —— LLM Provider 扩展点（v1.6.0 扩展点，§8.4d）
+
+为内置**仅支持 Anthropic 协议**的 LLM 层注册**新协议 Provider**——让后端经插件 API 即可
+"支持新的 LLM Provider"（OpenAI `/v1/chat/completions`、Ollama、DeepSeek 原生、Gemini 等）。
+注册后经 `api.llm.complete(..., provider_kind=...)` 调用，**带宿主日预算守卫 + `api_usage`
+计量**（与宿主端点同口径）——非 Anthropic 协议不再须插件 DIY `httpx` 绕开预算/计量（"暗花费"）。
+
+```python
+api.providers.register(
+    kind: str,              # 协议名（如 "openai"、"ollama"）；规范化为小写，字符集 [a-z0-9][a-z0-9_-]{0,31}
+                            #   'anthropic' 为内置保留，注册拒绝（ValueError）
+    handler: Callable,      # 补全函数，async 或 sync，签名见下
+    *,
+    default_model: str = "",# 该 kind 默认模型名（api.llm 未显式传 model 时用），可选
+    label: str = "",        # 人类可读协议名（GET /providers/kinds 展示用），可选
+) -> None
+api.providers.kinds() -> list[str]   # 本插件已注册的协议名（调试/状态展示用）
+```
+
+**handler 契约**（async 或 sync，签名相同；async 直接 await，sync 在线程池执行不阻塞事件循环）：
+
+```python
+async def chat_openai(system: str, user: str, *, model: str, max_tokens: int) -> dict:
+    # 凭证由插件自理：handler 不接收 api_key/base_url——从 api.data_dir / 环境变量 /
+    #   自有设置（插件路由）读写。宿主不知新协议的凭证模型，故不代管。
+    resp = await my_openai_client.chat(model=model, max_tokens=max_tokens,
+                                       system=system, user=user)
+    return {
+        "content": resp.text,                # 必填：补全文本
+        "model": resp.model,                 # 必填：实际所用模型名
+        "stop_reason": resp.finish_reason,   # 可选
+        "usage": {                           # 必填（成本计量用）
+            "input_tokens": resp.prompt_tokens,      # 必填
+            "output_tokens": resp.completion_tokens, # 必填
+            "cache_read_input_tokens": 0,            # 可选，缺省 0
+            "cache_creation_input_tokens": 0,        # 可选，缺省 0
+        },
+    }
+```
+
+**异常约定**（插件无需 import 宿主内部）：handler 抛任何异常 -> 宿主分类——在异常实例上设
+`transient = True`（或抛名为 `ConnectError`/`TimeoutException`/`RateLimitError`/`APIConnectionError`
+等常见网络瞬态类型）标记瞬态，宿主据此退避重试（`api.llm` -> `server_busy` 503）；其余非瞬态
+（含 4xx/返回契约不合规）-> `bad_gateway` 502。返回 dict 缺必填字段或类型错 -> `bad_gateway`。
+
+> **安全/稳定要点**：① 纯增量——`provider_kind=None`（缺省）时 `api.llm.complete` 行为与 v1.5.0
+> 字节一致（走用户已配置的 Anthropic 供应商），无插件注册 Provider 时全链路不变；② 花费治理
+> 与宿主同规（日预算守卫 + `api_usage` 计量双闸），插件 Provider 不能绕过日预算；③ `max_tokens`
+> 收敛 [1, 8192] 防失控天价调用；④ 凭证不入宿主——插件自管其新协议 key（存 `api.data_dir`，
+> 不硬编码进源码）；⑤ 内置 `'anthropic'` 保留名拒绝注册，防与内置协议冲突。
+
+**完整示例**：OpenAI 兼容 Provider 插件（注册新协议 + 暴露配置路由 + 经 api.llm 调用）
+
+```python
+# plugins/openai_provider/plugin.py
+import json
+from pathlib import Path
+from fastapi import APIRouter, Depends
+import httpx
+
+PLUGIN_META = {"id": "openaiprovider", "name": "OpenAI Provider", "version": "0.1.0", "min_api": "1.6"}
+
+_cfg_file = lambda api: Path(api.data_dir) / "config.json"
+
+def register(api):
+    def _load_cfg():
+        f = _cfg_file(api)
+        return json.loads(f.read_text("utf-8")) if f.exists() else {}
+
+    async def chat_openai(system, user, *, model, max_tokens):
+        cfg = _load_cfg()  # {base_url, api_key, model} —— 用户经下方路由自配，宿主不代管
+        if not cfg.get("api_key"):
+            raise RuntimeError("OpenAI provider 未配置 api_key")
+        async with httpx.AsyncClient(timeout=120) as c:
+            r = await c.post(
+                f"{cfg['base_url'].rstrip('/')}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                json={"model": model or cfg.get("model", "gpt-4o"),
+                      "max_tokens": max_tokens,
+                      "messages": ([{"role": "system", "content": system}] if system else [])
+                                 + [{"role": "user", "content": user}]},
+            )
+            r.raise_for_status()  # 4xx/5xx -> 非 transient -> bad_gateway（超时/连接由 httpx 抛，宿主按名判 transient）
+            data = r.json()
+        return {
+            "content": data["choices"][0]["message"]["content"],
+            "model": data["model"],
+            "stop_reason": data["choices"][0].get("finish_reason"),
+            "usage": {
+                "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
+                "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
+            },
+        }
+
+    api.providers.register("openai", chat_openai, default_model="gpt-4o", label="OpenAI 兼容")
+
+    router = APIRouter()
+    @router.post("/generate")
+    async def generate(body: dict, user=Depends(api.deps.get_current_user)):
+        # 经 api.llm 调用本插件注册的 openai 协议——日预算守卫 + api_usage 计量同宿主
+        resp = await api.llm.complete(
+            user.id, body.get("prompt", ""), system="你是助教",
+            max_tokens=512, provider_kind="openai",
+        )
+        return {"text": resp["content"], "model": resp["model"]}
+
+    @router.put("/config")
+    def set_config(body: dict, user=Depends(api.deps.require_admin)):
+        # 凭证落插件私有数据目录（不入宿主 DB；仅管理员可配）
+        _cfg_file(api).write_text(json.dumps(body), "utf-8")
+        return {"ok": True}
+
+    api.routes.mount(router)
+```
+
+装载后：`GET /api/providers/kinds` 列出 `openai`（§发现端点）；插件路由与 `api.llm.complete(..., provider_kind="openai")` 即可调用 OpenAI，花费受日预算约束、记入用量页。
+
+> **与供应商档案的关系（v1 取舍）**：本扩展点为"非侵入式 v1"——插件 Provider 的凭证由插件自理，
+> 经 `api.llm.complete(provider_kind=...)` 显式调用。**将插件 Provider 接入宿主供应商档案**（用户在
+> 设置页统一配 key + 选协议，使**方案生成主线**也用新协议）属下一轮的 profile 集成（需 DB `kind`
+> 字段迁移 + `get_provider` 分发），独立聚焦轮推进。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -894,7 +1019,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.5.0",
+  "api_version": "1.6.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1045,6 +1170,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
 | 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |

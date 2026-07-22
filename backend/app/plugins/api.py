@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.plugins import bus, exporters, parsers, runtime
+from app.plugins import bus, exporters, parsers, providers, runtime
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 # v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
 # v1.4.0：新增 api.exporters 导出格式扩展点（插件为私有/小众格式注册导出器）。
 # v1.5.0：新增 api.llm 宿主 LLM 能力调用（插件复用用户已配置的供应商，预算守卫+计量同宿主）。
-API_VERSION = "1.5.0"
+# v1.6.0：新增 api.providers LLM Provider 扩展点（插件注册新协议 Provider，api.llm.complete
+#         经 provider_kind= 分发，预算守卫+计量同宿主——非 Anthropic 协议不再须 DIY httpx 绕开预算）。
+API_VERSION = "1.6.0"
 
 
 class ToolsNamespace:
@@ -225,17 +227,22 @@ class LlmNamespace:
         *,
         system: str = "",
         max_tokens: int = 2048,
+        provider_kind: str | None = None,
     ) -> dict:
         """以该用户的供应商配置发起一次 LLM 补全。
 
         返回 dict：{"content": str, "model": str, "stop_reason": str | None,
         "usage": {"input_tokens", "output_tokens", "cache_read_input_tokens",
         "cache_creation_input_tokens"}}（只增不改）。max_tokens 收敛到 [1, 8192]。
+
+        provider_kind（v1.6.0）：指定时改为分发到该 kind 的**插件 Provider**（api.providers
+        注册的新协议 handler，如 'openai'、'ollama'）——凭证由插件自理，日预算守卫 + api_usage
+        计量与默认路径同口径（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量）。未知 kind ->
+        no_llm_provider。
         """
         from app.api.deps import check_daily_budget
         from app.api.errors import ApiError
         from app.db.base import SessionLocal
-        from app.llm import get_provider
         from app.llm.base import TransientLLMError
 
         if not isinstance(user_id, int) or user_id <= 0:
@@ -246,11 +253,24 @@ class LlmNamespace:
             raise TypeError("system 必须是字符串")
         max_tokens = max(1, min(int(max_tokens), self._MAX_TOKENS_CAP))
 
-        try:
-            provider = get_provider(user_id)
-        except RuntimeError as exc:
-            raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
-        check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
+        if provider_kind is not None:
+            from app.llm.plugin_provider import PluginProvider
+
+            from app.plugins import providers as plugin_providers
+
+            entry = plugin_providers.find_provider(provider_kind)
+            if entry is None:
+                raise ApiError("no_llm_provider", f"未注册的 provider kind: {provider_kind}")
+            check_daily_budget(None, user_id)  # 日预算守卫同默认路径
+            provider = PluginProvider(entry, model=entry.default_model or "")
+        else:
+            from app.llm import get_provider
+
+            try:
+                provider = get_provider(user_id)
+            except RuntimeError as exc:
+                raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+            check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
         try:
             resp = await provider.chat(system, prompt, max_tokens=max_tokens)
         except TransientLLMError as exc:
@@ -279,6 +299,70 @@ class LlmNamespace:
                 "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens,
             },
         }
+
+
+class ProvidersNamespace:
+    """LLM Provider 扩展点（v1.6.0 扩展点，契约见 API.md「§LLM Provider 扩展点」）。
+
+    插件为内置仅支持 Anthropic 协议的 LLM 层注册**新协议 Provider**（OpenAI
+    /v1/chat/completions、Ollama、DeepSeek 原生、Gemini 等），经
+    ``api.llm.complete(..., provider_kind=...)`` 调用——带宿主日预算守卫 + api_usage 计量
+    （与宿主端点同口径），无需 DIY httpx 绕开预算/计量（"暗花费"）。
+
+    handler 契约（async 或 sync，签名相同）：
+        (system: str, user: str, *, model: str, max_tokens: int) -> dict
+    返回 dict：{"content": str, "model": str, "stop_reason"?: str,
+    "usage": {"input_tokens": int, "output_tokens": int,
+    "cache_read_input_tokens"?: int, "cache_creation_input_tokens"?: int}}。
+    凭证由插件自理（handler 不接收 api_key/base_url——从 api.data_dir/环境变量/自有设置读写）。
+
+    异常约定：handler 抛异常 -> 经分类——在异常上设 ``transient = True``（或抛常见网络瞬态
+    类型）标记瞬态，宿主据此退避重试（api.llm -> server_busy 503）；其余非瞬态（含 4xx/契约
+    不合规）-> bad_gateway 502。
+
+    安全默认：'anthropic' 为内置保留协议名，注册时拒绝（ValueError）——插件请注册新协议名。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        kind: str,
+        handler: Callable,
+        *,
+        default_model: str = "",
+        label: str = "",
+    ) -> None:
+        """注册 LLM Provider。
+
+        - kind：协议名（如 "openai"、"ollama"）；自动规范化为小写，字符集 [a-z0-9][a-z0-9_-]{0,31}；
+          'anthropic' 为内置保留，注册拒绝。
+        - handler：补全函数，async 或 sync，签名 (system, user, *, model, max_tokens) -> dict（见类 docstring）。
+        - default_model：该 kind 的默认模型名（api.llm 未显式传 model 时用），可选。
+        - label：人类可读协议名（GET /providers/kinds 展示用），可选。
+        """
+        if not callable(handler):
+            raise TypeError("handler 必须是 callable（async 或 sync，签名 (system, user, *, model, max_tokens) -> dict）")
+        norm = providers.normalize_kind(kind)
+        if not providers.valid_kind_name(norm):
+            raise ValueError(f"provider kind 非法: {kind!r}（需匹配 [a-z0-9][a-z0-9_-]{{0,31}}）")
+        entry = providers.ProviderEntry(
+            plugin_id=self._pid,
+            kind=norm,
+            handler=handler,
+            default_model=default_model or "",
+            label=label or "",
+        )
+        providers.register(entry)  # 'anthropic' 在此抛 ValueError
+        self._status.providers.append(norm)
+        self._rollbacks.append(lambda entry=entry: providers.unregister(entry))
+
+    def kinds(self) -> list[str]:
+        """本插件已注册的协议名（调试/状态展示用）。"""
+        return [e.kind for e in providers.all_entries() if e.plugin_id == self._pid]
 
 
 class RoutesNamespace:
@@ -441,6 +525,7 @@ class BackendPluginAPI:
         self.tools = ToolsNamespace(status, self._rollbacks)
         self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
         self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
+        self.providers = ProvidersNamespace(plugin_id, status, self._rollbacks)
         self.llm = LlmNamespace(plugin_id)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
