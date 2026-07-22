@@ -637,6 +637,10 @@ export interface UsageDailyItem { date: string; cost: number; tokens: number; ca
 export const getUsageDaily = (days = 14) =>
   apiFetch<{ items: UsageDailyItem[] }>(`/usage/daily?days=${days}`)
 
+// 按模型用量（iter 303）：分模型费用/token/调用数
+export interface UsageModelItem { model: string; cost: number; tokens: number; calls: number }
+export const getUsageByModel = () => apiFetch<{ items: UsageModelItem[] }>('/usage/by-model')
+
 // --- LLM 供应商档案（自定义供应商多档案切换，iter 51-52）---
 // api_key 只写不读：响应仅含掩码末 4 位；更新时 api_key 留空 -> 保留原值。
 export interface ProviderProfile {

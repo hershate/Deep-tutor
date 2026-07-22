@@ -93,3 +93,27 @@ def get_usage_daily(
         cost, tokens, calls = by_date.get(d, (0.0, 0, 0))
         items.append({"date": d, "cost": round(cost, 6), "tokens": tokens, "calls": calls})
     return {"items": items}
+
+
+@router.get("/by-model")
+def usage_by_model(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """按模型聚合用量（iter 303，用量页分模型成本视图）：当前用户全部 api_usage 按 model 分组
+    的费用 / token / 调用数，费用降序。成本可见性（Pillar 3）的细化——答「钱花在哪个模型上」。
+    只读、按用户隔离、SQL 聚合（同 get_usage 口径）。"""
+    rows = (
+        db.query(
+            models.ApiUsage.model,
+            func.coalesce(func.sum(models.ApiUsage.cost), 0.0),
+            func.coalesce(func.sum(models.ApiUsage.tokens_in + models.ApiUsage.tokens_out), 0),
+            func.count(models.ApiUsage.id),
+        )
+        .filter(models.ApiUsage.user_id == user.id)
+        .group_by(models.ApiUsage.model)
+        .all()
+    )
+    items = [
+        {"model": (m or "未知"), "cost": round(float(c), 6), "tokens": int(t), "calls": int(n)}
+        for m, c, t, n in rows
+    ]
+    items.sort(key=lambda i: -i["cost"])
+    return {"items": items}

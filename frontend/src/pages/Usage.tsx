@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '../components/Skeleton'
-import { getUsage, getUsageDaily } from '../lib/api'
+import { getUsage, getUsageByModel, getUsageDaily, type UsageModelItem } from '../lib/api'
 
 /** 用量详情页（/usage）：汇总 token / 费用 / 缓存命中率 / 调用数。 */
 export default function Usage() {
@@ -12,6 +12,8 @@ export default function Usage() {
   })
   // iter 131：近 14 日按日趋势（CSS 柱状图，无图表库依赖）
   const daily = useQuery({ queryKey: ['usage-daily'], queryFn: () => getUsageDaily(14), staleTime: 60_000 })
+  // iter 303：按模型费用分解（答「钱花在哪个模型上」）
+  const byModel = useQuery({ queryKey: ['usage-by-model'], queryFn: getUsageByModel, staleTime: 60_000 })
 
   return (
     <div className="space-y-4">
@@ -59,7 +61,39 @@ export default function Usage() {
 
       {/* iter 131：近 14 日按日费用柱状图（纯 CSS，悬浮看明细） */}
       {daily.data && daily.data.items.length > 0 && <DailyChart items={daily.data.items} />}
+
+      {/* iter 303：按模型费用分解 */}
+      {byModel.data && byModel.data.items.length > 0 && <ModelBreakdown items={byModel.data.items} />}
     </div>
+  )
+}
+
+/** iter 303：按模型费用分解（每模型相对费用条 + 调用数） */
+function ModelBreakdown({ items }: { items: UsageModelItem[] }) {
+  const maxCost = Math.max(...items.map((i) => i.cost), 1e-9)
+  const total = items.reduce((s, i) => s + i.cost, 0)
+  return (
+    <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">按模型费用</h3>
+        <span className="text-xs tabular-nums text-slate-400">合计 ${total.toFixed(6)}</span>
+      </div>
+      <ul className="space-y-2">
+        {items.map((m) => (
+          <li key={m.model}>
+            <div className="mb-0.5 flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-mono text-slate-700 dark:text-slate-200">{m.model}</span>
+              <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                ${m.cost.toFixed(6)} · {m.calls} 次 · {(m.tokens / 1000).toFixed(1)}k tok
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+              <div className="h-full rounded-full bg-blue-500 dark:bg-blue-400" style={{ width: `${Math.max((m.cost / maxCost) * 100, m.cost > 0 ? 4 : 0)}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
