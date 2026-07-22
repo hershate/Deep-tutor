@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Toaster } from './Toast'
 import ErrorBoundary from './ErrorBoundary'
+import HeaderSearch from './HeaderSearch'
 import TaskCenter from './TaskCenter'
 import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
@@ -59,27 +60,8 @@ function ReviewDueBadge() {
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation() // iter 92：按路由 key 触发主区入场动画
-  // iter 249：顶栏全局搜索框（窄屏藏起走侧栏/抽屉「搜索」入口）
-  const [headerQuery, setHeaderQuery] = useState('')
-  const headerSearchRef = useRef<HTMLInputElement | null>(null)
-
-  // iter 264：「/」全局快捷键聚焦搜索（GitHub 式）——输入框/文本域/下拉/可编辑区、
-  // 修饰键、输入法组合态、弹窗打开（role=dialog）均不劫持；
-  // 顶栏输入框隐藏（窄屏 hidden md:block，offsetParent 为 null）时退化为跳转 /search（该页输入框 autoFocus）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-      if (document.querySelector('[role="dialog"]')) return
-      e.preventDefault() // 防 '/' 触发浏览器快速查找（Firefox）
-      const input = headerSearchRef.current
-      if (input && input.offsetParent !== null) input.focus()
-      else navigate('/search')
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
+  // iter 289：顶栏全局搜索（含 typeahead 建议 + `/` 快捷键）抽为独立 HeaderSearch 组件——
+  // combobox 焦点/键盘/点击外部边界封装于此，降低 Layout（每页渲染的应用壳）爆炸半径。
   // err.md D17：getStoredUser() 直读 localStorage 非响应式（改名后顶栏不更新）——
   // 改 state + 监听 AUTH_CHANGED_EVENT（同源 setAuth/clearAuth/updateStoredUser）
   // 与 storage 事件（其他标签页）
@@ -209,31 +191,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Link to="/" className="text-lg font-semibold tracking-tight transition-colors hover:text-blue-600 dark:hover:text-blue-400">
               Deep-tutor
             </Link>
-            {/* iter 249：顶栏全局搜索（Enter 跳 /search?q=；CJK 输入法候选确认不提交） */}
-            <form
-              role="search"
-              className="hidden md:block"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const v = headerQuery.trim()
-                if (v) navigate(`/search?q=${encodeURIComponent(v)}`)
-              }}
-            >
-              <input
-                ref={headerSearchRef}
-                type="search"
-                value={headerQuery}
-                onChange={(e) => setHeaderQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault()
-                }}
-                placeholder="全局搜索…"
-                aria-label="全局搜索"
-                title="全局搜索（快捷键 /）"
-                maxLength={100}
-                className="w-44 rounded-lg border bg-slate-50 px-2.5 py-1 text-sm transition-all focus:w-64 focus:bg-white dark:border-slate-600 dark:bg-slate-700 dark:focus:bg-slate-800"
-              />
-            </form>
+            {/* iter 289：顶栏全局搜索 + typeahead（独立组件，含 `/` 快捷键） */}
+            <HeaderSearch />
           </div>
           <div className="flex items-center gap-3">
             <button

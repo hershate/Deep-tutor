@@ -610,8 +610,8 @@ export interface GlobalSearchResult {
   }>
   nodes: SearchGroup<{ id: number; plan_id: number; name: string; plan_topic: string }>
 }
-export const globalSearch = (q: string, limit = 10) =>
-  apiFetch<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+export const globalSearch = (q: string, limit = 10, signal?: AbortSignal) =>
+  apiFetch<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`, { signal })
 
 // --- usage ---
 export const getUsage = () =>
