@@ -32,6 +32,12 @@ jobs:
           AUTH_TOKEN: ci-token
         run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=80
       - name: Contract check (OpenAPI 可导出)
+        # windows-latest 默认 shell 为 pwsh，不识别 bash 风格 \" 转义，
+        # 且 f-string 中的 {...} 会被 pwsh 当作 ScriptBlock 解析报错
+        # （ScriptBlock should only be specified as a value of the Command parameter）。
+        # 显式 shell: bash 使本步骤在 ubuntu/windows 矩阵下命令与引号语义完全一致
+        # （windows-latest runner 自带 Git Bash）。
+        shell: bash
         run: python -c "from app.main import create_app; s = create_app().openapi(); assert s['paths'], 'empty openapi'; print(f\"openapi paths={len(s['paths'])}\")"
 
   frontend:
