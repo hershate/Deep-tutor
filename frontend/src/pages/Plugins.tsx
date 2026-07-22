@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import Card from '../components/Card'
 import { toast } from '../components/Toast'
 import { ApiError, getBackendPlugins } from '../lib/api'
-import { API_VERSION, plugins as pluginMgr, skins, widgets } from '../lib/plugins'
+import { API_VERSION, pages, plugins as pluginMgr, skins, widgets } from '../lib/plugins'
 
 // 插件管理页（iter 204）：前端 JS 插件的可视化加载/移除 + 皮肤/小组件生效概览
 // + 后端插件状态（管理员只读）。前端插件契约见 API.md「前端插件 API」；
@@ -48,14 +48,18 @@ export default function Plugins() {
   const [slotWidgets, setSlotWidgets] = useState(() =>
     widgets.slots().map((slot) => ({ slot, items: widgets.list(slot) })),
   )
+  // iter 306：已注册插件页面（pages 注册表；含无导航项的，供排查/发现）
+  const [pageList, setPageList] = useState(() => pages.list())
   useEffect(() => {
     const offSkins = skins.subscribe(() => setActiveSkin(skins.active()))
     const offWidgets = widgets.subscribe(() =>
       setSlotWidgets(widgets.slots().map((slot) => ({ slot, items: widgets.list(slot) }))),
     )
+    const offPages = pages.subscribe(() => setPageList(pages.list()))
     return () => {
       offSkins()
       offWidgets()
+      offPages()
     }
   }, [])
 
@@ -164,6 +168,23 @@ export default function Plugins() {
               )}
             </div>
           ))}
+          {/* iter 306：已注册插件页面（/p/ 命名空间路由 + 侧栏导航） */}
+          <div className="text-sm">
+            <span className="text-slate-600 dark:text-slate-300">
+              插件页面
+              <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">(/p/…)</span>：
+            </span>
+            {pageList.length === 0 ? (
+              <span className="text-slate-400 dark:text-slate-500">无页面</span>
+            ) : (
+              <span className="text-slate-500 dark:text-slate-400">
+                {pageList.length} 个：
+                {pageList
+                  .map((p) => `${p.nav ? p.nav.label : p.path}（/p/${p.path}）`)
+                  .join('、')}
+              </span>
+            )}
+          </div>
         </div>
       </Card>
 

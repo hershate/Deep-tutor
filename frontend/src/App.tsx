@@ -21,6 +21,7 @@ import Wiki from './pages/Wiki'
 import Notes from './pages/Notes'
 import Review from './pages/Review'
 import Search from './pages/Search'
+import PluginPageHost from './components/PluginPageHost'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
 // - 状态加载中 -> 占位；查询失败 -> 回退旧逻辑（仅查 token，不让 status 端点故障阻塞应用）
@@ -84,6 +85,8 @@ export default function App() {
                 {/* iter 204：插件管理页（前端插件加载/移除 + 生效概览 + 后端状态） */}
                 <Route path="/plugins" element={<Plugins />} />
                 <Route path="/settings" element={<Settings />} />
+                {/* iter 306：插件页面命名空间 /p/*（插件 API v1.4.0 pages 注册表宿主路由） */}
+                <Route path="/p/*" element={<PluginPageHost />} />
                 {/* iter 157：未知路由显式 404（原静默重定向首页，输错 URL 无感知） */}
                 <Route path="*" element={<NotFound />} />
               </Routes>

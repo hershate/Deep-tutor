@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.3.1` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.4.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.3.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -133,6 +133,64 @@ if (DeepTutor.widgets.slots().includes('sidebar.footer')) {
 - 组件渲染异常会被**单组件级错误边界**隔离（v1.2.0）：抛异常的组件自身隐藏、
   错误输出到控制台，不影响应用与其余小组件；同 id 重新注册新组件后该组件获得重试机会。
   即便如此，仍请保证组件不抛异常——被隔离的组件对用户不可见。
+
+---
+
+## 二补 · 页面 API（`DeepTutor.pages`，v1.4.0）
+
+> **"用 API 完全替换前端"的核心使能项。** 小组件（§二）只能往既有页面的固定插槽注入卡片；
+> 页面 API 让插件注册**完整的路由页 + 可选侧栏导航**——插件因此能构建自己的整套页面
+> （如一个完全不同风格的学习仪表盘 / 专注工具 / 复习游戏），不再受插槽限制。
+
+### 路径命名空间 `/p/`（安全默认）
+
+插件页面一律挂载在 **`/p/<path>`** 下，与内置路由（`/`、`/plans`、`/notes`、…）**零碰撞**——
+插件**不可能覆盖**任何既有页面。`path` 支持多级（`'pomodoro/stats'` → `/p/pomodoro/stats`），
+仅允许字母数字 `-` `_` 段、以 `/` 分隔；含 `..` 或非法字符的路径注册时报错。
+
+### `pages.register(def: PageDef): void`
+
+```ts
+interface PageDef {
+  path: string                 // 相对 /p/ 的路径（如 'pomodoro'）；唯一，重复注册同 path 覆盖更新
+  component: ComponentType     // React 组件，无 props；数据获取用组件内 hooks
+  title?: string               // 页面标题（document.title），可选
+  nav?: {                      // 可选：注册侧栏导航项；缺省则页面可达但不出现在导航（深链/二级页）
+    label: string              // 侧栏显示名
+    icon?: string              // 图标（emoji/字符），缺省 🧩
+    order?: number             // 排序权重，小的在前，缺省 100
+  }
+}
+```
+
+参数非法（缺 path / 非法路径 / component 非函数 / nav 缺 label）抛出 `Error`。
+
+```js
+// 例：番茄钟插件注册一个完整页面 + 侧栏入口
+DT.pages.register({
+  path: 'pomodoro',
+  title: '番茄钟',
+  component: PomodoroPage,          // 完整 React 页面组件（可用 hooks / api.get 拉数据）
+  nav: { label: '番茄钟', icon: '🍅', order: 100 },
+})
+// -> 侧栏出现「🍅 番茄钟」，点击打开 /p/pomodoro 渲染 PomodoroPage
+```
+
+### 其余方法
+
+- `pages.unregister(path): boolean` —— 幂等移除；页面随下次渲染消失，导航项一并移除。
+- `pages.get(path): PageDef | undefined` —— 查询某 path 的页面定义。
+- `pages.list(): PageDef[]` —— 全部页面（含无 nav 的，按 path 升序）。主要供调试。
+- `pages.navItems(): PageDef[]` —— 带导航项的页面（按 nav.order 升序），侧栏数据源。
+- `pages.subscribe(fn): () => void` —— 订阅注册表变化，返回退订函数（一般无需使用）。
+
+### 宿主行为保证
+
+- **应用壳内渲染**：插件页面渲染在应用 Layout 内（顶栏 / 侧栏可用），体验与内置页面一致。
+- **单页错误边界**：插件页面渲染异常被**隔离**（不白屏整应用），换页自愈；异常输出到控制台。
+- **响应式**：插件在导航后异步注册页面时（如刷新后自动加载顺序），注册即生效命中。
+- **未命中兜底**：访问未注册 / 已卸载的 `/p/...` 路径，显示「插件页面不存在」+ 回首页链接，
+  绝不静默或白屏。
 
 ---
 
@@ -641,6 +699,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
 | 后端 | 1.3.0 | 2026-07-22 | 新增 `api.parsers` 文件解析扩展点（插件为私有/小众格式注册解析器；上传校验自动接纳插件扩展名 + 可选 magic；`GET /materials/formats` 格式发现端点；插件状态行新增 `parsers` 字段） |
 | 后端 | 1.2.0 | 2026-07-19 | 新增 `learning_log_added` 事件（学习打卡提交后广播，用户行为事件目录补齐） |
 | 前端 | 1.3.1 | 2026-07-19 | 修复：插件脚本 15 秒无响应按超时 reject（此前永不 settle，自动加载时一个挂起 URL 会饿死其后全部持久化插件） |

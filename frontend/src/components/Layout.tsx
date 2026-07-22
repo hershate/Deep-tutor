@@ -5,6 +5,7 @@ import { Toaster } from './Toast'
 import ErrorBoundary from './ErrorBoundary'
 import HeaderSearch from './HeaderSearch'
 import ShortcutsHelp from './ShortcutsHelp'
+import PluginNavItems from './PluginNavItems'
 import TaskCenter from './TaskCenter'
 import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
@@ -164,6 +165,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           {!collapsed && <span className="truncate">{item.label}</span>}
         </NavLink>
       ))}
+      {/* iter 306：插件页面导航项（插件 API v1.4.0 pages.navItems()；无插件页面时不渲染） */}
+      <PluginNavItems navLinkClass={navLinkClass} collapsed={collapsed} onNavigate={() => setDrawerOpen(false)} />
     </nav>
   )
 
@@ -318,6 +321,8 @@ export default function Layout({ children }: { children: ReactNode }) {
                     <span className="truncate">{item.label}</span>
                   </NavLink>
                 ))}
+                {/* iter 306：插件页面导航项（抽屉态强制展开，点击后收起抽屉） */}
+                <PluginNavItems navLinkClass={navLinkClass} collapsed={false} onNavigate={() => setDrawerOpen(false)} />
               </nav>
             </aside>
           </div>

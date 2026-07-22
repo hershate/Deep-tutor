@@ -2,6 +2,7 @@
 //
 // 第三方插件通过全局 `window.DeepTutor` 访问本模块，可：
 //   - widgets：向命名插槽（slot）注册小组件（React 组件，可用 DeepTutor.React 免打包 React）
+//   - pages：注册完整路由页（/p/ 命名空间）+ 可选侧栏导航——"用 API 完全替换前端"使能项（v1.4.0）
 //   - skins：注册/应用外观皮肤（CSS 变量令牌集，亮/暗双态，选择持久化）
 //   - api：以当前登录态调用后端 REST（get 便捷方法 + request 全方法）
 //   - events：订阅 API 事件
@@ -12,7 +13,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.3.1'
+export const API_VERSION = '1.4.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -81,6 +82,101 @@ const widgetsApi = {
   },
   getVersion(): number {
     return registryVersion
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 页面（pages）：注册完整路由页 + 可选侧栏导航（v1.4.0）——"用 API 完全替换前端"使能项
+// ---------------------------------------------------------------------------
+
+/** 插件页面路径命名空间前缀。所有插件页面挂载在 /p/ 下，与内置路由零碰撞（防覆盖既有页面） */
+export const PAGES_PREFIX = '/p/'
+
+export interface PageNavDef {
+  /** 侧栏导航显示名 */
+  label: string
+  /** 导航图标（emoji/字符），可选；缺省 🧩 */
+  icon?: string
+  /** 排序权重，小的在前；缺省 100 */
+  order?: number
+}
+
+export interface PageDef {
+  /** 页面路径，相对 /p/（如 'pomodoro' 或多级 'pomodoro/stats'）；唯一，重复注册同 path 覆盖更新 */
+  path: string
+  /** 渲染组件；无 props。数据获取用组件内 hooks（TanStack Query / React Router 上下文可用） */
+  component: ComponentType
+  /** 页面标题（document.title），可选 */
+  title?: string
+  /** 侧栏导航项；缺省则页面可达但不出现在导航（深链/二级页用） */
+  nav?: PageNavDef
+}
+
+const pageRegistry = new Map<string, PageDef>()
+let pageRegistryVersion = 0
+const pageListeners = new Set<() => void>()
+
+function notifyPages() {
+  pageRegistryVersion += 1
+  pageListeners.forEach((fn) => {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[DeepTutor] pages 订阅回调异常', e)
+    }
+  })
+}
+
+/** 规范化页面路径：去首尾斜杠（'pomodoro/' / '/pomodoro' -> 'pomodoro'） */
+function normalizePagePath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, '')
+}
+
+/** 路径合法性：非空、无 '..'（防越出命名空间）、段内字母数字-_ 段间 /（多级如 'a/b'） */
+function isValidPagePath(p: string): boolean {
+  if (!p || p.includes('..')) return false
+  return /^[a-z0-9][a-z0-9\-_/]*$/i.test(p)
+}
+
+const pagesApi = {
+  register(def: PageDef): void {
+    if (!def || typeof def.path !== 'string') throw new Error('[DeepTutor] page.path 必填')
+    const path = normalizePagePath(def.path)
+    if (!isValidPagePath(path)) {
+      throw new Error(`[DeepTutor] 非法页面路径: ${def.path}（仅字母数字-_;多级用 /；不可含 ..）`)
+    }
+    if (typeof def.component !== 'function') throw new Error('[DeepTutor] page.component 必须是组件')
+    if (def.nav && typeof def.nav.label !== 'string') throw new Error('[DeepTutor] page.nav.label 必填')
+    pageRegistry.set(path, { ...def, path })
+    notifyPages()
+  },
+  /** 幂等；返回是否确实移除了一个页面 */
+  unregister(path: string): boolean {
+    const ok = pageRegistry.delete(normalizePagePath(path))
+    if (ok) notifyPages()
+    return ok
+  },
+  /** 某 path 的页面定义（宿主路由匹配用）；无则 undefined */
+  get(path: string): PageDef | undefined {
+    return pageRegistry.get(normalizePagePath(path))
+  },
+  /** 全部页面（按 path 升序），含无 nav 的。主要供调试 */
+  list(): PageDef[] {
+    return [...pageRegistry.values()].sort((a, b) => a.path.localeCompare(b.path))
+  },
+  /** 带导航项的页面（按 nav.order 升序，同 order 按注册顺序），供侧栏渲染 */
+  navItems(): PageDef[] {
+    return [...pageRegistry.values()]
+      .filter((p) => p.nav)
+      .sort((a, b) => (a.nav!.order ?? 100) - (b.nav!.order ?? 100))
+  },
+  /** 订阅注册表变化（React useSyncExternalStore 用）；返回退订函数 */
+  subscribe(fn: () => void): () => void {
+    pageListeners.add(fn)
+    return () => pageListeners.delete(fn)
+  },
+  getVersion(): number {
+    return pageRegistryVersion
   },
 }
 
@@ -334,6 +430,8 @@ const pluginsApi = {
 export const widgets = widgetsApi
 export const skins = skinsApi
 export const events = eventsApi
+/** 内部使用：插件页面路由/导航消费（与 window.DeepTutor.pages 同一对象） */
+export const pages = pagesApi
 /** 内部使用：插件管理页（与 window.DeepTutor.plugins 同一对象） */
 export const plugins = pluginsApi
 
@@ -344,6 +442,8 @@ export interface DeepTutorAPI {
   skins: typeof skinsApi
   events: typeof eventsApi
   plugins: typeof pluginsApi
+  /** v1.4.0：注册完整路由页（/p/ 命名空间）+ 可选侧栏导航——"用 API 完全替换前端"使能项 */
+  pages: typeof pagesApi
   /** 以当前登录态调用后端 REST（路径如 '/progress/stats/summary'，相对 /api 前缀） */
   api: typeof apiProxy
   /** 暴露 React，供无构建链的纯 JS 插件创建组件（const h = DeepTutor.React.createElement） */
@@ -363,6 +463,7 @@ export async function initPlugins(React: unknown): Promise<void> {
     skins: skinsApi,
     events: eventsApi,
     plugins: pluginsApi,
+    pages: pagesApi,
     api: apiProxy,
     React,
   }
