@@ -157,6 +157,27 @@ export default function PlanOutline({ stages, knowledgeMap }: Props) {
               <MapNode key={n.id} node={n} childrenMap={childrenMap} depth={0} />
             ))}
           </ul>
+          {/* iter 302：依赖关系（knowledge_map.edges）——此前仅渲染 parent_id 树，edges 未呈现 */}
+          {(() => {
+            const names = new Map((knowledgeMap?.nodes ?? []).map((n) => [n.id, n.name]))
+            const edges = knowledgeMap?.edges ?? []
+            if (edges.length === 0) return null
+            return (
+              <div className="mt-3 border-t pt-2 dark:border-slate-700">
+                <p className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">依赖关系</p>
+                <ul className="space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  {edges.map((e, i) => (
+                    <li key={i}>
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{names.get(e.from) ?? e.from}</span>
+                      <span aria-hidden="true" className="mx-1 text-slate-400">→</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{names.get(e.to) ?? e.to}</span>
+                      {e.relation && <span className="ml-1 text-slate-400">（{e.relation}）</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
         </section>
       )}
       {(!stages || stages.length === 0) && roots.length === 0 && (
