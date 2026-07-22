@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 # 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 API.md §版本线）
 # v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
 # v1.4.0：新增 api.exporters 导出格式扩展点（插件为私有/小众格式注册导出器）。
-API_VERSION = "1.4.0"
+# v1.5.0：新增 api.llm 宿主 LLM 能力调用（插件复用用户已配置的供应商，预算守卫+计量同宿主）。
+API_VERSION = "1.5.0"
 
 
 class ToolsNamespace:
@@ -181,6 +182,103 @@ class ExportersNamespace:
     def formats(self) -> list[str]:
         """本插件已注册的格式名（调试/状态展示用）。"""
         return [e.format for e in exporters.all_entries() if e.plugin_id == self._pid]
+
+
+class LlmNamespace:
+    """宿主 LLM 能力调用（v1.5.0 扩展点，契约见 API.md「§LLM 能力」）。
+
+    插件做 AI 功能（自定义总结/批改/翻译/问答等）直接复用宿主已配置的供应商——
+    用户无需为插件重复配 key；按 user_id 三级回退解析（DB 供应商档案 -> Key 凭证
+    档案 -> .env，与宿主端点同一口径）。调用前经 check_daily_budget 日预算守卫
+    （与生成/幻灯片端点同规），用量计入 api_usage（用量页/日预算统计口径完整）。
+
+    错误映射：无配置 -> no_llm_provider(503)；日预算耗尽 -> budget_exceeded(402)；
+    瞬态上游错误（限流/5xx/连接失败）-> server_busy(503)，插件可自行退避重试；
+    其他 -> bad_gateway(502)。均为 ApiError——插件路由内直接上抛即得宿主统一错误格式。
+
+    注意：v1 为非流式单次补全；多轮对话/工具调用请自行用返回文本编排（或经
+    api.tools 注册工具融入 Agent 管线）。
+    """
+
+    _MAX_TOKENS_CAP = 8192  # 单次 max_tokens 上限（防失控插件天价调用；日预算守卫是底线）
+
+    def __init__(self, plugin_id: str) -> None:
+        self._pid = plugin_id
+
+    def is_configured(self, user_id: int) -> bool:
+        """该用户是否已配置任一 LLM 供应商（与 complete 的解析口径严格一致）。
+
+        插件据此在"无 key"时优雅降级（如显示配置引导），而非调用时才撞 503。
+        """
+        from app.llm import get_provider
+
+        try:
+            get_provider(user_id)
+        except Exception:  # noqa: BLE001  探测语义：任何解析失败（含 DB 异常）都视为未配置
+            return False
+        return True
+
+    async def complete(
+        self,
+        user_id: int,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 2048,
+    ) -> dict:
+        """以该用户的供应商配置发起一次 LLM 补全。
+
+        返回 dict：{"content": str, "model": str, "stop_reason": str | None,
+        "usage": {"input_tokens", "output_tokens", "cache_read_input_tokens",
+        "cache_creation_input_tokens"}}（只增不改）。max_tokens 收敛到 [1, 8192]。
+        """
+        from app.api.deps import check_daily_budget
+        from app.api.errors import ApiError
+        from app.db.base import SessionLocal
+        from app.llm import get_provider
+        from app.llm.base import TransientLLMError
+
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt 必须是非空字符串")
+        if not isinstance(system, str):
+            raise TypeError("system 必须是字符串")
+        max_tokens = max(1, min(int(max_tokens), self._MAX_TOKENS_CAP))
+
+        try:
+            provider = get_provider(user_id)
+        except RuntimeError as exc:
+            raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+        check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
+        try:
+            resp = await provider.chat(system, prompt, max_tokens=max_tokens)
+        except TransientLLMError as exc:
+            raise ApiError("server_busy", f"LLM 服务暂时不可用（可退避重试）: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ApiError("bad_gateway", f"LLM 调用失败: {exc}") from exc
+
+        # 用量计量（err.md A6：与宿主端点同口径；record 内部容错，计量失败不阻断业务）
+        from app.agent.cost import build_metadata, record_metadata_usage
+
+        metadata = build_metadata(resp.usage)
+        db = SessionLocal()
+        try:
+            record_metadata_usage(db, metadata, user_id)
+        finally:
+            db.close()
+
+        return {
+            "content": resp.content,
+            "model": resp.usage.model,
+            "stop_reason": resp.stop_reason,
+            "usage": {
+                "input_tokens": resp.usage.input_tokens,
+                "output_tokens": resp.usage.output_tokens,
+                "cache_read_input_tokens": resp.usage.cache_read_input_tokens,
+                "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens,
+            },
+        }
 
 
 class RoutesNamespace:
@@ -343,6 +441,7 @@ class BackendPluginAPI:
         self.tools = ToolsNamespace(status, self._rollbacks)
         self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
         self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
+        self.llm = LlmNamespace(plugin_id)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

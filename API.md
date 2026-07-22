@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.5.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.4.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.5.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -427,7 +427,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.4.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.5.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -507,6 +507,7 @@ PLUGIN_META = {
 | `api.data_dir` | `pathlib.Path` | 插件私有数据目录（已创建），持久化插件自身状态 |
 | `api.parsers` | `ParsersNamespace` | 文件解析器注册（v1.3.0）：为私有/小众格式注册解析器，上传与解析自动委托（§8.4a） |
 | `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
+| `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -704,6 +705,66 @@ def register(api):
 重启后端 -> `POST /api/export/{plan_id}` 带 `{"format": "epub"}` 即由本插件渲染，
 响应 `bytes_b64` 为 EPUB 二进制（前端/客户端 base64 解码后 Blob 下载）。
 
+#### `api.llm` —— 宿主 LLM 能力调用（v1.5.0 扩展点，§8.4c）
+
+插件做 AI 功能（自定义总结/批改/翻译/问答/私有语料加工等）**直接复用宿主已配置的
+供应商**——用户无需为插件重复配 key。供应商按 `user_id` 三级回退解析（DB 供应商
+档案 -> Key 凭证档案 -> `.env`，与宿主端点同一口径）；调用前经 `check_daily_budget`
+**日预算守卫**（与生成/幻灯片端点同规），用量计入 `api_usage`（用量页/日预算统计
+口径完整）——插件的 LLM 花费对用户完全可见、受预算约束，不会成为"暗花费"。
+
+```python
+api.llm.is_configured(user_id: int) -> bool   # 该用户是否已配置任一供应商（降级判断用）
+
+resp = await api.llm.complete(
+    user_id: int,          # 以谁的供应商配置调用（通常来自 api.deps.get_current_user）
+    prompt: str,           # 用户消息（非空）
+    *,
+    system: str = "",      # 系统提示（可选）
+    max_tokens: int = 2048 # 收敛到 [1, 8192]（防失控调用；日预算守卫是底线）
+) -> dict                  # {"content", "model", "stop_reason", "usage": {...}}（只增不改）
+```
+
+**错误映射**（均为 `ApiError`——插件路由内直接上抛即得宿主统一错误格式）：
+
+| 场景 | code | HTTP |
+|---|---|---|
+| 该用户未配置任何供应商 | `no_llm_provider` | 503 |
+| 日预算耗尽 | `budget_exceeded` | 402 |
+| 瞬态上游错误（限流/5xx/连接失败） | `server_busy` | 503 |
+| 其他错误（如请求被上游拒绝） | `bad_gateway` | 502 |
+
+- v1 为**非流式单次补全**；多轮对话/工具编排请自行用返回文本组织（或经 `api.tools`
+  注册工具融入 Agent 管线）。瞬态错误插件可自行退避重试。
+- `is_configured(user_id)` 与 `complete` 的解析口径严格一致——插件据此在"无 key"
+  时优雅降级（如路由返回配置引导），而非调用时才撞 503。
+
+**完整示例**：学习卡片批注插件（为插件页面提供 AI 批注）
+
+```python
+# plugins/annotator/plugin.py
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {"id": "annotator", "name": "AI Annotator", "version": "0.1.0", "min_api": "1.5"}
+
+def register(api):
+    router = APIRouter()
+
+    @router.post("/annotate")
+    async def annotate(body: dict, user=Depends(api.deps.get_current_user)):
+        if not api.llm.is_configured(user.id):
+            return {"configured": False, "hint": "请先在设置页配置 LLM 供应商"}
+        resp = await api.llm.complete(
+            user.id,
+            f"为以下学习笔记写一句鼓励性批注：\n{body.get('text', '')[:2000]}",
+            system="你是温和的学习助教，批注不超过 50 字。",
+            max_tokens=256,
+        )
+        return {"configured": True, "note": resp["content"], "model": resp["model"]}
+
+    api.routes.mount(router)  # -> POST /api/plugins/annotator/annotate（默认带宿主认证）
+```
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -734,7 +795,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.4.0",
+  "api_version": "1.5.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -826,6 +887,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
 | 后端 | 1.4.0 | 2026-07-22 | 新增 `api.exporters` 导出格式扩展点（插件为私有/小众格式注册导出器；`POST /export/{plan_id}` format 解除 Literal 枚举改显式校验，`GET /export/formats` 格式发现端点；插件状态行新增 `exporters` 字段）——与 `api.parsers` 对称的出口侧 |
