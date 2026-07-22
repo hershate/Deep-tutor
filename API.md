@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.7.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.8.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.8.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -332,6 +332,60 @@ if (DeepTutor.overlay.layers().includes('top')) {
 > 从 CDN 载入 [Three.js](https://threejs.org/) / [Matter.js](https://brm.io/matter-js/) / [p5.js](https://p5js.org/)
 > 等图形/物理库，或 `fetch`/`Image()` 载入纹理资源——3D 小游戏、2D 物理所需的全部生态库都可用。
 > 门面只负责"把你的 React 组件放到正确的全屏层"，绘图与物理引擎由你自选。
+
+---
+
+## 二补四 · UI 辅助 API（`DeepTutor.ui`，v1.8.0）
+
+> **"可自由拖放的小组件"的配套工具。** 覆盖层（§二补三）让插件能渲染浮层，但"可自由拖放"
+> （用户点名需求）须每个插件自行实现拖拽（pointer 事件 + 位置状态 + 边界 + 持久化），重复且易错。
+> 本命名空间提供受支持的拖拽工具——对自己的 DOM 元素调用一次即获得「可拖放 + 视口边界 +
+> 位置持久化」，配合 overlay 的 `content` 层即做出可自由拖放的小组件。
+
+### `ui.makeDraggable(el, opts?): { destroy }`
+
+```ts
+interface DraggableOptions {
+  handle?: HTMLElement | null      // 拖拽手柄（pointerdown 起始元素）；缺省 = 被拖元素自身
+  persistKey?: string              // localStorage 键——持久化位置，刷新后恢复；缺省不持久化
+  bounds?: 'viewport' | HTMLElement | null  // 移动边界：'viewport'（缺省）/ 容器元素 / null(不限)
+  initial?: { x: number; y: number }        // 初始 fixed 坐标(px)；缺省 = persistKey 恢复值 或 当前 rect
+}
+interface DraggableHandle { destroy(): void }  // 卸载时调用，移除监听
+```
+
+让一个 DOM 元素可自由拖放：设 `position:fixed` + 按初始位置定位，`pointerdown`(主键/触摸/笔)
+开始拖拽 → `pointermove` 更新位置（边界钳制）→ `pointerup` 结束并按 `persistKey` 持久化。
+拖拽中临时置顶（`z-index:9999`）+ 禁止文本选中；结束还原。返回 `{ destroy }`——overlay
+unregister / 组件卸载时调用移除监听。
+
+```js
+// 例：一个可自由拖放、位置记忆的浮窗笔记（overlay content 层 + makeDraggable）
+DT.overlay.register({
+  id: 'acme.float-notes',
+  layer: 'content',
+  pointerEvents: 'auto',          // 浮窗需交互
+  component: function FloatNotes() {
+    const { useEffect, useRef } = DT.React
+    const ref = useRef(null)
+    useEffect(() => {
+      if (!ref.current) return
+      // 一次调用即获得拖放 + 视口边界 + 位置持久化（刷新后回到上次位置）
+      const d = DT.ui.makeDraggable(ref.current, { persistKey: 'acme.float-notes.pos' })
+      return () => d.destroy()     // 组件卸载清理
+    }, [])
+    return DT.React.createElement('div', {
+      ref: ref,
+      style: { width: 220, background: '#fff', border: '1px solid #e2e8f0',
+               borderRadius: 'var(--dt-card-radius, 0.75rem)', padding: 12, boxShadow: '0 4px 12px rgba(0,0,0,.1)' },
+    }, '拖我到处放 📝')
+  },
+})
+```
+
+> **边界与持久化**：`bounds:'viewport'`（缺省）把浮窗限制在视口内（不会被拖出屏幕）；
+> 传容器元素则限制在其范围内；`null` 不限制。`persistKey` 存 localStorage（隐私模式/配额不可用时
+> 静默降级为不持久化）。`handle` 指定拖拽手柄（如标题栏），被拖元素整体随之移动。
 
 ---
 
@@ -1283,6 +1337,7 @@ for (;;) {
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.8.0 | 2026-07-23 | 新增 `ui` 命名空间（`makeDraggable`）：让任意 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 视口/容器边界 + 可选 localStorage 位置持久化 + 拖拽置顶），返回 `{ destroy }` 清理——配合 overlay `content` 层即做出"可自由拖放的小组件"（用户点名需求，此前须每个插件手写拖拽）；DRF 手柄/边界/初始位置/持久化键可配；隐私模式 localStorage 不可用静默降级 |
 | 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.7），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |
 | 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |

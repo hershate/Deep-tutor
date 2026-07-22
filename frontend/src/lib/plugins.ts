@@ -14,7 +14,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.7.0'
+export const API_VERSION = '1.8.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -338,6 +338,155 @@ const overlaysApi = {
 }
 
 // ---------------------------------------------------------------------------
+// UI 辅助（ui）：可拖放等前端交互工具（v1.8.0）
+// ---------------------------------------------------------------------------
+//
+// 为什么需要：overlay（§二补三）让插件能渲染浮层，但"可自由拖放的小组件"（用户点名需求）
+// 须每个插件自行实现拖拽（pointer 事件 + 位置状态 + 边界 + 持久化），重复且易错。本命名空间
+// 提供受支持的拖拽工具——插件对自己的 DOM 元素调用一次即获得"可拖放 + 视口边界 + 位置持久化"，
+// 配合 overlay 的 content 层即做出可自由拖放的小组件。
+
+export interface DraggableOptions {
+  /** 拖拽手柄（pointerdown 起始元素）；缺省 = 被拖元素自身 */
+  handle?: HTMLElement | null
+  /** localStorage 键——持久化位置，刷新后恢复；缺省不持久化（localStorage 不可用时静默降级） */
+  persistKey?: string
+  /** 移动边界：'viewport'（缺省，限制在视口内）/ 指定容器元素 / null（不限制） */
+  bounds?: 'viewport' | HTMLElement | null
+  /** 初始位置（px，fixed 坐标）；缺省 = persistKey 恢复值 或 元素当前 bounding rect */
+  initial?: { x: number; y: number }
+}
+
+export interface DraggableHandle {
+  /** 移除拖拽行为（移除监听）；overlay unregister / 组件卸载时调用 */
+  destroy(): void
+}
+
+function _readPosLS(key: string): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const o = JSON.parse(raw) as unknown
+    if (o && typeof o === 'object' && Number.isFinite((o as { x?: unknown }).x) && Number.isFinite((o as { y?: unknown }).y)) {
+      const o2 = o as { x: number; y: number }
+      return { x: o2.x, y: o2.y }
+    }
+  } catch {
+    /* 隐私模式 / 损坏 JSON：静默降级为不持久化 */
+  }
+  return null
+}
+
+function _writePosLS(key: string, x: number, y: number): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ x, y }))
+  } catch {
+    /* 配额/隐私模式：静默 */
+  }
+}
+
+const uiApi = {
+  /** 让一个 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 边界 + 可选位置持久化）。
+   *  返回 { destroy } —— 卸载时调用移除监听。配 overlay content 层做可拖放浮窗/小组件。
+   *  元素须是 HTMLElement（缺省设置 position:fixed，按 initial/持久化/当前 rect 定位）。 */
+  makeDraggable(el: HTMLElement, opts: DraggableOptions = {}): DraggableHandle {
+    if (!el || !(el instanceof HTMLElement)) {
+      throw new Error('[DeepTutor] ui.makeDraggable 需传入 HTMLElement')
+    }
+    const handle: HTMLElement = opts.handle === undefined ? el : (opts.handle ?? el)
+    const bounds = opts.bounds === undefined ? 'viewport' : opts.bounds
+
+    // 初始定位
+    let x: number
+    let y: number
+    const persisted = opts.persistKey ? _readPosLS(opts.persistKey) : null
+    if (persisted) {
+      x = persisted.x
+      y = persisted.y
+    } else if (opts.initial) {
+      x = opts.initial.x
+      y = opts.initial.y
+    } else {
+      const r = el.getBoundingClientRect()
+      x = r.left
+      y = r.top
+    }
+    el.style.position = 'fixed'
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+    el.style.margin = '0'
+    el.style.touchAction = 'none' // 拖拽时阻止触摸滚动
+
+    let dragging = false
+    let startX = 0
+    let startY = 0
+    let origX = 0
+    let origY = 0
+    let origZ = ''
+
+    const clamp = (nx: number, ny: number): [number, number] => {
+      if (!bounds) return [nx, ny]
+      const r = el.getBoundingClientRect()
+      const bw = bounds === 'viewport' ? null : bounds.getBoundingClientRect()
+      const minX = bw ? bw.left : 0
+      const minY = bw ? bw.top : 0
+      const maxX = (bw ? bw.right : window.innerWidth) - r.width
+      const maxY = (bw ? bw.bottom : window.innerHeight) - r.height
+      return [Math.max(minX, Math.min(maxX, nx)), Math.max(minY, Math.min(maxY, ny))]
+    }
+
+    const onMove = (e: PointerEvent): void => {
+      if (!dragging) return
+      const [nx, ny] = clamp(origX + (e.clientX - startX), origY + (e.clientY - startY))
+      el.style.left = `${nx}px`
+      el.style.top = `${ny}px`
+    }
+
+    const onUp = (): void => {
+      if (!dragging) return
+      dragging = false
+      el.style.userSelect = ''
+      el.style.zIndex = origZ
+      window.removeEventListener('pointermove', onMove)
+      if (opts.persistKey) {
+        const r = el.getBoundingClientRect()
+        _writePosLS(opts.persistKey, r.left, r.top)
+      }
+    }
+
+    const onDown = (e: PointerEvent): void => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return // 仅主键（触摸/笔不限）
+      dragging = true
+      startX = e.clientX
+      startY = e.clientY
+      const r = el.getBoundingClientRect()
+      origX = r.left
+      origY = r.top
+      origZ = el.style.zIndex
+      el.style.userSelect = 'none'
+      el.style.zIndex = '9999' // 拖拽中置顶
+      try {
+        ;(e.target as HTMLElement | null)?.setPointerCapture?.(e.pointerId)
+      } catch {
+        /* 某些元素不支持 pointer capture，window 监听已兜底 */
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp, { once: true })
+      e.preventDefault()
+    }
+
+    handle.addEventListener('pointerdown', onDown)
+    return {
+      destroy(): void {
+        handle.removeEventListener('pointerdown', onDown)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      },
+    }
+  },
+}
+
+// ---------------------------------------------------------------------------
 // 皮肤（skins）：CSS 变量令牌集
 // ---------------------------------------------------------------------------
 
@@ -620,6 +769,8 @@ export const pages = pagesApi
 export const plugins = pluginsApi
 /** 内部使用：插件覆盖层宿主消费（与 window.DeepTutor.overlay 同一对象） */
 export const overlays = overlaysApi
+/** 内部使用：UI 辅助（与 window.DeepTutor.ui 同一对象） */
+export const ui = uiApi
 
 export interface DeepTutorAPI {
   /** API 语义化版本 */
@@ -634,6 +785,8 @@ export interface DeepTutorAPI {
   router: typeof routerApi
   /** v1.6.0：注册应用根级覆盖层（WebGL 背景/浮窗/物理叠层/3D 接管）——"用 API 完全改造前端"使能项 */
   overlay: typeof overlaysApi
+  /** v1.8.0：UI 辅助（makeDraggable 可拖放等）——配合 overlay 做可自由拖放的小组件 */
+  ui: typeof uiApi
   /** 以当前登录态调用后端 REST（路径如 '/progress/stats/summary'，相对 /api 前缀） */
   api: typeof apiProxy
   /** 暴露 React，供无构建链的纯 JS 插件创建组件（const h = DeepTutor.React.createElement） */
@@ -656,6 +809,7 @@ export async function initPlugins(React: unknown): Promise<void> {
     pages: pagesApi,
     router: routerApi,
     overlay: overlaysApi,
+    ui: uiApi,
     api: apiProxy,
     React,
   }
