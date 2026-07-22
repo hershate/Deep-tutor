@@ -36,6 +36,14 @@ export default function Learn() {
   const [checkinMsg, setCheckinMsg] = useState('')
   const [deletingLogId, setDeletingLogId] = useState<number | null>(null) // iter 150：删除日志防重入
   const [dailyGoal, setDailyGoal] = useState<number | null>(null) // iter 163：intent.daily_minutes 今日目标
+  // iter 299：本方案今日/下一安排（从 plan.schedule 派生；学习中心即知今天该学什么）
+  const [todaySched, setTodaySched] = useState<{
+    when: 'today' | 'next'
+    date: string
+    tasks: string[]
+    est?: number
+    stage?: string
+  } | null>(null)
 
   // 今日已学分钟（iter 163）：本地日口径（sv locale 出 YYYY-MM-DD，与后端服务器本地日一致）
   const todayStr = new Date().toLocaleDateString('sv')
@@ -81,11 +89,35 @@ export default function Learn() {
     Promise.all([getPlan(id), getProgress(id)])
       .then(([p, prog]) => {
         if (cancelled) return
-        const intent = (p as { plan?: { intent?: { topic?: string; daily_minutes?: number } } }).plan?.intent
+        const plan = (p as {
+          plan?: {
+            intent?: { topic?: string; daily_minutes?: number }
+            schedule?: Array<{ date: string; stage_index?: number; tasks?: string[]; est_minutes?: number }>
+            stages?: Array<{ name: string }>
+          }
+        }).plan
+        const intent = plan?.intent
         setTopic(intent?.topic ?? '')
         setDailyGoal(typeof intent?.daily_minutes === 'number' && intent.daily_minutes > 0 ? intent.daily_minutes : null)
         const today = new Date().toLocaleDateString('sv') // 本地日口径（与 todayStr 及后端 date.today() 一致，UTC 日会在时区交界时段错位）
         setDueNodes(prog.nodes.filter((n) => n.next_review !== null && n.next_review <= today))
+        // iter 299：本方案今日/下一安排（今日有排程取今日，否则取首个即将项）
+        const schedule = (plan?.schedule ?? []).filter((s) => s.date).sort((a, b) => a.date.localeCompare(b.date))
+        const stages = plan?.stages ?? []
+        const todayE = schedule.find((s) => s.date === today)
+        const nextE = schedule.find((s) => s.date > today)
+        const entry = todayE ?? nextE ?? null
+        setTodaySched(
+          entry
+            ? {
+                when: todayE ? 'today' : 'next',
+                date: entry.date,
+                tasks: entry.tasks ?? [],
+                est: entry.est_minutes,
+                stage: entry.stage_index !== undefined ? stages[entry.stage_index]?.name : undefined,
+              }
+            : null,
+        )
       })
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败') })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -189,6 +221,25 @@ export default function Learn() {
         <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
           {opError}
         </div>
+      )}
+
+      {/* iter 299：本方案今日/下一安排（从 plan.schedule 派生，学习中心即知今天学什么，免去回 PlanDetail 时间线） */}
+      {todaySched && (
+        <section className="animate-fade-in-up rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950" aria-label={todaySched.when === 'today' ? '今日安排' : '下一安排'}>
+          <h3 className="mb-1 text-sm font-semibold text-blue-800 dark:text-blue-200">
+            {todaySched.when === 'today' ? '📅 今日安排' : '📅 下一安排'}（本方案）
+            {todaySched.when === 'next' && <span className="ml-1 text-xs font-normal tabular-nums">{todaySched.date.slice(5)}</span>}
+          </h3>
+          {todaySched.stage && <p className="text-xs text-blue-600 dark:text-blue-300">{todaySched.stage}</p>}
+          {todaySched.tasks.length > 0 ? (
+            <p className="mt-1 text-sm text-blue-900 dark:text-blue-100">
+              {todaySched.tasks.join('、')}
+              {typeof todaySched.est === 'number' && <span className="ml-2 text-xs tabular-nums text-blue-500 dark:text-blue-400">约 {todaySched.est} 分钟</span>}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">（今日无具体任务）</p>
+          )}
+        </section>
       )}
 
       <section className="animate-fade-in-up rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 p-4" aria-label="复习提醒">
