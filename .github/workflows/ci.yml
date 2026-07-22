@@ -1,9 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # 用户指定：不每次 commit(push) 都跑。改为仅 PR 触发 + 手动触发
+  # （Actions 页 workflow_dispatch）。直接 push 到 main 不再自动跑 CI。
   pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
