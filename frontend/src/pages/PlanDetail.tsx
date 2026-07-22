@@ -113,6 +113,34 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
+// iter 301：版本对比——结构化差异（主题/阶段增删/各计数/时长），避免 line-diff 复杂度
+type PlanLike = {
+  intent?: { topic?: string }
+  stages?: Array<{ name: string }>
+  knowledge_map?: { nodes?: unknown[] }
+  resources?: unknown[]
+  schedule?: Array<{ est_minutes?: number }>
+}
+function planHours(p: PlanLike): number {
+  const m = (p.schedule ?? []).reduce((s, d) => s + (d.est_minutes ?? 0), 0)
+  return m > 0 ? Math.round((m / 60) * 10) / 10 : 0
+}
+function comparePlans(cur: PlanLike, other: PlanLike) {
+  const curStages = cur.stages ?? []
+  const otherStages = other.stages ?? []
+  const curNames = new Set(curStages.map((s) => s.name))
+  const otherNames = new Set(otherStages.map((s) => s.name))
+  return {
+    topicChanged: (cur.intent?.topic ?? '') !== (other.intent?.topic ?? ''),
+    stages: { cur: curStages.length, other: otherStages.length },
+    added: curStages.filter((s) => !otherNames.has(s.name)).map((s) => s.name),
+    removed: otherStages.filter((s) => !curNames.has(s.name)).map((s) => s.name),
+    resources: { cur: cur.resources?.length ?? 0, other: other.resources?.length ?? 0 },
+    nodes: { cur: cur.knowledge_map?.nodes?.length ?? 0, other: other.knowledge_map?.nodes?.length ?? 0 },
+    hours: { cur: planHours(cur), other: planHours(other) },
+  }
+}
+
 export default function PlanDetail() {
   const { planId } = useParams()
   const nav = useNavigate()
@@ -139,6 +167,11 @@ export default function PlanDetail() {
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
   const [versions, setVersions] = useState<PlanSummary[]>([]) // 版本历史（iter 170）
+  // iter 301：版本对比
+  const [showCompare, setShowCompare] = useState(false)
+  const [compareOtherId, setCompareOtherId] = useState<number | null>(null)
+  const [compareOther, setCompareOther] = useState<PlanData | null>(null)
+  const [compareLoading, setCompareLoading] = useState(false)
 
   // 版本历史（iter 170）：同会话全部版本，>1 时标题旁显示切换下拉
   useEffect(() => {
@@ -147,6 +180,33 @@ export default function PlanDetail() {
       .then((r) => setVersions(r.items.sort((a, b) => b.version - a.version)))
       .catch(() => {}) // 版本列表失败不阻塞页面
   }, [sessionId])
+  // iter 301：版本对比——按需取另一版本内容（复用 getPlan）
+  useEffect(() => {
+    if (!showCompare || compareOtherId == null) return
+    let cancelled = false
+    setCompareLoading(true)
+    setCompareOther(null)
+    getPlan(compareOtherId)
+      .then((r) => {
+        if (!cancelled) setCompareOther((r as { plan: PlanData }).plan)
+      })
+      .catch(() => {
+        if (!cancelled) setCompareOther(null)
+      })
+      .finally(() => {
+        if (!cancelled) setCompareLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showCompare, compareOtherId])
+  function openCompare() {
+    const cur = Number(planId)
+    const other = versions.find((v) => v.id !== cur)
+    setCompareOtherId(other ? other.id : null)
+    setCompareOther(null)
+    setShowCompare(true)
+  }
   const [wrongExportBusy, setWrongExportBusy] = useState(false) // 错题 Anki 导出（iter 134）
   const [quizStats, setQuizStats] = useState<QuizStats | null>(null) // 测验历史统计（iter 152）
 
@@ -339,20 +399,31 @@ export default function PlanDetail() {
           <h2 className="text-2xl font-bold">{plan.intent?.topic ?? '学习方案'}</h2>
           {/* 版本历史切换（iter 170）：同会话多次重新生成 → 标题旁下拉切版本 */}
           {versions.length > 1 && (
-            <select
-              aria-label="切换方案版本"
-              value={Number(planId)}
-              onChange={(e) => nav(`/plans/${e.target.value}`)}
-              title={`本会话共 ${versions.length} 个版本，可切换查看`}
-              className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
-            >
-              {versions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  版本 v{v.version}
-                  {v.id === Number(planId) ? '（当前）' : ''}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                aria-label="切换方案版本"
+                value={Number(planId)}
+                onChange={(e) => nav(`/plans/${e.target.value}`)}
+                title={`本会话共 ${versions.length} 个版本，可切换查看`}
+                className="rounded-lg border px-2 py-1.5 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+              >
+                {versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    版本 v{v.version}
+                    {v.id === Number(planId) ? '（当前）' : ''}
+                  </option>
+                ))}
+              </select>
+              {/* iter 301：版本对比 */}
+              <button
+                type="button"
+                onClick={openCompare}
+                title="对比两个版本的差异"
+                className="rounded-lg border px-2 py-1.5 text-xs transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                对比
+              </button>
+            </>
           )}
         </div>
         {/* iter 93 美化：窄屏 flex-wrap 防溢出；次按钮按压缩放、主按钮悬浮阴影 */}
@@ -500,6 +571,89 @@ export default function PlanDetail() {
             setShowQuiz(true)
           }}
         />
+      )}
+      {/* iter 301：版本对比弹窗 */}
+      {showCompare && plan && (
+        <div
+          className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCompare(false)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="版本对比"
+            className="flex max-h-[85vh] w-full max-w-lg animate-scale-in flex-col overflow-y-auto rounded-xl bg-white p-5 shadow-xl dark:bg-slate-800"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">版本对比</h2>
+              <button type="button" onClick={() => setShowCompare(false)} aria-label="关闭" className="rounded px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700">
+                ✕
+              </button>
+            </div>
+            <div className="mb-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <span>当前 v{versions.find((v) => v.id === Number(planId))?.version ?? '?'}</span>
+              <span aria-hidden="true">↔</span>
+              <select
+                aria-label="选择对比版本"
+                value={compareOtherId ?? ''}
+                onChange={(e) => setCompareOtherId(Number(e.target.value))}
+                className="rounded-lg border px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+              >
+                {versions
+                  .filter((v) => v.id !== Number(planId))
+                  .map((v) => (
+                    <option key={v.id} value={v.id}>
+                      版本 v{v.version}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            {compareLoading ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">加载版本内容…</p>
+            ) : compareOther ? (
+              (() => {
+                const d = comparePlans(plan, compareOther)
+                const row = (label: string, cur: string | number, other: string | number) => (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">{label}</span>
+                    <span className="tabular-nums text-slate-700 dark:text-slate-200">
+                      {other} → <span className="font-medium text-slate-900 dark:text-white">{cur}</span>
+                    </span>
+                  </div>
+                )
+                return (
+                  <div className="space-y-2">
+                    {d.topicChanged ? (
+                      <div className="text-sm">
+                        <span className="text-slate-500 dark:text-slate-400">主题：</span>
+                        <span className="text-slate-700 dark:text-slate-200">
+                          {compareOther.intent?.topic || '（无）'} → <span className="font-medium">{plan.intent?.topic || '（无）'}</span>
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500 dark:text-slate-400">主题未变</p>
+                    )}
+                    {row('阶段数', d.stages.cur, d.stages.other)}
+                    {row('知识点', d.nodes.cur, d.nodes.other)}
+                    {row('资源', d.resources.cur, d.resources.other)}
+                    {row('预计时长（小时）', d.hours.cur, d.hours.other)}
+                    {(d.added.length > 0 || d.removed.length > 0) && (
+                      <div className="mt-2 space-y-1 border-t pt-2 text-xs dark:border-slate-700">
+                        {d.added.length > 0 && <p className="text-emerald-700 dark:text-emerald-300">＋ 当前新增：{d.added.join('、')}</p>}
+                        {d.removed.length > 0 && <p className="text-red-700 dark:text-red-300">－ 当前移除：{d.removed.join('、')}</p>}
+                      </div>
+                    )}
+                    <p className="pt-1 text-xs text-slate-400">「→」右侧为当前版本；差异相对所选对比版本。</p>
+                  </div>
+                )
+              })()
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">加载失败，请重试。</p>
+            )}
+          </div>
+        </div>
       )}
       {showQuiz && planId && (
         <QuizModal
