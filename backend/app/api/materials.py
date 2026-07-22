@@ -203,12 +203,24 @@ async def _store(
 def _validate_upload(filename: str, content: bytes) -> str:
     """扩展名 + magic bytes 校验。返回清洗后扩展名。
 
+    内置格式走 SUPPORTED_FILE_EXTS + _MAGIC；插件注册的格式（后端插件 API v1.3.0
+    扩展点）经 parsers.registered_extensions() 接纳、magic 经 parsers.magic_for()。
+    被 kb.py 复用——改本函数即同时覆盖知识库上传路径。
+
     大小校验由 `_read_capped` 在读取阶段完成（防 OOM），此处不再重复。
     """
+    from app.plugins import parsers
+
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in SUPPORTED_FILE_EXTS:
-        raise ApiError("unsupported_format", f"不支持的扩展名 {ext}（支持 {sorted(SUPPORTED_FILE_EXTS)}）")
+    plugin_exts = parsers.registered_extensions()
+    if ext not in SUPPORTED_FILE_EXTS and ext not in plugin_exts:
+        raise ApiError(
+            "unsupported_format",
+            f"不支持的扩展名 {ext}（支持 {sorted(SUPPORTED_FILE_EXTS | plugin_exts)}）",
+        )
     expected = _MAGIC.get(ext)
+    if expected is None:
+        expected = parsers.magic_for(ext)  # 插件可注册 magic 签名校验文件真实性
     if expected and not content.startswith(expected):
         raise ApiError("unsupported_format", f"文件内容与扩展名 {ext} 不符（magic bytes 校验失败）")
     return ext
@@ -228,6 +240,29 @@ async def _read_capped(file: UploadFile, max_bytes: int) -> bytes:
     if len(content) > max_bytes:
         raise ApiError("payload_too_large", f"文件超上限 {settings.max_upload_mb}MB")
     return content
+
+
+@router.get("/formats")
+def list_formats() -> dict:
+    """可解析文件格式清单（内置 + 插件注册）。
+
+    供替代前端 / CLI / 其他客户端做上传前格式发现（"用 API 完全替换前端"场景必需——
+    客户端需知本实例接受哪些格式）。只暴露格式名/扩展名/来源插件，不含机密。
+    """
+    from app.plugins import parsers
+
+    return {
+        "builtin": sorted(SUPPORTED_FILE_EXTS),
+        "plugin": [
+            {
+                "extensions": list(entry.extensions),
+                "label": entry.label or f"{entry.plugin_id} 解析器",
+                "plugin": entry.plugin_id,
+                "override": entry.override,
+            }
+            for entry in parsers.all_entries()
+        ],
+    }
 
 
 @router.post("/upload", response_model=MaterialOut)

@@ -30,6 +30,7 @@ def list_plugins(user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
                 "routes": s.routes,
                 "events": s.events,
                 "tools": s.tools,
+                "parsers": s.parsers,
             }
             for s in get_plugin_statuses()
         ],

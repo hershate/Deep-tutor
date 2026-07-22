@@ -77,7 +77,7 @@ async def parse_material(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             # file / image / audio / video：均按路径 + 扩展名分发（kind 仅语义标注）；
             # parse_mode（iter 225 解析质量多档）仅影响 PDF（full=marker 高质量 / fast=pypdf 快速提取）
             parse_mode = args.get("parse_mode") or "full"
-            text, meta = await asyncio.to_thread(_parse_file, source, parse_mode)
+            text, meta = await _parse_file_dispatch(source, parse_mode)
     except _ParseError as e:
         return _err(e.code, e.message)
     except Exception as exc:  # noqa: BLE001  降级为纯文本提取
@@ -130,6 +130,42 @@ def _check_zip_safety(path: Path) -> None:
 
 def _parse_text(source: str) -> tuple[str, dict]:
     return source, {"source_type": "text"}
+
+
+async def _parse_file_dispatch(source: str, parse_mode: str = "full") -> tuple[str, dict]:
+    """文件解析总分发：插件解析器优先（override 或内置未覆盖的格式），否则内置 _parse_file。
+
+    插件解析器经 app.plugins.parsers 注册（后端插件 API v1.3.0 扩展点）。find_parser 对
+    内置 ext 默认返回 None（内置优先），故无插件注册时行为与改动前完全一致（零回归）。
+
+    插件 handler 契约与内置 _parse_xxx 一致：(path, parse_mode) -> (text, meta)，async 或 sync
+    （async 直接 await；sync 经 to_thread 执行不阻塞事件循环，与内置同步解析器同口径）。
+    插件抛异常 -> _ParseError(parse_failed)（不静默降级注入乱码——私有格式降级无意义且危险）。
+    """
+    from app.plugins import parsers
+
+    path = Path(source)
+    ext = path.suffix.lower()
+    entry = parsers.find_parser(ext)
+    if entry is not None:
+        if not path.exists():
+            raise _ParseError("unsupported_format", f"文件不存在: {source}")
+        handler = entry.handler
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                text, meta = await handler(path, parse_mode)
+            else:
+                text, meta = await asyncio.to_thread(handler, path, parse_mode)
+        except _ParseError:
+            raise
+        except Exception as exc:  # noqa: BLE001  插件解析失败 -> 明确 parse_failed
+            raise _ParseError(
+                "parse_failed",
+                f"插件解析器 {entry.plugin_id} 处理 {ext} 失败: {exc}",
+            ) from exc
+        return text, (meta or {})
+    # 无插件解析器 -> 内置 dispatch（行为与改动前一致）
+    return await asyncio.to_thread(_parse_file, source, parse_mode)
 
 
 def _parse_file(source: str, parse_mode: str = "full") -> tuple[str, dict]:

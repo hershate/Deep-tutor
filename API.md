@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.3.1` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.2.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.3.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -327,7 +327,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.2.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.3.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -405,6 +405,7 @@ PLUGIN_META = {
 | `api.id` | `str` | 本插件 id（路由命名空间/日志名/数据目录同名） |
 | `api.log` | `logging.Logger` | 插件专属 logger（`deep_tutor.plugin.<id>`） |
 | `api.data_dir` | `pathlib.Path` | 插件私有数据目录（已创建），持久化插件自身状态 |
+| `api.parsers` | `ParsersNamespace` | 文件解析器注册（v1.3.0）：为私有/小众格式注册解析器，上传与解析自动委托（§8.4a） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -454,6 +455,71 @@ api.tools.register(tool)                                      # 完整 Tool（LL
 - **注意**：内置生成 PIPELINE 步骤固定，不会自动调用新工具；与核心工具同名会覆盖核心
   实现（注册表告警）——替换核心工具属高级用法，请充分测试（§九）。
 
+#### `api.parsers` —— 文件解析器注册（v1.3.0 扩展点）
+
+为内置 `parse_material` **不支持的文件格式**（私有格式 / 小众格式，如 `.epub` 电子书、
+`.xmind`/`.one` 笔记、企业私有格式）注册解析器——上传校验与解析链路自动识别并委托，
+**无需改宿主代码即可"让后端支持新文件格式"**。
+
+```python
+api.parsers.register(
+    extensions: list[str],   # 如 [".epub"]；自动规范化为小写带点
+    handler: Callable,        # async 或 sync，签名 (path, parse_mode) -> (text, meta)
+    *,
+    label: str = "",          # 人类可读格式名（GET /materials/formats 展示用），可选
+    magic: bytes | None = None,  # 上传 magic-bytes 校验签名（如 b"%PDF"），可选
+    override: bool = False,   # True 则即便对内置格式也接管（高级用法，启动告警）
+) -> None
+```
+
+**handler 契约**（与内置 `_parse_pdf`/`_parse_docx` 等**完全一致**，便于照搬内置解析器写法）：
+
+```python
+# async 或 sync 均可：async 直接 await；sync 在线程池执行（不阻塞事件循环）
+async def parse_epub(path: pathlib.Path, parse_mode: str) -> tuple[str, dict]:
+    text = epub_lib.extract_text(path)   # 你的解析逻辑
+    return text, {"source_type": "epub", "parser": "myplugin", "pages": n}
+```
+
+- 返回 `(text, meta)`；`text` 为空 / 纯空白 -> 上游 `empty_content`；
+  抛任何异常 -> 上游 `parse_failed`（消息经服务器路径清洗，不泄露绝对路径）。
+- `parse_mode` 取值与内置一致（`"full"` 默认高质量 / `"fast"` 快速提取），**插件可忽略**。
+- 宿主对插件解析结果施加与内置**相同的安全后处理**：截断至 `MAX_PARSED_CHARS`、
+  空内容校验、`chunks` 分块——插件无需自行处理这些边界。
+
+**内置优先（安全默认）**：对内置已支持的扩展名（`.pdf`/`.docx`/`.txt`/…）注册解析器
+**默认不生效**（内置处理），避免误伤既有解析。确需替换内置时显式 `override=True`
+（启动告警，属高级用法——替换内置解析器请充分测试）。
+
+**上传层自动接纳**：插件注册的扩展名经上传校验（会话资料 `POST /materials/upload` 与
+知识库 `POST /kb/documents/upload` 共用同一校验）自动放行；注册了 `magic` 则按其校验
+文件内容与扩展名一致。客户端可经 `GET /materials/formats` 发现本实例接受的全部格式
+（内置 + 插件），用于上传前格式提示。
+
+> **可观测性**：注册的扩展名记录在插件状态（`GET /api/plugins` 行的 `parsers` 字段，
+> 管理员可见）。
+
+**完整示例**：EPUB 电子书解析插件
+
+```python
+# plugins/epub_parser/plugin.py
+import zipfile
+from pathlib import Path
+
+PLUGIN_META = {"id": "epub", "name": "EPUB Parser", "version": "0.1.0", "min_api": "1.3"}
+
+def register(api):
+    def parse_epub(path: Path, parse_mode: str):  # sync handler（epub 是 zip，CPU 密集）
+        with zipfile.ZipFile(path) as zf:          # zip-slip 防护由你的代码负责（§9.2）
+            htmls = [zf.read(n) for n in zf.namelist() if n.endswith((".xhtml", ".html"))]
+        text = b"\n".join(htmls).decode("utf-8", "replace")  # 简化：实际应剥 HTML 标签
+        return text, {"source_type": "epub", "parser": "epub"}
+
+    api.parsers.register([".epub"], parse_epub, label="EPUB 电子书", magic=b"PK")
+```
+
+重启后端 -> 上传 `.epub` 文件即被本插件解析为文本，注入下游学习方案生成。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -484,14 +550,15 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.2.0",
+  "api_version": "1.3.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
       "state": "loaded", "error": "", "file": ".../plugins/hello.py",
       "routes": ["/api/plugins/hello"],
       "events": ["plan_created"],
-      "tools": []
+      "tools": [],
+      "parsers": []
     }
   ],
   "subscribed_events": ["plan_created", "shutdown", "startup"]
@@ -574,6 +641,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.3.0 | 2026-07-22 | 新增 `api.parsers` 文件解析扩展点（插件为私有/小众格式注册解析器；上传校验自动接纳插件扩展名 + 可选 magic；`GET /materials/formats` 格式发现端点；插件状态行新增 `parsers` 字段） |
 | 后端 | 1.2.0 | 2026-07-19 | 新增 `learning_log_added` 事件（学习打卡提交后广播，用户行为事件目录补齐） |
 | 前端 | 1.3.1 | 2026-07-19 | 修复：插件脚本 15 秒无响应按超时 reject（此前永不 settle，自动加载时一个挂起 URL 会饿死其后全部持久化插件） |
 | 前端 | 1.3.0 | 2026-07-19 | 新增插槽 `plan.detail`（方案详情页头部下方宫格；组件内可 `useParams()` 取 planId 做方案级面板） |

@@ -26,6 +26,7 @@ class PluginStatus:
     routes: list[str] = field(default_factory=list)
     events: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
+    parsers: list[str] = field(default_factory=list)  # v1.3.0：注册的文件解析器扩展名
 
 
 _statuses: list[PluginStatus] = []

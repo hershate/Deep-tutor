@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
-from app.plugins import bus, runtime
+from app.plugins import bus, parsers, runtime
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     from app.plugins.runtime import PluginStatus
 
 # 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 API.md §版本线）
-API_VERSION = "1.2.0"
+# v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
+API_VERSION = "1.3.0"
 
 
 class ToolsNamespace:
@@ -53,6 +54,66 @@ class ToolsNamespace:
         from app.agent.registry import Tool
 
         self.register(Tool(name=name, llm=False, func=func))
+
+
+class ParsersNamespace:
+    """文件解析器注册（v1.3.0 扩展点，契约见 API.md「§文件解析扩展点」）。
+
+    插件为内置 parse_material 不支持的文件格式（私有/小众格式）注册解析器，上传校验
+    与解析链路自动识别并委托——无需改宿主代码即可"让后端支持新格式"（用户点名需求）。
+
+    handler 契约与内置 _parse_xxx 一致：(path: pathlib.Path, parse_mode: str)
+    -> tuple[str, dict]（解析文本, 元数据）。async 直接 await；sync 在线程池执行
+    （与内置同步解析器经 to_thread 同口径，不阻塞事件循环）。成功返回 (text, meta)；
+    返回空文本 -> 上游 empty_content；抛任何异常 -> 上游 parse_failed（消息经服务器
+    路径清洗）。parse_mode 取值与内置一致（"full"/"fast"），插件可忽略。
+
+    安全默认（内置优先）：对内置已支持的 ext 注册解析器默认不生效（内置处理），除非
+    override=True（启动告警，高级用法——替换内置解析器请充分测试）。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        extensions: list[str],
+        handler: Callable,
+        *,
+        label: str = "",
+        magic: bytes | None = None,
+        override: bool = False,
+    ) -> None:
+        """注册文件解析器。
+
+        - extensions：扩展名列表（如 [".epub"]）；自动规范化为小写带点。
+        - handler：解析函数，async 或 sync，签名 (path, parse_mode) -> (text, meta)。
+        - label：人类可读格式名（GET /materials/formats 展示与替代前端格式发现用），可选。
+        - magic：上传 magic-bytes 校验签名（如 b"PK"，校验文件内容与扩展名一致），可选。
+        - override：True 则即便对内置格式也接管（高级用法，启动告警）；默认 False 内置优先。
+        """
+        if not isinstance(extensions, (list, tuple)) or not extensions:
+            raise ValueError("extensions 必须是非空列表")
+        if not callable(handler):
+            raise TypeError("handler 必须是 callable（async 或 sync，签名 (path, parse_mode) -> (text, meta)）")
+        norm = tuple(parsers.normalize_ext(e) for e in extensions)
+        entry = parsers.ParserEntry(
+            plugin_id=self._pid,
+            extensions=norm,
+            handler=handler,
+            override=bool(override),
+            magic=magic,
+            label=label or "",
+        )
+        parsers.register(entry)
+        self._status.parsers.extend(norm)
+        self._rollbacks.append(lambda entry=entry: parsers.unregister(entry))
+
+    def extensions(self) -> list[str]:
+        """本插件已注册的扩展名（调试/状态展示用）。"""
+        return [e for e in parsers.registered_extensions()]
 
 
 class RoutesNamespace:
@@ -213,6 +274,7 @@ class BackendPluginAPI:
         # 异常时调用 _rollback() 逆序撤销
         self._rollbacks: list = []
         self.tools = ToolsNamespace(status, self._rollbacks)
+        self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()
