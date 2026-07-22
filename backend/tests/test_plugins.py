@@ -214,7 +214,7 @@ def test_route_mount_requires_auth_by_default(tmp_path, auth_headers):
     client = TestClient(app)
     r = client.get("/api/plugins/ping/ping", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"pong": True, "plugin": "ping", "api_version": "1.9.0"}
+    assert r.json() == {"pong": True, "plugin": "ping", "api_version": "1.10.0"}
     # 默认认证：无凭证 -> 401（与宿主端点语义一致）
     assert client.get("/api/plugins/ping/ping").status_code == 401
 
@@ -314,7 +314,7 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
         for row in body["plugins"]:
             assert set(row) == {"id", "name", "version", "state", "error", "file", "routes", "events", "tools", "parsers", "exporters", "providers"}
         assert isinstance(body["subscribed_events"], list)
-        assert body["api_version"] == "1.9.0"
+        assert body["api_version"] == "1.10.0"
         rows = {p["id"]: p for p in body["plugins"]}
         assert rows["boot"]["state"] == "loaded"
         assert "startup" in body["subscribed_events"]
@@ -492,7 +492,7 @@ def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
     r = client.get("/api/plugins/example_hello/hello", headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["plugin"] == "example_hello" and body["api_version"] == "1.9.0"
+    assert body["plugin"] == "example_hello" and body["api_version"] == "1.10.0"
     assert "message" in body and "model" in body
 
     # 示例注册的工具已汇入注册表

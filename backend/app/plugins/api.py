@@ -31,7 +31,9 @@ if TYPE_CHECKING:
 #         含核心 14 工具 + 插件工具）+ GET /api/tools 发现端点——插件/外部客户端动态发现可组合工具。
 # v1.9.0：新增 api.mcp MCP 客户端（连接外部 MCP server Streamable HTTP，list_tools/call_tool）——
 #         "扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）。插件据此接入任意外部 MCP server 工具。
-API_VERSION = "1.9.0"
+# v1.10.0：新增 api.scheduler 后台任务（every 周期 / once 延迟）——插件可做定时同步/每日摘要/周期轮询
+#         （此前只能路由触发/事件触发，无周期任务能力）。fn async/sync，错误隔离，reset 统一取消。
+API_VERSION = "1.10.0"
 
 
 class ToolsNamespace:
@@ -510,6 +512,39 @@ class McpNamespace:
         return client
 
 
+class SchedulerNamespace:
+    """后台任务调度（v1.10.0 扩展点，契约见 API.md「§后台任务调度」）。
+
+    插件注册周期/延迟后台任务——every(周期) / once(延迟)。填补"插件无法做周期工作"的缺口
+    （定时同步 / 每日摘要 / 周期轮询 MCP 等；此前只有路由触发与事件触发）。
+
+    任务跑在宿主事件循环；fn 可 async（await）或 sync（须非阻塞，重活 fn 内 to_thread）。
+    fn 异常隔离（记日志不杀循环）。返回 TaskHandle.cancel() 单独取消；插件卸载（reset_plugins）
+    统一取消全部。任务不持久化——进程重启即失（插件 register/startup 重新注册）。
+    须在运行中的事件循环内调用（register 期间 / async 路由内）。
+    """
+
+    def __init__(self, plugin_id: str, rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._rollbacks = rollbacks
+
+    def every(self, interval_s: float, fn: Callable, *, run_immediately: bool = False) -> Any:
+        """注册周期任务：每 interval_s 秒跑一次 fn（须 > 0）。返回 TaskHandle（cancel 取消）。"""
+        from app.plugins import scheduler
+
+        handle = scheduler.every(interval_s, fn, run_immediately=run_immediately)
+        self._rollbacks.append(handle.cancel)  # register 中途失败回滚：取消该任务
+        return handle
+
+    def once(self, delay_s: float, fn: Callable) -> Any:
+        """注册一次性延迟任务：delay_s 秒后跑一次 fn（须 >= 0）。返回 TaskHandle（cancel 取消则不跑）。"""
+        from app.plugins import scheduler
+
+        handle = scheduler.once(delay_s, fn)
+        self._rollbacks.append(handle.cancel)
+        return handle
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -673,6 +708,7 @@ class BackendPluginAPI:
         self.providers = ProvidersNamespace(plugin_id, status, self._rollbacks)
         self.llm = LlmNamespace(plugin_id)
         self.mcp = McpNamespace(plugin_id)
+        self.scheduler = SchedulerNamespace(plugin_id, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

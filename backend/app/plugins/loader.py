@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.settings import settings
-from app.plugins import bus, exporters, parsers, providers, runtime
+from app.plugins import bus, exporters, parsers, providers, runtime, scheduler
 from app.plugins.api import API_VERSION, BackendPluginAPI
 
 if TYPE_CHECKING:
@@ -189,9 +189,10 @@ def get_plugin_statuses() -> list[runtime.PluginStatus]:
 
 
 def reset_plugins() -> None:
-    """清空状态台账/工具表/事件订阅/解析器/导出器/LLM Provider 注册表（测试隔离用；已挂载的路由随 app 实例存在）。"""
+    """清空状态台账/工具表/事件订阅/解析器/导出器/LLM Provider 注册表/调度任务（测试隔离用；已挂载的路由随 app 实例存在）。"""
     runtime.reset_runtime()
     bus.reset()
     parsers.reset()
     exporters.reset()
     providers.reset()
+    scheduler.reset()

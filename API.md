@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.8.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.9.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.10.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -597,7 +597,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.9.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.10.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -680,6 +680,7 @@ PLUGIN_META = {
 | `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c）；v1.6.0 起 `complete(provider_kind=)` 可分发到插件注册的新协议 Provider |
 | `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
 | `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0）：连接外部 MCP server（Streamable HTTP），`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
+| `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1218,6 +1219,53 @@ def register(api):
 > **进阶**：把 MCP server 的全部工具包成宿主工具（经 `api.tools.register_python`，func 内调
 > `client.call_tool`），即可用 `api.tools.call/<list>`（§8.4）统一调用/发现——MCP 工具与核心工具同构。
 
+#### `api.scheduler` —— 后台任务调度（v1.10.0 扩展点，§8.4f）
+
+让插件注册**周期/延迟后台任务**——`every`（周期）/ `once`（延迟）。插件此前只能注册路由（请求触发）
+与事件监听（事件触发），无法做周期工作（定时同步 / 每日摘要 / 周期轮询 MCP），`register()` 须快速
+幂当、不能起长任务。本扩展点填补该缺口。
+
+```python
+h = api.scheduler.every(
+    interval_s: float,        # 周期秒（须 > 0）
+    fn: Callable,             # async（await）或 sync（须非阻塞，重活 fn 内 asyncio.to_thread）
+    *, run_immediately=False, # True 则先跑一次再计时
+) -> TaskHandle               # .cancel() 取消（幂等）
+
+h = api.scheduler.once(
+    delay_s: float,           # 延迟秒（须 >= 0）
+    fn: Callable,
+) -> TaskHandle               # .cancel() 取消（取消则 fn 不跑）
+```
+
+**行为**：任务跑在宿主事件循环；fn 可 async（`await`）或 sync（直接调）。fn 异常被**隔离**（记日志，
+不杀循环、不影响宿主与其他任务）。`TaskHandle.cancel()` 单独取消；插件卸载（`reset_plugins`）统一取消全部。
+任务**不持久化**——进程重启即失（周期任务在插件 `register`/`startup` 时重新注册）。
+
+**调用时机**：须在运行中的事件循环内（`register()` 期间——加载在 lifespan 内有运行循环；或 async 路由内）。
+
+```python
+# 例：每日 00:30 提示复习的插件（周期轮询 + 事件推送）
+def register(api):
+    async def daily_review():
+        # 周期工作：查到期复习、经 api.events 或自有路由通知
+        due = await api.api.get('/progress/review/due')  # 经 REST 代理查
+        if due["total"] > 0:
+            api.events.emit("myplugin.review_due", {"count": due["total"]})
+
+    # 每 6 小时检查一次（演示用短周期；生产可配更长）
+    api.scheduler.every(6 * 3600, daily_review, run_immediately=True)
+
+    # 一次性延迟任务示例：插件启用 10s 后跑一次初始化
+    async def bootstrap():
+        await api.api.request('/some/init', {'method': 'POST', 'body': {}})
+    api.scheduler.once(10, bootstrap)
+```
+
+> **安全/稳定**：① fn 异常隔离（单次失败不杀循环、不连锁）；② 任务引用模块级保留（防 GC），卸载统一取消；
+> ③ 信任模型同插件代码（fn 在宿主进程跑——重 CPU/IO 活请 fn 内 `asyncio.to_thread` 避免阻塞循环）；
+> ④ 不持久化（重启即失，插件重新注册——`startup` 事件可作初始化锚点）。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -1248,7 +1296,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.9.0",
+  "api_version": "1.10.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1399,6 +1447,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.10.0 | 2026-07-23 | 新增 `api.scheduler` 后台任务调度（`every` 周期 / `once` 延迟）：插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力——register 须快速幂当不能起长任务）；fn async/sync，异常隔离（记日志不杀循环），`TaskHandle.cancel()` 单独取消，`reset_plugins` 卸载统一取消；任务不持久化（重启即失，插件重新注册）；须在运行事件循环内调用（register 期间/async 路由内） |
 | 后端 | 1.9.0 | 2026-07-23 | 新增 `api.mcp` MCP 客户端（`connect`→`McpHttpClient`，Streamable HTTP 传输）：连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）；按 spec 实现 JSON-RPC over POST（JSON + SSE 双响应解析、`Mcp-Session-Id` 回传、initialize 握手 + notifications/initialized）；仅插件显式调用（非热路径，server 故障错误隔离在调用内）；出站可信 URL（同供应商 base_url 信任）；对 spec-faithful mock server 测试（10 项）。范围 v1=Streamable HTTP；stdio（子进程）+ 真实 server 互操作验证为后续轮 |
 | 后端 | 1.8.0 | 2026-07-23 | 新增工具发现：`api.tools.list()`（进程内，列已注册工具元数据 `{name, llm, requires, description}`，含核心 14 工具一行描述 + 插件工具）+ `GET /api/tools` REST 发现端点（外部客户端/替代前端用，与 `list()` 对称）——插件/客户端**动态发现**可组合工具（iter 316 `call` 不再须硬编码工具名/查文档），按 `llm`/`requires` 推断调用顺序与预算 |
 | 后端 | 1.7.0 | 2026-07-22 | 新增 `api.tools.call(name, args, *, user_id, upstream)` 工具调用：插件可调用任意已注册工具（**含核心** parse_material/understand_intent/build_knowledge_map/design_stages/search_resources/schedule_plan/validate_plan/generate_quiz/record_progress/export_plan/generate_study_materials/build_plan_slides + 插件工具），组合成"新工作流"——无需重实现解析/检索/出题；LLM 工具按 `user_id` 解析供应商 + 日预算守卫 + `api_usage` 计量（同生成口径），返回 `{status, data, errors}` 信封（工具失败不抛、交插件处理）；ToolsNamespace 加 plugin_id（调用 session_id 可追溯） |
