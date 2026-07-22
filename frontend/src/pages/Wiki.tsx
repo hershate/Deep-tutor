@@ -23,6 +23,22 @@ const STATUS_STYLE: Record<ProgressStatus, string> = {
 }
 const DIFFICULTY_LABEL = ['', '入门', '基础', '中等', '进阶', '挑战']
 
+// iter 298：学习里程碑——从 stats_summary 派生（连续天数/累计时长/打卡次数），进度条到下一档
+type StatsLike = { streak_days: number; total_minutes: number; total_logs: number }
+const MILESTONES: { key: string; label: string; icon: string; fmt: (v: number) => string; get: (s: StatsLike) => number; tiers: number[] }[] = [
+  { key: 'streak', label: '连续打卡', icon: '🔥', fmt: (v) => `${v} 天`, get: (s) => s.streak_days, tiers: [3, 7, 14, 30, 100] },
+  { key: 'minutes', label: '累计学习', icon: '⏱', fmt: (v) => `${Math.round(v / 60)} 小时`, get: (s) => s.total_minutes, tiers: [300, 600, 1800, 3600, 6000] },
+  { key: 'logs', label: '打卡次数', icon: '📌', fmt: (v) => `${v} 次`, get: (s) => s.total_logs, tiers: [10, 50, 100, 365] },
+]
+function tierProgress(tiers: number[], value: number): { next: number | null; progress: number } {
+  const sorted = [...tiers].sort((a, b) => a - b)
+  const next = sorted.find((t) => t > value) ?? null
+  if (next === null) return { next: null, progress: 100 } // 已达最高档
+  const prev = sorted.filter((t) => t <= value).pop() ?? 0
+  const progress = Math.round(((value - prev) / (next - prev)) * 100)
+  return { next, progress: Math.max(0, Math.min(100, progress)) }
+}
+
 export default function Wiki() {
   const qc = useQueryClient()
   const [q, setQ] = useState('')
@@ -225,6 +241,35 @@ export default function Wiki() {
       {/* 打卡热力图（iter 139）：近 12 周学习分钟，GitHub 风格周列 */}
       {view !== 'docs' && studyStats && studyStats.total_logs > 0 && calendar && (
         <StudyHeatmap items={calendar.items} />
+      )}
+
+      {/* iter 298：学习里程碑——连续/累计/打卡 的当前值与下一档进度（自我驱动学习的动机反馈） */}
+      {view !== 'docs' && studyStats && studyStats.total_logs > 0 && (
+        <section className="animate-fade-in-up rounded-xl border bg-white p-4 dark:border-slate-700 dark:bg-slate-800" aria-label="学习里程碑">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">🏆 学习里程碑</h3>
+          <div className="space-y-3">
+            {MILESTONES.map((m) => {
+              const value = m.get(studyStats)
+              const { next, progress } = tierProgress(m.tiers, value)
+              return (
+                <div key={m.key}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      <span aria-hidden="true">{m.icon} </span>
+                      {m.label}：<span className="font-medium tabular-nums text-slate-800 dark:text-slate-100">{m.fmt(value)}</span>
+                    </span>
+                    <span className="text-slate-400">
+                      {next ? `距 ${m.fmt(next)} 还差 ${progress}%` : '已达最高档 ✨'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                    <div className={`h-full rounded-full transition-all ${next ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       )}
 
       {/* 今日待复习提醒（iter 119）：有到期节点时置顶 */}
