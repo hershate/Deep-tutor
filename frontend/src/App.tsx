@@ -22,6 +22,7 @@ import Notes from './pages/Notes'
 import Review from './pages/Review'
 import Search from './pages/Search'
 import PluginPageHost from './components/PluginPageHost'
+import RouterBridge from './components/RouterBridge'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
 // - 状态加载中 -> 占位；查询失败 -> 回退旧逻辑（仅查 token，不让 status 端点故障阻塞应用）
@@ -55,7 +56,10 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      {/* iter 308：插件路由桥（插件 API v1.5.0 DeepTutor.router 的 navigate 注入 + 路由同步） */}
+      <RouterBridge />
+      <Routes>
       <Route path="/login" element={<Login />} />
       {/* iter 89：首次设置向导（零配置开箱即用），公开页 */}
       <Route path="/setup" element={<Setup />} />
@@ -95,5 +99,6 @@ export default function App() {
         }
       />
     </Routes>
+    </>
   )
 }

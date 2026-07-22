@@ -13,7 +13,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.4.0'
+export const API_VERSION = '1.5.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -177,6 +177,78 @@ const pagesApi = {
   },
   getVersion(): number {
     return pageRegistryVersion
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 路由/导航（router）：SPA 导航 + 路由变化订阅（v1.5.0）——插件多页应用的必需能力
+// ---------------------------------------------------------------------------
+//
+// 为什么需要：纯 JS 插件拿不到 react-router 实例（无构建链），不暴露的话插件页之间
+// 只能 location.href 整页跳转（丢 SPA 状态、白屏闪烁），做不出"完整的另一个前端"。
+// 本命名空间以门面形式暴露最小路由面（语义由宿主控制，不泄露 react-router 版本细节）：
+// - navigate：SPA 导航（React Router navigate 包装，bridge 未挂载时降级 location.assign）
+// - path/href：当前路径快照（配合 subscribe 可用于 useSyncExternalStore 响应式渲染）
+// - subscribe：路由变化订阅（React Router 不对 push 发 popstate，插件无法自行可靠监听）
+// 查询参数读取无需门面：插件与宿主同窗口，window.location.search + URLSearchParams 即可。
+
+type RouterNavigate = (to: string, opts?: { replace?: boolean }) => void
+
+let routerNavigate: RouterNavigate | null = null // RouterBridge 挂载后注入（TaskEngineBridge 同范式）
+let routerHref = `${window.location.pathname}${window.location.search}${window.location.hash}`
+const routerListeners = new Set<() => void>()
+
+function notifyRouter() {
+  routerListeners.forEach((fn) => {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[DeepTutor] router 订阅回调异常', e)
+    }
+  })
+}
+
+/** 内部使用：RouterBridge 注入 navigate 并对齐当前路径（应用启动一次） */
+export function bindRouter(navigate: RouterNavigate, pathname: string, search: string, hash: string): void {
+  routerNavigate = navigate
+  const href = `${pathname}${search}${hash}`
+  if (href !== routerHref) {
+    routerHref = href
+    notifyRouter()
+  }
+}
+
+/** 内部使用：RouterBridge 在路由变化时同步（pathname/search/hash 任一变化） */
+export function setRouterLocation(pathname: string, search: string, hash: string): void {
+  const href = `${pathname}${search}${hash}`
+  if (href === routerHref) return
+  routerHref = href
+  notifyRouter()
+}
+
+const routerApi = {
+  /** SPA 导航（不整页刷新）。to 须以 / 开头（站内路径，如 '/p/reader?id=3'）；
+   *  opts.replace=true 替换当前历史条目而非 push（重定向语义）。
+   *  bridge 未挂载的极端场景（如登录页脚本上下文）降级为 location.assign 整页跳转。 */
+  navigate(to: string, opts?: { replace?: boolean }): void {
+    if (typeof to !== 'string' || !to.startsWith('/')) {
+      throw new Error('[DeepTutor] router.navigate 的路径须以 / 开头（站内路径）')
+    }
+    if (routerNavigate) routerNavigate(to, opts)
+    else window.location.assign(to)
+  },
+  /** 当前 pathname（如 '/p/reader'）；等价 window.location.pathname，供响应式快照用 */
+  path(): string {
+    return routerHref.split(/[?#]/, 1)[0] || '/'
+  },
+  /** 当前 pathname+search+hash（如 '/p/reader?id=3'）；响应式查询参数场景的快照 */
+  href(): string {
+    return routerHref
+  },
+  /** 订阅路由变化（React useSyncExternalStore 用）；返回退订函数 */
+  subscribe(fn: () => void): () => void {
+    routerListeners.add(fn)
+    return () => routerListeners.delete(fn)
   },
 }
 
@@ -444,6 +516,8 @@ export interface DeepTutorAPI {
   plugins: typeof pluginsApi
   /** v1.4.0：注册完整路由页（/p/ 命名空间）+ 可选侧栏导航——"用 API 完全替换前端"使能项 */
   pages: typeof pagesApi
+  /** v1.5.0：SPA 导航 + 路由变化订阅——插件多页应用不整页刷新跳转的必需能力 */
+  router: typeof routerApi
   /** 以当前登录态调用后端 REST（路径如 '/progress/stats/summary'，相对 /api 前缀） */
   api: typeof apiProxy
   /** 暴露 React，供无构建链的纯 JS 插件创建组件（const h = DeepTutor.React.createElement） */
@@ -464,6 +538,7 @@ export async function initPlugins(React: unknown): Promise<void> {
     events: eventsApi,
     plugins: pluginsApi,
     pages: pagesApi,
+    router: routerApi,
     api: apiProxy,
     React,
   }

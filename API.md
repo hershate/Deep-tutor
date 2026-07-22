@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.4.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.5.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.4.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -191,6 +191,48 @@ DT.pages.register({
 - **响应式**：插件在导航后异步注册页面时（如刷新后自动加载顺序），注册即生效命中。
 - **未命中兜底**：访问未注册 / 已卸载的 `/p/...` 路径，显示「插件页面不存在」+ 回首页链接，
   绝不静默或白屏。
+
+---
+
+## 二补二 · 路由/导航 API（`DeepTutor.router`，v1.5.0）
+
+> **页面 API 的配套能力。** 纯 JS 插件拿不到 react-router 实例（无构建链）——没有本命名空间，
+> 插件页面之间只能 `location.href` 整页跳转（丢 SPA 状态、白屏闪烁），做不出"完整的另一个前端"。
+> 本命名空间以门面形式暴露**最小路由面**：SPA 导航 + 路由变化订阅（语义由宿主控制，
+> 不泄露 react-router 版本细节，插件不受宿主路由库升级影响）。
+
+### `router.navigate(to: string, opts?: { replace?: boolean }): void`
+
+站内 SPA 导航（**不整页刷新**）。`to` 须以 `/` 开头（如 `/p/reader?id=3`、`/plans`），
+否则抛 `Error`；`opts.replace=true` 替换当前历史条目而非 push（重定向语义）。
+
+```js
+// 例：插件仪表盘卡片点击 -> 跳进插件详情页（SPA，无闪烁）
+DT.router.navigate('/p/reader?planId=' + planId)
+// 重定向语义（如插件的"设置完成"后替换历史，回退键不回到表单页）
+DT.router.navigate('/p/home', { replace: true })
+```
+
+### 路径快照与订阅
+
+- `router.path(): string` —— 当前 pathname（如 `/p/reader`）。
+- `router.href(): string` —— 当前 pathname+search+hash（如 `/p/reader?id=3`）。
+- `router.subscribe(fn): () => void` —— 路由变化订阅，返回退订函数。
+  （React Router 对 push 不发 `popstate`，插件无法自行可靠监听，故由门面提供。）
+
+三者配合 `useSyncExternalStore` 可做**响应式路由渲染**（如插件自己的 tab 条高亮当前页）：
+
+```js
+const h = DT.React.createElement
+const { useSyncExternalStore } = DT.React
+function CurrentPath() {
+  const href = useSyncExternalStore(DT.router.subscribe, DT.router.href)
+  return h('span', null, '当前位置: ' + href)
+}
+```
+
+> **查询参数读取无需门面**：插件与宿主同窗口，`window.location.search` +
+> `new URLSearchParams(...)` 随时可用（如深链 `/p/reader?planId=3` 在组件挂载时读取）。
 
 ---
 
@@ -784,6 +826,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
 | 后端 | 1.4.0 | 2026-07-22 | 新增 `api.exporters` 导出格式扩展点（插件为私有/小众格式注册导出器；`POST /export/{plan_id}` format 解除 Literal 枚举改显式校验，`GET /export/formats` 格式发现端点；插件状态行新增 `exporters` 字段）——与 `api.parsers` 对称的出口侧 |
 | 后端 | 1.3.0 | 2026-07-22 | 新增 `api.parsers` 文件解析扩展点（插件为私有/小众格式注册解析器；上传校验自动接纳插件扩展名 + 可选 magic；`GET /materials/formats` 格式发现端点；插件状态行新增 `parsers` 字段） |
