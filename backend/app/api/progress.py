@@ -377,6 +377,51 @@ def stats_calendar(
     return {"items": items}
 
 
+# --- 学习时长按方案分布（iter 304）：答「时间花在哪个方案上 / 哪个被冷落」 ---
+
+
+@router.get("/stats/by-plan")
+def stats_by_plan(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """当前用户全部 LearningLog 按 plan 聚合分钟数（分钟降序）+ 末次打卡日。
+
+    与 stats_summary（总量）/ stats_calendar（按日）互补——本端点按方案拆分，
+    供多方案用户看时间分布、发现被冷落的方案。只读、按用户隔离、SQL 聚合（同 stats 口径）。
+    """
+    from app.api.plans import _load_plan_content
+
+    rows = (
+        db.query(
+            models.LearningLog.plan_id,
+            func.coalesce(func.sum(models.LearningLog.minutes), 0),
+            func.max(models.LearningLog.date),
+        )
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
+        .group_by(models.LearningLog.plan_id)
+        .all()
+    )
+    topics: dict[int, str] = {}
+    for pid, _m, _d in rows:
+        if pid not in topics:
+            plan = db.get(models.Plan, pid)
+            content = _load_plan_content(plan) if plan is not None else {}
+            topics[pid] = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+    items = [
+        {
+            "plan_id": pid,
+            "topic": topics.get(pid, ""),
+            "minutes": int(m),
+            "last_date": str(d) if d is not None else None,
+        }
+        for pid, m, d in rows
+    ]
+    items.sort(key=lambda i: -i["minutes"])
+    return {"items": items}
+
+
 # --- learning_logs 打卡（plan/01 §四 learning_logs，P2 iter 45；学习中心页用）---
 
 

@@ -477,6 +477,10 @@ export interface CalendarDay { date: string; minutes: number }
 export const getStatsCalendar = (days = 84) =>
   apiFetch<{ items: CalendarDay[] }>(`/progress/stats/calendar?days=${days}`)
 
+// 学习时长按方案分布（iter 304）
+export interface PlanTimeItem { plan_id: number; topic: string; minutes: number; last_date: string | null }
+export const getStatsByPlan = () => apiFetch<{ items: PlanTimeItem[] }>('/progress/stats/by-plan')
+
 export interface ProgressNode {
   node_id: string // knowledge_nodes.sid（plan 内容 knowledge_map 原始 id）
   name: string

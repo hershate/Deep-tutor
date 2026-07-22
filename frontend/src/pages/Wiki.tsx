@@ -8,7 +8,7 @@ import KbDocsView from '../components/KbDocsView'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsCalendar, getStudyStats, getWrongOverview, listDayLogs, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
+import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsByPlan, getStatsCalendar, getStudyStats, getWrongOverview, listDayLogs, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 import { onTablistKeyDown } from '../lib/tabs'
 
 const STATUS_LABEL: Record<ProgressStatus, string> = {
@@ -105,6 +105,12 @@ export default function Wiki() {
   const { data: studyStats } = useQuery({
     queryKey: ['study-stats'],
     queryFn: getStudyStats,
+    staleTime: 60_000,
+  })
+  // iter 304：学习时长按方案分布（多方案用户看时间花在哪 / 哪个被冷落）
+  const { data: byPlan } = useQuery({
+    queryKey: ['stats-by-plan'],
+    queryFn: getStatsByPlan,
     staleTime: 60_000,
   })
 
@@ -269,6 +275,31 @@ export default function Wiki() {
               )
             })}
           </div>
+        </section>
+      )}
+
+      {/* iter 304：学习时长按方案分布——多方案用户看时间花在哪 / 哪个被冷落 */}
+      {view !== 'docs' && byPlan && byPlan.items.length > 1 && (
+        <section className="animate-fade-in-up rounded-xl border bg-white p-4 dark:border-slate-700 dark:bg-slate-800" aria-label="学习时长按方案分布">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">📊 学习时长分布（按方案）</h3>
+          <ul className="space-y-2">
+            {byPlan.items.map((p) => {
+              const maxMin = Math.max(...byPlan.items.map((i) => i.minutes), 1)
+              return (
+                <li key={p.plan_id}>
+                  <div className="mb-0.5 flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-slate-700 dark:text-slate-200">{p.topic || `方案 #${p.plan_id}`}</span>
+                    <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                      {p.minutes} 分钟{p.last_date ? ` · 末次 ${p.last_date.slice(5)}` : ''}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                    <div className="h-full rounded-full bg-blue-500 dark:bg-blue-400" style={{ width: `${Math.max((p.minutes / maxMin) * 100, 4)}%` }} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         </section>
       )}
 
