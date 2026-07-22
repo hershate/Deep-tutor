@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Toaster } from './Toast'
 import ErrorBoundary from './ErrorBoundary'
 import HeaderSearch from './HeaderSearch'
+import ShortcutsHelp from './ShortcutsHelp'
 import TaskCenter from './TaskCenter'
 import TaskPanel from './TaskPanel'
 import UsageMeter from './UsageMeter'
@@ -193,6 +194,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             </Link>
             {/* iter 289：顶栏全局搜索 + typeahead（独立组件，含 `/` 快捷键） */}
             <HeaderSearch />
+            {/* iter 293：键盘快捷键帮助（`?` 打开 + 按钮） */}
+            <ShortcutsHelp />
           </div>
           <div className="flex items-center gap-3">
             <button
