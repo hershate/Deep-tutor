@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.7.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.6.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.7.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -543,7 +543,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.6.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.7.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -661,18 +661,72 @@ api.events.emit("myplugin.custom", {"k": "v"})     # 发布自定义事件（插
 - 订阅未知事件名不报错、静默无效（前向兼容：订阅新版本事件在旧宿主上自然降级）。
 - 自定义事件请以插件 id 作命名空间（`"myplugin.xxx"`），避免与未来核心事件撞名。
 
-#### `api.tools` —— Agent 工具注册
+#### `api.tools` —— Agent 工具注册与调用
 
 ```python
 api.tools.register_python("myplugin.word_count", async_func)  # 便捷：Python 工具
 api.tools.register(tool)                                      # 完整 Tool（LLM 工具亦可）
+
+# v1.7.0：调用任意已注册工具（核心或插件），组合"新工作流"
+res = await api.tools.call(
+    name: str,               # 工具名（如 "parse_material"、"search_resources"、"generate_quiz"，或插件注册的工具）
+    args: dict,              # 该工具的入参（按其契约，如 parse_material 的 {"kind": "text", "source": "..."}）
+    *,
+    user_id: int,            # 以谁的供应商/预算/计量执行（通常来自 api.deps.get_current_user）
+    upstream: dict | None = None,  # 上游工具输出（按需，如 build_knowledge_map 需 intent/parsed）
+) -> dict                    # {"status": "ok"|"repaired"|"error", "data": {...}, "errors": [...]}
 ```
 
 - 插件工具汇入**每次请求新建**的工具注册表（`default_registry()`），插件路由/其他插件
   可经注册表显式调用；Python 工具签名 `async (inp, ctx) -> dict`（data 字典，
   契约同宿主工具）。
+- **`call`（v1.7.0）——"新工作流"组合性**：插件可调用任意已注册工具（**含核心**
+  `parse_material`/`understand_intent`/`build_knowledge_map`/`design_stages`/
+  `search_resources`/`schedule_plan`/`validate_plan`/`generate_quiz`/`record_progress`/
+  `export_plan`/`generate_study_materials`/`build_plan_slides` 等），在自有路由里把它们
+  串成新的端到端工作流——无需重实现解析/检索/出题。LLM 工具按 `user_id` 解析供应商 +
+  日预算守卫 + `api_usage` 计量（与生成端点同口径）；用户未配置供应商 ->
+  `ApiError(no_llm_provider, 503)`。未知工具 -> `ValueError`；工具执行失败 ->
+  信封 `status="error"`（**不抛**，交插件检查 `errors` 处理）。
 - **注意**：内置生成 PIPELINE 步骤固定，不会自动调用新工具；与核心工具同名会覆盖核心
   实现（注册表告警）——替换核心工具属高级用法，请充分测试（§九）。
+
+**完整示例**：插件用 `call` 组合核心工具构建"一句话出题"工作流
+
+```python
+# plugins/quizgen/plugin.py
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {"id": "quizgen", "name": "Quiz Generator", "version": "0.1.0", "min_api": "1.7"}
+
+def register(api):
+    router = APIRouter()
+
+    @router.post("/from-text")
+    async def from_text(body: dict, user=Depends(api.deps.get_current_user)):
+        text = body.get("text", "")
+        # 组合核心工具：解析 -> 理解意图 -> 出题（无需重实现任何一个）
+        parsed = await api.tools.call("parse_material", {"kind": "text", "source": text}, user_id=user.id)
+        if parsed["status"] != "ok":
+            return {"ok": False, "error": "解析失败"}
+        intent = await api.tools.call(
+            "understand_intent", {"raw_text": text[:2000]},
+            user_id=user.id, upstream={"parse_material": {"data": parsed["data"]}},
+        )
+        # build_knowledge_map 需 intent + parsed
+        km = await api.tools.call(
+            "build_knowledge_map", {},
+            user_id=user.id,
+            upstream={"understand_intent": {"data": intent["data"]}, "parse_material": {"data": parsed["data"]}},
+        )
+        quizzes = await api.tools.call(
+            "generate_quiz", {"nodes": km["data"].get("nodes", [])},
+            user_id=user.id, upstream={"build_knowledge_map": {"data": km["data"]}},
+        )
+        return {"ok": True, "quizzes": quizzes["data"].get("quizzes", [])}
+
+    api.routes.mount(router)  # -> POST /api/plugins/quizgen/from-text
+```
 
 #### `api.parsers` —— 文件解析器注册（v1.3.0 扩展点）
 
@@ -1057,7 +1111,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.6.0",
+  "api_version": "1.7.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1208,6 +1262,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.7.0 | 2026-07-22 | 新增 `api.tools.call(name, args, *, user_id, upstream)` 工具调用：插件可调用任意已注册工具（**含核心** parse_material/understand_intent/build_knowledge_map/design_stages/search_resources/schedule_plan/validate_plan/generate_quiz/record_progress/export_plan/generate_study_materials/build_plan_slides + 插件工具），组合成"新工作流"——无需重实现解析/检索/出题；LLM 工具按 `user_id` 解析供应商 + 日预算守卫 + `api_usage` 计量（同生成口径），返回 `{status, data, errors}` 信封（工具失败不抛、交插件处理）；ToolsNamespace 加 plugin_id（调用 session_id 可追溯） |
 | 后端 | 1.6.0（additive 档案字段） | 2026-07-22 | 供应商档案 `kind` 字段 + `get_provider` 分发 + `/test` 分发（iter 313 profile 集成）：档案 `kind` 设为插件协议（`api.providers` 注册的）时，`get_provider` 返回 `PluginProvider`——**方案生成主线与全部宿主端点即用新协议**（OpenAI/Ollama 等），档案 `api_key`/`base_url` 作凭证传入 handler（统一管 key，无需为插件另配）；alembic 迁移加 `kind` 列 + `_REVISION_PROBES` 探测；handler 契约加 `api_key`/`base_url` 参（profile 非空用之、`provider_kind` 路径空串插件自理）；既有档案 kind 空 → anthropic，行为字节不变（零回归）；不涉 `register(api)` 门面，无版本号变动 |
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |

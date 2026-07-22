@@ -25,18 +25,22 @@ if TYPE_CHECKING:
 # v1.5.0：新增 api.llm 宿主 LLM 能力调用（插件复用用户已配置的供应商，预算守卫+计量同宿主）。
 # v1.6.0：新增 api.providers LLM Provider 扩展点（插件注册新协议 Provider，api.llm.complete
 #         经 provider_kind= 分发，预算守卫+计量同宿主——非 Anthropic 协议不再须 DIY httpx 绕开预算）。
-API_VERSION = "1.6.0"
+# v1.7.0：新增 api.tools.call 工具调用（插件调用任意已注册工具——核心 parse/search/quiz/understand
+#         等 + 插件工具，组合成"新工作流"，无需重实现解析/检索/出题；按用户解析 provider+预算+计量）。
+API_VERSION = "1.7.0"
 
 
 class ToolsNamespace:
-    """Agent 工具注册：插件工具汇入每次请求新建的工具注册表（default_registry）。
+    """Agent 工具注册与调用：插件工具汇入每次请求新建的工具注册表（default_registry）。
 
     注意：内置生成 PIPELINE 步骤固定，不会自动调用新工具——新工具主要供插件路由/
-    其他插件经注册表显式调用；与核心工具同名会覆盖核心实现（注册表告警），
-    属高级用法，见 API.md 开发规范。
+    其他插件经注册表显式调用（v1.7.0 起 call 可调用任意已注册工具，含核心 parse/search/
+    quiz/understand 等，组合成"新工作流"，无需重实现）；与核心工具同名会覆盖核心实现
+    （注册表告警），属高级用法，见 API.md 开发规范。
     """
 
-    def __init__(self, status: PluginStatus, rollbacks: list) -> None:
+    def __init__(self, plugin_id: str, status: PluginStatus, rollbacks: list) -> None:
+        self._pid = plugin_id
         self._status = status
         self._rollbacks = rollbacks
 
@@ -58,6 +62,87 @@ class ToolsNamespace:
         from app.agent.registry import Tool
 
         self.register(Tool(name=name, llm=False, func=func))
+
+    async def call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        user_id: int,
+        upstream: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """调用任意已注册工具（核心或插件工具，v1.7.0），返回结果信封。
+
+        返回 ``{"status": "ok"|"repaired"|"error", "data": {...}, "errors": [...]}``。
+        插件据此组合**新工作流**——用 parse_material 解析 / search_resources 检索 /
+        generate_quiz 出题 / understand_intent 理解 等，无需重实现。
+
+        - ``args``：工具入参（按该工具契约，如 parse_material 的 {kind, source}）。
+        - ``upstream``：上游工具输出（按需，如 build_knowledge_map 需要 intent/parsed）。
+        - LLM 工具按 ``user_id`` 解析供应商 + 日预算守卫 + ``api_usage`` 计量（同生成口径）；
+          用户未配置供应商 -> ``ApiError(no_llm_provider, 503)``。
+        - 未知工具 -> ``ValueError``；工具执行失败 -> 信封 ``status="error"``（不抛，交插件处理）。
+        """
+        import uuid
+
+        from app.agent.context import ExecContext
+        from app.agent.cost import record_metadata_usage
+        from app.agent.loop import run_tool
+        from app.api.deps import check_daily_budget
+        from app.api.errors import ApiError
+        from app.core.credentials import resolve_bing_api_key
+        from app.db.base import SessionLocal
+        from app.llm import get_provider
+        from app.skills.loader import get_skill_registry
+        from app.tools import default_registry
+        from app.tools.base import ToolInput
+
+        if not isinstance(name, str) or not name:
+            raise ValueError("name 必须是非空字符串")
+        if not isinstance(args, dict):
+            raise TypeError("args 必须是 dict")
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+
+        registry = default_registry()
+        if not registry.has(name):
+            raise ValueError(f"未注册的工具: {name}")
+        tool = registry.get(name)
+
+        provider = None
+        if tool.llm:
+            try:
+                provider = get_provider(user_id)
+            except Exception as exc:  # noqa: BLE001
+                raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+            check_daily_budget(None, user_id)  # 日预算守卫（同生成/api.llm 端点）
+
+        sid = f"plugin_call:{self._pid}:{uuid.uuid4().hex[:8]}"
+        tid = f"pt-{uuid.uuid4().hex[:12]}"
+        ctx = ExecContext(
+            session_id=sid,
+            trace_id=tid,
+            registry=registry,
+            llm_provider=provider,
+            skill_registry=get_skill_registry() or None,  # 空 -> loop 走 inline_prompt/默认
+            bing_api_key=resolve_bing_api_key(user_id),  # search_resources 等按用户解析
+        )
+        inp = ToolInput(tool=name, session_id=sid, args=args, upstream=upstream or {})
+        out = await run_tool(name, inp, ctx)
+
+        # 用量计量（LLM 工具有 cost；Python 工具 metadata 空 -> record 内部容错不记）
+        if tool.llm:
+            db = SessionLocal()
+            try:
+                record_metadata_usage(db, out.metadata, user_id)
+            finally:
+                db.close()
+
+        return {
+            "status": out.status,
+            "data": out.data,
+            "errors": [e.model_dump() for e in out.errors],
+        }
 
 
 class ParsersNamespace:
@@ -522,7 +607,7 @@ class BackendPluginAPI:
         # 真实运行态不一致（坏插件代码继续在宿主内执行）；loader 在 register
         # 异常时调用 _rollback() 逆序撤销
         self._rollbacks: list = []
-        self.tools = ToolsNamespace(status, self._rollbacks)
+        self.tools = ToolsNamespace(plugin_id, status, self._rollbacks)
         self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
         self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
         self.providers = ProvidersNamespace(plugin_id, status, self._rollbacks)
