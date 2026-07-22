@@ -198,3 +198,36 @@ def test_facade_exposes_tools_call():
     api = _facade()
     assert callable(api.tools.call)
     assert asyncio.iscoroutinefunction(api.tools.call)
+
+
+# --- api.tools.list 发现（iter 317）---
+
+
+def test_tools_list_returns_core_and_plugin_tools():
+    api = _facade()
+    api.tools.register_python("tooltest.discoverable", lambda inp, ctx: {"ok": True})
+    tools = api.tools.list()
+    names = [t["name"] for t in tools]
+    # 核心工具（可组合的工作流积木）
+    assert "parse_material" in names
+    assert "understand_intent" in names
+    assert "generate_quiz" in names
+    # 插件工具亦列（插件可知自己注册了什么）
+    assert "tooltest.discoverable" in names
+    # 元数据结构 + 核心工具有人类描述
+    pm = next(t for t in tools if t["name"] == "parse_material")
+    assert set(pm) == {"name", "llm", "requires", "description"}
+    assert pm["llm"] is False  # parse_material 是 Python 工具
+    assert pm["description"]  # TOOL_DESCRIPTIONS 提供
+
+
+def test_tools_list_llm_flag_for_llm_tool():
+    api = _facade()
+    from app.agent.registry import Tool
+
+    api.tools.register(Tool(name="tooltest.llmtool", llm=True, inline_prompt="x"))
+    tools = api.tools.list()
+    t = next(x for x in tools if x["name"] == "tooltest.llmtool")
+    assert t["llm"] is True  # LLM 工具标志（插件据此知哪些耗预算）
+    assert t["description"] == ""  # 插件工具无描述（v1）
+

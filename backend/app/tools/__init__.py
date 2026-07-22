@@ -55,6 +55,44 @@ def default_registry() -> ToolRegistry:
     return reg
 
 
+# iter 317：核心工具的人类可读一行描述（api.tools.list / GET /api/tools 发现端点用）。
+# 插件工具无对应描述（Tool 无 description 字段），发现输出中 description="" —— 插件作者
+# 自知其工具用途；未来如需插件自带描述可给 Tool 加可选 description 字段。
+TOOL_DESCRIPTIONS: dict[str, str] = {
+    "parse_material": "多模态资料 → 结构化文本 + 元数据（file/text/url/image/audio/video）",
+    "understand_intent": "抽取学习意图：主题/基础/目标/时长（信息不足时 needs_clarify）",
+    "build_knowledge_map": "拆解知识点与依赖关系（nodes + edges）",
+    "design_stages": "设计 3-5 渐进学习阶段（目标/知识点/里程碑）",
+    "search_resources": "Web 检索学习资源 + 链接验证（✅⚠️❌）",
+    "verify_url": "校验 URL 可达性与内容难度适配",
+    "schedule_plan": "按时长/截止日排期学习日程",
+    "validate_plan": "五维校验（依赖闭包/难度阶梯/认知负荷/里程碑/缺口）+ 修复建议",
+    "export_plan": "导出方案为 md/pdf/ics",
+    "build_plan_slides": "方案 → PPT 风格 HTML 幻灯片",
+    "generate_study_materials": "方案 → 逐单元自学材料索引",
+    "generate_unit_content": "生成单个自学单元的 Markdown 内容",
+    "generate_quiz": "按知识点生成测验题（选择/填空/简答）",
+    "kb_answer": "知识库问答（带引用出处）",
+}
+
+
+def tool_metadata(reg: ToolRegistry) -> list[dict]:
+    """发现视图：注册表全部工具的元数据（name/llm/requires/description），供
+    api.tools.list() 与 GET /api/tools 发现端点。插件据此动态组合工作流（iter 317）。"""
+    out: list[dict] = []
+    for name in reg.names():
+        t = reg.get(name)
+        out.append(
+            {
+                "name": name,
+                "llm": bool(t.llm),
+                "requires": list(t.requires),
+                "description": TOOL_DESCRIPTIONS.get(name, ""),
+            }
+        )
+    return out
+
+
 __all__ = [
     "default_registry",
     "parse_material_tool",

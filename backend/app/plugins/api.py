@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 #         经 provider_kind= 分发，预算守卫+计量同宿主——非 Anthropic 协议不再须 DIY httpx 绕开预算）。
 # v1.7.0：新增 api.tools.call 工具调用（插件调用任意已注册工具——核心 parse/search/quiz/understand
 #         等 + 插件工具，组合成"新工作流"，无需重实现解析/检索/出题；按用户解析 provider+预算+计量）。
-API_VERSION = "1.7.0"
+# v1.8.0：新增 api.tools.list 工具发现（列出全部已注册工具元数据 name/llm/requires/description，
+#         含核心 14 工具 + 插件工具）+ GET /api/tools 发现端点——插件/外部客户端动态发现可组合工具。
+API_VERSION = "1.8.0"
 
 
 class ToolsNamespace:
@@ -62,6 +64,19 @@ class ToolsNamespace:
         from app.agent.registry import Tool
 
         self.register(Tool(name=name, llm=False, func=func))
+
+    def list(self) -> list[dict[str, Any]]:
+        """发现全部已注册工具的元数据（v1.8.0）：``[{name, llm, requires, description}, ...]``。
+
+        含核心工具（parse_material/understand_intent/build_knowledge_map/design_stages/
+        search_resources/verify_url/schedule_plan/validate_plan/export_plan/
+        build_plan_slides/generate_study_materials/generate_unit_content/generate_quiz/
+        kb_answer）+ 插件工具。插件据此**动态组合工作流**（先 list 探查可用工具再 call），
+        无需硬编码工具名/查文档；``llm`` 标志哪些工具耗 LLM（预算意识），``requires`` 标上游依赖。
+        """
+        from app.tools import default_registry, tool_metadata
+
+        return tool_metadata(default_registry())
 
     async def call(
         self,

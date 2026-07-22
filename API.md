@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.7.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.7.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.8.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -543,7 +543,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.7.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.8.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -727,6 +727,21 @@ def register(api):
 
     api.routes.mount(router)  # -> POST /api/plugins/quizgen/from-text
 ```
+
+##### `api.tools.list()` —— 工具发现（v1.8.0）
+
+```python
+tools = api.tools.list()  # -> [{name, llm, requires, description}, ...]
+```
+
+列出本实例全部已注册工具的元数据（核心 14 工具 + 插件工具）。插件据此**动态组合工作流**——
+先 `list` 探查可用工具（`llm` 标志哪些耗 LLM/预算、`requires` 标上游依赖、`description` 一行用途）
+再 `call`，无需硬编码工具名/查文档。例如插件按 `requires` 自动推断调用顺序、或按 `llm` 在
+预算紧张时跳过昂贵工具。
+
+**REST 发现端点 `GET /api/tools`**（与进程内 `api.tools.list()` 对称的外部面）：返回
+`{"tools": [{name, llm, requires, description}, ...]}`，供**外部客户端 / 替代前端**发现可调用
+工具（如替代前端渲染工具调用 UI）。认证同宿主端点。
 
 #### `api.parsers` —— 文件解析器注册（v1.3.0 扩展点）
 
@@ -1111,7 +1126,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.7.0",
+  "api_version": "1.8.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1262,6 +1277,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.8.0 | 2026-07-23 | 新增工具发现：`api.tools.list()`（进程内，列已注册工具元数据 `{name, llm, requires, description}`，含核心 14 工具一行描述 + 插件工具）+ `GET /api/tools` REST 发现端点（外部客户端/替代前端用，与 `list()` 对称）——插件/客户端**动态发现**可组合工具（iter 316 `call` 不再须硬编码工具名/查文档），按 `llm`/`requires` 推断调用顺序与预算 |
 | 后端 | 1.7.0 | 2026-07-22 | 新增 `api.tools.call(name, args, *, user_id, upstream)` 工具调用：插件可调用任意已注册工具（**含核心** parse_material/understand_intent/build_knowledge_map/design_stages/search_resources/schedule_plan/validate_plan/generate_quiz/record_progress/export_plan/generate_study_materials/build_plan_slides + 插件工具），组合成"新工作流"——无需重实现解析/检索/出题；LLM 工具按 `user_id` 解析供应商 + 日预算守卫 + `api_usage` 计量（同生成口径），返回 `{status, data, errors}` 信封（工具失败不抛、交插件处理）；ToolsNamespace 加 plugin_id（调用 session_id 可追溯） |
 | 后端 | 1.6.0（additive 档案字段） | 2026-07-22 | 供应商档案 `kind` 字段 + `get_provider` 分发 + `/test` 分发（iter 313 profile 集成）：档案 `kind` 设为插件协议（`api.providers` 注册的）时，`get_provider` 返回 `PluginProvider`——**方案生成主线与全部宿主端点即用新协议**（OpenAI/Ollama 等），档案 `api_key`/`base_url` 作凭证传入 handler（统一管 key，无需为插件另配）；alembic 迁移加 `kind` 列 + `_REVISION_PROBES` 探测；handler 契约加 `api_key`/`base_url` 参（profile 非空用之、`provider_kind` 路径空串插件自理）；既有档案 kind 空 → anthropic，行为字节不变（零回归）；不涉 `register(api)` 门面，无版本号变动 |
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
