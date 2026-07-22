@@ -822,7 +822,22 @@ export function clarifyStream(
   return ssePost(`/plans/${sessionId}/clarify`, { answers }, onEvent, signal)
 }
 
-import { openSSE, readSSEStream, SseError } from './sse'
+import { openSSE, readSSEStream, SseError, type SSEEvent } from './sse'
+
+/**
+ * 实时事件流订阅（iter 315）：GET /api/events/stream（SSE），把后端事件总线事件
+ * （plan_created / progress_updated / quiz_submitted / materials_completed / learning_log_added
+ * / startup / shutdown 及插件自定义事件）经 SSE 推送给调用方。鉴权同宿主端点
+ * （Authorization: Bearer；开放本机模式无 token 亦通行）。
+ *
+ * 返回 openSSE 的 promise——流干净结束 resolve、错误 reject（SseError，含 status）。
+ * 调用方负责重连退避与生命周期（见 EventsBridge 组件）。 */
+export async function openEventStream(
+  onEvent: (ev: SSEEvent) => void,
+  signal: AbortSignal,
+): Promise<unknown> {
+  return openSSE(`${BASE}/events/stream`, { token: token(), signal, onEvent })
+}
 
 // --- 数据备份（iter 93）：整库导出 JSON 下载 / 追加式导入 ---
 

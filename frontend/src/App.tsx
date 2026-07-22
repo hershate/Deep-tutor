@@ -23,6 +23,7 @@ import Review from './pages/Review'
 import Search from './pages/Search'
 import PluginPageHost from './components/PluginPageHost'
 import PluginOverlayHost from './components/PluginOverlayHost'
+import EventsBridge from './components/EventsBridge'
 import RouterBridge from './components/RouterBridge'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
@@ -76,6 +77,8 @@ export default function App() {
             <Layout>
               {/* iter 187 F2：任务引擎桥（注入 navigate/queryClient + boot 对账 + 路由同步） */}
               <TaskEngineBridge />
+              {/* iter 315：插件事件桥（DeepTutor.events ← SSE /api/events/stream），仅登录态连接 */}
+              <EventsBridge />
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />

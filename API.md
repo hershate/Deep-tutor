@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.6.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.7.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.6.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -387,17 +387,34 @@ interface SkinDef {
 
 ## 四、事件 API（`DeepTutor.events`）
 
+事件有两类来源，插件用同一 `events.on` 订阅：
+
+- **前端本地事件**：`skinchange` / `taskchange`（本进程内 `emit`）。
+- **后端事件桥**（v1.7.0，iter 315）：宿主在登录态自动连接 `GET /api/events/stream`（SSE，
+  见 §8.7），把**后端事件总线**事件实时转发为 `DeepTutor.events`——插件订阅即**实时**收到
+  （方案生成完成、学习进度更新、测验提交、打卡、材料生成完成等），**免轮询**。这是
+  "用 API 完全替换前端"的实时性使能项（替代前端做 live 仪表盘时，数据变化自动推送）。
+
 ### 事件清单
 
-| 事件名 | payload | 触发时机 |
-|---|---|---|
-| `skinchange` | `{ name: string }` | 皮肤切换后（含亮/暗切换引起的令牌重放） |
-| `taskchange`（v1.1.0） | `{ id: string; kind: 'plan' \| 'materials'; phase: string; title: string }` | 方案/材料生成任务的每次相位迁移（`phase`：`running` / `clarify` / `done` / `error` / `cancelled` / `interrupted`；`id` 形如 `plan:<sessionId>`、`materials:<planId>`） |
+| 事件名 | payload | 来源 | 触发时机 |
+|---|---|---|---|
+| `skinchange` | `{ name: string }` | 前端 | 皮肤切换后（含亮/暗切换引起的令牌重放） |
+| `taskchange`（v1.1.0） | `{ id; kind; phase; title }` | 前端 | 方案/材料生成任务的每次相位迁移 |
+| `plan_created`（v1.7.0） | `{ plan_id; session_id; version; topic }` | 后端 | 方案新版本落库后（生成/重生成/重试统一收口） |
+| `progress_updated`（v1.7.0） | `{ user_id; plan_id; node_id; status; mastery }` | 后端 | 单节点进度更新提交后 |
+| `quiz_submitted`（v1.7.0） | `{ user_id; quiz_id; plan_id; type; correct }` | 后端 | 测验作答提交后 |
+| `materials_completed`（v1.7.0） | `{ plan_id; session_id; unit_count; degraded_count; partial }` | 后端 | 自学材料生成完成 |
+| `learning_log_added`（v1.7.0） | `{ user_id; plan_id; log_id; date; minutes; note }` | 后端 | 学习打卡提交后 |
+| `<plugin 自定义>`（v1.7.0） | 任意 | 后端 | 后端插件 `api.events.emit("myplugin.x", {...})`（按归属用户过滤推送） |
 
 > 事件只增不改：新版本可能追加事件，已有事件名与 payload 结构向后兼容。
 >
-> **前向兼容**：订阅宿主尚不存在的事件名不会报错——监听器只是永不触发。
-> 插件因此可以放心订阅新版本事件，在旧宿主上自然降级为无操作。
+> **前向兼容**：订阅宿主尚不存在的事件名不会报错——监听器只是永不触发。`on`/`emit` 接受
+> 任意字符串事件名（未知名以 `unknown` 载荷传递），插件可放心订阅新版本事件，在旧宿主上自然降级。
+>
+> **后端事件隔离**：经 SSE 桥转发的后端事件**按归属用户过滤**——他人的事件不会推给你
+> （`startup`/`shutdown` 等全局生命周期事件除外，广播给全部连接）。详见 §8.7。
 >
 > `taskchange` 仅通知相位变化这一事实；任务的全量状态（进度步骤、费用、错误详情等）
 > 可经 `api.get('/sessions')` / `api.get('/sessions/<id>')` 主动查询（含 `status`、
@@ -1195,6 +1212,7 @@ for (;;) {
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.7），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |
 | 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |

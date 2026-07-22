@@ -14,7 +14,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.6.0'
+export const API_VERSION = '1.7.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -423,7 +423,14 @@ const skinsApi = {
 // 事件（events）
 // ---------------------------------------------------------------------------
 
-/** API 事件名（新增只在 minor 版本追加） */
+/** API 事件名（新增只在 minor 版本追加）。
+ *
+ * 两类事件源：
+ * - 前端本地事件：skinchange / taskchange（本进程 emit）。
+ * - 后端事件桥（v1.7.0，iter 315）：经 SSE /api/events/stream 转发后端事件总线事件
+ *   （plan_created / progress_updated / quiz_submitted / materials_completed /
+ *   learning_log_added / startup / shutdown 及插件自定义事件）——插件订阅即实时收到，
+ *   免轮询。on/emit 接受任意字符串事件名（未知名以 unknown 载荷传递，前向兼容）。 */
 export interface DeepTutorEventMap {
   /** 皮肤切换后触发 */
   skinchange: { name: string }
@@ -431,23 +438,43 @@ export interface DeepTutorEventMap {
    *  phase: running|clarify|done|error|cancelled|interrupted；
    *  任务全量状态可经 api.get('/sessions') 主动查询。 */
   taskchange: { id: string; kind: 'plan' | 'materials'; phase: string; title: string }
+  // —— 后端事件桥（iter 315，SSE 转发；载荷见 API.md「§核心事件清单」）——
+  /** 方案新版本落库后（生成/重生成/重试统一收口） */
+  plan_created: { plan_id: number; session_id: number; version: number; topic: string }
+  /** 单节点进度更新提交后 */
+  progress_updated: { user_id: number; plan_id: number; node_id: string; status: string; mastery: number }
+  /** 测验作答提交后 */
+  quiz_submitted: { user_id: number; quiz_id: number; plan_id: number; type: string | null; correct: boolean | null }
+  /** 自学材料生成完成 */
+  materials_completed: { plan_id: number; session_id: number; unit_count: number; degraded_count: number; partial: boolean }
+  /** 学习打卡提交后 */
+  learning_log_added: { user_id: number; plan_id: number; log_id: number; date: string; minutes: number; note: string | null }
 }
 
 type EventName = keyof DeepTutorEventMap
-const eventListeners = new Map<EventName, Set<(payload: unknown) => void>>()
+const eventListeners = new Map<string, Set<(payload: unknown) => void>>()
 
-const eventsApi = {
-  on<E extends EventName>(event: E, fn: (payload: DeepTutorEventMap[E]) => void): () => void {
+// v1.7.0：重载——已知事件名（DeepTutorEventMap）给类型化载荷；任意字符串（后端/插件自定义
+// 事件）以 unknown 载荷传递（前向兼容：订阅宿主尚不存在的事件名不报错，只是暂不触发）。
+// 对象字面量不能内联重载，故以 interface 声明重载、字面量提供实现签名。
+interface EventsApi {
+  on<E extends EventName>(event: E, fn: (payload: DeepTutorEventMap[E]) => void): () => void
+  on(event: string, fn: (payload: unknown) => void): () => void
+  emit<E extends EventName>(event: E, payload: DeepTutorEventMap[E]): void
+  emit(event: string, payload: unknown): void
+}
+
+const eventsApi: EventsApi = {
+  on(event: string, fn: (payload: unknown) => void): () => void {
     let set = eventListeners.get(event)
     if (!set) {
       set = new Set()
       eventListeners.set(event, set)
     }
-    const wrapped = fn as (payload: unknown) => void
-    set.add(wrapped)
-    return () => set.delete(wrapped)
+    set.add(fn)
+    return () => set.delete(fn)
   },
-  emit<E extends EventName>(event: E, payload: DeepTutorEventMap[E]): void {
+  emit(event: string, payload: unknown): void {
     eventListeners.get(event)?.forEach((fn) => {
       try {
         fn(payload)
