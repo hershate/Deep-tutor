@@ -5,7 +5,7 @@ health/sessions/materials/plans/export/usage/settings/progress/quizzes 已接入
 
 from fastapi import APIRouter
 
-from app.api import auth, backup, credentials, deps, exports, health, kb, knowledge, materials, notes, plans, plugins, progress, providers, quizzes, search, sessions, settings, setup, share, usage, users
+from app.api import auth, backup, credentials, deps, events, exports, health, kb, knowledge, materials, notes, plans, plugins, progress, providers, quizzes, search, sessions, settings, setup, share, usage, users
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
@@ -31,6 +31,7 @@ api_router.include_router(kb.router)  # iter 213：知识库独立文档库（/k
 api_router.include_router(credentials.router)  # iter 223：API Key 凭证档案（多档案卡片切换）
 api_router.include_router(notes.router)  # iter 227：独立自由笔记（/notes）
 api_router.include_router(plugins.router)  # 后端插件状态（管理员）
+api_router.include_router(events.router)  # iter 310：实时事件流 SSE（/events/stream）
 
 
-__all__ = ["api_router", "auth", "backup", "credentials", "deps", "exports", "health", "kb", "knowledge", "materials", "notes", "plans", "plugins", "progress", "providers", "quizzes", "search", "sessions", "settings", "setup", "share", "usage", "users"]
+__all__ = ["api_router", "auth", "backup", "credentials", "deps", "events", "exports", "health", "kb", "knowledge", "materials", "notes", "plans", "plugins", "progress", "providers", "quizzes", "search", "sessions", "settings", "setup", "share", "usage", "users"]
