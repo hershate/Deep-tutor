@@ -873,6 +873,22 @@ export async function downloadNotesZip(): Promise<void> {
   saveBlob(await res.blob(), res.headers.get('content-disposition'), 'notes-export.zip')
 }
 
+/** 导入自由笔记（iter 292，对称 GET /export）：.md 文件或含 .md 的 .zip。 */
+export async function importNotes(
+  files: File[],
+): Promise<{ imported: number; skipped: number; quota_full: boolean }> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f, f.name)
+  const res = await fetch(`${BASE}/notes/import`, {
+    method: 'POST',
+    // 不设 Content-Type：浏览器自动加 multipart boundary
+    headers: { Authorization: `Bearer ${token()}` },
+    body: fd,
+  })
+  await throwIfNotOk(res)
+  return res.json()
+}
+
 /** 个人知识手册 Markdown 下载（iter 116）。 */
 export async function downloadKnowledgeHandbook(): Promise<void> {
   const res = await fetch(`${BASE}/knowledge/export`, {

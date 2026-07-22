@@ -1,7 +1,7 @@
 // 独立自由笔记页（iter 227）：不依附方案的笔记本——左列表右编辑器双栏。
 // 列表 content 为 300 字预览，点选后 GET 全文进编辑器；正文支持 Markdown 预览切换；
 // 保存=新建 POST / 更新 PUT；删除有确认。空标题且空正文后端 400，前端先拦截提示。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -13,6 +13,7 @@ import {
   deleteFreeNote,
   downloadNotesZip,
   getFreeNote,
+  importNotes,
   listFreeNotes,
   saveTextFile,
   updateFreeNote,
@@ -93,6 +94,8 @@ export default function Notes() {
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
   const [exporting, setExporting] = useState(false) // iter 286：全部笔记 zip 导出
+  const [importing, setImporting] = useState(false) // iter 292：导入笔记
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   // iter 288：置顶笔记 id 集（localStorage 持久化；读写失败静默降级，iter 145 同款模式）
   const [pinned, setPinned] = useState<Set<number>>(() => {
     try {
@@ -359,6 +362,24 @@ export default function Notes() {
       setExporting(false)
     }
   }
+  // iter 292：导入笔记（.md 文件 / 含 .md 的 .zip，对称导出）
+  async function onImportFiles(e: ChangeEvent<HTMLInputElement>) {
+    const fs = e.target.files
+    if (!fs || fs.length === 0) return
+    setImporting(true)
+    try {
+      const r = await importNotes(Array.from(fs))
+      if (r.imported > 0) toast.success(`已导入 ${r.imported} 篇笔记${r.skipped ? `（${r.skipped} 篇跳过）` : ''}`)
+      else toast.info(`未导入${r.skipped ? `（${r.skipped} 篇跳过）` : ''}`)
+      if (r.quota_full) toast.error('已达笔记上限 500，部分未导入')
+      await refresh()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : '导入失败，请重试')
+    } finally {
+      setImporting(false)
+      e.target.value = '' // 允许再次选择同一文件
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -406,6 +427,24 @@ export default function Notes() {
                       {exporting ? '导出中…' : '⬇ 导出'}
                     </button>
                   )}
+                  {/* iter 292：导入笔记（.md 文件 / 含 .md 的 .zip，对称导出） */}
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    multiple
+                    accept=".md,.zip"
+                    onChange={onImportFiles}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={importing}
+                    title="导入 .md 文件或含 .md 的 .zip"
+                    className="rounded-lg border px-2.5 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+                  >
+                    {importing ? '导入中…' : '⬆ 导入'}
+                  </button>
                   <button
                     onClick={() => {
                       if (!confirmDiscard()) return

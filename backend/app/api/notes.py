@@ -9,12 +9,14 @@
 
 from __future__ import annotations
 
+import io
 import tempfile
 import zipfile
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -30,6 +32,9 @@ _MAX_NOTES_PER_USER = 500  # 每用户笔记条数上限（与其他资源配额
 _MAX_TITLE_CHARS = 256
 _MAX_CONTENT_CHARS = 20_000
 _LIST_PREVIEW_CHARS = 300  # 列表预览截断（完整内容走 GET /notes/{id}）
+# iter 292：导入安全覆盖
+_IMPORT_MAX_ENTRY_BYTES = 100_000  # 单条目原始字节上限（≈ 覆盖 _MAX_CONTENT_CHARS 的 UTF-8 字节）
+_IMPORT_TOTAL_BYTES_CAP = 5 * 1024 * 1024  # 全部条目解压总量上限（防 zip bomb）
 
 
 def _out(n: models.Note, *, preview: bool = False) -> dict:
@@ -87,6 +92,84 @@ def create_note(body: NoteIn, db: Session = Depends(get_db), user: User = Depend
     db.commit()
     db.refresh(note)
     return _out(note)
+
+
+def _split_md_title(text: str, fallback_title: str) -> tuple[str, str]:
+    """从 markdown 文本拆 (title, content)：首个 '# ' 行为标题（与 GET /export zip 格式对称），
+    否则标题取 fallback（文件名 stem）；content 为全文（去首个标题行）。"""
+    lines = text.split("\n", 1)
+    first = lines[0].strip() if lines else ""
+    if first.startswith("# "):
+        return first[2:].strip()[:_MAX_TITLE_CHARS], (lines[1] if len(lines) > 1 else "").strip()
+    return (fallback_title or "")[:_MAX_TITLE_CHARS], text.strip()
+
+
+@router.post("/import", status_code=201)
+async def import_notes(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """批量导入自由笔记（iter 292，与 GET /export zip 对称）：接受 .md 文件与/或含 .md 的 .zip。
+    每篇：首个 '# ' 行为标题（否则文件名 stem）、正文为全文；与导出格式可往返。
+
+    安全覆盖：每条目内容 ≤_MAX_CONTENT_CHARS、单条原始字节 ≤_IMPORT_MAX_ENTRY_BYTES（过大跳过/截断）、
+    全部解压总量 ≤_IMPORT_TOTAL_BYTES_CAP（防 zip bomb）、总数受 _MAX_NOTES_PER_USER 配额约束、
+    zip 仅内存 read 不落盘（无 zip slip）、UTF-8 解码失败跳过、空标题+空正文跳过（同 _normalize）。
+    返回 {imported, skipped, quota_full}。
+    """
+    existing = db.query(models.Note).filter_by(user_id=user.id).count()
+    imported = 0
+    skipped = 0
+    total_bytes = 0
+    quota_full = False
+
+    def consume(name: str, raw: bytes) -> None:
+        nonlocal imported, skipped, total_bytes, quota_full
+        if quota_full or existing + imported >= _MAX_NOTES_PER_USER:
+            quota_full = True
+            skipped += 1
+            return
+        total_bytes += len(raw)
+        if total_bytes > _IMPORT_TOTAL_BYTES_CAP:
+            skipped += 1
+            return
+        text = raw[:_IMPORT_MAX_ENTRY_BYTES].decode("utf-8", errors="replace")[:_MAX_CONTENT_CHARS]
+        title, content = _split_md_title(text, Path(name).stem)
+        if not title and not content:
+            skipped += 1
+            return
+        db.add(models.Note(user_id=user.id, title=title, content=content))
+        imported += 1
+
+    for up in files:
+        name = up.filename or "note.md"
+        data = await up.read()
+        if not data:
+            continue
+        if name.lower().endswith(".zip"):
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(data))
+            except zipfile.BadZipFile:
+                skipped += 1
+                continue
+            for info in zf.infolist():
+                if info.is_dir() or not info.filename.lower().endswith(".md"):
+                    continue
+                if info.file_size > _IMPORT_MAX_ENTRY_BYTES:
+                    skipped += 1  # 单条过大，不读入内存
+                    continue
+                try:
+                    raw = zf.read(info.filename)
+                except Exception:  # noqa: BLE001  损坏条目跳过，不阻塞其余
+                    skipped += 1
+                    continue
+                consume(info.filename, raw)
+        else:
+            consume(name, data)
+    if imported:
+        db.commit()
+    return {"imported": imported, "skipped": skipped, "quota_full": quota_full}
 
 
 @router.get("/export")
