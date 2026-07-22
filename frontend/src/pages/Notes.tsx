@@ -96,6 +96,7 @@ export default function Notes() {
   const [exporting, setExporting] = useState(false) // iter 286：全部笔记 zip 导出
   const [importing, setImporting] = useState(false) // iter 292：导入笔记
   const importInputRef = useRef<HTMLInputElement | null>(null)
+  const contentRef = useRef<HTMLTextAreaElement | null>(null) // iter 294：Markdown 工具栏选区操作
   // iter 288：置顶笔记 id 集（localStorage 持久化；读写失败静默降级，iter 145 同款模式）
   const [pinned, setPinned] = useState<Set<number>>(() => {
     try {
@@ -380,6 +381,36 @@ export default function Notes() {
       e.target.value = '' // 允许再次选择同一文件
     }
   }
+  // iter 294：Markdown 格式工具栏辅助——选区包裹 / 行首前缀（非技术用户友好）
+  function wrapSelection(before: string, after: string, placeholder: string) {
+    const ta = contentRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const sel = draft.content.slice(start, end) || placeholder
+    const newText = draft.content.slice(0, start) + before + sel + after + draft.content.slice(end)
+    setDraft((d) => ({ ...d, content: newText }))
+    setDirty(true)
+    const s = start + before.length
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(s, s + sel.length)
+    })
+  }
+  function prefixLine(prefix: string) {
+    const ta = contentRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const lineStart = draft.content.lastIndexOf('\n', start - 1) + 1
+    const newText = draft.content.slice(0, lineStart) + prefix + draft.content.slice(lineStart)
+    setDraft((d) => ({ ...d, content: newText }))
+    setDirty(true)
+    requestAnimationFrame(() => {
+      ta.focus()
+      const pos = lineStart + prefix.length
+      ta.setSelectionRange(pos, pos)
+    })
+  }
 
   return (
     <div className="space-y-4">
@@ -640,18 +671,45 @@ export default function Notes() {
               )}
             </div>
           ) : (
-            <textarea
-              value={draft.content}
-              onChange={(e) => {
-                setDraft((d) => ({ ...d, content: e.target.value }))
-                setDirty(true)
-              }}
-              rows={14}
-              maxLength={20_000}
-              placeholder="正文（支持 Markdown）…"
-              aria-label="笔记正文"
-              className="w-full resize-y rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-900"
-            />
+            <>
+              {/* iter 294：Markdown 格式工具栏（非技术用户友好：一键插入/包裹语法） */}
+              <div className="mb-1.5 flex flex-wrap gap-1" role="toolbar" aria-label="Markdown 格式">
+                {(
+                  [
+                    { label: 'H', title: '标题', cls: 'font-bold', onClick: () => prefixLine('# ') },
+                    { label: 'B', title: '加粗', cls: 'font-bold', onClick: () => wrapSelection('**', '**', '加粗') },
+                    { label: 'I', title: '斜体', cls: 'italic', onClick: () => wrapSelection('*', '*', '斜体') },
+                    { label: '•', title: '列表项', cls: '', onClick: () => prefixLine('- ') },
+                    { label: '<>', title: '行内代码', cls: 'font-mono', onClick: () => wrapSelection('`', '`', '代码') },
+                    { label: '🔗', title: '链接', cls: '', onClick: () => wrapSelection('[', '](https://)', '链接文字') },
+                  ] as { label: string; title: string; cls: string; onClick: () => void }[]
+                ).map((b) => (
+                  <button
+                    key={b.label}
+                    type="button"
+                    onClick={b.onClick}
+                    title={b.title}
+                    aria-label={b.title}
+                    className="h-7 min-w-[1.75rem] rounded border px-1 text-xs text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    <span className={b.cls}>{b.label}</span>
+                  </button>
+                ))}
+              </div>
+              <textarea
+                ref={contentRef}
+                value={draft.content}
+                onChange={(e) => {
+                  setDraft((d) => ({ ...d, content: e.target.value }))
+                  setDirty(true)
+                }}
+                rows={14}
+                maxLength={20_000}
+                placeholder="正文（支持 Markdown）…"
+                aria-label="笔记正文"
+                className="w-full resize-y rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-900"
+              />
+            </>
           )}
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className={`text-xs ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
