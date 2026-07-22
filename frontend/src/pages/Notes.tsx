@@ -412,6 +412,34 @@ export default function Notes() {
     })
   }
 
+  // iter 297：复制正文到剪贴板（clipboard API + 旧法兜底：localhost/https 走 API，LAN http 退回 select+execCommand）
+  async function copyContent() {
+    const text = draft.content
+    if (!text.trim()) return
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+        toast.success('已复制正文到剪贴板')
+        return
+      }
+    } catch {
+      /* 非 secure context 或拒绝授权 -> 旧法兜底 */
+    }
+    const ta = contentRef.current
+    if (ta) {
+      ta.select()
+      try {
+        document.execCommand('copy')
+        toast.success('已复制正文到剪贴板')
+      } catch {
+        toast.error('复制失败，请手动选择复制')
+      }
+      window.getSelection()?.removeAllRanges()
+    } else {
+      toast.error('复制失败')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="animate-fade-in-up space-y-1">
@@ -712,16 +740,31 @@ export default function Notes() {
             </>
           )}
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className={`text-xs ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-              {dirty
-                ? '● 未保存的修改'
-                : draft.id === null
-                  ? '新笔记（保存后入库）'
-                  : draft.updatedAt
-                    ? `更新于 ${new Date(draft.updatedAt).toLocaleString()}`
-                    : ''}
-            </span>
+            <div className="min-w-0">
+              <span className={`text-xs ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+                {dirty
+                  ? '● 未保存的修改'
+                  : draft.id === null
+                    ? '新笔记（保存后入库）'
+                    : draft.updatedAt
+                      ? `更新于 ${new Date(draft.updatedAt).toLocaleString()}`
+                      : ''}
+              </span>
+              {draft.content.trim() && (
+                <span className="ml-2 text-xs tabular-nums text-slate-400">
+                  {draft.content.length.toLocaleString()} 字 · 约 {Math.max(1, Math.round(draft.content.length / 400))} 分钟
+                </span>
+              )}
+            </div>
             <div className="flex gap-2">
+              <button
+                onClick={copyContent}
+                disabled={!draft.content.trim()}
+                title="复制正文到剪贴板"
+                className="rounded-lg border px-3 py-1.5 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                复制
+              </button>
               <button
                 onClick={exportNote}
                 disabled={busy || (!draft.title.trim() && !draft.content.trim())}
