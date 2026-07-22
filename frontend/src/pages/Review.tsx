@@ -38,6 +38,23 @@ type ReviewCard =
   | ({ kind: 'recall' } & ReviewQueueItem)
   | ({ kind: 'quiz' } & WrongQuizItem)
 
+// iter 290：复习模式筛选（全部/仅知识点/仅错题）
+type ReviewMode = 'all' | 'recall' | 'quiz'
+const MODE_KEY = 'dt-review-mode'
+const REVIEW_MODES: { value: ReviewMode; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'recall', label: '知识点' },
+  { value: 'quiz', label: '错题' },
+]
+function readReviewMode(): ReviewMode {
+  try {
+    const v = localStorage.getItem(MODE_KEY)
+    return v === 'recall' || v === 'quiz' ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
 function pct(m: number) {
   return `${Math.round(m * 100)}%`
 }
@@ -53,12 +70,21 @@ export default function Review() {
     },
     staleTime: Infinity,
   })
+  // iter 290：复习模式（全部/仅知识点/仅错题），localStorage 记忆（iter 280 同款静默降级）
+  const [mode, setMode] = useState<ReviewMode>(readReviewMode)
   // recall 在前、错题在后（确定性顺序；先扫记忆再重练错题的自然节奏）
-  const queue: ReviewCard[] = useMemo(() => {
+  const fullQueue: ReviewCard[] = useMemo(() => {
     const r = (data?.recall ?? []).map((d) => ({ kind: 'recall' as const, ...d }))
     const q = (data?.quizzes ?? []).map((d) => ({ kind: 'quiz' as const, ...d }))
     return [...r, ...q]
   }, [data])
+  const recallCount = data?.recall.length ?? 0
+  const quizCount = data?.quizzes.length ?? 0
+  // 按模式过滤（全部 = recall+quiz；recall/quiz 仅对应类）
+  const queue: ReviewCard[] = useMemo(
+    () => (mode === 'all' ? fullQueue : fullQueue.filter((c) => c.kind === mode)),
+    [fullQueue, mode],
+  )
 
   const [index, setIndex] = useState(0)
   // recall 卡态
@@ -181,6 +207,22 @@ export default function Review() {
     setStats({ remembered: 0, fuzzy: 0, forgot: 0, quizCorrect: 0, quizWrong: 0 })
     void refetch()
   }
+  // iter 290：切模式重置到新筛选队列开头（清卡态；统计清零避免跨模式混计）
+  function changeMode(m: ReviewMode) {
+    if (m === mode) return
+    setMode(m)
+    setIndex(0)
+    setFlipped(false)
+    setQuizSelected(null)
+    setQuizJudged(false)
+    setQuizCorrect(null)
+    setStats({ remembered: 0, fuzzy: 0, forgot: 0, quizCorrect: 0, quizWrong: 0 })
+    try {
+      localStorage.setItem(MODE_KEY, m)
+    } catch {
+      /* 写失败仅本次会话生效 */
+    }
+  }
 
   // ---- 状态分支 ----
   if (isLoading) {
@@ -211,15 +253,33 @@ export default function Review() {
     )
   }
   if (queue.length === 0) {
+    const total = recallCount + quizCount
+    const emptyForMode = total > 0 // 有内容但当前模式筛空（如「仅错题」但无错题）
     return (
       <EmptyState
-        icon="🎉"
-        title="今天没有需要复习的内容"
-        description="到期知识点与错题都已掌握。去学习新内容或做一组测验吧。"
+        icon={emptyForMode ? '🗂️' : '🎉'}
+        title={emptyForMode ? (mode === 'quiz' ? '暂无错题' : '暂无到期知识点') : '今天没有需要复习的内容'}
+        description={
+          emptyForMode
+            ? mode === 'quiz'
+              ? '错题都已答对或尚未作答。切换到「全部」或「知识点」继续。'
+              : '到期知识点已复习或已掌握。切换到「全部」或「错题」继续。'
+            : '到期知识点与错题都已掌握。去学习新内容或做一组测验吧。'
+        }
         action={
-          <Link to="/plans" className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700">
-            查看方案
-          </Link>
+          emptyForMode ? (
+            <button
+              type="button"
+              onClick={() => changeMode('all')}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              查看全部
+            </button>
+          ) : (
+            <Link to="/plans" className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700">
+              查看方案
+            </Link>
+          )
         }
       />
     )
@@ -289,11 +349,36 @@ export default function Review() {
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-          复习 <span className="ml-1 text-sm font-normal text-slate-400">· {card.kind === 'recall' ? '知识点回忆' : '错题重练'}</span>
+          复习
+          <span className="ml-2 text-xs font-normal tabular-nums text-slate-400">
+            {recallCount} 知识点 · {quizCount} 错题
+          </span>
         </h1>
         <Link to="/plans" className="text-sm text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200">
           退出
         </Link>
+      </div>
+      {/* iter 290：模式筛选（全部/仅知识点/仅错题），各 tab 显示对应计数 */}
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="复习模式筛选">
+        {REVIEW_MODES.map((m) => {
+          const count = m.value === 'recall' ? recallCount : m.value === 'quiz' ? quizCount : recallCount + quizCount
+          return (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => changeMode(m.value)}
+              aria-pressed={mode === m.value}
+              className={`rounded-lg border px-2.5 py-1 text-xs tabular-nums transition-all active:scale-95 dark:border-slate-600 ${
+                mode === m.value
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                  : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+              }`}
+            >
+              {m.label}
+              {m.value !== 'all' ? ` ${count}` : ''}
+            </button>
+          )
+        })}
       </div>
 
       {/* 进度 */}
