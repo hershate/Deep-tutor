@@ -889,23 +889,34 @@ api.providers.kinds() -> list[str]   # 本插件已注册的协议名（调试/�
 **handler 契约**（async 或 sync，签名相同；async 直接 await，sync 在线程池执行不阻塞事件循环）：
 
 ```python
-async def chat_openai(system: str, user: str, *, model: str, max_tokens: int) -> dict:
-    # 凭证由插件自理：handler 不接收 api_key/base_url——从 api.data_dir / 环境变量 /
-    #   自有设置（插件路由）读写。宿主不知新协议的凭证模型，故不代管。
-    resp = await my_openai_client.chat(model=model, max_tokens=max_tokens,
-                                       system=system, user=user)
+async def chat_openai(
+    system: str, user: str, *,
+    model: str, max_tokens: int,
+    api_key: str, base_url: str,   # iter 313：凭证（见下方"凭证来源"）
+) -> dict:
+    # api_key/base_url 非空时用之（来自用户供应商档案）；空串则回退插件自有凭证
+    # （api.data_dir / 环境变量 / 自有设置路由）。
+    client = openai.OpenAI(api_key=api_key or my_own_key, base_url=base_url or None)
+    resp = client.chat.completions.create(model=model, max_tokens=max_tokens,
+                                          messages=([{"role":"system","content":system}] if system else [])
+                                                 + [{"role":"user","content":user}])
     return {
-        "content": resp.text,                # 必填：补全文本
-        "model": resp.model,                 # 必填：实际所用模型名
-        "stop_reason": resp.finish_reason,   # 可选
-        "usage": {                           # 必填（成本计量用）
-            "input_tokens": resp.prompt_tokens,      # 必填
-            "output_tokens": resp.completion_tokens, # 必填
-            "cache_read_input_tokens": 0,            # 可选，缺省 0
-            "cache_creation_input_tokens": 0,        # 可选，缺省 0
+        "content": resp.choices[0].message.content,   # 必填：补全文本
+        "model": resp.model,                          # 必填：实际所用模型名
+        "stop_reason": resp.choices[0].finish_reason, # 可选
+        "usage": {                                    # 必填（成本计量用）
+            "input_tokens": resp.usage.prompt_tokens,        # 必填
+            "output_tokens": resp.usage.completion_tokens,   # 必填
+            "cache_read_input_tokens": 0,                    # 可选，缺省 0
+            "cache_creation_input_tokens": 0,                # 可选，缺省 0
         },
     }
 ```
+
+> **凭证来源**（`api_key`/`base_url`，iter 313 profile 集成）：**经用户供应商档案调用**
+> （档案 `kind` 设为该协议、`get_provider` 分发、或 `/providers/{id}/test`）时，`api_key`/`base_url`
+> 来自档案——用户在设置页统一配 key + 选协议，无需为插件另配；**经 `api.llm.complete(provider_kind=)`
+> 调用**（无档案上下文）时传空串，插件 handler 据此回退自有凭证。即：非空用档案、空则插件自理。
 
 **异常约定**（插件无需 import 宿主内部）：handler 抛任何异常 -> 宿主分类——在异常实例上设
 `transient = True`（或抛名为 `ConnectError`/`TimeoutException`/`RateLimitError`/`APIConnectionError`
@@ -936,14 +947,17 @@ def register(api):
         f = _cfg_file(api)
         return json.loads(f.read_text("utf-8")) if f.exists() else {}
 
-    async def chat_openai(system, user, *, model, max_tokens):
-        cfg = _load_cfg()  # {base_url, api_key, model} —— 用户经下方路由自配，宿主不代管
-        if not cfg.get("api_key"):
-            raise RuntimeError("OpenAI provider 未配置 api_key")
+    async def chat_openai(system, user, *, model, max_tokens, api_key="", base_url=""):
+        # 凭证优先用档案传入（profile 集成路径，用户在设置页配 key）；空则回退插件自有配置
+        cfg = _load_cfg()  # {base_url, api_key, model} —— 插件路由自配的回退凭证
+        key = api_key or cfg.get("api_key")
+        url = (base_url or cfg.get("base_url") or "https://api.openai.com").rstrip("/")
+        if not key:
+            raise RuntimeError("OpenAI provider 未配置 api_key（档案或插件配置二选一）")
         async with httpx.AsyncClient(timeout=120) as c:
             r = await c.post(
-                f"{cfg['base_url'].rstrip('/')}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                f"{url}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
                 json={"model": model or cfg.get("model", "gpt-4o"),
                       "max_tokens": max_tokens,
                       "messages": ([{"role": "system", "content": system}] if system else [])
@@ -984,10 +998,17 @@ def register(api):
 
 装载后：`GET /api/providers/kinds` 列出 `openai`（§发现端点）；插件路由与 `api.llm.complete(..., provider_kind="openai")` 即可调用 OpenAI，花费受日预算约束、记入用量页。
 
-> **与供应商档案的关系（v1 取舍）**：本扩展点为"非侵入式 v1"——插件 Provider 的凭证由插件自理，
-> 经 `api.llm.complete(provider_kind=...)` 显式调用。**将插件 Provider 接入宿主供应商档案**（用户在
-> 设置页统一配 key + 选协议，使**方案生成主线**也用新协议）属下一轮的 profile 集成（需 DB `kind`
-> 字段迁移 + `get_provider` 分发），独立聚焦轮推进。
+> **接入宿主供应商档案（iter 313 profile 集成，已落地）**：插件 Provider 不仅可经
+> `api.llm.complete(provider_kind=...)` 显式调用，还可**接入用户供应商档案**——档案 `kind` 字段
+> 设为该协议（如 `openai`）后，`get_provider(user_id)` 自动分发到对应 `PluginProvider`，**方案生成主线**
+> 与所有宿主端点（生成/重生成/slides/测验等）即用新协议，档案 `api_key`/`base_url` 作凭证传入 handler。
+> 用户在设置页统一配 key + 选协议（`GET /api/providers/kinds` 发现可用协议），无需为插件另配。
+>
+> **供应商档案 `kind` 字段**：`POST/PUT /api/providers` 接受 `kind`（规范化小写；缺省/空串 → `'anthropic'`）。
+> 档案 `kind` 为插件协议时：`get_provider(user_id)` 返回 `PluginProvider`（未知/未注册 `kind` 抛
+> `RuntimeError`，不静默回退）；`POST /api/providers/{id}/test` 同口径分发（未注册 `kind` 返回
+> `ok:false` 明确错误）。`GET /api/providers` 回显 `kind`。**既有档案 `kind` 为空 → `'anthropic'`，
+> `get_provider` 行为与集成前字节一致（零回归）。**
 
 #### `api.settings` —— 只读配置视图
 
@@ -1170,6 +1191,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.6.0（additive 档案字段） | 2026-07-22 | 供应商档案 `kind` 字段 + `get_provider` 分发 + `/test` 分发（iter 313 profile 集成）：档案 `kind` 设为插件协议（`api.providers` 注册的）时，`get_provider` 返回 `PluginProvider`——**方案生成主线与全部宿主端点即用新协议**（OpenAI/Ollama 等），档案 `api_key`/`base_url` 作凭证传入 handler（统一管 key，无需为插件另配）；alembic 迁移加 `kind` 列 + `_REVISION_PROBES` 探测；handler 契约加 `api_key`/`base_url` 参（profile 非空用之、`provider_kind` 路径空串插件自理）；既有档案 kind 空 → anthropic，行为字节不变（零回归）；不涉 `register(api)` 门面，无版本号变动 |
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |

@@ -49,11 +49,18 @@ def _no_budget_block(monkeypatch):
     monkeypatch.setattr("app.api.deps.check_daily_budget", lambda db, user_id: None)
 
 
-def _good_handler(content: str = "OPENAI-REPLY", *, exc: Exception | None = None, model: str = "gpt-test"):
-    """返回合规 dict 的 handler（async）；记录入参；可选抛异常。"""
+def _good_handler(content: str = "OPENAI-REPLY", *, exc: Exception | None = None, model: str = "gpt-test", record_creds: bool = False):
+    """返回合规 dict 的 handler（async）；记录入参；可选抛异常。
 
-    async def h(system, user, *, model: str = model, max_tokens: int = 0):  # noqa: B008  闭包默认值
-        h.seen = {"system": system, "user": user, "model": model, "max_tokens": max_tokens}  # type: ignore[attr-defined]
+    record_creds=True 时把 api_key/base_url 也记入 seen（profile 凭证传递验证用）。
+    """
+
+    async def h(system, user, *, model: str = model, max_tokens: int = 0, api_key: str = "", base_url: str = ""):  # noqa: B008
+        seen: dict = {"system": system, "user": user, "model": model, "max_tokens": max_tokens}
+        if record_creds:
+            seen["api_key"] = api_key
+            seen["base_url"] = base_url
+        h.seen = seen  # type: ignore[attr-defined]
         if exc is not None:
             raise exc
         return {
@@ -166,7 +173,7 @@ def test_plugin_provider_sync_handler_runs_in_thread():
     """sync handler 经线程池执行（不阻塞事件循环），返回映射正确。"""
     from app.llm.plugin_provider import PluginProvider
 
-    def sync_h(system, user, *, model, max_tokens):
+    def sync_h(system, user, *, model, max_tokens, api_key="", base_url=""):
         sync_h.seen = (system, user, model, max_tokens)  # type: ignore[attr-defined]
         return {"content": "sync-reply", "model": model, "usage": {"input_tokens": 1, "output_tokens": 2}}
 
@@ -181,13 +188,13 @@ def test_plugin_provider_sync_handler_runs_in_thread():
 def test_plugin_provider_contract_validation():
     from app.llm.plugin_provider import PluginProvider, PluginProviderError
 
-    async def bad_content(system, user, *, model, max_tokens):
+    async def bad_content(system, user, *, model, max_tokens, api_key="", base_url=""):
         return {"content": 123, "model": "m", "usage": {"input_tokens": 1, "output_tokens": 1}}
 
-    async def missing_usage(system, user, *, model, max_tokens):
+    async def missing_usage(system, user, *, model, max_tokens, api_key="", base_url=""):
         return {"content": "x", "model": "m"}
 
-    async def bad_int(system, user, *, model, max_tokens):
+    async def bad_int(system, user, *, model, max_tokens, api_key="", base_url=""):
         return {"content": "x", "model": "m", "usage": {"input_tokens": "many", "output_tokens": 1}}
 
     for h in (bad_content, missing_usage, bad_int):
@@ -199,7 +206,7 @@ def test_plugin_provider_contract_validation():
 def test_plugin_provider_usage_cache_defaults_zero():
     from app.llm.plugin_provider import PluginProvider
 
-    async def h(system, user, *, model, max_tokens):
+    async def h(system, user, *, model, max_tokens, api_key="", base_url=""):
         return {"content": "x", "model": model, "usage": {"input_tokens": 5, "output_tokens": 5}}
 
     entry = ProviderEntry(plugin_id="p", kind="openai", handler=h)
@@ -332,7 +339,7 @@ def test_complete_provider_kind_transient_is_server_busy(monkeypatch):
     _no_budget_block(monkeypatch)
     api = _facade()
 
-    async def bad(system, user, *, model, max_tokens):
+    async def bad(system, user, *, model, max_tokens, api_key="", base_url=""):
         raise TransientLLMError("upstream 429")
 
     api.providers.register("openai", bad)
@@ -347,7 +354,7 @@ def test_complete_provider_kind_other_error_is_bad_gateway(monkeypatch):
     _no_budget_block(monkeypatch)
     api = _facade()
 
-    async def wrong(system, user, *, model, max_tokens):
+    async def wrong(system, user, *, model, max_tokens, api_key="", base_url=""):
         raise ValueError("malformed upstream response")
 
     api.providers.register("openai", wrong)
@@ -397,6 +404,66 @@ def test_discovery_endpoint_empty_when_no_plugins(client, auth_headers):
     assert r.status_code == 200
     body = r.json()
     assert body["builtin"] and body["plugins"] == []
+
+
+# --- get_provider 分发（iter 313 profile 集成）---
+
+
+def _patch_active_profile(monkeypatch, *, kind: str, api_key: str = "sk-x", base_url: str = "", model: str = ""):
+    """让 app.llm.get_active_profile 返回指定 kind 的档案（绕过 DB）。"""
+    monkeypatch.setattr(
+        "app.llm.get_active_profile",
+        lambda user_id=None: {"name": "p", "base_url": base_url, "api_key": api_key, "model": model, "kind": kind},
+    )
+
+
+def test_get_provider_anthropic_when_kind_empty(monkeypatch):
+    """kind=None/空 -> AnthropicProvider（既有档案零行为变化）。"""
+    from app.llm import get_provider
+    from app.llm.anthropic_provider import AnthropicProvider
+
+    for k in ("", "   ", "anthropic", "Anthropic"):
+        _patch_active_profile(monkeypatch, kind=k)
+        assert isinstance(get_provider(1), AnthropicProvider)
+
+
+def test_get_provider_dispatches_to_plugin_provider(monkeypatch):
+    """档案 kind=插件协议 -> get_provider 返回 PluginProvider（方案生成主线即用新协议）。"""
+    from app.llm import get_provider
+    from app.llm.plugin_provider import PluginProvider
+
+    api = _facade()
+    h = _good_handler()
+    api.providers.register("openai", h, default_model="gpt-4o")
+    _patch_active_profile(monkeypatch, kind="openai", model="gpt-4o")
+    p = get_provider(1)
+    assert isinstance(p, PluginProvider)
+    # 调用一次确认分发后可正常 chat
+    resp = asyncio.run(p.chat("s", "u", max_tokens=10))
+    assert resp.content == "OPENAI-REPLY"
+
+
+def test_get_provider_passes_profile_creds_to_handler(monkeypatch):
+    """档案 api_key/base_url 经 PluginProvider 传入 handler（profile 统一管凭证）。"""
+    from app.llm import get_provider
+
+    api = _facade()
+    h = _good_handler(record_creds=True)
+    api.providers.register("openai", h, default_model="gpt-4o")
+    _patch_active_profile(monkeypatch, kind="openai", api_key="sk-profile-key", base_url="https://api.openai.com", model="gpt-4o")
+    p = get_provider(1)
+    asyncio.run(p.chat("", "u", max_tokens=4))
+    assert h.seen["api_key"] == "sk-profile-key"
+    assert h.seen["base_url"] == "https://api.openai.com"
+
+
+def test_get_provider_unknown_plugin_kind_raises(monkeypatch):
+    """档案 kind 指向未注册的插件协议 -> RuntimeError（明确错误，不静默回退 anthropic）。"""
+    from app.llm import get_provider
+
+    _patch_active_profile(monkeypatch, kind="deepseek")  # 未注册
+    with pytest.raises(RuntimeError, match="无对应插件 Provider"):
+        get_provider(1)
 
 
 # --- 状态可观测 ---

@@ -143,3 +143,75 @@ def test_provider_connectivity_test(client, auth_headers, monkeypatch):
     assert all(not x["is_active"] for x in rows)
 
     assert client.post(f"{BASE}/999999/test", headers=auth_headers).status_code == 404
+
+
+# --- iter 313：供应商档案 kind（协议选择）---
+
+
+def test_create_with_kind_and_list(client, auth_headers):
+    """创建档案带 kind -> 列表回显规范化后的 kind；缺省 kind -> 'anthropic'。"""
+    p = _create(client, auth_headers, name="我的OpenAI", api_key="sk-oai-1", model="gpt-4o")
+    # _create 不传 kind -> 默认 anthropic
+    assert p["kind"] == "anthropic"
+
+    r = client.post(
+        BASE, json={"name": "OAI", "api_key": "sk-oai-2", "kind": "OpenAI"}, headers=auth_headers
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "openai"  # 规范化小写
+
+    rows = client.get(BASE, headers=auth_headers).json()["providers"]
+    kinds = {x["name"]: x["kind"] for x in rows}
+    assert kinds["我的OpenAI"] == "anthropic"
+    assert kinds["OAI"] == "openai"
+
+
+def test_update_kind(client, auth_headers):
+    """更新 kind；传空串重置为 anthropic（存 NULL）。"""
+    p = _create(client, auth_headers, name="P", api_key="sk-x")
+    client.put(f"{BASE}/{p['id']}", json={"kind": "openai"}, headers=auth_headers)
+    assert client.get(f"{BASE}", headers=auth_headers).json()["providers"][0]["kind"] == "openai"
+    r = client.put(f"{BASE}/{p['id']}", json={"kind": "ollama"}, headers=auth_headers)
+    assert r.status_code == 200 and r.json()["kind"] == "ollama"
+    # 不传 kind -> 保留原值
+    r = client.put(f"{BASE}/{p['id']}", json={"model": "llama3"}, headers=auth_headers)
+    assert r.json()["kind"] == "ollama"
+    # 空串 -> 重置 anthropic
+    r = client.put(f"{BASE}/{p['id']}", json={"kind": ""}, headers=auth_headers)
+    assert r.json()["kind"] == "anthropic"
+
+
+def test_provider_test_dispatches_plugin_kind(client, auth_headers):
+    """档案 kind=插件协议 -> /test 分发到 PluginProvider（档案 api_key/base_url 作凭证）。"""
+    from app.plugins import providers as plugin_providers
+    from app.plugins.providers import ProviderEntry
+
+    seen: dict = {}
+
+    async def chat_openai(system, user, *, model, max_tokens, api_key="", base_url=""):
+        seen["api_key"] = api_key
+        seen["model"] = model
+        return {"content": "pong", "model": model, "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    plugin_providers.register(ProviderEntry(plugin_id="oai", kind="openai", handler=chat_openai, default_model="gpt-4o"))
+    try:
+        p = _create(client, auth_headers, name="OAI", api_key="sk-oai-test", base_url="https://api.openai.com", model="gpt-4o", )
+        # 改 kind 为 openai（_create 默认 anthropic）
+        client.put(f"{BASE}/{p['id']}", json={"kind": "openai"}, headers=auth_headers)
+        r = client.post(f"{BASE}/{p['id']}/test", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["ok"] is True
+        assert seen["api_key"] == "sk-oai-test"  # 档案凭证传入 handler
+    finally:
+        plugin_providers.reset()
+
+
+def test_provider_test_unknown_plugin_kind(client, auth_headers):
+    """档案 kind=未注册协议 -> /test 返回 ok:false 明确错误（不静默、不激活）。"""
+    p = _create(client, auth_headers, name="DS", api_key="sk-x")
+    client.put(f"{BASE}/{p['id']}", json={"kind": "deepseek"}, headers=auth_headers)
+    r = client.post(f"{BASE}/{p['id']}/test", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "无对应插件 Provider" in body["error"]

@@ -67,6 +67,7 @@ def _has_index(table: str, index: str):
 
 
 _REVISION_PROBES = [
+    ("c0f2a4b18d33", _has_column("llm_provider_profiles", "kind")),  # iter 313
     ("a7f3e5c91d02", _has_index("sessions", "ix_sessions_user_id")),
     ("f6a1c3d58e42", _has_table("notes")),
     ("e5f7a3c82d19", _has_column("kb_documents", "status")),

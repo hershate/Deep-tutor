@@ -1,10 +1,11 @@
 """插件自定义 LLM Provider 包装器（后端插件 API v1.6.0 扩展点）。
 
 把 app/plugins/providers.py 注册的插件 handler 适配为 LLMProvider 接口——使 api.llm 与
-（未来的 profile 集成）能像 AnthropicProvider 一样透明调用新协议 Provider。
+宿主供应商档案（iter 313 profile 集成）能像 AnthropicProvider 一样透明调用新协议 Provider。
 
 handler 契约（async 或 sync，签名相同）：
-    (system: str, user: str, *, model: str, max_tokens: int) -> dict
+    (system: str, user: str, *, model: str, max_tokens: int,
+     api_key: str, base_url: str) -> dict
 返回 dict：
     {
       "content": str,                 # 必填：补全文本
@@ -17,7 +18,10 @@ handler 契约（async 或 sync，签名相同）：
         "cache_creation_input_tokens"?: int,    # 可选，缺省 0
       },
     }
-凭证由插件自理（handler 不接收 api_key/base_url）。
+凭证（api_key/base_url）：
+- profile 集成路径（get_provider 分发）：来自用户供应商档案（用户在设置页统一配 key + 选协议）。
+- api.llm.complete(provider_kind=) 路径：无档案上下文 -> 传空串，插件 handler 据此回退
+  自有凭证（api.data_dir/环境变量）。即：api_key/base_url 非空时用之，空时插件自理。
 
 错误约定：handler 抛任何异常 -> 经 _classify 映射——插件可在异常上设 transient=True
 （或抛常见网络瞬态类型）标记为 TransientLLMError（宿主退避重试）；其余原样抛（api.llm
@@ -76,9 +80,11 @@ def _as_int(v: Any, key: str, *, container: str) -> int:
 class PluginProvider(LLMProvider):
     """把插件 handler 适配为 LLMProvider。"""
 
-    def __init__(self, entry: ProviderEntry, *, model: str) -> None:
+    def __init__(self, entry: ProviderEntry, *, model: str, api_key: str = "", base_url: str = "") -> None:
         self._entry = entry
         self._model = model or entry.default_model
+        self._api_key = api_key or ""
+        self._base_url = base_url or ""
 
     async def chat(
         self,
@@ -93,9 +99,15 @@ class PluginProvider(LLMProvider):
         handler = self._entry.handler
         try:
             if asyncio.iscoroutinefunction(handler):
-                raw = await handler(system, user, model=used_model, max_tokens=max_tokens)
+                raw = await handler(
+                    system, user, model=used_model, max_tokens=max_tokens,
+                    api_key=self._api_key, base_url=self._base_url,
+                )
             else:
-                raw = await asyncio.to_thread(handler, system, user, model=used_model, max_tokens=max_tokens)
+                raw = await asyncio.to_thread(
+                    handler, system, user, model=used_model, max_tokens=max_tokens,
+                    api_key=self._api_key, base_url=self._base_url,
+                )
         except Exception as exc:  # noqa: BLE001  handler 任意异常 -> 分类映射
             raise _classify(exc) from exc
 
