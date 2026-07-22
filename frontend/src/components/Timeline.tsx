@@ -35,6 +35,16 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
     return [...groups.entries()].sort((a, b) => a[0] - b[0])
   }, [days])
 
+  // iter 296：今天定位——高亮今日条目；今日未排程则标首个「下一」即将开始项，便于在排程中定位当前位置
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+  const nextDate = useMemo(() => {
+    const upcoming = days.filter((d) => d.date >= todayStr)
+    return upcoming.length > 0 ? upcoming[0].date : null // 首个「今天及以后」
+  }, [days, todayStr])
+
   if (days.length === 0) {
     return <EmptyState icon="🗓️" title="暂无日程数据" description="方案未包含 schedule 部分" />
   }
@@ -55,14 +65,27 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
               const t = new Date(d.date + 'T00:00:00')
               const weekday = Number.isNaN(t.getTime()) ? '' : `周${WEEKDAYS[t.getDay()]}`
               const stageName = d.stage_index !== undefined ? stageNames[d.stage_index] : undefined
+              const isToday = d.date === todayStr
+              const isNext = !isToday && d.date === nextDate
+              const dateCls = isToday
+                ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300 dark:border-blue-700 dark:bg-blue-950 dark:ring-blue-800'
+                : isNext
+                  ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
+                  : 'border-slate-200 bg-white hover:border-blue-200 hover:shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900'
               return (
                 <li
                   key={d.date}
-                  className="flex flex-wrap items-baseline gap-x-3 rounded-lg border bg-white px-3 py-2 text-sm transition-all duration-150 hover:border-blue-200 hover:shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-900"
+                  className={`flex flex-wrap items-baseline gap-x-3 rounded-lg px-3 py-2 text-sm transition-all duration-150 ${dateCls}`}
                 >
                   <span className="shrink-0 font-medium text-slate-700 dark:text-slate-200">
                     {d.date.slice(5)} {weekday}
                   </span>
+                  {isToday && (
+                    <span className="shrink-0 rounded bg-blue-600 px-1.5 py-0.5 text-xs font-medium text-white">今天</span>
+                  )}
+                  {isNext && (
+                    <span className="shrink-0 rounded bg-amber-500 px-1.5 py-0.5 text-xs font-medium text-white">下一</span>
+                  )}
                   {stageName && (
                     <span className="shrink-0 rounded bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 text-xs text-indigo-700 dark:text-indigo-300">
                       {stageName}
