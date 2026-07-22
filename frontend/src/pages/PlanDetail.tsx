@@ -451,6 +451,26 @@ export default function PlanDetail() {
           </button>
         </div>
       </div>
+      {/* iter 300：方案概览汇总（阶段/知识点/资源/预计时长）——免切 tab 即知方案规模 */}
+      {(() => {
+        const stageCount = plan.stages?.length ?? 0
+        const nodeCount = plan.knowledge_map?.nodes?.length ?? 0
+        const resourceCount = plan.resources?.length ?? 0
+        const totalMin = (plan.schedule ?? []).reduce((s, d) => s + (d.est_minutes ?? 0), 0)
+        const hours = totalMin > 0 ? Math.round((totalMin / 60) * 10) / 10 : 0
+        const weeks = (plan.stages ?? []).reduce((s, st) => s + (st.estimated_weeks ?? 0), 0)
+        if (!stageCount && !nodeCount && !resourceCount) return null
+        const chip = 'rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-700'
+        return (
+          <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span className={chip}>📚 {stageCount} 阶段</span>
+            <span className={chip}>🧠 {nodeCount} 知识点</span>
+            <span className={chip}>🔗 {resourceCount} 资源</span>
+            {hours > 0 && <span className={chip}>⏱ 约 {hours} 小时</span>}
+            {weeks > 0 && <span className={chip}>📅 约 {weeks} 周</span>}
+          </div>
+        )
+      })()}
       {/* 测验历史统计（iter 152）：有作答才显示 */}
       {quizStats && quizStats.attempts > 0 && (
         <div className="animate-fade-in text-xs text-slate-500 dark:text-slate-400">
