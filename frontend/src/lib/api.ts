@@ -652,6 +652,7 @@ export interface ProviderProfile {
   name: string
   base_url: string // 空 = Anthropic 官方端点
   model: string // 空 = 服务端默认模型
+  kind: string // 协议：'anthropic'（内置）或插件注册的协议名（api.providers，iter 313）
   is_active: boolean
   api_key_masked: string
   created_at: string
@@ -661,7 +662,21 @@ export interface ProviderInput {
   api_key?: string // 创建必填；更新可留空（保留原值）
   base_url?: string
   model?: string
+  kind?: string // 协议；缺省/空 -> 'anthropic'（iter 313）
 }
+/** GET /providers/kinds：可用 LLM 协议（内置 anthropic + 插件协议，iter 313 发现端点） */
+export interface ProviderKindBuiltin {
+  kind: string
+  label: string
+}
+export interface ProviderKindPlugin {
+  kind: string
+  label: string
+  plugin_id: string
+  default_model: string
+}
+export const listProviderKinds = () =>
+  apiFetch<{ builtin: ProviderKindBuiltin[]; plugins: ProviderKindPlugin[] }>('/providers/kinds')
 export const listProviders = () => apiFetch<{ providers: ProviderProfile[] }>('/providers')
 export const createProvider = (body: ProviderInput) =>
   apiFetch<ProviderProfile>('/providers', { method: 'POST', body: JSON.stringify(body) })

@@ -130,6 +130,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
             "name": p.name,
             "base_url": p.base_url,
             "model": p.model,
+            "kind": p.kind or "anthropic",  # iter 313 协议（导出供导入往返）
             "is_active": bool(p.is_active),
         }
         for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
@@ -763,6 +764,7 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
                 base_url=str(pr.get("base_url") or "")[:512],
                 api_key="",  # 凭证边界：不随备份导入
                 model=str(pr.get("model") or "")[:128],
+                kind=(str(pr.get("kind") or "").strip().lower() or None)[:64],  # iter 313 协议
                 is_active=False,
             )
         )
