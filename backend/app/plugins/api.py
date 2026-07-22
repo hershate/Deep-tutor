@@ -29,7 +29,9 @@ if TYPE_CHECKING:
 #         等 + 插件工具，组合成"新工作流"，无需重实现解析/检索/出题；按用户解析 provider+预算+计量）。
 # v1.8.0：新增 api.tools.list 工具发现（列出全部已注册工具元数据 name/llm/requires/description，
 #         含核心 14 工具 + 插件工具）+ GET /api/tools 发现端点——插件/外部客户端动态发现可组合工具。
-API_VERSION = "1.8.0"
+# v1.9.0：新增 api.mcp MCP 客户端（连接外部 MCP server Streamable HTTP，list_tools/call_tool）——
+#         "扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）。插件据此接入任意外部 MCP server 工具。
+API_VERSION = "1.9.0"
 
 
 class ToolsNamespace:
@@ -465,6 +467,49 @@ class ProvidersNamespace:
         return [e.kind for e in providers.all_entries() if e.plugin_id == self._pid]
 
 
+class McpNamespace:
+    """MCP（Model Context Protocol）客户端（v1.9.0 扩展点，契约见 API.md「§MCP 客户端」）。
+
+    连接外部 MCP server（Streamable HTTP 传输）——列出并调用其工具，把任意外部工具 server
+    接入后端（"扩展后端类 Claude Code 可以调用的工具和 MCP"，用户点名需求）。插件据此在自有
+    路由调用 MCP server 工具，或包成宿主工具经 api.tools.call/list 复用。
+
+    用法：``client = await api.mcp.connect(url, headers={...})`` -> 已 initialize 的客户端；
+    ``await client.list_tools()`` / ``await client.call_tool(name, arguments)``；用完 ``await client.close()``。
+
+    安全：客户端仅插件显式调用（非热路径，server 故障错误隔离在插件调用内，不影响宿主稳定）；
+    出站到可信 URL（admin/插件配置，同供应商 base_url 信任模型）；httpx 超时；JSON-RPC error -> RuntimeError。
+    范围（v1）：Streamable HTTP 传输；stdio（子进程）+ 真实 server 互操作验证为后续轮。
+    """
+
+    def __init__(self, plugin_id: str) -> None:
+        self._pid = plugin_id
+
+    async def connect(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        """连接 MCP server（Streamable HTTP）：创建客户端 + initialize 握手，返回就绪的客户端。
+
+        - url：MCP server 的 HTTP 端点（http(s)://；可信配置——server 可在 localhost）。
+        - headers：额外请求头（如 Authorization），可选。
+        - timeout：每次请求超时秒（缺省 30）。
+        返回 McpHttpClient（list_tools / call_tool / close）。握手失败 -> RuntimeError。
+        """
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("url 必须是非空字符串")
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("MCP server url 须以 http:// 或 https:// 开头")
+        from app.plugins.mcp import McpHttpClient
+
+        client = McpHttpClient(url, headers=headers, timeout=timeout)
+        await client.initialize()  # 握手失败抛 RuntimeError（插件处理）
+        return client
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -627,6 +672,7 @@ class BackendPluginAPI:
         self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
         self.providers = ProvidersNamespace(plugin_id, status, self._rollbacks)
         self.llm = LlmNamespace(plugin_id)
+        self.mcp = McpNamespace(plugin_id)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

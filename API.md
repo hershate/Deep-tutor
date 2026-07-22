@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.8.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.8.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.9.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -597,7 +597,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.8.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.9.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -679,6 +679,7 @@ PLUGIN_META = {
 | `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
 | `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c）；v1.6.0 起 `complete(provider_kind=)` 可分发到插件注册的新协议 Provider |
 | `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
+| `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0）：连接外部 MCP server（Streamable HTTP），`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1150,6 +1151,73 @@ def register(api):
 > `ok:false` 明确错误）。`GET /api/providers` 回显 `kind`。**既有档案 `kind` 为空 → `'anthropic'`，
 > `get_provider` 行为与集成前字节一致（零回归）。**
 
+#### `api.mcp` —— MCP 客户端（v1.9.0 扩展点，§8.4e）
+
+连接**外部 MCP server**（[Model Context Protocol](https://modelcontextprotocol.io/)，Streamable HTTP
+传输）——列出并调用其工具，把任意外部工具 server 接入后端（"扩展后端类 Claude Code 可以调用的工具和 MCP"，
+用户点名需求）。插件据此在自有路由调用 MCP server 工具（filesystem / github / 自建工具 server 等），
+或包成宿主工具经 `api.tools.call/list` 复用。
+
+```python
+client = await api.mcp.connect(
+    url: str,               # MCP server 的 HTTP 端点（http(s)://；可信配置——server 可在 localhost）
+    *,
+    headers: dict | None = None,  # 额外请求头（如 Authorization），可选
+    timeout: float = 30.0,        # 每次请求超时秒
+) -> McpHttpClient           # 已 initialize 握手就绪的客户端（握手失败 -> RuntimeError）
+
+await client.list_tools()    # -> [{name, description, inputSchema}, ...]
+await client.call_tool(name, arguments: dict | None = None)  # -> {content: [{type, text/...}], isError, ...}
+client.server_info           # server 的 serverInfo（name/version，来自 initialize）
+await client.close()         # 用完关闭（释放连接）
+```
+
+**协议**（按 MCP Streamable HTTP 规范）：单端点 POST JSON-RPC；请求带
+`Accept: application/json, text/event-stream`，响应可能是 `application/json`（单 JSON-RPC）或
+`text/event-stream`（SSE，`data:` 行携带 JSON-RPC）——客户端两种都能解析。`initialize` 握手捕获
+`Mcp-Session-Id` 头并在后续请求回传；握后发 `notifications/initialized` 通知。
+
+**错误**：JSON-RPC `error` 响应 / 握手失败 -> `RuntimeError`；HTTP 非 2xx -> `httpx.HTTPStatusError`；
+超时 -> `httpx.TimeoutException`。插件在路由内 try/except 处理（错误隔离在调用内，不影响宿主）。
+
+> **安全/稳定**：① 客户端仅插件显式调用（**不在任何热路径**）——server 慢/挂时调用失败抛清晰错误，
+> 宿主稳定不受影响；② 出站到可信 URL（admin/插件配置，同供应商 `base_url` 信任模型——MCP server 可在
+> localhost）；③ httpx 显式超时；④ 工具结果为数据（非代码），同任意工具输出信任级。
+>
+> **范围（v1）**：Streamable HTTP 传输。**stdio 传输**（本地子进程 MCP server，最常见部署）+ **真实 MCP server
+> 互操作验证**为后续轮（须子进程生命周期管理 + 对参考 server 的集成测试）。本轮按 spec 实现、对 spec-faithful
+> mock server 测试（JSON+SSE 双模式、session 回传、错误）。
+
+**完整示例**：把一个 MCP server 的 `echo` 工具暴露成插件路由
+
+```python
+# plugins/mcp_echo/plugin.py
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {"id": "mcp_echo", "name": "MCP Echo Bridge", "version": "0.1.0", "min_api": "1.9"}
+
+def register(api):
+    router = APIRouter()
+    # MCP server URL 由部署方配置（这里示例硬编码；生产可读 api.settings 或自有配置路由）
+    MCP_URL = "http://localhost:8000/mcp"
+
+    @router.post("/echo")
+    async def echo(body: dict, user=Depends(api.deps.get_current_user)):
+        client = await api.mcp.connect(MCP_URL)
+        try:
+            tools = await client.list_tools()
+            # 调用 MCP server 的 echo 工具
+            res = await client.call_tool("echo", {"text": body.get("text", "")})
+            return {"tools": [t["name"] for t in tools], "reply": res["content"][0]["text"]}
+        finally:
+            await client.close()
+
+    api.routes.mount(router)  # -> POST /api/plugins/mcp_echo/echo
+```
+
+> **进阶**：把 MCP server 的全部工具包成宿主工具（经 `api.tools.register_python`，func 内调
+> `client.call_tool`），即可用 `api.tools.call/<list>`（§8.4）统一调用/发现——MCP 工具与核心工具同构。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -1180,7 +1248,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.8.0",
+  "api_version": "1.9.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1331,6 +1399,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.9.0 | 2026-07-23 | 新增 `api.mcp` MCP 客户端（`connect`→`McpHttpClient`，Streamable HTTP 传输）：连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）；按 spec 实现 JSON-RPC over POST（JSON + SSE 双响应解析、`Mcp-Session-Id` 回传、initialize 握手 + notifications/initialized）；仅插件显式调用（非热路径，server 故障错误隔离在调用内）；出站可信 URL（同供应商 base_url 信任）；对 spec-faithful mock server 测试（10 项）。范围 v1=Streamable HTTP；stdio（子进程）+ 真实 server 互操作验证为后续轮 |
 | 后端 | 1.8.0 | 2026-07-23 | 新增工具发现：`api.tools.list()`（进程内，列已注册工具元数据 `{name, llm, requires, description}`，含核心 14 工具一行描述 + 插件工具）+ `GET /api/tools` REST 发现端点（外部客户端/替代前端用，与 `list()` 对称）——插件/客户端**动态发现**可组合工具（iter 316 `call` 不再须硬编码工具名/查文档），按 `llm`/`requires` 推断调用顺序与预算 |
 | 后端 | 1.7.0 | 2026-07-22 | 新增 `api.tools.call(name, args, *, user_id, upstream)` 工具调用：插件可调用任意已注册工具（**含核心** parse_material/understand_intent/build_knowledge_map/design_stages/search_resources/schedule_plan/validate_plan/generate_quiz/record_progress/export_plan/generate_study_materials/build_plan_slides + 插件工具），组合成"新工作流"——无需重实现解析/检索/出题；LLM 工具按 `user_id` 解析供应商 + 日预算守卫 + `api_usage` 计量（同生成口径），返回 `{status, data, errors}` 信封（工具失败不抛、交插件处理）；ToolsNamespace 加 plugin_id（调用 session_id 可追溯） |
 | 后端 | 1.6.0（additive 档案字段） | 2026-07-22 | 供应商档案 `kind` 字段 + `get_provider` 分发 + `/test` 分发（iter 313 profile 集成）：档案 `kind` 设为插件协议（`api.providers` 注册的）时，`get_provider` 返回 `PluginProvider`——**方案生成主线与全部宿主端点即用新协议**（OpenAI/Ollama 等），档案 `api_key`/`base_url` 作凭证传入 handler（统一管 key，无需为插件另配）；alembic 迁移加 `kind` 列 + `_REVISION_PROBES` 探测；handler 契约加 `api_key`/`base_url` 参（profile 非空用之、`provider_kind` 路径空串插件自理）；既有档案 kind 空 → anthropic，行为字节不变（零回归）；不涉 `register(api)` 门面，无版本号变动 |
