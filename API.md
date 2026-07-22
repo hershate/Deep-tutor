@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.5.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.6.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.5.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -233,6 +233,105 @@ function CurrentPath() {
 
 > **查询参数读取无需门面**：插件与宿主同窗口，`window.location.search` +
 > `new URLSearchParams(...)` 随时可用（如深链 `/p/reader?planId=3` 在组件挂载时读取）。
+
+---
+
+## 二补三 · 覆盖层 API（`DeepTutor.overlay`，v1.6.0）
+
+> **"用 API 完全改造前端"的使能项。** 小组件（§二）只能往既有页面的固定插槽注入卡片、
+> 页面（§二补）只能在 `/p/` 下渲染整页——两者都无法"在整个应用之上"绘制内容。要做
+> **WebGL 全屏背景特效 / 可自由拖放的浮窗 / 2D 物理碰撞叠层 / 全屏 3D 小游戏**，都需要一个
+> **脱离页面、覆盖整个视口**的渲染层。本命名空间把"应用根级 React 渲染"纳入受支持的插件门面
+> （错误边界隔离 + pointer-events 控制 + 生命周期清理），而非让插件用裸 DOM 硬塞
+> `document.body`（绕过 React、无清理、不受错误边界保护、升级即碎）。
+
+### 三层 z-index 分层
+
+注册时选一个 `layer`，决定渲染栈位置与默认行为：
+
+| layer | z-index | 位置 | 典型用途 | 默认 pointer-events |
+|---|---|---|---|---|
+| `background` | `-1` | 应用内容**之后**（仅透过应用透明区域——页边/留白/或插件自设透明区——可见，body 背景始终兜底） | WebGL 动态背景、粒子场 | `none`（在应用之后，本就不可交互） |
+| `content` | `45` | 应用内容之上、**模态/Toast 之下**（高于吸顶 header） | 可拖放浮窗、HUD、画布叠层、2D 物理场景 | `none`（穿透到下层应用；交互元素请设 `auto`） |
+| `top` | `9999` | **万物之上**（盖过模态/Toast） | 全屏 3D 小游戏、彩纸/烟花、接管式特效 | `none`（同上；游戏 canvas 设 `auto`） |
+
+> 分层只增不改：新版本可能追加分层，已有分层名不会改名或删除。
+>
+> **pointer-events 关键语义**：层容器与包裹层**默认 `none`**——覆盖层**不会拦截**下层应用的点击/滚动，
+> 避免一个全屏 overlay 误锁整个 UI。需要交互（拖拽浮窗、3D 游戏接输入）时，注册时设
+> `pointerEvents: 'auto'`，此时**该 overlay 的整个区域**会捕获指针事件（其余 overlay 与应用不受影响）。
+
+### `overlay.register(def: OverlayDef): void`
+
+```ts
+interface OverlayDef {
+  id: string               // 全局唯一；重复注册同 id 视为覆盖更新
+  layer: OverlayLayer      // 'background' | 'content' | 'top'
+  component: ComponentType // React 组件，无 props；可用 hooks / TanStack Query / React Router
+  pointerEvents?: 'none' | 'auto'  // 缺省 'none'（点击穿透）；交互浮窗/游戏设 'auto'
+  order?: number           // 同层内绘制顺序，小的在前（后绘制、视觉靠上）；缺省 100；0-99 内置保留
+}
+```
+
+参数非法（缺 id / 未知 layer / component 非函数）抛出 `Error`。
+
+```js
+// 例 1：WebGL 动态背景（应用内容之后，透过留白可见）
+DT.overlay.register({
+  id: 'acme.bg',
+  layer: 'background',
+  component: WebGLBackground,  // 内部 <canvas> 满 viewport 绘制 shader 动画
+})
+
+// 例 2：可拖放浮窗（应用内容之上、模态之下；整窗需交互 -> pointerEvents:'auto'）
+DT.overlay.register({
+  id: 'acme.floating-notes',
+  layer: 'content',
+  pointerEvents: 'auto',
+  component: FloatingPanel,    // 内部自管绝对定位 + 拖拽（pointer-events 已在包裹层开启）
+})
+
+// 例 3：全屏 3D 小游戏（盖过一切；接管输入）
+DT.overlay.register({
+  id: 'acme.3d-quest',
+  layer: 'top',
+  pointerEvents: 'auto',
+  component: ThreeDGame,       // Three.js/Babylon 场景；满屏 canvas 接管键鼠
+})
+```
+
+### 覆盖层其余方法
+
+- `overlay.unregister(id): boolean` —— 幂等移除；组件随下次渲染消失。
+- `overlay.list(layer?): OverlayDef[]` —— 某分层（缺省全部层）当前覆盖层（按 order 升序）。主要供调试。
+- `overlay.layers(): readonly string[]` —— 当前宿主支持的全部分层名（只读）。用于**能力发现**：
+  插件在旧宿主上可跳过新分层降级，在新宿主上自动可用，无需解析/比较版本号：
+
+```js
+if (DeepTutor.overlay.layers().includes('top')) {
+  DeepTutor.overlay.register({ id: 'my.game', layer: 'top', component: Game })
+}
+```
+
+- `overlay.subscribe(fn): () => void` —— 订阅注册表变化，返回退订函数（一般无需使用，宿主已自动响应）。
+
+### 覆盖层宿主行为保证
+
+- **全路由渲染**：覆盖层渲染在应用根级（`document.body` 上的门户容器），覆盖**所有页面**含登录/设置页；
+  组件内可用 `useLocation()`/`router.path()` 按路由自显隐（如只在 `/plans` 显示某 HUD）。
+- **单 overlay 错误边界**：覆盖层渲染异常被**隔离**（该 overlay 自身隐藏、错误输出到控制台），
+  不影响应用、其余 overlay 与同层其他组件；同 id 重新注册新组件后获重试机会。即便如此，仍请保证组件不抛异常。
+- **React 上下文可用**：覆盖层组件渲染在 `BrowserRouter` + `QueryClientProvider` 内，可正常使用
+  `useNavigate`/`useLocation`（SPA 导航）与 `useQuery`（取后端数据，经 `api.get` 同一登录态）。
+- **可观测**：已注册覆盖层记录在「插件」管理页（`/plugins`）「当前生效」区，按分层聚合（管理员/用户均可见）。
+- **渲染载体**：宿主为每分层在 `document.body` 上创建一个 `position:fixed;inset:0` 容器
+  （`id="dt-overlay-back|content|top"`，`pointer-events:none`），插件组件在其中自由绘制；
+  **请勿直接操作这些容器**（内部实现，升级不另行通知）——只经门面注册。
+
+> **能力提示（无需门面即可用）**：覆盖层组件与宿主同窗口，可直接用 `document.createElement('script')`
+> 从 CDN 载入 [Three.js](https://threejs.org/) / [Matter.js](https://brm.io/matter-js/) / [p5.js](https://p5js.org/)
+> 等图形/物理库，或 `fetch`/`Image()` 载入纹理资源——3D 小游戏、2D 物理所需的全部生态库都可用。
+> 门面只负责"把你的 React 组件放到正确的全屏层"，绘图与物理引擎由你自选。
 
 ---
 
@@ -816,7 +915,66 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 本端点同时是内置「插件」管理页（`/plugins`，后端插件区块）的数据源——
 管理员可在页面直接查看各插件装载状态与错误，无需手工调用。
 
-### 8.7 完整示例
+### 8.7 实时事件流：`GET /api/events/stream`（SSE）
+
+把后端事件总线（§8.5 核心事件 + 插件自定义事件）**实时推送**给已认证客户端——
+Server-Sent Events。前端插件 / 外部替代前端 / CLI 据此构建实时 UI（学习进度更新、
+方案生成完成、测验提交、学习打卡等），**无需轮询**。这是"用 API 完全替换前端"的
+实时性使能项（一个完整替代前端必须能感知后端数据变化）。
+
+**鉴权与连接**：与宿主端点同一机制（JWT / `AUTH_TOKEN` / 开放本机模式）。SSE 经
+`fetch` + `ReadableStream` 携带 `Authorization` 头（浏览器原生 `EventSource` 不能带
+自定义头，故客户端需用 fetch 流式读，如本项目前端 [sse.ts](frontend/src/lib/sse.ts)）。
+
+**用户隔离（P4 安全默认）**：服务端按归属用户过滤事件——
+
+- payload 带 `user_id`（如 `progress_updated`/`quiz_submitted`/`learning_log_added`）-> 仅转发给该用户；
+- payload 带 `session_id`（如 `plan_created`/`materials_completed`）-> 服务端解析 `session.user_id` 后仅转发给归属用户；
+- `startup`/`shutdown` 等全局生命周期事件 -> 广播给全部连接；
+- 既无 `user_id`/`session_id` 又非全局的事件（如某些插件自定义事件）-> **丢弃**（safe-by-default，防跨用户泄露）。
+
+**帧格式**（标准 SSE）：
+
+```text
+event: progress_updated
+data: {"user_id": 1, "plan_id": 7, "node_id": "n3", "status": "done", "mastery": 0.8}
+
+event: plan_created
+data: {"plan_id": 12, "session_id": 3, "version": 1, "topic": "React"}
+
+: ping
+```
+
+- 每个事件一个 `event:` 行（事件名）+ `data:` 行（JSON payload），空行分隔。
+- 空闲时每 15s 发一行 `: ping` 心跳注释（防代理/浏览器缓冲挂起连接）。
+- 客户端断开 -> 服务端立即退订、释放资源（无连接/监听泄漏）。
+
+**事件名与 payload**：见 §8.5 核心事件清单（只增不改；新版本可能追加事件与键）。
+插件自定义事件（`api.events.emit`）若 payload 含 `user_id`/`session_id` 同样按归属
+过滤转发；不含则被安全丢弃。
+
+**客户端最小示例**（fetch 流式，同前端 sse.ts 范式）：
+
+```js
+// 经 Authorization 头鉴权（EventSource 做不到，故用 fetch）
+const res = await fetch('/api/events/stream', { headers: { Authorization: `Bearer ${token}` } })
+const reader = res.body.getReader()
+const dec = new TextDecoder()
+let buf = ''
+for (;;) {
+  const { value, done } = await reader.read()
+  if (done) break
+  buf += dec.decode(value)
+  // 按 SSE 规范逐事件解析（空行分隔；: 开头是心跳注释，跳过）
+  // event: <name>  /  data: <json>  -> 触发对应处理
+}
+```
+
+> **多进程部署**：事件总线为进程内内存广播（同 `ratelimit`、生成 SSE）——多进程
+> 部署时事件仅在本进程内可见，需经 sticky session 或共享 pubsub（Redis 等）跨进程
+> 分发（接口已按可替换设计，未来可扩展）。
+
+### 8.8 完整示例
 
 仓库自带可启用示例：[plugins/example_hello.py.disabled](plugins/example_hello.py.disabled)
 （路由 + 事件 + 工具 + 数据目录 + 配置读取）。去掉 `.disabled` 后缀重启即可体验。
@@ -887,7 +1045,9 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
 | 后端 | 1.4.0 | 2026-07-22 | 新增 `api.exporters` 导出格式扩展点（插件为私有/小众格式注册导出器；`POST /export/{plan_id}` format 解除 Literal 枚举改显式校验，`GET /export/formats` 格式发现端点；插件状态行新增 `exporters` 字段）——与 `api.parsers` 对称的出口侧 |

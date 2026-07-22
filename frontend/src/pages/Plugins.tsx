@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import Card from '../components/Card'
 import { toast } from '../components/Toast'
 import { ApiError, getBackendPlugins } from '../lib/api'
-import { API_VERSION, pages, plugins as pluginMgr, skins, widgets } from '../lib/plugins'
+import { API_VERSION, OVERLAY_LAYERS, overlays, pages, plugins as pluginMgr, skins, widgets } from '../lib/plugins'
 
 // 插件管理页（iter 204）：前端 JS 插件的可视化加载/移除 + 皮肤/小组件生效概览
 // + 后端插件状态（管理员只读）。前端插件契约见 API.md「前端插件 API」；
@@ -50,16 +50,24 @@ export default function Plugins() {
   )
   // iter 306：已注册插件页面（pages 注册表；含无导航项的，供排查/发现）
   const [pageList, setPageList] = useState(() => pages.list())
+  // iter 310：已注册覆盖层（overlay 注册表，按分层聚合；含无 pointerEvents:auto 的，供排查/发现）
+  const [overlayList, setOverlayList] = useState(() =>
+    OVERLAY_LAYERS.map((layer) => ({ layer, items: overlays.list(layer) })),
+  )
   useEffect(() => {
     const offSkins = skins.subscribe(() => setActiveSkin(skins.active()))
     const offWidgets = widgets.subscribe(() =>
       setSlotWidgets(widgets.slots().map((slot) => ({ slot, items: widgets.list(slot) }))),
     )
     const offPages = pages.subscribe(() => setPageList(pages.list()))
+    const offOverlays = overlays.subscribe(() =>
+      setOverlayList(OVERLAY_LAYERS.map((layer) => ({ layer, items: overlays.list(layer) }))),
+    )
     return () => {
       offSkins()
       offWidgets()
       offPages()
+      offOverlays()
     }
   }, [])
 
@@ -185,6 +193,22 @@ export default function Plugins() {
               </span>
             )}
           </div>
+          {/* iter 310：已注册覆盖层（应用根级渲染层，按 background/content/top 分层聚合） */}
+          {overlayList.map(({ layer, items }) => (
+            <div key={layer} className="text-sm">
+              <span className="text-slate-600 dark:text-slate-300">
+                覆盖层·{layer}
+                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（根级渲染层）</span>：
+              </span>
+              {items.length === 0 ? (
+                <span className="text-slate-400 dark:text-slate-500">无</span>
+              ) : (
+                <span className="text-slate-500 dark:text-slate-400">
+                  {items.length} 个：{items.map((o) => o.id).join('、')}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       </Card>
 

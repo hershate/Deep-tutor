@@ -22,6 +22,7 @@ import Notes from './pages/Notes'
 import Review from './pages/Review'
 import Search from './pages/Search'
 import PluginPageHost from './components/PluginPageHost'
+import PluginOverlayHost from './components/PluginOverlayHost'
 import RouterBridge from './components/RouterBridge'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
@@ -59,6 +60,9 @@ export default function App() {
     <>
       {/* iter 308：插件路由桥（插件 API v1.5.0 DeepTutor.router 的 navigate 注入 + 路由同步） */}
       <RouterBridge />
+      {/* iter 310：插件覆盖层宿主（插件 API v1.6.0 DeepTutor.overlay）——全路由根级渲染层，
+          挂 Routes 外、BrowserRouter/QueryClientProvider 内：overlay 组件可用路由与取数 hooks */}
+      <PluginOverlayHost />
       <Routes>
       <Route path="/login" element={<Login />} />
       {/* iter 89：首次设置向导（零配置开箱即用），公开页 */}

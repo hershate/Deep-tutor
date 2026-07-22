@@ -3,6 +3,7 @@
 // 第三方插件通过全局 `window.DeepTutor` 访问本模块，可：
 //   - widgets：向命名插槽（slot）注册小组件（React 组件，可用 DeepTutor.React 免打包 React）
 //   - pages：注册完整路由页（/p/ 命名空间）+ 可选侧栏导航——"用 API 完全替换前端"使能项（v1.4.0）
+//   - overlay：注册应用根级覆盖层（WebGL 背景/浮窗/物理叠层/3D 接管）——"用 API 完全改造前端"使能项（v1.6.0）
 //   - skins：注册/应用外观皮肤（CSS 变量令牌集，亮/暗双态，选择持久化）
 //   - api：以当前登录态调用后端 REST（get 便捷方法 + request 全方法）
 //   - events：订阅 API 事件
@@ -13,7 +14,7 @@ import type { ComponentType } from 'react'
 import { apiFetch } from './api'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.5.0'
+export const API_VERSION = '1.6.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -249,6 +250,90 @@ const routerApi = {
   subscribe(fn: () => void): () => void {
     routerListeners.add(fn)
     return () => routerListeners.delete(fn)
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 全局覆盖层（overlay）：应用根级渲染层（v1.6.0）——"用 API 完全改造前端"使能项
+// ---------------------------------------------------------------------------
+//
+// 为什么需要：widgets 只能往既有页面固定插槽注入卡片，pages 只能在 /p/ 下渲染整页——
+// 两者都无法"在整个应用之上"绘制内容。要做 WebGL 全屏背景特效 / 可自由拖放的浮窗 /
+// 2D 物理碰撞叠层 / 3D 小游戏接管整屏，都需要一个**脱离页面、覆盖整个视口**的渲染层。
+// 本命名空间把"应用根级 React 渲染"纳入受支持的插件门面（错误边界隔离 + 生命周期清理 +
+// pointer-events 控制），而非让插件用裸 DOM 硬塞 document.body（绕过 React、无清理、
+// 不受主题/错误边界保护，升级即碎）。
+//
+// 三层（z-index 分层，互不遮挡应用正常使用）：
+//   background — 应用内容之后（z-index:-1，仅透过应用透明区域可见，如页边/留白）；WebGL 背景特效
+//   content    — 应用内容之上、模态/Toast 之下（z-index:45）；浮窗小组件、HUD、画布叠层
+//   top        — 万物之上（z-index:9999，盖过模态/Toast）；全屏 3D 游戏、彩纸、接管式特效
+
+/** 覆盖层分层（新增分层只在 minor 版本追加，不改名/删除） */
+export const OVERLAY_LAYERS = ['background', 'content', 'top'] as const
+export type OverlayLayer = (typeof OVERLAY_LAYERS)[number]
+
+export interface OverlayDef {
+  /** 全局唯一 id（建议带插件名前缀，如 'my-plugin.snow'）；重复注册同 id 覆盖 */
+  id: string
+  /** 渲染分层，决定 z-index 与是否可交互（见上方分层说明） */
+  layer: OverlayLayer
+  /** 渲染组件；无 props。组件内可用 React hooks、TanStack Query、React Router（useLocation 等） */
+  component: ComponentType
+  /** 层容器是否拦截鼠标/触摸。缺省 'none'（点击穿透到下层应用，不阻塞 UI）；
+   *  需交互的浮窗/3D 游戏设 'auto'（届时该 overlay 区域会捕获指针事件） */
+  pointerEvents?: 'none' | 'auto'
+  /** 同层内绘制顺序权重，小的在前（后绘制、视觉靠上）；缺省 100。内置保留 0-99 */
+  order?: number
+}
+
+const overlayRegistry = new Map<string, OverlayDef>()
+let overlayRegistryVersion = 0
+const overlayListeners = new Set<() => void>()
+
+function notifyOverlays() {
+  overlayRegistryVersion += 1
+  overlayListeners.forEach((fn) => {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[DeepTutor] overlay 订阅回调异常', e)
+    }
+  })
+}
+
+const overlaysApi = {
+  register(def: OverlayDef): void {
+    if (!def || typeof def.id !== 'string' || !def.id) throw new Error('[DeepTutor] overlay.id 必填')
+    if (!OVERLAY_LAYERS.includes(def.layer)) throw new Error(`[DeepTutor] 未知 overlay 分层: ${String(def.layer)}`)
+    if (typeof def.component !== 'function') throw new Error('[DeepTutor] overlay.component 必须是组件')
+    overlayRegistry.set(def.id, { pointerEvents: 'none', order: 100, ...def })
+    notifyOverlays()
+  },
+  /** 幂等；返回是否确实移除了一个覆盖层 */
+  unregister(id: string): boolean {
+    const ok = overlayRegistry.delete(id)
+    if (ok) notifyOverlays()
+    return ok
+  },
+  /** 某分层当前全部覆盖层（按 order 升序，同 order 按注册顺序）；缺省返回全部层 */
+  list(layer?: OverlayLayer): OverlayDef[] {
+    const all = [...overlayRegistry.values()]
+    const filtered = layer ? all.filter((o) => o.layer === layer) : all
+    return filtered.sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
+  },
+  /** 订阅注册表变化（React useSyncExternalStore 用）；返回退订函数 */
+  subscribe(fn: () => void): () => void {
+    overlayListeners.add(fn)
+    return () => overlayListeners.delete(fn)
+  },
+  /** v1.6.0：当前宿主支持的全部分层名（只读）。插件据此做能力发现——
+   *  在旧宿主上降级（不注册某分层），在新宿主上自动可用，无需解析版本号。 */
+  layers(): readonly OverlayLayer[] {
+    return OVERLAY_LAYERS
+  },
+  getVersion(): number {
+    return overlayRegistryVersion
   },
 }
 
@@ -506,6 +591,8 @@ export const events = eventsApi
 export const pages = pagesApi
 /** 内部使用：插件管理页（与 window.DeepTutor.plugins 同一对象） */
 export const plugins = pluginsApi
+/** 内部使用：插件覆盖层宿主消费（与 window.DeepTutor.overlay 同一对象） */
+export const overlays = overlaysApi
 
 export interface DeepTutorAPI {
   /** API 语义化版本 */
@@ -518,6 +605,8 @@ export interface DeepTutorAPI {
   pages: typeof pagesApi
   /** v1.5.0：SPA 导航 + 路由变化订阅——插件多页应用不整页刷新跳转的必需能力 */
   router: typeof routerApi
+  /** v1.6.0：注册应用根级覆盖层（WebGL 背景/浮窗/物理叠层/3D 接管）——"用 API 完全改造前端"使能项 */
+  overlay: typeof overlaysApi
   /** 以当前登录态调用后端 REST（路径如 '/progress/stats/summary'，相对 /api 前缀） */
   api: typeof apiProxy
   /** 暴露 React，供无构建链的纯 JS 插件创建组件（const h = DeepTutor.React.createElement） */
@@ -539,6 +628,7 @@ export async function initPlugins(React: unknown): Promise<void> {
     plugins: pluginsApi,
     pages: pagesApi,
     router: routerApi,
+    overlay: overlaysApi,
     api: apiProxy,
     React,
   }
