@@ -72,6 +72,9 @@ export default function Review() {
   })
   // iter 290：复习模式（全部/仅知识点/仅错题），localStorage 记忆（iter 280 同款静默降级）
   const [mode, setMode] = useState<ReviewMode>(readReviewMode)
+  // iter 291：本轮薄弱项（忘了/仍错）集合 + 重练覆盖队列（非 null 时 queue 取此值——收窄再复习）
+  const [missed, setMissed] = useState<ReviewCard[]>([])
+  const [extraQueue, setExtraQueue] = useState<ReviewCard[] | null>(null)
   // recall 在前、错题在后（确定性顺序；先扫记忆再重练错题的自然节奏）
   const fullQueue: ReviewCard[] = useMemo(() => {
     const r = (data?.recall ?? []).map((d) => ({ kind: 'recall' as const, ...d }))
@@ -80,11 +83,11 @@ export default function Review() {
   }, [data])
   const recallCount = data?.recall.length ?? 0
   const quizCount = data?.quizzes.length ?? 0
-  // 按模式过滤（全部 = recall+quiz；recall/quiz 仅对应类）
-  const queue: ReviewCard[] = useMemo(
-    () => (mode === 'all' ? fullQueue : fullQueue.filter((c) => c.kind === mode)),
-    [fullQueue, mode],
-  )
+  // 重练覆盖优先；否则按模式过滤（全部 = recall+quiz；recall/quiz 仅对应类）
+  const queue: ReviewCard[] = useMemo(() => {
+    if (extraQueue) return extraQueue
+    return mode === 'all' ? fullQueue : fullQueue.filter((c) => c.kind === mode)
+  }, [fullQueue, mode, extraQueue])
 
   const [index, setIndex] = useState(0)
   // recall 卡态
@@ -122,6 +125,7 @@ export default function Review() {
       try {
         await updateProgress(card.plan_id, card.node_id, meta.status, meta.score)
         setStats((s) => ({ ...s, [r]: s[r] + 1 }))
+        if (r === 'forgot') setMissed((m) => [...m, card]) // iter 291：忘了计入薄弱
         qc.invalidateQueries({ queryKey: ['review-due'] }) // 徽标计数同步
         advance()
       } catch (e) {
@@ -147,6 +151,7 @@ export default function Review() {
         quizCorrect: s.quizCorrect + (res.correct === true ? 1 : 0),
         quizWrong: s.quizWrong + (res.correct === true ? 0 : 1),
       }))
+      if (res.correct !== true) setMissed((m) => [...m, card]) // iter 291：仍错计入薄弱
     } catch (e) {
       toast.error(`判分失败：${e instanceof ApiError ? e.message : '网络错误'}`)
     } finally {
@@ -205,6 +210,8 @@ export default function Review() {
     setQuizJudged(false)
     setQuizCorrect(null)
     setStats({ remembered: 0, fuzzy: 0, forgot: 0, quizCorrect: 0, quizWrong: 0 })
+    setMissed([])
+    setExtraQueue(null)
     void refetch()
   }
   // iter 290：切模式重置到新筛选队列开头（清卡态；统计清零避免跨模式混计）
@@ -217,11 +224,25 @@ export default function Review() {
     setQuizJudged(false)
     setQuizCorrect(null)
     setStats({ remembered: 0, fuzzy: 0, forgot: 0, quizCorrect: 0, quizWrong: 0 })
+    setMissed([])
+    setExtraQueue(null)
     try {
       localStorage.setItem(MODE_KEY, m)
     } catch {
       /* 写失败仅本次会话生效 */
     }
+  }
+  // iter 291：重练薄弱——以上轮忘了/仍错项为覆盖队列再过一遍（薄弱集在新轮重新累计，支持多轮收窄）
+  function requeueWeak() {
+    if (missed.length === 0) return
+    setExtraQueue(missed)
+    setMissed([])
+    setIndex(0)
+    setFlipped(false)
+    setQuizSelected(null)
+    setQuizJudged(false)
+    setQuizCorrect(null)
+    setStats({ remembered: 0, fuzzy: 0, forgot: 0, quizCorrect: 0, quizWrong: 0 })
   }
 
   // ---- 状态分支 ----
@@ -322,7 +343,18 @@ export default function Review() {
             </div>
           </div>
         )}
-        <div className="flex justify-center gap-2">
+        <div className="flex flex-wrap justify-center gap-2">
+          {/* iter 291：重练薄弱——仅重过本次忘了/仍错的项（多轮收窄直至全过） */}
+          {missed.length > 0 && (
+            <button
+              type="button"
+              onClick={requeueWeak}
+              title="仅重练本次忘了 / 仍错的项"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600"
+            >
+              重练薄弱（{missed.length}）
+            </button>
+          )}
           <button
             type="button"
             onClick={restart}
@@ -351,7 +383,7 @@ export default function Review() {
         <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">
           复习
           <span className="ml-2 text-xs font-normal tabular-nums text-slate-400">
-            {recallCount} 知识点 · {quizCount} 错题
+            {extraQueue ? `重练薄弱 · ${queue.length} 项` : `${recallCount} 知识点 · ${quizCount} 错题`}
           </span>
         </h1>
         <Link to="/plans" className="text-sm text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200">
