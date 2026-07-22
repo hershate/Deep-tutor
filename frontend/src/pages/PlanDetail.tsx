@@ -83,6 +83,26 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'report', label: '校验报告' },
 ]
 
+// iter 295：校验报告五项检查的中文名 + 说明（此前直接渲染英文 key，非技术用户不可读）
+const CHECK_META: Record<string, { label: string; desc: string }> = {
+  dependency_closure: { label: '依赖闭包', desc: '每阶段所需前置知识是否都在更早阶段出现' },
+  difficulty_step: { label: '难度阶梯', desc: '相邻阶段难度过渡是否平缓（差 ≤ 2，不跳级）' },
+  cognitive_load: { label: '认知负荷', desc: '每阶段知识点数量是否适中（3-6 个）' },
+  milestone_feasibility: { label: '里程碑可行性', desc: '里程碑是否仅用当前与已学知识即可达成' },
+  gap_analysis: { label: '缺口分析', desc: '是否存在未解释术语或跳步（新手盲点）' },
+}
+
+function checkStatusMeta(status?: string) {
+  const s = (status || '').toLowerCase()
+  if (s.startsWith('pass') || s === 'ok')
+    return { icon: '✅', label: '通过', box: 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-300' }
+  if (s.startsWith('warn'))
+    return { icon: '⚠️', label: '注意', box: 'border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-300' }
+  if (s.startsWith('fail') || s === 'error')
+    return { icon: '❌', label: '未通过', box: 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-300' }
+  return { icon: '•', label: status || '—', box: 'border-slate-200 dark:border-slate-700', text: 'text-slate-500 dark:text-slate-400' }
+}
+
 /** 触发浏览器下载（P5 ics/Anki 导出：内容随 API 响应返回，本地生成 Blob 保存）。 */
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -589,11 +609,27 @@ export default function PlanDetail() {
                 </p>
               )}
               {plan.validation_report.report && (
-                <ul className="text-sm">
-                  {Object.entries(plan.validation_report.report).map(([k, v]) => (
-                    <li key={k}>{k}: {v.status} {v.details}</li>
-                  ))}
-                </ul>
+                <div className="mt-1 space-y-2">
+                  {Object.entries(plan.validation_report.report).map(([k, v]) => {
+                    const meta = CHECK_META[k] ?? { label: k, desc: '' }
+                    const sm = checkStatusMeta(v.status)
+                    return (
+                      <div key={k} className={`rounded-lg border p-3 text-sm ${sm.box}`}>
+                        <div className="flex items-center gap-2">
+                          <span aria-hidden="true">{sm.icon}</span>
+                          <span className="font-medium text-slate-800 dark:text-slate-100">{meta.label}</span>
+                          <span className={`ml-auto text-xs ${sm.text}`}>{sm.label}</span>
+                        </div>
+                        {meta.desc && (
+                          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{meta.desc}</p>
+                        )}
+                        {v.details && (
+                          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{v.details}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
               {plan.validation_report.fixes && plan.validation_report.fixes.length > 0 && (
                 <div className="mt-2 text-sm">
