@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.plugins import bus, parsers, runtime
+from app.plugins import bus, exporters, parsers, runtime
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 
 # 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 API.md §版本线）
 # v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
-API_VERSION = "1.3.0"
+# v1.4.0：新增 api.exporters 导出格式扩展点（插件为私有/小众格式注册导出器）。
+API_VERSION = "1.4.0"
 
 
 class ToolsNamespace:
@@ -114,6 +115,72 @@ class ParsersNamespace:
     def extensions(self) -> list[str]:
         """本插件已注册的扩展名（调试/状态展示用）。"""
         return [e for e in parsers.registered_extensions()]
+
+
+class ExportersNamespace:
+    """导出格式注册（v1.4.0 扩展点，契约见 API.md「§导出格式扩展点」）。
+
+    插件为内置导出（md/pdf/slides/ics/anki）不支持的格式（私有/小众格式）注册导出器，
+    POST /api/export/{plan_id} 的 format 校验与分发自动识别并委托——无需改宿主代码即可
+    "让后端支持新导出格式"（与 api.parsers 对称的出口侧）。
+
+    renderer 契约：async 或 sync (plan: dict, ctx: dict) -> dict。
+    - plan：方案完整内容字典（intent/schedule/quizzes 等，与 GET /plans/{id} 的 content 一致）。
+    - ctx：{"plan_id": int, "user_id": int, "wrong_only": bool}。wrong_only 仅对 override
+      接管内置 anki 的插件有意义（内置约定 wrong_only 为 anki 专属）；普通插件格式收到
+      wrong_only=true 时端点已在分发前 400 拒绝，插件可忽略该键。
+      注意：sync renderer 在线程池执行（与内置同步导出经 to_thread 同口径）——需要
+      额外查库的插件请自行新建会话（勿跨线程共享宿主请求会话，SQLAlchemy Session
+      非线程安全）。
+    - 返回 dict：必须含 "filename"（str，仅取 basename 防路径注入）；必须含
+      "content"（str，文本产物随响应返回）或 "data"（bytes，二进制产物 base64 为
+      bytes_b64 返回，上限 exporters.MAX_BYTES）其一。其余键原样并入响应
+      （保留键 file_url/format/filename/content/bytes_b64/data 除外，由宿主控制）。
+    - 抛任何异常 -> 上游 export_failed（不静默降级——私有格式降级无意义且危险）。
+
+    安全默认（内置优先）：对内置格式注册导出器默认不生效（内置处理），除非
+    override=True（启动告警，高级用法——替换内置导出请充分测试）。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        format: str,
+        handler: Callable,
+        *,
+        label: str = "",
+        override: bool = False,
+    ) -> None:
+        """注册导出器。
+
+        - format：格式名（如 "epub"）；自动规范化为小写，字符集 [a-z0-9_-]。
+        - handler：渲染函数，async 或 sync，签名 (plan, ctx) -> dict（见类 docstring）。
+        - label：人类可读格式名（GET /export/formats 展示与替代前端格式发现用），可选。
+        - override：True 则即便对内置格式也接管（高级用法，启动告警）；默认 False 内置优先。
+        """
+        if not callable(handler):
+            raise TypeError("handler 必须是 callable（async 或 sync，签名 (plan, ctx) -> dict）")
+        fmt = exporters.normalize_format(format)
+        if not exporters.valid_format_name(fmt):
+            raise ValueError(f"格式名非法: {fmt!r}（需匹配 [a-z0-9][a-z0-9_-]{{0,31}}）")
+        entry = exporters.ExporterEntry(
+            plugin_id=self._pid,
+            format=fmt,
+            handler=handler,
+            override=bool(override),
+            label=label or "",
+        )
+        exporters.register(entry)
+        self._status.exporters.append(fmt)
+        self._rollbacks.append(lambda entry=entry: exporters.unregister(entry))
+
+    def formats(self) -> list[str]:
+        """本插件已注册的格式名（调试/状态展示用）。"""
+        return [e.format for e in exporters.all_entries() if e.plugin_id == self._pid]
 
 
 class RoutesNamespace:
@@ -275,6 +342,7 @@ class BackendPluginAPI:
         self._rollbacks: list = []
         self.tools = ToolsNamespace(status, self._rollbacks)
         self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
+        self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.4.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.3.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.4.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -385,7 +385,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.3.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.4.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -464,6 +464,7 @@ PLUGIN_META = {
 | `api.log` | `logging.Logger` | 插件专属 logger（`deep_tutor.plugin.<id>`） |
 | `api.data_dir` | `pathlib.Path` | 插件私有数据目录（已创建），持久化插件自身状态 |
 | `api.parsers` | `ParsersNamespace` | 文件解析器注册（v1.3.0）：为私有/小众格式注册解析器，上传与解析自动委托（§8.4a） |
+| `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -578,6 +579,89 @@ def register(api):
 
 重启后端 -> 上传 `.epub` 文件即被本插件解析为文本，注入下游学习方案生成。
 
+#### `api.exporters` —— 导出格式注册（v1.4.0 扩展点，§8.4b）
+
+为内置导出（`md`/`pdf`/`slides`/`ics`/`anki`）**不支持的格式**（私有格式 / 小众格式，
+如 `.epub` 电子书、`.mobi`、企业归档格式、自定义卡片格式）注册导出器——
+`POST /api/export/{plan_id}` 的 format 校验与分发自动识别并委托，
+**无需改宿主代码即可"让后端支持新导出格式"**（与 `api.parsers` 对称的出口侧：
+parsers 管"读进来"，exporters 管"导出去"）。
+
+```python
+api.exporters.register(
+    format: str,              # 如 "epub"；自动规范化为小写，字符集 [a-z0-9_-]
+    handler: Callable,        # async 或 sync，签名 (plan, ctx) -> dict
+    *,
+    label: str = "",          # 人类可读格式名（GET /export/formats 展示用），可选
+    override: bool = False,   # True 则即便对内置格式也接管（高级用法，启动告警）
+) -> None
+```
+
+**handler 契约**：
+
+```python
+# async 或 sync 均可：async 直接 await；sync 在线程池执行（不阻塞事件循环，
+# 与内置 pdf/ics/anki 同步导出经 to_thread 同一口径）
+async def render_epub(plan: dict, ctx: dict) -> dict:
+    return {
+        "filename": "plan.epub",          # 必填：建议下载文件名（宿主仅取 basename）
+        "data": epub_bytes,               # content(str) 或 data(bytes) 必填其一
+        "mime": "application/epub+zip",   # 可选；其余自定义键原样并入响应
+    }
+```
+
+- 入参 `plan`：方案完整内容字典（`intent`/`schedule`/`quizzes` 等，与
+  `GET /plans/{id}` 的 `content` 一致）；`ctx` = `{"plan_id", "user_id", "wrong_only"}`。
+  `wrong_only` 是内置 anki 专属口径——仅 `override=True` 接管 anki 的插件会收到
+  `True`；普通插件格式带 `wrong_only=true` 会被端点 400 拒绝（不静默忽略）。
+- 返回 dict：**必含 `filename`**（str，宿主仅取 basename 防路径注入）；**必含
+  `content`（str，文本产物随响应返回）或 `data`（bytes，二进制产物 base64 为
+  `bytes_b64` 返回，上限 32MiB）其一**；其余键（如 `mime`/自定义元数据）原样并入
+  响应——保留键 `file_url`/`format`/`filename`/`content`/`bytes_b64`/`data` 由宿主
+  控制，插件不可覆盖。额外键须 JSON 可序列化。
+- 抛任何异常 -> 上游 `export_failed`（400）；返回不合规（缺 filename/缺产物/类型错/
+  超上限）同样 `export_failed`。**不静默降级为 md**——私有格式降级产物与请求不符。
+- sync handler 在线程池执行——需要额外查库的插件请自行新建 DB 会话（**勿跨线程
+  共享宿主请求会话**，SQLAlchemy Session 非线程安全）。
+
+**内置优先（安全默认）**：对内置格式注册导出器**默认不生效**（内置处理），避免误伤
+既有导出。确需替换内置时显式 `override=True`（启动告警，属高级用法——如用自有
+PDF 引擎替换内置 weasyprint 路径，请充分测试）。
+
+**端点层自动接纳**：`POST /api/export/{plan_id}` 的 `format` 字段自 v1.4.0 起为自由
+字符串（原 `Literal` 枚举已移除——否则插件格式会在请求校验层被 422 拦截）；未知格式
+显式 `unsupported_format`（400），不再静默降级。客户端可经 `GET /export/formats`
+发现本实例可用的全部导出格式（内置 + 插件，含 `label`/`plugin_id`/`override`），
+用于动态渲染导出菜单——替代前端/外部客户端据此与宿主格式能力保持同步。
+
+> **可观测性**：注册的格式名记录在插件状态（`GET /api/plugins` 行的 `exporters`
+> 字段，管理员可见）。插件导出走与内置相同的 12 次/分钟限流与方案归属守卫。
+
+**完整示例**：EPUB 电子书导出插件
+
+```python
+# plugins/epub_exporter/plugin.py
+PLUGIN_META = {"id": "epubexp", "name": "EPUB Exporter", "version": "0.1.0", "min_api": "1.4"}
+
+def register(api):
+    def render_epub(plan: dict, ctx: dict):  # sync renderer（打包 zip，CPU 密集）
+        import io, zipfile
+        buf = io.BytesIO()
+        topic = (plan.get("intent") or {}).get("topic", "plan")
+        with zipfile.ZipFile(buf, "w") as zf:  # 简化：实际 EPUB 需 mimetype/OPF/NCX
+            zf.writestr("content.txt", f"# {topic}\n")
+        return {
+            "filename": f"plan-{ctx['plan_id']}.epub",
+            "data": buf.getvalue(),
+            "mime": "application/epub+zip",
+        }
+
+    api.exporters.register("epub", render_epub, label="EPUB 电子书")
+```
+
+重启后端 -> `POST /api/export/{plan_id}` 带 `{"format": "epub"}` 即由本插件渲染，
+响应 `bytes_b64` 为 EPUB 二进制（前端/客户端 base64 解码后 Blob 下载）。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -608,7 +692,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.3.0",
+  "api_version": "1.4.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -616,7 +700,8 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
       "routes": ["/api/plugins/hello"],
       "events": ["plan_created"],
       "tools": [],
-      "parsers": []
+      "parsers": [],
+      "exporters": []
     }
   ],
   "subscribed_events": ["plan_created", "shutdown", "startup"]
@@ -700,6 +785,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
+| 后端 | 1.4.0 | 2026-07-22 | 新增 `api.exporters` 导出格式扩展点（插件为私有/小众格式注册导出器；`POST /export/{plan_id}` format 解除 Literal 枚举改显式校验，`GET /export/formats` 格式发现端点；插件状态行新增 `exporters` 字段）——与 `api.parsers` 对称的出口侧 |
 | 后端 | 1.3.0 | 2026-07-22 | 新增 `api.parsers` 文件解析扩展点（插件为私有/小众格式注册解析器；上传校验自动接纳插件扩展名 + 可选 magic；`GET /materials/formats` 格式发现端点；插件状态行新增 `parsers` 字段） |
 | 后端 | 1.2.0 | 2026-07-19 | 新增 `learning_log_added` 事件（学习打卡提交后广播，用户行为事件目录补齐） |
 | 前端 | 1.3.1 | 2026-07-19 | 修复：插件脚本 15 秒无响应按超时 reject（此前永不 settle，自动加载时一个挂起 URL 会饿死其后全部持久化插件） |

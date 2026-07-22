@@ -2,17 +2,21 @@
 
 POST /api/export/{plan_id}  导出方案为 md（pdf/slides 在 P1/P5）
   - format=anki & wrong_only=true（iter 134）：仅导出错题（最近作答判错）为独立 .apkg 牌组。
+  - 插件格式（iter 307，后端插件 API v1.4.0 扩展点）：api.exporters 注册的 format 经
+    exporters.find_exporter 委托插件渲染器；内置优先（override=True 例外，见 API.md）。
+
+GET /api/export/formats  导出格式发现：内置格式 + 插件注册格式（label/plugin_id/override）。
 
 从 DB 加载方案（大方案从文件读），调 export_plan 工具渲染 Markdown 并写文件，返回 file_url。
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -28,6 +32,7 @@ from app.db import models
 from app.db.base import SessionLocal
 from app.db.models import User
 from app.llm import get_provider
+from app.plugins import exporters
 from app.tools import default_registry
 from app.tools.base import ToolInput
 from app.tools.build_anki import build_apkg
@@ -46,8 +51,30 @@ _EXPORT_RATE_PER_MIN = 12
 
 class ExportIn(BaseModel):
     # err.md A17：未知格式此前静默走 md 分支（客户端拿到与请求不符的产物）
-    format: Literal["md", "pdf", "slides", "ics", "anki"] = "md"
+    # iter 307：Literal -> str——插件可经 api.exporters 注册新格式（Literal 会在
+    # pydantic 层 422 拦截插件格式）；未知格式改由端点显式 unsupported_format 拒绝
+    format: str = "md"
     wrong_only: bool = False  # iter 134：仅导出错题（最近作答判错的题），仅 anki 格式支持
+
+
+@router.get("/formats")
+def list_export_formats() -> dict:
+    """导出格式发现（v1.4.0 扩展点）：内置格式 + 插件注册格式。
+
+    外部客户端/替代前端据此动态列出可选导出格式（契约同 GET /materials/formats）。
+    """
+    return {
+        "builtin": sorted(exporters.BUILTIN_FORMATS),
+        "plugin": [
+            {
+                "format": e.format,
+                "label": e.label,
+                "plugin_id": e.plugin_id,
+                "override": e.override,
+            }
+            for e in exporters.all_entries()
+        ],
+    }
 
 
 @router.post("/{plan_id}")
@@ -61,6 +88,21 @@ async def export_plan_endpoint(
     # 导出速率限制（plan/09 §十八 /export 每分钟限 N）
     if not limiter.check(f"export:{user.id}", _EXPORT_RATE_PER_MIN):
         raise ApiError("rate_limited", f"导出限每分钟 {_EXPORT_RATE_PER_MIN} 次，请稍后再试")
+
+    # iter 307：format 规范化 + 显式校验（内置或插件注册），未知格式 400 而非静默降级 md
+    try:
+        fmt = exporters.normalize_format(body.format)
+    except ValueError:
+        fmt = ""
+    entry = exporters.find_exporter(fmt)
+    if fmt not in exporters.BUILTIN_FORMATS and entry is None:
+        raise ApiError(
+            "unsupported_format",
+            f"不支持的导出格式: {body.format!r}"
+            f"（内置: {', '.join(sorted(exporters.BUILTIN_FORMATS))}；"
+            "插件扩展格式见 GET /api/export/formats）",
+        )
+
     content = plan.content
     if not content and plan.content_path:
         try:
@@ -70,18 +112,94 @@ async def export_plan_endpoint(
     if not content:
         raise ApiError("empty_content", "方案内容为空，无法导出")
 
-    if body.format == "slides":
+    # 插件导出器优先（find_exporter 对内置格式默认 None，override=True 才接管内置）
+    if entry is not None:
+        if body.wrong_only and fmt != "anki":
+            # wrong_only 是内置 anki 专属口径（依赖 DB 作答记录）；普通插件格式无此语义，
+            # 显式拒绝而非静默忽略（同 err.md A17 反静默降级原则）
+            raise ApiError("bad_request", "错题导出仅支持 anki 格式")
+        return await _export_plugin(entry, plan_id, content, user.id, wrong_only=body.wrong_only)
+
+    if fmt == "slides":
         return await _export_slides(plan_id, plan.session_id, content, user.id)
-    if body.format == "ics":
+    if fmt == "ics":
         return await _export_ics(plan_id, content)
-    if body.format == "anki":
+    if fmt == "anki":
         return await _export_anki(plan_id, content, db=db, plan=plan, wrong_only=body.wrong_only)
     if body.wrong_only:
         # iter 134：错题导出仅 anki（错题判定依赖 DB 作答记录，md/pdf 等走 content 快照无此口径）
         raise ApiError("bad_request", "错题导出仅支持 anki 格式")
-    if body.format == "pdf":
+    if fmt == "pdf":
         return await _export_pdf(plan_id, plan.session_id, content)
-    return await _export_md(plan_id, plan.session_id, content, body.format)
+    return await _export_md(plan_id, plan.session_id, content, fmt)
+
+
+async def _export_plugin(
+    entry: exporters.ExporterEntry,
+    plan_id: int,
+    content: dict,
+    user_id: int,
+    *,
+    wrong_only: bool = False,
+) -> dict:
+    """插件导出格式分发（v1.4.0 扩展点）。
+
+    renderer 契约见 api.exporters.register docstring：async 直接 await；sync 经
+    to_thread（与内置同步导出同口径，不阻塞事件循环）。插件抛异常 -> export_failed
+    （不静默降级为 md——私有格式降级无意义且产物与请求不符，同 err.md A17 原则）。
+    返回契约校验：必含 filename（仅取 basename 防路径注入）且含 content(str) 或
+    data(bytes，上限 MAX_BYTES) 其一；其余键并入响应（保留键由宿主控制）。
+    """
+    handler = entry.handler
+    ctx = {"plan_id": plan_id, "user_id": user_id, "wrong_only": wrong_only}
+    try:
+        if asyncio.iscoroutinefunction(handler):
+            result = await handler(content, ctx)
+        else:
+            result = await asyncio.to_thread(handler, content, ctx)
+    except ApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001  插件渲染失败 -> 明确 export_failed
+        raise ApiError(
+            "export_failed",
+            f"插件导出器 {entry.plugin_id} 处理 {entry.format} 失败: {exc}",
+        ) from exc
+
+    try:
+        if not isinstance(result, dict):
+            raise TypeError(f"返回 {type(result).__name__}，须为 dict")
+        filename = result.get("filename")
+        if not isinstance(filename, str) or not filename.strip():
+            raise ValueError("返回须含非空 filename（str）")
+        text = result.get("content")
+        blob = result.get("data")
+        if text is None and blob is None:
+            raise ValueError("返回须含 content(str) 或 data(bytes) 其一")
+        if text is not None and not isinstance(text, str):
+            raise TypeError("content 须为 str")
+        if blob is not None:
+            if not isinstance(blob, (bytes, bytearray)):
+                raise TypeError("data 须为 bytes")
+            if len(blob) > exporters.MAX_BYTES:
+                raise ValueError(
+                    f"data 大小 {len(blob) / 1024 / 1024:.0f}MB 超上限"
+                    f" {exporters.MAX_BYTES / 1024 / 1024:.0f}MB"
+                )
+        resp: dict = {"file_url": "", "format": entry.format, "filename": Path(filename).name}
+        if text is not None:
+            resp["content"] = text
+        if blob is not None:
+            resp["bytes_b64"] = base64.b64encode(bytes(blob)).decode("ascii")
+        # 其余键（如 mime/自定义元数据）并入响应；保留键由宿主控制（防覆盖 format 等不变量）
+        for key, value in result.items():
+            if key not in resp and key != "data":
+                resp[key] = value
+    except (TypeError, ValueError) as exc:
+        raise ApiError(
+            "export_failed",
+            f"插件导出器 {entry.plugin_id} 返回不合规: {exc}（契约见 API.md 导出格式扩展点）",
+        ) from exc
+    return resp
 
 
 async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
@@ -98,8 +216,6 @@ async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
             "安装：pip install weasyprint（Windows 另需 GTK 运行时）"
         )
         return result
-    import asyncio
-
     md = render_markdown(content)
     try:
         # 病态内容下 weasyprint 渲染可挂起——wait_for 释放请求（线程不可杀，
@@ -120,8 +236,6 @@ async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
 
 async def _export_ics(plan_id: int, content: dict) -> dict:
     """ics 日历导出（P5）：schedule -> RFC 5545 全天事件。内容随响应返回，前端 Blob 下载。"""
-    import asyncio
-
     try:
         # err.md A18：同步 CPU 工作 to_thread，防阻塞事件循环（同 _export_pdf）
         ics_text, events, skipped = await asyncio.to_thread(build_ics, plan_id, content)
@@ -151,8 +265,6 @@ async def _export_anki(
     wrong_only（iter 134）：只收最近作答判错的题（DB quizzes 表 + QuizAttempt 判定，
     与 GET /plans/{id}/quiz/wrong 同口径）；无错题 -> no_wrong_quizzes。
     """
-    import asyncio
-
     quizzes: list[dict] | None = None
     if wrong_only:
         from app.api.plans import _wrong_quiz_rows

@@ -5,6 +5,7 @@
 - bus：事件总线（核心事件 + 插件自定义事件，监听器异常隔离）
 - runtime：加载状态台账 + 插件工具表
 - parsers：插件自定义文件解析器注册表（v1.3.0 扩展点，parse_material 委托）
+- exporters：插件自定义导出格式注册表（v1.4.0 扩展点，exports 端点委托）
 """
 
 from app.plugins.api import API_VERSION, BackendPluginAPI

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.settings import settings
-from app.plugins import bus, parsers, runtime
+from app.plugins import bus, exporters, parsers, runtime
 from app.plugins.api import API_VERSION, BackendPluginAPI
 
 if TYPE_CHECKING:
@@ -174,7 +174,8 @@ def _load_one(app: FastAPI, path: Path) -> None:
         status.events.clear()
         status.tools.clear()
         status.parsers.clear()
-        status.error = f"register: {exc}（其已注册的路由/事件/工具/解析器已回滚）"
+        status.exporters.clear()
+        status.error = f"register: {exc}（其已注册的路由/事件/工具/解析器/导出器已回滚）"
         runtime.record(status)
         return
     status.state = "loaded"
@@ -188,7 +189,8 @@ def get_plugin_statuses() -> list[runtime.PluginStatus]:
 
 
 def reset_plugins() -> None:
-    """清空状态台账/工具表/事件订阅/解析器注册表（测试隔离用；已挂载的路由随 app 实例存在）。"""
+    """清空状态台账/工具表/事件订阅/解析器与导出器注册表（测试隔离用；已挂载的路由随 app 实例存在）。"""
     runtime.reset_runtime()
     bus.reset()
     parsers.reset()
+    exporters.reset()
