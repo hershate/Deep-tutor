@@ -229,5 +229,33 @@ def test_tools_list_llm_flag_for_llm_tool():
     tools = api.tools.list()
     t = next(x for x in tools if x["name"] == "tooltest.llmtool")
     assert t["llm"] is True  # LLM 工具标志（插件据此知哪些耗预算）
-    assert t["description"] == ""  # 插件工具无描述（v1）
+    assert t["description"] == ""  # 未设描述 -> 空
+
+
+# --- Tool.description（iter 324）---
+
+
+def test_register_python_description_shows_in_list():
+    """register_python(description=) -> api.tools.list 展示插件工具自带描述。"""
+    api = _facade()
+    api.tools.register_python("tooltest.docced", lambda inp, ctx: {}, description="一个有描述的工具")
+    t = next(x for x in api.tools.list() if x["name"] == "tooltest.docced")
+    assert t["description"] == "一个有描述的工具"
+
+
+def test_register_tool_description_field_shows_in_list():
+    """register(Tool(..., description=...)) -> list 展示（LLM 工具亦可带描述）。"""
+    from app.agent.registry import Tool
+
+    api = _facade()
+    api.tools.register(Tool(name="tooltest.field_doc", llm=True, inline_prompt="x", description="字段描述"))
+    t = next(x for x in api.tools.list() if x["name"] == "tooltest.field_doc")
+    assert t["description"] == "字段描述"
+
+
+def test_core_tool_description_falls_back_to_dict():
+    """核心工具 Tool.description 缺省空 -> tool_metadata 回退 TOOL_DESCRIPTIONS（parse_material）。"""
+    pm = next(x for x in _facade().tools.list() if x["name"] == "parse_material")
+    assert pm["description"]  # 来自 TOOL_DESCRIPTIONS（核心工具未设字段）
+
 

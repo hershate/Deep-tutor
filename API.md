@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.9.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.12.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.13.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -617,7 +617,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.12.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.13.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -742,7 +742,8 @@ api.events.emit("myplugin.custom", {"k": "v"})     # 发布自定义事件（插
 
 ```python
 api.tools.register_python("myplugin.word_count", async_func)  # 便捷：Python 工具
-api.tools.register(tool)                                      # 完整 Tool（LLM 工具亦可）
+api.tools.register_python("myplugin.x", func, description="一行描述")  # v1.13.0：自带描述（发现视图展示）
+api.tools.register(tool)                                      # 完整 Tool（LLM 工具亦可，可带 description=）
 
 # v1.7.0：调用任意已注册工具（核心或插件），组合"新工作流"
 res = await api.tools.call(
@@ -1371,7 +1372,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.12.0",
+  "api_version": "1.13.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1522,6 +1523,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.13.0 | 2026-07-23 | `Tool.description` 字段 + `register_python(description=)`：插件工具可自带一行描述，在 `api.tools.list` / `GET /api/tools` 发现视图展示（核心工具回退 `TOOL_DESCRIPTIONS`）——插件工具自文档化，发现输出对全部工具（核心+插件）都有描述；不影响工具执行行为（纯展示） |
 | 后端 | 1.12.0 | 2026-07-23 | `api.mcp` 加 `connect_stdio`（MCP stdio 传输）：spawn 本地子进程 MCP server，经 stdin/stdout line-delimited JSON-RPC（initialize/tools-list/tools-call，skip 通知取匹配 id 响应，读超时，close terminate 子进程防僵尸）——stdio 是 MCP server 最常见部署（如 npx 启动的 server），补齐 v1.9.0 HTTP-only 的实用闭环；与 `connect`(HTTP) 同接口；对 spec-faithful stdio mock server 测试（6 项，真实子进程） |
 | 后端 | 1.11.0 | 2026-07-23 | 新增 `api.storage` 持久化 KV 存储（每插件私有 JSON，`get/set/delete/has/keys/clear`）：原子写（tmp+os.replace）防并发请求损坏、JSON 序列化校验、损坏文件静默重置容错、按插件 data_dir 命名空间隔离、懒加载——数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险） |
 | 后端 | 1.10.0 | 2026-07-23 | 新增 `api.scheduler` 后台任务调度（`every` 周期 / `once` 延迟）：插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力——register 须快速幂当不能起长任务）；fn async/sync，异常隔离（记日志不杀循环），`TaskHandle.cancel()` 单独取消，`reset_plugins` 卸载统一取消；任务不持久化（重启即失，插件重新注册）；须在运行事件循环内调用（register 期间/async 路由内） |

@@ -39,7 +39,9 @@ if TYPE_CHECKING:
 #         数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险）。
 # v1.12.0：api.mcp 加 connect_stdio——MCP stdio 传输（spawn 子进程 server，stdin/stdout JSON-RPC）。
 #         stdio 是 MCP server 常见部署，补齐 iter 319 HTTP-only 的实用闭环。
-API_VERSION = "1.12.0"
+# v1.13.0：Tool.description 字段 + register_python(description=)——插件工具可自带一行描述，
+#         api.tools.list / GET /api/tools 发现视图展示（核心工具回退 TOOL_DESCRIPTIONS）。
+API_VERSION = "1.13.0"
 
 
 class ToolsNamespace:
@@ -66,14 +68,15 @@ class ToolsNamespace:
         self._status.tools.append(tool.name)
         self._rollbacks.append(lambda tool=tool: runtime.remove_tool(tool))
 
-    def register_python(self, name: str, func: Any) -> None:
+    def register_python(self, name: str, func: Any, *, description: str = "") -> None:
         """便捷注册 Python 工具：async (inp, ctx) -> dict（data 字典）。
 
         inp/ctx 契约与宿主工具一致（app/tools/base.py 的 ToolInput；ctx 含 db/registry 等）。
+        description（v1.13.0）：人类可读一行描述，在 api.tools.list / GET /api/tools 发现视图展示。
         """
         from app.agent.registry import Tool
 
-        self.register(Tool(name=name, llm=False, func=func))
+        self.register(Tool(name=name, llm=False, func=func, description=description))
 
     def list(self) -> list[dict[str, Any]]:
         """发现全部已注册工具的元数据（v1.8.0）：``[{name, llm, requires, description}, ...]``。

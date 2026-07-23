@@ -78,7 +78,8 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
 
 def tool_metadata(reg: ToolRegistry) -> list[dict]:
     """发现视图：注册表全部工具的元数据（name/llm/requires/description），供
-    api.tools.list() 与 GET /api/tools 发现端点。插件据此动态组合工作流（iter 317）。"""
+    api.tools.list() 与 GET /api/tools 发现端点。插件据此动态组合工作流（iter 317）。
+    description：优先工具自带（Tool.description，iter 324 插件工具可设），核心工具回退 TOOL_DESCRIPTIONS。"""
     out: list[dict] = []
     for name in reg.names():
         t = reg.get(name)
@@ -87,7 +88,7 @@ def tool_metadata(reg: ToolRegistry) -> list[dict]:
                 "name": name,
                 "llm": bool(t.llm),
                 "requires": list(t.requires),
-                "description": TOOL_DESCRIPTIONS.get(name, ""),
+                "description": t.description or TOOL_DESCRIPTIONS.get(name, ""),
             }
         )
     return out
