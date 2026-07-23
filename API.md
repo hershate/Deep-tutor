@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.10.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.11.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.14.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -424,6 +424,34 @@ DT.overlay.register({
   },
 })
 ```
+
+### `ui.makeDroppable(el, opts?): { destroy }`（v1.11.0）
+
+让一个 DOM 元素成为**拖放目标**——检测 `makeDraggable` 拖拽的元素被拖入/放下。返回 `{ destroy }`。
+配 `makeDraggable` 即做出完整的拖放交互（拖到目标区域 → onDrop 回调），如看板拖拽 / 拖入分类 /
+分配面板。
+
+```ts
+interface DroppableOptions {
+  accept?: (draggedEl: HTMLElement) => boolean  // 过滤可放入的元素（返回 true 接受）；缺省全部
+  onDrop?: (draggedEl: HTMLElement) => void     // 放下时调用
+  onDragEnter?: (draggedEl: HTMLElement) => void // 拖入区域时调用（高亮反馈）
+  onDragLeave?: (draggedEl: HTMLElement) => void // 拖离区域时调用（移除高亮）
+}
+```
+
+```js
+// 例：可拖入的"回收站"区域
+DT.ui.makeDroppable(trashZoneEl, {
+  accept: (dragged) => dragged.dataset.trashable === 'true',
+  onDragEnter: (el) => el.classList.add('drop-highlight'),
+  onDragLeave: (el) => el.classList.remove('drop-highlight'),
+  onDrop: (el) => { el.remove(); DT.ui.toast.success('已删除') },
+})
+```
+
+> **原理**：makeDraggable 在 pointer-capture 下拖拽时，其他元素收不到 pointer 事件——故 makeDraggable
+> 广播 move/end 位置（模块级 pub-sub），makeDroppable 据此判定悬停 / 放下。多个 Droppable 互不影响。
 
 ### `ui.toast` —— 通知反馈（v1.9.0）
 
@@ -1591,6 +1619,7 @@ for (;;) {
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.11.0 | 2026-07-23 | `ui` 命名空间加 `makeDroppable`：让元素成为拖放目标——检测 `makeDraggable` 拖拽的元素被拖入（onDragEnter 高亮）/ 放下（onDrop 回调）；配 `makeDraggable` 即做出完整拖放交互（看板拖拽 / 拖入分类 / 分配面板）；accept 过滤 + onDragEnter/Leave 视觉反馈；通过模块级 drag pub-sub 协调（makeDraggable 广播 move/end 位置，makeDroppable 据此判定悬停/放下——pointer-capture 下其他元素收不到 pointer 事件的解决） |
 | 前端 | 1.10.0 | 2026-07-23 | `ui` 命名空间加 `makeResizable`：在四边/四角加缩放手柄（8 方向），pointer 拖拽改尺寸 + minSize 钳制 + 可选 persistKey 尺寸持久化，返回 `{ destroy }`——配 `makeDraggable`（v1.8.0）即做出可拖放 + 可缩放的浮窗/面板（完整"可自由拖放的小组件"）；n/w 边收缩时对边固定 |
 | 前端 | 1.9.0 | 2026-07-23 | `ui` 命名空间加 `toast`（success/info/error）：复用宿主 Toast 系统（右下角、3s 自动消失、可选 action 按钮 TTL 延至 8s）——插件给用户瞬时反馈（"已保存"/"复制成功"/"出错"），无需自建通知 UI（此前只能 console.log 或从零搭组件） |
 | 前端 | 1.8.0 | 2026-07-23 | 新增 `ui` 命名空间（`makeDraggable`）：让任意 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 视口/容器边界 + 可选 localStorage 位置持久化 + 拖拽置顶），返回 `{ destroy }` 清理——配合 overlay `content` 层即做出"可自由拖放的小组件"（用户点名需求，此前须每个插件手写拖拽）；DRF 手柄/边界/初始位置/持久化键可配；隐私模式 localStorage 不可用静默降级 |

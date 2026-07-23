@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.10.0'
+export const API_VERSION = '1.11.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -380,6 +380,21 @@ export interface ResizableHandle {
   destroy(): void
 }
 
+export interface DroppableOptions {
+  /** 过滤哪些被拖元素可放入（返回 true 接受）；缺省接受全部 */
+  accept?: (draggedEl: HTMLElement) => boolean
+  /** 放下时调用（传入被拖元素） */
+  onDrop?: (draggedEl: HTMLElement) => void
+  /** 拖拽进入区域时调用（视觉反馈，如高亮） */
+  onDragEnter?: (draggedEl: HTMLElement) => void
+  /** 拖拽离开区域时调用（移除高亮） */
+  onDragLeave?: (draggedEl: HTMLElement) => void
+}
+
+export interface DroppableHandle {
+  destroy(): void
+}
+
 function _readPosLS(key: string): { x: number; y: number } | null {
   try {
     const raw = localStorage.getItem(key)
@@ -424,6 +439,32 @@ function _writeSizeLS(key: string, width: number, height: number): void {
   } catch {
     /* 配额/隐私模式：静默 */
   }
+}
+
+// --- 拖拽 pub-sub（makeDraggable 写，makeDroppable 读）---
+// makeDraggable 在 pointer-capture 下拖拽时，其他元素收不到 pointer 事件——
+// 故 makeDraggable 广播 move/end 位置，makeDroppable 据此判定悬停/放下。
+const _dragMoveListeners = new Set<(el: HTMLElement, x: number, y: number) => void>()
+const _dragEndListeners = new Set<(el: HTMLElement, x: number, y: number) => void>()
+
+function _notifyDragMove(el: HTMLElement, x: number, y: number): void {
+  _dragMoveListeners.forEach((fn) => {
+    try {
+      fn(el, x, y)
+    } catch {
+      /* 监听器异常隔离 */
+    }
+  })
+}
+
+function _notifyDragEnd(el: HTMLElement, x: number, y: number): void {
+  _dragEndListeners.forEach((fn) => {
+    try {
+      fn(el, x, y)
+    } catch {
+      /* 监听器异常隔离 */
+    }
+  })
 }
 
 const uiApi = {
@@ -481,9 +522,10 @@ const uiApi = {
       const [nx, ny] = clamp(origX + (e.clientX - startX), origY + (e.clientY - startY))
       el.style.left = `${nx}px`
       el.style.top = `${ny}px`
+      _notifyDragMove(el, e.clientX, e.clientY) // v1.11.0：广播拖拽位置给 makeDroppable
     }
 
-    const onUp = (): void => {
+    const onUp = (e: PointerEvent): void => {
       if (!dragging) return
       dragging = false
       el.style.userSelect = ''
@@ -493,6 +535,7 @@ const uiApi = {
         const r = el.getBoundingClientRect()
         _writePosLS(opts.persistKey, r.left, r.top)
       }
+      _notifyDragEnd(el, e.clientX, e.clientY) // v1.11.0：广播拖拽结束位置给 makeDroppable
     }
 
     const onDown = (e: PointerEvent): void => {
@@ -638,6 +681,56 @@ const uiApi = {
       destroy(): void {
         cleanups.forEach((fn) => fn())
         created.forEach((h) => h.remove())
+      },
+    }
+  },
+  /** 让一个 DOM 元素成为拖放目标（v1.11.0）：检测 makeDraggable 元素被拖入/放下。
+   *  返回 { destroy }。配 makeDraggable 即做出完整的拖放交互（拖到目标 → onDrop）。 */
+  makeDroppable(el: HTMLElement, opts: DroppableOptions = {}): DroppableHandle {
+    if (!el || !(el instanceof HTMLElement)) {
+      throw new Error('[DeepTutor] ui.makeDroppable 需传入 HTMLElement')
+    }
+    let hovering = false // 当前是否有被拖元素悬停在本区域
+
+    const inBounds = (x: number, y: number): boolean => {
+      const r = el.getBoundingClientRect()
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    }
+
+    const onMove = (draggedEl: HTMLElement, x: number, y: number): void => {
+      if (!draggedEl || draggedEl === el) return // 不接受自身
+      if (opts.accept && !opts.accept(draggedEl)) return
+      const inside = inBounds(x, y)
+      if (inside && !hovering) {
+        hovering = true
+        opts.onDragEnter?.(draggedEl)
+      } else if (!inside && hovering) {
+        hovering = false
+        opts.onDragLeave?.(draggedEl)
+      }
+    }
+
+    const onEnd = (draggedEl: HTMLElement, x: number, y: number): void => {
+      if (!draggedEl || draggedEl === el) return
+      if (opts.accept && !opts.accept(draggedEl)) {
+        hovering = false
+        return
+      }
+      if (hovering && inBounds(x, y)) {
+        opts.onDrop?.(draggedEl)
+      }
+      if (hovering) {
+        hovering = false
+        opts.onDragLeave?.(draggedEl)
+      }
+    }
+
+    _dragMoveListeners.add(onMove)
+    _dragEndListeners.add(onEnd)
+    return {
+      destroy(): void {
+        _dragMoveListeners.delete(onMove)
+        _dragEndListeners.delete(onEnd)
       },
     }
   },
