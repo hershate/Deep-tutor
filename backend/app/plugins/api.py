@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 #         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
 # v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
 #         无需重启服务器即可在 /plugins 页热管理插件。
-API_VERSION = "1.18.0"
+API_VERSION = "1.19.0"
 
 
 class ToolsNamespace:
@@ -995,6 +995,155 @@ class DepsNamespace:
         return get_owned_plan
 
 
+class MemoryNamespace:
+    """记忆系统 CRUD 门面（v1.19.0，契约见 API.md「§记忆系统」）。
+
+    让后端插件对**会话（Thread）/消息（Message）/记忆库（Memory）**做完整增删查改——
+    运行于宿主进程内（无 HTTP 往返），所有操作按 ``user_id`` 归属校验（他人资源返 None/空，
+    不泄露存在性）。插件通常从路由 ``Depends(api.deps.get_current_user)`` 取 user_id。
+
+    Agent 对话 run 本身经 REST ``POST /api/threads/{id}/runs``（SSE）触发；插件若需启动 run
+    可挂自有路由转发，或用 ``api.tools.call`` 调用已注册的 agent 工具（workspace_*/memory_* 等）。
+    """
+
+    @staticmethod
+    def _db():
+        from app.db.base import SessionLocal
+
+        return SessionLocal()
+
+    def list_threads(self, user_id: int, *, limit: int = 50) -> list[dict]:
+        from app.db import models
+
+        db = self._db()
+        try:
+            rows = db.query(models.Thread).filter_by(user_id=user_id).order_by(models.Thread.updated_at.desc()).limit(limit).all()
+            return [{"id": t.id, "title": t.title, "kind": t.kind, "session_id": t.session_id} for t in rows]
+        finally:
+            db.close()
+
+    def create_thread(self, user_id: int, *, title: str = "", kind: str = "chat", session_id: int | None = None) -> dict:
+        from app.db import models
+
+        db = self._db()
+        try:
+            t = models.Thread(user_id=user_id, title=title, kind=kind, session_id=session_id)
+            db.add(t)
+            db.commit()
+            db.refresh(t)
+            return {"id": t.id, "title": t.title, "kind": t.kind}
+        finally:
+            db.close()
+
+    def get_thread(self, thread_id: int, user_id: int) -> dict | None:
+        from app.db import models
+
+        db = self._db()
+        try:
+            t = db.get(models.Thread, thread_id)
+            if t is None or t.user_id != user_id:
+                return None
+            return {"id": t.id, "title": t.title, "kind": t.kind, "session_id": t.session_id}
+        finally:
+            db.close()
+
+    def delete_thread(self, thread_id: int, user_id: int) -> bool:
+        from app.db import models
+
+        db = self._db()
+        try:
+            t = db.get(models.Thread, thread_id)
+            if t is None or t.user_id != user_id:
+                return False
+            db.delete(t)
+            db.commit()
+            return True
+        finally:
+            db.close()
+
+    def list_messages(self, thread_id: int, user_id: int, *, limit: int = 100) -> list[dict]:
+        from app.db import models
+
+        db = self._db()
+        try:
+            t = db.get(models.Thread, thread_id)
+            if t is None or t.user_id != user_id:
+                return []
+            rows = db.query(models.Message).filter_by(thread_id=thread_id).order_by(models.Message.id.desc()).limit(limit).all()
+            return [{"id": m.id, "role": m.role.value, "content": m.content, "run_id": m.run_id} for m in reversed(rows)]
+        finally:
+            db.close()
+
+    def add_message(self, thread_id: int, user_id: int, role: str, content) -> dict | None:
+        """追加一条消息（role: user/assistant/system；content 为 Anthropic block list 或纯文本）。"""
+        from app.db import models
+
+        db = self._db()
+        try:
+            t = db.get(models.Thread, thread_id)
+            if t is None or t.user_id != user_id:
+                return None
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            m = models.Message(thread_id=thread_id, role=models.MessageRole(role), content=content)
+            db.add(m)
+            db.commit()
+            db.refresh(m)
+            return {"id": m.id, "role": m.role.value}
+        finally:
+            db.close()
+
+    def save_memory(self, user_id: int, content: str, *, kind: str = "note", scope: str = "user", thread_id: int | None = None) -> dict:
+        from app.db import models
+
+        db = self._db()
+        try:
+            m = models.Memory(
+                user_id=user_id,
+                thread_id=thread_id if (scope == "thread" and thread_id) else None,
+                scope=scope,
+                kind=kind,
+                content=content,
+            )
+            db.add(m)
+            db.commit()
+            db.refresh(m)
+            return {"id": m.id, "scope": m.scope}
+        finally:
+            db.close()
+
+    def recall_memories(self, user_id: int, *, q: str = "", scope: str | None = None, thread_id: int | None = None, limit: int = 10) -> list[dict]:
+        from app.db import models
+
+        db = self._db()
+        try:
+            qry = db.query(models.Memory).filter(models.Memory.user_id == user_id)
+            if scope == "thread" and thread_id:
+                qry = qry.filter(models.Memory.thread_id == thread_id)
+            elif scope == "user":
+                qry = qry.filter(models.Memory.thread_id.is_(None))
+            if q:
+                qry = qry.filter(models.Memory.content.contains(q))
+            rows = qry.order_by(models.Memory.updated_at.desc()).limit(limit).all()
+            return [{"id": r.id, "kind": r.kind, "scope": r.scope, "content": r.content} for r in rows]
+        finally:
+            db.close()
+
+    def delete_memory(self, user_id: int, memory_id: int) -> bool:
+        from app.db import models
+
+        db = self._db()
+        try:
+            m = db.query(models.Memory).filter_by(id=memory_id, user_id=user_id).first()
+            if m is None:
+                return False
+            db.delete(m)
+            db.commit()
+            return True
+        finally:
+            db.close()
+
+
 class BackendPluginAPI:
     """register(api) 收到的门面对象（属性一览见 API.md §api 门面）。"""
 
@@ -1022,6 +1171,8 @@ class BackendPluginAPI:
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()
         self.deps = DepsNamespace()
+        self.memory = MemoryNamespace()  # v1.19.0 记忆系统 CRUD 门面（threads/messages/memories）
+        self.threads = self.memory  # 别名（语义等价）
 
     def _rollback(self) -> None:
         """逆序撤销 register 期间的全部注册（路由/事件/工具）；供 loader 在

@@ -372,3 +372,34 @@ AGENT_TOOLS = [
     search_messages_tool,
     promote_artifact_tool,
 ]
+
+
+# 工具入参 JSON schema（广告给模型的 tools[].input_schema）
+AGENT_TOOL_SCHEMAS: dict[str, dict] = {
+    "workspace_write": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
+    "workspace_read": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    "workspace_edit": {"type": "object", "properties": {"name": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "replace_all": {"type": "boolean"}}, "required": ["name", "old", "new"]},
+    "workspace_list": {"type": "object", "properties": {}},
+    "web_search": {"type": "object", "properties": {"query": {"type": "string"}, "count": {"type": "integer"}}, "required": ["query"]},
+    "web_fetch": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+    "memory_save": {"type": "object", "properties": {"content": {"type": "string"}, "kind": {"type": "string"}, "scope": {"type": "string", "enum": ["thread", "user"]}}, "required": ["content"]},
+    "memory_recall": {"type": "object", "properties": {"q": {"type": "string"}, "scope": {"type": "string", "enum": ["thread", "user"]}, "limit": {"type": "integer"}}},
+    "memory_delete": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]},
+    "load_thread_history": {"type": "object", "properties": {"limit": {"type": "integer"}}},
+    "search_messages": {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+    "promote_artifact": {"type": "object", "properties": {"name": {"type": "string"}, "target_kind": {"type": "string", "enum": ["plan", "material", "note"]}}, "required": ["name", "target_kind"]},
+}
+
+
+def agent_tool_definitions() -> list:
+    """构造广告给模型的 ToolDefinition 列表（本会话 Agent 可用工具）。"""
+    from app.llm.base import ToolDefinition
+
+    return [
+        ToolDefinition(
+            name=t.name,
+            description=t.description or "",
+            input_schema=AGENT_TOOL_SCHEMAS.get(t.name, {"type": "object"}),
+        )
+        for t in AGENT_TOOLS
+    ]
