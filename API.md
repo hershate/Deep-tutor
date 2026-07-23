@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.9.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.10.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.13.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -386,6 +386,44 @@ DT.overlay.register({
 > **边界与持久化**：`bounds:'viewport'`（缺省）把浮窗限制在视口内（不会被拖出屏幕）；
 > 传容器元素则限制在其范围内；`null` 不限制。`persistKey` 存 localStorage（隐私模式/配额不可用时
 > 静默降级为不持久化）。`handle` 指定拖拽手柄（如标题栏），被拖元素整体随之移动。
+
+### `ui.makeResizable(el, opts?): { destroy }`（v1.10.0）
+
+让一个 DOM 元素可缩放：在四边/四角加缩放手柄，pointer 拖拽改尺寸。返回 `{ destroy }`——卸载时
+移除手柄与监听。**配 `makeDraggable` 即做出可拖放 + 可缩放的浮窗/面板**（完整"可自由拖放的小组件"）。
+
+```ts
+interface ResizableOptions {
+  handles?: ('n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw')[]  // 缺省全部 8 个（四边+四角）
+  minSize?: { width: number; height: number }        // 缺省 {width:80, height:50}
+  persistKey?: string                                // localStorage 键——持久化尺寸，刷新后恢复
+}
+```
+
+- 元素须为定位元素（`static` 则自动设 `relative`）；建议先用 `makeDraggable`（设 `fixed`）再 `makeResizable`。
+- `n/w` 边收缩时对边固定（`e/s` 边所在边缘不动），`minSize` 钳制最小尺寸。`persistKey` 存 localStorage（隐私模式静默降级）。
+
+```js
+// 例：可拖放 + 可缩放的浮窗笔记（overlay + makeDraggable + makeResizable）
+DT.overlay.register({
+  id: 'acme.float-panel', layer: 'content', pointerEvents: 'auto',
+  component: function Panel() {
+    const { useEffect, useRef } = DT.React
+    const ref = useRef(null)
+    useEffect(() => {
+      if (!ref.current) return
+      const d = DT.ui.makeDraggable(ref.current, { persistKey: 'panel.pos' })
+      const r = DT.ui.makeResizable(ref.current, { persistKey: 'panel.size', minSize: { width: 200, height: 120 } })
+      return () => { d.destroy(); r.destroy() }
+    }, [])
+    return DT.React.createElement('div', {
+      ref: ref,
+      style: { width: 320, background: '#fff', border: '1px solid #cbd5e1',
+               borderRadius: 'var(--dt-card-radius)', padding: 12, boxShadow: '0 4px 12px rgba(0,0,0,.1)' },
+    }, '拖我、缩我 📝')
+  },
+})
+```
 
 ### `ui.toast` —— 通知反馈（v1.9.0）
 
@@ -1534,6 +1572,7 @@ for (;;) {
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.10.0 | 2026-07-23 | `ui` 命名空间加 `makeResizable`：在四边/四角加缩放手柄（8 方向），pointer 拖拽改尺寸 + minSize 钳制 + 可选 persistKey 尺寸持久化，返回 `{ destroy }`——配 `makeDraggable`（v1.8.0）即做出可拖放 + 可缩放的浮窗/面板（完整"可自由拖放的小组件"）；n/w 边收缩时对边固定 |
 | 前端 | 1.9.0 | 2026-07-23 | `ui` 命名空间加 `toast`（success/info/error）：复用宿主 Toast 系统（右下角、3s 自动消失、可选 action 按钮 TTL 延至 8s）——插件给用户瞬时反馈（"已保存"/"复制成功"/"出错"），无需自建通知 UI（此前只能 console.log 或从零搭组件） |
 | 前端 | 1.8.0 | 2026-07-23 | 新增 `ui` 命名空间（`makeDraggable`）：让任意 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 视口/容器边界 + 可选 localStorage 位置持久化 + 拖拽置顶），返回 `{ destroy }` 清理——配合 overlay `content` 层即做出"可自由拖放的小组件"（用户点名需求，此前须每个插件手写拖拽）；DRF 手柄/边界/初始位置/持久化键可配；隐私模式 localStorage 不可用静默降级 |
 | 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.7），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |

@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.9.0'
+export const API_VERSION = '1.10.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -363,6 +363,23 @@ export interface DraggableHandle {
   destroy(): void
 }
 
+/** 缩放方向（n/s/e/w + 四角）；默认全部 8 个手柄 */
+export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+export interface ResizableOptions {
+  /** 启用哪些手柄；缺省全部 8 个（四边 + 四角） */
+  handles?: ResizeHandle[]
+  /** 最小尺寸（px）；缺省 {width:80, height:50} */
+  minSize?: { width: number; height: number }
+  /** localStorage 键——持久化尺寸，刷新后恢复；缺省不持久化 */
+  persistKey?: string
+}
+
+export interface ResizableHandle {
+  /** 移除缩放手柄与监听（overlay unregister / 组件卸载时调用） */
+  destroy(): void
+}
+
 function _readPosLS(key: string): { x: number; y: number } | null {
   try {
     const raw = localStorage.getItem(key)
@@ -381,6 +398,29 @@ function _readPosLS(key: string): { x: number; y: number } | null {
 function _writePosLS(key: string, x: number, y: number): void {
   try {
     localStorage.setItem(key, JSON.stringify({ x, y }))
+  } catch {
+    /* 配额/隐私模式：静默 */
+  }
+}
+
+function _readSizeLS(key: string): { width: number; height: number } | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const o = JSON.parse(raw) as unknown
+    if (o && typeof o === 'object' && Number.isFinite((o as { width?: unknown }).width) && Number.isFinite((o as { height?: unknown }).height)) {
+      const o2 = o as { width: number; height: number }
+      return { width: o2.width, height: o2.height }
+    }
+  } catch {
+    /* 隐私模式 / 损坏 JSON：静默降级 */
+  }
+  return null
+}
+
+function _writeSizeLS(key: string, width: number, height: number): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ width, height }))
   } catch {
     /* 配额/隐私模式：静默 */
   }
@@ -482,6 +522,122 @@ const uiApi = {
         handle.removeEventListener('pointerdown', onDown)
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
+      },
+    }
+  },
+  /** 让一个 DOM 元素可缩放（v1.10.0）：在四边/四角加缩放手柄，pointer 拖拽改尺寸。
+   *  返回 { destroy }。配 makeDraggable 即做出可拖放 + 可缩放的浮窗/面板。 */
+  makeResizable(el: HTMLElement, opts: ResizableOptions = {}): ResizableHandle {
+    if (!el || !(el instanceof HTMLElement)) {
+      throw new Error('[DeepTutor] ui.makeResizable 需传入 HTMLElement')
+    }
+    const minSize = opts.minSize ?? { width: 80, height: 50 }
+    const handles: ResizeHandle[] = opts.handles ?? ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
+    if (getComputedStyle(el).position === 'static') el.style.position = 'relative' // 手柄 absolute 须定位上下文
+    el.style.boxSizing = 'border-box'
+
+    // 初始尺寸（persistKey 恢复 / 当前 offset）
+    const persisted = opts.persistKey ? _readSizeLS(opts.persistKey) : null
+    if (persisted) {
+      el.style.width = `${persisted.width}px`
+      el.style.height = `${persisted.height}px`
+    }
+
+    const created: HTMLElement[] = []
+    const cleanups: Array<() => void> = []
+
+    // 各手柄的位置/光标样式
+    const HANDLE_STYLE: Record<ResizeHandle, Partial<CSSStyleDeclaration>> = {
+      n: { top: '-4px', left: '0', right: '0', height: '8px', cursor: 'ns-resize' },
+      s: { bottom: '-4px', left: '0', right: '0', height: '8px', cursor: 'ns-resize' },
+      e: { right: '-4px', top: '0', bottom: '0', width: '8px', cursor: 'ew-resize' },
+      w: { left: '-4px', top: '0', bottom: '0', width: '8px', cursor: 'ew-resize' },
+      ne: { top: '-4px', right: '-4px', width: '12px', height: '12px', cursor: 'nesw-resize' },
+      nw: { top: '-4px', left: '-4px', width: '12px', height: '12px', cursor: 'nwse-resize' },
+      se: { bottom: '-4px', right: '-4px', width: '12px', height: '12px', cursor: 'nwse-resize' },
+      sw: { bottom: '-4px', left: '-4px', width: '12px', height: '12px', cursor: 'nesw-resize' },
+    }
+
+    for (const dir of handles) {
+      const h = document.createElement('div')
+      h.style.position = 'absolute'
+      h.style.zIndex = '10'
+      h.style.touchAction = 'none'
+      Object.assign(h.style, HANDLE_STYLE[dir])
+      el.appendChild(h)
+      created.push(h)
+
+      let startX = 0
+      let startY = 0
+      let startW = 0
+      let startH = 0
+      let startL = 0
+      let startT = 0
+
+      const onMove = (e: PointerEvent): void => {
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        let w = startW
+        let hgt = startH
+        let l = startL
+        let t = startT
+        if (dir.includes('e')) w = startW + dx
+        if (dir.includes('s')) hgt = startH + dy
+        if (dir.includes('w')) {
+          w = Math.max(minSize.width, startW - dx)
+          l = startL + (startW - w) // 左边收缩时右边缘固定
+        }
+        if (dir.includes('n')) {
+          hgt = Math.max(minSize.height, startH - dy)
+          t = startT + (startH - hgt) // 上边收缩时下边缘固定
+        }
+        w = Math.max(minSize.width, w)
+        hgt = Math.max(minSize.height, hgt)
+        el.style.width = `${w}px`
+        el.style.height = `${hgt}px`
+        el.style.left = `${l}px`
+        el.style.top = `${t}px`
+      }
+
+      const onUp = (): void => {
+        el.style.userSelect = ''
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        if (opts.persistKey) _writeSizeLS(opts.persistKey, el.offsetWidth, el.offsetHeight)
+      }
+
+      const onDown = (e: PointerEvent): void => {
+        if (e.button !== 0 && e.pointerType === 'mouse') return
+        e.preventDefault()
+        e.stopPropagation() // 不触发元素自身的拖拽（与 makeDraggable 同元素时）
+        startX = e.clientX
+        startY = e.clientY
+        startW = el.offsetWidth
+        startH = el.offsetHeight
+        startL = el.offsetLeft
+        startT = el.offsetTop
+        el.style.userSelect = 'none'
+        try {
+          h.setPointerCapture?.(e.pointerId)
+        } catch {
+          /* window 监听已兜底 */
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp, { once: true })
+      }
+
+      h.addEventListener('pointerdown', onDown)
+      cleanups.push(() => {
+        h.removeEventListener('pointerdown', onDown)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      })
+    }
+
+    return {
+      destroy(): void {
+        cleanups.forEach((fn) => fn())
+        created.forEach((h) => h.remove())
       },
     }
   },
