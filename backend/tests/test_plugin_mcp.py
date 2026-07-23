@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 
 import httpx
 import pytest
@@ -180,3 +181,135 @@ def test_facade_exposes_mcp():
     api = _facade()
     assert isinstance(api.mcp, McpNamespace)
     assert asyncio.iscoroutinefunction(api.mcp.connect)
+
+
+# --- MCP stdio 传输（iter 323）---
+# 起 spec-faithful stdio MCP server 桩（写 tmp .py 子进程）：initialize/notifications/initialized/
+# tools-list/tools-call，经 env 变量控制某方法返 error。
+
+_MOCK_STDIO_SERVER = '''
+import sys, json, os
+NL = chr(10)
+ERROR_ON = os.environ.get("DT_MCP_ERROR_ON", "")
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    method = msg.get("method"); mid = msg.get("id")
+    if method == "notifications/initialized":
+        continue
+    if ERROR_ON and method == ERROR_ON:
+        resp = {"jsonrpc":"2.0","id":mid,"error":{"code":-32603,"message":"server error"}}
+    elif method == "initialize":
+        resp = {"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"stdio-mock","version":"1"},"capabilities":{}}}
+    elif method == "tools/list":
+        resp = {"jsonrpc":"2.0","id":mid,"result":{"tools":[{"name":"echo","description":"回显","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}
+    elif method == "tools/call":
+        args = msg.get("params",{}).get("arguments",{})
+        resp = {"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":"echo: "+args.get("text","")}],"isError":False}}
+    else:
+        resp = {"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":"not found"}}
+    sys.stdout.write(json.dumps(resp)+NL); sys.stdout.flush()
+'''
+
+
+def _write_mock_server(tmp_path) -> str:
+    p = tmp_path / "mock_mcp_stdio.py"
+    p.write_text(_MOCK_STDIO_SERVER, encoding="utf-8")
+    return str(p)
+
+
+async def _stdio_client(tmp_path, *, env=None):
+    from app.plugins.mcp import McpStdioClient
+
+    server = _write_mock_server(tmp_path)
+    c = McpStdioClient([sys.executable, server], env=env)
+    await c.initialize()
+    return c
+
+
+def test_stdio_initialize_server_info(tmp_path):
+    async def main():
+        c = await _stdio_client(tmp_path)
+        try:
+            assert c.server_info["name"] == "stdio-mock"
+        finally:
+            await c.close()
+
+    asyncio.run(main())
+
+
+def test_stdio_list_tools(tmp_path):
+    async def main():
+        c = await _stdio_client(tmp_path)
+        try:
+            tools = await c.list_tools()
+            assert tools[0]["name"] == "echo"
+        finally:
+            await c.close()
+
+    asyncio.run(main())
+
+
+def test_stdio_call_tool(tmp_path):
+    async def main():
+        c = await _stdio_client(tmp_path)
+        try:
+            res = await c.call_tool("echo", {"text": "hi"})
+            assert res["content"][0]["text"] == "echo: hi"
+        finally:
+            await c.close()
+
+    asyncio.run(main())
+
+
+def test_stdio_error_raises(tmp_path):
+    """server 对 tools/list 返 JSON-RPC error -> list_tools 抛 RuntimeError。"""
+
+    async def main():
+        c = await _stdio_client(tmp_path, env={"DT_MCP_ERROR_ON": "tools/list"})
+        try:
+            with pytest.raises(RuntimeError, match="失败"):
+                await c.list_tools()
+        finally:
+            await c.close()
+
+    asyncio.run(main())
+
+
+def test_stdio_close_terminates_process(tmp_path):
+    async def main():
+        c = await _stdio_client(tmp_path)
+        await c.close()
+        assert c._proc is None  # noqa: SLF001  close 后清理引用
+
+    asyncio.run(main())
+
+
+def test_connect_stdio_validation():
+    api = _facade()
+    with pytest.raises(ValueError, match="command"):
+        asyncio.run(api.mcp.connect_stdio([]))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="command"):
+        asyncio.run(api.mcp.connect_stdio([123]))  # type: ignore[list-item]
+
+
+def test_connect_stdio_end_to_end(tmp_path):
+    """connect_stdio 端到端：spawn mock server + 握手 + list_tools（真实子进程）。"""
+
+    async def main():
+        server = _write_mock_server(tmp_path)
+        api = _facade()
+        client = await api.mcp.connect_stdio([sys.executable, server])
+        try:
+            tools = await client.list_tools()
+            assert tools[0]["name"] == "echo"
+        finally:
+            await client.close()
+
+    asyncio.run(main())
+

@@ -37,7 +37,9 @@ if TYPE_CHECKING:
 #         （此前只能路由触发/事件触发，无周期任务能力）。fn async/sync，错误隔离，reset 统一取消。
 # v1.11.0：新增 api.storage 持久化 KV（每插件私有 JSON，原子写 tmp+rename，JSON 序列化校验）——
 #         数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险）。
-API_VERSION = "1.11.0"
+# v1.12.0：api.mcp 加 connect_stdio——MCP stdio 传输（spawn 子进程 server，stdin/stdout JSON-RPC）。
+#         stdio 是 MCP server 常见部署，补齐 iter 319 HTTP-only 的实用闭环。
+API_VERSION = "1.12.0"
 
 
 class ToolsNamespace:
@@ -513,6 +515,32 @@ class McpNamespace:
 
         client = McpHttpClient(url, headers=headers, timeout=timeout)
         await client.initialize()  # 握手失败抛 RuntimeError（插件处理）
+        return client
+
+    async def connect_stdio(
+        self,
+        command: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        read_timeout: float = 30.0,
+    ) -> Any:
+        """连接 MCP server（**stdio 传输**，v1.12.0）：spawn 子进程 + initialize 握手，返回就绪客户端。
+
+        stdio 是 MCP server 的常见部署（Claude Code 启动本地子进程 server）。与 connect()（HTTP）同接口
+        （list_tools / call_tool / close）。
+
+        - command：启动 server 的 argv（如 ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"]），
+          须非空字符串列表；可信配置（同插件代码信任——宿主执行之）。
+        - env：子进程环境变量（可选；默认继承宿主环境）。
+        - read_timeout：每次读响应超时秒（防 server 挂起）。
+        返回 McpStdioClient。握手失败 -> RuntimeError；用完须 close()（terminate 子进程）。
+        """
+        if not isinstance(command, (list, tuple)) or not command or not all(isinstance(c, str) for c in command):
+            raise ValueError("command 必须是非空字符串列表（argv）")
+        from app.plugins.mcp import McpStdioClient
+
+        client = McpStdioClient(list(command), env=env, read_timeout=read_timeout)
+        await client.initialize()  # spawn + 握手；失败抛 RuntimeError（插件处理）
         return client
 
 

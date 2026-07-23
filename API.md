@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.9.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.11.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.12.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -617,7 +617,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.11.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.12.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -699,7 +699,7 @@ PLUGIN_META = {
 | `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
 | `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c）；v1.6.0 起 `complete(provider_kind=)` 可分发到插件注册的新协议 Provider |
 | `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
-| `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0）：连接外部 MCP server（Streamable HTTP），`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
+| `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0 HTTP / v1.12.0 stdio）：`connect`(HTTP)/`connect_stdio`(子进程) 连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
 | `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
 | `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
 
@@ -1199,16 +1199,32 @@ await client.close()         # 用完关闭（释放连接）
 `text/event-stream`（SSE，`data:` 行携带 JSON-RPC）——客户端两种都能解析。`initialize` 握手捕获
 `Mcp-Session-Id` 头并在后续请求回传；握后发 `notifications/initialized` 通知。
 
-**错误**：JSON-RPC `error` 响应 / 握手失败 -> `RuntimeError`；HTTP 非 2xx -> `httpx.HTTPStatusError`；
-超时 -> `httpx.TimeoutException`。插件在路由内 try/except 处理（错误隔离在调用内，不影响宿主）。
+**stdio 传输**（v1.12.0，`connect_stdio`）：连接**本地子进程 MCP server**（stdio 是 MCP 最常见部署，
+如 `npx -y @modelcontextprotocol/server-filesystem /data`）。与 `connect`（HTTP）同接口：
+
+```python
+client = await api.mcp.connect_stdio(
+    command: list[str],          # 启动 server 的 argv（如 ["npx","-y","@modelcontextprotocol/server-filesystem","/data"]）
+    *,
+    env: dict | None = None,     # 子进程环境变量（可选；缺省继承宿主）
+    read_timeout: float = 30.0,  # 读响应超时秒（防 server 挂起）
+) -> McpStdioClient              # spawn + initialize 握手就绪（同 list_tools/call_tool/close 接口）
+```
+
+spawn 子进程，经 **stdin/stdout line-delimited JSON-RPC**（initialize / tools/list / tools/call）；
+跳过 server 通知只取匹配 id 响应。用完须 `close()`（terminate 子进程）。
+
+**错误**：JSON-RPC `error` 响应 / 握手失败 / server 关闭 stdout -> `RuntimeError`；HTTP 非 2xx ->
+`httpx.HTTPStatusError`；超时 -> `httpx.TimeoutException`。插件在路由内 try/except 处理（错误隔离在调用内，不影响宿主）。
 
 > **安全/稳定**：① 客户端仅插件显式调用（**不在任何热路径**）——server 慢/挂时调用失败抛清晰错误，
-> 宿主稳定不受影响；② 出站到可信 URL（admin/插件配置，同供应商 `base_url` 信任模型——MCP server 可在
-> localhost）；③ httpx 显式超时；④ 工具结果为数据（非代码），同任意工具输出信任级。
+> 宿主稳定不受影响；② HTTP 出站到可信 URL / stdio 执行可信 argv（admin/插件配置，同供应商 `base_url`
+> 与插件代码信任模型——MCP server 可在 localhost / 本地子进程）；③ httpx 显式超时 / stdio 读超时；
+> ④ 工具结果为数据（非代码），同任意工具输出信任级；⑤ stdio `close()` terminate 子进程（防僵尸）。
 >
-> **范围（v1）**：Streamable HTTP 传输。**stdio 传输**（本地子进程 MCP server，最常见部署）+ **真实 MCP server
-> 互操作验证**为后续轮（须子进程生命周期管理 + 对参考 server 的集成测试）。本轮按 spec 实现、对 spec-faithful
-> mock server 测试（JSON+SSE 双模式、session 回传、错误）。
+> **范围**：Streamable HTTP（v1.9.0）+ stdio（v1.12.0）两种传输。**真实第三方 MCP server 互操作验证**
+> 为后续轮（须对参考 server 集成测试）。本轮按 spec 实现、对 spec-faithful mock server 测试
+> （HTTP JSON+SSE / stdio 子进程，含 initialize/list/call/error/close）。
 
 **完整示例**：把一个 MCP server 的 `echo` 工具暴露成插件路由
 
@@ -1355,7 +1371,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.11.0",
+  "api_version": "1.12.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1506,6 +1522,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.12.0 | 2026-07-23 | `api.mcp` 加 `connect_stdio`（MCP stdio 传输）：spawn 本地子进程 MCP server，经 stdin/stdout line-delimited JSON-RPC（initialize/tools-list/tools-call，skip 通知取匹配 id 响应，读超时，close terminate 子进程防僵尸）——stdio 是 MCP server 最常见部署（如 npx 启动的 server），补齐 v1.9.0 HTTP-only 的实用闭环；与 `connect`(HTTP) 同接口；对 spec-faithful stdio mock server 测试（6 项，真实子进程） |
 | 后端 | 1.11.0 | 2026-07-23 | 新增 `api.storage` 持久化 KV 存储（每插件私有 JSON，`get/set/delete/has/keys/clear`）：原子写（tmp+os.replace）防并发请求损坏、JSON 序列化校验、损坏文件静默重置容错、按插件 data_dir 命名空间隔离、懒加载——数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险） |
 | 后端 | 1.10.0 | 2026-07-23 | 新增 `api.scheduler` 后台任务调度（`every` 周期 / `once` 延迟）：插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力——register 须快速幂当不能起长任务）；fn async/sync，异常隔离（记日志不杀循环），`TaskHandle.cancel()` 单独取消，`reset_plugins` 卸载统一取消；任务不持久化（重启即失，插件重新注册）；须在运行事件循环内调用（register 期间/async 路由内） |
 | 后端 | 1.9.0 | 2026-07-23 | 新增 `api.mcp` MCP 客户端（`connect`→`McpHttpClient`，Streamable HTTP 传输）：连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）；按 spec 实现 JSON-RPC over POST（JSON + SSE 双响应解析、`Mcp-Session-Id` 回传、initialize 握手 + notifications/initialized）；仅插件显式调用（非热路径，server 故障错误隔离在调用内）；出站可信 URL（同供应商 base_url 信任）；对 spec-faithful mock server 测试（10 项）。范围 v1=Streamable HTTP；stdio（子进程）+ 真实 server 互操作验证为后续轮 |
