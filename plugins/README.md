@@ -41,6 +41,7 @@ def register(api):
 | [study_stats.py](study_stats.py) | 跨方案学习活动统计仪表盘（今日/本周/连续天数） | `events` + `storage` + `scheduler` + `routes` |
 | [epub_reader.py](epub_reader.py) | 解析 .epub 电子书为文本（上传自动注入学习方案） | `parsers` + `tools` + `routes` |
 | [ai_tutor.py](ai_tutor.py) | AI 解释难点 + tools.call 文本分块组合 | `llm` + `tools`(call) + `routes` |
+| [security_guard.py](security_guard.py) | 全站安全响应头 + 请求统计中间件 | `middleware` + `events` + `storage` + `routes` |
 
 停用任一：文件名加 `_` 前缀重启（如 `_study_stats.py`）。
 
