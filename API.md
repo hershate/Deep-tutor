@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.12.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.13.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.15.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -81,6 +81,8 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 | `home.dashboard` | 首页标题区下方、表单卡上方 | 响应式宫格（2 列，宽屏 4 列） | 学习概览小组件；内置 4 个（连续打卡/本周已学/今日待复习/今日费用），无数据自行隐藏 |
 | `sidebar.footer` | 桌面端侧栏导航下方、收起按钮上方 | 纵向堆叠 | 仅在侧栏展开态渲染（折叠为图标态时不渲染） |
 | `plan.detail`（v1.3.0） | 方案详情页头部操作区下方、学习意图卡上方 | 响应式宫格（2 列，宽屏 4 列） | 方案级插件面板；组件内可经 React Router `useParams()` 取 `planId` 做方案级数据展示/操作 |
+| `plans.toolbar`（v1.13.0） | 方案列表页标题/批量操作区下方、列表上方 | 响应式宫格（2 列，宽屏 4 列） | 方案列表级插件面板（自定义筛选 / 批量操作 / 方案统计） |
+| `review.dashboard`（v1.13.0） | 复习页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 复习级插件面板（复习统计 / 自定义复习模式 / 间隔重复提醒） |
 
 > 插槽只增不改：新版本可能追加插槽，已有插槽名不会改名或删除。
 
@@ -1643,6 +1645,7 @@ for (;;) {
 | 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
 | 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.13.0 | 2026-07-23 | 新增 2 个 widget 插槽：`plans.toolbar`（方案列表页，批量操作区下方宫格——自定义筛选/批量操作/方案统计）+ `review.dashboard`（复习页标题区上方宫格——复习统计/自定义复习模式/间隔重复提醒）；此前仅 3 个插槽（home.dashboard/sidebar.footer/plan.detail），本轮扩展至 5 个，插件在更多 host 页面注入面板 |
 | 前端 | 1.12.0 | 2026-07-23 | `ui` 命名空间加 `makeSortable`：让列表子项可拖拽重排（结构化排序，HTML5 DnD + 中点判定插入位置 + onChange 回调 + destroy）——任务列表 / 播放列表 / 看板列重排；区别于 makeDraggable（自由定位）与 makeDroppable（拖入目标），是第三种 DnD 模式（列表内重排） |
 | 前端 | 1.11.0 | 2026-07-23 | `ui` 命名空间加 `makeDroppable`：让元素成为拖放目标——检测 `makeDraggable` 拖拽的元素被拖入（onDragEnter 高亮）/ 放下（onDrop 回调）；配 `makeDraggable` 即做出完整拖放交互（看板拖拽 / 拖入分类 / 分配面板）；accept 过滤 + onDragEnter/Leave 视觉反馈；通过模块级 drag pub-sub 协调（makeDraggable 广播 move/end 位置，makeDroppable 据此判定悬停/放下——pointer-capture 下其他元素收不到 pointer 事件的解决） |
 | 前端 | 1.10.0 | 2026-07-23 | `ui` 命名空间加 `makeResizable`：在四边/四角加缩放手柄（8 方向），pointer 拖拽改尺寸 + minSize 钳制 + 可选 persistKey 尺寸持久化，返回 `{ destroy }`——配 `makeDraggable`（v1.8.0）即做出可拖放 + 可缩放的浮窗/面板（完整"可自由拖放的小组件"）；n/w 边收缩时对边固定 |

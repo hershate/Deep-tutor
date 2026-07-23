@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import EmptyState from '../components/EmptyState'
+import WidgetSlot from '../components/WidgetSlot'
 import { SkeletonCards } from '../components/Skeleton'
 import { PHASE_META, TOOL_LABELS } from '../components/TaskCenter'
 import { toast } from '../components/Toast'
@@ -333,6 +334,8 @@ export default function Plans() {
           {error}
         </div>
       )}
+      {/* iter 330：插件插槽——方案列表页工具栏区（批量操作 / 自定义筛选 / 方案统计等插件面板） */}
+      <WidgetSlot slot="plans.toolbar" layout="grid" />
       {/* iter 189 F4：进行中的会话占位区（running/待澄清/失败/中断/草稿；分区渲染防跳动） */}
       {placeholders.length > 0 && (
         <section aria-label="进行中的会话" className="space-y-2">

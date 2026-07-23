@@ -15,14 +15,14 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.12.0'
+export const API_VERSION = '1.13.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
 // ---------------------------------------------------------------------------
 
 /** 命名插槽：页面中允许挂接小组件的位置（新增插槽只在 minor 版本追加，不改名/删除） */
-export const WIDGET_SLOTS = ['home.dashboard', 'sidebar.footer', 'plan.detail'] as const
+export const WIDGET_SLOTS = ['home.dashboard', 'sidebar.footer', 'plan.detail', 'plans.toolbar', 'review.dashboard'] as const
 export type WidgetSlot = (typeof WIDGET_SLOTS)[number]
 
 export interface WidgetDef {
