@@ -14,7 +14,19 @@ import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
-from app.llm.base import LLMProvider, LLMResponse, LLMUsage, StreamChunk, TransientLLMError
+from app.llm.base import (
+    AgenticResponse,
+    AgenticStreamChunk,
+    LLMProvider,
+    LLMResponse,
+    LLMUsage,
+    StreamChunk,
+    TextBlock,
+    ThinkingBlock,
+    ToolDefinition,
+    ToolUseBlock,
+    TransientLLMError,
+)
 from app.llm.pricing import estimate_cost
 
 # iter 243：AsyncAnthropic 进程内复用——此前每次 get_provider()（每次生成/测评/
@@ -162,3 +174,174 @@ class AnthropicProvider(LLMProvider):
             cache_creation_input_tokens=cache_creation,
             model=used_model,
         ))
+
+    # ------------------------------------------------------------------
+    # 原生 tool_use 多轮（iter 345 记忆系统 / Agent 循环）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _tool_def(t: ToolDefinition) -> dict:
+        return {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+
+    @staticmethod
+    def _thinking_budget(max_tokens: int) -> int:
+        """thinking budget_tokens 须 < max_tokens；至少 1024，上限 8000。"""
+        return max(1024, min(8000, max_tokens - 1024))
+
+    def _agentic_kwargs(
+        self,
+        messages: list[dict],
+        *,
+        system: str,
+        tools: list[ToolDefinition] | None,
+        model: str | None,
+        max_tokens: int,
+        cache_system: bool,
+        tool_choice: dict | None,
+        thinking: bool,
+    ) -> tuple[str, dict]:
+        used_model = model or self._model
+        system_param = self._build_system(system, cache_system)
+        kwargs: dict = {"model": used_model, "max_tokens": max_tokens, "messages": messages}
+        if system_param is not None:
+            kwargs["system"] = system_param
+        if tools:
+            kwargs["tools"] = [self._tool_def(t) for t in tools]
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
+        if thinking:
+            # thinking 须 max_tokens >= 2048（budget 至少 1024 且 < max_tokens）
+            if max_tokens < 2048:
+                kwargs["max_tokens"] = 2048
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": self._thinking_budget(kwargs["max_tokens"])}
+        return used_model, kwargs
+
+    @staticmethod
+    def _to_agentic_response(resp: Message, model: str) -> AgenticResponse:
+        """把含 text/thinking/tool_use 块的响应映射为 AgenticResponse（保交织顺序）。
+
+        与单轮 _to_response 分离——后者拼接纯文本（工具调用在 Agent 循环另处理）。
+        """
+        blocks: list = []
+        for block in resp.content:
+            bt = getattr(block, "type", None)
+            if bt == "text":
+                blocks.append(TextBlock(text=block.text))
+            elif bt == "tool_use":
+                raw_input = block.input
+                blocks.append(
+                    ToolUseBlock(
+                        id=block.id,
+                        name=block.name,
+                        input=dict(raw_input) if isinstance(raw_input, dict) else raw_input,
+                    )
+                )
+            elif bt == "thinking":
+                blocks.append(ThinkingBlock(text=getattr(block, "thinking", "") or ""))
+        u = resp.usage
+        usage = LLMUsage(
+            input_tokens=u.input_tokens,
+            output_tokens=u.output_tokens,
+            cache_read_input_tokens=u.cache_read_input_tokens or 0,
+            cache_creation_input_tokens=u.cache_creation_input_tokens or 0,
+            model=model,
+        )
+        return AgenticResponse(content=blocks, usage=usage, stop_reason=resp.stop_reason)
+
+    async def chat_agentic(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "",
+        tools: list[ToolDefinition] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+        tool_choice: dict | None = None,
+        thinking: bool = False,
+    ) -> AgenticResponse:
+        used_model, kwargs = self._agentic_kwargs(
+            messages,
+            system=system,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            cache_system=cache_system,
+            tool_choice=tool_choice,
+            thinking=thinking,
+        )
+        try:
+            resp: Message = await self._client.messages.create(**kwargs)
+        except anthropic.APIError as exc:
+            raise _map_transient(exc) from exc
+        return self._to_agentic_response(resp, used_model)
+
+    async def stream_agentic(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "",
+        tools: list[ToolDefinition] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+        tool_choice: dict | None = None,
+        thinking: bool = False,
+    ):
+        """原生 tool_use 流式：text_delta / thinking_delta / tool_use_start /
+        input_json_delta 逐块 yield，message_start/message_delta 摄取 usage + stop_reason，
+        末尾 yield 完整 usage 供计量。"""
+        used_model, kwargs = self._agentic_kwargs(
+            messages,
+            system=system,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            cache_system=cache_system,
+            tool_choice=tool_choice,
+            thinking=thinking,
+        )
+        input_tokens = output_tokens = cache_read = cache_creation = 0
+        stop_reason: str | None = None
+        index_to_id: dict[int, str] = {}  # content_block index -> tool_use_id（input_json_delta 归属）
+        try:
+            event_stream = await self._client.messages.create(stream=True, **kwargs)
+            async for event in event_stream:
+                et = event.type
+                if et == "message_start":
+                    u = event.message.usage
+                    input_tokens = u.input_tokens
+                    cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+                    cache_creation = getattr(u, "cache_creation_input_tokens", 0) or 0
+                elif et == "content_block_start":
+                    cb = event.content_block
+                    if getattr(cb, "type", None) == "tool_use":
+                        idx = getattr(event, "index", None)
+                        if idx is not None:
+                            index_to_id[idx] = cb.id
+                        yield AgenticStreamChunk(tool_use_start=(cb.id, cb.name))
+                elif et == "content_block_delta":
+                    dt = getattr(event.delta, "type", None)
+                    if dt == "text_delta":
+                        yield AgenticStreamChunk(text=event.delta.text)
+                    elif dt == "input_json_delta":
+                        idx = getattr(event, "index", None)
+                        tid = index_to_id.get(idx, str(idx))
+                        yield AgenticStreamChunk(tool_use_delta=(tid, event.delta.partial_json))
+                    elif dt == "thinking_delta":
+                        yield AgenticStreamChunk(thinking=getattr(event.delta, "thinking", "") or "")
+                elif et == "message_delta":
+                    u = event.usage
+                    output_tokens = getattr(u, "output_tokens", 0) or 0
+                    stop_reason = getattr(event.delta, "stop_reason", None) or stop_reason
+        except anthropic.APIError as exc:
+            raise _map_transient(exc) from exc
+        yield AgenticStreamChunk(
+            usage=LLMUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_input_tokens=cache_read,
+                cache_creation_input_tokens=cache_creation,
+                model=used_model,
+            ),
+            stop_reason=stop_reason,
+        )

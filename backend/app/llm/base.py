@@ -47,6 +47,61 @@ class StreamChunk:
     usage: LLMUsage | None = None
 
 
+# ---------------------------------------------------------------------------
+# 记忆系统（iter 345）：原生 tool_use 多轮 Agent 能力（chat_agentic / stream_agentic）
+# 与单轮 chat/stream 并存（additive，既有调用零影响）。
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolDefinition:
+    """Agent 可调用工具定义（直传 Anthropic tools[].input_schema）。"""
+
+    name: str
+    description: str
+    input_schema: dict  # JSON schema dict
+
+
+@dataclass
+class TextBlock:
+    text: str
+
+
+@dataclass
+class ToolUseBlock:
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass
+class ThinkingBlock:
+    text: str
+
+
+@dataclass
+class AgenticResponse:
+    """chat_agentic 返回：content 为有序块列表（保 text/thinking/tool_use 交织），
+    stop_reason=="tool_use" 表示需执行工具并回灌 tool_result 后续循环。"""
+
+    content: list  # list[TextBlock | ToolUseBlock | ThinkingBlock]
+    usage: LLMUsage
+    stop_reason: str | None = None
+
+
+@dataclass
+class AgenticStreamChunk:
+    """stream_agentic 流式分片：文本增量 / 思考增量 / 工具调用开始 / 工具入参增量 /
+    最终用量+stop_reason（流的末尾发一次，usage 非空）。"""
+
+    text: str = ""
+    thinking: str = ""
+    tool_use_start: tuple[str, str] | None = None  # (tool_use_id, name)
+    tool_use_delta: tuple[str, str] | None = None  # (tool_use_id, partial_input_json)
+    usage: LLMUsage | None = None
+    stop_reason: str | None = None
+
+
 class LLMProvider:
     """LLM Provider 抽象基类。"""
 
@@ -74,6 +129,39 @@ class LLMProvider:
         （子类如 AnthropicProvider 覆写为真流式——逐 token yield + 末尾 usage）。"""
         resp = await self.chat(system, user, model=model, max_tokens=max_tokens, cache_system=cache_system)
         yield StreamChunk(text=resp.content, usage=resp.usage)
+
+    # --- 原生 tool_use 多轮（iter 345 记忆系统）-----------------------------
+    # messages：原生 Anthropic 消息形态 list[dict]（caller 须把 tool_result 按原样回灌）。
+    # 默认 NotImplementedError——仅 AnthropicProvider 实现；PluginProvider 暂不支持
+    # （agent loop 检测并在 plugin provider 上拒绝启动 agentic run）。
+    async def chat_agentic(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "",
+        tools: list[ToolDefinition] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+        tool_choice: dict | None = None,
+        thinking: bool = False,
+    ) -> AgenticResponse:
+        raise NotImplementedError
+
+    async def stream_agentic(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "",
+        tools: list[ToolDefinition] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+        tool_choice: dict | None = None,
+        thinking: bool = False,
+    ) -> AsyncIterator[AgenticStreamChunk]:
+        raise NotImplementedError
+        yield  # 令本方法成为异步生成器（iterating 时抛 NotImplementedError；子类覆写真实现）
 
     def estimate_cost(self, usage: LLMUsage) -> float:
         """按模型计价估算费用（USD）。子类按模型价目表覆盖。"""

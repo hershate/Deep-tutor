@@ -21,7 +21,8 @@
 - **🎯 活动 /goal 进度（iter 345+，记忆系统）**：为项目 AI 对话加完整记忆 + Claude Code 式 Read/Write/Edit 工作区 + web_search/fetch + DeepSeek 式实时 UI + 全 CRUD API（插件可用）。
   - **三项已确认决策**：① 重构 plan-gen 到 Agent/记忆系统之上（统一 Thread/Run 模型，但延后到最后、默认关闭 side-channel）；② 仅按需加载历史（不做 FTS5/向量自动召回）；③ 全能 + 草稿提升。
   - **A 基础（✅ 完成）**：6 新表 threads/messages/runs/run_steps/run_artifacts/memories + `tool_calls.run_id` + 迁移 `e1b7c3d94a08`（链 c0f2a4b18d33）+ `_REVISION_PROBES` 扩展 + RunStatus/RunKind/MessageRole 枚举。全量 **1109 测试零回归**。
-  - **B–J 待办**：B LLM agentic(chat_agentic/stream_agentic) → C SSE helper 抽取 → D agent_loop → E 工作区 → F agent 工具(web_search/fetch/记忆·历史/工作区文件/promote) → G REST+插件门面(1.19.0) → H /chat 前端 → I plan-gen 重构(默认关闭) → J 测试+文档。
+  - **B LLM agentic（✅ 完成）**：[base.py](backend/app/llm/base.py) 加 dataclass（ToolDefinition/TextBlock/ToolUseBlock/ThinkingBlock/AgenticResponse/AgenticStreamChunk）+ `chat_agentic`/`stream_agentic` 抽象方法；[anthropic_provider.py](backend/app/llm/anthropic_provider.py) 原生 tool_use 实现（`_to_agentic_response` 不动 `_to_response`、流式 text/thinking/tool_use_start/input_json_delta 事件机、thinking budget 守护）；PluginProvider 继承基类不覆写（phase 1 拒绝 agentic run）。4 新测试（mock Anthropic，不联网）全过。
+  - **C–J 待办**：C SSE helper 抽取 → D agent_loop → E 工作区 → F agent 工具(web_search/fetch/记忆·历史/工作区文件/promote) → G REST+插件门面(1.19.0) → H /chat 前端 → I plan-gen 重构(默认关闭) → J 测试+文档。
 - **① 功能扩展阶段**（iter 305-334，旧 /loop 已停）——已落地全部规划扩展点：
   - 前端 `DeepTutor`：pages（`/p/` 整页）、router（SPA 导航）、overlay（background/content/top 三层）、ui（makeDraggable / makeResizable / makeDroppable / makeSortable / toast）、9 个 widget 插槽。
   - 后端 `api`：parsers、exporters、llm（complete + stream）、providers（新协议）、mcp（HTTP + stdio）、scheduler、storage、webhooks、middleware、`tools.call / list`（组合核心工具）、SSE events 桥（`GET /api/events/stream`，按归属用户过滤）。
