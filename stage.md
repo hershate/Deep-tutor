@@ -15,9 +15,13 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
-**当前下一步**（插件 API 扩展循环已两阶段收官，等待用户新指令；**当前无活动 /loop**）：
+**当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
+- **🎯 活动 /goal 进度（iter 345+，记忆系统）**：为项目 AI 对话加完整记忆 + Claude Code 式 Read/Write/Edit 工作区 + web_search/fetch + DeepSeek 式实时 UI + 全 CRUD API（插件可用）。
+  - **三项已确认决策**：① 重构 plan-gen 到 Agent/记忆系统之上（统一 Thread/Run 模型，但延后到最后、默认关闭 side-channel）；② 仅按需加载历史（不做 FTS5/向量自动召回）；③ 全能 + 草稿提升。
+  - **A 基础（✅ 完成）**：6 新表 threads/messages/runs/run_steps/run_artifacts/memories + `tool_calls.run_id` + 迁移 `e1b7c3d94a08`（链 c0f2a4b18d33）+ `_REVISION_PROBES` 扩展 + RunStatus/RunKind/MessageRole 枚举。全量 **1109 测试零回归**。
+  - **B–J 待办**：B LLM agentic(chat_agentic/stream_agentic) → C SSE helper 抽取 → D agent_loop → E 工作区 → F agent 工具(web_search/fetch/记忆·历史/工作区文件/promote) → G REST+插件门面(1.19.0) → H /chat 前端 → I plan-gen 重构(默认关闭) → J 测试+文档。
 - **① 功能扩展阶段**（iter 305-334，旧 /loop 已停）——已落地全部规划扩展点：
   - 前端 `DeepTutor`：pages（`/p/` 整页）、router（SPA 导航）、overlay（background/content/top 三层）、ui（makeDraggable / makeResizable / makeDroppable / makeSortable / toast）、9 个 widget 插槽。
   - 后端 `api`：parsers、exporters、llm（complete + stream）、providers（新协议）、mcp（HTTP + stdio）、scheduler、storage、webhooks、middleware、`tools.call / list`（组合核心工具）、SSE events 桥（`GET /api/events/stream`，按归属用户过滤）。
@@ -245,6 +249,13 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 345（记忆系统·Phase A 基础：数据模型 + 迁移，全量 1109 测试零回归）**：用户 /goal「给项目 AI 对话加完整记忆功能 + Claude Code 式 Read/Write/Edit 工作区 + web_search/fetch + DeepSeek 式实时 UI + 全面 CRUD API」。
+  - **调研**：联网 8 项（MemGPT 分层记忆 / LangChain 记忆类型 / Claude Code Read/Write/Edit / DeepSeek 思考+工具交织流式 / scratchpad 原子写+崩溃恢复 / Anthropic agent 循环 / OpenAI Assistants Thread-Message-Run-RunStep 持久化模型 / web_search-fetch grounding）；2 个子代理（盘点现有 AI/Agent/LLM/DB/SSE 代码 + Plan 校验）。
+  - **关键修正（已并入方案）**：SSRF 防护在 `tools/verify_url.py._is_safe_url`（非 security.py）；`_SessionStream` 不可整体外提只抽叶子 helper；plan-gen 重构延后到最后默认关闭 side-channel；sessions/threads 分开不合并；成本按轮 `record_metadata_usage` 防黑洞；工作区需 `workspace_committed` 标志 + `cleanup_orphan_run_dirs`。
+  - **A 基础落地**：[models.py](backend/app/db/models.py) 加 3 枚举（MessageRole/RunKind/RunStatus）+ 6 表（threads/messages/runs/run_steps/run_artifacts/memories，仿 OpenAI Assistants，additive 不动旧表）+ `tool_calls.run_id` 逻辑列；[alembic 版本 e1b7c3d94a08](backend/alembic/versions/e1b7c3d94a08_memory_system.py)（链 c0f2a4b18d33，含 upgrade+downgrade）；[migrate.py](backend/app/db/migrate.py) `_REVISION_PROBES` 置顶加 `("e1b7c3d94a08", _has_table("threads"))`。
+  - **设计要点**：messages 归 thread 管（删 run 不删消息）；run_artifacts 归 thread 管 + run_id ondelete SET NULL（已 commit 产物脱离 run 生命周期）；RunStatus 含 awaiting_approval（草稿提升）；Enum 列迁移用 sa.Enum 匹配模型（过 drift guard）。
+  - **验证**：ruff 干净；迁移 upgrade+downgrade 往返通过；drift guard `test_models_match_migration_head` 通过；**全量 pytest 1109 通过零回归**（+0 失败）。
 
 - **2026-07-23 iter 344（插件热管理：后端热重载/停用/启用 + 前端热启停，无需重启整个项目）**：用户 /goal「升级插件功能，使插件能热重启以及在插件页内直接关闭/打开，而不需要重新启动整个项目」。
   **后端**（[backend/app/plugins/loader.py](backend/app/plugins/loader.py) + [runtime.py](backend/app/plugins/runtime.py) + [api/plugins.py](backend/app/api/plugins.py)）：

@@ -83,6 +83,27 @@ class ToolCallStatus(str, enum.Enum):
     repaired = "repaired"
 
 
+# 记忆系统（iter 345：AI 对话记忆 + 完整 Agent）枚举
+class MessageRole(str, enum.Enum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"
+
+
+class RunKind(str, enum.Enum):
+    chat = "chat"
+    plan_generation = "plan_generation"
+
+
+class RunStatus(str, enum.Enum):
+    running = "running"
+    done = "done"
+    error = "error"
+    interrupted = "interrupted"
+    awaiting_approval = "awaiting_approval"
+    cancelled = "cancelled"
+
+
 # ---------------------------------------------------------------------------
 # 表
 # ---------------------------------------------------------------------------
@@ -129,6 +150,16 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     kb_chat_records: Mapped[list[KbChatRecord]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    # 记忆系统（iter 345）：删用户级联删其会话/运行/记忆
+    threads: Mapped[list[Thread]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    runs: Mapped[list[Run]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    memories: Mapped[list[Memory]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -476,6 +507,9 @@ class ToolCall(Base):
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 记忆系统（iter 345）：该工具调用所属的 run（可空——Orchestrator 路径与既有调用无 run）。
+    # 逻辑外键 runs.id（不加 DB 约束，同既有 ALTER 加列风格如 kind；agent loop 工具调用按需填）。
+    run_id: Mapped[int | None] = mapped_column(Integer)
 
     session: Mapped[Session] = relationship(back_populates="tool_calls")
 
@@ -615,3 +649,193 @@ class ShareLink(Base):
     plan: Mapped[Plan] = relationship(
         backref=backref("share_link", cascade="all, delete-orphan", uselist=False)
     )
+
+
+# ---------------------------------------------------------------------------
+# 记忆系统（iter 345：AI 对话记忆 + 完整 Agent）
+# 仿 OpenAI Assistants Thread/Message/Run/RunStep 持久化模型（见 plan 与 API.md）。
+# 与既有 sessions/orchestrator_state/tool_calls 并存（additive，不动旧表语义）：
+# - threads/messages/runs/run_steps/memories 为新对话子系统；
+# - plan-gen 仍用 sessions + orchestrator_state，runs(kind=plan_generation) 为旁挂 overlay（phase I）。
+# ---------------------------------------------------------------------------
+
+
+class Thread(Base):
+    """AI 对话会话容器（仿 OpenAI Assistants Thread）。
+
+    含若干 messages（会话历史，持久、可回放——需求①对话内记忆）与 runs（任务执行记录
+    ——需求②永不丢）。session_id 可空：桥接"对话→生成方案"（plan-gen overlay 挂会话），
+    纯 chat 会话无 session。删用户 ORM 级联删全部 threads/messages/runs/memories/artifacts。
+    """
+
+    __tablename__ = "threads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), default="")
+    kind: Mapped[str] = mapped_column(String(32), default="chat", server_default="chat")
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"))
+    model: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="threads")
+    messages: Mapped[list[Message]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan", order_by="Message.id"
+    )
+    runs: Mapped[list[Run]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan", order_by="Run.id"
+    )
+    memories: Mapped[list[Memory]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan"
+    )
+    artifacts: Mapped[list[RunArtifact]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan"
+    )
+
+
+class Run(Base):
+    """任务执行记录（仿 OpenAI Assistants Run；永不丢失，除用户手删——需求②）。
+
+    kind=chat：自由 agent 循环（agent_loop.py，原生 tool_use）；kind=plan_generation：
+    方案生成（Orchestrator，phase I 以 side-channel overlay 挂到 thread）。status 状态机
+    含 awaiting_approval（promote_artifact 提议待用户确认——决策③草稿提升）。崩溃恢复：
+    startup 把 running 收敛为 interrupted（main.py，同 orchestrator_state 模式，弃用 resume）。
+    workspace_dir 指向 data/runs/<id>/workspace/，workspace_committed 标志 commit(move)
+    完成后置位（崩溃 liveness 判据）。审计/成本：run_steps（一轮）+ api_usage（计费）。
+    """
+
+    __tablename__ = "runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("threads.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    kind: Mapped[RunKind] = mapped_column(Enum(RunKind), default=RunKind.chat, nullable=False)
+    status: Mapped[RunStatus] = mapped_column(
+        Enum(RunStatus), default=RunStatus.running, nullable=False
+    )
+    step_count: Mapped[int] = mapped_column(Integer, default=0)
+    budget_used: Mapped[float] = mapped_column(Float, default=0.0)
+    workspace_dir: Mapped[str] = mapped_column(String(512), default="")
+    workspace_committed: Mapped[bool] = mapped_column(Boolean, default=False)
+    trace_id: Mapped[str] = mapped_column(String(64), default="")
+    last_event_id: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[dict] = mapped_column(JSON, default=dict)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    thread: Mapped[Thread] = relationship(back_populates="runs")
+    user: Mapped[User] = relationship(back_populates="runs")
+    steps: Mapped[list[RunStep]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="RunStep.id"
+    )
+
+
+class Message(Base):
+    """会话消息（会话历史 + 对话内记忆，append-only——需求①）。
+
+    content 存 Anthropic 消息 content 形态（list[block]），保交织顺序：
+    - user 纯文本 [{"type":"text","text":...}]，亦可含 tool_result 块（工具结果回灌）；
+    - assistant [{"type":"text"},{"type":"tool_use"},{"type":"thinking"}]。
+    role 仅 user/assistant/system（Anthropic 约定 tool_result 放 user 消息内）。
+    run_id 标记由哪次 run 产出（assistant 消息）；删 run 不删消息（消息归 thread 管）。
+    summary 预留未来超长会话摘要压缩（按需加载历史策略——决策②）。
+    """
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("threads.id"), nullable=False, index=True)
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole), default=MessageRole.user, nullable=False
+    )
+    content: Mapped[list] = mapped_column(JSON, default=list)
+    summary: Mapped[str | None] = mapped_column(Text)
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    thread: Mapped[Thread] = relationship(back_populates="messages")
+    # many-to-one 无 back_populates：messages 归 thread 管，删 run 不级联删消息
+    run: Mapped[Run | None] = relationship()
+
+
+class RunStep(Base):
+    """运行步骤（逐步骤可见性——需求⑤ DeepSeek 式界面）。
+
+    一轮模型调用 = 一行（可含多个 tool_use）。type: message/thinking/tool_call/tool_result/error；
+    name 为工具名或 'assistant'。tokens/cost/model/duration 供该步骤独立计费展示。
+    """
+
+    __tablename__ = "run_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    step_index: Mapped[int] = mapped_column(Integer, default=0)
+    type: Mapped[str] = mapped_column(String(32), default="message")
+    name: Mapped[str] = mapped_column(String(64), default="")
+    input: Mapped[dict] = mapped_column(JSON, default=dict)
+    output: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="ok")
+    stop_reason: Mapped[str | None] = mapped_column(String(32))
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    run: Mapped[Run] = relationship(back_populates="steps")
+
+
+class RunArtifact(Base):
+    """工作区产物登记（需求③ 草稿→持久→提升）。
+
+    kind: draft（工作区草稿）/ committed（run 完成后 commit 到持久区，脱离 run 生命周期）/
+    promoted（用户确认提升为正式方案/材料/笔记，promoted_to 记去向如 'plan:12'）。
+    归属 thread（cascade），run_id 为产生者引用（删 run 不删已 commit 产物——SET NULL）。
+    path 相对 data_dir。
+    """
+
+    __tablename__ = "run_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"), index=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("threads.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    path: Mapped[str] = mapped_column(String(512), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), default="draft")
+    promoted_to: Mapped[str | None] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    thread: Mapped[Thread] = relationship(back_populates="artifacts")
+
+
+class Memory(Base):
+    """记忆库（agent/用户可读写，按需加载——决策②）。与 messages（转录）严格区分：
+    本表是 agent 主动保存的要点/事实/摘要（类 MemGPT archival），由工具 memory_save/recall/
+    delete 读写；scope=thread 会话级 / scope=user 跨会话。召回=按需读取（不做自动召回）。
+    删用户/会话 ORM 级联。"""
+
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    thread_id: Mapped[int | None] = mapped_column(ForeignKey("threads.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(16), default="thread")
+    kind: Mapped[str] = mapped_column(String(32), default="note")
+    content: Mapped[str] = mapped_column(Text, default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="memories")
+    thread: Mapped[Thread | None] = relationship(back_populates="memories")
