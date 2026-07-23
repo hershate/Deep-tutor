@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import re
 import sys
@@ -34,6 +35,36 @@ if TYPE_CHECKING:
 log = logging.getLogger("deep_tutor.plugins")
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+# 热重启支持：保留每个已加载插件的 API 门面（持有 _rollbacks 供 unload 调用）
+_plugin_apis: dict[str, BackendPluginAPI] = {}
+
+# 禁用状态持久化（重启后保持）；存 data/plugin_state.json
+_disabled_ids: set[str] = set()
+_DISABLED_FILE = "plugin_state.json"
+
+
+def _load_disabled() -> None:
+    """从 data/plugin_state.json 加载禁用插件 id 集合。"""
+    global _disabled_ids
+    path = Path(settings.data_dir) / _DISABLED_FILE
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            ids = data.get("disabled", [])
+            _disabled_ids = {str(i) for i in ids} if isinstance(ids, list) else set()
+    except (OSError, ValueError):
+        _disabled_ids = set()
+
+
+def _save_disabled() -> None:
+    """持久化禁用插件 id 集合到 data/plugin_state.json。"""
+    path = Path(settings.data_dir) / _DISABLED_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"disabled": sorted(_disabled_ids)}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass  # 持久化失败不影响功能（仅重启后丢失禁用状态）
 
 
 def _parse_version(raw: object) -> tuple[int, int, int] | None:
@@ -107,8 +138,9 @@ def load_plugins(app: FastAPI, plugins_dir: str | Path | None = None) -> list[ru
     if not root.is_dir():
         log.info("插件目录不存在，跳过插件加载: %s", root)
         return []
+    _load_disabled()  # 加载禁用状态
     for path in _iter_plugin_files(root):
-        _load_one(app, path)
+        _load_one(app, path)  # 禁用插件由 _load_one 记 disabled 状态
     statuses = runtime.statuses()
     loaded = sum(1 for s in statuses if s.state == "loaded")
     failed = sum(1 for s in statuses if s.state == "failed")
@@ -116,8 +148,39 @@ def load_plugins(app: FastAPI, plugins_dir: str | Path | None = None) -> list[ru
     return statuses
 
 
-def _load_one(app: FastAPI, path: Path) -> None:
+def _peek_plugin_id(path: Path) -> str | None:
+    """快速探测插件 id（不完整加载——仅读 PLUGIN_META）。"""
     fallback = _fallback_id(path)
+    try:
+        # 用 ast 安全读取 PLUGIN_META（不执行插件代码）
+        import ast
+
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                if isinstance(target, ast.Name) and target.id == "PLUGIN_META":
+                    if isinstance(node.value, ast.Dict):
+                        for key, val in zip(node.value.keys, node.value.values):
+                            if isinstance(key, ast.Constant) and key.value == "id" and isinstance(val, ast.Constant):
+                                return str(val.value)
+                    return fallback  # 有 PLUGIN_META 但解析不出 id -> 用 fallback
+    except Exception:  # noqa: BLE001
+        pass
+    return fallback
+
+
+def _load_one(app: FastAPI, path: Path) -> runtime.PluginStatus | None:
+    fallback = _fallback_id(path)
+    # 启动时跳过被禁用的插件
+    if fallback in _disabled_ids or _peek_plugin_id(path) in _disabled_ids:
+        pid = _peek_plugin_id(path) or fallback
+        status = runtime.PluginStatus(
+            id=pid, name=pid, version="", file=str(path), state="disabled",
+        )
+        runtime.record(status)
+        log.info("插件 %s 已禁用，跳过加载", pid)
+        return status
     try:
         module = _import_module(path)
     except Exception as exc:  # noqa: BLE001  隔离：坏插件不阻塞宿主启动
@@ -179,9 +242,87 @@ def _load_one(app: FastAPI, path: Path) -> None:
         runtime.record(status)
         return
     status.state = "loaded"
+    _plugin_apis[pid] = api  # 保留供 unload/reload 使用
     runtime.record(status)
     log.info("插件已加载：%s %s <- %s", pid, status.version or "(未标版本)", path)
+    return status
 
+
+def unload_plugin(pid: str) -> bool:
+    """热卸载一个插件：调用其 _rollback() 逆序撤销全部注册（路由/事件/工具/解析器/导出器/Provider/scheduler/webhook/middleware），
+    从 _plugin_apis + _statuses 移除。返回是否确实卸载了一个插件。"""
+    api = _plugin_apis.pop(pid, None)
+    if api is None:
+        return False
+    api._rollback()
+    runtime.remove_status(pid)
+    log.info("插件已卸载（热）：%s", pid)
+    return True
+
+
+def reload_plugin(app: FastAPI, pid: str) -> runtime.PluginStatus | None:
+    """热重载一个插件：卸载 + 重新导入 + 重新注册。返回新状态；插件不存在返回 None。"""
+    # 找到文件路径（从已有状态或扫描目录）
+    path = _find_plugin_file(pid)
+    if path is None:
+        return None
+    unload_plugin(pid)
+    return _load_one(app, path)
+
+
+def disable_plugin(pid: str) -> bool:
+    """禁用一个插件：卸载（若已加载）+ 记 disabled 状态 + 持久化。返回是否操作了真实插件。
+
+    仅对真实插件生效（已加载，或文件存在如启动时跳过的禁用插件）；未知 id 返回 False
+    （端点据此 404，与 reload/enable 一致）。
+    """
+    # 先捕获文件路径——unload_plugin 会移除状态台账，之后读不到 file，enable 会找不到文件
+    file = next((s.file for s in runtime.statuses() if s.id == pid), "")
+    if pid in _plugin_apis:
+        unload_plugin(pid)
+    else:
+        # 未加载：须能定位到文件（如启动时跳过的禁用插件），否则视为不存在
+        if not file:
+            found = _find_plugin_file(pid)
+            if found is None:
+                return False
+            file = str(found)
+    # 记 disabled 状态（台账可见，可从插件页重新启用；file 供 enable 定位）
+    runtime.remove_status(pid)
+    runtime.record(runtime.PluginStatus(id=pid, name=pid, version="", file=file, state="disabled"))
+    _disabled_ids.add(pid)
+    _save_disabled()
+    log.info("插件已禁用：%s", pid)
+    return True
+
+
+def enable_plugin(app: FastAPI, pid: str) -> runtime.PluginStatus | None:
+    """启用一个被禁用的插件：移除禁用标记 + 从文件重新加载。返回新状态；文件不存在返回 None。"""
+    _disabled_ids.discard(pid)
+    _save_disabled()
+    path = _find_plugin_file(pid)
+    if path is None:
+        return None
+    runtime.remove_status(pid)  # 清除旧的 disabled 状态记录
+    return _load_one(app, path)
+
+
+def _find_plugin_file(pid: str) -> Path | None:
+    """从已有状态或扫描插件目录找到 pid 对应的文件路径。"""
+    # 先从已有状态查
+    for s in runtime.statuses():
+        if s.id == pid and s.file:
+            p = Path(s.file)
+            if p.is_file():
+                return p
+    # 扫描目录
+    root = Path(settings.plugins_dir)
+    if not root.is_dir():
+        return None
+    for path in _iter_plugin_files(root):
+        if _peek_plugin_id(path) == pid or _fallback_id(path) == pid:
+            return path
+    return None
 
 def get_plugin_statuses() -> list[runtime.PluginStatus]:
     """当前加载状态台账（GET /api/plugins 数据源）。"""
@@ -189,10 +330,12 @@ def get_plugin_statuses() -> list[runtime.PluginStatus]:
 
 
 def reset_plugins() -> None:
-    """清空状态台账/工具表/事件订阅/解析器/导出器/LLM Provider 注册表/调度任务（测试隔离用；已挂载的路由随 app 实例存在）。"""
+    """清空状态台账/工具表/事件订阅/解析器/导出器/LLM Provider 注册表/调度任务/API 实例/禁用状态（测试隔离用；已挂载的路由随 app 实例存在）。"""
     runtime.reset_runtime()
     bus.reset()
     parsers.reset()
     exporters.reset()
     providers.reset()
     scheduler.reset()
+    _plugin_apis.clear()
+    _disabled_ids.clear()

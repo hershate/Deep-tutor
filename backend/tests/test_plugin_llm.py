@@ -218,7 +218,7 @@ def test_complete_other_error_is_bad_gateway(monkeypatch):
 def test_facade_exposes_llm_and_version():
     api = _facade()
     assert api.llm is not None
-    assert api.version == "1.17.0"
+    assert api.version == "1.18.0"
     assert callable(api.llm.is_configured)
     assert asyncio.iscoroutinefunction(api.llm.complete)
 

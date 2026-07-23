@@ -49,7 +49,9 @@ if TYPE_CHECKING:
 #         新增 4 个 widget 插槽（learn/notes/usage/wiki）。
 # v1.17.0：新增 api.middleware——插件注册 HTTP 中间件（全请求拦截：限流/IP/审计/安全头），
 #         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
-API_VERSION = "1.17.0"
+# v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
+#         无需重启服务器即可在 /plugins 页热管理插件。
+API_VERSION = "1.18.0"
 
 
 class ToolsNamespace:
