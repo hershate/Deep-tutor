@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.12.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.14.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.15.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -705,7 +705,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.14.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.15.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -790,6 +790,7 @@ PLUGIN_META = {
 | `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0 HTTP / v1.12.0 stdio）：`connect`(HTTP)/`connect_stdio`(子进程) 连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
 | `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
 | `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
+| `api.webhooks` | `WebhooksNamespace` | 事件→外部 URL 非阻塞推送（v1.15.0）：`register(url, events, secret)` 把指定事件经 bus 协程监听器非阻塞投递到外部 Webhook（Slack/Discord/自动化），标准载荷 + HMAC-SHA256 签名 + 10s 超时 + 错误隔离，一行替代 events.on+httpx ~20 行（§8.4h） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1478,7 +1479,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.14.0",
+  "api_version": "1.15.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1629,6 +1630,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.15.0 | 2026-07-23 | 新增 `api.webhooks.register(url, events, *, secret)`：一行调用把指定事件非阻塞推送到外部 Webhook URL（Slack/Discord/自动化）——经 bus 协程监听器（`create_task` 非阻塞 dispatch + `_guard_await` 错误隔离）+ httpx（10s 超时）+ 可选 HMAC-SHA256 签名（`X-Webhook-Signature` 头）；标准载荷 `{event, data}`；`bus.reset` 清理监听器（无需单独 reset）；返回 handle（`unregister` 停止）；替代 events.on + httpx + 签名 ~20 行模板 |
 | 后端 | 1.14.0 | 2026-07-23 | `api.llm.stream` 流式补全：逐 token yield 文本增量（`async for text in api.llm.stream(user_id, prompt, ...)`）——插件做 chat / 实时标注等 live-typing UI（此前 `complete` 仅非流式）；Anthropic 真流式（raw event stream：`content_block_delta` text_delta 逐块 yield + `message_start`/`message_delta` 摄取 usage）；插件 Provider 回退非流式（基类默认 `stream()` = chat + yield 全文 + usage）；日预算守卫 + `api_usage` 计量同 `complete`（usage 流末尾摄取）；`StreamChunk` dataclass（text + usage）+ `LLMProvider.stream()` 基类方法（additive，`chat` 不变→生成管线零影响） |
 | 后端 | 1.13.0 | 2026-07-23 | `Tool.description` 字段 + `register_python(description=)`：插件工具可自带一行描述，在 `api.tools.list` / `GET /api/tools` 发现视图展示（核心工具回退 `TOOL_DESCRIPTIONS`）——插件工具自文档化，发现输出对全部工具（核心+插件）都有描述；不影响工具执行行为（纯展示） |
 | 后端 | 1.12.0 | 2026-07-23 | `api.mcp` 加 `connect_stdio`（MCP stdio 传输）：spawn 本地子进程 MCP server，经 stdin/stdout line-delimited JSON-RPC（initialize/tools-list/tools-call，skip 通知取匹配 id 响应，读超时，close terminate 子进程防僵尸）——stdio 是 MCP server 最常见部署（如 npx 启动的 server），补齐 v1.9.0 HTTP-only 的实用闭环；与 `connect`(HTTP) 同接口；对 spec-faithful stdio mock server 测试（6 项，真实子进程） |

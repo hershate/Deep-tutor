@@ -43,7 +43,9 @@ if TYPE_CHECKING:
 #         api.tools.list / GET /api/tools 发现视图展示（核心工具回退 TOOL_DESCRIPTIONS）。
 # v1.14.0：api.llm.stream 流式补全——逐 token yield 文本增量（Anthropic 真流式 / 插件 Provider
 #         回退非流式），日预算守卫 + api_usage 计量同 complete。
-API_VERSION = "1.14.0"
+# v1.15.0：api.webhooks.register——事件→外部 URL 非阻塞推送（bus 协程监听器 + httpx + HMAC 签名），
+#         一行替代 events.on+httpx+签名 ~20 行模板。
+API_VERSION = "1.15.0"
 
 
 class ToolsNamespace:
@@ -725,6 +727,60 @@ class StorageNamespace:
         self._save()
 
 
+class WebhooksNamespace:
+    """事件→外部 URL 投递（v1.15.0 扩展点，契约见 API.md「§Webhook 投递」）。
+
+    一行调用 ``api.webhooks.register(url, events=['plan_created'], secret='xxx')`` 即把指定事件
+    非阻塞推送到外部 Webhook（Slack/Discord/自动化）——标准载荷 + 可选 HMAC-SHA256 签名 + 10s 超时 +
+    错误隔离。替代插件自行 events.on + httpx + 签名 + 错误处理 ~20 行模板。
+
+    bus 协程监听器自动非阻塞 dispatch（create_task + _guard_await）；bus.reset（reset_plugins）清除
+    全部监听器——webhook 监听器随之清理，无需单独 reset。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        url: str,
+        events: list[str],
+        *,
+        secret: str = "",
+    ) -> Any:
+        """注册 Webhook：指定事件触发时非阻塞 POST 到 url。
+
+        - url：外部 Webhook URL（http(s)://；可信配置——同插件代码信任）。
+        - events：要推送的事件名列表（如 ['plan_created', 'progress_updated']）。
+        - secret：HMAC-SHA256 签名密钥（可选；非空时加 X-Webhook-Signature 头）。
+        返回 WebhookHandle（unregister 停止推送）。
+        """
+        if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+            raise ValueError("url 须以 http:// 或 https:// 开头")
+        if not isinstance(events, (list, tuple)) or not events or not all(isinstance(e, str) and e for e in events):
+            raise ValueError("events 必须是非空字符串列表")
+        from app.plugins import bus, webhooks
+
+        offs: list[Callable] = []
+        for event_name in events:
+            listener = webhooks.make_listener(url, event_name, secret=secret)
+            off = bus.on(event_name, listener)
+            offs.append(off)
+
+        self._status.webhooks.append(url)
+
+        class _Handle:
+            def unregister(self_inner) -> None:
+                for off in offs:
+                    off()
+
+        handle = _Handle()
+        self._rollbacks.append(handle.unregister)
+        return handle
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -890,6 +946,7 @@ class BackendPluginAPI:
         self.mcp = McpNamespace(plugin_id)
         self.scheduler = SchedulerNamespace(plugin_id, self._rollbacks)
         self.storage = StorageNamespace(data_dir)
+        self.webhooks = WebhooksNamespace(plugin_id, status, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()
