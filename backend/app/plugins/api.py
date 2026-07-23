@@ -47,7 +47,9 @@ if TYPE_CHECKING:
 #         一行替代 events.on+httpx+签名 ~20 行模板。
 # v1.16.0：api.webhooks.register(events=None) 全事件支持（subscribe_all sync sink + create_task）；
 #         新增 4 个 widget 插槽（learn/notes/usage/wiki）。
-API_VERSION = "1.16.0"
+# v1.17.0：新增 api.middleware——插件注册 HTTP 中间件（全请求拦截：限流/IP/审计/安全头），
+#         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
+API_VERSION = "1.17.0"
 
 
 class ToolsNamespace:
@@ -790,6 +792,63 @@ class WebhooksNamespace:
         return handle
 
 
+class MiddlewareNamespace:
+    """HTTP 中间件注册（v1.17.0 扩展点，契约见 API.md「§HTTP 中间件」）。
+
+    插件注册全局请求中间件——全请求拦截（限流 / IP 过滤 / 审计日志 / 安全响应头 / 内容过滤）。
+    用户 /goal "后端可引入额外安全防护插件"。
+
+    fn 签名：``async (request: Request, call_next) -> Response``（Starlette BaseHTTPMiddleware dispatch 语义）。
+    **错误隔离**：fn 异常 -> 透传原请求（不阻断全部端点，同事件监听器隔离语义）。
+    中间件在插件 register() 期间添加（lifespan startup 内，首次 HTTP 请求前——build_middleware_stack 仅包路由器，无 finalization）。
+    """
+
+    def __init__(self, app: "FastAPI", plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._app = app
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(self, fn: Callable) -> None:
+        """注册 HTTP 中间件。fn: async (request, call_next) -> Response。
+
+        - fn 异常 -> 透传原请求（不阻断——记日志后 call_next(request)）。
+        - 多次注册叠加（LIFO 顺序：后注册先执行，同 Starlette user_middleware insert(0)）。
+        """
+        if not callable(fn):
+            raise TypeError("fn 必须是 callable（async (request, call_next) -> Response）")
+        from starlette.middleware import Middleware
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        pid = self._pid
+        plugin_log = logging.getLogger(f"deep_tutor.plugin.{pid}")
+
+        async def _safe_dispatch(request, call_next):
+            try:
+                return await fn(request, call_next)
+            except Exception:  # noqa: BLE001  中间件异常隔离：透传不阻断
+                plugin_log.exception("插件中间件异常 -> 透传原请求")
+                return await call_next(request)
+
+        class _PluginMW(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                return await _safe_dispatch(request, call_next)
+
+        entry = Middleware(_PluginMW)
+        self._app.user_middleware.insert(0, entry)
+        self._app.middleware_stack = self._app.build_middleware_stack()
+        self._status.middleware.append(pid)
+
+        def _rollback() -> None:
+            try:
+                self._app.user_middleware.remove(entry)
+                self._app.middleware_stack = self._app.build_middleware_stack()
+            except (ValueError, Exception):  # noqa: BLE001  rollback 尽力而为
+                pass
+
+        self._rollbacks.append(_rollback)
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -956,6 +1015,7 @@ class BackendPluginAPI:
         self.scheduler = SchedulerNamespace(plugin_id, self._rollbacks)
         self.storage = StorageNamespace(data_dir)
         self.webhooks = WebhooksNamespace(plugin_id, status, self._rollbacks)
+        self.middleware = MiddlewareNamespace(app, plugin_id, status, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

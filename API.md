@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.16.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.16.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.17.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -716,7 +716,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.16.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.17.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -802,6 +802,7 @@ PLUGIN_META = {
 | `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
 | `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
 | `api.webhooks` | `WebhooksNamespace` | 事件→外部 URL 非阻塞推送（v1.15.0）：`register(url, events, secret)` 把指定事件经 bus 协程监听器非阻塞投递到外部 Webhook（Slack/Discord/自动化），标准载荷 + HMAC-SHA256 签名 + 10s 超时 + 错误隔离，一行替代 events.on+httpx ~20 行（§8.4h） |
+| `api.middleware` | `MiddlewareNamespace` | HTTP 中间件注册（v1.17.0）：`register(fn)` 全请求拦截（限流/IP/审计/安全头）——用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation（fn 异常→透传不阻断）+ rollback（§8.4i） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1490,7 +1491,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.16.0",
+  "api_version": "1.17.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1641,6 +1642,8 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.17.0 | 2026-07-23 | 新增 `api.middleware.register(fn)`：插件注册 HTTP 中间件（全请求拦截——限流/IP 过滤/审计日志/安全响应头/内容过滤）；fn 签名 `async (request, call_next) -> Response`（Starlette BaseHTTPMiddleware dispatch 语义）；**error isolation**（fn 异常→透传原请求不阻断全部端点，同事件监听器隔离）；rollback（register 失败移除中间件）；用户 /goal "后端可引入额外安全防护插件" |
+| 后端 | 1.16.0 | 2026-07-23 | `api.webhooks.register(events=None)` 全事件支持（subscribe_all sync sink + create_task）；新增 4 个 widget 插槽（learn/notes/usage/wiki） |
 | 后端 | 1.15.0 | 2026-07-23 | 新增 `api.webhooks.register(url, events, *, secret)`：一行调用把指定事件非阻塞推送到外部 Webhook URL（Slack/Discord/自动化）——经 bus 协程监听器（`create_task` 非阻塞 dispatch + `_guard_await` 错误隔离）+ httpx（10s 超时）+ 可选 HMAC-SHA256 签名（`X-Webhook-Signature` 头）；标准载荷 `{event, data}`；`bus.reset` 清理监听器（无需单独 reset）；返回 handle（`unregister` 停止）；替代 events.on + httpx + 签名 ~20 行模板 |
 | 后端 | 1.14.0 | 2026-07-23 | `api.llm.stream` 流式补全：逐 token yield 文本增量（`async for text in api.llm.stream(user_id, prompt, ...)`）——插件做 chat / 实时标注等 live-typing UI（此前 `complete` 仅非流式）；Anthropic 真流式（raw event stream：`content_block_delta` text_delta 逐块 yield + `message_start`/`message_delta` 摄取 usage）；插件 Provider 回退非流式（基类默认 `stream()` = chat + yield 全文 + usage）；日预算守卫 + `api_usage` 计量同 `complete`（usage 流末尾摄取）；`StreamChunk` dataclass（text + usage）+ `LLMProvider.stream()` 基类方法（additive，`chat` 不变→生成管线零影响） |
 | 后端 | 1.13.0 | 2026-07-23 | `Tool.description` 字段 + `register_python(description=)`：插件工具可自带一行描述，在 `api.tools.list` / `GET /api/tools` 发现视图展示（核心工具回退 `TOOL_DESCRIPTIONS`）——插件工具自文档化，发现输出对全部工具（核心+插件）都有描述；不影响工具执行行为（纯展示） |

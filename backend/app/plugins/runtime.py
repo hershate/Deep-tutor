@@ -30,6 +30,7 @@ class PluginStatus:
     exporters: list[str] = field(default_factory=list)  # v1.4.0：注册的导出格式名
     providers: list[str] = field(default_factory=list)  # v1.6.0：注册的 LLM Provider 协议名
     webhooks: list[str] = field(default_factory=list)  # v1.15.0：注册的 Webhook URL
+    middleware: list[str] = field(default_factory=list)  # v1.17.0：注册了中间件的插件 id
 
 
 _statuses: list[PluginStatus] = []
