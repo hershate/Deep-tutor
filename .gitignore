@@ -29,6 +29,7 @@ plugins/*
 !plugins/ai_tutor.py
 !plugins/security_guard.py
 !plugins/webhook_notify.py
+!plugins/provider_bridge.py
 
 # 前端
 frontend/node_modules/

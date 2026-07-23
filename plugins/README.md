@@ -43,6 +43,7 @@ def register(api):
 | [ai_tutor.py](ai_tutor.py) | AI 解释难点 + tools.call 文本分块组合 | `llm` + `tools`(call) + `routes` |
 | [security_guard.py](security_guard.py) | 全站安全响应头 + 请求统计中间件 | `middleware` + `events` + `storage` + `routes` |
 | [webhook_notify.py](webhook_notify.py) | 学习事件推送到外部 URL（Slack/Discord） | `webhooks` + `routes` + `storage` |
+| [provider_bridge.py](provider_bridge.py) | 接入 OpenAI 兼容协议 LLM（OpenAI/Ollama/DeepSeek） | `providers` + `llm` + `routes` + `storage` |
 
 停用任一：文件名加 `_` 前缀重启（如 `_study_stats.py`）。
 
