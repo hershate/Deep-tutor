@@ -31,6 +31,11 @@ from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_to
 from app.agent.cost import record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
+from app.api.sse_utils import (
+    HEARTBEAT_SECONDS as _HEARTBEAT_SECONDS,
+    SSE_HEADERS as _SSE_HEADERS,
+    format_sse_frame as _sse,
+)
 from app.core.credentials import resolve_bing_api_key
 from app.core.settings import settings
 from app.db import models
@@ -62,17 +67,10 @@ log = logging.getLogger("deep_tutor.api.plans")
 
 router = APIRouter(prefix="/plans", tags=["plans"], dependencies=[Depends(require_auth)])
 
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",  # nginx 禁缓冲（plan/09 §十九）
-}
+# _SSE_HEADERS / _sse / _HEARTBEAT_SECONDS 抽至 app/api/sse_utils.py（iter 345），
+# 与新对话/Agent SSE 共用叶子 helper；_SessionStream（带 plan-gen 运行态）留本模块。
 
 PLAN_OVERFLOW_BYTES = 512 * 1024  # plan/01 §五：>512KB 溢出文件
-
-# 心跳间隔：长 LLM 调用期间防 nginx/代理/浏览器空闲断连（plan/09 §十九）。
-# SSE 注释行 `: keepalive` 不触发前端事件，仅保活。
-_HEARTBEAT_SECONDS = 15.0
 
 # --- SSE 会话缓冲（plan/10 §十二 断线续接游标）---
 # 单会话事件缓冲 + 订阅扇出：编排器经 publish 发事件（递增 id）；每个连接持独立队列，
@@ -205,16 +203,6 @@ class ClarifyIn(BaseModel):
 class RegenIn(BaseModel):
     feedback: str = ""
     scope: str = ""
-
-
-def _sse(event: str, data: dict, event_id: int | None = None) -> str:
-    """格式化一条 SSE 事件。event_id 非空时附 `id:` 行（plan/10 §十二 续接游标，递增）。"""
-    parts: list[str] = []
-    if event_id is not None:
-        parts.append(f"id: {event_id}")
-    parts.append(f"event: {event}")
-    parts.append(f"data: {json.dumps(data, ensure_ascii=False)}")
-    return "\n".join(parts) + "\n\n"
 
 
 def _load_parsed_materials(db: Session, session_id: int) -> list[dict]:
