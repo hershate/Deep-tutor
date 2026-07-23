@@ -12,9 +12,10 @@
 // 兼容性承诺：API_VERSION 语义化版本；minor/patch 向后兼容，major 变更会在 API.md 记录迁移说明。
 import type { ComponentType } from 'react'
 import { apiFetch } from './api'
+import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.8.0'
+export const API_VERSION = '1.9.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -483,6 +484,14 @@ const uiApi = {
         window.removeEventListener('pointerup', onUp)
       },
     }
+  },
+  /** 通知反馈（v1.9.0）：复用宿主 Toast 系统（右下角，3s 自动消失）。
+   *  插件据此给用户瞬时反馈（"已保存"/"复制成功"/"出错了"），无需自建 Toast UI。
+   *  可选 action（带按钮的通知，TTL 延至 8s 供点击）。 */
+  toast: {
+    success: (message: string, action?: ToastAction) => _hostToast.success(message, action),
+    info: (message: string, action?: ToastAction) => _hostToast.info(message, action),
+    error: (message: string, action?: ToastAction) => _hostToast.error(message, action),
   },
 }
 
