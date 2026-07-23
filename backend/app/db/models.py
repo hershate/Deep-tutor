@@ -560,6 +560,10 @@ class LlmProviderProfile(Base):
     base_url: Mapped[str] = mapped_column(String(512), default="")
     api_key: Mapped[str] = mapped_column(String(256), nullable=False)
     model: Mapped[str] = mapped_column(String(128), default="")
+    # iter 313：协议 kind（'anthropic' 内置 / 插件注册的协议名如 'openai'）。
+    # NULL/空 -> 'anthropic'（get_provider 走 AnthropicProvider，既有档案零行为变化）；
+    # 插件协议 -> get_provider 分发到对应 PluginProvider（凭证由本档案 api_key/base_url 传入 handler）。
+    kind: Mapped[str | None] = mapped_column(String(64), default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

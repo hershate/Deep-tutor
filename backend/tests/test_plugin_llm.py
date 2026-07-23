@@ -218,6 +218,113 @@ def test_complete_other_error_is_bad_gateway(monkeypatch):
 def test_facade_exposes_llm_and_version():
     api = _facade()
     assert api.llm is not None
-    assert api.version == "1.5.0"
+    assert api.version == "1.18.0"
     assert callable(api.llm.is_configured)
     assert asyncio.iscoroutinefunction(api.llm.complete)
+
+
+# --- 流式补全（v1.14.0）---
+
+
+class _StreamingStub(LLMProvider):
+    """罐头流式 provider：逐块 yield 文本 + 末尾 usage。"""
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        return LLMResponse(content="full", usage=LLMUsage(input_tokens=10, output_tokens=5, model="claude-sonnet-5"))
+
+    async def stream(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        from app.llm.base import StreamChunk
+
+        yield StreamChunk(text="Hello")
+        yield StreamChunk(text=" world")
+        yield StreamChunk(usage=LLMUsage(input_tokens=10, output_tokens=5, model="claude-sonnet-5"))
+
+
+def test_stream_yields_text_deltas(monkeypatch):
+    _patch_provider(monkeypatch, _StreamingStub())
+    _no_budget_block(monkeypatch)
+    chunks: list[str] = []
+
+    async def collect():
+        async for text in _facade().llm.stream(1, "hi"):
+            chunks.append(text)
+
+    asyncio.run(collect())
+    assert "".join(chunks) == "Hello world"
+
+
+def test_stream_meters_usage(monkeypatch):
+    _patch_provider(monkeypatch, _StreamingStub())
+    _no_budget_block(monkeypatch)
+    from app.db.models import ApiUsage, User
+
+    db = SessionLocal()
+    try:
+        db.add(User(name="us", username="us", password_hash="", is_admin=False))
+        db.commit()
+        uid = db.query(User).first().id
+    finally:
+        db.close()
+
+    async def collect():
+        async for _text in _facade().llm.stream(uid, "hi"):
+            pass
+
+    asyncio.run(collect())
+    db = SessionLocal()
+    try:
+        rows = db.query(ApiUsage).all()
+        assert len(rows) == 1
+        assert rows[0].user_id == uid
+        assert rows[0].tokens_in == 10 and rows[0].tokens_out == 5
+    finally:
+        db.close()
+
+
+def test_stream_no_provider_503(monkeypatch):
+    from app.api.errors import ApiError
+
+    _patch_no_provider(monkeypatch)
+    _no_budget_block(monkeypatch)
+
+    async def collect():
+        async for _text in _facade().llm.stream(1, "x"):
+            pass
+
+    with pytest.raises(ApiError) as ei:
+        asyncio.run(collect())
+    assert ei.value.code == "no_llm_provider" and ei.value.status == 503
+
+
+def test_stream_budget_exceeded(monkeypatch):
+    from app.api.errors import ApiError
+
+    _patch_provider(monkeypatch, _StreamingStub())
+
+    def _block(db, user_id):
+        raise ApiError("budget_exceeded", "日预算已用尽")
+
+    monkeypatch.setattr("app.api.deps.check_daily_budget", _block)
+
+    async def collect():
+        async for _text in _facade().llm.stream(1, "x"):
+            pass
+
+    with pytest.raises(ApiError) as ei:
+        asyncio.run(collect())
+    assert ei.value.code == "budget_exceeded" and ei.value.status == 402
+
+
+def test_stream_validates_args(monkeypatch):
+    _patch_provider(monkeypatch, _StreamingStub())
+    _no_budget_block(monkeypatch)
+    api = _facade().llm
+    with pytest.raises(ValueError, match="user_id"):
+        asyncio.run(_gen(api.stream(0, "x")))
+    with pytest.raises(ValueError, match="prompt"):
+        asyncio.run(_gen(api.stream(1, "  ")))
+
+
+async def _gen(agen):
+    async for _ in agen:
+        pass

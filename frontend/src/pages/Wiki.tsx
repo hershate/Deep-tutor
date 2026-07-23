@@ -8,6 +8,7 @@ import KbDocsView from '../components/KbDocsView'
 import NodeNoteEditor from '../components/NodeNoteEditor'
 import { SkeletonCards } from '../components/Skeleton'
 import { toast } from '../components/Toast'
+import WidgetSlot from '../components/WidgetSlot'
 import { ApiError, downloadKnowledgeHandbook, getKnowledge, getNotesOverview, getReviewDue, getStatsByPlan, getStatsCalendar, getStudyStats, getWrongOverview, listDayLogs, updateProgress, type CalendarDay, type KnowledgeItem, type ProgressStatus } from '../lib/api'
 import { onTablistKeyDown } from '../lib/tabs'
 
@@ -187,6 +188,7 @@ export default function Wiki() {
 
   return (
     <div className="space-y-4">
+      <WidgetSlot slot="wiki.dashboard" layout="grid" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">知识库</h2>
         {/* 头部控制：导出手册在知识点/笔记视图可用；排序/搜索仅知识点视图生效（笔记视图查询不消费它们，显示即为死控件） */}

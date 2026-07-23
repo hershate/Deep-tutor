@@ -626,7 +626,7 @@ export interface BackendPluginStatus {
   id: string
   name: string
   version: string
-  state: string // loaded | failed
+  state: string // loaded | failed | disabled
   error: string
   file: string
   routes: string[]
@@ -635,6 +635,19 @@ export interface BackendPluginStatus {
 }
 export const getBackendPlugins = () =>
   apiFetch<{ api_version: string; plugins: BackendPluginStatus[]; subscribed_events: string[] }>('/plugins')
+
+// --- 后端插件热管理（管理员，API.md「后端插件 API」§热管理）---
+// reload/disable/enable 均无需刷新/重启整个项目即可改变插件装载状态。
+export const reloadBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean; plugin: BackendPluginStatus }>(`/plugins/${encodeURIComponent(id)}/reload`, {
+    method: 'POST',
+  })
+export const disableBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/plugins/${encodeURIComponent(id)}/disable`, { method: 'POST' })
+export const enableBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean; plugin: BackendPluginStatus }>(`/plugins/${encodeURIComponent(id)}/enable`, {
+    method: 'POST',
+  })
 
 // iter 131：近 N 日按日用量（无调用日补 0，供趋势图）
 export interface UsageDailyItem { date: string; cost: number; tokens: number; calls: number }
@@ -652,6 +665,7 @@ export interface ProviderProfile {
   name: string
   base_url: string // 空 = Anthropic 官方端点
   model: string // 空 = 服务端默认模型
+  kind: string // 协议：'anthropic'（内置）或插件注册的协议名（api.providers，iter 313）
   is_active: boolean
   api_key_masked: string
   created_at: string
@@ -661,7 +675,21 @@ export interface ProviderInput {
   api_key?: string // 创建必填；更新可留空（保留原值）
   base_url?: string
   model?: string
+  kind?: string // 协议；缺省/空 -> 'anthropic'（iter 313）
 }
+/** GET /providers/kinds：可用 LLM 协议（内置 anthropic + 插件协议，iter 313 发现端点） */
+export interface ProviderKindBuiltin {
+  kind: string
+  label: string
+}
+export interface ProviderKindPlugin {
+  kind: string
+  label: string
+  plugin_id: string
+  default_model: string
+}
+export const listProviderKinds = () =>
+  apiFetch<{ builtin: ProviderKindBuiltin[]; plugins: ProviderKindPlugin[] }>('/providers/kinds')
 export const listProviders = () => apiFetch<{ providers: ProviderProfile[] }>('/providers')
 export const createProvider = (body: ProviderInput) =>
   apiFetch<ProviderProfile>('/providers', { method: 'POST', body: JSON.stringify(body) })
@@ -807,7 +835,22 @@ export function clarifyStream(
   return ssePost(`/plans/${sessionId}/clarify`, { answers }, onEvent, signal)
 }
 
-import { openSSE, readSSEStream, SseError } from './sse'
+import { openSSE, readSSEStream, SseError, type SSEEvent } from './sse'
+
+/**
+ * 实时事件流订阅（iter 315）：GET /api/events/stream（SSE），把后端事件总线事件
+ * （plan_created / progress_updated / quiz_submitted / materials_completed / learning_log_added
+ * / startup / shutdown 及插件自定义事件）经 SSE 推送给调用方。鉴权同宿主端点
+ * （Authorization: Bearer；开放本机模式无 token 亦通行）。
+ *
+ * 返回 openSSE 的 promise——流干净结束 resolve、错误 reject（SseError，含 status）。
+ * 调用方负责重连退避与生命周期（见 EventsBridge 组件）。 */
+export async function openEventStream(
+  onEvent: (ev: SSEEvent) => void,
+  signal: AbortSignal,
+): Promise<unknown> {
+  return openSSE(`${BASE}/events/stream`, { token: token(), signal, onEvent })
+}
 
 // --- 数据备份（iter 93）：整库导出 JSON 下载 / 追加式导入 ---
 

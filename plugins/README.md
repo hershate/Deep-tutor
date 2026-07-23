@@ -31,6 +31,23 @@ def register(api):
     api.routes.mount(router)  # 挂载到 /api/plugins/hello/ping（默认带宿主认证）
 ```
 
+## 官方实用插件（示例，开箱即用）
+
+以下插件默认装载启用，既提供实用功能，也作为各插件 API 的**复合使用示例**供用户与其他开发者参考（配套装载测试见 `backend/tests/test_real_plugin_<name>.py`——真实源码经完整 loader 链路装载 + HTTP 端到端 + 边界验证）：
+
+| 插件 | 用途 | 复合的 API |
+|---|---|---|
+| [study_export_pack.py](study_export_pack.py) | csv / txt / opml 导出 + 导出统计 | `exporters` + `events` + `storage` + `routes` |
+| [study_stats.py](study_stats.py) | 跨方案学习活动统计仪表盘（今日/本周/连续天数） | `events` + `storage` + `scheduler` + `routes` |
+| [epub_reader.py](epub_reader.py) | 解析 .epub 电子书为文本（上传自动注入学习方案） | `parsers` + `tools` + `routes` |
+| [ai_tutor.py](ai_tutor.py) | AI 解释难点 + tools.call 文本分块组合 | `llm` + `tools`(call) + `routes` |
+| [security_guard.py](security_guard.py) | 全站安全响应头 + 请求统计中间件 | `middleware` + `events` + `storage` + `routes` |
+| [webhook_notify.py](webhook_notify.py) | 学习事件推送到外部 URL（Slack/Discord） | `webhooks` + `routes` + `storage` |
+| [provider_bridge.py](provider_bridge.py) | 接入 OpenAI 兼容协议 LLM（OpenAI/Ollama/DeepSeek） | `providers` + `llm` + `routes` + `storage` |
+| [mcp_bridge.py](mcp_bridge.py) | 接入外部 MCP server 工具（filesystem/github 等） | `mcp` + `tools` + `routes` |
+
+停用任一：文件名加 `_` 前缀重启（如 `_study_stats.py`）。
+
 ## 本目录文件
 
 - `example_hello.py.disabled`——完整示例插件（路由 + 事件 + 工具 + 数据目录）。

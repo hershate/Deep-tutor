@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '../components/Skeleton'
+import WidgetSlot from '../components/WidgetSlot'
 import { getUsage, getUsageByModel, getUsageDaily, type UsageModelItem } from '../lib/api'
 
 /** 用量详情页（/usage）：汇总 token / 费用 / 缓存命中率 / 调用数。 */
@@ -17,6 +18,7 @@ export default function Usage() {
 
   return (
     <div className="space-y-4">
+      <WidgetSlot slot="usage.dashboard" layout="grid" />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">用量统计</h2>
         <button

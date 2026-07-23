@@ -35,7 +35,7 @@ def get_active_profile(user_id: int | None = None) -> "dict | None":
             p = q.first()
             if p is None:
                 return None
-            return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or ""}
+            return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or "", "kind": p.kind or ""}
         finally:
             db.close()
     except Exception:  # noqa: BLE001
@@ -56,6 +56,25 @@ def get_provider(user_id: int | None = None) -> LLMProvider:
     """
     profile = get_active_profile(user_id)
     if profile is not None:
+        # iter 313：档案 kind 选择协议——'anthropic'（默认/NULL/空白）走内置 AnthropicProvider；
+        # 插件协议（api.providers 注册的 kind）分发到 PluginProvider（档案 api_key/base_url 作凭证）。
+        kind = (profile.get("kind") or "").strip().lower() or "anthropic"
+        if kind != "anthropic":
+            from app.llm.plugin_provider import PluginProvider
+
+            from app.plugins import providers as plugin_providers
+
+            entry = plugin_providers.find_provider(kind)
+            if entry is None:
+                raise RuntimeError(
+                    f"供应商档案协议 {kind!r} 无对应插件 Provider（未注册或插件未加载）"
+                )
+            return PluginProvider(
+                entry,
+                model=profile["model"] or entry.default_model or settings.anthropic_model,
+                api_key=profile["api_key"],
+                base_url=profile.get("base_url") or "",
+            )
         return AnthropicProvider(
             api_key=profile["api_key"],
             model=profile["model"] or settings.anthropic_model,

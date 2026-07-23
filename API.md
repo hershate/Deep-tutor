@@ -12,8 +12,8 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.5.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.5.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 前端插件 API | `1.17.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 后端插件 API | `1.18.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -65,7 +65,8 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 ```
 
 > **安全提示**：插件脚本以页面完整权限运行（可读 localStorage、可带登录态发请求）。
-> 只加载你信任的插件 URL；`plugins.unload()` 移除后需刷新页面才彻底清除其副作用。
+> 只加载你信任的插件 URL；`plugins.unload()`/`disable()` 会清除其追踪到的注册（小组件/
+> 页面/覆盖层/皮肤即时消失），但插件在异步回调中延迟注册的不被追踪（需刷新清除）。
 
 ---
 
@@ -81,6 +82,12 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 | `home.dashboard` | 首页标题区下方、表单卡上方 | 响应式宫格（2 列，宽屏 4 列） | 学习概览小组件；内置 4 个（连续打卡/本周已学/今日待复习/今日费用），无数据自行隐藏 |
 | `sidebar.footer` | 桌面端侧栏导航下方、收起按钮上方 | 纵向堆叠 | 仅在侧栏展开态渲染（折叠为图标态时不渲染） |
 | `plan.detail`（v1.3.0） | 方案详情页头部操作区下方、学习意图卡上方 | 响应式宫格（2 列，宽屏 4 列） | 方案级插件面板；组件内可经 React Router `useParams()` 取 `planId` 做方案级数据展示/操作 |
+| `plans.toolbar`（v1.13.0） | 方案列表页标题/批量操作区下方、列表上方 | 响应式宫格（2 列，宽屏 4 列） | 方案列表级插件面板（自定义筛选 / 批量操作 / 方案统计） |
+| `review.dashboard`（v1.13.0） | 复习页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 复习级插件面板（复习统计 / 自定义复习模式 / 间隔重复提醒） |
+| `learn.dashboard`（v1.14.0） | 学习中心页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 学习中心级插件面板（专注计时 / 学习目标 / 自定义统计） |
+| `notes.toolbar`（v1.14.0） | 笔记页标题区下方 | 响应式宫格（2 列，宽屏 4 列） | 笔记级插件面板（批量操作 / 笔记模板 / AI 辅助） |
+| `usage.dashboard`（v1.14.0） | 用量统计页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 用量级插件面板（预算提醒 / 成本预测 / 模型对比） |
+| `wiki.dashboard`（v1.14.0） | 知识库页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 知识库级插件面板（跨方案统计 / 导出增强 / AI 摘要） |
 
 > 插槽只增不改：新版本可能追加插槽，已有插槽名不会改名或删除。
 
@@ -236,6 +243,267 @@ function CurrentPath() {
 
 ---
 
+## 二补三 · 覆盖层 API（`DeepTutor.overlay`，v1.6.0）
+
+> **"用 API 完全改造前端"的使能项。** 小组件（§二）只能往既有页面的固定插槽注入卡片、
+> 页面（§二补）只能在 `/p/` 下渲染整页——两者都无法"在整个应用之上"绘制内容。要做
+> **WebGL 全屏背景特效 / 可自由拖放的浮窗 / 2D 物理碰撞叠层 / 全屏 3D 小游戏**，都需要一个
+> **脱离页面、覆盖整个视口**的渲染层。本命名空间把"应用根级 React 渲染"纳入受支持的插件门面
+> （错误边界隔离 + pointer-events 控制 + 生命周期清理），而非让插件用裸 DOM 硬塞
+> `document.body`（绕过 React、无清理、不受错误边界保护、升级即碎）。
+
+### 三层 z-index 分层
+
+注册时选一个 `layer`，决定渲染栈位置与默认行为：
+
+| layer | z-index | 位置 | 典型用途 | 默认 pointer-events |
+|---|---|---|---|---|
+| `background` | `-1` | 应用内容**之后**（仅透过应用透明区域——页边/留白/或插件自设透明区——可见，body 背景始终兜底） | WebGL 动态背景、粒子场 | `none`（在应用之后，本就不可交互） |
+| `content` | `45` | 应用内容之上、**模态/Toast 之下**（高于吸顶 header） | 可拖放浮窗、HUD、画布叠层、2D 物理场景 | `none`（穿透到下层应用；交互元素请设 `auto`） |
+| `top` | `9999` | **万物之上**（盖过模态/Toast） | 全屏 3D 小游戏、彩纸/烟花、接管式特效 | `none`（同上；游戏 canvas 设 `auto`） |
+
+> 分层只增不改：新版本可能追加分层，已有分层名不会改名或删除。
+>
+> **pointer-events 关键语义**：层容器与包裹层**默认 `none`**——覆盖层**不会拦截**下层应用的点击/滚动，
+> 避免一个全屏 overlay 误锁整个 UI。需要交互（拖拽浮窗、3D 游戏接输入）时，注册时设
+> `pointerEvents: 'auto'`，此时**该 overlay 的整个区域**会捕获指针事件（其余 overlay 与应用不受影响）。
+
+### `overlay.register(def: OverlayDef): void`
+
+```ts
+interface OverlayDef {
+  id: string               // 全局唯一；重复注册同 id 视为覆盖更新
+  layer: OverlayLayer      // 'background' | 'content' | 'top'
+  component: ComponentType // React 组件，无 props；可用 hooks / TanStack Query / React Router
+  pointerEvents?: 'none' | 'auto'  // 缺省 'none'（点击穿透）；交互浮窗/游戏设 'auto'
+  order?: number           // 同层内绘制顺序，小的在前（后绘制、视觉靠上）；缺省 100；0-99 内置保留
+}
+```
+
+参数非法（缺 id / 未知 layer / component 非函数）抛出 `Error`。
+
+```js
+// 例 1：WebGL 动态背景（应用内容之后，透过留白可见）
+DT.overlay.register({
+  id: 'acme.bg',
+  layer: 'background',
+  component: WebGLBackground,  // 内部 <canvas> 满 viewport 绘制 shader 动画
+})
+
+// 例 2：可拖放浮窗（应用内容之上、模态之下；整窗需交互 -> pointerEvents:'auto'）
+DT.overlay.register({
+  id: 'acme.floating-notes',
+  layer: 'content',
+  pointerEvents: 'auto',
+  component: FloatingPanel,    // 内部自管绝对定位 + 拖拽（pointer-events 已在包裹层开启）
+})
+
+// 例 3：全屏 3D 小游戏（盖过一切；接管输入）
+DT.overlay.register({
+  id: 'acme.3d-quest',
+  layer: 'top',
+  pointerEvents: 'auto',
+  component: ThreeDGame,       // Three.js/Babylon 场景；满屏 canvas 接管键鼠
+})
+```
+
+### 覆盖层其余方法
+
+- `overlay.unregister(id): boolean` —— 幂等移除；组件随下次渲染消失。
+- `overlay.list(layer?): OverlayDef[]` —— 某分层（缺省全部层）当前覆盖层（按 order 升序）。主要供调试。
+- `overlay.layers(): readonly string[]` —— 当前宿主支持的全部分层名（只读）。用于**能力发现**：
+  插件在旧宿主上可跳过新分层降级，在新宿主上自动可用，无需解析/比较版本号：
+
+```js
+if (DeepTutor.overlay.layers().includes('top')) {
+  DeepTutor.overlay.register({ id: 'my.game', layer: 'top', component: Game })
+}
+```
+
+- `overlay.subscribe(fn): () => void` —— 订阅注册表变化，返回退订函数（一般无需使用，宿主已自动响应）。
+
+### 覆盖层宿主行为保证
+
+- **全路由渲染**：覆盖层渲染在应用根级（`document.body` 上的门户容器），覆盖**所有页面**含登录/设置页；
+  组件内可用 `useLocation()`/`router.path()` 按路由自显隐（如只在 `/plans` 显示某 HUD）。
+- **单 overlay 错误边界**：覆盖层渲染异常被**隔离**（该 overlay 自身隐藏、错误输出到控制台），
+  不影响应用、其余 overlay 与同层其他组件；同 id 重新注册新组件后获重试机会。即便如此，仍请保证组件不抛异常。
+- **React 上下文可用**：覆盖层组件渲染在 `BrowserRouter` + `QueryClientProvider` 内，可正常使用
+  `useNavigate`/`useLocation`（SPA 导航）与 `useQuery`（取后端数据，经 `api.get` 同一登录态）。
+- **可观测**：已注册覆盖层记录在「插件」管理页（`/plugins`）「当前生效」区，按分层聚合（管理员/用户均可见）。
+- **渲染载体**：宿主为每分层在 `document.body` 上创建一个 `position:fixed;inset:0` 容器
+  （`id="dt-overlay-back|content|top"`，`pointer-events:none`），插件组件在其中自由绘制；
+  **请勿直接操作这些容器**（内部实现，升级不另行通知）——只经门面注册。
+
+> **能力提示（无需门面即可用）**：覆盖层组件与宿主同窗口，可直接用 `document.createElement('script')`
+> 从 CDN 载入 [Three.js](https://threejs.org/) / [Matter.js](https://brm.io/matter-js/) / [p5.js](https://p5js.org/)
+> 等图形/物理库，或 `fetch`/`Image()` 载入纹理资源——3D 小游戏、2D 物理所需的全部生态库都可用。
+> 门面只负责"把你的 React 组件放到正确的全屏层"，绘图与物理引擎由你自选。
+
+---
+
+## 二补四 · UI 辅助 API（`DeepTutor.ui`，v1.8.0）
+
+> **"可自由拖放的小组件"的配套工具。** 覆盖层（§二补三）让插件能渲染浮层，但"可自由拖放"
+> （用户点名需求）须每个插件自行实现拖拽（pointer 事件 + 位置状态 + 边界 + 持久化），重复且易错。
+> 本命名空间提供受支持的拖拽工具——对自己的 DOM 元素调用一次即获得「可拖放 + 视口边界 +
+> 位置持久化」，配合 overlay 的 `content` 层即做出可自由拖放的小组件。
+
+### `ui.makeDraggable(el, opts?): { destroy }`
+
+```ts
+interface DraggableOptions {
+  handle?: HTMLElement | null      // 拖拽手柄（pointerdown 起始元素）；缺省 = 被拖元素自身
+  persistKey?: string              // localStorage 键——持久化位置，刷新后恢复；缺省不持久化
+  bounds?: 'viewport' | HTMLElement | null  // 移动边界：'viewport'（缺省）/ 容器元素 / null(不限)
+  initial?: { x: number; y: number }        // 初始 fixed 坐标(px)；缺省 = persistKey 恢复值 或 当前 rect
+}
+interface DraggableHandle { destroy(): void }  // 卸载时调用，移除监听
+```
+
+让一个 DOM 元素可自由拖放：设 `position:fixed` + 按初始位置定位，`pointerdown`(主键/触摸/笔)
+开始拖拽 → `pointermove` 更新位置（边界钳制）→ `pointerup` 结束并按 `persistKey` 持久化。
+拖拽中临时置顶（`z-index:9999`）+ 禁止文本选中；结束还原。返回 `{ destroy }`——overlay
+unregister / 组件卸载时调用移除监听。
+
+```js
+// 例：一个可自由拖放、位置记忆的浮窗笔记（overlay content 层 + makeDraggable）
+DT.overlay.register({
+  id: 'acme.float-notes',
+  layer: 'content',
+  pointerEvents: 'auto',          // 浮窗需交互
+  component: function FloatNotes() {
+    const { useEffect, useRef } = DT.React
+    const ref = useRef(null)
+    useEffect(() => {
+      if (!ref.current) return
+      // 一次调用即获得拖放 + 视口边界 + 位置持久化（刷新后回到上次位置）
+      const d = DT.ui.makeDraggable(ref.current, { persistKey: 'acme.float-notes.pos' })
+      return () => d.destroy()     // 组件卸载清理
+    }, [])
+    return DT.React.createElement('div', {
+      ref: ref,
+      style: { width: 220, background: '#fff', border: '1px solid #e2e8f0',
+               borderRadius: 'var(--dt-card-radius, 0.75rem)', padding: 12, boxShadow: '0 4px 12px rgba(0,0,0,.1)' },
+    }, '拖我到处放 📝')
+  },
+})
+```
+
+> **边界与持久化**：`bounds:'viewport'`（缺省）把浮窗限制在视口内（不会被拖出屏幕）；
+> 传容器元素则限制在其范围内；`null` 不限制。`persistKey` 存 localStorage（隐私模式/配额不可用时
+> 静默降级为不持久化）。`handle` 指定拖拽手柄（如标题栏），被拖元素整体随之移动。
+
+### `ui.makeResizable(el, opts?): { destroy }`（v1.10.0）
+
+让一个 DOM 元素可缩放：在四边/四角加缩放手柄，pointer 拖拽改尺寸。返回 `{ destroy }`——卸载时
+移除手柄与监听。**配 `makeDraggable` 即做出可拖放 + 可缩放的浮窗/面板**（完整"可自由拖放的小组件"）。
+
+```ts
+interface ResizableOptions {
+  handles?: ('n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw')[]  // 缺省全部 8 个（四边+四角）
+  minSize?: { width: number; height: number }        // 缺省 {width:80, height:50}
+  persistKey?: string                                // localStorage 键——持久化尺寸，刷新后恢复
+}
+```
+
+- 元素须为定位元素（`static` 则自动设 `relative`）；建议先用 `makeDraggable`（设 `fixed`）再 `makeResizable`。
+- `n/w` 边收缩时对边固定（`e/s` 边所在边缘不动），`minSize` 钳制最小尺寸。`persistKey` 存 localStorage（隐私模式静默降级）。
+
+```js
+// 例：可拖放 + 可缩放的浮窗笔记（overlay + makeDraggable + makeResizable）
+DT.overlay.register({
+  id: 'acme.float-panel', layer: 'content', pointerEvents: 'auto',
+  component: function Panel() {
+    const { useEffect, useRef } = DT.React
+    const ref = useRef(null)
+    useEffect(() => {
+      if (!ref.current) return
+      const d = DT.ui.makeDraggable(ref.current, { persistKey: 'panel.pos' })
+      const r = DT.ui.makeResizable(ref.current, { persistKey: 'panel.size', minSize: { width: 200, height: 120 } })
+      return () => { d.destroy(); r.destroy() }
+    }, [])
+    return DT.React.createElement('div', {
+      ref: ref,
+      style: { width: 320, background: '#fff', border: '1px solid #cbd5e1',
+               borderRadius: 'var(--dt-card-radius)', padding: 12, boxShadow: '0 4px 12px rgba(0,0,0,.1)' },
+    }, '拖我、缩我 📝')
+  },
+})
+```
+
+### `ui.makeDroppable(el, opts?): { destroy }`（v1.11.0）
+
+让一个 DOM 元素成为**拖放目标**——检测 `makeDraggable` 拖拽的元素被拖入/放下。返回 `{ destroy }`。
+配 `makeDraggable` 即做出完整的拖放交互（拖到目标区域 → onDrop 回调），如看板拖拽 / 拖入分类 /
+分配面板。
+
+```ts
+interface DroppableOptions {
+  accept?: (draggedEl: HTMLElement) => boolean  // 过滤可放入的元素（返回 true 接受）；缺省全部
+  onDrop?: (draggedEl: HTMLElement) => void     // 放下时调用
+  onDragEnter?: (draggedEl: HTMLElement) => void // 拖入区域时调用（高亮反馈）
+  onDragLeave?: (draggedEl: HTMLElement) => void // 拖离区域时调用（移除高亮）
+}
+```
+
+```js
+// 例：可拖入的"回收站"区域
+DT.ui.makeDroppable(trashZoneEl, {
+  accept: (dragged) => dragged.dataset.trashable === 'true',
+  onDragEnter: (el) => el.classList.add('drop-highlight'),
+  onDragLeave: (el) => el.classList.remove('drop-highlight'),
+  onDrop: (el) => { el.remove(); DT.ui.toast.success('已删除') },
+})
+```
+
+> **原理**：makeDraggable 在 pointer-capture 下拖拽时，其他元素收不到 pointer 事件——故 makeDraggable
+> 广播 move/end 位置（模块级 pub-sub），makeDroppable 据此判定悬停 / 放下。多个 Droppable 互不影响。
+
+### `ui.makeSortable(container, opts?): { destroy }`（v1.12.0）
+
+让列表/容器的**子项可拖拽重排**（结构化排序，区别于 makeDraggable 的自由定位）。HTML5 DnD 实现，
+中点判定插入位置（拖过某项中点→该项下移）。任务列表 / 播放列表 / 看板列重排等场景。
+
+```ts
+interface SortableOptions {
+  onChange?: (fromIndex: number, toIndex: number) => void  // 重排后回调
+}
+```
+
+```js
+const h = DT.ui.makeSortable(listEl, {
+  onChange: (from, to) => { console.log(`项目 ${from} → ${to}`) },
+})
+// 子项自动标记 draggable + data-sortable-item
+// h.destroy() 移除排序行为
+```
+
+> **注意**：使用 HTML5 Drag-and-Drop API（非 pointer 事件，区别于 makeDraggable/makeDroppable）——
+> 桌面端完整支持，**触摸设备支持有限**（移动端建议用 makeDraggable/makeDroppable 的 pointer 版替代）。
+
+### `ui.toast` —— 通知反馈（v1.9.0）
+
+```ts
+ui.toast.success(message: string, action?: { label: string; onClick: () => void })
+ui.toast.info(message: string, action?)
+ui.toast.error(message: string, action?)
+```
+
+复用宿主 Toast 系统（右下角，3s 自动消失；带 `action` 按钮的通知 TTL 延至 8s 供点击）。插件据此给
+用户**瞬时反馈**（"已保存" / "复制成功" / "出错了"），无需自建 Toast UI——此前插件只能 `console.log`
+或从零搭通知组件。
+
+```js
+// 例：复制按钮反馈 + 错误提示
+DT.ui.toast.success('已复制到剪贴板')
+DT.ui.toast.error('同步失败，请稍后重试', { label: '重试', onClick: () => retry() })
+```
+
+> **用法**：成功类瞬时反馈用 `toast`；表单级错误仍内联（插件表单内 `role=alert`），不混用通知。
+
+---
+
 ## 三、皮肤 API（`DeepTutor.skins`）
 
 皮肤 = 一组 CSS 变量令牌，应用到 `<html>` 元素上，亮/暗模式可分别给值。
@@ -244,10 +512,15 @@ function CurrentPath() {
 
 ### v1 受支持令牌
 
-| 令牌 | 默认值 | 消费方 |
+| 令牌 | 默认值（亮 / 暗） | 消费方 |
 |---|---|---|
 | `--dt-card-radius` | `0.75rem` | 共享卡片（Card）与全部内置小组件的圆角 |
 | `--dt-font-sans` | 系统字体栈 | `body` 全局正文字体族 |
+| `--dt-bg`（v1.15.0） | `#f8fafc` / `#0f172a` | `body` 页面背景（skins.register 设即实时生效） |
+| `--dt-color-primary`（v1.15.0） | `#4f46e5` / `#6366f1` | 供插件 CSS 引用（`var(--dt-color-primary)`），形成品牌色统一 |
+| `--dt-surface`（v1.15.0） | `#ffffff` / `#1e293b` | 供插件 CSS 引用（卡片/面板表面色） |
+| `--dt-border`（v1.15.0） | `#e2e8f0` / `#334155` | 供插件 CSS 引用（边框色） |
+| `--dt-shadow-card`（v1.15.0） | `0 1px 3px ...` | 供插件 CSS 引用（卡片阴影） |
 
 > 只允许设置 `--dt-*` 命名空间的变量（其余键会被忽略）。
 > 后续版本将追加更多令牌（品牌色、阴影、密度等），已列令牌不会改名或删除。
@@ -272,6 +545,11 @@ interface SkinDef {
 应用皮肤；未知名称返回 `false`。应用结果持久化，刷新后保持。
 `skins.apply('default')` 清除全部自定义令牌，回到默认外观。
 
+#### `skins.unregister(name: string): boolean`（v1.17.0）
+
+注销皮肤（幂等）。内置皮肤（`default`/`compact`/`rounded`）不可注销（返回 `false`）；
+当前激活皮肤被注销时自动回退 `default`。主要供热停用插件时清除其注册的皮肤。
+
 #### `skins.active(): string`
 
 当前皮肤名。
@@ -288,17 +566,34 @@ interface SkinDef {
 
 ## 四、事件 API（`DeepTutor.events`）
 
+事件有两类来源，插件用同一 `events.on` 订阅：
+
+- **前端本地事件**：`skinchange` / `taskchange`（本进程内 `emit`）。
+- **后端事件桥**（v1.7.0，iter 315）：宿主在登录态自动连接 `GET /api/events/stream`（SSE，
+  见 §8.8），把**后端事件总线**事件实时转发为 `DeepTutor.events`——插件订阅即**实时**收到
+  （方案生成完成、学习进度更新、测验提交、打卡、材料生成完成等），**免轮询**。这是
+  "用 API 完全替换前端"的实时性使能项（替代前端做 live 仪表盘时，数据变化自动推送）。
+
 ### 事件清单
 
-| 事件名 | payload | 触发时机 |
-|---|---|---|
-| `skinchange` | `{ name: string }` | 皮肤切换后（含亮/暗切换引起的令牌重放） |
-| `taskchange`（v1.1.0） | `{ id: string; kind: 'plan' \| 'materials'; phase: string; title: string }` | 方案/材料生成任务的每次相位迁移（`phase`：`running` / `clarify` / `done` / `error` / `cancelled` / `interrupted`；`id` 形如 `plan:<sessionId>`、`materials:<planId>`） |
+| 事件名 | payload | 来源 | 触发时机 |
+|---|---|---|---|
+| `skinchange` | `{ name: string }` | 前端 | 皮肤切换后（含亮/暗切换引起的令牌重放） |
+| `taskchange`（v1.1.0） | `{ id; kind; phase; title }` | 前端 | 方案/材料生成任务的每次相位迁移 |
+| `plan_created`（v1.7.0） | `{ plan_id; session_id; version; topic }` | 后端 | 方案新版本落库后（生成/重生成/重试统一收口） |
+| `progress_updated`（v1.7.0） | `{ user_id; plan_id; node_id; status; mastery }` | 后端 | 单节点进度更新提交后 |
+| `quiz_submitted`（v1.7.0） | `{ user_id; quiz_id; plan_id; type; correct }` | 后端 | 测验作答提交后 |
+| `materials_completed`（v1.7.0） | `{ plan_id; session_id; unit_count; degraded_count; partial }` | 后端 | 自学材料生成完成 |
+| `learning_log_added`（v1.7.0） | `{ user_id; plan_id; log_id; date; minutes; note }` | 后端 | 学习打卡提交后 |
+| `<plugin 自定义>`（v1.7.0） | 任意 | 后端 | 后端插件 `api.events.emit("myplugin.x", {...})`（按归属用户过滤推送） |
 
 > 事件只增不改：新版本可能追加事件，已有事件名与 payload 结构向后兼容。
 >
-> **前向兼容**：订阅宿主尚不存在的事件名不会报错——监听器只是永不触发。
-> 插件因此可以放心订阅新版本事件，在旧宿主上自然降级为无操作。
+> **前向兼容**：订阅宿主尚不存在的事件名不会报错——监听器只是永不触发。`on`/`emit` 接受
+> 任意字符串事件名（未知名以 `unknown` 载荷传递），插件可放心订阅新版本事件，在旧宿主上自然降级。
+>
+> **后端事件隔离**：经 SSE 桥转发的后端事件**按归属用户过滤**——他人的事件不会推给你
+> （`startup`/`shutdown` 等全局生命周期事件除外，广播给全部连接）。详见 §8.8。
 >
 > `taskchange` 仅通知相位变化这一事实；任务的全量状态（进度步骤、费用、错误详情等）
 > 可经 `api.get('/sessions')` / `api.get('/sessions/<id>')` 主动查询（含 `status`、
@@ -379,12 +674,27 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 
 #### `plugins.unload(url: string): void`
 
-从持久化列表移除。**注意**：已执行脚本的副作用（已注册的小组件/皮肤、定时器等）
-需刷新页面才消除；小组件可在卸载前先 `widgets.unregister(id)` 主动清理。
+从持久化列表**永久移除**（含其停用标记）。v1.17.0 起，同时清除该插件在注入期间追踪到的
+全部注册（widgets/pages/overlays/skins 即时消失），无需刷新页面。
+（插件在 `setTimeout`/异步回调中延迟注册的不被追踪，需刷新清除——约定插件在脚本体执行期间同步注册。）
+
+#### `plugins.disable(url: string): void`（v1.17.0）
+
+**停用**一个插件（不卸载、保留在列表中以便重新启用）：清除其追踪到的全部注册
+（widgets/pages/overlays/skins 即时消失）+ 记停用标记到 `localStorage('dt_plugins_disabled')`
+（刷新后不自动加载）。脚本 DOM 残留无害，`enable` 时重新注入会重新注册。
+
+#### `plugins.enable(url: string): Promise<void>`（v1.17.0）
+
+**启用**一个已停用的插件：清除停用标记 + 重新注入脚本（重新注册全部）。已注入则幂等返回。
+
+#### `plugins.isDisabled(url: string): boolean`（v1.17.0）
+
+该插件是否处于停用状态。
 
 #### `plugins.list(): string[]`
 
-当前持久化的插件 URL 列表。
+当前持久化的插件 URL 列表（含已停用的——停用插件仍可见、可一键启用）。
 
 ---
 
@@ -427,7 +737,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.5.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.18.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -471,7 +781,9 @@ curl -H "Authorization: Bearer <token>" http://localhost:8000/api/plugins
 | 临时停用 | 文件/目录名加 `_` 前缀（`_foo.py` / `_foo/`） | 跳过加载，无需删除 |
 
 - 发现顺序按文件名排序（确定性加载）；加载结果逐插件记录（见 §8.6 状态端点与启动日志）。
-- **重启生效**：放置/修改/停用插件后需重启后端。
+- **热管理（无需重启）**：放置新插件后仍需重启后端以首次发现；但已装载的插件可经
+  §8.7 热管理端点**重载 / 停用 / 启用**，无需重启整个项目。`_` 前缀约定保留为
+  「启动时跳过加载」的静态停用方式。
 - 每个插件获得私有数据目录 `<DATA_DIR>/plugins/<插件id>/`（自动创建，`api.data_dir` 取得）。
 - 单个插件导入失败、`register` 抛异常、缺 `register`、id 非法/重复、`min_api` 不兼容
   均只记该插件 `failed`，**不阻塞其余插件与宿主启动**。
@@ -507,7 +819,13 @@ PLUGIN_META = {
 | `api.data_dir` | `pathlib.Path` | 插件私有数据目录（已创建），持久化插件自身状态 |
 | `api.parsers` | `ParsersNamespace` | 文件解析器注册（v1.3.0）：为私有/小众格式注册解析器，上传与解析自动委托（§8.4a） |
 | `api.exporters` | `ExportersNamespace` | 导出格式注册（v1.4.0）：为私有/小众格式注册导出器，导出端点 format 校验与分发自动委托（§8.4b） |
-| `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c） |
+| `api.llm` | `LlmNamespace` | 宿主 LLM 能力调用（v1.5.0）：插件复用用户已配置的供应商做 AI 功能，预算守卫+用量计量同宿主端点（§8.4c）；v1.6.0 起 `complete(provider_kind=)` 可分发到插件注册的新协议 Provider |
+| `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
+| `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0 HTTP / v1.12.0 stdio）：`connect`(HTTP)/`connect_stdio`(子进程) 连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
+| `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
+| `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
+| `api.webhooks` | `WebhooksNamespace` | 事件→外部 URL 非阻塞推送（v1.15.0）：`register(url, events, secret)` 把指定事件经 bus 协程监听器非阻塞投递到外部 Webhook（Slack/Discord/自动化），标准载荷 + HMAC-SHA256 签名 + 10s 超时 + 错误隔离，一行替代 events.on+httpx ~20 行（§8.4h） |
+| `api.middleware` | `MiddlewareNamespace` | HTTP 中间件注册（v1.17.0）：`register(fn)` 全请求拦截（限流/IP/审计/安全头）——用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation（fn 异常→透传不阻断）+ rollback（§8.4i） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -544,18 +862,88 @@ api.events.emit("myplugin.custom", {"k": "v"})     # 发布自定义事件（插
 - 订阅未知事件名不报错、静默无效（前向兼容：订阅新版本事件在旧宿主上自然降级）。
 - 自定义事件请以插件 id 作命名空间（`"myplugin.xxx"`），避免与未来核心事件撞名。
 
-#### `api.tools` —— Agent 工具注册
+#### `api.tools` —— Agent 工具注册与调用
 
 ```python
 api.tools.register_python("myplugin.word_count", async_func)  # 便捷：Python 工具
-api.tools.register(tool)                                      # 完整 Tool（LLM 工具亦可）
+api.tools.register_python("myplugin.x", func, description="一行描述")  # v1.13.0：自带描述（发现视图展示）
+api.tools.register(tool)                                      # 完整 Tool（LLM 工具亦可，可带 description=）
+
+# v1.7.0：调用任意已注册工具（核心或插件），组合"新工作流"
+res = await api.tools.call(
+    name: str,               # 工具名（如 "parse_material"、"search_resources"、"generate_quiz"，或插件注册的工具）
+    args: dict,              # 该工具的入参（按其契约，如 parse_material 的 {"kind": "text", "source": "..."}）
+    *,
+    user_id: int,            # 以谁的供应商/预算/计量执行（通常来自 api.deps.get_current_user）
+    upstream: dict | None = None,  # 上游工具输出（按需，如 build_knowledge_map 需 intent/parsed）
+) -> dict                    # {"status": "ok"|"repaired"|"error", "data": {...}, "errors": [...]}
 ```
 
 - 插件工具汇入**每次请求新建**的工具注册表（`default_registry()`），插件路由/其他插件
   可经注册表显式调用；Python 工具签名 `async (inp, ctx) -> dict`（data 字典，
   契约同宿主工具）。
+- **`call`（v1.7.0）——"新工作流"组合性**：插件可调用任意已注册工具（**含核心**
+  `parse_material`/`understand_intent`/`build_knowledge_map`/`design_stages`/
+  `search_resources`/`schedule_plan`/`validate_plan`/`generate_quiz`/`record_progress`/
+  `export_plan`/`generate_study_materials`/`build_plan_slides` 等），在自有路由里把它们
+  串成新的端到端工作流——无需重实现解析/检索/出题。LLM 工具按 `user_id` 解析供应商 +
+  日预算守卫 + `api_usage` 计量（与生成端点同口径）；用户未配置供应商 ->
+  `ApiError(no_llm_provider, 503)`。未知工具 -> `ValueError`；工具执行失败 ->
+  信封 `status="error"`（**不抛**，交插件检查 `errors` 处理）。
 - **注意**：内置生成 PIPELINE 步骤固定，不会自动调用新工具；与核心工具同名会覆盖核心
   实现（注册表告警）——替换核心工具属高级用法，请充分测试（§九）。
+
+**完整示例**：插件用 `call` 组合核心工具构建"一句话出题"工作流
+
+```python
+# plugins/quizgen/plugin.py
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {"id": "quizgen", "name": "Quiz Generator", "version": "0.1.0", "min_api": "1.7"}
+
+def register(api):
+    router = APIRouter()
+
+    @router.post("/from-text")
+    async def from_text(body: dict, user=Depends(api.deps.get_current_user)):
+        text = body.get("text", "")
+        # 组合核心工具：解析 -> 理解意图 -> 出题（无需重实现任何一个）
+        parsed = await api.tools.call("parse_material", {"kind": "text", "source": text}, user_id=user.id)
+        if parsed["status"] != "ok":
+            return {"ok": False, "error": "解析失败"}
+        intent = await api.tools.call(
+            "understand_intent", {"raw_text": text[:2000]},
+            user_id=user.id, upstream={"parse_material": {"data": parsed["data"]}},
+        )
+        # build_knowledge_map 需 intent + parsed
+        km = await api.tools.call(
+            "build_knowledge_map", {},
+            user_id=user.id,
+            upstream={"understand_intent": {"data": intent["data"]}, "parse_material": {"data": parsed["data"]}},
+        )
+        quizzes = await api.tools.call(
+            "generate_quiz", {"nodes": km["data"].get("nodes", [])},
+            user_id=user.id, upstream={"build_knowledge_map": {"data": km["data"]}},
+        )
+        return {"ok": True, "quizzes": quizzes["data"].get("quizzes", [])}
+
+    api.routes.mount(router)  # -> POST /api/plugins/quizgen/from-text
+```
+
+##### `api.tools.list()` —— 工具发现（v1.8.0）
+
+```python
+tools = api.tools.list()  # -> [{name, llm, requires, description}, ...]
+```
+
+列出本实例全部已注册工具的元数据（核心 14 工具 + 插件工具）。插件据此**动态组合工作流**——
+先 `list` 探查可用工具（`llm` 标志哪些耗 LLM/预算、`requires` 标上游依赖、`description` 一行用途）
+再 `call`，无需硬编码工具名/查文档。例如插件按 `requires` 自动推断调用顺序、或按 `llm` 在
+预算紧张时跳过昂贵工具。
+
+**REST 发现端点 `GET /api/tools`**（与进程内 `api.tools.list()` 对称的外部面）：返回
+`{"tools": [{name, llm, requires, description}, ...]}`，供**外部客户端 / 替代前端**发现可调用
+工具（如替代前端渲染工具调用 UI）。认证同宿主端点。
 
 #### `api.parsers` —— 文件解析器注册（v1.3.0 扩展点）
 
@@ -721,9 +1109,29 @@ resp = await api.llm.complete(
     prompt: str,           # 用户消息（非空）
     *,
     system: str = "",      # 系统提示（可选）
-    max_tokens: int = 2048 # 收敛到 [1, 8192]（防失控调用；日预算守卫是底线）
+    max_tokens: int = 2048,          # 收敛到 [1, 8192]（防失控调用；日预算守卫是底线）
+    provider_kind: str | None = None # v1.6.0：指定时改为分发到该 kind 的插件 Provider（§8.4d），
+                                     #   凭证由插件自理；预算守卫+计量与默认路径同口径。None -> 用户已配置的供应商
 ) -> dict                  # {"content", "model", "stop_reason", "usage": {...}}（只增不改）
 ```
+
+**流式补全**（v1.14.0）：逐 token yield 文本增量——插件做 chat / 实时标注等 live-typing UI。
+
+```python
+async for text in api.llm.stream(
+    user_id: int,          # 以谁的供应商配置调用
+    prompt: str,           # 用户消息（非空）
+    *,
+    system: str = "",      # 系统提示（可选）
+    max_tokens: int = 2048 # 收敛到 [1, 8192]
+):
+    # text = 文本增量（str），逐 token 到达
+    # 用法：拼接 yield 的文本即完整补全
+```
+
+- Anthropic 真流式（逐 token yield）；插件 Provider 回退非流式（一次性 yield 全文）。
+- 日预算守卫 + `api_usage` 计量同 `complete`（usage 在流末尾摄取，部分消费可能不计量）。
+- 错误映射同 `complete`（`no_llm_provider`/`server_busy`/`bad_gateway`，在 `async for` 中抛出）。
 
 **错误映射**（均为 `ApiError`——插件路由内直接上抛即得宿主统一错误格式）：
 
@@ -765,6 +1173,317 @@ def register(api):
     api.routes.mount(router)  # -> POST /api/plugins/annotator/annotate（默认带宿主认证）
 ```
 
+#### `api.providers` —— LLM Provider 扩展点（v1.6.0 扩展点，§8.4d）
+
+为内置**仅支持 Anthropic 协议**的 LLM 层注册**新协议 Provider**——让后端经插件 API 即可
+"支持新的 LLM Provider"（OpenAI `/v1/chat/completions`、Ollama、DeepSeek 原生、Gemini 等）。
+注册后经 `api.llm.complete(..., provider_kind=...)` 调用，**带宿主日预算守卫 + `api_usage`
+计量**（与宿主端点同口径）——非 Anthropic 协议不再须插件 DIY `httpx` 绕开预算/计量（"暗花费"）。
+
+```python
+api.providers.register(
+    kind: str,              # 协议名（如 "openai"、"ollama"）；规范化为小写，字符集 [a-z0-9][a-z0-9_-]{0,31}
+                            #   'anthropic' 为内置保留，注册拒绝（ValueError）
+    handler: Callable,      # 补全函数，async 或 sync，签名见下
+    *,
+    default_model: str = "",# 该 kind 默认模型名（api.llm 未显式传 model 时用），可选
+    label: str = "",        # 人类可读协议名（GET /providers/kinds 展示用），可选
+) -> None
+api.providers.kinds() -> list[str]   # 本插件已注册的协议名（调试/状态展示用）
+```
+
+**handler 契约**（async 或 sync，签名相同；async 直接 await，sync 在线程池执行不阻塞事件循环）：
+
+```python
+async def chat_openai(
+    system: str, user: str, *,
+    model: str, max_tokens: int,
+    api_key: str, base_url: str,   # iter 313：凭证（见下方"凭证来源"）
+) -> dict:
+    # api_key/base_url 非空时用之（来自用户供应商档案）；空串则回退插件自有凭证
+    # （api.data_dir / 环境变量 / 自有设置路由）。
+    client = openai.OpenAI(api_key=api_key or my_own_key, base_url=base_url or None)
+    resp = client.chat.completions.create(model=model, max_tokens=max_tokens,
+                                          messages=([{"role":"system","content":system}] if system else [])
+                                                 + [{"role":"user","content":user}])
+    return {
+        "content": resp.choices[0].message.content,   # 必填：补全文本
+        "model": resp.model,                          # 必填：实际所用模型名
+        "stop_reason": resp.choices[0].finish_reason, # 可选
+        "usage": {                                    # 必填（成本计量用）
+            "input_tokens": resp.usage.prompt_tokens,        # 必填
+            "output_tokens": resp.usage.completion_tokens,   # 必填
+            "cache_read_input_tokens": 0,                    # 可选，缺省 0
+            "cache_creation_input_tokens": 0,                # 可选，缺省 0
+        },
+    }
+```
+
+> **凭证来源**（`api_key`/`base_url`，iter 313 profile 集成）：**经用户供应商档案调用**
+> （档案 `kind` 设为该协议、`get_provider` 分发、或 `/providers/{id}/test`）时，`api_key`/`base_url`
+> 来自档案——用户在设置页统一配 key + 选协议，无需为插件另配；**经 `api.llm.complete(provider_kind=)`
+> 调用**（无档案上下文）时传空串，插件 handler 据此回退自有凭证。即：非空用档案、空则插件自理。
+
+**异常约定**（插件无需 import 宿主内部）：handler 抛任何异常 -> 宿主分类——在异常实例上设
+`transient = True`（或抛名为 `ConnectError`/`TimeoutException`/`RateLimitError`/`APIConnectionError`
+等常见网络瞬态类型）标记瞬态，宿主据此退避重试（`api.llm` -> `server_busy` 503）；其余非瞬态
+（含 4xx/返回契约不合规）-> `bad_gateway` 502。返回 dict 缺必填字段或类型错 -> `bad_gateway`。
+
+> **安全/稳定要点**：① 纯增量——`provider_kind=None`（缺省）时 `api.llm.complete` 行为与 v1.5.0
+> 字节一致（走用户已配置的 Anthropic 供应商），无插件注册 Provider 时全链路不变；② 花费治理
+> 与宿主同规（日预算守卫 + `api_usage` 计量双闸），插件 Provider 不能绕过日预算；③ `max_tokens`
+> 收敛 [1, 8192] 防失控天价调用；④ 凭证不入宿主——插件自管其新协议 key（存 `api.data_dir`，
+> 不硬编码进源码）；⑤ 内置 `'anthropic'` 保留名拒绝注册，防与内置协议冲突。
+
+**完整示例**：OpenAI 兼容 Provider 插件（注册新协议 + 暴露配置路由 + 经 api.llm 调用）
+
+```python
+# plugins/openai_provider/plugin.py
+import json
+from pathlib import Path
+from fastapi import APIRouter, Depends
+import httpx
+
+PLUGIN_META = {"id": "openaiprovider", "name": "OpenAI Provider", "version": "0.1.0", "min_api": "1.6"}
+
+_cfg_file = lambda api: Path(api.data_dir) / "config.json"
+
+def register(api):
+    def _load_cfg():
+        f = _cfg_file(api)
+        return json.loads(f.read_text("utf-8")) if f.exists() else {}
+
+    async def chat_openai(system, user, *, model, max_tokens, api_key="", base_url=""):
+        # 凭证优先用档案传入（profile 集成路径，用户在设置页配 key）；空则回退插件自有配置
+        cfg = _load_cfg()  # {base_url, api_key, model} —— 插件路由自配的回退凭证
+        key = api_key or cfg.get("api_key")
+        url = (base_url or cfg.get("base_url") or "https://api.openai.com").rstrip("/")
+        if not key:
+            raise RuntimeError("OpenAI provider 未配置 api_key（档案或插件配置二选一）")
+        async with httpx.AsyncClient(timeout=120) as c:
+            r = await c.post(
+                f"{url}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
+                json={"model": model or cfg.get("model", "gpt-4o"),
+                      "max_tokens": max_tokens,
+                      "messages": ([{"role": "system", "content": system}] if system else [])
+                                 + [{"role": "user", "content": user}]},
+            )
+            r.raise_for_status()  # 4xx/5xx -> 非 transient -> bad_gateway（超时/连接由 httpx 抛，宿主按名判 transient）
+            data = r.json()
+        return {
+            "content": data["choices"][0]["message"]["content"],
+            "model": data["model"],
+            "stop_reason": data["choices"][0].get("finish_reason"),
+            "usage": {
+                "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
+                "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
+            },
+        }
+
+    api.providers.register("openai", chat_openai, default_model="gpt-4o", label="OpenAI 兼容")
+
+    router = APIRouter()
+    @router.post("/generate")
+    async def generate(body: dict, user=Depends(api.deps.get_current_user)):
+        # 经 api.llm 调用本插件注册的 openai 协议——日预算守卫 + api_usage 计量同宿主
+        resp = await api.llm.complete(
+            user.id, body.get("prompt", ""), system="你是助教",
+            max_tokens=512, provider_kind="openai",
+        )
+        return {"text": resp["content"], "model": resp["model"]}
+
+    @router.put("/config")
+    def set_config(body: dict, user=Depends(api.deps.require_admin)):
+        # 凭证落插件私有数据目录（不入宿主 DB；仅管理员可配）
+        _cfg_file(api).write_text(json.dumps(body), "utf-8")
+        return {"ok": True}
+
+    api.routes.mount(router)
+```
+
+装载后：`GET /api/providers/kinds` 列出 `openai`（§发现端点）；插件路由与 `api.llm.complete(..., provider_kind="openai")` 即可调用 OpenAI，花费受日预算约束、记入用量页。
+
+> **接入宿主供应商档案（iter 313 profile 集成，已落地）**：插件 Provider 不仅可经
+> `api.llm.complete(provider_kind=...)` 显式调用，还可**接入用户供应商档案**——档案 `kind` 字段
+> 设为该协议（如 `openai`）后，`get_provider(user_id)` 自动分发到对应 `PluginProvider`，**方案生成主线**
+> 与所有宿主端点（生成/重生成/slides/测验等）即用新协议，档案 `api_key`/`base_url` 作凭证传入 handler。
+> 用户在设置页统一配 key + 选协议（`GET /api/providers/kinds` 发现可用协议），无需为插件另配。
+>
+> **供应商档案 `kind` 字段**：`POST/PUT /api/providers` 接受 `kind`（规范化小写；缺省/空串 → `'anthropic'`）。
+> 档案 `kind` 为插件协议时：`get_provider(user_id)` 返回 `PluginProvider`（未知/未注册 `kind` 抛
+> `RuntimeError`，不静默回退）；`POST /api/providers/{id}/test` 同口径分发（未注册 `kind` 返回
+> `ok:false` 明确错误）。`GET /api/providers` 回显 `kind`。**既有档案 `kind` 为空 → `'anthropic'`，
+> `get_provider` 行为与集成前字节一致（零回归）。**
+
+#### `api.mcp` —— MCP 客户端（v1.9.0 扩展点，§8.4e）
+
+连接**外部 MCP server**（[Model Context Protocol](https://modelcontextprotocol.io/)，Streamable HTTP
+传输）——列出并调用其工具，把任意外部工具 server 接入后端（"扩展后端类 Claude Code 可以调用的工具和 MCP"，
+用户点名需求）。插件据此在自有路由调用 MCP server 工具（filesystem / github / 自建工具 server 等），
+或包成宿主工具经 `api.tools.call/list` 复用。
+
+```python
+client = await api.mcp.connect(
+    url: str,               # MCP server 的 HTTP 端点（http(s)://；可信配置——server 可在 localhost）
+    *,
+    headers: dict | None = None,  # 额外请求头（如 Authorization），可选
+    timeout: float = 30.0,        # 每次请求超时秒
+) -> McpHttpClient           # 已 initialize 握手就绪的客户端（握手失败 -> RuntimeError）
+
+await client.list_tools()    # -> [{name, description, inputSchema}, ...]
+await client.call_tool(name, arguments: dict | None = None)  # -> {content: [{type, text/...}], isError, ...}
+client.server_info           # server 的 serverInfo（name/version，来自 initialize）
+await client.close()         # 用完关闭（释放连接）
+```
+
+**协议**（按 MCP Streamable HTTP 规范）：单端点 POST JSON-RPC；请求带
+`Accept: application/json, text/event-stream`，响应可能是 `application/json`（单 JSON-RPC）或
+`text/event-stream`（SSE，`data:` 行携带 JSON-RPC）——客户端两种都能解析。`initialize` 握手捕获
+`Mcp-Session-Id` 头并在后续请求回传；握后发 `notifications/initialized` 通知。
+
+**stdio 传输**（v1.12.0，`connect_stdio`）：连接**本地子进程 MCP server**（stdio 是 MCP 最常见部署，
+如 `npx -y @modelcontextprotocol/server-filesystem /data`）。与 `connect`（HTTP）同接口：
+
+```python
+client = await api.mcp.connect_stdio(
+    command: list[str],          # 启动 server 的 argv（如 ["npx","-y","@modelcontextprotocol/server-filesystem","/data"]）
+    *,
+    env: dict | None = None,     # 子进程环境变量（可选；缺省继承宿主）
+    read_timeout: float = 30.0,  # 读响应超时秒（防 server 挂起）
+) -> McpStdioClient              # spawn + initialize 握手就绪（同 list_tools/call_tool/close 接口）
+```
+
+spawn 子进程，经 **stdin/stdout line-delimited JSON-RPC**（initialize / tools/list / tools/call）；
+跳过 server 通知只取匹配 id 响应。用完须 `close()`（terminate 子进程）。
+
+**错误**：JSON-RPC `error` 响应 / 握手失败 / server 关闭 stdout -> `RuntimeError`；HTTP 非 2xx ->
+`httpx.HTTPStatusError`；超时 -> `httpx.TimeoutException`。插件在路由内 try/except 处理（错误隔离在调用内，不影响宿主）。
+
+> **安全/稳定**：① 客户端仅插件显式调用（**不在任何热路径**）——server 慢/挂时调用失败抛清晰错误，
+> 宿主稳定不受影响；② HTTP 出站到可信 URL / stdio 执行可信 argv（admin/插件配置，同供应商 `base_url`
+> 与插件代码信任模型——MCP server 可在 localhost / 本地子进程）；③ httpx 显式超时 / stdio 读超时；
+> ④ 工具结果为数据（非代码），同任意工具输出信任级；⑤ stdio `close()` terminate 子进程（防僵尸）。
+>
+> **范围**：Streamable HTTP（v1.9.0）+ stdio（v1.12.0）两种传输。**真实第三方 MCP server 互操作验证**
+> 为后续轮（须对参考 server 集成测试）。本轮按 spec 实现、对 spec-faithful mock server 测试
+> （HTTP JSON+SSE / stdio 子进程，含 initialize/list/call/error/close）。
+
+**完整示例**：把一个 MCP server 的 `echo` 工具暴露成插件路由
+
+```python
+# plugins/mcp_echo/plugin.py
+from fastapi import APIRouter, Depends
+
+PLUGIN_META = {"id": "mcp_echo", "name": "MCP Echo Bridge", "version": "0.1.0", "min_api": "1.9"}
+
+def register(api):
+    router = APIRouter()
+    # MCP server URL 由部署方配置（这里示例硬编码；生产可读 api.settings 或自有配置路由）
+    MCP_URL = "http://localhost:8000/mcp"
+
+    @router.post("/echo")
+    async def echo(body: dict, user=Depends(api.deps.get_current_user)):
+        client = await api.mcp.connect(MCP_URL)
+        try:
+            tools = await client.list_tools()
+            # 调用 MCP server 的 echo 工具
+            res = await client.call_tool("echo", {"text": body.get("text", "")})
+            return {"tools": [t["name"] for t in tools], "reply": res["content"][0]["text"]}
+        finally:
+            await client.close()
+
+    api.routes.mount(router)  # -> POST /api/plugins/mcp_echo/echo
+```
+
+> **进阶**：把 MCP server 的全部工具包成宿主工具（经 `api.tools.register_python`，func 内调
+> `client.call_tool`），即可用 `api.tools.call/<list>`（§8.4）统一调用/发现——MCP 工具与核心工具同构。
+
+#### `api.scheduler` —— 后台任务调度（v1.10.0 扩展点，§8.4f）
+
+让插件注册**周期/延迟后台任务**——`every`（周期）/ `once`（延迟）。插件此前只能注册路由（请求触发）
+与事件监听（事件触发），无法做周期工作（定时同步 / 每日摘要 / 周期轮询 MCP），`register()` 须快速
+幂当、不能起长任务。本扩展点填补该缺口。
+
+```python
+h = api.scheduler.every(
+    interval_s: float,        # 周期秒（须 > 0）
+    fn: Callable,             # async（await）或 sync（须非阻塞，重活 fn 内 asyncio.to_thread）
+    *, run_immediately=False, # True 则先跑一次再计时
+) -> TaskHandle               # .cancel() 取消（幂等）
+
+h = api.scheduler.once(
+    delay_s: float,           # 延迟秒（须 >= 0）
+    fn: Callable,
+) -> TaskHandle               # .cancel() 取消（取消则 fn 不跑）
+```
+
+**行为**：任务跑在宿主事件循环；fn 可 async（`await`）或 sync（直接调）。fn 异常被**隔离**（记日志，
+不杀循环、不影响宿主与其他任务）。`TaskHandle.cancel()` 单独取消；插件卸载（`reset_plugins`）统一取消全部。
+任务**不持久化**——进程重启即失（周期任务在插件 `register`/`startup` 时重新注册）。
+
+**调用时机**：须在运行中的事件循环内（`register()` 期间——加载在 lifespan 内有运行循环；或 async 路由内）。
+
+```python
+# 例：每日 00:30 提示复习的插件（周期轮询 + 事件推送）
+def register(api):
+    async def daily_review():
+        # 周期工作：查到期复习、经 api.events 或自有路由通知
+        due = await api.api.get('/progress/review/due')  # 经 REST 代理查
+        if due["total"] > 0:
+            api.events.emit("myplugin.review_due", {"count": due["total"]})
+
+    # 每 6 小时检查一次（演示用短周期；生产可配更长）
+    api.scheduler.every(6 * 3600, daily_review, run_immediately=True)
+
+    # 一次性延迟任务示例：插件启用 10s 后跑一次初始化
+    async def bootstrap():
+        await api.api.request('/some/init', {'method': 'POST', 'body': {}})
+    api.scheduler.once(10, bootstrap)
+```
+
+> **安全/稳定**：① fn 异常隔离（单次失败不杀循环、不连锁）；② 任务引用模块级保留（防 GC），卸载统一取消；
+> ③ 信任模型同插件代码（fn 在宿主进程跑——重 CPU/IO 活请 fn 内 `asyncio.to_thread` 避免阻塞循环）；
+> ④ 不持久化（重启即失，插件重新注册——`startup` 事件可作初始化锚点）。
+
+#### `api.storage` —— 持久化 KV 存储（v1.11.0 扩展点，§8.4g）
+
+每插件私有的键值存储（JSON 文件于插件 `data_dir`），替代裸 `data_dir` 文件 I/O——提供**原子写**
+（tmp + rename，防并发请求损坏中途留下半写文件）、JSON 序列化校验、损坏容错（损坏文件静默重置不抛）、
+与统一 API。数据密集型插件（习惯追踪 / 分析缓存 / 自定义实体）的结构化持久化。
+
+```python
+api.storage.get(key: str, default=None)          # 取值；缺省返 default
+api.storage.set(key: str, value)                 # 存值（原子写盘）；value 须 JSON 可序列化
+api.storage.delete(key: str) -> bool             # 删键；返回是否确实删了（幂等）
+api.storage.has(key: str) -> bool                # 是否存在
+api.storage.keys() -> list[str]                  # 全部键
+api.storage.clear()                              # 清空本插件全部 KV
+```
+
+- **值**须 JSON 可序列化（`str/int/float/bool/list/dict/None`）；非可序列化（如 `set`、自定义对象）->
+  `ValueError`。**键**须非空字符串。
+- **命名空间隔离**：存于插件私有 `data_dir`（`<DATA_DIR>/plugins/<id>/storage.json`），插件间天然隔离。
+- **持久化**：随插件 `data_dir` 落盘（原子 tmp+rename），进程重启后仍在。
+- **并发**：单事件循环内同步操作原子；`set/delete/clear` 经 `os.replace` 原子写（防并发写损坏）。
+
+```python
+# 例：习惯追踪插件记录连续天数（持久化跨重启）
+@router.get("/streak")
+def streak(user=Depends(api.deps.get_current_user)):
+    return {"streak": api.storage.get("habit_streak", 0)}
+
+@router.post("/checkin")
+def checkin(user=Depends(api.deps.get_current_user)):
+    n = api.storage.get("habit_streak", 0) + 1
+    api.storage.set("habit_streak", n)
+    api.storage.set("last_checkin", "2026-07-23")  # 嵌套/列表/任意 JSON 结构皆可
+    return {"streak": n}
+```
+
+> **安全/稳定**：① 原子写（tmp+rename）防并发写中途崩溃损坏；② 损坏文件静默重置（不抛、不丢功能）；
+> ③ 仅本插件 data_dir（不越界读写他插件/宿主文件）；④ 非可序列化值显式拒绝（不静默丢数据）。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -795,7 +1514,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.5.0",
+  "api_version": "1.18.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -816,7 +1535,91 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 本端点同时是内置「插件」管理页（`/plugins`，后端插件区块）的数据源——
 管理员可在页面直接查看各插件装载状态与错误，无需手工调用。
 
-### 8.7 完整示例
+### 8.7 热管理：重载 / 停用 / 启用（管理员，无需重启）
+
+已装载的后端插件可经以下端点**热重载 / 停用 / 启用**，无需重启整个后端。
+三端点均需管理员权限（`require_admin`，非管理员 403），均作用于 §8.6 状态台账中可见的插件。
+
+| 端点 | 语义 | 返回 |
+|---|---|---|
+| `POST /api/plugins/{id}/reload` | 热重载：卸载（逆序回滚其全部注册）+ 重新导入文件 + 重新 `register`。用于改了插件源码后即时生效 | `{ok, plugin}`（新状态） |
+| `POST /api/plugins/{id}/disable` | 停用：卸载 + 记 `state:"disabled"` + **持久化**禁用状态（重启后仍停用） | `{ok}` |
+| `POST /api/plugins/{id}/enable` | 启用：清除停用标记 + 从文件重新加载 | `{ok, plugin}` |
+
+- `reload`/`enable` 的响应 `plugin` 字段结构与 §8.6 每行相同（含 `state`/`routes` 等）。
+- 插件不存在（无文件且未加载）-> `404 not_found`（与 §8.6 列表一致：未装载的插件不可热操作）。
+- `disable` 把停用状态持久化到 `<DATA_DIR>/plugin_state.json`（`{"disabled": ["id", ...]}`），
+  后端重启后 `load_plugins` 读取该文件、跳过停用插件（记 `state:"disabled"`，不挂载路由）。
+- `_` 前缀（§8.2）是「启动时跳过」的静态约定；本节端点是「运行时停用/启用」的动态手段，
+  二者互补。停用与启用均**幂等**（重复请求不报错）。
+
+**`state` 取值**：`loaded`（已加载，路由可用）/ `failed`（装载失败，`error` 给原因）/
+`disabled`（已停用，路由已卸载，可一键启用）。
+
+**内置管理页 UI**：「插件」页（`/plugins`）后端区块对每个插件按状态展示操作按钮——
+`loaded`/`failed` → 🔄 重载；`loaded` → ⏸ 停用；`disabled` → ▶ 启用。前端区块另有
+前端插件（浏览器端）的停用/启用开关（见「前端插件 API」§`plugins.disable/enable`）。
+
+### 8.8 实时事件流：`GET /api/events/stream`（SSE）
+
+把后端事件总线（§8.5 核心事件 + 插件自定义事件）**实时推送**给已认证客户端——
+Server-Sent Events。前端插件 / 外部替代前端 / CLI 据此构建实时 UI（学习进度更新、
+方案生成完成、测验提交、学习打卡等），**无需轮询**。这是"用 API 完全替换前端"的
+实时性使能项（一个完整替代前端必须能感知后端数据变化）。
+
+**鉴权与连接**：与宿主端点同一机制（JWT / `AUTH_TOKEN` / 开放本机模式）。SSE 经
+`fetch` + `ReadableStream` 携带 `Authorization` 头（浏览器原生 `EventSource` 不能带
+自定义头，故客户端需用 fetch 流式读，如本项目前端 [sse.ts](frontend/src/lib/sse.ts)）。
+
+**用户隔离（P4 安全默认）**：服务端按归属用户过滤事件——
+
+- payload 带 `user_id`（如 `progress_updated`/`quiz_submitted`/`learning_log_added`）-> 仅转发给该用户；
+- payload 带 `session_id`（如 `plan_created`/`materials_completed`）-> 服务端解析 `session.user_id` 后仅转发给归属用户；
+- `startup`/`shutdown` 等全局生命周期事件 -> 广播给全部连接；
+- 既无 `user_id`/`session_id` 又非全局的事件（如某些插件自定义事件）-> **丢弃**（safe-by-default，防跨用户泄露）。
+
+**帧格式**（标准 SSE）：
+
+```text
+event: progress_updated
+data: {"user_id": 1, "plan_id": 7, "node_id": "n3", "status": "done", "mastery": 0.8}
+
+event: plan_created
+data: {"plan_id": 12, "session_id": 3, "version": 1, "topic": "React"}
+
+: ping
+```
+
+- 每个事件一个 `event:` 行（事件名）+ `data:` 行（JSON payload），空行分隔。
+- 空闲时每 15s 发一行 `: ping` 心跳注释（防代理/浏览器缓冲挂起连接）。
+- 客户端断开 -> 服务端立即退订、释放资源（无连接/监听泄漏）。
+
+**事件名与 payload**：见 §8.5 核心事件清单（只增不改；新版本可能追加事件与键）。
+插件自定义事件（`api.events.emit`）若 payload 含 `user_id`/`session_id` 同样按归属
+过滤转发；不含则被安全丢弃。
+
+**客户端最小示例**（fetch 流式，同前端 sse.ts 范式）：
+
+```js
+// 经 Authorization 头鉴权（EventSource 做不到，故用 fetch）
+const res = await fetch('/api/events/stream', { headers: { Authorization: `Bearer ${token}` } })
+const reader = res.body.getReader()
+const dec = new TextDecoder()
+let buf = ''
+for (;;) {
+  const { value, done } = await reader.read()
+  if (done) break
+  buf += dec.decode(value)
+  // 按 SSE 规范逐事件解析（空行分隔；: 开头是心跳注释，跳过）
+  // event: <name>  /  data: <json>  -> 触发对应处理
+}
+```
+
+> **多进程部署**：事件总线为进程内内存广播（同 `ratelimit`、生成 SSE）——多进程
+> 部署时事件仅在本进程内可见，需经 sticky session 或共享 pubsub（Redis 等）跨进程
+> 分发（接口已按可替换设计，未来可扩展）。
+
+### 8.9 完整示例
 
 仓库自带可启用示例：[plugins/example_hello.py.disabled](plugins/example_hello.py.disabled)
 （路由 + 事件 + 工具 + 数据目录 + 配置读取）。去掉 `.disabled` 后缀重启即可体验。
@@ -887,7 +1690,31 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.18.0 | 2026-07-23 | 插件**热管理**（无需重启整个项目）：`loader.unload_plugin/reload_plugin/disable_plugin/enable_plugin` + 3 个管理员端点 `POST /api/plugins/{id}/reload\|disable\|enable`（§8.7）；保留每插件 API 门面（`_plugin_apis`）供 unload 调 `_rollback()` 逆序撤销全部注册（路由/中间件/工具/事件/解析器/导出器/Provider/scheduler/webhook）；`disable` 持久化禁用状态到 `<DATA_DIR>/plugin_state.json`，重启后 `load_plugins` 跳过停用插件（记 `state:"disabled"`）；`PluginStatus.state` 加 `"disabled"` 取值 + `remove_status` 助手；用户 /goal "插件能热重启以及在插件页内直接关闭或打开" |
+| 前端 | 1.17.0 | 2026-07-23 | 前端插件**热启停**（无需刷新页面）：`plugins.disable(url)`/`enable(url)`/`isDisabled(url)`——注入脚本期间追踪其注册（widgets/pages/overlays/skins 台账 `_pluginRegistrations`），停用时按键逆注册清除（即时消失），启用时重新注入脚本重新注册；停用 URL 持久化 `dt_plugins_disabled`（与 `dt_plugins` 分离，刷新后不自动加载）；`skins.unregister(name)` 注销皮肤（热停用插件时清皮肤，激活皮肤被注销回退 default）；`unload` 升级为彻底移除（含注册清除，不再需刷新）；Plugins 页加前端启停开关 + 后端重载/停用/启用按钮 |
+| 后端 | 1.17.0 | 2026-07-23 | 新增 `api.middleware.register(fn)`：插件注册 HTTP 中间件（全请求拦截——限流/IP 过滤/审计日志/安全响应头/内容过滤）；fn 签名 `async (request, call_next) -> Response`（Starlette BaseHTTPMiddleware dispatch 语义）；**error isolation**（fn 异常→透传原请求不阻断全部端点，同事件监听器隔离）；rollback（register 失败移除中间件）；用户 /goal "后端可引入额外安全防护插件" |
+| 后端 | 1.16.0 | 2026-07-23 | `api.webhooks.register(events=None)` 全事件支持（subscribe_all sync sink + create_task）；新增 4 个 widget 插槽（learn/notes/usage/wiki） |
+| 后端 | 1.15.0 | 2026-07-23 | 新增 `api.webhooks.register(url, events, *, secret)`：一行调用把指定事件非阻塞推送到外部 Webhook URL（Slack/Discord/自动化）——经 bus 协程监听器（`create_task` 非阻塞 dispatch + `_guard_await` 错误隔离）+ httpx（10s 超时）+ 可选 HMAC-SHA256 签名（`X-Webhook-Signature` 头）；标准载荷 `{event, data}`；`bus.reset` 清理监听器（无需单独 reset）；返回 handle（`unregister` 停止）；替代 events.on + httpx + 签名 ~20 行模板 |
+| 后端 | 1.14.0 | 2026-07-23 | `api.llm.stream` 流式补全：逐 token yield 文本增量（`async for text in api.llm.stream(user_id, prompt, ...)`）——插件做 chat / 实时标注等 live-typing UI（此前 `complete` 仅非流式）；Anthropic 真流式（raw event stream：`content_block_delta` text_delta 逐块 yield + `message_start`/`message_delta` 摄取 usage）；插件 Provider 回退非流式（基类默认 `stream()` = chat + yield 全文 + usage）；日预算守卫 + `api_usage` 计量同 `complete`（usage 流末尾摄取）；`StreamChunk` dataclass（text + usage）+ `LLMProvider.stream()` 基类方法（additive，`chat` 不变→生成管线零影响） |
+| 后端 | 1.13.0 | 2026-07-23 | `Tool.description` 字段 + `register_python(description=)`：插件工具可自带一行描述，在 `api.tools.list` / `GET /api/tools` 发现视图展示（核心工具回退 `TOOL_DESCRIPTIONS`）——插件工具自文档化，发现输出对全部工具（核心+插件）都有描述；不影响工具执行行为（纯展示） |
+| 后端 | 1.12.0 | 2026-07-23 | `api.mcp` 加 `connect_stdio`（MCP stdio 传输）：spawn 本地子进程 MCP server，经 stdin/stdout line-delimited JSON-RPC（initialize/tools-list/tools-call，skip 通知取匹配 id 响应，读超时，close terminate 子进程防僵尸）——stdio 是 MCP server 最常见部署（如 npx 启动的 server），补齐 v1.9.0 HTTP-only 的实用闭环；与 `connect`(HTTP) 同接口；对 spec-faithful stdio mock server 测试（6 项，真实子进程） |
+| 后端 | 1.11.0 | 2026-07-23 | 新增 `api.storage` 持久化 KV 存储（每插件私有 JSON，`get/set/delete/has/keys/clear`）：原子写（tmp+os.replace）防并发请求损坏、JSON 序列化校验、损坏文件静默重置容错、按插件 data_dir 命名空间隔离、懒加载——数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险） |
+| 后端 | 1.10.0 | 2026-07-23 | 新增 `api.scheduler` 后台任务调度（`every` 周期 / `once` 延迟）：插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力——register 须快速幂当不能起长任务）；fn async/sync，异常隔离（记日志不杀循环），`TaskHandle.cancel()` 单独取消，`reset_plugins` 卸载统一取消；任务不持久化（重启即失，插件重新注册）；须在运行事件循环内调用（register 期间/async 路由内） |
+| 后端 | 1.9.0 | 2026-07-23 | 新增 `api.mcp` MCP 客户端（`connect`→`McpHttpClient`，Streamable HTTP 传输）：连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）；按 spec 实现 JSON-RPC over POST（JSON + SSE 双响应解析、`Mcp-Session-Id` 回传、initialize 握手 + notifications/initialized）；仅插件显式调用（非热路径，server 故障错误隔离在调用内）；出站可信 URL（同供应商 base_url 信任）；对 spec-faithful mock server 测试（10 项）。范围 v1=Streamable HTTP；stdio（子进程）+ 真实 server 互操作验证为后续轮 |
+| 后端 | 1.8.0 | 2026-07-23 | 新增工具发现：`api.tools.list()`（进程内，列已注册工具元数据 `{name, llm, requires, description}`，含核心 14 工具一行描述 + 插件工具）+ `GET /api/tools` REST 发现端点（外部客户端/替代前端用，与 `list()` 对称）——插件/客户端**动态发现**可组合工具（iter 316 `call` 不再须硬编码工具名/查文档），按 `llm`/`requires` 推断调用顺序与预算 |
+| 后端 | 1.7.0 | 2026-07-22 | 新增 `api.tools.call(name, args, *, user_id, upstream)` 工具调用：插件可调用任意已注册工具（**含核心** parse_material/understand_intent/build_knowledge_map/design_stages/search_resources/schedule_plan/validate_plan/generate_quiz/record_progress/export_plan/generate_study_materials/build_plan_slides + 插件工具），组合成"新工作流"——无需重实现解析/检索/出题；LLM 工具按 `user_id` 解析供应商 + 日预算守卫 + `api_usage` 计量（同生成口径），返回 `{status, data, errors}` 信封（工具失败不抛、交插件处理）；ToolsNamespace 加 plugin_id（调用 session_id 可追溯） |
+| 后端 | 1.6.0（additive 档案字段） | 2026-07-22 | 供应商档案 `kind` 字段 + `get_provider` 分发 + `/test` 分发（iter 313 profile 集成）：档案 `kind` 设为插件协议（`api.providers` 注册的）时，`get_provider` 返回 `PluginProvider`——**方案生成主线与全部宿主端点即用新协议**（OpenAI/Ollama 等），档案 `api_key`/`base_url` 作凭证传入 handler（统一管 key，无需为插件另配）；alembic 迁移加 `kind` 列 + `_REVISION_PROBES` 探测；handler 契约加 `api_key`/`base_url` 参（profile 非空用之、`provider_kind` 路径空串插件自理）；既有档案 kind 空 → anthropic，行为字节不变（零回归）；不涉 `register(api)` 门面，无版本号变动 |
+| 后端 | 1.6.0 | 2026-07-22 | 新增 `api.providers` LLM Provider 扩展点（插件注册新协议 Provider——OpenAI/Ollama/DeepSeek/Gemini 等，`register/kinds`）+ `api.llm.complete(provider_kind=)` 分发 + 发现端点 `GET /providers/kinds`：内置仅支持 Anthropic 协议的 LLM 层经插件 API 即可"支持新的 LLM Provider"，日预算守卫 + `api_usage` 计量同宿主（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量"暗花费"）；PluginProvider 包装器（async/sync handler + dict 契约校验 + 瞬态错误分类）；凭证插件自理（v1 非侵入，profile 集成留下一轮）；插件状态行新增 `providers` 字段 |
+| 后端 | 1.5.0（additive 端点） | 2026-07-22 | 新增实时事件流 `GET /api/events/stream`（SSE）：后端事件总线实时推送给已认证客户端，按归属用户过滤（user_id 直归属 / session_id 解析 / 全局事件广播 / 不可归属丢弃），15s 心跳保活，断开即退订无泄漏——"用 API 完全替换前端"的实时性使能项（不涉及 `register(api)` 门面，无版本号变动）；事件总线新增 `subscribe_all` 全局 sink（供 SSE 端点等监听全部事件） |
 | 后端 | 1.5.0 | 2026-07-22 | 新增 `api.llm` 宿主 LLM 能力调用（`is_configured`/`complete`）：插件复用用户已配置的供应商做 AI 功能（无需重复配 key），日预算守卫 + `api_usage` 计量与宿主端点同口径，错误映射 no_llm_provider/budget_exceeded/server_busy/bad_gateway |
+| 前端 | 1.13.0 | 2026-07-23 | 新增 2 个 widget 插槽：`plans.toolbar`（方案列表页，批量操作区下方宫格——自定义筛选/批量操作/方案统计）+ `review.dashboard`（复习页标题区上方宫格——复习统计/自定义复习模式/间隔重复提醒）；此前仅 3 个插槽（home.dashboard/sidebar.footer/plan.detail），本轮扩展至 5 个，插件在更多 host 页面注入面板 |
+| 前端 | 1.12.0 | 2026-07-23 | `ui` 命名空间加 `makeSortable`：让列表子项可拖拽重排（结构化排序，HTML5 DnD + 中点判定插入位置 + onChange 回调 + destroy）——任务列表 / 播放列表 / 看板列重排；区别于 makeDraggable（自由定位）与 makeDroppable（拖入目标），是第三种 DnD 模式（列表内重排） |
+| 前端 | 1.11.0 | 2026-07-23 | `ui` 命名空间加 `makeDroppable`：让元素成为拖放目标——检测 `makeDraggable` 拖拽的元素被拖入（onDragEnter 高亮）/ 放下（onDrop 回调）；配 `makeDraggable` 即做出完整拖放交互（看板拖拽 / 拖入分类 / 分配面板）；accept 过滤 + onDragEnter/Leave 视觉反馈；通过模块级 drag pub-sub 协调（makeDraggable 广播 move/end 位置，makeDroppable 据此判定悬停/放下——pointer-capture 下其他元素收不到 pointer 事件的解决） |
+| 前端 | 1.10.0 | 2026-07-23 | `ui` 命名空间加 `makeResizable`：在四边/四角加缩放手柄（8 方向），pointer 拖拽改尺寸 + minSize 钳制 + 可选 persistKey 尺寸持久化，返回 `{ destroy }`——配 `makeDraggable`（v1.8.0）即做出可拖放 + 可缩放的浮窗/面板（完整"可自由拖放的小组件"）；n/w 边收缩时对边固定 |
+| 前端 | 1.9.0 | 2026-07-23 | `ui` 命名空间加 `toast`（success/info/error）：复用宿主 Toast 系统（右下角、3s 自动消失、可选 action 按钮 TTL 延至 8s）——插件给用户瞬时反馈（"已保存"/"复制成功"/"出错"），无需自建通知 UI（此前只能 console.log 或从零搭组件） |
+| 前端 | 1.8.0 | 2026-07-23 | 新增 `ui` 命名空间（`makeDraggable`）：让任意 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 视口/容器边界 + 可选 localStorage 位置持久化 + 拖拽置顶），返回 `{ destroy }` 清理——配合 overlay `content` 层即做出"可自由拖放的小组件"（用户点名需求，此前须每个插件手写拖拽）；DRF 手柄/边界/初始位置/持久化键可配；隐私模式 localStorage 不可用静默降级 |
+| 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.8），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |
+| 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
 | 后端 | 1.4.0 | 2026-07-22 | 新增 `api.exporters` 导出格式扩展点（插件为私有/小众格式注册导出器；`POST /export/{plan_id}` format 解除 Literal 枚举改显式校验，`GET /export/formats` 格式发现端点；插件状态行新增 `exporters` 字段）——与 `api.parsers` 对称的出口侧 |

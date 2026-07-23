@@ -6,6 +6,7 @@ import CheckinCalendar from '../components/CheckinCalendar'
 import FocusTimer from '../components/FocusTimer'
 import ProgressBoard from '../components/ProgressBoard'
 import { toast } from '../components/Toast'
+import WidgetSlot from '../components/WidgetSlot'
 import {
   addLearningLog,
   ApiError,
@@ -210,6 +211,7 @@ export default function Learn() {
 
   return (
     <div className="space-y-6">
+      <WidgetSlot slot="learn.dashboard" layout="grid" />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">学习中心{topic ? `：${topic}` : ''}</h2>
         <Link to={`/plans/${id}`} className="text-sm text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">

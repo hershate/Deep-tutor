@@ -22,6 +22,9 @@ import Notes from './pages/Notes'
 import Review from './pages/Review'
 import Search from './pages/Search'
 import PluginPageHost from './components/PluginPageHost'
+import PluginOverlayHost from './components/PluginOverlayHost'
+import EventsBridge from './components/EventsBridge'
+import MaybeOverride from './components/MaybeOverride'
 import RouterBridge from './components/RouterBridge'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
@@ -59,6 +62,9 @@ export default function App() {
     <>
       {/* iter 308：插件路由桥（插件 API v1.5.0 DeepTutor.router 的 navigate 注入 + 路由同步） */}
       <RouterBridge />
+      {/* iter 310：插件覆盖层宿主（插件 API v1.6.0 DeepTutor.overlay）——全路由根级渲染层，
+          挂 Routes 外、BrowserRouter/QueryClientProvider 内：overlay 组件可用路由与取数 hooks */}
+      <PluginOverlayHost />
       <Routes>
       <Route path="/login" element={<Login />} />
       {/* iter 89：首次设置向导（零配置开箱即用），公开页 */}
@@ -72,20 +78,22 @@ export default function App() {
             <Layout>
               {/* iter 187 F2：任务引擎桥（注入 navigate/queryClient + boot 对账 + 路由同步） */}
               <TaskEngineBridge />
+              {/* iter 315：插件事件桥（DeepTutor.events ← SSE /api/events/stream），仅登录态连接 */}
+              <EventsBridge />
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<MaybeOverride hostPath="home"><Home /></MaybeOverride>} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />
                 <Route path="/clarify/:sessionId" element={<Clarify />} />
-                <Route path="/plans" element={<Plans />} />
-                <Route path="/plans/:planId" element={<PlanDetail />} />
-                <Route path="/learn/:planId" element={<Learn />} />
+                <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />
+                <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans"><PlanDetail /></MaybeOverride>} />
+                <Route path="/learn/:planId" element={<MaybeOverride hostPath="learn"><Learn /></MaybeOverride>} />
                 {/* iter 281：跨方案统一复习工作流页（翻卡自评 + 掌握度回写） */}
-                <Route path="/review" element={<Review />} />
-                <Route path="/wiki" element={<Wiki />} />
-                <Route path="/notes" element={<Notes />} />
+                <Route path="/review" element={<MaybeOverride hostPath="review"><Review /></MaybeOverride>} />
+                <Route path="/wiki" element={<MaybeOverride hostPath="wiki"><Wiki /></MaybeOverride>} />
+                <Route path="/notes" element={<MaybeOverride hostPath="notes"><Notes /></MaybeOverride>} />
                 {/* iter 249：全局搜索页（方案/笔记/知识库文档/知识节点四域聚合） */}
                 <Route path="/search" element={<Search />} />
-                <Route path="/usage" element={<Usage />} />
+                <Route path="/usage" element={<MaybeOverride hostPath="usage"><Usage /></MaybeOverride>} />
                 {/* iter 204：插件管理页（前端插件加载/移除 + 生效概览 + 后端状态） */}
                 <Route path="/plugins" element={<Plugins />} />
                 <Route path="/settings" element={<Settings />} />

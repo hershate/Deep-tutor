@@ -8,6 +8,7 @@ import {
   createProvider,
   deactivateProviders,
   deleteProvider,
+  listProviderKinds,
   listProviders,
   testProvider,
   updateProvider,
@@ -21,13 +22,20 @@ interface FormState {
   base_url: string
   api_key: string
   model: string
+  kind: string // 协议：'anthropic'（内置）或插件协议名（iter 313）
 }
 
-const EMPTY_FORM: FormState = { id: null, name: '', base_url: '', api_key: '', model: '' }
+const EMPTY_FORM: FormState = { id: null, name: '', base_url: '', api_key: '', model: '', kind: 'anthropic' }
 
 export default function ProviderManager() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['providers'], queryFn: listProviders })
+  // iter 314：可用协议（内置 anthropic + 插件协议）；失败降级为仅 anthropic（不阻塞表单）
+  const { data: kindsData } = useQuery({
+    queryKey: ['provider-kinds'],
+    queryFn: listProviderKinds,
+    retry: false,
+  })
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [showForm, setShowForm] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -55,6 +63,12 @@ export default function ProviderManager() {
 
   const providers = data?.providers ?? []
   const hasActive = providers.some((p) => p.is_active)
+  // 协议下拉选项：内置 anthropic + 插件协议（kinds 端点未就绪/无插件时仅 anthropic）
+  const kindOptions = [
+    ...(kindsData?.builtin ?? [{ kind: 'anthropic', label: 'Anthropic（内置）' }]),
+    ...(kindsData?.plugins ?? []),
+  ]
+  const isPluginKind = form.kind !== 'anthropic'
 
   async function run(action: () => Promise<unknown>) {
     if (busy) return // 防重入：请求在途时表单 Enter 仍可触发 onSubmit
@@ -77,6 +91,7 @@ export default function ProviderManager() {
       name: form.name.trim(),
       base_url: form.base_url.trim(),
       model: form.model.trim(),
+      kind: form.kind,
       ...(form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
     }
     if (form.id === null) {
@@ -91,7 +106,7 @@ export default function ProviderManager() {
   }
 
   function startEdit(p: ProviderProfile) {
-    setForm({ id: p.id, name: p.name, base_url: p.base_url, api_key: '', model: p.model })
+    setForm({ id: p.id, name: p.name, base_url: p.base_url, api_key: '', model: p.model, kind: p.kind || 'anthropic' })
     setShowForm(true)
     setOpError('')
   }
@@ -123,7 +138,7 @@ export default function ProviderManager() {
         </div>
       </div>
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-        启用任一档案后，所有 LLM 调用走该供应商（Anthropic 兼容端点）；全部停用则回退服务端 .env 配置。
+        启用任一档案后，所有 LLM 调用走该供应商；协议可选 Anthropic（内置）或已装载插件注册的协议（如 OpenAI/Ollama）。全部停用则回退服务端 .env 配置。
       </p>
 
       {opError && (
@@ -161,6 +176,26 @@ export default function ProviderManager() {
               />
             </label>
           </div>
+          <label className="block text-sm">
+            协议（kind）
+            <select
+              value={form.kind}
+              onChange={(e) => setForm({ ...form, kind: e.target.value })}
+              className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+            >
+              {kindOptions.map((k) => (
+                <option key={k.kind} value={k.kind}>
+                  {k.label}
+                  {'plugin_id' in k ? `（插件 ${k.plugin_id}）` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {isPluginKind && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              插件协议：下方 Base URL / API Key / 模型将传入该协议的插件 Provider（由插件转发给其 LLM 端点）。
+            </p>
+          )}
           <label className="block text-sm">
             Base URL（留空用 Anthropic 官方端点）
             <input
@@ -228,6 +263,14 @@ export default function ProviderManager() {
                 <span className="font-medium">{p.name}</span>
                 {p.is_active && (
                   <span className="rounded bg-green-600 px-1.5 py-0.5 text-xs text-white">使用中</span>
+                )}
+                {p.kind && p.kind !== 'anthropic' && (
+                  <span
+                    className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                    title="协议（插件 Provider）"
+                  >
+                    {p.kind}
+                  </span>
                 )}
               </div>
               <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">

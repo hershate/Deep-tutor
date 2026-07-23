@@ -39,6 +39,7 @@ def _out(p: models.LlmProviderProfile) -> dict:
         "name": p.name,
         "base_url": p.base_url or "",
         "model": p.model or "",
+        "kind": (p.kind or "anthropic").strip().lower(),  # iter 313：协议（NULL -> 'anthropic'）
         "is_active": bool(p.is_active),
         "api_key_masked": _mask(p.api_key),
         "created_at": str(p.created_at),
@@ -51,13 +52,23 @@ def _validate_base_url(v: str) -> str:
     return v
 
 
+def _normalize_kind(v: str | None) -> str:
+    """规范化协议 kind：小写、去空白；'' / None -> ''（存 NULL，get_provider 视作 'anthropic'）。"""
+    if v is None:
+        return ""
+    k = v.strip().lower()
+    return k
+
+
 class ProviderIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     api_key: str = Field(min_length=1, max_length=256)
     base_url: str = Field(default="", max_length=512)
     model: str = Field(default="", max_length=128)
+    kind: str = Field(default="", max_length=64)  # iter 313：协议（'' 或 'anthropic' 内置；插件协议名）
 
     _check_url = field_validator("base_url")(_validate_base_url)
+    _norm_kind = field_validator("kind")(_normalize_kind)
 
 
 class ProviderUpdate(BaseModel):
@@ -65,8 +76,10 @@ class ProviderUpdate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1, max_length=256)  # None -> 保留原值
     base_url: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)
+    kind: str | None = Field(default=None, max_length=64)  # None -> 保留原值；'' -> 重置为 anthropic
 
     _check_url = field_validator("base_url")(_validate_base_url)
+    _norm_kind = field_validator("kind")(_normalize_kind)
 
 
 def _owned_or_404(db: Session, profile_id: int, user: User) -> models.LlmProviderProfile:
@@ -88,6 +101,28 @@ def list_providers(db: Session = Depends(get_db), user: User = Depends(get_curre
     return {"providers": [_out(p) for p in rows]}
 
 
+@router.get("/kinds")
+def list_provider_kinds() -> dict:
+    """发现端点（v1.6.0）：列出本实例可用的 LLM 协议——内置 'anthropic' + 插件注册的协议
+    （api.providers）。供前端/外部客户端动态渲染协议选择，或插件能力发现。认证同 router 级。"""
+    from app.plugins import providers as plugin_providers
+
+    return {
+        # 内置协议：Anthropic Messages API（宿主原生，档案 base_url 指向其端点）
+        "builtin": [{"kind": plugin_providers.KIND_ANTHROPIC, "label": "Anthropic（内置）"}],
+        # 插件协议：随插件装载/卸载变化（未装插件时为空）
+        "plugins": [
+            {
+                "kind": e.kind,
+                "label": e.label or e.kind,
+                "plugin_id": e.plugin_id,
+                "default_model": e.default_model,
+            }
+            for e in plugin_providers.all_entries()
+        ],
+    }
+
+
 @router.post("", status_code=201)
 def create_provider(
     body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -101,6 +136,7 @@ def create_provider(
         base_url=body.base_url,
         api_key=body.api_key,
         model=body.model,
+        kind=body.kind or None,  # iter 313：'' -> NULL（视作 anthropic）
         is_active=False,
     )
     db.add(p)
@@ -133,6 +169,8 @@ def update_provider(
         p.model = body.model
     if body.api_key is not None:  # 不传 -> 保留原值
         p.api_key = body.api_key
+    if body.kind is not None:  # iter 313：不传 -> 保留；'' -> NULL（重置为 anthropic）
+        p.kind = body.kind or None
     try:
         db.commit()
     except IntegrityError:
@@ -185,7 +223,20 @@ async def test_provider(
     """
     p = _owned_or_404(db, profile_id, user)
     model = p.model or settings.anthropic_model
-    provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
+    # iter 313：按档案 kind 选协议——插件协议分发到 PluginProvider（档案 api_key/base_url 作凭证），
+    # 否则内置 AnthropicProvider。未知/未注册 kind 在此给明确测试错误（不激活、不改状态）。
+    kind = (p.kind or "").strip().lower() or "anthropic"
+    if kind != "anthropic":
+        from app.llm.plugin_provider import PluginProvider
+
+        from app.plugins import providers as plugin_providers
+
+        entry = plugin_providers.find_provider(kind)
+        if entry is None:
+            return {"ok": False, "model": model, "error": f"协议 {kind!r} 无对应插件 Provider（未注册或插件未加载）"}
+        provider = PluginProvider(entry, model=model, api_key=p.api_key, base_url=p.base_url or "")
+    else:
+        provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
     try:
         # 显式 120s 上限（与 Timeouts.llm 一致）：SDK 默认超时 600s，慢/挂死端点
         # 会让测试请求悬挂过久

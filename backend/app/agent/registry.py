@@ -42,6 +42,9 @@ class Tool:
     inline_prompt: str | None = None  # LLM 工具内联 prompt（step 5 Skill 未接入时的兜底）
     post_process: Callable[[dict[str, Any], "ToolInput"], dict[str, Any]] | None = None  # 校验后清洗(data, inp)
     func: ToolFunc | None = None  # Python 工具
+    # iter 324：人类可读一行描述（api.tools.list / GET /api/tools 发现视图展示；插件工具可自带，
+    # 核心工具缺省空 -> tool_metadata 回退 TOOL_DESCRIPTIONS）。不影响工具执行行为。
+    description: str = ""
 
     def __post_init__(self) -> None:
         if self.llm and self.func is not None:

@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.plugins import bus, exporters, parsers, runtime
+from app.plugins import bus, exporters, parsers, providers, runtime
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
@@ -23,18 +25,46 @@ if TYPE_CHECKING:
 # v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
 # v1.4.0：新增 api.exporters 导出格式扩展点（插件为私有/小众格式注册导出器）。
 # v1.5.0：新增 api.llm 宿主 LLM 能力调用（插件复用用户已配置的供应商，预算守卫+计量同宿主）。
-API_VERSION = "1.5.0"
+# v1.6.0：新增 api.providers LLM Provider 扩展点（插件注册新协议 Provider，api.llm.complete
+#         经 provider_kind= 分发，预算守卫+计量同宿主——非 Anthropic 协议不再须 DIY httpx 绕开预算）。
+# v1.7.0：新增 api.tools.call 工具调用（插件调用任意已注册工具——核心 parse/search/quiz/understand
+#         等 + 插件工具，组合成"新工作流"，无需重实现解析/检索/出题；按用户解析 provider+预算+计量）。
+# v1.8.0：新增 api.tools.list 工具发现（列出全部已注册工具元数据 name/llm/requires/description，
+#         含核心 14 工具 + 插件工具）+ GET /api/tools 发现端点——插件/外部客户端动态发现可组合工具。
+# v1.9.0：新增 api.mcp MCP 客户端（连接外部 MCP server Streamable HTTP，list_tools/call_tool）——
+#         "扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）。插件据此接入任意外部 MCP server 工具。
+# v1.10.0：新增 api.scheduler 后台任务（every 周期 / once 延迟）——插件可做定时同步/每日摘要/周期轮询
+#         （此前只能路由触发/事件触发，无周期任务能力）。fn async/sync，错误隔离，reset 统一取消。
+# v1.11.0：新增 api.storage 持久化 KV（每插件私有 JSON，原子写 tmp+rename，JSON 序列化校验）——
+#         数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险）。
+# v1.12.0：api.mcp 加 connect_stdio——MCP stdio 传输（spawn 子进程 server，stdin/stdout JSON-RPC）。
+#         stdio 是 MCP server 常见部署，补齐 iter 319 HTTP-only 的实用闭环。
+# v1.13.0：Tool.description 字段 + register_python(description=)——插件工具可自带一行描述，
+#         api.tools.list / GET /api/tools 发现视图展示（核心工具回退 TOOL_DESCRIPTIONS）。
+# v1.14.0：api.llm.stream 流式补全——逐 token yield 文本增量（Anthropic 真流式 / 插件 Provider
+#         回退非流式），日预算守卫 + api_usage 计量同 complete。
+# v1.15.0：api.webhooks.register——事件→外部 URL 非阻塞推送（bus 协程监听器 + httpx + HMAC 签名），
+#         一行替代 events.on+httpx+签名 ~20 行模板。
+# v1.16.0：api.webhooks.register(events=None) 全事件支持（subscribe_all sync sink + create_task）；
+#         新增 4 个 widget 插槽（learn/notes/usage/wiki）。
+# v1.17.0：新增 api.middleware——插件注册 HTTP 中间件（全请求拦截：限流/IP/审计/安全头），
+#         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
+# v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
+#         无需重启服务器即可在 /plugins 页热管理插件。
+API_VERSION = "1.18.0"
 
 
 class ToolsNamespace:
-    """Agent 工具注册：插件工具汇入每次请求新建的工具注册表（default_registry）。
+    """Agent 工具注册与调用：插件工具汇入每次请求新建的工具注册表（default_registry）。
 
     注意：内置生成 PIPELINE 步骤固定，不会自动调用新工具——新工具主要供插件路由/
-    其他插件经注册表显式调用；与核心工具同名会覆盖核心实现（注册表告警），
-    属高级用法，见 API.md 开发规范。
+    其他插件经注册表显式调用（v1.7.0 起 call 可调用任意已注册工具，含核心 parse/search/
+    quiz/understand 等，组合成"新工作流"，无需重实现）；与核心工具同名会覆盖核心实现
+    （注册表告警），属高级用法，见 API.md 开发规范。
     """
 
-    def __init__(self, status: PluginStatus, rollbacks: list) -> None:
+    def __init__(self, plugin_id: str, status: PluginStatus, rollbacks: list) -> None:
+        self._pid = plugin_id
         self._status = status
         self._rollbacks = rollbacks
 
@@ -48,14 +78,109 @@ class ToolsNamespace:
         self._status.tools.append(tool.name)
         self._rollbacks.append(lambda tool=tool: runtime.remove_tool(tool))
 
-    def register_python(self, name: str, func: Any) -> None:
+    def register_python(self, name: str, func: Any, *, description: str = "") -> None:
         """便捷注册 Python 工具：async (inp, ctx) -> dict（data 字典）。
 
         inp/ctx 契约与宿主工具一致（app/tools/base.py 的 ToolInput；ctx 含 db/registry 等）。
+        description（v1.13.0）：人类可读一行描述，在 api.tools.list / GET /api/tools 发现视图展示。
         """
         from app.agent.registry import Tool
 
-        self.register(Tool(name=name, llm=False, func=func))
+        self.register(Tool(name=name, llm=False, func=func, description=description))
+
+    def list(self) -> list[dict[str, Any]]:
+        """发现全部已注册工具的元数据（v1.8.0）：``[{name, llm, requires, description}, ...]``。
+
+        含核心工具（parse_material/understand_intent/build_knowledge_map/design_stages/
+        search_resources/verify_url/schedule_plan/validate_plan/export_plan/
+        build_plan_slides/generate_study_materials/generate_unit_content/generate_quiz/
+        kb_answer）+ 插件工具。插件据此**动态组合工作流**（先 list 探查可用工具再 call），
+        无需硬编码工具名/查文档；``llm`` 标志哪些工具耗 LLM（预算意识），``requires`` 标上游依赖。
+        """
+        from app.tools import default_registry, tool_metadata
+
+        return tool_metadata(default_registry())
+
+    async def call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        user_id: int,
+        upstream: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """调用任意已注册工具（核心或插件工具，v1.7.0），返回结果信封。
+
+        返回 ``{"status": "ok"|"repaired"|"error", "data": {...}, "errors": [...]}``。
+        插件据此组合**新工作流**——用 parse_material 解析 / search_resources 检索 /
+        generate_quiz 出题 / understand_intent 理解 等，无需重实现。
+
+        - ``args``：工具入参（按该工具契约，如 parse_material 的 {kind, source}）。
+        - ``upstream``：上游工具输出（按需，如 build_knowledge_map 需要 intent/parsed）。
+        - LLM 工具按 ``user_id`` 解析供应商 + 日预算守卫 + ``api_usage`` 计量（同生成口径）；
+          用户未配置供应商 -> ``ApiError(no_llm_provider, 503)``。
+        - 未知工具 -> ``ValueError``；工具执行失败 -> 信封 ``status="error"``（不抛，交插件处理）。
+        """
+        import uuid
+
+        from app.agent.context import ExecContext
+        from app.agent.cost import record_metadata_usage
+        from app.agent.loop import run_tool
+        from app.api.deps import check_daily_budget
+        from app.api.errors import ApiError
+        from app.core.credentials import resolve_bing_api_key
+        from app.db.base import SessionLocal
+        from app.llm import get_provider
+        from app.skills.loader import get_skill_registry
+        from app.tools import default_registry
+        from app.tools.base import ToolInput
+
+        if not isinstance(name, str) or not name:
+            raise ValueError("name 必须是非空字符串")
+        if not isinstance(args, dict):
+            raise TypeError("args 必须是 dict")
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+
+        registry = default_registry()
+        if not registry.has(name):
+            raise ValueError(f"未注册的工具: {name}")
+        tool = registry.get(name)
+
+        provider = None
+        if tool.llm:
+            try:
+                provider = get_provider(user_id)
+            except Exception as exc:  # noqa: BLE001
+                raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+            check_daily_budget(None, user_id)  # 日预算守卫（同生成/api.llm 端点）
+
+        sid = f"plugin_call:{self._pid}:{uuid.uuid4().hex[:8]}"
+        tid = f"pt-{uuid.uuid4().hex[:12]}"
+        ctx = ExecContext(
+            session_id=sid,
+            trace_id=tid,
+            registry=registry,
+            llm_provider=provider,
+            skill_registry=get_skill_registry() or None,  # 空 -> loop 走 inline_prompt/默认
+            bing_api_key=resolve_bing_api_key(user_id),  # search_resources 等按用户解析
+        )
+        inp = ToolInput(tool=name, session_id=sid, args=args, upstream=upstream or {})
+        out = await run_tool(name, inp, ctx)
+
+        # 用量计量（LLM 工具有 cost；Python 工具 metadata 空 -> record 内部容错不记）
+        if tool.llm:
+            db = SessionLocal()
+            try:
+                record_metadata_usage(db, out.metadata, user_id)
+            finally:
+                db.close()
+
+        return {
+            "status": out.status,
+            "data": out.data,
+            "errors": [e.model_dump() for e in out.errors],
+        }
 
 
 class ParsersNamespace:
@@ -225,17 +350,22 @@ class LlmNamespace:
         *,
         system: str = "",
         max_tokens: int = 2048,
+        provider_kind: str | None = None,
     ) -> dict:
         """以该用户的供应商配置发起一次 LLM 补全。
 
         返回 dict：{"content": str, "model": str, "stop_reason": str | None,
         "usage": {"input_tokens", "output_tokens", "cache_read_input_tokens",
         "cache_creation_input_tokens"}}（只增不改）。max_tokens 收敛到 [1, 8192]。
+
+        provider_kind（v1.6.0）：指定时改为分发到该 kind 的**插件 Provider**（api.providers
+        注册的新协议 handler，如 'openai'、'ollama'）——凭证由插件自理，日预算守卫 + api_usage
+        计量与默认路径同口径（非 Anthropic 协议不再须 DIY httpx 绕开预算/计量）。未知 kind ->
+        no_llm_provider。
         """
         from app.api.deps import check_daily_budget
         from app.api.errors import ApiError
         from app.db.base import SessionLocal
-        from app.llm import get_provider
         from app.llm.base import TransientLLMError
 
         if not isinstance(user_id, int) or user_id <= 0:
@@ -246,11 +376,24 @@ class LlmNamespace:
             raise TypeError("system 必须是字符串")
         max_tokens = max(1, min(int(max_tokens), self._MAX_TOKENS_CAP))
 
-        try:
-            provider = get_provider(user_id)
-        except RuntimeError as exc:
-            raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
-        check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
+        if provider_kind is not None:
+            from app.llm.plugin_provider import PluginProvider
+
+            from app.plugins import providers as plugin_providers
+
+            entry = plugin_providers.find_provider(provider_kind)
+            if entry is None:
+                raise ApiError("no_llm_provider", f"未注册的 provider kind: {provider_kind}")
+            check_daily_budget(None, user_id)  # 日预算守卫同默认路径
+            provider = PluginProvider(entry, model=entry.default_model or "")
+        else:
+            from app.llm import get_provider
+
+            try:
+                provider = get_provider(user_id)
+            except RuntimeError as exc:
+                raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+            check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
         try:
             resp = await provider.chat(system, prompt, max_tokens=max_tokens)
         except TransientLLMError as exc:
@@ -279,6 +422,433 @@ class LlmNamespace:
                 "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens,
             },
         }
+
+    async def stream(
+        self,
+        user_id: int,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 2048,
+    ):  # -> AsyncIterator[str]
+        """流式补全（v1.14.0）：逐 token yield 文本增量——插件做 chat / 实时标注等 live-typing UI。
+
+        与 complete 同口径：按 user_id 解析供应商 + 日预算守卫 + api_usage 计量（usage 在流末尾
+        摄取）。Anthropic 真流式（逐 token）；插件 Provider 回退非流式（一次性 yield 全文）。
+        错误映射同 complete（no_llm_provider/server_busy/bad_gateway）。max_tokens 收敛 [1, 8192]。
+
+        用法：``async for text in api.llm.stream(user.id, "总结这段", system="你是助教"): ...``
+        """
+        from app.agent.cost import build_metadata, record_metadata_usage
+        from app.api.deps import check_daily_budget
+        from app.api.errors import ApiError
+        from app.db.base import SessionLocal
+        from app.llm import get_provider
+        from app.llm.base import TransientLLMError
+
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt 必须是非空字符串")
+        if not isinstance(system, str):
+            raise TypeError("system 必须是字符串")
+        max_tokens = max(1, min(int(max_tokens), self._MAX_TOKENS_CAP))
+
+        try:
+            provider = get_provider(user_id)
+        except RuntimeError as exc:
+            raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+        check_daily_budget(None, user_id)
+
+        captured_usage = None
+        try:
+            async for chunk in provider.stream(system, prompt, max_tokens=max_tokens):
+                if chunk.usage is not None:
+                    captured_usage = chunk.usage
+                if chunk.text:
+                    yield chunk.text
+        except TransientLLMError as exc:
+            raise ApiError("server_busy", f"LLM 服务暂时不可用（可退避重试）: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ApiError("bad_gateway", f"LLM 流式调用失败: {exc}") from exc
+        finally:
+            if captured_usage is not None:
+                metadata = build_metadata(captured_usage)
+                db = SessionLocal()
+                try:
+                    record_metadata_usage(db, metadata, user_id)
+                finally:
+                    db.close()
+
+
+class ProvidersNamespace:
+    """LLM Provider 扩展点（v1.6.0 扩展点，契约见 API.md「§LLM Provider 扩展点」）。
+
+    插件为内置仅支持 Anthropic 协议的 LLM 层注册**新协议 Provider**（OpenAI
+    /v1/chat/completions、Ollama、DeepSeek 原生、Gemini 等），经
+    ``api.llm.complete(..., provider_kind=...)`` 调用——带宿主日预算守卫 + api_usage 计量
+    （与宿主端点同口径），无需 DIY httpx 绕开预算/计量（"暗花费"）。
+
+    handler 契约（async 或 sync，签名相同）：
+        (system: str, user: str, *, model: str, max_tokens: int) -> dict
+    返回 dict：{"content": str, "model": str, "stop_reason"?: str,
+    "usage": {"input_tokens": int, "output_tokens": int,
+    "cache_read_input_tokens"?: int, "cache_creation_input_tokens"?: int}}。
+    凭证由插件自理（handler 不接收 api_key/base_url——从 api.data_dir/环境变量/自有设置读写）。
+
+    异常约定：handler 抛异常 -> 经分类——在异常上设 ``transient = True``（或抛常见网络瞬态
+    类型）标记瞬态，宿主据此退避重试（api.llm -> server_busy 503）；其余非瞬态（含 4xx/契约
+    不合规）-> bad_gateway 502。
+
+    安全默认：'anthropic' 为内置保留协议名，注册时拒绝（ValueError）——插件请注册新协议名。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        kind: str,
+        handler: Callable,
+        *,
+        default_model: str = "",
+        label: str = "",
+    ) -> None:
+        """注册 LLM Provider。
+
+        - kind：协议名（如 "openai"、"ollama"）；自动规范化为小写，字符集 [a-z0-9][a-z0-9_-]{0,31}；
+          'anthropic' 为内置保留，注册拒绝。
+        - handler：补全函数，async 或 sync，签名 (system, user, *, model, max_tokens) -> dict（见类 docstring）。
+        - default_model：该 kind 的默认模型名（api.llm 未显式传 model 时用），可选。
+        - label：人类可读协议名（GET /providers/kinds 展示用），可选。
+        """
+        if not callable(handler):
+            raise TypeError("handler 必须是 callable（async 或 sync，签名 (system, user, *, model, max_tokens) -> dict）")
+        norm = providers.normalize_kind(kind)
+        if not providers.valid_kind_name(norm):
+            raise ValueError(f"provider kind 非法: {kind!r}（需匹配 [a-z0-9][a-z0-9_-]{{0,31}}）")
+        entry = providers.ProviderEntry(
+            plugin_id=self._pid,
+            kind=norm,
+            handler=handler,
+            default_model=default_model or "",
+            label=label or "",
+        )
+        providers.register(entry)  # 'anthropic' 在此抛 ValueError
+        self._status.providers.append(norm)
+        self._rollbacks.append(lambda entry=entry: providers.unregister(entry))
+
+    def kinds(self) -> list[str]:
+        """本插件已注册的协议名（调试/状态展示用）。"""
+        return [e.kind for e in providers.all_entries() if e.plugin_id == self._pid]
+
+
+class McpNamespace:
+    """MCP（Model Context Protocol）客户端（v1.9.0 扩展点，契约见 API.md「§MCP 客户端」）。
+
+    连接外部 MCP server（Streamable HTTP 传输）——列出并调用其工具，把任意外部工具 server
+    接入后端（"扩展后端类 Claude Code 可以调用的工具和 MCP"，用户点名需求）。插件据此在自有
+    路由调用 MCP server 工具，或包成宿主工具经 api.tools.call/list 复用。
+
+    用法：``client = await api.mcp.connect(url, headers={...})`` -> 已 initialize 的客户端；
+    ``await client.list_tools()`` / ``await client.call_tool(name, arguments)``；用完 ``await client.close()``。
+
+    安全：客户端仅插件显式调用（非热路径，server 故障错误隔离在插件调用内，不影响宿主稳定）；
+    出站到可信 URL（admin/插件配置，同供应商 base_url 信任模型）；httpx 超时；JSON-RPC error -> RuntimeError。
+    范围（v1）：Streamable HTTP 传输；stdio（子进程）+ 真实 server 互操作验证为后续轮。
+    """
+
+    def __init__(self, plugin_id: str) -> None:
+        self._pid = plugin_id
+
+    async def connect(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        """连接 MCP server（Streamable HTTP）：创建客户端 + initialize 握手，返回就绪的客户端。
+
+        - url：MCP server 的 HTTP 端点（http(s)://；可信配置——server 可在 localhost）。
+        - headers：额外请求头（如 Authorization），可选。
+        - timeout：每次请求超时秒（缺省 30）。
+        返回 McpHttpClient（list_tools / call_tool / close）。握手失败 -> RuntimeError。
+        """
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("url 必须是非空字符串")
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("MCP server url 须以 http:// 或 https:// 开头")
+        from app.plugins.mcp import McpHttpClient
+
+        client = McpHttpClient(url, headers=headers, timeout=timeout)
+        await client.initialize()  # 握手失败抛 RuntimeError（插件处理）
+        return client
+
+    async def connect_stdio(
+        self,
+        command: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        read_timeout: float = 30.0,
+    ) -> Any:
+        """连接 MCP server（**stdio 传输**，v1.12.0）：spawn 子进程 + initialize 握手，返回就绪客户端。
+
+        stdio 是 MCP server 的常见部署（Claude Code 启动本地子进程 server）。与 connect()（HTTP）同接口
+        （list_tools / call_tool / close）。
+
+        - command：启动 server 的 argv（如 ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"]），
+          须非空字符串列表；可信配置（同插件代码信任——宿主执行之）。
+        - env：子进程环境变量（可选；默认继承宿主环境）。
+        - read_timeout：每次读响应超时秒（防 server 挂起）。
+        返回 McpStdioClient。握手失败 -> RuntimeError；用完须 close()（terminate 子进程）。
+        """
+        if not isinstance(command, (list, tuple)) or not command or not all(isinstance(c, str) for c in command):
+            raise ValueError("command 必须是非空字符串列表（argv）")
+        from app.plugins.mcp import McpStdioClient
+
+        client = McpStdioClient(list(command), env=env, read_timeout=read_timeout)
+        await client.initialize()  # spawn + 握手；失败抛 RuntimeError（插件处理）
+        return client
+
+
+class SchedulerNamespace:
+    """后台任务调度（v1.10.0 扩展点，契约见 API.md「§后台任务调度」）。
+
+    插件注册周期/延迟后台任务——every(周期) / once(延迟)。填补"插件无法做周期工作"的缺口
+    （定时同步 / 每日摘要 / 周期轮询 MCP 等；此前只有路由触发与事件触发）。
+
+    任务跑在宿主事件循环；fn 可 async（await）或 sync（须非阻塞，重活 fn 内 to_thread）。
+    fn 异常隔离（记日志不杀循环）。返回 TaskHandle.cancel() 单独取消；插件卸载（reset_plugins）
+    统一取消全部。任务不持久化——进程重启即失（插件 register/startup 重新注册）。
+    须在运行中的事件循环内调用（register 期间 / async 路由内）。
+    """
+
+    def __init__(self, plugin_id: str, rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._rollbacks = rollbacks
+
+    def every(self, interval_s: float, fn: Callable, *, run_immediately: bool = False) -> Any:
+        """注册周期任务：每 interval_s 秒跑一次 fn（须 > 0）。返回 TaskHandle（cancel 取消）。"""
+        from app.plugins import scheduler
+
+        handle = scheduler.every(interval_s, fn, run_immediately=run_immediately)
+        self._rollbacks.append(handle.cancel)  # register 中途失败回滚：取消该任务
+        return handle
+
+    def once(self, delay_s: float, fn: Callable) -> Any:
+        """注册一次性延迟任务：delay_s 秒后跑一次 fn（须 >= 0）。返回 TaskHandle（cancel 取消则不跑）。"""
+        from app.plugins import scheduler
+
+        handle = scheduler.once(delay_s, fn)
+        self._rollbacks.append(handle.cancel)
+        return handle
+
+
+class StorageNamespace:
+    """持久化 KV 存储（v1.11.0 扩展点，契约见 API.md「§持久化 KV 存储」）。
+
+    每插件私有键值存储（JSON 文件于插件 data_dir），替代裸 data_dir 文件 I/O——提供原子写
+    （tmp + os.replace，防并发请求损坏）、JSON 序列化校验、损坏容错（损坏文件静默重置）与统一 API。
+    数据密集型插件（习惯追踪 / 分析缓存 / 自定义实体）的结构化持久化。
+
+    值须 JSON 可序列化（str/int/float/bool/list/dict/None）；非可序列化 -> ValueError。
+    键须字符串。懒加载（首次访问读盘）+ 内存缓存。按插件 data_dir 天然命名空间隔离。
+    """
+
+    def __init__(self, data_dir: Path) -> None:
+        self._path = Path(data_dir) / "storage.json"
+        self._data: dict[str, Any] = {}
+        self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            if self._path.is_file():
+                raw = self._path.read_text(encoding="utf-8")
+                obj = json.loads(raw) if raw.strip() else {}
+                if isinstance(obj, dict):
+                    self._data = obj
+        except (OSError, ValueError):  # noqa: BLE001  损坏/不可读 -> 静默重置（不抛、不丢功能）
+            self._data = {}
+
+    def _save(self) -> None:
+        """原子写：tmp 文件 + os.replace（防并发写中途崩溃留下半写文件）。"""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._path.with_name(self._path.name + ".tmp")
+        tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self._path)
+
+    @staticmethod
+    def _check_key(key: str) -> None:
+        if not isinstance(key, str) or not key:
+            raise ValueError("key 必须是非空字符串")
+
+    @staticmethod
+    def _check_value(value: Any) -> None:
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"value 非 JSON 可序列化: {exc}") from exc
+
+    def get(self, key: str, default: Any = None) -> Any:
+        self._check_key(key)
+        self._ensure_loaded()
+        return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self._check_key(key)
+        self._check_value(value)
+        self._ensure_loaded()
+        self._data[key] = value
+        self._save()
+
+    def delete(self, key: str) -> bool:
+        """删除键；返回是否确实删除了一个。"""
+        self._check_key(key)
+        self._ensure_loaded()
+        if key in self._data:
+            del self._data[key]
+            self._save()
+            return True
+        return False
+
+    def has(self, key: str) -> bool:
+        self._check_key(key)
+        self._ensure_loaded()
+        return key in self._data
+
+    def keys(self) -> list[str]:
+        self._ensure_loaded()
+        return list(self._data.keys())
+
+    def clear(self) -> None:
+        """清空本插件全部 KV。"""
+        self._ensure_loaded()
+        self._data = {}
+        self._save()
+
+
+class WebhooksNamespace:
+    """事件→外部 URL 投递（v1.15.0 扩展点，契约见 API.md「§Webhook 投递」）。
+
+    一行调用 ``api.webhooks.register(url, events=['plan_created'], secret='xxx')`` 即把指定事件
+    非阻塞推送到外部 Webhook（Slack/Discord/自动化）——标准载荷 + 可选 HMAC-SHA256 签名 + 10s 超时 +
+    错误隔离。替代插件自行 events.on + httpx + 签名 + 错误处理 ~20 行模板。
+
+    bus 协程监听器自动非阻塞 dispatch（create_task + _guard_await）；bus.reset（reset_plugins）清除
+    全部监听器——webhook 监听器随之清理，无需单独 reset。
+    """
+
+    def __init__(self, plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(
+        self,
+        url: str,
+        events: list[str] | None = None,
+        *,
+        secret: str = "",
+    ) -> Any:
+        """注册 Webhook：指定事件触发时非阻塞 POST 到 url。
+
+        - url：外部 Webhook URL（http(s)://；可信配置——同插件代码信任）。
+        - events：要推送的事件名列表（如 ['plan_created', 'progress_updated']）。
+          None（v1.16.0）= 全部事件（经 subscribe_all sync sink + create_task）。
+        - secret：HMAC-SHA256 签名密钥（可选；非空时加 X-Webhook-Signature 头）。
+        返回 WebhookHandle（unregister 停止推送）。
+        """
+        if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+            raise ValueError("url 须以 http:// 或 https:// 开头")
+        from app.plugins import bus, webhooks
+
+        offs: list[Callable] = []
+        if events is None:
+            # v1.16.0：全事件（subscribe_all sync sink → create_task 非阻塞投递）
+            sink = webhooks.make_all_events_sink(url, secret=secret)
+            off = bus.subscribe_all(sink)
+            offs.append(off)
+        else:
+            if not isinstance(events, (list, tuple)) or not events or not all(isinstance(e, str) and e for e in events):
+                raise ValueError("events 为非 None 时必须是非空字符串列表")
+            for event_name in events:
+                listener = webhooks.make_listener(url, event_name, secret=secret)
+                off = bus.on(event_name, listener)
+                offs.append(off)
+
+        self._status.webhooks.append(url)
+
+        class _Handle:
+            def unregister(self_inner) -> None:
+                for off in offs:
+                    off()
+
+        handle = _Handle()
+        self._rollbacks.append(handle.unregister)
+        return handle
+
+
+class MiddlewareNamespace:
+    """HTTP 中间件注册（v1.17.0 扩展点，契约见 API.md「§HTTP 中间件」）。
+
+    插件注册全局请求中间件——全请求拦截（限流 / IP 过滤 / 审计日志 / 安全响应头 / 内容过滤）。
+    用户 /goal "后端可引入额外安全防护插件"。
+
+    fn 签名：``async (request: Request, call_next) -> Response``（Starlette BaseHTTPMiddleware dispatch 语义）。
+    **错误隔离**：fn 异常 -> 透传原请求（不阻断全部端点，同事件监听器隔离语义）。
+    中间件在插件 register() 期间添加（lifespan startup 内，首次 HTTP 请求前——build_middleware_stack 仅包路由器，无 finalization）。
+    """
+
+    def __init__(self, app: "FastAPI", plugin_id: str, status: "PluginStatus", rollbacks: list) -> None:
+        self._app = app
+        self._pid = plugin_id
+        self._status = status
+        self._rollbacks = rollbacks
+
+    def register(self, fn: Callable) -> None:
+        """注册 HTTP 中间件。fn: async (request, call_next) -> Response。
+
+        - fn 异常 -> 透传原请求（不阻断——记日志后 call_next(request)）。
+        - 多次注册叠加（LIFO 顺序：后注册先执行，同 Starlette user_middleware insert(0)）。
+        """
+        if not callable(fn):
+            raise TypeError("fn 必须是 callable（async (request, call_next) -> Response）")
+        from starlette.middleware import Middleware
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        pid = self._pid
+        plugin_log = logging.getLogger(f"deep_tutor.plugin.{pid}")
+
+        async def _safe_dispatch(request, call_next):
+            try:
+                return await fn(request, call_next)
+            except Exception:  # noqa: BLE001  中间件异常隔离：透传不阻断
+                plugin_log.exception("插件中间件异常 -> 透传原请求")
+                return await call_next(request)
+
+        class _PluginMW(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                return await _safe_dispatch(request, call_next)
+
+        entry = Middleware(_PluginMW)
+        self._app.user_middleware.insert(0, entry)
+        self._app.middleware_stack = self._app.build_middleware_stack()
+        self._status.middleware.append(pid)
+
+        def _rollback() -> None:
+            try:
+                self._app.user_middleware.remove(entry)
+                self._app.middleware_stack = self._app.build_middleware_stack()
+            except (ValueError, Exception):  # noqa: BLE001  rollback 尽力而为
+                pass
+
+        self._rollbacks.append(_rollback)
 
 
 class RoutesNamespace:
@@ -438,10 +1008,16 @@ class BackendPluginAPI:
         # 真实运行态不一致（坏插件代码继续在宿主内执行）；loader 在 register
         # 异常时调用 _rollback() 逆序撤销
         self._rollbacks: list = []
-        self.tools = ToolsNamespace(status, self._rollbacks)
+        self.tools = ToolsNamespace(plugin_id, status, self._rollbacks)
         self.parsers = ParsersNamespace(plugin_id, status, self._rollbacks)
         self.exporters = ExportersNamespace(plugin_id, status, self._rollbacks)
+        self.providers = ProvidersNamespace(plugin_id, status, self._rollbacks)
         self.llm = LlmNamespace(plugin_id)
+        self.mcp = McpNamespace(plugin_id)
+        self.scheduler = SchedulerNamespace(plugin_id, self._rollbacks)
+        self.storage = StorageNamespace(data_dir)
+        self.webhooks = WebhooksNamespace(plugin_id, status, self._rollbacks)
+        self.middleware = MiddlewareNamespace(app, plugin_id, status, self._rollbacks)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()

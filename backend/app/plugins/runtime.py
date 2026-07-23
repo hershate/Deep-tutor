@@ -21,13 +21,16 @@ class PluginStatus:
     name: str
     version: str
     file: str
-    state: str  # "loaded" | "failed"
+    state: str  # "loaded" | "failed" | "disabled"
     error: str = ""
     routes: list[str] = field(default_factory=list)
     events: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     parsers: list[str] = field(default_factory=list)  # v1.3.0：注册的文件解析器扩展名
     exporters: list[str] = field(default_factory=list)  # v1.4.0：注册的导出格式名
+    providers: list[str] = field(default_factory=list)  # v1.6.0：注册的 LLM Provider 协议名
+    webhooks: list[str] = field(default_factory=list)  # v1.15.0：注册的 Webhook URL
+    middleware: list[str] = field(default_factory=list)  # v1.17.0：注册了中间件的插件 id
 
 
 _statuses: list[PluginStatus] = []
@@ -35,11 +38,18 @@ _plugin_tools: list[Tool] = []
 
 
 def record(status: PluginStatus) -> None:
+    # 不去重：同 id 两条记录是合法台账（重复 id 场景：先加载者 loaded，后者 failed「重复」）。
+    # 热重启路径的旧记录由调用方显式 remove_status 清除（unload/enable/disable/reload）。
     _statuses.append(status)
 
 
 def statuses() -> list[PluginStatus]:
     return list(_statuses)
+
+
+def remove_status(pid: str) -> None:
+    """从状态台账移除指定 id 的插件（热卸载用）。"""
+    _statuses[:] = [s for s in _statuses if s.id != pid]
 
 
 def add_tool(tool: Tool) -> None:

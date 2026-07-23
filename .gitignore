@@ -22,6 +22,15 @@ data/
 plugins/*
 !plugins/README.md
 !plugins/example_hello.py.disabled
+# —— 官方实用插件（入库，开箱即用；用户自装插件仍不入库）——
+!plugins/study_export_pack.py
+!plugins/study_stats.py
+!plugins/epub_reader.py
+!plugins/ai_tutor.py
+!plugins/security_guard.py
+!plugins/webhook_notify.py
+!plugins/provider_bridge.py
+!plugins/mcp_bridge.py
 
 # 前端
 frontend/node_modules/

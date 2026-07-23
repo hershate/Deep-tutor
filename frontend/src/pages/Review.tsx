@@ -14,6 +14,7 @@ import {
 import { toast } from '../components/Toast'
 import EmptyState from '../components/EmptyState'
 import { Skeleton } from '../components/Skeleton'
+import WidgetSlot from '../components/WidgetSlot'
 
 // iter 281：跨方案统一复习工作流页 /review；iter 285：并入错题重练卡片。
 // 此前复习入口分散四处（顶栏徽标/Wiki 待复习/Wiki 错题/Learn 单方案复习），无「打开即逐张复习」流式体验。
@@ -379,6 +380,8 @@ export default function Review() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
+      {/* iter 330：插件插槽——复习页仪表盘区（复习统计 / 自定义复习模式 / 间隔重复提醒等插件面板） */}
+      <WidgetSlot slot="review.dashboard" layout="grid" />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">
           复习

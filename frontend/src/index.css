@@ -12,8 +12,26 @@ body,
   height: 100%;
 }
 
+/* iter 332：皮肤令牌默认值（:root 亮色 / .dark 暗色）。skins.register 覆盖这些值即实时生效。
+   --dt-bg 被 body 消费（页面背景）；其余令牌供插件 CSS 引用（var(--dt-color-primary) 等），形成统一调色板。 */
+:root {
+  --dt-bg: #f8fafc;
+  --dt-color-primary: #4f46e5;
+  --dt-surface: #ffffff;
+  --dt-border: #e2e8f0;
+  --dt-shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+}
+.dark {
+  --dt-bg: #0f172a;
+  --dt-color-primary: #6366f1;
+  --dt-surface: #1e293b;
+  --dt-border: #334155;
+  --dt-shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.3);
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+  @apply text-slate-900 antialiased dark:text-slate-100;
+  background-color: var(--dt-bg, #f8fafc);
   /* iter 92：深浅主题切换时背景/文字颜色平滑过渡 */
   transition: background-color 0.25s ease, color 0.25s ease;
   /* iter 183：字体族走 --dt-font-sans 令牌，皮肤插件可全局替换（API.md「皮肤令牌」） */
