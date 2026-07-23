@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.11.0'
+export const API_VERSION = '1.12.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -395,6 +395,17 @@ export interface DroppableHandle {
   destroy(): void
 }
 
+export interface SortableOptions {
+  /** 拖拽手柄 CSS 选择器（在 item 内须手动设 draggable=true 或用手柄触发）；缺省=item 自身 */
+  handle?: string
+  /** 重排后回调（fromIndex → toIndex） */
+  onChange?: (fromIndex: number, toIndex: number) => void
+}
+
+export interface SortableHandle {
+  destroy(): void
+}
+
 function _readPosLS(key: string): { x: number; y: number } | null {
   try {
     const raw = localStorage.getItem(key)
@@ -465,6 +476,27 @@ function _notifyDragEnd(el: HTMLElement, x: number, y: number): void {
       /* 监听器异常隔离 */
     }
   })
+}
+
+/** 返回拖拽指针 Y 应插入到哪个元素之前（基于各子元素中点判定）；null=插到末尾。 */
+function getDragAfterElement(container: HTMLElement, y: number): HTMLElement | null {
+  const children = Array.from(container.children).filter(
+    (c): c is HTMLElement =>
+      c instanceof HTMLElement &&
+      c.getAttribute('data-sortable-item') !== null &&
+      c.style.opacity !== '0.4', // 排除正在拖拽的元素
+  )
+  let closest: HTMLElement | null = null
+  let closestOffset = Number.NEGATIVE_INFINITY
+  for (const child of children) {
+    const box = child.getBoundingClientRect()
+    const offset = y - box.top - box.height / 2
+    if (offset < 0 && offset > closestOffset) {
+      closestOffset = offset
+      closest = child
+    }
+  }
+  return closest
 }
 
 const uiApi = {
@@ -731,6 +763,99 @@ const uiApi = {
       destroy(): void {
         _dragMoveListeners.delete(onMove)
         _dragEndListeners.delete(onEnd)
+      },
+    }
+  },
+  /** 让列表/容器的子项可拖拽重排（v1.12.0）：HTML5 DnD，中点判定插入位置。
+   *  返回 { destroy }。任务列表/播放列表/看板列重排等场景。 */
+  makeSortable(container: HTMLElement, opts: SortableOptions = {}): SortableHandle {
+    if (!container || !(container instanceof HTMLElement)) {
+      throw new Error('[DeepTutor] ui.makeSortable 需传入 HTMLElement（容器）')
+    }
+
+    let draggedItem: HTMLElement | null = null
+    let draggedIndex = -1
+    const items = (): HTMLElement[] =>
+      Array.from(container.children).filter(
+        (c): c is HTMLElement => c instanceof HTMLElement && c !== placeholder,
+      )
+    // 占位指示元素（拖拽中显示插入位置）
+    const placeholder = document.createElement('div')
+    placeholder.style.height = '2px'
+    placeholder.style.background = 'var(--dt-color-primary, #4f46e5)'
+    placeholder.style.borderRadius = '1px'
+    placeholder.style.margin = '2px 0'
+    placeholder.style.opacity = '0.6'
+
+    const onDragStart = (e: DragEvent): void => {
+      const target = (e.target as HTMLElement)?.closest?.('[data-sortable-item]')
+      if (!target || !container.contains(target)) return
+      draggedItem = target as HTMLElement
+      draggedIndex = items().indexOf(draggedItem)
+      e.dataTransfer?.setData('text/plain', String(draggedIndex))
+      draggedItem.style.opacity = '0.4'
+    }
+
+    const onDragOver = (e: DragEvent): void => {
+      if (!draggedItem) return
+      e.preventDefault() // 允许 drop
+      const after = getDragAfterElement(container, e.clientY)
+      if (after == null) {
+        container.appendChild(placeholder)
+      } else if (after !== placeholder) {
+        container.insertBefore(placeholder, after)
+      }
+    }
+
+    const onDrop = (e: DragEvent): void => {
+      e.preventDefault()
+      if (!draggedItem) return
+      // 真正重排：把 draggedItem 移到 placeholder 位置
+      container.insertBefore(draggedItem, placeholder)
+      placeholder.remove()
+      draggedItem.style.opacity = ''
+      const newIndex = items().indexOf(draggedItem)
+      if (newIndex !== draggedIndex && opts.onChange) {
+        opts.onChange(draggedIndex, newIndex)
+      }
+      draggedItem = null
+    }
+
+    const onDragEnd = (): void => {
+      placeholder.remove()
+      if (draggedItem) draggedItem.style.opacity = ''
+      draggedItem = null
+    }
+
+    container.addEventListener('dragstart', onDragStart)
+    container.addEventListener('dragover', onDragOver)
+    container.addEventListener('drop', onDrop)
+    container.addEventListener('dragend', onDragEnd)
+
+    // 标记现有子项为 sortable item（设 draggable + data 属性）
+    const markItems = (): void => {
+      for (const child of Array.from(container.children)) {
+        if (child instanceof HTMLElement && !child.hasAttribute('data-sortable-item')) {
+          child.setAttribute('data-sortable-item', '')
+          child.draggable = true
+        }
+      }
+    }
+    markItems()
+
+    return {
+      destroy(): void {
+        container.removeEventListener('dragstart', onDragStart)
+        container.removeEventListener('dragover', onDragOver)
+        container.removeEventListener('drop', onDrop)
+        container.removeEventListener('dragend', onDragEnd)
+        placeholder.remove()
+        for (const child of Array.from(container.children)) {
+          if (child instanceof HTMLElement) {
+            child.removeAttribute('data-sortable-item')
+            child.draggable = false
+          }
+        }
       },
     }
   },
