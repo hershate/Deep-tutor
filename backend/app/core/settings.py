@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=50, description="上传单文件上限 MB")
     max_tool_calls: int = Field(default=20, description="工具调用轮次上限/会话")
     max_regenerations: int = Field(default=2, description="重生成上限")
+    # iter 345 记忆系统：把方案生成旁挂为 run(kind=plan_generation) 进统一 Run 模型
+    # （side-channel overlay，不动 Orchestrator/SSE 既有行为；默认关闭，验证后再开）
+    agent_runs_enabled: bool = Field(default=False, description="方案生成旁挂 Run 模型（默认关闭）")
 
     # --- 预算（成本控制 Pillar 3）---
     budget_per_session_usd: float = Field(default=1.0, description="会话预算")

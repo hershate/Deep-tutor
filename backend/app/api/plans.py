@@ -149,6 +149,9 @@ class _SessionStream:
         # 任务被取消/异常时 result 不可得，_finalize 借此落账已执行的工具调用
         # （成本计量不留黑洞：日预算守卫只信 api_usage 每日求和）。
         self.executed: list[ToolOutput] = []
+        # iter 345：plan-gen 旁挂 Run 模型的 overlay run_id（settings.agent_runs_enabled
+        # 开启时由 _run_start 创建；_overlay_done 据 orchestrator_state 终态标记，不动 _finalize）
+        self.overlay_run_id: int | None = None
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -695,6 +698,72 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         _schedule_cleanup(session_id)
 
 
+def _create_plan_gen_overlay(session_id: int, user_id: int, raw_text: str) -> int | None:
+    """iter 345：为方案生成旁挂一个 Thread + Run(kind=plan_generation) overlay 行。
+
+    与 Orchestrator/orchestrator_state 并行（不替代）——仅让 plan-gen 在统一 Run 模型中
+    可见（/chat 历史 + bus run_completed）。失败不阻断生成（调用方已 try）。返回 run_id。
+    """
+    db = SessionLocal()
+    try:
+        title = (raw_text or "").strip()[:80] or "方案生成"
+        t = models.Thread(user_id=user_id, title=title, kind="plan_generation", session_id=session_id)
+        db.add(t)
+        db.flush()
+        r = models.Run(
+            thread_id=t.id,
+            user_id=user_id,
+            kind=models.RunKind.plan_generation,
+            status=models.RunStatus.running,
+            trace_id=uuid.uuid4().hex[:16],
+        )
+        db.add(r)
+        db.commit()
+        db.refresh(r)
+        return r.id
+    finally:
+        db.close()
+
+
+def _overlay_done(session_id: int, stream: "_SessionStream") -> None:
+    """iter 345：overlay run 收口（在 _finalize 之后跑）。据 orchestrator_state 终态标记 run +
+    bus 推送 run_completed。不读 task（已被 _finalize 消费），以 DB 既有终态为准。"""
+    from app.plugins import bus
+
+    rid = getattr(stream, "overlay_run_id", None)
+    if not rid:
+        return
+    db = SessionLocal()
+    try:
+        st = db.get(models.OrchestratorState, session_id)
+        run = db.get(models.Run, rid)
+        if run is None:
+            return
+        if st is None or st.status == models.OrchestratorStatus.done:
+            run.status = models.RunStatus.done
+        elif st.status == models.OrchestratorStatus.error:
+            run.status = models.RunStatus.error
+        elif st.status in (models.OrchestratorStatus.interrupted, models.OrchestratorStatus.paused_clarify):
+            run.status = models.RunStatus.interrupted
+        else:
+            run.status = models.RunStatus.interrupted
+        if st is not None:
+            run.budget_used = st.budget_used or 0.0
+        run.ended_at = func.now()
+        db.commit()
+        try:
+            bus.emit(
+                "run_completed",
+                {"user_id": run.user_id, "run_id": rid, "thread_id": run.thread_id, "status": run.status.value},
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("overlay bus emit 失败", exc_info=True)
+    except Exception:  # noqa: BLE001  overlay 收口异常不影响主流程
+        log.warning("overlay_done 失败 session=%s run=%s", session_id, rid, exc_info=True)
+    finally:
+        db.close()
+
+
 async def _run_start(
     stream: "_SessionStream",
     session_id: int,
@@ -761,11 +830,20 @@ async def _run_start(
         registry, ctx, event_cb=_on_event, max_tool_calls=settings.max_tool_calls
     )
     stream.executed = orch.executed  # iter 243：台账共享（取消/异常时 _finalize 落账已执行部分）
+    # iter 345：plan-gen 旁挂统一 Run 模型（默认关闭；overlay 行，不动 Orchestrator/SSE）
+    if settings.agent_runs_enabled and user_id:
+        try:
+            stream.overlay_run_id = _create_plan_gen_overlay(session_id, user_id, stream.raw_text)
+        except Exception:  # noqa: BLE001  overlay 失败不阻断生成
+            log.warning("plan-gen overlay 创建失败 session=%s", session_id, exc_info=True)
     task = asyncio.create_task(
         orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
     )
     stream.task = task
     task.add_done_callback(lambda t: _finalize(session_id, stream, t))
+    # overlay 收口（独立回调，在 _finalize 之后；据 orchestrator_state 终态标记 run + bus 推送）
+    if stream.overlay_run_id is not None:
+        task.add_done_callback(lambda t: _overlay_done(session_id, stream))
 
     async for chunk in _relay(stream, last_event_id):
         yield chunk

@@ -711,3 +711,42 @@ def test_list_plans_sort_default_unchanged(client, auth_headers):
     assert ids[-1] == p_high
     # 非法排序值 422（Literal 校验）
     assert client.get("/api/plans?sort=bogus", headers=auth_headers).status_code == 422
+
+
+def test_generate_overlay_run_when_enabled(client, auth_headers, monkeypatch):
+    """iter 345：settings.agent_runs_enabled 开启时，方案生成旁挂 Run(plan_generation) overlay。"""
+    from app.api import plans as plans_mod
+    from app.core.settings import settings
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: CannedProvider())
+    monkeypatch.setattr(settings, "agent_runs_enabled", True)
+
+    sid = _session(client, auth_headers)
+    r = client.post(
+        "/api/plans/generate",
+        json={"session_id": sid, "raw_text": "我想学 React，零基础"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    db = SessionLocal()
+    try:
+        run = db.query(models.Run).filter_by(kind=models.RunKind.plan_generation).first()
+        assert run is not None, "overlay run 未创建"
+        thr = db.get(models.Thread, run.thread_id)
+        assert thr is not None and thr.kind == "plan_generation"
+        assert thr.session_id == sid  # overlay thread 桥接到生成会话
+        assert run.user_id is not None
+        # overlay_done 在 task done-callback 中标记终态——轮询确认收敛为 done
+        for _ in range(40):
+            db.refresh(run)
+            if run.status == models.RunStatus.done:
+                break
+            import time as _t
+
+            _t.sleep(0.05)
+        assert run.status == models.RunStatus.done
+    finally:
+        db.close()
