@@ -12,8 +12,8 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.16.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.17.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 前端插件 API | `1.17.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 后端插件 API | `1.18.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -65,7 +65,8 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 ```
 
 > **安全提示**：插件脚本以页面完整权限运行（可读 localStorage、可带登录态发请求）。
-> 只加载你信任的插件 URL；`plugins.unload()` 移除后需刷新页面才彻底清除其副作用。
+> 只加载你信任的插件 URL；`plugins.unload()`/`disable()` 会清除其追踪到的注册（小组件/
+> 页面/覆盖层/皮肤即时消失），但插件在异步回调中延迟注册的不被追踪（需刷新清除）。
 
 ---
 
@@ -544,6 +545,11 @@ interface SkinDef {
 应用皮肤；未知名称返回 `false`。应用结果持久化，刷新后保持。
 `skins.apply('default')` 清除全部自定义令牌，回到默认外观。
 
+#### `skins.unregister(name: string): boolean`（v1.17.0）
+
+注销皮肤（幂等）。内置皮肤（`default`/`compact`/`rounded`）不可注销（返回 `false`）；
+当前激活皮肤被注销时自动回退 `default`。主要供热停用插件时清除其注册的皮肤。
+
 #### `skins.active(): string`
 
 当前皮肤名。
@@ -564,7 +570,7 @@ interface SkinDef {
 
 - **前端本地事件**：`skinchange` / `taskchange`（本进程内 `emit`）。
 - **后端事件桥**（v1.7.0，iter 315）：宿主在登录态自动连接 `GET /api/events/stream`（SSE，
-  见 §8.7），把**后端事件总线**事件实时转发为 `DeepTutor.events`——插件订阅即**实时**收到
+  见 §8.8），把**后端事件总线**事件实时转发为 `DeepTutor.events`——插件订阅即**实时**收到
   （方案生成完成、学习进度更新、测验提交、打卡、材料生成完成等），**免轮询**。这是
   "用 API 完全替换前端"的实时性使能项（替代前端做 live 仪表盘时，数据变化自动推送）。
 
@@ -587,7 +593,7 @@ interface SkinDef {
 > 任意字符串事件名（未知名以 `unknown` 载荷传递），插件可放心订阅新版本事件，在旧宿主上自然降级。
 >
 > **后端事件隔离**：经 SSE 桥转发的后端事件**按归属用户过滤**——他人的事件不会推给你
-> （`startup`/`shutdown` 等全局生命周期事件除外，广播给全部连接）。详见 §8.7。
+> （`startup`/`shutdown` 等全局生命周期事件除外，广播给全部连接）。详见 §8.8。
 >
 > `taskchange` 仅通知相位变化这一事实；任务的全量状态（进度步骤、费用、错误详情等）
 > 可经 `api.get('/sessions')` / `api.get('/sessions/<id>')` 主动查询（含 `status`、
@@ -668,12 +674,27 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 
 #### `plugins.unload(url: string): void`
 
-从持久化列表移除。**注意**：已执行脚本的副作用（已注册的小组件/皮肤、定时器等）
-需刷新页面才消除；小组件可在卸载前先 `widgets.unregister(id)` 主动清理。
+从持久化列表**永久移除**（含其停用标记）。v1.17.0 起，同时清除该插件在注入期间追踪到的
+全部注册（widgets/pages/overlays/skins 即时消失），无需刷新页面。
+（插件在 `setTimeout`/异步回调中延迟注册的不被追踪，需刷新清除——约定插件在脚本体执行期间同步注册。）
+
+#### `plugins.disable(url: string): void`（v1.17.0）
+
+**停用**一个插件（不卸载、保留在列表中以便重新启用）：清除其追踪到的全部注册
+（widgets/pages/overlays/skins 即时消失）+ 记停用标记到 `localStorage('dt_plugins_disabled')`
+（刷新后不自动加载）。脚本 DOM 残留无害，`enable` 时重新注入会重新注册。
+
+#### `plugins.enable(url: string): Promise<void>`（v1.17.0）
+
+**启用**一个已停用的插件：清除停用标记 + 重新注入脚本（重新注册全部）。已注入则幂等返回。
+
+#### `plugins.isDisabled(url: string): boolean`（v1.17.0）
+
+该插件是否处于停用状态。
 
 #### `plugins.list(): string[]`
 
-当前持久化的插件 URL 列表。
+当前持久化的插件 URL 列表（含已停用的——停用插件仍可见、可一键启用）。
 
 ---
 
@@ -716,7 +737,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.17.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.18.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -760,7 +781,9 @@ curl -H "Authorization: Bearer <token>" http://localhost:8000/api/plugins
 | 临时停用 | 文件/目录名加 `_` 前缀（`_foo.py` / `_foo/`） | 跳过加载，无需删除 |
 
 - 发现顺序按文件名排序（确定性加载）；加载结果逐插件记录（见 §8.6 状态端点与启动日志）。
-- **重启生效**：放置/修改/停用插件后需重启后端。
+- **热管理（无需重启）**：放置新插件后仍需重启后端以首次发现；但已装载的插件可经
+  §8.7 热管理端点**重载 / 停用 / 启用**，无需重启整个项目。`_` 前缀约定保留为
+  「启动时跳过加载」的静态停用方式。
 - 每个插件获得私有数据目录 `<DATA_DIR>/plugins/<插件id>/`（自动创建，`api.data_dir` 取得）。
 - 单个插件导入失败、`register` 抛异常、缺 `register`、id 非法/重复、`min_api` 不兼容
   均只记该插件 `failed`，**不阻塞其余插件与宿主启动**。
@@ -1491,7 +1514,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.17.0",
+  "api_version": "1.18.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1512,7 +1535,32 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 本端点同时是内置「插件」管理页（`/plugins`，后端插件区块）的数据源——
 管理员可在页面直接查看各插件装载状态与错误，无需手工调用。
 
-### 8.7 实时事件流：`GET /api/events/stream`（SSE）
+### 8.7 热管理：重载 / 停用 / 启用（管理员，无需重启）
+
+已装载的后端插件可经以下端点**热重载 / 停用 / 启用**，无需重启整个后端。
+三端点均需管理员权限（`require_admin`，非管理员 403），均作用于 §8.6 状态台账中可见的插件。
+
+| 端点 | 语义 | 返回 |
+|---|---|---|
+| `POST /api/plugins/{id}/reload` | 热重载：卸载（逆序回滚其全部注册）+ 重新导入文件 + 重新 `register`。用于改了插件源码后即时生效 | `{ok, plugin}`（新状态） |
+| `POST /api/plugins/{id}/disable` | 停用：卸载 + 记 `state:"disabled"` + **持久化**禁用状态（重启后仍停用） | `{ok}` |
+| `POST /api/plugins/{id}/enable` | 启用：清除停用标记 + 从文件重新加载 | `{ok, plugin}` |
+
+- `reload`/`enable` 的响应 `plugin` 字段结构与 §8.6 每行相同（含 `state`/`routes` 等）。
+- 插件不存在（无文件且未加载）-> `404 not_found`（与 §8.6 列表一致：未装载的插件不可热操作）。
+- `disable` 把停用状态持久化到 `<DATA_DIR>/plugin_state.json`（`{"disabled": ["id", ...]}`），
+  后端重启后 `load_plugins` 读取该文件、跳过停用插件（记 `state:"disabled"`，不挂载路由）。
+- `_` 前缀（§8.2）是「启动时跳过」的静态约定；本节端点是「运行时停用/启用」的动态手段，
+  二者互补。停用与启用均**幂等**（重复请求不报错）。
+
+**`state` 取值**：`loaded`（已加载，路由可用）/ `failed`（装载失败，`error` 给原因）/
+`disabled`（已停用，路由已卸载，可一键启用）。
+
+**内置管理页 UI**：「插件」页（`/plugins`）后端区块对每个插件按状态展示操作按钮——
+`loaded`/`failed` → 🔄 重载；`loaded` → ⏸ 停用；`disabled` → ▶ 启用。前端区块另有
+前端插件（浏览器端）的停用/启用开关（见「前端插件 API」§`plugins.disable/enable`）。
+
+### 8.8 实时事件流：`GET /api/events/stream`（SSE）
 
 把后端事件总线（§8.5 核心事件 + 插件自定义事件）**实时推送**给已认证客户端——
 Server-Sent Events。前端插件 / 外部替代前端 / CLI 据此构建实时 UI（学习进度更新、
@@ -1571,7 +1619,7 @@ for (;;) {
 > 部署时事件仅在本进程内可见，需经 sticky session 或共享 pubsub（Redis 等）跨进程
 > 分发（接口已按可替换设计，未来可扩展）。
 
-### 8.8 完整示例
+### 8.9 完整示例
 
 仓库自带可启用示例：[plugins/example_hello.py.disabled](plugins/example_hello.py.disabled)
 （路由 + 事件 + 工具 + 数据目录 + 配置读取）。去掉 `.disabled` 后缀重启即可体验。
@@ -1642,6 +1690,8 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.18.0 | 2026-07-23 | 插件**热管理**（无需重启整个项目）：`loader.unload_plugin/reload_plugin/disable_plugin/enable_plugin` + 3 个管理员端点 `POST /api/plugins/{id}/reload\|disable\|enable`（§8.7）；保留每插件 API 门面（`_plugin_apis`）供 unload 调 `_rollback()` 逆序撤销全部注册（路由/中间件/工具/事件/解析器/导出器/Provider/scheduler/webhook）；`disable` 持久化禁用状态到 `<DATA_DIR>/plugin_state.json`，重启后 `load_plugins` 跳过停用插件（记 `state:"disabled"`）；`PluginStatus.state` 加 `"disabled"` 取值 + `remove_status` 助手；用户 /goal "插件能热重启以及在插件页内直接关闭或打开" |
+| 前端 | 1.17.0 | 2026-07-23 | 前端插件**热启停**（无需刷新页面）：`plugins.disable(url)`/`enable(url)`/`isDisabled(url)`——注入脚本期间追踪其注册（widgets/pages/overlays/skins 台账 `_pluginRegistrations`），停用时按键逆注册清除（即时消失），启用时重新注入脚本重新注册；停用 URL 持久化 `dt_plugins_disabled`（与 `dt_plugins` 分离，刷新后不自动加载）；`skins.unregister(name)` 注销皮肤（热停用插件时清皮肤，激活皮肤被注销回退 default）；`unload` 升级为彻底移除（含注册清除，不再需刷新）；Plugins 页加前端启停开关 + 后端重载/停用/启用按钮 |
 | 后端 | 1.17.0 | 2026-07-23 | 新增 `api.middleware.register(fn)`：插件注册 HTTP 中间件（全请求拦截——限流/IP 过滤/审计日志/安全响应头/内容过滤）；fn 签名 `async (request, call_next) -> Response`（Starlette BaseHTTPMiddleware dispatch 语义）；**error isolation**（fn 异常→透传原请求不阻断全部端点，同事件监听器隔离）；rollback（register 失败移除中间件）；用户 /goal "后端可引入额外安全防护插件" |
 | 后端 | 1.16.0 | 2026-07-23 | `api.webhooks.register(events=None)` 全事件支持（subscribe_all sync sink + create_task）；新增 4 个 widget 插槽（learn/notes/usage/wiki） |
 | 后端 | 1.15.0 | 2026-07-23 | 新增 `api.webhooks.register(url, events, *, secret)`：一行调用把指定事件非阻塞推送到外部 Webhook URL（Slack/Discord/自动化）——经 bus 协程监听器（`create_task` 非阻塞 dispatch + `_guard_await` 错误隔离）+ httpx（10s 超时）+ 可选 HMAC-SHA256 签名（`X-Webhook-Signature` 头）；标准载荷 `{event, data}`；`bus.reset` 清理监听器（无需单独 reset）；返回 handle（`unregister` 停止）；替代 events.on + httpx + 签名 ~20 行模板 |
@@ -1663,7 +1713,7 @@ for (;;) {
 | 前端 | 1.10.0 | 2026-07-23 | `ui` 命名空间加 `makeResizable`：在四边/四角加缩放手柄（8 方向），pointer 拖拽改尺寸 + minSize 钳制 + 可选 persistKey 尺寸持久化，返回 `{ destroy }`——配 `makeDraggable`（v1.8.0）即做出可拖放 + 可缩放的浮窗/面板（完整"可自由拖放的小组件"）；n/w 边收缩时对边固定 |
 | 前端 | 1.9.0 | 2026-07-23 | `ui` 命名空间加 `toast`（success/info/error）：复用宿主 Toast 系统（右下角、3s 自动消失、可选 action 按钮 TTL 延至 8s）——插件给用户瞬时反馈（"已保存"/"复制成功"/"出错"），无需自建通知 UI（此前只能 console.log 或从零搭组件） |
 | 前端 | 1.8.0 | 2026-07-23 | 新增 `ui` 命名空间（`makeDraggable`）：让任意 DOM 元素可自由拖放（fixed 定位 + pointer 事件 + 视口/容器边界 + 可选 localStorage 位置持久化 + 拖拽置顶），返回 `{ destroy }` 清理——配合 overlay `content` 层即做出"可自由拖放的小组件"（用户点名需求，此前须每个插件手写拖拽）；DRF 手柄/边界/初始位置/持久化键可配；隐私模式 localStorage 不可用静默降级 |
-| 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.7），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |
+| 前端 | 1.7.0 | 2026-07-22 | `DeepTutor.events` 后端事件桥：宿主在登录态自动连接 `GET /api/events/stream`（SSE，§8.8），把后端事件总线事件（`plan_created`/`progress_updated`/`quiz_submitted`/`materials_completed`/`learning_log_added`/全局生命周期 + 插件自定义事件）实时转发为 `events`——插件 `events.on(...)` 即实时收到，免轮询（"用 API 完全替换前端"的实时性使能项）；`on`/`emit` 重载放宽接受任意字符串事件名（已知事件类型化、未知名 `unknown` 前向兼容）；后端事件按归属用户过滤（隔离）；新增 `EventsBridge` 组件（鉴权区内挂载，指数退避重连，登出 abort）；同步收口提交 iter 310 后端 SSE（`subscribe_all`/`events.py`） |
 | 前端 | 1.6.0 | 2026-07-22 | 新增 `overlay` 命名空间（`register/unregister/list/layers/subscribe`）：插件注册应用根级覆盖层（`background`/`content`/`top` 三层 z-index 分层），脱离页面、覆盖整个视口绘制——"用 API 完全改造前端"使能项（WebGL 背景特效 / 可拖放浮窗 / 2D 物理叠层 / 全屏 3D 小游戏）；pointer-events 默认穿透不阻塞 UI（交互 opt-in `auto`）+ 单 overlay 错误边界隔离 + 全路由渲染（组件内可用路由/取数 hooks）+ `/plugins` 可观测 |
 | 前端 | 1.5.0 | 2026-07-22 | 新增 `router` 命名空间（`navigate/path/href/subscribe`）：插件页面间 SPA 导航（不整页刷新）+ 路由变化响应式订阅——页面 API 的配套能力，插件多页应用闭环；查询参数读取走原生 `window.location.search`（文档明示） |
 | 前端 | 1.4.0 | 2026-07-22 | 新增 `pages` 命名空间（`DeepTutor.pages.register/get/unregister/list/navItems/subscribe`）：插件注册完整路由页（`/p/` 命名空间隔离，零内置碰撞）+ 可选侧栏导航——"用 API 完全替换前端"核心使能项；单页错误边界隔离 + 未命中兜底 |
