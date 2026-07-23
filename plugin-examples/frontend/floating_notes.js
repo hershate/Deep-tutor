@@ -17,10 +17,18 @@
 
     useEffect(function () {
       if (!ref.current) return;
-      // 一次调用获得拖放 + 视口边界 + 位置持久化（刷新回到上次位置）
+      // 拖放 + 视口边界 + 位置持久化（刷新回到上次位置）
       var d = DT.ui.makeDraggable(ref.current, { persistKey: "floating_notes_pos" });
+      // 缩放（尺寸持久化，v1.10+ 能力发现：旧宿主无则仅可拖）
+      var r = DT.ui.makeResizable
+        ? DT.ui.makeResizable(ref.current, {
+            persistKey: "floating_notes_size",
+            minSize: { width: 180, height: 120 },
+          })
+        : null;
       return function () {
         d.destroy();
+        if (r) r.destroy();
       };
     }, []);
 

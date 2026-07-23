@@ -8,7 +8,7 @@
 | 插件 | 用途 | 复合的 API |
 |---|---|---|
 | [pomodoro.js](pomodoro.js) | 番茄钟侧栏小组件（完成自动提示 + 打卡） | `widgets` + `ui.toast` + `events` + `api` |
-| [floating_notes.js](floating_notes.js) | 可拖放浮窗笔记（位置记忆） | `overlay` + `ui.makeDraggable` + `ui.toast` |
+| [floating_notes.js](floating_notes.js) | 可拖放 + 可缩放浮窗笔记（位置/尺寸记忆） | `overlay` + `ui.makeDraggable` + `ui.makeResizable` + `ui.toast` |
 | [brand_skin.js](brand_skin.js) | 品牌皮肤（海洋蓝 + 大圆角） | `skins` |
 | [reader_app.js](reader_app.js) | 速读卡插件页面（整页 + SPA 导航） | `pages` + `router` |
 

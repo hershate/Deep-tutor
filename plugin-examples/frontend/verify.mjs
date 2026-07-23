@@ -64,6 +64,7 @@ const ctx = {
       api: { get: async () => ({}), request: async () => ({}) },
       ui: {
         makeDraggable: () => { calls.ui.push("makeDraggable"); return { destroy: () => {} }; },
+        makeResizable: () => { calls.ui.push("makeResizable"); return { destroy: () => {} }; },
         toast: { success: (m) => calls.ui.push("toast:" + m), info: () => {}, error: () => {} },
       },
       router: {
