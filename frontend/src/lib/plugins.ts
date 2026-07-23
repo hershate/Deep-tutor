@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.14.0'
+export const API_VERSION = '1.15.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）

@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.14.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.15.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.16.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -511,10 +511,15 @@ DT.ui.toast.error('同步失败，请稍后重试', { label: '重试', onClick: 
 
 ### v1 受支持令牌
 
-| 令牌 | 默认值 | 消费方 |
+| 令牌 | 默认值（亮 / 暗） | 消费方 |
 |---|---|---|
 | `--dt-card-radius` | `0.75rem` | 共享卡片（Card）与全部内置小组件的圆角 |
 | `--dt-font-sans` | 系统字体栈 | `body` 全局正文字体族 |
+| `--dt-bg`（v1.15.0） | `#f8fafc` / `#0f172a` | `body` 页面背景（skins.register 设即实时生效） |
+| `--dt-color-primary`（v1.15.0） | `#4f46e5` / `#6366f1` | 供插件 CSS 引用（`var(--dt-color-primary)`），形成品牌色统一 |
+| `--dt-surface`（v1.15.0） | `#ffffff` / `#1e293b` | 供插件 CSS 引用（卡片/面板表面色） |
+| `--dt-border`（v1.15.0） | `#e2e8f0` / `#334155` | 供插件 CSS 引用（边框色） |
+| `--dt-shadow-card`（v1.15.0） | `0 1px 3px ...` | 供插件 CSS 引用（卡片阴影） |
 
 > 只允许设置 `--dt-*` 命名空间的变量（其余键会被忽略）。
 > 后续版本将追加更多令牌（品牌色、阴影、密度等），已列令牌不会改名或删除。
