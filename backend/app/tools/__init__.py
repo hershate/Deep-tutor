@@ -39,6 +39,13 @@ def default_registry() -> ToolRegistry:
     reg.register(generate_unit_content_tool)  # P2 逐单元材料（materials SSE 流式路径，iter 46）
     reg.register(generate_quiz_tool)  # P2 测验（POST /plans/{id}/quiz 调用，不在 PIPELINE）
     reg.register(kb_answer_tool)  # iter 216 知识库问答（POST /kb/chat 调用，不在 PIPELINE）
+    # iter 345 记忆系统：Agent 工具（工作区文件/联网/记忆·历史/草稿提升），供 Agent 循环
+    # 与插件经 run_tool / api.tools.call 调用；不在 PIPELINE，不影响 plan-gen。
+    # 延迟导入避循环（agent_tools → agent.agent_loop → agent.cost → tools.base → tools.__init__）。
+    from app.tools.agent_tools import AGENT_TOOLS
+
+    for agent_tool in AGENT_TOOLS:
+        reg.register(agent_tool)
     # 后端插件工具（API.md「后端插件 API」§工具）：插件经 api.tools.register 注册，
     # 随每次新建的注册表汇入。与核心工具同名 -> 覆盖并告警（registry.register 既有
     # 行为），插件可借此替换核心工具实现（高级用法，见 API.md 开发规范）。
