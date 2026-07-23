@@ -932,6 +932,19 @@ export interface SkinDef {
 const SKIN_KEY = 'dt_skin'
 const skinRegistry = new Map<string, SkinDef>()
 skinRegistry.set('default', { name: 'default', label: '默认', tokens: {}, darkTokens: {} })
+// 内置皮肤（供用户直接选用，也验证皮肤系统端到端可用）
+skinRegistry.set('compact', {
+  name: 'compact',
+  label: '紧凑',
+  tokens: { '--dt-card-radius': '0.375rem' },
+  darkTokens: { '--dt-card-radius': '0.375rem' },
+})
+skinRegistry.set('rounded', {
+  name: 'rounded',
+  label: '大圆角',
+  tokens: { '--dt-card-radius': '1.25rem' },
+  darkTokens: { '--dt-card-radius': '1.25rem' },
+})
 
 const appliedTokenKeys = new Set<string>()
 let activeSkin = 'default'
@@ -974,6 +987,14 @@ const skinsApi = {
   register(def: SkinDef): void {
     if (!def || !def.name || def.name === 'default') throw new Error('[DeepTutor] skin.name 必填且不能为 default')
     skinRegistry.set(def.name, { tokens: {}, darkTokens: {}, ...def })
+    // 通知监听器（Plugins 页据此重渲染，下拉框显示新皮肤——此前 register 不通知是 bug）
+    skinListeners.forEach((fn) => {
+      try {
+        fn()
+      } catch (e) {
+        console.error('[DeepTutor] skins 注册通知回调异常', e)
+      }
+    })
   },
   /** 应用皮肤；未知名称返回 false */
   apply: applySkin,
