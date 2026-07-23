@@ -83,6 +83,16 @@ async def lifespan(app: FastAPI):
         if stale.rowcount:
             db.commit()
             log.warning("启动恢复：%d 个 stale running 会话已收敛为 interrupted", stale.rowcount)
+        # iter 345 记忆系统：收敛 stale running runs（崩溃/重启残留 -> interrupted；
+        # 弃用 resume 改"新 run"续——历史在 messages，连续性不丢；半截 tool_use 重放非幂等）
+        stale_runs = db.execute(
+            update(models.Run)
+            .where(models.Run.status == models.RunStatus.running)
+            .values(status=models.RunStatus.interrupted)
+        )
+        if stale_runs.rowcount:
+            db.commit()
+            log.warning("启动恢复：%d 个 stale running run 已收敛为 interrupted", stale_runs.rowcount)
         # P4 多用户（iter 57）：启动收敛管理员账号（旧单用户数据归管理员）
         from app.core.security import ensure_admin_user
 

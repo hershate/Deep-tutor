@@ -67,9 +67,64 @@ def cleanup_orphan_session_dirs(data_dir: str | None = None) -> int:
     return removed
 
 
+def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
+    """清理孤儿 run 工作区目录（iter 345 记忆系统）。
+
+    - ``data/runs/<id>/``：仍 ``running`` 的 run 保留其 scratch；其余（interrupted/error/
+      已 commit 的外壳残留）-> 删。已 commit 的 run 在 commit 时已 move 走 scratch，
+      此处兜底清崩溃残留。
+    - ``data/workspaces/<tid>/<rid>/``：committed 区脱离 run 生命周期，**默认不清**——仅在
+      run 行已删（真孤儿）或 mid-commit 崩溃（run 在但 workspace_committed=False 且非 running）
+      时清，避免误删已 commit 产物。
+    """
+    from app.core.settings import settings
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    root = Path(data_dir or settings.data_dir)
+    removed = 0
+    db = SessionLocal()
+    try:
+        running_ids = {row[0] for row in db.query(models.Run.id).filter(models.Run.status == models.RunStatus.running).all()}
+        # committed 区有效性：<rid, committed, status> 元组
+        valid_committed: dict[str, bool] = {}  # run_id_str -> 应保留
+        for r in db.query(models.Run).all():
+            valid_committed[str(r.id)] = bool(r.workspace_committed) or r.status == models.RunStatus.running
+    finally:
+        db.close()
+
+    # data/runs/<id>/ —— 非 running 一律清
+    runs_root = root / "runs"
+    if runs_root.exists():
+        for child in runs_root.iterdir():
+            if not child.is_dir() or not child.name.isdigit():
+                continue
+            if int(child.name) not in running_ids:
+                shutil.rmtree(child, ignore_errors=True)
+                removed += 1
+                log.info("清理孤儿 run scratch 目录: %s", child)
+
+    # data/workspaces/<tid>/<rid>/ —— 仅清无效（run 行删 / mid-commit 半成品）
+    ws_root = root / "workspaces"
+    if ws_root.exists():
+        for tdir in ws_root.iterdir():
+            if not tdir.is_dir():
+                continue
+            for rdir in tdir.iterdir():
+                if not rdir.is_dir() or not rdir.name.isdigit():
+                    continue
+                keep = valid_committed.get(rdir.name, False)
+                if not keep:
+                    shutil.rmtree(rdir, ignore_errors=True)
+                    removed += 1
+                    log.info("清理无效/孤儿 committed 工作区: %s", rdir)
+    return removed
+
+
 def run_maintenance() -> dict:
     """执行一轮运维（VACUUM + 清孤儿），返回统计。"""
     removed = cleanup_orphan_session_dirs()
+    removed += cleanup_orphan_run_dirs()
     vacuum_db()
     return {"orphan_dirs_removed": removed}
 
