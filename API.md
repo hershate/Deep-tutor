@@ -1729,3 +1729,88 @@ for (;;) {
 | 前端 | 1.2.0 | 2026-07-19 | 新增 `api.request`（全方法 REST 代理）、`widgets.slots()`（插槽能力发现）；小组件渲染异常改为单组件级错误边界隔离（此前会拖垮整个应用）；widgets/skins 订阅回调异常隔离（与 events 语义一致）；文档补事件前向兼容说明 |
 | 前端 | 1.1.0 | 2026-07-19 | 新增 `taskchange` 事件（任务相位迁移；配合 `api.get('/sessions')` 查询任务全量状态） |
 | 前端 | 1.0.0 | 2026-07-19 | 首个预留版本：`widgets`（插槽 `home.dashboard` / `sidebar.footer`）、`skins`（令牌 `--dt-card-radius` / `--dt-font-sans`）、`events`（`skinchange`）、`api.get`、`plugins.load/unload/list` |
+
+---
+
+## 十一、记忆系统与 Agent 对话 API（iter 345）
+
+> **用途**：AI 对话的**会话历史记忆 + 全量任务记录（永不丢）+ Claude Code 式工作区 +
+> 完整 Agent（多轮工具调用）+ DeepSeek 式实时界面 + 全面 CRUD（插件可用）**。
+> 仿 OpenAI Assistants **Thread / Message / Run / RunStep** 持久化模型，与既有 plan-gen
+> （sessions/orchestrator_state）并行。数据模型见 [stage.md](stage.md) iter 345 / [plan 文件]。
+
+### 11.1 数据模型（6 张 additive 表）
+
+| 表 | 作用 |
+|---|---|
+| `threads` | 会话容器（user 归属；可桥接 plan-gen session） |
+| `messages` | 会话历史（append-only；content 存 Anthropic block list；永不自动删） |
+| `runs` | 任务执行记录（kind: chat/plan_generation；status: running/done/error/interrupted/awaiting_approval/cancelled；**需求②永不丢**） |
+| `run_steps` | 逐步骤可见性（一轮模型调用 / 工具调用 / 审批——**需求⑤**） |
+| `run_artifacts` | 工作区产物（draft→committed→promoted） |
+| `memories` | 记忆库（thread/user 作用域；agent 可读写——与转录 messages 区分） |
+
+### 11.2 REST API（默认宿主认证 + 归属 404）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST/GET | `/api/threads`、`/api/threads/{id}` | 会话增/列表/详情 |
+| PATCH/DELETE | `/api/threads/{id}` | 改标题/删会话（级联消息/运行/产物/记忆） |
+| GET/DELETE | `/api/threads/{id}/messages[/{mid}]` | 会话历史（分页）/ 删消息 |
+| POST | `/api/threads/{id}/runs` | **Agent 对话 SSE**（见 §11.3） |
+| GET | `/api/threads/{id}/runs`、`/api/runs/{id}`、`/api/runs/{id}/steps` | 运行列表/详情/步骤 |
+| DELETE/POST | `/api/runs/{id}`、`/api/runs/{id}/cancel` | 删运行（非 running）/ 取消 |
+| POST | `/api/runs/{id}/approve` | 用户确认草稿提升（promote） |
+| GET | `/api/runs/{id}/files[/{name}]` | 工作区产物列表/读 |
+| GET/POST/DELETE | `/api/threads/{id}/memory[/{mid}]`、`/api/memory[/{mid}]` | 记忆库 CRUD（thread / user 作用域） |
+
+### 11.3 Agent 对话 SSE：`POST /api/threads/{id}/runs`
+
+请求体 `{ message, max_steps?, thinking?, model? }`，响应 `text/event-stream`（fetch+ReadableStream
+携带鉴权头，复用 [sse.ts](frontend/src/lib/sse.ts)）。事件：
+
+```
+event: run_start     data: { run_id, model }
+event: text_delta    data: { text }              # 流式逐字（DeepSeek 式）
+event: thinking_delta data: { text }             # 思考过程（可折叠）
+event: tool_call     data: { id, name, step }    # 工具调用开始
+event: tool_progress data: { id, step }
+event: tool_result   data: { id, name, is_error, step }
+event: message_end   data: { step, stop_reason }
+event: error         data: { code, message }
+event: done          data: { run_id, status }    # 终态
+```
+
+- **配额**：每 thread 至多 1 个 running chat run（asyncio.Lock；与 plan-gen 分桶）。
+- **供应商**：仅 Anthropic 协议支持原生 tool_use；plugin provider 上启动 agent run 返 `unsupported_provider`。
+- **崩溃安全**：任务用独立 SessionLocal + try/finally 收口（cancel/异常仍落 run 终态 + commit 工作区 + bus 推 `run_completed`）。
+- 续接：带 `Last-Event-ID` 头重连，重放未投递事件。
+
+### 11.4 Agent 工具（注册入工具表，经 `run_tool` / `api.tools.call` 调用）
+
+`workspace_write/read/edit/list`（沙箱文件，原子写+防穿越）、`web_search`（复用 Bing 双引擎）、
+`web_fetch`（SSRF 防护 + 正文提取 + 引用头）、`memory_save/recall/delete`、`load_thread_history`、
+`search_messages`、`promote_artifact`（提议→run `awaiting_approval`，用户 approve 后落正式库）。
+核心工具（parse_material/search_resources/...）亦可经 `run_tool` 调用组合工作流。
+
+### 11.5 工作区生命周期（需求③ Claude Code 式）
+
+`scratch(data/runs/<id>/workspace/)` → run 完成 `commit`(move 到 `data/workspaces/<tid>/<rid>/`，
+置 `workspace_committed`) → 用户 `approve` `promote`(copy 进 plans/materials/notes)。
+崩溃恢复：startup 把 `runs.running` 收敛为 `interrupted`（弃用 resume，改新 run 续——历史在
+messages）；孤儿 scratch/无效 committed 由 maintenance 清理。
+
+### 11.6 插件门面 `api.memory`（= `api.threads`，v1.19.0）
+
+```python
+def register(api):
+    # 插件进程内对会话/消息/记忆做增删查改（按 user_id 归属校验）
+    api.memory.create_thread(user_id, title="...", kind="chat")
+    api.memory.add_message(thread_id, user_id, "assistant", "自动回复")
+    api.memory.save_memory(user_id, "用户偏好简洁", kind="fact", scope="user")
+    rows = api.memory.recall_memories(user_id, q="偏好")
+    api.memory.delete_thread(thread_id, user_id)
+```
+
+方法：`list_threads/create_thread/get_thread/delete_thread`、`list_messages/add_message`、
+`save_memory/recall_memories/delete_memory`。Agent run 本身经 REST SSE 触发（插件可挂路由转发）。
