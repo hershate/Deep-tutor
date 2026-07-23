@@ -41,3 +41,8 @@ class ExecContext:
     # iter 223：凭证档案解析后的有效 Bing Key（空 -> 工具内回退 settings.bing_api_key）；
     # 由 API 层按发起用户解析注入（app.core.credentials.resolve_bing_api_key）
     bing_api_key: str = ""
+    # iter 345 记忆系统：Agent 对话循环专用（orchestrator 路径不填，保持默认零影响）
+    thread_id: int | None = None
+    run_id: int | None = None
+    user_id: int | None = None  # 归属用户（record_metadata_usage 计量 + 配额）
+    workspace_dir: str = ""  # 本 run 工作区沙箱根（agent/workspace.py）
