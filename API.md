@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.8.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.10.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.11.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -597,7 +597,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.10.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.11.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -681,6 +681,7 @@ PLUGIN_META = {
 | `api.providers` | `ProvidersNamespace` | LLM Provider 扩展点（v1.6.0）：为内置仅支持 Anthropic 协议的 LLM 层注册新协议 Provider（OpenAI/Ollama/DeepSeek/Gemini 等），经 `api.llm.complete(provider_kind=)` 调用，预算守卫+计量同宿主（§8.4d） |
 | `api.mcp` | `McpNamespace` | MCP 客户端（v1.9.0）：连接外部 MCP server（Streamable HTTP），`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（§8.4e） |
 | `api.scheduler` | `SchedulerNamespace` | 后台任务调度（v1.10.0）：`every`（周期）/`once`（延迟）后台任务——插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力）（§8.4f） |
+| `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1266,6 +1267,44 @@ def register(api):
 > ③ 信任模型同插件代码（fn 在宿主进程跑——重 CPU/IO 活请 fn 内 `asyncio.to_thread` 避免阻塞循环）；
 > ④ 不持久化（重启即失，插件重新注册——`startup` 事件可作初始化锚点）。
 
+#### `api.storage` —— 持久化 KV 存储（v1.11.0 扩展点，§8.4g）
+
+每插件私有的键值存储（JSON 文件于插件 `data_dir`），替代裸 `data_dir` 文件 I/O——提供**原子写**
+（tmp + rename，防并发请求损坏中途留下半写文件）、JSON 序列化校验、损坏容错（损坏文件静默重置不抛）、
+与统一 API。数据密集型插件（习惯追踪 / 分析缓存 / 自定义实体）的结构化持久化。
+
+```python
+api.storage.get(key: str, default=None)          # 取值；缺省返 default
+api.storage.set(key: str, value)                 # 存值（原子写盘）；value 须 JSON 可序列化
+api.storage.delete(key: str) -> bool             # 删键；返回是否确实删了（幂等）
+api.storage.has(key: str) -> bool                # 是否存在
+api.storage.keys() -> list[str]                  # 全部键
+api.storage.clear()                              # 清空本插件全部 KV
+```
+
+- **值**须 JSON 可序列化（`str/int/float/bool/list/dict/None`）；非可序列化（如 `set`、自定义对象）->
+  `ValueError`。**键**须非空字符串。
+- **命名空间隔离**：存于插件私有 `data_dir`（`<DATA_DIR>/plugins/<id>/storage.json`），插件间天然隔离。
+- **持久化**：随插件 `data_dir` 落盘（原子 tmp+rename），进程重启后仍在。
+- **并发**：单事件循环内同步操作原子；`set/delete/clear` 经 `os.replace` 原子写（防并发写损坏）。
+
+```python
+# 例：习惯追踪插件记录连续天数（持久化跨重启）
+@router.get("/streak")
+def streak(user=Depends(api.deps.get_current_user)):
+    return {"streak": api.storage.get("habit_streak", 0)}
+
+@router.post("/checkin")
+def checkin(user=Depends(api.deps.get_current_user)):
+    n = api.storage.get("habit_streak", 0) + 1
+    api.storage.set("habit_streak", n)
+    api.storage.set("last_checkin", "2026-07-23")  # 嵌套/列表/任意 JSON 结构皆可
+    return {"streak": n}
+```
+
+> **安全/稳定**：① 原子写（tmp+rename）防并发写中途崩溃损坏；② 损坏文件静默重置（不抛、不丢功能）；
+> ③ 仅本插件 data_dir（不越界读写他插件/宿主文件）；④ 非可序列化值显式拒绝（不静默丢数据）。
+
 #### `api.settings` —— 只读配置视图
 
 ```python
@@ -1296,7 +1335,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.10.0",
+  "api_version": "1.11.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1447,6 +1486,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.11.0 | 2026-07-23 | 新增 `api.storage` 持久化 KV 存储（每插件私有 JSON，`get/set/delete/has/keys/clear`）：原子写（tmp+os.replace）防并发请求损坏、JSON 序列化校验、损坏文件静默重置容错、按插件 data_dir 命名空间隔离、懒加载——数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险） |
 | 后端 | 1.10.0 | 2026-07-23 | 新增 `api.scheduler` 后台任务调度（`every` 周期 / `once` 延迟）：插件做定时同步/每日摘要/周期轮询（此前只有路由与事件触发，无周期任务能力——register 须快速幂当不能起长任务）；fn async/sync，异常隔离（记日志不杀循环），`TaskHandle.cancel()` 单独取消，`reset_plugins` 卸载统一取消；任务不持久化（重启即失，插件重新注册）；须在运行事件循环内调用（register 期间/async 路由内） |
 | 后端 | 1.9.0 | 2026-07-23 | 新增 `api.mcp` MCP 客户端（`connect`→`McpHttpClient`，Streamable HTTP 传输）：连接外部 MCP server，`list_tools`/`call_tool` 接入任意外部工具 server——"扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）；按 spec 实现 JSON-RPC over POST（JSON + SSE 双响应解析、`Mcp-Session-Id` 回传、initialize 握手 + notifications/initialized）；仅插件显式调用（非热路径，server 故障错误隔离在调用内）；出站可信 URL（同供应商 base_url 信任）；对 spec-faithful mock server 测试（10 项）。范围 v1=Streamable HTTP；stdio（子进程）+ 真实 server 互操作验证为后续轮 |
 | 后端 | 1.8.0 | 2026-07-23 | 新增工具发现：`api.tools.list()`（进程内，列已注册工具元数据 `{name, llm, requires, description}`，含核心 14 工具一行描述 + 插件工具）+ `GET /api/tools` REST 发现端点（外部客户端/替代前端用，与 `list()` 对称）——插件/客户端**动态发现**可组合工具（iter 316 `call` 不再须硬编码工具名/查文档），按 `llm`/`requires` 推断调用顺序与预算 |

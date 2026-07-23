@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -33,7 +35,9 @@ if TYPE_CHECKING:
 #         "扩展后端类 Claude Code 可以调用的工具和 MCP"（用户点名）。插件据此接入任意外部 MCP server 工具。
 # v1.10.0：新增 api.scheduler 后台任务（every 周期 / once 延迟）——插件可做定时同步/每日摘要/周期轮询
 #         （此前只能路由触发/事件触发，无周期任务能力）。fn async/sync，错误隔离，reset 统一取消。
-API_VERSION = "1.10.0"
+# v1.11.0：新增 api.storage 持久化 KV（每插件私有 JSON，原子写 tmp+rename，JSON 序列化校验）——
+#         数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险）。
+API_VERSION = "1.11.0"
 
 
 class ToolsNamespace:
@@ -545,6 +549,92 @@ class SchedulerNamespace:
         return handle
 
 
+class StorageNamespace:
+    """持久化 KV 存储（v1.11.0 扩展点，契约见 API.md「§持久化 KV 存储」）。
+
+    每插件私有键值存储（JSON 文件于插件 data_dir），替代裸 data_dir 文件 I/O——提供原子写
+    （tmp + os.replace，防并发请求损坏）、JSON 序列化校验、损坏容错（损坏文件静默重置）与统一 API。
+    数据密集型插件（习惯追踪 / 分析缓存 / 自定义实体）的结构化持久化。
+
+    值须 JSON 可序列化（str/int/float/bool/list/dict/None）；非可序列化 -> ValueError。
+    键须字符串。懒加载（首次访问读盘）+ 内存缓存。按插件 data_dir 天然命名空间隔离。
+    """
+
+    def __init__(self, data_dir: Path) -> None:
+        self._path = Path(data_dir) / "storage.json"
+        self._data: dict[str, Any] = {}
+        self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            if self._path.is_file():
+                raw = self._path.read_text(encoding="utf-8")
+                obj = json.loads(raw) if raw.strip() else {}
+                if isinstance(obj, dict):
+                    self._data = obj
+        except (OSError, ValueError):  # noqa: BLE001  损坏/不可读 -> 静默重置（不抛、不丢功能）
+            self._data = {}
+
+    def _save(self) -> None:
+        """原子写：tmp 文件 + os.replace（防并发写中途崩溃留下半写文件）。"""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._path.with_name(self._path.name + ".tmp")
+        tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self._path)
+
+    @staticmethod
+    def _check_key(key: str) -> None:
+        if not isinstance(key, str) or not key:
+            raise ValueError("key 必须是非空字符串")
+
+    @staticmethod
+    def _check_value(value: Any) -> None:
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"value 非 JSON 可序列化: {exc}") from exc
+
+    def get(self, key: str, default: Any = None) -> Any:
+        self._check_key(key)
+        self._ensure_loaded()
+        return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self._check_key(key)
+        self._check_value(value)
+        self._ensure_loaded()
+        self._data[key] = value
+        self._save()
+
+    def delete(self, key: str) -> bool:
+        """删除键；返回是否确实删除了一个。"""
+        self._check_key(key)
+        self._ensure_loaded()
+        if key in self._data:
+            del self._data[key]
+            self._save()
+            return True
+        return False
+
+    def has(self, key: str) -> bool:
+        self._check_key(key)
+        self._ensure_loaded()
+        return key in self._data
+
+    def keys(self) -> list[str]:
+        self._ensure_loaded()
+        return list(self._data.keys())
+
+    def clear(self) -> None:
+        """清空本插件全部 KV。"""
+        self._ensure_loaded()
+        self._data = {}
+        self._save()
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -709,6 +799,7 @@ class BackendPluginAPI:
         self.llm = LlmNamespace(plugin_id)
         self.mcp = McpNamespace(plugin_id)
         self.scheduler = SchedulerNamespace(plugin_id, self._rollbacks)
+        self.storage = StorageNamespace(data_dir)
         self.routes = RoutesNamespace(app, plugin_id, status, self._rollbacks)
         self.events = EventsNamespace(status, self._rollbacks)
         self.settings = SettingsView()
