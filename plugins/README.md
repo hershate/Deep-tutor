@@ -39,6 +39,7 @@ def register(api):
 |---|---|---|
 | [study_export_pack.py](study_export_pack.py) | csv / txt / opml 导出 + 导出统计 | `exporters` + `events` + `storage` + `routes` |
 | [study_stats.py](study_stats.py) | 跨方案学习活动统计仪表盘（今日/本周/连续天数） | `events` + `storage` + `scheduler` + `routes` |
+| [epub_reader.py](epub_reader.py) | 解析 .epub 电子书为文本（上传自动注入学习方案） | `parsers` + `tools` + `routes` |
 
 停用任一：文件名加 `_` 前缀重启（如 `_study_stats.py`）。
 

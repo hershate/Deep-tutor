@@ -25,6 +25,7 @@ plugins/*
 # —— 官方实用插件（入库，开箱即用；用户自装插件仍不入库）——
 !plugins/study_export_pack.py
 !plugins/study_stats.py
+!plugins/epub_reader.py
 
 # 前端
 frontend/node_modules/
