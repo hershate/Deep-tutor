@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+
 from pydantic import BaseModel
 
 
@@ -33,6 +36,17 @@ class TransientLLMError(Exception):
     """
 
 
+@dataclass
+class StreamChunk:
+    """流式补全的一个分片：text（文本增量）或 usage（最终用量，流的末尾发一次）。
+
+    api.llm.stream 消费：text 分片 yield 给插件，usage 分片用于成本计量。
+    """
+
+    text: str = ""
+    usage: LLMUsage | None = None
+
+
 class LLMProvider:
     """LLM Provider 抽象基类。"""
 
@@ -46,6 +60,20 @@ class LLMProvider:
         cache_system: bool = True,
     ) -> LLMResponse:
         raise NotImplementedError
+
+    async def stream(
+        self,
+        system: str,
+        user: str,
+        *,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+    ) -> AsyncIterator[StreamChunk]:
+        """流式补全（v1.14.0）。默认实现：非流式 chat 后一次性 yield 全文 + usage
+        （子类如 AnthropicProvider 覆写为真流式——逐 token yield + 末尾 usage）。"""
+        resp = await self.chat(system, user, model=model, max_tokens=max_tokens, cache_system=cache_system)
+        yield StreamChunk(text=resp.content, usage=resp.usage)
 
     def estimate_cost(self, usage: LLMUsage) -> float:
         """按模型计价估算费用（USD）。子类按模型价目表覆盖。"""

@@ -14,7 +14,7 @@ import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
-from app.llm.base import LLMProvider, LLMResponse, LLMUsage, TransientLLMError
+from app.llm.base import LLMProvider, LLMResponse, LLMUsage, StreamChunk, TransientLLMError
 from app.llm.pricing import estimate_cost
 
 # iter 243：AsyncAnthropic 进程内复用——此前每次 get_provider()（每次生成/测评/
@@ -115,3 +115,50 @@ class AnthropicProvider(LLMProvider):
 
     def estimate_cost(self, usage: LLMUsage) -> float:
         return estimate_cost(usage, usage.model or self._model)
+
+    async def stream(
+        self,
+        system: str,
+        user: str,
+        *,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        cache_system: bool = True,
+    ):
+        """真流式补全（v1.14.0）：raw event stream → text_delta 逐块 yield，message_start/
+        message_delta 摄取 input/output usage，末尾 yield 完整 usage 供计量。"""
+        used_model = model or self._model
+        system_param = self._build_system(system, cache_system)
+        input_tokens = 0
+        output_tokens = 0
+        cache_read = 0
+        cache_creation = 0
+        try:
+            event_stream = await self._client.messages.create(
+                model=used_model,
+                max_tokens=max_tokens,
+                system=system_param,
+                messages=[{"role": "user", "content": user}],
+                stream=True,
+            )
+            async for event in event_stream:
+                et = event.type
+                if et == "message_start":
+                    u = event.message.usage
+                    input_tokens = u.input_tokens
+                    cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+                    cache_creation = getattr(u, "cache_creation_input_tokens", 0) or 0
+                elif et == "content_block_delta" and getattr(event.delta, "type", None) == "text_delta":
+                    yield StreamChunk(text=event.delta.text)
+                elif et == "message_delta":
+                    u = event.usage
+                    output_tokens = getattr(u, "output_tokens", 0) or 0
+        except anthropic.APIError as exc:
+            raise _map_transient(exc) from exc
+        yield StreamChunk(usage=LLMUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_creation,
+            model=used_model,
+        ))

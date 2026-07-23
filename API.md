@@ -13,7 +13,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.10.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.13.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.14.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -655,7 +655,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.13.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.14.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -1028,6 +1028,24 @@ resp = await api.llm.complete(
                                      #   凭证由插件自理；预算守卫+计量与默认路径同口径。None -> 用户已配置的供应商
 ) -> dict                  # {"content", "model", "stop_reason", "usage": {...}}（只增不改）
 ```
+
+**流式补全**（v1.14.0）：逐 token yield 文本增量——插件做 chat / 实时标注等 live-typing UI。
+
+```python
+async for text in api.llm.stream(
+    user_id: int,          # 以谁的供应商配置调用
+    prompt: str,           # 用户消息（非空）
+    *,
+    system: str = "",      # 系统提示（可选）
+    max_tokens: int = 2048 # 收敛到 [1, 8192]
+):
+    # text = 文本增量（str），逐 token 到达
+    # 用法：拼接 yield 的文本即完整补全
+```
+
+- Anthropic 真流式（逐 token yield）；插件 Provider 回退非流式（一次性 yield 全文）。
+- 日预算守卫 + `api_usage` 计量同 `complete`（usage 在流末尾摄取，部分消费可能不计量）。
+- 错误映射同 `complete`（`no_llm_provider`/`server_busy`/`bad_gateway`，在 `async for` 中抛出）。
 
 **错误映射**（均为 `ApiError`——插件路由内直接上抛即得宿主统一错误格式）：
 
@@ -1410,7 +1428,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.13.0",
+  "api_version": "1.14.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1561,6 +1579,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.14.0 | 2026-07-23 | `api.llm.stream` 流式补全：逐 token yield 文本增量（`async for text in api.llm.stream(user_id, prompt, ...)`）——插件做 chat / 实时标注等 live-typing UI（此前 `complete` 仅非流式）；Anthropic 真流式（raw event stream：`content_block_delta` text_delta 逐块 yield + `message_start`/`message_delta` 摄取 usage）；插件 Provider 回退非流式（基类默认 `stream()` = chat + yield 全文 + usage）；日预算守卫 + `api_usage` 计量同 `complete`（usage 流末尾摄取）；`StreamChunk` dataclass（text + usage）+ `LLMProvider.stream()` 基类方法（additive，`chat` 不变→生成管线零影响） |
 | 后端 | 1.13.0 | 2026-07-23 | `Tool.description` 字段 + `register_python(description=)`：插件工具可自带一行描述，在 `api.tools.list` / `GET /api/tools` 发现视图展示（核心工具回退 `TOOL_DESCRIPTIONS`）——插件工具自文档化，发现输出对全部工具（核心+插件）都有描述；不影响工具执行行为（纯展示） |
 | 后端 | 1.12.0 | 2026-07-23 | `api.mcp` 加 `connect_stdio`（MCP stdio 传输）：spawn 本地子进程 MCP server，经 stdin/stdout line-delimited JSON-RPC（initialize/tools-list/tools-call，skip 通知取匹配 id 响应，读超时，close terminate 子进程防僵尸）——stdio 是 MCP server 最常见部署（如 npx 启动的 server），补齐 v1.9.0 HTTP-only 的实用闭环；与 `connect`(HTTP) 同接口；对 spec-faithful stdio mock server 测试（6 项，真实子进程） |
 | 后端 | 1.11.0 | 2026-07-23 | 新增 `api.storage` 持久化 KV 存储（每插件私有 JSON，`get/set/delete/has/keys/clear`）：原子写（tmp+os.replace）防并发请求损坏、JSON 序列化校验、损坏文件静默重置容错、按插件 data_dir 命名空间隔离、懒加载——数据密集型插件的结构化持久化（替代裸 data_dir 文件 I/O 的并发损坏风险） |

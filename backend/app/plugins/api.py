@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 #         stdio 是 MCP server 常见部署，补齐 iter 319 HTTP-only 的实用闭环。
 # v1.13.0：Tool.description 字段 + register_python(description=)——插件工具可自带一行描述，
 #         api.tools.list / GET /api/tools 发现视图展示（核心工具回退 TOOL_DESCRIPTIONS）。
-API_VERSION = "1.13.0"
+# v1.14.0：api.llm.stream 流式补全——逐 token yield 文本增量（Anthropic 真流式 / 插件 Provider
+#         回退非流式），日预算守卫 + api_usage 计量同 complete。
+API_VERSION = "1.14.0"
 
 
 class ToolsNamespace:
@@ -412,6 +414,63 @@ class LlmNamespace:
                 "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens,
             },
         }
+
+    async def stream(
+        self,
+        user_id: int,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 2048,
+    ):  # -> AsyncIterator[str]
+        """流式补全（v1.14.0）：逐 token yield 文本增量——插件做 chat / 实时标注等 live-typing UI。
+
+        与 complete 同口径：按 user_id 解析供应商 + 日预算守卫 + api_usage 计量（usage 在流末尾
+        摄取）。Anthropic 真流式（逐 token）；插件 Provider 回退非流式（一次性 yield 全文）。
+        错误映射同 complete（no_llm_provider/server_busy/bad_gateway）。max_tokens 收敛 [1, 8192]。
+
+        用法：``async for text in api.llm.stream(user.id, "总结这段", system="你是助教"): ...``
+        """
+        from app.agent.cost import build_metadata, record_metadata_usage
+        from app.api.deps import check_daily_budget
+        from app.api.errors import ApiError
+        from app.db.base import SessionLocal
+        from app.llm import get_provider
+        from app.llm.base import TransientLLMError
+
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt 必须是非空字符串")
+        if not isinstance(system, str):
+            raise TypeError("system 必须是字符串")
+        max_tokens = max(1, min(int(max_tokens), self._MAX_TOKENS_CAP))
+
+        try:
+            provider = get_provider(user_id)
+        except RuntimeError as exc:
+            raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
+        check_daily_budget(None, user_id)
+
+        captured_usage = None
+        try:
+            async for chunk in provider.stream(system, prompt, max_tokens=max_tokens):
+                if chunk.usage is not None:
+                    captured_usage = chunk.usage
+                if chunk.text:
+                    yield chunk.text
+        except TransientLLMError as exc:
+            raise ApiError("server_busy", f"LLM 服务暂时不可用（可退避重试）: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ApiError("bad_gateway", f"LLM 流式调用失败: {exc}") from exc
+        finally:
+            if captured_usage is not None:
+                metadata = build_metadata(captured_usage)
+                db = SessionLocal()
+                try:
+                    record_metadata_usage(db, metadata, user_id)
+                finally:
+                    db.close()
 
 
 class ProvidersNamespace:

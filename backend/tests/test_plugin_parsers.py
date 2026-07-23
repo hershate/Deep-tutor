@@ -434,6 +434,6 @@ def test_status_endpoint_exposes_parsers(tmp_path):
         r = c.get("/api/plugins", headers={"Authorization": "Bearer test-token"})
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["api_version"] == "1.13.0"
+        assert body["api_version"] == "1.14.0"
         foo = [p for p in body["plugins"] if p["id"] == "fooparser"][0]
         assert set(foo["parsers"]) == {".foo", ".bar"}
