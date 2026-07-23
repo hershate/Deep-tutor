@@ -626,7 +626,7 @@ export interface BackendPluginStatus {
   id: string
   name: string
   version: string
-  state: string // loaded | failed
+  state: string // loaded | failed | disabled
   error: string
   file: string
   routes: string[]
@@ -635,6 +635,19 @@ export interface BackendPluginStatus {
 }
 export const getBackendPlugins = () =>
   apiFetch<{ api_version: string; plugins: BackendPluginStatus[]; subscribed_events: string[] }>('/plugins')
+
+// --- 后端插件热管理（管理员，API.md「后端插件 API」§热管理）---
+// reload/disable/enable 均无需刷新/重启整个项目即可改变插件装载状态。
+export const reloadBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean; plugin: BackendPluginStatus }>(`/plugins/${encodeURIComponent(id)}/reload`, {
+    method: 'POST',
+  })
+export const disableBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/plugins/${encodeURIComponent(id)}/disable`, { method: 'POST' })
+export const enableBackendPlugin = (id: string) =>
+  apiFetch<{ ok: boolean; plugin: BackendPluginStatus }>(`/plugins/${encodeURIComponent(id)}/enable`, {
+    method: 'POST',
+  })
 
 // iter 131：近 N 日按日用量（无调用日补 0，供趋势图）
 export interface UsageDailyItem { date: string; cost: number; tokens: number; calls: number }

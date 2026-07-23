@@ -15,7 +15,41 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.16.0'
+export const API_VERSION = '1.17.0'
+
+// ---------------------------------------------------------------------------
+// 插件注册追踪（v1.17.0）：热启停（plugins.disable/enable）的基础
+// ---------------------------------------------------------------------------
+//
+// 前端插件脚本是裸 JS——执行后宿主无法自动得知它注册了什么。为支持「在插件页
+// 直接关闭插件（widgets/pages/overlay/skins 全部消失）而不刷新页面」，注入脚本
+// 期间把 _currentPluginUrl 置为该插件 URL，各注册表的 register() 把注册键记入
+// _pluginRegistrations[url]；disable 时按键逆注册。注意：插件须在脚本执行期间
+// 同步完成注册（setTimeout/异步回调中的注册不被追踪，disable 无法清除——与
+// 后端 register(api) 同步约定一致）。
+
+/** 当前正在注入的插件脚本 URL（injectScript 期间有效，注册追踪用） */
+let _currentPluginUrl: string | null = null
+
+/** 每个插件 URL 在各注册表中的注册键台账 */
+interface PluginRegistrations {
+  widgets: Set<string>
+  pages: Set<string>
+  overlays: Set<string>
+  skins: Set<string>
+}
+const _pluginRegistrations = new Map<string, PluginRegistrations>()
+
+/** 注册表通用追踪入口：当前注入中的插件有注册时记账 */
+function _track(kind: keyof PluginRegistrations, key: string): void {
+  if (!_currentPluginUrl) return
+  let reg = _pluginRegistrations.get(_currentPluginUrl)
+  if (!reg) {
+    reg = { widgets: new Set(), pages: new Set(), overlays: new Set(), skins: new Set() }
+    _pluginRegistrations.set(_currentPluginUrl, reg)
+  }
+  reg[kind].add(key)
+}
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -68,6 +102,7 @@ const widgetsApi = {
     if (!WIDGET_SLOTS.includes(def.slot)) throw new Error(`[DeepTutor] 未知插槽: ${String(def.slot)}`)
     if (typeof def.component !== 'function') throw new Error('[DeepTutor] widget.component 必须是组件')
     widgetRegistry.set(def.id, { order: 100, ...def })
+    _track('widgets', def.id)
     notifyWidgets()
   },
   /** 幂等；返回是否确实移除了一个组件 */
@@ -174,10 +209,12 @@ const pagesApi = {
         throw new Error(`[DeepTutor] 受保护路由不可覆盖: /${hostPath}（/plugins、/settings、/login、/setup 始终保留）`)
       }
       pageOverrides.set(hostPath, { ...def, path })
+      _track('pages', hostPath)
       notifyPages()
       return
     }
     pageRegistry.set(path, { ...def, path })
+    _track('pages', path)
     notifyPages()
   },
   /** 幂等；返回是否确实移除了一个页面（含 override） */
@@ -348,6 +385,7 @@ const overlaysApi = {
     if (!OVERLAY_LAYERS.includes(def.layer)) throw new Error(`[DeepTutor] 未知 overlay 分层: ${String(def.layer)}`)
     if (typeof def.component !== 'function') throw new Error('[DeepTutor] overlay.component 必须是组件')
     overlayRegistry.set(def.id, { pointerEvents: 'none', order: 100, ...def })
+    _track('overlays', def.id)
     notifyOverlays()
   },
   /** 幂等；返回是否确实移除了一个覆盖层 */
@@ -987,6 +1025,7 @@ const skinsApi = {
   register(def: SkinDef): void {
     if (!def || !def.name || def.name === 'default') throw new Error('[DeepTutor] skin.name 必填且不能为 default')
     skinRegistry.set(def.name, { tokens: {}, darkTokens: {}, ...def })
+    _track('skins', def.name)
     // 通知监听器（Plugins 页据此重渲染，下拉框显示新皮肤——此前 register 不通知是 bug）
     skinListeners.forEach((fn) => {
       try {
@@ -995,6 +1034,24 @@ const skinsApi = {
         console.error('[DeepTutor] skins 注册通知回调异常', e)
       }
     })
+  },
+  /** v1.17.0：注销皮肤（热停用插件时清除其皮肤）。幂等；返回是否确实移除了一个皮肤。
+   *  内置皮肤（default/compact/rounded）不可注销；当前激活皮肤被注销时回退 default。 */
+  unregister(name: string): boolean {
+    if (name === 'default' || name === 'compact' || name === 'rounded') return false // 内置皮肤保留
+    const ok = skinRegistry.delete(name)
+    if (!ok) return false
+    if (activeSkin === name) applySkin('default') // 回退默认（applySkin 内含通知）
+    else {
+      skinListeners.forEach((fn) => {
+        try {
+          fn()
+        } catch (e) {
+          console.error('[DeepTutor] skins 注销通知回调异常', e)
+        }
+      })
+    }
+    return true
   },
   /** 应用皮肤；未知名称返回 false */
   apply: applySkin,
@@ -1111,6 +1168,9 @@ const apiProxy = {
 // ---------------------------------------------------------------------------
 
 const PLUGINS_KEY = 'dt_plugins'
+// v1.17.0：已停用（disabled）的插件 URL——与 PLUGINS_KEY 分离：load 列表保留
+// （插件页仍可见、可一键启用），disabled 列表控制"注入与否"
+const DISABLED_PLUGINS_KEY = 'dt_plugins_disabled'
 
 function readPluginUrls(): string[] {
   try {
@@ -1125,6 +1185,24 @@ function readPluginUrls(): string[] {
 function writePluginUrls(urls: string[]): void {
   try {
     localStorage.setItem(PLUGINS_KEY, JSON.stringify(urls))
+  } catch {
+    /* 忽略持久化失败 */
+  }
+}
+
+function readDisabledUrls(): string[] {
+  try {
+    const raw = localStorage.getItem(DISABLED_PLUGINS_KEY)
+    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(arr) ? arr.filter((u): u is string => typeof u === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeDisabledUrls(urls: string[]): void {
+  try {
+    localStorage.setItem(DISABLED_PLUGINS_KEY, JSON.stringify(urls))
   } catch {
     /* 忽略持久化失败 */
   }
@@ -1146,17 +1224,25 @@ function injectScript(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
     const timer = setTimeout(() => {
+      _currentPluginUrl = null // 清理注册追踪上下文
       s.remove() // 移除元素取消挂起的请求，防迟到 onload 再 settle
       reject(new Error(`[DeepTutor] 插件脚本加载超时（${SCRIPT_TIMEOUT_MS / 1000}s）: ${url}`))
     }, SCRIPT_TIMEOUT_MS)
     s.src = url
     s.async = true
+    // 注册追踪：脚本体执行（register 调用）发生在此处 appendChild 与 onload 之间，
+    // 故 _currentPluginUrl 须在 appendChild 前置位、onload/onerror/超时后清除。
+    // 注：async 脚本执行时序不确定，并发注入不同 URL 时追踪可能错位——约定插件
+    // 须在脚本体执行期间同步完成注册（与后端 register(api) 同步约定一致）。
+    _currentPluginUrl = url
     s.onload = () => {
+      _currentPluginUrl = null
       clearTimeout(timer)
       injectedScripts.add(url)
       resolve()
     }
     s.onerror = () => {
+      _currentPluginUrl = null
       clearTimeout(timer)
       reject(new Error(`[DeepTutor] 插件脚本加载失败: ${url}`))
     }
@@ -1164,10 +1250,24 @@ function injectScript(url: string): Promise<void> {
   })
 }
 
+/** v1.17.0：清除某插件按台账追踪到的全部注册（widget/page/overlay/skin）。热停用用。 */
+function _clearTrackedRegistrations(url: string): void {
+  const reg = _pluginRegistrations.get(url)
+  if (!reg) return
+  reg.widgets.forEach((id) => widgetsApi.unregister(id))
+  reg.pages.forEach((key) => pagesApi.unregister(key))
+  reg.overlays.forEach((id) => overlaysApi.unregister(id))
+  reg.skins.forEach((name) => skinsApi.unregister(name))
+  _pluginRegistrations.delete(url)
+}
+
 const pluginsApi = {
-  /** 加载外部插件脚本并持久化（刷新后自动加载）；脚本以 window.DeepTutor 完成注册 */
+  /** 加载外部插件脚本并持久化（刷新后自动加载）；脚本以 window.DeepTutor 完成注册。
+   *  v1.17.0：已停用的插件调用 load 视为「重新启用」（先清除停用标记再注入）。 */
   async load(url: string): Promise<void> {
     if (!/^https?:\/\//i.test(url)) throw new Error('[DeepTutor] 插件 URL 需以 http(s):// 开头')
+    // 若该插件此前被停用，load 即重新启用
+    writeDisabledUrls(readDisabledUrls().filter((u) => u !== url))
     const persist = () => {
       const urls = readPluginUrls()
       if (!urls.includes(url)) writePluginUrls([...urls, url])
@@ -1189,9 +1289,40 @@ const pluginsApi = {
     await p
     persist()
   },
-  /** 从持久化列表移除；已执行的脚本副作用需刷新页面才消除 */
+  /** 从持久化列表移除（永久卸载）。v1.17.0：同时清除其追踪到的注册与停用标记，
+   *  无需刷新页面即彻底移除其 widgets/pages/overlays/skins。 */
   unload(url: string): void {
     writePluginUrls(readPluginUrls().filter((u) => u !== url))
+    writeDisabledUrls(readDisabledUrls().filter((u) => u !== url))
+    _clearTrackedRegistrations(url)
+    injectedScripts.delete(url)
+  },
+  /** v1.17.0：停用一个插件——清除其追踪到的全部注册（widgets/pages/overlays/skins
+   *  即时消失）+ 记停用标记（持久化，刷新后不自动加载）。脚本副作用 DOM 残留无害，
+   *  enable 时重新注入会重新注册。 */
+  disable(url: string): void {
+    const disabled = readDisabledUrls()
+    if (!disabled.includes(url)) writeDisabledUrls([...disabled, url])
+    _clearTrackedRegistrations(url)
+    injectedScripts.delete(url) // enable 时重新注入
+  },
+  /** v1.17.0：启用一个已停用的插件——清除停用标记 + 重新注入脚本（重新注册）。 */
+  async enable(url: string): Promise<void> {
+    writeDisabledUrls(readDisabledUrls().filter((u) => u !== url))
+    if (!injectedScripts.has(url)) {
+      const inflight = inflightLoads.get(url)
+      if (inflight) {
+        await inflight
+      } else {
+        const p = injectScript(url).finally(() => inflightLoads.delete(url))
+        inflightLoads.set(url, p)
+        await p
+      }
+    }
+  },
+  /** v1.17.0：该插件是否处于停用状态 */
+  isDisabled(url: string): boolean {
+    return readDisabledUrls().includes(url)
   },
   list(): string[] {
     return readPluginUrls()
@@ -1273,8 +1404,10 @@ export async function initPlugins(React: unknown): Promise<void> {
     if (state.resolvedTheme !== prev.resolvedTheme) applySkin(activeSkin)
   })
 
-  // 自动加载持久化插件（失败仅告警，不阻塞应用）
+  // 自动加载持久化插件（失败仅告警，不阻塞应用）；v1.17.0：跳过已停用的插件
+  const disabled = readDisabledUrls()
   for (const url of readPluginUrls()) {
+    if (disabled.includes(url)) continue // 停用的插件不自动注入（保持停用状态）
     try {
       await injectScript(url)
     } catch (e) {
