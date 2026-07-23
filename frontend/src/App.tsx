@@ -5,6 +5,7 @@ import { TaskEngineBridge } from './components/TaskEngineBridge'
 import { getToken } from './lib/auth'
 import { useSetupStatus } from './lib/setup'
 import Home from './pages/Home'
+import Chat from './pages/Chat'
 import GenerateProgress from './pages/GenerateProgress'
 import Clarify from './pages/Clarify'
 import Learn from './pages/Learn'
@@ -82,6 +83,7 @@ export default function App() {
               <EventsBridge />
               <Routes>
                 <Route path="/" element={<MaybeOverride hostPath="home"><Home /></MaybeOverride>} />
+                <Route path="/chat" element={<Chat />} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />
                 <Route path="/clarify/:sessionId" element={<Clarify />} />
                 <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />

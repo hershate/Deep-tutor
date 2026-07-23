@@ -1337,3 +1337,55 @@ export async function downloadKbRaw(id: number): Promise<void> {
   await throwIfNotOk(res)
   saveBlob(await res.blob(), res.headers.get('content-disposition'), `kb-${id}`)
 }
+
+// ---------------------------------------------------------------------------
+// 记忆系统（iter 345）：会话/消息/运行/记忆 + Agent 对话 SSE
+// ---------------------------------------------------------------------------
+
+export interface Thread {
+  id: number
+  title: string
+  kind: string
+  session_id: number | null
+  model: string
+  created_at: string | null
+  updated_at: string | null
+  last_preview: string
+  running: boolean
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant' | 'system'
+  content: unknown // Anthropic block list
+  run_id: number | null
+  tokens_in: number
+  tokens_out: number
+  model: string
+  created_at: string | null
+}
+
+export interface MemoryItem {
+  id: number
+  scope: string
+  kind: string
+  content: string
+  thread_id: number | null
+  updated_at: string | null
+}
+
+export const listThreads = (page = 1) =>
+  apiFetch<{ items: Thread[]; total: number }>(`/threads?page=${page}`)
+export const createThread = (body: { title?: string; kind?: string }) =>
+  apiFetch<Thread>('/threads', { method: 'POST', body: JSON.stringify(body) })
+export const getThread = (id: number) => apiFetch<Thread>(`/threads/${id}`)
+export const patchThread = (id: number, body: { title?: string }) =>
+  apiFetch<Thread>(`/threads/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+export const deleteThread = (id: number) =>
+  apiFetch<{ ok: boolean }>(`/threads/${id}`, { method: 'DELETE' })
+export const listMessages = (id: number, limit = 100) =>
+  apiFetch<{ items: ChatMessage[] }>(`/threads/${id}/messages?limit=${limit}`)
+export const listThreadMemory = (id: number) =>
+  apiFetch<{ items: MemoryItem[] }>(`/threads/${id}/memory`)
+export const addThreadMemory = (id: number, body: { content: string; kind?: string }) =>
+  apiFetch<MemoryItem>(`/threads/${id}/memory`, { method: 'POST', body: JSON.stringify(body) })
