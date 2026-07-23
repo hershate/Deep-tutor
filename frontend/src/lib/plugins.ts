@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.15.0'
+export const API_VERSION = '1.16.0'
 
 // ---------------------------------------------------------------------------
 // 小组件（widgets）
@@ -122,11 +122,19 @@ export interface PageDef {
   title?: string
   /** 侧栏导航项；缺省则页面可达但不出现在导航（深链/二级页用） */
   nav?: PageNavDef
+  /** v1.16.0：覆盖宿主页面路由（如 'plans' → 替换 /plans 页面）。受保护路由不可覆盖（/plugins、/settings、/login、/setup）。
+   * 设 override 后，path 仅作注册键（实际路由由 override 值决定宿主页）。组件在应用 Layout 内渲染（含错误边界隔离）。 */
+  override?: string
 }
 
 const pageRegistry = new Map<string, PageDef>()
 let pageRegistryVersion = 0
 const pageListeners = new Set<() => void>()
+
+// v1.16.0：页面覆盖注册表（override hostPath -> plugin PageDef）
+const pageOverrides = new Map<string, PageDef>()
+/** 受保护路由——不可被插件覆盖（防止锁死管理/设置入口） */
+const PROTECTED_ROUTES = new Set(['plugins', 'settings', 'login', 'setup'])
 
 function notifyPages() {
   pageRegistryVersion += 1
@@ -159,14 +167,35 @@ const pagesApi = {
     }
     if (typeof def.component !== 'function') throw new Error('[DeepTutor] page.component 必须是组件')
     if (def.nav && typeof def.nav.label !== 'string') throw new Error('[DeepTutor] page.nav.label 必填')
+    // v1.16.0：页面覆盖——override 指定宿主路由（如 'plans'），受保护路由拒绝
+    if (def.override) {
+      const hostPath = def.override.toLowerCase()
+      if (PROTECTED_ROUTES.has(hostPath)) {
+        throw new Error(`[DeepTutor] 受保护路由不可覆盖: /${hostPath}（/plugins、/settings、/login、/setup 始终保留）`)
+      }
+      pageOverrides.set(hostPath, { ...def, path })
+      notifyPages()
+      return
+    }
     pageRegistry.set(path, { ...def, path })
     notifyPages()
   },
-  /** 幂等；返回是否确实移除了一个页面 */
+  /** 幂等；返回是否确实移除了一个页面（含 override） */
   unregister(path: string): boolean {
-    const ok = pageRegistry.delete(normalizePagePath(path))
+    const norm = normalizePagePath(path)
+    let ok = pageRegistry.delete(norm)
+    // 也检查 override（path 可能是 override 的宿主路由名）
+    if (pageOverrides.delete(norm) || pageOverrides.delete(path.toLowerCase())) ok = true
     if (ok) notifyPages()
     return ok
+  },
+  /** v1.16.0：查询某宿主路由是否有插件覆盖注册；返回 PageDef 或 undefined */
+  getOverride(hostPath: string): PageDef | undefined {
+    return pageOverrides.get(hostPath.toLowerCase())
+  },
+  /** v1.16.0：全部已注册覆盖（宿主路由名 -> PageDef），供管理页可观测 */
+  overrides(): PageDef[] {
+    return [...pageOverrides.entries()].map(([k, v]) => ({ ...v, path: k }))
   },
   /** 某 path 的页面定义（宿主路由匹配用）；无则 undefined */
   get(path: string): PageDef | undefined {

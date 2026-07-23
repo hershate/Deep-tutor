@@ -12,7 +12,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.15.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.16.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.16.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---

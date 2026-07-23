@@ -24,6 +24,7 @@ import Search from './pages/Search'
 import PluginPageHost from './components/PluginPageHost'
 import PluginOverlayHost from './components/PluginOverlayHost'
 import EventsBridge from './components/EventsBridge'
+import MaybeOverride from './components/MaybeOverride'
 import RouterBridge from './components/RouterBridge'
 
 // 路由守卫（P4 多用户，iter 59；iter 89 零配置向导）：
@@ -80,19 +81,19 @@ export default function App() {
               {/* iter 315：插件事件桥（DeepTutor.events ← SSE /api/events/stream），仅登录态连接 */}
               <EventsBridge />
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<MaybeOverride hostPath="home"><Home /></MaybeOverride>} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />
                 <Route path="/clarify/:sessionId" element={<Clarify />} />
-                <Route path="/plans" element={<Plans />} />
-                <Route path="/plans/:planId" element={<PlanDetail />} />
-                <Route path="/learn/:planId" element={<Learn />} />
+                <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />
+                <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans"><PlanDetail /></MaybeOverride>} />
+                <Route path="/learn/:planId" element={<MaybeOverride hostPath="learn"><Learn /></MaybeOverride>} />
                 {/* iter 281：跨方案统一复习工作流页（翻卡自评 + 掌握度回写） */}
-                <Route path="/review" element={<Review />} />
-                <Route path="/wiki" element={<Wiki />} />
-                <Route path="/notes" element={<Notes />} />
+                <Route path="/review" element={<MaybeOverride hostPath="review"><Review /></MaybeOverride>} />
+                <Route path="/wiki" element={<MaybeOverride hostPath="wiki"><Wiki /></MaybeOverride>} />
+                <Route path="/notes" element={<MaybeOverride hostPath="notes"><Notes /></MaybeOverride>} />
                 {/* iter 249：全局搜索页（方案/笔记/知识库文档/知识节点四域聚合） */}
                 <Route path="/search" element={<Search />} />
-                <Route path="/usage" element={<Usage />} />
+                <Route path="/usage" element={<MaybeOverride hostPath="usage"><Usage /></MaybeOverride>} />
                 {/* iter 204：插件管理页（前端插件加载/移除 + 生效概览 + 后端状态） */}
                 <Route path="/plugins" element={<Plugins />} />
                 <Route path="/settings" element={<Settings />} />
