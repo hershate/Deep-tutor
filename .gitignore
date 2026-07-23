@@ -26,6 +26,7 @@ plugins/*
 !plugins/study_export_pack.py
 !plugins/study_stats.py
 !plugins/epub_reader.py
+!plugins/ai_tutor.py
 
 # 前端
 frontend/node_modules/
