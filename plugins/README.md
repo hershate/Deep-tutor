@@ -44,6 +44,7 @@ def register(api):
 | [security_guard.py](security_guard.py) | 全站安全响应头 + 请求统计中间件 | `middleware` + `events` + `storage` + `routes` |
 | [webhook_notify.py](webhook_notify.py) | 学习事件推送到外部 URL（Slack/Discord） | `webhooks` + `routes` + `storage` |
 | [provider_bridge.py](provider_bridge.py) | 接入 OpenAI 兼容协议 LLM（OpenAI/Ollama/DeepSeek） | `providers` + `llm` + `routes` + `storage` |
+| [mcp_bridge.py](mcp_bridge.py) | 接入外部 MCP server 工具（filesystem/github 等） | `mcp` + `tools` + `routes` |
 
 停用任一：文件名加 `_` 前缀重启（如 `_study_stats.py`）。
 

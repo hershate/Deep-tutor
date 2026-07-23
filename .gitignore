@@ -30,6 +30,7 @@ plugins/*
 !plugins/security_guard.py
 !plugins/webhook_notify.py
 !plugins/provider_bridge.py
+!plugins/mcp_bridge.py
 
 # 前端
 frontend/node_modules/
