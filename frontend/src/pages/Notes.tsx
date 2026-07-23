@@ -21,6 +21,7 @@ import {
 } from '../lib/api'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
+import WidgetSlot from '../components/WidgetSlot'
 
 interface Draft {
   id: number | null // null = 新建未保存
@@ -442,6 +443,7 @@ export default function Notes() {
 
   return (
     <div className="space-y-4">
+      <WidgetSlot slot="notes.toolbar" layout="grid" />
       <div className="animate-fade-in-up space-y-1">
         <h2 className="bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-2xl font-bold text-transparent dark:from-blue-400 dark:to-indigo-300">
           我的笔记

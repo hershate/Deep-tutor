@@ -14,6 +14,7 @@ api.webhooks.register(url, events, secret) 把指定事件经 bus 协程监听�
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -51,3 +52,31 @@ def make_listener(url: str, event_name: str, secret: str = "") -> Callable:
         await _deliver(url, body, headers)
 
     return listener
+
+
+async def _deliver_event(url: str, event: str, payload: dict[str, Any], secret: str) -> None:
+    """全事件投递协程（subscribe_all sink 用——event 名在运行时得知，非注册时已知）。"""
+    body = json.dumps({"event": event, "data": payload}, ensure_ascii=False).encode("utf-8")
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if secret:
+        sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        headers["X-Webhook-Signature"] = sig
+    await _deliver(url, body, headers)
+
+
+def make_all_events_sink(url: str, secret: str = "") -> Callable[[str, dict[str, Any]], None]:
+    """构造 subscribe_all sync sink：收到任意事件 → create_task 非阻塞投递（或 asyncio.run 兜底）。
+
+    与 make_listener 区别：bus.subscribe_all 的 sink 是 sync（接收 event+payload），
+    事件名运行时得知。用 create_task 调度 async _deliver_event（同 bus._dispatch 协程监听器语义）。
+    """
+
+    def sink(event: str, payload: dict[str, Any]) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_deliver_event(url, event, payload, secret))
+        except RuntimeError:
+            # 同步线程池无运行循环 -> 临时新循环执行（同 bus._dispatch 兜底，阻塞当前线程）
+            asyncio.run(_deliver_event(url, event, payload, secret))
+
+    return sink

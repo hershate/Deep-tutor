@@ -12,8 +12,8 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.13.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.15.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 前端插件 API | `1.14.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 后端插件 API | `1.16.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -83,6 +83,10 @@ await DeepTutor.plugins.load('https://example.com/hello-plugin.js')
 | `plan.detail`（v1.3.0） | 方案详情页头部操作区下方、学习意图卡上方 | 响应式宫格（2 列，宽屏 4 列） | 方案级插件面板；组件内可经 React Router `useParams()` 取 `planId` 做方案级数据展示/操作 |
 | `plans.toolbar`（v1.13.0） | 方案列表页标题/批量操作区下方、列表上方 | 响应式宫格（2 列，宽屏 4 列） | 方案列表级插件面板（自定义筛选 / 批量操作 / 方案统计） |
 | `review.dashboard`（v1.13.0） | 复习页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 复习级插件面板（复习统计 / 自定义复习模式 / 间隔重复提醒） |
+| `learn.dashboard`（v1.14.0） | 学习中心页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 学习中心级插件面板（专注计时 / 学习目标 / 自定义统计） |
+| `notes.toolbar`（v1.14.0） | 笔记页标题区下方 | 响应式宫格（2 列，宽屏 4 列） | 笔记级插件面板（批量操作 / 笔记模板 / AI 辅助） |
+| `usage.dashboard`（v1.14.0） | 用量统计页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 用量级插件面板（预算提醒 / 成本预测 / 模型对比） |
+| `wiki.dashboard`（v1.14.0） | 知识库页标题区上方 | 响应式宫格（2 列，宽屏 4 列） | 知识库级插件面板（跨方案统计 / 导出增强 / AI 摘要） |
 
 > 插槽只增不改：新版本可能追加插槽，已有插槽名不会改名或删除。
 
@@ -707,7 +711,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.15.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.16.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -1481,7 +1485,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.15.0",
+  "api_version": "1.16.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",

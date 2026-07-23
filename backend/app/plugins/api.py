@@ -45,7 +45,9 @@ if TYPE_CHECKING:
 #         回退非流式），日预算守卫 + api_usage 计量同 complete。
 # v1.15.0：api.webhooks.register——事件→外部 URL 非阻塞推送（bus 协程监听器 + httpx + HMAC 签名），
 #         一行替代 events.on+httpx+签名 ~20 行模板。
-API_VERSION = "1.15.0"
+# v1.16.0：api.webhooks.register(events=None) 全事件支持（subscribe_all sync sink + create_task）；
+#         新增 4 个 widget 插槽（learn/notes/usage/wiki）。
+API_VERSION = "1.16.0"
 
 
 class ToolsNamespace:
@@ -746,7 +748,7 @@ class WebhooksNamespace:
     def register(
         self,
         url: str,
-        events: list[str],
+        events: list[str] | None = None,
         *,
         secret: str = "",
     ) -> Any:
@@ -754,20 +756,27 @@ class WebhooksNamespace:
 
         - url：外部 Webhook URL（http(s)://；可信配置——同插件代码信任）。
         - events：要推送的事件名列表（如 ['plan_created', 'progress_updated']）。
+          None（v1.16.0）= 全部事件（经 subscribe_all sync sink + create_task）。
         - secret：HMAC-SHA256 签名密钥（可选；非空时加 X-Webhook-Signature 头）。
         返回 WebhookHandle（unregister 停止推送）。
         """
         if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
             raise ValueError("url 须以 http:// 或 https:// 开头")
-        if not isinstance(events, (list, tuple)) or not events or not all(isinstance(e, str) and e for e in events):
-            raise ValueError("events 必须是非空字符串列表")
         from app.plugins import bus, webhooks
 
         offs: list[Callable] = []
-        for event_name in events:
-            listener = webhooks.make_listener(url, event_name, secret=secret)
-            off = bus.on(event_name, listener)
+        if events is None:
+            # v1.16.0：全事件（subscribe_all sync sink → create_task 非阻塞投递）
+            sink = webhooks.make_all_events_sink(url, secret=secret)
+            off = bus.subscribe_all(sink)
             offs.append(off)
+        else:
+            if not isinstance(events, (list, tuple)) or not events or not all(isinstance(e, str) and e for e in events):
+                raise ValueError("events 为非 None 时必须是非空字符串列表")
+            for event_name in events:
+                listener = webhooks.make_listener(url, event_name, secret=secret)
+                off = bus.on(event_name, listener)
+                offs.append(off)
 
         self._status.webhooks.append(url)
 
