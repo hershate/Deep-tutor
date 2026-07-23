@@ -8,7 +8,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const calls = { widgets: [], overlay: [], skins: [], events: [], ui: [] };
+const calls = { widgets: [], overlay: [], skins: [], pages: [], events: [], ui: [], router: [] };
 const errors = [];
 const assert = (cond, msg) => {
   if (cond) console.log("  ✓ " + msg);
@@ -21,6 +21,7 @@ const assert = (cond, msg) => {
 // mock 宿主：window.DeepTutor 各命名空间记录调用；React hooks 返回安全占位
 const ctx = {
   window: {
+    location: { search: "", pathname: "/p/reader", href: "/p/reader" },
     DeepTutor: {
       version: "1.16.0",
       React: {
@@ -51,17 +52,30 @@ const ctx = {
         list: () => [],
         subscribe: () => () => {},
       },
+      pages: {
+        register: (d) => calls.pages.push(d),
+        navItems: () => [],
+        list: () => [],
+        get: () => undefined,
+        subscribe: () => () => {},
+        unregister: () => true,
+      },
       events: { on: (e) => { calls.events.push(e); return () => {}; }, emit: () => {} },
       api: { get: async () => ({}), request: async () => ({}) },
       ui: {
         makeDraggable: () => { calls.ui.push("makeDraggable"); return { destroy: () => {} }; },
         toast: { success: (m) => calls.ui.push("toast:" + m), info: () => {}, error: () => {} },
       },
-      router: { navigate: () => {}, path: () => "/", href: () => "/", subscribe: () => () => {} },
-      pages: { register: () => {}, navItems: () => [] },
+      router: {
+        navigate: (to, opts) => { calls.router.push({ to, opts }); },
+        path: () => "/p/reader",
+        href: () => "/p/reader",
+        subscribe: () => () => {},
+      },
       plugins: { load: async () => {}, unload: () => {}, list: () => [] },
     },
   },
+  URLSearchParams: URLSearchParams,
   document: {
     createElement: () => ({ setAttribute() {}, appendChild() {}, style: {} }),
     addEventListener() {},
@@ -97,16 +111,17 @@ assert(
   "floating_notes 注册 content 覆盖层（overlay）"
 );
 assert(calls.skins.some((d) => d.name === "brand.ocean"), "brand_skin 注册 brand.ocean 皮肤（skins）");
+assert(calls.pages.some((d) => d.path === "reader"), "reader_app 注册 reader 插件页面（pages）");
 assert(calls.events.indexOf("skinchange") !== -1, "pomodoro 订阅 skinchange 事件（events 桥）");
 
 console.log("\n验证注册的组件函数可调用（mock hooks，不抛）：");
-for (const d of [...calls.widgets, ...calls.overlay]) {
+for (const d of [...calls.widgets, ...calls.overlay, ...calls.pages]) {
   try {
     const out = d.component();
-    assert(out && out._react === true, d.id + " 组件返回 React 元素");
+    assert(out && out._react === true, d.id || d.path + " 组件返回 React 元素");
   } catch (e) {
-    errors.push(d.id + " 组件异常: " + e.message);
-    console.error("  ✗ " + d.id + " 组件异常: " + e.message);
+    errors.push((d.id || d.path) + " 组件异常: " + e.message);
+    console.error("  ✗ " + (d.id || d.path) + " 组件异常: " + e.message);
   }
 }
 
