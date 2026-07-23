@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from app.agent import workspace as ws
 from app.agent.context import ExecContext
 from app.db import models
