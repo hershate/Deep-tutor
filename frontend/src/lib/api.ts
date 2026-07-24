@@ -808,14 +808,28 @@ export interface SseReconnectOpts {
   onRetry?: (attempt: number) => void
 }
 
+/** iter 353：结构化时间输入（首页表单直填，可选；authoritative 覆盖 LLM 从 raw_text 的抽取）。 */
+export interface TimeOptions {
+  daily_minutes?: number
+  deadline?: string // ISO 8601 date
+  start_date?: string // ISO 8601 date，学习起始日
+}
+
 export function generateStream(
   sessionId: number,
   rawText: string,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
   opts?: SseReconnectOpts,
+  timeOpts?: TimeOptions,
 ): Promise<void> {
-  return ssePostWithReconnect(`/plans/generate`, { session_id: sessionId, raw_text: rawText }, onEvent, signal, opts)
+  const body: Record<string, unknown> = { session_id: sessionId, raw_text: rawText }
+  if (timeOpts) {
+    if (timeOpts.daily_minutes != null) body.daily_minutes = timeOpts.daily_minutes
+    if (timeOpts.deadline) body.deadline = timeOpts.deadline
+    if (timeOpts.start_date) body.start_date = timeOpts.start_date
+  }
+  return ssePostWithReconnect(`/plans/generate`, body, onEvent, signal, opts)
 }
 
 // 局部重生成（plan/10 §十三）：从 scope 起级联重跑，复用断线重连。

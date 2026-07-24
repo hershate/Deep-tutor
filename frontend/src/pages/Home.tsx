@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, getTodayTasks, listPlans, parseMaterial, uploadMaterial } from '../lib/api'
+import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSession, getTodayTasks, listPlans, parseMaterial, uploadMaterial, type TimeOptions } from '../lib/api'
 import { SseError } from '../lib/sse'
 import { engine } from '../lib/taskEngine'
 import Card from '../components/Card'
@@ -58,6 +58,10 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
   const rawTextRef = useRef<HTMLTextAreaElement>(null)
+  // iter 353：结构化时间输入（可选；authoritative 覆盖 LLM 从 raw_text 的抽取）
+  const [dailyMinutes, setDailyMinutes] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [deadline, setDeadline] = useState('')
   const nav = useNavigate()
 
   // iter 254：继续学习快捷区——最近 3 个方案一键直达学习中心/详情
@@ -212,8 +216,17 @@ export default function Home() {
       }
       // iter 194 F9：生成由任务引擎发起（SSE 连接 App 级常驻，切页不丢）；
       // 启动即败按异常码引导——已建会话不删（区别于上传失败），留 idle 占位可稍后继续
+      // iter 353：结构化时间字段（表单直填）传给 understand_intent（authoritative 覆盖 LLM 抽取）
+      const _dm = Number(dailyMinutes)
+      const timeOpts: TimeOptions | undefined = (() => {
+        const o: TimeOptions = {}
+        if (dailyMinutes && Number.isFinite(_dm) && _dm >= 1 && _dm <= 1440) o.daily_minutes = _dm
+        if (startDate) o.start_date = startDate
+        if (deadline) o.deadline = deadline
+        return Object.keys(o).length ? o : undefined
+      })()
       try {
-        await engine.startPlan(session_id, rawText, rawText.slice(0, 40) || '学习方案')
+        await engine.startPlan(session_id, rawText, rawText.slice(0, 40) || '学习方案', timeOpts)
       } catch (genErr) {
         if (genErr instanceof SseError && genErr.status === 409) {
           toast.error('你已有生成任务运行中：本次会话已保留在方案列表，完成后可继续', {
@@ -385,6 +398,58 @@ export default function Home() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* iter 353：结构化时间输入（可选，跳过 AI 猜测；起始日决定排程从哪天开始） */}
+      <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '90ms' }}>
+        <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+          时间安排（可选）
+        </label>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          直接指定每日时长与日期，跳过 AI 猜测；<strong>起始日期</strong>决定排程从哪天开始（留空则从今天）。
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="home-daily" className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              每日时长（分钟）
+            </label>
+            <input
+              id="home-daily"
+              type="number"
+              min={1}
+              max={1440}
+              inputMode="numeric"
+              value={dailyMinutes}
+              onChange={(e) => setDailyMinutes(e.target.value)}
+              placeholder="如 60"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+            />
+          </div>
+          <div>
+            <label htmlFor="home-start" className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              起始日期
+            </label>
+            <input
+              id="home-start"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+            />
+          </div>
+          <div>
+            <label htmlFor="home-deadline" className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              截止日期
+            </label>
+            <input
+              id="home-deadline"
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2 rounded-xl border bg-white p-4 shadow-sm animate-fade-in-up dark:border-slate-700 dark:bg-slate-800" style={{ animationDelay: '120ms' }}>

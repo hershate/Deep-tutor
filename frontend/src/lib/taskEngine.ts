@@ -19,6 +19,7 @@ import {
   retryStream,
   type SessionStatusDetail,
   type SseReconnectOpts,
+  type TimeOptions,
 } from './api'
 import { SseError } from './sse'
 import { events as pluginEvents } from './plugins'
@@ -339,12 +340,12 @@ export const engine = {
   },
 
   /** 发起新一次方案生成（Home/F5「继续生成」）。启动即败抛给调用方（F9 引导矩阵）。 */
-  async startPlan(sessionId: number, rawText: string, title = ''): Promise<void> {
+  async startPlan(sessionId: number, rawText: string, title = '', timeOpts?: TimeOptions): Promise<void> {
     const id = planTaskId(sessionId)
     store().upsert({ id, kind: 'plan', sessionId, title, rawText })
     resetForNewRun(id)
     try {
-      await attachStream(id, (onEvent, signal, o) => generateStream(sessionId, rawText, onEvent, signal, o), {
+      await attachStream(id, (onEvent, signal, o) => generateStream(sessionId, rawText, onEvent, signal, o, timeOpts), {
         failFast: true,
       })
     } catch (e) {
