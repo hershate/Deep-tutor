@@ -9,6 +9,7 @@ import Chat from './pages/Chat'
 import GenerateProgress from './pages/GenerateProgress'
 import Clarify from './pages/Clarify'
 import Learn from './pages/Learn'
+import LearnIndex from './pages/LearnIndex'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import PlanDetail from './pages/PlanDetail'
@@ -88,6 +89,8 @@ export default function App() {
                 <Route path="/clarify/:sessionId" element={<Clarify />} />
                 <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />
                 <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans"><PlanDetail /></MaybeOverride>} />
+                {/* iter 346（F9）：学习中心独立聚合页 /learn（今日学习 + 各方案卡片，drill-down /learn/:planId） */}
+                <Route path="/learn" element={<MaybeOverride hostPath="learn"><LearnIndex /></MaybeOverride>} />
                 <Route path="/learn/:planId" element={<MaybeOverride hostPath="learn"><Learn /></MaybeOverride>} />
                 {/* iter 281：跨方案统一复习工作流页（翻卡自评 + 掌握度回写） */}
                 <Route path="/review" element={<MaybeOverride hostPath="review"><Review /></MaybeOverride>} />

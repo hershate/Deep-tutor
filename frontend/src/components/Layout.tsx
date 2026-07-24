@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { to: '/', icon: '＋', label: '新建方案', end: true },
   { to: '/chat', icon: '💬', label: 'AI 对话', end: false },
   { to: '/plans', icon: '📚', label: '方案列表', end: false },
+  { to: '/learn', icon: '🎯', label: '学习中心', end: false },
   { to: '/wiki', icon: '🧠', label: '知识库', end: false },
   { to: '/review', icon: '🔁', label: '复习', end: false },
   { to: '/notes', icon: '📝', label: '笔记', end: false },
