@@ -78,3 +78,31 @@ def test_usage_today_cost_excludes_old_rows(client, auth_headers):
     u = client.get("/api/usage", headers=auth_headers).json()
     assert abs(u["today_cost"] - 0.2) < 1e-9
     assert abs(u["total_cost"] - 0.7) < 1e-9
+
+
+def test_cache_hit_rate_never_exceeds_100(client, auth_headers):
+    """iter 346（F2）：缓存命中率分母含全部输入侧 token，高缓存命中时 ≤100%。
+
+    旧公式 cache_read/tokens_in 在 cache_read≫tokens_in 时会 >100%（甚至 2000%+）；
+    新口径 cache_read/(cache_read+tokens_in+cache_write) 天然 ≤100%（业界标准）。
+    """
+    from app.db import models
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(username="admin").first()
+        if user is None:
+            user = User(name="admin", username="admin", password_hash="", is_admin=True)
+            db.add(user)
+            db.flush()
+        # cache_read=10000 ≫ tokens_in=100：旧公式会得 100.0（>100%）；新公式 10000/11000≈0.909
+        db.add(models.ApiUsage(user_id=user.id, cost=0.01, tokens_in=100, tokens_out=10,
+                               cache_read=10000, cache_write=900))
+        db.commit()
+    finally:
+        db.close()
+    u = client.get("/api/usage", headers=auth_headers).json()
+    assert u["cache_hit_rate"] <= 1.0  # 核心：不再超过 100%
+    assert abs(u["cache_hit_rate"] - round(10000 / (100 + 10000 + 900), 4)) < 1e-9  # API round 至 4 位

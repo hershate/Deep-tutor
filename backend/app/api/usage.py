@@ -23,14 +23,20 @@ router = APIRouter(prefix="/usage", tags=["usage"], dependencies=[Depends(requir
 @router.get("")
 def get_usage(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     # err.md A19：SQL 聚合替代全表读入 Python 求和（用量增长后内存/耗时线性上升）
-    total_in, total_out, total_cache_read, total_cost, calls = db.query(
+    total_in, total_out, total_cache_read, total_cache_write, total_cost, calls = db.query(
         func.coalesce(func.sum(models.ApiUsage.tokens_in), 0),
         func.coalesce(func.sum(models.ApiUsage.tokens_out), 0),
         func.coalesce(func.sum(models.ApiUsage.cache_read), 0),
+        func.coalesce(func.sum(models.ApiUsage.cache_write), 0),
         func.coalesce(func.sum(models.ApiUsage.cost), 0.0),
         func.count(models.ApiUsage.id),
     ).filter_by(user_id=user.id).one()
-    cache_hit_rate = (total_cache_read / total_in) if total_in else 0.0
+    # iter 346（F2）：命中率分母须含全部输入侧 token（命中读 + 缓存写 + 常规输入）。
+    # Anthropic input_tokens 不含缓存 token（cache_read/cache_creation 分列入库），
+    # 旧公式 cache_read/tokens_in 在高缓存命中时会 >100%（甚至 2000%+）。
+    # 业界标准口径：cache_read / (cache_read + input + cache_write)，天然 ≤100%。
+    total_input_side = total_in + total_cache_read + total_cache_write
+    cache_hit_rate = (total_cache_read / total_input_side) if total_input_side else 0.0
     # iter 164：今日费用 + 日预算（用量页预算进度条）。
     # 日界按服务器本地日（用户心智口径）：created_at 为 naive UTC，
     # 边界 = 本地今日 0 点换算回 UTC（本地偏移从系统推导）。
