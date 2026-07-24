@@ -196,7 +196,11 @@ def effective_search_engine(bing_key: str | None = None) -> str:
     """实际生效的检索引擎 -> "bing_api" | "bing_web" | "none"。
 
     矩阵：auto+key -> bing_api；auto/bing_web 无 key -> bing_web；
-    bing 无 key -> none（走 no_search_key 兼容降级路径）。
+    bing 无 key -> bing_web（隐式回退免 Key 网页兜底 + WARNING，iter 346 修正）。
+    旧实现 bing+无 key -> "none" 会致 search_resources 静默返回空 resources
+    （编排器只对 error 中断、repaired 不中断），用户感知「联网搜索失败」却无报错。
+    现与 auto 的免 Key 兜底语义对齐；"none" 仅保留给未来显式禁用检索的开关
+    （search_resources 的 none 分支为防御性降级路径，不删除以保完全性）。
     bing_key 缺省 -> settings.bing_api_key；iter 223 起调用方可传入
     凭证档案解析后的有效 key（app.core.credentials.resolve_bing_api_key）。
     """
@@ -206,7 +210,13 @@ def effective_search_engine(bing_key: str | None = None) -> str:
     key = settings.bing_api_key if bing_key is None else bing_key
     if key:
         return "bing_api"
-    return "none" if engine == "bing" else "bing_web"
+    # 无 key：auto/bing 均回退免 Key 网页抓取（旧 bing->none 致静默空 resources，iter 346 修正）
+    if engine == "bing":
+        logging.getLogger("deep_tutor.settings").warning(
+            "SEARCH_ENGINE=bing 但未配置 BING_API_KEY，回退免 Key 网页检索（bing_web）；"
+            "若需付费 API 质量请在设置页/.env 配置 BING_API_KEY，或改 SEARCH_ENGINE=auto"
+        )
+    return "bing_web"
 
 
 # err.md C14：环境变量解析错误给可读提示而非裸 ValidationError traceback

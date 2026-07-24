@@ -21,13 +21,45 @@ def _run(args):
     return asyncio.run(search_resources(inp, _ctx()))
 
 
-def test_no_key_degraded(monkeypatch):
-    """SEARCH_ENGINE=bing 且未配置 key -> 兼容旧降级路径（no_search_key + 关键词建议）。"""
+def test_bing_no_key_falls_back_to_web(monkeypatch):
+    """SEARCH_ENGINE=bing 且未配置 key -> 隐式回退免 Key 网页检索（iter 346）。
+
+    旧行为返回 no_search_key 降级（resources 恒空），用户感知「联网搜索失败」却无报错；
+    现与 auto 的免 Key 兜底语义对齐——bing+无 key 走 bing_web 网页抓取。
+    """
     monkeypatch.setattr(settings_mod.settings, "search_engine", "bing")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
+    seen: list[str] = []
+
+    async def fake_search(query, engine, count=5, key=""):
+        seen.append(engine)
+        return [{"title": f"{query} 教程", "url": f"https://example.com/{query}"}]
+
+    async def fake_verify(inp, ctx, client=None):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    out = _run({"stage_topics": [["React"], ["JS 基础"]]})
+    assert out.status == "ok"
+    assert seen and all(e == "bing_web" for e in seen)  # 多查询均回退免 Key 网页引擎，而非静默空
+    assert out.data["engine"] == "bing_web"
+    assert len(out.data["resources"]) >= 1
+
+
+def test_none_engine_degraded_path(monkeypatch):
+    """effective_search_engine 显式返回 'none'（未来禁用检索开关）-> search_resources 走 no_search_key 降级路径。
+
+    iter 346 后 effective_search_engine 不再对 bing+无 key 返回 none，但 search_resources 的
+    none 分支保留为防御性降级（保完全性）；此测试固化该路径不被误删。
+    """
+    monkeypatch.setattr(sr_mod, "effective_search_engine", lambda key=None: "none")
     out = _run({"stage_topics": [["React"], ["JS 基础"]]})
     assert out.status == "repaired"
     assert out.data["resources"] == []
+    assert out.data["engine"] == "none"
     assert out.errors[0].code == "no_search_key"
     assert "React" in out.data["suggested_keywords"]
 
@@ -149,9 +181,15 @@ def _run_unit(query, limit=3):
 
 
 def test_unit_resources_no_key_or_empty_query(monkeypatch):
+    """无 key 回退免 Key 网页（iter 346）但网页无结果时不编造 URL；空 query 直接空。"""
     monkeypatch.setattr(settings_mod.settings, "search_engine", "bing")
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "")
-    assert _run_unit("React 基础") == []  # 无 key -> 空（不编造 URL）
+
+    async def fake_search(query, engine, count=5, key=""):
+        return []  # 模拟网页无候选
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    assert _run_unit("React 基础") == []  # 回退 bing_web 但无结果 -> 空（不编造 URL）
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
     assert _run_unit("   ") == []  # 空 query -> 空
 
@@ -338,13 +376,13 @@ import pytest  # noqa: E402
 
 
 def test_effective_engine_matrix(monkeypatch):
-    """决策矩阵：auto+key->bing_api；auto/bing_web 无 key->bing_web；bing 无 key->none；非法值归一化 auto。"""
+    """决策矩阵：auto+key->bing_api；auto/bing_web/bing 无 key->bing_web（iter 346 bing 回退）；非法值归一化 auto。"""
     eff = settings_mod.effective_search_engine
     for engine, key, expected in [
         ("auto", "k", "bing_api"),
         ("auto", "", "bing_web"),
         ("bing", "k", "bing_api"),
-        ("bing", "", "none"),
+        ("bing", "", "bing_web"),  # iter 346：bing+无 key 回退免 Key 网页（旧为 none）
         ("bing_web", "k", "bing_web"),
         ("bing_web", "", "bing_web"),
         ("google", "", "bing_web"),  # 非法值 -> 归一化 auto -> 无 key -> bing_web
