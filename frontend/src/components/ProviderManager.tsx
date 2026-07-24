@@ -8,7 +8,6 @@ import {
   createProvider,
   deactivateProviders,
   deleteProvider,
-  getPricing,
   listProviderKinds,
   listProviders,
   testProvider,
@@ -24,34 +23,10 @@ interface FormState {
   api_key: string
   model: string
   kind: string // 协议：'anthropic'（内置）或插件协议名（iter 313）
-  // iter 354 BUG2：每卡计价（输入用字符串，提交时空串 -> null=回退默认）
-  priceIn: string
-  priceOut: string
-  priceCacheRead: string
-  priceCacheWrite: string
 }
 
 const EMPTY_FORM: FormState = {
   id: null, name: '', base_url: '', api_key: '', model: '', kind: 'anthropic',
-  priceIn: '', priceOut: '', priceCacheRead: '', priceCacheWrite: '',
-}
-
-/** 模型族名（与后端 pricing.py 子串匹配一致：opus 优先防误中） */
-function familyOf(model: string): 'opus' | 'sonnet' | 'haiku' | null {
-  const m = (model || '').toLowerCase()
-  if (!m) return null
-  if (m.includes('opus')) return 'opus'
-  if (m.includes('sonnet')) return 'sonnet'
-  if (m.includes('haiku')) return 'haiku'
-  return null
-}
-
-/** 字符串价目 -> 提交值：空串/非法 -> null（回退默认） */
-function parsePrice(v: string): number | null {
-  const t = v.trim()
-  if (t === '') return null
-  const n = Number(t)
-  return Number.isFinite(n) && n >= 0 ? n : null
 }
 
 export default function ProviderManager() {
@@ -63,8 +38,6 @@ export default function ProviderManager() {
     queryFn: listProviderKinds,
     retry: false,
   })
-  // iter 354 BUG2：默认价目（价目输入框 placeholder 据模型族显示默认，留空即用默认）
-  const { data: pricingData } = useQuery({ queryKey: ['pricing'], queryFn: getPricing, staleTime: 60_000 })
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [showForm, setShowForm] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -98,9 +71,6 @@ export default function ProviderManager() {
     ...(kindsData?.plugins ?? []),
   ]
   const isPluginKind = form.kind !== 'anthropic'
-  // iter 354 BUG2：当前模型族的默认价（输入框 placeholder 提示，留空即用默认）
-  const fam = familyOf(form.model)
-  const def = fam ? pricingData?.defaults?.[fam] : undefined
 
   async function run(action: () => Promise<unknown>) {
     if (busy) return // 防重入：请求在途时表单 Enter 仍可触发 onSubmit
@@ -124,10 +94,6 @@ export default function ProviderManager() {
       base_url: form.base_url.trim(),
       model: form.model.trim(),
       kind: form.kind,
-      price_input_per_mtok: parsePrice(form.priceIn),
-      price_output_per_mtok: parsePrice(form.priceOut),
-      price_cache_read_per_mtok: parsePrice(form.priceCacheRead),
-      price_cache_write_per_mtok: parsePrice(form.priceCacheWrite),
       ...(form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
     }
     if (form.id === null) {
@@ -144,10 +110,6 @@ export default function ProviderManager() {
   function startEdit(p: ProviderProfile) {
     setForm({
       id: p.id, name: p.name, base_url: p.base_url, api_key: '', model: p.model, kind: p.kind || 'anthropic',
-      priceIn: p.price_input_per_mtok != null ? String(p.price_input_per_mtok) : '',
-      priceOut: p.price_output_per_mtok != null ? String(p.price_output_per_mtok) : '',
-      priceCacheRead: p.price_cache_read_per_mtok != null ? String(p.price_cache_read_per_mtok) : '',
-      priceCacheWrite: p.price_cache_write_per_mtok != null ? String(p.price_cache_write_per_mtok) : '',
     })
     setShowForm(true)
     setOpError('')
@@ -260,58 +222,6 @@ export default function ProviderManager() {
               required={form.id === null}
             />
           </label>
-          {/* iter 354 BUG2：每卡计价（USD / 1M tokens）；留空 = 该字段回退族默认（placeholder 显示默认） */}
-          <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1 text-sm font-medium">计费单价（USD / 1M tokens，留空用默认）</legend>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <label className="text-sm">
-                输入
-                <input
-                  value={form.priceIn}
-                  onChange={(e) => setForm({ ...form, priceIn: e.target.value })}
-                  className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
-                  placeholder={def ? String(def.input_per_mtok) : '默认'}
-                  inputMode="decimal"
-                />
-              </label>
-              <label className="text-sm">
-                输出
-                <input
-                  value={form.priceOut}
-                  onChange={(e) => setForm({ ...form, priceOut: e.target.value })}
-                  className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
-                  placeholder={def ? String(def.output_per_mtok) : '默认'}
-                  inputMode="decimal"
-                />
-              </label>
-              <label className="text-sm">
-                缓存读
-                <input
-                  value={form.priceCacheRead}
-                  onChange={(e) => setForm({ ...form, priceCacheRead: e.target.value })}
-                  className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
-                  placeholder={def ? String(def.cache_read_per_mtok) : '默认'}
-                  inputMode="decimal"
-                />
-              </label>
-              <label className="text-sm">
-                缓存写
-                <input
-                  value={form.priceCacheWrite}
-                  onChange={(e) => setForm({ ...form, priceCacheWrite: e.target.value })}
-                  className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
-                  placeholder={def ? String(def.cache_write_per_mtok) : '默认'}
-                  inputMode="decimal"
-                />
-              </label>
-            </div>
-            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              启用此卡时，方案生成的实时计费与用量统计按此价目；留空字段用模型族默认价。
-              <a href="https://www.anthropic.com/pricing" target="_blank" rel="noreferrer" className="ml-1 text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
-                核对官方价目
-              </a>
-            </p>
-          </fieldset>
           <div className="flex gap-2">
             <button
               type="submit"
@@ -369,12 +279,6 @@ export default function ProviderManager() {
               </div>
               <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                 {p.base_url || 'Anthropic 官方端点'} · {p.model || '默认模型'} · Key {p.api_key_masked}
-              </div>
-              {/* iter 354 BUG2：每卡计价摘要（任一字段自设即显示明细，否则默认价） */}
-              <div className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">
-                {p.price_input_per_mtok != null || p.price_output_per_mtok != null || p.price_cache_read_per_mtok != null || p.price_cache_write_per_mtok != null
-                  ? `计费 输入 $${p.price_input_per_mtok ?? '·'} · 输出 $${p.price_output_per_mtok ?? '·'} · 缓存读 $${p.price_cache_read_per_mtok ?? '·'} · 缓存写 $${p.price_cache_write_per_mtok ?? '·'} /1M tok`
-                  : '计费：默认价（启用后可编辑）'}
               </div>
               {testResults[p.id] && (
                 <div

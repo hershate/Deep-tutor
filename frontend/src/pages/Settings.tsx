@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import ProviderManager from '../components/ProviderManager'
+import ModelPricingManager from '../components/ModelPricingManager'
 import CredentialManager from '../components/CredentialManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
@@ -40,6 +41,11 @@ export default function Settings() {
         <ProviderManager />
       </div>
 
+      {/* iter 356：模型计费表（设置页维护，替代每卡定价），¥/1M tokens */}
+      <div className="animate-fade-in-up" style={{ animationDelay: '150ms' }}>
+        <ModelPricingManager />
+      </div>
+
       {/* iter 223：全部 Key（Anthropic 回退 / Bing / 访问令牌）档案卡片管理 */}
       <div className="animate-fade-in-up" style={{ animationDelay: '180ms' }}>
         <CredentialManager />
@@ -68,7 +74,7 @@ export default function Settings() {
       {data && (
         <dl className="animate-fade-in divide-y overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <Row label="模型" value={data.anthropic_model} />
-          <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
+          <Row label="会话预算 (￥)" value={`￥${data.budget_per_session_usd}`} />
           {/* 每日预算可编辑（iter 176 参数配置）：用户覆盖优先于 .env 默认 */}
           <BudgetRow data={data} />
           {/* LLM 输出上限可编辑（iter 355）：默认 100k 防 generate_quiz 截断 */}
@@ -203,9 +209,9 @@ function BudgetRow({ data }: { data: AppSettings }) {
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
       <dt className="text-sm text-slate-600 dark:text-slate-300">
-        每日预算 (USD)
+        每日预算 (￥)
         {data.daily_budget_is_override && (
-          <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（默认 ${data.daily_budget_usd}）</span>
+          <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（默认 ￥${data.daily_budget_usd}）</span>
         )}
       </dt>
       <dd className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
@@ -218,7 +224,7 @@ function BudgetRow({ data }: { data: AppSettings }) {
               step="0.5"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              aria-label="每日预算（美元）"
+              aria-label="每日预算（人民币）"
               className="w-24 rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
             />
             <button
@@ -247,7 +253,7 @@ function BudgetRow({ data }: { data: AppSettings }) {
           </>
         ) : (
           <>
-            <span className="tabular-nums">${data.daily_budget_effective}</span>
+            <span className="tabular-nums">￥${data.daily_budget_effective}</span>
             <button
               onClick={() => {
                 setValue(String(data.daily_budget_effective))

@@ -49,7 +49,7 @@ export default function Usage() {
         <>
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="总 Token" value={data.total_tokens.toLocaleString()} delay={0} />
-            <Stat label="总费用" value={`$${data.total_cost.toFixed(6)}`} delay={60} />
+            <Stat label="总费用" value={`￥${data.total_cost.toFixed(6)}`} delay={60} />
             <Stat label="缓存命中率" value={`${(data.cache_hit_rate * 100).toFixed(1)}%`} delay={120} />
             <Stat label="API 调用数" value={String(data.calls)} delay={180} />
           </dl>
@@ -78,7 +78,7 @@ function ModelBreakdown({ items }: { items: UsageModelItem[] }) {
     <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">按模型费用</h3>
-        <span className="text-xs tabular-nums text-slate-400">合计 ${total.toFixed(6)}</span>
+        <span className="text-xs tabular-nums text-slate-400">合计 ￥${total.toFixed(6)}</span>
       </div>
       <ul className="space-y-2">
         {items.map((m) => (
@@ -86,7 +86,7 @@ function ModelBreakdown({ items }: { items: UsageModelItem[] }) {
             <div className="mb-0.5 flex items-center justify-between gap-2 text-xs">
               <span className="truncate font-mono text-slate-700 dark:text-slate-200">{m.model}</span>
               <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                ${m.cost.toFixed(6)} · {m.calls} 次 · {(m.tokens / 1000).toFixed(1)}k tok
+                ￥${m.cost.toFixed(6)} · {m.calls} 次 · {(m.tokens / 1000).toFixed(1)}k tok
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
@@ -119,13 +119,13 @@ function DailyChart({ items }: { items: { date: string; cost: number; tokens: nu
     <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">近 {items.length} 天费用</h3>
-        <span className="text-xs tabular-nums text-slate-400">合计 ${total.toFixed(6)}</span>
+        <span className="text-xs tabular-nums text-slate-400">合计 ￥${total.toFixed(6)}</span>
       </div>
       <div className="flex h-28 items-end gap-1" role="img" aria-label="近14天按日费用柱状图">
         {items.map((i, bi) => (
           <div
             key={i.date}
-            title={`${i.date}\n费用 $${i.cost.toFixed(6)} · ${i.tokens.toLocaleString()} tokens · ${i.calls} 次调用`}
+            title={`${i.date}\n费用 ￥${i.cost.toFixed(6)} · ${i.tokens.toLocaleString()} tokens · ${i.calls} 次调用`}
             className="group relative flex-1 animate-fade-in rounded-t bg-blue-500/70 transition-all duration-200 hover:bg-blue-600 dark:bg-blue-400/60 dark:hover:bg-blue-400"
             style={{ height: `${Math.max((i.cost / maxCost) * 100, i.cost > 0 ? 6 : 2)}%`, animationDelay: `${Math.min(bi, 13) * 35}ms` }}
           />
@@ -148,12 +148,12 @@ function BudgetBar({ today, budget }: { today: number; budget: number }) {
   return (
     <section
       className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
-      aria-label={unlimited ? `今日费用 ${today.toFixed(6)} 美元，预算不限` : `今日预算：已用 ${today.toFixed(6)} 美元，预算 ${budget} 美元`}
+      aria-label={unlimited ? `今日费用 ￥${today.toFixed(6)}，预算不限` : `今日预算：已用 ￥${today.toFixed(6)}，预算 ￥${budget}`}
     >
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium text-slate-600 dark:text-slate-300">今日预算</span>
         <span className={`tabular-nums ${over ? 'font-semibold text-red-600 dark:text-red-400' : warn ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
-          {unlimited ? `$${today.toFixed(6)} / 不限` : `$${today.toFixed(6)} / $${budget}`}
+          {unlimited ? `￥${today.toFixed(6)} / 不限` : `￥${today.toFixed(6)} / ￥${budget}`}
           {over && '（已超预算）'}
         </span>
       </div>

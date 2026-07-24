@@ -42,8 +42,8 @@ function ReviewDueWidget() {
 function TodayCostWidget() {
   const { data } = useQuery({ queryKey: ['usage'], queryFn: getUsage, staleTime: 60_000 })
   if (!data || (data.today_cost === 0 && data.daily_budget_usd === 0)) return null
-  const budget = data.daily_budget_usd > 0 ? ` / $${data.daily_budget_usd.toFixed(2)}` : ''
-  return <StatCard to="/usage" icon="💰" value={`$${data.today_cost.toFixed(4)}${budget}`} label="今日费用 / 预算" />
+  const budget = data.daily_budget_usd > 0 ? ` / ￥${data.daily_budget_usd.toFixed(2)}` : ''
+  return <StatCard to="/usage" icon="💰" value={`￥${data.today_cost.toFixed(4)}${budget}`} label="今日费用 / 预算" />
 }
 
 /** 应用启动时调用一次：注册全部内置小组件 */

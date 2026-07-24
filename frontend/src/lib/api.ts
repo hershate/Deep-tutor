@@ -668,11 +668,6 @@ export interface ProviderProfile {
   kind: string // 协议：'anthropic'（内置）或插件注册的协议名（api.providers，iter 313）
   is_active: boolean
   api_key_masked: string
-  // iter 354 BUG2：每卡计价（USD / 1M tokens；null = 该字段回退族默认）
-  price_input_per_mtok: number | null
-  price_output_per_mtok: number | null
-  price_cache_read_per_mtok: number | null
-  price_cache_write_per_mtok: number | null
   created_at: string
 }
 export interface ProviderInput {
@@ -681,11 +676,6 @@ export interface ProviderInput {
   base_url?: string
   model?: string
   kind?: string // 协议；缺省/空 -> 'anthropic'（iter 313）
-  // iter 354 BUG2：每卡计价（null = 回退族默认；编辑表单始终回传 4 字段）
-  price_input_per_mtok?: number | null
-  price_output_per_mtok?: number | null
-  price_cache_read_per_mtok?: number | null
-  price_cache_write_per_mtok?: number | null
 }
 /** GET /providers/kinds：可用 LLM 协议（内置 anthropic + 插件协议，iter 313 发现端点） */
 export interface ProviderKindBuiltin {
@@ -762,15 +752,21 @@ export const updatePrefs = (prefs: { daily_budget_usd?: number | null; llm_max_t
     body: JSON.stringify(prefs),
   })
 
-// iter 353：用户级价目覆盖（设置页可配置）。默认价据 Anthropic 公开价目，可能过时；
-// 用户按实际账单覆盖每族单价（USD/1M tokens）。
+// iter 356：模型计费表（设置页维护，模型名 -> 4 项费用，¥/1M tokens）。计费按精确模型名
+// 匹配用户表 -> Anthropic 族默认兜底。defaults 为内置国产模型参考价（可改可删可加）。
+export interface ModelPricingEntry {
+  input_per_mtok: number
+  output_per_mtok: number
+  cache_read_per_mtok: number
+  cache_write_per_mtok: number
+}
 export interface PricingTable {
-  defaults: Record<string, Record<string, number>> // {family: {input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok}}
-  overrides: Record<string, Record<string, number>>
+  defaults: Record<string, ModelPricingEntry>
+  table: Record<string, ModelPricingEntry>
   note?: string
 }
 export const getPricing = () => apiFetch<PricingTable>('/settings/pricing')
-export const updatePricing = (pricing: Record<string, Record<string, number>>) =>
+export const updatePricing = (pricing: Record<string, Partial<ModelPricingEntry>>) =>
   apiFetch<PricingTable>('/settings/pricing', {
     method: 'PUT',
     body: JSON.stringify({ pricing }),
