@@ -8,9 +8,7 @@
 // iter 226：弹窗固定 h-[88vh]（原 max-h 由内容撑高，flex-1 的 iframe 无固有高度致弹窗塌陷成扁条）；
 //   已解析且有原件的文档头部提供「📝 解析文本 / 📄 原件」切换（PDF 解析结果此前无入口查看）。
 import { useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import rehypeSanitize from 'rehype-sanitize'
-import remarkGfm from 'remark-gfm'
+import Markdown from './Markdown'
 import { toast } from './Toast'
 import { ApiError, downloadKbRaw, fetchKbRawBlob, getKbParsed, type KbDocument, type KbParsed } from '../lib/api'
 
@@ -242,9 +240,7 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
                 </p>
               )}
               <div className="markdown-body text-sm">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                  {parsed.text || '（无文本内容）'}
-                </ReactMarkdown>
+                <Markdown>{parsed.text || '（无文本内容）'}</Markdown>
               </div>
             </div>
           )}

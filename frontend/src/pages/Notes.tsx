@@ -4,9 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import rehypeSanitize from 'rehype-sanitize'
-import remarkGfm from 'remark-gfm'
+import Markdown from '../components/Markdown'
 import {
   ApiError,
   createFreeNote,
@@ -758,9 +756,7 @@ export default function Notes() {
                 aria-label="Markdown 实时预览"
               >
                 {debouncedContent.trim() ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                    {debouncedContent}
-                  </ReactMarkdown>
+                  <Markdown>{debouncedContent}</Markdown>
                 ) : (
                   <p className="text-slate-400">（正文为空）</p>
                 )}

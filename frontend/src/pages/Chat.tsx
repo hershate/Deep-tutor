@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { openSSE } from '../lib/sse'
 import { getToken } from '../lib/auth'
+import Markdown from '../components/Markdown'
 import {
   createThread,
   deleteThread,
@@ -268,7 +269,13 @@ function MessageBubble({ role, content }: { role: string; content: unknown }) {
             ))}
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">{text}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap break-words">{text}</div>
+        ) : (
+          <div className="markdown-body break-words">
+            <Markdown>{text}</Markdown>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -294,8 +301,8 @@ function StreamingBubble({ stream }: { stream: Streaming }) {
             ))}
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">
-          {stream.text}
+        <div className="markdown-body break-words">
+          <Markdown>{stream.text}</Markdown>
           <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-slate-400 align-middle" />
         </div>
       </div>

@@ -5,9 +5,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import rehypeSanitize from 'rehype-sanitize'
-import remarkGfm from 'remark-gfm'
+import Markdown from './Markdown'
 import { toast } from './Toast'
 import {
   ApiError,
@@ -212,9 +210,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
             <div className="flex justify-start">
               <div className="max-w-[85%] rounded-2xl border bg-slate-50 px-3.5 py-2 text-sm text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
                 <div className="markdown-body text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                    {r.answer}
-                  </ReactMarkdown>
+                  <Markdown>{r.answer}</Markdown>
                 </div>
                 {r.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-200 pt-2 dark:border-slate-700">

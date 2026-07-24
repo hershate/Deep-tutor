@@ -2,9 +2,7 @@
 // 单元导航 + 内容渲染（react-markdown + sanitize）+ 上一/下一单元 + 标记已学 + 去测验。
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import rehypeSanitize from 'rehype-sanitize'
-import remarkGfm from 'remark-gfm'
+import Markdown from './Markdown'
 import { ApiError, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
@@ -484,9 +482,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
         {isIndex ? (
           <>
             <div className={`markdown-body ${FONT_STEPS[fontStep]}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                {indexMd}
-              </ReactMarkdown>
+              <Markdown>{indexMd}</Markdown>
             </div>
             <div className="mt-4 flex items-center justify-end border-t pt-3 dark:border-slate-700">
               <button
@@ -517,9 +513,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
               {current.objectives.length > 0 && <span>目标：{current.objectives.join('；')}</span>}
             </div>
             <div className={`markdown-body ${FONT_STEPS[fontStep]}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                {content || `## ${contentTitle}\n\n（本单元暂无内容）`}
-              </ReactMarkdown>
+              <Markdown>{content || `## ${contentTitle}\n\n（本单元暂无内容）`}</Markdown>
             </div>
             {resources.length > 0 && (
               <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
