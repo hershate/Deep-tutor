@@ -261,6 +261,20 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-24 iter 347（测验/材料/知识点 /goal·iter1：知识点难度评分 + 高难度拆分 + difficulty 夹紧，commit feecbe9，30 测试通过）**：用户 /goal「测验慢且缺题→生成自学资料时后台出题；自学资料固定 3 单元→按知识点动态调整数量；高难度知识点拆分；顺带修其他交互缺陷」。
+  - **调查**：4 并行 Explore agent（quiz / materials / knowledge_map / 编排+UX）查源码定根因。
+  - **根因**：
+    - ① 测验慢=单次 LLM 全节点出题 + max_tokens 4096 + 多层串行重试（schema 修复×3 + 瞬态退避×3）+ 调用前同步读所有 StudyUnit；缺题=QuizSpec 无题数校验、工具无 post_process，题数不足是「合法 schema」绕过 tool-call repair。
+    - ② 材料 3 单元=design_stages 强制 3-6 阶段（LLM 取下限 3）+ SSE 严格「1 阶段=1 单元」（plans.py:1518,1566），非 [:3] 截断；知识点不参与单元切分。
+    - ③ 知识点拆分=全仓零逻辑；difficulty 是无 rubric、无范围校验的裸整数（可越界）。
+  - **3 决策（AskUserQuestion）**：材料切分=**知识点驱动聚合**；拆分=**生成期 prompt 拆分**；范围=**3 核心 + 全部 7 类 UX 缺陷**。
+  - **本 iter 落地（知识点层）**：
+    - [build_knowledge_map.py](backend/app/tools/build_knowledge_map.py) PROMPT 加 difficulty 1-5 评分细则 + 拆分指令（过宽/难度会到 5 的复合节点拆成多个聚焦子点，edges 串联，不保留巨型节点；自检 difficulty=5 能否再拆）。
+    - KnowledgeNode.difficulty 加 `field_validator(mode=before)` 宽容解析（字符串/None→1）+ clean_map 夹紧到 [1,5]。
+    - skill [deep-tutor-knowledge-map](skills/deep-tutor-knowledge-map/SKILL.md) 同步（评分细则/拆分/约束/自检）。
+    - 测试 +2（越界夹紧 / 非整数兜底），build_knowledge_map+persist+skill_loader 共 30 通过；ruff 干净。
+  - **后续 iter**：348 材料知识点驱动切分（node→unit）→ 349 测验后台生成+完整性 → 350 测验任务中心可见 → 351 UX 缺陷批次（B/D/C/E/F/G）→ 352 全量回归收口 + 文档。
+
 - **2026-07-24 iter 346（实机使用问题集修复：UX + 功能 + 隔离 + 稳定性，13 commit + 全量回归零失败）**：用户 /goal「实机使用发现 21 项问题，先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。
   - **流程**：8 并行调查 agent（逐条核实 21 问题代码现状，区分真 bug / 部分 / 已实现非问题 / 配置问题）+ 14 项联网调研（业界最佳实践佐证）→ 计划书 `~/.claude/plans/piped-munching-marble.md`（4 决策经 AskUserQuestion）→ P0/P1/P2 分阶段实施。
   - **已修复（13 commit 落地）**：
