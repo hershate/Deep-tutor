@@ -17,7 +17,9 @@
 
 **iter 346（2026-07-24，实机使用问题集修复，✅ 完成）**：用户 /goal「实机 21 项问题先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。8 并行调查 agent（逐条核实现状）+ 14 联网调研（业界依据）→ 计划书（`~/.claude/plans/piped-munching-marble.md`，4 决策经 AskUserQuestion）→ 13 commit 落地：F1 联网搜索 / F2 缓存命中率 / F3 弹窗滚动 / F4 对话改名 / F5 admin 禁删 / F11a 笔记分栏 / F6 材料重写 / F9 学习中心 / F10 测验体系 / F11b chat run 隔离 / F8 KB 沉淀+引用 / F1 回归修复。全量 pytest 零回归 + ruff 干净 + 前端 build 通过。**标注后续**（非 bug 或高风险/低收益）：F11c APIKEY 深度防御（user_id=None 薄弱点不可利用，重构破坏单元测试需同步改 setup/测试）、F12 quiz 接入任务中心（F10 已覆盖核心，需改 taskEngine）、自学材料知识点级 scope.node_ids（后端就绪前端未传）。详见 §五 iter 346。
 
-**iter 353（2026-07-24，实机 3 问题修复，✅ 完成）**：删除方案 500（`ed07226`）+ Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）+ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，起始日期 + 结构化时长/截止输入；回归修复 `2d1a944`）。**pytest 1182 零回归**。**当前无活动 /goal，等待用户新需求。** 详见 §五 iter 353。下文「当前下一步」为记忆系统 /goal 的历史状态（iter 345 已收官）。
+**iter 353（2026-07-24，实机 3 问题修复，✅ 完成）**：删除方案 500（`ed07226`）+ Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）+ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，起始日期 + 结构化时长/截止输入；回归修复 `2d1a944`）。**pytest 1182 零回归**。详见 §五 iter 353。
+
+**iter 354（2026-07-24，实机 5 BUG 修复，✅ 完成）**：用户 /goal「修复 5 BUG：① 任务中心生成时价格/Token 没实时计费 ② 定价应绑供应商卡片非单列 ③ 自学材料导出 md/PDF/ZIP 三选一 ④ AI 对话 Markdown 未渲染 ⑤ 笔记 LaTeX KaTeX 未渲染」。5 commit：BUG4/5 统一 [Markdown.tsx](frontend/src/components/Markdown.tsx)+KaTeX（`f137ace`）/ BUG3 材料导出三选一（`06ce01a`）/ BUG1 token 累计字段名修复+任务中心显示（`520687d`）/ BUG2 每卡独立计价（`ec3bf65`，经 AskUserQuestion 选定方案）。**pytest 1188 零回归** + ruff 干净 + 前端 build 通过。**当前无活动 /goal，等待用户新需求。** 详见 §五 iter 354。下文「当前下一步」为记忆系统 /goal 的历史状态（iter 345 已收官）。
 
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
@@ -262,6 +264,13 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 354（实机 5 BUG 修复 /goal·✅ 完成）**：用户 /goal「修复 5 个 BUG：① 任务中心生成方案时价格/Token 没有实时计费 ② 价格计费应绑定具体 LLM 供应商卡片而非单独放后面 ③ 自学材料导出应支持 md/PDF/ZIP 三种 ④ AI 对话 Markdown 未正确渲染 ⑤ 笔记 LaTeX 公式未渲染（KaTeX `$$`）」。3 并行调查 agent 定位 → 5 commit 落地，全量 pytest **1188 零回归** + ruff 干净 + 前端 build 通过。
+  - **BUG4/5 Markdown+KaTeX（`f137ace`）**：新增统一 [Markdown.tsx](frontend/src/components/Markdown.tsx)（react-markdown + remark-gfm + remark-math + rehype-katex + rehype-sanitize + katex.min.css）。插件链顺序 **sanitize→katex**：sanitize 在前清洗用户 HTML 防 XSS（react-markdown v9 默认本就不渲染裸 HTML，双保险），schema 放行 `code` 上 math 类让 math 节点穿过；katex 在后渲染，其输出不再清洗故字体/排版完整（若 katex 在前，sanitize 会剥 class/style/MathML 致损坏）。迁移 5 处历史内联 ReactMarkdown（Notes/StudyMaterialReader/KbChatPanel/KbViewerModal）+ Chat.tsx（AI 消息原用 whitespace-pre-wrap 纯文本插入→Markdown；用户消息保持纯文本；流式气泡同）。新依赖 remark-math ^6 / rehype-katex ^7 / katex ^0.18。
+  - **BUG3 自学材料导出三选一（`06ce01a`）**：[plans.py](backend/app/api/plans.py) `GET /plans/{id}/materials/export` 加 `format` 参数（md/pdf/zip，默认 zip 向后兼容）。md=各单元拼单 Markdown 文件；pdf=复用 [export_pdf.build_pdf](backend/app/tools/export_pdf.py)（weasyprint 不可用或超时 120s 降级 md + X-Export-Warning，同 R9 模式）；zip=原逻辑抽出 `_materials_zip_response`。前端 MaterialsModal「导出全部(.zip)」→「导出 ▾」下拉三选一；[api.ts](frontend/src/lib/api.ts) 加 `downloadMaterials(planId, format)`，`downloadMaterialsZip` 委托。+3 测试（md 内容 / pdf 或降级 / 非法格式 400）。
+  - **BUG1 实时计费 token 累计（`520687d`）**：根因 = [tasks.ts:345](frontend/src/store/tasks.ts#L345) applyEvent 的 tool_end 累计读 `md.input_tokens/output_tokens`，但后端 [ToolMetadata](backend/app/tools/base.py) 字段为 `tokens_in/tokens_out` → 永远 undefined → tokens 恒 0（cost 字段名匹配故正常累计，仅 token 失效）。修字段名对齐 + [TaskCenter.tsx](frontend/src/components/TaskCenter.tsx) TaskRow 运行中行加 tokens 显示（cost>0 旁）。
+  - **BUG2 定价绑定供应商卡片（`ec3bf65`，经 AskUserQuestion 选「每卡独立计价」方案）**：[LlmProviderProfile](backend/app/db/models.py) 加 4 价目字段（input/output/cache_read/cache_write per 1M tok，NULL 回退族默认）+ alembic 迁移 `d8a2f5c91b34`（链头 f0a2c5d839b1）+ [migrate.py](backend/app/db/migrate.py) 代际探测项（create_all 测试库 stamp 到 head 免重复列冲突）。计费路由改「启用档案」驱动（替代旧族级 UserPref 覆盖）：[pricing.py](backend/app/llm/pricing.py) `pricing_for_profile` 合成 Pricing；[ExecContext](backend/app/agent/context.py) 加 pricing 字段；[loop.py](backend/app/agent/loop.py) build_metadata 全路径传 ctx.pricing（生成期实时累计按启用卡价目）；plans `_run_orchestrator` 注入 `get_active_pricing(user_id)`、`_persist_tool_calls` 改用 `load_active_profile_pricing`；`record_metadata_usage` 同。[providers.py](backend/app/api/providers.py) 加 4 字段（更新仅当请求含价目键才覆盖，向后兼容，部分更新不误清）；[ProviderManager.tsx](frontend/src/components/ProviderManager.tsx) 表单加价目输入（placeholder 显族默认）+ 卡片价目摘要；[Settings.tsx](frontend/src/pages/Settings.tsx) 移除独立 PricingCard。+3 测试（providers）、改 2（pricing 改验证档案定价，原 UserPref 覆盖路径已废）。
+  - **回归**：全量 pytest 1188（原 1182 +6 新测试）零回归；ruff 全干净；前端 tsc + vite build 通过。GET /settings/pricing 端点保留（ProviderManager 取族默认作 placeholder），但其 UserPref 覆盖已与计费解耦。
 
 - **2026-07-24 iter 353（实机 3 问题修复 /goal·进行中：删除 500 ✅ / 计费 + 计划时间 待做）**：用户 /goal「修复：① 生成计划的时间应可由用户指定 ② 生成方案 Token 计费不正确 ③ 删除方案 500（`DELETE /api/sessions/{id}` FOREIGN KEY constraint failed）」。要求细粒度写 stage.md + 细粒度提交以便随时恢复。
   - **调查（2 并行 Explore agent + 源码核查）**：
