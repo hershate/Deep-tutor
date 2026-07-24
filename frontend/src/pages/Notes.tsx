@@ -86,8 +86,16 @@ export default function Notes() {
   const qc = useQueryClient()
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [dirty, setDirty] = useState(false) // 有未保存修改（切换/新建前确认防静默丢失）
-  const [preview, setPreview] = useState(false)
+  const [preview, setPreview] = useState(false) // iter 346（F11a）：分栏预览右栏显隐开关（左源码右渲染）
   const [busy, setBusy] = useState(false)
+  // iter 346（F11a）：左右分栏实时预览——debounce 渲染（避免每次击键重渲染 ReactMarkdown，大文档卡顿）
+  // + 左 textarea 滚动按比例同步右渲染面板（业界分栏编辑器最佳实践 §八 E）
+  const previewRef = useRef<HTMLDivElement>(null)
+  const [debouncedContent, setDebouncedContent] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedContent(draft.content), 150)
+    return () => clearTimeout(t)
+  }, [draft.content])
   const [loadingId, setLoadingId] = useState<number | null>(null)
   // iter 283：批量选择 + 批量删除（左列表作用域，与 Plans iter 282 同模式）
   const [selectMode, setSelectMode] = useState(false)
@@ -681,27 +689,20 @@ export default function Notes() {
             <button
               onClick={() => setPreview((p) => !p)}
               aria-pressed={preview}
+              aria-label={preview ? '隐藏预览面板' : '显示预览面板（左右分栏实时渲染）'}
+              title={preview ? '隐藏预览面板' : '左右分栏实时预览'}
               className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs transition-all active:scale-95 ${
                 preview
                   ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300'
                   : 'hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700'
               }`}
             >
-              {preview ? '✏️ 编辑' : '👁 预览'}
+              {preview ? '隐藏预览' : '👁 分栏预览'}
             </button>
           </div>
-          {preview ? (
-            <div className="markdown-body min-h-60 rounded-lg border px-3 py-2 text-sm dark:border-slate-600">
-              {draft.content.trim() ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                  {draft.content}
-                </ReactMarkdown>
-              ) : (
-                <p className="text-slate-400">（正文为空）</p>
-              )}
-            </div>
-          ) : (
-            <>
+          {/* iter 346（F11a）：左右分栏实时预览——左源码 + 右渲染（开关控制右栏显隐），替代旧两态切换 */}
+          <div className={`grid gap-2 ${preview ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
+            <div className="flex min-w-0 flex-col">
               {/* iter 294：Markdown 格式工具栏（非技术用户友好：一键插入/包裹语法） */}
               <div className="mb-1.5 flex flex-wrap gap-1" role="toolbar" aria-label="Markdown 格式">
                 {(
@@ -733,14 +734,39 @@ export default function Notes() {
                   setDraft((d) => ({ ...d, content: e.target.value }))
                   setDirty(true)
                 }}
+                onScroll={(e) => {
+                  // 滚动同步：左 textarea 滚动按比例映射到右渲染面板
+                  const ta = e.currentTarget
+                  const pv = previewRef.current
+                  if (pv && ta.scrollHeight > ta.clientHeight) {
+                    pv.scrollTop =
+                      (ta.scrollTop / (ta.scrollHeight - ta.clientHeight)) *
+                      (pv.scrollHeight - pv.clientHeight)
+                  }
+                }}
                 rows={14}
                 maxLength={20_000}
                 placeholder="正文（支持 Markdown）…"
                 aria-label="笔记正文"
-                className="w-full resize-y rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-900"
+                className="min-h-60 w-full flex-1 resize-y rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500/60 dark:border-slate-600 dark:bg-slate-900"
               />
-            </>
-          )}
+            </div>
+            {preview && (
+              <div
+                ref={previewRef}
+                className="markdown-body min-h-60 overflow-y-auto rounded-lg border bg-slate-50/40 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900/40"
+                aria-label="Markdown 实时预览"
+              >
+                {debouncedContent.trim() ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                    {debouncedContent}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-slate-400">（正文为空）</p>
+                )}
+              </div>
+            )}
+          </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <div className="min-w-0">
               <span className={`text-xs ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
