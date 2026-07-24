@@ -545,6 +545,7 @@ class StudyUnit(Base):
     node_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_nodes.id"))
     stage_index: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
+    node_sids: Mapped[list] = mapped_column(JSON, default=list)  # iter 348：单元覆盖的知识点 sid 列表
     prerequisites: Mapped[list] = mapped_column(JSON, default=list)
     objectives: Mapped[list] = mapped_column(JSON, default=list)
     estimated_time: Mapped[str] = mapped_column(String(64), default="")

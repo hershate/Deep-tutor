@@ -150,3 +150,93 @@ def test_tool_invalid_degrades_to_default():
     assert out.status == "repaired"
     assert out.data["title"] == "学习方案"  # 默认降级规约
     assert len(out.data["units"]) >= 1
+
+
+# --- iter 348：知识点驱动单元切分（group_nodes_into_units 纯函数）---
+
+from app.tools.generate_study_materials import (  # noqa: E402
+    UnitPlan,
+    brief_unit_from_unitplan,
+    group_nodes_into_units,
+)
+
+_STAGES = [
+    {"index": 0, "name": "基础", "difficulty": 1, "topics": [{"name": "HTML"}, {"name": "CSS"}, {"name": "JS"}]},
+    {"index": 1, "name": "进阶", "difficulty": 3, "topics": [{"name": "组件"}, {"name": "DOM"}]},
+    {"index": 2, "name": "实战", "difficulty": 5, "topics": [{"name": "状态管理"}]},
+]
+
+
+def _node(i, name, d, ml=True):
+    return {"id": f"k{i}", "name": name, "difficulty": d, "must_learn": ml}
+
+
+def test_group_fallback_when_few_nodes():
+    """知识点 <3 -> 返回空（调用方回退阶段制，保持旧行为）。"""
+    assert group_nodes_into_units([_node(1, "x", 1)], _STAGES) == []
+    assert group_nodes_into_units([_node(1, "x", 1), _node(2, "y", 2)], _STAGES) == []
+
+
+def test_group_hard_nodes_become_solo_units():
+    """difficulty≥4 的难点单独成单元。"""
+    nodes = [
+        _node(1, "HTML", 1), _node(2, "CSS", 1), _node(3, "JS", 2),
+        _node(4, "组件", 4), _node(5, "Hooks", 4), _node(6, "状态管理", 5),
+    ]
+    plans = group_nodes_into_units(nodes, _STAGES)
+    assert len(plans) >= 4  # 3 难点各 1 单元 + 易点聚合
+    solo = [p for p in plans if len(p.nodes) == 1]
+    hard_names = {"组件", "Hooks", "状态管理"}
+    assert {p.nodes[0]["name"] for p in solo if p.nodes[0]["name"] in hard_names} == hard_names
+
+
+def test_group_easy_nodes_batched_and_covered():
+    """易点聚合（≥2 同单元）；全部节点被覆盖无遗漏。"""
+    nodes = [_node(i, f"易点{i}", 1) for i in range(1, 5)]  # 4 个 d1 易点
+    plans = group_nodes_into_units(nodes, _STAGES)
+    assert len(plans) >= 2  # 每单元最多 3 节点 -> 4 点至少 2 单元
+    assert any(len(p.nodes) >= 2 for p in plans)
+    covered = {n["id"] for p in plans for n in p.nodes}
+    assert covered == {f"k{i}" for i in range(1, 5)}
+
+
+def test_group_node_sids_and_stage_index():
+    """UnitPlan.node_sids / stage_index 正确（按 stage.topics 名匹配归阶段）。"""
+    nodes = [_node(1, "HTML", 1), _node(2, "CSS", 1), _node(3, "组件", 4)]
+    plans = group_nodes_into_units(nodes, _STAGES)
+    by_sid = {sid: p for p in plans for sid in p.node_sids}
+    assert by_sid["k1"].stage_index == 0
+    assert by_sid["k2"].stage_index == 0
+    assert by_sid["k3"].stage_index == 1
+
+
+def test_group_unit_count_scales_with_nodes():
+    """单元数随知识点数缩放（iter 348 核心诉求：不再固定 3）。"""
+    small = group_nodes_into_units([_node(i, f"n{i}", 2) for i in range(1, 4)], _STAGES)
+    large = group_nodes_into_units([_node(i, f"n{i}", 2) for i in range(1, 16)], _STAGES)
+    assert len(large) > len(small)
+    assert len(small) >= 1
+    assert len(large) >= 5
+
+
+def test_brief_unit_from_unitplan_lists_nodes():
+    """降级简要大纲列出单元覆盖的知识点 + 阶段目标。"""
+    plan = UnitPlan(
+        title="HTML、CSS",
+        stage={"goal": "掌握页面结构", "estimated_weeks": 1},
+        stage_index=0,
+        nodes=[{"name": "HTML"}, {"name": "CSS"}],
+        node_sids=["k1", "k2"],
+    )
+    spec = brief_unit_from_unitplan(plan)
+    assert "HTML" in spec.content_md and "CSS" in spec.content_md
+    assert "本单元学习：" in spec.content_md
+    assert "掌握页面结构" in spec.content_md
+
+
+def test_brief_unit_from_unitplan_empty_nodes_uses_title():
+    """stage 回退路径（nodes 空）-> 用标题 + 阶段目标。"""
+    plan = UnitPlan(title="基础", stage={"goal": "g", "estimated_weeks": 2}, stage_index=0, nodes=[], node_sids=[])
+    spec = brief_unit_from_unitplan(plan)
+    assert "本单元学习「基础」" in spec.content_md
+    assert "2 周" in spec.estimated_time

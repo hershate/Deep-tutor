@@ -302,3 +302,95 @@ def test_materials_sse_units_concurrent_and_ordered(client, auth_headers, monkey
     assert track["max"] >= 2  # 并发真实发生（旧串行恒 1）
     assert [d["order"] for e, d in events if e == "unit_done"] == [1, 2, 3]  # 确定性顺序
     assert events[-1] == ("done", {"unit_count": 3, "degraded_count": 0})
+
+
+def _make_plan_multinode(client, auth_headers):
+    """多知识点 plan（8 节点，含 3 个 difficulty≥4 难点）——用于 iter 348 节点驱动切分测试。"""
+    from app.api import plans as plans_mod
+
+    class _MultiCanned(LLMProvider):
+        def __init__(self):
+            self.i = 0
+            self.seq = [
+                _resp('{"topic":"React","level":"零基础","goal":"做项目","daily_minutes":60,"deadline":null,"needs_clarify":false,"clarify_questions":[]}'),
+                _resp('{"nodes":['
+                      '{"id":"k1","name":"HTML","difficulty":1,"must_learn":true,"parent_id":null},'
+                      '{"id":"k2","name":"CSS","difficulty":1,"must_learn":true,"parent_id":null},'
+                      '{"id":"k3","name":"JS","difficulty":2,"must_learn":true,"parent_id":null},'
+                      '{"id":"k4","name":"DOM","difficulty":3,"must_learn":true,"parent_id":"k3"},'
+                      '{"id":"k5","name":"组件","difficulty":4,"must_learn":true,"parent_id":"k4"},'
+                      '{"id":"k6","name":"Hooks","difficulty":4,"must_learn":false,"parent_id":"k5"},'
+                      '{"id":"k7","name":"状态管理","difficulty":5,"must_learn":false,"parent_id":"k5"},'
+                      '{"id":"k8","name":"路由","difficulty":3,"must_learn":false,"parent_id":"k5"}'
+                      '],"edges":[]}'),
+                _resp('{"stages":['
+                      '{"index":0,"name":"基础","goal":"g","difficulty":1,"estimated_weeks":1,"topics":[{"name":"HTML"},{"name":"CSS"},{"name":"JS"}],"milestone":"m"},'
+                      '{"index":1,"name":"进阶","goal":"g","difficulty":3,"estimated_weeks":1,"topics":[{"name":"DOM"},{"name":"组件"}],"milestone":"m"},'
+                      '{"index":2,"name":"实战","goal":"g","difficulty":5,"estimated_weeks":1,"topics":[{"name":"状态管理"}],"milestone":"m"}]}'),
+                _resp('{"schedule":[]}'),
+                _resp('{"report":{"dependency_closure":{"status":"pass","details":""},"difficulty_step":{"status":"pass","details":""},"cognitive_load":{"status":"pass","details":""},"milestone_feasibility":{"status":"pass","details":""},"gap_analysis":{"status":"pass","details":""}},"passed":true,"fixes":[]}'),
+            ]
+
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            if self.i >= len(self.seq):
+                return _resp("{}")
+            r = self.seq[self.i]
+            self.i += 1
+            return r
+
+    plans_mod.get_provider = lambda *a, **k: _MultiCanned()
+    sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
+    r = client.post("/api/plans/generate", json={"session_id": sid, "raw_text": "学 React"}, headers=auth_headers)
+    import json as _json
+
+    for block in r.text.split("\n\n"):
+        for line in block.split("\n"):
+            if line.startswith("data: ") and '"plan_id"' in line:
+                return _json.loads(line[6:])["plan_id"]
+    raise AssertionError(f"未拿到 plan_id: {r.text}")
+
+
+def test_materials_sse_multinode_more_units_and_node_sids(client, auth_headers, monkeypatch):
+    """iter 348：知识点 ≥3 -> 单元数随知识点增加（>3，不再固定 3）；node_sids 持久化且全覆盖。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan_multinode(client, auth_headers)
+    # 8 知识点（含 3 个 d≥4 难点）-> group_nodes_into_units 产出 >3 单元；提供足够单元响应
+    provider = _UnitProvider([_unit_resp(f"### 概述\n\n单元正文 {i}.") for i in range(8)])
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
+
+    r = _post_sse(client, auth_headers, plan_id)
+    assert r.status_code == 200, r.text
+    events = _parse_sse(r.text)
+    done = [d for e, d in events if e == "done"][0]
+    assert done["unit_count"] > 3  # 多知识点 -> 多于旧固定 3
+
+    units = _units_of(plan_id)
+    assert any(u.node_sids for u in units)  # node_sids 持久化
+    covered = {sid for u in units for sid in (u.node_sids or [])}
+    assert {"k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8"} <= covered  # 全节点覆盖
+
+
+def test_materials_sse_scope_node_ids_regenerates_covering_units(client, auth_headers, monkeypatch):
+    """iter 348：scope.node_ids 精确选中覆盖该知识点的单元重生成（node 级粒度）。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan_multinode(client, auth_headers)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp(f"### 概述\n\nv1 {i}.") for i in range(8)]))
+    _post_sse(client, auth_headers, plan_id)  # 首次全量生成
+
+    # 局部重生成：仅覆盖 k5（组件，difficulty 4，单独成单元）的单元
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp("### 概述\n\nv2 重生成。")]))
+    r = _post_sse(client, auth_headers, plan_id, body={"scope": {"node_ids": ["k5"]}})
+    assert r.status_code == 200, r.text
+    events = _parse_sse(r.text)
+    done = [d for e, d in events if e == "done"][0]
+    assert done["unit_count"] == 1  # 仅 1 个单元覆盖 k5（partial 标志在 materials_completed bus 事件）
+
+    # 该单元内容更新为 v2，其余单元保持 v1
+    units = _units_of(plan_id)
+    target = [u for u in units if "k5" in (u.node_sids or [])]
+    assert len(target) == 1
+    from pathlib import Path
+
+    assert "v2 重生成" in Path(target[0].materials[0].content_md_path).read_text(encoding="utf-8")

@@ -50,9 +50,11 @@ from app.tools.generate_study_materials import (
     StudyMaterialsSpec,
     StudyUnitSpec,
     UnitContentSpec,
-    brief_unit_from_stage,
+    UnitPlan,
+    brief_unit_from_unitplan,
     build_materials_index,
     default_materials_from_plan,
+    group_nodes_into_units,
     render_materials_md,
 )
 from app.tools.search_resources import search_unit_resources
@@ -999,6 +1001,7 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     _persist_knowledge_nodes(db, plan.id, plan_dict)
     db.commit()
     db.refresh(plan)
+    _sink_knowledge_map_to_kb(db, session_id, plan_dict)  # iter 348 缺陷 D：提交后沉淀，无死锁
     # 后端插件事件（API.md「后端插件 API」§事件清单）：生成/重生成/重试均经本函数
     # 落库新版本，统一在此广播；监听器异常隔离，不影响主流程
     from app.plugins import bus as plugin_bus
@@ -1045,35 +1048,44 @@ def _persist_knowledge_nodes(db: Session, plan_id: int, plan_dict: dict) -> None
         if row is not None and parent is not None and parent is not row:
             row.parent_id = parent.id
     db.flush()
-    # iter 346（F8 #2）：旁挂沉淀知识图谱到知识库（独立事务 + 异常隔离，不阻塞生成；
-    # 同用户 content_hash 去重防重生成累积）。用户要求：生成的知识图谱自动加入知识库。
-    try:
-        plan = db.get(models.Plan, plan_id)
-        sess = db.get(models.Session, plan.session_id) if plan else None
-        if sess is not None:
-            from app.api.kb import add_text_document_sync
+    # iter 348（缺陷 D）：知识图谱沉淀 KB 已移至 _persist_plan 提交后（_sink_knowledge_map_to_kb）——
+    # 旧实现在此（主事务未提交）用独立 session 写，SQLite 单写者锁下与主事务自死锁
+    # （busy_timeout 后报 database is locked）；改提交后同 session 写无争用。
 
-            topic = ((plan_dict.get("intent") or {}).get("topic") or "学习方案")
-            knodes = ((plan_dict.get("knowledge_map") or {}).get("nodes") or [])
-            lines = [f"# 知识图谱：{topic}"]
-            goal = (plan_dict.get("intent") or {}).get("goal")
-            if goal:
-                lines.append(f"\n学习目标：{goal}")
-            lines.append("\n## 知识点")
-            for kn in knodes[:60]:
-                kname = str(kn.get("name") or "").strip()
-                if not kname:
-                    continue
-                must = "（必学）" if kn.get("must_learn") else ""
-                diff = kn.get("difficulty")
-                lines.append(f"- {kname}{must}" + (f" · 难度 {diff}/5" if diff else ""))
-            sink_db = SessionLocal()
-            try:
-                add_text_document_sync(sink_db, sess.user_id, f"知识图谱：{topic}", "\n".join(lines))
-            finally:
-                sink_db.close()
+
+def _sink_knowledge_map_to_kb(db: Session, session_id: int, plan_dict: dict) -> None:
+    """iter 348（缺陷 D）：知识图谱沉淀 KB——主事务提交后同 session 写。
+
+    旧实现（iter 346 F8）在 _persist_knowledge_nodes 内、主事务未提交时用独立 session 同步写：
+    SQLite 单写者锁下与主未提交事务自死锁（主同步等沉淀返回，沉淀等主锁 -> busy_timeout 后
+    database is locked）。改为 _persist_plan 提交后调用：主写锁已释放，无争用；异常隔离不阻塞。
+    用户要求：生成的知识图谱自动加入知识库；同用户 content_hash 去重防重生成累积。
+    """
+    try:
+        sess = db.get(models.Session, session_id)
+        if sess is None:
+            return
+        topic = str(((plan_dict or {}).get("intent") or {}).get("topic") or "学习方案")
+        knodes = ((plan_dict or {}).get("knowledge_map") or {}).get("nodes") or []
+        lines = [f"# 知识图谱：{topic}"]
+        goal = (plan_dict.get("intent") or {}).get("goal")
+        if goal:
+            lines.append(f"\n学习目标：{goal}")
+        lines.append("\n## 知识点")
+        for kn in knodes[:60]:
+            kname = str(kn.get("name") or "").strip()
+            if not kname:
+                continue
+            must = "（必学）" if kn.get("must_learn") else ""
+            diff = kn.get("difficulty")
+            lines.append(f"- {kname}{must}" + (f" · 难度 {diff}/5" if diff else ""))
+        from app.api.kb import add_text_document_sync
+
+        add_text_document_sync(db, sess.user_id, f"知识图谱：{topic}", "\n".join(lines))
+        db.commit()
     except Exception:  # noqa: BLE001  沉淀失败绝不阻塞生成
-        log.warning("知识图谱沉淀到 KB 失败 plan=%s", plan_id, exc_info=True)
+        log.warning("知识图谱沉淀到 KB 失败 session=%s", session_id, exc_info=True)
+        db.rollback()
 
 
 # --- 列表 / 详情 ---
@@ -1291,38 +1303,65 @@ def _stage_for_unit(content: dict, unit: models.StudyUnit) -> dict:
     return {"name": unit.title}
 
 
-def _resolve_scope_stages(content: dict, scope: MaterialsScopeIn | None) -> list[tuple[dict, int | None]]:
-    """scope -> [(stage, stage_index)] 选定子集（plan/02 §13）。
+def _all_unit_plans(content: dict) -> list[UnitPlan]:
+    """全量单元计划（iter 348：知识点驱动切分）。
 
-    stage_indexes 直接选阶段（非法 -> 422）；node_ids 经知识图谱节点名匹配
-    阶段 topics（无匹配 -> 422）。无 scope -> 全部阶段。
+    知识点 ≥3 -> group_nodes_into_units（难点单独成单元，易点聚合，单元数随知识点数）；
+    否则回退「每阶段一单元」（知识点不足/缺失，保持旧行为）。截断至 _MAX_MATERIAL_UNITS。
     """
     stages = list(content.get("stages") or [])
+    nodes = (content.get("knowledge_map") or {}).get("nodes") or []
+    plans = group_nodes_into_units(nodes, stages)
+    if plans:
+        return plans[:_MAX_MATERIAL_UNITS]
+    return [
+        UnitPlan(
+            title=(s.get("name") or "概述"),
+            stage=s,
+            stage_index=s.get("index"),
+            nodes=[],
+            node_sids=[],
+        )
+        for s in stages
+    ][:_MAX_MATERIAL_UNITS]
+
+
+def _resolve_scope_units(content: dict, scope: MaterialsScopeIn | None) -> list[UnitPlan]:
+    """scope -> 选定 UnitPlan 子集（iter 348）。
+
+    stage_indexes：选 stage_index ∈ set 的单元；node_ids：选 node_sids 与请求交集非空的单元
+    （node 级精确粒度，取代旧的按阶段名匹配）。无 scope -> 全量。无匹配 -> 422 invalid_scope。
+    """
+    all_plans = _all_unit_plans(content)
     if scope is None:
-        return [(s, s.get("index")) for s in stages]
+        return all_plans
     if scope.stage_indexes is not None:
-        picked: list[tuple[dict, int | None]] = []
-        for i in scope.stage_indexes:
-            match = next((s for s in stages if s.get("index") == i), None)
-            if match is None:
-                raise ApiError("invalid_scope", f"stage_index {i} 不存在（方案共 {len(stages)} 个阶段）")
-            picked.append((match, i))
+        wanted = set(scope.stage_indexes)
+        picked = [p for p in all_plans if p.stage_index in wanted]
+        if not picked:
+            raise ApiError("invalid_scope", f"stage_index 均不在方案阶段中（共 {len(all_plans)} 单元）")
         return picked
     if scope.node_ids is not None:
-        nodes = (content.get("knowledge_map") or {}).get("nodes") or []
         wanted = set(scope.node_ids)
-        names = {n.get("name") for n in nodes if n.get("id") in wanted and n.get("name")}
-        if not names:
-            raise ApiError("invalid_scope", "node_ids 均不在方案知识图谱中")
-        picked = [
-            (s, s.get("index"))
-            for s in stages
-            if any(t.get("name") in names for t in (s.get("topics") or []))
-        ]
+        picked = [p for p in all_plans if wanted & set(p.node_sids)]
         if not picked:
-            raise ApiError("invalid_scope", "node_ids 未匹配到任何阶段知识点")
+            raise ApiError("invalid_scope", "node_ids 均不在方案知识图谱中")
         return picked
-    return [(s, s.get("index")) for s in stages]
+    return all_plans
+
+
+def _unit_plan_for_existing(content: dict, unit: models.StudyUnit) -> UnitPlan:
+    """既有单元 -> UnitPlan（iter 348 按单元重生成）：从 node_sids 还原知识点 + stage。"""
+    nodes = (content.get("knowledge_map") or {}).get("nodes") or []
+    by_sid = {n.get("id"): n for n in nodes if n.get("id")}
+    unit_nodes = [by_sid[sid] for sid in (unit.node_sids or []) if sid in by_sid]
+    return UnitPlan(
+        title=unit.title,
+        stage=_stage_for_unit(content, unit),
+        stage_index=unit.stage_index,
+        nodes=unit_nodes,
+        node_sids=list(unit.node_sids or []),
+    )
 
 
 def _delete_study_units(
@@ -1360,14 +1399,17 @@ def _insert_study_unit(
     u: StudyUnitSpec,
     resources: list | None = None,
     stage_index: int | None = None,
+    node_sids: list[str] | None = None,
 ) -> str:
     """插入单单元行 + 写内容文件（>500 行自动拆子文件，plan/02 §13），返回新文件路径（提交由调用方负责）。
     resources：单元 WebSearch 补充资料（iter 48），入 study_materials.resources。
-    stage_index：单元对应阶段（scope 局部生成的替换粒度）。"""
+    stage_index：单元对应阶段（scope 局部生成的替换粒度）。
+    node_sids：单元覆盖的知识点 sid 列表（iter 348，quiz/进度/局部重生成按知识点定位）。"""
     row = models.StudyUnit(
         plan_id=plan_id,
         stage_index=stage_index,
         title=u.title[:256],
+        node_sids=list(node_sids or []),
         prerequisites=list(u.prerequisites),
         objectives=list(u.objectives),
         estimated_time=u.estimated_time[:64],
@@ -1478,9 +1520,9 @@ async def _materials_sse(
     body: MaterialsIn,
     old_paths: list[str],
     user_id: int,
-    picked: list[tuple[dict, int | None]],
+    plans: list[UnitPlan],
 ) -> AsyncIterator[str]:
-    """逐单元材料生成 SSE 流（plan/07 §三：按 stage 拆分，每单元一次 LLM；失败降级简要大纲）。
+    """逐单元材料生成 SSE 流（iter 348：按知识点聚合的 UnitPlan 逐单元生成；失败降级简要大纲）。
 
     旧单元已在端点内删除并提交；本流逐单元生成 -> 落库（逐单元提交，断线保留已生成进度），
     结束后重排 order（局部生成）、落盘 index 文档、清理旧内容文件。
@@ -1488,13 +1530,16 @@ async def _materials_sse(
     事件：unit_start {order,title,total} -> unit_done {order,title,degraded} ×N
           -> done {unit_count,degraded_count}；异常兜底 error {code,message}。
     user_id：发起用户（P4 iter 58）：供应商档案按该用户解析。
-    picked：[(stage, stage_index)]（scope 解析结果；空 -> 单占位单元）。
+    plans：知识点驱动解析的 UnitPlan 列表（空 -> 单占位单元）。
     """
     db = SessionLocal()
     new_paths: list[str] = []
     try:
-        stages = picked[:_MAX_MATERIAL_UNITS] or [({}, None)]  # 无阶段 -> 单占位单元
-        total = len(stages)
+        topic = (content.get("intent") or {}).get("topic") or "概述"
+        units = plans[:_MAX_MATERIAL_UNITS] or [
+            UnitPlan(title=topic, stage={}, stage_index=None, nodes=[], node_sids=[])
+        ]
+        total = len(units)
         try:
             provider = get_provider(user_id)
         except Exception:  # noqa: BLE001  无 key -> 全部单元降级 brief
@@ -1508,23 +1553,21 @@ async def _materials_sse(
             budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
             bing_api_key=resolve_bing_api_key(user_id),  # iter 223：凭证档案有效 Bing Key
         )
-        topic = (content.get("intent") or {}).get("topic") or "概述"
-        total = len(stages)
         # R3（iter 230）单元生成有界并发：LLM 调用与单元 WebSearch 均为网络等待，
         # 旧串行 wall-clock 为各单元之和。worker 信号量并发执行；结果由本生成器
         # 按 order 顺序消费——unit_done 事件顺序 / 逐单元落库提交 / 预算归集 /
         # usage 记账保持确定性与旧串行一致。unit_start 全部前置发出（前端按
         # order 键控进度，tasks.ts applyEvent，前置/乱序安全）。
-        for i, (stage, _si) in enumerate(stages):
-            yield _sse("unit_start", {"order": i + 1, "title": stage.get("name") or topic, "total": total})
+        for i, up in enumerate(units):
+            yield _sse("unit_start", {"order": i + 1, "title": up.title or topic, "total": total})
 
         sem = asyncio.Semaphore(_MATERIALS_CONCURRENCY)
 
-        async def _gen_one(i: int, stage: dict):
+        async def _gen_one(i: int, up: UnitPlan):
             """单单元生成 worker（LLM + WebSearch，无 DB 写——DB 由生成器顺序单写）。"""
             async with sem:
                 order = i + 1
-                title = stage.get("name") or topic
+                title = up.title or topic
                 unit: StudyUnitSpec | None = None
                 metadata = None
                 if provider is not None:
@@ -1533,7 +1576,8 @@ async def _materials_sse(
                         session_id=str(session_id),
                         args={
                             "plan": content,
-                            "stage": stage,
+                            "stage": up.stage,
+                            "unit_nodes": up.nodes,
                             "order": order,
                             "total": total,
                             "depth": body.depth,
@@ -1553,17 +1597,19 @@ async def _materials_sse(
                         )
                 degraded = unit is None
                 if degraded:
-                    unit = brief_unit_from_stage(stage, fallback_title=title)
-                # 单元 WebSearch 补充资料（plan/07 §三 步骤 2，iter 48）：topic + 阶段名 + 首主题；
+                    unit = brief_unit_from_unitplan(up, fallback_title=title)
+                # 单元 WebSearch 补充资料（plan/07 §三 步骤 2，iter 48）：topic + 单元标题 + 首知识点；
                 # 无 key / 检索失败 -> []（不中断单元生成；内容侧由 LLM 标「无外部资料参考」）
                 query_parts = [p for p in (topic, title) if p]
-                first_topic = ((stage.get("topics") or [{}])[0] or {}).get("name") if stage else None
-                if first_topic and first_topic not in query_parts:
-                    query_parts.append(first_topic)
+                first_node = (up.nodes[0] or {}).get("name") if up.nodes else None
+                if not first_node and up.stage:
+                    first_node = ((up.stage.get("topics") or [{}])[0] or {}).get("name")
+                if first_node and first_node not in query_parts:
+                    query_parts.append(first_node)
                 resources = await search_unit_resources(" ".join(query_parts), ctx)
                 return unit, resources, degraded, metadata
 
-        pending = [asyncio.ensure_future(_gen_one(i, stage)) for i, (stage, _si) in enumerate(stages)]
+        pending = [asyncio.ensure_future(_gen_one(i, up)) for i, up in enumerate(units)]
         degraded_count = 0
         try:
             for i, task in enumerate(pending):
@@ -1586,8 +1632,18 @@ async def _materials_sse(
                     return
                 if degraded:
                     degraded_count += 1
+                up_i = units[i]
                 new_paths.append(
-                    _insert_study_unit(db, plan_id, session_id, i, unit, resources, stage_index=stages[i][1])
+                    _insert_study_unit(
+                        db,
+                        plan_id,
+                        session_id,
+                        i,
+                        unit,
+                        resources,
+                        stage_index=up_i.stage_index,
+                        node_sids=up_i.node_sids,
+                    )
                 )
                 db.commit()  # 逐单元提交：断线保留已生成进度
                 yield _sse("unit_done", {"order": i + 1, "title": unit.title, "degraded": degraded})
@@ -1662,7 +1718,9 @@ async def generate_materials(
             raise ApiError("not_found", f"学习单元不存在: {sorted(missing)}", status=404)
 
     existing = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
-    if existing and not body.refresh and not body.unit_ids:
+    # iter 348：scope 与 unit_ids 一样表示「重生成子集」——应绕过幂等缓存（旧逻辑 scope 不带
+    # refresh 时误返回整档缓存，与「指定 scope 即要重生成」的用户预期不符）
+    if existing and not body.refresh and not body.unit_ids and body.scope is None:
         spec = _units_to_spec(db, plan, existing, content)
         return {
             "unit_count": len(spec.units),
@@ -1672,9 +1730,9 @@ async def generate_materials(
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径；幂等重渲染不耗 LLM）
     if body.unit_ids:
-        picked = [(_stage_for_unit(content, u), u.stage_index) for u in unit_rows]
+        picked = [_unit_plan_for_existing(content, u) for u in unit_rows]
     else:
-        picked = _resolve_scope_stages(content, body.scope)  # 422 invalid_scope
+        picked = _resolve_scope_units(content, body.scope)  # 422 invalid_scope（iter 348 node 级）
 
     if "text/event-stream" in request.headers.get("accept", ""):
         if body.unit_ids:
@@ -1683,10 +1741,20 @@ async def generate_materials(
             for u in unit_rows:
                 db.delete(u)  # cascade study_materials
             db.flush()
+        elif body.scope is None:
+            old_paths = _delete_study_units(db, plan.id)  # 全量替换
+        elif body.scope.stage_indexes is not None:
+            # scope.stage_indexes：删该阶段集合的全部单元
+            old_paths = _delete_study_units(db, plan.id, set(body.scope.stage_indexes))
         else:
-            # scope 局部生成仅删 scope 内单元（stage_index 集合）；全量生成删全部
-            stage_set = {idx for _, idx in picked if idx is not None} if body.scope is not None else None
-            old_paths = _delete_study_units(db, plan.id, stage_set)
+            # scope.node_ids（iter 348）：按知识点删覆盖单元（node 级精确粒度，不误伤同 stage 兄弟单元）
+            wanted_nodes = set(body.scope.node_ids or [])
+            rows = db.query(models.StudyUnit).filter_by(plan_id=plan.id).all()
+            old_units = [u for u in rows if wanted_nodes & set(u.node_sids or [])]
+            old_paths = [m.content_md_path for u in old_units for m in u.materials]
+            for u in old_units:
+                db.delete(u)  # cascade study_materials
+            db.flush()
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
         return StreamingResponse(
             _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
@@ -1715,7 +1783,15 @@ async def generate_materials(
     # （LLM 单文档规约无法可靠映射 stage_index；前端默认走 SSE 逐单元路径，scope 语义完整）
     prompt_content = content
     if body.scope is not None:
-        prompt_content = {**content, "stages": [s for s, _ in picked]}
+        # picked 为 UnitPlan 列表（iter 348）；按 stage_index 去重取所属阶段，过滤 prompt 阶段副本
+        seen_si: set[int | None] = set()
+        scoped_stages: list[dict] = []
+        for p in picked:
+            if p.stage_index in seen_si:
+                continue
+            seen_si.add(p.stage_index)
+            scoped_stages.append(p.stage)
+        prompt_content = {**content, "stages": scoped_stages}
     inp = ToolInput(
         tool="generate_study_materials",
         session_id=str(plan.session_id),

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -95,6 +96,135 @@ def default_materials_from_plan(plan: dict[str, Any]) -> StudyMaterialsSpec:
     if not units:
         units.append(StudyUnitSpec(title="概述", content_md="(方案无阶段信息，无法生成自学材料)"))
     return StudyMaterialsSpec(title=title, units=units)
+
+
+# --- iter 348：知识点驱动单元切分（节点 -> 自学单元）---
+
+# 难度 -> 分钟代理（单元聚类目标 ~55 分钟）
+_NODE_WEIGHT = {1: 15, 2: 25, 3: 40, 4: 55, 5: 60}
+_UNIT_TARGET_MINUTES = 55  # 单元自学量上限（累积超此 -> 起新单元）
+_UNIT_MAX_NODES = 3  # 单元最多聚合知识点数
+_NODE_FALLBACK_MIN = 3  # 知识点 < 此数 -> 回退阶段制（避免单元过少）
+
+
+@dataclasses.dataclass
+class UnitPlan:
+    """单单元生成计划（iter 348：知识点驱动切分）。
+
+    nodes：本单元覆盖的知识点 dict 列表（含 name/difficulty/must_learn）。
+    stage：所属阶段 dict（难度递进上下文 + brief 降级用）。stage_index/node_sids 供持久化。
+    """
+
+    title: str
+    stage: dict[str, Any]
+    stage_index: int | None
+    nodes: list[dict[str, Any]]
+    node_sids: list[str]
+
+
+def _node_stage_index(node: dict[str, Any], stages: list[dict[str, Any]]) -> int | None:
+    """知识点 -> 所属阶段 index（先按 stage.topics 名匹配；无匹配按难度就近归入）。"""
+    name = node.get("name")
+    for s in stages:
+        if name and any(t.get("name") == name for t in (s.get("topics") or [])):
+            return s.get("index")
+    if not stages:
+        return None
+    nd = int(node.get("difficulty") or 1)
+    best = min(stages, key=lambda s: abs(int(s.get("difficulty") or 1) - nd))
+    return best.get("index")
+
+
+def group_nodes_into_units(
+    nodes: list[dict[str, Any]], stages: list[dict[str, Any]]
+) -> list[UnitPlan]:
+    """知识点 -> 自学单元（iter 348）：按 (阶段, 难度) 排序后聚类。
+
+    - 难度 ≥4 的难点：单独成单元（值得聚焦，~55-60min）。
+    - 易点：累积到 ~55 分钟或 3 个知识点成单元。
+    单元标题取知识点名（多个用「、」连，超长截断 + 「等」）。
+    知识点 < _NODE_FALLBACK_MIN -> 返回空列表（调用方回退阶段制，1 阶段=1 单元）。
+    """
+    if len(nodes) < _NODE_FALLBACK_MIN:
+        return []
+
+    stage_by_index = {s.get("index"): s for s in stages}
+
+    def _key(n: dict[str, Any]):
+        si = _node_stage_index(n, stages)
+        return (si if si is not None else 1 << 30, int(n.get("difficulty") or 1))
+
+    ordered = sorted(nodes, key=_key)
+    plans: list[UnitPlan] = []
+    buf: list[dict[str, Any]] = []
+    buf_min = 0
+
+    def _title(ns: list[dict[str, Any]]) -> str:
+        names = [str(n.get("name") or "").strip() for n in ns if n.get("name")]
+        if not names:
+            return "综合"
+        t = "、".join(names)
+        return t if len(t) <= 30 else t[:29] + "等"
+
+    def _flush() -> None:
+        nonlocal buf, buf_min
+        if not buf:
+            return
+        first = buf[0]
+        si = _node_stage_index(first, stages)
+        plans.append(
+            UnitPlan(
+                title=_title(buf),
+                stage=stage_by_index.get(si) or (stages[0] if stages else {}),
+                stage_index=si,
+                nodes=list(buf),
+                node_sids=[str(n.get("id") or "") for n in buf if n.get("id")],
+            )
+        )
+        buf = []
+        buf_min = 0
+
+    for n in ordered:
+        d = int(n.get("difficulty") or 1)
+        w = _NODE_WEIGHT.get(d, 30)
+        if buf and (d >= 4 or buf_min + w > _UNIT_TARGET_MINUTES or len(buf) >= _UNIT_MAX_NODES):
+            _flush()
+        buf.append(n)
+        buf_min += w
+    _flush()
+    return plans
+
+
+def brief_unit_from_unitplan(plan: UnitPlan, fallback_title: str = "概述") -> StudyUnitSpec:
+    """单单元降级简要大纲（iter 348：列出单元覆盖的知识点 + 所属阶段目标）。"""
+    stage = plan.stage or {}
+    nodes = plan.nodes or []
+    names = [n.get("name") for n in nodes if n.get("name")]
+    title = plan.title or fallback_title
+    goal = stage.get("goal", "")
+    weeks = stage.get("estimated_weeks")
+    lines = ["### 概述", ""]
+    if names:
+        lines.append(f"本单元学习：{'、'.join(names)}。")
+    else:
+        lines.append(f"本单元学习「{title}」。")
+    if goal:
+        lines.append(f"阶段目标：{goal}。")
+    lines.append("")
+    if names:
+        lines.append("### 核心概念")
+        lines.append("")
+        for nm in names:
+            lines.append(f"- {nm}")
+        lines.append("")
+    lines.append("（本单元内容生成失败，已降级为占位大纲，请刷新重试）")
+    return StudyUnitSpec(
+        title=title,
+        objectives=[goal] if goal else [],
+        prerequisites=[],
+        estimated_time=f"{weeks} 周" if weeks else "30-60 min",
+        content_md="\n".join(lines),
+    )
 
 
 _MODULE_SIZE = 5  # 单元过多(>10) -> 每 5 单元一模块（plan/02 §13 errors：分模块）
@@ -181,13 +311,13 @@ def build_materials_index(plan: dict[str, Any], spec: StudyMaterialsSpec) -> str
 
 PROMPT = """你是 Deep-tutor 的「自学材料规约生成」工具。任务：从学习方案（args.plan）生成逐单元自学材料规约（StudyMaterialsSpec JSON），供渲染为单个 markdown 文档。非交互，直接输出规约。
 
-输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,difficulty,estimated_weeks,topics[{name,why,must_learn}],milestone}]、resources[{title,url,note}]）。args.depth 可选 brief|full（默认 full；brief 时 content_md 精简为概述+要点）。
+输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、knowledge_map.nodes[{id,name,difficulty,must_learn}]、stages[{index,name,goal,difficulty,estimated_weeks,topics[{name,why,must_learn}],milestone}]、resources[{title,url,note}]）。args.depth 可选 brief|full（默认 full；brief 时 content_md 精简为概述+要点）。
 
 仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
 {"title":"方案标题","units":[{"title":"单元名","objectives":["学完后能够..."],"prerequisites":["前置知识"],"estimated_time":"45 min","content_md":"markdown 内容"}]}
 
 规则：
-- 单元来源 plan.stages：每阶段 1-3 单元，按阶段顺序排列，总 3-12 单元；每单元对应 30-60 分钟自学量。
+- 单元来源：优先 plan.knowledge_map.nodes（若非空）——按知识点聚合切分，每单元 1-3 个相关知识点、约 30-60 分钟，单元数随知识点数量（通常 4-12；difficulty≥4 的难点单独成单元）；knowledge_map 为空或节点极少（<3）时回退 plan.stages（每阶段一单元）。按阶段/难度顺序排列。
 - 每单元 2-4 个 objectives（以「学完后能够…」表述）；prerequisites 来自更早单元/阶段（第一单元可为 ["无"] 或基础知识）。
 - content_md 为 markdown，用 ### 级小标题，依次包含：
   ### 概述（200-300 字：这是什么、为什么重要，日常语言）
@@ -242,7 +372,7 @@ class UnitContentSpec(BaseModel):
 
 UNIT_CONTENT_PROMPT = """你是 Deep-tutor 的「自学单元内容生成」工具。任务：为学习方案（args.plan）中的一个阶段（args.stage，第 args.order/args.total 个单元）生成单个自学单元的内容（UnitContentSpec JSON）。非交互，直接输出规约。
 
-输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,difficulty,estimated_weeks,topics[{name,why,must_learn}],milestone}]、resources[{title,url,note}]）、args.stage（本单元对应的阶段）、args.order/args.total（单元序号/总数）、args.depth（brief|full，默认 full；brief 时 content_md 精简为概述+要点）。
+输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,difficulty,estimated_weeks,topics[{name,why,must_learn}],milestone}]、resources[{title,url,note}]）、args.unit_nodes（本单元要覆盖的知识点列表 [{name,difficulty,must_learn}]，优先以此为准）、args.stage（本单元所属阶段，作难度递进上下文）、args.order/args.total（单元序号/总数）、args.depth（brief|full，默认 full；brief 时 content_md 精简为概述+要点）。
 
 仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
 {"objectives":["学完后能够..."],"prerequisites":["前置知识"],"estimated_time":"45 min","content_md":"markdown 内容"}
@@ -251,7 +381,7 @@ UNIT_CONTENT_PROMPT = """你是 Deep-tutor 的「自学单元内容生成」工�
 - 本单元对应 30-60 分钟自学量；2-4 个 objectives（以「学完后能够…」表述）；prerequisites 来自更早单元/阶段（第一单元可为 ["无"] 或基础知识）。
 - content_md 为 markdown，用 ### 级小标题，依次包含：
   ### 概述（200-300 字：这是什么、为什么重要，日常语言）
-  ### 核心概念（每概念：通俗解释（类比/日常场景）+ 要点 + 示例；覆盖 args.stage.topics）
+  ### 核心概念（每概念：通俗解释（类比/日常场景）+ 要点 + 示例；覆盖 args.unit_nodes 的每个知识点；args.unit_nodes 缺失时改覆盖 args.stage.topics）
   ### 实践练习（基础练习 ≥2 个，由易到难；可附进阶挑战）
   ### 检查理解（2-4 个自测问题）
   ### 总结（150-200 字要点回顾）

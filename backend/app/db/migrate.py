@@ -67,6 +67,7 @@ def _has_index(table: str, index: str):
 
 
 _REVISION_PROBES = [
+    ("f0a2c5d839b1", _has_column("study_units", "node_sids")),  # iter 348 材料知识点驱动
     ("e1b7c3d94a08", _has_table("threads")),  # iter 345 记忆系统
     ("c0f2a4b18d33", _has_column("llm_provider_profiles", "kind")),  # iter 313
     ("a7f3e5c91d02", _has_index("sessions", "ix_sessions_user_id")),
