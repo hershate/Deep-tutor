@@ -41,7 +41,11 @@ export default {
       },
       animation: {
         'fade-in': 'fade-in .25s ease-out both',
-        'fade-in-up': 'fade-in-up .35s cubic-bezier(.21,1.02,.73,1) both',
+        // iter 346（F3）：fill-mode 用 backwards——动画结束 transform 回落 CSS 默认 none，
+        // 不再为 fixed 后代建立包含块（main 上的此动画 both 保留 translateY(0) 致所有页内
+        // fixed 弹窗随滚动，CSS 规范：祖先 transform 非 none 即 fixed 的包含块）。
+        // 视觉零变化：终态 translateY(0) 与默认位置一致；delay 期仍应用 from（与 both 一致）。
+        'fade-in-up': 'fade-in-up .35s cubic-bezier(.21,1.02,.73,1) backwards',
         'scale-in': 'scale-in .2s ease-out both',
         'slide-in-left': 'slide-in-left .25s ease-out both',
         shake: 'shake .4s ease-in-out both',

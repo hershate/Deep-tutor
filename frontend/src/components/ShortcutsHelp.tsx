@@ -3,6 +3,7 @@
 // 无发现入口则这些 power feature 易被忽视。`?` 全局快捷键 + 顶栏「?」按钮打开本面板列出。
 // 自包含：全局 keydown 监听 + overlay 状态封装于此；Layout 仅渲染本组件（应用壳爆炸半径小）。
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Shortcut {
   keys: string
@@ -85,13 +86,17 @@ export default function ShortcutsHelp() {
       >
         ?
       </button>
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setOpen(false)
-          }}
-        >
+      {open &&
+        // iter 346（F3）：Portal 渲染到 body——ShortcutsHelp 挂在 sticky header 内，
+        // header 的 backdrop-blur-md 会为 fixed 后代建立包含块（致 inset-0 退化成 header 高度的条）。
+        // Portal 脱离 header 祖先链，fixed 正确相对 viewport 全屏覆盖。
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/40 p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setOpen(false)
+            }}
+          >
           <div
             role="dialog"
             aria-modal="true"
@@ -129,8 +134,9 @@ export default function ShortcutsHelp() {
               ))}
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   )
 }
