@@ -261,6 +261,17 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-24 iter 353（实机 3 问题修复 /goal·进行中：删除 500 ✅ / 计费 + 计划时间 待做）**：用户 /goal「修复：① 生成计划的时间应可由用户指定 ② 生成方案 Token 计费不正确 ③ 删除方案 500（`DELETE /api/sessions/{id}` FOREIGN KEY constraint failed）」。要求细粒度写 stage.md + 细粒度提交以便随时恢复。
+  - **调查（2 并行 Explore agent + 源码核查）**：
+    - **问题3（删除 500，已确认+已修复）**：根因 = `Plan.knowledge_nodes` cascade 删 KnowledgeNode，但 `quizzes.node_id`/`progress.node_id`/`study_units.node_id` 仅裸 FK 无 ORM relationship，SQLAlchemy UoW 不知删除顺序，先 flush `DELETE knowledge_nodes` 撞 FK（PRAGMA foreign_keys=ON，[base.py:43](backend/app/db/base.py#L43)）；`threads.session_id`（iter 345）同理撞 sessions.id。此前无测试覆盖该删除路径故逃过回归。`delete_user`（[users.py:144](backend/app/api/users.py#L144)）走同一链路同受影响。
+    - **问题2（计费，已确认根因）**：链路健全（usage 解析/cost 累加/persist/聚合均正确——无 cache 重复计费、无修复重试重复累加、无漏记重记）；根因 = [pricing.py](backend/app/llm/pricing.py) **价目表过时**：默认 `claude-sonnet-5` 当前促销价 $2/$10 但价目表按 $3/$15（偏高 1.5×）、opus 族子串前缀匹配把新一代 Opus 4.5+（真实 $5/$25）按旧 $15/$75、haiku 是 3.5 旧价（4.5 真实 $1/$5）。
+    - **问题1（计划时间，已确认根因）**：[understand_intent](backend/app/tools/understand_intent.py) 无 `start_date` 字段；[schedule_plan](backend/app/tools/schedule_plan.py) 的日期由 LLM 无锚点臆造（prompt 写死样例 2026-07-16，loop 也不注入 today），用户完全无法控制起始日期；副作用 = 「今日学习」端点用 `date.today()` 匹配 LLM 编的日期，多数匹配不到。最可能解读 = 用户要控制排程起始日期。
+  - **iter 353a 问题3 修复（已落地）**：补 ORM cascade（同 err.md C3/C11 风格，一处改动根治 delete_session + delete_user）——
+    - [models.py](backend/app/db/models.py)：KnowledgeNode 补 `quizzes`/`progress`/`study_units` 的 `cascade="all, delete-orphan"` relationship（反向给 Quiz/Progress/StudyUnit 加 `node` relationship）；Session 补 `threads` relationship（默认 cascade，删 session 时 `thread.session_id` 置 NULL 脱钩保留——thread 归属 user 不随生成会话删除）。
+    - 新增 [test_api_session_delete.py](backend/tests/test_api_session_delete.py) 3 项（删含 quiz/progress/study_unit 的 session / 删含 thread 的 session / 删用户级联），复现并守护。
+    - 验证：新 3 项通过；相关子集 101 项（quiz/progress/study_unit/memory/isolation/sessions/kb/materials）零回归；ruff 干净。
+  - **待做**：问题2 价目表修正（待用户确认数字/方向，价格易过时且敏感）；问题1 用户指定计划时间（待 AskUserQuestion 确认解读：A 起始日期 / B 结构化输入 / C 学习日粒度）。
+
 - **2026-07-24 iter 349B/350/351/352（测验/材料/知识点 /goal 收官：后台测验 + 就绪可见 + 并发去竞态 + UX + 全量回归零失败，commits 25d8ec9/851e059/6a2036e/bfa57f0）**：🎉 /goal 全部诉求达成。
   - **iter 349B 测验后台预生成（25d8ec9）**：`_generate_quiz_background`（独立 SessionLocal、仅本方案尚无 quiz 时预生成不覆盖用户已生成题、预算/异常隔离、复用 `_generate_quiz_spec`+`_persist_quizzes`）+ `_schedule_quiz_background`（薄调度封装）；`_materials_sse` done 后非 partial 时调度；emit 新事件 `quiz_ready`。「缺题」(349A) + 「慢」(后台免等待) 双管齐下。
   - **iter 350 测验就绪可见性 + 并发去竞态（851e059）**：后端 `_BG_QUIZ_INFLIGHT` 标志——后台预生成期间端点等待其完成而非并行重复出题（避免并发 `_persist_quizzes` 写锁竞争 + 重复耗 LLM）；taskEngine 订阅 `quiz_ready`→就绪 toast「测验题已就绪」+「去测验」；QuizModal 开窗期间收到 quiz_ready 即时刷新；plugins.ts 加 `quiz_ready` 类型。事件链路（EventsBridge→events 总线）零改动即转发。

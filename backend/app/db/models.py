@@ -185,6 +185,10 @@ class Session(Base):
     orchestrator_state: Mapped[OrchestratorState | None] = relationship(
         back_populates="session", cascade="all, delete-orphan", uselist=False
     )
+    # iter 353：Thread.session_id 裸 FK（iter 345 记忆系统）此前无 ORM relationship，删 session
+    # 时若 thread 引用会撞 sessions.id FK。默认 cascade（不含 delete）——删 session 时把
+    # thread.session_id 置 NULL（对话脱钩保留，不随生成会话删除；thread 归属 user）。
+    threads: Mapped[list[Thread]] = relationship(back_populates="session")
 
 
 class OrchestratorState(Base):
@@ -346,6 +350,21 @@ class KnowledgeNode(Base):
     notes: Mapped[list[NodeNote]] = relationship(
         back_populates="node", cascade="all, delete-orphan"
     )
+    # iter 353：补齐 quiz/progress/study_unit 对 knowledge_nodes 的 cascade（此前仅裸 FK、
+    # 无 ORM relationship）。删 session/user 时 Plan.knowledge_nodes cascade 删 KnowledgeNode，
+    # 但 quizzes.node_id/progress.node_id/study_units.node_id 无 relationship 表达依赖 -> UoW
+    # 不知删除顺序，先 flush DELETE knowledge_nodes 撞 FK -> DELETE /sessions/{id} 500。
+    # 删知识点时连同其题/进度/单元一并清理（语义：知识点不存在则挂载数据无意义；这些行同时
+    # 属 Plan，双 cascade 仅删一次）。同 err.md C3/C11 的 cascade 修复风格。
+    quizzes: Mapped[list[Quiz]] = relationship(
+        back_populates="node", cascade="all, delete-orphan"
+    )
+    progress: Mapped[list[Progress]] = relationship(
+        back_populates="node", cascade="all, delete-orphan"
+    )
+    study_units: Mapped[list[StudyUnit]] = relationship(
+        back_populates="node", cascade="all, delete-orphan"
+    )
 
 
 class Resource(Base):
@@ -374,6 +393,8 @@ class Quiz(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)  # 题干/选项/答案/解析
 
     plan: Mapped[Plan] = relationship(back_populates="quizzes")
+    # iter 353：反向到知识点（KnowledgeNode.quizzes cascade）
+    node: Mapped[KnowledgeNode | None] = relationship(back_populates="quizzes")
     attempts: Mapped[list[QuizAttempt]] = relationship(
         back_populates="quiz", cascade="all, delete-orphan"
     )
@@ -408,6 +429,8 @@ class Progress(Base):
     )
 
     plan: Mapped[Plan] = relationship(back_populates="progress")
+    # iter 353：反向到知识点（KnowledgeNode.progress cascade；node_id NOT NULL）
+    node: Mapped[KnowledgeNode] = relationship(back_populates="progress")
 
 
 class LearningLog(Base):
@@ -553,6 +576,8 @@ class StudyUnit(Base):
     done_at: Mapped[datetime | None] = mapped_column(DateTime)  # 标记已学时间（plan/07 §六 标记已学），None=未学
 
     plan: Mapped[Plan] = relationship(back_populates="study_units")
+    # iter 353：反向到知识点（KnowledgeNode.study_units cascade）
+    node: Mapped[KnowledgeNode | None] = relationship(back_populates="study_units")
     materials: Mapped[list[StudyMaterial]] = relationship(
         back_populates="unit", cascade="all, delete-orphan"
     )
@@ -683,6 +708,8 @@ class Thread(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="threads")
+    # iter 353：反向到 session（Session.threads，删 session 时 session_id 置 NULL 脱钩保留）
+    session: Mapped[Session | None] = relationship(back_populates="threads")
     messages: Mapped[list[Message]] = relationship(
         back_populates="thread", cascade="all, delete-orphan", order_by="Message.id"
     )
