@@ -272,7 +272,8 @@ Deep-tutor/
     - 验证：新 3 项通过；相关子集 101 项（quiz/progress/study_unit/memory/isolation/sessions/kb/materials）零回归；ruff 干净。
   - **决策（AskUserQuestion 已确认）**：问题2 = 设置页可配置价目（默认价保持不编造、用户按实际账单覆盖）；问题1 = 学习起始日期 + 结构化时长/截止输入（两项都做）。
   - **iter 353b 问题2 后端（已落地）**：[pricing.py](backend/app/llm/pricing.py) 加 `overrides` 参数（get_pricing/estimate_cost）+ `default_pricing_table`（默认价**不变**，避免编造未独立核实的促销/新代价）；[cost.py](backend/app/agent/cost.py) 加 `load_pricing_overrides`（UserPref `pricing_overrides` JSON）+ `estimate_cost_from_metadata`，`record_metadata_usage` 按用户覆盖重算 api_usage.cost；[plans.py](backend/app/api/plans.py) `_persist_tool_calls` 同样重算（用量页 / 日预算即用户实际单价）；[settings.py](backend/app/api/settings.py) 加 `GET/PUT /settings/pricing`（输入清洗防注入、跨用户隔离、空对象清除回退默认）。新增 [test_api_pricing.py](backend/tests/test_api_pricing.py) 9 项；usage/settings 相关 22 项零回归；ruff 干净。预算守卫 budget tracker 仍用默认价（保守安全方向），api_usage/日预算/用量页用用户价。
-  - **待做**：问题2 前端 Settings UI；问题1 起始日期 + 结构化输入（首页 + understand_intent 加 start_date + schedule_plan 注入起始日）。
+  - **iter 353c 问题2 前端（已落地）**：[Settings.tsx](frontend/src/pages/Settings.tsx) 加 `PricingCard`（Sonnet/Opus/Haiku × 输入/输出/缓存读/缓存写 可编辑表格，USD/1M tokens；覆盖字段蓝高亮、恢复默认、附官方价目核对链接、非法与负值前端过滤）；[api.ts](frontend/src/lib/api.ts) 加 `getPricing`/`updatePricing` + `PricingTable`。前端 build 通过（tsc 零错，425 模块）。**问题2 完成（后端 `b3e4994` + 前端）**——用户在设置页按实际账单覆盖价目，api_usage / 用量页 / 日预算即用户单价。
+  - **待做**：问题1 起始日期 + 结构化时长/截止输入（首页 + understand_intent 加 start_date + schedule_plan 注入起始日）。
 
 - **2026-07-24 iter 349B/350/351/352（测验/材料/知识点 /goal 收官：后台测验 + 就绪可见 + 并发去竞态 + UX + 全量回归零失败，commits 25d8ec9/851e059/6a2036e/bfa57f0）**：🎉 /goal 全部诉求达成。
   - **iter 349B 测验后台预生成（25d8ec9）**：`_generate_quiz_background`（独立 SessionLocal、仅本方案尚无 quiz 时预生成不覆盖用户已生成题、预算/异常隔离、复用 `_generate_quiz_spec`+`_persist_quizzes`）+ `_schedule_quiz_background`（薄调度封装）；`_materials_sse` done 后非 partial 时调度；emit 新事件 `quiz_ready`。「缺题」(349A) + 「慢」(后台免等待) 双管齐下。

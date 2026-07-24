@@ -744,6 +744,20 @@ export const updatePrefs = (dailyBudgetUsd: number | null) =>
     body: JSON.stringify({ daily_budget_usd: dailyBudgetUsd }),
   })
 
+// iter 353：用户级价目覆盖（设置页可配置）。默认价据 Anthropic 公开价目，可能过时；
+// 用户按实际账单覆盖每族单价（USD/1M tokens）。
+export interface PricingTable {
+  defaults: Record<string, Record<string, number>> // {family: {input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok}}
+  overrides: Record<string, Record<string, number>>
+  note?: string
+}
+export const getPricing = () => apiFetch<PricingTable>('/settings/pricing')
+export const updatePricing = (pricing: Record<string, Record<string, number>>) =>
+  apiFetch<PricingTable>('/settings/pricing', {
+    method: 'PUT',
+    body: JSON.stringify({ pricing }),
+  })
+
 // --- API Key 凭证档案（iter 223：设置页可视化管理全部 Key，多档案卡片切换）---
 // 三类 kind：anthropic（Anthropic 回退主 Key，单活）/ bing（Bing 搜索 Key，单活）/
 // auth_token（个人访问令牌，多活——任一 active 令牌均以本人身份通过认证）。

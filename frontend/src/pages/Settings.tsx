@@ -6,7 +6,7 @@ import CredentialManager from '../components/CredentialManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadBackup, getSettings, importBackup, listShares, postSetup, previewBackup, revokeShare, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview, type ShareItem } from '../lib/api'
+import { ApiError, downloadBackup, getPricing, getSettings, importBackup, listShares, postSetup, previewBackup, revokeShare, updatePrefs, updatePricing, type AppSettings, type BackupImportResult, type BackupPreview, type ShareItem } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -43,6 +43,11 @@ export default function Settings() {
       {/* iter 223：全部 Key（Anthropic 回退 / Bing / 访问令牌）档案卡片管理 */}
       <div className="animate-fade-in-up" style={{ animationDelay: '180ms' }}>
         <CredentialManager />
+      </div>
+
+      {/* iter 353：模型计费单价（设置页可配置，按实际账单覆盖默认价） */}
+      <div className="animate-fade-in-up" style={{ animationDelay: '210ms' }}>
+        <PricingCard />
       </div>
 
       <div className="animate-fade-in-up" style={{ animationDelay: '240ms' }}>
@@ -599,6 +604,153 @@ function PasswordCard() {
         <p role="alert" className="mt-2 animate-shake text-xs text-red-600 dark:text-red-400">
           {err}
         </p>
+      )}
+    </section>
+  )
+}
+
+/** 模型计费单价卡（iter 353）：默认价据 Anthropic 公开价目，可能过时；用户按实际账单覆盖。
+ *  覆盖后 api_usage / 用量页 / 日预算按用户单价计；留空或等于默认的字段回退默认。 */
+const PRICING_FAMILIES: { key: string; label: string }[] = [
+  { key: 'sonnet', label: 'Sonnet' },
+  { key: 'opus', label: 'Opus' },
+  { key: 'haiku', label: 'Haiku' },
+]
+const PRICING_FIELDS: { key: string; label: string }[] = [
+  { key: 'input_per_mtok', label: '输入' },
+  { key: 'output_per_mtok', label: '输出' },
+  { key: 'cache_read_per_mtok', label: '缓存读' },
+  { key: 'cache_write_per_mtok', label: '缓存写' },
+]
+
+function PricingCard() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({ queryKey: ['pricing'], queryFn: getPricing, staleTime: 60_000 })
+  const [draft, setDraft] = useState<Record<string, Record<string, string>> | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function effective(family: string, field: string): string {
+    const ov = data?.overrides?.[family]?.[field]
+    if (ov != null) return String(ov)
+    return String(data?.defaults?.[family]?.[field] ?? '')
+  }
+  function val(family: string, field: string): string {
+    const d = draft?.[family]?.[field]
+    return d != null ? d : effective(family, field)
+  }
+  function setVal(family: string, field: string, v: string) {
+    setDraft((prev) => ({ ...(prev || {}), [family]: { ...(prev?.[family] || {}), [field]: v } }))
+  }
+
+  async function save() {
+    if (!data || busy) return
+    const pricing: Record<string, Record<string, number>> = {}
+    for (const f of PRICING_FAMILIES) {
+      for (const fl of PRICING_FIELDS) {
+        const raw = val(f.key, fl.key).trim()
+        if (raw === '') continue
+        const n = Number(raw)
+        if (!Number.isFinite(n) || n < 0) continue
+        pricing[f.key] = pricing[f.key] || {}
+        pricing[f.key][fl.key] = n
+      }
+    }
+    setBusy(true)
+    try {
+      await updatePricing(pricing)
+      toast.success('计费单价已更新')
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['pricing'] })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '保存失败，请重试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resetDefaults() {
+    if (busy) return
+    if (!window.confirm('清除全部计费单价覆盖，恢复内置默认价目？')) return
+    setBusy(true)
+    try {
+      await updatePricing({})
+      toast.success('已恢复默认价目')
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['pricing'] })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '恢复失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (isLoading || !data) return null
+  const hasOverride = Object.keys(data.overrides).length > 0
+
+  return (
+    <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">模型计费单价</h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            USD / 1M tokens。默认值据 Anthropic 公开价目，可能随官方调整过时（如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）；建议按实际账单核对后覆盖。{' '}
+            <a href="https://www.anthropic.com/pricing" target="_blank" rel="noreferrer" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
+              核对官方价目
+            </a>
+          </p>
+        </div>
+        {hasOverride && !draft && (
+          <button onClick={resetDefaults} disabled={busy} className="rounded-lg border px-2 py-1 text-xs text-slate-600 transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">
+            恢复默认
+          </button>
+        )}
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-slate-500 dark:text-slate-400">
+              <th className="py-1 text-left font-medium">模型族</th>
+              {PRICING_FIELDS.map((fl) => (
+                <th key={fl.key} className="py-1 text-right font-medium">{fl.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PRICING_FAMILIES.map((f) => (
+              <tr key={f.key} className="border-t dark:border-slate-700">
+                <td className="py-1.5 font-medium text-slate-700 dark:text-slate-200">{f.label}</td>
+                {PRICING_FIELDS.map((fl) => {
+                  const isOverride = data.overrides?.[f.key]?.[fl.key] != null
+                  return (
+                    <td key={fl.key} className="py-1.5 text-right">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={val(f.key, fl.key)}
+                        onChange={(e) => setVal(f.key, fl.key, e.target.value)}
+                        aria-label={`${f.label} ${fl.label}单价`}
+                        className={`w-24 rounded-lg border px-2 py-1 text-right text-sm tabular-nums transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 ${
+                          isOverride && !draft ? 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950' : ''
+                        }`}
+                      />
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {draft && (
+        <div className="mt-3 flex gap-2">
+          <button onClick={save} disabled={busy} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50">
+            {busy ? '保存中…' : '保存单价'}
+          </button>
+          <button onClick={() => setDraft(null)} disabled={busy} className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700">
+            取消
+          </button>
+        </div>
       )}
     </section>
   )
