@@ -160,6 +160,42 @@ def _persist_parsed(db: Session, user_id: int, doc: models.KbDocument, text: str
     return doc
 
 
+def add_text_document_sync(db: Session, user_id: int, title: str, text: str) -> models.KbDocument | None:
+    """iter 346（F8 #2）：同步文本入库 KB——供生成产物（知识图谱/自学材料）自动沉淀复用。
+
+    复用 create_text_document 的去重（content_hash）/ quota / 落盘逻辑，但不经端点
+    （无 request/user 依赖）、不经 parse_material async（生成产物已是文本，直接截断 + 落盘）。
+    quota 超限返回 None 不阻塞调用方（生成流程）。meta.auto_sunk=True 标记自动沉淀（溯源，
+    对齐 second brain auto-capture 带标签防垃圾，§八 L）。返回新建或复用的文档；None=空/quota。
+    """
+    content = (text or "").strip()
+    if not content:
+        return None
+    if len(content) > 500_000:  # 同 parse_material 护栏
+        content = content[:500_000] + "\n…[已截断]"
+    content_hash = _hash_source(content)
+    existing = _dedup_lookup(db, user_id, content_hash)
+    if existing is not None:
+        return existing  # 同内容去重（防重生成累积）
+    try:
+        _check_kb_quota(db, user_id)
+    except ApiError:
+        return None  # quota 超限不阻塞生成
+    doc = models.KbDocument(
+        user_id=user_id,
+        title=(title or "").strip()[:256] or content.split("\n", 1)[0][:40],
+        kind=models.MaterialKind.text,
+        ext="txt",
+        source=content[:200],
+        parsed_chars=0,
+        meta={"source_type": "text", "auto_sunk": True},  # 溯源标记
+        content_hash=content_hash,
+    )
+    db.add(doc)
+    db.flush()
+    return _persist_parsed(db, user_id, doc, content)
+
+
 # --- 创建（静态段先于 {document_id} 声明） ---
 
 

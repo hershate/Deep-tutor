@@ -1045,6 +1045,35 @@ def _persist_knowledge_nodes(db: Session, plan_id: int, plan_dict: dict) -> None
         if row is not None and parent is not None and parent is not row:
             row.parent_id = parent.id
     db.flush()
+    # iter 346（F8 #2）：旁挂沉淀知识图谱到知识库（独立事务 + 异常隔离，不阻塞生成；
+    # 同用户 content_hash 去重防重生成累积）。用户要求：生成的知识图谱自动加入知识库。
+    try:
+        plan = db.get(models.Plan, plan_id)
+        sess = db.get(models.Session, plan.session_id) if plan else None
+        if sess is not None:
+            from app.api.kb import add_text_document_sync
+
+            topic = ((plan_dict.get("intent") or {}).get("topic") or "学习方案")
+            knodes = ((plan_dict.get("knowledge_map") or {}).get("nodes") or [])
+            lines = [f"# 知识图谱：{topic}"]
+            goal = (plan_dict.get("intent") or {}).get("goal")
+            if goal:
+                lines.append(f"\n学习目标：{goal}")
+            lines.append("\n## 知识点")
+            for kn in knodes[:60]:
+                kname = str(kn.get("name") or "").strip()
+                if not kname:
+                    continue
+                must = "（必学）" if kn.get("must_learn") else ""
+                diff = kn.get("difficulty")
+                lines.append(f"- {kname}{must}" + (f" · 难度 {diff}/5" if diff else ""))
+            sink_db = SessionLocal()
+            try:
+                add_text_document_sync(sink_db, sess.user_id, f"知识图谱：{topic}", "\n".join(lines))
+            finally:
+                sink_db.close()
+    except Exception:  # noqa: BLE001  沉淀失败绝不阻塞生成
+        log.warning("知识图谱沉淀到 KB 失败 plan=%s", plan_id, exc_info=True)
 
 
 # --- 列表 / 详情 ---

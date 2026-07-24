@@ -5,6 +5,7 @@ import { ApiError, confirmMaterial, createSession, createUrlMaterial, deleteSess
 import { SseError } from '../lib/sse'
 import { engine } from '../lib/taskEngine'
 import Card from '../components/Card'
+import HomeKbGenerate from '../components/HomeKbGenerate'
 import { toast } from '../components/Toast'
 import WidgetSlot from '../components/WidgetSlot'
 
@@ -251,6 +252,8 @@ export default function Home() {
 
       {/* iter 183：学习概览小组件宫格（插件 API home.dashboard 插槽；各组件无数据自行隐藏） */}
       <WidgetSlot slot="home.dashboard" layout="grid" className="animate-fade-in-up" />
+      {/* iter 346（F8 #10）：从知识库文档生成——复用 kbGenerate（已解析文档 -> session+material -> 生成管线） */}
+      <HomeKbGenerate />
 
       {/* iter 260：今日学习——排程中今天的任务（比「继续学习」更可执行，置于其上）；
           不嵌套链接：标题与「学习中心」为两个独立 Link */}
