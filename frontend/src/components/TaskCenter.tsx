@@ -172,7 +172,8 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
               </>
             )}
             <span>{fmtElapsed(now - task.startedAt)}</span>
-            {task.kind === 'plan' && task.cost > 0 && <span>${task.cost.toFixed(4)}</span>}
+            {task.kind === 'plan' && task.tokens > 0 && <span className="tabular-nums">{task.tokens.toLocaleString()} tok</span>}
+            {task.kind === 'plan' && task.cost > 0 && <span className="tabular-nums">${task.cost.toFixed(4)}</span>}
           </div>
         </div>
       )}

@@ -342,7 +342,9 @@ export const useTaskStore = create<TasksState>((set, get) => ({
         }
         const md = (data.metadata ?? {}) as Record<string, unknown>
         patch.cost = cur.cost + (Number(md.cost) || 0)
-        patch.tokens = cur.tokens + (Number(md.input_tokens) || 0) + (Number(md.output_tokens) || 0)
+        // iter 354 BUG1：后端 ToolMetadata 字段为 tokens_in/tokens_out（tools/base.py），
+        // 旧代码读 input_tokens/output_tokens（undefined）-> tokens 永远 0，任务中心「没有实时计费」。
+        patch.tokens = cur.tokens + (Number(md.tokens_in) || 0) + (Number(md.tokens_out) || 0)
       } else if (event === 'plan_chunk') {
         patch.partialPlan = data.partial_plan
       } else if (event === 'clarify_needed') {
