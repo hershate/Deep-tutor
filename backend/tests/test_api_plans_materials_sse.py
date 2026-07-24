@@ -394,3 +394,28 @@ def test_materials_sse_scope_node_ids_regenerates_covering_units(client, auth_he
     from pathlib import Path
 
     assert "v2 重生成" in Path(target[0].materials[0].content_md_path).read_text(encoding="utf-8")
+
+
+def test_materials_sse_triggers_quiz_background_on_full(client, auth_headers, monkeypatch):
+    """iter 349B：全量材料生成完成 -> 触发后台测验预生成调度；partial 局部重生成 -> 不触发。"""
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _UnitProvider([_unit_resp("### 概述\n\n正文。") for _ in range(3)]))
+    calls: list[tuple] = []
+    monkeypatch.setattr(plans_mod, "_schedule_quiz_background", lambda pid, sid, uid: calls.append((pid, sid, uid)))
+
+    # 全量生成 -> 触发
+    r = _post_sse(client, auth_headers, plan_id)
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1 and calls[0][0] == plan_id
+
+    # refresh 全量重生成 -> 再次触发
+    r2 = _post_sse(client, auth_headers, plan_id, body={"depth": "full", "refresh": True})
+    assert r2.status_code == 200, r2.text
+    assert len(calls) == 2
+
+    # partial（scope stage）-> 不触发
+    calls.clear()
+    _post_sse(client, auth_headers, plan_id, body={"scope": {"stage_indexes": [0]}})
+    assert calls == []

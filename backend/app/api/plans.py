@@ -1673,6 +1673,10 @@ async def _materials_sse(
             },
         )
         yield _sse("done", {"unit_count": total, "degraded_count": degraded_count})
+        # iter 349 part B：全量材料完成后后台预生成测验（用户打开测验即命中缓存，免等待）；
+        # partial 局部重生成不触发。后台独立 session，失败隔离。
+        if not (body.scope is not None or body.unit_ids):
+            _schedule_quiz_background(plan_id, session_id, user_id)
     except Exception:  # noqa: BLE001  统一兜底：流以 error 事件收尾而非裸断
         log.exception("材料流式生成异常: plan %s", plan_id)
         yield _sse("error", {"code": "internal_error", "message": "材料生成中断"})
@@ -2080,6 +2084,56 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
     else:
         spec = default_quiz_from_plan(content)
     return spec, spec_out
+
+
+async def _generate_quiz_background(plan_id: int, session_id: int, user_id: int) -> None:
+    """iter 349 part B：材料完成后后台预生成测验——用户打开测验即命中缓存（免等待）。
+
+    用户核心诉求「生成自学资料时后台出题」。独立 SessionLocal（材料已提交，无写锁争用）；
+    仅当本方案尚无 quiz 时预生成（不覆盖用户已手动生成/刷新的题与 attempts）；预算超/异常
+    均隔离，绝不影响主流程。复用 _generate_quiz_spec + _persist_quizzes。
+    """
+    db = SessionLocal()
+    try:
+        plan = db.get(models.Plan, plan_id)
+        if plan is None:
+            return
+        if db.query(models.Quiz).filter_by(plan_id=plan_id).first() is not None:
+            return  # 已有 quiz（用户手动生成/刷新过）-> 不覆盖
+        content = _load_plan_content(plan)
+        if not content:
+            return
+        try:
+            check_daily_budget(db, user_id)
+        except ApiError:
+            return  # 预算耗尽 -> 跳过后台预生成（用户手动触发时再处理）
+        spec, _ = await _generate_quiz_spec(db, plan, content, user_id)
+        _persist_quizzes(db, plan_id, spec)
+        from app.plugins import bus as plugin_bus
+
+        plugin_bus.emit(
+            "quiz_ready",
+            {
+                "plan_id": plan_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "quiz_count": len(spec.quizzes),
+            },
+        )
+    except Exception:  # noqa: BLE001  后台失败绝不影响主流程
+        log.warning("后台测验预生成失败 plan=%s", plan_id, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        db.close()
+
+
+def _schedule_quiz_background(plan_id: int, session_id: int, user_id: int) -> None:
+    """iter 349 part B：调度后台测验预生成（薄封装——逻辑在 _generate_quiz_background，
+    分离调度便于测试：fire-and-forget task 在 TestClient 不易等到，测试可 monkeypatch 本函数）。"""
+    asyncio.create_task(_generate_quiz_background(plan_id, session_id, user_id))
 
 
 @router.post("/{plan_id}/quiz")

@@ -166,3 +166,89 @@ def test_quiz_without_units_unchanged(client, auth_headers, monkeypatch):
     r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert r.status_code == 200, r.text
     assert "unit_check_questions" not in captured["user"]
+
+
+# --- iter 349 part B：后台预生成测验（材料完成后）---
+
+
+def _quiz_ids(plan_id):
+    from app.db.base import SessionLocal
+    from app.db import models
+
+    db = SessionLocal()
+    try:
+        return [q.id for q in db.query(models.Quiz).filter_by(plan_id=plan_id).all()]
+    finally:
+        db.close()
+
+
+def _plan_session_user(plan_id):
+    from app.db.base import SessionLocal
+    from app.db import models
+
+    db = SessionLocal()
+    try:
+        plan = db.get(models.Plan, plan_id)
+        sid = plan.session_id
+        uid = db.get(models.Session, sid).user_id
+        return sid, uid
+    finally:
+        db.close()
+
+
+def test_quiz_background_pregenerates_when_none(client, auth_headers, monkeypatch):
+    """iter 349B：方案无 quiz 时，_generate_quiz_background 后台预生成并落库 + emit quiz_ready。"""
+    import asyncio
+
+    from app.api import plans as plans_mod
+    from app.plugins import bus as plugin_bus
+
+    plan_id = _make_plan(client, auth_headers)
+    sid, uid = _plan_session_user(plan_id)
+    assert _quiz_ids(plan_id) == []  # 初始无 quiz
+
+    emitted: list[tuple[str, dict]] = []
+
+    def _emit(event, payload):
+        emitted.append((event, payload))
+
+    monkeypatch.setattr(plugin_bus, "emit", _emit)
+    spec_json = (
+        '{"title":"t","quizzes":[{"node_id":"k1","node_name":"JS","type":"choice",'
+        '"question":"q","options":["a","b"],"answer":"a"}]}'
+    )
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _QuizProvider([_resp(spec_json)]))
+
+    asyncio.run(plans_mod._generate_quiz_background(plan_id, sid, uid))
+
+    assert len(_quiz_ids(plan_id)) >= 1  # 落库
+    assert any(e == "quiz_ready" for e, _ in emitted)  # 事件广播
+    ready = [p for e, p in emitted if e == "quiz_ready"][0]
+    assert ready["plan_id"] == plan_id and ready["user_id"] == uid
+
+
+def test_quiz_background_skips_when_quiz_exists(client, auth_headers, monkeypatch):
+    """iter 349B：方案已有 quiz（用户手动生成过）-> 后台不覆盖（保留 attempts）。"""
+    import asyncio
+
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)
+    sid, uid = _plan_session_user(plan_id)
+    # 先用端点手动生成一次 quiz
+    spec_json = (
+        '{"title":"manual","quizzes":[{"node_id":"k1","node_name":"JS","type":"choice",'
+        '"question":"手动题","options":["a"],"answer":"a"}]}'
+    )
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _QuizProvider([_resp(spec_json)]))
+    r = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
+    assert r.status_code == 200
+    manual_ids = _quiz_ids(plan_id)
+    assert len(manual_ids) >= 1
+
+    # 后台预生成（换 provider 输出不同题）-> 应跳过，不覆盖
+    monkeypatch.setattr(
+        plans_mod, "get_provider", lambda *a, **k: _QuizProvider([_resp('{"title":"bg","quizzes":[]}')])
+    )
+    asyncio.run(plans_mod._generate_quiz_background(plan_id, sid, uid))
+    assert _quiz_ids(plan_id) == manual_ids  # 未变（未覆盖）
