@@ -83,13 +83,58 @@ def estimate_cost(usage: LLMUsage, model: str | None = None, overrides: dict | N
                 used, usage.input_tokens, usage.output_tokens,
             )
         return 0.0
+    return estimate_cost_with_pricing(usage, p)
+
+
+def estimate_cost_with_pricing(usage: LLMUsage, pricing: Pricing) -> float:
+    """按显式 Pricing 估算费用（USD），不做族查找。
+
+    iter 354 BUG2：每卡定价——ctx.pricing（启用档案合成的 Pricing）直接驱动计费，
+    替代族级 UserPref 覆盖。
+    """
     cost = (
-        usage.input_tokens * p.input_per_mtok
-        + usage.output_tokens * p.output_per_mtok
-        + usage.cache_read_input_tokens * p.cache_read_per_mtok
-        + usage.cache_creation_input_tokens * p.cache_write_per_mtok
+        usage.input_tokens * pricing.input_per_mtok
+        + usage.output_tokens * pricing.output_per_mtok
+        + usage.cache_read_input_tokens * pricing.cache_read_per_mtok
+        + usage.cache_creation_input_tokens * pricing.cache_write_per_mtok
     ) / 1_000_000
     return round(cost, 6)
+
+
+# 每卡定价字段键（与 settings.py _VALID_PRICING_FIELDS、Pricing 字段同名）
+_PRICING_KEYS = ("input_per_mtok", "output_per_mtok", "cache_read_per_mtok", "cache_write_per_mtok")
+
+
+def pricing_for_profile(model: str, prices: dict | None) -> Pricing | None:
+    """iter 354 BUG2：按「启用供应商档案」价目合成 Pricing（定价绑定具体卡片）。
+
+    - model：档案模型（决定族默认回退，子串匹配 opus/sonnet/haiku）；
+    - prices：档案 4 字段（键见 _PRICING_KEYS，值 float 或 None）。
+      任一字段为 None -> 该字段回退族默认；全 None / prices 空 -> 直接返回族默认；
+      未知模型且档案未设任何价 -> None（estimate_cost 记 0 告警，同旧行为）；
+      未知模型但档案设了价 -> 用档案价构造（缺省字段 0）。
+    """
+    base = get_pricing(model)
+    if not prices or not isinstance(prices, dict):
+        return base
+    if not any(prices.get(k) is not None for k in _PRICING_KEYS):
+        return base
+
+    def _val(key: str) -> float:
+        v = prices.get(key)
+        if v is None:
+            return getattr(base, key) if base is not None else 0.0
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return getattr(base, key) if base is not None else 0.0
+
+    return Pricing(
+        input_per_mtok=_val("input_per_mtok"),
+        output_per_mtok=_val("output_per_mtok"),
+        cache_read_per_mtok=_val("cache_read_per_mtok"),
+        cache_write_per_mtok=_val("cache_write_per_mtok"),
+    )
 
 
 def default_pricing_table() -> dict:

@@ -7,8 +7,6 @@ _persist_tool_calls 按用户覆盖重算 api_usage.cost（用量页 / 日预算
 
 from __future__ import annotations
 
-import json
-
 from app.core.security import hash_password
 
 BASE = "/api/settings"
@@ -113,31 +111,34 @@ def test_pricing_cross_user_isolation(client):
     assert client.get(f"{BASE}/pricing", headers=ha).json()["overrides"]["sonnet"]["input_per_mtok"] == 2.0
 
 
-def test_record_metadata_usage_uses_override():
-    """设了覆盖后，record_metadata_usage 写的 api_usage.cost 按覆盖单价（非默认）。"""
+def test_record_metadata_usage_uses_profile_pricing():
+    """iter 354 BUG2：启用供应商档案设了价目 -> record_metadata_usage 写的 api_usage.cost 按档案单价。"""
     from app.agent.cost import record_metadata_usage
     from app.db.base import SessionLocal
-    from app.db.models import ApiUsage, UserPref
+    from app.db.models import ApiUsage, LlmProviderProfile
     from app.tools.base import ToolMetadata
 
     db = SessionLocal()
     try:
         uid = _mk_user("ru")
-        db.add(UserPref(user_id=uid, key="pricing_overrides", value=json.dumps({"sonnet": {"input_per_mtok": 2.0}})))
+        db.add(LlmProviderProfile(
+            user_id=uid, name="P", api_key="sk-x", model="claude-sonnet-5",
+            price_input_per_mtok=2.0, is_active=True,  # 覆盖 sonnet 默认 input $3/M
+        ))
         db.commit()
-        # metadata.cost=3.0 是默认价算的；record 应按覆盖重算为 2.0
+        # metadata.cost=3.0 是默认价算的；record 应按档案价重算为 2.0
         meta = ToolMetadata(
             tokens_in=1_000_000, tokens_out=0, cache_read=0, cache_write=0, cost=3.0, model="claude-sonnet-5"
         )
         record_metadata_usage(db, meta, uid)
         row = db.query(ApiUsage).filter_by(user_id=uid).one()
-        assert row.cost == 2.0  # 按覆盖价
+        assert row.cost == 2.0  # 按档案价（input $2/M）
     finally:
         db.close()
 
 
-def test_record_metadata_usage_default_when_no_override():
-    """无覆盖时 record 用 metadata.cost（默认价，向后兼容）。"""
+def test_record_metadata_usage_default_when_no_profile():
+    """无启用档案时 record 用 metadata.cost（默认价，向后兼容）。"""
     from app.agent.cost import record_metadata_usage
     from app.db.base import SessionLocal
     from app.db.models import ApiUsage
@@ -153,11 +154,11 @@ def test_record_metadata_usage_default_when_no_override():
         db.close()
 
 
-def test_persist_tool_calls_uses_override():
-    """生成管线落账（_persist_tool_calls）按用户覆盖计 api_usage.cost。"""
+def test_persist_tool_calls_uses_profile_pricing():
+    """iter 354 BUG2：生成管线落账（_persist_tool_calls）按启用档案价目计 api_usage.cost。"""
     from app.api.plans import _persist_tool_calls
     from app.db.base import SessionLocal
-    from app.db.models import ApiUsage, Session, User, UserPref
+    from app.db.models import ApiUsage, LlmProviderProfile, Session, User
     from app.tools.base import ToolMetadata, ToolOutput
 
     db = SessionLocal()
@@ -165,7 +166,10 @@ def test_persist_tool_calls_uses_override():
         u = User(name="pu", username="pu", password_hash=hash_password("pw123"))
         db.add(u)
         db.flush()
-        db.add(UserPref(user_id=u.id, key="pricing_overrides", value=json.dumps({"sonnet": {"input_per_mtok": 2.0}})))
+        db.add(LlmProviderProfile(
+            user_id=u.id, name="P", api_key="sk-x", model="claude-sonnet-5",
+            price_input_per_mtok=2.0, is_active=True,
+        ))
         sess = Session(user_id=u.id, title="t")
         db.add(sess)
         db.commit()
@@ -177,6 +181,6 @@ def test_persist_tool_calls_uses_override():
             ),
         )
         _persist_tool_calls(db, sess.id, "trace", executed=[out])
-        assert db.query(ApiUsage).filter_by(user_id=u.id).one().cost == 2.0  # 覆盖价重算
+        assert db.query(ApiUsage).filter_by(user_id=u.id).one().cost == 2.0  # 档案价重算
     finally:
         db.close()

@@ -668,6 +668,11 @@ export interface ProviderProfile {
   kind: string // 协议：'anthropic'（内置）或插件注册的协议名（api.providers，iter 313）
   is_active: boolean
   api_key_masked: string
+  // iter 354 BUG2：每卡计价（USD / 1M tokens；null = 该字段回退族默认）
+  price_input_per_mtok: number | null
+  price_output_per_mtok: number | null
+  price_cache_read_per_mtok: number | null
+  price_cache_write_per_mtok: number | null
   created_at: string
 }
 export interface ProviderInput {
@@ -676,6 +681,11 @@ export interface ProviderInput {
   base_url?: string
   model?: string
   kind?: string // 协议；缺省/空 -> 'anthropic'（iter 313）
+  // iter 354 BUG2：每卡计价（null = 回退族默认；编辑表单始终回传 4 字段）
+  price_input_per_mtok?: number | null
+  price_output_per_mtok?: number | null
+  price_cache_read_per_mtok?: number | null
+  price_cache_write_per_mtok?: number | null
 }
 /** GET /providers/kinds：可用 LLM 协议（内置 anthropic + 插件协议，iter 313 发现端点） */
 export interface ProviderKindBuiltin {

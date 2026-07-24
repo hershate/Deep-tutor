@@ -13,7 +13,7 @@ from app.core.settings import settings
 from app.llm.anthropic_provider import AnthropicProvider
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 
-__all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider"]
+__all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider", "get_active_profile", "get_active_pricing"]
 
 
 def get_active_profile(user_id: int | None = None) -> "dict | None":
@@ -36,6 +36,38 @@ def get_active_profile(user_id: int | None = None) -> "dict | None":
             if p is None:
                 return None
             return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or "", "kind": p.kind or ""}
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def get_active_pricing(user_id: int | None = None):
+    """iter 354 BUG2：读「启用供应商档案」的每卡价目合成 Pricing（自管 DB 会话，失败/无档案 -> None）。
+
+    用于生成期注入 ctx.pricing（实时累计成本按启用卡价目）。无档案/读失败 -> None
+    -> build_metadata 回退族默认。隔离语义同 get_active_profile。
+    """
+    try:
+        from app.db import models
+        from app.db.base import SessionLocal
+        from app.llm.pricing import pricing_for_profile
+
+        db = SessionLocal()
+        try:
+            q = db.query(models.LlmProviderProfile).filter_by(is_active=True)
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            p = q.first()
+            if p is None:
+                return None
+            prices = {
+                "input_per_mtok": p.price_input_per_mtok,
+                "output_per_mtok": p.price_output_per_mtok,
+                "cache_read_per_mtok": p.price_cache_read_per_mtok,
+                "cache_write_per_mtok": p.price_cache_write_per_mtok,
+            }
+            return pricing_for_profile(p.model or "", prices)
         finally:
             db.close()
     except Exception:  # noqa: BLE001

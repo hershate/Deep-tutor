@@ -28,7 +28,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
-from app.agent.cost import estimate_cost_from_metadata, load_pricing_overrides, record_metadata_usage
+from app.agent.cost import estimate_cost_from_metadata, load_active_profile_pricing, record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.api.sse_utils import (
@@ -41,7 +41,7 @@ from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
 from app.db.models import User
-from app.llm import get_provider
+from app.llm import get_active_pricing, get_provider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.base import ToolInput, ToolOutput
@@ -838,6 +838,8 @@ async def _run_start(
         budget=budget,
         # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
         bing_api_key=resolve_bing_api_key(user_id),
+        # iter 354 BUG2：启用档案每卡定价 -> 生成期实时累计成本按该卡价目（绑定具体供应商卡片）
+        pricing=get_active_pricing(user_id),
     )
     def _on_event(e: str, d: dict) -> int:
         # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
@@ -954,14 +956,14 @@ def _persist_tool_calls(
     try:
         sess = db.get(models.Session, session_id)
         usage_user_id = sess.user_id if sess is not None else None
-        # iter 353：用户级价目覆盖（设置页可配置）重算 cost——默认价可能过时
-        #（如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）。
-        overrides = load_pricing_overrides(db, usage_user_id)
+        # iter 354 BUG2：按「启用供应商档案」每卡定价重算 cost（替代族级 UserPref 覆盖）——
+        # 默认价可能过时（如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）。
+        pricing = load_active_profile_pricing(db, usage_user_id)
 
         def _add_call(tool_name: str, out: ToolOutput) -> None:
             m = out.metadata
             err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
-            cost = estimate_cost_from_metadata(m, overrides) if overrides else m.cost
+            cost = estimate_cost_from_metadata(m, pricing=pricing) if pricing is not None else m.cost
             db.add(
                 models.ToolCall(
                     session_id=session_id,

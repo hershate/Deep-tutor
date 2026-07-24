@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from app.agent.budget import BudgetTracker
 from app.llm.base import LLMProvider
+from app.llm.pricing import Pricing
 
 if TYPE_CHECKING:
     from app.agent.registry import ToolRegistry
@@ -46,3 +47,6 @@ class ExecContext:
     run_id: int | None = None
     user_id: int | None = None  # 归属用户（record_metadata_usage 计量 + 配额）
     workspace_dir: str = ""  # 本 run 工作区沙箱根（agent/workspace.py）
+    # iter 354 BUG2：启用供应商档案合成的每卡定价（None -> build_metadata 回退族默认）。
+    # 由 plans._run_orchestrator 按 get_active_profile 价目注入，驱动生成期实时累计成本。
+    pricing: Pricing | None = None

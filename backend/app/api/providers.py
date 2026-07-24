@@ -42,6 +42,11 @@ def _out(p: models.LlmProviderProfile) -> dict:
         "kind": (p.kind or "anthropic").strip().lower(),  # iter 313：协议（NULL -> 'anthropic'）
         "is_active": bool(p.is_active),
         "api_key_masked": _mask(p.api_key),
+        # iter 354 BUG2：每卡计价（USD / 1M tokens；None -> 该字段回退族默认）
+        "price_input_per_mtok": p.price_input_per_mtok,
+        "price_output_per_mtok": p.price_output_per_mtok,
+        "price_cache_read_per_mtok": p.price_cache_read_per_mtok,
+        "price_cache_write_per_mtok": p.price_cache_write_per_mtok,
         "created_at": str(p.created_at),
     }
 
@@ -66,6 +71,11 @@ class ProviderIn(BaseModel):
     base_url: str = Field(default="", max_length=512)
     model: str = Field(default="", max_length=128)
     kind: str = Field(default="", max_length=64)  # iter 313：协议（'' 或 'anthropic' 内置；插件协议名）
+    # iter 354 BUG2：每卡计价（USD / 1M tokens；None -> 回退族默认）
+    price_input_per_mtok: float | None = Field(default=None, ge=0)
+    price_output_per_mtok: float | None = Field(default=None, ge=0)
+    price_cache_read_per_mtok: float | None = Field(default=None, ge=0)
+    price_cache_write_per_mtok: float | None = Field(default=None, ge=0)
 
     _check_url = field_validator("base_url")(_validate_base_url)
     _norm_kind = field_validator("kind")(_normalize_kind)
@@ -77,6 +87,11 @@ class ProviderUpdate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)
     kind: str | None = Field(default=None, max_length=64)  # None -> 保留原值；'' -> 重置为 anthropic
+    # iter 354 BUG2：每卡计价；None -> 该字段回退族默认（编辑表单始终回传 4 字段，所见即所存）
+    price_input_per_mtok: float | None = Field(default=None, ge=0)
+    price_output_per_mtok: float | None = Field(default=None, ge=0)
+    price_cache_read_per_mtok: float | None = Field(default=None, ge=0)
+    price_cache_write_per_mtok: float | None = Field(default=None, ge=0)
 
     _check_url = field_validator("base_url")(_validate_base_url)
     _norm_kind = field_validator("kind")(_normalize_kind)
@@ -138,6 +153,10 @@ def create_provider(
         model=body.model,
         kind=body.kind or None,  # iter 313：'' -> NULL（视作 anthropic）
         is_active=False,
+        price_input_per_mtok=body.price_input_per_mtok,
+        price_output_per_mtok=body.price_output_per_mtok,
+        price_cache_read_per_mtok=body.price_cache_read_per_mtok,
+        price_cache_write_per_mtok=body.price_cache_write_per_mtok,
     )
     db.add(p)
     try:
@@ -171,6 +190,14 @@ def update_provider(
         p.api_key = body.api_key
     if body.kind is not None:  # iter 313：不传 -> 保留；'' -> NULL（重置为 anthropic）
         p.kind = body.kind or None
+    # iter 354 BUG2：每卡计价——仅当请求含任一价目键时覆盖（编辑表单始终回传 4 字段）；
+    # 旧调用/部分更新不传价目 -> 保留原值（向后兼容，避免误清）。None 即回退族默认。
+    unset = body.model_dump(exclude_unset=True)
+    if any(k in unset for k in ("price_input_per_mtok", "price_output_per_mtok", "price_cache_read_per_mtok", "price_cache_write_per_mtok")):
+        p.price_input_per_mtok = body.price_input_per_mtok
+        p.price_output_per_mtok = body.price_output_per_mtok
+        p.price_cache_read_per_mtok = body.price_cache_read_per_mtok
+        p.price_cache_write_per_mtok = body.price_cache_write_per_mtok
     try:
         db.commit()
     except IntegrityError:
