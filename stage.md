@@ -261,6 +261,14 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-24 iter 349B/350/351/352（测验/材料/知识点 /goal 收官：后台测验 + 就绪可见 + 并发去竞态 + UX + 全量回归零失败，commits 25d8ec9/851e059/6a2036e/bfa57f0）**：🎉 /goal 全部诉求达成。
+  - **iter 349B 测验后台预生成（25d8ec9）**：`_generate_quiz_background`（独立 SessionLocal、仅本方案尚无 quiz 时预生成不覆盖用户已生成题、预算/异常隔离、复用 `_generate_quiz_spec`+`_persist_quizzes`）+ `_schedule_quiz_background`（薄调度封装）；`_materials_sse` done 后非 partial 时调度；emit 新事件 `quiz_ready`。「缺题」(349A) + 「慢」(后台免等待) 双管齐下。
+  - **iter 350 测验就绪可见性 + 并发去竞态（851e059）**：后端 `_BG_QUIZ_INFLIGHT` 标志——后台预生成期间端点等待其完成而非并行重复出题（避免并发 `_persist_quizzes` 写锁竞争 + 重复耗 LLM）；taskEngine 订阅 `quiz_ready`→就绪 toast「测验题已就绪」+「去测验」；QuizModal 开窗期间收到 quiz_ready 即时刷新；plugins.ts 加 `quiz_ready` 类型。事件链路（EventsBridge→events 总线）零改动即转发。
+  - **iter 351 UX 缺陷批次（6a2036e）**：B 首页多文件上传/解析改有界并发（3 路，聚合进度）——旧串行 5 PDF 要 2-3 分钟。**C/E 经后台预生成+竞态修复自然消解**（打开/验证命中缓存秒回；QuizModal「后台继续」文案名副其实）。**D** 已在 iter348 修。**F**（材料模块分组）渲染设计非缺陷、**G**（批量删除串行）SQLite 写锁安全的刻意设计+已有反馈——不改（诚实说明）。
+  - **iter 352 全量回归 + 文档（bfa57f0）**：API.md 加 `quiz_ready`（§8.5/§四）+ 后端版本线 1.19.0→1.20.0（版本表/§八/§8.6/历史）+ `plugins/api.py API_VERSION`；`_all_unit_plans` fallback 也带 node_sids（scope.node_ids 两路径一致）；修 iter 348/349 行为变更的旧测试断言（e2e quiz mock 覆盖全节点、unit_regen 保留原标题、materials brief 列知识点、插件测试版本号）。**全量 pytest 1165 通过零回归；ruff 干净；前端 build 通过。**
+  - **/goal 诉求达成清单**：① 测验慢+缺题→后台预生成（349B）+ 完整性保证每知识点必有题（349A）；② 自学资料固定3单元→按知识点动态切分（348）；③ 高难度知识点拆分（347）；④ 交互缺陷：B 并发上传✅ / D KB 死锁✅ / C·E 经预生成消解✅ / A 测验就绪可见✅（F·G 非缺陷已说明）。
+  - **6 决策落地**：材料切分=知识点驱动聚合✅；拆分=生成期 prompt 拆分✅；范围=3 核心+全部 UX 缺陷✅。
+
 - **2026-07-24 iter 349 part A（测验/材料/知识点 /goal·iter3a：测验完整性保证 + 抽出共用生成函数，commit ceae0c5，118 测试通过）**：续 iter 348。
   - **根治「缺题」**：`generate_quiz_tool` 加 `post_process=ensure_quiz_coverage`——程序层比对 `plan.knowledge_map.nodes` 与已出题 `node_id`，LLM 漏掉的节点补 short 自评题兜底（旧实现仅 prompt 要求「每节点 1 题」，LLM 不遵守时静默缺题、绕过 tool-call repair）。
   - [generate_quiz.py](backend/app/tools/generate_quiz.py) `ensure_quiz_coverage` + 注册 post_process；[plans.py](backend/app/api/plans.py) 抽出 `_generate_quiz_spec`（端点共用：题源联动+预算+完整性），端点改用之（去重复内联逻辑）。
