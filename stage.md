@@ -27,6 +27,8 @@
 
 **iter 357（2026-07-24，README 重写 + 推荐模型说明，✅ 完成）**：用户「README 已过时，按项目实际情况重写，版本定为 v0.1.0.0」。代码实查后重写 [README.md](README.md)：版本徽标 v0.1.0.0 + 功能总览新增「AI 对话（记忆系统+完整 Agent）」整节并补齐 iter 220-356 全部新功能（知识库问答/跨方案复习页/模型计费¥/max_tokens 可调/计划时间用户指定等）+ 测试数修正 819→**1191** + 双插件版本线（前端 1.17.0/后端 1.20.0）+ 默认端口 41173。模型说明（AskUserQuestion，范围=**仅文档**）：README 写明**当前推荐 deepseek-v4-flash**（代码默认值仍 claude-sonnet-5 不动）+ 新增「模型使用合规」提示（尊重各平台服务条款/使用规范）。**纯文档零代码变更**。详见 §五 iter 357。
 
+**iter 358（2026-07-24，修复「理解学习目标」澄清死循环，✅ 完成）**：用户 /goal「新建方案卡在 understand_intent（理解学习目标）反复追问用户、不向下推进」。根因 = `/clarify` 每次从 understand_intent 重跑 + 链路无任何澄清轮次上限/强制推进机制；真实 LLM 在 answers 偏模糊时常保守返回 `needs_clarify=true`（PROMPT 仅「尽量」给出明确字段，过软），叠加 `_validate_intent` 的 deadline 过期分支确定性置 `needs_clarify=True` → 无限 `paused_clarify` 循环。修复（[understand_intent.py](backend/app/tools/understand_intent.py)）：`_validate_intent` 加**确定性兜底**——`args.answers` 非空（澄清续接轮）且仍 `needs_clarify=true` 时强制推进（`needs_clarify=false` + 清空 `clarify_questions` + 仍缺失维度补中性默认：`daily_minutes=60`/`level="未明确"`/`goal` 据 topic 推断），**不依赖 LLM 自觉**；PROMPT「尽量」→「必须」。测试：5 个 `_validate_intent` 单测 + 1 个 run_tool 级 + 1 个端到端死循环修复（`ClarifyLoopProvider` 模拟续接轮仍 `needs_clarify`，断言推进到 `done` 而非再次 `clarify_needed`）。**pytest 1197 零回归** + ruff 干净。详见 §五 iter 358。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -270,6 +272,15 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 358（修复「理解学习目标」澄清死循环 /goal·✅ 完成）**：用户 /goal「在实际使用中发现 BUG，在新建方案过程中，一直卡在『理解学习目标』阶段，反复询问用户问题而不向下推进」。1 commit 落地（`52640db`），全量 pytest **1197 零回归** + ruff 干净（无前端改动）。
+  - **根因（源码核查）**：澄清续接端点 [`POST /clarify`](backend/app/api/plans.py)（第 455-486 行）每次都以 `answers` 从 `understand_intent` 重跑（`_run_start` 的 `start_tool` 默认 `understand_intent`）；而 `understand_intent` 是否暂停完全由 LLM 返回的 `needs_clarify` 决定。PROMPT（[understand_intent.py](backend/app/tools/understand_intent.py)）仅要求「含 answers 时**尽量**给出明确字段而非再次澄清」——真实 LLM 在用户回答偏模糊（如「看情况」「随便」）时常保守地仍返回 `needs_clarify=true`；`_validate_intent` 的 deadline 过期分支还会**确定性**置 `needs_clarify=True`。全链路**无澄清轮次上限、无「已回答则强制推进」兜底** → `paused_clarify → /clarify → understand_intent 重跑 → 又 needs_clarify → 又 paused_clarify` 无限循环。既有 `test_clarify_flow` 能通过只因 mock 在续接轮配合地返回了 `needs_clarify=false`，未覆盖真实 LLM 的保守行为，故逃过回归。
+  - **修复（[understand_intent.py](backend/app/tools/understand_intent.py) · `52640db`）**：
+    - **确定性兜底（核心，不依赖 LLM 自觉）**：`_validate_intent` 末尾新增——`args.answers` 非空（即澄清续接轮）且 `data.needs_clarify=true` 时，强制 `needs_clarify=false`、清空 `clarify_questions`；仍缺失维度补**中性默认**（不编造用户具体意图）：`daily_minutes=60`（`schedule_plan` 依赖，1 小时/天常规值）、`level="未明确"`、`goal` 据 topic 推断为「系统学习并掌握 {topic}」；`deadline`/`start_date` 保持现状（可选字段，过期 deadline 已在上文置 None，不阻断生成）。语义：**用户已回答过一次即必推进**，根治死循环。
+    - **PROMPT 强化（防御纵深）**：含 answers 规则由「尽量给出明确字段」改为「**必须**结合 answers 补全并返回 `needs_clarify=false`……即使回答偏模糊也要给最合理推断，只有 topic 完全无法判断才允许 `needs_clarify=true`」；并明确区分「首次输入（无 answers）才允许澄清」。
+  - **测试（[test_understand_intent.py](backend/tests/test_understand_intent.py) + [test_api_clarify.py](backend/tests/test_api_clarify.py)）**：5 个 `_validate_intent` 单测（强制推进补默认 / 保留 LLM 已抽字段不被默认覆盖 / 无 answers 首次行为不变 / 过期 deadline 不再死循环 / 兜底不误伤）+ 1 个 run_tool 级（模拟续接轮仍 `needs_clarify`，断言兜底推进 + 补 daily_minutes=60）+ 1 个端到端 `test_clarify_loop_breaks_when_llm_keeps_asking`（`ClarifyLoopProvider`：首次与续接轮均返回 `needs_clarify`，断言推进到 `done` 且不再出现 `clarify_needed`）。
+  - **已知边界（未处理，权衡）**：降级路径（LLM 连续 3 次 schema 失败）走 `loop.py._degraded` 用 `default_data`（`needs_clarify=true`），**不经过** `post_process`——若恰在澄清续接轮降级仍会理论死循环。但需 LLM 连续故障（概率极低，且属 LLM 不可用、生成本就无望）；本次不碰通用 `loop.py` 避免扩大爆炸半径，留此注释备查。
+  - **回归**：全量 pytest 1197（1191 +6 新）零回归；ruff 干净。
 
 - **2026-07-24 iter 357（README 重写 + 推荐模型说明 ·✅ 完成）**：用户「README 已过时，按项目实际情况重写，当前版本号定为 v0.1.0.0」。纯文档改动（零代码/测试变更）。
   - **动机**：原 README 停留早期迭代——测试数写 819、未覆盖 iter 220-356 大量新功能（AI 对话/记忆系统、知识库问答、跨方案统一复习页、模型计费¥、max_tokens 可调、计划时间用户指定、材料导出 md/PDF/ZIP、Markdown+KaTeX 渲染等）。
