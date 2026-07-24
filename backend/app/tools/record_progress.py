@@ -1,9 +1,12 @@
 """record_progress 逻辑（plan/02 §9，P2）：掌握度加权 + 间隔重复。
 
 纯 Python 确定性函数，DB upsert 由 API 层（app/api/progress.py）承载（覆盖写，幂等）。
-简化 MVP 决策（记入 stage.md）：
-- 掌握度 = 答题正确率加权：有 quiz 得分 -> 0.7*score + 0.3*old（近期权重高）；
-  无 quiz 标记 done -> max(old, 0.8)（主观标记不给满分）；learning 不动 old。
+iter 355 修订（方案可完成性）：
+- 有 quiz 得分 -> max(score, 0.7*score + 0.3*old)：完美答题即掌握（达成 100%），
+  否则近期正确率与历史加权；
+- 无 quiz 标记 done -> max(old, 1.0)：手动标记完成 = 已掌握（达成 100%）；
+  learning 不动 old。
+  旧规则手动 done 封顶 0.8、满分 quiz 仅 0.7 -> 节点永远到不了 100%，方案卡 80% 无法完成。
 - next_review 间隔重复简化（SM-2-lite）：mastery <0.5 -> +1d；<0.7 -> +3d；
   <0.85 -> +7d；否则 +14d。
 延后：quiz_attempts 逐题落库后的全历史加权、完整 SM-2（EF/重复次数）。
@@ -15,13 +18,16 @@ from datetime import date, timedelta
 
 
 def compute_mastery(old: float, status: str, quiz_score: float | None) -> float:
-    """掌握度（0-1）。quiz_score 为本次答题正确率（0-1，None=无测验）。"""
+    """掌握度（0-1）。quiz_score 为本次答题正确率（0-1，None=无测验）。
+
+    iter 355：三条路径均允许达成 1.0（完美 quiz / 手动 done），方案方可 100% 完成。
+    """
     old = max(0.0, min(1.0, old))
     if quiz_score is not None:
         score = max(0.0, min(1.0, quiz_score))
-        return round(0.7 * score + 0.3 * old, 3)
+        return round(max(score, 0.7 * score + 0.3 * old), 3)
     if status == "done":
-        return max(old, 0.8)  # 主观标记掌握，不给满分
+        return max(old, 1.0)  # 手动标记完成 = 已掌握（允许 100%）
     return old
 
 

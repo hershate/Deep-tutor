@@ -172,7 +172,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     )
     assert prog.status_code == 200, prog.text
     assert prog.json()["updated"] is True
-    assert prog.json()["mastery"] == 0.7  # 0.7*1.0 + 0.3*0.0
+    assert prog.json()["mastery"] == 1.0  # iter 355：完美答题即掌握 100%
 
     overview = client.get(f"/api/progress/{plan_id}", headers=auth_headers)
     assert overview.status_code == 200, overview.text
@@ -180,7 +180,7 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     by_sid = {n["node_id"]: n for n in ov["nodes"]}
     assert set(by_sid) == {"k1", "k2"}
     assert by_sid["k1"]["status"] == "done"
-    assert by_sid["k1"]["mastery"] == 0.7
+    assert by_sid["k1"]["mastery"] == 1.0
     assert by_sid["k1"]["next_review"] is not None
     assert by_sid["k2"]["status"] == "not_started"
-    assert ov["mastery_avg"] == 0.35  # (0.7 + 0.0) / 2
+    assert ov["mastery_avg"] == 0.5  # (1.0 + 0.0) / 2

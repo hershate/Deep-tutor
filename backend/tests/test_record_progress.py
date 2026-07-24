@@ -10,23 +10,23 @@ _TODAY = date(2026, 7, 17)
 
 
 def test_mastery_quiz_weighted():
-    """有 quiz 得分 -> 0.7*score + 0.3*old（近期权重高）。"""
-    assert compute_mastery(0.0, "done", 1.0) == 0.7
-    assert compute_mastery(0.5, "done", 0.5) == 0.5
-    assert compute_mastery(0.7, "done", 1.0) == 0.91
-    assert compute_mastery(0.8, "learning", 0.0) == 0.24
+    """有 quiz 得分 -> max(score, 0.7*score+0.3*old)（iter 355：完美答题即掌握 100%）。"""
+    assert compute_mastery(0.0, "done", 1.0) == 1.0  # 完美 -> 100%（可完成）
+    assert compute_mastery(0.5, "done", 0.5) == 0.5  # 部分正确率
+    assert compute_mastery(0.7, "done", 1.0) == 1.0  # 完美 -> 100%
+    assert compute_mastery(0.8, "learning", 0.0) == 0.24  # 0 分拉低历史
 
 
 def test_mastery_quiz_score_clamped():
     """score 越界 -> 截断 0-1（防御，API 层 pydantic 已约束）。"""
-    assert compute_mastery(0.0, "done", 1.5) == 0.7
+    assert compute_mastery(0.0, "done", 1.5) == 1.0  # 截断 1.0 -> 完美
     assert compute_mastery(0.0, "done", -0.5) == 0.0
 
 
 def test_mastery_done_without_quiz():
-    """无 quiz 标记 done -> max(old, 0.8)（主观标记不给满分）。"""
-    assert compute_mastery(0.3, "done", None) == 0.8
-    assert compute_mastery(0.9, "done", None) == 0.9
+    """无 quiz 标记 done -> max(old, 1.0)（iter 355：手动完成 = 已掌握 100%，方案可完成）。"""
+    assert compute_mastery(0.3, "done", None) == 1.0
+    assert compute_mastery(0.9, "done", None) == 1.0
 
 
 def test_mastery_learning_unchanged():

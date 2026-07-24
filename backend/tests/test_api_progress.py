@@ -65,13 +65,13 @@ def test_update_progress_create_and_overwrite(client, auth_headers, monkeypatch)
     assert body["mastery"] == 0.0  # learning 无 quiz -> 不变
     assert body["next_review"] == (_utc_today() + timedelta(days=1)).isoformat()  # mastery 0 <0.5
 
-    # 覆盖写：done + quiz_score=1.0 -> 0.7*1 + 0.3*0
+    # 覆盖写：done + quiz_score=1.0 -> 完美答题即掌握（iter 355：100%）
     r = client.post("/api/progress", json={"plan_id": plan_id, "node_id": "k1", "status": "done", "quiz_score": 1.0}, headers=auth_headers)
-    assert r.json()["mastery"] == 0.7
-    # 再次 quiz 满分：0.7*1 + 0.3*0.7 = 0.91（近期权重高）
+    assert r.json()["mastery"] == 1.0
+    # 再次 quiz 满分：仍 100%
     r = client.post("/api/progress", json={"plan_id": plan_id, "node_id": "k1", "status": "done", "quiz_score": 1.0}, headers=auth_headers)
     body = r.json()
-    assert body["mastery"] == 0.91
+    assert body["mastery"] == 1.0
     assert body["next_review"] == (_utc_today() + timedelta(days=14)).isoformat()  # >=0.85
 
     # DB 仍一行（upsert 不重复建行）
@@ -86,10 +86,10 @@ def test_update_progress_create_and_overwrite(client, auth_headers, monkeypatch)
 
 
 def test_update_progress_done_without_quiz(client, auth_headers, monkeypatch):
-    """主观标记 done（无 quiz）-> mastery=max(old, 0.8)。"""
+    """iter 355：手动标记 done（无 quiz）-> mastery=1.0（完成 = 已掌握）。"""
     plan_id = _make_plan(client, auth_headers, monkeypatch)
     r = client.post("/api/progress", json={"plan_id": plan_id, "node_id": "k2", "status": "done"}, headers=auth_headers)
-    assert r.json()["mastery"] == 0.8
+    assert r.json()["mastery"] == 1.0
 
 
 def test_update_progress_node_not_found(client, auth_headers, monkeypatch):
@@ -125,13 +125,13 @@ def test_get_progress_overview(client, auth_headers, monkeypatch):
     by_sid = {n["node_id"]: n for n in body["nodes"]}
     assert set(by_sid) == {"k1", "k2"}
     assert by_sid["k1"]["status"] == "done"
-    assert by_sid["k1"]["mastery"] == 0.8
+    assert by_sid["k1"]["mastery"] == 1.0
     assert by_sid["k1"]["name"] == "JS"
-    assert by_sid["k1"]["next_review"] == (_utc_today() + timedelta(days=7)).isoformat()  # 0.8 <0.85
+    assert by_sid["k1"]["next_review"] == (_utc_today() + timedelta(days=14)).isoformat()  # 1.0 >=0.85
     assert by_sid["k2"]["status"] == "not_started"
     assert by_sid["k2"]["mastery"] == 0.0
     assert by_sid["k2"]["next_review"] is None
-    assert body["mastery_avg"] == 0.4  # (0.8 + 0.0) / 2
+    assert body["mastery_avg"] == 0.5  # (1.0 + 0.0) / 2
 
 
 def test_get_progress_empty_and_not_found(client, auth_headers, monkeypatch):

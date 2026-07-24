@@ -34,6 +34,11 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   const [writeback, setWriteback] = useState('')
   const acRef = useRef<AbortController | null>(null)
   const writebackRef = useRef(false)
+  // iter 355：开放题（fill/short）无自动判分，旧逻辑仅选择题回写 -> 纯开放题测验节点拿不到掌握度。
+  // 补「完成自评」入口：用户确认看过/自评后，按知识点标记 done（compute_mastery 手动 done -> 1.0）。
+  const [openWriteback, setOpenWriteback] = useState('')
+  const openWbRef = useRef(false)
+  const openWbBusyRef = useRef(false)
 
   // iter 193 F8：出题已用秒数（loading 期间每秒走动）
   const [elapsed, setElapsed] = useState(0)
@@ -130,6 +135,8 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   }, [onClose, generating])
 
   const choiceIdx = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
+  // iter 355：开放题（无自动判分），「完成自评」入口按其 node_id 回写 done
+  const openItems = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type !== 'choice')
   // iter 276：键盘作答——「当前题」= 首个未判定选择题；数字键 1-9 选选项、Enter 判定，
   // 判完自动推进下一题（1→Enter→2→Enter 流畅答完）。文本输入态（fill/short 无输入框，
   // 防御未来）与输入法组合态不劫持；选项前序号角标 + 当前题高亮圈标明显式作用域。
@@ -205,6 +212,32 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     }
   }, [answers, quizzes, planId])
 
+  // iter 355：开放题「完成自评」——纯开放题（无选择题）测验旧逻辑完全不回写进度，
+  // 节点掌握度停滞 -> 方案卡 80% 无法完成。用户确认自评后按 node_id 标记 done
+  // （score 缺省 -> compute_mastery 手动 done -> 1.0），方案可达 100%。
+  async function finishOpenReview() {
+    if (openWbRef.current || openWbBusyRef.current) return
+    const nodes = Array.from(new Set(openItems.map(({ q }) => q.node_id).filter(Boolean))) as string[]
+    if (nodes.length === 0) {
+      setOpenWriteback('题目未关联知识点，未回写进度')
+      openWbRef.current = true
+      return
+    }
+    openWbBusyRef.current = true
+    let ok = 0
+    for (const nodeId of nodes) {
+      try {
+        const r = await updateProgress(planId, nodeId, 'done')
+        if (r.updated) ok += 1
+      } catch {
+        // best-effort：单节点失败不阻塞其余
+      }
+    }
+    openWbRef.current = true
+    openWbBusyRef.current = false
+    setOpenWriteback(ok > 0 ? `已标记 ${ok}/${nodes.length} 个知识点为已掌握` : '回写失败，请重试')
+  }
+
   function patch(i: number, p: Partial<AnswerState>) {
     setAnswers((prev) => ({ ...prev, [i]: { ...prev[i], ...p } }))
   }
@@ -259,6 +292,21 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
             {writeback && (
               <span className="text-xs text-emerald-700 dark:text-emerald-400" aria-live="polite">
                 {writeback}
+              </span>
+            )}
+            {/* iter 355：开放题「完成自评」——无选择题时这是唯一的进度回写入口 */}
+            {openItems.length > 0 && !openWbRef.current && (
+              <button
+                onClick={() => void finishOpenReview()}
+                className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white transition-all hover:bg-emerald-700 active:scale-95"
+                title="确认已自评开放题，按知识点标记为已掌握"
+              >
+                完成自评
+              </button>
+            )}
+            {openWriteback && (
+              <span className="text-xs text-emerald-700 dark:text-emerald-400" aria-live="polite">
+                {openWriteback}
               </span>
             )}
             <button
