@@ -30,7 +30,7 @@ from app.agent.budget import BudgetTracker
 from app.agent.context import ExecContext
 from app.agent.cost import usage_cost
 from app.agent.workspace import commit_run_workspace, create_run_workspace
-from app.api.deps import get_current_user, get_db, require_auth
+from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
 from app.core.credentials import resolve_bing_api_key
 from app.core.settings import settings
@@ -58,6 +58,8 @@ _AGENT_SYSTEM = (
 
 # 每 thread 至多 1 个 running chat run（与 plan-gen 配额分桶）
 _MAX_RUNNING_PER_THREAD = 1
+# iter 346（F11b）：全局 chat run 并发上限（防单用户多 thread 各起 run 耗尽资源，对齐 plan-gen 全局 ≤2）
+_MAX_CHAT_RUNS_GLOBAL = 2
 _RUN_CREATE_LOCK = asyncio.Lock()  # check-and-create 临界段
 
 
@@ -476,7 +478,7 @@ async def start_run(
     db: Session = Depends(get_db),
 ):
     thread = _owned_thread(db, thread_id, user)
-    # 配额：每 thread 至多 1 个 running chat run
+    # 配额：每 thread 至多 1 个 running chat run + 全局上限 + 日预算（iter 346 F11b 补全）
     async with _RUN_CREATE_LOCK:
         existing = (
             db.query(models.Run)
@@ -485,6 +487,19 @@ async def start_run(
         )
         if existing:
             raise HTTPException(status_code=409, detail="run_already_running")
+        # iter 346（F11b）：全局 chat run 上限——防单用户在多 thread 各起 run 同时跑耗尽资源
+        global_running = (
+            db.query(models.Run)
+            .filter(
+                models.Run.status == models.RunStatus.running,
+                models.Run.kind == models.RunKind.chat,
+            )
+            .count()
+        )
+        if global_running >= _MAX_CHAT_RUNS_GLOBAL:
+            raise HTTPException(status_code=503, detail="chat_run_busy")
+        # iter 346（F11b）：日预算守卫——防 chat run 绕过日预算（对齐 plan-gen 各生成路径）
+        check_daily_budget(db, user.id)
         run = models.Run(
             thread_id=thread_id,
             user_id=user.id,
