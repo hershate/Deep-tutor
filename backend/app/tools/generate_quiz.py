@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from app.agent.registry import Tool
+from app.tools.base import ToolInput
 
 # MVP 支持题型（essay 无法自动判分，降级为 choice）
 QUIZ_TYPES = frozenset({"choice", "fill", "short"})
@@ -176,11 +177,47 @@ _DEFAULT_QUIZ_DATA = {
 }
 
 
+def ensure_quiz_coverage(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
+    """iter 349：完整性保证——每个知识点至少一题；LLM 漏掉的节点补自评题兜底（不丢节点）。
+
+    旧实现仅 prompt 要求「每节点 1 题」，LLM 不遵守时静默缺题（题数不足是合法 schema，
+    绕过 tool-call repair）。本 post_process 程序层比对 plan.knowledge_map.nodes 与已出题
+    node_id，缺的补 short 自评题——根治「缺题」。
+    """
+    quizzes = list(data.get("quizzes") or [])
+    covered = {q.get("node_id") for q in quizzes if q.get("node_id")}
+    plan = (getattr(inp, "args", None) or {}).get("plan") or {}
+    nodes = (plan.get("knowledge_map") or {}).get("nodes") or []
+    added = 0
+    for n in nodes:
+        nid = n.get("id")
+        if not nid or nid in covered:
+            continue
+        name = n.get("name") or nid
+        quizzes.append({
+            "node_id": nid,
+            "node_name": name,
+            "type": "short",
+            "question": f"请用自己的话简述「{name}」的核心要点（自评）。",
+            "options": [],
+            "answer": "",
+            "explanation": "（LLM 未为该知识点出题，已补自评题兜底）",
+        })
+        covered.add(nid)
+        added += 1
+        if added >= 40:  # 上界保护
+            break
+    if added:
+        data["quizzes"] = quizzes
+    return data
+
+
 generate_quiz_tool = Tool(
     name="generate_quiz",
     llm=True,
     skill_name="deep-tutor-quiz",  # iter 61：skills/deep-tutor-quiz（缺失 R13 -> inline_prompt 回退）
     output_model=QuizSpec,
     inline_prompt=PROMPT,
+    post_process=ensure_quiz_coverage,  # iter 349：完整性——每知识点必有题
     default_data=_DEFAULT_QUIZ_DATA,
 )

@@ -2032,6 +2032,56 @@ def _quiz_result(rows: list[models.Quiz], content: dict, spec_title: str | None 
     }
 
 
+async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, user_id: int):
+    """生成 QuizSpec（iter 349 抽出，端点/后台共用）：题源联动 + 预算守卫 + 完整性（工具 post_process）。
+
+    不持久化（调用方负责 _persist_quizzes）。返回 (spec, spec_out)：spec_out.status 供端点判降级。
+    """
+    try:
+        provider = get_provider(user_id)
+    except Exception:  # noqa: BLE001  无 key -> 降级默认
+        provider = None
+    ctx = ExecContext(
+        session_id=str(plan.session_id),
+        trace_id=f"quiz-{plan.id}",
+        registry=default_registry(),
+        llm_provider=provider,
+        skill_registry=get_skill_registry() or None,  # iter 61：deep-tutor-quiz Skill（空 -> inline 回退）
+        data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
+    )
+    # quiz 题源联动（iter 49）：已持久化自学单元「检查理解」自测题 -> 题源（无单元/无小节 -> 空）
+    unit_contents: list[tuple[str, str]] = []
+    for u in (
+        db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
+    ):
+        if not u.materials:
+            continue
+        try:
+            # read_unit_content 自动串联 .pN 拆分子文件——直接 read_text 只读主文件，
+            # >500 行单元的「检查理解」小节会落入拆分尾部被静默漏掉
+            unit_contents.append((u.title, read_unit_content(u.materials[0].content_md_path)))
+        except OSError:
+            log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
+    check_questions = extract_check_questions(unit_contents)
+    inp = ToolInput(
+        tool="generate_quiz",
+        session_id=str(plan.session_id),
+        args={
+            "plan_id": str(plan.id),
+            "plan": content,
+            **({"unit_check_questions": check_questions} if check_questions else {}),
+        },
+    )
+    spec_out = await run_tool("generate_quiz", inp, ctx)
+    record_metadata_usage(db, spec_out.metadata, user_id)  # err.md A6：计量
+    if spec_out.status == "ok":
+        spec = QuizSpec.model_validate(spec_out.data)
+    else:
+        spec = default_quiz_from_plan(content)
+    return spec, spec_out
+
+
 @router.post("/{plan_id}/quiz")
 async def generate_quiz_endpoint(
     plan_id: int,
@@ -2052,52 +2102,7 @@ async def generate_quiz_endpoint(
         return _quiz_result(existing, content)
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径）
-
-    try:
-        provider = get_provider(user.id)
-    except Exception:  # noqa: BLE001  无 key -> 降级默认
-        provider = None
-
-    ctx = ExecContext(
-        session_id=str(plan.session_id),
-        trace_id=f"quiz-{plan_id}",
-        registry=default_registry(),
-        llm_provider=provider,
-        skill_registry=get_skill_registry() or None,  # iter 61：deep-tutor-quiz Skill（空 -> inline 回退）
-        data_dir=settings.data_dir,
-        budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
-    )
-    # quiz 题源联动（iter 49）：已持久化自学单元的「检查理解」自测题 -> 题源（无单元/无小节 -> 空，行为同前）
-    unit_contents: list[tuple[str, str]] = []
-    for u in (
-        db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
-    ):
-        if not u.materials:
-            continue
-        try:
-            # read_unit_content 自动串联 .pN 拆分子文件——直接 read_text 只读主文件，
-            # >500 行单元的「检查理解」小节（模板第 4/6 节，常落入拆分尾部）会被静默漏掉
-            unit_contents.append((u.title, read_unit_content(u.materials[0].content_md_path)))
-        except OSError:
-            log.warning("读取单元内容文件失败: %s", u.materials[0].content_md_path)
-    check_questions = extract_check_questions(unit_contents)
-    inp = ToolInput(
-        tool="generate_quiz",
-        session_id=str(plan.session_id),
-        args={
-            "plan_id": str(plan_id),
-            "plan": content,
-            **({"unit_check_questions": check_questions} if check_questions else {}),
-        },
-    )
-    spec_out = await run_tool("generate_quiz", inp, ctx)
-    record_metadata_usage(db, spec_out.metadata, user.id)  # err.md A6：计量
-    # ok 用 LLM 规约；repaired/error 降级 default_quiz_from_plan(plan)
-    if spec_out.status == "ok":
-        spec = QuizSpec.model_validate(spec_out.data)
-    else:
-        spec = default_quiz_from_plan(content)
-
+    spec, spec_out = await _generate_quiz_spec(db, plan, content, user.id)
     rows = _persist_quizzes(db, plan.id, spec)
     result = _quiz_result(rows, content, spec_title=spec.title)
     if spec_out.status != "ok":

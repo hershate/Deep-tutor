@@ -11,6 +11,7 @@ from app.tools.base import ToolInput
 from app.tools.generate_quiz import (
     QuizItem,
     default_quiz_from_plan,
+    ensure_quiz_coverage,
     extract_check_questions,
     generate_quiz_tool,
 )
@@ -159,3 +160,51 @@ def test_extract_check_questions_caps():
     units = [(f"u{i}", md) for i in range(6)]  # 6 单元 × 4 = 24 -> 截 20
     out = extract_check_questions(units)
     assert sum(len(u["questions"]) for u in out) == 20
+
+
+# --- iter 349：ensure_quiz_coverage（完整性——每知识点必有题）---
+
+
+def test_ensure_quiz_coverage_fills_missing_nodes():
+    """LLM 漏掉部分节点 -> post_process 补自评题，保证每节点至少一题（根治缺题）。"""
+    plan = {"knowledge_map": {"nodes": [
+        {"id": "k1", "name": "JS"},
+        {"id": "k2", "name": "组件"},
+        {"id": "k3", "name": "Hooks"},
+    ]}}
+    data = {"title": "t", "quizzes": [  # LLM 只出了 k1、k2，漏 k3
+        {"node_id": "k1", "node_name": "JS", "type": "choice", "question": "q1", "options": ["a", "b"], "answer": "a"},
+        {"node_id": "k2", "node_name": "组件", "type": "choice", "question": "q2", "options": ["a", "b"], "answer": "a"},
+    ]}
+    out = ensure_quiz_coverage(data, ToolInput(tool="generate_quiz", session_id="s", args={"plan": plan}))
+    by_node = {q["node_id"] for q in out["quizzes"]}
+    assert by_node == {"k1", "k2", "k3"}  # k3 被补上
+    filled = [q for q in out["quizzes"] if q["node_id"] == "k3"]
+    assert filled[0]["type"] == "short"  # 补的是自评题
+    assert "Hooks" in filled[0]["question"]
+
+
+def test_ensure_quiz_coverage_no_op_when_complete():
+    """LLM 已覆盖全部节点 -> 不追加（无重复）。"""
+    plan = {"knowledge_map": {"nodes": [{"id": "k1", "name": "JS"}, {"id": "k2", "name": "组件"}]}}
+    data = {"quizzes": [
+        {"node_id": "k1", "type": "choice", "question": "q1", "answer": "a"},
+        {"node_id": "k2", "type": "choice", "question": "q2", "answer": "a"},
+    ]}
+    out = ensure_quiz_coverage(data, ToolInput(tool="generate_quiz", session_id="s", args={"plan": plan}))
+    assert len(out["quizzes"]) == 2  # 无追加
+
+
+def test_ensure_quiz_coverage_via_run_tool():
+    """端到端：run_tool generate_quiz 走 post_process——LLM 漏节点时自动补全。"""
+    plan = {"intent": {"topic": "T"}, "knowledge_map": {"nodes": [
+        {"id": "k1", "name": "A"}, {"id": "k2", "name": "B"}, {"id": "k3", "name": "C"}]}}
+    # LLM 只返回 k1 一题
+    spec_json = '{"title":"t","quizzes":[{"node_id":"k1","node_name":"A","type":"choice","question":"q","options":["a"],"answer":"a"}]}'
+    provider = _ScriptedProvider([LLMResponse(content=spec_json, usage=LLMUsage(model="claude-sonnet-5"))])
+    out = asyncio.run(
+        run_tool("generate_quiz", ToolInput(tool="generate_quiz", session_id="s", args={"plan": plan}), _ctx(provider))
+    )
+    assert out.status == "ok"
+    by_node = {q["node_id"] for q in out.data["quizzes"]}
+    assert {"k1", "k2", "k3"} <= by_node  # k2/k3 被 post_process 补上
