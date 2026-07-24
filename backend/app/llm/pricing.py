@@ -1,12 +1,21 @@
 """模型计价表（成本计量 Pillar 3，plan/01 §三）。
 
-单价单位：USD / 1M tokens。按模型族名（opus/sonnet/haiku）子串匹配；未知模型
-estimate_cost 记 0 并告警（err.md B3：旧前缀匹配对 claude-3-5-sonnet-20241022 等
-dated ID 不命中 -> 成本静默记 0、预算守卫失效）。
+iter 356 重构：计费改为「设置页维护的模型计费列表」（模型名 → 各项费用），
+不再绑定 LLM 供应商卡片。
 
-> ⚠️ 价格随 Anthropic 调整而变动；以下为公开价目（ephemeral 5min cache：
-> cache_read ≈ 0.1×input，cache_write ≈ 1.25×input）。**使用前请核对**
-> https://www.anthropic.com/pricing 并按需更新。price 字段可在 settings 扩展为可配置。
+- **单价单位**：CNY（人民币）/ 1M tokens。全部计费以人民币计（用量页 / 日预算 / 成本归集）。
+- **计费解析** ``resolve_pricing(model, table)``：先按模型名**精确匹配**用户计费表；
+  未命中回退 Anthropic 族默认（opus/sonnet/haiku，¥ 参考价）；仍无 -> ``None``
+  （``estimate_cost`` 记 0 并告警，err.md B3 不静默）。
+- **内置默认国产模型计费表**（DeepSeek / 通义千问 Qwen / 智谱 GLM / Kimi，¥）作为
+  设置页初始参考，用户可改可删可加。价目据各厂商公开定价，可能随官方调整过时——
+  请按你的实际账单核对后调整。
+
+> 价目来源（核对链接）：
+> - DeepSeek：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+> - 通义千问（阿里云百炼）：https://help.aliyun.com/zh/model-studio/model-pricing
+> - 智谱 GLM：https://bigmodel.cn/pricing
+> - Kimi（Moonshot）：https://platform.moonshot.cn/pricing
 """
 
 from __future__ import annotations
@@ -18,10 +27,18 @@ from app.llm.base import LLMUsage
 
 log = logging.getLogger(__name__)
 
+# 计费表的 4 个单价字段名（与设置页 / 数据交换一致；只增不改）
+PRICING_FIELDS: tuple[str, ...] = (
+    "input_per_mtok",
+    "output_per_mtok",
+    "cache_read_per_mtok",
+    "cache_write_per_mtok",
+)
+
 
 @dataclass(frozen=True)
 class Pricing:
-    """每 1M tokens 单价（USD）。"""
+    """每 1M tokens 单价（CNY 人民币）。"""
 
     input_per_mtok: float
     output_per_mtok: float
@@ -29,57 +46,111 @@ class Pricing:
     cache_write_per_mtok: float
 
 
-# 模型族价目（USD / 1M tokens），族名子串匹配（兼容 dated ID 如 claude-3-5-sonnet-20241022）。
-# 顺序敏感：更具体的族放前面（opus 优先防误中）。Sonnet 族（3.5/3.7/4/5）长期 $3/$15。
+# Anthropic 族默认价目（CNY / 1M tokens，按公开美元价 ×≈7.2 换算的参考价）。
+# 族名子串匹配（兼容 dated ID 如 claude-3-5-sonnet-20241022）；顺序敏感：更具体
+# 的族放前面（opus 优先防误中）。仅当模型未出现在用户计费表时作兜底。
+# 核对：https://www.anthropic.com/pricing（实际美元价，此处为 ¥ 参考换算）
 _MODEL_PRICING: list[tuple[str, Pricing]] = [
-    ("opus", Pricing(15.0, 75.0, 1.50, 18.75)),
-    ("sonnet", Pricing(3.0, 15.0, 0.30, 3.75)),
-    ("haiku", Pricing(0.80, 4.0, 0.08, 1.0)),
+    ("opus", Pricing(108.0, 540.0, 10.8, 135.0)),
+    ("sonnet", Pricing(21.6, 108.0, 2.16, 27.0)),
+    ("haiku", Pricing(5.76, 28.8, 0.576, 7.2)),
 ]
 
 
-def _override_pricing(pricing: Pricing, ov: dict) -> Pricing:
-    """用用户覆盖字段构造新 Pricing（缺省/非法值回退默认）。iter 353 设置页可配置价目。"""
-    try:
-        return Pricing(
-            input_per_mtok=float(ov.get("input_per_mtok", pricing.input_per_mtok)),
-            output_per_mtok=float(ov.get("output_per_mtok", pricing.output_per_mtok)),
-            cache_read_per_mtok=float(ov.get("cache_read_per_mtok", pricing.cache_read_per_mtok)),
-            cache_write_per_mtok=float(ov.get("cache_write_per_mtok", pricing.cache_write_per_mtok)),
-        )
-    except (TypeError, ValueError):
-        return pricing
+# 内置默认国产模型计费表（CNY / 1M tokens），设置页初始参考。
+# cache_write：国产模型多无单独「缓存写入」计费（缓存自动/免费），保守取 = input
+# （不漏算）；cache_read：DeepSeek 有明确缓存命中价（极低），其余无公开折扣取 = input。
+# 价目据各厂商公开定价（2026-07 查证），可能已调整——请按实际账单核对。
+_DEFAULT_MODEL_PRICING: dict[str, Pricing] = {
+    "deepseek-chat": Pricing(1.0, 2.0, 0.02, 1.0),
+    "deepseek-reasoner": Pricing(3.0, 6.0, 0.025, 3.0),
+    "qwen-max": Pricing(12.0, 36.0, 12.0, 12.0),
+    "qwen-plus": Pricing(4.0, 12.0, 4.0, 4.0),
+    "qwen-turbo": Pricing(2.0, 6.0, 2.0, 2.0),
+    "glm-4-plus": Pricing(5.0, 5.0, 5.0, 5.0),
+    "glm-4-flash": Pricing(0.0, 0.0, 0.0, 0.0),  # 智谱 Flash 永久免费
+    "moonshot-v1-8k": Pricing(12.0, 12.0, 12.0, 12.0),
+}
 
 
-def get_pricing(model: str, overrides: dict | None = None) -> Pricing | None:
-    """按模型族名（opus/sonnet/haiku）子串匹配价目；未知返回 None。
+def get_pricing(model: str) -> Pricing | None:
+    """按 Anthropic 模型族名（opus/sonnet/haiku）子串匹配族默认价目；未知返回 None。
 
-    iter 353 用户级价目覆盖（设置页可配置）：overrides 形如
-    {"sonnet": {"input_per_mtok": 2.0, "output_per_mtok": 10.0, ...}}，
-    命中族且该族有覆盖时优先用覆盖单价（缺省字段回退默认）。
+    仅作兜底（用户计费表未覆盖的 Anthropic 模型）。国产模型不属此三族 -> 需在用户
+    计费表中配置（默认预填主流国产模型，见 default_pricing_table）。
     """
     if not model:
         return None
     name = model.lower()
     for family, pricing in _MODEL_PRICING:
         if family in name:
-            if overrides and isinstance(overrides.get(family), dict):
-                return _override_pricing(pricing, overrides[family])
             return pricing
     return None
 
 
-def estimate_cost(usage: LLMUsage, model: str | None = None, overrides: dict | None = None) -> float:
-    """据 usage 与模型价目估算费用（USD）；未知模型记 0 并告警（不静默，err.md B3）。
+def _pricing_from_entry(entry: dict) -> Pricing:
+    """从计费表条目（4 字段）构造 Pricing；缺省/非法字段回退 0（不静默漏算）。"""
+    if not isinstance(entry, dict):
+        return Pricing(0.0, 0.0, 0.0, 0.0)
 
-    iter 353：overrides 为用户级价目覆盖（设置页可配置），见 get_pricing。
+    def _f(key: str) -> float:
+        try:
+            return float(entry.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return Pricing(
+        input_per_mtok=_f("input_per_mtok"),
+        output_per_mtok=_f("output_per_mtok"),
+        cache_read_per_mtok=_f("cache_read_per_mtok"),
+        cache_write_per_mtok=_f("cache_write_per_mtok"),
+    )
+
+
+def _table_lookup(model: str, table: dict) -> dict | None:
+    """在用户计费表中按模型名精确匹配（大小写不敏感、去空白）。命中返回条目 dict。"""
+    ml = (model or "").strip().lower()
+    if not ml:
+        return None
+    for key, val in table.items():
+        if isinstance(val, dict) and (key or "").strip().lower() == ml:
+            return val
+    return None
+
+
+def resolve_pricing(model: str, table: dict | None = None) -> Pricing | None:
+    """iter 356：按模型名解析计费（CNY/1M tokens）。
+
+    解析顺序：
+    1. **精确模型名**匹配用户计费表 ``table``（大小写不敏感）；
+    2. 未命中 -> Anthropic 族默认（opus/sonnet/haiku 子串匹配）；
+    3. 仍无 -> ``None``（调用方记 0 告警）。
+
+    ``table`` 形如 ``{"deepseek-chat": {"input_per_mtok": 1.0, ...}, ...}``。
+    """
+    if not model:
+        return None
+    if table and isinstance(table, dict):
+        entry = _table_lookup(model, table)
+        if entry is not None:
+            return _pricing_from_entry(entry)
+    return get_pricing(model)
+
+
+def estimate_cost(
+    usage: LLMUsage, model: str | None = None, model_pricing: dict | None = None
+) -> float:
+    """据 usage 与模型计费估算费用（CNY）；未知模型记 0 并告警（不静默，err.md B3）。
+
+    iter 356：``model_pricing`` 为用户模型计费表（模型名 -> 4 字段），优先精确匹配；
+    未命中回退族默认。不传则纯族默认（向后兼容 provider.estimate_cost 等无表调用）。
     """
     used = model or usage.model or ""
-    p = get_pricing(used, overrides)
+    p = resolve_pricing(used, model_pricing)
     if p is None:
         if usage.input_tokens or usage.output_tokens:
             log.warning(
-                "未知模型 %r 计价缺失，本次 %d+%d tokens 成本记 0（请更新 pricing 价目）",
+                "未知模型 %r 计价缺失，本次 %d+%d tokens 成本记 0（请在设置页「模型计费」配置）",
                 used, usage.input_tokens, usage.output_tokens,
             )
         return 0.0
@@ -87,11 +158,7 @@ def estimate_cost(usage: LLMUsage, model: str | None = None, overrides: dict | N
 
 
 def estimate_cost_with_pricing(usage: LLMUsage, pricing: Pricing) -> float:
-    """按显式 Pricing 估算费用（USD），不做族查找。
-
-    iter 354 BUG2：每卡定价——ctx.pricing（启用档案合成的 Pricing）直接驱动计费，
-    替代族级 UserPref 覆盖。
-    """
+    """按显式 Pricing 估算费用（CNY），不做族/表查找。"""
     cost = (
         usage.input_tokens * pricing.input_per_mtok
         + usage.output_tokens * pricing.output_per_mtok
@@ -101,55 +168,18 @@ def estimate_cost_with_pricing(usage: LLMUsage, pricing: Pricing) -> float:
     return round(cost, 6)
 
 
-# 每卡定价字段键（与 settings.py _VALID_PRICING_FIELDS、Pricing 字段同名）
-_PRICING_KEYS = ("input_per_mtok", "output_per_mtok", "cache_read_per_mtok", "cache_write_per_mtok")
-
-
-def pricing_for_profile(model: str, prices: dict | None) -> Pricing | None:
-    """iter 354 BUG2：按「启用供应商档案」价目合成 Pricing（定价绑定具体卡片）。
-
-    - model：档案模型（决定族默认回退，子串匹配 opus/sonnet/haiku）；
-    - prices：档案 4 字段（键见 _PRICING_KEYS，值 float 或 None）。
-      任一字段为 None -> 该字段回退族默认；全 None / prices 空 -> 直接返回族默认；
-      未知模型且档案未设任何价 -> None（estimate_cost 记 0 告警，同旧行为）；
-      未知模型但档案设了价 -> 用档案价构造（缺省字段 0）。
-    """
-    base = get_pricing(model)
-    if not prices or not isinstance(prices, dict):
-        return base
-    if not any(prices.get(k) is not None for k in _PRICING_KEYS):
-        return base
-
-    def _val(key: str) -> float:
-        v = prices.get(key)
-        if v is None:
-            return getattr(base, key) if base is not None else 0.0
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return getattr(base, key) if base is not None else 0.0
-
-    return Pricing(
-        input_per_mtok=_val("input_per_mtok"),
-        output_per_mtok=_val("output_per_mtok"),
-        cache_read_per_mtok=_val("cache_read_per_mtok"),
-        cache_write_per_mtok=_val("cache_write_per_mtok"),
-    )
-
-
 def default_pricing_table() -> dict:
-    """默认价目快照（USD / 1M tokens），供设置页展示。iter 353 设置页可配置。
+    """内置默认国产模型计费表（CNY / 1M tokens），供设置页展示为初始参考。
 
-    键为模型族名（opus/sonnet/haiku，子串匹配）；价目据 Anthropic 公开价目，可能随
-    官方调整而过时——用户可在设置页按实际账单覆盖（见 get_pricing overrides）。
-    核对链接：https://www.anthropic.com/pricing
+    键为模型名（精确匹配）；价目据各厂商公开定价（见模块 docstring 核对链接），
+    可能随官方调整过时——用户可在设置页按实际账单编辑/增删。
     """
     return {
-        family: {
+        model: {
             "input_per_mtok": p.input_per_mtok,
             "output_per_mtok": p.output_per_mtok,
             "cache_read_per_mtok": p.cache_read_per_mtok,
             "cache_write_per_mtok": p.cache_write_per_mtok,
         }
-        for family, p in _MODEL_PRICING
+        for model, p in _DEFAULT_MODEL_PRICING.items()
     }

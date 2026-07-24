@@ -66,8 +66,24 @@ def _has_index(table: str, index: str):
     return _det
 
 
+def _provider_pricing_removed(insp) -> bool:
+    """c5d7e9a13b28 代（iter 356 删每卡计价列，最新 head）特征：study_units 有 node_sids
+    （≥f0a2c5d839b1 基线）且 llm_provider_profiles 已无 price_input_per_mtok 列。
+
+    删列迁移无"新增"特征，故用「较新基线 + 该列已不存在」组合识别——既能把最新
+    create_all 库直接 stamp 到 head（upgrade 无操作），又不误命中「price 列仍在的
+    d8a2f5c91b34 代库」（那种库列仍在 -> 不命中 -> 落到下一探针 stamp d8a2f5c91b34，
+    upgrade 再跑 c5d7e9a13b28 删列）。
+    """
+    if not _has_column("study_units", "node_sids")(insp):
+        return False
+    return not _has_column("llm_provider_profiles", "price_input_per_mtok")(insp)
+
+
 _REVISION_PROBES = [
-    ("d8a2f5c91b34", _has_column("llm_provider_profiles", "price_input_per_mtok")),  # iter 354 BUG2 每卡计价
+    ("c5d7e9a13b28", _provider_pricing_removed),  # iter 356 删每卡计价列（最新 head）
+    # iter 356：price 列仍在 = 旧库已到 d8a2f5c91b34 代；stamp 后 upgrade 跑 c5d7e9a13b28 删列
+    ("d8a2f5c91b34", _has_column("llm_provider_profiles", "price_input_per_mtok")),
     ("f0a2c5d839b1", _has_column("study_units", "node_sids")),  # iter 348 材料知识点驱动
     ("e1b7c3d94a08", _has_table("threads")),  # iter 345 记忆系统
     ("c0f2a4b18d33", _has_column("llm_provider_profiles", "kind")),  # iter 313

@@ -104,7 +104,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
         """iter 243：异常/取消出口亦回填已累积 usage——此前这些路径 metadata 全零，
         已成功的重试轮次 token 不进 tool_calls/api_usage，而日预算只信 api_usage
         -> 绕过入口守卫的成本黑洞（cancel/timeout/4xx 后重试成本全部隐形）。"""
-        out.metadata = build_metadata(total, last_model, ctx.pricing)
+        out.metadata = build_metadata(total, last_model, ctx.model_pricing)
         return out
 
     try:
@@ -121,7 +121,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
                 # 无意义且白烧修复额度 -> 直接降级，提示用户调高上限。
                 log.warning("工具 %s 输出达 max_tokens 上限被截断（可在设置页调高「LLM 输出上限」）", tool.name)
                 out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
-                out.metadata = build_metadata(total, last_model, ctx.pricing)
+                out.metadata = build_metadata(total, last_model, ctx.model_pricing)
                 return out
             data, err = _parse_and_validate(resp.content, tool.output_model)
             if err is None:
@@ -131,7 +131,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
                     tool=tool.name,
                     status="ok",
                     data=data,
-                    metadata=build_metadata(total, last_model, ctx.pricing),
+                    metadata=build_metadata(total, last_model, ctx.model_pricing),
                 )
             last_error = err
             log.warning("工具 %s 第 %d 次校验失败: %s", tool.name, attempt, err)
@@ -144,7 +144,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
 
     # 重试耗尽 -> 降级默认 + 告警（Pillar 2）
     out = _degraded(tool, "schema_violation", f"修复重试 {REPAIR_MAX_RETRIES} 次仍不符: {last_error}")
-    out.metadata = build_metadata(total, last_model)
+    out.metadata = build_metadata(total, last_model, ctx.model_pricing)
     return out
 
 

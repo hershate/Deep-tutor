@@ -149,8 +149,8 @@ def test_empty_system_passes_none():
 
 def test_cost_sonnet_tier():
     u = LLMUsage(input_tokens=1_000_000, output_tokens=1_000_000, model="claude-sonnet-5")
-    # 3 (input) + 15 (output) = 18 USD per 1M each
-    assert estimate_cost(u) == 18.0
+    # iter 356 族默认改 ¥：21.6 (input) + 108 (output) = 129.6 CNY per 1M each
+    assert estimate_cost(u) == 129.6
 
 
 def test_cost_includes_cache():
@@ -161,8 +161,8 @@ def test_cost_includes_cache():
         cache_creation_input_tokens=1_000_000,
         model="claude-sonnet-5",
     )
-    # 3 + 15 + 0.30 + 3.75 = 22.05
-    assert estimate_cost(u) == pytest.approx(22.05)
+    # iter 356 ¥：21.6 + 108 + 2.16 + 27 = 158.76
+    assert estimate_cost(u) == pytest.approx(158.76)
 
 
 def test_unknown_model_cost_zero():

@@ -625,12 +625,8 @@ class LlmProviderProfile(Base):
     # 插件协议 -> get_provider 分发到对应 PluginProvider（凭证由本档案 api_key/base_url 传入 handler）。
     kind: Mapped[str | None] = mapped_column(String(64), default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
-    # iter 354 BUG2：每卡独立计价（USD / 1M tokens）。NULL -> 该字段回退模型族内置默认价。
-    # 计费时按「启用档案」的价目合成 Pricing（pricing_for_profile），替代旧的族级 UserPref 覆盖。
-    price_input_per_mtok: Mapped[float | None] = mapped_column(Float, nullable=True)
-    price_output_per_mtok: Mapped[float | None] = mapped_column(Float, nullable=True)
-    price_cache_read_per_mtok: Mapped[float | None] = mapped_column(Float, nullable=True)
-    price_cache_write_per_mtok: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # iter 356：每卡计价已移除——计费改为设置页维护的「模型计费表」（UserPref{model_pricing}，
+    # 模型名 -> 4 单价字段），不再绑定供应商卡片。见 app.llm.pricing.resolve_pricing。
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

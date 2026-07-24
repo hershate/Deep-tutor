@@ -36,7 +36,7 @@ from app.core.credentials import resolve_bing_api_key
 from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
-from app.llm import get_provider
+from app.llm import get_active_model_pricing, get_provider
 from app.llm.anthropic_provider import AnthropicProvider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
@@ -649,6 +649,8 @@ async def _run_chat(
             db=db,
             user_id=user_id,
             bing_api_key=resolve_bing_api_key(user_id),
+            # iter 356：当前用户模型计费表 -> Agent 对话成本计量按用户配置单价
+            model_pricing=get_active_model_pricing(user_id),
         )
         ctx.thread_id = thread_id
         ctx.run_id = run_id

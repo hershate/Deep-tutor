@@ -303,7 +303,7 @@ async def run_agent_loop(
         turn_usage = acc.usage or LLMUsage()
         if turn_usage.input_tokens or turn_usage.output_tokens:
             accumulate_usage(total_usage, turn_usage)
-            meta = build_metadata(turn_usage, turn_usage.model)
+            meta = build_metadata(turn_usage, turn_usage.model, ctx.model_pricing)
             record_metadata_usage(db, meta, user_id)
             if ctx.budget is not None:
                 ctx.budget.add(meta.cost)

@@ -15,7 +15,7 @@ from app.api.deps import get_current_user, get_daily_budget, get_db, require_aut
 from app.core.settings import effective_search_engine, settings
 from app.db import models
 from app.db.models import User
-from app.llm.pricing import default_pricing_table
+from app.llm.pricing import PRICING_FIELDS, default_pricing_table
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_auth)])
 
@@ -150,42 +150,42 @@ def update_prefs(
     }
 
 
-# iter 353：用户级价目覆盖（设置页可配置）。默认价目据 Anthropic 公开价目，可能过时
-# （如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）；用户可按实际账单覆盖每族单价。
-_VALID_PRICING_FAMILIES = ("opus", "sonnet", "haiku")
-_VALID_PRICING_FIELDS = (
-    "input_per_mtok",
-    "output_per_mtok",
-    "cache_read_per_mtok",
-    "cache_write_per_mtok",
-)
+# iter 356：用户级「模型计费表」（设置页维护，模型名 -> 4 单价字段，¥/1M tokens）。
+# 替代旧的族级覆盖（iter 353）与每卡定价（iter 354）。默认表据主流国产模型公开计价，
+# 可能随官方调整过时——用户可按实际账单编辑/增删。
+_VALID_PRICING_FIELDS = PRICING_FIELDS  # (input/output/cache_read/cache_write)_per_mtok
 
 
-def _clean_pricing_overrides(pricing: dict) -> dict:
-    """清洗价目覆盖输入：只保留已知族 + 已知数值字段（防注入 / 非法值）。"""
+def _clean_model_pricing(table: dict) -> dict:
+    """清洗模型计费表输入：模型名非空 + 仅保留已知 4 数值字段（非负）。
+
+    条目缺失的字段补 0（计费表条目须 4 字段齐全，避免 resolve 时静默缺省）。
+    """
     cleaned: dict = {}
-    if not isinstance(pricing, dict):
+    if not isinstance(table, dict):
         return cleaned
-    for family, fields in pricing.items():
-        if family not in _VALID_PRICING_FAMILIES or not isinstance(fields, dict):
+    for model, fields in table.items():
+        if not isinstance(model, str) or not model.strip() or not isinstance(fields, dict):
             continue
-        fam_clean: dict = {}
-        for key, val in fields.items():
-            if key in _VALID_PRICING_FIELDS:
+        entry: dict = {}
+        for key in _VALID_PRICING_FIELDS:
+            if key in fields:
                 try:
-                    num = float(val)
+                    num = float(fields[key])
                 except (TypeError, ValueError):
                     continue
                 if num < 0:
                     continue  # 单价非负
-                fam_clean[key] = num
-        if fam_clean:
-            cleaned[family] = fam_clean
+                entry[key] = num
+        if entry:
+            for key in _VALID_PRICING_FIELDS:
+                entry.setdefault(key, 0.0)  # 缺失字段补 0
+            cleaned[model.strip()] = entry
     return cleaned
 
 
-class PricingOverridesIn(BaseModel):
-    """价目覆盖（USD / 1M tokens）。pricing 为空 -> 清除全部覆盖回退默认。"""
+class ModelPricingIn(BaseModel):
+    """模型计费表（CNY / 1M tokens）。pricing 为空 -> 清空回退默认。"""
 
     pricing: dict = Field(default_factory=dict)
 
@@ -194,40 +194,40 @@ class PricingOverridesIn(BaseModel):
 def get_pricing_settings(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    """价目表：默认（内置）+ 用户覆盖（设置页可配置，iter 353）。
+    """模型计费表：默认（内置国产模型参考价）+ 用户已保存的表（设置页维护，iter 356）。
 
-    单位 USD / 1M tokens；覆盖优先于默认。计费时按用户覆盖重算 api_usage.cost
-    （用量页 / 日预算即用户实际单价）。
+    单位 CNY（人民币）/ 1M tokens；用户表精确匹配优先，未命中回退族默认。
+    计费时按此表 resolve_pricing 重算 api_usage.cost（用量页 / 日预算即用户实际单价）。
     """
-    from app.agent.cost import load_pricing_overrides
+    from app.agent.cost import load_model_pricing
 
     return {
         "defaults": default_pricing_table(),
-        "overrides": load_pricing_overrides(db, user.id),
-        "note": "单价为 USD/1M tokens。默认值据 Anthropic 公开价目，可能随官方调整过时；"
-        "建议按你的实际账单核对后覆盖。核对：https://www.anthropic.com/pricing",
+        "table": load_model_pricing(db, user.id),
+        "note": "单价为 CNY（人民币）/1M tokens。默认值据主流国产模型公开计价，可能随官方"
+        "调整过时；建议按你的实际账单编辑。核对链接见后端 app/llm/pricing.py 模块说明。",
     }
 
 
 @router.put("/pricing")
 def update_pricing_settings(
-    body: PricingOverridesIn,
+    body: ModelPricingIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """设置/清除用户级价目覆盖（iter 353）。
+    """设置/清空用户「模型计费表」（iter 356）。
 
-    pricing 空对象 -> 删除覆盖行（回退默认）；否则清洗后 upsert pricing_overrides JSON。
-    幂等：重复 PUT 同值结果一致。仅已知族（opus/sonnet/haiku）与已知字段被保留。
+    pricing 空对象 -> 删除该用户计费表行（回退默认）；否则清洗后 upsert model_pricing JSON。
+    幂等：重复 PUT 同值结果一致。仅非空模型名与已知 4 字段（非负）被保留，缺失字段补 0。
     """
     import json
 
-    from app.agent.cost import load_pricing_overrides
+    from app.agent.cost import MODEL_PRICING_PREF_KEY, load_model_pricing
 
-    cleaned = _clean_pricing_overrides(body.pricing)
+    cleaned = _clean_model_pricing(body.pricing)
     row = (
         db.query(models.UserPref)
-        .filter_by(user_id=user.id, key="pricing_overrides")
+        .filter_by(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
         .one_or_none()
     )
     if not cleaned:
@@ -236,11 +236,11 @@ def update_pricing_settings(
             db.commit()
     else:
         if row is None:
-            row = models.UserPref(user_id=user.id, key="pricing_overrides")
+            row = models.UserPref(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
             db.add(row)
         row.value = json.dumps(cleaned, ensure_ascii=False)
         db.commit()
     return {
         "defaults": default_pricing_table(),
-        "overrides": load_pricing_overrides(db, user.id),
+        "table": load_model_pricing(db, user.id),
     }
