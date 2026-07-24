@@ -75,3 +75,34 @@ def test_degrade_to_empty_map():
     assert out.status == "repaired"
     assert out.data == {"nodes": [], "edges": []}
     assert out.errors[0].code == "schema_violation"
+
+
+def test_difficulty_clamped_to_range():
+    # iter 347：LLM 越界（7 / 0 / -3）应被夹紧到 [1,5]
+    provider = ScriptedProvider(
+        [_resp({"nodes": [
+            {"id": "k1", "name": "a", "difficulty": 7},
+            {"id": "k2", "name": "b", "difficulty": 0},
+            {"id": "k3", "name": "c", "difficulty": -3},
+            {"id": "k4", "name": "d", "difficulty": 3},
+        ], "edges": []})]
+    )
+    out = _run(provider)
+    assert out.status == "ok"
+    by_id = {n["id"]: n["difficulty"] for n in out.data["nodes"]}
+    assert by_id == {"k1": 5, "k2": 1, "k3": 1, "k4": 3}
+
+
+def test_difficulty_non_int_defaults_to_one():
+    # iter 347：非整数/缺失 difficulty 兜底为 1，不抛
+    provider = ScriptedProvider(
+        [_resp({"nodes": [
+            {"id": "k1", "name": "a", "difficulty": "很难"},
+            {"id": "k2", "name": "b"},
+            {"id": "k3", "name": "c", "difficulty": None},
+        ], "edges": []})]
+    )
+    out = _run(provider)
+    assert out.status == "ok"
+    by_id = {n["id"]: n["difficulty"] for n in out.data["nodes"]}
+    assert by_id == {"k1": 1, "k2": 1, "k3": 1}
