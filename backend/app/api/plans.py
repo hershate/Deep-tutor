@@ -199,6 +199,10 @@ class _SessionStream:
 class GenerateIn(BaseModel):
     session_id: int
     raw_text: str = ""
+    # iter 353：结构化时间输入（可选，首页表单直填；authoritative，覆盖 LLM 从 raw_text 的抽取）
+    daily_minutes: int | None = Field(default=None, ge=1, le=1440)
+    deadline: str | None = None  # ISO 8601 date
+    start_date: str | None = None  # ISO 8601 date，学习起始日（schedule 从此日开始）
 
 
 class ClarifyIn(BaseModel):
@@ -362,7 +366,15 @@ def generate(
         check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, body.session_id, raw_text)
 
-    return _start_full_generation(stream, body.session_id, raw_text, parsed, request, user)
+    # iter 353：用户首页表单填的结构化时间字段传给 understand_intent（authoritative 覆盖 LLM 抽取）
+    intent_overrides = {
+        "daily_minutes": body.daily_minutes,
+        "deadline": body.deadline,
+        "start_date": body.start_date,
+    }
+    return _start_full_generation(
+        stream, body.session_id, raw_text, parsed, request, user, intent_overrides=intent_overrides
+    )
 
 
 def _start_full_generation(
@@ -372,6 +384,7 @@ def _start_full_generation(
     parsed: list[dict],
     request: Request,
     user: User,
+    intent_overrides: dict | None = None,
 ) -> StreamingResponse:
     """全量生成启动（iter 184 B4 抽取，generate 与 retry 复用）：
     拼接已解析资料 -> 组装 args/initial_upstream -> 返回生成 SSE 流。"""
@@ -390,7 +403,14 @@ def _start_full_generation(
     # err.md B2：args.parsed 只传 meta（全文已由 upstream.parse_material.data.text
     # 提供，此前同一份内容在 user 消息里出现 2-3 次）
     parsed_metas = [{"text": "", "meta": p["meta"]} for p in parsed]
-    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": parsed_metas}}
+    # iter 353：结构化时间字段（用户首页表单直填）注入 understand_intent args——
+    # _validate_intent 用其 authoritative 覆盖 LLM 从 raw_text 的抽取。
+    intent_args: dict = {"raw_text": raw_text, "parsed": parsed_metas}
+    if intent_overrides:
+        for k in ("daily_minutes", "deadline", "start_date"):
+            if intent_overrides.get(k) is not None:
+                intent_args[k] = intent_overrides[k]
+    args_by_tool = {"understand_intent": intent_args}
     return StreamingResponse(
         _run_start(
             stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id

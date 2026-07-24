@@ -25,7 +25,7 @@ PROMPT = """你是 Deep-tutor 的「学习排期」工具。任务：依据学�
 - 每日 est_minutes 不超过每日可用时长；阶段难度高的日子可少排。
 - 覆盖所有阶段；阶段顺序与 design_stages 一致。
 - 若时长不足以覆盖所有阶段，仍生成一个合理的排期（后续会校验并提示）。
-- 日期连续或按工作日排列均可，但不要编造周末之外的非existent 日期。
+- **日期从 args.start_date（或 upstream.understand_intent.data.start_date）开始连续排列；若未提供则从今天开始。不要自行编造起始日**（程序层会按 start_date 确定性重写日期，你只需保证条目数量与每日内容合理）。
 
 仅返回符合 schema 的 JSON 对象（不要 markdown 代码块）：
 {"schedule":[{"date":"2026-07-16","stage_index":0,"tasks":["学 JS 基础"],"est_minutes":60}]}
@@ -51,6 +51,24 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
         schedule = schedule[:_MAX_SCHEDULE_DAYS]
         data["schedule"] = schedule
         data["truncated"] = True
+    # iter 353：日期确定性重写——从 start_date（用户表单指定，upstream.understand_intent.data.start_date）
+    # 或今天开始连续排程，替代 LLM 无锚点臆造的日期（此前 schedule 日期与真实日历错位，致「今日学习」
+    # 匹配不到；用户诉求「生成计划的时间由我自己指定」）。
+    from datetime import date as _schedule_date, timedelta as _timedelta
+
+    start: _schedule_date | None = None
+    try:
+        sd_raw = (((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}).get("start_date")
+        if sd_raw:
+            start = datetime.fromisoformat(str(sd_raw).strip()).date()
+    except (ValueError, TypeError):
+        start = None
+    if start is None:
+        start = _schedule_date.today()
+    for i, s in enumerate(schedule):
+        if isinstance(s, dict):
+            s["date"] = (start + _timedelta(days=i)).isoformat()
+    data["start_date"] = start.isoformat()
     # err.md B17：daily_minutes 非正数/非数值时跳过容量校验——负数会让
     # capacity 变负，任何排期都误报 insufficient_time
     try:
