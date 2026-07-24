@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import { ApiError, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
+import { ApiError, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 
 interface Props {
@@ -122,6 +122,13 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [doneBusy, setDoneBusy] = useState(false)
+  // iter 346（F6）：阅读内重写本单元——复用 generateMaterialsStream（单单元 unitIds + depth）
+  const [showRewrite, setShowRewrite] = useState(false)
+  const [rewriteDepth, setRewriteDepth] = useState<'brief' | 'full'>('full')
+  const [rewriting, setRewriting] = useState(false)
+  const [rewriteMsg, setRewriteMsg] = useState('')
+  const [rewriteErr, setRewriteErr] = useState('')
+  const rewriteAcRef = useRef<AbortController | null>(null)
   const acRef = useRef<AbortController | null>(null)
   // iter 261：滚动位置记忆（会话级）——内容区 key=currentId 切单元即重挂载滚动必丢，
   // 「切去下一单元瞥一眼再切回来从头找」是阅读流断点。仅会话内有效（组件卸载即清）：
@@ -247,6 +254,45 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
       // 标记失败不打断阅读（下次进入列表会重取）
     } finally {
       setDoneBusy(false)
+    }
+  }
+
+  // iter 346（F6）：阅读内重写本单元——后端 /plans/{id}/materials 已支持 unit_ids 单元替换 +
+  // depth（full 详细展开 / brief 简单说说）+ SSE 逐单元；完成后重取本单元内容刷新。
+  // 对齐「Partial Result Regeneration」局部重写 UX（§八 J）——对选中单元细粒度重写，非整体重生。
+  async function startRewrite() {
+    if (!current) return
+    setRewriteErr('')
+    setRewriting(true)
+    setRewriteMsg('正在重写…')
+    rewriteAcRef.current?.abort()
+    const ac = new AbortController()
+    rewriteAcRef.current = ac
+    try {
+      await generateMaterialsStream(planId, rewriteDepth, false, {
+        onUnitStart: (d) => setRewriteMsg(`正在重写「${d.title}」…`),
+        onUnitDone: (d) => setRewriteMsg(d.degraded ? `「${d.title}」已重写（降级）` : `「${d.title}」已重写`),
+      }, ac.signal, [current.id])
+      if (ac.signal.aborted) return
+      setRewriteMsg('重写完成，正在刷新…')
+      // currentId 未变，加载 effect 不会自动重跑 -> 手动重取内容刷新
+      const r = await getStudyUnitContent(current.id, ac.signal)
+      if (!ac.signal.aborted) {
+        setContent(r.content_md)
+        setContentTitle(r.title)
+        setResources(r.resources ?? [])
+        setRewriting(false)
+        setShowRewrite(false)
+        setRewriteMsg('')
+      }
+    } catch (e) {
+      if (ac.signal.aborted) {
+        setRewriting(false)
+        setRewriteMsg('')
+        return
+      }
+      setRewriteErr(e instanceof ApiError ? e.message : '重写失败')
+      setRewriting(false)
     }
   }
 
@@ -531,6 +577,17 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
                   {current.done ? '✓ 已学（点击取消）' : '标记已学'}
                 </button>
                 <button
+                  onClick={() => {
+                    setShowRewrite(true)
+                    setRewriteErr('')
+                  }}
+                  disabled={rewriting}
+                  className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-700 transition-all hover:bg-amber-50 active:scale-95 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950"
+                  title="重写本单元（详细展开 / 简单说说）"
+                >
+                  ✍️ 重写
+                </button>
+                <button
                   onClick={onOpenQuiz}
                   className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[.98]"
                 >
@@ -545,6 +602,69 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
                 下一单元
               </button>
             </div>
+            {showRewrite && current && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="mb-2 font-medium text-amber-800 dark:text-amber-200">重写「{current.title}」</div>
+                <div className="mb-2 flex flex-wrap items-center gap-3">
+                  <span className="text-slate-600 dark:text-slate-300">深度：</span>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name={`rewriteDepth-${current.id}`}
+                      checked={rewriteDepth === 'full'}
+                      onChange={() => setRewriteDepth('full')}
+                      disabled={rewriting}
+                    />
+                    详细展开
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name={`rewriteDepth-${current.id}`}
+                      checked={rewriteDepth === 'brief'}
+                      onChange={() => setRewriteDepth('brief')}
+                      disabled={rewriting}
+                    />
+                    简单说说
+                  </label>
+                </div>
+                {rewriting ? (
+                  <div className="flex items-center gap-2">
+                    <span className="animate-pulse text-amber-700 dark:text-amber-300">
+                      {rewriteMsg || '正在重写…'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => rewriteAcRef.current?.abort()}
+                      className="rounded border border-amber-300 px-2 py-0.5 text-xs hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900"
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={startRewrite}
+                      className="rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-700"
+                    >
+                      开始重写
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRewrite(false)
+                        setRewriteErr('')
+                      }}
+                      className="rounded border border-amber-300 px-3 py-1 text-xs hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900"
+                    >
+                      取消返回
+                    </button>
+                    {rewriteErr && <span className="text-red-600 dark:text-red-400">{rewriteErr}</span>}
+                  </div>
+                )}
+              </div>
+            )}
               </>
             )}
           </>
