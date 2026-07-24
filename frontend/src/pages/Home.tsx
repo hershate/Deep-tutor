@@ -151,49 +151,60 @@ export default function Home() {
     try {
       const { session_id } = await createSession(rawText.slice(0, 40) || '学习方案')
       try {
-        // 批量导入（P2，plan/README §输入形式9）：多文件合并为一个资料集，逐份上传。
-        // iter 225：上传仅落原件（pending）；处理方式由用户在文件列表逐项选定——
-        // full/fast 再调解析（隐含确认），none 仅确认添加（不参与生成）
-        for (let i = 0; i < files.length; i++) {
-          setUploadProgress(`上传资料 ${i + 1}/${files.length}（${files[i].file.name}）`)
-          setUploadPct(null)
+        // 批量导入（P2）：多文件合并为一个资料集。iter 351（缺陷 B）：改有界并发上传/解析
+        // （3 路，对齐后端 _MATERIALS_CONCURRENCY）；旧串行 N 文件需等 N×(上传+解析)，5 个
+        // 高质量 PDF（marker 解析各 20-40s）要 2-3 分钟。iter 225：上传仅落原件（pending），
+        // full/fast 再解析、none 仅确认添加——处理方式由用户在文件列表逐项选定。
+        const _POOL = 3
+        async function _runPool<T>(items: T[], fn: (item: T) => Promise<void>): Promise<void> {
+          let idx = 0
+          const worker = async () => {
+            while (idx < items.length) {
+              const cur = idx++
+              await fn(items[cur])
+            }
+          }
+          await Promise.all(Array.from({ length: Math.min(_POOL, items.length) }, worker))
+        }
+        let firstErr: string | null = null
+        let filesDone = 0
+        if (files.length) setUploadProgress(`处理资料 0/${files.length}`)
+        await _runPool(files, async (f) => {
+          if (firstErr) return // 一项失败后停止派新（已派发的让其完成，再统一抛错）
           let materialId: number
           try {
-            const m = await uploadMaterial(session_id, files[i].file, (pct) => setUploadPct(pct))
+            const m = await uploadMaterial(session_id, f.file, (pct) => setUploadPct(pct))
             materialId = m.material_id
           } catch (e) {
-            throw new Error(
-              `${files[i].file.name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`,
-            )
+            firstErr = `${f.file.name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`
+            return
           }
-          const mode = files[i].mode
-          setUploadProgress(
-            mode === 'none'
-              ? `添加资料 ${i + 1}/${files.length}（${files[i].file.name}，不解析）`
-              : `解析资料 ${i + 1}/${files.length}（${files[i].file.name}）`,
-          )
-          setUploadPct(null)
           try {
-            if (mode === 'none') await confirmMaterial(materialId)
-            else await parseMaterial(materialId, mode)
+            if (f.mode === 'none') await confirmMaterial(materialId)
+            else await parseMaterial(materialId, f.mode)
           } catch (e) {
-            throw new Error(
-              `${files[i].file.name} ${mode === 'none' ? '添加' : '解析'}失败：${e instanceof ApiError ? e.message : '网络错误'}`,
-            )
+            firstErr = `${f.file.name} ${f.mode === 'none' ? '添加' : '解析'}失败：${e instanceof ApiError ? e.message : '网络错误'}`
+          } finally {
+            filesDone++
+            setUploadProgress(`处理资料 ${filesDone}/${files.length}`)
           }
-        }
-        // 网页链接资料（plan/03 §二）：后端逐条抓取+正文提取
-        for (let i = 0; i < urls.length; i++) {
-          setUploadProgress(`抓取网页 ${i + 1}/${urls.length}（${urls[i]}）`)
-          setUploadPct(null)
+        })
+        setUploadPct(null)
+        // 网页链接资料（plan/03 §二）：后端逐条抓取+正文提取，并发同上
+        let urlsDone = 0
+        if (urls.length) setUploadProgress(`抓取网页 0/${urls.length}`)
+        await _runPool(urls, async (u) => {
+          if (firstErr) return
           try {
-            await createUrlMaterial(session_id, urls[i])
+            await createUrlMaterial(session_id, u)
           } catch (e) {
-            throw new Error(
-              `${urls[i]} 抓取失败：${e instanceof ApiError ? e.message : '网络错误'}`,
-            )
+            firstErr = `${u} 抓取失败：${e instanceof ApiError ? e.message : '网络错误'}`
+          } finally {
+            urlsDone++
+            setUploadProgress(`抓取网页 ${urlsDone}/${urls.length}`)
           }
-        }
+        })
+        if (firstErr) throw new Error(firstErr)
       } catch (uploadErr) {
         // 上传失败：清理刚建的空会话，避免孤儿堆积（重试会建新会话）
         deleteSession(session_id).catch(() => {})
