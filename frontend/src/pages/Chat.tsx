@@ -10,6 +10,7 @@ import { getToken } from '../lib/auth'
 import {
   createThread,
   deleteThread,
+  patchThread,
   listMessages,
   listThreads,
   listThreadMemory,
@@ -130,16 +131,42 @@ export default function Chat() {
         </button>
         <div className="flex-1 overflow-y-auto">
           {(threadsQ.data?.items ?? []).map((t: Thread) => (
-            <button
+            <div
               key={t.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setActiveId(t.id)}
-              className={`mb-1 flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm ${
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setActiveId(t.id)
+                }
+              }}
+              className={`group mb-1 flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm ${
                 activeId === t.id ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <span className="truncate flex-1">{t.title || `对话 ${t.id}`}</span>
               {t.running && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" title="运行中" />}
-            </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // iter 346（F4）：重命名会话（后端 PATCH /threads/{id} 已就绪）
+                  const next = window.prompt('重命名对话', t.title || '')
+                  if (next && next.trim() && next.trim() !== (t.title || '')) {
+                    patchThread(t.id, { title: next.trim() }).then(() =>
+                      queryClient.invalidateQueries({ queryKey: ['threads'] }),
+                    )
+                  }
+                }}
+                className="hidden shrink-0 rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-200 hover:text-slate-700 group-hover:block dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                aria-label={`重命名对话「${t.title || t.id}」`}
+                title="重命名"
+              >
+                ✏️
+              </button>
+            </div>
           ))}
           {threadsQ.data?.items.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">尚无对话，点上方新建</p>}
         </div>
