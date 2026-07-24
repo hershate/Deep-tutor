@@ -67,15 +67,16 @@ def test_estimate_cost_with_model_pricing():
 
 
 def test_get_pricing_returns_defaults(client):
-    """GET /pricing 返回内置国产模型默认表 + 空 table（未配时）。"""
+    """GET /pricing 返回内置默认模型表（DeepSeek V4）+ 空 table（未配时）。"""
     _mk_user("u1")
     h = _login(client, "u1")
     r = client.get(f"{BASE}/pricing", headers=h)
     assert r.status_code == 200, r.text
     data = r.json()
-    # 默认表为国产模型（DeepSeek/Qwen/GLM/Kimi）
-    assert "deepseek-chat" in data["defaults"]
-    assert "input_per_mtok" in data["defaults"]["deepseek-chat"]
+    # 默认表为 DeepSeek V4 两个模型（iter 356 后续：仅保留 V4）
+    assert set(data["defaults"]) == {"deepseek-v4-flash", "deepseek-v4-pro"}
+    assert "input_per_mtok" in data["defaults"]["deepseek-v4-flash"]
+    assert data["defaults"]["deepseek-v4-pro"]["output_per_mtok"] == 6.0
     assert data["table"] == {}
 
 

@@ -7,15 +7,11 @@ iter 356 重构：计费改为「设置页维护的模型计费列表」（模�
 - **计费解析** ``resolve_pricing(model, table)``：先按模型名**精确匹配**用户计费表；
   未命中回退 Anthropic 族默认（opus/sonnet/haiku，¥ 参考价）；仍无 -> ``None``
   （``estimate_cost`` 记 0 并告警，err.md B3 不静默）。
-- **内置默认国产模型计费表**（DeepSeek / 通义千问 Qwen / 智谱 GLM / Kimi，¥）作为
-  设置页初始参考，用户可改可删可加。价目据各厂商公开定价，可能随官方调整过时——
-  请按你的实际账单核对后调整。
+- **内置默认模型计费表**（DeepSeek V4-Flash / V4-Pro，¥）作为设置页初始参考，
+  用户可改可删可加（其余模型自行添加）。价目据 DeepSeek 公开定价，可能随官方调整
+  过时——请按你的实际账单核对后调整。
 
-> 价目来源（核对链接）：
-> - DeepSeek：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
-> - 通义千问（阿里云百炼）：https://help.aliyun.com/zh/model-studio/model-pricing
-> - 智谱 GLM：https://bigmodel.cn/pricing
-> - Kimi（Moonshot）：https://platform.moonshot.cn/pricing
+> 价目来源（核对链接）：DeepSeek https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 """
 
 from __future__ import annotations
@@ -57,19 +53,16 @@ _MODEL_PRICING: list[tuple[str, Pricing]] = [
 ]
 
 
-# 内置默认国产模型计费表（CNY / 1M tokens），设置页初始参考。
-# cache_write：国产模型多无单独「缓存写入」计费（缓存自动/免费），保守取 = input
-# （不漏算）；cache_read：DeepSeek 有明确缓存命中价（极低），其余无公开折扣取 = input。
-# 价目据各厂商公开定价（2026-07 查证），可能已调整——请按实际账单核对。
+# 内置默认模型计费表（CNY / 1M tokens），设置页初始参考。默认仅 DeepSeek V4 两个
+# 模型（用户指定）；其余模型由用户在设置页自行添加。
+# 字段映射 DeepSeek 官方价目（¥/1M tokens）：
+#   input_per_mtok     = 输入（缓存未命中）；cache_read_per_mtok = 输入（缓存命中）；
+#   output_per_mtok    = 输出。
+# cache_write：DeepSeek 自动上下文缓存，无单独「缓存写入」计费 -> 保守取 = input（不漏算）。
+# 价目据 DeepSeek 公开定价（2026-07 查证），可能随官方调整——请按实际账单核对。
 _DEFAULT_MODEL_PRICING: dict[str, Pricing] = {
-    "deepseek-chat": Pricing(1.0, 2.0, 0.02, 1.0),
-    "deepseek-reasoner": Pricing(3.0, 6.0, 0.025, 3.0),
-    "qwen-max": Pricing(12.0, 36.0, 12.0, 12.0),
-    "qwen-plus": Pricing(4.0, 12.0, 4.0, 4.0),
-    "qwen-turbo": Pricing(2.0, 6.0, 2.0, 2.0),
-    "glm-4-plus": Pricing(5.0, 5.0, 5.0, 5.0),
-    "glm-4-flash": Pricing(0.0, 0.0, 0.0, 0.0),  # 智谱 Flash 永久免费
-    "moonshot-v1-8k": Pricing(12.0, 12.0, 12.0, 12.0),
+    "deepseek-v4-flash": Pricing(1.0, 2.0, 0.02, 1.0),  # 命中0.02 / 未命中1 / 输出2
+    "deepseek-v4-pro": Pricing(3.0, 6.0, 0.025, 3.0),   # 命中0.025 / 未命中3 / 输出6
 }
 
 

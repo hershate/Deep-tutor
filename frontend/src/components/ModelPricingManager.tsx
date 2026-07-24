@@ -109,7 +109,7 @@ export default function ModelPricingManager() {
       </div>
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
         维护「模型名 - 各项费用」（单位 <strong>￥/百万 tokens</strong>）。计费时按调用的模型名精确匹配此表；
-        未命中回退 Anthropic 族默认（opus/sonnet/haiku）；仍无则记 0。默认值据主流国产模型公开计价（参考价，请按实际账单调整）。
+        未命中回退 Anthropic 族默认（opus/sonnet/haiku）；仍无则记 0。默认预填 DeepSeek V4-Flash / V4-Pro（参考价，请按实际账单调整，可添加其他模型）。
       </p>
 
       {opError && (
