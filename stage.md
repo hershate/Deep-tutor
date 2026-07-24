@@ -261,6 +261,18 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-24 iter 349 part A（测验/材料/知识点 /goal·iter3a：测验完整性保证 + 抽出共用生成函数，commit ceae0c5，118 测试通过）**：续 iter 348。
+  - **根治「缺题」**：`generate_quiz_tool` 加 `post_process=ensure_quiz_coverage`——程序层比对 `plan.knowledge_map.nodes` 与已出题 `node_id`，LLM 漏掉的节点补 short 自评题兜底（旧实现仅 prompt 要求「每节点 1 题」，LLM 不遵守时静默缺题、绕过 tool-call repair）。
+  - [generate_quiz.py](backend/app/tools/generate_quiz.py) `ensure_quiz_coverage` + 注册 post_process；[plans.py](backend/app/api/plans.py) 抽出 `_generate_quiz_spec`（端点共用：题源联动+预算+完整性），端点改用之（去重复内联逻辑）。
+  - 测试 +3（补缺/无追加/端到端 run_tool 走 post_process）；quiz+plans+materials+kb+progress 共 118 通过；ruff 干净。
+  - **⚠️ 恢复点（用户指示保存进度后停止）——iter 349 part B 及之后未做**：
+    - **iter 349 part B（下一步第一件事）**：① 加 `_generate_quiz_background(plan_id, session_id, user_id)`（独立 SessionLocal、材料已提交无写锁争用、仅本方案尚无 quiz 时预生成不覆盖用户已生成题、无 key/预算超/异常隔离）；② `_materials_sse` done 后非 partial 时 `asyncio.create_task(_generate_quiz_background(...))`；③ emit 新 bus 事件 `quiz_ready`（payload 带 plan_id/session_id/user_id，events 桥按 user 过滤）；④ 测试：直接 `await _generate_quiz_background(...)` 验证 quiz 落库（fire-and-forget task 在 TestClient 不易等，测函数本身 + monkeypatch 验触发）。
+    - **iter 350**：测验任务中心可见（`TaskKind='quiz'` + taskEngine + TaskCenter + events 桥接 `quiz_ready` + 前端 build）。
+    - **iter 351**：UX 缺陷批次（B 首页并发上传 / C 验证卡进度[part B 后多为缓存命中] / E QuizModal abort 语义 / F 模块切分 / G 批量删除；D KB 异步沉淀已在 iter 348 顺带修了死锁）。
+    - **iter 352**：全量回归（pytest 零回归 + ruff + 前端 build）+ API.md 文档（新事件 quiz_ready / study_units.node_sids 字段 / scope.node_ids node 级语义）+ stage.md 收口。
+  - **3 决策（AskUserQuestion，已确认）**：材料切分=知识点驱动聚合（iter 348 ✅）；拆分=生成期 prompt 拆分（iter 347 ✅）；范围=3 核心 + 全部 7 类 UX 缺陷（iter 351 待做）。
+  - **已完成 iter**：347（知识点难度+拆分）✅ / 348（材料知识点驱动 + KB 去死锁）✅ / 349 part A（测验完整性）✅。
+
 - **2026-07-24 iter 348（测验/材料/知识点 /goal·iter2：自学材料知识点驱动切分 + node_sids + KB 沉淀去死锁，commit 21c3774，100 测试通过）**：续 iter 347。
   - **核心**：自学材料不再固定 3 单元，按知识点动态聚合（难点单独成单元、易点聚合，单元数随知识点数缩放）。
   - **根因回顾**：「3 单元」= design_stages 强制 3-6 阶段（LLM 取下限 3）+ SSE 严格「1 阶段=1 单元」，非 [:3] 截断。
