@@ -77,6 +77,49 @@ def test_export_zip_requires_auth(client):
     assert client.get(f"/api/plans/{seeded['plan_id']}/materials/export").status_code == 401
 
 
+def test_export_md_contents(client, auth_headers):
+    """iter 354 BUG3：format=md -> 单个 Markdown 文件（index + 各单元拼接）。"""
+    _mk_admin()
+    seeded = _seed(2)
+    r = client.get(f"/api/plans/{seeded['plan_id']}/materials/export?format=md", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "text/markdown; charset=utf-8"
+    cd = r.headers["content-disposition"]
+    assert "attachment" in cd and "filename*=UTF-8''" in cd and ".md" in cd
+    text = r.content.decode("utf-8")
+    assert "导出主题 — 自学材料" in text  # 标题（来自 intent.topic）
+    assert "# 路线图" in text  # index 文档拼入
+    assert "## 单元 1：第1单元" in text and "内容0" in text
+    assert "## 单元 2：第2单元" in text and "内容1" in text
+
+
+def test_export_pdf_or_degrade(client, auth_headers):
+    """iter 354 BUG3：format=pdf -> weasyprint 可用则 application/pdf，否则降级 md + X-Export-Warning。"""
+    from app.tools.export_pdf import pdf_available
+
+    _mk_admin()
+    seeded = _seed(2)
+    r = client.get(f"/api/plans/{seeded['plan_id']}/materials/export?format=pdf", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    if pdf_available():
+        assert r.headers["content-type"] == "application/pdf"
+        assert r.content[:4] == b"%PDF"
+        assert ".pdf" in r.headers["content-disposition"]
+    else:
+        # R9 降级：weasyprint 缺失 -> md + 警告头（与 exports.py _export_pdf 同模式）
+        assert r.headers["content-type"] == "text/markdown; charset=utf-8"
+        assert "X-Export-Warning" in r.headers
+        assert "导出主题 — 自学材料" in r.content.decode("utf-8")
+
+
+def test_export_invalid_format_400(client, auth_headers):
+    """iter 354 BUG3：不支持格式 -> 400。"""
+    _mk_admin()
+    seeded = _seed(1)
+    r = client.get(f"/api/plans/{seeded['plan_id']}/materials/export?format=docx", headers=auth_headers)
+    assert r.status_code == 400
+
+
 def test_export_zip_isolation_other_user(client, auth_headers):
     """他人方案 -> 404（防枚举）。"""
     from app.db import models

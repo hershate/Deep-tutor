@@ -934,13 +934,18 @@ export async function downloadBackup(): Promise<void> {
   saveBlob(await res.blob(), res.headers.get('content-disposition'), 'deep-tutor-backup.json')
 }
 
-/** 全案自学材料 zip 下载（iter 99）。 */
-export async function downloadMaterialsZip(planId: number): Promise<void> {
-  const res = await fetch(`${BASE}/plans/${planId}/materials/export`, {
+/** 全案自学材料导出（iter 354 BUG3：md / pdf / zip 三选一）。文件名取后端 Content-Disposition。 */
+export async function downloadMaterials(planId: number, format: 'md' | 'pdf' | 'zip'): Promise<void> {
+  const res = await fetch(`${BASE}/plans/${planId}/materials/export?format=${format}`, {
     headers: { Authorization: `Bearer ${token()}` },
   })
   await throwIfNotOk(res)
-  saveBlob(await res.blob(), res.headers.get('content-disposition'), `materials-${planId}.zip`)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), `materials-${planId}.${format}`)
+}
+
+/** 全案自学材料 zip 下载（iter 99，向后兼容；等价 downloadMaterials(planId, 'zip')）。 */
+export async function downloadMaterialsZip(planId: number): Promise<void> {
+  await downloadMaterials(planId, 'zip')
 }
 
 /** 全部自由笔记 zip 下载（iter 286，便携导出：迁入 Obsidian/Notion 等）。 */

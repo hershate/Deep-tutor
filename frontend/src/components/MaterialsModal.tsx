@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import StudyMaterialReader from './StudyMaterialReader'
 import { toast } from './Toast'
-import { ApiError, downloadMaterialsZip, listStudyUnits, type StudyUnitMeta } from '../lib/api'
+import { ApiError, downloadMaterials, listStudyUnits, type StudyUnitMeta } from '../lib/api'
 import { engine } from '../lib/taskEngine'
 import { materialsTaskId, useTaskStore } from '../store/tasks'
 
@@ -37,7 +37,8 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
   const [error, setError] = useState('')
   const [selectMode, setSelectMode] = useState(false) // iter 98：按单元选择重生成模式
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [zipBusy, setZipBusy] = useState(false) // iter 99：全案 zip 导出中
+  const [zipBusy, setZipBusy] = useState(false) // iter 99/354：材料导出中（md/pdf/zip 通用）
+  const [exportOpen, setExportOpen] = useState(false) // iter 354 BUG3：导出三选一下拉
 
   const running = task?.phase === 'running'
   const loading = listLoading || running
@@ -56,12 +57,13 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
     [planId],
   )
 
-  async function doExportZip() {
+  async function doExport(format: 'md' | 'pdf' | 'zip') {
     if (zipBusy) return
+    setExportOpen(false)
     setZipBusy(true)
     try {
-      await downloadMaterialsZip(planId)
-      toast.success('自学材料 zip 已开始下载')
+      await downloadMaterials(planId, format)
+      toast.success(`自学材料已开始下载（${format.toUpperCase()}）`)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '导出失败，请重试')
     } finally {
@@ -193,13 +195,58 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
               <option value="full">完整</option>
               <option value="brief">简要</option>
             </select>
-            <button
-              onClick={doExportZip}
-              disabled={loading || units.length === 0 || zipBusy}
-              className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
-            >
-              {zipBusy ? '导出中…' : '导出全部 (.zip)'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((v) => !v)}
+                disabled={loading || units.length === 0 || zipBusy}
+                aria-haspopup="menu"
+                aria-expanded={exportOpen}
+                className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                {zipBusy ? '导出中…' : '导出 ▾'}
+              </button>
+              {exportOpen && (
+                <>
+                  {/* 点击外部关闭下拉（透明遮罩，不拦截原本可见区交互外的点击） */}
+                  <button
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onClick={() => setExportOpen(false)}
+                    className="fixed inset-0 z-10 cursor-default"
+                  />
+                  <div
+                    role="menu"
+                    aria-label="选择导出格式"
+                    className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => doExport('md')}
+                      className="block w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                    >
+                      导出 Markdown
+                      <span className="block text-[11px] text-slate-400">单个 .md 文件</span>
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => doExport('pdf')}
+                      className="block w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                    >
+                      导出 PDF
+                      <span className="block text-[11px] text-slate-400">单个 .pdf（无 weasyprint 时降级 md）</span>
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => doExport('zip')}
+                      className="block w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                    >
+                      导出 ZIP
+                      <span className="block text-[11px] text-slate-400">每单元一个 .md 打包</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={() => {
                 setSelectMode((v) => !v)

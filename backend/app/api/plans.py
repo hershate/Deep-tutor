@@ -58,6 +58,7 @@ from app.tools.generate_study_materials import (
     render_materials_md,
 )
 from app.tools.search_resources import search_unit_resources
+from app.tools.export_pdf import build_pdf, pdf_available
 from app.core.storage import (
     delete_unit_content,
     materials_dir,
@@ -1881,15 +1882,20 @@ async def generate_materials(
 
 
 @router.get("/{plan_id}/materials/export")
-def export_materials_zip(
-    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+async def export_materials(
+    plan_id: int,
+    format: str = "zip",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Response:
-    """全案自学材料打包下载（iter 99，用户需求：整理好的学习材料能导出）：
-    zip = 00-路线图.md（index 文档，如有）+ 每单元一个 md（按 order 编号）。
+    """全案自学材料导出（iter 99 zip；iter 354 BUG3 加 md/pdf 三选一）：
+    - zip（默认，向后兼容）：00-路线图.md + 每单元一个 md（按 order 编号）打包
+    - md：所有单元拼成单个 Markdown 文件
+    - pdf：拼成单个 PDF（weasyprint 不可用或渲染超时 -> 降级 md + X-Export-Warning 头）
     单元内容经 read_unit_content 自动串联拆分子文件；无单元 -> 404。"""
-    import io
-    import zipfile
-    from urllib.parse import quote
+    fmt = (format or "zip").lower()
+    if fmt not in {"zip", "md", "pdf"}:
+        raise ApiError("invalid_format", f"不支持的导出格式：{format}（支持 md/pdf/zip）", status=400)
 
     plan, content = _plan_or_404(db, plan_id, user)
     units = (
@@ -1902,9 +1908,96 @@ def export_materials_zip(
         raise ApiError("not_found", "该方案尚无自学材料，请先生成", status=404)
 
     topic = (content.get("intent") or {}).get("topic") or "学习方案"
+    safe_topic = _safe_download_name(topic)
+
+    if fmt == "zip":
+        return _materials_zip_response(units, plan.session_id, plan_id, safe_topic)
+
+    md = _materials_combined_md(units, plan.session_id, topic)
+
+    if fmt == "md":
+        return _materials_file_response(
+            md.encode("utf-8"), "text/markdown; charset=utf-8", f"{safe_topic}-自学材料.md", f"materials-{plan_id}.md"
+        )
+
+    # fmt == "pdf"：weasyprint 不可用 / 超时 -> 降级 md（与 exports.py _export_pdf 同一 R9 模式）
+    if not pdf_available():
+        return _materials_file_response(
+            md.encode("utf-8"),
+            "text/markdown; charset=utf-8",
+            f"{safe_topic}-自学材料.md",
+            f"materials-{plan_id}.md",
+            warning="PDF 依赖 weasyprint（另需系统 Pango 库）不可用，已降级为 Markdown",
+        )
+    try:
+        # 病态内容下 weasyprint 可挂起——wait_for 释放请求（线程不可杀，但有界）；超时降级 md
+        pdf = await asyncio.wait_for(
+            asyncio.to_thread(build_pdf, {"intent": {"topic": topic}}, md), timeout=120.0
+        )
+    except TimeoutError:
+        return _materials_file_response(
+            md.encode("utf-8"),
+            "text/markdown; charset=utf-8",
+            f"{safe_topic}-自学材料.md",
+            f"materials-{plan_id}.md",
+            warning="PDF 渲染超时（120s），已降级为 Markdown",
+        )
+    log.info("材料 PDF 导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(pdf) / 1024)
+    return _materials_file_response(
+        pdf, "application/pdf", f"{safe_topic}-自学材料.pdf", f"materials-{plan_id}.pdf"
+    )
+
+
+def _content_disposition(filename_utf8: str, filename_ascii: str) -> str:
+    """RFC 5987：中文文件名经 filename*=UTF-8'' 百分号编码，UA 不支持时回退 ASCII 名。"""
+    from urllib.parse import quote
+
+    return f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{quote(filename_utf8)}"
+
+
+def _materials_file_response(
+    body: bytes, media_type: str, filename_utf8: str, filename_ascii: str, warning: str | None = None
+) -> Response:
+    """自学材料单文件下载响应（md/pdf）。warning 非空时附 X-Export-Warning（百分号编码中文）。"""
+    from urllib.parse import quote
+
+    headers = {"Content-Disposition": _content_disposition(filename_utf8, filename_ascii)}
+    if warning:
+        headers["X-Export-Warning"] = quote(warning)
+    return Response(content=body, media_type=media_type, headers=headers)
+
+
+def _materials_combined_md(units: list, session_id: int, topic: str) -> str:
+    """所有自学单元拼成单个 Markdown（iter 354 md/pdf 导出用）：
+    标题 + index 路线图（如有）+ 每单元「## 单元 N：标题」分隔 + 内容
+    （read_unit_content 自动串联 .pN 拆分子文件）。"""
+    parts: list[str] = [f"# {topic} — 自学材料", ""]
+    index_md = _read_materials_index(session_id)
+    if index_md:
+        parts.extend([index_md.strip(), "", "---", ""])
+    for i, u in enumerate(units, 1):
+        body = ""
+        if u.materials:
+            try:
+                body = read_unit_content(u.materials[0].content_md_path)
+            except OSError:
+                log.warning("导出材料：单元 %s 内容文件缺失", u.id)
+        parts.append(f"## 单元 {i}：{u.title}")
+        parts.append("")
+        parts.append(body or "（本单元暂无内容）")
+        parts.append("")
+    return "\n".join(parts).strip() + "\n"
+
+
+def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_topic: str) -> Response:
+    """全案自学材料 zip（iter 99 原逻辑抽出，format=zip 复用）：
+    00-路线图.md（index，如有）+ 每单元一个 md（按 order 编号）。"""
+    import io
+    import zipfile
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        index_md = _read_materials_index(plan.session_id)
+        index_md = _read_materials_index(session_id)
         if index_md:
             zf.writestr("00-路线图.md", index_md)
         for i, u in enumerate(units, 1):
@@ -1918,18 +2011,12 @@ def export_materials_zip(
                 f"{i:02d}-{_safe_download_name(u.title)}.md",
                 md or f"# {u.title}\n\n（本单元暂无内容）",
             )
-    filename = f"{_safe_download_name(topic)}-自学材料.zip"
+    filename = f"{safe_topic}-自学材料.zip"
     log.info("材料导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(buf.getvalue()) / 1024)
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
-        # RFC 5987：中文文件名经 filename* 百分号编码（UA 不支持时回退 ASCII 名）
-        headers={
-            "Content-Disposition": (
-                f"attachment; filename=\"materials-{plan_id}.zip\"; "
-                f"filename*=UTF-8''{quote(filename)}"
-            )
-        },
+        headers={"Content-Disposition": _content_disposition(filename, f"materials-{plan_id}.zip")},
     )
 
 
