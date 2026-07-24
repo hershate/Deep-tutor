@@ -261,6 +261,17 @@ Deep-tutor/
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
 
+- **2026-07-24 iter 348（测验/材料/知识点 /goal·iter2：自学材料知识点驱动切分 + node_sids + KB 沉淀去死锁，commit 21c3774，100 测试通过）**：续 iter 347。
+  - **核心**：自学材料不再固定 3 单元，按知识点动态聚合（难点单独成单元、易点聚合，单元数随知识点数缩放）。
+  - **根因回顾**：「3 单元」= design_stages 强制 3-6 阶段（LLM 取下限 3）+ SSE 严格「1 阶段=1 单元」，非 [:3] 截断。
+  - **落地**：
+    - [generate_study_materials.py](backend/app/tools/generate_study_materials.py) 新增 `group_nodes_into_units`（节点按 阶段/难度 排序后聚类：d≥4 难点单独、易点≤3 个或 ~55min 聚合）+ `UnitPlan` + `brief_unit_from_unitplan`；`UNIT_CONTENT_PROMPT` 加 `args.unit_nodes`；同步 PROMPT 改知识点驱动。
+    - [plans.py](backend/app/api/plans.py) `_all_unit_plans`/`_resolve_scope_units`/`_unit_plan_for_existing` 取代 `_resolve_scope_stages`；`_materials_sse` 改迭代 UnitPlan（传 unit_nodes、存 node_sids）；端点 node 级精确删除（不误伤同 stage 兄弟单元）；幂等检查 scope 也绕过缓存（修 UX：scope 即重生成，旧逻辑 scope 不带 refresh 误返回整档缓存）。
+    - 迁移 `f0a2c5d839b1`：`study_units.node_sids` JSON 列 + drift guard。
+    - **缺陷 D 修复**：KB 知识图谱沉淀从 `_persist_knowledge_nodes`（主事务未提交时用独立 session 写 → SQLite 单写者锁自死锁 → database is locked）移到 `_persist_plan` 提交后同 session 写（`_sink_knowledge_map_to_kb`），消除死锁。
+  - **回退保证**：知识点 <3 → 回退「每阶段一单元」（保持旧行为，既有 SSE 测试 1 节点计划仍 3 单元零回归）。
+  - **测试 +9**（group 纯函数 7 + SSE 多节点 node_sids/scope 2）；materials+kb+plans+e2e 共 100 通过；ruff 干净。
+
 - **2026-07-24 iter 347（测验/材料/知识点 /goal·iter1：知识点难度评分 + 高难度拆分 + difficulty 夹紧，commit feecbe9，30 测试通过）**：用户 /goal「测验慢且缺题→生成自学资料时后台出题；自学资料固定 3 单元→按知识点动态调整数量；高难度知识点拆分；顺带修其他交互缺陷」。
   - **调查**：4 并行 Explore agent（quiz / materials / knowledge_map / 编排+UX）查源码定根因。
   - **根因**：
