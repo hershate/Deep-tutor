@@ -62,6 +62,26 @@ def isolate():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_network_search(monkeypatch):
+    """iter 346（F1 回归修复）：测试环境隔离网络。
+
+    search_resources 的 _search_web 默认返回 []（模拟检索成功但无候选）->
+    走空候选路径（不触发 _screen_resources 的 LLM 筛选）。否则生成流程测试会因真联网
+    （F1 后 bing+无key 回退 bing_web）检索到候选而多调一次 LLM，超出 CannedProvider mock
+    响应序列（IndexError）。返回 [] 而非 None：search_unit_resources 直接消费 _search_web
+    返回值，None 会致 TypeError。专门测 search 的用例自行 monkeypatch _search_web 覆盖此默认
+    （同 monkeypatch 实例，后设生效）。
+    """
+    from app.tools import search_resources as sr_mod
+
+    async def _noop_search(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(sr_mod, "_search_web", _noop_search)
+    yield
+
+
 @pytest.fixture
 def client():
     from app.main import app

@@ -257,6 +257,10 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             errors=[ToolError(code="search_unavailable", message=f"检索引擎（{engine}）全部查询失败，search_resources 降级")],
         )
 
+    # iter 346（F1 兼容）：无候选（检索成功但 0 命中，或全 invalid 换源）-> 不调 LLM 筛选
+    # （空候选筛选用 LLM 无意义且徒增调用；与生成流程的 mock 响应序列解耦）
+    if not resources:
+        return ToolOutput(tool="search_resources", status="ok", data={"resources": [], "engine": engine})
     # err.md B9：筛选调用的 usage 须进入 ToolOutput.metadata —— 否则编排器
     # budget.add(0) 且 _persist_tool_calls 归集为空，这次 LLM 花费对预算/统计失明
     resources, screen_usage = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62）
