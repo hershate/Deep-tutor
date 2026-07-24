@@ -27,11 +27,11 @@ PROMPT = """你是 Deep-tutor 的「学习意图理解」工具。任务：从�
 
 规则：
 - **若 args 含 daily_minutes / deadline / start_date（用户在表单显式指定），直接采用这些值，不要从 raw_text 重新猜测或修改**（这些是权威输入，程序层亦会强制覆盖）。
-- 若输入含 answers（用户对澄清问题的回答），结合 answers 补全缺失维度，此时应尽量给出明确字段而非再次澄清。
-- 若四个维度中有任一缺失或过于模糊 -> needs_clarify=true，并在 clarify_questions 给出
+- 若输入含 answers（用户对澄清问题的回答），**必须**结合 answers 尽可能补全所有缺失维度并返回 needs_clarify=false**——用户已回答过澄清问题，绝不要再就同一维度反复追问。即使某些回答偏模糊，也要给出最合理的推断字段（例如时长模糊就给一个常规默认值），只有 topic（学习主题）完全无法判断时才允许 needs_clarify=true。
+- 若**首次**输入（不含 answers）且四个维度中有任一缺失或过于模糊 -> needs_clarify=true，并在 clarify_questions 给出
   针对缺失维度的追问（基础/目标/时长），每条一句、具体可答。
 - 若全部明确 -> needs_clarify=false，clarify_questions 为空数组。
-- 不要编造：资料/描述未体现的字段填 null，不要猜测。
+- 不要编造：资料/描述未体现的字段填 null，不要猜测。但含 answers 时，对仍模糊的维度做合理推断而非留空（见前条）。
 
 仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
 {
@@ -129,6 +129,24 @@ def _validate_intent(data: dict, inp: ToolInput) -> dict:
             data["start_date"] = str(args["start_date"]).strip()
         except ValueError:
             pass
+
+    # iter 358 BUG 修复：澄清死循环兜底。澄清续接轮（args.answers 非空 = 用户已回答过
+    # 澄清问题）若仍 needs_clarify=true，强制推进——根治「卡在理解学习目标反复追问
+    # 不向下推进」。真实 LLM 在含 answers 时仍常保守地返回 needs_clarify=true（回答
+    # 稍模糊即判定），而 /clarify 每次都从 understand_intent 重跑、链路无任何轮次上限
+    # 或强制推进机制 -> 死循环。此处为不依赖 LLM 自觉的确定性兜底：已回答过即不再
+    # 二次追问，仍缺失的维度以中性默认补全（不编造用户具体意图）。
+    if args.get("answers") and data.get("needs_clarify"):
+        data["needs_clarify"] = False
+        data["clarify_questions"] = []
+        if not data.get("daily_minutes"):
+            data["daily_minutes"] = 60  # 中性默认：每日 1 小时（schedule_plan 依赖）
+        if not data.get("level"):
+            data["level"] = "未明确"
+        if not data.get("goal"):
+            topic = (data.get("topic") or "").strip() or "该主题"
+            data["goal"] = f"系统学习并掌握 {topic}"
+        # deadline/start_date 保持现状（可选字段，None 不阻断生成；过期 deadline 已在上面置 None）
     return data
 
 

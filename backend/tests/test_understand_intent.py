@@ -146,3 +146,79 @@ def test_validate_intent_topic_truncated():
 
     out = _validate_intent({"topic": "长" * 300}, None)
     assert len(out["topic"]) == 200
+
+
+# --- iter 358 BUG 修复：澄清死循环兜底（args.answers 非空 = 已澄清，强制推进）---
+
+
+def test_validate_intent_clarify_round_forces_progress():
+    """澄清续接轮 LLM 仍 needs_clarify=true -> 兜底强制推进，缺失维度补中性默认。"""
+    from app.tools.understand_intent import _validate_intent
+
+    data = {
+        "topic": "React", "level": None, "goal": None, "daily_minutes": None,
+        "deadline": None, "needs_clarify": True,
+        "clarify_questions": ["每天能投入多少时间？"],
+    }
+    inp = ToolInput(
+        tool="understand_intent", session_id="s",
+        args={"answers": {"每天能投入多少时间？": "看情况，随便"}},
+    )
+    out = _validate_intent(data, inp)
+    assert out["needs_clarify"] is False
+    assert out["clarify_questions"] == []
+    assert out["daily_minutes"] == 60  # 中性默认
+    assert out["level"] == "未明确"
+    assert "React" in out["goal"]
+
+
+def test_validate_intent_clarify_round_keeps_extracted_fields():
+    """澄清轮若 LLM 已抽出明确字段 -> 保留抽取值，默认不覆盖。"""
+    from app.tools.understand_intent import _validate_intent
+
+    data = {
+        "topic": "React", "level": "零基础", "goal": "做项目", "daily_minutes": 90,
+        "deadline": None, "needs_clarify": True, "clarify_questions": ["..."],
+    }
+    inp = ToolInput(tool="understand_intent", session_id="s", args={"answers": {"q": "a"}})
+    out = _validate_intent(data, inp)
+    assert out["needs_clarify"] is False
+    assert out["daily_minutes"] == 90  # 保留 LLM 抽取值
+    assert out["level"] == "零基础"
+    assert out["goal"] == "做项目"
+
+
+def test_validate_intent_no_answers_still_clarifies():
+    """首次生成（无 answers）行为不变：needs_clarify=true 仍保留。"""
+    from app.tools.understand_intent import _validate_intent
+
+    data = {
+        "topic": "编程", "level": None, "goal": None, "daily_minutes": None,
+        "deadline": None, "needs_clarify": True, "clarify_questions": ["..."],
+    }
+    out = _validate_intent(data, None)  # 无 answers
+    assert out["needs_clarify"] is True  # 首次生成照常澄清
+
+
+def test_validate_intent_clarify_round_past_deadline_no_loop():
+    """澄清轮 + 过期 deadline：过期先置 None + needs_clarify=True，兜底再强制推进（不死循环）。"""
+    from app.tools.understand_intent import _validate_intent
+
+    data = {"topic": "Go", "deadline": "2020-01-01", "needs_clarify": False, "clarify_questions": []}
+    inp = ToolInput(tool="understand_intent", session_id="s", args={"answers": {"q": "a"}})
+    out = _validate_intent(data, inp)
+    assert out["deadline"] is None
+    assert out["needs_clarify"] is False  # 不再反复追问过期日期
+
+
+def test_understand_intent_clarify_round_does_not_reclarify():
+    """iter 358 端到端（工具级）：澄清续接轮 LLM 仍返回 needs_clarify=true，
+    post_process 兜底强制推进——复现并锁定「反复追问不推进」BUG 的修复。"""
+    provider = ScriptedProvider(
+        [_resp('{"topic":"React","level":null,"goal":null,"daily_minutes":null,"deadline":null,"needs_clarify":true,"clarify_questions":["每天能投入多少时间？"]}')]
+    )
+    out = _run(provider, {"raw_text": "我想学 React", "answers": {"每天能投入多少时间？": "看情况"}})
+    assert out.status == "ok"
+    assert out.data["needs_clarify"] is False  # 兜底强制推进，不再澄清
+    assert out.data["daily_minutes"] == 60
+    assert out.data["clarify_questions"] == []

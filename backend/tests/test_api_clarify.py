@@ -93,3 +93,49 @@ def test_clarify_flow(client, auth_headers, monkeypatch):
     # plan 已持久化
     detail = client.get(f"/api/plans/{plan_id}", headers=auth_headers).json()
     assert detail["id"] == plan_id
+
+
+class ClarifyLoopProvider(LLMProvider):
+    """iter 358 BUG 复现：首次 understand_intent 返回 needs_clarify；clarify 续接轮
+    LLM **仍**返回 needs_clarify（真实 LLM 在 answers 偏模糊时常如此——死循环根因）；
+    之后按序返回 map/stages/schedule/validate 供兜底强制推进后继续生成。"""
+
+    def __init__(self):
+        self.i = 0
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        idx = self.i
+        self.i += 1
+        # 0 = 首次 understand_intent（needs_clarify）；1 = clarify 续接轮仍 needs_clarify（BUG 触发）
+        if idx <= 1:
+            return _NEEDS_CLARIFY
+        return _RESUME[idx - 1]  # 2->map, 3->stages, 4->schedule, 5->validate
+
+
+def test_clarify_loop_breaks_when_llm_keeps_asking(client, auth_headers, monkeypatch):
+    """iter 358 BUG 修复：clarify 续接轮 LLM 仍 needs_clarify=true 时不应死循环——
+    understand_intent 的 post_process 兜底强制推进到 done，而非再次 clarify_needed。"""
+    from app.api import plans as plans_mod
+
+    provider = ClarifyLoopProvider()
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: provider)
+
+    sid = client.post("/api/sessions", json={"title": "t"}, headers=auth_headers).json()["session_id"]
+
+    # 1) generate -> 首次 understand_intent 需澄清
+    r1 = client.post(
+        "/api/plans/generate", json={"session_id": sid, "raw_text": "我想学编程"}, headers=auth_headers
+    )
+    assert r1.status_code == 200
+    assert any(e == "clarify_needed" for e, _ in _parse_sse(r1.text))
+
+    # 2) 提交澄清 -> LLM 续接轮仍 needs_clarify（死循环触发条件）；兜底应强制推进到 done
+    r2 = client.post(
+        f"/api/plans/{sid}/clarify",
+        json={"answers": {"每天能投入多少时间？": "看情况，随便"}},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    ev2 = _parse_sse(r2.text)
+    assert any(e == "done" for e, _ in ev2), ev2
+    assert not any(e == "clarify_needed" for e, _ in ev2), ev2  # 不再反复追问
