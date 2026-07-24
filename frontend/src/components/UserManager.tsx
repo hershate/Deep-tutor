@@ -266,13 +266,15 @@ export default function UserManager() {
                   >
                     {u.is_admin ? '撤销管理员' : '设为管理员'}
                   </button>
-                  <button
-                    onClick={() => remove(u)}
-                    disabled={busy}
-                    className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950 disabled:opacity-50 disabled:active:scale-100"
-                  >
-                    删除
-                  </button>
+                  {!u.is_admin && (
+                    <button
+                      onClick={() => remove(u)}
+                      disabled={busy}
+                      className="rounded-lg border border-red-200 px-2.5 py-1 text-sm text-red-600 transition-all hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950 disabled:opacity-50 disabled:active:scale-100"
+                    >
+                      删除
+                    </button>
+                  )}
                 </>
               )}
             </div>

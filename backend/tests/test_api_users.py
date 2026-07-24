@@ -134,15 +134,15 @@ def test_cannot_delete_self(client):
 
 
 def test_cannot_remove_last_admin(client):
-    """降级/删除另一名管理员使其成为零管理员 -> 409（当前管理员若自己也被禁则同理）。"""
+    """删除任意管理员 -> 409（iter 346 F5 收紧：admin 一律禁删）；降级到最后一名管理员 -> 409。"""
     ha = _admin(client)
     uid = client.post(BASE, json={"username": "second", "password": "pw1234", "is_admin": True}, headers=ha).json()[
         "id"
     ]
-    # second 是另一名管理员；root 也是管理员 -> 可以删 second（root 仍在）
-    assert client.delete(f"{BASE}/{uid}", headers=ha).status_code == 200
+    # iter 346（F5）：禁删任意管理员（旧仅剩 1 admin 才禁，现一律禁）-> second 是 admin，删除 409
+    assert client.delete(f"{BASE}/{uid}", headers=ha).status_code == 409
 
-    # 现在 root 是唯一管理员；root 删自己已被自删护栏覆盖，验证降级护栏经 second 视角：
+    # second 未被删（仍 admin）；root 也是管理员。验证降级护栏经 s2 视角：
     # second2 管理员登录后尝试降级 root（root 是除 second2 外唯一管理员 -> 降后仍剩 second2，允许）
     uid2 = client.post(BASE, json={"username": "s2", "password": "pw1234", "is_admin": True}, headers=ha).json()["id"]
     hs2 = _login(client, "s2")

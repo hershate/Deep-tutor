@@ -133,8 +133,11 @@ def delete_user(
         raise ApiError("not_found", f"用户 {user_id} 不存在")
     if u.id == admin.id:
         raise ApiError("conflict", "不能删除当前登录的管理员账号", status=409)
-    if u.is_admin and _admin_count(db) <= 1:
-        raise ApiError("conflict", "系统至少保留一名管理员", status=409)
+    # iter 346（F5）：禁删任意管理员（前端 UserManager 亦对 is_admin 隐藏删除按钮）。
+    # 旧仅守「仅剩 1 admin」可删，现收紧为所有 admin 不可删——如需移除先撤销其管理员角色。
+    # 对齐业界 RBAC 防 lockout（Azure 等原生阻止删最后 Owner，此处更严：admin 一律禁删）。
+    if u.is_admin:
+        raise ApiError("conflict", "不能删除管理员账号（请先撤销其管理员角色再删除）", status=409)
 
     # 级联清理：会话（ORM 级联 plans/materials/quizzes 等 + 文件目录）-> 供应商档案/用量 -> 用户
     session_ids = [s.id for s in db.query(models.Session).filter_by(user_id=u.id).all()]
