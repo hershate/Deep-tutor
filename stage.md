@@ -15,6 +15,8 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
+**iter 346（2026-07-24，实机使用问题集修复，✅ 完成）**：用户 /goal「实机 21 项问题先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。8 并行调查 agent（逐条核实现状）+ 14 联网调研（业界依据）→ 计划书（`~/.claude/plans/piped-munching-marble.md`，4 决策经 AskUserQuestion）→ 13 commit 落地：F1 联网搜索 / F2 缓存命中率 / F3 弹窗滚动 / F4 对话改名 / F5 admin 禁删 / F11a 笔记分栏 / F6 材料重写 / F9 学习中心 / F10 测验体系 / F11b chat run 隔离 / F8 KB 沉淀+引用 / F1 回归修复。全量 pytest 零回归 + ruff 干净 + 前端 build 通过。**标注后续**（非 bug 或高风险/低收益）：F11c APIKEY 深度防御（user_id=None 薄弱点不可利用，重构破坏单元测试需同步改 setup/测试）、F12 quiz 接入任务中心（F10 已覆盖核心，需改 taskEngine）、自学材料知识点级 scope.node_ids（后端就绪前端未传）。详见 §五 iter 346。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -258,6 +260,27 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 346（实机使用问题集修复：UX + 功能 + 隔离 + 稳定性，13 commit + 全量回归零失败）**：用户 /goal「实机使用发现 21 项问题，先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。
+  - **流程**：8 并行调查 agent（逐条核实 21 问题代码现状，区分真 bug / 部分 / 已实现非问题 / 配置问题）+ 14 项联网调研（业界最佳实践佐证）→ 计划书 `~/.claude/plans/piped-munching-marble.md`（4 决策经 AskUserQuestion）→ P0/P1/P2 分阶段实施。
+  - **已修复（13 commit 落地）**：
+    - **F1 联网搜索失败**（`dfdd528`）：根因 `.env` SEARCH_ENGINE=bing+空 key→"none" 静默空 resources；[settings.py](backend/app/core/settings.py) `effective_search_engine` 改 bing+无 key 回退 bing_web + WARNING；`.env` 改回 auto。
+    - **F2 缓存命中率 >100%**（`122ae7f`）：[usage.py](backend/app/api/usage.py) 公式改 `cache_read/(in+cache_read+cache_write)`（与 Anthropic 业界标准一致，天然 ≤100%）。
+    - **F3 弹窗随滚动**（`628a76b`）：根因 `<main>` 的 animate-fade-in-up fill `both` 保留终态 transform 致 fixed 降级（Eric Meyer 文献佐证）；[tailwind.config.js](frontend/tailwind.config.js) fill-mode `both→backwards`；ShortcutsHelp 用 createPortal 脱 sticky header 的 backdrop-blur 包含块。
+    - **F4 AI 对话改名**（`c13448c`）：[Chat.tsx](frontend/src/pages/Chat.tsx) 会话列表加 ✏️ 改名（后端 PATCH /threads/{id} 已就绪，仅缺前端入口）。
+    - **F5 admin 禁删**（`9155684`）：前端 `!is_admin` 隐藏删除 + 后端 [users.py](backend/app/api/users.py) 守卫收紧禁删任意 admin（防 lockout，对齐 Azure RBAC）。
+    - **F7 生成进度**：核实链路完整（提交后 nav /generate/:id + SSE 全事件 + taskEngine 切页不丢），非 bug；「解析资料」步骤不显示是设计取舍（资料在 Home 上传阶段已解析、注入 upstream，避免生成流重复处理）。
+    - **F11a 笔记分栏**（`8db7876`）：[Notes.tsx](frontend/src/pages/Notes.tsx) 改左右分栏（左源码右实时渲染）+ debounce(150ms) + 滚动同步 + showRender 开关（替代旧两态切换）。
+    - **F6 自学材料阅读内重写**（`85c3ea2`）：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 加「重写本单元」面板（深度 full 详细/brief 简单 + 取消返回，复用 generateMaterialsStream SSE；对齐 Partial Result Regeneration）。
+    - **F9 学习中心独立页**（`86eb46a`）：新建 [LearnIndex.tsx](frontend/src/pages/LearnIndex.tsx) `/learn` 聚合页（今日学习 + 各方案进度卡片 + 掌握度条）+ 侧栏独立入口（LMS 仪表盘模式）。
+    - **F10 测验体系**（`46512e0`）：每知识点 1 选择题（generate_quiz PROMPT 收紧）+ 进度看板 🎯验证掌握（答对才 done / 答错回退 learning，mastery learning + retrieval practice）+ QuizModal 重开 localStorage 缓存（跳过 loading 闪现，不重创）。
+    - **F11b chat run 隔离加固**（`1058d22`）：[memory.py](backend/app/api/memory.py) 加全局 chat run 上限（≤2，503）+ 日预算守卫（402，防绕过）。
+    - **F8 KB 自动沉淀 + 首页引用**（`9b6e34a`）：[kb.py](backend/app/api/kb.py) `add_text_document_sync` + plans `_persist_knowledge_nodes` 旁挂沉淀知识图谱（独立事务 + 异常隔离 + content_hash 去重 + auto_sunk 溯源）；[HomeKbGenerate.tsx](frontend/src/components/HomeKbGenerate.tsx) 首页引用 KB 文档生成（复用 kbGenerate，仅已解析文本）。
+    - **F1 回归修复**（`5f87afd`）：F1 致生成测试真联网检索到候选→CannedProvider 越界（45 failed）；conftest autouse mock `_search_web` 返回 []（测试隔离网络）+ search_resources 空候选不调 LLM 筛选（45→0）。
+  - **业界依据（14 项联网核实，完整链接见计划书 §八）**：Anthropic 缓存命中率公式、CSS transform 包含块（Eric Meyer）、mastery learning retrieval practice（PMC 同行评审）、React Modal Portal、Markdown 分栏 debounce/滚动同步、多租户 virtual key、LMS 仪表盘、Partial Result Regeneration、second brain auto-capture 等。
+  - **标注后续（非 bug 或高风险/低收益，诚实说明）**：① **F11c APIKEY 深度防御**（user_id=None 回退分支查任意 active 档案，薄弱点当前不可利用——所有请求路径传 user_id；重构 get_provider(None) 不读 DB 破坏 3 单元测试 + setup 探测，需同步改 _insert_profile/setup，回退待后续）；② **F12 quiz 接入任务中心/SSE**（F10 已覆盖 quiz 核心诉求；接入 taskEngine 需加 TaskKind quiz + startQuiz + applyEvent，较大改造，待后续）；③ **自学材料知识点级重写 scope.node_ids**（后端已支持，前端 api 未传，待后续）。
+  - **验证**：ruff 干净；前端 build（tsc+vite）通过；**全量 pytest 零回归**（F1 回归修复后 45→0；+2 新增用例）。
+  - **质量约束遵守**：稳定性（降级矩阵 + 异常隔离 + 独立事务）、API 兼容（复用既有端点无破坏性变更）、多用户隔离（新数据带 user_id + 跨用户 404）、可维护（复用既有 SSE/任务/凭证机制）。
 
 - **2026-07-24 iter 345（记忆系统·Phase A 基础：数据模型 + 迁移，全量 1109 测试零回归）**：用户 /goal「给项目 AI 对话加完整记忆功能 + Claude Code 式 Read/Write/Edit 工作区 + web_search/fetch + DeepSeek 式实时 UI + 全面 CRUD API」。
   - **调研**：联网 8 项（MemGPT 分层记忆 / LangChain 记忆类型 / Claude Code Read/Write/Edit / DeepSeek 思考+工具交织流式 / scratchpad 原子写+崩溃恢复 / Anthropic agent 循环 / OpenAI Assistants Thread-Message-Run-RunStep 持久化模型 / web_search-fetch grounding）；2 个子代理（盘点现有 AI/Agent/LLM/DB/SSE 代码 + Plan 校验）。
