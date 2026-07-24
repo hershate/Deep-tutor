@@ -19,7 +19,9 @@
 
 **iter 353（2026-07-24，实机 3 问题修复，✅ 完成）**：删除方案 500（`ed07226`）+ Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）+ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，起始日期 + 结构化时长/截止输入；回归修复 `2d1a944`）。**pytest 1182 零回归**。详见 §五 iter 353。
 
-**iter 354（2026-07-24，实机 5 BUG 修复，✅ 完成）**：用户 /goal「修复 5 BUG：① 任务中心生成时价格/Token 没实时计费 ② 定价应绑供应商卡片非单列 ③ 自学材料导出 md/PDF/ZIP 三选一 ④ AI 对话 Markdown 未渲染 ⑤ 笔记 LaTeX KaTeX 未渲染」。5 commit：BUG4/5 统一 [Markdown.tsx](frontend/src/components/Markdown.tsx)+KaTeX（`f137ace`）/ BUG3 材料导出三选一（`06ce01a`）/ BUG1 token 累计字段名修复+任务中心显示（`520687d`）/ BUG2 每卡独立计价（`ec3bf65`，经 AskUserQuestion 选定方案）。**pytest 1188 零回归** + ruff 干净 + 前端 build 通过。**当前无活动 /goal，等待用户新需求。** 详见 §五 iter 354。下文「当前下一步」为记忆系统 /goal 的历史状态（iter 345 已收官）。
+**iter 354（2026-07-24，实机 5 BUG 修复，✅ 完成）**：用户 /goal「修复 5 BUG：① 任务中心生成时价格/Token 没实时计费 ② 定价应绑供应商卡片非单列 ③ 自学材料导出 md/PDF/ZIP 三选一 ④ AI 对话 Markdown 未渲染 ⑤ 笔记 LaTeX KaTeX 未渲染」。5 commit：BUG4/5 统一 [Markdown.tsx](frontend/src/components/Markdown.tsx)+KaTeX（`f137ace`）/ BUG3 材料导出三选一（`06ce01a`）/ BUG1 token 累计字段名修复+任务中心显示（`520687d`）/ BUG2 每卡独立计价（`ec3bf65`，经 AskUserQuestion 选定方案）。**pytest 1188 零回归** + ruff 干净 + 前端 build 通过。详见 §五 iter 354。
+
+**iter 355（2026-07-24，generate_quiz 截断 + 方案完成度，✅ 完成）**：用户 /goal「① generate_quiz 被 max_tokens 截断，默认 100k 可设置调节 ② 方案手动标记完成 + 开放题测验卡 80% 无法完成 ③ 一并修类似逻辑问题」。2 commit：问题1 max_tokens 默认 100k+用户可调（`7d05915`）/ 问题2-3 完成度修复 compute_mastery + 开放题回写（`c2bc2fa`）。**pytest 1193 零回归** + ruff + 前端 build 通过。**当前无活动 /goal，等待用户新需求。** 详见 §五 iter 355。下文「当前下一步」为记忆系统 /goal 的历史状态（iter 345 已收官）。
 
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
@@ -264,6 +266,11 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 355（generate_quiz 截断 + 方案完成度 /goal·✅ 完成）**：用户 /goal「① `WARNI 工具 generate_quiz 输出被 max_tokens 截断，提高上限重试一次`——尽可能提高 max_tokens，默认 100k，用户可在设置中调节 ② 方案列表手动标记已完成 + 测试题为开放题（无选择题）会卡 80%，学习计划无法完成 ③ 一并修类似逻辑问题」。2 commit 落地，全量 pytest **1193 零回归** + ruff + 前端 build 通过。
+  - **问题1 max_tokens 默认 100k + 用户可调（`7d05915`）**：根因 = [loop.py](backend/app/agent/loop.py) `_chat_with_retry` 默认 max_tokens=4096，截断后重试 8192 仍不够（大 quiz 输出）。修复：[settings.py](backend/app/core/settings.py) 加 `llm_max_tokens`（默认 **100000**，.env `LLM_MAX_TOKENS` 可覆盖）；[ExecContext](backend/app/agent/context.py) 加 `llm_max_tokens` 字段；[llm/__init__.py](backend/app/llm/__init__.py) `get_active_max_tokens(user_id)` 读 UserPref 偏好（自管 session，同 get_active_pricing）；loop `_chat_with_retry` 默认取 `ctx.llm_max_tokens` 回退 settings 默认，截断去掉无意义的 8192 重试（100k 默认下 pointless 且白烧修复额度）直接降级 + 提示调高；[plans.py](backend/app/api/plans.py) 4 处 ctx（orchestrator/materials-stream/materials-sync/quiz）注入；[settings.py API](backend/app/api/settings.py) GET 返回 + PUT /prefs 加 llm_max_tokens（exclude_unset 未传键不误清日预算）；前端 [Settings.tsx](frontend/src/pages/Settings.tsx) MaxTokensRow 可编辑（1-200000）。+5 测试。
+    - ⚠️ **注意**：100k 是用户指定默认；若所用模型实际输出上限 <100k（如部分模型 64k），每次调用会触发 400——用户可在设置页调低。max_tokens 是输出上限非目标，常规小输出调用不会因此增成本。
+  - **问题2-3 方案完成度（`c2bc2fa`）**：根因 1 = [record_progress.compute_mastery](backend/app/tools/record_progress.py) 手动 done 封顶 0.8（"主观不给满分"）、满分 quiz 仅 `0.7*1+0.3*old`（首答 0.7）→ 节点永不到 100%，方案平均掌握度（[Plans.tsx](frontend/src/pages/Plans.tsx) 进度条）卡 80%。根因 2 = [QuizModal.tsx](frontend/src/components/QuizModal.tsx) 仅选择题触发进度回写，纯开放题测验 `early-return` 完全不回写 → 开放题节点掌握度停滞，须手动标记又撞 0.8 上限。修复：compute_mastery 满分 quiz → `max(score, 加权)=1.0`、手动 done → `max(old, 1.0)=1.0`（均允许达 100%，方案方可完成）；QuizModal 加「完成自评」按钮（开放题按 node_id 标记 done → 1.0，纯开放题测验不再零回写）。**类似逻辑问题（问题3）**：满分 quiz 仅 0.7 同属完成阻塞，一并修为可达 1.0。更新 test_record_progress / test_api_progress / test_e2e_smoke 的 0.7/0.8/0.91/0.35/0.4 mastery 断言（直接 DB 插入的 fixture 不受影响）。
 
 - **2026-07-24 iter 354（实机 5 BUG 修复 /goal·✅ 完成）**：用户 /goal「修复 5 个 BUG：① 任务中心生成方案时价格/Token 没有实时计费 ② 价格计费应绑定具体 LLM 供应商卡片而非单独放后面 ③ 自学材料导出应支持 md/PDF/ZIP 三种 ④ AI 对话 Markdown 未正确渲染 ⑤ 笔记 LaTeX 公式未渲染（KaTeX `$$`）」。3 并行调查 agent 定位 → 5 commit 落地，全量 pytest **1188 零回归** + ruff 干净 + 前端 build 通过。
   - **BUG4/5 Markdown+KaTeX（`f137ace`）**：新增统一 [Markdown.tsx](frontend/src/components/Markdown.tsx)（react-markdown + remark-gfm + remark-math + rehype-katex + rehype-sanitize + katex.min.css）。插件链顺序 **sanitize→katex**：sanitize 在前清洗用户 HTML 防 XSS（react-markdown v9 默认本就不渲染裸 HTML，双保险），schema 放行 `code` 上 math 类让 math 节点穿过；katex 在后渲染，其输出不再清洗故字体/排版完整（若 katex 在前，sanitize 会剥 class/style/MathML 致损坏）。迁移 5 处历史内联 ReactMarkdown（Notes/StudyMaterialReader/KbChatPanel/KbViewerModal）+ Chat.tsx（AI 消息原用 whitespace-pre-wrap 纯文本插入→Markdown；用户消息保持纯文本；流式气泡同）。新依赖 remark-math ^6 / rehype-katex ^7 / katex ^0.18。
