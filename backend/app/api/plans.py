@@ -1303,24 +1303,45 @@ def _stage_for_unit(content: dict, unit: models.StudyUnit) -> dict:
     return {"name": unit.title}
 
 
+def _nodes_by_stage(nodes: list[dict], stages: list[dict]) -> dict[int | None, list[dict]]:
+    """知识点按所属阶段分组（iter 348）：先按 stage.topics 名匹配，无匹配按难度就近。
+    供 fallback「每阶段一单元」路径给单元补 node_sids——使 scope.node_ids 在两种切分路径都一致工作。"""
+    out: dict[int | None, list[dict]] = {}
+    for n in nodes:
+        name = n.get("name")
+        si = next(
+            (s.get("index") for s in stages if name and any(t.get("name") == name for t in (s.get("topics") or []))),
+            None,
+        )
+        if si is None and stages:
+            nd = int(n.get("difficulty") or 1)
+            si = min(stages, key=lambda s: abs(int(s.get("difficulty") or 1) - nd)).get("index")
+        out.setdefault(si, []).append(n)
+    return out
+
+
 def _all_unit_plans(content: dict) -> list[UnitPlan]:
     """全量单元计划（iter 348：知识点驱动切分）。
 
     知识点 ≥3 -> group_nodes_into_units（难点单独成单元，易点聚合，单元数随知识点数）；
-    否则回退「每阶段一单元」（知识点不足/缺失，保持旧行为）。截断至 _MAX_MATERIAL_UNITS。
+    否则回退「每阶段一单元」（知识点不足/缺失，保持旧行为）——回退单元仍带该阶段的 node_sids
+    （iter 348），使 scope.node_ids 在两种路径都一致。截断至 _MAX_MATERIAL_UNITS。
     """
     stages = list(content.get("stages") or [])
     nodes = (content.get("knowledge_map") or {}).get("nodes") or []
     plans = group_nodes_into_units(nodes, stages)
     if plans:
         return plans[:_MAX_MATERIAL_UNITS]
+    stage_nodes = _nodes_by_stage(nodes, stages)
     return [
         UnitPlan(
             title=(s.get("name") or "概述"),
             stage=s,
             stage_index=s.get("index"),
-            nodes=[],
-            node_sids=[],
+            nodes=stage_nodes.get(s.get("index"), []),
+            node_sids=[
+                str(n.get("id") or "") for n in stage_nodes.get(s.get("index"), []) if n.get("id")
+            ],
         )
         for s in stages
     ][:_MAX_MATERIAL_UNITS]

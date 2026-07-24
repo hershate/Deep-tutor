@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 #         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
 # v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
 #         无需重启服务器即可在 /plugins 页热管理插件。
-API_VERSION = "1.19.0"
+API_VERSION = "1.20.0"
 
 
 class ToolsNamespace:

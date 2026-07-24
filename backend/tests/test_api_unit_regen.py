@@ -99,11 +99,11 @@ def test_unit_ids_regenerates_selected_only(client, auth_headers):
     assert len(units) == 3  # 总数不变（选中行替换，不是追加）
     by_title = {u.title: u for u in units}
     assert by_title["单元一"].id == seeded["unit_ids"][0]  # 未选中单元原样保留（同一行）
-    # 选中单元替换为新行（标题取所属 stage 名，与整档生成同一规则）
-    assert by_title["阶段二"].id != target
-    assert by_title["阶段二"].stage_index == 1  # stage 归属保持
+    # iter 348：按单元重生成保留原标题（旧实现改名为 stage 名，是「1 阶段=1 单元」模型的产物，已废弃）
+    assert by_title["单元二"].id != target  # 新行替换
+    assert by_title["单元二"].stage_index == 1  # stage 归属保持
     # order 重排稳定（stage 0/1/None 顺序）
-    assert [u.title for u in units] == ["单元一", "阶段二", "游离单元"]
+    assert [u.title for u in units] == ["单元一", "单元二", "游离单元"]
 
 
 def test_unit_ids_orphan_unit_uses_pseudo_stage(client, auth_headers):

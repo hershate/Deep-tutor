@@ -147,17 +147,20 @@ def test_e2e_plan_generation_smoke(client, auth_headers, monkeypatch):
     # 10. 测验（generate_quiz LLM -> 题目 JSON，P2）
     class _QuizProvider(LLMProvider):
         async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            # 覆盖计划的全部知识点（k1 JS / k2 React），匹配「每知识点一题」
             return _resp(
                 '{"title":"React 测验","quizzes":['
                 '{"node_id":"k1","node_name":"JS","type":"choice","question":"声明常量用？",'
-                '"options":["var","const"],"answer":"const","explanation":"const 声明常量。"}]}'
+                '"options":["var","const"],"answer":"const","explanation":"const 声明常量。"},'
+                '{"node_id":"k2","node_name":"React","type":"choice","question":"React 主要用于？",'
+                '"options":["后端","构建界面"],"answer":"构建界面","explanation":"React 是 UI 库。"}]}'
             )
 
     monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _QuizProvider())
     quiz_res = client.post(f"/api/plans/{plan_id}/quiz", json={}, headers=auth_headers)
     assert quiz_res.status_code == 200, quiz_res.text
     quiz_body = quiz_res.json()
-    assert quiz_body["quiz_count"] == 1
+    assert quiz_body["quiz_count"] == 2  # 计划有 k1/k2 两知识点 -> 每节点一题
     assert quiz_body["quizzes"][0]["type"] == "choice"
     assert quiz_body["quizzes"][0]["answer"] == "const"
 

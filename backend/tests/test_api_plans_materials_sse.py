@@ -187,7 +187,8 @@ def test_materials_sse_no_provider_all_degraded(client, auth_headers, monkeypatc
     from pathlib import Path
 
     text0 = Path(units[0].materials[0].content_md_path).read_text(encoding="utf-8")
-    assert "本单元学习「基础」" in text0  # brief 降级内容
+    # iter 348：fallback 单元也带 node_sids -> stage0（基础）覆盖节点 k1(JS)，brief 列知识点名
+    assert "本单元学习" in text0 and "JS" in text0  # brief 降级内容
 
 
 def test_materials_sse_idempotent_returns_json(client, auth_headers, monkeypatch):
