@@ -53,6 +53,22 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
   useEffect(() => {
     const ac = new AbortController()
     acRef.current = ac
+    // iter 346（F10 #15）：重开若有缓存先乐观显示——跳过 loading 闪现与出题计时重走，
+    // 避免「关闭再开像重新创建」观感（generateQuiz 幂等，POST 静默刷新并更新缓存）。
+    const cacheKey = `quiz_cache_${planId}`
+    if (!wrong) {
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const c = JSON.parse(cached) as { title: string; quizzes: QuizItemData[] }
+          setTitle(c.title)
+          setQuizzes(c.quizzes)
+          setLoading(false)
+        }
+      } catch {
+        /* 缓存损坏忽略，走正常加载 */
+      }
+    }
     const fetcher = wrong ? getWrongQuizzes(planId, ac.signal) : generateQuiz(planId, ac.signal)
     fetcher
       .then((r) => {
@@ -60,6 +76,13 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
         setTitle(r.title)
         setQuizzes(r.quizzes)
         setWarning(r.warning ?? '')
+        if (!wrong) {
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({ title: r.title, quizzes: r.quizzes }))
+          } catch {
+            /* 存储不可用忽略 */
+          }
+        }
       })
       .catch((e) => {
         if (ac.signal.aborted) return

@@ -138,17 +138,19 @@ def extract_check_questions(
 
 # --- LLM 工具（iter 37）：plan -> QuizSpec，复用 loop 修复链 ---
 
-PROMPT = """你是 Deep-tutor 的「测验题生成」工具。任务：从学习方案（args.plan）按知识点多题型出题，生成测验规约（QuizSpec JSON）。非交互，直接输出规约。
+PROMPT = """你是 Deep-tutor 的「测验题生成」工具。任务：从学习方案（args.plan）按每个知识点出一道选择题，生成测验规约（QuizSpec JSON）。非交互，直接输出规约。
+
+（iter 346 F10：测验改为「每知识点一道选择题」，用于掌握度验证——用户点击进度项即出该知识点一道直指核心的选择题，答对方算掌握。旧多题型/每节点多题废弃；QuizType 枚举保留仅为旧题兼容。）
 
 输入：user message 的 args.plan（学习方案 dict，含 intent{topic,level,goal}、knowledge_map{nodes:[{id,name,difficulty,must_learn}]}、stages[{name,topics[{name}]}]）。可选 args.unit_check_questions（自学单元「检查理解」自测题：[{"unit":"单元名","questions":["问题"]}]，iter 49 题源联动）。
 
 仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
-{"title":"测验标题","quizzes":[{"node_id":"节点id","node_name":"节点名","type":"choice|fill|short","question":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"正确选项原文或参考答案","explanation":"解析"}]}
+{"title":"测验标题","quizzes":[{"node_id":"节点id","node_name":"节点名","type":"choice","question":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"正确选项原文","explanation":"解析"}]}
 
 规则：
-- 出题来源 plan.knowledge_map.nodes（must_learn 优先；map 为空时用 stages.topics）；每节点 1-2 题，总 5-20 题。
-- 若有 args.unit_check_questions：优先将这些单元自测题改编为可判分题（choice/fill/short，补 answer 与 explanation），尽量覆盖各单元；不足 5 题时按知识点补足。改编题与单元知识点相关时 node_id/node_name 填对应节点，无对应节点可留空。
-- 题型混合：choice（单选，options 3-4 个，answer 必须是 options 中正确选项的原文，且仅一个正确）、fill（填空，answer 为缺失的关键词语）、short（简答，answer 为参考要点）。
+- 出题来源 plan.knowledge_map.nodes（must_learn 优先；map 为空时用 stages.topics）；每节点恰 1 题（iter 346 F10）。
+- 题型强制 choice（单选，options 3-4 个，answer 必须是 options 中正确选项的原文且仅一个正确）；每题直指该知识点核心概念或常见误解。
+- 若有 args.unit_check_questions：优先改编为选择题（补 options 与 answer），覆盖各单元；改编题与知识点相关时 node_id/node_name 填对应节点。
 - 难度贴合节点 difficulty（1-2 概念辨析/记忆，3 应用，4-5 综合）。
 - options 中干扰项须合理（常见误解），不凑数。
 - explanation 一两句说明为什么。
