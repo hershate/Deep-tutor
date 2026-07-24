@@ -13,7 +13,7 @@ from app.core.settings import settings
 from app.llm.anthropic_provider import AnthropicProvider
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 
-__all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider", "get_active_profile", "get_active_pricing"]
+__all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider", "get_active_profile", "get_active_pricing", "get_active_max_tokens"]
 
 
 def get_active_profile(user_id: int | None = None) -> "dict | None":
@@ -68,6 +68,34 @@ def get_active_pricing(user_id: int | None = None):
                 "cache_write_per_mtok": p.price_cache_write_per_mtok,
             }
             return pricing_for_profile(p.model or "", prices)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def get_active_max_tokens(user_id: int | None = None) -> int | None:
+    """iter 355：读用户的 llm_max_tokens 偏好覆盖（UserPref）；无 db/无覆盖/读失败 -> None。
+
+    返回 None 时调用方回退 settings.llm_max_tokens（默认 100k）。自管 DB 会话，
+    隔离语义同 get_active_profile。值存 UserPref key='llm_max_tokens'（repr(int)）。
+    """
+    try:
+        from app.db import models
+        from app.db.base import SessionLocal
+
+        db = SessionLocal()
+        try:
+            q = db.query(models.UserPref).filter_by(key="llm_max_tokens")
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            row = q.first()
+            if row is None or not row.value:
+                return None
+            # UserPref.value 存 repr(int)（如 '8000'）；容忍 float repr 与空白
+            import ast
+
+            return int(ast.literal_eval(row.value.strip()))
         finally:
             db.close()
     except Exception:  # noqa: BLE001

@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 from app.agent.context import ExecContext
 from app.agent.cost import accumulate_usage, build_metadata
 from app.agent.registry import Tool
+from app.core.settings import settings
 from app.llm.base import LLMUsage, TransientLLMError
 from app.tools.base import ToolError, ToolInput, ToolMetadata, ToolOutput
 
@@ -115,16 +116,13 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
             accumulate_usage(total, resp.usage)
             last_model = resp.usage.model or last_model
             if resp.stop_reason == "max_tokens":
-                # err.md B5：截断输出必然 JSON 解析失败，白烧修复重试；
-                # 提高 max_tokens 重试一次，仍截断则直接降级
-                log.warning("工具 %s 输出被 max_tokens 截断，提高上限重试一次", tool.name)
-                resp = await _chat_with_retry(ctx, system, message, max_tokens=8192)
-                accumulate_usage(total, resp.usage)
-                last_model = resp.usage.model or last_model
-                if resp.stop_reason == "max_tokens":
-                    out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
-                    out.metadata = build_metadata(total, last_model, ctx.pricing)
-                    return out
+                # iter 355：max_tokens 默认已拉高到 100k（ctx.llm_max_tokens / settings.llm_max_tokens，
+                # 用户可在设置页调节）。截断 = 输出 genuinely 超长（罕见），旧 8192 重试在 100k 默认下
+                # 无意义且白烧修复额度 -> 直接降级，提示用户调高上限。
+                log.warning("工具 %s 输出达 max_tokens 上限被截断（可在设置页调高「LLM 输出上限」）", tool.name)
+                out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
+                out.metadata = build_metadata(total, last_model, ctx.pricing)
+                return out
             data, err = _parse_and_validate(resp.content, tool.output_model)
             if err is None:
                 if tool.post_process:
@@ -151,13 +149,17 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
 
 
 async def _chat_with_retry(
-    ctx: ExecContext, system: str, message: str, *, max_tokens: int = 4096
+    ctx: ExecContext, system: str, message: str, *, max_tokens: int | None = None
 ):
     """LLM 调用 + 瞬态错误指数退避（err.md B1：限流/连接失败/5xx 不占修复重试额度）。
 
     超时（asyncio.TimeoutError）与非瞬态 API 错误（4xx 等）不重试，直接上抛。
+    iter 355：max_tokens 缺省取 ctx.llm_max_tokens（用户偏好注入）回退 settings.llm_max_tokens
+    （默认 100k，防 generate_quiz 等大输出工具截断）。
     """
     assert ctx.llm_provider is not None
+    if max_tokens is None:
+        max_tokens = ctx.llm_max_tokens or settings.llm_max_tokens
     delay = 1.0
     for i in range(LLM_TRANSIENT_MAX_RETRIES + 1):
         try:

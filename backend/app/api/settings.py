@@ -21,9 +21,13 @@ router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(
 
 
 class PrefsIn(BaseModel):
-    """用户偏好覆盖（iter 176）。值为 None = 清除覆盖回退全局默认；0 = 不限预算。"""
+    """用户偏好覆盖（iter 176/355）。值为 None = 清除覆盖回退全局默认；0 = 不限预算。
+
+    仅请求中显式包含的键会被更新（exclude_unset），未传键不动——避免改 A 误清 B。
+    """
 
     daily_budget_usd: float | None = Field(default=None, ge=0, le=100000)
+    llm_max_tokens: int | None = Field(default=None, ge=1, le=200000, description="LLM 单次输出 token 上限覆盖")
 
 
 @router.get("")
@@ -45,7 +49,7 @@ def get_settings(
         get_active_credential,
         resolve_bing_api_key,
     )
-    from app.llm import get_active_profile
+    from app.llm import get_active_max_tokens, get_active_profile
 
     effective = get_daily_budget(db, user.id)
     has_override = (
@@ -54,6 +58,8 @@ def get_settings(
         .first()
         is not None
     )
+    # iter 355：LLM 输出上限的用户偏好（无 -> 回退默认 100k）
+    max_tok_override = get_active_max_tokens(user.id)
     # iter 223：Key 生效状态纳入凭证档案（该用户 active 档案优先，回退 .env）
     anthropic_cred = get_active_credential(user.id, KIND_ANTHROPIC, db)
     if get_active_profile(user.id) is not None:
@@ -77,6 +83,10 @@ def get_settings(
         "daily_budget_usd": settings.daily_budget_usd,
         "daily_budget_effective": effective,
         "daily_budget_is_override": has_override,
+        # iter 355：LLM 输出 token 上限（默认 100k，用户可在设置页调节；防 generate_quiz 截断）
+        "llm_max_tokens": max_tok_override if max_tok_override is not None else settings.llm_max_tokens,
+        "llm_max_tokens_default": settings.llm_max_tokens,
+        "llm_max_tokens_is_override": max_tok_override is not None,
         "max_tool_calls": settings.max_tool_calls,
         "max_upload_mb": settings.max_upload_mb,
         "search_engine": settings.search_engine,
@@ -102,30 +112,41 @@ def update_prefs(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """设置/清除用户级日预算覆盖（iter 176）。
+    """设置/清除用户级偏好覆盖（iter 176 日预算 / iter 355 LLM 输出上限）。
 
-    daily_budget_usd 为 null -> 删除覆盖（回退全局默认）；为数值 -> upsert 覆盖行。
-    幂等：重复 PUT 同值结果一致。
+    仅请求中显式包含的键（exclude_unset）被处理：值为 null -> 删除覆盖（回退全局默认）；
+    为数值 -> upsert 覆盖行。未传的键不动（避免改 A 误清 B）。幂等：重复 PUT 同值一致。
     """
-    row = (
-        db.query(models.UserPref)
-        .filter_by(user_id=user.id, key="daily_budget_usd")
-        .one_or_none()
+    unset = body.model_dump(exclude_unset=True)
+    from app.llm import get_active_max_tokens  # 局部导入避循环（同 get_settings）
+
+    def _upsert(key: str, value: object) -> None:
+        row = db.query(models.UserPref).filter_by(user_id=user.id, key=key).one_or_none()
+        if value is None:
+            if row is not None:
+                db.delete(row)
+        else:
+            if row is None:
+                row = models.UserPref(user_id=user.id, key=key)
+                db.add(row)
+            row.value = repr(value)
+
+    if "daily_budget_usd" in unset:
+        _upsert("daily_budget_usd", body.daily_budget_usd)
+    if "llm_max_tokens" in unset:
+        _upsert("llm_max_tokens", body.llm_max_tokens)
+    db.commit()
+    max_tok_override = get_active_max_tokens(user.id)
+    has_budget_override = (
+        db.query(models.UserPref.id).filter_by(user_id=user.id, key="daily_budget_usd").first() is not None
     )
-    if body.daily_budget_usd is None:
-        if row is not None:
-            db.delete(row)
-            db.commit()
-    else:
-        if row is None:
-            row = models.UserPref(user_id=user.id, key="daily_budget_usd")
-            db.add(row)
-        row.value = repr(body.daily_budget_usd)
-        db.commit()
     return {
         "daily_budget_usd": get_daily_budget(db, user.id),
         "daily_budget_default": settings.daily_budget_usd,
-        "daily_budget_is_override": body.daily_budget_usd is not None,
+        "daily_budget_is_override": has_budget_override,
+        "llm_max_tokens": max_tok_override if max_tok_override is not None else settings.llm_max_tokens,
+        "llm_max_tokens_default": settings.llm_max_tokens,
+        "llm_max_tokens_is_override": max_tok_override is not None,
     }
 
 

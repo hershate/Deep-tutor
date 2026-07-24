@@ -96,3 +96,56 @@ def test_prefs_override_governs_budget_guard(client, auth_headers):
         assert exc.value.status == 402
     finally:
         db.close()
+
+
+# --- iter 355：LLM 输出上限（llm_max_tokens）用户偏好 ---
+
+
+def test_prefs_llm_max_tokens_default(client, auth_headers):
+    """默认 100k（防 generate_quiz 截断），无覆盖。"""
+    _seed_admin()
+    s = client.get("/api/settings", headers=auth_headers).json()
+    assert s["llm_max_tokens"] == 100_000
+    assert s["llm_max_tokens_is_override"] is False
+
+
+def test_prefs_llm_max_tokens_set_and_clear(client, auth_headers):
+    """PUT 覆盖 -> GET 反映；null 清除回退默认；仅传该键不误清日预算。"""
+    _seed_admin()
+    # 先设日预算，验证改 max_tokens 不动它（exclude_unset）
+    client.put("/api/settings/prefs", json={"daily_budget_usd": 7.0}, headers=auth_headers)
+
+    r = client.put("/api/settings/prefs", json={"llm_max_tokens": 8000}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["llm_max_tokens"] == 8000
+    assert body["llm_max_tokens_is_override"] is True
+    # 日预算未被误清
+    assert body["daily_budget_is_override"] is True
+    assert body["daily_budget_usd"] == 7.0
+
+    s = client.get("/api/settings", headers=auth_headers).json()
+    assert s["llm_max_tokens"] == 8000
+    assert s["llm_max_tokens_is_override"] is True
+
+    # get_active_max_tokens 反映用户覆盖
+    from app.llm import get_active_max_tokens
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(username="admin").one()
+        assert get_active_max_tokens(user.id) == 8000
+    finally:
+        db.close()
+
+    # null 清除 -> 回退默认 100k
+    r2 = client.put("/api/settings/prefs", json={"llm_max_tokens": None}, headers=auth_headers)
+    assert r2.json()["llm_max_tokens_is_override"] is False
+    assert client.get("/api/settings", headers=auth_headers).json()["llm_max_tokens"] == 100_000
+
+
+@pytest.mark.parametrize("bad", [0, -1, 200001])
+def test_prefs_llm_max_tokens_invalid_422(client, auth_headers, bad):
+    _seed_admin()
+    r = client.put("/api/settings/prefs", json={"llm_max_tokens": bad}, headers=auth_headers)
+    assert r.status_code == 422

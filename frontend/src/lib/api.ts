@@ -724,6 +724,10 @@ export interface AppSettings {
   daily_budget_usd: number
   daily_budget_effective: number // iter 176：用户覆盖后的有效日预算
   daily_budget_is_override: boolean
+  // iter 355：LLM 单次输出 token 上限（默认 100k，用户可覆盖；防 generate_quiz 截断）
+  llm_max_tokens: number
+  llm_max_tokens_default: number
+  llm_max_tokens_is_override: boolean
   max_tool_calls: number
   max_upload_mb: number
   search_engine: string
@@ -742,16 +746,20 @@ export interface AppSettings {
 }
 export const getSettings = () => apiFetch<AppSettings>('/settings')
 
-// iter 176：用户级日预算覆盖；value 为 null = 清除覆盖回退全局默认（0 = 不限）
+// iter 176/355：用户级偏好覆盖；值为 null = 清除覆盖回退全局默认（0 = 不限预算）。
+// 仅传出的键会被后端更新（exclude_unset，未传键不动）。
 export interface PrefsResult {
   daily_budget_usd: number
   daily_budget_default: number
   daily_budget_is_override: boolean
+  llm_max_tokens: number
+  llm_max_tokens_default: number
+  llm_max_tokens_is_override: boolean
 }
-export const updatePrefs = (dailyBudgetUsd: number | null) =>
+export const updatePrefs = (prefs: { daily_budget_usd?: number | null; llm_max_tokens?: number | null }) =>
   apiFetch<PrefsResult>('/settings/prefs', {
     method: 'PUT',
-    body: JSON.stringify({ daily_budget_usd: dailyBudgetUsd }),
+    body: JSON.stringify(prefs),
   })
 
 // iter 353：用户级价目覆盖（设置页可配置）。默认价据 Anthropic 公开价目，可能过时；

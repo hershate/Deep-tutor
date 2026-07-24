@@ -41,7 +41,7 @@ from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
 from app.db.models import User
-from app.llm import get_active_pricing, get_provider
+from app.llm import get_active_max_tokens, get_active_pricing, get_provider
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.base import ToolInput, ToolOutput
@@ -840,6 +840,8 @@ async def _run_start(
         bing_api_key=resolve_bing_api_key(user_id),
         # iter 354 BUG2：启用档案每卡定价 -> 生成期实时累计成本按该卡价目（绑定具体供应商卡片）
         pricing=get_active_pricing(user_id),
+        # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
+        llm_max_tokens=get_active_max_tokens(user_id),
     )
     def _on_event(e: str, d: dict) -> int:
         # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
@@ -1600,6 +1602,7 @@ async def _materials_sse(
             data_dir=settings.data_dir,
             budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
             bing_api_key=resolve_bing_api_key(user_id),  # iter 223：凭证档案有效 Bing Key
+            llm_max_tokens=get_active_max_tokens(user_id),  # iter 355：用户输出上限偏好
         )
         # R3（iter 230）单元生成有界并发：LLM 调用与单元 WebSearch 均为网络等待，
         # 旧串行 wall-clock 为各单元之和。worker 信号量并发执行；结果由本生成器
@@ -1830,6 +1833,7 @@ async def generate_materials(
         llm_provider=provider,
         data_dir=settings.data_dir,
         budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
+        llm_max_tokens=get_active_max_tokens(user.id),  # iter 355：用户输出上限偏好
     )
     # 同步 JSON 路径：scope 仅作用于 prompt（过滤阶段副本）；持久化仍为整档替换
     # （LLM 单文档规约无法可靠映射 stage_index；前端默认走 SSE 逐单元路径，scope 语义完整）
@@ -2187,6 +2191,7 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
         skill_registry=get_skill_registry() or None,  # iter 61：deep-tutor-quiz Skill（空 -> inline 回退）
         data_dir=settings.data_dir,
         budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
+        llm_max_tokens=get_active_max_tokens(user_id),  # iter 355：用户输出上限偏好（防 quiz 截断）
     )
     # quiz 题源联动（iter 49）：已持久化自学单元「检查理解」自测题 -> 题源（无单元/无小节 -> 空）
     unit_contents: list[tuple[str, str]] = []

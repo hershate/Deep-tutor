@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         default="claude-sonnet-5",
         description="模型（Haiku/Sonnet/Opus，影响成本/上下文/质量）",
     )
+    # iter 355：LLM 单次输出 token 上限。默认拉高到 100k 防 generate_quiz 等大输出工具被截断
+    # （max_tokens 是输出上限非目标，不会增加常规调用成本）。用户可在设置页按模型实际输出上限
+    # 调节（过高如超模型输出上限会触发 400）。用户级覆盖见 PUT /settings/prefs。
+    llm_max_tokens: int = Field(default=100_000, description="LLM 单次输出 token 上限（防截断）")
 
     # --- 认证（本地单用户 token；P4 多用户 JWT）---
     auth_token: str = Field(default="", description="本地单用户 token（可选；P4 起作 JWT 兼容回退，未设任何密码时进入开放本机模式 iter 89）")

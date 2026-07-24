@@ -71,6 +71,8 @@ export default function Settings() {
           <Row label="会话预算 (USD)" value={`$${data.budget_per_session_usd}`} />
           {/* 每日预算可编辑（iter 176 参数配置）：用户覆盖优先于 .env 默认 */}
           <BudgetRow data={data} />
+          {/* LLM 输出上限可编辑（iter 355）：默认 100k 防 generate_quiz 截断 */}
+          <MaxTokensRow data={data} />
           <Row label="工具调用上限 / 会话" value={String(data.max_tool_calls)} />
           <Row label="上传上限 (MB)" value={String(data.max_upload_mb)} />
           <Row label="搜索引擎" value={searchEngineLabel(data)} />
@@ -186,7 +188,7 @@ function BudgetRow({ data }: { data: AppSettings }) {
     }
     setBusy(true)
     try {
-      await updatePrefs(n)
+      await updatePrefs({ daily_budget_usd: n })
       toast.success(reset ? '已恢复默认日预算' : '日预算已更新')
       setEditing(false)
       qc.invalidateQueries({ queryKey: ['settings'] })
@@ -249,6 +251,99 @@ function BudgetRow({ data }: { data: AppSettings }) {
             <button
               onClick={() => {
                 setValue(String(data.daily_budget_effective))
+                setEditing(true)
+              }}
+              className="rounded-lg border px-2 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
+            >
+              编辑
+            </button>
+          </>
+        )}
+      </dd>
+    </div>
+  )
+}
+
+/** LLM 输出上限可编辑行（iter 355）：默认 100k，防 generate_quiz 等大输出工具被截断；
+ *  用户可按模型实际输出上限调节（过高超模型上限会触发 400，调低即可）。 */
+function MaxTokensRow({ data }: { data: AppSettings }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function save(reset: boolean) {
+    const n = reset ? null : Number(value)
+    if (!reset && (!Number.isFinite(n) || (n as number) < 1 || (n as number) > 200000)) {
+      toast.error('LLM 输出上限须在 1-200000 之间')
+      return
+    }
+    setBusy(true)
+    try {
+      await updatePrefs({ llm_max_tokens: reset ? null : (n as number) })
+      toast.success(reset ? '已恢复默认输出上限' : '输出上限已更新')
+      setEditing(false)
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '保存失败，请重试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
+      <dt className="text-sm text-slate-600 dark:text-slate-300">
+        LLM 输出上限 (tokens)
+        {data.llm_max_tokens_is_override && (
+          <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+            （默认 {data.llm_max_tokens_default.toLocaleString()}）
+          </span>
+        )}
+      </dt>
+      <dd className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+        {editing ? (
+          <>
+            <input
+              type="number"
+              min={1}
+              max={200000}
+              step="1000"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              aria-label="LLM 输出上限（tokens）"
+              className="w-28 rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+            />
+            <button
+              onClick={() => save(false)}
+              disabled={busy}
+              className="rounded-lg bg-blue-600 px-2 py-1 text-xs text-white transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+            >
+              保存
+            </button>
+            {data.llm_max_tokens_is_override && (
+              <button
+                onClick={() => save(true)}
+                disabled={busy}
+                className="rounded-lg border px-2 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                恢复默认
+              </button>
+            )}
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              className="rounded-lg px-1 py-1 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="tabular-nums">{data.llm_max_tokens.toLocaleString()}</span>
+            <button
+              onClick={() => {
+                setValue(String(data.llm_max_tokens))
                 setEditing(true)
               }}
               className="rounded-lg border px-2 py-1 text-xs transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
