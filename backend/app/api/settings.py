@@ -15,6 +15,7 @@ from app.api.deps import get_current_user, get_daily_budget, get_db, require_aut
 from app.core.settings import effective_search_engine, settings
 from app.db import models
 from app.db.models import User
+from app.llm.pricing import default_pricing_table
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_auth)])
 
@@ -125,4 +126,100 @@ def update_prefs(
         "daily_budget_usd": get_daily_budget(db, user.id),
         "daily_budget_default": settings.daily_budget_usd,
         "daily_budget_is_override": body.daily_budget_usd is not None,
+    }
+
+
+# iter 353：用户级价目覆盖（设置页可配置）。默认价目据 Anthropic 公开价目，可能过时
+# （如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）；用户可按实际账单覆盖每族单价。
+_VALID_PRICING_FAMILIES = ("opus", "sonnet", "haiku")
+_VALID_PRICING_FIELDS = (
+    "input_per_mtok",
+    "output_per_mtok",
+    "cache_read_per_mtok",
+    "cache_write_per_mtok",
+)
+
+
+def _clean_pricing_overrides(pricing: dict) -> dict:
+    """清洗价目覆盖输入：只保留已知族 + 已知数值字段（防注入 / 非法值）。"""
+    cleaned: dict = {}
+    if not isinstance(pricing, dict):
+        return cleaned
+    for family, fields in pricing.items():
+        if family not in _VALID_PRICING_FAMILIES or not isinstance(fields, dict):
+            continue
+        fam_clean: dict = {}
+        for key, val in fields.items():
+            if key in _VALID_PRICING_FIELDS:
+                try:
+                    num = float(val)
+                except (TypeError, ValueError):
+                    continue
+                if num < 0:
+                    continue  # 单价非负
+                fam_clean[key] = num
+        if fam_clean:
+            cleaned[family] = fam_clean
+    return cleaned
+
+
+class PricingOverridesIn(BaseModel):
+    """价目覆盖（USD / 1M tokens）。pricing 为空 -> 清除全部覆盖回退默认。"""
+
+    pricing: dict = Field(default_factory=dict)
+
+
+@router.get("/pricing")
+def get_pricing_settings(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """价目表：默认（内置）+ 用户覆盖（设置页可配置，iter 353）。
+
+    单位 USD / 1M tokens；覆盖优先于默认。计费时按用户覆盖重算 api_usage.cost
+    （用量页 / 日预算即用户实际单价）。
+    """
+    from app.agent.cost import load_pricing_overrides
+
+    return {
+        "defaults": default_pricing_table(),
+        "overrides": load_pricing_overrides(db, user.id),
+        "note": "单价为 USD/1M tokens。默认值据 Anthropic 公开价目，可能随官方调整过时；"
+        "建议按你的实际账单核对后覆盖。核对：https://www.anthropic.com/pricing",
+    }
+
+
+@router.put("/pricing")
+def update_pricing_settings(
+    body: PricingOverridesIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """设置/清除用户级价目覆盖（iter 353）。
+
+    pricing 空对象 -> 删除覆盖行（回退默认）；否则清洗后 upsert pricing_overrides JSON。
+    幂等：重复 PUT 同值结果一致。仅已知族（opus/sonnet/haiku）与已知字段被保留。
+    """
+    import json
+
+    from app.agent.cost import load_pricing_overrides
+
+    cleaned = _clean_pricing_overrides(body.pricing)
+    row = (
+        db.query(models.UserPref)
+        .filter_by(user_id=user.id, key="pricing_overrides")
+        .one_or_none()
+    )
+    if not cleaned:
+        if row is not None:
+            db.delete(row)
+            db.commit()
+    else:
+        if row is None:
+            row = models.UserPref(user_id=user.id, key="pricing_overrides")
+            db.add(row)
+        row.value = json.dumps(cleaned, ensure_ascii=False)
+        db.commit()
+    return {
+        "defaults": default_pricing_table(),
+        "overrides": load_pricing_overrides(db, user.id),
     }

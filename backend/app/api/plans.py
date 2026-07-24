@@ -28,7 +28,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
-from app.agent.cost import record_metadata_usage
+from app.agent.cost import estimate_cost_from_metadata, load_pricing_overrides, record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.api.sse_utils import (
@@ -933,10 +933,14 @@ def _persist_tool_calls(
     try:
         sess = db.get(models.Session, session_id)
         usage_user_id = sess.user_id if sess is not None else None
+        # iter 353：用户级价目覆盖（设置页可配置）重算 cost——默认价可能过时
+        #（如 sonnet-5 促销、Opus 4.5+ 降价、Haiku 4.5 提价）。
+        overrides = load_pricing_overrides(db, usage_user_id)
 
         def _add_call(tool_name: str, out: ToolOutput) -> None:
             m = out.metadata
             err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
+            cost = estimate_cost_from_metadata(m, overrides) if overrides else m.cost
             db.add(
                 models.ToolCall(
                     session_id=session_id,
@@ -947,7 +951,7 @@ def _persist_tool_calls(
                     error=err_msg,
                     llm_tokens_in=m.tokens_in,
                     llm_tokens_out=m.tokens_out,
-                    cost=m.cost,
+                    cost=cost,
                     duration_ms=m.duration_ms,
                 )
             )
@@ -961,7 +965,7 @@ def _persist_tool_calls(
                         tokens_out=m.tokens_out,
                         cache_read=m.cache_read,
                         cache_write=m.cache_write,
-                        cost=m.cost,
+                        cost=cost,
                     )
                 )
 

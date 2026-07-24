@@ -38,21 +38,44 @@ _MODEL_PRICING: list[tuple[str, Pricing]] = [
 ]
 
 
-def get_pricing(model: str) -> Pricing | None:
-    """按模型族名（opus/sonnet/haiku）子串匹配价目；未知返回 None。"""
+def _override_pricing(pricing: Pricing, ov: dict) -> Pricing:
+    """用用户覆盖字段构造新 Pricing（缺省/非法值回退默认）。iter 353 设置页可配置价目。"""
+    try:
+        return Pricing(
+            input_per_mtok=float(ov.get("input_per_mtok", pricing.input_per_mtok)),
+            output_per_mtok=float(ov.get("output_per_mtok", pricing.output_per_mtok)),
+            cache_read_per_mtok=float(ov.get("cache_read_per_mtok", pricing.cache_read_per_mtok)),
+            cache_write_per_mtok=float(ov.get("cache_write_per_mtok", pricing.cache_write_per_mtok)),
+        )
+    except (TypeError, ValueError):
+        return pricing
+
+
+def get_pricing(model: str, overrides: dict | None = None) -> Pricing | None:
+    """按模型族名（opus/sonnet/haiku）子串匹配价目；未知返回 None。
+
+    iter 353 用户级价目覆盖（设置页可配置）：overrides 形如
+    {"sonnet": {"input_per_mtok": 2.0, "output_per_mtok": 10.0, ...}}，
+    命中族且该族有覆盖时优先用覆盖单价（缺省字段回退默认）。
+    """
     if not model:
         return None
     name = model.lower()
     for family, pricing in _MODEL_PRICING:
         if family in name:
+            if overrides and isinstance(overrides.get(family), dict):
+                return _override_pricing(pricing, overrides[family])
             return pricing
     return None
 
 
-def estimate_cost(usage: LLMUsage, model: str | None = None) -> float:
-    """据 usage 与模型价目估算费用（USD）；未知模型记 0 并告警（不静默，err.md B3）。"""
+def estimate_cost(usage: LLMUsage, model: str | None = None, overrides: dict | None = None) -> float:
+    """据 usage 与模型价目估算费用（USD）；未知模型记 0 并告警（不静默，err.md B3）。
+
+    iter 353：overrides 为用户级价目覆盖（设置页可配置），见 get_pricing。
+    """
     used = model or usage.model or ""
-    p = get_pricing(used)
+    p = get_pricing(used, overrides)
     if p is None:
         if usage.input_tokens or usage.output_tokens:
             log.warning(
@@ -67,3 +90,21 @@ def estimate_cost(usage: LLMUsage, model: str | None = None) -> float:
         + usage.cache_creation_input_tokens * p.cache_write_per_mtok
     ) / 1_000_000
     return round(cost, 6)
+
+
+def default_pricing_table() -> dict:
+    """默认价目快照（USD / 1M tokens），供设置页展示。iter 353 设置页可配置。
+
+    键为模型族名（opus/sonnet/haiku，子串匹配）；价目据 Anthropic 公开价目，可能随
+    官方调整而过时——用户可在设置页按实际账单覆盖（见 get_pricing overrides）。
+    核对链接：https://www.anthropic.com/pricing
+    """
+    return {
+        family: {
+            "input_per_mtok": p.input_per_mtok,
+            "output_per_mtok": p.output_per_mtok,
+            "cache_read_per_mtok": p.cache_read_per_mtok,
+            "cache_write_per_mtok": p.cache_write_per_mtok,
+        }
+        for family, p in _MODEL_PRICING
+    }
