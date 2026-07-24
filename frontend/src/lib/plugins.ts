@@ -1096,6 +1096,8 @@ export interface DeepTutorEventMap {
   quiz_submitted: { user_id: number; quiz_id: number; plan_id: number; type: string | null; correct: boolean | null }
   /** 自学材料生成完成 */
   materials_completed: { plan_id: number; session_id: number; unit_count: number; degraded_count: number; partial: boolean }
+  /** 后台测验预生成完成（iter 350：材料完成后后台出题，就绪提醒；经 SSE 按 user 过滤转发） */
+  quiz_ready: { plan_id: number; session_id: number; user_id: number; quiz_count: number }
   /** 学习打卡提交后 */
   learning_log_added: { user_id: number; plan_id: number; log_id: number; date: string; minutes: number; note: string | null }
 }

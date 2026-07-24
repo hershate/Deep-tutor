@@ -2086,12 +2086,16 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
     return spec, spec_out
 
 
+_BG_QUIZ_INFLIGHT: set[int] = set()  # iter 350：后台测验预生成进行中的 plan_id（跨 loop 的纯数据标志）
+
+
 async def _generate_quiz_background(plan_id: int, session_id: int, user_id: int) -> None:
     """iter 349 part B：材料完成后后台预生成测验——用户打开测验即命中缓存（免等待）。
 
     用户核心诉求「生成自学资料时后台出题」。独立 SessionLocal（材料已提交，无写锁争用）；
     仅当本方案尚无 quiz 时预生成（不覆盖用户已手动生成/刷新的题与 attempts）；预算超/异常
     均隔离，绝不影响主流程。复用 _generate_quiz_spec + _persist_quizzes。
+    iter 350：生成期间登记 _BG_QUIZ_INFLIGHT，端点据此等待而非并行重复出题（避免写锁竞争）。
     """
     db = SessionLocal()
     try:
@@ -2107,8 +2111,12 @@ async def _generate_quiz_background(plan_id: int, session_id: int, user_id: int)
             check_daily_budget(db, user_id)
         except ApiError:
             return  # 预算耗尽 -> 跳过后台预生成（用户手动触发时再处理）
-        spec, _ = await _generate_quiz_spec(db, plan, content, user_id)
-        _persist_quizzes(db, plan_id, spec)
+        _BG_QUIZ_INFLIGHT.add(plan_id)
+        try:
+            spec, _ = await _generate_quiz_spec(db, plan, content, user_id)
+            _persist_quizzes(db, plan_id, spec)
+        finally:
+            _BG_QUIZ_INFLIGHT.discard(plan_id)
         from app.plugins import bus as plugin_bus
 
         plugin_bus.emit(
@@ -2154,6 +2162,18 @@ async def generate_quiz_endpoint(
     existing = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
     if existing and not refresh:
         return _quiz_result(existing, content)
+
+    # iter 350：后台正在预生成本方案测验 -> 等待其完成而非并行重复出题
+    # （避免并发 _persist_quizzes 写锁竞争 + 重复耗 LLM；测验生成通常 30-90s）
+    if not refresh and plan.id in _BG_QUIZ_INFLIGHT:
+        for _ in range(90):  # 最多等 ~180s
+            await asyncio.sleep(2)
+            if plan.id not in _BG_QUIZ_INFLIGHT:
+                break
+        db.expire_all()
+        existing = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
+        if existing:
+            return _quiz_result(existing, content)
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径）
     spec, spec_out = await _generate_quiz_spec(db, plan, content, user.id)

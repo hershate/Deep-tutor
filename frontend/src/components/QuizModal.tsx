@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from './Toast'
 import { ApiError, generateQuiz, getWrongQuizzes, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
+import { events } from '../lib/plugins'
 
 interface Props {
   planId: number
@@ -91,7 +92,31 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
       .finally(() => {
         if (!ac.signal.aborted) setLoading(false)
       })
-    return () => ac.abort()
+    // iter 350：弹窗已开期间收到 quiz_ready（后台预生成完成）-> 即时刷新（命中后端缓存秒回）
+    const offReady = events.on('quiz_ready', (p) => {
+      const data = p as Record<string, unknown> | undefined
+      if (wrong || Number(data?.plan_id) !== planId || ac.signal.aborted) return
+      generateQuiz(planId, ac.signal)
+        .then((r) => {
+          if (ac.signal.aborted) return
+          setTitle(r.title)
+          setQuizzes(r.quizzes)
+          setWarning(r.warning ?? '')
+          setLoading(false)
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({ title: r.title, quizzes: r.quizzes }))
+          } catch {
+            /* 存储不可用忽略 */
+          }
+        })
+        .catch(() => {
+          /* 后台已就绪但拉取失败：忽略，原 fetcher/端点等待兜底 */
+        })
+    })
+    return () => {
+      offReady()
+      ac.abort()
+    }
   }, [planId, wrong])
 
   // Esc 关闭（生成中经 requestClose 提示重开可见）

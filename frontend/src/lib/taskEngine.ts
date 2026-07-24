@@ -130,6 +130,14 @@ function onPhaseTransition(taskId: string, prev: TaskPhase | undefined, next: Ta
   notifySettled(t)
 }
 
+// iter 350：后台测验预生成完成（quiz_ready，经 EventsBridge SSE 转发）-> 就绪 toast + 跳转入口。
+// 闭环「材料完成→后台出题→就绪提醒」；用户点「去测验」打开 QuizModal 命中后端缓存秒回（免等待）。
+pluginEvents.on('quiz_ready', (p) => {
+  const planId = Number((p as Record<string, unknown> | null)?.plan_id)
+  if (!planId) return
+  toast.success('测验题已就绪', { label: '去测验', onClick: () => deps?.navigate(`/plans/${planId}`) })
+})
+
 /** 流异常内部处理（非 failFast 路径）：404 移除台账；409 stale -> interrupted；其余 -> offline。 */
 function handleStreamError(taskId: string, e: unknown): void {
   const t = entryOf(taskId)
