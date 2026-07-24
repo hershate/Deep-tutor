@@ -108,7 +108,8 @@ def _validate_intent(data: dict, inp: ToolInput) -> dict:
 
     # iter 353：用户在首页表单显式指定的结构化时间字段 authoritative——覆盖 LLM 从
     # raw_text 的抽取（daily_minutes/deadline/start_date 由前端直传 args）。
-    args = inp.args or {}
+    # inp 可能为 None（旧测试直接调用 _validate_intent(data, None)）；无 args 时跳过覆盖。
+    args = (inp.args if inp is not None else {}) or {}
     if args.get("daily_minutes") is not None:
         try:
             dm_arg = int(args["daily_minutes"])
