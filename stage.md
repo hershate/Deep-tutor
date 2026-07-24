@@ -17,6 +17,8 @@
 
 **iter 346（2026-07-24，实机使用问题集修复，✅ 完成）**：用户 /goal「实机 21 项问题先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。8 并行调查 agent（逐条核实现状）+ 14 联网调研（业界依据）→ 计划书（`~/.claude/plans/piped-munching-marble.md`，4 决策经 AskUserQuestion）→ 13 commit 落地：F1 联网搜索 / F2 缓存命中率 / F3 弹窗滚动 / F4 对话改名 / F5 admin 禁删 / F11a 笔记分栏 / F6 材料重写 / F9 学习中心 / F10 测验体系 / F11b chat run 隔离 / F8 KB 沉淀+引用 / F1 回归修复。全量 pytest 零回归 + ruff 干净 + 前端 build 通过。**标注后续**（非 bug 或高风险/低收益）：F11c APIKEY 深度防御（user_id=None 薄弱点不可利用，重构破坏单元测试需同步改 setup/测试）、F12 quiz 接入任务中心（F10 已覆盖核心，需改 taskEngine）、自学材料知识点级 scope.node_ids（后端就绪前端未传）。详见 §五 iter 346。
 
+**iter 353（2026-07-24，实机 3 问题修复，✅ 完成）**：删除方案 500（`ed07226`）+ Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）+ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，起始日期 + 结构化时长/截止输入；回归修复 `2d1a944`）。**pytest 1182 零回归**。**当前无活动 /goal，等待用户新需求。** 详见 §五 iter 353。下文「当前下一步」为记忆系统 /goal 的历史状态（iter 345 已收官）。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -277,7 +279,8 @@ Deep-tutor/
     - 后端：[understand_intent](backend/app/tools/understand_intent.py) IntentData 加 `start_date` + PROMPT 加维度 + `_validate_intent` 用 args 结构化字段（daily_minutes/deadline/start_date）authoritative 覆盖 LLM 抽取 + start_date 校验；[schedule_plan](backend/app/tools/schedule_plan.py) `check_schedule` **确定性重写日期**（从 upstream.start_date 或今天开始连续，根治 LLM 无锚点臆造日期 + 「今日学习」端点 date.today() 匹配失效）；[plans.py](backend/app/api/plans.py) GenerateIn 加 daily_minutes/deadline/start_date + `_start_full_generation` 注入 understand_intent args。
     - 前端：[Home.tsx](frontend/src/pages/Home.tsx) 加「时间安排（可选）」卡（每日时长 / 起始日期 / 截止日期 输入）；[api.ts](frontend/src/lib/api.ts) generateStream + `TimeOptions`；[taskEngine.ts](frontend/src/lib/taskEngine.ts) startPlan 传 timeOpts。
     - 验证：新增 [test_plan_time_input.py](backend/tests/test_plan_time_input.py) 5 项（结构化覆盖 / 无覆盖回退 / 非法 start_date / check_schedule 从 start_date 重写 / 默认今天）；相关 72 项零回归；ruff 干净；前端 build 通过（425 模块）。
-  - **🎉 /goal 三问题全部完成**：① 删除方案 500（`ed07226`）② Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）③ 计划时间用户指定（本 iter）。全量回归收口见下。
+  - **🎉 /goal 三问题全部完成**：① 删除方案 500（`ed07226`）② Token 计费（`b3e4994`+`8fc37ab`，设置页可配置）③ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，回归修复 `2d1a944`）。
+  - **全量回归**：**pytest 1182 passed 零失败**（+17 新测试：session_delete 3 / pricing 9 / plan_time_input 5）；ruff 干净；前端 build 通过（tsc 零错，425 模块）。
 
 - **2026-07-24 iter 349B/350/351/352（测验/材料/知识点 /goal 收官：后台测验 + 就绪可见 + 并发去竞态 + UX + 全量回归零失败，commits 25d8ec9/851e059/6a2036e/bfa57f0）**：🎉 /goal 全部诉求达成。
   - **iter 349B 测验后台预生成（25d8ec9）**：`_generate_quiz_background`（独立 SessionLocal、仅本方案尚无 quiz 时预生成不覆盖用户已生成题、预算/异常隔离、复用 `_generate_quiz_spec`+`_persist_quizzes`）+ `_schedule_quiz_background`（薄调度封装）；`_materials_sse` done 后非 partial 时调度；emit 新事件 `quiz_ready`。「缺题」(349A) + 「慢」(后台免等待) 双管齐下。
