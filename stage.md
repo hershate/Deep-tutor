@@ -25,6 +25,8 @@
 
 **iter 356（2026-07-24，模型计费改造：独立计费表 + 货币 $→￥，✅ 完成）**：用户 /goal「计费不再绑 LLM 供应商卡片，改为设置页维护『模型名-各项费用』列表实现灵活计费；所有计费货币 $→￥」。4 决策经 AskUserQuestion：①精确模型名 + 族兜底 ②默认预填主流国产模型（DeepSeek/Qwen/GLM/Kimi）¥ 参考价 ③直接移除每卡定价 ④保留 usd 字段名仅 UI 显示¥（API 兼容）。后端：[pricing.py](backend/app/llm/pricing.py) 重构（族默认改¥换算 + 内置国产默认表 + `resolve_pricing` 精确名→族兜底→None；移除 `pricing_for_profile`）+ cost/context/loop/agent_loop 把 `ctx.pricing:Pricing`→`ctx.model_pricing:dict` + plans/memory 注入 `get_active_model_pricing` + providers API+db/models 移除 4 `price_*` 列（迁移 `c5d7e9a13b28` 删列 + `_provider_pricing_removed` 探针识别最新 schema）+ settings `/pricing` 改模型计费表 CRUD（`UserPref{model_pricing}`）。前端：ProviderManager 移除每卡计价表单/摘要 + 新增 [ModelPricingManager](frontend/src/components/ModelPricingManager.tsx)（模型名-各项费用列表 CRUD，¥）+ api.ts 类型 + 货币 $→￥（Usage/UsageMeter/Settings/homeDashboard）。测试：test_api_pricing 重写（model_pricing 精确匹配）/ test_api_providers 删 3 每卡定价测试 / test_llm 数值改¥ / test_db_migrate 探针。**pytest 零回归 + ruff 干净 + 前端 build 通过**。详见 §五 iter 356。
 
+**iter 357（2026-07-24，README 重写 + 推荐模型说明，✅ 完成）**：用户「README 已过时，按项目实际情况重写，版本定为 v0.1.0.0」。代码实查后重写 [README.md](README.md)：版本徽标 v0.1.0.0 + 功能总览新增「AI 对话（记忆系统+完整 Agent）」整节并补齐 iter 220-356 全部新功能（知识库问答/跨方案复习页/模型计费¥/max_tokens 可调/计划时间用户指定等）+ 测试数修正 819→**1191** + 双插件版本线（前端 1.17.0/后端 1.20.0）+ 默认端口 41173。模型说明（AskUserQuestion，范围=**仅文档**）：README 写明**当前推荐 deepseek-v4-flash**（代码默认值仍 claude-sonnet-5 不动）+ 新增「模型使用合规」提示（尊重各平台服务条款/使用规范）。**纯文档零代码变更**。详见 §五 iter 357。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -268,6 +270,13 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-24 iter 357（README 重写 + 推荐模型说明 ·✅ 完成）**：用户「README 已过时，按项目实际情况重写，当前版本号定为 v0.1.0.0」。纯文档改动（零代码/测试变更）。
+  - **动机**：原 README 停留早期迭代——测试数写 819、未覆盖 iter 220-356 大量新功能（AI 对话/记忆系统、知识库问答、跨方案统一复习页、模型计费¥、max_tokens 可调、计划时间用户指定、材料导出 md/PDF/ZIP、Markdown+KaTeX 渲染等）。
+  - **事实核查（改前实查防编造）**：`pytest --co` = **1191** 项（原 README 819）；前端插件 API `1.17.0`（[plugins.ts](frontend/src/lib/plugins.ts) `API_VERSION`）；后端插件 API `1.20.0`（[plugins/api.py](backend/app/plugins/api.py)）；默认端口 `41173`（[scripts/start.sh](scripts/start.sh)）；代码默认模型 `claude-sonnet-5`（[settings.py](backend/app/core/settings.py) `anthropic_model`）；默认计费表 deepseek-v4-flash/pro ¥（[pricing.py](backend/app/llm/pricing.py) `_DEFAULT_MODEL_PRICING`）；当前分支 `main`（§〇 旧记 `Dev-API` 已过时）。
+  - **重写内容**：版本徽标 **v0.1.0.0**；功能总览新增整节「AI 对话（记忆系统 + 完整 Agent）」+ 补齐学习过程/知识库与笔记/导出分享/账号配置 各域 iter 220-356 新功能；目录结构补 plugin-examples/ 与 data/；配置表补 ANTHROPIC_MODEL/端口/预算¥说明；插件开发列出 9 前端插槽 + 8 后端内置示例 + 双版本线当前号；测试数改 1191。
+  - **模型说明决策（AskUserQuestion）**：用户指出「默认模型应该是 deepseek-v4-flash」。问歧义范围（仅文档 / 代码+文档 / README+.env.example）→ 用户选「**仅改 README 文档**」并追加「写明推荐 deepseek-v4-flash、使用模型尊重各平台使用规范」。落地：配置表 ANTHROPIC_MODEL 行区分「代码默认值 claude-sonnet-5」与「当前推荐 deepseek-v4-flash」；新增两段 blockquote——「推荐模型」（deepseek-v4-flash 需配 DeepSeek 兼容端点供应商档案方生效，无档案回退 claude-sonnet-5）+「模型使用合规」（遵守第三方平台服务条款/用量/内容/数据/计费规范）。
+  - **未改代码**：[settings.py](backend/app/core/settings.py) `anthropic_model` 默认值与 [.env.example](.env.example) `ANTHROPIC_MODEL=claude-sonnet-5` 维持不变（用户明确仅改文档；代码默认值改动会致 anthropic SDK 直传 deepseek 模型名在零配置路径失败，已在提问时说明）。
 
 - **2026-07-24 iter 356（模型计费改造：独立计费表 + 货币 $→￥ /goal·✅ 完成）**：用户 /goal「计费不再绑 LLM 供应商卡片，改为设置页维护『模型名-各项费用』列表实现灵活计费；所有计费货币 $→￥」。4 决策经 AskUserQuestion，全量 pytest 零回归 + ruff + 前端 build 通过。
   - **4 决策（AskUserQuestion）**：①匹配方式=精确模型名 + Anthropic 族兜底 ②默认预填=主流国产模型（DeepSeek/通义千问 Qwen/智谱 GLM/Kimi）¥ 参考价（联网查证官方定价）③旧每卡定价=直接移除（新方式独立配置）④预算字段名（budget_per_session_usd / daily_budget_usd）保留 usd 仅 UI 显示¥（API/插件契约「只增不改」）。

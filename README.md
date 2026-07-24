@@ -1,8 +1,10 @@
 # Deep-tutor
 
-> AI 驱动的学习方案生成 Web 应用。多模态输入（文档 / 文本 / 网页 / 图片 / 音视频 / 需求描述）→ 自动生成完备、详细、实用的个性化学习方案，并覆盖练习测验、进度跟踪、自学材料、知识库、笔记的完整学习闭环。
+> **版本：v0.1.0.0**
 >
-> 本地优先部署（单机开箱即用），架构支持多用户。完整设计见 [`plan/`](./plan/)（11 份细化文档），实施进度见 [`stage.md`](./stage.md)（路线图 P1–P5 已全部完成）。
+> AI 驱动的学习方案生成 Web 应用。多模态输入（文档 / 文本 / 网页 / 图片 / 音视频 / 需求描述）→ 自动生成完备、详细、实用的个性化学习方案，并覆盖**练习测验、进度跟踪、间隔复习、自学材料、知识库、笔记、AI 对话**的完整学习闭环。
+>
+> 本地优先部署（单机开箱即用），架构支持多用户。完整设计见 [`plan/`](./plan/)（11 份细化文档），实施进度见 [`stage.md`](./stage.md)（路线图 P1–P5 已全部完成），插件 API 契约见 [`API.md`](./API.md)。
 
 ## 功能总览
 
@@ -12,7 +14,8 @@
 - **需求输入引导**：首页描述框为空时展示可点击的需求示例（零基础学某技术 / 备考 / 语言 / 数学基础等），一键填入降低首次生成门槛
 - **对话式澄清**：意图不明时自动追问基础 / 目标 / 时长，回答后续接生成
 - **生成流水线**：意图理解 → 知识图谱 → 阶段设计 → 资源检索（Bing API / 免 Key 网页版）→ 链接验证（✅⚠️❌）→ 时间排程 → 五维校验（依赖闭包 / 难度阶梯 / 认知负荷 / 里程碑可行性 / 缺口分析，详情页以中文卡片逐项展示通过 / 注意 / 未通过）→ 反馈循环自动修复
-- **SSE 实时进度**：断线续接（Last-Event-ID 重放）、取消、任务中心全局管理
+- **计划时间用户指定**：起始日期 + 结构化时长 / 截止日期输入，排程按用户给定的节奏生成
+- **SSE 实时进度**：断线续接（Last-Event-ID 重放）、取消、任务中心全局管理（生成时实时计费 / Token）
 - **局部重生成**：按环节（阶段设计 / 资源 / 排程 / 校验）带反馈重跑，版本历史可切换、版本对比（主题 / 阶段增删 / 知识点 / 资源 / 时长 差异）
 - **方案复用**：方案详情页「复制为新需求」——以原方案学习目标预填首页，快速生成相似 / 进阶方案
 - **方案列表管理**：批量选择删除（积累方案后快速清理）、按平均掌握度排序（薄弱优先）、主题搜索与分页
@@ -20,20 +23,30 @@
 - **方案概览**：详情页顶部汇总阶段 / 知识点 / 资源数量与预计时长（小时 / 周），免切 tab 即知方案规模
 - **知识图谱**：可折叠知识点树（按 parent_id 层级）+ 依赖关系列表（前置 / 关联，来自知识图谱边），理清学习先后
 
+### AI 对话（记忆系统 + 完整 Agent）
+
+- **DeepSeek 式实时对话 UI**（`/chat`）：会话列表（创建 / 选择 / 删除 / 运行中指示）+ 对话流（消息气泡 + 流式逐字光标 + 可折叠思考块 + 工具调用卡片实时状态）+ 记忆面板
+- **会话历史记忆**：消息持久化、append-only、可回放（对话内记忆永不丢）
+- **记忆库**：Agent 主动保存的要点 / 事实 / 摘要（类 MemGPT archival），按需加载（不做自动召回），会话级 / 跨会话两级 scope
+- **Claude Code 式工作区**：沙箱文件工具 `write / read / edit / list / move / delete`（原子写、路径穿越防护），Run 完成 commit 到持久区，崩溃恢复（启动收敛 running→interrupted）
+- **原生多轮工具调用**：内层 Agent 循环（非「让模型自由选工具」），每轮即时持久化、前缀缓存、MAX_STEPS + 预算 + 取消守卫；内置 Agent 工具：工作区文件操作、`web_search`、`web_fetch`、记忆 `save/recall/delete`、历史 `load_thread_history/search_messages`、`promote_artifact`（草稿→正式产物，待用户确认）
+- **全 CRUD REST API**（[API.md §十一](./API.md)）：threads / messages / memories / runs（列表 / 详情 / steps / 删除 / 取消 / 批准）/ files —— 可被插件直接消费
+- **plan-gen 旁挂**：方案生成以 side-channel overlay 挂到 Thread + Run（默认关闭，可灰度开启），不改动既有 Orchestrator 行为
+
 ### 学习过程
 
-- **练习测验**：按知识点出题（选择 / 填空 / 简答），服务器判分（键盘作答：数字键选项 + Enter 判定），错题重练与跨方案错题总览
-- **进度跟踪**：知识点掌握度（测验成绩加权）+ SM-2-lite 复习调度 + 三态看板 + 全局待复习提醒（顶栏徽标 + 首页组件）+ 首页「今日学习」任务（排程中今天的任务聚合）+ 学习中心展示本方案今日 / 下一安排（免去回详情页查时间线）+ 方案列表平均掌握度条与按掌握度排序（薄弱优先找滞后方案，排序偏好记忆）
+- **练习测验**：按知识点出题（选择 / 填空 / 简答 / 开放题），服务器判分（键盘作答：数字键选项 + Enter 判定），错题重练与跨方案错题总览；`generate_quiz` 默认 `max_tokens=100k` 且用户可调，避免长题集被截断
+- **进度跟踪**：知识点掌握度（测验成绩加权）+ SM-2-lite 复习调度 + 三态看板 + 全局待复习提醒（顶栏徽标 + 首页组件）+ 首页「今日学习」任务（排程中今天的任务聚合）+ 学习中心展示本方案今日 / 下一安排 + 方案列表平均掌握度条与按掌握度排序（薄弱优先找滞后方案，排序偏好记忆）
 - **间隔重复复习**：到期知识点 + 错题跨方案统一复习页（`/review`）——知识点翻卡自评（忘了 / 模糊 / 记住了）回写掌握度并重排复习日；错题重练（服务器判分，重答正确即移出错题集）；可按全部 / 仅知识点 / 仅错题筛选聚焦；完成后一键「重练薄弱」（仅忘了 / 仍错项，多轮收窄直至全过）；顶栏待复习徽标直达，全程键盘（空格翻面、1/2/3 自评、数字键选答案、Enter 判定）
-- **自学材料**：逐单元生成（SSE 渐进显示），单元阅读器（A−/A+ 字号调节记忆 + 本节导航目录 + 单元内容检索（命中定位高亮）+ 单篇 .md 下载）+ 已学标记与进度条 + 深度/视图/预设等界面偏好记忆
-- **打卡与统计**：学习日志打卡（支持补卡——过往日期补记）、连续天数、打卡热力图（点击格子看当日跨方案明细）、学习里程碑（连续 / 累计时长 / 打卡次数 的档位进度条，给坚持学习的正反馈）、学习时长按方案分布（多方案用户看时间花在哪 / 哪个被冷落）、今日 / 本周目标进度、全局学习统计；**专注计时器**（学习中心内嵌番茄钟，可暂停/继续，完成提示音，计时结束自动打卡）
+- **自学材料**：逐单元生成（SSE 渐进显示），单元阅读器（A−/A+ 字号调节记忆 + 本节导航目录 + 单元内容检索（命中定位高亮）+ 单篇 .md 下载）+ 已学标记与进度条 + 深度 / 视图 / 预设等界面偏好记忆；支持按单元导出 **Markdown / PDF / ZIP** 三选一
+- **打卡与统计**：学习日志打卡（支持补卡——过往日期补记）、连续天数、打卡热力图（点击格子看当日跨方案明细）、学习里程碑（连续 / 累计时长 / 打卡次数 的档位进度条）、学习时长按方案分布（多方案用户看时间花在哪 / 哪个被冷落）、今日 / 本周目标进度、全局学习统计；**专注计时器**（学习中心内嵌番茄钟，可暂停 / 继续，完成提示音，计时结束自动打卡）
 
 ### 知识库与笔记
 
 - **知识库**：文档直传（不依赖方案）——上传 / 文本 / 链接入库，搜索与类型筛选，原件查看（PDF / 图片 / 音视频原生渲染）+ 解析文本对照；**知识库问答**（带引用出处，记录持久化，可一键存为笔记沉淀）；选中文档**一键生成学习方案**；ZIP 导出
 - **全局搜索**：方案 / 笔记 / 知识库文档（**标题 + 解析文本内容**）/ 知识节点统一入口——顶栏搜索框（**输入即出跨域建议** typeahead、`/` 快捷键聚焦、↑↓ Enter 键盘直达）+ `/search` 页（`GET /api/search`，分域计数 + 命中高亮与上下文摘要）+ 最近搜索历史一键复搜
 - **Wiki 个人知识手册**：跨方案知识点汇总 + 笔记总览 + 导出
-- **独立笔记**：自由创建（标题 + Markdown 正文，编辑器带格式工具栏一键加粗 / 列表 / 链接免记语法、一键复制正文、字数与阅读时间提示），节点批注与方案解耦；单篇一键导出 `.md`、全部笔记打包 ZIP 导出 / 从 `.md` 与 ZIP 批量导入（便携双向，迁入迁出 Obsidian/Notion 等）；置顶常用笔记、批量选择删除（积累后快速清理）；未保存草稿保护（刷新/关页拦截 + 本地自动草稿恢复）；全局搜索直达
+- **独立笔记**：自由创建（标题 + Markdown 正文，编辑器带格式工具栏一键加粗 / 列表 / 链接免记语法、一键复制正文、字数与阅读时间提示），节点批注与方案解耦；单篇一键导出 `.md`、全部笔记打包 ZIP 导出 / 从 `.md` 与 ZIP 批量导入（便携双向，迁入迁出 Obsidian/Notion 等）；置顶常用笔记、批量选择删除；未保存草稿保护（刷新 / 关页拦截 + 本地自动草稿恢复）；全局搜索直达
 
 ### 导出与分享
 
@@ -45,23 +58,23 @@
 - **零配置开箱即用**：无 `.env` 直接启动，首次设置向导引导设密码 / 配 Key（均可跳过）
 - **三态主题**：浅色 / 深色 / 跟随系统（OS 昼夜切换自动跟随，循环切换）
 - **多用户**：管理员创建账号，JWT + AUTH_TOKEN 双轨认证，数据严格隔离（跨用户一律 404）
-- **界面化密钥管理**：LLM 供应商档案（多档案卡片切换，类 CC-switch）+ 三类 Key 档案（Anthropic 回退 / Bing / 个人访问令牌 PAT），密钥只写不读（响应仅掩码末 4 位）
-- **成本控制**：token / 费用计量，会话与日预算守卫（可用户级覆盖），用量页按日趋势图 + 按模型费用分解（钱花在哪个模型上一目了然）
+- **界面化密钥管理**：LLM 供应商档案（多档案卡片切换，类 CC-switch，支持插件注册的 OpenAI 等协议）+ 三类 Key 档案（Anthropic 回退 / Bing / 个人访问令牌 PAT），密钥只写不读（响应仅掩码末 4 位）
+- **模型计费（¥）**：成本以人民币计——设置页维护「模型名 → 各项费用」计费表（精确模型名匹配 + Anthropic 族兜底），默认预填 DeepSeek V4-Flash / V4-Pro 参考价，可增删改；用量页按日趋势图 + 按模型费用分解（钱花在哪个模型上一目了然），会话与日预算守卫（可用户级覆盖）
 - **稳定性**：页面级错误边界（渲染异常不白屏，可重载 / 回首页，路由切换自动恢复）；笔记未保存草稿保护（刷新 / 关页拦截 + 本地自动草稿）
 - **键盘快捷键**：`/` 聚焦搜索、`?` 查看全部快捷键；复习 / 测验支持数字键全程键盘作答，弹窗 `Esc` 关闭
 
 ### 扩展与插件
 
 - **浏览器扩展**（MV3）：网页选中文本一键剪藏为资料，见 [`extension/`](./extension/)
-- **前后端插件体系**：前端小组件插槽 / 皮肤令牌 / 事件 / REST 代理；后端 `plugins/` 目录自动发现装载（REST 路由命名空间 / 核心事件 / Agent 工具注册）。权威契约见 [`API.md`](./API.md)
-- 内置「插件」管理页（`/plugins`）：可视化加载 / 移除前端插件、查看后端插件装载状态
+- **前后端插件体系**：前端小组件插槽（9 个）/ 皮肤令牌 / 事件 / REST 代理 / 热启停；后端 [`plugins/`](./plugins/) 目录自动发现装载（REST 路由命名空间 / 核心事件 / Agent 工具注册 / 记忆系统门面 / 插件协议 / MCP 桥）。权威契约见 [`API.md`](./API.md)
+- 内置「插件」管理页（`/plugins`）：可视化加载 / 移除 / 启停前端插件、查看后端插件装载状态
 
 ## 技术栈
 
-- **后端**：Python 3.11+ / FastAPI / SQLAlchemy 2.0 / SQLite（WAL）/ Alembic / pydantic v2 / anthropic SDK；PDF 解析 marker（高质量）+ pypdf（快速）；可选 tesseract OCR / faster-whisper 转写
-- **前端**：React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + react-markdown + react-window
+- **后端**：Python 3.11+ / FastAPI / SQLAlchemy 2.0 / SQLite（WAL）/ Alembic / pydantic v2 / pydantic-settings / anthropic SDK / pyjwt；PDF 解析 marker（高质量）+ pypdf（快速）；可选 tesseract OCR / faster-whisper 转写；Anki 导出 genanki
+- **前端**：React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + react-markdown + react-window + KaTeX（数学公式）
 - **AI 架构**（借鉴 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 三支柱）：缓存优先循环、工具调用修复（校验 + 重试≤3 → 降级默认）、成本计量 + 预算守卫；两层执行模型（确定性编排器 + 内层工具循环）；Skill 作方法论指令源（[`skills/`](./skills/)）
-- **部署**：本地直起脚本（`scripts/start.sh` / `start.ps1`，uvicorn 单进程托管前端 SPA + `/api`）
+- **部署**：本地直起脚本（[`scripts/start.sh`](./scripts/start.sh) / [`start.ps1`](./scripts/start.ps1)，uvicorn 单进程托管前端 SPA + `/api`，默认端口 `41173`）
 
 ## 目录结构
 
@@ -73,14 +86,15 @@ Deep-tutor/
 ├── backend/         # FastAPI 后端
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（819 项）
+│   ├── tests/       # pytest 测试套件（1191 项）
 │   └── requirements.txt
 ├── frontend/        # Vite + React 前端
 ├── extension/       # 浏览器扩展（MV3 网页剪藏）
 ├── plugins/         # 后端插件目录（自动发现装载；约定与示例见其 README）
+├── plugin-examples/ # 前端插件示例（pomodoro / floating_notes / brand_skin / reader_app）
 ├── skills/          # LLM 方法论 Skill（deep-tutor-* 与 vendor 复用）
-├── data/            # 运行时数据（gitignore，启动时自动创建）
 ├── scripts/         # 本地直起脚本（start.sh / start.ps1）
+├── data/            # 运行时数据（gitignore，启动时自动创建）
 ├── .env.example
 └── README.md
 ```
@@ -144,14 +158,20 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 | `AUTH_TOKEN` | 简单 token 回退（与 JWT 双轨；API/浏览器扩展可用它认证）。始终有效——即使设置页建了个人访问令牌（PAT）档案，也可用它回退登录防锁死 |
 | `DATABASE_URL` | 可选。完整 SQLAlchemy URL（如切换 PostgreSQL）；留空则使用 `DB_PATH` 的 SQLite（默认 `data/deep-tutor.db`） |
 | `ANTHROPIC_API_KEY` | 生成功能必需（也可在首次设置向导或 Web 设置页配置供应商档案 / Anthropic 回退 Key 档案，无需写入 .env；档案优先于 .env） |
+| `ANTHROPIC_MODEL` | 模型名，代码默认值 `claude-sonnet-5`；**当前推荐 `deepseek-v4-flash`**（见下方说明，可在设置页 / 供应商档案覆盖） |
 | `SEARCH_ENGINE` | 资源搜索引擎：`auto`（默认，有 key 用付费 API、无 key 用免 Key 网页版）/ `bing`（仅付费 API）/ `bing_web`（仅免 Key 网页版） |
 | `BING_API_KEY` | 可选。不配置时自动使用免 Key 的 Bing 网页版；也可在设置页建 Bing Key 档案卡片切换，启用中的档案优先于 .env |
+| `BUDGET_PER_SESSION_USD` / `DAILY_BUDGET_USD` | 会话 / 日预算（字段名沿用 USD，实际计费按设置页「模型计费」表以人民币 ¥ 计；可在设置页按用户覆盖） |
+
+> **推荐模型**：当前推荐使用 `deepseek-v4-flash`（性价比高，「模型计费」表已预填其参考价）。需在「设置」页配置一个指向 DeepSeek 兼容端点（`base_url`）的供应商档案（含该模型对应的 `api_key`）方可生效；未配置任何供应商档案时回退到 `ANTHROPIC_MODEL` 默认值 `claude-sonnet-5`。
+>
+> **模型使用合规**：接入任何第三方模型（DeepSeek / Anthropic / OpenAI 等）时，请遵守对应平台的服务条款与使用规范（API 用量与速率限制、内容政策、数据合规、计费规则等），自行配置合法有效的凭证并承担相应费用与合规责任。
 
 > **安全提示（认证设计权衡）**：前端 JWT 明文存于 localStorage，且 `VITE_AUTH_TOKEN`（若设置）会打包进客户端 bundle——两者都假定本机/受信局域网部署。多用户或公网部署请勿设置 `VITE_AUTH_TOKEN`（走登录页 JWT），并在公网前加 HTTPS 反代。
 
 启动时自动执行数据库迁移（`app.db.migrate`）：新库建表、旧库增量迁移；历史 `create_all` 时期的无版本库会按 schema 特征探测代际后接续迁移，无需手工处理。
 
-首次使用：浏览器打开 → 无 `.env` 时进入首次设置向导（可跳过）→ 已配 `ADMIN_PASSWORD` 时跳转登录页，用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录 → 设置页可配置供应商档案、三类 API Key 档案（Anthropic 回退 / Bing / 访问令牌，卡片式启停切换）与创建其他用户。
+首次使用：浏览器打开 → 无 `.env` 时进入首次设置向导（可跳过）→ 已配 `ADMIN_PASSWORD` 时跳转登录页，用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录 → 设置页可配置供应商档案、三类 API Key 档案（Anthropic 回退 / Bing / 访问令牌，卡片式启停切换）、模型计费表（¥）与创建其他用户。
 
 ### 升级
 
@@ -174,6 +194,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 ### 可选项
 
 - **OCR / 音视频转写**：默认未装依赖（降级设计，其余功能不受影响）。上传图片 OCR 需安装 `tesseract`（+ 中文语言包）与 `pip install pytesseract Pillow`，音视频转写需 `pip install faster-whisper`（装进 `backend/.venv`）；缺失时对应入口报 `dependency_missing`。
+- **PDF 导出**：需 `pip install weasyprint`（Windows 另需 GTK 运行时，Linux 需 pango）；缺失时 PDF 导出自动降级为 Markdown + 提示。
 - **HTTPS**：本机/局域网部署不需要；若暴露公网，请在前面加一层反代（Caddy / Nginx Proxy Manager 等）终止 TLS 并转发到 `:41173`。
 
 ## 浏览器扩展（网页剪藏）
@@ -184,14 +205,14 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；**当前版本号以 [API.md](./API.md) 文首版本线表为准**，本文件不钉版本防过期）：
 
-- **前端插件**（`window.DeepTutor`）：浏览器端 JS 插件——小组件插槽（首页仪表盘/侧栏底部/方案详情）、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、插件 URL 持久化加载。侧栏 🧩「插件」页可视化加载/移除（免控制台）；也可控制台试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
-- **后端插件**（`plugins/` 目录）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案/材料/进度/测验/打卡/启动关闭）、Agent 工具注册。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；可启用示例见 [plugins/example_hello.py.disabled](./plugins/example_hello.py.disabled)，装载约定见 [plugins/README.md](./plugins/README.md)。
+- **前端插件**（`window.DeepTutor`，当前 `1.17.0`）：浏览器端 JS 插件——小组件插槽（首页仪表盘 / 侧栏底部 / 方案详情 / 方案列表 / 复习 / 学习中心 / 笔记 / 用量 / 知识库）、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、热启停（disable/enable/unload/reload）、插件 URL 持久化加载。侧栏 🧩「插件」页可视化加载/移除/启停（免控制台）；也可控制台试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
+- **后端插件**（[`plugins/`](./plugins/) 目录，当前 `1.20.0`）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案/材料/进度/测验/打卡/记忆/启动关闭）、Agent 工具注册、记忆系统 CRUD 门面（`api.memory` / `api.threads`）、自定义 LLM 协议（`provider_bridge`）、MCP 桥（HTTP + stdio）。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；内置示例见 [plugins/](./plugins/)（study_export_pack / study_stats / epub_reader / ai_tutor / security_guard / webhook_notify / provider_bridge / mcp_bridge），装载约定见 [plugins/README.md](./plugins/README.md)。
 
 ## 测试与 CI
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 819 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 1191 项测试（含契约/漂移守卫）
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```
@@ -200,5 +221,6 @@ GitHub Actions CI（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）四
 
 ## 进度与计划
 
-- 实施步骤与进度：[`stage.md`](./stage.md)（路线图 P1–P5 全部完成，持续迭代增强中）
+- 实施步骤与进度：[`stage.md`](./stage.md)（路线图 P1–P5 全部完成，记忆系统 /goal 全部落地，持续迭代增强中）
 - 完整设计：[`plan/README.md`](./plan/README.md)
+- 插件契约：[`API.md`](./API.md)
