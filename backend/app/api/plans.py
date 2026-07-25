@@ -1958,6 +1958,165 @@ async def export_materials(
     )
 
 
+class SlidesExportIn(BaseModel):
+    """逐单元 HTML-PPT 导出请求（iter 359 续：任务管理器可感知进度）。
+
+    unit_ids 省略/空 -> 全部单元（按 order）；指定 -> 仅那些（支持「每个单元单独导出」）。
+    """
+
+    unit_ids: list[int] | None = None
+
+
+@router.post("/{plan_id}/materials/export/slides")
+async def export_materials_slides(
+    plan_id: int,
+    body: SlidesExportIn | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """逐单元 HTML-PPT 导出 **SSE 流**（iter 359 续：接入任务管理器，用户可感知加载过程）。
+
+    body.unit_ids 指定 -> 仅那些单元（「单独导出」）；省略/空 -> 全部单元。
+    1 个单元 -> 单 HTML；>1 -> zip。每单元走 LLM 两阶段 build+review（无 key 确定性兜底）。
+    事件：unit_start {order,title,total} ×N -> unit_done {order,title,degraded} ×N
+          -> done {format,filename,content_b64,unit_count,degraded_count}；异常 -> error {code,message}。
+    done.content_b64 为 base64 文件（前端解码 Blob 下载，免额外文件服务/鉴权）。
+    """
+    plan, content = _plan_or_404(db, plan_id, user)
+    unit_ids = body.unit_ids if (body and body.unit_ids) else None
+    # 快速校验至少有目标单元（404 在开流前返回，避免空流）
+    q = db.query(models.StudyUnit.id).filter(models.StudyUnit.plan_id == plan.id)
+    if unit_ids:
+        q = q.filter(models.StudyUnit.id.in_(unit_ids))
+    if not q.first():
+        raise ApiError("not_found", "该方案尚无自学材料，请先生成", status=404)
+    session_id = plan.session_id
+    return StreamingResponse(
+        _stream_slides_export(plan_id, session_id, content, unit_ids, user.id),
+        headers=_SSE_HEADERS,
+    )
+
+
+async def _stream_slides_export(
+    plan_id: int, session_id: int, content: dict, unit_ids: list[int] | None, user_id: int
+) -> AsyncIterator[str]:
+    """逐单元 HTML-PPT 导出 SSE 生成器（iter 359 续）。
+
+    每单元 unit_start -> generate_unit_slides_spec（build+review）-> unit_done；
+    全部完成后按数量产出单 HTML / zip，base64 编码随 done 事件返回。
+    一次性流（同材料生成）；异常 -> error 事件收尾（前端任务台账落 error 相位）。
+    """
+    import base64
+    import io
+    import zipfile
+
+    db = SessionLocal()
+    try:
+        q = db.query(models.StudyUnit).filter(models.StudyUnit.plan_id == plan_id)
+        if unit_ids:
+            q = q.filter(models.StudyUnit.id.in_(unit_ids))
+        units = q.order_by(models.StudyUnit.order).all()
+        total = len(units)
+        if total == 0:
+            yield _sse("error", {"code": "not_found", "message": "该方案尚无自学材料"})
+            return
+
+        template_path = Path(settings.skills_dir) / "ppt-slide-builder" / "templates" / "base.html"
+        try:
+            base_template = template_path.read_text(encoding="utf-8")
+        except OSError as exc:  # noqa: BLE001
+            log.error("幻灯片模板缺失: %s", exc)
+            yield _sse("error", {"code": "internal_error", "message": "幻灯片模板缺失"})
+            return
+
+        try:
+            provider = get_provider(user_id)
+        except Exception:  # noqa: BLE001
+            provider = None
+
+        ctx = ExecContext(
+            session_id=str(session_id),
+            trace_id=f"slides-export-{plan_id}",
+            registry=default_registry(),
+            llm_provider=provider,
+            data_dir=settings.data_dir,
+            budget=BudgetTracker(limit=settings.budget_per_session_usd),
+        )
+
+        entries: list[tuple[str, str]] = []
+        all_metadatas = []
+        degraded_count = 0
+        try:
+            if provider is not None:
+                check_daily_budget(None, user_id)  # 日预算守卫（超限 -> ApiError -> error 事件）
+            for i, u in enumerate(units):
+                order = i + 1
+                title = u.title or "自学单元"
+                yield _sse("unit_start", {"order": order, "title": title, "total": total})
+                md = ""
+                if u.materials:
+                    try:
+                        md = read_unit_content(u.materials[0].content_md_path)
+                    except OSError:
+                        log.warning("导出 PPT：单元 %s 内容文件缺失", u.id)
+                spec, metas, degraded = await generate_unit_slides_spec(
+                    title, md, ctx, session_id=str(session_id), unit_id=str(u.id)
+                )
+                all_metadatas.extend(metas)
+                if degraded:
+                    degraded_count += 1
+                entries.append(
+                    (f"{order:02d}-{_safe_download_name(title)}.html", render_slides_html(spec, base_template))
+                )
+                yield _sse("unit_done", {"order": order, "title": title, "degraded": degraded})
+
+            # LLM 用量计入 api_usage（日预算统计口径完整）
+            for m in all_metadatas:
+                if m.tokens_in or m.tokens_out:
+                    record_metadata_usage(db, m, user_id)
+
+            # 产出文件：1 单元 -> 单 HTML；>1 -> zip
+            if total == 1:
+                filename = f"{_safe_download_name(units[0].title or '自学单元')}.html"
+                file_bytes = entries[0][1].encode("utf-8")
+                fmt = "html"
+            else:
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for name, html in entries:
+                        zf.writestr(name, html)
+                file_bytes = buf.getvalue()
+                topic = (content.get("intent") or {}).get("topic") or "学习方案"
+                filename = f"{_safe_download_name(topic)}-HTML幻灯片.zip"
+                fmt = "zip"
+
+            log.info(
+                "PPT 导出流完成：plan=%s 单元=%d 降级=%d 格式=%s 大小=%.1fKB",
+                plan_id,
+                total,
+                degraded_count,
+                fmt,
+                len(file_bytes) / 1024,
+            )
+            yield _sse(
+                "done",
+                {
+                    "format": fmt,
+                    "filename": filename,
+                    "content_b64": base64.b64encode(file_bytes).decode("ascii"),
+                    "unit_count": total,
+                    "degraded_count": degraded_count,
+                },
+            )
+        except ApiError as e:
+            yield _sse("error", {"code": e.code, "message": e.message})
+        except Exception:  # noqa: BLE001
+            log.exception("PPT 导出流失败 plan=%s", plan_id)
+            yield _sse("error", {"code": "internal_error", "message": "PPT 导出失败，请重试"})
+    finally:
+        db.close()
+
+
 def _content_disposition(filename_utf8: str, filename_ascii: str) -> str:
     """RFC 5987：中文文件名经 filename*=UTF-8'' 百分号编码，UA 不支持时回退 ASCII 名。"""
     from urllib.parse import quote
