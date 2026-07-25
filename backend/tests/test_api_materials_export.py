@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
 
 from app.db.base import SessionLocal
+
+_REAL_SKILLS = str(Path(__file__).resolve().parents[2] / "skills")
 
 
 def _mk_admin():
@@ -110,6 +113,28 @@ def test_export_pdf_or_degrade(client, auth_headers):
         assert r.headers["content-type"] == "text/markdown; charset=utf-8"
         assert "X-Export-Warning" in r.headers
         assert "导出主题 — 自学材料" in r.content.decode("utf-8")
+
+
+def test_export_html_zip_contents(client, auth_headers, monkeypatch):
+    """iter 359：format=html -> 每单元一个自包含 HTML 幻灯片打包 zip（借助 ppt-slide-builder）。"""
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "skills_dir", _REAL_SKILLS)  # base.html 模板
+    _mk_admin()
+    seeded = _seed(2)
+    r = client.get(f"/api/plans/{seeded['plan_id']}/materials/export?format=html", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/zip"
+    cd = r.headers["content-disposition"]
+    assert "attachment" in cd and "html" in cd  # ASCII 回退名 materials-<id>-html.zip
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    names = zf.namelist()
+    assert names == ["01-第1单元.html", "02-第2单元.html"]
+    h1 = zf.read("01-第1单元.html").decode("utf-8")
+    assert "<html" in h1  # 自包含 HTML 文档
+    assert "第1单元" in h1  # 单元标题（标题页）
+    assert "内容0" in h1  # 单元正文
+    assert 'id="slide-1"' in h1  # 幻灯片结构
 
 
 def test_export_invalid_format_400(client, auth_headers):

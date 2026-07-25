@@ -58,6 +58,7 @@ from app.tools.generate_study_materials import (
     render_materials_md,
 )
 from app.tools.search_resources import search_unit_resources
+from app.tools.build_plan_slides import default_spec_from_unit, render_slides_html
 from app.tools.export_pdf import build_pdf, pdf_available
 from app.core.storage import (
     delete_unit_content,
@@ -1894,14 +1895,15 @@ async def export_materials(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """全案自学材料导出（iter 99 zip；iter 354 BUG3 加 md/pdf 三选一）：
+    """全案自学材料导出（iter 99 zip；iter 354 BUG3 加 md/pdf 三选一；iter 359 加 html）：
     - zip（默认，向后兼容）：00-路线图.md + 每单元一个 md（按 order 编号）打包
     - md：所有单元拼成单个 Markdown 文件
     - pdf：拼成单个 PDF（weasyprint 不可用或渲染超时 -> 降级 md + X-Export-Warning 头）
+    - html：每单元一个自包含 HTML 幻灯片（借助 ppt-slide-builder）打包成 zip
     单元内容经 read_unit_content 自动串联拆分子文件；无单元 -> 404。"""
     fmt = (format or "zip").lower()
-    if fmt not in {"zip", "md", "pdf"}:
-        raise ApiError("invalid_format", f"不支持的导出格式：{format}（支持 md/pdf/zip）", status=400)
+    if fmt not in {"zip", "md", "pdf", "html"}:
+        raise ApiError("invalid_format", f"不支持的导出格式：{format}（支持 md/pdf/zip/html）", status=400)
 
     plan, content = _plan_or_404(db, plan_id, user)
     units = (
@@ -1918,6 +1920,8 @@ async def export_materials(
 
     if fmt == "zip":
         return _materials_zip_response(units, plan.session_id, plan_id, safe_topic)
+    if fmt == "html":
+        return _materials_html_zip_response(units, plan.session_id, plan_id, safe_topic)
 
     md = _materials_combined_md(units, plan.session_id, topic)
 
@@ -2023,6 +2027,45 @@ def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_top
         content=buf.getvalue(),
         media_type="application/zip",
         headers={"Content-Disposition": _content_disposition(filename, f"materials-{plan_id}.zip")},
+    )
+
+
+def _materials_html_zip_response(units: list, session_id: int, plan_id: int, safe_topic: str) -> Response:
+    """全案自学材料 HTML 幻灯片导出（iter 359，借助 ppt-slide-builder）：
+
+    每单元一个自包含 HTML 幻灯片打包成 zip（01-单元名.html …）。确定性生成
+    （default_spec_from_unit 按 ### 切分 + render_slides_html + base.html）——与 md/pdf/zip
+    同为 LLM-free 快速路径（全案 N 单元逐个 LLM 过重，质量路径走逐单元阅读器「下载 PPT」）。
+    模板缺失 -> internal_error（vendored，正常不应发生）。
+    """
+    import io
+    import zipfile
+
+    template_path = Path(settings.skills_dir) / "ppt-slide-builder" / "templates" / "base.html"
+    try:
+        base_template = template_path.read_text(encoding="utf-8")
+    except OSError as exc:  # noqa: BLE001
+        log.error("幻灯片模板缺失: %s", exc)
+        raise ApiError("internal_error", "幻灯片模板缺失") from exc
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, u in enumerate(units, 1):
+            md = ""
+            if u.materials:
+                try:
+                    md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
+                except OSError:
+                    log.warning("导出 HTML：单元 %s 内容文件缺失", u.id)
+            spec = default_spec_from_unit(u.title or "自学单元", md)
+            html = render_slides_html(spec, base_template)
+            zf.writestr(f"{i:02d}-{_safe_download_name(u.title)}.html", html)
+    filename = f"{safe_topic}-HTML幻灯片.zip"
+    log.info("材料 HTML 导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(buf.getvalue()) / 1024)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": _content_disposition(filename, f"materials-{plan_id}-html.zip")},
     )
 
 
