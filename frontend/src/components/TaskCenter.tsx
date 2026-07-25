@@ -44,7 +44,7 @@ export function fmtElapsed(ms: number): string {
 
 /** 进度：方案=已完成步骤（按 stepIndex 去重，反馈循环重跑不重复计）/总步数；材料=单元 x/total。 */
 export function taskProgress(t: TaskEntry): { done: number; total: number } | null {
-  if (t.kind === 'materials') {
+  if (t.kind === 'materials' || t.kind === 'slides') {
     const total = t.materialsTotal ?? 0
     if (total <= 0) return null
     const done = (t.materialsUnits ?? []).filter((u) => u.status !== 'running').length
@@ -87,7 +87,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
     navigate(path)
   }
   const openTarget = () => {
-    if (task.kind === 'materials') return go(`/plans/${task.planId}?materials=1`)
+    if (task.kind === 'materials' || task.kind === 'slides') return go(`/plans/${task.planId}?materials=1`)
     if (task.phase === 'clarify') return go(`/clarify/${task.sessionId}`)
     return go(`/generate/${task.sessionId}`)
   }
@@ -121,7 +121,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
           className="min-w-0 flex-1 truncate text-left font-medium text-slate-700 transition-colors hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
           title={task.title || '未命名任务'}
         >
-          {task.kind === 'materials' ? '📄 ' : ''}
+          {task.kind === 'materials' ? '📄 ' : task.kind === 'slides' ? '📊 ' : ''}
           {task.title || '未命名任务'}
         </button>
         {task.phase === 'running' && task.kind === 'plan' && (
@@ -164,9 +164,9 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
             {task.conn === 'offline' && <span className="text-orange-500">连接已断开（后台仍在生成）</span>}
             {task.conn !== 'reconnecting' && task.conn !== 'offline' && (
               <>
-                {progress && <span>{task.kind === 'materials' ? `单元 ${progress.done}/${progress.total}` : `${progress.done}/${progress.total} 步`}</span>}
+                {progress && <span>{task.kind === 'materials' ? `单元 ${progress.done}/${progress.total}` : task.kind === 'slides' ? `PPT ${progress.done}/${progress.total}` : `${progress.done}/${progress.total} 步`}</span>}
                 {task.kind === 'plan' && currentStep && <span>{TOOL_LABELS[currentStep.tool] ?? currentStep.tool}</span>}
-                {task.kind === 'materials' && (task.materialsUnits ?? []).find((u) => u.status === 'running') && (
+                {(task.kind === 'materials' || task.kind === 'slides') && (task.materialsUnits ?? []).find((u) => u.status === 'running') && (
                   <span className="truncate">{(task.materialsUnits ?? []).find((u) => u.status === 'running')?.title}</span>
                 )}
               </>
@@ -183,7 +183,7 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
           {task.phase === 'interrupted' && (task.errorMessage || '已中断，可重试')}
           {task.phase === 'cancelled' && '已取消，可重试'}
           {task.phase === 'clarify' && `${(task.questions ?? []).length || '几'} 个问题待回答`}
-          {task.phase === 'done' && (task.kind === 'materials' ? `共 ${task.materialsTotal ?? '?'} 个单元` : '点击查看方案')}
+          {task.phase === 'done' && (task.kind === 'materials' ? `共 ${task.materialsTotal ?? '?'} 个单元` : task.kind === 'slides' ? '幻灯片已下载' : '点击查看方案')}
         </div>
       )}
     </div>

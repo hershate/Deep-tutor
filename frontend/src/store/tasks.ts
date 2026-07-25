@@ -8,7 +8,7 @@
 // 台账非真相：状态/结果一律以 GET /sessions 与 SSE 重放为准，reconcile 单向服务端覆盖本地。
 import { create } from 'zustand'
 
-export type TaskKind = 'plan' | 'materials'
+export type TaskKind = 'plan' | 'materials' | 'slides'
 export type TaskPhase = 'running' | 'clarify' | 'done' | 'error' | 'cancelled' | 'interrupted'
 export type TaskConn = 'live' | 'reconnecting' | 'offline' | 'closed'
 
@@ -73,6 +73,10 @@ export interface SessionStatusItem {
 
 export const planTaskId = (sessionId: number) => `plan:${sessionId}`
 export const materialsTaskId = (planId: number) => `materials:${planId}`
+// iter 359 续：逐单元 HTML-PPT 导出任务 id。unitIds 区分「单独导出某单元」与「全案导出」，
+// 不同选择各占一条互不干扰（同时导出单元 A 与全案 -> 两条独立进度）。
+export const slidesTaskId = (planId: number, unitIds?: number[]) =>
+  unitIds && unitIds.length ? `slides:${planId}:u${[...unitIds].sort((a, b) => a - b).join(',')}` : `slides:${planId}:all`
 
 const TERMINAL: readonly TaskPhase[] = ['done', 'error', 'cancelled', 'interrupted']
 export const isTerminalPhase = (p: TaskPhase) => TERMINAL.includes(p)
@@ -172,7 +176,12 @@ function loadPersisted(): Record<string, TaskEntry> {
 
 function persist(tasks: Record<string, TaskEntry>): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.values(tasks).map(toPersisted)))
+    // iter 359 续：slides 导出为一次性 ephemeral 任务（无断线续接，刷新即失），不落盘
+    // 免得刷新后残留 running 条目无流可续成僵尸进度。
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(Object.values(tasks).filter((t) => t.kind !== 'slides').map(toPersisted)),
+    )
   } catch {
     /* 隐私模式等：台账仍在内存中工作 */
   }
@@ -370,7 +379,8 @@ export const useTaskStore = create<TasksState>((set, get) => ({
         if (md.cost != null) patch.cost = Number(md.cost) || cur.cost // 终态费用为权威校准
       }
     } else {
-      // materials：unit_start/unit_done/done/error/sync（幂等命中 JSON 由引擎映射为 sync）
+      // materials / slides：unit_start/unit_done/done/error/sync（slides 复用同一事件模型，
+      // 进度字段 materialsUnits 通用；幂等命中 JSON 仅 materials 有，由引擎映射为 sync）
       if (event === 'unit_start') {
         const order = Number(data.order ?? 0)
         const title = String(data.title ?? '')

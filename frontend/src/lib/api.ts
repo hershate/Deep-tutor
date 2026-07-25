@@ -972,6 +972,57 @@ export async function downloadUnitSlides(unitId: number, title: string): Promise
   saveBlob(await res.blob(), res.headers.get('content-disposition'), `${title || '单元'}.html`)
 }
 
+/** base64 文件内容 -> Blob 下载（iter 359 续：SSE done 事件携带的文件以此交付）。 */
+export function saveBase64File(b64: string, mime: string, filename: string): void {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  saveBlob(new Blob([bytes], { type: mime }), null, filename)
+}
+
+/** 逐单元 HTML-PPT 导出 SSE 流（iter 359 续：接入任务管理器，逐单元进度可感知）。
+ * unitIds 指定 -> 仅那些单元（单独导出）；省略 -> 全部单元。done 事件携带 base64 文件。 */
+export interface SlidesExportDone {
+  format: 'html' | 'zip'
+  filename: string
+  content_b64: string
+  unit_count: number
+  degraded_count: number
+}
+export interface SlidesExportCallbacks {
+  onUnitStart?: (d: { order: number; title: string; total: number }) => void
+  onUnitDone?: (d: { order: number; title: string; degraded: boolean }) => void
+  onDone?: (d: SlidesExportDone) => void
+}
+export async function exportSlidesStream(
+  planId: number,
+  cb: SlidesExportCallbacks,
+  signal?: AbortSignal,
+  unitIds?: number[],
+): Promise<void> {
+  const res = await fetch(`${BASE}/plans/${planId}/materials/export/slides`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, Accept: 'text/event-stream' },
+    body: JSON.stringify(unitIds?.length ? { unit_ids: unitIds } : {}),
+    signal,
+  })
+  if (!res.ok) {
+    handleUnauthorized(res.status)
+    const body = await res.json().catch(() => ({}))
+    const err = body?.error ?? {}
+    throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+  }
+  if (!res.body) throw new ApiError('http_error', 'SSE 响应无 body', res.status)
+  await readSSEStream(res.body, (ev) => {
+    const data = parseSseData(ev.data)
+    const event = ev.event ?? 'message'
+    if (event === 'unit_start') cb.onUnitStart?.(data as { order: number; title: string; total: number })
+    else if (event === 'unit_done') cb.onUnitDone?.(data as { order: number; title: string; degraded: boolean })
+    else if (event === 'done') cb.onDone?.(data as unknown as SlidesExportDone)
+    else if (event === 'error') throw new ApiError(String(data.code ?? 'error'), String(data.message ?? 'PPT 导出失败'), res.status)
+  })
+}
+
 /** 全部自由笔记 zip 下载（iter 286，便携导出：迁入 Obsidian/Notion 等）。 */
 export async function downloadNotesZip(): Promise<void> {
   const res = await fetch(`${BASE}/notes/export`, {

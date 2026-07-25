@@ -12,11 +12,13 @@ import {
   ApiError,
   cancelGeneration,
   clarifyStream,
+  exportSlidesStream,
   generateMaterialsStream,
   generateStream,
   getSession,
   listSessions,
   retryStream,
+  saveBase64File,
   type SessionStatusDetail,
   type SseReconnectOpts,
   type TimeOptions,
@@ -26,6 +28,7 @@ import { events as pluginEvents } from './plugins'
 import {
   materialsTaskId,
   planTaskId,
+  slidesTaskId,
   useTaskStore,
   type TaskEntry,
   type TaskPhase,
@@ -450,6 +453,37 @@ export const engine = {
           onUnitDone: (d) => onEvent('unit_done', d as unknown as Record<string, unknown>),
           onDone: (d) => onEvent('done', d as unknown as Record<string, unknown>),
           onSync: () => onEvent('sync', {}),
+        },
+        signal,
+        opts.unitIds,
+      ),
+    )
+  },
+
+  /** 发起 HTML-PPT 导出（iter 359 续：接入任务管理器，逐单元进度可感知）。
+   * unitIds 指定 -> 仅那些单元（单独导出，id 含 u<ids>）；省略 -> 全案。
+   * 复用 materials 事件模型（unit_start/unit_done/done）；done 事件携带 base64 文件，
+   * 在 onDone 内解码触发下载并 toast，再推进相位。 */
+  startSlidesExport(planId: number, opts: { unitIds?: number[]; title: string }): void {
+    const id = slidesTaskId(planId, opts.unitIds)
+    if (live.has(id)) return // 同一导出进行中 -> 去重（不同单元/全案 id 不同，可并行）
+    store().upsert({ id, kind: 'slides', planId, title: opts.title, phase: 'running' })
+    store().update(id, { materialsUnits: [], materialsTotal: 0, errorCode: undefined, errorMessage: undefined })
+    void attachStream(id, (onEvent, signal) =>
+      exportSlidesStream(
+        planId,
+        {
+          onUnitStart: (d) => onEvent('unit_start', d as unknown as Record<string, unknown>),
+          onUnitDone: (d) => onEvent('unit_done', d as unknown as Record<string, unknown>),
+          onDone: (d) => {
+            saveBase64File(
+              d.content_b64,
+              d.format === 'zip' ? 'application/zip' : 'text/html;charset=utf-8',
+              d.filename,
+            )
+            onEvent('done', d as unknown as Record<string, unknown>)
+            toast.success(`HTML 幻灯片已下载（${d.unit_count} 个单元${d.degraded_count ? `，${d.degraded_count} 个降级` : ''}）`)
+          },
         },
         signal,
         opts.unitIds,
