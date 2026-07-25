@@ -948,8 +948,8 @@ export async function downloadBackup(): Promise<void> {
   saveBlob(await res.blob(), res.headers.get('content-disposition'), 'deep-tutor-backup.json')
 }
 
-/** 全案自学材料导出（iter 354 BUG3：md / pdf / zip 三选一）。文件名取后端 Content-Disposition。 */
-export async function downloadMaterials(planId: number, format: 'md' | 'pdf' | 'zip'): Promise<void> {
+/** 全案自学材料导出（iter 354 BUG3：md / pdf / zip；iter 359 加 html）。文件名取后端 Content-Disposition。 */
+export async function downloadMaterials(planId: number, format: 'md' | 'pdf' | 'zip' | 'html'): Promise<void> {
   const res = await fetch(`${BASE}/plans/${planId}/materials/export?format=${format}`, {
     headers: { Authorization: `Bearer ${token()}` },
   })

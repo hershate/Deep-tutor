@@ -57,7 +57,7 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
     [planId],
   )
 
-  async function doExport(format: 'md' | 'pdf' | 'zip') {
+  async function doExport(format: 'md' | 'pdf' | 'zip' | 'html') {
     if (zipBusy) return
     setExportOpen(false)
     setZipBusy(true)
@@ -242,6 +242,14 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
                     >
                       导出 ZIP
                       <span className="block text-[11px] text-slate-400">每单元一个 .md 打包</span>
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => doExport('html')}
+                      className="block w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                    >
+                      导出 HTML-PPT
+                      <span className="block text-[11px] text-slate-400">每单元一个 HTML 幻灯片打包</span>
                     </button>
                   </div>
                 </>
