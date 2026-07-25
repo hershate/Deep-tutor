@@ -123,6 +123,111 @@ def default_spec_from_plan(plan: dict[str, Any]) -> SlideSpec:
     return SlideSpec(title=topic, theme=dict(_DEFAULT_THEME), transition="trans-fade", slides=slides)
 
 
+# --- 单元 -> 幻灯片（iter 359：自学单元逐个导出 HTML-PPT，确定性兜底）---
+
+
+def _split_md_sections(md: str) -> list[tuple[str, str]]:
+    """按 ### 小标题切分 markdown 为 [(heading, body)]。无 ### 小标题 -> []。
+
+    单元 content_md 约定为「### 概述 / ### 核心概念 / ### 实践练习 / …」结构，
+    每节自然成一页。代码块内的 # 不误判（``` 围栏内跳过）。
+    """
+    if not md:
+        return []
+    out: list[tuple[str, str]] = []
+    in_code = False
+    cur_head: str | None = None
+    buf: list[str] = []
+    for line in md.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+            buf.append(line)
+            continue
+        if not in_code:
+            m = re.match(r"^###\s+(.+?)\s*#*\s*$", line)
+            if m:
+                if cur_head is not None:
+                    out.append((cur_head, "\n".join(buf).strip()))
+                cur_head = m.group(1).strip()
+                buf = []
+                continue
+        buf.append(line)
+    if cur_head is not None:
+        out.append((cur_head, "\n".join(buf).strip()))
+    return out
+
+
+def _inline_md(s: str) -> str:
+    """内联 markdown -> 安全 HTML：先整体转义，再恢复 **粗体** 与 `行内代码`。"""
+    s = _esc(s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
+    return s
+
+
+def _md_block_to_html(body: str) -> str:
+    """简易 markdown -> HTML（确定性兜底用，非完整 md 解析器）：
+
+    连续 `- / * / +` 列表项 -> <ul><li>；其余非空行 -> <p>；空行分隔块。
+    足以把单元小节正文转为可演示的要点；LLM 路径产出更精炼 HTML。
+    """
+    if not body or not body.strip():
+        return ""
+    blocks: list[str] = []
+    cur_list: list[str] = []
+
+    def _flush() -> None:
+        if cur_list:
+            items = "".join(f"<li>{_inline_md(x)}</li>" for x in cur_list)
+            blocks.append(f"<ul>{items}</ul>")
+            cur_list.clear()
+
+    for raw in body.split("\n"):
+        line = raw.rstrip()
+        if not line.strip():
+            _flush()
+            continue
+        m = re.match(r"^\s*[-*+]\s+(.+)$", line)
+        if m:
+            cur_list.append(m.group(1).strip())
+            continue
+        _flush()
+        blocks.append(f"<p>{_inline_md(line.strip())}</p>")
+    _flush()
+    return "".join(blocks)
+
+
+def default_spec_from_unit(title: str, content_md: str) -> SlideSpec:
+    """从单个自学单元 markdown 构造默认 deck（降级用，纯 Python 确定性）。
+
+    标题页 + 按 ### 小标题每节一页（无 ### 小标题时整段一页）。与 default_spec_from_plan
+    同为 LLM 失败/无 key 时的稳定兜底，复用 _DEFAULT_THEME 深色主题。
+    """
+    slides: list[SlideContent] = [
+        SlideContent(title=title or "自学单元", content_html="", layout="center", animation="anim-fade-in")
+    ]
+    sections = _split_md_sections(content_md)
+    for heading, body in sections:
+        slides.append(
+            SlideContent(
+                title=heading,
+                content_html=_md_block_to_html(body),
+                layout="left",
+                animation="anim-slide-up",
+            )
+        )
+    # 无 ### 小标题但有正文 -> 整段一页（避免只剩光秃秃标题页）
+    if len(slides) == 1:
+        body_html = _md_block_to_html(content_md)
+        if body_html:
+            slides.append(
+                SlideContent(
+                    title=title or "内容", content_html=body_html, layout="left", animation="anim-slide-up"
+                )
+            )
+    return SlideSpec(title=title or "自学单元", theme=dict(_DEFAULT_THEME), transition="trans-fade", slides=slides)
+
+
 def render_slides_html(spec: SlideSpec, base_template: str) -> str:
     """SlideSpec + base.html 模板 -> 自包含 HTML 字符串。
 
@@ -263,4 +368,45 @@ build_plan_slides_tool = Tool(
     output_model=SlideSpec,
     inline_prompt=PROMPT,
     default_data=_DEFAULT_SPEC_DATA,
+)
+
+
+# --- 单元 -> 幻灯片 LLM 工具（iter 359：逐单元导出 HTML-PPT）---
+
+UNIT_SLIDES_PROMPT = """你是 Deep-tutor 的「自学单元幻灯片规约生成」工具。任务：从单个自学单元的标题与 Markdown 正文（args.title / args.content_md）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
+
+输入：user message 的 args.title（单元标题）、args.content_md（单元 markdown 正文，通常含 ### 概述 / ### 核心概念 / ### 实践练习 / ### 检查理解 / ### 总结 / ### 扩展阅读 等小节）。
+
+仅返回符合如下 schema 的 JSON 对象（不要 markdown 代码块、不要解释）：
+{"title":"单元标题","theme":{"--bg":"#色值","--bg-alt":"#色值","--text":"#色值","--text-secondary":"#色值","--accent":"#色值","--accent-hover":"#色值","--border":"#色值","--font-display":"字体栈","--font-body":"字体栈"},"transition":"trans-fade|trans-slide-left|trans-slide-right|trans-slide-up|trans-zoom|trans-flip|trans-none","slides":[{"title":"页标题","content_html":"HTML 内容","layout":"center|left|grid-2|grid-3","animation":"anim-fade-in|anim-slide-up|anim-slide-down|anim-slide-left|anim-slide-right|anim-scale-in|anim-rotate-in|anim-blur-in|anim-flip-in|anim-bounce-in"}]}
+
+规则：
+- 第 1 页标题页：layout=center，title=args.title。
+- 按单元正文小节/逻辑切分为多页（通常 4-8 页），每页聚焦一个要点；勿把全部内容塞一页，也不要为凑页数拆得过碎。
+- content_html 用 <p>/<ul>/<ol>/<li>/<strong>/<em>/<br> 把正文**提炼为演示要点**（精炼、可视化，勿整段照搬 markdown 长文）；禁 <script>/<style>/<iframe>/<img>。
+- theme 选合适配色（深色科技 #0a0e1a/#3b82f6 或浅色商务 #ffffff/#1a1a1a）；animation/transition 用上述类名之一。
+- 不编造 args.content_md 中没有的内容；保留关键示例与「检查理解」问题。
+- 总页数 4-10。
+
+仅返回符合 schema 的 JSON 对象。
+"""
+
+# 工具降级默认（LLM 失败时的静态兜底；端点在非 ok 时改用 default_spec_from_unit(title, content_md) 渲染）
+_UNIT_DEFAULT_SPEC_DATA = {
+    "title": "自学单元",
+    "theme": {},
+    "transition": "trans-fade",
+    "slides": [
+        {"title": "自学单元", "content_html": "<p>（幻灯片规约生成失败，已降级）</p>", "layout": "center", "animation": "anim-fade-in"}
+    ],
+}
+
+
+build_unit_slides_tool = Tool(
+    name="build_unit_slides",
+    llm=True,
+    skill_name=None,  # 同 build_plan_slides：聚焦 inline_prompt
+    output_model=SlideSpec,
+    inline_prompt=UNIT_SLIDES_PROMPT,
+    default_data=_UNIT_DEFAULT_SPEC_DATA,
 )

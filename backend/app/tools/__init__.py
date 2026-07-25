@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
 from app.tools.build_knowledge_map import build_knowledge_map_tool
-from app.tools.build_plan_slides import build_plan_slides_tool
+from app.tools.build_plan_slides import build_plan_slides_tool, build_unit_slides_tool
 from app.tools.design_stages import design_stages_tool
 from app.tools.export_plan import export_plan_tool
 from app.tools.generate_quiz import generate_quiz_tool
@@ -35,6 +35,7 @@ def default_registry() -> ToolRegistry:
     reg.register(validate_plan_tool)
     reg.register(export_plan_tool)
     reg.register(build_plan_slides_tool)  # P1 slides（export format=slides 调用，不在 PIPELINE）
+    reg.register(build_unit_slides_tool)  # iter 359：自学单元逐个导出 HTML-PPT（GET /materials/{unit_id}/export，不在 PIPELINE）
     reg.register(generate_study_materials_tool)  # P2 自学材料（POST /plans/{id}/materials 调用，不在 PIPELINE）
     reg.register(generate_unit_content_tool)  # P2 逐单元材料（materials SSE 流式路径，iter 46）
     reg.register(generate_quiz_tool)  # P2 测验（POST /plans/{id}/quiz 调用，不在 PIPELINE）
@@ -76,6 +77,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "validate_plan": "五维校验（依赖闭包/难度阶梯/认知负荷/里程碑/缺口）+ 修复建议",
     "export_plan": "导出方案为 md/pdf/ics",
     "build_plan_slides": "方案 → PPT 风格 HTML 幻灯片",
+    "build_unit_slides": "自学单元 → PPT 风格 HTML 幻灯片",
     "generate_study_materials": "方案 → 逐单元自学材料索引",
     "generate_unit_content": "生成单个自学单元的 Markdown 内容",
     "generate_quiz": "按知识点生成测验题（选择/填空/简答）",
@@ -113,6 +115,7 @@ __all__ = [
     "validate_plan_tool",
     "export_plan_tool",
     "build_plan_slides_tool",
+    "build_unit_slides_tool",
     "generate_study_materials_tool",
     "generate_unit_content_tool",
     "generate_quiz_tool",
