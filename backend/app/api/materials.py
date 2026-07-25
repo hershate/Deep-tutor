@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.agent import BudgetTracker, run_tool
+from app.agent import BudgetTracker
 from app.agent.context import ExecContext, Timeouts
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
@@ -44,7 +44,7 @@ from app.db.models import User
 from app.llm import get_provider
 from app.tools import default_registry
 from app.tools.base import ToolInput
-from app.tools.build_plan_slides import SlideSpec, default_spec_from_unit, render_slides_html
+from app.tools.build_plan_slides import generate_unit_slides_spec, render_slides_html
 from app.tools.parse_material import parse_material, SUPPORTED_FILE_EXTS
 
 log = logging.getLogger("deep_tutor.api.materials")
@@ -537,25 +537,21 @@ async def export_unit_slides(
         data_dir=settings.data_dir,
         budget=BudgetTracker(limit=settings.budget_per_session_usd),
     )
-    inp = ToolInput(
-        tool="build_unit_slides",
-        session_id=str(session_id),
-        args={"unit_id": str(unit_id), "title": unit.title or "", "content_md": content_md},
+    # iter 359 续：LLM 两阶段——build 生成草稿 + review 审校修正（格式/内容/分页），
+    # 任一成功用 LLM 产物，两者皆败或无 key 才确定性兜底（用户反馈硬模板格式不对）。
+    spec, metadatas, degraded = await generate_unit_slides_spec(
+        unit.title or "自学单元", content_md, ctx, session_id=str(session_id), unit_id=str(unit_id)
     )
-    spec_out = await run_tool("build_unit_slides", inp, ctx)
-    # ok 用 LLM 规约；repaired/error 降级 default_spec_from_unit（确定性按 ### 切分）
-    if spec_out.status == "ok":
-        spec = SlideSpec.model_validate(spec_out.data)
-    else:
-        spec = default_spec_from_unit(unit.title or "自学单元", content_md)
 
     # LLM 用量计入 api_usage（日预算统计口径完整；确定性兜底零用量不入库）
-    if spec_out.metadata.tokens_in or spec_out.metadata.tokens_out:
+    if any(m.tokens_in or m.tokens_out for m in metadatas):
         from app.agent.cost import record_metadata_usage
 
         udb = SessionLocal()
         try:
-            record_metadata_usage(udb, spec_out.metadata, user.id)
+            for m in metadatas:
+                if m.tokens_in or m.tokens_out:
+                    record_metadata_usage(udb, m, user.id)
         finally:
             udb.close()
 
@@ -564,17 +560,12 @@ async def export_unit_slides(
     headers = {
         "Content-Disposition": _unit_content_disposition(f"{safe_title}.html", f"unit-{unit_id}.html")
     }
-    if spec_out.status != "ok" and provider is not None:
-        # 仅 LLM 路径降级才告警（无 key 走确定性是预期路径，不算降级）
+    if degraded and provider is not None:
+        # 仅 LLM 两阶段皆败才告警（无 key 走确定性是预期路径，不算降级）
         from urllib.parse import quote
 
-        headers["X-Export-Warning"] = quote("幻灯片规约生成降级，使用默认结构")
-    log.info(
-        "单元 PPT 导出：unit=%s slides=%d degraded=%s",
-        unit_id,
-        len(spec.slides),
-        spec_out.status != "ok",
-    )
+        headers["X-Export-Warning"] = quote("幻灯片 LLM 生成与审校均失败，已降级为默认结构")
+    log.info("单元 PPT 导出：unit=%s slides=%d degraded=%s", unit_id, len(spec.slides), degraded)
     return Response(content=html.encode("utf-8"), media_type="text/html; charset=utf-8", headers=headers)
 
 

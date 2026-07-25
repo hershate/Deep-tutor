@@ -58,7 +58,7 @@ from app.tools.generate_study_materials import (
     render_materials_md,
 )
 from app.tools.search_resources import search_unit_resources
-from app.tools.build_plan_slides import default_spec_from_unit, render_slides_html
+from app.tools.build_plan_slides import generate_unit_slides_spec, render_slides_html
 from app.tools.export_pdf import build_pdf, pdf_available
 from app.core.storage import (
     delete_unit_content,
@@ -1921,7 +1921,7 @@ async def export_materials(
     if fmt == "zip":
         return _materials_zip_response(units, plan.session_id, plan_id, safe_topic)
     if fmt == "html":
-        return _materials_html_zip_response(units, plan.session_id, plan_id, safe_topic)
+        return await _materials_html_zip_response(units, plan.session_id, plan_id, safe_topic, user.id)
 
     md = _materials_combined_md(units, plan.session_id, topic)
 
@@ -2030,13 +2030,15 @@ def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_top
     )
 
 
-def _materials_html_zip_response(units: list, session_id: int, plan_id: int, safe_topic: str) -> Response:
-    """全案自学材料 HTML 幻灯片导出（iter 359，借助 ppt-slide-builder）：
+async def _materials_html_zip_response(
+    units: list, session_id: int, plan_id: int, safe_topic: str, user_id: int
+) -> Response:
+    """全案自学材料 HTML 幻灯片导出（iter 359 续，借助 ppt-slide-builder）：
 
-    每单元一个自包含 HTML 幻灯片打包成 zip（01-单元名.html …）。确定性生成
-    （default_spec_from_unit 按 ### 切分 + render_slides_html + base.html）——与 md/pdf/zip
-    同为 LLM-free 快速路径（全案 N 单元逐个 LLM 过重，质量路径走逐单元阅读器「下载 PPT」）。
-    模板缺失 -> internal_error（vendored，正常不应发生）。
+    每单元一个自包含 HTML 幻灯片打包成 zip（01-单元名.html …）。**LLM 两阶段**生成
+    （build_unit_slides 草稿 + review_unit_slides 审校修正）——用户反馈硬模板格式不对，
+    改为 LLM 检查并修正（任一阶段成功用 LLM 产物；无 key/皆败才确定性兜底）。
+    模板缺失 -> internal_error（vendored，正常不应发生）。逐单元串行（LLM 调用有序、可测）。
     """
     import io
     import zipfile
@@ -2048,20 +2050,63 @@ def _materials_html_zip_response(units: list, session_id: int, plan_id: int, saf
         log.error("幻灯片模板缺失: %s", exc)
         raise ApiError("internal_error", "幻灯片模板缺失") from exc
 
+    # 供应商解析（无 key -> 每单元确定性兜底，零成本）
+    try:
+        provider = get_provider(user_id)
+    except Exception:  # noqa: BLE001
+        provider = None
+    if provider is not None:
+        check_daily_budget(None, user_id)
+
+    ctx = ExecContext(
+        session_id=str(session_id),
+        trace_id=f"materials-html-{plan_id}",
+        registry=default_registry(),
+        llm_provider=provider,
+        data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),
+    )
+
+    all_metadatas = []
+    entries: list[tuple[str, str]] = []
+    degraded_count = 0
+    for i, u in enumerate(units, 1):
+        md = ""
+        if u.materials:
+            try:
+                md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
+            except OSError:
+                log.warning("导出 HTML：单元 %s 内容文件缺失", u.id)
+        spec, metas, degraded = await generate_unit_slides_spec(
+            u.title or "自学单元", md, ctx, session_id=str(session_id), unit_id=str(u.id)
+        )
+        all_metadatas.extend(metas)
+        if degraded:
+            degraded_count += 1
+        entries.append((f"{i:02d}-{_safe_download_name(u.title)}.html", render_slides_html(spec, base_template)))
+
+    # LLM 用量计入 api_usage（日预算统计口径完整）
+    if any(m.tokens_in or m.tokens_out for m in all_metadatas):
+        udb = SessionLocal()
+        try:
+            for m in all_metadatas:
+                if m.tokens_in or m.tokens_out:
+                    record_metadata_usage(udb, m, user_id)
+        finally:
+            udb.close()
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, u in enumerate(units, 1):
-            md = ""
-            if u.materials:
-                try:
-                    md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
-                except OSError:
-                    log.warning("导出 HTML：单元 %s 内容文件缺失", u.id)
-            spec = default_spec_from_unit(u.title or "自学单元", md)
-            html = render_slides_html(spec, base_template)
-            zf.writestr(f"{i:02d}-{_safe_download_name(u.title)}.html", html)
+        for name, html in entries:
+            zf.writestr(name, html)
     filename = f"{safe_topic}-HTML幻灯片.zip"
-    log.info("材料 HTML 导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(buf.getvalue()) / 1024)
+    log.info(
+        "材料 HTML 导出：plan=%s 单元=%d 降级=%d 大小=%.1fKB",
+        plan_id,
+        len(units),
+        degraded_count,
+        len(buf.getvalue()) / 1024,
+    )
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
