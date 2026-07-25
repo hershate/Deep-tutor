@@ -16,15 +16,17 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.agent import BudgetTracker, run_tool
 from app.agent.context import ExecContext, Timeouts
-from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
+from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
@@ -37,8 +39,12 @@ from app.core.storage import (
     write_parsed_text,
 )
 from app.db import models
+from app.db.base import SessionLocal
 from app.db.models import User
+from app.llm import get_provider
+from app.tools import default_registry
 from app.tools.base import ToolInput
+from app.tools.build_plan_slides import SlideSpec, default_spec_from_unit, render_slides_html
 from app.tools.parse_material import parse_material, SUPPORTED_FILE_EXTS
 
 log = logging.getLogger("deep_tutor.api.materials")
@@ -458,6 +464,118 @@ def get_study_unit_content(
             log.warning("单元内容文件缺失 unit=%s path=%s", unit.id, mat.content_md_path)
             raise ApiError("not_found", f"单元 {unit.id} 的内容文件缺失") from None
     return {"unit_id": unit.id, "title": unit.title, "content_md": content_md, "resources": resources}
+
+
+def _unit_content_disposition(filename_utf8: str, filename_ascii: str) -> str:
+    """RFC 5987：中文文件名经 filename*=UTF-8'' 百分号编码，UA 不支持时回退 ASCII 名。
+
+    与 plans.py _content_disposition 同口径（本地副本，免为单端点跨模块拉入 plans）。
+    """
+    from urllib.parse import quote
+
+    return f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{quote(filename_utf8)}"
+
+
+def _safe_unit_filename(name: str) -> str:
+    """文件名清洗：剔除 Windows/zip 非法符，限长 50（与 plans.py _safe_download_name 同口径）。"""
+    cleaned = "".join("_" if c in '\\/:*?"<>|' else c for c in name).strip(". ") or "单元"
+    return cleaned[:50]
+
+
+@router.get("/{unit_id}/export")
+async def export_unit_slides(
+    unit_id: int,
+    format: str = "html",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """单个自学单元 -> HTML 幻灯片（iter 359，借助 ppt-slide-builder）。
+
+    复用 build_plan_slides 的 render_slides_html + ppt-slide-builder/templates/base.html：
+    LLM 生成 SlideSpec（无 key/失败降级 default_spec_from_unit 确定性按 ### 切分）。
+    返回自包含 HTML 附件（前端 Blob 下载，浏览器打开即演示，无需额外文件服务/鉴权）。
+    LLM 用量计入 api_usage / 日预算（与 _export_slides 同口径）。
+    """
+    fmt = (format or "html").lower()
+    if fmt != "html":
+        raise ApiError("invalid_format", f"不支持的导出格式：{format}（仅支持 html）", status=400)
+
+    unit = _owned_unit_or_404(db, unit_id, user)
+    session_id = unit.plan.session_id
+
+    # 加载单元内容（read_unit_content 自动串联拆分子文件）
+    content_md = ""
+    if unit.materials:
+        try:
+            content_md = read_unit_content(unit.materials[0].content_md_path)
+        except OSError:
+            # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
+            log.warning("单元 PPT 导出：单元 %s 内容文件缺失 path=%s", unit.id, unit.materials[0].content_md_path)
+            raise ApiError("not_found", f"单元 {unit.id} 的内容文件缺失") from None
+
+    # 幻灯片模板（vendored ppt-slide-builder，缺失属异常）
+    template_path = Path(settings.skills_dir) / "ppt-slide-builder" / "templates" / "base.html"
+    try:
+        base_template = template_path.read_text(encoding="utf-8")
+    except OSError as exc:  # noqa: BLE001
+        log.error("幻灯片模板缺失: %s", exc)
+        raise ApiError("internal_error", "幻灯片模板缺失") from exc
+
+    # 供应商解析（无 key -> 降级确定性 deck，零成本；与 _export_slides 同口径）
+    try:
+        provider = get_provider(user.id)
+    except Exception:  # noqa: BLE001
+        provider = None
+    if provider is not None:
+        check_daily_budget(None, user.id)
+
+    ctx = ExecContext(
+        session_id=str(session_id),
+        trace_id=f"unit-slides-{unit_id}",
+        registry=default_registry(),
+        llm_provider=provider,
+        data_dir=settings.data_dir,
+        budget=BudgetTracker(limit=settings.budget_per_session_usd),
+    )
+    inp = ToolInput(
+        tool="build_unit_slides",
+        session_id=str(session_id),
+        args={"unit_id": str(unit_id), "title": unit.title or "", "content_md": content_md},
+    )
+    spec_out = await run_tool("build_unit_slides", inp, ctx)
+    # ok 用 LLM 规约；repaired/error 降级 default_spec_from_unit（确定性按 ### 切分）
+    if spec_out.status == "ok":
+        spec = SlideSpec.model_validate(spec_out.data)
+    else:
+        spec = default_spec_from_unit(unit.title or "自学单元", content_md)
+
+    # LLM 用量计入 api_usage（日预算统计口径完整；确定性兜底零用量不入库）
+    if spec_out.metadata.tokens_in or spec_out.metadata.tokens_out:
+        from app.agent.cost import record_metadata_usage
+
+        udb = SessionLocal()
+        try:
+            record_metadata_usage(udb, spec_out.metadata, user.id)
+        finally:
+            udb.close()
+
+    html = render_slides_html(spec, base_template)
+    safe_title = _safe_unit_filename(unit.title or "自学单元")
+    headers = {
+        "Content-Disposition": _unit_content_disposition(f"{safe_title}.html", f"unit-{unit_id}.html")
+    }
+    if spec_out.status != "ok" and provider is not None:
+        # 仅 LLM 路径降级才告警（无 key 走确定性是预期路径，不算降级）
+        from urllib.parse import quote
+
+        headers["X-Export-Warning"] = quote("幻灯片规约生成降级，使用默认结构")
+    log.info(
+        "单元 PPT 导出：unit=%s slides=%d degraded=%s",
+        unit_id,
+        len(spec.slides),
+        spec_out.status != "ok",
+    )
+    return Response(content=html.encode("utf-8"), media_type="text/html; charset=utf-8", headers=headers)
 
 
 class UnitDoneIn(BaseModel):
