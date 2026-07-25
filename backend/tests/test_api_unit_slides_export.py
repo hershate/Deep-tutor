@@ -93,29 +93,42 @@ def test_export_unit_html_deterministic(client, auth_headers, monkeypatch):
 
 
 def test_export_unit_html_with_llm(client, auth_headers, monkeypatch):
-    """有 provider + LLM 合法规约 -> 200 + html 含 LLM 内容。"""
+    """有 provider + LLM 两阶段（build 草稿 + review 审校）-> 200 + html 含审校产物。"""
     from app.api import materials as materials_mod
     from app.core import settings as settings_mod
 
     _mk_admin()
     seeded = _seed_unit()
-    spec_json = (
+    draft_json = (
         '{"title":"测试单元","theme":{"--bg":"#0a0e1a","--accent":"#3b82f6"},'
         '"transition":"trans-fade","slides":['
-        '{"title":"测试单元","content_html":"<p>LLM 概述页</p>","layout":"center","animation":"anim-fade-in"},'
-        '{"title":"要点","content_html":"<ul><li>LLM 要点</li></ul>","layout":"left","animation":"anim-slide-up"}]}'
+        '{"title":"测试单元","content_html":"<p>草稿内容</p>","layout":"center","animation":"anim-fade-in"}]}'
+    )
+    reviewed_json = (
+        '{"title":"测试单元","theme":{"--bg":"#0a0e1a","--accent":"#3b82f6"},'
+        '"transition":"trans-fade","slides":['
+        '{"title":"测试单元","content_html":"<p>审校后内容</p>","layout":"center","animation":"anim-fade-in"},'
+        '{"title":"要点","content_html":"<ul><li>审校补充</li></ul>","layout":"left","animation":"anim-slide-up"}]}'
     )
     monkeypatch.setattr(
-        materials_mod, "get_provider", lambda *a, **k: _SlidesProvider([LLMResponse(content=spec_json, usage=LLMUsage(model="claude-sonnet-5"))])
+        materials_mod,
+        "get_provider",
+        lambda *a, **k: _SlidesProvider(
+            [
+                LLMResponse(content=draft_json, usage=LLMUsage(model="claude-sonnet-5")),
+                LLMResponse(content=reviewed_json, usage=LLMUsage(model="claude-sonnet-5")),
+            ]
+        ),
     )
     monkeypatch.setattr(settings_mod.settings, "skills_dir", _REAL_SKILLS)
 
     r = client.get(f"/api/materials/{seeded['unit_id']}/export?format=html", headers=auth_headers)
     assert r.status_code == 200, r.text
     html = r.content.decode("utf-8")
-    assert "LLM 概述页" in html
-    assert "LLM 要点" in html
-    assert "X-Export-Warning" not in r.headers  # ok 路径不降级
+    assert "审校后内容" in html  # 采用 review 产物
+    assert "审校补充" in html
+    assert "草稿内容" not in html  # 草稿已被审校替换
+    assert "X-Export-Warning" not in r.headers  # 两阶段皆 ok 不降级
 
 
 def test_export_unit_html_llm_degrade_warns(client, auth_headers, monkeypatch):

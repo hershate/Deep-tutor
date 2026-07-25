@@ -186,3 +186,110 @@ def test_tool_invalid_degrades_to_default():
     assert out.status == "repaired"
     assert out.data["title"] == "自学单元"  # 静态降级默认
     assert len(out.data["slides"]) >= 1
+
+
+# --- review_unit_slides 审校工具 + generate_unit_slides_spec 两阶段编排（iter 359 续）---
+
+from app.tools.build_plan_slides import (  # noqa: E402
+    generate_unit_slides_spec,
+    review_unit_slides_tool,
+)
+
+_DRAFT_JSON = (
+    '{"title":"草稿单元","theme":{},"transition":"trans-fade",'
+    '"slides":[{"title":"草稿","content_html":"<p>原始</p>","layout":"center","animation":"anim-fade-in"}]}'
+)
+_REVIEWED_JSON = (
+    '{"title":"审校单元","theme":{"--bg":"#0a0e1a"},"transition":"trans-slide-left",'
+    '"slides":[{"title":"审校后","content_html":"<p>已修正</p>","layout":"left","animation":"anim-slide-up"},'
+    '{"title":"补充页","content_html":"<ul><li>要点</li></ul>","layout":"left","animation":"anim-fade-in"}]}'
+)
+
+
+def _ctx_both(provider: LLMProvider) -> ExecContext:
+    reg = ToolRegistry()
+    reg.register(build_unit_slides_tool)
+    reg.register(review_unit_slides_tool)
+    return ExecContext(session_id="s", trace_id="t", registry=reg, llm_provider=provider)
+
+
+def test_review_tool_registered_in_default_registry():
+    reg = default_registry()
+    assert reg.has("review_unit_slides")
+    assert reg.get("review_unit_slides").llm is True
+
+
+def test_review_tool_returns_corrected_spec():
+    """review 工具接收 draft_spec -> 返回修正后的 SlideSpec。"""
+    provider = _ScriptedProvider([LLMResponse(content=_REVIEWED_JSON, usage=LLMUsage(model="claude-sonnet-5"))])
+    out = asyncio.run(
+        run_tool(
+            "review_unit_slides",
+            ToolInput(
+                tool="review_unit_slides",
+                session_id="s",
+                args={"title": "T", "content_md": "### 概述\n\n要点", "draft_spec": {}},
+            ),
+            _ctx_both(provider),
+        )
+    )
+    assert out.status == "ok"
+    assert out.data["title"] == "审校单元"
+    assert len(out.data["slides"]) == 2
+    assert out.data["slides"][0]["title"] == "审校后"
+
+
+def test_generate_helper_build_then_review():
+    """两阶段皆成功 -> 用审校产物；metadatas 含 2 条；非降级。"""
+    provider = _ScriptedProvider(
+        [
+            LLMResponse(content=_DRAFT_JSON, usage=LLMUsage(model="claude-sonnet-5")),
+            LLMResponse(content=_REVIEWED_JSON, usage=LLMUsage(model="claude-sonnet-5")),
+        ]
+    )
+    spec, metas, degraded = asyncio.run(
+        generate_unit_slides_spec("单元", "### 概述\n\n要点", _ctx_both(provider), session_id="s", unit_id="u1")
+    )
+    assert spec.title == "审校单元"  # 用了 review 产物，非草稿
+    assert len(spec.slides) == 2
+    assert len(metas) == 2  # build + review
+    assert degraded is False
+
+
+def test_generate_helper_build_fail_review_ok():
+    """build 失败（草稿走确定性）+ review 成功 -> 用 review 产物；非降级。"""
+    provider = _ScriptedProvider(
+        [
+            LLMResponse(content="not json", usage=LLMUsage(model="claude-sonnet-5")),
+            LLMResponse(content=_REVIEWED_JSON, usage=LLMUsage(model="claude-sonnet-5")),
+        ]
+    )
+    spec, metas, degraded = asyncio.run(
+        generate_unit_slides_spec("单元", "### 概述\n\n要点", _ctx_both(provider), session_id="s")
+    )
+    assert spec.title == "审校单元"  # review 救回
+    assert degraded is False
+
+
+def test_generate_helper_both_fail_degrades():
+    """build 与 review 皆失败 -> 确定性兜底；degraded=True。"""
+    provider = _ScriptedProvider(
+        [LLMResponse(content="not json", usage=LLMUsage(model="claude-sonnet-5"))] * 10
+    )
+    spec, metas, degraded = asyncio.run(
+        generate_unit_slides_spec("测试单元", "### 概述\n\n要点", _ctx_both(provider), session_id="s")
+    )
+    assert degraded is True
+    assert spec.title == "测试单元"  # default_spec_from_unit 标题
+    assert len(spec.slides) >= 1
+
+
+def test_generate_helper_no_provider_deterministic():
+    """无 provider（ctx.llm_provider=None）-> 直接确定性兜底，零 LLM（metadatas 空）。"""
+    ctx = _ctx_both(None)  # provider=None
+    spec, metas, degraded = asyncio.run(
+        generate_unit_slides_spec("测试单元", "### 概述\n\n要点", ctx, session_id="s")
+    )
+    assert degraded is True
+    assert metas == []  # 未调 LLM
+    assert spec.title == "测试单元"

@@ -137,6 +137,49 @@ def test_export_html_zip_contents(client, auth_headers, monkeypatch):
     assert 'id="slide-1"' in h1  # 幻灯片结构
 
 
+def test_export_html_zip_with_llm(client, auth_headers, monkeypatch):
+    """iter 359 续：format=html + LLM -> 每单元走 build+review 两阶段，zip 含审校产物。"""
+    from app.api import plans as plans_mod
+    from app.core import settings as settings_mod
+    from app.llm.base import LLMResponse, LLMUsage
+
+    monkeypatch.setattr(settings_mod.settings, "skills_dir", _REAL_SKILLS)
+    _mk_admin()
+    seeded = _seed(2)
+
+    class _P:
+        def __init__(self, responses):
+            self._r = list(responses)
+
+        async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+            return self._r.pop(0) if self._r else LLMResponse(content="{}", usage=LLMUsage(model="claude-sonnet-5"))
+
+    def _spec(n: int, label: str) -> str:
+        # 用 % 格式化：JSON 花括号是字面量，仅 %s/%d 为占位（.format 会误读 { "title" }）
+        return (
+            '{"title":"第%d单元","theme":{},"transition":"trans-fade","slides":['
+            '{"title":"第%d单元","content_html":"<p>%s%d</p>","layout":"center","animation":"anim-fade-in"}]}'
+            % (n, n, label, n)
+        )
+
+    # 顺序：u1-build, u1-review, u2-build, u2-review（串行）
+    responses = [
+        LLMResponse(content=_spec(1, "草稿"), usage=LLMUsage(model="claude-sonnet-5")),
+        LLMResponse(content=_spec(1, "审校"), usage=LLMUsage(model="claude-sonnet-5")),
+        LLMResponse(content=_spec(2, "草稿"), usage=LLMUsage(model="claude-sonnet-5")),
+        LLMResponse(content=_spec(2, "审校"), usage=LLMUsage(model="claude-sonnet-5")),
+    ]
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _P(responses))
+
+    r = client.get(f"/api/plans/{seeded['plan_id']}/materials/export?format=html", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    h1 = zf.read("01-第1单元.html").decode("utf-8")
+    h2 = zf.read("02-第2单元.html").decode("utf-8")
+    assert "审校1" in h1 and "草稿1" not in h1  # 采用 review 产物
+    assert "审校2" in h2 and "草稿2" not in h2
+
+
 def test_export_invalid_format_400(client, auth_headers):
     """iter 354 BUG3：不支持格式 -> 400。"""
     _mk_admin()
