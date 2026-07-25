@@ -410,3 +410,90 @@ build_unit_slides_tool = Tool(
     inline_prompt=UNIT_SLIDES_PROMPT,
     default_data=_UNIT_DEFAULT_SPEC_DATA,
 )
+
+
+# --- 单元幻灯片审校（iter 359 续：用户反馈硬模板格式不对 -> LLM 检查并修正）---
+
+REVIEW_UNIT_SLIDES_PROMPT = """你是 Deep-tutor 的「自学单元幻灯片审校」工具。任务：审查并修正一份从单元内容生成的幻灯片规约（SlideSpec）草稿，确保格式正确、内容忠实、可演示。非交互，直接输出修正后的规约。
+
+输入：args.title（单元标题）、args.content_md（单元原始 markdown 正文）、args.draft_spec（已生成的 SlideSpec 草稿 JSON，含 title/theme/transition/slides[]，每个 slide 有 title/content_html/layout/animation）。
+
+仅返回符合如下 schema 的 JSON 对象（修正后的完整 SlideSpec，不要 markdown 代码块、不要解释）：
+{"title":"单元标题","theme":{"--bg":"#色值","--bg-alt":"#色值","--text":"#色值","--text-secondary":"#色值","--accent":"#色值","--accent-hover":"#色值","--border":"#色值","--font-display":"字体栈","--font-body":"字体栈"},"transition":"trans-fade|trans-slide-left|trans-slide-right|trans-slide-up|trans-zoom|trans-flip|trans-none","slides":[{"title":"页标题","content_html":"HTML 内容","layout":"center|left|grid-2|grid-3","animation":"anim-fade-in|anim-slide-up|anim-slide-down|anim-slide-left|anim-slide-right|anim-scale-in|anim-rotate-in|anim-blur-in|anim-flip-in|anim-bounce-in"}]}
+
+审校与修正规则（务必逐条检查并改正）：
+- **格式正确（最重要）**：每页 content_html 仅用 <p>/<ul>/<ol>/<li>/<strong>/<em>/<br>；**移除**任何 <script>/<style>/<iframe>/<object>/<embed>/<img>、on* 事件属性、javascript: 链接（防 XSS）。修正裸文本堆砌、标签未闭合、列表项缺失 <li> 包裹、段落缺 <p> 等格式错误。
+- **内容忠实**：slides 覆盖 args.content_md 的关键要点（概述/核心概念/实践练习/检查理解/总结/扩展阅读），不编造、不遗漏重要内容；草稿漏了关键节则补上，重复或冗余则合并。
+- **分页合理**：总页数 4-10；第 1 页标题页 layout=center；单页勿过载（长段落拆分或精炼为要点列表），也勿过碎。
+- **主题/动画**：theme 配色合理（深色科技 #0a0e1a/#3b82f6 或浅色商务 #ffffff/#1a1a1a，全套变量给出）；animation/transition 用合法类名之一。
+- 草稿已无明显问题时**原样返回**（不必为改而改）；仅在实际有格式/内容问题时才修正。
+
+仅返回符合 schema 的 JSON 对象。
+"""
+
+
+review_unit_slides_tool = Tool(
+    name="review_unit_slides",
+    llm=True,
+    skill_name=None,
+    output_model=SlideSpec,
+    inline_prompt=REVIEW_UNIT_SLIDES_PROMPT,
+    default_data=_UNIT_DEFAULT_SPEC_DATA,  # 审校失败时调用方回退用草稿（见 generate_unit_slides_spec）
+)
+
+
+async def generate_unit_slides_spec(title: str, content_md: str, ctx, *, session_id: str, unit_id: str = ""):
+    """LLM 生成 + 审校修正单元幻灯片规约（iter 359 续：硬模板格式不对 -> LLM 检查修正）。
+
+    两阶段：build_unit_slides 生成草稿 -> review_unit_slides 审校修正（格式/内容/分页）。
+    任一阶段成功即用 LLM 产物；两者皆败才用 default_spec_from_unit 确定性兜底。
+    无 provider（ctx.llm_provider 为 None）-> 直接确定性兜底（零 LLM，离线/无 key 路径）。
+
+    返回 (spec, metadatas, degraded)：
+    - spec：最终 SlideSpec（LLM 审校 > LLM 草稿 > 确定性兜底）。
+    - metadatas：build/review 的 ToolOutput.metadata 列表（供调用方记 api_usage；确定性路径为空）。
+    - degraded：True 表示最终为确定性兜底（LLM 两阶段皆败），调用方可据此附降级告警。
+    """
+    from app.agent import run_tool
+    from app.tools.base import ToolInput
+
+    title = title or "自学单元"
+    if getattr(ctx, "llm_provider", None) is None:
+        return default_spec_from_unit(title, content_md), [], True
+
+    metadatas = []
+    build_out = await run_tool(
+        "build_unit_slides",
+        ToolInput(
+            tool="build_unit_slides",
+            session_id=session_id,
+            args={"unit_id": unit_id, "title": title, "content_md": content_md},
+        ),
+        ctx,
+    )
+    metadatas.append(build_out.metadata)
+    build_ok = build_out.status == "ok"
+    draft = (
+        SlideSpec.model_validate(build_out.data) if build_ok else default_spec_from_unit(title, content_md)
+    )
+
+    review_out = await run_tool(
+        "review_unit_slides",
+        ToolInput(
+            tool="review_unit_slides",
+            session_id=session_id,
+            args={
+                "unit_id": unit_id,
+                "title": title,
+                "content_md": content_md,
+                "draft_spec": draft.model_dump(),
+            },
+        ),
+        ctx,
+    )
+    metadatas.append(review_out.metadata)
+    review_ok = review_out.status == "ok"
+    spec = SlideSpec.model_validate(review_out.data) if review_ok else draft
+
+    degraded = not build_ok and not review_ok
+    return spec, metadatas, degraded
