@@ -29,6 +29,13 @@
 
 **iter 358（2026-07-24，修复「理解学习目标」澄清死循环，✅ 完成）**：用户 /goal「新建方案卡在 understand_intent（理解学习目标）反复追问用户、不向下推进」。根因 = `/clarify` 每次从 understand_intent 重跑 + 链路无任何澄清轮次上限/强制推进机制；真实 LLM 在 answers 偏模糊时常保守返回 `needs_clarify=true`（PROMPT 仅「尽量」给出明确字段，过软），叠加 `_validate_intent` 的 deadline 过期分支确定性置 `needs_clarify=True` → 无限 `paused_clarify` 循环。修复（[understand_intent.py](backend/app/tools/understand_intent.py)）：`_validate_intent` 加**确定性兜底**——`args.answers` 非空（澄清续接轮）且仍 `needs_clarify=true` 时强制推进（`needs_clarify=false` + 清空 `clarify_questions` + 仍缺失维度补中性默认：`daily_minutes=60`/`level="未明确"`/`goal` 据 topic 推断），**不依赖 LLM 自觉**；PROMPT「尽量」→「必须」。测试：5 个 `_validate_intent` 单测 + 1 个 run_tool 级 + 1 个端到端死循环修复（`ClarifyLoopProvider` 模拟续接轮仍 `needs_clarify`，断言推进到 `done` 而非再次 `clarify_needed`）。**pytest 1197 零回归** + ruff 干净。详见 §五 iter 358。
 
+**iter 359（2026-07-25，自学单元逐个导出 HTML-PPT，✅ 完成）**：用户 /goal「借助 `ppt-slide-builder` skill，自学资料每个单元都能单独导出为 HTML 形式 PPT（新增 HTML-PPT 导出形式）」。2 决策经 AskUserQuestion：①生成方式 = **LLM + 确定性兜底**（镜像 build_plan_slides，质量优先，无 key/失败降级）；②入口 = **仅逐单元**（贴合「每个单独」需求）。落地：
+- 工具：[build_plan_slides.py](backend/app/tools/build_plan_slides.py) 加 `build_unit_slides`（LLM 生成 SlideSpec，inline_prompt + output_model=SlideSpec）+ `default_spec_from_unit` 确定性兜底（按 `###` 小标题切分 `_split_md_sections` + `_md_block_to_html` 简易 md→HTML：列表 `<ul><li>`/段落 `<p>`/内联 `**粗体**`·`` `代码` ``，代码围栏内 `#` 不误判）；注册入 `default_registry` + `TOOL_DESCRIPTIONS`。
+- 端点：[materials.py](backend/app/api/materials.py) 加 `GET /{unit_id}/export?format=html`（复用 `render_slides_html` + `ppt-slide-builder/templates/base.html`；LLM 用量计入 `api_usage`/日预算；无 key → 确定性零成本，LLM 失败才附 `X-Export-Warning`；RFC 5987 中文文件名）。
+- 前端：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元底部「下载 .md」旁加「下载 PPT」按钮（`pptBusy` + toast 成功/失败）；[api.ts](frontend/src/lib/api.ts) 加 `downloadUnitSlides(unitId, title)`。
+- 测试：[test_build_unit_slides.py](backend/tests/test_build_unit_slides.py)（13 项：切分/代码围栏/转 HTML/转义/确定性 deck/LLM 工具 ok·降级/注册）+ [test_api_unit_slides_export.py](backend/tests/test_api_unit_slides_export.py)（8 项：确定性/LLM ok/LLM 降级告警/非法格式 400/404/鉴权/跨用户隔离/无内容仍渲染）。
+**pytest 1218 零回归**（原 1197 + 21 新增）+ ruff 干净 + 前端 build 通过。详见 §五 iter 359。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -272,6 +279,14 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-25 iter 359（自学单元逐个导出 HTML-PPT /goal·✅ 完成）**：用户 /goal「借助 `ppt-slide-builder` skill，自学资料每个单元都能单独导出为 HTML 形式 PPT（新增 HTML-PPT 导出形式）」。5 commit 落地，全量 pytest **1218 零回归**（原 1197 + 21 新）+ ruff 干净 + 前端 build 通过。
+  - **决策（AskUserQuestion，2 问）**：①生成方式——LLM + 确定性兜底（镜像 build_plan_slides，质量优先；无 key/LLM 失败降级确定性切分）vs 纯确定性切分（免费即时）；用户选 **LLM + 兜底**。②入口位置——仅逐单元（贴合「每个单独」）vs 逐单元 + 全案；用户选 **仅逐单元**。
+  - **工具（[build_plan_slides.py](backend/app/tools/build_plan_slides.py)）**：新增 `build_unit_slides_tool`（llm=True，inline_prompt `UNIT_SLIDES_PROMPT`，output_model=SlideSpec，default_data 兜底）；新增确定性兜底 `default_spec_from_unit(title, content_md)`——标题页 + 按 `###` 小标题切分每节一页（无小标题则整段一页）；辅助 `_split_md_sections`（代码围栏内 `#` 不误判）、`_md_block_to_html`（列表→`<ul><li>`/段落→`<p>`/内联 `**粗体**`·`` `代码` ``，先 `_esc` 转义防 XSS）、`_inline_md`。注册入 `default_registry` + `TOOL_DESCRIPTIONS` + `__all__`（[tools/__init__.py](backend/app/tools/__init__.py)）。
+  - **端点（[materials.py](backend/app/api/materials.py) `GET /{unit_id}/export?format=html`）**：复用 `render_slides_html` + `ppt-slide-builder/templates/base.html`；`run_tool("build_unit_slides", ...)` LLM 生成 SlideSpec，ok 用 LLM 规约、repaired/error 降级 `default_spec_from_unit`；LLM 用量计入 `api_usage`/日预算（与 `_export_slides` 同口径）；无 key → 确定性零成本（不告警），LLM 失败才附 `X-Export-Warning`；RFC 5987 中文文件名 + ASCII 回退；返回 `text/html` 附件（前端 Blob 下载，浏览器打开即演示）。
+  - **前端**：[StudyMaterialReader.tsx](frontend/src/components/StudyMaterialReader.tsx) 单元底部工具栏「下载 .md」旁加「下载 PPT」按钮（`pptBusy` 禁用防重入 + toast 成功/失败，`downloadPpt` 调 `downloadUnitSlides`）；[api.ts](frontend/src/lib/api.ts) 加 `downloadUnitSlides(unitId, title)`（`GET /materials/{id}/export?format=html` → blob → saveBlob，文件名取 Content-Disposition）。
+  - **测试**：[test_build_unit_slides.py](backend/tests/test_build_unit_slides.py) 13 项（切分/代码围栏/转 HTML/转义/确定性 deck/渲染/LLM 工具注册·ok·降级）；[test_api_unit_slides_export.py](backend/tests/test_api_unit_slides_export.py) 8 项（确定性兜底/LLM ok/LLM 降级告警/非法格式 400/404/鉴权 401/跨用户隔离 404/无内容仍渲染）。
+  - **回归**：全量 pytest 1218（1197 +21 新）零回归；ruff 干净；前端 tsc+vite build 通过。
 
 - **2026-07-24 iter 358（修复「理解学习目标」澄清死循环 /goal·✅ 完成）**：用户 /goal「在实际使用中发现 BUG，在新建方案过程中，一直卡在『理解学习目标』阶段，反复询问用户问题而不向下推进」。1 commit 落地（`52640db`），全量 pytest **1197 零回归** + ruff 干净（无前端改动）。
   - **根因（源码核查）**：澄清续接端点 [`POST /clarify`](backend/app/api/plans.py)（第 455-486 行）每次都以 `answers` 从 `understand_intent` 重跑（`_run_start` 的 `start_tool` 默认 `understand_intent`）；而 `understand_intent` 是否暂停完全由 LLM 返回的 `needs_clarify` 决定。PROMPT（[understand_intent.py](backend/app/tools/understand_intent.py)）仅要求「含 answers 时**尽量**给出明确字段而非再次澄清」——真实 LLM 在用户回答偏模糊（如「看情况」「随便」）时常保守地仍返回 `needs_clarify=true`；`_validate_intent` 的 deadline 过期分支还会**确定性**置 `needs_clarify=True`。全链路**无澄清轮次上限、无「已回答则强制推进」兜底** → `paused_clarify → /clarify → understand_intent 重跑 → 又 needs_clarify → 又 paused_clarify` 无限循环。既有 `test_clarify_flow` 能通过只因 mock 在续接轮配合地返回了 `needs_clarify=false`，未覆盖真实 LLM 的保守行为，故逃过回归。
