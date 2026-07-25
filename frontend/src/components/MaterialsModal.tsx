@@ -60,6 +60,12 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
   async function doExport(format: 'md' | 'pdf' | 'zip' | 'html') {
     if (zipBusy) return
     setExportOpen(false)
+    // iter 359 续：HTML-PPT 走任务引擎 SSE（逐单元进度可感知），不走同步下载
+    if (format === 'html') {
+      engine.startSlidesExport(planId, { title: `${taskTitle} · HTML-PPT` })
+      toast.info('正在生成 HTML 幻灯片，进度见任务面板')
+      return
+    }
     setZipBusy(true)
     try {
       await downloadMaterials(planId, format)
@@ -374,6 +380,19 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
                   className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md active:scale-[.98] disabled:opacity-40 disabled:hover:shadow-sm disabled:active:scale-100"
                 >
                   重新生成选中单元（<span className="tabular-nums">{selected.size}</span>）
+                </button>
+                <button
+                  onClick={() => {
+                    // iter 359 续：导出选中单元为 HTML-PPT（每个单元单独的幻灯片，打包 zip）
+                    engine.startSlidesExport(planId, { unitIds: [...selected], title: `${taskTitle} · 选中 PPT` })
+                    setSelectMode(false)
+                    setSelected(new Set())
+                    onClose()
+                  }}
+                  disabled={selected.size === 0}
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
+                >
+                  导出选中为 PPT（<span className="tabular-nums">{selected.size}</span>）
                 </button>
                 <button
                   onClick={() => {

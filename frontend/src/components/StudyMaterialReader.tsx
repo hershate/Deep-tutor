@@ -3,9 +3,10 @@
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from './Markdown'
-import { ApiError, downloadUnitSlides, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
+import { ApiError, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 import { toast } from './Toast'
+import { engine } from '../lib/taskEngine'
 
 interface Props {
   planId: number // iter 269：单元内容检索需要
@@ -121,7 +122,6 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [doneBusy, setDoneBusy] = useState(false)
-  const [pptBusy, setPptBusy] = useState(false) // iter 359：单元导出 HTML-PPT 进行中
   // iter 346（F6）：阅读内重写本单元——复用 generateMaterialsStream（单单元 unitIds + depth）
   const [showRewrite, setShowRewrite] = useState(false)
   const [rewriteDepth, setRewriteDepth] = useState<'brief' | 'full'>('full')
@@ -257,19 +257,15 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
     }
   }
 
-  // iter 359：当前单元导出为 HTML 幻灯片（借助 ppt-slide-builder，后端 LLM 生成 + 确定性兜底）。
-  // 与「下载 .md」并列：.md 是纯文本快照，PPT 是可演示幻灯片（后端生成，故有 busy/失败反馈）。
-  async function downloadPpt() {
-    if (!current || pptBusy) return
-    setPptBusy(true)
-    try {
-      await downloadUnitSlides(current.id, contentTitle || current.title)
-      toast.success('HTML 幻灯片已开始下载')
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'PPT 导出失败，请重试')
-    } finally {
-      setPptBusy(false)
-    }
+  // iter 359 续：当前单元导出为 HTML 幻灯片——走任务引擎 SSE（逐单元进度 + done 自动下载）。
+  // 单单元导出（unitIds=[id]），进度/完成提示由任务面板承载；与「下载 .md」（纯文本快照）并列。
+  function downloadPpt() {
+    if (!current) return
+    engine.startSlidesExport(planId, {
+      unitIds: [current.id],
+      title: `PPT · ${contentTitle || current.title}`,
+    })
+    toast.info('正在生成 HTML 幻灯片，进度见任务面板')
   }
 
   // iter 346（F6）：阅读内重写本单元——后端 /plans/{id}/materials 已支持 unit_ids 单元替换 +
@@ -577,11 +573,10 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
                 </button>
                 <button
                   onClick={downloadPpt}
-                  disabled={pptBusy}
-                  title="导出本单元为 HTML 幻灯片（借助 ppt-slide-builder）"
-                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
+                  title="导出本单元为 HTML 幻灯片（借助 ppt-slide-builder；进度见任务面板）"
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                 >
-                  {pptBusy ? '生成中…' : '下载 PPT'}
+                  下载 PPT
                 </button>
                 <button
                   onClick={toggleDone}
