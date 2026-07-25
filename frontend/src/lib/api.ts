@@ -962,6 +962,16 @@ export async function downloadMaterialsZip(planId: number): Promise<void> {
   await downloadMaterials(planId, 'zip')
 }
 
+/** 单个自学单元导出为 HTML 幻灯片（iter 359，借助 ppt-slide-builder）。
+ * 后端 LLM 生成 SlideSpec + base.html 渲染自包含 HTML；文件名取 Content-Disposition。 */
+export async function downloadUnitSlides(unitId: number, title: string): Promise<void> {
+  const res = await fetch(`${BASE}/materials/${unitId}/export?format=html`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  await throwIfNotOk(res)
+  saveBlob(await res.blob(), res.headers.get('content-disposition'), `${title || '单元'}.html`)
+}
+
 /** 全部自由笔记 zip 下载（iter 286，便携导出：迁入 Obsidian/Notion 等）。 */
 export async function downloadNotesZip(): Promise<void> {
   const res = await fetch(`${BASE}/notes/export`, {

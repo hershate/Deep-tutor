@@ -3,8 +3,9 @@
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from './Markdown'
-import { ApiError, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
+import { ApiError, downloadUnitSlides, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
+import { toast } from './Toast'
 
 interface Props {
   planId: number // iter 269：单元内容检索需要
@@ -120,6 +121,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [doneBusy, setDoneBusy] = useState(false)
+  const [pptBusy, setPptBusy] = useState(false) // iter 359：单元导出 HTML-PPT 进行中
   // iter 346（F6）：阅读内重写本单元——复用 generateMaterialsStream（单单元 unitIds + depth）
   const [showRewrite, setShowRewrite] = useState(false)
   const [rewriteDepth, setRewriteDepth] = useState<'brief' | 'full'>('full')
@@ -252,6 +254,21 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
       // 标记失败不打断阅读（下次进入列表会重取）
     } finally {
       setDoneBusy(false)
+    }
+  }
+
+  // iter 359：当前单元导出为 HTML 幻灯片（借助 ppt-slide-builder，后端 LLM 生成 + 确定性兜底）。
+  // 与「下载 .md」并列：.md 是纯文本快照，PPT 是可演示幻灯片（后端生成，故有 busy/失败反馈）。
+  async function downloadPpt() {
+    if (!current || pptBusy) return
+    setPptBusy(true)
+    try {
+      await downloadUnitSlides(current.id, contentTitle || current.title)
+      toast.success('HTML 幻灯片已开始下载')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'PPT 导出失败，请重试')
+    } finally {
+      setPptBusy(false)
     }
   }
 
@@ -557,6 +574,14 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
                   className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700"
                 >
                   下载 .md
+                </button>
+                <button
+                  onClick={downloadPpt}
+                  disabled={pptBusy}
+                  title="导出本单元为 HTML 幻灯片（借助 ppt-slide-builder）"
+                  className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 disabled:active:scale-100 dark:border-slate-600 dark:hover:bg-slate-700"
+                >
+                  {pptBusy ? '生成中…' : '下载 PPT'}
                 </button>
                 <button
                   onClick={toggleDone}
