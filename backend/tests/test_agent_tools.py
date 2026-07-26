@@ -94,20 +94,22 @@ def test_promote_artifact_proposes(tmp_path, monkeypatch):
     db, u, t, r = _setup()
     monkeypatch.setattr(ws.settings, "data_dir", str(tmp_path))
     ctx = _ctx(db, u, t, r)
-    # 先写文件并 commit（promote 要求 workspace_committed）
+    # iter 363 恢复流程：run 进行中草稿在 scratch（无需先 commit），promote 从 scratch
+    # 提交到持久区 + 登记 RunArtifact（approve 端点据此读取）
     ws.write_file(r.id, "plan.md", "计划内容")
-    ws.commit_run_workspace(db, r.id, t.id)
     out = asyncio.run(A.promote_artifact(_inp("promote_artifact", name="plan.md", target_kind="plan"), ctx))
     assert out.status == "ok" and out.data["proposed"] is True
     assert db.get(models.Run, r.id).status == models.RunStatus.awaiting_approval
-    # 未 commit 的产物 -> error
+    art = db.query(models.RunArtifact).filter_by(run_id=r.id, name="plan.md").first()
+    assert art is not None and art.kind == "committed"
+    # scratch 无此文件 -> not_found（旧 not_committed 已废弃）
     r2 = models.Run(thread_id=t.id, user_id=u.id, status=models.RunStatus.running)
     db.add(r2)
     db.commit()
     db.refresh(r2)
     ctx2 = _ctx(db, u, t, r2)
-    bad = asyncio.run(A.promote_artifact(_inp("promote_artifact", name="x.md", target_kind="note"), ctx2))
-    assert bad.status == "error" and bad.errors[0].code == "not_committed"
+    bad = asyncio.run(A.promote_artifact(_inp("promote_artifact", name="missing.md", target_kind="note"), ctx2))
+    assert bad.status == "error" and bad.errors[0].code == "not_found"
     db.close()
 
 

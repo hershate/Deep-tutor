@@ -311,17 +311,33 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if target_kind not in ("plan", "material", "note"):
         return _err(tool, "invalid_enum", "target_kind 须为 plan/material/note")
     from app.db.models import Run, RunArtifact, RunStatus, RunStep
+    from app.agent.workspace import scratch_dir, committed_dir, _resolve_in, _root
 
     run = ctx.db.get(Run, ctx.run_id)
-    if run is None or not run.workspace_committed:
-        return _err(tool, "not_committed", "工作区尚未 commit，无法提升（run 完成后自动 commit）")
-    art = (
-        ctx.db.query(RunArtifact)
-        .filter_by(run_id=ctx.run_id, thread_id=ctx.thread_id, name=name)
-        .first()
-    )
-    if art is None:
+    if run is None:
+        return _err(tool, "not_found", "run 不存在")
+    # iter 363 恢复流程：run 进行中草稿在 scratch（workspace_committed 此时为 False——仅 run
+    # 结束后 _finalize_chat 调 commit_run_workspace 才置 True；旧逻辑据此判 promote 永远
+    # not_committed，整个 draft→promote→approve 链路是死代码）。改为从 scratch 读指定草稿，
+    # 复制到持久区 + 登记 RunArtifact，供 approve 端点读取提升。
+    src = _resolve_in(scratch_dir(ctx.run_id), name)
+    if not src.is_file():
         return _err(tool, "not_found", f"工作区无此产物: {name}")
+    dst_dir = committed_dir(ctx.thread_id, ctx.run_id)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = _resolve_in(dst_dir, name)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(src.read_bytes())
+    art = RunArtifact(
+        run_id=ctx.run_id,
+        thread_id=ctx.thread_id,
+        name=name,
+        path=dst.relative_to(_root()).as_posix(),
+        kind="committed",
+        size=dst.stat().st_size,
+    )
+    ctx.db.add(art)
+    ctx.db.flush()  # 取 art.id 供 run_step 记录
     # 提议：run 进待审批 + 记 run_step（实际提升由 POST /runs/{id}/approve 执行）
     run.status = RunStatus.awaiting_approval
     ctx.db.add(

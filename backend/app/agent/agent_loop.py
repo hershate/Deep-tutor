@@ -273,6 +273,12 @@ async def run_agent_loop(
     for step in range(max_steps):
         if ctx.cancel_event.is_set():
             return AgentRunResult(status="interrupted", final_text=last_text, steps=step, usage=total_usage)
+        # iter 363：promote_artifact 置 awaiting_approval 后退出循环（run 待用户 approve，
+        # _finalize_chat 保持该终态；不退出则 run 继续跑与 approve 冲突）
+        from app.db.models import Run as _Run, RunStatus as _RunStatus
+        _cur_run = db.get(_Run, run_id)
+        if _cur_run is not None and _cur_run.status == _RunStatus.awaiting_approval:
+            return AgentRunResult(status="done", final_text=last_text, steps=step, usage=total_usage)
 
         # 2) 加载历史 + 前缀缓存
         messages = load_thread_messages(db, thread_id, history_limit)
