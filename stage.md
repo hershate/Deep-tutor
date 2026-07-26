@@ -44,6 +44,14 @@
 - **问题4（引文数量随复杂度动态）**：search_resources 读 `build_knowledge_map` 知识点数（加入 upstream_reads）——每阶段资源上限按 difficulty 动态（1→3…5→7 封顶 7）、总上限按知识点数动态（20+节点数 封顶 50）、检索主题数/候选数随难度动态；单元补料 `_unit_resource_limit` 按单元知识点数/难度动态（基线 3 封顶 6）。
 **测试**：+13 新（memory active 端点/强制收敛 5、搜索动态配额/snippet/单元筛选 4、引文剥离 4）；更新 `test_screening_failure_fallback`（降级改降标）+ 3 处单元检索桩补 `limit`。**全量 pytest 1237 passed**（`test_marker_pdf_parses_text` 全量负载下 flaky，单独跑通过，与本次无关）+ ruff 干净 + 前端 build 通过。详见 §五 iter 360。
 
+**iter 361（2026-07-26，引文强制 AI 筛选门——堵「未筛选直达学生」漏洞，✅ 完成）**：用户 /goal 重申「**强制所有引文都必须经过 AI 筛选**，避免给学生引入不良信息，非常严肃」。核查发现 iter 360 的筛选仍是「稳定优先」降级语义——存在 3 处未筛选引文可直达学生的漏洞，本轮全部堵死：
+- **漏洞1（主路径筛选失败/未覆盖保留）**：`_screen_resources`（方案资源）与 `_screen_unit_resources`（自学单元补料）有 provider 时，LLM 异常/输出不可解析走 `_mark_unscreened` **降标 ⚠️ 保留**候选；LLM 响应**未覆盖**的 url 也**保留原判定**（可能是 ✅）。改**强制门**：`suitable=false` / 响应未覆盖 / 筛选失败（新增重试 `_SCREEN_MAX_ATTEMPTS=2` 耗尽）一律**丢弃**（删除 `_mark_unscreened`）；主路径筛选失败返回 `([], usage, 告警)`，[search_resources.py](backend/app/tools/search_resources.py) 写入 `data.note` 告知用户「已过滤全部候选资源」。
+- **漏洞2（降级材料补料未筛选）**：`search_unit_resources` 在降级材料路径（用户未配 key，`get_provider` 抛错被 catch 置 `provider=None`，**真实可达**）返回仅 verify 可达性、**未经 AI 筛选**的网络补充资料。补**强制短路**：`ctx.llm_provider is None` 直接返回 `[]`（无法筛选则不提供未核验补料）。（注：主 `search_resources` 的 `provider=None` 在真实方案生成中经 [plans.py](backend/app/api/plans.py) `_run_start` 的 `no_llm_provider` 守卫**永不至此**——`get_provider` 无 key 抛 RuntimeError 即发 error 不启动；该分支仅测试/独立调用走，保留兼容 search 逻辑测试。）
+- **漏洞3（同步材料路径未校验引文）**：`POST /plans/{id}/materials` 同步一次性路径只 `model_validate` 不跑 `sanitize_citations`（仅 SSE 逐单元 `_gen_one` 跑），LLM 臆造的扩展阅读链接直达学生。补齐：ok 规约逐单元过 `sanitize_citations(content_md, collect_material_urls(plan))`，白名单 = `plan.resources`（已强制 AI 筛选），与 SSE 路径一致。
+- SKILL：[deep-tutor-resources/SKILL.md](skills/deep-tutor-resources/SKILL.md) 降级语义改「强制丢弃（宁缺勿滥）」+ 单元路径描述订正。
+**设计决策**：① 筛选失败**丢弃全部**而非降标保留（用户明确安全 > 可用，宁缺勿滥）；② 加**一次重试**降低瞬态失败零化全部候选的概率，仍败则丢；③ 主路径 `provider=None` 不可达故保留兼容、单元路径 `provider=None` 可达故强制空——按「真实可达性」分流而非一刀切（避免无谓改 10+ 个测 search 逻辑的测试）。
+**测试**：改写 `test_screening_failure_drops_all_with_note`（异常/不可解析->全丢+告警+重试断言）、`test_screening_uncovered_url_dropped`（未覆盖->丢）、`test_screening_receives_snippet`（改放行 provider 真正验 snippet 传入/剥离）、`test_screening_no_provider_skips`（docstring 订正）；新增 `test_unit_resources_no_provider_returns_empty`、`test_materials_sync_sanitizes_citations`；加 `_PassScreenProvider` 辅助 + `_run_unit(provider=)` 注入放行筛选以保留 verify/限额/引擎等非筛选逻辑测试。**全量 pytest 1241 passed** + ruff 干净 + 前端 build 通过（纯后端改动）。2 commit：`be8f84c`（筛选门）/ `5e01a9c`（同步材料 sanitize）。详见 §五 iter 361。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
