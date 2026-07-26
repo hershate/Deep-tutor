@@ -483,6 +483,41 @@ class RunIn(BaseModel):
     model: str | None = None
 
 
+def _create_chat_run_db(thread_id: int, user_id: int, model: str) -> int:
+    """同步创建 chat run（线程池内跑，独立 session 不阻塞 event loop）。
+
+    配额：每 thread 至多 1 个 running chat run + 全局上限 + 日预算。可能 raise 409/503/402。
+    iter 364 从 start_run 锁内抽出，避免同步 DB commit 阻塞事件循环。
+    """
+    db = SessionLocal()
+    try:
+        existing = db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="run_already_running")
+        global_running = (
+            db.query(models.Run)
+            .filter(models.Run.status == models.RunStatus.running, models.Run.kind == models.RunKind.chat)
+            .count()
+        )
+        if global_running >= _MAX_CHAT_RUNS_GLOBAL:
+            raise HTTPException(status_code=503, detail="chat_run_busy")
+        check_daily_budget(db, user_id)
+        run = models.Run(
+            thread_id=thread_id,
+            user_id=user_id,
+            kind=models.RunKind.chat,
+            status=models.RunStatus.running,
+            trace_id=uuid.uuid4().hex[:16],
+            model=model,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run.id
+    finally:
+        db.close()
+
+
 @router.post("/threads/{thread_id}/runs")
 async def start_run(
     thread_id: int,
@@ -492,45 +527,17 @@ async def start_run(
     db: Session = Depends(get_db),
 ):
     thread = _owned_thread(db, thread_id, user)
-    # 配额：每 thread 至多 1 个 running chat run + 全局上限 + 日预算（iter 346 F11b 补全）
+    model = body.model or thread.model or ""
+    # iter 364：DB 操作移到线程池（独立 session）不阻塞 event loop——原锁内同步 DB commit
+    # 最坏等 SQLite busy_timeout 5s，冻结整个 loop（其他用户 SSE 心跳停发/附流无响应）
     async with _RUN_CREATE_LOCK:
-        existing = (
-            db.query(models.Run)
-            .filter_by(thread_id=thread_id, status=models.RunStatus.running)
-            .first()
-        )
-        if existing:
-            raise HTTPException(status_code=409, detail="run_already_running")
-        # iter 346（F11b）：全局 chat run 上限——防单用户在多 thread 各起 run 同时跑耗尽资源
-        global_running = (
-            db.query(models.Run)
-            .filter(
-                models.Run.status == models.RunStatus.running,
-                models.Run.kind == models.RunKind.chat,
-            )
-            .count()
-        )
-        if global_running >= _MAX_CHAT_RUNS_GLOBAL:
-            raise HTTPException(status_code=503, detail="chat_run_busy")
-        # iter 346（F11b）：日预算守卫——防 chat run 绕过日预算（对齐 plan-gen 各生成路径）
-        check_daily_budget(db, user.id)
-        run = models.Run(
-            thread_id=thread_id,
-            user_id=user.id,
-            kind=models.RunKind.chat,
-            status=models.RunStatus.running,
-            trace_id=uuid.uuid4().hex[:16],
-            model=body.model or thread.model or "",
-        )
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        run_id = await asyncio.to_thread(_create_chat_run_db, thread_id, user.id, model)
     stream = _ChatStream()
-    _RUN_STREAMS[run.id] = stream
+    _RUN_STREAMS[run_id] = stream
     last_event_id = _parse_last_event_id(request)
     task = asyncio.create_task(
         _run_chat(
-            run.id, thread_id, user.id, body.message, stream,
+            run_id, thread_id, user.id, body.message, stream,
             max_steps=body.max_steps or 25, thinking=body.thinking, model_override=body.model,
         )
     )
