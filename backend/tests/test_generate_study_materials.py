@@ -246,23 +246,25 @@ def test_brief_unit_from_unitplan_empty_nodes_uses_title():
 
 
 def test_collect_material_urls_only_verified():
-    """收集可引用 URL 池：仅 ok/uncertain，排除 invalid。"""
+    """收集可引用 URL 池：仅显式 ok/uncertain 入池；invalid/缺失/None/未知一律排除（强制门宁缺勿滥）。"""
     from app.tools.generate_study_materials import collect_material_urls
 
     plan = {"resources": [
         {"url": "https://a.com/1", "verified": "ok"},
         {"url": "https://b.com/2", "verified": "uncertain"},
         {"url": "https://c.com/3", "verified": "invalid"},
-        {"url": "https://d.com/4"},  # 无 verified 视为允许
+        {"url": "https://d.com/4"},  # 缺失 verified -> 不入池
+        {"url": "https://e.com/5", "verified": None},  # None -> 不入池
+        {"url": "https://f.com/6", "verified": "unknown"},  # 未知值 -> 不入池
     ]}
-    unit_res = [{"url": "https://e.com/5", "verified": "ok"}, {"url": "https://f.com/6", "verified": "invalid"}]
+    unit_res = [{"url": "https://g.com/7", "verified": "ok"}, {"url": "https://h.com/8", "verified": "invalid"}]
     pool = collect_material_urls(plan, unit_res)
     assert "https://a.com/1" in pool
     assert "https://b.com/2" in pool
-    assert "https://e.com/5" in pool
-    assert "https://c.com/3" not in pool  # invalid 排除
-    assert "https://f.com/6" not in pool
-    # 末尾斜杠/fragment 容错
+    assert "https://g.com/7" in pool
+    for blocked in ("https://c.com/3", "https://d.com/4", "https://e.com/5", "https://f.com/6", "https://h.com/8"):
+        assert blocked not in pool
+    # 末尾斜杠/fragment 容错 + scheme/host 小写规范化
     assert collect_material_urls({"resources": [{"url": "https://x.com/p/", "verified": "ok"}]}) == {"https://x.com/p"}
 
 
@@ -304,3 +306,61 @@ def test_sanitize_citations_non_string_safe():
 
     assert sanitize_citations("", {"x"}) == ""
     assert sanitize_citations("无链接正文", {"x"}) == "无链接正文"
+
+
+def test_sanitize_citations_blocks_title_and_uppercase():
+    """iter 363：标准链接带 title、大写 scheme/host 不再绕过（旧正则仅匹配小写无 title 形式）。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    md = '- [a](https://evil.example.com/x "标题")\n- [b](HTTP://EVIL.example.com/y)\n'
+    out = sanitize_citations(md, set())
+    assert "evil.example.com" not in out
+    assert "EVIL.example.com" not in out
+    assert out.strip() == ""  # 两个列表项全丢
+
+
+def test_sanitize_citations_blocks_autolink():
+    """iter 363：autolink <url> 非白名单移除。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    out = sanitize_citations("前 <https://evil.example.com/x> 后", set())
+    assert "evil.example.com" not in out
+    assert out.strip() == "前  后"
+
+
+def test_sanitize_citations_blocks_link_def():
+    """iter 363：引用定义 [id]: url 非白名单整行移除（否则 [id] 引用会复活链接）。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    out = sanitize_citations("[1]: https://evil.example.com/x\n正文", set())
+    assert "evil.example.com" not in out
+    assert "[1]:" not in out
+    assert "正文" in out
+
+
+def test_sanitize_citations_neutralizes_bare_url():
+    """iter 363：裸 URL（remark-gfm 自动链接）非白名单 -> 改行内代码（不可点击，URL 文字保留供参考）。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    out = sanitize_citations("见 https://evil.example.com/x 了解", set())
+    assert "`https://evil.example.com/x`" in out  # 被反引号包裹成行内代码
+
+
+def test_sanitize_citations_preserves_code_urls():
+    """iter 363：行内代码与代码块内的 URL 不被处理（本就不可点击，避免误伤正文/示例）。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    md = "代码 `https://evil.example.com/x` 内\n```\nhttps://evil.example.com/y\n```\n"
+    out = sanitize_citations(md, set())
+    assert "`https://evil.example.com/x`" in out  # 行内代码原样
+    assert "https://evil.example.com/y\n" in out  # 代码块内原样
+
+
+def test_sanitize_citations_keeps_whitelist_across_forms():
+    """iter 363：白名单 URL 在标准链接/autolink 形式下都保留可点击。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    allowed = {"https://good.example.com/a"}
+    md = "[g](https://good.example.com/a) 和 <https://good.example.com/a>"
+    out = sanitize_citations(md, allowed)
+    assert out.count("https://good.example.com/a") == 2

@@ -440,6 +440,15 @@ def test_coerce_suitable_lenient():
     assert sr_mod._coerce_suitable(0) is False
     assert sr_mod._coerce_suitable("maybe") is None
     assert sr_mod._coerce_suitable(None) is None
+    # iter 363：整数非 0/1（如 LLM 偶发评分 2/3）-> None（旧 `==1` 误判 False -> 候选被误丢）
+    assert sr_mod._coerce_suitable(2) is None
+    assert sr_mod._coerce_suitable(-1) is None
+    # float 1.0/0.0；简写 y/n/t/f；去尾标点
+    assert sr_mod._coerce_suitable(1.0) is True
+    assert sr_mod._coerce_suitable(0.0) is False
+    assert sr_mod._coerce_suitable("Y") is True
+    assert sr_mod._coerce_suitable("n") is False
+    assert sr_mod._coerce_suitable("yes,") is True
 
 
 def test_screen_max_tokens_scales_and_capped():

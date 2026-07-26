@@ -371,18 +371,28 @@ SCREEN_PROMPT = """你是 Deep-tutor 的「资源内容适配性筛选」工具�
 
 
 def _coerce_suitable(value) -> bool | None:
-    """宽容解析 suitable 字段：真实 LLM 偶把布尔写成字符串/数字（"true"/"yes"/1 等）。
+    """宽容解析 suitable 字段：真实 LLM 偶把布尔写成字符串/数字（"true"/"yes"/1/1.0 等）。
     无法判定 -> None（调用方按未覆盖丢弃，保持强制门）。
+
+    iter 363 修：整数非 0/1（如 LLM 偶发的 1-5 评分 2/3）原 `value == 1` 误判为 False
+    -> 候选被误丢（与 iter 361 实机回归同症状）；改为仅 0/1 有效、其余 None。补 float
+    （1.0/0.0）与简写 y/n/t/f、去尾标点。
     """
     if isinstance(value, bool):
         return value
-    if isinstance(value, int):  # bool 已是 int 子类，上面先判过；此处处理 0/1
-        return value == 1
-    if isinstance(value, str):
-        s = value.strip().lower()
-        if s in ("true", "yes", "1", "ok"):
+    if isinstance(value, int):  # bool 已是 int 子类，上面先判过；此处仅 0/1 有效
+        return True if value == 1 else (False if value == 0 else None)
+    if isinstance(value, float):
+        if value == 1.0:
             return True
-        if s in ("false", "no", "0"):
+        if value == 0.0:
+            return False
+        return None
+    if isinstance(value, str):
+        s = value.strip().lower().rstrip(",.，。")
+        if s in ("true", "yes", "1", "ok", "y", "t"):
+            return True
+        if s in ("false", "no", "0", "n", "f"):
             return False
     return None
 

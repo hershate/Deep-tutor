@@ -30,39 +30,80 @@ _DEFAULT_TITLE = "学习方案"
 # 自学材料正文里的「扩展阅读」引用必须来自已验证资源池（plan.resources + 本单元补料），
 # 不得随意/编造 URL。LLM 虽被 prompt 约束「只可引用已有 url」，但无强制——此函数做事后
 # 确定性校验：提取 markdown 链接，保留白名单内、剥离白名单外（防 LLM 臆造或外推链接）。
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+# iter 363：覆盖 react-markdown+remark-gfm 会渲染为可点击链接的全部形式——标准链接（含
+# title、大写 scheme）、autolink <url>、引用定义 [id]: url、裸 URL（remark-gfm 自动链接）。
+# HTML <a> 与协议相对 //url 因无 scheme 或需 rehype-raw，本项目不渲染为可点击链接，非威胁。
+_MD_LINK_RE = re.compile(
+    r"\[(?P<text>[^\]]*)\]\((?P<url>https?://[^)\s\"']+)(?:\s+\"[^\"]*\")?\)", re.IGNORECASE
+)
+_AUTOLINK_RE = re.compile(r"<(?P<url>https?://[^>\s]+)>", re.IGNORECASE)
+_LINK_DEF_RE = re.compile(r"^(?P<prefix>\[[^\]]+\]:\s*)(?P<url>https?://\S+)", re.MULTILINE | re.IGNORECASE)
+_BARE_URL_RE = re.compile(r"(?<![a-zA-Z0-9\]\)\"'<>(/=])(?P<url>https?://[^\s<>\]\)\"']+)", re.IGNORECASE)
+_URL_NORM_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/]+)(.*)$")
+_LIST_ITEM_RE = re.compile(r"^\s*([-*+]|\d+\.)\s")
+_VERIFIED_OK = {"ok", "uncertain"}
 
 
 def _normalize_url(url: str) -> str:
-    """URL 规范化用于白名单比对：去首尾空白、去 fragment、去末尾斜杠（容错同源异写）。"""
+    """URL 规范化用于白名单比对：去首尾空白、去 fragment、去末尾斜杠、小写 scheme+host。
+
+    iter 363 修：此前未小写 scheme+host，与 search_resources._screen_url_key 策略不一致——
+    host 大小写差异时白名单比对失配、本应保留的链接被误剥离（安全侧错误，但功能受损）。
+    """
     u = (url or "").strip()
     if "#" in u:
         u = u.split("#", 1)[0]
-    return u.rstrip("/")
+    u = u.rstrip("/")
+    m = _URL_NORM_RE.match(u)
+    if m:
+        u = m.group(1).lower() + m.group(2).lower() + m.group(3)
+    return u
 
 
 def collect_material_urls(plan: dict[str, Any], unit_resources: list[dict] | None = None) -> set[str]:
     """收集本单元内容可引用的已验证 URL 池：plan.resources + 该单元补充资料。
 
-    仅取 verified != invalid 的（invalid 资源不应被引用）；ok/uncertain 均允许。
+    iter 363 修：强制门「宁缺勿滥」——仅显式 verified ∈ {ok, uncertain} 入池；缺失 / None /
+    未知值（如 "unknown"）一律不入池。此前 `!= "invalid"` 把缺失/None 也放行，违反强制门，
+    致未经 AI 筛选的资源可被引用（一旦混入 plan.resources 即直达学生）。invalid 不入池。
     """
     pool: set[str] = set()
     for r in (plan.get("resources") or []):
-        if isinstance(r, dict) and r.get("verified") != "invalid" and r.get("url"):
+        if isinstance(r, dict) and r.get("verified") in _VERIFIED_OK and r.get("url"):
             pool.add(_normalize_url(str(r["url"])))
     for r in unit_resources or []:
-        if isinstance(r, dict) and r.get("verified") != "invalid" and r.get("url"):
+        if isinstance(r, dict) and r.get("verified") in _VERIFIED_OK and r.get("url"):
             pool.add(_normalize_url(str(r["url"])))
     return pool
+
+
+def _stash_code_spans(codes: list[str]):
+    """re.sub repl：抽出并占位行内代码 `...`，返回 \x00<idx>\x00 占位（保护其内 URL）。"""
+
+    def _repl(m: re.Match) -> str:
+        codes.append(m.group(0))
+        return f"\x00{len(codes) - 1}\x00"
+
+    return _repl
+
+
+def _restore_code_spans(line: str, codes: list[str]) -> str:
+    """把 \x00<idx>\x00 占位还原为原行内代码段。"""
+    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))] if int(m.group(1)) < len(codes) else "", line)
 
 
 def sanitize_citations(content_md: str, allowed_urls: set[str]) -> str:
     """剥离 content_md 中不在白名单的 markdown 链接（issue 3 引文硬校验）。
 
-    - 扩展阅读式条目（列表项 -/* 且仅含非白名单链接）：整行丢弃（不残留无链接占位）。
-    - 其它位置的链接：链接改写为纯文本（保留可见文字，去超链接），不删整行。
-    白名单为空 -> 所有链接剥离（无已验证资源时不应出现任何引用链接）。
-    永不上抛；非字符串入参原样返回。
+    覆盖 react-markdown+remark-gfm 会渲染为可点击链接的全部形式（iter 363 强化）：
+    - 标准链接 [text](url) / [text](url "title")：列表项且全非白名单 -> 整行丢弃；否则非白名单
+      改纯文本（保留可见文字、去超链接）。
+    - autolink <url>：白名单保留，非白名单移除。
+    - 引用定义 [id]: url：非白名单整行移除（否则 [id] 引用会复活链接）。
+    - 裸 URL（remark-gfm 自动链接）：白名单保留，非白名单改行内代码（阻止自动链接、保留文字）。
+    代码块（```/~~~）与行内代码 `...` 内的 URL 跳过（本就不可点击，避免误伤正文/示例）。
+    白名单为空 -> 所有链接剥离（无已验证资源时不应出现任何引用链接）。永不上抛；非字符串
+    入参原样返回。
     """
     if not isinstance(content_md, str) or not content_md:
         return content_md
@@ -71,16 +112,34 @@ def sanitize_citations(content_md: str, allowed_urls: set[str]) -> str:
     def _kept(url: str) -> bool:
         return _normalize_url(url) in allowed
 
+    # 引用定义：非白名单整行移除（否则 [id] 引用会复活成可点击链接）
+    content_md = _LINK_DEF_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else "", content_md)
+
     out_lines: list[str] = []
+    in_fence = False
     for line in content_md.splitlines():
-        links = _MD_LINK_RE.findall(line)
-        if links:
-            kept_any = any(_kept(u) for _, u in links)
-            if not kept_any and line.lstrip().startswith(("-", "*")):
-                # 列表项且全部链接未验证 -> 整行丢弃（扩展阅读无价值引用）
-                continue
-            # 逐链接替换：未验证的改为纯文本（保留文字、去超链接）
-            line = _MD_LINK_RE.sub(lambda m: m.group(0) if _kept(m.group(2)) else m.group(1), line)
+        if re.match(r"^\s*(```|~~~)", line):
+            in_fence = not in_fence
+            out_lines.append(line)
+            continue
+        if in_fence:  # 代码块内的 URL 本就不可点击，原样保留
+            out_lines.append(line)
+            continue
+        # autolink <url>：非白名单移除
+        line = _AUTOLINK_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else "", line)
+        # 抽出行内代码段（保护其内 URL，处理裸 URL/标准链接后再放回）
+        codes: list[str] = []
+        line = re.sub(r"`[^`]*`", _stash_code_spans(codes), line)
+        # 裸 URL：白名单保留，非白名单改行内代码（阻止 remark-gfm 自动链接，保留 URL 文字）
+        line = _BARE_URL_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else f"`{m.group('url')}`", line)
+        # 标准链接 [text](url...)
+        std_links = _MD_LINK_RE.findall(line)
+        if std_links:
+            kept_any = any(_kept(u) for _, u in std_links)
+            if not kept_any and _LIST_ITEM_RE.match(line):
+                continue  # 列表项且全部链接未验证 -> 整行丢弃（扩展阅读无价值引用）
+            line = _MD_LINK_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else m.group("text"), line)
+        line = _restore_code_spans(line, codes)
         out_lines.append(line)
     result = "\n".join(out_lines)
     # 末尾换行保留语义（splitlines 不含末尾空行）
