@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
+from app.core.ratelimit import limiter
 from app.api.errors import ApiError
 from app.api.plans import cancel_running_generation
 from app.core.security import hash_password
@@ -74,6 +75,8 @@ def list_users(db: Session = Depends(get_db), _admin: User = Depends(require_adm
 def create_user(
     body: UserCreate, db: Session = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> dict:
+    if not limiter.check(f"users_write:{_admin.id}", 20):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     username = body.username.strip()
     if not username:
         raise ApiError("bad_request", "用户名不能为空", status=400)
@@ -104,6 +107,8 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict:
+    if not limiter.check(f"users_write:{admin.id}", 20):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     u = db.get(User, user_id)
     if u is None:
         raise ApiError("not_found", f"用户 {user_id} 不存在")
@@ -128,6 +133,8 @@ def update_user(
 def delete_user(
     user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)
 ) -> dict:
+    if not limiter.check(f"users_write:{admin.id}", 20):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     u = db.get(User, user_id)
     if u is None:
         raise ApiError("not_found", f"用户 {user_id} 不存在")
