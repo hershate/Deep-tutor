@@ -137,6 +137,7 @@ class _SessionStream:
         self._events: list[tuple[int, str, dict]] = []  # (id, event, data)，有界
         self._subs: list[asyncio.Queue] = []
         self.terminal_id: int | None = None  # 终态事件 id；非空表示流已结束
+        self.terminal_event: tuple[str, dict] | None = None  # iter 363：终态副本（慢订阅兜底投递）
         self.task: asyncio.Task | None = None
         self.raw_text: str = ""
         self.budget: "BudgetTracker | None" = None
@@ -182,6 +183,10 @@ class _SessionStream:
     def mark_terminal(self, eid: int) -> None:
         """标记终态事件 id（投递后流结束）。"""
         self.terminal_id = eid
+        for e, event, data in reversed(self._events):  # iter 363：保存终态副本
+            if e == eid:
+                self.terminal_event = (event, data)
+                break
 
     def subscribe(self, last_event_id: int) -> asyncio.Queue:
         """订阅：新建有界队列，先重放历史 (id > last_event_id)，再接实时。"""
@@ -889,11 +894,16 @@ async def _relay(stream: "_SessionStream", last_event_id: int) -> str:
             try:
                 eid, event, data = await asyncio.wait_for(q.get(), timeout=0.2)
             except asyncio.TimeoutError:
-                # 终态已标记：若已投递则退出（兜底防空转），否则继续等终态事件入队
+                # 终态已标记：若已投递则退出；未投递则用副本兜底（慢订阅被踢后终态可能不在队列，
+                # 否则 last_yielded < terminal_id 永真 -> 空转挂死 + 协程/连接永驻，iter 363）
                 if stream.terminal_id is not None:
                     if last_yielded >= stream.terminal_id:
                         break
-                    continue
+                    if stream.terminal_event is not None:
+                        tev, tdata = stream.terminal_event
+                        yield _sse(tev, tdata, event_id=stream.terminal_id)
+                        last_yielded = stream.terminal_id
+                    break
                 # 心跳：长 LLM 调用期间防 nginx/代理/浏览器空闲断连
                 if time.monotonic() - last_send > _HEARTBEAT_SECONDS:
                     yield ": keepalive\n\n"

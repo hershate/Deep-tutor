@@ -178,7 +178,14 @@ def commit_run_workspace(db, run_id: int, thread_id: int) -> list:
         shutil.rmtree(dst, ignore_errors=True)
     has_files = src.exists() and any(src.rglob("*"))
     if has_files:
-        shutil.move(str(src), str(dst))
+        if dst.exists():
+            # Windows：rmtree 可能因文件锁（杀软/索引/已打开句柄）部分失败致 dst 残留，此时
+            # shutil.move(src, dst) 会把 src 错位成 dst/<src名> 子目录 -> RunArtifact 路径全错。
+            # 改用 copytree 合并（dirs_exist_ok）+ 清 src，不错位（iter 363）。
+            shutil.copytree(str(src), str(dst), dirs_exist_ok=True)
+            shutil.rmtree(src, ignore_errors=True)
+        else:
+            shutil.move(str(src), str(dst))
     else:
         dst.mkdir(parents=True, exist_ok=True)
     run.workspace_committed = True
