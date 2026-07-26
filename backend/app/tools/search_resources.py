@@ -343,7 +343,6 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 
 # --- LLM 内容适配性筛选（iter 62，plan/02 §5：✅ = HTTP 200 + 内容难度适配该阶段）---
 
-SCREEN_MAX_TOKENS = 2000  # ≤40 候选的判定 JSON 上限足够
 # iter 361（强制门）：筛选调用失败/不可解析时重试一次（瞬态网络/超时不至于零化全部候选），
 # 仍失败则强制丢弃全部未核验候选（不降标保留）。
 _SCREEN_MAX_ATTEMPTS = 2
@@ -371,10 +370,65 @@ SCREEN_PROMPT = """你是 Deep-tutor 的「资源内容适配性筛选」工具�
 """
 
 
+def _coerce_suitable(value) -> bool | None:
+    """宽容解析 suitable 字段：真实 LLM 偶把布尔写成字符串/数字（"true"/"yes"/1 等）。
+    无法判定 -> None（调用方按未覆盖丢弃，保持强制门）。
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):  # bool 已是 int 子类，上面先判过；此处处理 0/1
+        return value == 1
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "yes", "1", "ok"):
+            return True
+        if s in ("false", "no", "0"):
+            return False
+    return None
+
+
+_URL_NORM_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/]+)(.*)$")
+
+
+def _screen_url_key(url: str) -> str:
+    """筛选判定的 URL 匹配键：容错真实 LLM 返回的 URL 与候选的细微差异。
+
+    真实 LLM 常把 url 改写（尾斜杠增删、加 fragment、scheme/host 大小写变化、首尾空白），
+    若按原样精确匹配会导致判定失配 -> 候选被判「未覆盖」而丢弃（iter 361 实机回归根因）。
+    规范化：去首尾空白、去 fragment、去末尾斜杠、小写 scheme+host（path/query 大小写语义敏感，保留）。
+    永不上抛；非字符串/空 -> ""。
+    """
+    u = url if isinstance(url, str) else ""
+    u = u.strip()
+    if not u:
+        return ""
+    if "#" in u:
+        u = u.split("#", 1)[0]
+    u = u.rstrip("/")
+    m = _URL_NORM_RE.match(u)
+    if m:
+        u = m.group(1).lower() + m.group(2).lower() + m.group(3)
+    return u
+
+
+# 筛选输出 max_tokens 按候选数动态：每候选预算 + 基线 + 上限（避免候选多时输出截断 ->
+# JSON 不可解析 -> 全丢；iter 361 实机回归根因之二）。输出 token 按量计费，给足不致浪费。
+_SCREEN_TOKENS_PER_CANDIDATE = 100
+_SCREEN_TOKENS_BASE = 500
+_SCREEN_TOKENS_CAP = 8000
+
+
+def _screen_max_tokens(num_candidates: int) -> int:
+    """候选数 -> 筛选输出 max_tokens（有界）。"""
+    n = max(0, num_candidates)
+    return min(_SCREEN_TOKENS_CAP, _SCREEN_TOKENS_PER_CANDIDATE * n + _SCREEN_TOKENS_BASE)
+
+
 def _parse_screen_verdicts(text: str) -> dict[str, dict] | None:
     """解析筛选 LLM 输出 -> {url: {suitable,label,note}}；整体结构非法 -> None（跳过筛选）。
 
-    容忍 markdown 代码块包裹；单项非法跳过该项（不影响其余）。
+    容忍 markdown 代码块包裹；单项非法跳过该项（不影响其余）。suitable 宽容解析（见 _coerce_suitable）。
+    键为 LLM 返回的 url **原样**（调用方用 _screen_url_key 规范化后再匹配候选）。
     """
     s = (text or "").strip()
     if s.startswith("```"):
@@ -396,8 +450,8 @@ def _parse_screen_verdicts(text: str) -> dict[str, dict] | None:
         if not isinstance(item, dict):
             continue
         url = item.get("url")
-        suitable = item.get("suitable")
-        if not isinstance(url, str) or not url or not isinstance(suitable, bool):
+        suitable = _coerce_suitable(item.get("suitable"))
+        if not isinstance(url, str) or not url or suitable is None:
             continue
         label = item.get("label") if item.get("label") in ("ok", "uncertain") else "uncertain"
         note = item.get("note") if isinstance(item.get("note"), str) else ""
@@ -447,6 +501,7 @@ async def _screen_resources(
     }
     system = (ctx.skill_registry or {}).get("deep-tutor-resources") or SCREEN_PROMPT
     # iter 361 强制门：重试 _SCREEN_MAX_ATTEMPTS 次（瞬态失败不致零化全部候选）；耗尽仍失败 -> 全丢弃。
+    # max_tokens 按候选数动态（候选多时固定 2000 会截断输出 -> JSON 不可解析 -> 全丢，实机回归根因之二）。
     last_usage: LLMUsage | None = None
     verdicts: dict[str, dict] | None = None
     for attempt in range(_SCREEN_MAX_ATTEMPTS):
@@ -456,7 +511,7 @@ async def _screen_resources(
                 provider.chat(
                     system,
                     json.dumps(payload, ensure_ascii=False),
-                    max_tokens=SCREEN_MAX_TOKENS,
+                    max_tokens=_screen_max_tokens(len(resources)),
                     cache_system=True,
                 ),
                 timeout=ctx.timeouts.llm,
@@ -472,11 +527,18 @@ async def _screen_resources(
         log.warning("资源筛选重试耗尽，强制丢弃全部 %d 候选（避免引入未核验内容）", len(resources))
         return [], last_usage, "AI 相关性筛选失败（已重试），为避免引入未经验证的内容，已过滤全部候选资源"
 
+    # 容错 URL 匹配：LLM 返回的 url 可能与候选有细微差异（尾斜杠/fragment/大小写），按规范化键匹配
+    # （iter 361 实机回归根因之一：精确匹配失配 -> 候选被判「未覆盖」全丢）。
+    norm: dict[str, dict] = {}
+    for vurl, v in verdicts.items():
+        k = _screen_url_key(vurl)
+        if k and k not in norm:
+            norm[k] = v
     screened: list[dict] = []
     for r in resources:
-        v = verdicts.get(r["url"])
+        v = norm.get(_screen_url_key(r["url"]))
         if v is None:
-            continue  # iter 361：响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
+            continue  # 响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
         if not v["suitable"]:
             continue  # 内容不相关 -> 丢弃
         r2 = dict(r)
@@ -485,6 +547,9 @@ async def _screen_resources(
         if v["note"]:
             r2["note"] = v["note"][:200]
         screened.append(r2)
+    if not screened and verdicts:
+        # 诊断：LLM 给了判定但无一匹配候选 -> 疑似规范化仍不足/LLM 改写过大（便于排障，不静默）
+        log.warning("筛选判定 %d 条但无候选匹配（候选 %d），强制门丢弃全部", len(verdicts), len(resources))
     return screened, last_usage, None
 
 
@@ -629,7 +694,7 @@ async def _screen_unit_resources(
                 provider.chat(
                     UNIT_SCREEN_PROMPT,
                     json.dumps(payload, ensure_ascii=False),
-                    max_tokens=SCREEN_MAX_TOKENS,
+                    max_tokens=_screen_max_tokens(len(resources)),
                     cache_system=True,
                 ),
                 timeout=ctx.timeouts.llm,
@@ -642,11 +707,17 @@ async def _screen_unit_resources(
     if verdicts is None:
         log.warning("单元补料筛选重试耗尽，强制丢弃全部 %d 候选", len(resources))
         return []
+    # 容错 URL 匹配（同 _screen_resources）：规范化键匹配，防 LLM 改写 url 致全丢
+    norm: dict[str, dict] = {}
+    for vurl, v in verdicts.items():
+        k = _screen_url_key(vurl)
+        if k and k not in norm:
+            norm[k] = v
     screened: list[dict] = []
     for r in resources:
-        v = verdicts.get(r["url"])
+        v = norm.get(_screen_url_key(r["url"]))
         if v is None:
-            continue  # iter 361：响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
+            continue  # 响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
         if not v["suitable"]:
             continue  # 不相关 -> 丢弃
         r2 = dict(r)
@@ -655,6 +726,8 @@ async def _screen_unit_resources(
         if v["note"]:
             r2["note"] = v["note"][:200]
         screened.append(r2)
+    if not screened and verdicts:
+        log.warning("单元补料筛选判定 %d 条但无候选匹配（候选 %d），强制门丢弃全部", len(verdicts), len(resources))
     return screened
 
 

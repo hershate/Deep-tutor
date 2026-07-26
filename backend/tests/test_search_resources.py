@@ -415,6 +415,66 @@ def test_screening_uses_skill_prompt_when_available(monkeypatch):
     assert provider2.calls[0]["system"] == sr_mod.SCREEN_PROMPT
 
 
+# --- iter 361：强制门稳健性（URL 规范化匹配 / suitable 宽容 / 动态 max_tokens）---
+
+
+def test_screen_url_key_normalizes():
+    """URL 规范化匹配键：容错真实 LLM 返回 url 与候选的细微差异（iter 361 实机回归根因）。"""
+    assert sr_mod._screen_url_key("https://Example.com/intro") == sr_mod._screen_url_key("https://example.com/intro")
+    assert sr_mod._screen_url_key("https://example.com/intro/") == sr_mod._screen_url_key("https://example.com/intro")
+    assert sr_mod._screen_url_key("https://example.com/intro#sec") == sr_mod._screen_url_key("https://example.com/intro")
+    assert sr_mod._screen_url_key(" https://example.com/intro ") == sr_mod._screen_url_key("https://example.com/intro")
+    # path/query 大小写语义敏感，保留
+    assert sr_mod._screen_url_key("https://example.com/A?B=1") == "https://example.com/A?B=1"
+    assert sr_mod._screen_url_key("") == ""
+    assert sr_mod._screen_url_key(None) == ""
+
+
+def test_coerce_suitable_lenient():
+    """真实 LLM 偶把布尔写成字符串/数字；宽容解析（无法判定才 None -> 按未覆盖丢弃）。"""
+    assert sr_mod._coerce_suitable(True) is True
+    assert sr_mod._coerce_suitable(False) is False
+    assert sr_mod._coerce_suitable("true") is True
+    assert sr_mod._coerce_suitable("FALSE") is False
+    assert sr_mod._coerce_suitable(1) is True
+    assert sr_mod._coerce_suitable(0) is False
+    assert sr_mod._coerce_suitable("maybe") is None
+    assert sr_mod._coerce_suitable(None) is None
+
+
+def test_screen_max_tokens_scales_and_capped():
+    """候选数 -> max_tokens 单调递增且有上限（候选多时不截断输出）。"""
+    assert sr_mod._screen_max_tokens(0) >= 500
+    assert sr_mod._screen_max_tokens(10) > sr_mod._screen_max_tokens(0)
+    assert sr_mod._screen_max_tokens(1000) <= 8000  # 封顶
+
+
+def test_screening_matches_via_url_normalization(monkeypatch):
+    """iter 361 实机回归：LLM 返回的 url 带尾斜杠/fragment/host 大小写差异时，规范化匹配仍命中候选，
+    不再因「未覆盖」全丢（旧精确匹配会全丢 -> 方案无配套资源）。"""
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider(
+        # LLM 把 intro 加尾斜杠、deep 加 fragment 且 host 大写——均应规范化后匹配
+        '[{"url":"https://example.com/intro/","suitable":true,"label":"ok","note":""},'
+        '{"url":"https://EXAMPLE.com/deep#x","suitable":true,"label":"uncertain","note":"偏深"}]'
+    )
+    out = _run_with_provider(provider)
+    res = out.data["resources"]
+    assert len(res) == 2  # 规范化匹配 -> 两候选均保留（修复前会全丢）
+
+
+def test_screening_accepts_string_suitable(monkeypatch):
+    """iter 361：suitable 写成字符串 "true"/"false" 也按布尔处理（不因类型不符被跳过 -> 未覆盖全丢）。"""
+    _setup_two_candidates(monkeypatch)
+    provider = _ScreenProvider(
+        '[{"url":"https://example.com/intro","suitable":"true","label":"ok","note":""},'
+        '{"url":"https://example.com/deep","suitable":"false","label":"uncertain","note":""}]'
+    )
+    out = _run_with_provider(provider)
+    res = out.data["resources"]
+    assert len(res) == 1 and "intro" in res[0]["url"]  # intro 通过、deep 丢弃
+
+
 # --- iter 222：BING_API_KEY 可选化——引擎决策矩阵 + Bing 网页抓取兜底引擎 ---
 
 import httpx  # noqa: E402,F401
