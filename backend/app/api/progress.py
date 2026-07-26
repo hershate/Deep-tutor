@@ -66,6 +66,8 @@ def update_progress(
     body: ProgressUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     """更新单节点进度（覆盖写，幂等）：掌握度加权 + 间隔重复（record_progress）。"""
+    if not limiter.check(f"update_progress:{user.id}", 60):
+        raise ApiError("rate_limited", "更新过于频繁，请稍后再试", status=429)
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     node = (
         db.query(models.KnowledgeNode)

@@ -47,6 +47,8 @@ def _load_content(plan: Plan) -> dict:
 
 @router.post("/{plan_id}/share", status_code=201)
 def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    if not limiter.check(f"share_write:{user.id}", 30):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     plan = get_owned_plan(db, plan_id, user)  # 他人方案 404
     link = db.query(ShareLink).filter_by(plan_id=plan.id).first()
     if link is None:
@@ -64,6 +66,8 @@ def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depen
 
 @router.delete("/{plan_id}/share", status_code=204)
 def revoke_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    if not limiter.check(f"share_write:{user.id}", 30):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     plan = get_owned_plan(db, plan_id, user)
     link = db.query(ShareLink).filter_by(plan_id=plan.id).first()
     if link is not None:
