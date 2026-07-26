@@ -270,7 +270,7 @@ export default function KbDocsView() {
     try {
       await parseKbDocument(target.id, parseMode)
       toast.success(`「${target.title}」解析完成`)
-      setParseTarget(null)
+      setParseTarget((cur) => (cur && cur.id === target.id ? null : cur))
       invalidate()
     } catch (e) {
       // 解析失败文档保留原状态（可换档重试）

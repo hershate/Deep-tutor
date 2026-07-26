@@ -82,6 +82,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
     try {
       await kbChat(question, picked.size ? [...picked] : undefined)
       qc.invalidateQueries({ queryKey: ['kb-chats'] }).then(scrollToBottom)
+      setErrors([]) // iter 364：成功后清旧错误气泡，免失败错误永久堆积在记录流末尾
     } catch (e) {
       const code = e instanceof ApiError ? e.code : 'unknown'
       const text =

@@ -158,7 +158,9 @@ export default function GenerateProgress() {
   }
 
   // idle 引导视图（从未生成；或服务端 idle 但台账残留 rawText——如配额失败后——可「继续生成」）
-  if (detailStatus === 'idle' && phase !== 'running' && phase !== 'clarify') {
+  // iter 364：仅在无 task（phase 未定）时显示——此前未排除 done/error/interrupted/cancelled，
+  // 终态相位时仍渲染 idle 视图，掩盖"方案已生成"等终态卡片（1.5s 跳转窗口内）
+  if (detailStatus === 'idle' && !phase) {
     return (
       <div className="space-y-4">
         <h2 className="text-2xl font-bold">会话 #{sessionId}</h2>
