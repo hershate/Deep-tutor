@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -86,6 +87,14 @@ async def _guard_await(coro: Any, event: str) -> None:
         log.exception("插件事件协程监听器异常 (%s)", event)
 
 
+def _run_awaitable_in_thread(coro: Any, event: str) -> None:
+    """后台线程跑协程监听器（独立事件循环）。异常隔离（_guard_await 已记日志）。"""
+    try:
+        asyncio.run(_guard_await(coro, event))
+    except Exception:  # noqa: BLE001
+        log.exception("插件事件后台线程执行失败 (%s)", event)
+
+
 def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
     try:
         result = fn(payload)
@@ -94,8 +103,12 @@ def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
                 loop = asyncio.get_running_loop()
                 loop.create_task(_guard_await(result, event))
             except RuntimeError:
-                # 同步端点线程池：无运行循环 -> 临时新循环执行（阻塞当前线程）
-                asyncio.run(_guard_await(result, event))
+                # 同步端点线程池：无运行循环 -> 后台 daemon 线程跑，不阻塞当前线程（iter 364）。
+                # 原 asyncio.run 阻塞当前线程——webhook sink 含 10s httpx 超时，并发即可抽干
+                # anyio 线程池（默认 40），饿死后续同步端点（含登录）。
+                threading.Thread(
+                    target=lambda: _run_awaitable_in_thread(result, event), daemon=True
+                ).start()
     except Exception:  # noqa: BLE001  隔离：监听器异常不外溢
         log.exception("插件事件监听器异常 (%s)", event)
 
