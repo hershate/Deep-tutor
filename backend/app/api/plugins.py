@@ -36,6 +36,8 @@ def _serialize_status(s) -> dict:
         "parsers": s.parsers,
         "exporters": s.exporters,
         "providers": s.providers,
+        "webhooks": s.webhooks,  # v1.15.0：注册的 Webhook URL（iter 363 补——可观测性残缺）
+        "middleware": s.middleware,  # v1.17.0：注册了中间件的插件 id（高敏感扩展点）
     }
 
 

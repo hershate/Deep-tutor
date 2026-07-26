@@ -312,7 +312,7 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
         # 响应结构契约（API.md §8.6 示例键集合；前端插件管理页直接消费，键集合锁死）
         assert set(body) == {"api_version", "plugins", "subscribed_events"}
         for row in body["plugins"]:
-            assert set(row) == {"id", "name", "version", "state", "error", "file", "routes", "events", "tools", "parsers", "exporters", "providers"}
+            assert set(row) == {"id", "name", "version", "state", "error", "file", "routes", "events", "tools", "parsers", "exporters", "providers", "webhooks", "middleware"}
         assert isinstance(body["subscribed_events"], list)
         assert body["api_version"] == "1.20.0"
         rows = {p["id"]: p for p in body["plugins"]}

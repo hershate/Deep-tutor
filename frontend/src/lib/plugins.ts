@@ -37,18 +37,30 @@ interface PluginRegistrations {
   pages: Set<string>
   overlays: Set<string>
   skins: Set<string>
+  events: Set<() => void> // iter 363：事件订阅 unsubscribe（disable 时清除，对称 widgets 跟踪）
 }
 const _pluginRegistrations = new Map<string, PluginRegistrations>()
 
 /** 注册表通用追踪入口：当前注入中的插件有注册时记账 */
-function _track(kind: keyof PluginRegistrations, key: string): void {
+function _track(kind: 'widgets' | 'pages' | 'overlays' | 'skins', key: string): void {
   if (!_currentPluginUrl) return
   let reg = _pluginRegistrations.get(_currentPluginUrl)
   if (!reg) {
-    reg = { widgets: new Set(), pages: new Set(), overlays: new Set(), skins: new Set() }
+    reg = { widgets: new Set(), pages: new Set(), overlays: new Set(), skins: new Set(), events: new Set() }
     _pluginRegistrations.set(_currentPluginUrl, reg)
   }
   reg[kind].add(key)
+}
+
+/** iter 363：事件订阅追踪——登记 unsubscribe，disable/unload 时调用清除（对称 widgets） */
+function _trackEvent(unsub: () => void): void {
+  if (!_currentPluginUrl) return
+  let reg = _pluginRegistrations.get(_currentPluginUrl)
+  if (!reg) {
+    reg = { widgets: new Set(), pages: new Set(), overlays: new Set(), skins: new Set(), events: new Set() }
+    _pluginRegistrations.set(_currentPluginUrl, reg)
+  }
+  reg.events.add(unsub)
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,7 +1135,9 @@ const eventsApi: EventsApi = {
       eventListeners.set(event, set)
     }
     set.add(fn)
-    return () => set.delete(fn)
+    const unsub = () => set.delete(fn)
+    _trackEvent(unsub) // iter 363：登记到当前插件台账，disable 时清除（免回调残留重复触发）
+    return unsub
   },
   emit(event: string, payload: unknown): void {
     eventListeners.get(event)?.forEach((fn) => {
@@ -1260,6 +1274,7 @@ function _clearTrackedRegistrations(url: string): void {
   reg.pages.forEach((key) => pagesApi.unregister(key))
   reg.overlays.forEach((id) => overlaysApi.unregister(id))
   reg.skins.forEach((name) => skinsApi.unregister(name))
+  reg.events.forEach((unsub) => unsub()) // iter 363：清除事件订阅
   _pluginRegistrations.delete(url)
 }
 

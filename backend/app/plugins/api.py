@@ -1015,6 +1015,7 @@ class MemoryNamespace:
     def list_threads(self, user_id: int, *, limit: int = 50) -> list[dict]:
         from app.db import models
 
+        limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主
         db = self._db()
         try:
             rows = db.query(models.Thread).filter_by(user_id=user_id).order_by(models.Thread.updated_at.desc()).limit(limit).all()
@@ -1064,6 +1065,7 @@ class MemoryNamespace:
     def list_messages(self, thread_id: int, user_id: int, *, limit: int = 100) -> list[dict]:
         from app.db import models
 
+        limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主
         db = self._db()
         try:
             t = db.get(models.Thread, thread_id)
@@ -1096,11 +1098,20 @@ class MemoryNamespace:
     def save_memory(self, user_id: int, content: str, *, kind: str = "note", scope: str = "user", thread_id: int | None = None) -> dict:
         from app.db import models
 
+        # iter 363：scope 校验 + thread_id 一致性——此前 scope="user" 传 thread_id 静默丢、
+        # scope="thread" 缺 thread_id 仍以 scope="thread"+thread_id=None 入库（孤儿记忆，被 user
+        # 级召回混入）。改为显式校验：scope="thread" 必须有 thread_id，否则报错（不静默退化）。
+        if scope not in ("user", "thread"):
+            raise ValueError(f"scope 必须是 'user' 或 'thread'，得到 {scope!r}")
+        if scope == "thread" and thread_id is None:
+            raise ValueError("scope='thread' 需提供 thread_id")
+        if scope == "user":
+            thread_id = None  # user 级记忆 thread_id 无意义，明确置空（不混入会话级）
         db = self._db()
         try:
             m = models.Memory(
                 user_id=user_id,
-                thread_id=thread_id if (scope == "thread" and thread_id) else None,
+                thread_id=thread_id,
                 scope=scope,
                 kind=kind,
                 content=content,
@@ -1115,6 +1126,7 @@ class MemoryNamespace:
     def recall_memories(self, user_id: int, *, q: str = "", scope: str | None = None, thread_id: int | None = None, limit: int = 10) -> list[dict]:
         from app.db import models
 
+        limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主
         db = self._db()
         try:
             qry = db.query(models.Memory).filter(models.Memory.user_id == user_id)
