@@ -161,6 +161,11 @@ def patch_thread(thread_id: int, body: ThreadPatch, user=Depends(get_current_use
 @router.delete("/threads/{thread_id}")
 def delete_thread(thread_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     t = _owned_thread(db, thread_id, user)
+    # 取消该 thread 运行中的 chat run（否则删 thread 后后台 run 仍烧 LLM 预算，iter 363）
+    for r in db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).all():
+        stream = _RUN_STREAMS.get(r.id)
+        if stream is not None:
+            stream.request_cancel()
     db.delete(t)  # ORM 级联：messages/runs/run_steps/artifacts/memories
     db.commit()
     return {"ok": True}
@@ -350,7 +355,10 @@ def delete_run(run_id: int, user=Depends(get_current_user), db: Session = Depend
     r = _owned_run(db, run_id, user)
     if r.status == models.RunStatus.running:
         raise HTTPException(status_code=409, detail="run_running")
-    db.delete(r)  # 级联删 steps；messages/artifacts 归 thread 保留
+    # Message.run_id 无 ondelete=SET NULL（对比 RunArtifact.run_id 有），需显式置空——
+    # 否则 PRAGMA foreign_keys=ON 下删 run 触发 FK 约束失败 -> 500（iter 363）
+    db.query(models.Message).filter_by(run_id=run_id).update({"run_id": None})
+    db.delete(r)  # 级联删 steps；messages/artifacts 归 thread 保留（artifacts.run_id SET NULL）
     db.commit()
     return {"ok": True}
 
@@ -360,7 +368,7 @@ def cancel_run(run_id: int, user=Depends(get_current_user), db: Session = Depend
     _owned_run(db, run_id, user)
     stream = _RUN_STREAMS.get(run_id)
     if stream is not None:
-        stream.cancel_event.set()
+        stream.request_cancel()  # 线程安全：同步端点跨线程触发 asyncio.Event（iter 363）
         return {"ok": True}
     raise HTTPException(status_code=409, detail="not_running")
 
@@ -425,7 +433,7 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
     target_kind = body.target_kind or step.input.get("target_kind", "note")
     art_id = body.artifact_id or step.input.get("artifact_id")
     art = db.get(models.RunArtifact, art_id) if art_id else None
-    if art is None:
+    if art is None or art.run_id != run_id:  # artifact 须属于本 run（防跨用户 IDOR，iter 363）
         raise HTTPException(status_code=404, detail="artifact_not_found")
     src = Path(settings.data_dir) / art.path
     if not src.is_file():
@@ -519,12 +527,14 @@ async def start_run(
     stream = _ChatStream()
     _RUN_STREAMS[run.id] = stream
     last_event_id = _parse_last_event_id(request)
-    asyncio.create_task(
+    task = asyncio.create_task(
         _run_chat(
             run.id, thread_id, user.id, body.message, stream,
             max_steps=body.max_steps or 25, thinking=body.thinking, model_override=body.model,
         )
     )
+    _CHAT_RUN_TASKS.add(task)  # 持强引用防 create_task 被 GC 中途回收（iter 363）
+    task.add_done_callback(_CHAT_RUN_TASKS.discard)
     return StreamingResponse(
         _chat_relay(stream, last_event_id),
         media_type="text/event-stream",
@@ -580,44 +590,77 @@ def _parse_last_event_id(request: Request) -> int:
 
 
 class _ChatStream:
-    """Agent 对话事件缓冲（进程内内存广播）。"""
+    """Agent 对话事件缓冲（进程内内存广播）。
+
+    iter 363 修三联缺陷：① _events 有界 FIFO（防长对话无界增长）；② subscribe 重放只放队列
+    容量内的事件（防 put_nowait 抛 QueueFull 致附流连接异常关闭）；③ 慢订阅被踢后 _relay
+    在 timeout 时用 terminal_event 副本兜底投递终态（防终态被丢 -> _relay 空转挂死 + 协程/
+    db 永驻）。
+    """
+
+    _MAX_EVENTS = 500
 
     def __init__(self) -> None:
         self._events: list[tuple[int, str, dict]] = []
         self._subs: list[asyncio.Queue] = []
         self._seq = 0
         self.terminal_id: int | None = None
+        self.terminal_event: tuple[str, dict] | None = None  # 终态副本（兜底投递）
         self.cancel_event: asyncio.Event = asyncio.Event()
         self.result: AgentRunResult | None = None
+        try:
+            self._loop = asyncio.get_running_loop()  # 创建于 start_run 协程内（生产路径）
+        except RuntimeError:
+            self._loop = None  # 测试/非 loop 上下文创建（request_cancel 兜底直接 set）
 
     def publish(self, event: str, data: dict) -> int:
         self._seq += 1
         eid = self._seq
-        self._events.append((eid, event, data))
+        item = (eid, event, data)
+        self._events.append(item)
+        if len(self._events) > self._MAX_EVENTS:  # FIFO 修剪（防无界增长）
+            self._events = self._events[-self._MAX_EVENTS:]
         for q in list(self._subs):
             try:
-                q.put_nowait((eid, event, data))
+                q.put_nowait(item)
             except asyncio.QueueFull:
-                pass
+                self._drop_sub(q)  # 慢订阅踢出（防 publish 阻塞；终态由 _relay 兜底）
         return eid
 
     def mark_terminal(self, eid: int) -> None:
         self.terminal_id = eid
+        for e, event, data in reversed(self._events):  # 保存终态副本（即便被队列丢弃仍可投递）
+            if e == eid:
+                self.terminal_event = (event, data)
+                break
+
+    def request_cancel(self) -> None:
+        """从任意线程安全请求取消（同步端点跨线程触发 asyncio.Event，iter 363）。"""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self.cancel_event.set)
+        else:
+            self.cancel_event.set()  # 无 loop 绑定（如测试同步构造）兜底直接 set
 
     def subscribe(self, last_event_id: int) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=512)
-        for eid, event, data in self._events:
-            if eid > last_event_id:
-                q.put_nowait((eid, event, data))
+        replay = [it for it in self._events if it[0] > last_event_id]
+        if len(replay) > 512:  # 超容量只放最近 512 条（防 put_nowait 抛 QueueFull）
+            replay = replay[-512:]
+        for item in replay:
+            q.put_nowait(item)
         self._subs.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
+        self._drop_sub(q)
+
+    def _drop_sub(self, q: asyncio.Queue) -> None:
         if q in self._subs:
             self._subs.remove(q)
 
 
 _RUN_STREAMS: dict[int, _ChatStream] = {}
+_CHAT_RUN_TASKS: set[asyncio.Task] = set()  # 持强引用防 create_task 被 GC（iter 363）
 
 
 async def _chat_relay(stream: _ChatStream, last_event_id: int):
@@ -632,7 +675,12 @@ async def _chat_relay(stream: _ChatStream, last_event_id: int):
                 if stream.terminal_id is not None:
                     if last_yielded >= stream.terminal_id:
                         break
-                    continue
+                    # 终态已 publish 但可能被队列丢弃/慢订阅踢出 -> 用副本兜底投递，免空转挂死
+                    if stream.terminal_event is not None:
+                        tev, tdata = stream.terminal_event
+                        yield format_sse_frame(tev, tdata, event_id=stream.terminal_id)
+                        last_yielded = stream.terminal_id
+                    break
                 if time.monotonic() - last_send > HEARTBEAT_SECONDS:
                     yield KEEPALIVE_FRAME
                     last_send = time.monotonic()
@@ -694,7 +742,7 @@ async def _run_chat(
         ctx.thread_id = thread_id
         ctx.run_id = run_id
         ctx.workspace_dir = str(create_run_workspace(run_id))
-        stream.publish("run_start", {"run_id": run_id, "model": provider._model})
+        stream.publish("run_start", {"run_id": run_id, "model": getattr(provider, "_model", "") or ""})
 
         async def emit(event: str, data: dict) -> None:
             stream.publish(event, data)

@@ -154,6 +154,50 @@ def test_approve_promote_plan_rejects_foreign_session(client, auth_headers):
     assert r.status_code == 404
 
 
+def test_delete_run_with_messages_no_fk_error(client, auth_headers):
+    """iter 363：删含消息的 run 不再触发 FK 约束失败 500（Message.run_id 显式置空）。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    t = client.post("/api/threads", json={}, headers=auth_headers).json()
+    db = SessionLocal()
+    run = models.Run(thread_id=t["id"], user_id=cur_id, status=models.RunStatus.done)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    db.add(models.Message(thread_id=t["id"], role=models.MessageRole.assistant,
+                          content=[{"type": "text", "text": "hi"}], run_id=run.id))
+    db.commit()
+    rid = run.id
+    db.close()
+    r = client.delete(f"/api/runs/{rid}", headers=auth_headers)
+    assert r.status_code == 200  # 修复前 500（FK 约束失败）
+
+
+def test_approve_rejects_foreign_run_artifact(client, auth_headers):
+    """iter 363：approve 提升时 artifact 须属本 run（防跨 run/跨用户 IDOR）。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    t = client.post("/api/threads", json={}, headers=auth_headers).json()
+    db = SessionLocal()
+    run_a = models.Run(thread_id=t["id"], user_id=cur_id, status=models.RunStatus.awaiting_approval)
+    run_b = models.Run(thread_id=t["id"], user_id=cur_id, status=models.RunStatus.done)
+    db.add_all([run_a, run_b])
+    db.commit()
+    db.refresh(run_a)
+    db.refresh(run_b)
+    rel = f"test_approve_idor_{run_b.id}.json"
+    (Path(settings.data_dir) / rel).write_text('{"markdown": "# x"}', encoding="utf-8")
+    art_b = models.RunArtifact(thread_id=t["id"], run_id=run_b.id, name="p", path=rel, kind="draft")
+    db.add(art_b)
+    db.commit()
+    db.refresh(art_b)
+    db.add(models.RunStep(run_id=run_a.id, type="approval",
+                          input={"name": "p", "target_kind": "plan", "artifact_id": art_b.id}))
+    db.commit()
+    aid_a, art_id = run_a.id, art_b.id
+    db.close()
+    r = client.post(f"/api/runs/{aid_a}/approve", json={"target_kind": "plan", "artifact_id": art_id}, headers=auth_headers)
+    assert r.status_code == 404
+
+
 # --- memory CRUD ---
 
 
