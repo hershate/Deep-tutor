@@ -166,6 +166,41 @@ def test_cancel_interrupts():
     assert res.status == "interrupted"
 
 
+def test_cancel_during_tools_fills_placeholder_tool_results():
+    """iter 363：工具循环中途 cancel，未执行的 tool_use 补占位 tool_result——否则 assistant
+    的 tool_use 与 user tool_result 数不匹配，下次 run 加载历史被 Anthropic API 拒（会话卡死）。"""
+    db, u, t, r = _setup()
+    provider = FakeProvider(
+        [
+            [
+                AgenticStreamChunk(tool_use_start=("tu_1", "echo")),
+                AgenticStreamChunk(tool_use_delta=("tu_1", '{"msg":"a"}')),
+                AgenticStreamChunk(tool_use_start=("tu_2", "echo")),
+                AgenticStreamChunk(tool_use_delta=("tu_2", '{"msg":"b"}')),
+                AgenticStreamChunk(usage=LLMUsage(input_tokens=10, output_tokens=5, model="fake"), stop_reason="tool_use"),
+            ],
+        ]
+    )
+
+    async def executor(tu, ctx):  # noqa: ARG001
+        if tu.id == "tu_1":
+            ctx.cancel_event.set()  # tu_1 执行后取消 -> tu_2 不会执行
+        return AgentToolResult(content="ok")
+
+    res = asyncio.run(
+        run_agent_loop(_ctx(db, u, t, r), thread_id=t.id, run_id=r.id, user_message="x",
+                       provider=provider, tools=[], tool_executor=executor)
+    )
+    assert res.status == "interrupted"
+    # 最后一条 user 消息 = tool_result 轮，应含 2 个 tool_result（tu_1 真 + tu_2 占位"已取消"）
+    user_msgs = db.query(models.Message).filter_by(thread_id=t.id, role=models.MessageRole.user).all()
+    tool_results = [b for b in user_msgs[-1].content if isinstance(b, dict) and b.get("type") == "tool_result"]
+    assert len(tool_results) == 2
+    assert {tr["tool_use_id"] for tr in tool_results} == {"tu_1", "tu_2"}
+    placeholder = [tr for tr in tool_results if tr["tool_use_id"] == "tu_2"]
+    assert placeholder and placeholder[0]["content"] == "已取消" and placeholder[0]["is_error"] is True
+
+
 def test_budget_exceeded_interrupts():
     db, u, t, r = _setup()
     budget = BudgetTracker(limit=0.01)  # 极低预算

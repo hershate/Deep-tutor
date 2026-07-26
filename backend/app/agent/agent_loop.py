@@ -333,8 +333,10 @@ async def run_agent_loop(
 
         # 7) 执行工具 + 持久化 tool_result（异常隔离：单工具失败记 error 不杀循环）
         results_msg: list[dict] = []
+        cancelled = False
         for tu in acc.tool_use_blocks():
             if ctx.cancel_event.is_set():
+                cancelled = True
                 break
             tt0 = time.monotonic()
             try:
@@ -355,6 +357,15 @@ async def run_agent_loop(
             results_msg.append(
                 {"type": "tool_result", "tool_use_id": tu.id, "content": res.content, "is_error": res.is_error}
             )
+        # iter 363：cancel 中断时，未执行的 tool_use 补占位 tool_result——否则 assistant 的
+        # tool_use 与 user tool_result 数不匹配，下次 run 加载历史被 Anthropic API 拒（会话卡死）。
+        if cancelled:
+            done_ids = {r["tool_use_id"] for r in results_msg}
+            for tu in acc.tool_use_blocks():
+                if tu.id not in done_ids:
+                    results_msg.append(
+                        {"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True}
+                    )
         if results_msg:
             _persist_message(db, thread_id, _role("user"), results_msg, run_id)
 
