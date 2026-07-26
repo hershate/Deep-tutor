@@ -120,9 +120,13 @@ def extract_check_questions(
         for line in (content_md or "").splitlines():
             s = line.strip()
             if s.startswith("###"):
+                # iter 364：允许多次进入「检查理解」节（长单元首末各一），仅非检查理解的
+                # 下一小节才结束（原遇任何 ### 且 in_section 即 break，丢失后半段自测题题源）
+                if "检查理解" in s:
+                    in_section = True
+                    continue
                 if in_section:
-                    break  # 下一个小节 -> 结束
-                in_section = "检查理解" in s
+                    break
                 continue
             if not in_section or not s:
                 continue
@@ -185,13 +189,15 @@ def ensure_quiz_coverage(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]
     node_id，缺的补 short 自评题——根治「缺题」。
     """
     quizzes = list(data.get("quizzes") or [])
-    covered = {q.get("node_id") for q in quizzes if q.get("node_id")}
+    # iter 364：node_id 大小写不敏感比对——LLM 偶把 k1 写成 K1，原精确匹配会判未覆盖再补
+    # 一道，致题库出现 K1+k1 重复题
+    covered = {str(q.get("node_id")).lower() for q in quizzes if q.get("node_id")}
     plan = (getattr(inp, "args", None) or {}).get("plan") or {}
     nodes = (plan.get("knowledge_map") or {}).get("nodes") or []
     added = 0
     for n in nodes:
         nid = n.get("id")
-        if not nid or nid in covered:
+        if not nid or str(nid).lower() in covered:
             continue
         name = n.get("name") or nid
         quizzes.append({
@@ -203,7 +209,7 @@ def ensure_quiz_coverage(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]
             "answer": "",
             "explanation": "（LLM 未为该知识点出题，已补自评题兜底）",
         })
-        covered.add(nid)
+        covered.add(str(nid).lower())
         added += 1
         if added >= 40:  # 上界保护
             break

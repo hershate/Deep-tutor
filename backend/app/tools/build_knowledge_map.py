@@ -115,6 +115,13 @@ def clean_map(data: dict[str, Any], _inp: ToolInput) -> dict[str, Any]:
         edges = [e for e in edges if e.get("from") in valid_ids and e.get("to") in valid_ids]
         truncated = True
 
+    # iter 364：清理悬空 parent_id（引用被截断或不存在的节点）——edges 已过滤，但节点的
+    # parent_id 字段独立，截断后保留节点可能仍引用被截掉的父节点
+    valid_ids_final = {n.get("id") for n in nodes if n.get("id")}
+    for n in nodes:
+        pid = n.get("parent_id")
+        if pid and pid not in valid_ids_final:
+            n["parent_id"] = None
     data["nodes"] = nodes
     data["edges"] = edges
     if truncated:
