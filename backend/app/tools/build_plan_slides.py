@@ -310,6 +310,11 @@ _CLASS_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
 
 def _sanitize_content_html(s: str) -> str:
     """清理 LLM 生成的 content_html：去危险块/标签、on* 事件属性与 javascript: 链接（防 XSS）。"""
+    import html
+
+    # iter 364：先解码 HTML 实体——浏览器属性值实体解码先于 URL scheme 解析，故
+    # java&#115;cript: 经 _JS_URL_ATTR（字面 javascript:）不匹配后浏览器仍执行。解码后过滤覆盖
+    s = html.unescape(s)
     s = _SCRIPT_STYLE_BLOCK.sub("", s)  # <script>...</script> 整块
     s = _UNSAFE_TAG.sub("", s)  # 残留开/闭危险标签
     s = _EVENT_ATTRS.sub("", s)  # on*= 事件属性

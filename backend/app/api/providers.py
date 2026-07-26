@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
 from app.db.models import User
@@ -221,6 +222,9 @@ async def test_provider(
 
     不激活档案、不改任何状态；错误信息截断（防回显敏感内容）。
     """
+    # iter 364：限流（LLM 计费调用，120s 上限——防用户自我消耗额度）
+    if not limiter.check(f"provider_test:{user.id}", 5):
+        raise ApiError("rate_limited", "测试过于频繁，请稍后再试", status=429)
     p = _owned_or_404(db, profile_id, user)
     model = p.model or settings.anthropic_model
     # iter 313：按档案 kind 选协议——插件协议分发到 PluginProvider（档案 api_key/base_url 作凭证），
