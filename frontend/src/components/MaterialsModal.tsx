@@ -108,6 +108,9 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
   // 引擎流完成（running -> done）：重读单元列表（逐单元落库，重读即真相）；降级计数提示
   const phase = task?.phase
   const prevPhaseRef = useRef(phase)
+  // running -> {done,error} 合并为单 effect 共用 prevPhaseRef——此前两 effect 共享 ref 且
+  // done-effect 无条件写入 prevPhaseRef.current = phase，致 running->error 时 error-effect
+  // 读到的已是 error，setError 永不触发（弹窗静默吞错，iter 363）。
   useEffect(() => {
     if (prevPhaseRef.current === 'running' && phase === 'done') {
       const degraded = (task?.materialsUnits ?? []).filter((u) => u.status === 'degraded').length
@@ -118,16 +121,11 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
           if (degraded > 0) setWarning(`${degraded} 个单元生成失败，已降级为简要大纲`)
         })
         .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-    }
-    prevPhaseRef.current = phase
-  }, [phase, task?.materialsUnits, refetchUnits])
-
-  // 引擎流失败（running -> error）：错误展示取台账
-  useEffect(() => {
-    if (prevPhaseRef.current === 'running' && phase === 'error') {
+    } else if (prevPhaseRef.current === 'running' && phase === 'error') {
       setError(task?.errorMessage || '生成失败，请重试')
     }
-  }, [phase, task?.errorMessage])
+    prevPhaseRef.current = phase
+  }, [phase, task?.materialsUnits, task?.errorMessage, refetchUnits])
 
   // Esc 关闭
   useEffect(() => {

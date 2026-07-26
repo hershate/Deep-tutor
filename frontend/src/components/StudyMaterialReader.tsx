@@ -130,6 +130,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [rewriteErr, setRewriteErr] = useState('')
   const rewriteAcRef = useRef<AbortController | null>(null)
   const acRef = useRef<AbortController | null>(null)
+  const currentIdRef = useRef(currentId) // iter 363：跟踪最新 currentId，供 startRewrite 闭包检测切单元
   // iter 261：滚动位置记忆（会话级）——内容区 key=currentId 切单元即重挂载滚动必丢，
   // 「切去下一单元瞥一眼再切回来从头找」是阅读流断点。仅会话内有效（组件卸载即清）：
   // 不碰 localStorage——跨会话陈旧位置 + 字号调节改变偏移，恢复错误位置比不恢复更糟
@@ -152,8 +153,10 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
 
   // 选中单元 -> 按需加载内容（卸载/切换中止进行中请求）；index 伪单元用传入的 indexMd 不请求
   useEffect(() => {
+    currentIdRef.current = currentId // iter 363：同步最新 currentId
     if (currentId === null || currentId === INDEX_ID) return
     acRef.current?.abort()
+    rewriteAcRef.current?.abort() // iter 363：切单元取消进行中重写，防结果覆盖新单元视图
     const ac = new AbortController()
     acRef.current = ac
     setLoading(true)
@@ -289,10 +292,11 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
         onUnitDone: (d) => setRewriteMsg(d.degraded ? `「${d.title}」已重写（降级）` : `「${d.title}」已重写`),
       }, ac.signal, [current.id])
       if (ac.signal.aborted) return
+      if (currentIdRef.current !== current.id) return // iter 363：已切走，丢弃旧单元重写结果
       setRewriteMsg('重写完成，正在刷新…')
       // currentId 未变，加载 effect 不会自动重跑 -> 手动重取内容刷新
       const r = await getStudyUnitContent(current.id, ac.signal)
-      if (!ac.signal.aborted) {
+      if (!ac.signal.aborted && currentIdRef.current === current.id) {
         setContent(r.content_md)
         setContentTitle(r.title)
         setResources(r.resources ?? [])

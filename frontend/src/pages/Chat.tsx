@@ -110,6 +110,7 @@ export default function Chat() {
     setStream(null)
     setPendingUser(null)
     setError('')
+    setInput('') // iter 363：切会话清空输入框，防跨会话草稿串味
     doneRef.current = null
     reconnectAttemptedRef.current = null
     return () => ac.abort() // 切走或卸载即中止本会话的 SSE（流不再向已卸载组件投递）
@@ -209,6 +210,7 @@ export default function Chat() {
         else setError(e instanceof Error ? e.message : '连接失败')
         setStream(null)
         setPendingUser(null)
+        setInput(message) // iter 363：网络失败/409 回填输入，免用户凭记忆重打
       }
     }
   }
@@ -256,7 +258,8 @@ export default function Chat() {
       <aside className="hidden md:flex w-56 shrink-0 flex-col rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
         <button
           onClick={() => createM.mutate()}
-          className="mb-2 rounded-md bg-blue-600 px-2 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          disabled={createM.isPending}
+          className="mb-2 rounded-md bg-blue-600 px-2 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           ＋ 新对话
         </button>
@@ -360,7 +363,7 @@ export default function Chat() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault()
                       send()
                     }
