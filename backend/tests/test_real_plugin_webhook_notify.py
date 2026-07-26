@@ -10,6 +10,7 @@ monkeypatch app.plugins.webhooks._deliver 捕获投递（避免真实 HTTP，同
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -123,7 +124,9 @@ def test_webhook_delivers_on_registered_event(tmp_path, auth_headers, monkeypatc
     )
     from app.plugins import bus
 
-    bus.emit("plan_created", {"topic": "React", "plan_id": 1})
+    # iter 364：bus.emit 同步上下文协程监听器改后台 daemon 线程（不阻塞），测试需确认投递
+    # 完成，故用 emit_async（await 监听器）+ asyncio.run 驱动
+    asyncio.run(bus.emit_async("plan_created", {"topic": "React", "plan_id": 1}))
     assert len(calls) == 1
     assert calls[0]["url"] == "http://hook.example/x"
     body = json.loads(calls[0]["body"])  # _deliver 收 bytes（序列化载荷）
@@ -162,7 +165,7 @@ def test_hmac_secret_signed(tmp_path, auth_headers, monkeypatch):
     )
     from app.plugins import bus
 
-    bus.emit("plan_created", {"topic": "x"})
+    asyncio.run(bus.emit_async("plan_created", {"topic": "x"}))
     assert "X-Webhook-Signature" in calls[0]["headers"]
 
 
@@ -180,7 +183,7 @@ def test_delete_config_stops_delivery(tmp_path, auth_headers, monkeypatch):
     client.delete("/api/plugins/webhook_notify/config", headers=auth_headers)
     from app.plugins import bus
 
-    bus.emit("plan_created", {"topic": "x"})
+    asyncio.run(bus.emit_async("plan_created", {"topic": "x"}))
     assert calls == []  # 删除后 unregister，不投递
 
 
@@ -208,5 +211,5 @@ def test_config_persists_across_reload(tmp_path, auth_headers, monkeypatch):
     load_plugins(app2, tmp_path)  # _apply 从 storage 恢复 webhook 订阅
     from app.plugins import bus
 
-    bus.emit("plan_created", {"topic": "x"})
+    asyncio.run(bus.emit_async("plan_created", {"topic": "x"}))
     assert len(calls) == 1  # reload 后配置持久化，仍投递
