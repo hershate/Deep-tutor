@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
 from app.llm.anthropic_provider import AnthropicProvider
@@ -75,6 +78,80 @@ def test_thread_cross_user_404(client, auth_headers):
     oid = other.id
     db.close()
     assert client.get(f"/api/threads/{oid}", headers=auth_headers).status_code == 404
+
+
+def test_create_thread_rejects_foreign_session_id(client, auth_headers):
+    """跨用户 session_id 创建 thread 应 404——堵 Thread→Plan 提升向他人会话注入 plan。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    db = SessionLocal()
+    other = models.User(name="other", username=f"oth_s_{cur_id}", password_hash="x")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+    sess = models.Session(user_id=other.id, title="他人的会话")
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    sid = sess.id
+    db.close()
+    r = client.post("/api/threads", json={"session_id": sid}, headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_create_thread_accepts_own_session_id(client, auth_headers):
+    """自己的 session_id 创建 thread 正常（回归，不误伤合法用法）。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    db = SessionLocal()
+    sess = models.Session(user_id=cur_id, title="我的会话")
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    sid = sess.id
+    db.close()
+    r = client.post("/api/threads", json={"session_id": sid, "title": "t"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["session_id"] == sid
+
+
+def test_approve_promote_plan_rejects_foreign_session(client, auth_headers):
+    """approve 提升为 plan 时 thread.session_id 属他人 -> 404（防御纵深）。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    db = SessionLocal()
+    other = models.User(name="other", username=f"oth_p_{cur_id}", password_hash="x")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+    other_sess = models.Session(user_id=other.id, title="他人的会话")
+    db.add(other_sess)
+    db.commit()
+    db.refresh(other_sess)
+    # 直接 DB 造一个 session_id 指向他人会话的 thread（绕过 create_thread 校验，模拟历史脏数据）
+    th = models.Thread(user_id=cur_id, title="t", kind="chat", session_id=other_sess.id)
+    db.add(th)
+    db.commit()
+    db.refresh(th)
+    run = models.Run(thread_id=th.id, user_id=cur_id, status=models.RunStatus.awaiting_approval)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    rel = f"test_approve_foreign_{run.id}.json"
+    (Path(settings.data_dir) / rel).write_text('{"markdown": "# x"}', encoding="utf-8")
+    art = models.RunArtifact(thread_id=th.id, run_id=run.id, name="p", path=rel, kind="draft")
+    db.add(art)
+    db.commit()
+    db.refresh(art)
+    db.add(
+        models.RunStep(
+            run_id=run.id,
+            type="approval",
+            input={"name": "p", "target_kind": "plan", "artifact_id": art.id},
+        )
+    )
+    db.commit()
+    rid = run.id
+    db.close()
+    r = client.post(f"/api/runs/{rid}/approve", json={"target_kind": "plan"}, headers=auth_headers)
+    assert r.status_code == 404
 
 
 # --- memory CRUD ---

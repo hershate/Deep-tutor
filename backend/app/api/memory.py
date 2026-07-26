@@ -30,7 +30,7 @@ from app.agent.budget import BudgetTracker
 from app.agent.context import ExecContext
 from app.agent.cost import usage_cost
 from app.agent.workspace import commit_run_workspace, create_run_workspace
-from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
+from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
 from app.core.credentials import resolve_bing_api_key
 from app.core.settings import settings
@@ -119,6 +119,9 @@ def _thread_out(t: models.Thread, db: Session) -> dict:
 
 @router.post("/threads")
 def create_thread(body: ThreadIn, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    # session_id 须属当前用户——防 Thread→Plan 提升路径向他人会话注入 plan（跨用户隔离）
+    if body.session_id is not None:
+        get_owned_session(db, body.session_id, user)
     t = models.Thread(user_id=user.id, title=body.title, kind=body.kind or "chat", session_id=body.session_id, model=body.model)
     db.add(t)
     db.commit()
@@ -439,6 +442,8 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
         sess_id = r.thread.session_id if r.thread else None
         if not sess_id:
             raise HTTPException(status_code=400, detail="thread_has_no_session")
+        # 防御纵深：thread.session_id 须属当前用户，否则不向他人会话注入 plan
+        get_owned_session(db, sess_id, user)
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
