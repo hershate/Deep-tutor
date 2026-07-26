@@ -21,7 +21,7 @@ export default function UsageMeter() {
       aria-label={`用量：总费用 ￥${data.total_cost.toFixed(4)}，共 ${data.total_tokens} token`}
       title="查看用量详情"
     >
-      <span>￥${data.total_cost.toFixed(4)}</span>
+      <span>{`￥${data.total_cost.toFixed(4)}`}</span>
       <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
       <span>{(data.total_tokens / 1000).toFixed(1)}k tok</span>
     </Link>

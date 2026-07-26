@@ -233,7 +233,7 @@ export default function GenerateProgress() {
           <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
           {task.tokens.toLocaleString()} tokens
           <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
-          费用 ${task.cost.toFixed(4)}
+          费用 {`￥${task.cost.toFixed(4)}`}
         </span>
       </div>
       <p className="text-sm text-slate-500 dark:text-slate-400">

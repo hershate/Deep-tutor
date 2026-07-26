@@ -78,7 +78,7 @@ function ModelBreakdown({ items }: { items: UsageModelItem[] }) {
     <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">按模型费用</h3>
-        <span className="text-xs tabular-nums text-slate-400">合计 ￥${total.toFixed(6)}</span>
+        <span className="text-xs tabular-nums text-slate-400">合计 {`￥${total.toFixed(6)}`}</span>
       </div>
       <ul className="space-y-2">
         {items.map((m) => (
@@ -86,7 +86,7 @@ function ModelBreakdown({ items }: { items: UsageModelItem[] }) {
             <div className="mb-0.5 flex items-center justify-between gap-2 text-xs">
               <span className="truncate font-mono text-slate-700 dark:text-slate-200">{m.model}</span>
               <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                ￥${m.cost.toFixed(6)} · {m.calls} 次 · {(m.tokens / 1000).toFixed(1)}k tok
+                {`￥${m.cost.toFixed(6)}`} · {m.calls} 次 · {(m.tokens / 1000).toFixed(1)}k tok
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
@@ -119,7 +119,7 @@ function DailyChart({ items }: { items: { date: string; cost: number; tokens: nu
     <section className="animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">近 {items.length} 天费用</h3>
-        <span className="text-xs tabular-nums text-slate-400">合计 ￥${total.toFixed(6)}</span>
+        <span className="text-xs tabular-nums text-slate-400">合计 {`￥${total.toFixed(6)}`}</span>
       </div>
       <div className="flex h-28 items-end gap-1" role="img" aria-label="近14天按日费用柱状图">
         {items.map((i, bi) => (
