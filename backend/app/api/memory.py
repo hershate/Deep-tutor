@@ -60,6 +60,7 @@ _AGENT_SYSTEM = (
 _MAX_RUNNING_PER_THREAD = 1
 # iter 346（F11b）：全局 chat run 并发上限（防单用户多 thread 各起 run 耗尽资源，对齐 plan-gen 全局 ≤2）
 _MAX_CHAT_RUNS_GLOBAL = 2
+_MAX_TOOL_RESULT_CHARS = 20_000  # iter 364：工具回灌 LLM 的字符上限（防大输出单轮击穿预算）
 _RUN_CREATE_LOCK = asyncio.Lock()  # check-and-create 临界段
 
 
@@ -787,7 +788,12 @@ async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
     if out.status == "error" or out.errors:
         msg = out.errors[0].message if out.errors else "工具错误"
         return AgentToolResult(content=msg, is_error=True, meta={"name": tu.name})
-    return AgentToolResult(content=json.dumps(out.data, ensure_ascii=False), is_error=False, meta={"name": tu.name})
+    # iter 364：工具回灌尺寸上限——防 workspace_read/web_fetch 等大输出（可达 10MB+）单轮
+    # 击穿 token 预算或超模型 context window 致整轮 chat run 失败。截断后标 [已截断]。
+    content = json.dumps(out.data, ensure_ascii=False)
+    if len(content) > _MAX_TOOL_RESULT_CHARS:
+        content = content[:_MAX_TOOL_RESULT_CHARS] + "…[已截断]"
+    return AgentToolResult(content=content, is_error=False, meta={"name": tu.name})
 
 
 def _force_run_terminal(run_id: int, status) -> None:

@@ -143,6 +143,18 @@ def _sanitize_shared_content(content: dict) -> dict:
                 ]
             new_stages.append(stage)
         content["stages"] = new_stages
+    # iter 364：顶层 content.resources（search_resources 产出的真实 url 字段）也需 scheme 过滤
+    # ——此前仅处理 stages[].resources（design_stages schema 实际无此字段，是死代码），漏顶层
+    # resources 致分享页暴露非 http(s) URL（配合恶意备份 javascript: 链接可致跨用户 XSS）
+    top_resources = content.get("resources")
+    if isinstance(top_resources, list):
+        content["resources"] = [
+            {**r, "url": ""}
+            if isinstance(r, dict)
+            and not str(r.get("url", "")).strip().lower().startswith(("http://", "https://"))
+            else r
+            for r in top_resources
+        ]
     return content
 
 

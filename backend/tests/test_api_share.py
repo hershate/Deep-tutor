@@ -154,6 +154,24 @@ def test_shared_strips_non_http_resource_urls(client, auth_headers):
         db.close()
 
 
+def test_shared_strips_top_level_resource_urls(client, auth_headers):
+    """iter 364：顶层 content.resources（search_resources 产出的真实 url 字段）也需 scheme 过滤
+    ——此前仅处理 stages[].resources（实为死代码），漏顶层致分享页暴露 javascript: 等 URL。"""
+    plan = {
+        "title": "t",
+        "resources": [
+            {"title": "ok", "url": "https://a.example/x", "verified": "ok"},
+            {"title": "evil", "url": "javascript:alert(1)"},
+        ],
+    }
+    pid = _mk_plan(client, auth_headers, plan)
+    token = client.post(f"/api/plans/{pid}/share", headers=auth_headers).json()["token"]
+    pub = client.get(f"/api/shared/{token}")
+    assert pub.status_code == 200
+    urls = [r["url"] for r in pub.json()["content"]["resources"]]
+    assert urls == ["https://a.example/x", ""]
+
+
 # --- iter 258：全局分享管理 GET /api/shares（安全审计面：活跃链接全局可见可撤销） ---
 
 
