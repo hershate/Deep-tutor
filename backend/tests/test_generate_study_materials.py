@@ -240,3 +240,67 @@ def test_brief_unit_from_unitplan_empty_nodes_uses_title():
     spec = brief_unit_from_unitplan(plan)
     assert "本单元学习「基础」" in spec.content_md
     assert "2 周" in spec.estimated_time
+
+
+# --- iter 360（issue 3：引文相关性硬校验）---
+
+
+def test_collect_material_urls_only_verified():
+    """收集可引用 URL 池：仅 ok/uncertain，排除 invalid。"""
+    from app.tools.generate_study_materials import collect_material_urls
+
+    plan = {"resources": [
+        {"url": "https://a.com/1", "verified": "ok"},
+        {"url": "https://b.com/2", "verified": "uncertain"},
+        {"url": "https://c.com/3", "verified": "invalid"},
+        {"url": "https://d.com/4"},  # 无 verified 视为允许
+    ]}
+    unit_res = [{"url": "https://e.com/5", "verified": "ok"}, {"url": "https://f.com/6", "verified": "invalid"}]
+    pool = collect_material_urls(plan, unit_res)
+    assert "https://a.com/1" in pool
+    assert "https://b.com/2" in pool
+    assert "https://e.com/5" in pool
+    assert "https://c.com/3" not in pool  # invalid 排除
+    assert "https://f.com/6" not in pool
+    # 末尾斜杠/fragment 容错
+    assert collect_material_urls({"resources": [{"url": "https://x.com/p/", "verified": "ok"}]}) == {"https://x.com/p"}
+
+
+def test_sanitize_citations_strips_unverified_and_drops_bullet():
+    """剥离白名单外的引用：列表项整行丢弃；行内链接降为纯文本。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    allowed = {"https://good.example.com/intro"}
+    md = (
+        "### 扩展阅读\n"
+        "- [好的教程](https://good.example.com/intro) - 官方\n"
+        "- [臆造链接](https://fabricated.example.com/xyz) - 不应保留\n"
+        "详见 [某文](https://other.example.com/a) 的说明。\n"
+    )
+    out = sanitize_citations(md, allowed)
+    # 白名单内链接保留
+    assert "https://good.example.com/intro" in out
+    # 臆造/未验证链接被剥离（URL 不再出现）
+    assert "fabricated.example.com" not in out
+    assert "other.example.com" not in out
+    # 行内链接降为纯文本（文字保留）
+    assert "某文" in out
+    # 列表项整行丢弃（不残留空占位）
+    assert "臆造链接" not in out
+
+
+def test_sanitize_citations_empty_pool_strips_all_links():
+    """白名单为空（无已验证资源）-> 所有引用链接剥离。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    md = "- [x](https://a.example.com/) - 1\n- [y](https://b.example.com/) - 2\n"
+    out = sanitize_citations(md, set())
+    assert "example.com" not in out
+    assert out.strip() == ""  # 两个列表项全丢
+
+
+def test_sanitize_citations_non_string_safe():
+    from app.tools.generate_study_materials import sanitize_citations
+
+    assert sanitize_citations("", {"x"}) == ""
+    assert sanitize_citations("无链接正文", {"x"}) == "无链接正文"

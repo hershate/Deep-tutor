@@ -338,7 +338,7 @@ def test_materials_completed_event_emitted(client, auth_headers, monkeypatch):
     from app.api import plans as plans_mod
     from app.plugins import bus
 
-    async def _no_search(query, ctx):  # 防 .env BING_API_KEY 致真实联网（同材料 SSE 套件）
+    async def _no_search(query, ctx, limit=3):  # 防 .env BING_API_KEY 致真实联网（同材料 SSE 套件）
         return []
 
     monkeypatch.setattr(plans_mod, "search_unit_resources", _no_search)

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -23,6 +24,69 @@ from pydantic import BaseModel, Field
 from app.agent.registry import Tool
 
 _DEFAULT_TITLE = "学习方案"
+
+
+# --- iter 360（issue 3：引文相关性硬校验）---
+# 自学材料正文里的「扩展阅读」引用必须来自已验证资源池（plan.resources + 本单元补料），
+# 不得随意/编造 URL。LLM 虽被 prompt 约束「只可引用已有 url」，但无强制——此函数做事后
+# 确定性校验：提取 markdown 链接，保留白名单内、剥离白名单外（防 LLM 臆造或外推链接）。
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+
+
+def _normalize_url(url: str) -> str:
+    """URL 规范化用于白名单比对：去首尾空白、去 fragment、去末尾斜杠（容错同源异写）。"""
+    u = (url or "").strip()
+    if "#" in u:
+        u = u.split("#", 1)[0]
+    return u.rstrip("/")
+
+
+def collect_material_urls(plan: dict[str, Any], unit_resources: list[dict] | None = None) -> set[str]:
+    """收集本单元内容可引用的已验证 URL 池：plan.resources + 该单元补充资料。
+
+    仅取 verified != invalid 的（invalid 资源不应被引用）；ok/uncertain 均允许。
+    """
+    pool: set[str] = set()
+    for r in (plan.get("resources") or []):
+        if isinstance(r, dict) and r.get("verified") != "invalid" and r.get("url"):
+            pool.add(_normalize_url(str(r["url"])))
+    for r in unit_resources or []:
+        if isinstance(r, dict) and r.get("verified") != "invalid" and r.get("url"):
+            pool.add(_normalize_url(str(r["url"])))
+    return pool
+
+
+def sanitize_citations(content_md: str, allowed_urls: set[str]) -> str:
+    """剥离 content_md 中不在白名单的 markdown 链接（issue 3 引文硬校验）。
+
+    - 扩展阅读式条目（列表项 -/* 且仅含非白名单链接）：整行丢弃（不残留无链接占位）。
+    - 其它位置的链接：链接改写为纯文本（保留可见文字，去超链接），不删整行。
+    白名单为空 -> 所有链接剥离（无已验证资源时不应出现任何引用链接）。
+    永不上抛；非字符串入参原样返回。
+    """
+    if not isinstance(content_md, str) or not content_md:
+        return content_md
+    allowed = {_normalize_url(u) for u in allowed_urls if u}
+
+    def _kept(url: str) -> bool:
+        return _normalize_url(url) in allowed
+
+    out_lines: list[str] = []
+    for line in content_md.splitlines():
+        links = _MD_LINK_RE.findall(line)
+        if links:
+            kept_any = any(_kept(u) for _, u in links)
+            if not kept_any and line.lstrip().startswith(("-", "*")):
+                # 列表项且全部链接未验证 -> 整行丢弃（扩展阅读无价值引用）
+                continue
+            # 逐链接替换：未验证的改为纯文本（保留文字、去超链接）
+            line = _MD_LINK_RE.sub(lambda m: m.group(0) if _kept(m.group(2)) else m.group(1), line)
+        out_lines.append(line)
+    result = "\n".join(out_lines)
+    # 末尾换行保留语义（splitlines 不含末尾空行）
+    if content_md.endswith("\n") and not result.endswith("\n"):
+        result += "\n"
+    return result
 
 
 class StudyUnitSpec(BaseModel):

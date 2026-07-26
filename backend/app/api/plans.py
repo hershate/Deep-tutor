@@ -53,9 +53,11 @@ from app.tools.generate_study_materials import (
     UnitPlan,
     brief_unit_from_unitplan,
     build_materials_index,
+    collect_material_urls,
     default_materials_from_plan,
     group_nodes_into_units,
     render_materials_md,
+    sanitize_citations,
 )
 from app.tools.search_resources import search_unit_resources
 from app.tools.build_plan_slides import generate_unit_slides_spec, render_slides_html
@@ -1564,6 +1566,18 @@ _MATERIALS_CONCURRENCY = 3  # R3（iter 230）单元生成并发上限：LLM 调
 # 3 路并发下单元 WebSearch 失败模式仍优雅（检索异常 -> 无补充资料，不中断单元生成）
 
 
+def _unit_resource_limit(up: UnitPlan) -> int:
+    """iter 360（issue 4）：单元补充资料数量随单元复杂度动态——知识点越多/越难的单元
+    需要更多参考文献。基线 3，按知识点数 + 难度加成，封顶 6（成本/认知负荷有界）。"""
+    nodes = up.nodes or []
+    n = len(nodes)
+    try:
+        max_diff = max((int(nd.get("difficulty") or 1) for nd in nodes if isinstance(nd, dict)), default=1)
+    except (TypeError, ValueError):
+        max_diff = 1
+    return min(2 + n + (1 if max_diff >= 4 else 0), 6)
+
+
 async def _materials_sse(
     plan_id: int,
     session_id: int,
@@ -1658,7 +1672,13 @@ async def _materials_sse(
                     first_node = ((up.stage.get("topics") or [{}])[0] or {}).get("name")
                 if first_node and first_node not in query_parts:
                     query_parts.append(first_node)
-                resources = await search_unit_resources(" ".join(query_parts), ctx)
+                # iter 360（issue 4）：补料数量随单元复杂度动态；issue 2a：补料经 AI 相关性筛选
+                resources = await search_unit_resources(" ".join(query_parts), ctx, limit=_unit_resource_limit(up))
+                # iter 360（issue 3）：剥离单元正文中未在已验证资源池内的引用链接（防 LLM 臆造引文）
+                if unit is not None:
+                    unit.content_md = sanitize_citations(
+                        unit.content_md, collect_material_urls(content, resources)
+                    )
                 return unit, resources, degraded, metadata
 
         pending = [asyncio.ensure_future(_gen_one(i, up)) for i, up in enumerate(units)]

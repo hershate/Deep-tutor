@@ -11,8 +11,10 @@ SSRF 防护（R19）：禁私网/环回/元数据端点。
 from __future__ import annotations
 
 import asyncio
+import html as _html
 import ipaddress
 import logging
+import re
 import socket
 import time
 import urllib.robotparser
@@ -131,6 +133,27 @@ def _analyze_body(prefix: bytes) -> str | None:
     return None
 
 
+# iter 360（引文相关性）：正文摘要供下游 LLM 筛选判断「内容是否与主题强相关」——
+# 此前 16KB 前缀仅喂 _analyze_body 做关键词检测即丢弃，相关性判断只能凭标题（弱信号）。
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+_SNIPPET_MAX_CHARS = 400  # 每条摘要字符上限（≤40 候选 -> 筛选输入有界，plan/09 §一不存全文）
+
+
+def snippet_from_prefix(prefix: bytes) -> str:
+    """正文前缀 -> 纯文本摘要（去 HTML 标签/实体、折叠空白、截断），供筛选 LLM 判相关性。
+
+    永不上抛；空/无文本返回 ""。仅取前缀（已限 16KB），不加载全文（合规：仅校验/摘要，不存全文）。
+    """
+    try:
+        text = prefix.decode("utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001
+        return ""
+    text = _TAG_STRIP_RE.sub(" ", text)
+    text = _html.unescape(text)
+    text = " ".join(text.split())  # 折叠空白（含换行/多空格）
+    return text[:_SNIPPET_MAX_CHARS]
+
+
 class UnsafeRedirectError(Exception):
     """重定向目标未过 SSRF 校验或跳数超限（err.md B4）。"""
 
@@ -245,6 +268,8 @@ async def _fetch_and_label(client: httpx.AsyncClient, url: str) -> ToolOutput:
         else:
             # step 4：可达即 ok；内容适配性留 step 5 LLM 判定
             out = _ok_data(final_url, ok=True, status=status, label="ok")
+        # iter 360：附正文摘要供 step 5 LLM 判内容相关性（非全文，仅前缀摘要）
+        out.data["snippet"] = snippet_from_prefix(prefix)
     else:
         out = _ok_data(final_url, ok=False, status=status, label="invalid")
     _cache_put(url, out.data, ok=out.data["ok"])

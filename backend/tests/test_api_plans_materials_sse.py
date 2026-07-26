@@ -23,7 +23,7 @@ def _stub_unit_search(monkeypatch):
     """默认 stub 单元补充资料检索（防 .env BING_API_KEY 致测试真实联网）；单测可覆盖。"""
     from app.api import plans as plans_mod
 
-    async def _none(query, ctx):
+    async def _none(query, ctx, limit=3):
         return []
 
     monkeypatch.setattr(plans_mod, "search_unit_resources", _none)
@@ -248,7 +248,7 @@ def test_materials_sse_unit_resources_persisted(client, auth_headers, monkeypatc
     ]
     seen_queries: list[str] = []
 
-    async def fake_search(query, ctx):
+    async def fake_search(query, ctx, limit=3):
         seen_queries.append(query)
         return canned
 

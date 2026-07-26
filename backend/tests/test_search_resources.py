@@ -320,17 +320,21 @@ def test_screening_drops_irrelevant(monkeypatch):
 
 
 def test_screening_failure_fallback(monkeypatch):
-    """LLM 异常 / 输出不可解析 -> 跳过筛选，保持原判定（稳定降级）。"""
+    """iter 360（issue 2b）：有 provider 但 LLM 异常 / 输出不可解析 -> 不静默保留 ok，
+    改统一降标 ⚠️ + note「未经 AI 相关性筛选」（候选仍提供，明确告知未筛选）。"""
     _setup_two_candidates(monkeypatch)
     out = _run_with_provider(_ScreenProvider(exc=RuntimeError("LLM down")))
-    assert len(out.data["resources"]) == 2
-    assert all(r["verified"] == "ok" for r in out.data["resources"])
+    assert len(out.data["resources"]) == 2  # 不丢弃，仅降标
+    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
+    assert all("未经 AI 相关性筛选" in r["note"] for r in out.data["resources"])
 
-    out = _run_with_provider(_ScreenProvider("这不是 JSON"))
+    out = _run_with_provider(_ScreenProvider("这不是 JSON"))  # 不可解析 -> 同样降标
     assert len(out.data["resources"]) == 2
+    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
 
     out = _run_with_provider(_ScreenProvider('{"not":"a list"}'))
     assert len(out.data["resources"]) == 2
+    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
 
 
 def test_screening_partial_coverage_keeps_rest(monkeypatch):
@@ -726,3 +730,103 @@ def test_verify_candidates_shares_one_client(monkeypatch):
     assert set(out) == {"https://a.com/x", "https://b.com/y"}  # URL 去重后两候选
     assert len(seen_clients) == 2 and all(c is sentinel for c in seen_clients)  # 全批共享
     assert sentinel.closed == 1  # 用毕恰好关闭一次
+
+
+# --- iter 360：引文数量随复杂度动态（issue 4）---
+
+
+def test_dynamic_quota_functions():
+    """复杂度感知配额纯函数：难度越高/知识点越多 -> 参考文献越多（封顶）。"""
+    from app.tools.search_resources import stage_resource_cap, total_resource_cap, stage_topic_cap
+
+    assert stage_resource_cap({"difficulty": 1}, 0, []) == 3
+    assert stage_resource_cap({"difficulty": 3}, 0, []) == 5
+    assert stage_resource_cap({"difficulty": 5}, 0, []) == 7  # 封顶 _HARD_MAX_PER_STAGE
+    assert stage_resource_cap(None, 0, []) == 5  # 无信号 -> 默认 MAX_PER_STAGE
+    assert total_resource_cap(0) == 20
+    assert total_resource_cap(30) == 50  # 20+30
+    assert total_resource_cap(100) == 50  # 封顶 _HARD_MAX_TOTAL
+    assert stage_topic_cap({"difficulty": 3}) == 3
+    assert stage_topic_cap({"difficulty": 4}) == 4  # 难阶段检索更多主题
+    assert stage_topic_cap(None) == 3
+
+
+def test_search_topic_count_scales_with_difficulty(monkeypatch):
+    """难度高的阶段检索更多主题（stage_topic_cap 生效）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+    seen: list[int] = []
+
+    async def fake_search(query, engine, count=5, key=""):
+        seen.append(count)
+        return [{"title": query, "url": f"https://example.com/{query}"}]
+
+    async def fake_verify(inp, ctx, client=None):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok"})
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    inp = ToolInput(
+        tool="search_resources",
+        session_id="s",
+        args={},
+        upstream={
+            "design_stages": {"data": {"stages": [
+                {"index": 0, "name": "入门", "difficulty": 1, "topics": [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}, {"name": "t4"}]},
+                {"index": 1, "name": "高难", "difficulty": 5, "topics": [{"name": "h1"}, {"name": "h2"}, {"name": "h3"}, {"name": "h4"}]},
+            ]}},
+        },
+    )
+    asyncio.run(search_resources(inp, _ctx()))
+    # 难度1阶段检索3主题，难度5阶段检索4主题 -> 共7次（seen 长度）；难度5阶段 count 更大（3+5=8）
+    assert len(seen) == 7
+    assert max(seen) == 8  # 难阶段候选数更多
+
+
+def test_screening_receives_snippet(monkeypatch):
+    """iter 360：verify 返回的正文摘要 snippet 传入筛选 LLM（据正文判相关性，issue 2c/3）。"""
+    _setup_two_candidates(monkeypatch)
+
+    async def fake_verify(inp, ctx, client=None):  # 带 snippet
+        url = inp.args.get("url", "")
+        return ToolOutput(
+            tool="verify_url", status="ok",
+            data={"final_url": url, "label": "ok", "snippet": f"{url} 的正文摘要内容"},
+        )
+
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+    provider = _ScreenProvider("[]")  # 空判定 -> 全部保留（未覆盖）
+    out = _run_with_provider(provider)
+    payload = provider.calls[0]["user"]
+    assert "snippet" in payload
+    assert "正文摘要内容" in payload
+    # snippet 不进最终方案 resources（仅供筛选）
+    assert all("snippet" not in r for r in out.data["resources"])
+
+
+def test_unit_resources_llm_screening_drops_irrelevant(monkeypatch):
+    """iter 360（issue 2a）：单元补料也经 LLM 相关性筛选，不相关丢弃。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+
+    async def fake_search(query, engine, count=5, key=""):
+        return [
+            {"title": "相关", "url": "https://example.com/rel"},
+            {"title": "无关", "url": "https://example.com/unrel"},
+        ]
+
+    async def fake_verify(inp, ctx, client=None):
+        url = inp.args.get("url", "")
+        return ToolOutput(tool="verify_url", status="ok", data={"final_url": url, "label": "ok", "snippet": "s"})
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
+
+    provider = _ScreenProvider(
+        '[{"url":"https://example.com/rel","suitable":true,"label":"ok","note":""},'
+        '{"url":"https://example.com/unrel","suitable":false,"label":"uncertain","note":"与单元无关"}]'
+    )
+    ctx = ExecContext(session_id="s", trace_id="t", registry=default_registry(), llm_provider=provider)
+    res = asyncio.run(search_unit_resources("React 组件", ctx, limit=3))
+    assert [r["url"] for r in res] == ["https://example.com/rel"]  # 无关被丢
+    assert all("snippet" not in r for r in res)  # 摘要不持久化

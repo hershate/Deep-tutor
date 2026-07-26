@@ -30,7 +30,7 @@ def _stub_unit_search(monkeypatch):
     """同 sse 测试：stub 单元补充资料检索防真实联网。"""
     from app.api import plans as plans_mod
 
-    async def _none(query, ctx):
+    async def _none(query, ctx, limit=3):
         return []
 
     monkeypatch.setattr(plans_mod, "search_unit_resources", _none)

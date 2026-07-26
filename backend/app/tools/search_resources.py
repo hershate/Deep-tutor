@@ -33,8 +33,13 @@ from app.tools.verify_url import make_verify_client, verify_url
 
 log = logging.getLogger("deep_tutor.tools.search")
 
-MAX_PER_STAGE = 5
-MAX_TOTAL = 40
+MAX_PER_STAGE = 5  # 无复杂度信号时的默认每阶段上限（plan/09 §二十 基线）
+MAX_TOTAL = 40  # 无复杂度信号时的默认全方案上限（基线）
+# iter 360（引文数量动态化）：随学习计划复杂度上调——难点阶段/复杂目标需更多参考文献。
+# 硬上限保留（成本/认知负荷有界）：每阶段 ≤7、全方案 ≤50。
+_HARD_MAX_PER_STAGE = 7
+_HARD_MAX_TOTAL = 50
+_BASE_TOTAL = 20  # 总参考文献基线（+ 知识点数 → 复杂目标参考文献更多）
 BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 SEARCH_TIMEOUT = 30.0
 
@@ -105,25 +110,75 @@ def _ctx_bing_key(ctx: ExecContext) -> str:
     return (getattr(ctx, "bing_api_key", "") or "") or settings.bing_api_key
 
 
-async def _run_web_queries(
-    queries: list[tuple[int, str]], engine: str, bing_key: str
-) -> list[list[dict] | None]:
-    """并发执行全部检索查询（有界 _SEARCH_CONCURRENCY，iter 228）。
+# --- iter 360：复杂度感知的引文配额（issue 4：参考文献数量随计划复杂度/资料量动态）---
 
-    返回与 queries 等长对齐的结果列表；单查询失败 -> 对应位 None（记 warning，
-    不中断整批，同旧串行 continue 语义）。gather 保持入参顺序，与并发完成先后无关。
+
+def _complexity_signals(inp: ToolInput) -> tuple[int, list[dict]]:
+    """从上游读取复杂度信号：(知识点总数, stages 列表)。
+
+    - 知识点总数（build_knowledge_map.nodes）：目标越宽 -> 拆分出的知识点越多 -> 需更多参考文献。
+    - stages（design_stages）：每阶段 difficulty/广度决定该阶段参考数量。
+    缺上游（测试/局部调用）-> (0, [])，配额回退基线 MAX_PER_STAGE/MAX_TOTAL。
+    """
+    km = ((inp.upstream or {}).get("build_knowledge_map") or {}).get("data") or {}
+    nodes = km.get("nodes") or []
+    stages = (((inp.upstream or {}).get("design_stages") or {}).get("data") or {}).get("stages") or []
+    return len(nodes), [s for s in stages if isinstance(s, dict)]
+
+
+def _stage_difficulty(stage: dict) -> int:
+    try:
+        return max(1, min(5, int(stage.get("difficulty") or 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def stage_topic_cap(stage: dict | None) -> int:
+    """该阶段检索的主题数上限：广度/难度越高检索越多主题（覆盖面），但封顶 4。
+
+    无 stage（缺上游/测试）-> 3（同旧行为，保兼容）。
+    """
+    if not stage:
+        return 3
+    return 4 if _stage_difficulty(stage) >= 4 else 3
+
+
+def stage_resource_cap(stage: dict | None, stage_index: int, stages: list[dict]) -> int:
+    """该阶段资源上限：难度越高 -> 参考文献越多（难点需更详尽参考）；无信号 -> MAX_PER_STAGE。
+
+    difficulty 1->3 / 2->4 / 3->5 / 4->6 / 5->7（封顶 _HARD_MAX_PER_STAGE）。
+    """
+    if not stage:
+        return MAX_PER_STAGE
+    cap = 2 + _stage_difficulty(stage)
+    return min(cap, _HARD_MAX_PER_STAGE)
+
+
+def total_resource_cap(total_nodes: int) -> int:
+    """全方案资源上限：知识点越多（越复杂）-> 总参考文献越多；封顶 _HARD_MAX_TOTAL。"""
+    return min(_BASE_TOTAL + max(0, total_nodes), _HARD_MAX_TOTAL)
+
+
+async def _run_web_queries(
+    queries: list[tuple[int, str, int]], engine: str, bing_key: str
+) -> list[list[dict] | None]:
+    """并发执行全部检索查询（有界 _SEARCH_CONCURRENCY，iter 228；iter 360 每查询候选数动态）。
+
+    queries 元素为 (stage_index, topic, count)；count 为该查询向搜索引擎请求的候选数
+    （难点阶段取更多候选）。返回与 queries 等长对齐的结果列表；单查询失败 -> 对应位 None
+    （记 warning，不中断整批，同旧串行 continue 语义）。gather 保持入参顺序。
     """
     sem = asyncio.Semaphore(_SEARCH_CONCURRENCY)
 
-    async def _one(topic: str) -> list[dict] | None:
+    async def _one(topic: str, count: int) -> list[dict] | None:
         async with sem:
             try:
-                return await _search_web(topic, engine, key=bing_key)
+                return await _search_web(topic, engine, count=count, key=bing_key)
             except Exception as exc:  # noqa: BLE001  单查询检索失败不中断
                 log.warning("Web 检索失败 topic=%s: %s", topic[:MAX_QUERY_CHARS], exc)
                 return None
 
-    return await asyncio.gather(*(_one(topic) for _, topic in queries))
+    return await asyncio.gather(*(_one(topic, count) for _, topic, count in queries))
 
 
 async def _verify_candidates(
@@ -193,12 +248,16 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             errors=[ToolError(code="no_search_key", message="SEARCH_ENGINE=bing 但未配置 BING_API_KEY，search_resources 不可用")],
         )
 
-    # --- 阶段 1：并发检索（iter 228；旧串行逐主题 await，wall-clock 为各查询之和）---
-    queries: list[tuple[int, str]] = [
-        (stage_index, topic)
-        for stage_index, topics in enumerate(stage_topics)
-        for topic in topics[:3]  # 每阶段取前 3 个主题检索
-    ]
+    # --- 阶段 1：并发检索（iter 228；iter 360 主题数/候选数随阶段难度动态）---
+    total_nodes, stages = _complexity_signals(inp)
+    total_cap = total_resource_cap(total_nodes)
+    queries: list[tuple[int, str, int]] = []  # (stage_index, topic, 每主题候选数)
+    for stage_index, topics in enumerate(stage_topics):
+        stage = stages[stage_index] if stage_index < len(stages) else None
+        topic_cap = stage_topic_cap(stage)  # 难度高的阶段检索更多主题
+        cand_count = min(3 + _stage_difficulty(stage), 8) if stage else 5  # 难点阶段多取候选
+        for topic in topics[:topic_cap]:
+            queries.append((stage_index, topic, cand_count))
     attempted = len(queries)  # 实际发起的检索数（空主题时不得误报引擎不可用）
     results = await _run_web_queries(queries, engine, bing_key)
     succeeded = sum(1 for r in results if r is not None)
@@ -206,21 +265,23 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     # --- 阶段 2：并发校验（URL 去重，同 URL 只验一次）---
     items: list[tuple[int, dict]] = [
         (stage_index, cand)
-        for (stage_index, _), cands in zip(queries, results, strict=True)
+        for (stage_index, _, _), cands in zip(queries, results, strict=True)
         if cands
         for cand in cands
     ]
     verdicts = await _verify_candidates(items, inp.session_id, ctx)
 
-    # --- 阶段 3：确定性选择（顺序/配额语义与旧串行逐字一致：
-    # 按 阶段->主题->候选 原顺序遍历，invalid 换源不占位，每阶段 ≤MAX_PER_STAGE、总 ≤MAX_TOTAL）---
+    # --- 阶段 3：确定性选择（iter 360：每阶段/总配额随复杂度动态；顺序语义不变：
+    # 按 阶段->主题->候选 原顺序遍历，invalid 换源不占位，每阶段 ≤stage_resource_cap、总 ≤total_cap）---
     resources: list[dict] = []
     per_stage: dict[int, int] = {}
-    for (stage_index, _), cands in zip(queries, results, strict=True):
+    for (stage_index, _, _), cands in zip(queries, results, strict=True):
         if not cands:
             continue
+        stage = stages[stage_index] if stage_index < len(stages) else None
+        cap = stage_resource_cap(stage, stage_index, stages)
         for cand in cands:
-            if per_stage.get(stage_index, 0) >= MAX_PER_STAGE or len(resources) >= MAX_TOTAL:
+            if per_stage.get(stage_index, 0) >= cap or len(resources) >= total_cap:
                 break
             url = cand.get("url", "")
             if not isinstance(url, str):
@@ -236,6 +297,7 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                     "type": "doc",
                     "verified": vdata.get("label", "uncertain"),
                     "note": "",
+                    "snippet": vdata.get("snippet", ""),  # iter 360：正文摘要供筛选判相关性
                 }
             )
             per_stage[stage_index] = per_stage.get(stage_index, 0) + 1
@@ -263,7 +325,9 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return ToolOutput(tool="search_resources", status="ok", data={"resources": [], "engine": engine})
     # err.md B9：筛选调用的 usage 须进入 ToolOutput.metadata —— 否则编排器
     # budget.add(0) 且 _persist_tool_calls 归集为空，这次 LLM 花费对预算/统计失明
-    resources, screen_usage = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62）
+    resources, screen_usage = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62/360）
+    for r in resources:
+        r.pop("snippet", None)  # 摘要仅供筛选，不进方案 resources schema
     out = ToolOutput(tool="search_resources", status="ok", data={"resources": resources, "engine": engine})
     if screen_usage is not None:
         from app.agent.cost import build_metadata
@@ -277,20 +341,23 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 SCREEN_MAX_TOKENS = 2000  # ≤40 候选的判定 JSON 上限足够
 
 # inline 回退 prompt（R13：skills/deep-tutor-resources 缺失时用；两者 schema 必须一致）
-SCREEN_PROMPT = """你是 Deep-tutor 的「资源内容适配性筛选」工具。候选资源已通过可达性校验（HTTP 200），你的任务：判定每个候选与对应学习阶段主题、学习者水平的内容适配性。
+# iter 360：候选附正文摘要 snippet（verify_url 抓取的前缀纯文本）——据此判内容是否与主题
+# *强相关*，不再仅凭标题（标题党/同名不同义/SEO 水文可识别）。
+SCREEN_PROMPT = """你是 Deep-tutor 的「资源内容适配性筛选」工具。候选资源已通过可达性校验（HTTP 200），你的任务：判定每个候选与对应学习阶段主题、学习者水平的**内容强相关性**与适配性。
 
-输入（user message JSON）：{"topic":"学习主题","level":"学习者水平","stages":["阶段名",...],"candidates":[{"stage_index":0,"title":"...","url":"..."}]}
+输入（user message JSON）：{"topic":"学习主题","level":"学习者水平","stages":["阶段名",...],"candidates":[{"stage_index":0,"title":"...","url":"...","snippet":"正文摘要（可能为空）"}]}
 
 仅返回 JSON 数组（不要 markdown 代码块、不要解释），每候选一项：
 [{"url":"候选 url 原文","suitable":true,"label":"ok|uncertain","note":"一句话说明"}]
 
 规则：
-- suitable=false：内容与该阶段主题不相关（如主题讲 Python 基础，候选是 Java 框架）——该候选将被丢弃。相关即 true，宁宽勿漏。
+- 优先依据 snippet 正文摘要判断内容是否真正讲该主题；snippet 为空时再退回标题与常识。
+- suitable=false：内容与该阶段主题不相关或仅擦边（如主题讲 Python 基础，候选是 Java 框架/导览页/无关资讯）——该候选将被丢弃。只有内容确实覆盖该主题才 true，宁缺勿滥。
 - label="ok"：内容相关且难度/深度适配该阶段（初级阶段配入门教程）。
-- label="uncertain"：相关但难度/质量不确定（明显过深、内容陈旧、清单水文等）。
+- label="uncertain"：相关但难度/质量不确定（明显过深、内容陈旧、清单水文、snippet 不足以判定等）。
 - note：中文一句话（≤40 字），uncertain 时说明原因；ok 时可留空。
 - 必须覆盖 candidates 中的每个 url，url 原样返回（不改写、不编造）。
-- 不访问 URL 正文，仅依据标题与常识判断；拿不准一律 uncertain，不臆断 ok。
+- 拿不准一律 uncertain，不臆断 ok；不得因「标题含关键词」就判相关，须正文佐证。
 
 仅返回符合上述格式的 JSON 数组。
 """
@@ -330,15 +397,31 @@ def _parse_screen_verdicts(text: str) -> dict[str, dict] | None:
     return verdicts
 
 
+def _mark_unscreened(resources: list[dict], reason: str = "未经 AI 相关性筛选") -> list[dict]:
+    """iter 360（issue 2b）：降级时不再静默把未筛选候选当 ✅——ok 一律降 ⚠️ 并标注原因。
+
+    只降不升（ok->uncertain；uncertain/invalid 不动）；note 为空时补 reason。让用户明确知道
+    这些资源未经 AI 价值/相关性筛选，而非被当作已验证优质资源。
+    """
+    for r in resources:
+        if r.get("verified") == "ok":
+            r["verified"] = "uncertain"
+        if not r.get("note"):
+            r["note"] = reason
+    return resources
+
+
 async def _screen_resources(
     resources: list[dict], inp: ToolInput, ctx: ExecContext
 ) -> tuple[list[dict], "LLMUsage | None"]:
     """LLM 内容适配性筛选（一次批量调用，成本有界）：不相关丢弃、存疑降 ⚠️、附 note。
 
+    iter 360：候选附正文摘要 snippet，LLM 据正文判「内容强相关性」（不再仅凭标题）。
     返回 (筛选后资源, 本次 LLM usage 或 None)（err.md B9：调用方据 usage 填 metadata）。
-    降级（稳定优先）：无 provider / 无候选 / LLM 异常 / 输出不可解析 -> 原样返回
-    （行为同筛选前：verify 可达即保留原标记）。LLM 响应未覆盖的 url 保持原判定。
-    label 只降不升（verify 已 ⚠️ 的候选不因 LLM 说 ok 而升 ✅）。
+    降级（稳定优先 + issue 2b）：有 provider 但 LLM 异常 / 输出不可解析 -> 不静默保留 ok，
+    改统一标 ⚠️ + note「未经 AI 相关性筛选」（系统尝试筛选失败，明确告知未筛选）。无 provider
+    （零配置/未配 key，生成本就不可用）-> 不筛选也不降标（与旧一致）。LLM 响应未覆盖的 url 保持
+    原判定。label 只降不升（verify 已 ⚠️ 的候选不因 LLM 说 ok 而升 ✅）。
     """
     provider = ctx.llm_provider
     if provider is None or not resources:
@@ -352,10 +435,14 @@ async def _screen_resources(
         "level": intent.get("level", "") or "",
         "stages": stage_names,
         "candidates": [
-            # iter 245：title 来自搜索页抓取的不可信内容——本调用不经 loop 的
-            # _sanitize_for_prompt 守卫，截断 80 字符压缩注入载荷空间（纵深防御；
-            # 筛选器输出仅丢/留/降级标记 + 短 note，影响面本就有界）
-            {"stage_index": r["stage_index"], "title": str(r["title"])[:80], "url": r["url"]}
+            # iter 245：title/snippet 来自网络不可信内容——截断压缩注入载荷空间（筛选器输出
+            # 仅丢/留/降级标记 + 短 note，影响面本就有界）。iter 360：附 snippet 供正文相关性判断
+            {
+                "stage_index": r["stage_index"],
+                "title": str(r.get("title", ""))[:80],
+                "url": r["url"],
+                "snippet": str(r.get("snippet", ""))[:400],
+            }
             for r in resources
         ],
     }
@@ -372,12 +459,12 @@ async def _screen_resources(
             timeout=ctx.timeouts.llm,
         )
         verdicts = _parse_screen_verdicts(resp.content)
-    except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：保持原判定
-        log.warning("资源内容适配筛选失败，跳过筛选: %s", exc)
-        return resources, None
+    except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：降级标注（issue 2b）
+        log.warning("资源内容适配筛选失败，降级标注未筛选: %s", exc)
+        return _mark_unscreened(resources), None
     if verdicts is None:
-        log.warning("资源内容适配筛选输出不可解析，跳过筛选")
-        return resources, resp.usage
+        log.warning("资源内容适配筛选输出不可解析，降级标注未筛选")
+        return _mark_unscreened(resources), resp.usage
 
     screened: list[dict] = []
     for r in resources:
@@ -483,14 +570,89 @@ async def _search_web(query: str, engine: str, count: int = 5, key: str = "") ->
     return await func(query[:MAX_QUERY_CHARS], count=count, key=key)
 
 
-MAX_PER_UNIT = 3  # 单单元补充资料上限（iter 48，plan/07 §三 步骤 2）
+MAX_PER_UNIT = 3  # 单单元补充资料默认上限（iter 48，plan/07 §三 步骤 2）；iter 360 调用方可按单元复杂度动态传入
+
+
+# iter 360（issue 2a/3）：自学单元补充资料的相关性筛选——与主路径一致，候选附正文摘要 snippet，
+# LLM 据正文判与单元主题是否强相关；降级（无 provider/异常/不可解析）-> 标注未筛选（_mark_unscreened）。
+UNIT_SCREEN_PROMPT = """你是 Deep-tutor 的「自学单元补充资料筛选」工具。候选已通过可达性校验（HTTP 200）。判定每个候选与自学单元主题的**内容强相关性**。
+
+输入（user message JSON）：{"topic":"单元主题（知识点/单元标题）","candidates":[{"title":"...","url":"...","snippet":"正文摘要（可能为空）"}]}
+
+仅返回 JSON 数组（不要 markdown 代码块、不要解释），每候选一项：
+[{"url":"候选 url 原文","suitable":true,"label":"ok|uncertain","note":"一句话说明"}]
+
+规则：
+- 优先依据 snippet 正文判断是否真正讲该单元主题；snippet 为空时退回标题与常识。
+- suitable=false：内容与单元主题不相关或仅擦边（导览页/无关资讯/同名不同义）——该候选将被丢弃。只有确实覆盖该主题才 true，宁缺勿滥。
+- label="ok"：相关且适合自学该单元；label="uncertain"：相关但难度/质量不确定或 snippet 不足判定。
+- note：中文一句话（≤40 字），uncertain 时说明原因；ok 时可留空。
+- 必须覆盖每个候选 url，url 原样返回（不改写、不编造）；拿不准一律 uncertain。
+
+仅返回符合上述格式的 JSON 数组。
+"""
+
+
+async def _screen_unit_resources(
+    resources: list[dict], query: str, ctx: ExecContext
+) -> list[dict]:
+    """单元补料 LLM 相关性筛选：不相关丢弃、存疑降 ⚠️、附 note。
+
+    降级：有 provider 但异常/不可解析 -> _mark_unscreened（标注未筛选）；无 provider -> 原样返回。
+    """
+    provider = ctx.llm_provider
+    if provider is None or not resources:
+        return resources
+    payload = {
+        "topic": query[:MAX_QUERY_CHARS],
+        "candidates": [
+            {
+                "title": str(r.get("title", ""))[:80],
+                "url": r["url"],
+                "snippet": str(r.get("snippet", ""))[:400],
+            }
+            for r in resources
+        ],
+    }
+    try:
+        resp = await asyncio.wait_for(
+            provider.chat(
+                UNIT_SCREEN_PROMPT,
+                json.dumps(payload, ensure_ascii=False),
+                max_tokens=SCREEN_MAX_TOKENS,
+                cache_system=True,
+            ),
+            timeout=ctx.timeouts.llm,
+        )
+        verdicts = _parse_screen_verdicts(resp.content)
+    except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：降级标注
+        log.warning("单元补料筛选失败，降级标注未筛选: %s", exc)
+        return _mark_unscreened(resources)
+    if verdicts is None:
+        return _mark_unscreened(resources)
+    screened: list[dict] = []
+    for r in resources:
+        v = verdicts.get(r["url"])
+        if v is None:
+            screened.append(r)
+            continue
+        if not v["suitable"]:
+            continue  # 不相关 -> 丢弃
+        r2 = dict(r)
+        if v["label"] == "uncertain":
+            r2["verified"] = "uncertain"
+        if v["note"]:
+            r2["note"] = v["note"][:200]
+        screened.append(r2)
+    return screened
 
 
 async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_PER_UNIT) -> list[dict]:
     """单自学单元 WebSearch 补充资料（plan/07 §三 步骤 2「每单元 WebSearch 补充资料」，iter 48）。
 
-    经 `_search_web` 调度生效引擎（iter 222：免 Key 网页版兜底）+ `verify_url` 逐个校验，
-    丢弃 invalid，保留 ≤limit 条 {title,url,verified,note}。
+    iter 360：verify 可达后经 `_screen_unit_resources` 做 LLM 相关性筛选（不相关丢弃、存疑降 ⚠️），
+    与主路径一致；附正文摘要供筛选，返回前剥离。降级（无 provider/异常）-> 标注「未经 AI 相关性筛选」。
+    保留 ≤limit 条 {title,url,verified,note}。limit 由调用方按单元复杂度动态传入（issue 4）。
     引擎不可用（bing 无 key）/ 空 query / 检索失败 / 无结果 -> []（不编造 URL；内容侧由 LLM 标「无外部资料参考」）。
     """
     bing_key = _ctx_bing_key(ctx)
@@ -506,8 +668,6 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     verdicts = await _verify_candidates([(0, c) for c in candidates], ctx.session_id, ctx)
     resources: list[dict] = []
     for cand in candidates:
-        if len(resources) >= limit:
-            break
         vdata = verdicts.get(cand.get("url", "")) or {}
         if vdata.get("label", "invalid") == "invalid":
             continue  # 失效换源（同主流程）
@@ -517,16 +677,21 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
                 "url": vdata.get("final_url", cand.get("url", "")),
                 "verified": vdata.get("label", "uncertain"),
                 "note": "",
+                "snippet": vdata.get("snippet", ""),  # iter 360：正文摘要供筛选
             }
         )
-    return resources
+    resources = await _screen_unit_resources(resources, query, ctx)
+    for r in resources:
+        r.pop("snippet", None)  # 摘要仅供筛选，不持久化
+    return resources[:limit]
 
 
 search_resources_tool = Tool(
     name="search_resources",
     llm=False,
     func=search_resources,
-    # 实际读取 understand_intent（资源筛选意图）与 design_stages（B21 主题派生）的上游输出；
-    # 据此声明使 orchestrator 能静态校验它不与其他读取它的工具同组并行（见 _PARALLEL_GROUPS 断言）。
-    upstream_reads=frozenset({"understand_intent", "design_stages"}),
+    # 实际读取 understand_intent（资源筛选意图）、design_stages（B21 主题派生 + 阶段难度配额）、
+    # build_knowledge_map（iter 360 知识点数 -> 引文数量随复杂度动态）的上游输出；据此声明使
+    # orchestrator 能静态校验它不与其他读取它的工具同组并行（见 _PARALLEL_GROUPS 断言）。
+    upstream_reads=frozenset({"understand_intent", "design_stages", "build_knowledge_map"}),
 )
