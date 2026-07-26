@@ -58,6 +58,8 @@
 - **suitable 宽容解析**：真实 LLM 偶把布尔写成 `"true"`/`1` 等字符串/数字，旧 `_parse_screen_verdicts` 要求 `isinstance(bool)` 会**跳过该项** -> 该 url 判未覆盖 -> 丢弃。新增 `_coerce_suitable`（接受 bool/`"true","false","yes","no"`/`1,0`；无法判定才 None）。
 **测试**：+5（`test_screen_url_key_normalizes`、`test_coerce_suitable_lenient`、`test_screen_max_tokens_scales_and_capped`、`test_screening_matches_via_url_normalization`[尾斜杠+fragment+host 大小写实机回归]、`test_screening_accepts_string_suitable`）。**全量 pytest 1246 passed** + ruff 干净。commit `60425b0`。**注**：iter 361 期间已生成的方案（资源被误丢、入库为空）需**重新生成**方可恢复资源；新生成的方案不受影响。详见 §五 iter 362。
 
+**iter 364（2026-07-26，继续深审：计算/API/前端边界 + 上轮修复二次审查，✅ 完成）**：用户 /goal「继续仔细检查，并修复，不要放过任何逻辑问题和边界情况」。4 路并行深审（后端计算边界/API边界+上轮可疑项/前端剩余页面/上轮修复二次审查）→ 7 commit：【高】JSX 文本 \${} 误写致费用/预算不可见（iter 356 货币改造遗留，4 文件 7 处）/ _BARE_URL_RE lookbehind 误排除 GFM 自动链接前导符（二次审查抓到的上轮 sanitize 回归，(url)/"url" 绕过筛选门）；【中】_dispatch_tool 工具回灌截断防击穿预算 + 分享顶层 resources sanitize 堵 XSS / 前端 idle 视图掩盖终态+解析弹窗互关+错误堆积 / awaiting_approval 竞态重复 RunArtifact 去重；边界加固（quiz 限流前置/补卡下限/difficulty 夹紧）+ conftest 测试隔离。全量 pytest **1259 passed**（+2 新）+ ruff + build。二次审查确认 iter 363 其余 6 修复正确。详见 §五 iter 364。
+
 **iter 363（2026-07-26，全项目稳定性/安全/可维护性/扩展性审计+修复，✅ 完成）**：用户 /goal「认真检查整个项目，确保稳定性/安全性/高可维护性/扩展性，遇逻辑错误可直接修复」。5 路并行深度调查 agent（后端安全/稳定性边界/前端交互/筛选门+记忆系统专项/扩展性契约）→ 逐条验证 → 7 commit：【高】引文筛选门多形式绕过（sanitize 重写覆盖 title/大写scheme/autolink/引用定义/裸URL + collect verified 收紧 + coerce 整数边界）/ Thread→Plan 跨用户隔离 / 记忆系统稳定性（DELETE runs FK + approve IDOR + create_task 引用 + delete_thread 取消 + cancel 线程安全 + _ChatStream 三联流挂死）/ MaterialsModal 相位静默吞错；【中】workspace Windows 提交错位 + plans _SessionStream 慢订阅挂死 / agent_loop cancel 残缺 tool_result 卡死会话 / 扩展性（_serialize_status 补字段 + Memory scope+limit + events.on _track + env LLM_MAX_TOKENS）。全量 pytest **1257 passed**（+12 新）+ ruff 干净 + 前端 build 通过。**需用户决策**：promote_artifact 死代码 → 经用户选「恢复流程」已修（`45032b8`，run 进行中即可提议提升）。详见 §五 iter 363。
 
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
@@ -303,6 +305,18 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-26 iter 364（继续深审：计算/API/前端边界 + 上轮修复二次审查 /goal·✅ 完成）**：用户 /goal「继续仔细检查，并修复，不要放过任何逻辑问题和边界情况」。4 路并行深审（后端计算边界 / API 边界+上轮可疑项 / 前端剩余页面 / 上轮修复二次审查）→ 逐条验证 → 7 commit 落地。全量 pytest **1259 passed**（+2 新）+ ruff 干净 + 前端 build 通过。
+  - **【高】JSX 文本 \${} 模板字面量误写致费用/预算不可见（`48f039d`）**：iter 356 货币 \$→￥ 改造遗留——JSX 文本中 `￥\${expr}` 不被解析（模板字面量需反引号），渲染为字面字符串如"￥\${total.toFixed(6)}"，用量页/设置预算/生成费用等核心金额数据对用户完全不可见。4 文件 7 处改 `{\`￥\${expr}\`}` 表达式。
+  - **【高】_BARE_URL_RE lookbehind 误排除 GFM 自动链接前导符（`edb4001`，二次审查抓上轮回归）**：iter 363 sanitize 重写的 lookbehind 排除了 ) " ' 等，但这些恰是 remark-gfm 实测会自动链接的前导字符——致 (url)、"url"、[a](b) 尾随 url 等 LLM 常见引用形式绕过筛选门直达学生。lookbehind 收紧为 `(?<![a-zA-Z0-9])` + 标准链接前置消费。+1 测试。
+  - **【中】工具回灌无尺寸上限击穿预算（`6db1874`）**：[_dispatch_tool](backend/app/api/memory.py) 把工具输出 json.dumps 整体塞 tool_result 回灌 LLM，workspace_read/web_fetch 可达 10MB+ 单轮击穿 token 预算或超 context window 致整轮失败。加 20k 字符截断。
+  - **【中】分享顶层 resources 漏 sanitize（`6db1874`）**：[_sanitize_shared_content](backend/app/api/share.py) 仅处理 stages[].resources（design_stages schema 实际无此字段，死代码），漏 search_resources 产出的顶层 content.resources，致分享页暴露非 http(s) URL（javascript: 配合恶意备份可致跨用户 XSS）。补顶层 scheme 过滤。+1 测试。
+  - **【中】前端交互（`fb87f4c`）**：GenerateProgress idle 视图未排除终态相位、掩盖"方案已生成"卡片；KbDocsView 解析弹窗完成回调误关用户新开弹窗；KbChatPanel 错误列表只追加不清理。
+  - **【中】awaiting_approval 竞态重复 RunArtifact（`e42402a`）**：promote 提前登记 RunArtifact，commit_run_workspace 无条件再登记——小窗口内 approve 致重复。登记前去重。
+  - **边界加固（`accbbb1`）**：submit_quiz 限流前置（防 404 绕限流桶刷 DB）/ 补卡日期下限（防极端过去污染统计）/ Stage.difficulty field_validator 夹紧 [1,5]（对齐 build_knowledge_map）。
+  - **测试隔离（`1deb4db`）**：conftest isolate 补清 _RUN_STREAMS/_CHAT_RUN_TASKS（iter 363 引入的 chat run 状态未同步清，跨测试残留风险）。
+  - **二次审查确认正确**：iter 363 的 _ChatStream/_SessionStream terminal_event 兜底、request_cancel 线程安全、agent_loop cancel 占位 tool_result、delete_run FK、approve IDOR、commit_run_workspace Windows、_coerce_suitable——经 adversarial 审查与 remark-gfm 实测确认无误（仅 _BARE_URL_RE 上述回归）。
+  - **记录未修（低危/需大改）**：_RUN_CREATE_LOCK 锁内同步 DB 阻塞 loop（需 to_thread 重构）/ bus·webhook 同步线程池阻塞（需后台线程重构）/ promote 同名重登记+write_bytes 非原子+scratch 不清 / awaiting_approval 竞态的 agent 多跑窗口（毫秒级，需 promote 设 cancel_event 涉 ctx 适配）/ 多处写入端点无限流（users/providers test/progress/share）/ LearningLog 时区 UTC vs 本地（docstring 已接受）/ generate_quiz 兜底题 short 不可判分+node_id 大小写敏感+extract 只取首节 / clean_map parent_id 截断后悬空 / slides sanitize HTML 实体编码理论绕过（单用户场景）/ orchestrator 反馈循环预算并行代价（已注释接受）。
 
 - **2026-07-26 iter 363（全项目稳定性/安全/可维护性/扩展性审计 + 修复 /goal·✅ 完成）**：用户 /goal「认真检查整个项目，确保稳定性/安全性/高可维护性/扩展性，遇到逻辑错误可直接修复」。5 路并行深度调查 agent（后端安全 / 后端稳定性边界 / 前端交互 / 筛选门+记忆系统专项 / 扩展性契约）→ 逐条验证（剔除误报与历史已审计项）→ 7 commit 落地。全量 pytest **1257 passed**（+12 新）+ ruff 干净 + 前端 build 通过。
   - **【高】引文筛选门多形式绕过（`22a8841`）**：[sanitize_citations](backend/app/tools/generate_study_materials.py) 旧正则仅匹配 `[text](http://...)` 无 title 小写形式，对带 title、大写 scheme/host、autolink `<url>`、引用定义 `[id]:`、裸 URL（remark-gfm 自动链接）等形式完全失效——强制门形同虚设，未验证 URL 直达学生。重写覆盖全部可点击形式（代码块/行内代码保护，裸 URL 改行内代码中和服务免误伤正文）。collect_material_urls 由 `!=invalid` 收紧为显式 ok/uncertain 白名单（缺失/None/unknown 不放行，符强制门宁缺勿滥）。_coerce_suitable 整数非 0/1（如评分 2/3）改 None（旧误判 False 致候选误丢，同 iter 361 回归症状）。_normalize_url 小写 scheme+host（与 _screen_url_key 一致）。+11 测试（8 类绕过形式 + coerce 边界）。
