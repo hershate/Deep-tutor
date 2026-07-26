@@ -327,17 +327,32 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = _resolve_in(dst_dir, name)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(src.read_bytes())
-    art = RunArtifact(
-        run_id=ctx.run_id,
-        thread_id=ctx.thread_id,
-        name=name,
-        path=dst.relative_to(_root()).as_posix(),
-        kind="committed",
-        size=dst.stat().st_size,
-    )
-    ctx.db.add(art)
-    ctx.db.flush()  # 取 art.id 供 run_step 记录
+    # iter 364：原子写（tmp + os.replace），防复制中途崩溃致 dst 半写
+    import os
+
+    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(src.read_bytes())
+        os.replace(tmp, dst)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    # iter 364：同名重 promote 复用既有 RunArtifact（免重复登记）
+    art = ctx.db.query(RunArtifact).filter_by(run_id=ctx.run_id, name=name).first()
+    if art is None:
+        art = RunArtifact(
+            run_id=ctx.run_id,
+            thread_id=ctx.thread_id,
+            name=name,
+            path=dst.relative_to(_root()).as_posix(),
+            kind="committed",
+            size=dst.stat().st_size,
+        )
+        ctx.db.add(art)
+        ctx.db.flush()  # 取 art.id 供 run_step 记录
+    else:
+        art.path = dst.relative_to(_root()).as_posix()
+        art.size = dst.stat().st_size
     # 提议：run 进待审批 + 记 run_step（实际提升由 POST /runs/{id}/approve 执行）
     run.status = RunStatus.awaiting_approval
     ctx.db.add(
@@ -351,6 +366,9 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         )
     )
     ctx.db.commit()
+    # iter 364：设 cancel_event 让 agent_loop 工具循环尽快 break（缩小 awaiting_approval 与
+    # approve 的竞态窗口——原要等下一轮主循环检查，期间 approve 可致 agent 多跑 1+ 轮烧预算）
+    ctx.cancel_event.set()
     return _ok(
         tool,
         {"proposed": True, "artifact_id": art.id, "name": name, "target_kind": target_kind, "run_status": "awaiting_approval"},
