@@ -52,6 +52,12 @@
 **设计决策**：① 筛选失败**丢弃全部**而非降标保留（用户明确安全 > 可用，宁缺勿滥）；② 加**一次重试**降低瞬态失败零化全部候选的概率，仍败则丢；③ 主路径 `provider=None` 不可达故保留兼容、单元路径 `provider=None` 可达故强制空——按「真实可达性」分流而非一刀切（避免无谓改 10+ 个测 search 逻辑的测试）。
 **测试**：改写 `test_screening_failure_drops_all_with_note`（异常/不可解析->全丢+告警+重试断言）、`test_screening_uncovered_url_dropped`（未覆盖->丢）、`test_screening_receives_snippet`（改放行 provider 真正验 snippet 传入/剥离）、`test_screening_no_provider_skips`（docstring 订正）；新增 `test_unit_resources_no_provider_returns_empty`、`test_materials_sync_sanitizes_citations`；加 `_PassScreenProvider` 辅助 + `_run_unit(provider=)` 注入放行筛选以保留 verify/限额/引擎等非筛选逻辑测试。**全量 pytest 1241 passed** + ruff 干净 + 前端 build 通过（纯后端改动）。2 commit：`be8f84c`（筛选门）/ `5e01a9c`（同步材料 sanitize）。详见 §五 iter 361。
 
+**iter 362（2026-07-26，强制筛选门实机回归修复——方案无配套资源，✅ 完成）**：iter 361 强制门上线后用户实机生成方案出现「**暂无配套资源 / 方案未包含资源推荐**」。核查定位根因（非猜测）：真实 LLM 筛选判定的 `url` 与候选**精确字符串匹配失配**——真实 LLM 常把 url 改写（尾斜杠增删、加 fragment、scheme/host 大小写变化），旧「未覆盖即保留」的 `_mark_unscreened` 一直**掩盖**此问题，iter 361 的「未覆盖即丢弃」把它**暴露成全丢**。另有 2 处叠加根因。三处一并修（**强制门语义不变**——suitable=false/未覆盖/失败仍丢；仅提升真实 LLM 输出的匹配/解析健壮性）：
+- **URL 规范化匹配**：新增 `_screen_url_key`（去首尾空白/fragment/末尾斜杠、小写 scheme+host；path/query 大小写语义敏感保留）。`_screen_resources`/`_screen_unit_resources` 改按规范化键建索引 + 查候选。LLM 给了判定但**无候选匹配**时记 `log.warning` 诊断（不静默，便于排障）。
+- **动态 max_tokens**：候选多时固定 `SCREEN_MAX_TOKENS=2000` 会**截断**输出 -> JSON 不可解析 -> 全丢（叠加根因）。改 `_screen_max_tokens(n)` = `min(8000, 100·n + 500)`；移除死常量 `SCREEN_MAX_TOKENS`。
+- **suitable 宽容解析**：真实 LLM 偶把布尔写成 `"true"`/`1` 等字符串/数字，旧 `_parse_screen_verdicts` 要求 `isinstance(bool)` 会**跳过该项** -> 该 url 判未覆盖 -> 丢弃。新增 `_coerce_suitable`（接受 bool/`"true","false","yes","no"`/`1,0`；无法判定才 None）。
+**测试**：+5（`test_screen_url_key_normalizes`、`test_coerce_suitable_lenient`、`test_screen_max_tokens_scales_and_capped`、`test_screening_matches_via_url_normalization`[尾斜杠+fragment+host 大小写实机回归]、`test_screening_accepts_string_suitable`）。**全量 pytest 1246 passed** + ruff 干净。commit `60425b0`。**注**：iter 361 期间已生成的方案（资源被误丢、入库为空）需**重新生成**方可恢复资源；新生成的方案不受影响。详见 §五 iter 362。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
