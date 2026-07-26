@@ -28,6 +28,10 @@ def isolate():
     from app.db.base import Base, engine
 
     plans_mod._STREAMS.clear()  # 内存事件缓冲跨测试隔离
+    from app.api import memory as _memory_mod
+
+    _memory_mod._RUN_STREAMS.clear()  # iter 363：chat run SSE 流跨测试隔离
+    _memory_mod._CHAT_RUN_TASKS.clear()  # chat run 任务强引用跨测试隔离
     from app.skills.loader import reset_skill_registry
 
     reset_skill_registry()  # Skill 注册表缓存跨测试隔离
