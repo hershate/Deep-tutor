@@ -194,6 +194,10 @@ def commit_run_workspace(db, run_id: int, thread_id: int) -> list:
         for p in sorted(dst.rglob("*")):
             if p.is_file():
                 rel = p.relative_to(dst).as_posix()
+                # iter 364：跳过已登记的 artifact（promote_artifact 提前登记过同名文件，
+                # 避免 awaiting_approval 与 approve 竞态致重复 RunArtifact）
+                if db.query(RunArtifact).filter_by(run_id=run_id, name=rel).first() is not None:
+                    continue
                 db.add(
                     RunArtifact(
                         run_id=run_id,
