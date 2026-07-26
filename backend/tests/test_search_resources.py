@@ -176,8 +176,11 @@ def test_explicit_stage_topics_take_precedence(monkeypatch):
 # --- iter 48：search_unit_resources（单单元 WebSearch 补充资料，plan/07 §三 步骤 2）---
 
 
-def _run_unit(query, limit=3):
-    return asyncio.run(search_unit_resources(query, _ctx(), limit=limit))
+def _run_unit(query, limit=3, provider=None):
+    ctx = ExecContext(
+        session_id="s", trace_id="t", registry=default_registry(), llm_provider=provider
+    )
+    return asyncio.run(search_unit_resources(query, ctx, limit=limit))
 
 
 def test_unit_resources_no_key_or_empty_query(monkeypatch):
@@ -189,9 +192,10 @@ def test_unit_resources_no_key_or_empty_query(monkeypatch):
         return []  # 模拟网页无候选
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
-    assert _run_unit("React 基础") == []  # 回退 bing_web 但无结果 -> 空（不编造 URL）
+    # iter 361：注入放行 provider 使候选能过强制筛选门，从而真正测「网页无候选 -> 空」
+    assert _run_unit("React 基础", provider=_PassScreenProvider()) == []  # 回退 bing_web 但无结果 -> 空
     monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
-    assert _run_unit("   ") == []  # 空 query -> 空
+    assert _run_unit("   ", provider=_PassScreenProvider()) == []  # 空 query -> 空
 
 
 def test_unit_resources_verify_and_cap(monkeypatch):
@@ -214,7 +218,7 @@ def test_unit_resources_verify_and_cap(monkeypatch):
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
 
-    res = _run_unit("React 基础", limit=2)
+    res = _run_unit("React 基础", limit=2, provider=_PassScreenProvider())
     assert [r["url"] for r in res] == ["https://example.com/ok", "https://example.com/ok2"]
     assert all(r["verified"] == "ok" for r in res)
     assert set(res[0]) == {"title", "url", "verified", "note"}
@@ -228,7 +232,19 @@ def test_unit_resources_search_failure_returns_empty(monkeypatch):
         raise RuntimeError("网络故障")
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
-    assert _run_unit("React 基础") == []
+    assert _run_unit("React 基础", provider=_PassScreenProvider()) == []
+
+
+def test_unit_resources_no_provider_returns_empty(monkeypatch):
+    """iter 361 强制门：无 provider（降级材料路径真实可达）-> 直接返回 []，
+    不发起检索/不提供仅 verify 可达性（未经 AI 筛选）的网络补充资料（避免不良信息）。"""
+    monkeypatch.setattr(settings_mod.settings, "bing_api_key", "fake-key")
+
+    async def fake_search(query, engine, count=5, key=""):
+        raise AssertionError("无 provider 应在检索前短路，不应发起检索")
+
+    monkeypatch.setattr(sr_mod, "_search_web", fake_search)
+    assert _run_unit("React 基础", provider=None) == []
 
 
 # --- iter 62：LLM 内容适配性筛选（verify 可达后批量判定；失败稳定降级为不筛选）---
@@ -249,6 +265,29 @@ class _ScreenProvider:
         if self.exc is not None:
             raise self.exc
         return LLMResponse(content=self.content or "", usage=LLMUsage(model="m"))
+
+
+class _PassScreenProvider:
+    """fake LLM：对收到的任意候选均回 suitable=true/ok。
+
+    供需「保留资源」的 search/verify 逻辑测试注入——iter 361 强制门后，无 provider 的
+    search_unit_resources 直接返回 []，故测 verify/去重/限额等非筛选逻辑时须注入一个
+    「全放行」的筛选 provider，使候选能通过强制 AI 筛选门。
+    """
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
+        import json
+
+        self.calls.append({"system": system, "user": user})
+        try:
+            cands = json.loads(user or "{}").get("candidates", [])
+        except Exception:  # noqa: BLE001
+            cands = []
+        verdicts = [{"url": c.get("url"), "suitable": True, "label": "ok", "note": ""} for c in cands]
+        return LLMResponse(content=json.dumps(verdicts, ensure_ascii=False), usage=LLMUsage(model="m"))
 
 
 def _setup_two_candidates(monkeypatch):
@@ -319,26 +358,30 @@ def test_screening_drops_irrelevant(monkeypatch):
     assert len(res) == 1 and "intro" in res[0]["url"]
 
 
-def test_screening_failure_fallback(monkeypatch):
-    """iter 360（issue 2b）：有 provider 但 LLM 异常 / 输出不可解析 -> 不静默保留 ok，
-    改统一降标 ⚠️ + note「未经 AI 相关性筛选」（候选仍提供，明确告知未筛选）。"""
+def test_screening_failure_drops_all_with_note(monkeypatch):
+    """iter 361 强制门：有 provider 但 LLM 异常 / 输出不可解析（重试耗尽）-> 丢弃全部候选 +
+    data.note 告警。不再像旧 _mark_unscreened 那样降标保留未筛选候选（避免给学生引入未核验/不良信息）。"""
     _setup_two_candidates(monkeypatch)
-    out = _run_with_provider(_ScreenProvider(exc=RuntimeError("LLM down")))
-    assert len(out.data["resources"]) == 2  # 不丢弃，仅降标
-    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
-    assert all("未经 AI 相关性筛选" in r["note"] for r in out.data["resources"])
+    # 异常：每次调用都抛 -> 重试 _SCREEN_MAX_ATTEMPTS 次后全丢弃
+    p_exc = _ScreenProvider(exc=RuntimeError("LLM down"))
+    out = _run_with_provider(p_exc)
+    assert out.data["resources"] == []
+    assert len(p_exc.calls) == sr_mod._SCREEN_MAX_ATTEMPTS  # 重试发生
+    assert "已过滤全部候选资源" in out.data.get("note", "")
 
-    out = _run_with_provider(_ScreenProvider("这不是 JSON"))  # 不可解析 -> 同样降标
-    assert len(out.data["resources"]) == 2
-    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
+    # 不可解析（非 JSON）：重试耗尽 -> 全丢弃 + 告警
+    out = _run_with_provider(_ScreenProvider("这不是 JSON"))
+    assert out.data["resources"] == []
+    assert "已过滤全部候选资源" in out.data.get("note", "")
 
+    # 不可解析（非数组）：同上
     out = _run_with_provider(_ScreenProvider('{"not":"a list"}'))
-    assert len(out.data["resources"]) == 2
-    assert all(r["verified"] == "uncertain" for r in out.data["resources"])
+    assert out.data["resources"] == []
+    assert "已过滤全部候选资源" in out.data.get("note", "")
 
 
-def test_screening_partial_coverage_keeps_rest(monkeypatch):
-    """响应未覆盖的 url 保持原判定；非法单项跳过不影响其余。"""
+def test_screening_uncovered_url_dropped(monkeypatch):
+    """iter 361 强制门：LLM 响应未覆盖的 url -> 丢弃（未通过 AI 核验）；非法单项跳过不影响其余。"""
     _setup_two_candidates(monkeypatch)
     provider = _ScreenProvider(
         '[{"url":"https://example.com/deep","suitable":true,"label":"uncertain","note":"偏深"},'
@@ -346,15 +389,14 @@ def test_screening_partial_coverage_keeps_rest(monkeypatch):
     )
     out = _run_with_provider(provider)
     res = out.data["resources"]
-    assert len(res) == 2
-    intro = next(r for r in res if "intro" in r["url"])
-    deep = next(r for r in res if "deep" in r["url"])
-    assert intro["verified"] == "ok"  # 未覆盖 -> 原判定
-    assert deep["verified"] == "uncertain"
+    assert len(res) == 1  # intro 未覆盖 -> 丢弃；deep 通过
+    assert "deep" in res[0]["url"]
+    assert res[0]["verified"] == "uncertain"
 
 
 def test_screening_no_provider_skips(monkeypatch):
-    """无 LLM provider -> 不筛选（既有行为，无需 LLM 也可出方案）。"""
+    """无 LLM provider -> 不筛选（search_resources 在真实方案生成中经 plans._run_start 的
+    no_llm_provider 守卫永不至此；此分支仅测试/独立调用走，保留 search/verify 逻辑测试兼容）。"""
     _setup_two_candidates(monkeypatch)
     out = _run({"stage_topics": [["Python 基础"]]})  # _ctx() 无 provider
     assert len(out.data["resources"]) == 2
@@ -500,7 +542,7 @@ def test_unit_resources_auto_no_key(monkeypatch):
 
     monkeypatch.setattr(sr_mod, "_search_web", fake_search)
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
-    res = _run_unit("React 基础")
+    res = _run_unit("React 基础", provider=_PassScreenProvider())
     assert seen == ["bing_web"]
     assert len(res) == 1 and res[0]["verified"] == "ok"
 
@@ -796,11 +838,12 @@ def test_screening_receives_snippet(monkeypatch):
         )
 
     monkeypatch.setattr(sr_mod, "verify_url", fake_verify)
-    provider = _ScreenProvider("[]")  # 空判定 -> 全部保留（未覆盖）
+    provider = _PassScreenProvider()  # 放行 -> 候选保留，验证 snippet 传入且最终剥离
     out = _run_with_provider(provider)
     payload = provider.calls[0]["user"]
     assert "snippet" in payload
     assert "正文摘要内容" in payload
+    assert len(out.data["resources"]) == 2  # 放行后两候选保留
     # snippet 不进最终方案 resources（仅供筛选）
     assert all("snippet" not in r for r in out.data["resources"])
 

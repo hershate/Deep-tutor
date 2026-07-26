@@ -8,9 +8,10 @@
 - stage_topics：args 显式提供优先，缺省从 upstream.design_stages 派生（err.md B21）。
 - 不编造 URL；无结果/引擎不可用 -> 返回空 + 关键词建议，不占位。
 - 限额：每阶段 ≤5、总数 ≤40（09 §二十）。
-- 内容适配性筛选（iter 62，Skill=deep-tutor-resources）：verify 可达后，一次批量 LLM 调用
-  判定候选与阶段主题/学习者水平的适配性——不相关丢弃、存疑降 ⚠️、附 note；
-  无 provider / LLM 或解析失败 -> 跳过筛选（行为同可达即 ok，稳定降级）。
+- 内容适配性筛选（iter 62，Skill=deep-tutor-resources；iter 361 强制化）：verify 可达后，一次批量 LLM
+  调用判定候选与阶段主题/学习者水平的适配性——不相关丢弃、存疑降 ⚠️、附 note。**强制门**（用户 /goal：
+  「强制所有引文都必须经过 AI 筛选，避免给学生引入不良信息」）：未经 AI 核验的候选（筛选失败重试耗尽 /
+  响应未覆盖）一律**丢弃**，不再降标保留——宁缺勿滥。
 """
 
 from __future__ import annotations
@@ -325,10 +326,14 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return ToolOutput(tool="search_resources", status="ok", data={"resources": [], "engine": engine})
     # err.md B9：筛选调用的 usage 须进入 ToolOutput.metadata —— 否则编排器
     # budget.add(0) 且 _persist_tool_calls 归集为空，这次 LLM 花费对预算/统计失明
-    resources, screen_usage = await _screen_resources(resources, inp, ctx)  # LLM 内容适配性筛选（iter 62/360）
+    resources, screen_usage, screen_warn = await _screen_resources(resources, inp, ctx)  # 强制 AI 筛选门
     for r in resources:
         r.pop("snippet", None)  # 摘要仅供筛选，不进方案 resources schema
-    out = ToolOutput(tool="search_resources", status="ok", data={"resources": resources, "engine": engine})
+    data: dict = {"resources": resources, "engine": engine}
+    if screen_warn:
+        # iter 361：筛选失败致候选全部被过滤 -> 告知用户（宁缺勿滥，不静默给空）
+        data["note"] = screen_warn
+    out = ToolOutput(tool="search_resources", status="ok", data=data)
     if screen_usage is not None:
         from app.agent.cost import build_metadata
 
@@ -339,6 +344,9 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 # --- LLM 内容适配性筛选（iter 62，plan/02 §5：✅ = HTTP 200 + 内容难度适配该阶段）---
 
 SCREEN_MAX_TOKENS = 2000  # ≤40 候选的判定 JSON 上限足够
+# iter 361（强制门）：筛选调用失败/不可解析时重试一次（瞬态网络/超时不至于零化全部候选），
+# 仍失败则强制丢弃全部未核验候选（不降标保留）。
+_SCREEN_MAX_ATTEMPTS = 2
 
 # inline 回退 prompt（R13：skills/deep-tutor-resources 缺失时用；两者 schema 必须一致）
 # iter 360：候选附正文摘要 snippet（verify_url 抓取的前缀纯文本）——据此判内容是否与主题
@@ -397,35 +405,26 @@ def _parse_screen_verdicts(text: str) -> dict[str, dict] | None:
     return verdicts
 
 
-def _mark_unscreened(resources: list[dict], reason: str = "未经 AI 相关性筛选") -> list[dict]:
-    """iter 360（issue 2b）：降级时不再静默把未筛选候选当 ✅——ok 一律降 ⚠️ 并标注原因。
-
-    只降不升（ok->uncertain；uncertain/invalid 不动）；note 为空时补 reason。让用户明确知道
-    这些资源未经 AI 价值/相关性筛选，而非被当作已验证优质资源。
-    """
-    for r in resources:
-        if r.get("verified") == "ok":
-            r["verified"] = "uncertain"
-        if not r.get("note"):
-            r["note"] = reason
-    return resources
-
-
 async def _screen_resources(
     resources: list[dict], inp: ToolInput, ctx: ExecContext
-) -> tuple[list[dict], "LLMUsage | None"]:
-    """LLM 内容适配性筛选（一次批量调用，成本有界）：不相关丢弃、存疑降 ⚠️、附 note。
+) -> tuple[list[dict], "LLMUsage | None", str | None]:
+    """LLM 内容适配性筛选（强制门，用户 /goal：所有引文必须经 AI 筛选）。
 
     iter 360：候选附正文摘要 snippet，LLM 据正文判「内容强相关性」（不再仅凭标题）。
-    返回 (筛选后资源, 本次 LLM usage 或 None)（err.md B9：调用方据 usage 填 metadata）。
-    降级（稳定优先 + issue 2b）：有 provider 但 LLM 异常 / 输出不可解析 -> 不静默保留 ok，
-    改统一标 ⚠️ + note「未经 AI 相关性筛选」（系统尝试筛选失败，明确告知未筛选）。无 provider
-    （零配置/未配 key，生成本就不可用）-> 不筛选也不降标（与旧一致）。LLM 响应未覆盖的 url 保持
-    原判定。label 只降不升（verify 已 ⚠️ 的候选不因 LLM 说 ok 而升 ✅）。
+    iter 361 强制化：有 provider 时筛选为**强制门**——
+      - suitable=false（内容不相关）-> 丢弃；
+      - 响应未覆盖的 url（LLM 未给出判定）-> 丢弃（未通过 AI 核验）；
+      - 筛选调用失败/输出不可解析（重试 _SCREEN_MAX_ATTEMPTS 次后仍失败）-> 丢弃**全部**候选。
+    不再像旧 _mark_unscreened 那样降标保留未筛选候选——避免给学生引入未核验/不良信息（宁缺勿滥）。
+    返回 (筛选后资源, 本次 LLM usage 或 None, 告警说明或 None)（err.md B9：调用方据 usage 填 metadata；
+    告警说明非 None 时调用方应写入 data.note 告知用户为何资源被过滤）。
+    无 provider（仅测试/独立调用；真实方案生成经 plans._run_start 的 no_llm_provider 守卫永不至此）
+    -> 不筛选，原样返回（兼容 search 逻辑测试，三元素告警为 None）。
+    label 只降不升（verify 已 ⚠️ 的候选不因 LLM 说 ok 而升 ✅）。
     """
     provider = ctx.llm_provider
     if provider is None or not resources:
-        return resources, None
+        return resources, None, None
 
     intent = ((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}
     stages_data = ((inp.upstream or {}).get("design_stages") or {}).get("data") or {}
@@ -447,31 +446,37 @@ async def _screen_resources(
         ],
     }
     system = (ctx.skill_registry or {}).get("deep-tutor-resources") or SCREEN_PROMPT
-    try:
-        # err.md B8：筛选调用此前无超时，provider 挂起会无限阻塞整个 pipeline
-        resp = await asyncio.wait_for(
-            provider.chat(
-                system,
-                json.dumps(payload, ensure_ascii=False),
-                max_tokens=SCREEN_MAX_TOKENS,
-                cache_system=True,
-            ),
-            timeout=ctx.timeouts.llm,
-        )
-        verdicts = _parse_screen_verdicts(resp.content)
-    except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：降级标注（issue 2b）
-        log.warning("资源内容适配筛选失败，降级标注未筛选: %s", exc)
-        return _mark_unscreened(resources), None
+    # iter 361 强制门：重试 _SCREEN_MAX_ATTEMPTS 次（瞬态失败不致零化全部候选）；耗尽仍失败 -> 全丢弃。
+    last_usage: LLMUsage | None = None
+    verdicts: dict[str, dict] | None = None
+    for attempt in range(_SCREEN_MAX_ATTEMPTS):
+        try:
+            # err.md B8：筛选调用此前无超时，provider 挂起会无限阻塞整个 pipeline
+            resp = await asyncio.wait_for(
+                provider.chat(
+                    system,
+                    json.dumps(payload, ensure_ascii=False),
+                    max_tokens=SCREEN_MAX_TOKENS,
+                    cache_system=True,
+                ),
+                timeout=ctx.timeouts.llm,
+            )
+            last_usage = resp.usage
+            verdicts = _parse_screen_verdicts(resp.content)
+            if verdicts is not None:
+                break  # 成功解析，结束重试
+        except Exception as exc:  # noqa: BLE001  记录并重试；耗尽后强制丢弃
+            log.warning("资源内容适配筛选第 %d/%d 次失败: %s", attempt + 1, _SCREEN_MAX_ATTEMPTS, exc)
+            last_usage = None
     if verdicts is None:
-        log.warning("资源内容适配筛选输出不可解析，降级标注未筛选")
-        return _mark_unscreened(resources), resp.usage
+        log.warning("资源筛选重试耗尽，强制丢弃全部 %d 候选（避免引入未核验内容）", len(resources))
+        return [], last_usage, "AI 相关性筛选失败（已重试），为避免引入未经验证的内容，已过滤全部候选资源"
 
     screened: list[dict] = []
     for r in resources:
         v = verdicts.get(r["url"])
         if v is None:
-            screened.append(r)  # 响应未覆盖 -> 保持原判定
-            continue
+            continue  # iter 361：响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
         if not v["suitable"]:
             continue  # 内容不相关 -> 丢弃
         r2 = dict(r)
@@ -480,7 +485,7 @@ async def _screen_resources(
         if v["note"]:
             r2["note"] = v["note"][:200]
         screened.append(r2)
-    return screened, resp.usage
+    return screened, last_usage, None
 
 
 async def _bing_api_search(query: str, api_key: str, count: int = 5) -> list[dict]:
@@ -573,8 +578,9 @@ async def _search_web(query: str, engine: str, count: int = 5, key: str = "") ->
 MAX_PER_UNIT = 3  # 单单元补充资料默认上限（iter 48，plan/07 §三 步骤 2）；iter 360 调用方可按单元复杂度动态传入
 
 
-# iter 360（issue 2a/3）：自学单元补充资料的相关性筛选——与主路径一致，候选附正文摘要 snippet，
-# LLM 据正文判与单元主题是否强相关；降级（无 provider/异常/不可解析）-> 标注未筛选（_mark_unscreened）。
+# iter 360（issue 2a/3）+ iter 361 强制化：自学单元补充资料的相关性筛选——与主路径一致，
+# 候选附正文摘要 snippet，LLM 据正文判与单元主题是否强相关；强制门：不相关/未覆盖/筛选失败（重试耗尽）
+# 一律丢弃，不再降标保留（_mark_unscreened 已移除）。
 UNIT_SCREEN_PROMPT = """你是 Deep-tutor 的「自学单元补充资料筛选」工具。候选已通过可达性校验（HTTP 200）。判定每个候选与自学单元主题的**内容强相关性**。
 
 输入（user message JSON）：{"topic":"单元主题（知识点/单元标题）","candidates":[{"title":"...","url":"...","snippet":"正文摘要（可能为空）"}]}
@@ -596,9 +602,11 @@ UNIT_SCREEN_PROMPT = """你是 Deep-tutor 的「自学单元补充资料筛选�
 async def _screen_unit_resources(
     resources: list[dict], query: str, ctx: ExecContext
 ) -> list[dict]:
-    """单元补料 LLM 相关性筛选：不相关丢弃、存疑降 ⚠️、附 note。
+    """单元补料 LLM 相关性筛选（强制门，iter 361）：不相关丢弃、存疑降 ⚠️、附 note。
 
-    降级：有 provider 但异常/不可解析 -> _mark_unscreened（标注未筛选）；无 provider -> 原样返回。
+    有 provider 时为强制门——suitable=false / 响应未覆盖 / 筛选失败（重试 _SCREEN_MAX_ATTEMPTS 次
+    后仍失败）一律丢弃，不再降标保留未筛选候选。无 provider（调用方 search_unit_resources 已在更早处
+    短路为 []，此分支仅作防御）-> 原样返回。
     """
     provider = ctx.llm_provider
     if provider is None or not resources:
@@ -614,28 +622,31 @@ async def _screen_unit_resources(
             for r in resources
         ],
     }
-    try:
-        resp = await asyncio.wait_for(
-            provider.chat(
-                UNIT_SCREEN_PROMPT,
-                json.dumps(payload, ensure_ascii=False),
-                max_tokens=SCREEN_MAX_TOKENS,
-                cache_system=True,
-            ),
-            timeout=ctx.timeouts.llm,
-        )
-        verdicts = _parse_screen_verdicts(resp.content)
-    except Exception as exc:  # noqa: BLE001  筛选失败不阻塞：降级标注
-        log.warning("单元补料筛选失败，降级标注未筛选: %s", exc)
-        return _mark_unscreened(resources)
+    verdicts: dict[str, dict] | None = None
+    for attempt in range(_SCREEN_MAX_ATTEMPTS):
+        try:
+            resp = await asyncio.wait_for(
+                provider.chat(
+                    UNIT_SCREEN_PROMPT,
+                    json.dumps(payload, ensure_ascii=False),
+                    max_tokens=SCREEN_MAX_TOKENS,
+                    cache_system=True,
+                ),
+                timeout=ctx.timeouts.llm,
+            )
+            verdicts = _parse_screen_verdicts(resp.content)
+            if verdicts is not None:
+                break
+        except Exception as exc:  # noqa: BLE001  记录并重试；耗尽后强制丢弃
+            log.warning("单元补料筛选第 %d/%d 次失败: %s", attempt + 1, _SCREEN_MAX_ATTEMPTS, exc)
     if verdicts is None:
-        return _mark_unscreened(resources)
+        log.warning("单元补料筛选重试耗尽，强制丢弃全部 %d 候选", len(resources))
+        return []
     screened: list[dict] = []
     for r in resources:
         v = verdicts.get(r["url"])
         if v is None:
-            screened.append(r)
-            continue
+            continue  # iter 361：响应未覆盖 -> 未通过 AI 核验，丢弃（强制门）
         if not v["suitable"]:
             continue  # 不相关 -> 丢弃
         r2 = dict(r)
@@ -651,7 +662,10 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     """单自学单元 WebSearch 补充资料（plan/07 §三 步骤 2「每单元 WebSearch 补充资料」，iter 48）。
 
     iter 360：verify 可达后经 `_screen_unit_resources` 做 LLM 相关性筛选（不相关丢弃、存疑降 ⚠️），
-    与主路径一致；附正文摘要供筛选，返回前剥离。降级（无 provider/异常）-> 标注「未经 AI 相关性筛选」。
+    与主路径一致；附正文摘要供筛选，返回前剥离。
+    iter 361 强制门（用户 /goal）：**无 LLM provider 时直接返回 []**——降级材料路径（用户未配 key）
+    真实可达，此时无法做 AI 相关性/安全性筛选，不向学生提供仅 verify 可达性（未筛选）的网络补充资料，
+    避免引入不良信息。筛选失败/未覆盖同样丢弃（见 _screen_unit_resources）。
     保留 ≤limit 条 {title,url,verified,note}。limit 由调用方按单元复杂度动态传入（issue 4）。
     引擎不可用（bing 无 key）/ 空 query / 检索失败 / 无结果 -> []（不编造 URL；内容侧由 LLM 标「无外部资料参考」）。
     """
@@ -659,6 +673,10 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
     engine = effective_search_engine(bing_key)
     if engine == "none" or not query.strip():
         return []
+    if ctx.llm_provider is None:
+        # 强制门：无 provider 则无法 AI 筛选 -> 不提供未核验网络补充资料（避免不良信息）
+        return []
+
     try:
         candidates = await _search_web(query, engine, count=limit, key=bing_key)
     except Exception as exc:  # noqa: BLE001  检索失败不中断单元生成

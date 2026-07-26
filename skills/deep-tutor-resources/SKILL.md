@@ -21,7 +21,7 @@ version: 1.0.0
 ## When NOT to Use
 - 检索本身（Bing Search API，纯 Python 网络调用）
 - URL 可达性校验（verify_url 工具：HTTP 状态/重定向/反爬）
-- 自学单元补充资料检索（search_unit_resources，轻量路径不做本筛选）
+- 自学单元补充资料检索（search_unit_resources 用独立的 UNIT_SCREEN_PROMPT 做同类筛选，不走本 Skill）
 
 ## Background：三级验证标记（study-planner Step 4）
 | 标记 | 判定 | 处理 |
@@ -73,6 +73,6 @@ version: 1.0.0
 ## Notes
 - 本 SKILL.md 正文为稳定 system 前缀，运行时标 `cache_control`（缓存优先，Pillar 1）；候选列表等易变输入放入 user message。
 - 单次预估 ~2k tokens / ~$0.02（≤40 候选批量一次调用），运行时纳入会话预算守卫。
-- 运行时降级（稳定优先）：无 LLM provider / 调用失败 / 输出不可解析 -> 跳过筛选（保持 verify 可达性判定）；响应未覆盖的 url 保持原标记；`label` 只降不升。
+- 运行时强制门（用户 /goal：所有引文必须经 AI 筛选，避免给学生引入不良信息）：`suitable=false` / 响应未覆盖的 url / 调用失败或输出不可解析（重试后仍失败）-> **丢弃该候选**（不降标保留未筛选内容，宁缺勿滥）。`label` 只降不升（verify 已 ⚠️ 不因 LLM 升 ✅）。
 - 筛选结果由 Python 端 `_parse_screen_verdicts` 解析（容忍代码块包裹；单项非法跳过）。
 - 方法论移植自 study-planner Step 4（链接验证 + 适配判定）。
