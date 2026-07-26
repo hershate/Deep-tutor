@@ -37,6 +37,13 @@
 - **续（用户反馈硬模板格式不对 -> LLM 检查修正）**：新增 `review_unit_slides` LLM 审校工具（检查并修正格式/内容/分页）+ `generate_unit_slides_spec` 两阶段编排（build 草稿 → review 审校）；逐单元 [materials.py](backend/app/api/materials.py) 与全案 [plans.py](backend/app/api/plans.py) 两条 HTML-PPT 导出路径均改走 **LLM 两阶段**，硬模板仅作无 key/两阶段皆败兜底。+6 helper/工具测试 + 1 全案 LLM 路径测试。
 **pytest 1226 零回归**（原 1197 + 29 新增）+ ruff 干净 + 前端 build 通过。详见 §五 iter 359。
 
+**iter 360（2026-07-26，AI 对话稳定性 + 引文筛选/相关性/动态数量，✅ 完成）**：用户 /goal 4 项问题修复。2 commit（`fd214b2` 对话 / `73cc708` 搜索引文）。8 并行调查 agent 定位根因后落地：
+- **问题1（AI 对话切出切回异常 + 显示不正确）**：根因 = SSE 无生命周期清理（切走流不停、token 丢）+ 切会话不清流态串扰 + 切回无法重连 running run（POST 触发 409）+ 用户消息无乐观渲染 + done 瞬间闪烁。后端新增 `GET /threads/{id}/runs/active`（附流续看，非 409）+ `_finalize_chat` 异常强制收敛（`_force_run_terminal` 防 run 永久 running）；前端 [Chat.tsx](frontend/src/pages/Chat.tsx) 重写——AbortController 绑生命周期、切会话重置、切回附流重连、用户消息乐观渲染、done 待消息刷新落定再清流（免闪烁）、错误清流、自动滚动跟随、思考块折叠。
+- **问题2（搜索结果经 AI 筛选价值）**：主路径 `_screen_resources` 强化——候选附 verify_url 正文摘要 snippet，LLM 据正文判「内容强相关」（不再仅凭标题）；降级语义改：有 provider 但筛选失败 -> 降 ⚠️ + note「未经 AI 相关性筛选」（不静默保留 ok）；自学单元补料 `search_unit_resources` 也接入 LLM 筛选（此前仅可达性、note 恒空）。同步更新 [deep-tutor-resources SKILL.md](skills/deep-tutor-resources/SKILL.md)。
+- **问题3（引文须与内容强相关 + 接入检查）**：[verify_url.py](backend/app/tools/verify_url.py) 输出附 snippet（正文前缀摘要，不存全文）；新增 `sanitize_citations`/`collect_material_urls`——自学材料正文「扩展阅读」引用必须来自已验证资源池，剥离白名单外链接（列表项整行丢、行内降纯文本），防 LLM 臆造引文；[plans.py](backend/app/api/plans.py) `_gen_one` 生成后强制校验。
+- **问题4（引文数量随复杂度动态）**：search_resources 读 `build_knowledge_map` 知识点数（加入 upstream_reads）——每阶段资源上限按 difficulty 动态（1→3…5→7 封顶 7）、总上限按知识点数动态（20+节点数 封顶 50）、检索主题数/候选数随难度动态；单元补料 `_unit_resource_limit` 按单元知识点数/难度动态（基线 3 封顶 6）。
+**测试**：+13 新（memory active 端点/强制收敛 5、搜索动态配额/snippet/单元筛选 4、引文剥离 4）；更新 `test_screening_failure_fallback`（降级改降标）+ 3 处单元检索桩补 `limit`。**全量 pytest 1237 passed**（`test_marker_pdf_parses_text` 全量负载下 flaky，单独跑通过，与本次无关）+ ruff 干净 + 前端 build 通过。详见 §五 iter 360。
+
 **当前下一步**（**活动 /goal：记忆系统 + 完整 Agent 实施**，分 A–J 十阶段；方案见 plan 文件 `keen-purring-cat.md`）：
 
 - **状态**：当前分支 `Dev-API`；版本线 **前端 `DeepTutor` v1.17.0 / 后端 `api` v1.18.0**（契约见 [API.md](API.md)，双版本线只增不改）。
@@ -280,6 +287,16 @@ Deep-tutor/
 ## 五、进度日志（按时间倒序追加）
 
 > 每条：日期 + 步骤 + 动作 + 结果 + commit hash（如有）。
+
+- **2026-07-26 iter 360（AI 对话稳定性 + 引文 AI 筛选/相关性检查/数量动态化 /goal·✅ 完成）**：用户 /goal 4 项问题。8 并行调查 agent 定位根因（2 份报告），2 commit 落地（`fd214b2` 对话 / `73cc708` 搜索引文）。全量 pytest **1237 passed**（+13 新）+ ruff 干净 + 前端 build 通过。
+  - **问题1（AI 对话显示不正确 + 切出切回异常）**：根因 = Chat.tsx 无 SSE 生命周期清理（切走流不停、token 投递到已卸载组件）+ 切会话不清 `stream` 串扰 + 切回无法重连 running run（POST 触发 409）+ 用户消息无乐观渲染 + done 瞬间气泡消失闪烁 + `_finalize_chat` 异常致 run 永久 running（该会话永久 409）。
+    - **后端**：①[memory.py](backend/app/api/memory.py) 新增 `GET /threads/{id}/runs/active`——附流到既有 running run 的 `_ChatStream`（Last-Event-ID 重放），供前端切回续看而非 POST 被 409；无 running run / 进程内无流均 404（前端静默拉消息）。②`_force_run_terminal` + `_finalize_chat` except 调用——主 session 提交失败时新 session 强写终态，防 run 永久 running。
+    - **前端 [Chat.tsx](frontend/src/pages/Chat.tsx) 重写**：AbortController 绑组件生命周期（切走/切会话即 abort）；切会话重置 stream/pendingUser/error/doneRef/重连标记；切回若会话仍 running 且本地无流 -> `GET active` 附流续看（重建流式态）；用户消息乐观渲染（发送即显示，done 后消息刷新取代）；done 不立即清流，待 messages 刷新落定再清（免闪烁）；error 也清流；流式增长自动滚动跟随；持久化消息思考块改折叠 `<details>`（不再内联混入正文）。
+  - **问题2（搜索结果经 AI 筛选价值）**：主路径 `_screen_resources` 强化——候选附 verify_url 正文摘要 snippet，LLM 据正文判「内容强相关」（不再仅凭标题，可识别标题党/同名不同义/SEO 水文）；SCREEN_PROMPT 改宁缺勿滥。降级语义：有 provider 但筛选失败（异常/不可解析）-> 不静默保留 ok，统一降 ⚠️ + note「未经 AI 相关性筛选」（无 provider 零配置仍原样返回不误伤）。自学单元补料 `search_unit_resources` 也接入 LLM 相关性筛选（此前仅 verify 可达性、note 恒空）。同步更新 [deep-tutor-resources SKILL.md](skills/deep-tutor-resources/SKILL.md)（筛选改用 snippet）。
+  - **问题3（引文须强相关 + 接入检查）**：[verify_url.py](backend/app/tools/verify_url.py) 输出附 `snippet`（正文前缀纯文本摘要 ≤400 字，去 HTML 标签/实体/折叠空白，不存全文合规）。新增 `sanitize_citations`/`collect_material_urls`（[generate_study_materials.py](backend/app/tools/generate_study_materials.py)）：自学材料正文「扩展阅读」引用必须来自已验证资源池（plan.resources ok/uncertain + 本单元补料），剥离白名单外链接（列表项整行丢、行内链接降纯文本），防 LLM 臆造/外推引文。[plans.py](backend/app/api/plans.py) `_gen_one` 生成后强制校验。
+  - **问题4（引文数量随复杂度/资料量动态）**：search_resources 读 `build_knowledge_map` 知识点数（复杂度信号，加入 `upstream_reads`）——每阶段资源上限按 `stage.difficulty` 动态（1→3 / 3→5 / 5→7，封顶 `_HARD_MAX_PER_STAGE=7`）、总上限按知识点数动态（`_BASE_TOTAL=20` + 节点数，封顶 `_HARD_MAX_TOTAL=50`）、每阶段检索主题数（`stage_topic_cap`，难阶段 4）与每查询候选数随难度动态。单元补料 `_unit_resource_limit` 按单元知识点数/难度动态（基线 3 封顶 6）。
+  - **测试**：+13 新——test_api_memory +5（active 端点 no_run/no_stream/attach 重放/跨用户 404/强制收敛）、test_search_resources +4（动态配额纯函数/主题数随难度/snippet 入筛选/单元筛选丢弃无关）、test_generate_study_materials +4（collect_material_urls/sanitize 三场景）。更新 `test_screening_failure_fallback`（降级改降标 uncertain）+ 3 处单元检索测试桩补 `limit` 形参（sse/scope/plugins）。
+  - **回归**：全量 pytest 1237 passed（`test_marker_pdf_parses_text` 全量 13min 负载下 flaky，单独跑 95s 通过，与本次改动无关——未触 parse_material）；ruff 干净；前端 build 通过。
 
 - **2026-07-25 iter 359（自学单元逐个导出 HTML-PPT /goal·✅ 完成）**：用户 /goal「借助 `ppt-slide-builder` skill，自学资料每个单元都能单独导出为 HTML 形式 PPT（新增 HTML-PPT 导出形式）」。8 commit 落地，全量 pytest **1219 零回归**（原 1197 + 22 新）+ ruff 干净 + 前端 build 通过。
   - **用户实机反馈续修（本轮）**：首轮把「下载 PPT」加到单元**阅读器**底部，但用户在**自学材料导出下拉**（MaterialsModal 的 md/pdf/zip）里找不到 HTML-PPT 选项 → 本轮在导出下拉加「导出 HTML-PPT」第 4 格式（每单元一个 HTML 幻灯片打包 zip，确定性生成）。两入口并存：阅读器按钮 = 单单元 LLM 高质量；导出下拉 = 全案每单元确定性快速打包。
