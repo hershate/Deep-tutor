@@ -527,6 +527,40 @@ async def start_run(
     )
 
 
+@router.get("/threads/{thread_id}/runs/active")
+async def stream_active_run(
+    thread_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """附流到该会话当前 running 的 chat run（切走再切回 / 多标签续看，iter 360）。
+
+    解决「切回后流式中断、发送即 409」：前端重挂时若发现 thread.running 而本地无流，
+    经此端点附流到既有 run 的 ``_ChatStream``（Last-Event-ID 续接，从缓冲重放全部事件
+    重建 UI），而非 POST 新 run（后者会因 run_already_running 被 409）。
+    - 无 running run -> 404 no_active_run；DB 标 running 但进程内无流（刚结束未清 / 进程
+      重启残留）-> 404 no_active_stream；前端两种 404 均静默改走正常拉消息。
+    """
+    _owned_thread(db, thread_id, user)
+    run = (
+        db.query(models.Run)
+        .filter_by(thread_id=thread_id, status=models.RunStatus.running)
+        .first()
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="no_active_run")
+    stream = _RUN_STREAMS.get(run.id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="no_active_stream")
+    last_event_id = _parse_last_event_id(request)
+    return StreamingResponse(
+        _chat_relay(stream, last_event_id),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
+
+
 def _parse_last_event_id(request: Request) -> int:
     v = request.headers.get("last-event-id") or request.headers.get("Last-Event-ID")
     try:
@@ -703,6 +737,27 @@ async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
     return AgentToolResult(content=json.dumps(out.data, ensure_ascii=False), is_error=False, meta={"name": tu.name})
 
 
+def _force_run_terminal(run_id: int, status) -> None:
+    """finalize 异常时的救命收敛：新 session 强写 run 终态（iter 360，BUG-8）。
+
+    主 session 的 ``db.commit()`` 若因连接抖动等失败，run 行会永远停在 ``running`` ->
+    每 thread 至多 1 个 running run 的硬约束会让该会话**永久 409**、绿点长亮。此处用
+    全新 session 兜底强写（run 仍 running 时收敛为给定终态），即便救命也失败仍发终态 SSE。
+    """
+    rescue = SessionLocal()
+    try:
+        run = rescue.get(models.Run, run_id)
+        if run is not None and run.status == models.RunStatus.running:
+            run.status = status
+            if not run.error:
+                run.error = {"message": "finalize 异常后强制收敛为终态"}
+            rescue.commit()
+    except Exception:  # noqa: BLE001  救命也失败只能记日志；终态 SSE 仍会发
+        log.error("强制收敛 run %s 仍失败", run_id, exc_info=True)
+    finally:
+        rescue.close()
+
+
 def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream) -> None:
     """run 收口：落终态 + commit 工作区 + bus 推送 + 终态 SSE（cancel/异常也执行）。"""
     from app.plugins import bus
@@ -747,9 +802,10 @@ def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream
                 )
             except Exception:  # noqa: BLE001
                 log.debug("bus emit run_completed 失败", exc_info=True)
-    except Exception:  # noqa: BLE001  finalize 本身异常也要发终态
+    except Exception:  # noqa: BLE001  finalize 本身异常也要发终态 + 强制落库防永久 running
         log.warning("finalize chat run %s 失败", run_id, exc_info=True)
         final_status = "error"
+        _force_run_terminal(run_id, models.RunStatus.error)
     finally:
         eid = stream.publish("done", {"run_id": run_id, "status": final_status})
         stream.mark_terminal(eid)

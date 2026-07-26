@@ -1,11 +1,16 @@
 // AI 对话（记忆系统，iter 345）：DeepSeek 式实时流式 UI。
 // 左：会话列表；右：对话流（流式逐字 + 可折叠思考 + 工具调用卡片）+ 记忆面板。
 // Agent 对话经 SSE POST /api/threads/{id}/runs（lib/sse.ts），事件 text_delta/thinking_delta/
-// tool_call/tool_result/message_end/done 实时渲染。
+// tool_call/tool_result/done 实时渲染。
+//
+// iter 360（对话稳定性修复）：切走再切回不再丢消息/中断——SSE 绑 AbortController 随组件
+// 生命周期清理（切走即中止）、切会话即重置流态、切回时若会话仍有 running run 则经
+// GET /threads/{id}/runs/active 附流续看（而非 POST 触发 409）；用户消息乐观渲染、run 结束
+// 待消息刷新落定再清流式气泡（免闪烁）、错误清流、流式自动滚动跟随。
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { openSSE } from '../lib/sse'
+import { openSSE, SseError, type SSEEvent } from '../lib/sse'
 import { getToken } from '../lib/auth'
 import Markdown from '../components/Markdown'
 import {
@@ -37,11 +42,19 @@ function blocksText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return (content as Array<{ type?: string; text?: string }>)
-      .filter((b) => b.type === 'text' || b.type === 'thinking')
+      .filter((b) => b.type === 'text')
       .map((b) => b.text ?? '')
       .join('')
   }
   return ''
+}
+
+function blocksThinking(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return (content as Array<{ type?: string; text?: string }>)
+    .filter((b) => b.type === 'thinking')
+    .map((b) => b.text ?? '')
+    .join('')
 }
 
 function blocksTools(content: unknown): Array<{ id: string; name: string }> {
@@ -56,8 +69,15 @@ export default function Chat() {
   const [activeId, setActiveId] = useState<number | null>(null)
   const [input, setInput] = useState('')
   const [stream, setStream] = useState<Streaming | null>(null)
+  const [pendingUser, setPendingUser] = useState<string | null>(null) // 乐观渲染的用户消息（iter 360 BUG-5）
   const [error, setError] = useState('')
   const [showMemory, setShowMemory] = useState(false)
+
+  // 生命周期/重连控制（iter 360）
+  const abortRef = useRef<AbortController | null>(null) // 当前会话的 SSE 中止器（切走/切会话即 abort）
+  const reconnectAttemptedRef = useRef<number | null>(null) // 已尝试附流续看的会话 id（防重复）
+  const doneRef = useRef<number | null>(null) // run 已 done，待 messages 刷新落定再清流（免闪烁 BUG-6）
+  const bottomRef = useRef<HTMLDivElement | null>(null)
 
   const threadsQ = useQuery({ queryKey: ['threads'], queryFn: () => listThreads() })
   const msgsQ = useQuery({
@@ -71,54 +91,164 @@ export default function Chat() {
     enabled: activeId != null && showMemory,
   })
 
+  const messages = msgsQ.data?.items ?? []
+  const streaming = stream
+
   const createM = useMutation({
     mutationFn: () => createThread({ title: '新对话', kind: 'chat' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['threads'] }),
+    onSuccess: (t) => {
+      queryClient.invalidateQueries({ queryKey: ['threads'] })
+      setActiveId(t.id)
+    },
   })
+
+  // 切会话 / 重挂：中止旧 SSE、重置全部流态（iter 360 BUG-1/BUG-2）
+  useEffect(() => {
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+    setStream(null)
+    setPendingUser(null)
+    setError('')
+    doneRef.current = null
+    reconnectAttemptedRef.current = null
+    return () => ac.abort() // 切走或卸载即中止本会话的 SSE（流不再向已卸载组件投递）
+  }, [activeId])
+
+  // 切回时若会话仍有 running run 且本地无流 -> 附流续看（iter 360 BUG-3）
+  useEffect(() => {
+    if (activeId == null || reconnectAttemptedRef.current === activeId) return
+    const thread = threadsQ.data?.items.find((t) => t.id === activeId)
+    if (thread?.running) {
+      reconnectAttemptedRef.current = activeId
+      void reconnectActive(activeId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, threadsQ.data])
+
+  // run done 后待 messages 刷新落定再清流式气泡 + 乐观消息（持久化消息已就位，免闪烁 BUG-6）
+  useEffect(() => {
+    if (doneRef.current != null && !msgsQ.isFetching && doneRef.current === activeId) {
+      setStream(null)
+      setPendingUser(null)
+      doneRef.current = null
+    }
+  }, [msgsQ.isFetching, msgsQ.dataUpdatedAt, activeId])
+
+  // 流式增长 / 消息变化 -> 自动滚动到底（iter 360 BUG-11）
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+  }, [stream?.text, stream?.thinking, messages.length, pendingUser, error])
+
+  // 统一事件处理：POST 新 run 与 GET 附流续看共用（tid 锁定发起/续看会话）
+  function makeEventHandler(tid: number) {
+    return (ev: SSEEvent) => {
+      let d: Record<string, unknown> = {}
+      try {
+        d = ev.data ? (JSON.parse(ev.data) as Record<string, unknown>) : {}
+      } catch {
+        /* ignore */
+      }
+      const t = ev.event
+      if (t === 'text_delta')
+        setStream((s) => (s ? { ...s, text: s.text + (d.text as string) } : s))
+      else if (t === 'thinking_delta')
+        setStream((s) => (s ? { ...s, thinking: s.thinking + (d.text as string) } : s))
+      else if (t === 'tool_call')
+        setStream((s) =>
+          s ? { ...s, tools: { ...s.tools, [d.id as string]: { name: d.name as string, status: 'running' } } } : s,
+        )
+      else if (t === 'tool_result')
+        setStream((s) => {
+          if (!s) return s
+          const id = d.id as string
+          return {
+            ...s,
+            tools: {
+              ...s.tools,
+              [id]: { ...(s.tools[id] ?? { name: '', status: 'running' }), status: d.is_error ? 'error' : 'ok' },
+            },
+          }
+        })
+      else if (t === 'error') {
+        // iter 360 BUG-7：错误也清流，避免卡在「生成中」禁用发送
+        setError(String(d.message ?? '出错了'))
+        setStream(null)
+        setPendingUser(null)
+        queryClient.invalidateQueries({ queryKey: ['messages', tid] })
+        queryClient.invalidateQueries({ queryKey: ['threads'] })
+      } else if (t === 'done') {
+        // 不立即清流——待 messages 刷新落定由上面的 effect 清，避免终态瞬间气泡消失闪烁
+        doneRef.current = tid
+        queryClient.invalidateQueries({ queryKey: ['messages', tid] })
+        queryClient.invalidateQueries({ queryKey: ['threads'] })
+      }
+    }
+  }
+
+  async function startRun(tid: number, message: string) {
+    const ac = abortRef.current ?? new AbortController()
+    abortRef.current = ac
+    setPendingUser(message)
+    setError('')
+    setStream({ text: '', thinking: '', tools: {} })
+    try {
+      await openSSE(`${API_BASE}/threads/${tid}/runs`, {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+        token: getToken() || undefined,
+        signal: ac.signal,
+        onEvent: makeEventHandler(tid),
+        onError: (e) => {
+          if (!ac.signal.aborted) setError(e instanceof Error ? e.message : '连接失败')
+        },
+      })
+    } catch (e) {
+      if (!ac.signal.aborted) {
+        if (e instanceof SseError && e.status === 409) setError('该对话已有运行中的请求，请稍候')
+        else setError(e instanceof Error ? e.message : '连接失败')
+        setStream(null)
+        setPendingUser(null)
+      }
+    }
+  }
+
+  async function reconnectActive(tid: number) {
+    const ac = abortRef.current
+    if (!ac) return
+    setError('')
+    setStream({ text: '', thinking: '', tools: {} }) // 从重放事件重建
+    try {
+      await openSSE(`${API_BASE}/threads/${tid}/runs/active`, {
+        token: getToken() || undefined,
+        signal: ac.signal,
+        onEvent: makeEventHandler(tid),
+        onError: (e) => {
+          if (!ac.signal.aborted) setError(e instanceof Error ? e.message : '连接失败')
+        },
+      })
+    } catch (e) {
+      // 404 = 无活跃 run（已结束/无流）：静默，正常拉消息即可；其它错误提示
+      if (!ac.signal.aborted) {
+        if (!(e instanceof SseError && e.status === 404)) {
+          setError(e instanceof Error ? e.message : '连接失败')
+        }
+        setStream(null)
+      }
+    }
+  }
 
   async function send() {
     const text = input.trim()
     if (!text || !activeId || stream) return
     setInput('')
-    setError('')
-    setStream({ text: '', thinking: '', tools: {} })
-    const tid = activeId
-    await openSSE(`${API_BASE}/threads/${tid}/runs`, {
-      method: 'POST',
-      body: JSON.stringify({ message: text }),
-      token: getToken() || undefined,
-      onEvent: (ev) => {
-        let d: Record<string, unknown> = {}
-        try {
-          d = ev.data ? (JSON.parse(ev.data) as Record<string, unknown>) : {}
-        } catch {
-          /* ignore */
-        }
-        const t = ev.event
-        if (t === 'text_delta') setStream((s) => (s ? { ...s, text: s.text + (d.text as string) } : s))
-        else if (t === 'thinking_delta')
-          setStream((s) => (s ? { ...s, thinking: s.thinking + (d.text as string) } : s))
-        else if (t === 'tool_call')
-          setStream((s) => (s ? { ...s, tools: { ...s.tools, [d.id as string]: { name: d.name as string, status: 'running' } } } : s))
-        else if (t === 'tool_result')
-          setStream((s) => {
-            if (!s) return s
-            const id = d.id as string
-            return { ...s, tools: { ...s.tools, [id]: { ...(s.tools[id] ?? { name: '', status: 'running' }), status: d.is_error ? 'error' : 'ok' } } }
-          })
-        else if (t === 'error') setError(String(d.message ?? '出错了'))
-        else if (t === 'done') {
-          setStream(null)
-          queryClient.invalidateQueries({ queryKey: ['messages', tid] })
-          queryClient.invalidateQueries({ queryKey: ['threads'] })
-        }
-      },
-      onError: (e) => setError(e instanceof Error ? e.message : '连接失败'),
-    })
+    await startRun(activeId, text)
   }
 
-  const messages = msgsQ.data?.items ?? []
-  const streaming = stream
+  function selectThread(id: number) {
+    if (id === activeId) return
+    setActiveId(id) // 切换会话触发上面的 effect：abort 旧流 + 重置状态
+  }
 
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-3">
@@ -136,11 +266,11 @@ export default function Chat() {
               key={t.id}
               role="button"
               tabIndex={0}
-              onClick={() => setActiveId(t.id)}
+              onClick={() => selectThread(t.id)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  setActiveId(t.id)
+                  selectThread(t.id)
                 }
               }}
               className={`group mb-1 flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm ${
@@ -217,8 +347,11 @@ export default function Chat() {
               {messages.map((m: ChatMessage) => (
                 <MessageBubble key={m.id} role={m.role} content={m.content} />
               ))}
+              {/* 乐观渲染的用户消息：发送即显示，done 后由消息刷新取代（iter 360 BUG-5） */}
+              {pendingUser && <MessageBubble role="user" content={pendingUser} />}
               {streaming && <StreamingBubble stream={streaming} />}
               {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>}
+              <div ref={bottomRef} />
             </div>
 
             <div className="border-t border-slate-200 p-2 dark:border-slate-700">
@@ -255,6 +388,7 @@ export default function Chat() {
 
 function MessageBubble({ role, content }: { role: string; content: unknown }) {
   const text = blocksText(content)
+  const thinking = blocksThinking(content)
   const tools = blocksTools(content)
   const isUser = role === 'user'
   return (
@@ -268,6 +402,12 @@ function MessageBubble({ role, content }: { role: string; content: unknown }) {
               </span>
             ))}
           </div>
+        )}
+        {!isUser && thinking && (
+          <details className="mb-1 rounded bg-slate-200/60 px-2 py-1 text-xs text-slate-500 dark:bg-slate-700/60">
+            <summary className="cursor-pointer">💭 思考过程</summary>
+            <div className="mt-1 whitespace-pre-wrap">{thinking}</div>
+          </details>
         )}
         {isUser ? (
           <div className="whitespace-pre-wrap break-words">{text}</div>

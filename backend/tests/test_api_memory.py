@@ -171,3 +171,108 @@ def test_run_no_provider_error(client, auth_headers, monkeypatch):
     r = client.post(f"/api/threads/{t['id']}/runs", json={"message": "x"}, headers={**auth_headers, "Accept": "text/event-stream"})
     events = _parse_sse(r.text)
     assert any(e == "error" and d.get("code") == "no_llm_provider" for e, d in events)
+
+
+# --- iter 360：切回附流续看 GET /threads/{id}/runs/active + finalize 强制收敛 ---
+
+
+def test_active_run_no_running_returns_404(client, auth_headers):
+    """无 running run -> 404 no_active_run（前端静默改走正常拉消息）。"""
+    t = client.post("/api/threads", json={}, headers=auth_headers).json()
+    r = client.get(f"/api/threads/{t['id']}/runs/active", headers=auth_headers)
+    assert r.status_code == 404
+    assert r.json()["error"]["message"] == "no_active_run"
+
+
+def test_active_run_no_stream_returns_404(client, auth_headers):
+    """DB 标 running 但进程内无流（刚结束/重启残留）-> 404 no_active_stream。"""
+    t = client.post("/api/threads", json={}, headers=auth_headers).json()
+    tid = t["id"]
+    db = SessionLocal()
+    th = db.get(models.Thread, tid)
+    db.add(models.Run(thread_id=tid, user_id=th.user_id, status=models.RunStatus.running, kind=models.RunKind.chat))
+    db.commit()
+    db.close()
+    # 进程内 _RUN_STREAMS 无该 run 的流
+    r = client.get(f"/api/threads/{tid}/runs/active", headers=auth_headers)
+    assert r.status_code == 404
+    assert r.json()["error"]["message"] == "no_active_stream"
+
+
+def test_active_run_attaches_and_replays(client, auth_headers):
+    """running run + 进程内有流 -> 200 附流，从缓冲重放全部事件至终态。"""
+    from app.api import memory as mem
+
+    t = client.post("/api/threads", json={}, headers=auth_headers).json()
+    tid = t["id"]
+    db = SessionLocal()
+    th = db.get(models.Thread, tid)
+    run = models.Run(thread_id=tid, user_id=th.user_id, status=models.RunStatus.running, kind=models.RunKind.chat)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    rid = run.id
+    db.close()
+    # 构造一个已缓冲若干事件并到达终态的流（模拟后端任务已产出）
+    stream = mem._ChatStream()
+    stream.publish("run_start", {"run_id": rid, "model": "fake-model"})
+    stream.publish("text_delta", {"text": "你好"})
+    eid = stream.publish("done", {"run_id": rid, "status": "done"})
+    stream.mark_terminal(eid)
+    mem._RUN_STREAMS[rid] = stream
+    try:
+        r = client.get(f"/api/threads/{tid}/runs/active", headers={**auth_headers, "Accept": "text/event-stream"})
+        assert r.status_code == 200
+        events = _parse_sse(r.text)
+        names = [e for e, _ in events]
+        assert "run_start" in names and "text_delta" in names
+        assert names[-1] == "done"  # 终态后即断流
+    finally:
+        mem._RUN_STREAMS.pop(rid, None)
+
+
+def test_active_run_cross_user_404(client, auth_headers):
+    """他人会话的 active run -> 404（归属不泄露，_owned_thread 守门）。"""
+    cur_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    db = SessionLocal()
+    other = models.User(name="other2", username=f"other2_{cur_id}", password_hash="x")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+    th = models.Thread(user_id=other.id, title="他人的")
+    db.add(th)
+    db.commit()
+    db.refresh(th)
+    oid = th.id
+    db.close()
+    assert client.get(f"/api/threads/{oid}/runs/active", headers=auth_headers).status_code == 404
+
+
+def test_force_run_terminal_converges_stuck_running():
+    """finalize 异常救命：_force_run_terminal 把卡 running 的 run 强写为终态（BUG-8）。"""
+    from app.api.memory import _force_run_terminal
+
+    db = SessionLocal()
+    u = models.User(name="u", username="u_force_term", password_hash="x")
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    th = models.Thread(user_id=u.id)
+    db.add(th)
+    db.commit()
+    db.refresh(th)
+    run = models.Run(thread_id=th.id, user_id=u.id, status=models.RunStatus.running, kind=models.RunKind.chat)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    rid = run.id
+    db.close()
+    _force_run_terminal(rid, models.RunStatus.error)
+    db = SessionLocal()
+    try:
+        converged = db.get(models.Run, rid)
+        assert converged.status == models.RunStatus.error
+        assert converged.error  # 写入收敛说明
+    finally:
+        db.close()
+
