@@ -445,6 +445,11 @@ def add_learning_log(
         raise ApiError("rate_limited", "打卡过于频繁，请稍后再试", status=429)
     if body.date is not None and body.date > dt_date.today():
         raise ApiError("invalid_date", "打卡日期不能是未来")
+    # iter 364：补卡下限——防 100 年前等极端过去日期污染热力图/streak 统计
+    from datetime import timedelta as _td
+
+    if body.date is not None and body.date < dt_date.today() - _td(days=365):
+        raise ApiError("invalid_date", "打卡日期不能早于一年前")
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     total_logs = (
         db.query(func.count(models.LearningLog.id))

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.agent.registry import Tool
 
@@ -40,6 +40,16 @@ class Stage(BaseModel):
     estimated_weeks: float = 1.0
     topics: list[StageTopic] = Field(default_factory=list)
     milestone: str = ""
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def _clamp_difficulty(cls, v):
+        # iter 364：夹紧到 [1,5]——对齐 build_knowledge_map._coerce_difficulty，防 LLM 输出
+        # 越界值（如 99）溜进 validate_plan 的 difficulty_step 校验
+        try:
+            return max(1, min(5, int(v)))
+        except (TypeError, ValueError):
+            return 1
 
 
 class StagesData(BaseModel):

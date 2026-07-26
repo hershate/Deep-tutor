@@ -49,12 +49,13 @@ def submit_quiz(
     user: User = Depends(get_current_user),
 ) -> dict:
     """提交作答 -> { correct, answer, explanation }（plan/03 §一）。"""
+    # iter 364：限流前置——防恶意用不存在的 quiz_id 刷 404 绕过限流桶（每次仍触发主键查询）
+    if not limiter.check(f"quiz_submit:{user.id}", _SUBMIT_RATE_PER_MIN):
+        raise ApiError("rate_limited", "提交过于频繁，请稍后再试", status=429)
     quiz = db.get(models.Quiz, quiz_id)
     # P4 隔离：他人方案的题 404（不泄露存在性）
     if quiz is None or quiz.plan is None or quiz.plan.session is None or quiz.plan.session.user_id != user.id:
         raise ApiError("not_found", f"测验题 {quiz_id} 不存在")
-    if not limiter.check(f"quiz_submit:{user.id}", _SUBMIT_RATE_PER_MIN):
-        raise ApiError("rate_limited", "提交过于频繁，请稍后再试", status=429)
     payload = quiz.payload or {}
     # choice 服务器判分；fill/short 自评（correct=None）
     correct: bool | None = None
