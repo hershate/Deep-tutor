@@ -38,7 +38,7 @@ _MD_LINK_RE = re.compile(
 )
 _AUTOLINK_RE = re.compile(r"<(?P<url>https?://[^>\s]+)>", re.IGNORECASE)
 _LINK_DEF_RE = re.compile(r"^(?P<prefix>\[[^\]]+\]:\s*)(?P<url>https?://\S+)", re.MULTILINE | re.IGNORECASE)
-_BARE_URL_RE = re.compile(r"(?<![a-zA-Z0-9\]\)\"'<>(/=])(?P<url>https?://[^\s<>\]\)\"']+)", re.IGNORECASE)
+_BARE_URL_RE = re.compile(r"(?<![a-zA-Z0-9])(?P<url>https?://[^\s<>\]\)\"']+)", re.IGNORECASE)
 _URL_NORM_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/]+)(.*)$")
 _LIST_ITEM_RE = re.compile(r"^\s*([-*+]|\d+\.)\s")
 _VERIFIED_OK = {"ok", "uncertain"}
@@ -127,18 +127,19 @@ def sanitize_citations(content_md: str, allowed_urls: set[str]) -> str:
             continue
         # autolink <url>：非白名单移除
         line = _AUTOLINK_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else "", line)
-        # 抽出行内代码段（保护其内 URL，处理裸 URL/标准链接后再放回）
+        # 抽出行内代码段（保护其内 URL，处理后再放回）
         codes: list[str] = []
         line = re.sub(r"`[^`]*`", _stash_code_spans(codes), line)
-        # 裸 URL：白名单保留，非白名单改行内代码（阻止 remark-gfm 自动链接，保留 URL 文字）
-        line = _BARE_URL_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else f"`{m.group('url')}`", line)
-        # 标准链接 [text](url...)
+        # 标准链接 [text](url...) —— 先消费，免裸 URL 正则误匹配其内 url（iter 364）
         std_links = _MD_LINK_RE.findall(line)
         if std_links:
             kept_any = any(_kept(u) for _, u in std_links)
             if not kept_any and _LIST_ITEM_RE.match(line):
                 continue  # 列表项且全部链接未验证 -> 整行丢弃（扩展阅读无价值引用）
             line = _MD_LINK_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else m.group("text"), line)
+        # 裸 URL（标准链接后；lookbehind 仅排除字母数字——覆盖 (url)/"url"/中文后等 remark-gfm
+        # 实测会自动链接的常见 LLM 输出形式，iter 364 修上轮 lookbehind 误排除 ) " ' 致绕过）
+        line = _BARE_URL_RE.sub(lambda m: m.group(0) if _kept(m.group("url")) else f"`{m.group('url')}`", line)
         line = _restore_code_spans(line, codes)
         out_lines.append(line)
     result = "\n".join(out_lines)

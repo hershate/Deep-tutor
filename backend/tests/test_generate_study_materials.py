@@ -346,6 +346,20 @@ def test_sanitize_citations_neutralizes_bare_url():
     assert "`https://evil.example.com/x`" in out  # 被反引号包裹成行内代码
 
 
+def test_sanitize_citations_bare_url_gfm_wrappers():
+    """iter 364：圆括号/引号包裹的裸 URL（remark-gfm 实测会自动链接）不再绕过筛选门——
+    上轮 lookbehind 误排除 ) " ' 致这些常见 LLM 引用形式漏网，直达学生。"""
+    from app.tools.generate_study_materials import sanitize_citations
+
+    out = sanitize_citations('(https://evil.example.com/x) 和 "https://evil.example.com/y"', set())
+    assert "`https://evil.example.com/x`" in out  # 圆括号裸 URL 改代码
+    assert "`https://evil.example.com/y`" in out  # 引号裸 URL 改代码
+    # 标准链接尾随裸 URL：标准链接改纯文本（url 消失），尾随裸 URL 改代码
+    out2 = sanitize_citations("[a](https://evil.example.com/p) then https://evil.example.com/q", set())
+    assert "evil.example.com/p" not in out2  # 标准链接 url 改纯文本后消失
+    assert "`https://evil.example.com/q`" in out2  # 尾随裸 URL 改代码
+
+
 def test_sanitize_citations_preserves_code_urls():
     """iter 363：行内代码与代码块内的 URL 不被处理（本就不可点击，避免误伤正文/示例）。"""
     from app.tools.generate_study_materials import sanitize_citations
