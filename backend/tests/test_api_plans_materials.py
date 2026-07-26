@@ -80,6 +80,30 @@ def test_materials_ok(client, auth_headers, monkeypatch):
     assert "warning" not in body  # 未降级
 
 
+def test_materials_sync_sanitizes_citations(client, auth_headers, monkeypatch):
+    """iter 361 强制门：同步一次性材料路径同样剥离白名单外的引用链接（与 SSE 逐单元路径一致，防 LLM 臆造引文）。
+
+    测试方案无 resources（白名单为空）-> 所有引用链接剥离：列表项整行丢弃、行内链接降纯文本，
+    URL 不残留。证明同步路径接入了 sanitize_citations（未接入则 evil URL 会原样出现在 markdown）。
+    """
+    from app.api import plans as plans_mod
+
+    plan_id = _make_plan(client, auth_headers)  # 无 resources -> 白名单空
+    spec_json = (
+        '{"title":"T","units":[{"title":"U1","objectives":[],"prerequisites":[],'
+        '"estimated_time":"","content_md":"### 扩展阅读\\n\\n'
+        '- [臆造链接](https://evil.example.com/bad)\\n\\n'
+        '正文见 [可疑](https://evil.example.com/x) 资料"}]}'
+    )
+    monkeypatch.setattr(plans_mod, "get_provider", lambda *a, **k: _MaterialsProvider([_resp(spec_json)]))
+    r = client.post(f"/api/plans/{plan_id}/materials", json={"depth": "full"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    md = r.json()["markdown"]
+    assert "evil.example.com" not in md  # 白名单外 URL 全部剥离
+    assert "臆造链接" not in md  # 列表项整行丢弃（不残留无链接占位）
+    assert "可疑" in md  # 行内链接降纯文本，可见文字保留
+
+
 def test_materials_degrade_no_provider(client, auth_headers, monkeypatch):
     """无 LLM provider（无 key）-> 降级 default_materials_from_plan，仍 200 + markdown + warning。"""
     from app.api import plans as plans_mod

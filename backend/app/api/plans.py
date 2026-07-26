@@ -1879,6 +1879,12 @@ async def generate_materials(
     # ok 用 LLM 规约；repaired/error 降级 default_materials_from_plan(plan)
     if spec_out.status == "ok":
         spec = StudyMaterialsSpec.model_validate(spec_out.data)
+        # iter 361（强制门）：同步一次性路径同样剥离单元正文中未在已验证资源池内的引用链接，
+        # 与 SSE 逐单元路径（_gen_one）一致——防 LLM 臆造/外推引文（用户 /goal：避免不良信息）。
+        # 同步路径无逐单元 WebSearch 补料，白名单仅 plan.resources（已强制 AI 筛选）。
+        allowed_urls = collect_material_urls(content)
+        for u in spec.units:
+            u.content_md = sanitize_citations(u.content_md, allowed_urls)
     else:
         spec = default_materials_from_plan(prompt_content)
 
