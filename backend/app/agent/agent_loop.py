@@ -27,6 +27,7 @@ tool_progress/tool_result/message_start/message_end，供 SSE（DeepSeek 式 UI�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -303,6 +304,14 @@ async def run_agent_loop(
                         await emit("tool_progress", {"id": chunk.tool_use_delta[0], "step": step})
         except Exception as exc:  # noqa: BLE001  provider 异常隔离——终止保已计量
             log.warning("agent_loop provider error at step %d: %s", step, exc)
+            # iter 365 B1：异常前 provider 已 yield 的部分 usage（message_start 的 input_tokens）
+            # 须入账——否则本轮 LLM 费用已发生却写不进 api_usage/预算（成本黑洞，iter 243 同型）
+            if acc.usage is not None:
+                accumulate_usage(total_usage, acc.usage)
+                meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
+                record_metadata_usage(db, meta, ctx.user_id)
+                if ctx.budget is not None:
+                    ctx.budget.add(meta.cost)
             return AgentRunResult(status="error", final_text=last_text, steps=step, error=str(exc), usage=total_usage)
 
         # 4) 每轮计量 + 预算守卫（iter 243 教训：即时计量防黑洞）
@@ -339,41 +348,50 @@ async def run_agent_loop(
 
         # 7) 执行工具 + 持久化 tool_result（异常隔离：单工具失败记 error 不杀循环）
         results_msg: list[dict] = []
-        cancelled = False
-        for tu in acc.tool_use_blocks():
-            if ctx.cancel_event.is_set():
-                cancelled = True
-                break
-            tt0 = time.monotonic()
-            try:
-                res = await tool_executor(tu, ctx)
-                _persist_run_step(
-                    db, run_id, step, "tool_call", tu.name, tu.input,
-                    {"content": (res.content or "")[:1000], **res.meta},
-                    duration_ms=int((time.monotonic() - tt0) * 1000), is_error=res.is_error,
-                )
-            except Exception as exc:  # noqa: BLE001
-                res = AgentToolResult(content=f"工具执行异常: {exc}", is_error=True)
-                _persist_run_step(
-                    db, run_id, step, "tool_call", tu.name, tu.input, {"error": str(exc)},
-                    duration_ms=int((time.monotonic() - tt0) * 1000), is_error=True,
-                )
-            if emit:
-                await emit("tool_result", {"id": tu.id, "name": tu.name, "is_error": res.is_error, "step": step})
-            results_msg.append(
-                {"type": "tool_result", "tool_use_id": tu.id, "content": res.content, "is_error": res.is_error}
-            )
-        # iter 363：cancel 中断时，未执行的 tool_use 补占位 tool_result——否则 assistant 的
-        # tool_use 与 user tool_result 数不匹配，下次 run 加载历史被 Anthropic API 拒（会话卡死）。
-        if cancelled:
-            done_ids = {r["tool_use_id"] for r in results_msg}
+        hard_exc: BaseException | None = None
+        try:
             for tu in acc.tool_use_blocks():
-                if tu.id not in done_ids:
-                    results_msg.append(
-                        {"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True}
+                if ctx.cancel_event.is_set():
+                    break  # 软取消：退出循环，下方补占位（for step 下次迭代 return interrupted）
+                tt0 = time.monotonic()
+                try:
+                    res = await tool_executor(tu, ctx)
+                    _persist_run_step(
+                        db, run_id, step, "tool_call", tu.name, tu.input,
+                        {"content": (res.content or "")[:1000], **res.meta},
+                        duration_ms=int((time.monotonic() - tt0) * 1000), is_error=res.is_error,
                     )
+                except Exception as exc:  # noqa: BLE001
+                    res = AgentToolResult(content=f"工具执行异常: {exc}", is_error=True)
+                    try:
+                        _persist_run_step(
+                            db, run_id, step, "tool_call", tu.name, tu.input, {"error": str(exc)},
+                            duration_ms=int((time.monotonic() - tt0) * 1000), is_error=True,
+                        )
+                    except Exception:  # noqa: BLE001  iter 365 B2：_persist_run_step 自身失败不穿透
+                        db.rollback()
+                if emit:
+                    await emit("tool_result", {"id": tu.id, "name": tu.name, "is_error": res.is_error, "step": step})
+                results_msg.append(
+                    {"type": "tool_result", "tool_use_id": tu.id, "content": res.content, "is_error": res.is_error}
+                )
+        except (Exception, asyncio.CancelledError) as exc:  # noqa: BLE001  iter 365 B2：硬取消/DB 抖动穿透
+            hard_exc = exc  # 下方补占位 + persist 后 raise（防 thread 末尾孤儿 tool_use 卡死会话）
+        # 占位补全：未执行的 tool_use 补 tool_result（软取消 break / 硬异常 都补）——
+        # 否则 assistant tool_use 与 user tool_result 数不匹配，下次 run 加载历史被 Anthropic 拒（卡死）。
+        done_ids = {r["tool_use_id"] for r in results_msg}
+        for tu in acc.tool_use_blocks():
+            if tu.id not in done_ids:
+                results_msg.append(
+                    {"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True}
+                )
         if results_msg:
-            _persist_message(db, thread_id, _role("user"), results_msg, run_id)
+            try:
+                _persist_message(db, thread_id, _role("user"), results_msg, run_id)
+            except Exception:  # noqa: BLE001  iter 365 B2：persist 失败回滚不抛（崩溃由 _finalize_chat 兜）
+                db.rollback()
+        if hard_exc is not None:
+            raise hard_exc  # 传播硬取消（run 终止）/ 异常（_run_chat 记 error）
 
     return AgentRunResult(status="max_steps", final_text=last_text, steps=max_steps, usage=total_usage)
 
