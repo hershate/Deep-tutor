@@ -30,6 +30,9 @@ Sink = Callable[[str, dict[str, Any]], Any]
 
 _listeners: dict[str, list[Handler]] = {}
 _sinks: list[Sink] = []
+# iter 365 C5：协程监听器的后台 task 须持强引用——loop 仅持弱引用，GC 可 mid-execution
+# 回收致监听器副作用（如 webhook 投递）静默丢失。done 回调释放引用。
+_bg_tasks: set[asyncio.Task] = set()
 
 
 def subscribe_all(fn: Sink) -> Callable[[], None]:
@@ -101,7 +104,9 @@ def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
         if inspect.isawaitable(result):
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(_guard_await(result, event))
+                task = loop.create_task(_guard_await(result, event))
+                _bg_tasks.add(task)  # 持强引用防 GC 中途回收（iter 365 C5）
+                task.add_done_callback(_bg_tasks.discard)
             except RuntimeError:
                 # 同步端点线程池：无运行循环 -> 后台 daemon 线程跑，不阻塞当前线程（iter 364）。
                 # 原 asyncio.run 阻塞当前线程——webhook sink 含 10s httpx 超时，并发即可抽干
@@ -147,3 +152,4 @@ def reset() -> None:
     """清空全部订阅与 sink（测试隔离用）。"""
     _listeners.clear()
     _sinks.clear()
+    _bg_tasks.clear()

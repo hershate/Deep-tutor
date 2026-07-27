@@ -24,6 +24,9 @@ from typing import Any, Callable
 log = logging.getLogger("deep_tutor.plugins.webhooks")
 
 _DELIVER_TIMEOUT = 10.0
+# iter 365 C5：投递 task 须持强引用——loop.create_task 仅弱引用，GC 可 mid-execution 回收
+# 致 webhook 静默未投递（业务监听器数据丢失级）。done 回调释放引用。
+_bg_tasks: set[asyncio.Task] = set()
 
 
 async def _deliver(url: str, body: bytes, headers: dict[str, str], *, timeout: float = _DELIVER_TIMEOUT) -> None:
@@ -74,7 +77,9 @@ def make_all_events_sink(url: str, secret: str = "") -> Callable[[str, dict[str,
     def sink(event: str, payload: dict[str, Any]) -> None:
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_deliver_event(url, event, payload, secret))
+            task = loop.create_task(_deliver_event(url, event, payload, secret))
+            _bg_tasks.add(task)  # 持强引用防 GC 中途回收（iter 365 C5）
+            task.add_done_callback(_bg_tasks.discard)
         except RuntimeError:
             # 同步线程池无运行循环 -> 临时新循环执行（同 bus._dispatch 兜底，阻塞当前线程）
             asyncio.run(_deliver_event(url, event, payload, secret))

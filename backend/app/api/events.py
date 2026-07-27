@@ -83,7 +83,9 @@ def format_frame(event: str, payload: dict[str, Any], user_id: int, db: Session 
             return None  # P4 隔离：他人的事件不转发
     elif event not in GLOBAL_EVENTS:
         return None  # 不可归属的非全局事件：丢弃（防泄露）
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    # iter 365 C9：event 名剥换行——插件自定义事件名含 \n 会注入额外 SSE 行（伪 data: 行）
+    safe_event = (event or "").replace("\r", "").replace("\n", "")
+    return f"event: {safe_event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 async def events_generator(
@@ -127,14 +129,21 @@ async def event_stream(
 
     客户端断开 -> 生成器被取消 -> finally 退订 sink（无监听泄漏）。
     """
-    queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+    # iter 365 C8：有界队列防慢客户端 OOM——挂起/慢读的连接持续入队无界 Queue 会线性吃内存
+    queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=100)
     loop = asyncio.get_running_loop()
 
     def sink(event: str, payload: dict[str, Any]) -> None:
         # emit 可能来自同步线程池 -> call_soon_threadsafe 跨线程安全入队；
         # loop 已关（客户端断开后续迟到的 emit）-> 静默丢弃（不再有消费者）
+        def _put(item):
+            try:
+                queue.put_nowait(item)
+            except asyncio.QueueFull:
+                pass  # 慢客户端：丢事件防 OOM（心跳不受影响，客户端终会读或断开）
+
         try:
-            loop.call_soon_threadsafe(queue.put_nowait, (event, dict(payload)))
+            loop.call_soon_threadsafe(_put, (event, dict(payload)))
         except RuntimeError:
             pass
 

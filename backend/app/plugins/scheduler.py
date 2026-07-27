@@ -27,6 +27,15 @@ log = logging.getLogger("deep_tutor.plugins.scheduler")
 _tasks: list[asyncio.Task[Any]] = []
 
 
+def _discard_task(task: asyncio.Task) -> None:
+    """iter 365 C4：task 完成后从 _tasks 移除——once() 完成的 task 此前永留 _tasks（缓慢
+    内存泄漏，长运行下 RSS 单调上升）。every() 死循环不 done 不触发；cancel() 已先移除容错。"""
+    try:
+        _tasks.remove(task)
+    except ValueError:
+        pass
+
+
 class TaskHandle:
     """单个调度任务句柄：cancel() 取消（幂等）。"""
 
@@ -80,6 +89,7 @@ def every(interval_s: float, fn: Callable[..., Any], *, run_immediately: bool = 
     loop = asyncio.get_running_loop()
     task = loop.create_task(_every_loop(interval_s, fn, run_immediately))
     _tasks.append(task)
+    task.add_done_callback(_discard_task)
     return TaskHandle(task)
 
 
@@ -101,6 +111,7 @@ def once(delay_s: float, fn: Callable[..., Any]) -> TaskHandle:
     loop = asyncio.get_running_loop()
     task = loop.create_task(_run())
     _tasks.append(task)
+    task.add_done_callback(_discard_task)
     return TaskHandle(task)
 
 
