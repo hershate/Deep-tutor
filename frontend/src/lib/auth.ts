@@ -62,6 +62,16 @@ export function updateStoredUser(patch: Partial<AuthUser>): void {
 export function clearAuth(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  // iter 365 E3（部分）：清任务台账持久化——同标签换用户（公共设备）时，防新用户刷新页面后
+  // 从 localStorage 读到前任的任务标题/rawText（跨用户轻度信息泄漏）。
+  // 完整重置（内存 tasks state + taskEngine booted 单例 + live SSE attach）需专用登出事件
+  // + 模块监听重构，风险较高且场景罕见（公共设备同标签不刷新换用户），暂缓。
+  try {
+    localStorage.removeItem('dt_tasks_v1')
+    localStorage.removeItem('dt_tasks_v1_tombstones')
+  } catch {
+    /* localStorage 不可用：忽略 */
+  }
   notifyAuthChanged()
 }
 
