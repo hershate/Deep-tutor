@@ -955,6 +955,8 @@ async def chat_with_kb(
     if not payload:
         raise ApiError("empty_content", "知识库暂无可用文档（请先上传文档）")
 
+    if not limiter.check(f"kb_chat:{user.id}", 10):
+        raise ApiError("rate_limited", "问答过于频繁，请稍后再试", status=429)
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（LLM 计费端点）
     try:
         provider = get_provider(user.id)

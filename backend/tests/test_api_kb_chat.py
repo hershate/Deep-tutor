@@ -292,3 +292,15 @@ def test_kb_answer_registered_not_in_pipeline():
 
     assert default_registry().has("kb_answer")
     assert "kb_answer" not in PIPELINE
+
+
+def test_kb_chat_rate_limit(client, auth_headers):
+    """kb/chat 写限流 10/min（iter 365）：第 11 次 -> 429。
+
+    限流在 provider 调用前，无需真 LLM；前 10 次放行（可能 503 无 provider，但非 429）。"""
+    _mk_text_doc(client, auth_headers)  # 先备一篇文档，否则 empty_content 400 先于限流
+    for i in range(10):
+        r = client.post(f"{BASE}/chat", json={"question": f"q{i}"}, headers=auth_headers)
+        assert r.status_code != 429, (i, r.text)
+    r = client.post(f"{BASE}/chat", json={"question": "溢出"}, headers=auth_headers)
+    assert r.status_code == 429

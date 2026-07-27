@@ -22,7 +22,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent.agent_loop import AgentRunResult, AgentToolResult, run_agent_loop
@@ -33,6 +33,7 @@ from app.agent.workspace import commit_run_workspace, create_run_workspace
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
 from app.core.credentials import resolve_bing_api_key
+from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
@@ -61,6 +62,9 @@ _MAX_RUNNING_PER_THREAD = 1
 # iter 346（F11b）：全局 chat run 并发上限（防单用户多 thread 各起 run 耗尽资源，对齐 plan-gen 全局 ≤2）
 _MAX_CHAT_RUNS_GLOBAL = 2
 _MAX_TOOL_RESULT_CHARS = 20_000  # iter 364：工具回灌 LLM 的字符上限（防大输出单轮击穿预算）
+# iter 365：记忆子系统资源配额 + 写限流（对照 sessions/notes/kb 配额族，防 DoS 刷库膨胀）
+_MAX_THREADS_PER_USER = 500
+_MAX_MEMORIES_PER_USER = 2000
 _RUN_CREATE_LOCK = asyncio.Lock()  # check-and-create 临界段
 
 
@@ -89,10 +93,10 @@ def _owned_run(db: Session, run_id: int, user) -> models.Run:
 
 
 class ThreadIn(BaseModel):
-    title: str = ""
+    title: str = Field(default="", max_length=256)
     kind: str = "chat"
     session_id: int | None = None
-    model: str = ""
+    model: str = Field(default="", max_length=128)
 
 
 class ThreadPatch(BaseModel):
@@ -120,6 +124,11 @@ def _thread_out(t: models.Thread, db: Session) -> dict:
 
 @router.post("/threads")
 def create_thread(body: ThreadIn, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if not limiter.check(f"thread_write:{user.id}", 30):
+        raise HTTPException(status_code=429, detail="rate_limited")
+    # iter 365：threads 配额（防 DoS 刷库；同 sessions/notes 配额族）
+    if db.query(models.Thread).filter_by(user_id=user.id).count() >= _MAX_THREADS_PER_USER:
+        raise HTTPException(status_code=429, detail="quota_exceeded")
     # session_id 须属当前用户——防 Thread→Plan 提升路径向他人会话注入 plan（跨用户隔离）
     if body.session_id is not None:
         get_owned_session(db, body.session_id, user)
@@ -223,8 +232,8 @@ def delete_message(thread_id: int, message_id: int, user=Depends(get_current_use
 
 
 class MemoryIn(BaseModel):
-    content: str
-    kind: str = "note"
+    content: str = Field(min_length=1, max_length=20000)
+    kind: str = Field(default="note", max_length=32)
     scope: str = "thread"
 
 
@@ -238,6 +247,10 @@ def list_thread_memory(thread_id: int, user=Depends(get_current_user), db: Sessi
 @router.post("/threads/{thread_id}/memory")
 def add_thread_memory(thread_id: int, body: MemoryIn, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _owned_thread(db, thread_id, user)
+    if not limiter.check(f"memory_write:{user.id}", 60):
+        raise HTTPException(status_code=429, detail="rate_limited")
+    if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
+        raise HTTPException(status_code=429, detail="quota_exceeded")
     m = models.Memory(user_id=user.id, thread_id=thread_id, scope="thread", kind=body.kind, content=body.content)
     db.add(m)
     db.commit()
@@ -264,6 +277,10 @@ def list_user_memory(user=Depends(get_current_user), db: Session = Depends(get_d
 
 @router.post("/memory")
 def add_user_memory(body: MemoryIn, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if not limiter.check(f"memory_write:{user.id}", 60):
+        raise HTTPException(status_code=429, detail="rate_limited")
+    if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
+        raise HTTPException(status_code=429, detail="quota_exceeded")
     m = models.Memory(user_id=user.id, thread_id=None, scope="user", kind=body.kind, content=body.content)
     db.add(m)
     db.commit()
@@ -477,10 +494,10 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
 
 
 class RunIn(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=200_000)
     max_steps: int | None = None
     thinking: bool = False
-    model: str | None = None
+    model: str | None = Field(default=None, max_length=128)
 
 
 def _create_chat_run_db(thread_id: int, user_id: int, model: str) -> int:
@@ -527,6 +544,8 @@ async def start_run(
     db: Session = Depends(get_db),
 ):
     thread = _owned_thread(db, thread_id, user)
+    if not limiter.check(f"chat_run:{user.id}", 20):
+        raise HTTPException(status_code=429, detail="rate_limited")
     model = body.model or thread.model or ""
     # iter 364：DB 操作移到线程池（独立 session）不阻塞 event loop——原锁内同步 DB commit
     # 最坏等 SQLite busy_timeout 5s，冻结整个 loop（其他用户 SSE 心跳停发/附流无响应）

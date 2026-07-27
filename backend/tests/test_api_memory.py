@@ -397,3 +397,33 @@ def test_force_run_terminal_converges_stuck_running():
     finally:
         db.close()
 
+
+# --- iter 365：限流 / 配额 / 字段校验 ---
+
+
+def test_thread_write_rate_limit(client, auth_headers):
+    """thread 写限流 30/min：第 31 次 -> 429（配额 500 不先触发）。"""
+    for i in range(30):
+        r = client.post("/api/threads", json={"title": f"t{i}"}, headers=auth_headers)
+        assert r.status_code == 200, (i, r.text)
+    r = client.post("/api/threads", json={"title": "溢出"}, headers=auth_headers)
+    assert r.status_code == 429
+
+
+def test_thread_quota_exceeded(client, auth_headers, monkeypatch):
+    """threads 配额：超 _MAX_THREADS_PER_USER -> 429（monkeypatch 小值免建 500 条）。"""
+    from app.api import memory as memory_mod
+
+    monkeypatch.setattr(memory_mod, "_MAX_THREADS_PER_USER", 2)
+    for i in range(2):
+        r = client.post("/api/threads", json={"title": f"t{i}"}, headers=auth_headers)
+        assert r.status_code == 200
+    r = client.post("/api/threads", json={"title": "溢出"}, headers=auth_headers)
+    assert r.status_code == 429
+
+
+def test_thread_title_max_length_422(client, auth_headers):
+    """title 超 256 -> 422（防无界长字符串入库）。"""
+    r = client.post("/api/threads", json={"title": "x" * 257}, headers=auth_headers)
+    assert r.status_code == 422
+
