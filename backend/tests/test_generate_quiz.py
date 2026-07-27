@@ -43,12 +43,26 @@ def test_default_quiz_empty_plan_fallback():
     assert len(spec.quizzes) >= 1
 
 
-def test_quiz_item_invalid_type_coerced_to_choice():
-    """题型不支持（essay/乱值）-> 降级选择题（plan/02 §8 errors）。"""
-    assert QuizItem(question="q", type="essay").type == "choice"
-    assert QuizItem(question="q", type="weird").type == "choice"
-    assert QuizItem(question="q", type=None).type == "choice"  # type: ignore[arg-type]
-    assert QuizItem(question="q", type="fill").type == "fill"  # 合法不变
+def test_quiz_item_invalid_type_coerced():
+    """题型不支持 -> 降级：有合法 options+answer 的降 choice（可判分），否则降 short（iter 365 C6）。"""
+    # 有合法 options+answer 的不支持题型 -> choice
+    assert QuizItem(question="q", type="essay", options=["a", "b"], answer="a").type == "choice"
+    assert QuizItem(question="q", type="weird", options=["a", "b"], answer="a").type == "choice"
+    # 无 options/answer 的不支持题型 -> short（不可判分的 choice 无意义，防前端无法判分）
+    assert QuizItem(question="q", type="essay").type == "short"
+    assert QuizItem(question="q", type=None).type == "short"  # type: ignore[arg-type]
+    # 合法 type 不变
+    assert QuizItem(question="q", type="fill").type == "fill"
+    # 合法 choice（options+answer 齐全）不变
+    assert QuizItem(question="q", type="choice", options=["a", "b"], answer="a").type == "choice"
+
+
+def test_quiz_item_choice_with_bad_options_degrades_to_short():
+    """iter 365 C6：choice 题 options<2 / answer 不在 options / 无 answer -> 降 short（防无法判分/误判）。"""
+    assert QuizItem(question="q", type="choice", options=[], answer="a").type == "short"  # 空 options
+    assert QuizItem(question="q", type="choice", options=["only"], answer="only").type == "short"  # <2
+    assert QuizItem(question="q", type="choice", options=["a", "b"], answer="c").type == "short"  # answer 不在
+    assert QuizItem(question="q", type="choice", options=["a", "b"]).type == "short"  # 无 answer
 
 
 # --- LLM 工具：plan -> QuizSpec，复用 run_tool 修复链 ---
@@ -99,7 +113,7 @@ def test_tool_valid_spec():
 
 
 def test_tool_invalid_type_in_llm_output_coerced():
-    """LLM 输出不支持题型（essay）-> validator 降级 choice，仍 ok 不触发修复。"""
+    """LLM 输出不支持题型（essay）无 options -> 降 short（可判分性，iter 365 C6），仍 ok 不触发修复。"""
     spec_json = '{"title":"t","quizzes":[{"question":"q","type":"essay","answer":"a"}]}'
     provider = _ScriptedProvider([LLMResponse(content=spec_json, usage=LLMUsage(model="claude-sonnet-5"))])
     out = asyncio.run(
@@ -110,7 +124,7 @@ def test_tool_invalid_type_in_llm_output_coerced():
         )
     )
     assert out.status == "ok"
-    assert out.data["quizzes"][0]["type"] == "choice"
+    assert out.data["quizzes"][0]["type"] == "short"  # essay 无 options -> short（非 choice）
 
 
 def test_tool_invalid_degrades_to_default():

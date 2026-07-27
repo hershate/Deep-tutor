@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.agent.registry import Tool
 from app.tools.base import ToolInput
@@ -41,6 +41,18 @@ class QuizItem(BaseModel):
     def _coerce_type(cls, v: Any) -> str:
         """题型不支持 -> 降级选择题（plan/02 §8 errors）。"""
         return v if isinstance(v, str) and v in QUIZ_TYPES else "choice"
+
+    @model_validator(mode="after")
+    def _ensure_choice_valid(self) -> "QuizItem":
+        """iter 365 C6：choice 题 options>=2 且 answer 在 options；否则降级 short（自评题）。
+
+        LLM 偶出空 options / answer 不在 options 的 choice 题，前端无法判分、掌握度被错误
+        答案污染；降级 short 自评题（不抛错触发整体修复重试/降级，保留其余好题）。"""
+        if self.type == "choice" and (
+            len(self.options) < 2 or not self.answer or self.answer not in self.options
+        ):
+            self.type = "short"
+        return self
 
 
 class QuizSpec(BaseModel):

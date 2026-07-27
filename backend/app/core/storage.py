@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from app.core.settings import settings
@@ -73,25 +75,45 @@ def _safe_ext(ext: str) -> str:
     return cleaned[:8].lower()
 
 
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    """iter 365 D3：原子写——tmp + os.replace（崩溃/IO 错不留半写文件，旧版本完整直至替换成功）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    _atomic_write_bytes(path, text.encode(encoding))
+
+
 def save_upload(session_id: int | str, material_id: int, content: bytes, ext: str) -> Path:
     """保存上传原件（用 material_id 命名，非原始文件名，R20）。"""
     safe = _safe_ext(ext)
     name = f"{material_id}.{safe}" if safe else str(material_id)
     path = originals_dir(session_id) / name
-    path.write_bytes(content)
+    _atomic_write_bytes(path, content)
     return path
 
 
 def write_parsed_text(session_id: int | str, material_id: int, text: str) -> Path:
     path = parsed_dir(session_id) / f"{material_id}.txt"
-    path.write_text(text, encoding="utf-8")
+    _atomic_write_text(path, text)
     return path
 
 
 def write_unit_text(session_id: int | str, unit_id: int, text: str) -> Path:
     """自学材料单元内容（study_materials.content_md_path，plan/01 §五）。"""
     path = materials_dir(session_id) / f"unit_{unit_id}.md"
-    path.write_text(text, encoding="utf-8")
+    _atomic_write_text(path, text)
     return path
 
 
@@ -138,18 +160,33 @@ def _split_at_headings(text: str, max_lines: int = _MAX_UNIT_FILE_LINES) -> list
 
 
 def write_unit_content(session_id: int | str, unit_id: int, content_md: str) -> Path:
-    """写单元内容（>500 行自动拆子文件，plan/02 §13），返回主文件路径。"""
+    """写单元内容（>500 行自动拆子文件，plan/02 §13），返回主文件路径。
+
+    iter 365 D2：先写新版本（原子）后清多余旧 .pN——旧实现先 delete 再 write，写中途遇 IO 错
+    则旧内容已删、新内容未落盘 -> 单元内容彻底丢失。新顺序：原子写新 main + .pN（覆盖旧同名），
+    全部成功后清编号超出新 parts 数的旧 .pN；任一写失败则旧版本仍完整（可重试）。"""
     main = materials_dir(session_id) / f"unit_{unit_id}.md"
-    # err.md C5：写前先清上一版残留的 .pN 拆分子文件——否则 read_unit_content
-    # 会无条件串联旧尾巴（3 段重生成变 1 段时读回 = 新主文件 + 旧 .p2/.p3）
-    delete_unit_content(main)
-    if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES:
-        return write_unit_text(session_id, unit_id, content_md)
-    parts = _split_at_headings(content_md)
-    main = write_unit_text(session_id, unit_id, parts[0])
+    parts = (
+        [content_md]
+        if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES
+        else _split_at_headings(content_md)
+    )
+    _atomic_write_text(main, parts[0])  # 原子覆盖 main（先写新，失败旧 main 仍在）
     for i, part in enumerate(parts[1:], 2):
-        _part_path(main, i).write_text(part, encoding="utf-8")
+        _atomic_write_text(_part_path(main, i), part)  # 原子覆盖 .pN
+    _delete_extra_parts(main, len(parts))  # 清编号 > parts 的旧 .pN（如旧 3 段 -> 新 1 段的 .p2/.p3）
     return main
+
+
+def _delete_extra_parts(main: Path, keep_count: int) -> None:
+    """删编号 > keep_count 的 .pN 拆分子文件（write_unit_content 新版本写完后清旧残留）。"""
+    n = keep_count + 1  # parts 编号 1(main)..keep_count；keep_count+1 起为旧残留
+    while True:
+        part = _part_path(main, n)
+        if not part.exists():
+            break
+        part.unlink(missing_ok=True)
+        n += 1
 
 
 def read_unit_content(path: str | Path) -> str:
@@ -241,13 +278,13 @@ def save_kb_upload(user_id: int | str, doc_id: int | str, content: bytes, ext: s
     safe = _safe_ext(ext)
     name = f"{doc_id}.{safe}" if safe else str(doc_id)
     path = kb_originals_dir(user_id) / name
-    path.write_bytes(content)
+    _atomic_write_bytes(path, content)
     return path
 
 
 def write_kb_parsed_text(user_id: int | str, doc_id: int | str, text: str) -> Path:
     path = kb_parsed_dir(user_id) / f"{doc_id}.txt"
-    path.write_text(text, encoding="utf-8")
+    _atomic_write_text(path, text)
     return path
 
 

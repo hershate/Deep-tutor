@@ -10,7 +10,7 @@ import math
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.agent.registry import Tool
 from app.tools.base import ToolInput
@@ -37,6 +37,12 @@ class ScheduleItem(BaseModel):
     stage_index: int = 0
     tasks: list[str] = Field(default_factory=list)
     est_minutes: int = 0
+
+    @field_validator("est_minutes")
+    @classmethod
+    def _clamp_minutes(cls, v: int) -> int:
+        """iter 365 C7：est_minutes 夹紧 >=0——负数会压低 total、击穿容量校验（insufficient_time 失效）。"""
+        return max(0, int(v or 0))
 
 
 class ScheduleData(BaseModel):
