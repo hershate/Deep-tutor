@@ -67,7 +67,11 @@ def register(api):
     router = APIRouter()
 
     @router.post("/tools")
-    async def tools(body: ToolsIn, user=Depends(api.deps.get_current_user)):
+    async def tools(body: ToolsIn, _admin=Depends(api.deps.require_admin)):
+        # iter 365：require_admin 收紧——任意登录用户原可令服务器向其指定 URL 发 JSON-RPC
+        # POST（SSRF：内网探测 / 云元数据 169.254.169.254 读 IAM 凭证 / 回显内部响应）。
+        # 与模块 docstring「admin/插件配置可信」一致；_is_safe_url 会禁 localhost 而误伤合法
+        # 本地 MCP server（filesystem 等），故用鉴权收紧而非 URL 黑名单。
         try:
             tools_list, server = await _connect_and_list(body.url)
             return {"tools": tools_list, "server_info": server}
@@ -75,7 +79,7 @@ def register(api):
             return {"error": str(exc)}
 
     @router.post("/invoke")
-    async def invoke(body: InvokeIn, user=Depends(api.deps.get_current_user)):
+    async def invoke(body: InvokeIn, _admin=Depends(api.deps.require_admin)):  # iter 365：同 /tools 收紧 require_admin
         try:
             client = await api.mcp.connect(body.url)
             try:

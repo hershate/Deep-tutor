@@ -301,11 +301,24 @@ _SCRIPT_STYLE_BLOCK = re.compile(
 )
 _UNSAFE_TAG = re.compile(r"<\s*/?\s*(script|style|iframe|object|embed|link|meta)\b[^>]*>", re.IGNORECASE)
 _EVENT_ATTRS = re.compile(r'\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', re.IGNORECASE)
-_JS_URL_ATTR = re.compile(
-    r'(href|src)\s*=\s*("|\')\s*javascript:[^"\']*\2', re.IGNORECASE
-)  # javascript: 协议链接（可执行脚本，唯一未被 on*/危险标签覆盖的 XSS 面）
-_JS_URL_ATTR_BARE = re.compile(r'(href|src)\s*=\s*javascript:[^\s>]*', re.IGNORECASE)  # 无引号变体
+# iter 365：javascript:/vbscript: 链接 XSS 防护。浏览器解析 URL scheme 前会先剥离 ASCII
+# 控制字符（tab/newline/CR/NUL 等，WHATWG URL spec），故 java&#9;cript: 经 unescape 成
+# java\tscript: 后，旧字面正则（要求连续 "javascript:"）不匹配、链接保留 -> 浏览器剥 \t
+# 后仍执行。改为匹配 href/src 属性值 -> 剥控制字符 -> 判危险 scheme。仅禁 javascript/vbscript
+# （data:image/... 是合法图片内联，不禁）。
+_URL_ATTR = re.compile(r'(href|src)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))', re.IGNORECASE)
+_DANGEROUS_SCHEME = re.compile(r"^(javascript|vbscript):", re.IGNORECASE)
 _CLASS_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _neutralize_url_attr(m: re.Match) -> str:
+    """href/src 属性值：剥 ASCII 控制字符后判 javascript/vbscript -> 置 '#'，否则原样。"""
+    attr = m.group(1)
+    # group(3)=双引号值、group(4)=单引号值、group(5)=裸值
+    val = m.group(3) if m.group(3) is not None else (m.group(4) if m.group(4) is not None else m.group(5))
+    if _DANGEROUS_SCHEME.match(re.sub(r"[\x00-\x20\x7f]", "", val or "")):
+        return f'{attr}="#"'
+    return m.group(0)
 
 
 def _sanitize_content_html(s: str) -> str:
@@ -318,8 +331,7 @@ def _sanitize_content_html(s: str) -> str:
     s = _SCRIPT_STYLE_BLOCK.sub("", s)  # <script>...</script> 整块
     s = _UNSAFE_TAG.sub("", s)  # 残留开/闭危险标签
     s = _EVENT_ATTRS.sub("", s)  # on*= 事件属性
-    s = _JS_URL_ATTR.sub(r"\1=\2#\2", s)  # href/src="javascript:..." -> "#"
-    s = _JS_URL_ATTR_BARE.sub(r'\1="#"', s)  # 无引号变体
+    s = _URL_ATTR.sub(_neutralize_url_attr, s)  # href/src 的 javascript:/vbscript:（剥控制字符后判）-> "#"
     return s
 
 

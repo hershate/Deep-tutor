@@ -248,3 +248,25 @@ def test_render_neutralizes_javascript_href():
     html = render_slides_html(spec, _BASE_HTML)
     assert "javascript:" not in html
     assert 'href="https://ok.example"' in html  # 合法链接不受影响
+
+
+def test_render_neutralizes_javascript_with_control_chars():
+    """iter 365：控制字符绕过防御——浏览器解析 URL scheme 前先剥 ASCII 控制字符
+    （WHATWG URL spec），故 java\\tscript: 经旧字面正则（要求连续 javascript:）不匹配、
+    浏览器剥 \\t 后仍执行。须剥控制字符后再判 scheme。"""
+    spec = SlideSpec(
+        title="t",
+        slides=[
+            SlideContent(
+                title="s",
+                content_html=(
+                    '<a href="java\tscript:alert(1)">tab</a>'
+                    '<a href="java\nscript:alert(2)">nl</a>'
+                    '<a href="java\rscript:alert(3)">cr</a>'
+                ),
+            ),
+        ],
+    )
+    html = render_slides_html(spec, _BASE_HTML)
+    assert "javascript:" not in html  # 剥控制字符后判中 -> 全置 #
+    assert "alert" not in html
