@@ -70,12 +70,15 @@ def register(entry: ExporterEntry) -> None:
             "插件导出器覆盖既有注册: %s（原 %s <- 新 %s）", fmt, existing.plugin_id, entry.plugin_id
         )
     if not entry.override and fmt in BUILTIN_FORMATS:
+        # iter 365 C10：不写入——find_exporter 对内置格式返回 None（内置接管），但 all_entries
+        # 此前仍返回它 -> GET /export/formats 展示并不生效的格式（UI 与行为不一致）。
         log.warning(
-            "插件 %s 为内置导出格式 %s 注册导出器但未 override=True -> 不会生效（内置优先）；"
+            "插件 %s 为内置导出格式 %s 注册导出器但未 override=True -> 拒绝注册（内置优先）；"
             "如确需覆盖内置导出，请 override=True 并充分测试",
             entry.plugin_id,
             fmt,
         )
+        return
     _exporters[fmt] = entry
 
 

@@ -71,12 +71,14 @@ def register(entry: ParserEntry) -> None:
                 "插件解析器覆盖既有注册: %s（原 %s <- 新 %s）", ext, existing.plugin_id, entry.plugin_id
             )
         if not entry.override and ext in _builtin_exts():
+            # iter 365 C10：不写入（同 exporters）——find_parser 返回 None 但 all_entries 仍展示
             log.warning(
-                "插件 %s 为内置格式 %s 注册解析器但未 override=True -> 不会生效（内置优先）；"
+                "插件 %s 为内置格式 %s 注册解析器但未 override=True -> 跳过该 ext（内置优先）；"
                 "如确需覆盖内置解析器，请 override=True 并充分测试",
                 entry.plugin_id,
                 ext,
             )
+            continue
         _parsers[ext] = entry
 
 

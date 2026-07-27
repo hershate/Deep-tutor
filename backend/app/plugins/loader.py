@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,11 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 # 热重启支持：保留每个已加载插件的 API 门面（持有 _rollbacks 供 unload 调用）
 _plugin_apis: dict[str, BackendPluginAPI] = {}
+
+# iter 365 C11：unload/load/disable/enable 串行化——并发热管理（两 admin 同时 reload 同插件）
+# 可竞态 _plugin_apis/_statuses（后写覆盖、重复台账、旧 API 未 rollback 残留监听器）。
+# RLock 可重入：reload->unload、disable->unload 同线程内调用安全。
+_management_lock = threading.RLock()
 
 # 禁用状态持久化（重启后保持）；存 data/plugin_state.json
 _disabled_ids: set[str] = set()
@@ -251,23 +257,25 @@ def _load_one(app: FastAPI, path: Path) -> runtime.PluginStatus | None:
 def unload_plugin(pid: str) -> bool:
     """热卸载一个插件：调用其 _rollback() 逆序撤销全部注册（路由/事件/工具/解析器/导出器/Provider/scheduler/webhook/middleware），
     从 _plugin_apis + _statuses 移除。返回是否确实卸载了一个插件。"""
-    api = _plugin_apis.pop(pid, None)
-    if api is None:
-        return False
-    api._rollback()
-    runtime.remove_status(pid)
-    log.info("插件已卸载（热）：%s", pid)
-    return True
+    with _management_lock:  # iter 365 C11：串行化热管理
+        api = _plugin_apis.pop(pid, None)
+        if api is None:
+            return False
+        api._rollback()
+        runtime.remove_status(pid)
+        log.info("插件已卸载（热）：%s", pid)
+        return True
 
 
 def reload_plugin(app: FastAPI, pid: str) -> runtime.PluginStatus | None:
     """热重载一个插件：卸载 + 重新导入 + 重新注册。返回新状态；插件不存在返回 None。"""
-    # 找到文件路径（从已有状态或扫描目录）
-    path = _find_plugin_file(pid)
-    if path is None:
-        return None
-    unload_plugin(pid)
-    return _load_one(app, path)
+    with _management_lock:  # iter 365 C11：串行化热管理
+        # 找到文件路径（从已有状态或扫描目录）
+        path = _find_plugin_file(pid)
+        if path is None:
+            return None
+        unload_plugin(pid)  # RLock 可重入：reload 持锁调 unload 安全
+        return _load_one(app, path)
 
 
 def disable_plugin(pid: str) -> bool:
@@ -276,35 +284,37 @@ def disable_plugin(pid: str) -> bool:
     仅对真实插件生效（已加载，或文件存在如启动时跳过的禁用插件）；未知 id 返回 False
     （端点据此 404，与 reload/enable 一致）。
     """
-    # 先捕获文件路径——unload_plugin 会移除状态台账，之后读不到 file，enable 会找不到文件
-    file = next((s.file for s in runtime.statuses() if s.id == pid), "")
-    if pid in _plugin_apis:
-        unload_plugin(pid)
-    else:
-        # 未加载：须能定位到文件（如启动时跳过的禁用插件），否则视为不存在
-        if not file:
-            found = _find_plugin_file(pid)
-            if found is None:
-                return False
-            file = str(found)
-    # 记 disabled 状态（台账可见，可从插件页重新启用；file 供 enable 定位）
-    runtime.remove_status(pid)
-    runtime.record(runtime.PluginStatus(id=pid, name=pid, version="", file=file, state="disabled"))
-    _disabled_ids.add(pid)
-    _save_disabled()
-    log.info("插件已禁用：%s", pid)
-    return True
+    with _management_lock:  # iter 365 C11：串行化热管理
+        # 先捕获文件路径——unload_plugin 会移除状态台账，之后读不到 file，enable 会找不到文件
+        file = next((s.file for s in runtime.statuses() if s.id == pid), "")
+        if pid in _plugin_apis:
+            unload_plugin(pid)  # RLock 可重入
+        else:
+            # 未加载：须能定位到文件（如启动时跳过的禁用插件），否则视为不存在
+            if not file:
+                found = _find_plugin_file(pid)
+                if found is None:
+                    return False
+                file = str(found)
+        # 记 disabled 状态（台账可见，可从插件页重新启用；file 供 enable 定位）
+        runtime.remove_status(pid)
+        runtime.record(runtime.PluginStatus(id=pid, name=pid, version="", file=file, state="disabled"))
+        _disabled_ids.add(pid)
+        _save_disabled()
+        log.info("插件已禁用：%s", pid)
+        return True
 
 
 def enable_plugin(app: FastAPI, pid: str) -> runtime.PluginStatus | None:
     """启用一个被禁用的插件：移除禁用标记 + 从文件重新加载。返回新状态；文件不存在返回 None。"""
-    _disabled_ids.discard(pid)
-    _save_disabled()
-    path = _find_plugin_file(pid)
-    if path is None:
-        return None
-    runtime.remove_status(pid)  # 清除旧的 disabled 状态记录
-    return _load_one(app, path)
+    with _management_lock:  # iter 365 C11：串行化热管理
+        _disabled_ids.discard(pid)
+        _save_disabled()
+        path = _find_plugin_file(pid)
+        if path is None:
+            return None
+        runtime.remove_status(pid)  # 清除旧的 disabled 状态记录
+        return _load_one(app, path)
 
 
 def _find_plugin_file(pid: str) -> Path | None:
