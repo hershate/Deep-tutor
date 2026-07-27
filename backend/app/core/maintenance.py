@@ -89,7 +89,13 @@ def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
         # committed 区有效性：<rid, committed, status> 元组
         valid_committed: dict[str, bool] = {}  # run_id_str -> 应保留
         for r in db.query(models.Run).all():
-            valid_committed[str(r.id)] = bool(r.workspace_committed) or r.status == models.RunStatus.running
+            # iter 365：awaiting_approval 的 run workspace_committed 恒 False（_finalize_chat
+            # 走 pass 不 commit；promote_artifact 仅复制不置位）——须显式保留，否则 24h 维护
+            # 误删其 committed 产物，用户 approve 时 file_missing，待审批产物永久丢失。
+            valid_committed[str(r.id)] = bool(r.workspace_committed) or r.status in (
+                models.RunStatus.running,
+                models.RunStatus.awaiting_approval,
+            )
     finally:
         db.close()
 

@@ -58,3 +58,52 @@ def test_cleanup_orphan_session_dirs(client, auth_headers):
 def test_run_maintenance_returns_stats():
     stats = run_maintenance()
     assert "orphan_dirs_removed" in stats
+
+
+def test_cleanup_orphan_run_dirs_keeps_awaiting_approval():
+    """iter 365：awaiting_approval 的 run workspace_committed=False，但产物待审批不可删——
+    否则 24h 维护误删，用户 approve 时 file_missing（数据丢失）。"""
+    import shutil
+
+    from app.core.maintenance import cleanup_orphan_run_dirs
+    from app.core.settings import settings
+    from app.db.base import SessionLocal
+    from app.db import models
+
+    db = SessionLocal()
+    try:
+        u = models.User(name="u", username="u", is_admin=True)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        uid = u.id
+        t = models.Thread(user_id=uid, title="t")
+        db.add(t)
+        db.flush()
+        run = models.Run(
+            thread_id=t.id, user_id=uid, kind=models.RunKind.chat,
+            status=models.RunStatus.awaiting_approval, trace_id="x", workspace_committed=False,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        tid, rid = t.id, run.id
+    finally:
+        db.close()
+
+    ws = Path(settings.data_dir) / "workspaces" / str(tid) / str(rid)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "draft.md").write_text("待审批产物", encoding="utf-8")
+    try:
+        cleanup_orphan_run_dirs()
+        assert (ws / "draft.md").exists()  # awaiting_approval 产物保留
+    finally:
+        db = SessionLocal()
+        try:
+            r = db.get(models.Run, rid)
+            if r:
+                db.delete(r)
+            db.commit()
+        finally:
+            db.close()
+        shutil.rmtree(ws, ignore_errors=True)
