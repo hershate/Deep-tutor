@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import MaterialsModal from '../components/MaterialsModal'
 import MaterialsPanel from '../components/MaterialsPanel'
 import EmptyState from '../components/EmptyState'
@@ -144,6 +145,7 @@ function comparePlans(cur: PlanLike, other: PlanLike) {
 export default function PlanDetail() {
   const { planId } = useParams()
   const nav = useNavigate()
+  const queryClient = useQueryClient()
   const [plan, setPlan] = useState<PlanData | null>(null)
   const [loading, setLoading] = useState(true)
   // err.md D1：初始加载错误（整页错误块）与操作错误（内联 banner）分离——
@@ -167,6 +169,7 @@ export default function PlanDetail() {
   const [tab, setTab] = useState<TabKey>('path')
   const [sessionId, setSessionId] = useState<number | null>(null) // 源资料面板（iter 104）
   const [versions, setVersions] = useState<PlanSummary[]>([]) // 版本历史（iter 170）
+  const [versionRefresh, setVersionRefresh] = useState(0) // iter 365 E2：重生成 done 后触发版本下拉重拉
   // iter 301：版本对比
   const [showCompare, setShowCompare] = useState(false)
   const [compareOtherId, setCompareOtherId] = useState<number | null>(null)
@@ -179,7 +182,7 @@ export default function PlanDetail() {
     listPlans(sessionId)
       .then((r) => setVersions(r.items.sort((a, b) => b.version - a.version)))
       .catch(() => {}) // 版本列表失败不阻塞页面
-  }, [sessionId])
+  }, [sessionId, versionRefresh]) // iter 365 E2：versionRefresh 变化（重生成 done）触发重拉
   // iter 301：版本对比——按需取另一版本内容（复用 getPlan）
   useEffect(() => {
     if (!showCompare || compareOtherId == null) return
@@ -355,6 +358,10 @@ export default function PlanDetail() {
     regenerateStream(Number(planId), regenScope, regenFeedback, (event, data) => {
       if (event === 'done') {
         nav(`/plans/${data.plan_id}`)
+        // iter 365 E2：刷新版本下拉（同 session 新版本，sessionId 不变旧 effect 不重跑）
+        // + 失效方案列表缓存（Plans/Home/LearnIndex），否则切过去仍显旧 topic/版本号
+        setVersionRefresh((n) => n + 1)
+        queryClient.invalidateQueries({ queryKey: ['plans'] })
       } else if (event === 'error') {
         setRegenError(String(data.message ?? '重生成失败'))
         setRegenLoading(false)

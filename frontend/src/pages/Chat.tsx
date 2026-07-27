@@ -193,6 +193,10 @@ export default function Chat() {
     setPendingUser(message)
     setError('')
     setStream({ text: '', thinking: '', tools: {} })
+    // iter 365 E1：本会话已有 POST 流——标记防 threadsQ refetch（窗口聚焦/网络重连时
+    // thread.running=true）触发 reconnectActive 清空气泡 + 开第二路 GET 流，致 text_delta
+    // 被两路 SSE 同时投递而翻倍。reconnectAttemptedRef 此处语义扩为「本会话已有活动流」。
+    reconnectAttemptedRef.current = tid
     try {
       await openSSE(`${API_BASE}/threads/${tid}/runs`, {
         method: 'POST',

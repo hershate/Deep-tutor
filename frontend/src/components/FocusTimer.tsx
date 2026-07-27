@@ -44,6 +44,13 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const titleRef = useRef<string | null>(null)
   const audioRef = useRef<AudioContext | null>(null)
+  // iter 365 E4：onComplete 经 ref 同步最新值——tick 闭包捕获 start() 时的 onComplete，
+  // 而父组件内联 onComplete 闭包捕获当时的 note；计时期间用户输入 note 变化不会进入旧闭包，
+  // 完成打卡记成旧 note（通常空=「番茄钟专注」）。ref 让 tick 调最新 onComplete（含最新 note）。
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => {
+    onCompleteRef.current = onComplete
+  }, [onComplete])
 
   const running = remainMs !== null
 
@@ -117,7 +124,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
       setRemainMs(null)
       restoreTitle()
       beep() // iter 266：后台标签页可闻的完成信号
-      onComplete(minsRef.current)
+      onCompleteRef.current(minsRef.current) // iter 365 E4：调最新 onComplete（含最新 note）
       return
     }
     setRemainMs(left)
