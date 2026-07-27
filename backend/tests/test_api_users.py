@@ -213,3 +213,45 @@ def _login_headers_of_deleted(client):
 def test_delete_not_found(client):
     ha = _admin(client)
     assert client.delete(f"{BASE}/999999", headers=ha).status_code == 404
+
+
+def test_delete_user_cancels_running_chat_run(client, monkeypatch):
+    """删用户时取消其运行中的 chat run（iter 365）。
+
+    删 user -> ORM 级联删 Thread/Run 行，但 _run_chat 后台任务仍持独立 SessionLocal；
+    若不先 request_cancel，下次 persist 撞失效 FK 抛 IntegrityError 被吞，当轮 LLM 费用
+    已发生却写不进 api_usage -> 成本黑洞。对照 delete_thread 的取消语义。"""
+    from app.api import memory as memory_mod
+    from app.db.base import SessionLocal
+    from app.db import models
+
+    ha = _admin(client)
+    uid = client.post(BASE, json={"username": "alice", "password": "pw1234"}, headers=ha).json()["id"]
+
+    db = SessionLocal()
+    try:
+        t = models.Thread(user_id=uid, title="t")
+        db.add(t)
+        db.flush()
+        run = models.Run(
+            thread_id=t.id, user_id=uid, kind=models.RunKind.chat,
+            status=models.RunStatus.running, trace_id="x",
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+    finally:
+        db.close()
+
+    cancelled = {"called": False}
+
+    class _FakeStream:
+        def request_cancel(self):
+            cancelled["called"] = True
+
+    monkeypatch.setitem(memory_mod._RUN_STREAMS, run_id, _FakeStream())
+
+    r = client.delete(f"{BASE}/{uid}", headers=ha)
+    assert r.status_code == 200, r.text
+    assert cancelled["called"] is True

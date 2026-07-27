@@ -132,6 +132,22 @@ def test_quota_per_kind_429(client, auth_headers):
     assert r.status_code == 201
 
 
+def test_write_rate_limit_429(client, auth_headers):
+    """凭证写操作限流（iter 365）：30/min 跨类累计，第 31 次 -> 429。
+
+    跨 anthropic/bing/auth_token 三类各 10 个（< 配额 20）凑满 30 次写，隔离配额检查，
+    专测限流本身。auth_token 类 key 需 >=8 位（强度校验）。"""
+    kinds = ["anthropic", "bing", "auth_token"]
+    for i in range(30):
+        k = kinds[i % 3]
+        key = f"token-{i:08d}" if k == "auth_token" else f"{k}-rl{i:04d}"
+        r = client.post(BASE, json={"kind": k, "name": f"r{i}", "api_key": key}, headers=auth_headers)
+        assert r.status_code == 201, (i, k, r.text)
+    # 第 31 次写：每类 10 个未触配额（20），仅限流 429 生效
+    r = client.post(BASE, json={"kind": "anthropic", "name": "溢出", "api_key": "sk-rl-x"}, headers=auth_headers)
+    assert r.status_code == 429
+
+
 def test_isolation_other_user_404(client, auth_headers):
     """P4 隔离：他人凭证读/改/删/激活一律 404（不泄露存在性）；列表互不可见。"""
     p = _create(client, auth_headers, kind="bing", name="我的", api_key="bing-mine-1")

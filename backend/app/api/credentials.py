@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core.credentials import CREDENTIAL_KINDS, KIND_AUTH_TOKEN, SINGLE_ACTIVE_KINDS
+from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
 
@@ -32,6 +33,15 @@ router = APIRouter(prefix="/credentials", tags=["credentials"], dependencies=[De
 
 _MAX_PER_KIND = 20  # 每用户每类档案上限（与其他资源配额同族）
 Kind = Literal["anthropic", "bing", "auth_token"]
+
+
+def _check_write_rate(user: User) -> None:
+    """凭证写操作限流（iter 365）：auth_token 类 PAT 可作持久化后门、api_key 明文可外带，
+    JWT 泄露后若无写限流即可批量种令牌/外带密钥（PAT outlives JWT，改密吊销不清）。
+    30/min：明显高于每类 20 的配额上限，让配额检查先生效、限流只防突发自动化
+    （test_quota_per_kind_429 连续 22 次写不应被限流误伤）。"""
+    if not limiter.check(f"cred_write:{user.id}", 30):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
 
 
 def _mask(key: str) -> str:
@@ -103,6 +113,7 @@ def list_credentials(
 def create_credential(
     body: CredentialIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_write_rate(user)
     count = (
         db.query(models.CredentialProfile)
         .filter_by(user_id=user.id, kind=body.kind)
@@ -137,6 +148,7 @@ def update_credential(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
     if body.name is not None and body.name != p.name:
         _check_dup_name(db, user, p.kind, body.name)
@@ -157,6 +169,7 @@ def update_credential(
 def delete_credential(
     credential_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
     db.delete(p)
     db.commit()
@@ -179,6 +192,7 @@ def _activate(db: Session, user: User, p: models.CredentialProfile) -> None:
 def activate_credential(
     credential_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
     _activate(db, user, p)
     db.commit()
@@ -189,6 +203,7 @@ def activate_credential(
 def deactivate_credential(
     credential_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
     p.is_active = False
     db.commit()
@@ -202,6 +217,7 @@ def deactivate_all(
     user: User = Depends(get_current_user),
 ) -> dict:
     """停用当前用户该类全部档案 -> anthropic/bing 回退 .env；auth_token 全部令牌失效。"""
+    _check_write_rate(user)
     for p in (
         db.query(models.CredentialProfile)
         .filter_by(user_id=user.id, kind=kind, is_active=True)
