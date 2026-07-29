@@ -77,6 +77,28 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=50, description="上传单文件上限 MB")
     max_tool_calls: int = Field(default=20, description="工具调用轮次上限/会话")
     max_regenerations: int = Field(default=2, description="重生成上限")
+
+    # --- 并发与数据库连接（多用户/高负载稳定性）---
+    # SQLite 为单写者库：WAL 让读并发，但写仍串行。高负载下两类故障：
+    # ① 连接池耗尽（每个 SSE 长连接经 get_db 钉住一条连接直至流结束）-> QueuePool TimeoutError；
+    # ② 写-写争用超 busy_timeout -> database is locked 500。下方参数兜底二者。
+    db_busy_timeout_ms: int = Field(
+        default=10_000,
+        description="SQLite busy_timeout（毫秒）：写-写争用时等待上限，超此报 database is locked。默认 10s（多用户负载下高于旧硬编 5s，减少瞬态 500）",
+    )
+    db_pool_size: int = Field(default=20, description="SQLAlchemy 连接池常驻大小（QueuePool）")
+    db_max_overflow: int = Field(default=80, description="连接池溢出上限（pool_size + max_overflow = 总连接上限）")
+    db_pool_timeout: int = Field(default=30, description="从连接池获取连接的等待上限（秒）；超此 QueuePool TimeoutError")
+    # 任务级并发配额（原硬编码：生成全局 2 / 对话全局 2，100 用户场景下 98% 被拒）。
+    # 提为可配，部署方可按数据库后端与 LLM 速率限额调整；配合全局 LLM 信号量（max_concurrent_llm_calls）兜底。
+    max_concurrent_generations: int = Field(default=8, description="全局同时进行的方案生成任务数上限（超额 503 server_busy）")
+    max_concurrent_generations_per_user: int = Field(default=1, description="单用户同时进行的方案生成任务数上限")
+    max_concurrent_chat_runs: int = Field(default=8, description="全局同时进行的 AI 对话 run 数上限（超额 503 chat_run_busy）")
+    max_running_chat_per_thread: int = Field(default=1, description="单会话同时进行的 AI 对话 run 数上限")
+    max_concurrent_llm_calls: int = Field(
+        default=16,
+        description="全局并发 LLM 调用上限（provider 级信号量）：防止超额触发模型供应商速率限制与内存膨胀。0=不限",
+    )
     # iter 345 记忆系统：把方案生成旁挂为 run(kind=plan_generation) 进统一 Run 模型
     # （side-channel overlay，不动 Orchestrator/SSE 既有行为；默认关闭，验证后再开）
     agent_runs_enabled: bool = Field(default=False, description="方案生成旁挂 Run 模型（默认关闭）")
