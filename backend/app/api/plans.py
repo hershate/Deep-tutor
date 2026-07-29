@@ -358,6 +358,7 @@ def generate(
                 # 后 _set_state(done)，窗口期内 terminal 流 + running 态并存；
                 # _relay 对终态流会重放缓冲事件（含终态）后正常退出，
                 # 此前此窗口误判 409「生成已中断」，用户重试才自愈
+                db.close()  # iter 366：续接流期间不用请求 db（_relay 用 stream），早释放连接池槽
                 return StreamingResponse(
                     _relay(stream, _parse_last_event_id(request)),
                     media_type="text/event-stream",
@@ -369,6 +370,7 @@ def generate(
         if state is not None:
             terminal = _terminal_event(db, body.session_id, state)
             if terminal is not None:
+                db.close()  # iter 366：终态回放不用请求 db，早释放连接池槽
                 return StreamingResponse(
                     _terminal_stream(terminal[0], terminal[1]),
                     media_type="text/event-stream",
@@ -385,8 +387,10 @@ def generate(
         "deadline": body.deadline,
         "start_date": body.start_date,
     }
+    user_id = user.id  # iter 366：提取 primitive，db.close() 后流式生成器不再触 ORM
+    db.close()  # 流式期间不用请求 db（_run_start 自管会话），早释放连接池槽
     return _start_full_generation(
-        stream, body.session_id, raw_text, parsed, request, user, intent_overrides=intent_overrides
+        stream, body.session_id, raw_text, parsed, request, user_id, intent_overrides=intent_overrides
     )
 
 
@@ -396,11 +400,14 @@ def _start_full_generation(
     raw_text: str,
     parsed: list[dict],
     request: Request,
-    user: User,
+    user_id: int,
     intent_overrides: dict | None = None,
 ) -> StreamingResponse:
     """全量生成启动（iter 184 B4 抽取，generate 与 retry 复用）：
-    拼接已解析资料 -> 组装 args/initial_upstream -> 返回生成 SSE 流。"""
+    拼接已解析资料 -> 组装 args/initial_upstream -> 返回生成 SSE 流。
+
+    iter 366：取 user_id（int）而非 user 对象——调用方在 db.close() 后才进入流式，
+    ORM 对象会 DetachedInstanceError；primitives 不受会话关闭影响。"""
     concatenated = "\n\n".join(p["text"] for p in parsed if p["text"])
     if len(concatenated) > _MAX_MATERIALS_TOTAL_CHARS:
         concatenated = concatenated[:_MAX_MATERIALS_TOTAL_CHARS] + "\n…[资料总量超限，已截断]"
@@ -426,7 +433,7 @@ def _start_full_generation(
     args_by_tool = {"understand_intent": intent_args}
     return StreamingResponse(
         _run_start(
-            stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user.id
+            stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user_id
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -461,7 +468,9 @@ def retry(
         _check_generate_quota(db, user, session_id)
         check_daily_budget(db, user.id)
         stream = _occupy_generation(db, session_id, raw_text)
-    return _start_full_generation(stream, session_id, raw_text, parsed, request, user)
+    user_id = user.id  # iter 366：提取 primitive，db.close() 后流式不触 ORM
+    db.close()  # 流式期间不用请求 db，早释放连接池槽
+    return _start_full_generation(stream, session_id, raw_text, parsed, request, user_id)
 
 
 @router.post("/{session_id}/clarify")
@@ -491,8 +500,10 @@ def clarify(
         check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, session_id, raw_text)
     args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": [{"text": "", "meta": p["meta"]} for p in parsed], "answers": body.answers}}
+    user_id = user.id  # iter 366：提取 primitive，db.close() 后流式不触 ORM
+    db.close()  # 流式期间不用请求 db，早释放连接池槽
     return StreamingResponse(
-        _run_start(stream, session_id, args_by_tool, initial_upstream, 0, user_id=user.id),
+        _run_start(stream, session_id, args_by_tool, initial_upstream, 0, user_id=user_id),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -571,6 +582,8 @@ def regenerate(
         check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, session_id, "")
     args_by_tool = {start_tool: {"fixes": [body.feedback]} if body.feedback else {}}
+    user_id = user.id  # iter 366：提取 primitive，db.close() 后流式不触 ORM
+    db.close()  # 流式期间不用请求 db，早释放连接池槽
     return StreamingResponse(
         _run_start(
             stream,
@@ -579,7 +592,7 @@ def regenerate(
             initial_upstream,
             _parse_last_event_id(request),
             start_tool=start_tool,
-            user_id=user.id,
+            user_id=user_id,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -1874,8 +1887,11 @@ async def generate_materials(
                 db.delete(u)  # cascade study_materials
             db.flush()
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
+        # iter 366：提取 primitive（plan.id/session_id、user.id），db.close() 后流式不触 ORM
+        plan_id, sid, uid = plan.id, plan.session_id, user.id
+        db.close()  # 流式期间不用请求 db（_materials_sse 自管），早释放连接池槽
         return StreamingResponse(
-            _materials_sse_gated(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
+            _materials_sse_gated(plan_id, sid, content, body, old_paths, uid, picked),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
