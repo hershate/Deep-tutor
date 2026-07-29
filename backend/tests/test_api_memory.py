@@ -294,6 +294,69 @@ def test_run_no_provider_error(client, auth_headers, monkeypatch):
     assert any(e == "error" and d.get("code") == "no_llm_provider" for e, d in events)
 
 
+def test_chat_relay_disconnect_cancels_orphan_run():
+    """iter 366：客户端断连（非终态）且无其他订阅者 -> 取消后台 run（防孤儿烧 token/占槽）。
+
+    _chat_relay 生成器被 aclose（Starlette 客户端断连语义）时，若 run 未到终态且无其他
+    订阅者，finally 应 request_cancel() 置 cancel_event，让 run_agent_loop 尽快停（此前仅
+    /runs/{id}/cancel 与 delete_thread 会置 cancel_event，断连即烧到 max_steps）。
+    """
+    import asyncio
+
+    from app.api.memory import _ChatStream, _chat_relay
+
+    async def scenario() -> bool:
+        stream = _ChatStream()
+        stream.publish("run_start", {"run_id": 1, "model": "m"})  # 未 mark_terminal
+        gen = _chat_relay(stream, 0)
+        await gen.__anext__()  # 消费首事件（run_start）
+        await gen.aclose()  # 模拟客户端断连：Starlette 关闭响应体生成器
+        await asyncio.sleep(0)  # 让 call_soon_threadsafe 调度的 set() 执行
+        return stream.cancel_event.is_set()
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_chat_relay_terminal_exit_does_not_cancel():
+    """iter 366：终态正常退出不触发取消（避免误杀正常完成的 run）。"""
+    import asyncio
+
+    from app.api.memory import _ChatStream, _chat_relay
+
+    async def scenario() -> bool:
+        stream = _ChatStream()
+        stream.publish("run_start", {"run_id": 1, "model": "m"})
+        eid = stream.publish("done", {"run_id": 1, "status": "done"})
+        stream.mark_terminal(eid)
+        gen = _chat_relay(stream, 0)
+        async for _ in gen:  # 正常消费至终态退出
+            pass
+        await asyncio.sleep(0)
+        return stream.cancel_event.is_set()
+
+    assert asyncio.run(scenario()) is False
+
+
+def test_chat_relay_disconnect_keeps_run_if_other_subscriber():
+    """iter 366：断连时仍有其他订阅者 -> 不取消（其他人还在看）。"""
+    import asyncio
+
+    from app.api.memory import _ChatStream, _chat_relay
+
+    async def scenario() -> bool:
+        stream = _ChatStream()
+        stream.publish("run_start", {"run_id": 1, "model": "m"})
+        other = stream.subscribe(0)  # 另一个附流订阅者仍在
+        gen = _chat_relay(stream, 0)
+        await gen.__anext__()
+        await gen.aclose()  # 主连接断连
+        await asyncio.sleep(0)
+        still_subscribed = other in stream._subs
+        return still_subscribed and not stream.cancel_event.is_set()
+
+    assert asyncio.run(scenario()) is True
+
+
 # --- iter 360：切回附流续看 GET /threads/{id}/runs/active + finalize 强制收敛 ---
 
 

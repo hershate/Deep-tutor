@@ -683,6 +683,10 @@ class _ChatStream:
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self._drop_sub(q)
 
+    def has_subscribers(self) -> bool:
+        """是否有活跃订阅者（_chat_relay 据此判定客户端断连后是否取消后台 run）。"""
+        return bool(self._subs)
+
     def _drop_sub(self, q: asyncio.Queue) -> None:
         if q in self._subs:
             self._subs.remove(q)
@@ -721,6 +725,11 @@ async def _chat_relay(stream: _ChatStream, last_event_id: int):
                 break
     finally:
         stream.unsubscribe(q)
+        # iter 366：客户端断连（非终态正常退出）且无其他订阅者 -> 取消后台 run，
+        # 防孤儿 agent 循环继续烧 LLM token / 占用全局槽直到 max_steps
+        # （此前仅 /runs/{id}/cancel 与 delete_thread 会置 cancel_event）
+        if stream.terminal_id is None and not stream.has_subscribers():
+            stream.request_cancel()
 
 
 # ---------------------------------------------------------------------------
