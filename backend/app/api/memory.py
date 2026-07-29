@@ -32,6 +32,7 @@ from app.agent.cost import usage_cost
 from app.agent.workspace import commit_run_workspace, create_run_workspace
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
+from app.core.concurrency import llm_task_slot
 from app.core.credentials import resolve_bing_api_key
 from app.core.ratelimit import limiter
 from app.core.settings import settings
@@ -774,19 +775,20 @@ async def _run_chat(
         async def emit(event: str, data: dict) -> None:
             stream.publish(event, data)
 
-        result = await run_agent_loop(
-            ctx,
-            thread_id=thread_id,
-            run_id=run_id,
-            user_message=message,
-            provider=provider,
-            tools=tools,
-            tool_executor=_dispatch_tool,
-            system=_AGENT_SYSTEM,
-            max_steps=max_steps,
-            emit=emit,
-            thinking=thinking,
-        )
+        async with llm_task_slot():  # 全局 LLM 背压（iter 366）：超额对话 run 排队，防速率限制风暴
+            result = await run_agent_loop(
+                ctx,
+                thread_id=thread_id,
+                run_id=run_id,
+                user_message=message,
+                provider=provider,
+                tools=tools,
+                tool_executor=_dispatch_tool,
+                system=_AGENT_SYSTEM,
+                max_steps=max_steps,
+                emit=emit,
+                thinking=thinking,
+            )
         stream.result = result
     except Exception as exc:  # noqa: BLE001  任务异常隔离——保已产出 + 终态
         log.exception("chat run %s failed", run_id)

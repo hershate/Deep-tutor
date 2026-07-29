@@ -47,6 +47,9 @@ def isolate():
     from app.llm.anthropic_provider import reset_client_cache
 
     reset_client_cache()  # LLM client 缓存跨测试隔离（iter 243：缓存绑定事件循环）
+    from app.core.concurrency import reset_llm_semaphore
+
+    reset_llm_semaphore()  # 全局 LLM 信号量跨测试隔离（iter 366：信号量按事件循环缓存）
     Base.metadata.drop_all(bind=engine)
     # alembic_version 非 ORM 表，drop_all 不会清：残留旧版本号会让启动迁移对
     # create_all 已建的新表再执行 CREATE -> "table already exists"（iter 176 实证）

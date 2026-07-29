@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.agent import PIPELINE, BudgetTracker, ExecContext, Orchestrator, run_tool
 from app.agent.cost import estimate_cost_from_metadata, load_model_pricing, record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_plan, get_owned_session, require_auth
+from app.core.concurrency import llm_task_slot
 from app.api.errors import ApiError
 from app.api.sse_utils import (
     HEARTBEAT_SECONDS as _HEARTBEAT_SECONDS,
@@ -871,9 +872,13 @@ async def _run_start(
             stream.overlay_run_id = _create_plan_gen_overlay(session_id, user_id, stream.raw_text)
         except Exception:  # noqa: BLE001  overlay 失败不阻断生成
             log.warning("plan-gen overlay 创建失败 session=%s", session_id, exc_info=True)
-    task = asyncio.create_task(
-        orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
-    )
+    async def _orch_task():
+        # 全局 LLM 信号量背压（iter 366）：超额生成任务排队等待，防跨用户并发触发
+        # 模型供应商速率限制风暴与内存线性膨胀。任务级包裹（跑完即返回的协程）保证槽释放。
+        async with llm_task_slot():
+            return await orch.run(args_by_tool, start_tool=start_tool, initial_upstream=initial_upstream)
+
+    task = asyncio.create_task(_orch_task())
     stream.task = task
     task.add_done_callback(lambda t: _finalize(session_id, stream, t))
     # overlay 收口（独立回调，在 _finalize 之后；据 orchestrator_state 终态标记 run + bus 推送）
@@ -1766,6 +1771,25 @@ async def _materials_sse(
         db.close()
 
 
+async def _materials_sse_gated(
+    plan_id: int,
+    session_id: int,
+    content: dict,
+    body: MaterialsIn,
+    old_paths: list[str],
+    user_id: int,
+    plans: list[UnitPlan],
+) -> AsyncIterator[str]:
+    """iter 366：自学材料生成经全局 LLM 信号量背压。
+
+    包一层 async generator：进入即 acquire 全局 LLM 槽（超额排队），转发 _materials_sse 事件；
+    生成器结束/被 Starlette close（客户端断连）时 __aexit__ 释放槽，无泄漏。
+    """
+    async with llm_task_slot():
+        async for chunk in _materials_sse(plan_id, session_id, content, body, old_paths, user_id, plans):
+            yield chunk
+
+
 @router.post("/{plan_id}/materials")
 async def generate_materials(
     plan_id: int,
@@ -1843,7 +1867,7 @@ async def generate_materials(
             db.flush()
         db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
         return StreamingResponse(
-            _materials_sse(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
+            _materials_sse_gated(plan.id, plan.session_id, content, body, old_paths, user.id, picked),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
@@ -2350,6 +2374,7 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
 
 
 _BG_QUIZ_INFLIGHT: set[int] = set()  # iter 350：后台测验预生成进行中的 plan_id（跨 loop 的纯数据标志）
+_BG_QUIZ_TASKS: set[asyncio.Task] = set()  # iter 366：后台测验任务强引用（防 create_task 被 GC 中途回收）
 
 
 async def _generate_quiz_background(plan_id: int, session_id: int, user_id: int) -> None:
@@ -2403,8 +2428,20 @@ async def _generate_quiz_background(plan_id: int, session_id: int, user_id: int)
 
 def _schedule_quiz_background(plan_id: int, session_id: int, user_id: int) -> None:
     """iter 349 part B：调度后台测验预生成（薄封装——逻辑在 _generate_quiz_background，
-    分离调度便于测试：fire-and-forget task 在 TestClient 不易等到，测试可 monkeypatch 本函数）。"""
-    asyncio.create_task(_generate_quiz_background(plan_id, session_id, user_id))
+    分离调度便于测试：fire-and-forget task 在 TestClient 不易等到，测试可 monkeypatch 本函数）。
+
+    iter 366：① 经全局 LLM 信号量背压（超额排队，防 100 用户同时完成材料 → 100 路后台出题
+    并发触发速率限制）；② 任务持强引用（旧 fire-and-forget create_task 无引用，可被 GC 中途
+    回收——见 plans.py create_task 一致性约定）。
+    """
+
+    async def _gated() -> None:
+        async with llm_task_slot():
+            await _generate_quiz_background(plan_id, session_id, user_id)
+
+    task = asyncio.create_task(_gated())
+    _BG_QUIZ_TASKS.add(task)
+    task.add_done_callback(_BG_QUIZ_TASKS.discard)
 
 
 @router.post("/{plan_id}/quiz")
