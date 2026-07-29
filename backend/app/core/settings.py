@@ -99,6 +99,11 @@ class Settings(BaseSettings):
         default=16,
         description="全局并发 LLM 调用上限（provider 级信号量）：防止超额触发模型供应商速率限制与内存膨胀。0=不限",
     )
+    max_plugin_event_threads: int = Field(
+        default=32,
+        description="插件协程事件监听器（同步上下文 emit，如 webhook 投递）的后台线程数上限；"
+        "超额丢弃事件（best-effort，防 OS 线程无界膨胀 OOM）",
+    )
     # iter 345 记忆系统：把方案生成旁挂为 run(kind=plan_generation) 进统一 Run 模型
     # （side-channel overlay，不动 Orchestrator/SSE 既有行为；默认关闭，验证后再开）
     agent_runs_enabled: bool = Field(default=False, description="方案生成旁挂 Run 模型（默认关闭）")

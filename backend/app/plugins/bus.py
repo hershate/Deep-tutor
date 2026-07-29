@@ -33,6 +33,21 @@ _sinks: list[Sink] = []
 # iter 365 C5：协程监听器的后台 task 须持强引用——loop 仅持弱引用，GC 可 mid-execution
 # 回收致监听器副作用（如 webhook 投递）静默丢失。done 回调释放引用。
 _bg_tasks: set[asyncio.Task] = set()
+# iter 366：同步上下文 emit 协程监听器时的后台 daemon 线程上限（信号量）。此前每次都
+# 新起一条 Thread（无界）——插件在同步路由高频 emit + webhook 等协程监听器下，OS 线程
+# 随事件流量无界膨胀，可拖垮进程（OOM / 线程数上限）。超额 acquire 非阻塞失败 -> 丢弃
+# 事件 + 告警（best-effort 背压，优于无界线程；不阻塞调用线程以免饿死 anyio 线程池）。
+_THREAD_SEM: threading.BoundedSemaphore | None = None
+
+
+def _thread_sem() -> threading.BoundedSemaphore:
+    """惰性创建 daemon 线程信号量（按 settings.max_plugin_event_threads）。"""
+    global _THREAD_SEM
+    if _THREAD_SEM is None:
+        from app.core.settings import settings
+
+        _THREAD_SEM = threading.BoundedSemaphore(max(1, int(settings.max_plugin_event_threads)))
+    return _THREAD_SEM
 
 
 def subscribe_all(fn: Sink) -> Callable[[], None]:
@@ -98,6 +113,17 @@ def _run_awaitable_in_thread(coro: Any, event: str) -> None:
         log.exception("插件事件后台线程执行失败 (%s)", event)
 
 
+def _run_bounded_thread(coro: Any, event: str, sem: threading.BoundedSemaphore) -> None:
+    """有界 daemon 线程跑协程监听器；finally 释放信号量（iter 366）。"""
+    try:
+        _run_awaitable_in_thread(coro, event)
+    finally:
+        try:
+            sem.release()
+        except ValueError:  # 防 acquire/release 失衡兜底（不应发生）
+            pass
+
+
 def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
     try:
         result = fn(payload)
@@ -108,11 +134,19 @@ def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
                 _bg_tasks.add(task)  # 持强引用防 GC 中途回收（iter 365 C5）
                 task.add_done_callback(_bg_tasks.discard)
             except RuntimeError:
-                # 同步端点线程池：无运行循环 -> 后台 daemon 线程跑，不阻塞当前线程（iter 364）。
+                # 同步端点线程池：无运行循环 -> 有界 daemon 线程跑，不阻塞当前线程（iter 364/366）。
                 # 原 asyncio.run 阻塞当前线程——webhook sink 含 10s httpx 超时，并发即可抽干
-                # anyio 线程池（默认 40），饿死后续同步端点（含登录）。
+                # anyio 线程池（默认 40），饿死后续同步端点（含登录）。iter 366：原每次新起
+                # Thread 无界——改经信号量有界，超额非阻塞丢弃事件 + 告警（best-effort 背压）。
+                sem = _thread_sem()
+                if not sem.acquire(blocking=False):
+                    log.warning(
+                        "插件协程事件监听器线程达上限，丢弃事件 %s（可调 MAX_PLUGIN_EVENT_THREADS）",
+                        event,
+                    )
+                    return
                 threading.Thread(
-                    target=lambda: _run_awaitable_in_thread(result, event), daemon=True
+                    target=_run_bounded_thread, args=(result, event, sem), daemon=True
                 ).start()
     except Exception:  # noqa: BLE001  隔离：监听器异常不外溢
         log.exception("插件事件监听器异常 (%s)", event)
@@ -153,3 +187,5 @@ def reset() -> None:
     _listeners.clear()
     _sinks.clear()
     _bg_tasks.clear()
+    global _THREAD_SEM
+    _THREAD_SEM = None  # 重建（测试隔离 / 设置变更）
