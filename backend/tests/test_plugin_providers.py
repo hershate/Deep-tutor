@@ -413,7 +413,7 @@ def _patch_active_profile(monkeypatch, *, kind: str, api_key: str = "sk-x", base
     """让 app.llm.get_active_profile 返回指定 kind 的档案（绕过 DB）。"""
     monkeypatch.setattr(
         "app.llm.get_active_profile",
-        lambda user_id=None: {"name": "p", "base_url": base_url, "api_key": api_key, "model": model, "kind": kind},
+        lambda user_id=None, db=None: {"name": "p", "base_url": base_url, "api_key": api_key, "model": model, "kind": kind},
     )
 
 

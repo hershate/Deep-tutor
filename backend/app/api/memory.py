@@ -564,6 +564,7 @@ async def start_run(
     )
     _CHAT_RUN_TASKS.add(task)  # 持强引用防 create_task 被 GC 中途回收（iter 363）
     task.add_done_callback(_CHAT_RUN_TASKS.discard)
+    db.close()  # iter 366：流式期间不再用请求 db（_run_chat 自管会话），早释放免钉连接池槽
     return StreamingResponse(
         _chat_relay(stream, last_event_id),
         media_type="text/event-stream",
@@ -598,6 +599,7 @@ async def stream_active_run(
     if stream is None:
         raise HTTPException(status_code=404, detail="no_active_stream")
     last_event_id = _parse_last_event_id(request)
+    db.close()  # iter 366：附流期间不用请求 db，早释放连接池槽
     return StreamingResponse(
         _chat_relay(stream, last_event_id),
         media_type="text/event-stream",
