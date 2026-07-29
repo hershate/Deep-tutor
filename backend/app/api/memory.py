@@ -59,9 +59,10 @@ _AGENT_SYSTEM = (
 )
 
 # 每 thread 至多 1 个 running chat run（与 plan-gen 配额分桶）
-_MAX_RUNNING_PER_THREAD = 1
-# iter 346（F11b）：全局 chat run 并发上限（防单用户多 thread 各起 run 耗尽资源，对齐 plan-gen 全局 ≤2）
-_MAX_CHAT_RUNS_GLOBAL = 2
+_MAX_RUNNING_PER_THREAD = settings.max_running_chat_per_thread
+# 全局 chat run 并发上限（iter 346 F11b：防单用户多 thread 各起 run 耗尽资源）。
+# iter 366：原硬编 2，100 用户场景下 98% 被直接 503；提为可配（默认 8）。
+_MAX_CHAT_RUNS_GLOBAL = settings.max_concurrent_chat_runs
 _MAX_TOOL_RESULT_CHARS = 20_000  # iter 364：工具回灌 LLM 的字符上限（防大输出单轮击穿预算）
 # iter 365：记忆子系统资源配额 + 写限流（对照 sessions/notes/kb 配额族，防 DoS 刷库膨胀）
 _MAX_THREADS_PER_USER = 500

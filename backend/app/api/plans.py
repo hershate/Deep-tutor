@@ -92,9 +92,12 @@ _MAX_BUFFERED_EVENTS = 500  # 单会话最大缓冲；超限丢最旧（降级�
 # iter 236：单订阅者扇出队列上界（背压）。≥ _MAX_BUFFERED_EVENTS 保证 subscribe 重放
 # 整段历史不溢出；慢订阅缓冲超限即剔除（客户端 Last-Event-ID 重连自愈，不丢数据）。
 _SUB_QUEUE_MAX = 512
-# 生成并发配额（plan/09 §十八 每用户并发 1；§二十 R31 全局同时生成 ≤2）
-_MAX_GENERATE_PER_USER = 1
-_MAX_GENERATE_GLOBAL = 2
+# 生成并发配额（plan/09 §十八 每用户并发；§二十 R31 全局同时生成上限）。
+# iter 366：原硬编 全局 2/每用户 1，100 用户场景下 98% 被直接 503。提为可配
+# （settings.max_concurrent_generations[_per_user]，默认 8/1），部署方按数据库后端
+# 与 LLM 速率限额调整；全局 LLM 信号量（concurrency.llm_task_slot）兜底真实并发。
+_MAX_GENERATE_PER_USER = settings.max_concurrent_generations_per_user
+_MAX_GENERATE_GLOBAL = settings.max_concurrent_generations
 # raw_text 截断（plan/09 §十 understand_intent.raw_text ≤10k）
 _MAX_RAW_TEXT_CHARS = 10_000
 # 注入 prompt 的资料总量上限（err.md A14/B2）：20 条 × 大文件极端下拼接可近 GB 级，
