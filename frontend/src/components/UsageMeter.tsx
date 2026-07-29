@@ -11,7 +11,8 @@ export default function UsageMeter() {
     queryKey: ['usage'],
     queryFn: getUsage,
     staleTime: 30_000,
-    refetchOnWindowFocus: true,
+    // iter 366：移除 refetchOnWindowFocus——本组件挂在顶栏（每个鉴权页都有），100 用户
+    // ALT-Tab 即齐刷刷打 /usage。改由 taskEngine 在方案完成时 invalidateQueries(['usage']) 刷新。
   })
   if (!data) return null
   return (

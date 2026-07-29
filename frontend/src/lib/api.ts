@@ -1059,7 +1059,10 @@ function isTerminalEvent(event: string): boolean {
 }
 
 function sseBackoff(attempt: number): number {
-  return Math.min(SSE_BACKOFF_BASE_MS * 2 ** (attempt - 1), SSE_BACKOFF_MAX_MS)
+  // iter 366：full jitter——多用户同时遭遇后端抖动时，固定 1/2/4s 调度会齐刷刷重连（惊群）。
+  // 随机化到 [250ms, cap] 错峰，降低重连风暴压垮刚恢复的后端。
+  const cap = Math.min(SSE_BACKOFF_BASE_MS * 2 ** (attempt - 1), SSE_BACKOFF_MAX_MS)
+  return 250 + Math.random() * (cap - 250)
 }
 
 function sseSleep(ms: number, signal?: AbortSignal): Promise<void> {

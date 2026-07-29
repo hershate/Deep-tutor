@@ -9,7 +9,9 @@ import './index.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { refetchOnWindowFocus: false, retry: 1 },
+    // iter 366：staleTime 5s——查询在 5s 内不重复 refetch（页面来回切换/多组件同键复用缓存），
+    // 降低 100 用户下的挂载/失效洪流；变更后仍经 invalidateQueries 强制刷新，不受影响。
+    queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 5_000 },
   },
 })
 

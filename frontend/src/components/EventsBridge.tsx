@@ -43,7 +43,11 @@ export default function EventsBridge() {
           // 瞬态/网络错误：指数退避重连
         }
         if (stopped) break
-        const backoff = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS)
+        // iter 366：full jitter（AWS "Exponential Backoff And Jitter"）——100 客户端在后端
+        // 抖动同时断开后，无抖动会按同一 1/2/4s 调度齐刷刷重连（惊群）。随机化到 [250ms, cap]
+        // 错峰，避免重连风暴击垮刚恢复的后端。
+        const cap = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS)
+        const backoff = 250 + Math.random() * (cap - 250)
         attempt += 1
         await new Promise<void>((resolve) => {
           reconnectTimer = setTimeout(resolve, backoff)
