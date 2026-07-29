@@ -154,6 +154,27 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+async def get_current_user_id(
+    authorization: str | None = Header(default=None),
+    x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
+) -> int:
+    """SSE / 长连接端点用：解析当前用户 id 并**立即释放** DB 会话（iter 366）。
+
+    与 get_current_user 的区别：后者返回 User ORM 对象，其 get_db 会话直至请求结束
+    （含 StreamingResponse 整个流期）才关闭——SSE 长连接会因此钉死一条连接池槽位
+    数分钟。100 用户的 EventsBridge（每标签一条常驻 SSE）即耗尽连接池。本依赖解析
+    user.id 后在 finally 内关闭会话，流期不再占用连接（流内需要查库时各自开短会话）。
+    """
+    db = SessionLocal()
+    try:
+        user = resolve_user(db, authorization, x_auth_token)
+        if user is None:
+            raise HTTPException(status_code=401, detail="invalid auth token")
+        return user.id
+    finally:
+        db.close()
+
+
 def get_daily_budget(db: Session, user_id: int) -> float:
     """有效日预算（iter 176）：用户覆盖（user_prefs.daily_budget_usd）优先，否则全局默认。
 

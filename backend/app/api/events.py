@@ -28,8 +28,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_auth
-from app.db.models import User
+from app.api.deps import get_current_user_id, require_auth
 from app.plugins import bus
 
 log = logging.getLogger("deep_tutor.api.events")
@@ -98,36 +97,28 @@ async def events_generator(
 
     独立于 HTTP 层以便直接单元测试（避免无限流 + 线程的集成脆弱性）。客户端断开时
     调用方负责 queue 不再增长 + 取消本生成器；端点在 finally 退订 sink。
-    """
-    db = None
-    try:
-        from app.db.base import SessionLocal
 
-        db = SessionLocal()  # 复用一个会话解析 session_id 归属（事件人频，单会话足够）
-        while True:
-            try:
-                event, payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
-            except asyncio.TimeoutError:
-                yield ": ping\n\n"  # SSE 注释行=心跳，不产生客户端事件，仅保活
-                continue
-            frame = format_frame(event, payload, user_id, db)
-            if frame is not None:
-                yield frame
-    except asyncio.CancelledError:
-        raise
-    finally:
-        if db is not None:
-            db.close()
+    iter 366：不再持有常驻 DB 会话——归属解析（format_frame -> resolve_owner）仅在
+    payload 带 session_id 时开短生命周期会话（多数事件带 user_id 直归属，零 DB），
+    避免 100 用户各一条常驻 EventsBridge SSE 钉死 100+ 连接池槽位。
+    """
+    while True:
+        try:
+            event, payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
+        except asyncio.TimeoutError:
+            yield ": ping\n\n"  # SSE 注释行=心跳，不产生客户端事件，仅保活
+            continue
+        frame = format_frame(event, payload, user_id)  # db=None：按需开短会话解析 session_id
+        if frame is not None:
+            yield frame
 
 
 @router.get("/stream")
-async def event_stream(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),  # noqa: ARG001  仅触发依赖鉴权；归属解析用独立会话
-) -> StreamingResponse:
+async def event_stream(user_id: int = Depends(get_current_user_id)) -> StreamingResponse:
     """实时事件流（SSE）。连接期间转发该用户的事件（+ 全局生命周期事件）。
 
     客户端断开 -> 生成器被取消 -> finally 退订 sink（无监听泄漏）。
+    iter 366：用 get_current_user_id（解析后即释放会话），流期不钉连接池槽位。
     """
     # iter 365 C8：有界队列防慢客户端 OOM——挂起/慢读的连接持续入队无界 Queue 会线性吃内存
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=100)
@@ -151,7 +142,7 @@ async def event_stream(
 
     async def stream():
         try:
-            async for frame in events_generator(queue, user.id):
+            async for frame in events_generator(queue, user_id):
                 yield frame
         finally:
             off()  # 退订 sink（客户端断开/取消时）
