@@ -32,12 +32,16 @@ _bg_tasks: set[asyncio.Task] = set()
 async def _deliver(url: str, body: bytes, headers: dict[str, str], *, timeout: float = _DELIVER_TIMEOUT) -> None:
     """POST body 到 url（httpx + 超时 + 错误隔离）。"""
     import httpx
+    from app.core.concurrency import webhook_slot
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, content=body, headers=headers)
-            if resp.status_code >= 400:
-                log.warning("webhook %s 返回 HTTP %d", url, resp.status_code)
+        # iter 366：全局出站并发背压——100 用户同时触发同一 webhook 时，无界 httpx 出站连接
+        # 可打满文件描述符/内存；超额在此排队（优雅降级，不丢投递）。
+        async with webhook_slot():
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, content=body, headers=headers)
+                if resp.status_code >= 400:
+                    log.warning("webhook %s 返回 HTTP %d", url, resp.status_code)
     except Exception:  # noqa: BLE001  投递失败隔离：记日志不外溢（bus _guard_await 已兜底）
         log.exception("webhook 投递失败: %s", url)
 

@@ -104,6 +104,11 @@ class Settings(BaseSettings):
         description="插件协程事件监听器（同步上下文 emit，如 webhook 投递）的后台线程数上限；"
         "超额丢弃事件（best-effort，防 OS 线程无界膨胀 OOM）",
     )
+    max_concurrent_webhook_deliveries: int = Field(
+        default=16,
+        description="插件 Webhook 并发投递上限（httpx 出站连接数）；超额排队，防 100 用户 × webhook "
+        "同时触发打满出站连接/文件描述符。0=不限",
+    )
     # iter 345 记忆系统：把方案生成旁挂为 run(kind=plan_generation) 进统一 Run 模型
     # （side-channel overlay，不动 Orchestrator/SSE 既有行为；默认关闭，验证后再开）
     agent_runs_enabled: bool = Field(default=False, description="方案生成旁挂 Run 模型（默认关闭）")
