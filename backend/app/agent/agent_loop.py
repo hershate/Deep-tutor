@@ -139,7 +139,7 @@ class _StreamAccumulator:
 # ---------------------------------------------------------------------------
 
 
-def _persist_message(db, thread_id: int, role, content, run_id: int | None, usage: LLMUsage | None = None) -> None:
+def _persist_message_sync(db, thread_id: int, role, content, run_id: int | None, usage: LLMUsage | None = None) -> None:
     from app.db.models import Message
 
     db.add(
@@ -156,7 +156,13 @@ def _persist_message(db, thread_id: int, role, content, run_id: int | None, usag
     db.commit()
 
 
-def _persist_run_step(
+async def _persist_message(db, thread_id: int, role, content, run_id: int | None, usage: LLMUsage | None = None) -> None:
+    # iter 366：DB 写经 to_thread 移出事件循环——SQLite 写串行下高并发提交不再阻塞 loop
+    # （心跳/其他请求保持响应）。Session 顺序访问（此处 await 挂起，无并发触同一 Session），安全。
+    await asyncio.to_thread(_persist_message_sync, db, thread_id, role, content, run_id, usage)
+
+
+def _persist_run_step_sync(
     db,
     run_id: int,
     step_index: int,
@@ -192,11 +198,28 @@ def _persist_run_step(
     db.commit()
 
 
-def _bump_step_count(db, run_id: int, n: int) -> None:
+async def _persist_run_step(
+    db,
+    run_id: int,
+    step_index: int,
+    type_: str,
+    name: str,
+    inp: dict,
+    out: dict,
+    **kw,
+) -> None:
+    await asyncio.to_thread(_persist_run_step_sync, db, run_id, step_index, type_, name, inp, out, **kw)
+
+
+def _bump_step_count_sync(db, run_id: int, n: int) -> None:
     from app.db.models import Run
 
     db.query(Run).filter_by(id=run_id).update({"step_count": n})
     db.commit()
+
+
+async def _bump_step_count(db, run_id: int, n: int) -> None:
+    await asyncio.to_thread(_bump_step_count_sync, db, run_id, n)
 
 
 def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT) -> list[dict]:
@@ -267,7 +290,7 @@ async def run_agent_loop(
     last_text = ""
 
     # 1) 持久化用户消息（会话历史 append-only）
-    _persist_message(db, thread_id, _role("user"), [{"type": "text", "text": user_message}], run_id)
+    await _persist_message(db, thread_id, _role("user"), [{"type": "text", "text": user_message}], run_id)
     if emit:
         await emit("message_start", {"run_id": run_id, "role": "assistant"})
 
@@ -309,7 +332,7 @@ async def run_agent_loop(
             if acc.usage is not None:
                 accumulate_usage(total_usage, acc.usage)
                 meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
-                record_metadata_usage(db, meta, ctx.user_id)
+                await asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id)
                 if ctx.budget is not None:
                     ctx.budget.add(meta.cost)
             return AgentRunResult(status="error", final_text=last_text, steps=step, error=str(exc), usage=total_usage)
@@ -319,11 +342,11 @@ async def run_agent_loop(
         if turn_usage.input_tokens or turn_usage.output_tokens:
             accumulate_usage(total_usage, turn_usage)
             meta = build_metadata(turn_usage, turn_usage.model, ctx.model_pricing)
-            record_metadata_usage(db, meta, user_id)
+            await asyncio.to_thread(record_metadata_usage, db, meta, user_id)
             if ctx.budget is not None:
                 ctx.budget.add(meta.cost)
                 if ctx.budget.exceeded():
-                    _persist_run_step(
+                    await _persist_run_step(
                         db, run_id, step, "message", "assistant", {}, {"reason": "budget_exceeded"},
                         usage=turn_usage, duration_ms=int((time.monotonic() - t0) * 1000),
                     )
@@ -333,14 +356,14 @@ async def run_agent_loop(
         blocks = acc.to_content_blocks()
         last_text = acc.text
         if blocks:
-            _persist_message(db, thread_id, _role("assistant"), blocks, run_id, turn_usage)
-        _persist_run_step(
+            await _persist_message(db, thread_id, _role("assistant"), blocks, run_id, turn_usage)
+        await _persist_run_step(
             db, run_id, step, "message", "assistant", {}, {"text": last_text[:500]},
             usage=turn_usage, stop_reason=acc.stop_reason, duration_ms=int((time.monotonic() - t0) * 1000),
         )
         if emit:
             await emit("message_end", {"step": step, "stop_reason": acc.stop_reason})
-        _bump_step_count(db, run_id, step + 1)
+        await _bump_step_count(db, run_id, step + 1)
 
         # 6) 终止判定
         if acc.stop_reason != "tool_use" or not acc.tool_use_blocks():
@@ -356,7 +379,7 @@ async def run_agent_loop(
                 tt0 = time.monotonic()
                 try:
                     res = await tool_executor(tu, ctx)
-                    _persist_run_step(
+                    await _persist_run_step(
                         db, run_id, step, "tool_call", tu.name, tu.input,
                         {"content": (res.content or "")[:1000], **res.meta},
                         duration_ms=int((time.monotonic() - tt0) * 1000), is_error=res.is_error,
@@ -364,7 +387,7 @@ async def run_agent_loop(
                 except Exception as exc:  # noqa: BLE001
                     res = AgentToolResult(content=f"工具执行异常: {exc}", is_error=True)
                     try:
-                        _persist_run_step(
+                        await _persist_run_step(
                             db, run_id, step, "tool_call", tu.name, tu.input, {"error": str(exc)},
                             duration_ms=int((time.monotonic() - tt0) * 1000), is_error=True,
                         )
@@ -387,7 +410,7 @@ async def run_agent_loop(
                 )
         if results_msg:
             try:
-                _persist_message(db, thread_id, _role("user"), results_msg, run_id)
+                await _persist_message(db, thread_id, _role("user"), results_msg, run_id)
             except Exception:  # noqa: BLE001  iter 365 B2：persist 失败回滚不抛（崩溃由 _finalize_chat 兜）
                 db.rollback()
         if hard_exc is not None:
