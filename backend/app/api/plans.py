@@ -817,44 +817,49 @@ async def _run_start(
     user_id：发起用户（P4 iter 58）：LLM 供应商档案按该用户解析（get_provider(user_id)）。
     """
     # 无 LLM Provider -> 发 error 终态（不启动任务）；档案按发起用户解析（P4 隔离）
+    # iter 366：一次会话解析供应商/计费/上限/Bing key（此前各开一条短会话，每次生成 churn 4 条连接）
+    resolv_db = SessionLocal()
     try:
-        provider = get_provider(user_id)
-    except Exception as exc:  # noqa: BLE001
-        eid = stream.publish("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
-        stream.mark_terminal(eid)
-        db = SessionLocal()
-        try:  # err.md A22：try/finally 保证 Session 关闭
-            # iter 184 B4：无 provider 失败亦持久化原始输入（可重试）
-            _set_state(
-                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
-                partial={"raw_text": stream.raw_text, "outputs": {}},
-                last_event_id=str(stream.seq),
-                last_error={"code": "no_llm_provider", "message": str(exc)[:500]},
-            )
-        finally:
-            db.close()
-        _schedule_cleanup(session_id)
-        async for chunk in _relay(stream, last_event_id):
-            yield chunk
-        return
+        try:
+            provider = get_provider(user_id, db=resolv_db)
+        except Exception as exc:  # noqa: BLE001
+            eid = stream.publish("error", {"code": "no_llm_provider", "message": str(exc), "stage": ""})
+            stream.mark_terminal(eid)
+            db = SessionLocal()
+            try:  # err.md A22：try/finally 保证 Session 关闭
+                # iter 184 B4：无 provider 失败亦持久化原始输入（可重试）
+                _set_state(
+                    db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                    partial={"raw_text": stream.raw_text, "outputs": {}},
+                    last_event_id=str(stream.seq),
+                    last_error={"code": "no_llm_provider", "message": str(exc)[:500]},
+                )
+            finally:
+                db.close()
+            _schedule_cleanup(session_id)
+            async for chunk in _relay(stream, last_event_id):
+                yield chunk
+            return
 
-    budget = BudgetTracker(limit=settings.budget_per_session_usd)
-    stream.budget = budget
-    registry = default_registry()
-    ctx = ExecContext(
-        session_id=str(session_id),
-        trace_id=stream.trace_id,
-        registry=registry,
-        llm_provider=provider,
-        skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
-        budget=budget,
-        # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
-        bing_api_key=resolve_bing_api_key(user_id),
-        # iter 356：当前用户模型计费表 -> 生成期实时累计成本按用户配置单价（设置页维护）
-        model_pricing=get_active_model_pricing(user_id),
-        # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
-        llm_max_tokens=get_active_max_tokens(user_id),
-    )
+        budget = BudgetTracker(limit=settings.budget_per_session_usd)
+        stream.budget = budget
+        registry = default_registry()
+        ctx = ExecContext(
+            session_id=str(session_id),
+            trace_id=stream.trace_id,
+            registry=registry,
+            llm_provider=provider,
+            skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
+            budget=budget,
+            # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
+            bing_api_key=resolve_bing_api_key(user_id, db=resolv_db),
+            # iter 356：当前用户模型计费表 -> 生成期实时累计成本按用户配置单价（设置页维护）
+            model_pricing=get_active_model_pricing(user_id, db=resolv_db),
+            # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
+            llm_max_tokens=get_active_max_tokens(user_id, db=resolv_db),
+        )
+    finally:
+        resolv_db.close()
     def _on_event(e: str, d: dict) -> int:
         # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
         if e == "tool_start":

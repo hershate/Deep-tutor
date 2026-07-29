@@ -240,7 +240,7 @@ def test_run_sse_text_response(client, auth_headers, monkeypatch):
     provider = _FakeChatProvider(
         [[AgenticStreamChunk(text="你好，我是助手"), AgenticStreamChunk(usage=LLMUsage(input_tokens=5, output_tokens=3, model="fake-model"), stop_reason="end_turn")]]
     )
-    monkeypatch.setattr("app.api.memory.get_provider", lambda uid: provider)
+    monkeypatch.setattr("app.api.memory.get_provider", lambda *a, **k: provider)
     t = client.post("/api/threads", json={"title": "对话"}, headers=auth_headers).json()
     r = client.post(
         f"/api/threads/{t['id']}/runs",
@@ -272,7 +272,7 @@ def test_run_concurrent_409(client, auth_headers, monkeypatch):
     provider = _FakeChatProvider(
         [[AgenticStreamChunk(text="思考中"), AgenticStreamChunk(usage=LLMUsage(model="fake-model"), stop_reason="end_turn")]]
     )
-    monkeypatch.setattr("app.api.memory.get_provider", lambda uid: provider)
+    monkeypatch.setattr("app.api.memory.get_provider", lambda *a, **k: provider)
     t = client.post("/api/threads", json={}, headers=auth_headers).json()
     # 先造一个 running run 占位
     db = SessionLocal()
@@ -284,7 +284,7 @@ def test_run_concurrent_409(client, auth_headers, monkeypatch):
 
 
 def test_run_no_provider_error(client, auth_headers, monkeypatch):
-    def boom(uid):
+    def boom(*a, **k):
         raise RuntimeError("no key")
 
     monkeypatch.setattr("app.api.memory.get_provider", boom)

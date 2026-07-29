@@ -751,7 +751,7 @@ async def _run_chat(
     db = SessionLocal()
     try:
         try:
-            provider = get_provider(user_id)
+            provider = get_provider(user_id, db=db)  # iter 366：复用本会话，免再开短会话
         except RuntimeError:
             stream.publish("error", {"code": "no_llm_provider", "message": "未配置 LLM 供应商"})
             return
@@ -775,7 +775,7 @@ async def _run_chat(
             user_id=user_id,
             bing_api_key=resolve_bing_api_key(user_id),
             # iter 356：当前用户模型计费表 -> Agent 对话成本计量按用户配置单价
-            model_pricing=get_active_model_pricing(user_id),
+            model_pricing=get_active_model_pricing(user_id, db=db),  # iter 366：复用会话
         )
         ctx.thread_id = thread_id
         ctx.run_id = run_id

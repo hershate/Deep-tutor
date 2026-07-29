@@ -16,20 +16,22 @@ from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 __all__ = ["LLMProvider", "LLMResponse", "LLMUsage", "AnthropicProvider", "get_provider", "get_active_profile", "get_active_model_pricing", "get_active_max_tokens"]
 
 
-def get_active_profile(user_id: int | None = None) -> "dict | None":
+def get_active_profile(user_id: int | None = None, db=None) -> "dict | None":
     """读 DB 中 is_active 的供应商档案（iter 50 多档案切换）；无 -> None。
 
     P4 按用户隔离（iter 58）：user_id 指定 -> 仅查该用户的 active 档案；
     user_id=None -> 任意 active 档案（无用户上下文的全局回退，如旧调用/脚本）。
     DB 读取失败（如表不存在/连接异常）-> None 回退 .env，不阻断调用方。
+    iter 366：db 传入时复用（避免每次生成开短会话 churn 连接池）；None 则自开。
     """
+    own = db is None
     try:
         from app.db import models
         from app.db.base import SessionLocal
 
-        db = SessionLocal()
+        sess = db if db is not None else SessionLocal()
         try:
-            q = db.query(models.LlmProviderProfile).filter_by(is_active=True)
+            q = sess.query(models.LlmProviderProfile).filter_by(is_active=True)
             if user_id is not None:
                 q = q.filter_by(user_id=user_id)
             p = q.first()
@@ -37,44 +39,50 @@ def get_active_profile(user_id: int | None = None) -> "dict | None":
                 return None
             return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or "", "kind": p.kind or ""}
         finally:
-            db.close()
+            if own:
+                sess.close()
     except Exception:  # noqa: BLE001
         return None
 
 
-def get_active_model_pricing(user_id: int | None = None) -> dict:
+def get_active_model_pricing(user_id: int | None = None, db=None) -> dict:
     """iter 356：读当前用户的「模型计费表」（UserPref{model_pricing}，模型名 -> 4 单价字段）。
 
     自管 DB 会话，失败/无用户/无配置 -> {}（resolve_pricing 回退族默认）。
     隔离语义同 get_active_profile（user_id 指定 -> 仅该用户）。
     用于生成期注入 ctx.model_pricing（实时累计成本按用户配置单价）。
+    iter 366：db 传入时复用。
     """
+    own = db is None
     try:
         from app.agent.cost import load_model_pricing
         from app.db.base import SessionLocal
 
-        db = SessionLocal()
+        sess = db if db is not None else SessionLocal()
         try:
-            return load_model_pricing(db, user_id)
+            return load_model_pricing(sess, user_id)
         finally:
-            db.close()
+            if own:
+                sess.close()
     except Exception:  # noqa: BLE001
         return {}
 
 
-def get_active_max_tokens(user_id: int | None = None) -> int | None:
+def get_active_max_tokens(user_id: int | None = None, db=None) -> int | None:
     """iter 355：读用户的 llm_max_tokens 偏好覆盖（UserPref）；无 db/无覆盖/读失败 -> None。
 
     返回 None 时调用方回退 settings.llm_max_tokens（默认 100k）。自管 DB 会话，
     隔离语义同 get_active_profile。值存 UserPref key='llm_max_tokens'（repr(int)）。
+    iter 366：db 传入时复用。
     """
+    own = db is None
     try:
         from app.db import models
         from app.db.base import SessionLocal
 
-        db = SessionLocal()
+        sess = db if db is not None else SessionLocal()
         try:
-            q = db.query(models.UserPref).filter_by(key="llm_max_tokens")
+            q = sess.query(models.UserPref).filter_by(key="llm_max_tokens")
             if user_id is not None:
                 q = q.filter_by(user_id=user_id)
             row = q.first()
@@ -85,12 +93,13 @@ def get_active_max_tokens(user_id: int | None = None) -> int | None:
 
             return int(ast.literal_eval(row.value.strip()))
         finally:
-            db.close()
+            if own:
+                sess.close()
     except Exception:  # noqa: BLE001
         return None
 
 
-def get_provider(user_id: int | None = None) -> LLMProvider:
+def get_provider(user_id: int | None = None, db=None) -> LLMProvider:
     """构造 LLM Provider，三级回退（iter 50/58/223）：
 
     1. DB active LLM 供应商档案（自定义 base_url/model）；
@@ -101,8 +110,9 @@ def get_provider(user_id: int | None = None) -> LLMProvider:
     user_id=None -> 任意 active 档案（无用户上下文回退）。
     档案的 base_url/model 为空时分别回退官方端点 / settings.anthropic_model。
     三者皆无 -> 抛 RuntimeError（功能级必填，见 settings.validate_feature_keys）。
+    iter 366：db 传入时复用（避免每次生成开多条短会话 churn 连接池）。
     """
-    profile = get_active_profile(user_id)
+    profile = get_active_profile(user_id, db=db)
     if profile is not None:
         # iter 313：档案 kind 选择协议——'anthropic'（默认/NULL/空白）走内置 AnthropicProvider；
         # 插件协议（api.providers 注册的 kind）分发到 PluginProvider（档案 api_key/base_url 作凭证）。
@@ -128,7 +138,7 @@ def get_provider(user_id: int | None = None) -> LLMProvider:
             model=profile["model"] or settings.anthropic_model,
             base_url=profile["base_url"] or None,
         )
-    credential = get_active_credential(user_id, KIND_ANTHROPIC)
+    credential = get_active_credential(user_id, KIND_ANTHROPIC, db=db)
     if credential is not None:
         return AnthropicProvider(
             api_key=credential["api_key"],
