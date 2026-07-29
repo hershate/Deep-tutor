@@ -33,6 +33,10 @@ def vacuum_db(db_path: str | None = None) -> None:
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(db_path)
+        # iter 366：设 busy_timeout——否则持续写入下 VACUUM 取不到独占锁即立即
+        # "database is locked"，永不执行 -> DB 文件只增不减（删行不回收）。设后等待写入
+        # 间隙完成；仍取不到则下轮 24h 重试（best-effort，不阻塞服务）。
+        conn.execute(f"PRAGMA busy_timeout={int(settings.db_busy_timeout_ms)}")
         conn.execute("VACUUM")
         log.info("VACUUM 完成: %s", db_path)
     except sqlite3.Error as e:  # 锁冲突等 -> 下轮再试
