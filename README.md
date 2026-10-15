@@ -6,6 +6,10 @@
 >
 > 它**做不到完美**，很多地方还比较粗糙，作者希望它对你有用，也欢迎你指出它的不足。
 
+> 🔨 **改造公告（2026-10-15）**：本项目正在向 **Reasonix 内核（Go）架构完全改造**——单二进制多用户服务 + 四前端（Web / Deep-tutor Studio / CLI / TUI / ACP），完整使用 Reasonix 的内核能力（工具审批、Rewind、子代理、MCP、插件包、技能、双模型等）。
+> 当前仓库状态：**Python v0.1.x 仍为可用实现**；改造决策（61 项）见 [`note/12`](./note/12-Reasonix改造决策.md)，完整方案见 [`plan/reasonix/`](./plan/README.md)，进度见 [`stage.md`](./stage.md)，实施分支 `refactor/reasonix`。
+> 内核来源与致谢见文末「[开源许可与致谢](#开源许可与致谢)」。
+
 ---
 
 ## 这是什么（写给第一次来的朋友）
@@ -86,14 +90,14 @@
 
 ### 关于成熟度
 
-- **这是一个个人 / 学习性质项目，没有服务等级保证（SLA）。** 代码经历过一次较彻底的自审（2026-07-18，发现并修复了 87 项问题，详见 [`err.md`](./err.md)），但**几乎可以肯定仍存在未被发现的问题**。请把它当作"还不错但需自行承担风险"的工具，重要数据请记得备份。
+- **这是一个个人 / 学习性质项目，没有服务等级保证（SLA）。** 代码经历过一次较彻底的自审（2026-07-18，发现并修复了 87 项问题，详见 [`docs/archive/err.md`](./docs/archive/err.md)），但**几乎可以肯定仍存在未被发现的问题**。请把它当作"还不错但需自行承担风险"的工具，重要数据请记得备份。
 - **功能很多，初次上手可能有点懵**：界面信息密度较高，新用户可能需要一点时间摸索。我们尽量做了键盘快捷键（`?` 查看全部）和引导，但还远谈不上"傻瓜式"。
 - **文档以中文为主**：对中文用户友好，但暂无完整的英文文档。
 - **依赖外部服务**：资源检索依赖 Bing 搜索、生成能力依赖第三方 AI 模型，它们的服务可用性、速率限制、内容政策都会影响到本工具。
 
 ### 已知、暂未处理的小项
 
-- 开发服务器依赖 `esbuild` 存在一个已知安全告警（仅影响本地 `npm run dev` 开发，**不影响生产构建产物**；计划在 Vite 大版本升级时一并处理，详见 [`err.md`](./err.md) E6）。
+- 开发服务器依赖 `esbuild` 存在一个已知安全告警（仅影响本地 `npm run dev` 开发，**不影响生产构建产物**；计划在 Vite 大版本升级时一并处理，详见 [`docs/archive/err.md`](./docs/archive/err.md) E6）。
 - 前端暂未引入 ESLint 代码检查（CI 中已强制 `tsc` 类型检查）。
 
 > 尽管有上面这些不足，作者仍然尽力让它**稳定、可回滚、可审计**：每次 AI 调用都有记录、生成过程可中断可恢复、数据库可备份可迁移。
@@ -165,6 +169,8 @@ bash scripts/start.sh
 
 ## 技术栈
 
+> **改造目标形态（v2，进行中）**：Go 单二进制（Reasonix 内核）多用户服务 + SQL（SQLite 预留 PG）+ 四前端全套 + /api 重设计（旧 SPA 经 shim 兼容层回归）。详见 [`plan/reasonix/`](./plan/README.md)。以下为当前可用的 Python 实现。
+
 - **后端**：Python 3.11+ / FastAPI / SQLAlchemy 2.0 / SQLite（WAL）/ Alembic / pydantic v2 / pydantic-settings / anthropic SDK / pyjwt；PDF 解析 marker（高质量）+ pypdf（快速）；可选 tesseract OCR / faster-whisper 转写；Anki 导出 genanki。
 - **前端**：React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + react-markdown + react-window + KaTeX（数学公式）。
 - **AI 架构**（借鉴 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 三支柱）：缓存优先循环、工具调用修复（校验 + 重试≤3 → 降级默认）、成本计量 + 预算守卫；两层执行模型（确定性编排器 + 内层工具循环）；Skill 作方法论指令源（[`skills/`](./skills/)）。
@@ -174,22 +180,24 @@ bash scripts/start.sh
 
 ```text
 Deep-tutor/
-├── plan/            # 实施计划文档（11 份）
-├── stage.md         # 分阶段实施进度跟踪
-├── API.md           # 插件 API 权威契约（前端 + 后端，双版本线）
-├── err.md           # 全项目审计问题清单（87 项，已修复）
-├── backend/         # FastAPI 后端
+├── plan/            # 改造方案（plan/reasonix/ 六份）；Python 时代计划已归档 docs/archive/plan-v1/
+├── note/            # 项目分析笔记（01–11）+ Reasonix 改造决策档案（12，改造宪法）
+├── stage.md         # 分阶段实施进度跟踪（活文件，持续追加）
+├── API.md           # v1 插件 API 契约（改造期 = shim 兼容层验收基准）
+├── docs/archive/    # Python 时代归档（plan-v1 12 份 / chat.md / err.md 审计清单）
+├── backend/         # FastAPI 后端（v1，改造完成前保留）
 │   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
 │   ├── alembic/     # 数据库迁移
 │   ├── tests/       # pytest 测试套件（超过 1100 项）
 │   └── requirements.txt
-├── frontend/        # Vite + React 前端
-├── extension/       # 浏览器扩展（MV3 网页剪藏）
-├── plugins/         # 后端插件目录（自动发现装载；约定与示例见其 README）
-├── plugin-examples/ # 前端插件示例（pomodoro / floating_notes / brand_skin / reader_app）
+├── frontend/        # Vite + React 前端（v1，阶段①②作 shim 回归工具，阶段④退役）
+├── extension/       # 浏览器扩展（MV3 网页剪藏，阶段④重构）
+├── plugins/         # 后端插件目录（v1；功能将由 Reasonix 扩展体系等价承接）
+├── plugin-examples/ # 前端插件示例（v1；四功能将在新前端重建）
 ├── skills/          # LLM 方法论 Skill（deep-tutor-* 与 vendor 复用）
 ├── scripts/         # 本地直起脚本（start.sh / start.ps1）
-├── data/            # 运行时数据（gitignore，启动时自动创建）
+├── data/            # 运行时数据（gitignore，启动时自动创建；v2 目录总图见 plan/reasonix/02）
+├── REF/             # Reasonix/R-Tutor 源码参考副本（gitignore，zip 为本地备份）
 ├── .env.example
 └── README.md
 ```
@@ -218,7 +226,7 @@ npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000）
 
 ## 配置项（.env，全部可选）
 
-> **零配置开箱即用**：不配任何参数也能启动。下方字段用于多用户、固定密钥等高级场景。完整说明见 [`plan/09-audit.md`](./plan/09-audit.md) §十七。
+> **零配置开箱即用**：不配任何参数也能启动。下方字段用于多用户、固定密钥等高级场景。完整说明见 [`docs/archive/plan-v1/09-audit.md`](./docs/archive/plan-v1/09-audit.md) §十七。
 
 ```bash
 cp .env.example .env   # 可选。所有字段均有默认值或可在界面内配置
@@ -283,6 +291,8 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 ## 插件开发
 
+> ⚠️ **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后：前端插件宿主 `window.DeepTutor` 废弃（能力改由 Reasonix 插件包 / Extension 结构化 UI 承担）；后端 Python 插件体系终结（9 个内置插件功能将在新架构全部等价实现，见 `plan/reasonix/05` 阶段③等价表）；前端插件示例的四项功能（番茄钟/浮层笔记/换肤/阅读器）将作为内置能力在新前端重建。v1 插件在 Python 版运行期间继续可用。
+
 Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；**当前版本号以 [API.md](./API.md) 文首版本线表为准**，本文件不钉版本防过期）：
 
 - **前端插件**（`window.DeepTutor`，当前 `1.17.0`）：浏览器端 JS 插件——小组件插槽（首页仪表盘 / 侧栏底部 / 方案详情 / 方案列表 / 复习 / 学习中心 / 笔记 / 用量 / 知识库）、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、热启停（disable/enable/unload/reload）、插件 URL 持久化加载。侧栏 🧩「插件」页可视化加载/移除/启停（免控制台）；也可控制台试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
@@ -301,7 +311,15 @@ GitHub Actions CI（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）四
 
 ## 了解更多
 
-- 完整设计：[`plan/README.md`](./plan/README.md)（11 份细化文档）
-- 实施进度：[`stage.md`](./stage.md)（路线图 P1–P5 已全部完成，持续迭代增强中）
-- 插件契约：[`API.md`](./API.md)
-- 已知问题与修复记录：[`err.md`](./err.md)
+- **Reasonix 改造方案**：[`plan/reasonix/`](./plan/README.md)（六份：总方案/仓库与内核/数据层/API 与 shim/多用户集成/任务分解）
+- **改造决策档案（61 项，改造宪法）**：[`note/12-Reasonix改造决策.md`](./note/12-Reasonix改造决策.md)
+- 项目分析笔记（架构/数据/流水线/Agent/LLM/API/插件/前端）：[`note/00-INDEX.md`](./note/00-INDEX.md)
+- 实施进度：[`stage.md`](./stage.md)
+- 插件契约（v1，shim 验收基准）：[`API.md`](./API.md)
+- Python 时代设计归档：[`docs/archive/`](./docs/archive/README.md)
+
+## 开源许可与致谢
+
+- 本项目内核改造自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（studio 分支，2026-10 快照），遵循其 **MIT License**。感谢 Reasonix 的维护者 **Huahui Yu** 与全体贡献者——缓存优先的 Agent 循环、工具调用修复、成本计量三支柱最早启发了本项目的 Python 版实现，如今更进一步直接以其内核为基座。
+- 内核源码引入时的裁剪与修改清单、以及随内核携带的工程规约，见仓库内 `DEEPTUTOR.md`（改造 M1 里程碑建立）与 `LICENSE-REASONIX`。
+- 其余本项目自有代码沿用仓库根 `LICENSE`。
