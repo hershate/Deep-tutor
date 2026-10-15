@@ -46,5 +46,6 @@ Thumbs.db
 
 # Claude 本地工作区（会话草稿/定时任务，不入库）
 .claude/
-/note
+# note/ 自 2026-10-15 起纳入跟踪（项目分析与改造决策档案）
+# REF/ = Reasonix/R-Tutor 源码参考副本（zip 为本地备份，不入库；上游 https://github.com/esengine/DeepSeek-Reasonix）
 /REF
