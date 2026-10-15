@@ -15,6 +15,13 @@
 4. 遵守"二、执行约定"。
 5. 继续执行下一个未完成步骤，完成后更新本文件并 commit。
 
+**iter R0（2026-10-15，Reasonix 改造启动：方向定稿 + 完整方案落盘 + 全仓文档整理，✅ 完成）**：用户 /goal「写完整改造方案到 plan，并更新项目内所有文档（过时可删，但必须全部 git 跟踪或有备份）」。前置：五轮 61 项决策确认（note/12 第一至八节，决策 #1–#61）。本轮落地（分支 **refactor/reasonix** 自 FIX-Filter 切出，4+1 commits）：
+- **决策档案**：note/12-Reasonix改造决策.md（九节 61 项，含每轮来龙去脉与阶段①体量提示）——**改造宪法**，实施遇冲突先对照、分歧问用户。
+- **完整方案**：plan/reasonix/ 六份（`963d77f`）——00 总方案（架构图/资产处置/四阶段/风险 R1–R10）· 01 仓库布局与内核落位（拷贝裁剪清单/重命名流程/MIT 署名/门禁搬入）· 02 数据层（SQLite+sqlc+迁移、领域 schema 草案、data/ 总图）· 03 API v2 与 shim 映射（端点清单/SSE 协议/全局事件流）· 04 多用户与内核集成（用户装配层/per-user 装配/内核多实例清单/Chat 桥接/planner 审查者）· 05 任务分解（阶段① M1–M5 细粒度、9 插件等价表、19 页回归清单）。
+- **文档整理**：旧 plan 12 份+chat.md+err.md 归档 docs/archive/（`5dcfdd2`，含归档 README 与 API.md shim 基准状态头）；**note/ 纳入 git 跟踪**（`a92fae9`，.gitignore 移除 /note；/REF 保持忽略=zip 本地备份）；README 改造期更新+致谢节、AGENTS.md 工作指引（`fb3a6c2`）；本条目（`<hash 待填>`=本 commit）。stage.md 本体保留根目录（活文件）。
+- **工作方式确认**（note/12 #58/#61）：全自动推进、任务拆尽可能细、每步谨慎；细粒度 commit 自主提交不 push，完成后用户合 main。
+- **下一步**：阶段① **M1.1 内核拷贝与裁剪**（plan/reasonix/01 §二清单；M1 全任务见 plan/reasonix/05）。开始前先读 AGENTS.md 必读顺序。
+
 **iter 346（2026-07-24，实机使用问题集修复，✅ 完成）**：用户 /goal「实机 21 项问题先整理后修复（先写计划书），保证稳定性/完全性/高可维护性/API 兼容/可扩展」。8 并行调查 agent（逐条核实现状）+ 14 联网调研（业界依据）→ 计划书（`~/.claude/plans/piped-munching-marble.md`，4 决策经 AskUserQuestion）→ 13 commit 落地：F1 联网搜索 / F2 缓存命中率 / F3 弹窗滚动 / F4 对话改名 / F5 admin 禁删 / F11a 笔记分栏 / F6 材料重写 / F9 学习中心 / F10 测验体系 / F11b chat run 隔离 / F8 KB 沉淀+引用 / F1 回归修复。全量 pytest 零回归 + ruff 干净 + 前端 build 通过。**标注后续**（非 bug 或高风险/低收益）：F11c APIKEY 深度防御（user_id=None 薄弱点不可利用，重构破坏单元测试需同步改 setup/测试）、F12 quiz 接入任务中心（F10 已覆盖核心，需改 taskEngine）、自学材料知识点级 scope.node_ids（后端就绪前端未传）。详见 §五 iter 346。
 
 **iter 353（2026-07-24，实机 3 问题修复，✅ 完成）**：删除方案 500（`ed07226`）+ Token 计费（`b3e4994`+`8fc37ab`，设置页价目可配置）+ 计划时间用户指定（`4c6fad9`+`8c0bb2c`，起始日期 + 结构化时长/截止输入；回归修复 `2d1a944`）。**pytest 1182 零回归**。详见 §五 iter 353。
