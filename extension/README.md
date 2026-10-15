@@ -1,5 +1,7 @@
 # Deep-tutor 剪藏（浏览器扩展，P4 iter 65）
 
+> ⚠️ **改造期状态（note/12 决策 #7）**：本扩展将在改造阶段④**重构**对接新 /api 契约（不再要求零改动兼容 `POST /api/materials/clip` 与 `GET /api/settings`）。重构前 v1 版本配合 Python 后端继续可用。
+
 把选中文本 / 网页链接一键剪藏到 Deep-tutor（`POST /api/materials/clip`：建会话 + 解析资料一步到位），
 随后在 Web 端打开生成页即可基于剪藏资料生成学习方案。
 

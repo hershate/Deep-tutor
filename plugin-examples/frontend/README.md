@@ -1,5 +1,7 @@
 # 前端插件示例（`window.DeepTutor`）
 
+> ⚠️ **改造期状态（note/12 决策 #6/#59）**：前端插件宿主 `window.DeepTutor` 已决策**废弃**（能力改由 Reasonix 插件包/Extension UI 承担）；下方四个示例功能（番茄钟/浮层笔记/换肤/阅读器）将作为内置能力在**新前端全部重建**。v1 运行期间本文档继续有效。
+
 真实有用的前端插件示例，复合多个前端插件 API（契约见仓库根 [API.md](../../API.md)「前端插件 API」）。
 每个插件是普通 `.js`（IIFE），经 `DeepTutor.plugins.load(url)` 加载或控制台临时加载。
 
