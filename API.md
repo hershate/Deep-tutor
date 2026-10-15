@@ -1,5 +1,9 @@
 # API.md - Deep-tutor 插件 API（前端 + 后端）
 
+> ⚠️ **状态标注（2026-10-15，Reasonix 改造启动）**：本文档描述 **v1（Python/FastAPI 版）契约**。
+> 改造后新契约为 /api v2（见 [plan/reasonix/03-API设计与shim映射.md](plan/reasonix/03-API设计与shim映射.md)）；改造期旧 SPA 经 shim 兼容层消费 v2，**本文档即 shim 的验收基准**，在阶段④旧 SPA 退役前保持冻结（只改勘误不改语义）。
+> 前端插件宿主 `window.DeepTutor`（本文档前半部分）已决策废弃（note/12 决策 #6），同等能力改由 Reasonix 插件包/Extension UI 承担。
+
 > **本文件用途**：Deep-tutor 为第三方插件预留的**前端与后端 API 的权威契约文档**。
 > 所有预留 API（前端：小组件插槽、皮肤令牌、事件、插件加载、REST 代理；
 > 后端：插件装载、api 门面、核心事件、工具注册、路由命名空间）都必须记录在本文件中，
