@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Children, cloneElement, type ReactElement, type ReactNode } from 'react'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import { TaskEngineBridge } from './components/TaskEngineBridge'
 import { getToken } from './lib/auth'
@@ -59,6 +59,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/** iter 367（批次六 M11）：按当前路由 :sessionId 参数给子树加 key——同路由换参数
+ *  默认不重挂载，子页挂载期初始化的会话级状态（Clarify 答案草稿等）会残留旧会话。 */
+function RemountByKeyParam({ children }: { children: ReactElement }) {
+  const { sessionId } = useParams()
+  return sessionId ? cloneElement(Children.only(children), { key: sessionId }) : children
+}
+
 export default function App() {
   return (
     <>
@@ -86,7 +93,10 @@ export default function App() {
                 <Route path="/" element={<MaybeOverride hostPath="home"><Home /></MaybeOverride>} />
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/generate/:sessionId" element={<GenerateProgress />} />
-                <Route path="/clarify/:sessionId" element={<Clarify />} />
+                {/* iter 367（批次六 M11）：key=sessionId 强制换会话重挂载——Clarify 的
+                    answers 草稿仅在挂载时按 sessionId 初始化，同路由换参数不重挂会
+                    残留上一会话的问题与答案 */}
+                <Route path="/clarify/:sessionId" element={<RemountByKeyParam><Clarify /></RemountByKeyParam>} />
                 <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />
                 <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans"><PlanDetail /></MaybeOverride>} />
                 {/* iter 346（F9）：学习中心独立聚合页 /learn（今日学习 + 各方案卡片，drill-down /learn/:planId） */}

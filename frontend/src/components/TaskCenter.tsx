@@ -173,7 +173,9 @@ export function TaskRow({ task, onNavigate }: { task: TaskEntry; onNavigate?: ()
             )}
             <span>{fmtElapsed(now - task.startedAt)}</span>
             {task.kind === 'plan' && task.tokens > 0 && <span className="tabular-nums">{task.tokens.toLocaleString()} tok</span>}
-            {task.kind === 'plan' && task.cost > 0 && <span className="tabular-nums">${task.cost.toFixed(4)}</span>}
+            {/* iter 367（批次六 M7）：计费为 ¥/1M tokens（cost.py 价表口径），与 Usage/
+                GenerateProgress 一致用 ￥——此前 $ 与实际币种不符 */}
+            {task.kind === 'plan' && task.cost > 0 && <span className="tabular-nums">{`￥${task.cost.toFixed(4)}`}</span>}
           </div>
         </div>
       )}

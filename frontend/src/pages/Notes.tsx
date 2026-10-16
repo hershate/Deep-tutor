@@ -83,6 +83,10 @@ function clearStoredDraft(id: number | null) {
 export default function Notes() {
   const qc = useQueryClient()
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  // iter 367（批次六 M3）：最新草稿 ref——save() 往返期间用户可能继续输入/切换笔记，
+  // 响应到达时须比对当前值而非闭包旧值（防保存回显覆盖并发输入）
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   const [dirty, setDirty] = useState(false) // 有未保存修改（切换/新建前确认防静默丢失）
   const [preview, setPreview] = useState(false) // iter 346（F11a）：分栏预览右栏显隐开关（左源码右渲染）
   const [busy, setBusy] = useState(false)
@@ -259,12 +263,25 @@ export default function Notes() {
     }
     setBusy(true)
     try {
+      const sentTitle = draft.title
+      const sentContent = draft.content
       const saved = draft.id
-        ? await updateFreeNote(draft.id, draft.title, draft.content)
-        : await createFreeNote(draft.title, draft.content)
+        ? await updateFreeNote(draft.id, sentTitle, sentContent)
+        : await createFreeNote(sentTitle, sentContent)
       clearStoredDraft(draft.id) // iter 272：保存成功清草稿（防下次打开复活已存内容）
-      setDraft({ id: saved.id, title: saved.title, content: saved.content, updatedAt: saved.updated_at })
-      setDirty(false)
+      // iter 367（批次六 M3）：保存往返期间的并发输入不得被服务端回显覆盖——
+      // 未动过 -> 采纳回显并清 dirty；有新输入 -> 仅刷新基线（id/时间），编辑器
+      // 保持用户输入且仍 dirty；期间已切换到别的笔记 -> 完全不动编辑器
+      const now = draftRef.current
+      if (now.id === saved.id) {
+        const typedDuringSave = now.title !== sentTitle || now.content !== sentContent
+        if (!typedDuringSave) {
+          setDraft({ id: saved.id, title: saved.title, content: saved.content, updatedAt: saved.updated_at })
+          setDirty(false)
+        } else {
+          setDraft((c) => ({ ...c, id: saved.id, updatedAt: saved.updated_at }))
+        }
+      }
       toast.success('笔记已保存')
       await refresh()
     } catch (e) {

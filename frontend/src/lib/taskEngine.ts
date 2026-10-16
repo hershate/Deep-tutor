@@ -339,15 +339,27 @@ export const engine = {
     return detail
   },
 
-  /** 发起新一次方案生成（Home/F5「继续生成」）。启动即败抛给调用方（F9 引导矩阵）。 */
+  /** 发起新一次方案生成（Home/F5「继续生成」）。启动即败抛给调用方（F9 引导矩阵）。
+   *  iter 367（批次六 H1）：Promise 在「成功发起（收到首个流事件）」时兑现（同
+   *  submitClarify 语义）——此前到整条流结束才兑现，Home await 后才 nav，生成
+   *  分钟级时用户被钉在首页（按钮「创建中…」）；后续生命周期由引擎内部托管。 */
   async startPlan(sessionId: number, rawText: string, title = '', timeOpts?: TimeOptions): Promise<void> {
     const id = planTaskId(sessionId)
     store().upsert({ id, kind: 'plan', sessionId, title, rawText })
     resetForNewRun(id)
+    let onFirst: () => void = () => undefined
+    const started = new Promise<void>((res) => {
+      onFirst = res
+    })
+    const done = attachStream(id, (onEvent, signal, o) => generateStream(sessionId, rawText, onEvent, signal, o, timeOpts), {
+      failFast: true,
+      onFirstEvent: () => onFirst(),
+    })
+    const raced = Promise.race([started, done])
+    // race 已兑现后的迟到拒绝补吞（启动即败已由 race 观察过），防空 unhandled
+    void done.catch(() => undefined)
     try {
-      await attachStream(id, (onEvent, signal, o) => generateStream(sessionId, rawText, onEvent, signal, o, timeOpts), {
-        failFast: true,
-      })
+      await raced
     } catch (e) {
       // iter 243 F2：409「已有生成任务运行中」（他端/他标签发起，或本端刷新后状态
       // 未对账）——直接挂接现有流视为成功；此前一律标 start_rejected，任务中心

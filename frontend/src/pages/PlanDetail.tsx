@@ -224,6 +224,10 @@ export default function PlanDetail() {
   const [regenLoading, setRegenLoading] = useState(false)
   const [regenError, setRegenError] = useState('')
   const regenAcRef = useRef<AbortController | null>(null)
+  // iter 367（批次六 M4）：当前 planId ref——重生成流的 done/error 回调须核对事件
+  // 仍属当前查看的方案（闭包捕获的是发起时的 planId）
+  const planIdRef = useRef<number | null>(null)
+  planIdRef.current = planId ? Number(planId) : null
 
   useEffect(() => {
     if (!planId) return
@@ -285,7 +289,9 @@ export default function PlanDetail() {
   }
 
   // 卸载时取消进行中的重生成流
-  useEffect(() => () => regenAcRef.current?.abort(), [])
+  // iter 367（批次六 M4）：planId 变化（版本切换/换方案，同路由不卸载）也须中止在途
+  // 重生成流——此前仅卸载时中止，旧流继续跑并在 done 时把已切走的用户拽回旧方案新版本
+  useEffect(() => () => regenAcRef.current?.abort(), [planId])
 
   async function doExport() {
     if (!planId || exportBusy) return // err.md D8：防重复提交
@@ -294,11 +300,12 @@ export default function PlanDetail() {
     try {
       const r = await exportPlan(Number(planId), exportFormat)
       if (exportFormat === 'slides' && r.html) {
-        // 自包含 HTML：Blob URL 新窗口打开（plan/03 §93 键盘/滚轮/点击翻页）
-        const url = URL.createObjectURL(new Blob([r.html], { type: 'text/html' }))
-        window.open(url)
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        setExportUrl('')
+        // iter 367（批次六 M8）：await 之后 window.open 已脱离用户手势上下文，弹窗
+        // 拦截器会静默吞掉（现象：导出幻灯片「没反应」）——改 Blob 下载 .html
+        // （自包含，双击本地打开，plan/03 §93 键盘/滚轮/点击翻页不受影响）
+        const fname = r.filename || `slides-${planId}.html`
+        downloadBlob(new Blob([r.html], { type: 'text/html' }), fname)
+        setExportUrl(`已下载 ${fname}（双击本地打开）`)
       } else if (exportFormat === 'ics' && r.ics) {
         // P5 日历：Blob 下载 .ics（双击导入系统日历）
         downloadBlob(new Blob([r.ics], { type: 'text/calendar' }), r.filename || 'plan.ics')
@@ -351,26 +358,31 @@ export default function PlanDetail() {
 
   function doRegenerate() {
     if (!planId) return
+    const pid = Number(planId)
     setRegenError('')
     setRegenLoading(true)
     const ac = new AbortController()
     regenAcRef.current = ac
-    regenerateStream(Number(planId), regenScope, regenFeedback, (event, data) => {
+    regenerateStream(pid, regenScope, regenFeedback, (event, data) => {
       if (event === 'done') {
-        nav(`/plans/${data.plan_id}`)
-        // iter 365 E2：刷新版本下拉（同 session 新版本，sessionId 不变旧 effect 不重跑）
-        // + 失效方案列表缓存（Plans/Home/LearnIndex），否则切过去仍显旧 topic/版本号
-        setVersionRefresh((n) => n + 1)
+        // iter 365 E2：刷新版本下拉 + 失效方案列表缓存（Plans/Home/LearnIndex）
         queryClient.invalidateQueries({ queryKey: ['plans'] })
+        // iter 367（批次六 M4）：期间已切换到其他方案 -> 不导航（不拽回），只刷缓存
+        if (planIdRef.current !== pid) return
+        nav(`/plans/${data.plan_id}`)
+        setVersionRefresh((n) => n + 1)
       } else if (event === 'error') {
+        if (planIdRef.current !== pid) return
         setRegenError(String(data.message ?? '重生成失败'))
         setRegenLoading(false)
       } else if (event === 'budget_exceeded') {
+        if (planIdRef.current !== pid) return
         setRegenError('预算超限，重生成中断')
         setRegenLoading(false)
       }
     }, ac.signal).catch((e: unknown) => {
       if (ac.signal.aborted) return
+      if (planIdRef.current !== pid) return
       setRegenError(e instanceof Error ? e.message : '连接失败')
       setRegenLoading(false)
     })

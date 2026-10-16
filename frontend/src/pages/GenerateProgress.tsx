@@ -33,6 +33,8 @@ export default function GenerateProgress() {
   const task = useTaskStore((s) => s.tasks[taskId])
   const [attachChecked, setAttachChecked] = useState(false) // 首次判态完成前 loading
   const [notFound, setNotFound] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null) // iter 367（M13）：判态失败视图
+  const [attachAttempt, setAttachAttempt] = useState(0) // 判态重试计数（触发 effect 重跑）
   const [detailStatus, setDetailStatus] = useState<string | null>(null) // attach 返回的服务端状态（idle 判定）
   const [showPartial, setShowPartial] = useState(false)
 
@@ -43,6 +45,7 @@ export default function GenerateProgress() {
     let cancelled = false
     setAttachChecked(false)
     setNotFound(false)
+    setAttachError(null)
     setDetailStatus(null)
     engine
       .attach(sid)
@@ -61,8 +64,10 @@ export default function GenerateProgress() {
       })
       .catch((e: unknown) => {
         if (cancelled) return
+        // iter 367（批次六 M13）：非 404 判态失败（网络/5xx）此前只弹一次性 toast，
+        // 随后停在「加载中…」骨架屏无出路——改持久错误视图 + 重试
         if (e instanceof ApiError && e.status === 404) setNotFound(true)
-        else toast.error(e instanceof Error ? e.message : '加载会话状态失败')
+        else setAttachError(e instanceof Error ? e.message : '加载会话状态失败')
       })
       .finally(() => {
         if (!cancelled) setAttachChecked(true)
@@ -71,7 +76,7 @@ export default function GenerateProgress() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sid])
+  }, [sid, attachAttempt])
 
   const phase = task?.phase
 
@@ -143,6 +148,32 @@ export default function GenerateProgress() {
           <button onClick={() => nav('/')} className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
             返回首页
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (attachError) {
+    // iter 367（批次六 M13）：判态失败持久视图（重试 + 出口），替代一次性 toast 后的永久骨架屏
+    return (
+      <div className="space-y-4" role="alert">
+        <h2 className="text-2xl font-bold">会话状态加载失败</h2>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
+          <p className="text-red-700 dark:text-red-300">{attachError}</p>
+          <div className="mt-3 flex items-center justify-center gap-3">
+            <button
+              onClick={() => setAttachAttempt((n) => n + 1)}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              重试
+            </button>
+            <button
+              onClick={() => nav('/plans')}
+              className="rounded-lg border px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              返回方案列表
+            </button>
+          </div>
         </div>
       </div>
     )

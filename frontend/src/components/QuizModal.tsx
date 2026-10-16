@@ -124,6 +124,17 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     }
   }, [planId, wrong])
 
+  // iter 367（批次六 M10）：quiz 集合更换（quiz_ready 即时刷新/缓存回填/重开取回）时
+  // 清空作答——answers 按题目下标键控，旧作答会错位映射到新题（新题显示已判定 +
+  // 沿用旧对错）；回写去重标记一并复位（新集合需重新回写掌握度）
+  useEffect(() => {
+    setAnswers({})
+    setWriteback('')
+    setOpenWriteback('')
+    writebackRef.current = false
+    openWbRef.current = false
+  }, [quizzes])
+
   // Esc 关闭（生成中经 requestClose 提示重开可见）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

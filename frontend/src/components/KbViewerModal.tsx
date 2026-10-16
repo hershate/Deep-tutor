@@ -7,7 +7,7 @@
 // blob 加载失败（或浏览器禁用内嵌 PDF）自动退化解析文本视图 + 固定「下载原件」兜底。
 // iter 226：弹窗固定 h-[88vh]（原 max-h 由内容撑高，flex-1 的 iframe 无固有高度致弹窗塌陷成扁条）；
 //   已解析且有原件的文档头部提供「📝 解析文本 / 📄 原件」切换（PDF 解析结果此前无入口查看）。
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Markdown from './Markdown'
 import { toast } from './Toast'
 import { ApiError, downloadKbRaw, fetchKbRawBlob, getKbParsed, type KbDocument, type KbParsed } from '../lib/api'
@@ -34,6 +34,10 @@ interface Props {
 export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props) {
   const mode = viewModeOf(doc)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  // iter 367（批次六 M12）：当前 blob URL ref——cleanup 里同步 revoke。此前把 revoke
+  // 写进 setState 更新函数（副作用入更新器违反 React 契约：StrictMode 重放/并发丢弃
+  // 重渲染会重复调用或跳过，泄漏 blob 句柄）
+  const objectUrlRef = useRef<string | null>(null)
   const [blobFailed, setBlobFailed] = useState(false)
   const [parsed, setParsed] = useState<KbParsed | null>(null)
   const [loading, setLoading] = useState(true)
@@ -81,7 +85,9 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
       fetchKbRawBlob(doc.id, ac.signal)
         .then((blob) => {
           if (ac.signal.aborted) return
-          setObjectUrl(URL.createObjectURL(blob))
+          const url = URL.createObjectURL(blob)
+          objectUrlRef.current = url
+          setObjectUrl(url)
         })
         .catch(() => {
           if (ac.signal.aborted) return
@@ -98,10 +104,11 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
     }
     return () => {
       ac.abort()
-      setObjectUrl((url) => {
-        if (url) URL.revokeObjectURL(url)
-        return null
-      })
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+      setObjectUrl(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, mode, viewOverride])

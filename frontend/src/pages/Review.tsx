@@ -71,6 +71,14 @@ export default function Review() {
     },
     staleTime: Infinity,
   })
+  // iter 367（批次六 M5）：离页失效队列快照——staleTime=Infinity 保证轮内稳定，但
+  // 评分/交卷后本会话内重进页此前仍显旧快照（已评卡片复活）；轮内不失效不受影响
+  useEffect(
+    () => () => {
+      void qc.invalidateQueries({ queryKey: ['review-queue-all'] })
+    },
+    [qc],
+  )
   // iter 290：复习模式（全部/仅知识点/仅错题），localStorage 记忆（iter 280 同款静默降级）
   const [mode, setMode] = useState<ReviewMode>(readReviewMode)
   // iter 291：本轮薄弱项（忘了/仍错）集合 + 重练覆盖队列（非 null 时 queue 取此值——收窄再复习）

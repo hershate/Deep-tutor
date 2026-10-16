@@ -1,6 +1,8 @@
 // 知识点笔记编辑器（iter 105，Wiki 节点卡片内联展开）：
 // 展开时按需 GET 笔记；保存 PUT（空内容即删除）；保存后回调父级刷新 has_note。
-import { useEffect, useState } from 'react'
+// iter 367（批次六 M6）：未保存保护——收起/切节点即卸载组件，输入会静默丢失；
+// 补 debounced 本地草稿（Notes iter 272 同款）+ 重开恢复确认 + 保存往返并发输入不覆盖。
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, getNodeNote, putNodeNote } from '../lib/api'
 import { toast } from './Toast'
 
@@ -9,18 +11,62 @@ interface Props {
   onSaved: (hasNote: boolean) => void
 }
 
+const nodeDraftKey = (id: number) => `dt-node-note-draft-${id}`
+
+function readNodeDraft(id: number): string | null {
+  try {
+    const raw = localStorage.getItem(nodeDraftKey(id))
+    return raw && raw.trim() ? raw : null
+  } catch {
+    return null
+  }
+}
+
+function writeNodeDraft(id: number, content: string) {
+  try {
+    if (content.trim()) localStorage.setItem(nodeDraftKey(id), content)
+    else localStorage.removeItem(nodeDraftKey(id))
+  } catch {
+    /* 存储不可用，仅本次会话生效 */
+  }
+}
+
 export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
   const [content, setContent] = useState('')
+  const [savedContent, setSavedContent] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const contentRef = useRef(content)
+  contentRef.current = content
+  const dirty = content !== savedContent
+
+  // debounced 草稿：输入停 500ms 即落 localStorage（收起/切节点/崩溃可恢复）
+  useEffect(() => {
+    if (!dirty) return
+    const t = setTimeout(() => writeNodeDraft(nodeId, content), 500)
+    return () => clearTimeout(t)
+  }, [content, dirty, nodeId])
 
   useEffect(() => {
     let cancelled = false
     getNodeNote(nodeId)
       .then((r) => {
         if (cancelled) return
+        // 未保存草稿恢复确认（存在且与服务端已存内容不一致）
+        const draft = readNodeDraft(nodeId)
+        if (draft !== null && draft !== r.content) {
+          if (window.confirm('检测到该知识点笔记的未保存草稿，恢复吗？\n「确定」恢复草稿，「取消」丢弃草稿使用已保存版本。')) {
+            setContent(draft)
+            setSavedContent(r.content)
+            setUpdatedAt(r.updated_at)
+            setLoading(false)
+            return
+          }
+          writeNodeDraft(nodeId, '')
+        }
         setContent(r.content)
+        setSavedContent(r.content)
         setUpdatedAt(r.updated_at)
       })
       .catch(() => {
@@ -37,10 +83,18 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
   async function save() {
     if (busy) return
     setBusy(true)
+    const sent = content
     try {
-      const r = await putNodeNote(nodeId, content)
-      setContent(r.content)
+      const r = await putNodeNote(nodeId, sent)
+      // 保存往返期间的继续输入不覆盖（同 Notes M3 口径）
+      if (contentRef.current === sent) {
+        setContent(r.content)
+        setSavedContent(r.content)
+      } else {
+        setSavedContent(r.content) // 基线对齐已存内容；用户新输入保持 dirty
+      }
       setUpdatedAt(r.updated_at)
+      if (contentRef.current === sent) writeNodeDraft(nodeId, '')
       onSaved(r.content.trim().length > 0)
       toast.success(r.content.trim() ? '笔记已保存' : '笔记已清除')
     } catch (e) {
@@ -72,7 +126,7 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
       />
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="text-xs text-slate-500 dark:text-slate-400">
-          {updatedAt ? `更新于 ${new Date(updatedAt).toLocaleString()}` : '尚未保存'}
+          {dirty ? '未保存（收起后可从草稿恢复）' : updatedAt ? `更新于 ${new Date(updatedAt).toLocaleString()}` : '尚未保存'}
         </span>
         <button
           onClick={save}

@@ -208,6 +208,15 @@ export default function Chat() {
           if (!ac.signal.aborted) setError(e instanceof Error ? e.message : '连接失败')
         },
       })
+      // iter 367（批次六 M2）：干净 EOF 但无终态事件（反代切断/后端异常静默收流）——
+      // 不兜底则永久卡「生成中」（发送禁用 + 气泡不消）。按 done 收敛：刷新消息与
+      // threads；run 若仍在跑，清 409 防重连标记让 running 检测 effect 重新附流
+      if (!ac.signal.aborted && doneRef.current !== tid) {
+        doneRef.current = tid
+        if (reconnectAttemptedRef.current === tid) reconnectAttemptedRef.current = null
+        queryClient.invalidateQueries({ queryKey: ['messages', tid] })
+        queryClient.invalidateQueries({ queryKey: ['threads'] })
+      }
     } catch (e) {
       if (!ac.signal.aborted) {
         if (e instanceof SseError && e.status === 409) setError('该对话已有运行中的请求，请稍候')
@@ -233,6 +242,13 @@ export default function Chat() {
           if (!ac.signal.aborted) setError(e instanceof Error ? e.message : '连接失败')
         },
       })
+      // iter 367（批次六 M2）：附流路径同样兜底干净 EOF 无终态（不清防重连标记——
+      // 避免服务端异常收流时自动重连循环；用户可手动刷新）
+      if (!ac.signal.aborted && doneRef.current !== tid) {
+        doneRef.current = tid
+        queryClient.invalidateQueries({ queryKey: ['messages', tid] })
+        queryClient.invalidateQueries({ queryKey: ['threads'] })
+      }
     } catch (e) {
       // 404 = 无活跃 run（已结束/无流）：静默，正常拉消息即可；其它错误提示
       if (!ac.signal.aborted) {
