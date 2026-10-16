@@ -96,6 +96,9 @@ class AgenticStreamChunk:
 
     text: str = ""
     thinking: str = ""
+    # iter 367：thinking 块签名增量——回传历史 thinking 块必须带有效 signature
+    # （Anthropic 契约），缺失时 thinking+tool_use 的多轮对话第二轮必 400
+    signature: str = ""
     tool_use_start: tuple[str, str] | None = None  # (tool_use_id, name)
     tool_use_delta: tuple[str, str] | None = None  # (tool_use_id, partial_input_json)
     usage: LLMUsage | None = None

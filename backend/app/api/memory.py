@@ -40,6 +40,7 @@ from app.db import models
 from app.db.base import SessionLocal
 from app.llm import get_active_model_pricing, get_provider
 from app.llm.anthropic_provider import AnthropicProvider
+from app.llm.base import LLMUsage
 from app.skills.loader import get_skill_registry
 from app.tools import default_registry
 from app.tools.agent_tools import agent_tool_definitions
@@ -389,6 +390,12 @@ def cancel_run(run_id: int, user=Depends(get_current_user), db: Session = Depend
     stream = _RUN_STREAMS.get(run_id)
     if stream is not None:
         stream.request_cancel()  # 线程安全：同步端点跨线程触发 asyncio.Event（iter 363）
+        # iter 367：双保险硬取消——cancel_event 只在步/工具边界生效，正在进行的
+        # stream_agentic 流式读取（SDK 默认超时最长 600s）此前无法打断，run 继续
+        # 烧 token/占全局槽。task.cancel 触发 _run_chat 的 CancelledError 收敛。
+        task = getattr(stream, "task", None)
+        if task is not None and not task.done() and stream._loop is not None:
+            stream._loop.call_soon_threadsafe(task.cancel)
         return {"ok": True}
     raise HTTPException(status_code=409, detail="not_running")
 
@@ -458,13 +465,22 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
     src = Path(settings.data_dir) / art.path
     if not src.is_file():
         raise HTTPException(status_code=404, detail="file_missing")
+    # iter 367：CAS 抢占（与产物创建同事务提交）——并发 approve 双双通过上方 409
+    # 检查后会重复创建 note/plan；本 UPDATE 使后提交者失配退出
+    claimed = (
+        db.query(models.Run)
+        .filter(models.Run.id == run_id, models.Run.status == models.RunStatus.awaiting_approval)
+        .update({"status": models.RunStatus.done}, synchronize_session=False)
+    )
+    if not claimed:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="not_awaiting_approval")
     content = src.read_text(encoding="utf-8")
     dest = ""
     if target_kind == "note":
         n = models.Note(user_id=user.id, title=name, content=content)
         db.add(n)
-        db.commit()
-        db.refresh(n)
+        db.flush()
         dest = f"note:{n.id}"
     elif target_kind == "plan":
         sess_id = r.thread.session_id if r.thread else None
@@ -478,14 +494,17 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
             parsed = {"markdown": content}
         p = models.Plan(session_id=sess_id, content=parsed if isinstance(parsed, dict) else {"markdown": content})
         db.add(p)
-        db.commit()
-        db.refresh(p)
+        db.flush()
         dest = f"plan:{p.id}"
     else:  # material 暂未支持（需 study_unit 上下文）
+        db.rollback()
         raise HTTPException(status_code=400, detail="material_promote_not_supported")
     art.kind = "promoted"
     art.promoted_to = dest
-    r.status = models.RunStatus.done
+    # iter 367：置 committed 标志——approve 后 run 为 done 且 workspace_committed
+    # 恒 False，24h 维护按无效 committed 区 rmtree，已审批产物 file_missing、
+    # 未提升的 scratch 草稿静默丢失
+    r.workspace_committed = True
     db.commit()
     return {"ok": True, "promoted_to": dest, "name": name, "target_kind": target_kind}
 
@@ -564,6 +583,7 @@ async def start_run(
     )
     _CHAT_RUN_TASKS.add(task)  # 持强引用防 create_task 被 GC 中途回收（iter 363）
     task.add_done_callback(_CHAT_RUN_TASKS.discard)
+    stream.task = task  # iter 367：cancel_run 硬取消（打断无检查点的流式读取）
     db.close()  # iter 366：流式期间不再用请求 db（_run_chat 自管会话），早释放免钉连接池槽
     return StreamingResponse(
         _chat_relay(stream, last_event_id),
@@ -639,6 +659,7 @@ class _ChatStream:
         self.terminal_event: tuple[str, dict] | None = None  # 终态副本（兜底投递）
         self.cancel_event: asyncio.Event = asyncio.Event()
         self.result: AgentRunResult | None = None
+        self.task: asyncio.Task | None = None  # iter 367：cancel_run 硬取消用
         try:
             self._loop = asyncio.get_running_loop()  # 创建于 start_run 协程内（生产路径）
         except RuntimeError:
@@ -802,6 +823,14 @@ async def _run_chat(
                 thinking=thinking,
             )
         stream.result = result
+    except asyncio.CancelledError:
+        # iter 367：cancel_run 的 task.cancel 硬取消（流式读取无检查点，cancel_event
+        # 打不断）——收敛为 interrupted 终态后正常返回，让 finally 的 _finalize_chat
+        # 落库/发终态（吞取消是有意的：清理已完成，run 生命周期就此闭合）
+        stream.result = AgentRunResult(
+            status="interrupted", final_text="", steps=0, usage=LLMUsage(), error="cancelled"
+        )
+        return
     except Exception as exc:  # noqa: BLE001  任务异常隔离——保已产出 + 终态
         log.exception("chat run %s failed", run_id)
         stream.publish("error", {"code": "internal_error", "message": str(exc)})
@@ -869,6 +898,10 @@ def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream
             result = stream.result
             # awaiting_approval 优先（promote_artifact 提议待确认）——不被 done 覆盖
             if run.status == models.RunStatus.awaiting_approval:
+                pass
+            elif run.status != models.RunStatus.running:
+                # iter 367：approve 与循环退出的竞态窗口内 run 已被置 done——
+                # 循环返回 interrupted 时不得降级覆盖已审批的终态
                 pass
             elif result is None:
                 run.status = models.RunStatus.error

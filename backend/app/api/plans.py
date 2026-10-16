@@ -1715,6 +1715,10 @@ async def _materials_sse(
             budget=BudgetTracker(limit=settings.budget_per_session_usd),  # err.md A6
             bing_api_key=resolve_bing_api_key(user_id),  # iter 223：凭证档案有效 Bing Key
             llm_max_tokens=get_active_max_tokens(user_id),  # iter 355：用户输出上限偏好
+            # iter 367（批次三）：单元补料筛选用量归集需归属用户（api_usage 补记 +
+            # 用户模型计费表）。不注入 db——worker 并发，DB 写由本生成器顺序单写
+            user_id=user_id,
+            model_pricing=get_active_model_pricing(user_id, db=db),
         )
         # R3（iter 230）单元生成有界并发：LLM 调用与单元 WebSearch 均为网络等待，
         # 旧串行 wall-clock 为各单元之和。worker 信号量并发执行；结果由本生成器

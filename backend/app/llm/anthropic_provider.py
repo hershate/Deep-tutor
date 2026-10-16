@@ -357,6 +357,9 @@ class AnthropicProvider(LLMProvider):
                         yield AgenticStreamChunk(tool_use_delta=(tid, event.delta.partial_json))
                     elif dt == "thinking_delta":
                         yield AgenticStreamChunk(thinking=getattr(event.delta, "thinking", "") or "")
+                    elif dt == "signature_delta":
+                        # iter 367：签名随块增量到达，缺失即无法回传 thinking 块
+                        yield AgenticStreamChunk(signature=getattr(event.delta, "signature", "") or "")
                 elif et == "message_delta":
                     u = event.usage
                     output_tokens = getattr(u, "output_tokens", 0) or 0

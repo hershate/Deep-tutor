@@ -8,19 +8,23 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 
 log = logging.getLogger("deep_tutor.budget")
 
 
 class BudgetTracker:
     def __init__(self, limit: float) -> None:
-        # iter 245：limit=NaN 时 nan<=0 为 False -> exceeded 恒 False（守卫静默失效）。
+        # iter 245：limit=NaN 时 nan<=0 为 False -> exceeded() 恒 False（守卫静默失效）。
         # 非法 limit 按「不限」处理并告警（settings 来源为 float 配置，正常不可达）
         if not math.isfinite(limit):
             log.error("预算上限非法 limit=%r，按不限处理", limit)
             limit = 0.0
         self.limit = limit
         self.spent: float = 0.0
+        # iter 367：材料流 worker 并发归集筛选成本——float += 非原子（GIL 不保证
+        # 读-改-写整体性），锁保证并发 add 不丢账
+        self._lock = threading.Lock()
 
     def add(self, cost: float) -> None:
         # iter 245：非法成本防御——NaN 会让 spent=NaN、exceeded() 恒 False（预算守卫
@@ -30,7 +34,8 @@ class BudgetTracker:
         if not math.isfinite(cost) or cost < 0:
             log.error("预算归集收到非法 cost=%r，已拒绝入账（疑似 provider 构造 bug）", cost)
             return
-        self.spent += cost
+        with self._lock:
+            self.spent += cost
 
     def exceeded(self) -> bool:
         """limit<=0 视为不限。err.md B15：达上限即超限（>=，此前 > 恰满不限）。"""

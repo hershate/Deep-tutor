@@ -676,16 +676,20 @@ UNIT_SCREEN_PROMPT = """你是 Deep-tutor 的「自学单元补充资料筛选�
 
 async def _screen_unit_resources(
     resources: list[dict], query: str, ctx: ExecContext
-) -> list[dict]:
+) -> tuple[list[dict], LLMUsage | None]:
     """单元补料 LLM 相关性筛选（强制门，iter 361）：不相关丢弃、存疑降 ⚠️、附 note。
 
     有 provider 时为强制门——suitable=false / 响应未覆盖 / 筛选失败（重试 _SCREEN_MAX_ATTEMPTS 次
     后仍失败）一律丢弃，不再降标保留未筛选候选。无 provider（调用方 search_unit_resources 已在更早处
     短路为 []，此分支仅作防御）-> 原样返回。
+    iter 367（批次三 L3）：返回筛选调用的累计 LLMUsage（含重试各次），供调用方归集
+    预算与 api_usage——此前直接丢弃（成本黑洞：日预算/用量统计对每单元筛选失明）。
     """
     provider = ctx.llm_provider
     if provider is None or not resources:
-        return resources
+        return resources, None
+    from app.agent.cost import accumulate_usage  # 延迟导入：app.tools.__init__ 与 app.agent.cost 互引
+
     payload = {
         "topic": query[:MAX_QUERY_CHARS],
         "candidates": [
@@ -698,6 +702,7 @@ async def _screen_unit_resources(
         ],
     }
     verdicts: dict[str, dict] | None = None
+    screen_usage: LLMUsage | None = None
     for attempt in range(_SCREEN_MAX_ATTEMPTS):
         try:
             resp = await asyncio.wait_for(
@@ -709,6 +714,10 @@ async def _screen_unit_resources(
                 ),
                 timeout=ctx.timeouts.llm,
             )
+            if resp.usage is not None:
+                if screen_usage is None:
+                    screen_usage = LLMUsage(model=resp.usage.model)
+                accumulate_usage(screen_usage, resp.usage)
             verdicts = _parse_screen_verdicts(resp.content)
             if verdicts is not None:
                 break
@@ -716,7 +725,7 @@ async def _screen_unit_resources(
             log.warning("单元补料筛选第 %d/%d 次失败: %s", attempt + 1, _SCREEN_MAX_ATTEMPTS, exc)
     if verdicts is None:
         log.warning("单元补料筛选重试耗尽，强制丢弃全部 %d 候选", len(resources))
-        return []
+        return [], screen_usage
     # 容错 URL 匹配（同 _screen_resources）：规范化键匹配，防 LLM 改写 url 致全丢
     norm: dict[str, dict] = {}
     for vurl, v in verdicts.items():
@@ -738,7 +747,39 @@ async def _screen_unit_resources(
         screened.append(r2)
     if not screened and verdicts:
         log.warning("单元补料筛选判定 %d 条但无候选匹配（候选 %d），强制门丢弃全部", len(verdicts), len(resources))
-    return screened
+    return screened, screen_usage
+
+
+async def _account_screen_usage(usage: LLMUsage | None, ctx: ExecContext) -> None:
+    """iter 367（批次三 L3/F9）：筛选调用的 LLM 用量归集——会话预算累计 + api_usage 补记。
+
+    预算在本协程即时累计（BudgetTracker.add 已加锁，材料流多 worker 并发安全）；
+    api_usage 落库用全新短 SessionLocal 放 to_thread——不复用 ctx.db（agent 一轮
+    多工具并发 / 材料流 ctx 不带 db，共享 Session 有并发写竞态）。
+    user_id 缺失（测试假 ctx 等）只累计预算、不写 api_usage；记账失败不阻断补料。
+    """
+    if usage is None or not (usage.input_tokens or usage.output_tokens):
+        return
+    from app.agent.cost import build_metadata, record_metadata_usage  # 延迟导入（同上）
+
+    meta = build_metadata(usage, usage.model, ctx.model_pricing)
+    if ctx.budget is not None:
+        ctx.budget.add(meta.cost)
+
+    def _record() -> None:
+        from app.db.base import SessionLocal
+
+        sdb = SessionLocal()
+        try:
+            record_metadata_usage(sdb, meta, ctx.user_id)
+        finally:
+            sdb.close()
+
+    if ctx.user_id is not None:
+        try:
+            await asyncio.to_thread(_record)
+        except Exception:  # noqa: BLE001  计量不阻断业务
+            log.warning("单元补料筛选用量 api_usage 补记失败", exc_info=True)
 
 
 async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_PER_UNIT) -> list[dict]:
@@ -781,7 +822,8 @@ async def search_unit_resources(query: str, ctx: ExecContext, limit: int = MAX_P
                 "snippet": vdata.get("snippet", ""),  # iter 360：正文摘要供筛选
             }
         )
-    resources = await _screen_unit_resources(resources, query, ctx)
+    resources, screen_usage = await _screen_unit_resources(resources, query, ctx)
+    await _account_screen_usage(screen_usage, ctx)  # iter 367：筛选用量归集（防成本黑洞）
     for r in resources:
         r.pop("snippet", None)  # 摘要仅供筛选，不持久化
     return resources[:limit]

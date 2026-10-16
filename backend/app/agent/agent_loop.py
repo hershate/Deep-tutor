@@ -80,6 +80,7 @@ class _StreamAccumulator:
     def __init__(self) -> None:
         self.text_parts: list[str] = []
         self.thinking_parts: list[str] = []
+        self.signature_parts: list[str] = []  # iter 367：thinking 签名（回传历史必需）
         # tool_use 增量按 id 聚合（input_json_delta 分片到达）
         self._tools: list[dict] = []  # [{id, name, json}]
         self.usage: LLMUsage | None = None
@@ -90,6 +91,8 @@ class _StreamAccumulator:
             self.text_parts.append(chunk.text)
         if chunk.thinking:
             self.thinking_parts.append(chunk.thinking)
+        if getattr(chunk, "signature", ""):
+            self.signature_parts.append(chunk.signature)
         if chunk.tool_use_start:
             tid, name = chunk.tool_use_start
             self._tools.append({"id": tid, "name": name, "json": ""})
@@ -117,7 +120,11 @@ class _StreamAccumulator:
     def to_content_blocks(self) -> list[dict]:
         blocks: list[dict] = []
         if self.thinking_parts:
-            blocks.append({"type": "thinking", "thinking": "".join(self.thinking_parts)})
+            block = {"type": "thinking", "thinking": "".join(self.thinking_parts)}
+            # iter 367：带签名的 thinking 块才可回传（无签名回传即 400）
+            if self.signature_parts:
+                block["signature"] = "".join(self.signature_parts)
+            blocks.append(block)
         if self.text_parts:
             blocks.append({"type": "text", "text": "".join(self.text_parts)})
         for tu in self._tools:
@@ -227,6 +234,14 @@ def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT)
 
     悬空 tool_result（缺前导 assistant tool_use）会让 Anthropic API 报错——历史窗口
     恰好切在 tool_use/tool_result 之间时丢弃开头的 tool_result 轮。
+
+    iter 367 两个自愈（仅修内存副本，不写库、幂等）：
+    - 尾部悬空 tool_use：进程在工具执行期间崩溃（assistant 已落库、tool_result 未及写）
+      后，该 thread 每次后续 run 的首轮 LLM 调用都 400（tool_use ids without
+      tool_result）。为未应答的 tool_use 补占位 tool_result（is_error）并并入其后的
+      user 消息（无则追加一条）。
+    - 无 signature 的 thinking 块剔除：Anthropic 要求回传的 thinking 块带有效签名，
+      旧数据/中断轮的裸 thinking 块直接丢弃（历史 thinking 允许省略）。
     """
     from app.db.models import Message
 
@@ -242,6 +257,61 @@ def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT)
         isinstance(b, dict) and b.get("type") == "tool_result" for b in msgs[0]["content"]
     ):
         msgs.pop(0)
+
+    # thinking 块清洗（无签名剔除；清空的消息补占位防空 content 被 API 拒）
+    for m in msgs:
+        if isinstance(m.get("content"), list):
+            m["content"] = [
+                b for b in m["content"]
+                if not (isinstance(b, dict) and b.get("type") == "thinking" and not b.get("signature"))
+            ]
+            if m["content"] == []:
+                m["content"] = [{"type": "text", "text": "…"}]
+
+    # 悬空 tool_use 自愈（尾部及中途）：进程在工具执行期间崩溃（assistant 已落库、
+    # tool_result 未及写）后，该 thread 每次后续 run 的 LLM 调用都 400（tool_use ids
+    # without tool_result）。逆序遍历每条含 tool_use 的 assistant，为未应答 id 补占位
+    # tool_result（is_error）并入其后 user 消息（无/非 user 则插入一条）；逆序保证
+    # 插入不影响未处理下标。仅修内存副本，不写库、幂等（再次加载重复修复无副作用）。
+    for i in range(len(msgs) - 1, -1, -1):
+        c = msgs[i].get("content")
+        if msgs[i]["role"] != "assistant" or not isinstance(c, list):
+            continue
+        tu_ids = [
+            b.get("id")
+            for b in c
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
+        ]
+        if not tu_ids:
+            continue
+        nxt = msgs[i + 1] if i + 1 < len(msgs) else None
+        answered: set = set()
+        if nxt is not None and nxt["role"] == "user" and isinstance(nxt.get("content"), list):
+            answered = {
+                b.get("tool_use_id")
+                for b in nxt["content"]
+                if isinstance(b, dict) and b.get("type") == "tool_result"
+            }
+        unanswered = [tid for tid in tu_ids if tid not in answered]
+        if not unanswered:
+            continue
+        placeholder = [
+            {
+                "type": "tool_result",
+                "tool_use_id": tid,
+                "content": "（服务在工具执行期间中断，该调用未完成）",
+                "is_error": True,
+            }
+            for tid in unanswered
+        ]
+        if nxt is not None and nxt["role"] == "user":
+            cur = nxt["content"]
+            if isinstance(cur, list):
+                nxt["content"] = placeholder + cur
+            else:
+                nxt["content"] = placeholder + [{"type": "text", "text": str(cur)}]
+        else:
+            msgs.insert(i + 1, {"role": "user", "content": placeholder})
     return msgs
 
 
