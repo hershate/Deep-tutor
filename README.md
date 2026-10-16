@@ -178,27 +178,39 @@ bash scripts/start.sh
 
 ## 目录结构
 
+> 2026-10-17 起，仓库为**双栈并存**：Reasonix 内核（Go，改造目标形态，已全量吸收自上游 studio 快照）+ Python v1（当前可用实现，保留至阶段① M5 验收）。内核的引用声明与路径映射见 [`NOTICE`](./NOTICE)。
+
 ```text
 Deep-tutor/
+├── ── 改造工程与文档（本仓自有）──
 ├── plan/            # 改造方案（plan/reasonix/ 六份）；Python 时代计划已归档 docs/archive/plan-v1/
-├── note/            # 项目分析笔记（01–11）+ Reasonix 改造决策档案（12，改造宪法）
+├── note/            # 项目分析笔记（01–11）+ Reasonix 改造决策档案（12，改造宪法）+ graft/ 上游嫁接一手档案
 ├── stage.md         # 分阶段实施进度跟踪（活文件，持续追加）
 ├── API.md           # v1 插件 API 契约（改造期 = shim 兼容层验收基准）
+├── NOTICE           # 第三方作品引用与许可声明（Reasonix 吸收权威声明）
+├── AGENTS.md        # 仓库工作指引（AI agent 与人类协作者）
 ├── docs/archive/    # Python 时代归档（plan-v1 12 份 / chat.md / err.md 审计清单）
-├── backend/         # FastAPI 后端（v1，改造完成前保留）
-│   ├── app/         # main / core / db / llm / agent / tools / skills / plugins / api
-│   ├── alembic/     # 数据库迁移
-│   ├── tests/       # pytest 测试套件（超过 1100 项）
-│   └── requirements.txt
-├── frontend/        # Vite + React 前端（v1，阶段①②作 shim 回归工具，阶段④退役）
+├── ── Reasonix 内核（Go，吸收自上游，见 NOTICE；完整清单 docs/kernel/README.md）──
+├── internal/        # 内核实现（base/contract/safety/state/model/platform/tools/ext/runtime/session/assembly + runtime/tutor=Deep-tutor 学习域）
+├── cmd/             # 命令行入口（tui/serve/acp/studio 等）
+├── tools/  sdk/     # 门禁（repolint 等）/ Go SDK
+├── desktop/         # Electron 宿主 + frontend-next 统一前端（阶段④前端基座）
+├── docs/kernel/     # 上游工程文档（原样冻结，溯源说明见其 README；upstream/=与本仓根冲突的上游原件存档）
+├── scripts/reasonix/# 上游工具脚本
+├── workers/ npm/ examples/ benchmark*/ output/ release-notes/   # 内核周边资产（workers 等禁用项代码保留、不接线）
+├── go.mod 等        # 根级构建基座（Makefile/golangci/goreleaser/.githooks 等）
+├── ── Python v1（当前可用实现，41173 端口；阶段④退役）──
+├── backend/         # FastAPI 后端（app / alembic / tests 1100+ 项）
+├── frontend/        # Vite + React 前端（阶段①②作 shim 回归工具）
 ├── extension/       # 浏览器扩展（MV3 网页剪藏，阶段④重构）
-├── plugins/         # 后端插件目录（v1；功能将由 Reasonix 扩展体系等价承接）
-├── plugin-examples/ # 前端插件示例（v1；四功能将在新前端重建）
+├── plugins/         # 后端插件目录（功能将由 Reasonix 扩展体系等价承接）
+├── plugin-examples/ # 前端插件示例（四功能将在新前端重建）
 ├── skills/          # LLM 方法论 Skill（deep-tutor-* 与 vendor 复用）
-├── scripts/         # 本地直起脚本（start.sh / start.ps1）
+├── scripts/         # 本地直起脚本 start.sh / start.ps1（另含 reasonix/ 上游脚本）
+├── ── 运行时与参考 ──
 ├── data/            # 运行时数据（gitignore，启动时自动创建；v2 目录总图见 plan/reasonix/02）
-├── REF/             # Reasonix/R-Tutor 源码参考副本（gitignore，zip 为本地备份）
-├── .env.example
+├── REF/             # 吸收用上游源快照（gitignore，20261017 zip 为本地备份，仅供对照）
+├── .env.example     # Python v1 环境变量样例（内核配置见 reasonix.example.toml）
 └── README.md
 ```
 
