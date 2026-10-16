@@ -25,7 +25,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	goldmarktext "github.com/yuin/goldmark/text"
 
-	productcontent "reasonix/docs"
+	productcontent "reasonix/docs/kernel"
 	"reasonix/internal/base/retrieval"
 	"reasonix/internal/contract/tool"
 )

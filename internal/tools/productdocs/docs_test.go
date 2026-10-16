@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	productcontent "reasonix/docs"
+	productcontent "reasonix/docs/kernel"
 	"reasonix/internal/contract/provider"
 )
 
