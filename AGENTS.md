@@ -17,9 +17,10 @@
 - **节奏**：全自动推进，但任务拆分尽可能细、每一步谨慎（小步可验证增量）。
 - **内核引入后**（M1 起）：遵守 `DEEPTUTOR.md` 工程规约（分层依赖、缓存稳定前缀、注释规范、预提交清单 gofmt/vet/lint/test）。
 
-## 仓库状态速览（2026-10-15）
+## 仓库状态速览（2026-10-17）
 
 - **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。
-- **进行中**：Reasonix 内核改造（阶段① M1 尚未开始，方案与决策已定稿）。
-- **参考副本**：`REF/`（gitignore，不入库）= R-Tutor 源码快照，上游 https://github.com/esengine/DeepSeek-Reasonix （MIT，须署名致敬）。
+- **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿；M1 余项（多实例 spike → 模块改名 `deep-tutor` → DEEPTUTOR.md → 门禁基线）见 `plan/reasonix/05` 与 `stage.md`。
+- **引用合规**：上游 https://github.com/esengine/DeepSeek-Reasonix （MIT）。声明与修改披露见根 [`NOTICE`](./NOTICE)，许可全文 [`LICENSE-REASONIX`](./LICENSE-REASONIX)；修改上游代码须同步更新 NOTICE 修改披露。
+- **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。
 - **归档**：Python 时代计划与工作档案在 `docs/archive/`（git 历史完整）。

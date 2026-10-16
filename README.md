@@ -320,6 +320,7 @@ GitHub Actions CI（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）四
 
 ## 开源许可与致谢
 
-- 本项目内核改造自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（studio 分支，2026-10 快照），遵循其 **MIT License**。感谢 Reasonix 的维护者 **Huahui Yu** 与全体贡献者——缓存优先的 Agent 循环、工具调用修复、成本计量三支柱最早启发了本项目的 Python 版实现，如今更进一步直接以其内核为基座。
-- 内核源码引入时的裁剪与修改清单、以及随内核携带的工程规约，见仓库内 `DEEPTUTOR.md`（改造 M1 里程碑建立）与 `LICENSE-REASONIX`。
-- 其余本项目自有代码沿用仓库根 `LICENSE`。
+- 本项目内核与桌面端吸收自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），遵循其 **MIT License**（全文见 [`LICENSE-Reasonix`](./LICENSE-REASONIX)）。感谢 Reasonix 的维护者 **Huahui Yu** 与全体贡献者——缓存优先的 Agent 循环、工具调用修复、成本计量三支柱最早启发了本项目的 Python 版实现，如今更进一步直接以其内核为基座。
+- **引用与修改的权威声明见 [`NOTICE`](./NOTICE)**：吸收范围与路径映射、对上游代码的全部修改披露（目前仅 productdocs 两行 import 适配）、随内核携带的第三方许可（Inter / Noto Sans SC / IBM Plex Mono 字体 OFL、cua-driver LICENSE）。
+- 内核文档（上游 `docs/`）整体落在 [`docs/kernel/`](./docs/kernel/)，其溯源说明见 [`docs/kernel/README.md`](./docs/kernel/README.md)；随内核携带的工程规约将在改造 M1 里程碑本地化为 `DEEPTUTOR.md`。
+- 其余本项目自有代码沿用仓库根 [`LICENSE`](./LICENSE)。
