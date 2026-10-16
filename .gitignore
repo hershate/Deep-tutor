@@ -126,3 +126,6 @@ temp/
 # 主题产物缓存
 scripts/reasonix/official-theme-art/out/
 scripts/reasonix/official-theme-art/__pycache__/
+
+# Python 后端测试运行时数据（/data/ 锚定后显形，仍不入库）
+/backend/data/
