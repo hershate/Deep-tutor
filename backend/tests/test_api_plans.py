@@ -750,3 +750,104 @@ def test_generate_overlay_run_when_enabled(client, auth_headers, monkeypatch):
         assert run.status == models.RunStatus.done
     finally:
         db.close()
+
+
+# ---------------- iter 367：状态机闭合加固（finalize 兜底 / 占位回滚 / 清理定时器 identity） ----------------
+
+def test_finalize_persist_failure_falls_back_to_error_state(client, auth_headers, monkeypatch):
+    """done 分支持久化异常（commit 撞锁/磁盘满）-> 兜底补落 error 态（此前停留 running，
+    /generate 409「生成已中断」、/retry 亦 409，会话锁死直至重启）。"""
+    from types import SimpleNamespace
+
+    from app.api import plans as plans_mod
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    sid = _session(client, auth_headers)
+    db0 = SessionLocal()
+    try:
+        plans_mod._set_state(db0, sid, models.OrchestratorStatus.running, "trace_persist_fail")
+    finally:
+        db0.close()
+
+    def boom(db, session_id, plan_dict):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(plans_mod, "_persist_plan", boom)
+
+    async def scenario():
+        stream = plans_mod._SessionStream(sid, "trace_persist_fail")
+        stream.budget = None
+        plans_mod._STREAMS[sid] = stream
+
+        async def ok():
+            return SimpleNamespace(status="done", outputs={}, plan={}, errors=[], executed=[])
+
+        task = asyncio.create_task(ok())
+        stream.task = task
+        await task
+        plans_mod._finalize(sid, stream, task)
+        return stream
+
+    stream = asyncio.run(scenario())
+    assert stream.terminal_id is not None
+    _, ev, data = stream._events[-1]
+    assert ev == "error" and data["code"] == "internal_error"
+
+    db = SessionLocal()
+    try:
+        st = db.get(models.OrchestratorState, sid)
+        assert st is not None
+        assert st.status == models.OrchestratorStatus.error  # 兜底已落 error（旧代码停留 running）
+    finally:
+        db.close()
+
+
+def test_occupy_generation_set_state_failure_rolls_back_stream(client, auth_headers, monkeypatch):
+    """占位 _set_state 提交失败 -> 回滚 _STREAMS 注册（否则残留无 task 流永久占用全局配额）。"""
+    from app.api import plans as plans_mod
+    from app.db.base import SessionLocal
+
+    sid = _session(client, auth_headers)
+
+    def boom(db, session_id, status, trace_id, **kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(plans_mod, "_set_state", boom)
+
+    db = SessionLocal()
+    try:
+        with plans_mod._OCCUPY_LOCK:
+            try:
+                plans_mod._occupy_generation(db, sid, "raw")
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("占位应随 _set_state 失败抛出")
+        assert sid not in plans_mod._STREAMS  # 注册已回滚
+    finally:
+        db.close()
+
+
+def test_schedule_cleanup_identity_guard_keeps_new_stream(client, auth_headers, monkeypatch):
+    """旧流的清理定时器不得误删重新占位后的新流（finalize 与 retry 交错的毫秒窗）。"""
+    from app.api import plans as plans_mod
+
+    sid = _session(client, auth_headers)
+    monkeypatch.setattr(plans_mod, "_RETENTION_SECONDS", 0.05)
+
+    async def scenario():
+        old = plans_mod._SessionStream(sid, "trace_old")
+        old.mark_terminal(old.publish("error", {"code": "x"}))
+        plans_mod._STREAMS[sid] = old
+        new = plans_mod._SessionStream(sid, "trace_new")
+        plans_mod._STREAMS[sid] = new  # retry/regenerate 抢先重新占位（旧定时器尚未创建，取消不到）
+        plans_mod._schedule_cleanup(sid, old)  # 旧 finalize 随后才排程清理
+        await asyncio.sleep(0.15)
+        return new
+
+    try:
+        new = asyncio.run(scenario())
+        assert plans_mod._STREAMS.get(sid) is new  # 新流仍在（旧定时器 identity 校验不 pop）
+    finally:
+        plans_mod._STREAMS.pop(sid, None)

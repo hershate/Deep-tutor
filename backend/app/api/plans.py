@@ -332,7 +332,15 @@ def _occupy_generation(db: Session, session_id: int, raw_text: str) -> "_Session
     stream = _SessionStream(session_id, trace_id)
     stream.raw_text = raw_text
     _STREAMS[session_id] = stream
-    _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
+    try:
+        _set_state(db, session_id, models.OrchestratorStatus.running, trace_id)
+    except Exception:
+        # 占位提交失败（写锁争用/磁盘）：回滚注册再抛。否则 _STREAMS 残留一条
+        # 无 task、无终态、无清理定时器的流，_check_generate_quota 按
+        # terminal_id is None 计数会永久扣减全局并发配额直至重启
+        if _STREAMS.get(session_id) is stream:
+            _STREAMS.pop(session_id, None)
+        raise
     return stream
 
 
@@ -610,16 +618,27 @@ def _parse_last_event_id(request: Request) -> int:
         return 0
 
 
-def _schedule_cleanup(session_id: int) -> None:
+def _schedule_cleanup(session_id: int, stream: "_SessionStream | None" = None) -> None:
     """终态后延迟从 _STREAMS 移除（保留窗口供迟到重连）。无运行循环则立即移除。
 
     iter 237：句柄存到对应流的 _cleanup_timer，供 _occupy_generation 在同 session_id
     重新占位时取消（防旧定时器误删新流）。仅当台账当前条目仍是被清理的那条流时才
     记录句柄（避免 finalize 与新占位交错时错挂）。
+
+    stream（iter 367）：定时回调按 identity 校验后才 pop——finalize 在 _set_state
+    提交窗口内可能与 retry/regenerate 的新占位交错（新流取消不到尚未创建的本定时器），
+    不校验则 300s 后误删运行中的新流（对偶于 iter 237 修的「旧定时器杀新流」）。
     """
     try:
         loop = asyncio.get_running_loop()
-        handle = loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
+        if stream is None:
+            handle = loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
+        else:
+            def _pop_if_same(sid: int = session_id, target: "_SessionStream" = stream) -> None:
+                if _STREAMS.get(sid) is target:
+                    _STREAMS.pop(sid, None)
+
+            handle = loop.call_later(_RETENTION_SECONDS, _pop_if_same)
         cur = _STREAMS.get(session_id)
         if cur is not None and cur.terminal_id is not None:
             cur._cleanup_timer = handle
@@ -741,9 +760,24 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         if stream.terminal_id is None:
             eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
             stream.mark_terminal(eid)
+        # iter 367：兜底补落 error 态（此前缺失）——done/clarify 分支的持久化异常
+        # （commit 撞锁/磁盘满）会让 orchestrator_state 永久停留 running：此后
+        # /generate 409「生成已中断」、/retry 要求 error/interrupted 亦 409，
+        # 会话生成功能锁死直至进程重启的启动收敛
+        try:
+            db.rollback()
+            _set_state(
+                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                partial={"raw_text": stream.raw_text, "outputs": {}},
+                last_event_id=str(stream.seq),
+                last_error={"code": "internal_error", "message": "生成失败"},
+                budget_used=stream.budget.spent if stream.budget else 0.0,
+            )
+        except Exception:  # noqa: BLE001  DB 已不可写时仅留日志，流侧终态已保证不挂死
+            log.exception("finalize 兜底 _set_state 亦失败 session=%s", session_id)
     finally:
         db.close()
-        _schedule_cleanup(session_id)
+        _schedule_cleanup(session_id, stream)
 
 
 def _create_plan_gen_overlay(session_id: int, user_id: int, raw_text: str) -> int | None:
@@ -849,28 +883,51 @@ async def _run_start(
                 )
             finally:
                 db.close()
-            _schedule_cleanup(session_id)
+            _schedule_cleanup(session_id, stream)
             async for chunk in _relay(stream, last_event_id):
                 yield chunk
             return
 
-        budget = BudgetTracker(limit=settings.budget_per_session_usd)
-        stream.budget = budget
-        registry = default_registry()
-        ctx = ExecContext(
-            session_id=str(session_id),
-            trace_id=stream.trace_id,
-            registry=registry,
-            llm_provider=provider,
-            skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
-            budget=budget,
-            # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
-            bing_api_key=resolve_bing_api_key(user_id, db=resolv_db),
-            # iter 356：当前用户模型计费表 -> 生成期实时累计成本按用户配置单价（设置页维护）
-            model_pricing=get_active_model_pricing(user_id, db=resolv_db),
-            # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
-            llm_max_tokens=get_active_max_tokens(user_id, db=resolv_db),
-        )
+        # iter 367：占位后、create_task 前的其余解析段整体兜底（此前裸露）——
+        # 该窗口的 DB 瞬态异常会让生成器在首个 yield 前终止：state 已 running、
+        # 流无 task 无终态无清理，/generate 续接进 _relay 后只发心跳永不结束，
+        # 每用户并发配额亦被永久占用（启动收敛只救重启后的 stale 行）
+        try:
+            budget = BudgetTracker(limit=settings.budget_per_session_usd)
+            stream.budget = budget
+            registry = default_registry()
+            ctx = ExecContext(
+                session_id=str(session_id),
+                trace_id=stream.trace_id,
+                registry=registry,
+                llm_provider=provider,
+                skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
+                budget=budget,
+                # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
+                bing_api_key=resolve_bing_api_key(user_id, db=resolv_db),
+                # iter 356：当前用户模型计费表 -> 生成期实时累计成本按用户配置单价（设置页维护）
+                model_pricing=get_active_model_pricing(user_id, db=resolv_db),
+                # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
+                llm_max_tokens=get_active_max_tokens(user_id, db=resolv_db),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("生成环境解析失败 session=%s", session_id, exc_info=exc)
+            eid = stream.publish("error", {"code": "internal_error", "message": "生成环境解析失败", "stage": ""})
+            stream.mark_terminal(eid)
+            err_db = SessionLocal()
+            try:
+                _set_state(
+                    err_db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                    partial={"raw_text": stream.raw_text, "outputs": {}},
+                    last_event_id=str(stream.seq),
+                    last_error={"code": "internal_error", "message": str(exc)[:500]},
+                )
+            finally:
+                err_db.close()
+            _schedule_cleanup(session_id, stream)
+            async for chunk in _relay(stream, last_event_id):
+                yield chunk
+            return
     finally:
         resolv_db.close()
     def _on_event(e: str, d: dict) -> int:
@@ -1054,8 +1111,12 @@ def _persist_tool_calls(
 def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     content_json = json.dumps(plan_dict, ensure_ascii=False)
     # version = 该会话现有最大版本 + 1（plan/10 §十三 plans.version += 1；首版 1）
-    existing = db.query(models.Plan).filter_by(session_id=session_id).all()
-    version = (max(p.version for p in existing) + 1) if existing else 1
+    # iter 367：投影聚合取代全版本加载——旧行 all() 会把每版 ≤512KB 的 content
+    # JSON 列整表载入内存只为求 max(version)，多版本会话 finalize 时内存/IO 双放大
+    max_version = (
+        db.query(func.max(models.Plan.version)).filter_by(session_id=session_id).scalar()
+    )
+    version = (max_version or 0) + 1
     plan = models.Plan(session_id=session_id, content=plan_dict, version=version)
     db.add(plan)
     db.flush()
