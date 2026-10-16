@@ -1,0 +1,4 @@
+prompt = "Which tool do we install dependencies with here? Write the exact install command into answer.txt."
+class = "paraphrase"
+timeout_sec = 180
+memory_markers = ["MEMKEY-PARA3X"]

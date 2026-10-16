@@ -1,0 +1,4 @@
+prompt = "这个项目的部署审批人是谁？把审批人的用户名写进 answer.txt。"
+class = "v1miss"
+timeout_sec = 180
+memory_markers = ["MEMKEY-VM1XL"]
