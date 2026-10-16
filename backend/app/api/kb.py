@@ -1003,7 +1003,14 @@ async def chat_with_kb(
         session_id=f"kb-{user.id}",
         args={"question": question, "documents": payload},
     )
-    out = await run_tool("kb_answer", inp, ctx)
+    # iter 368：① 释放读快照（文档查询的事务）——LLM 问答 30-120s，持有读事务会
+    # BUSY_SNAPSHOT + 挡 checkpoint（同 materials._store 口径；后续仅新增行，无快照依赖）；
+    # ② 全局 LLM 背压（与生成/材料/测验同口径）
+    db.rollback()
+    from app.core.concurrency import llm_task_slot
+
+    async with llm_task_slot():
+        out = await run_tool("kb_answer", inp, ctx)
     record_metadata_usage(db, out.metadata, user.id)  # err.md A6：计量（含失败路径的已耗 tokens）
 
     if out.status != "ok":

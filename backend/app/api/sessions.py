@@ -15,7 +15,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import case, func
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
@@ -113,16 +113,26 @@ class SessionStatusOut(BaseModel):
 
 
 def _latest_plans_map(db: Session, session_ids: list[int]) -> dict[int, models.Plan]:
-    """每会话最新一版方案（避免 N+1：一次 IN 查询后 Python 侧取最新）。"""
+    """每会话最新一版方案（避免 N+1：一次 IN 查询后 Python 侧取最新）。
+
+    iter 368：MAX(id) 子查询投影取代全版本加载——旧行把每会话全部历史版本的
+    content JSON 列（每版 ≤512KB）整批载入只为挑最新一版，多版本重度用户打满
+    GET /sessions 热路径内存/IO。id 单调递增，MAX(id) 即最新插入（版本随插入递增）。
+    """
     if not session_ids:
         return {}
-    rows = db.query(models.Plan).filter(models.Plan.session_id.in_(session_ids)).all()
-    latest: dict[int, models.Plan] = {}
-    for p in rows:
-        cur = latest.get(p.session_id)
-        if cur is None or (p.created_at or datetime.min) > (cur.created_at or datetime.min):
-            latest[p.session_id] = p
-    return latest
+    rows = (
+        db.query(models.Plan)
+        .where(
+            models.Plan.id.in_(
+                select(func.max(models.Plan.id))
+                .where(models.Plan.session_id.in_(session_ids))
+                .group_by(models.Plan.session_id)
+            )
+        )
+        .all()
+    )
+    return {p.session_id: p for p in rows}
 
 
 def _materials_count_map(db: Session, session_ids: list[int]) -> dict[int, int]:

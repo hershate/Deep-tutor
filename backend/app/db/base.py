@@ -51,6 +51,10 @@ if settings.is_sqlite:
         cur.execute("PRAGMA synchronous=NORMAL")
         cur.execute("PRAGMA foreign_keys=ON")
         cur.execute(f"PRAGMA busy_timeout={int(settings.db_busy_timeout_ms)}")
+        # iter 368：WAL 文件高位截断——checkpoint 后 -wal 收缩到该上限而非停留在历史
+        # 峰值（长读者反复挡 auto-checkpoint 时 -wal 只增不减）。64MB 对本服务写入
+        # 速率足够（一次 checkpoint 即回收）
+        cur.execute("PRAGMA journal_size_limit=67108864")
         cur.close()
 
 

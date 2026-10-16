@@ -75,6 +75,24 @@ def _safe_ext(ext: str) -> str:
     return cleaned[:8].lower()
 
 
+def _replace_with_retry(src: str, dst: str, *, attempts: int = 4) -> None:
+    """os.replace 带 Windows 短暂占用重试（iter 368）。
+
+    Windows 下杀软/索引器瞬时锁目标文件会让 replace 抛 PermissionError（Linux 无此
+    问题，rename 原子且不要求目标可打开）；指数退避重试后仍失败才向上抛。
+    """
+    import time
+
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(0.2 * (i + 1))
+
+
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     """iter 365 D3：原子写——tmp + os.replace（崩溃/IO 错不留半写文件，旧版本完整直至替换成功）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +100,7 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(content)
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, str(path))
     except BaseException:
         try:
             os.unlink(tmp)
@@ -93,6 +111,11 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
 
 def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
     _atomic_write_bytes(path, text.encode(encoding))
+
+
+def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """公开原子写（iter 368）：plans 溢出 JSON / 备份等模块外调用方使用。"""
+    _atomic_write_text(path, text, encoding)
 
 
 def save_upload(session_id: int | str, material_id: int, content: bytes, ext: str) -> Path:

@@ -18,18 +18,89 @@ log = logging.getLogger("deep_tutor.maintenance")
 # 后台周期（秒）：每天一次
 MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
 
+# iter 368：孤儿目录 mtime 冷却窗——删除候选目录须「最后修改于 24h 前」。
+# DB 重查兜不住备份恢复/导入的写序窗口（先落文件、后单事务提交行——快照+重查都在
+# 提交前看，行必不存在）；mtime 冷却保证新落盘目录当轮必不删。
+_ORPHAN_GRACE_SECONDS = 24 * 3600
 
-def vacuum_db(db_path: str | None = None) -> None:
-    """VACUUM 数据库（plan/09 §一 周期性 VACUUM）。失败仅告警不抛出。"""
+
+def _dir_recently_touched(path: Path) -> bool:
+    """目录（或其内任一直接子项）在冷却窗内被写过 -> 视为活跃，跳过删除。"""
+    import time
+
+    cutoff = time.time() - _ORPHAN_GRACE_SECONDS
+    try:
+        if path.stat().st_mtime > cutoff:
+            return True
+        for child in path.iterdir():
+            if child.stat().st_mtime > cutoff:
+                return True
+    except OSError:
+        return True  # stat 失败（并发删除/权限）：宁可不删
+    return False
+
+
+def _rmtree_logged(path: Path) -> bool:
+    """rmtree + 失败留痕（iter 368：ignore_errors 静默吞掉真实 IO 故障）。返回是否删成。"""
+    shutil.rmtree(path, ignore_errors=True)
+    if path.exists():
+        log.warning("目录删除失败（下轮重试）: %s", path)
+        return False
+    return True
+
+
+def checkpoint_db(db_path: str | None = None) -> bool:
+    """WAL 主动 checkpoint（TRUNCATE，iter 368）：把 -wal 并回主库并截断至 0。
+
+    存在长读事务时 TRUNCATE 会失败（返回 busy）-> False，下轮重试。周期执行防
+    「auto-checkpoint 被长读者挡住 -> -wal 无限增长」；比 VACUUM 轻得多（不重写全库）。
+    """
+    from app.core.settings import settings
+
+    if not settings.is_sqlite:
+        return False
+    if db_path is None:
+        db_path = settings.db_path
+    if db_path == ":memory:" or not Path(db_path).exists():
+        return False
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute(f"PRAGMA busy_timeout={int(settings.db_busy_timeout_ms)}")
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        ok = bool(row) and row[0] == 0  # (busy, log, checkpointed)
+        if ok:
+            log.info("WAL checkpoint(TRUNCATE) 完成: %s", db_path)
+        else:
+            log.info("WAL checkpoint 跳过（存在活跃读者，下轮重试）: %s", db_path)
+        return ok
+    except sqlite3.Error as e:
+        log.warning("WAL checkpoint 失败（下轮重试）: %s", e)
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+# VACUUM 触发门槛：空闲页占比 ≥10% 才值得整库重写（写锁 + 全库 IO）
+_VACUUM_FREE_RATIO = 0.10
+
+
+def vacuum_db(db_path: str | None = None) -> bool:
+    """VACUUM 数据库（plan/09 §一 周期性 VACUUM）。失败仅告警不抛出。
+
+    iter 368：freelist 门控——空闲页占比不足 10% 时跳过（VACUUM 持写锁重写全库，
+    大库低收益场景纯负担）；返回是否实际执行。
+    """
     from app.core.settings import settings
 
     if not settings.is_sqlite:
         log.info("非 SQLite 后端，跳过 VACUUM")  # err.md C10
-        return
+        return False
     if db_path is None:
         db_path = settings.db_path
     if db_path == ":memory:" or not Path(db_path).exists():
-        return
+        return False
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(db_path)
@@ -37,10 +108,17 @@ def vacuum_db(db_path: str | None = None) -> None:
         # "database is locked"，永不执行 -> DB 文件只增不减（删行不回收）。设后等待写入
         # 间隙完成；仍取不到则下轮 24h 重试（best-effort，不阻塞服务）。
         conn.execute(f"PRAGMA busy_timeout={int(settings.db_busy_timeout_ms)}")
+        free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        total = conn.execute("PRAGMA page_count").fetchone()[0]
+        if total and (free / total) < _VACUUM_FREE_RATIO:
+            log.info("VACUUM 跳过（空闲页 %s/%s 不足 %.0f%%）", free, total, _VACUUM_FREE_RATIO * 100)
+            return False
         conn.execute("VACUUM")
         log.info("VACUUM 完成: %s", db_path)
+        return True
     except sqlite3.Error as e:  # 锁冲突等 -> 下轮再试
         log.warning("VACUUM 失败（下轮重试）: %s", e)
+        return False
     finally:
         if conn is not None:
             conn.close()  # err.md C12：with 块不保证 connection 关闭，显式 close
@@ -73,9 +151,12 @@ def cleanup_orphan_session_dirs(data_dir: str | None = None) -> int:
             # 快照后新建的会话（窗口竞态）-> 即时重查兜底
             if db.query(models.Session.id).filter(models.Session.id == sid).first() is not None:
                 continue
-            shutil.rmtree(child, ignore_errors=True)
-            removed += 1
-            log.info("清理孤儿会话目录: %s", child)
+            # iter 368：mtime 冷却——备份恢复/导入「先落文件后提交行」的窗口内不删
+            if _dir_recently_touched(child):
+                continue
+            if _rmtree_logged(child):
+                removed += 1
+                log.info("清理孤儿会话目录: %s", child)
     finally:
         db.close()
     return removed
@@ -134,9 +215,11 @@ def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
                 )
                 if cur == models.RunStatus.running:
                     continue  # 快照后新建/状态回升的 run，保留 scratch
-                shutil.rmtree(child, ignore_errors=True)
-                removed += 1
-                log.info("清理孤儿 run scratch 目录: %s", child)
+                if _dir_recently_touched(child):
+                    continue
+                if _rmtree_logged(child):
+                    removed += 1
+                    log.info("清理孤儿 run scratch 目录: %s", child)
         finally:
             db.close()
 
@@ -163,18 +246,21 @@ def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
                         cur[0] or cur[1] in (models.RunStatus.running, models.RunStatus.awaiting_approval)
                     ):
                         continue  # 快照后已 approve/commit，保留
-                    shutil.rmtree(rdir, ignore_errors=True)
-                    removed += 1
-                    log.info("清理无效/孤儿 committed 工作区: %s", rdir)
+                    if _dir_recently_touched(rdir):
+                        continue
+                    if _rmtree_logged(rdir):
+                        removed += 1
+                        log.info("清理无效/孤儿 committed 工作区: %s", rdir)
         finally:
             db.close()
     return removed
 
 
 def run_maintenance() -> dict:
-    """执行一轮运维（VACUUM + 清孤儿），返回统计。"""
+    """执行一轮运维（checkpoint + 清孤儿 + 门控 VACUUM），返回统计。"""
     removed = cleanup_orphan_session_dirs()
     removed += cleanup_orphan_run_dirs()
+    checkpoint_db()
     vacuum_db()
     return {"orphan_dirs_removed": removed}
 

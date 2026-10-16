@@ -1121,10 +1121,11 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     db.add(plan)
     db.flush()
     if len(content_json.encode("utf-8")) > PLAN_OVERFLOW_BYTES:
-        from app.core.storage import exports_dir
+        from app.core.storage import atomic_write_text, exports_dir
 
         path = exports_dir(session_id) / f"plan_{plan.id}.json"
-        path.write_text(content_json, encoding="utf-8")
+        # iter 368：原子写（此前 write_text 半写崩溃/IO 错会留下截断 JSON，后续读取静默 {}）
+        atomic_write_text(path, content_json)
         plan.content_path = str(path)
         plan.content = {}
     _persist_knowledge_nodes(db, plan.id, plan_dict)
@@ -1390,6 +1391,13 @@ def _load_plan_content(plan: models.Plan) -> dict:
         try:
             content = json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
+            # iter 368：此前完全静默——溢出文件损坏/丢失时无任何线索可排查
+            log.warning(
+                "plan 溢出文件读取失败（回退空内容）plan=%s path=%s",
+                plan.id,
+                plan.content_path,
+                exc_info=True,
+            )
             content = {}
     return content or {}
 
@@ -1876,6 +1884,10 @@ async def _materials_sse(
         db.close()
 
 
+# iter 368：等 LLM 槽排队期间的心跳间隔（SSE 注释行）
+_SLOT_KEEPALIVE_S = 15.0
+
+
 async def _materials_sse_gated(
     plan_id: int,
     session_id: int,
@@ -1889,10 +1901,35 @@ async def _materials_sse_gated(
 
     包一层 async generator：进入即 acquire 全局 LLM 槽（超额排队），转发 _materials_sse 事件；
     生成器结束/被 Starlette close（客户端断连）时 __aexit__ 释放槽，无泄漏。
+    iter 368：排队等槽期间每 15s 发 SSE 注释心跳——槽位紧张时排队可达分钟级，无字节
+    输出会被中间代理按空闲断连（默认 60s）；注释行不产生前端事件、且重置其空闲看门狗。
+    acquire 用 shield 包裹后限时等待：超时只取消等待包装、不取消获取本身（Semaphore
+    acquire 在「即将获得」瞬间被取消会丢槽）。
     """
-    async with llm_task_slot():
+    slot = llm_task_slot()
+    acquire_task = asyncio.ensure_future(slot.__aenter__())
+    acquired = False
+    try:
+        while not acquire_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(acquire_task), timeout=_SLOT_KEEPALIVE_S)
+            except TimeoutError:
+                yield ": keepalive\n\n"
+        await acquire_task
+        acquired = True
         async for chunk in _materials_sse(plan_id, session_id, content, body, old_paths, user_id, plans):
             yield chunk
+    finally:
+        if acquired:
+            await slot.__aexit__(None, None, None)
+        elif not acquire_task.done():
+            # 客户端在排队期断连（GeneratorExit 于 keepalive yield 处）：放弃获取。
+            # 现代 asyncio.Semaphore 的 acquire 被取消时若已唤醒会正确回帖许可，不泄漏。
+            acquire_task.cancel()
+            try:
+                await acquire_task
+            except BaseException:  # noqa: BLE001  取消路径的任何异常都吞（清理收尾）
+                pass
 
 
 @router.post("/{plan_id}/materials")
@@ -2016,7 +2053,11 @@ async def generate_materials(
         session_id=str(plan.session_id),
         args={"plan_id": str(plan_id), "plan": prompt_content, "depth": body.depth},
     )
-    spec_out = await run_tool("generate_study_materials", inp, ctx)
+    # iter 368：同步路径补全局 LLM 背压（SSE 路径经 _materials_sse_gated，此前仅此路径裸跑）；
+    # 入槽前释放读快照（排队可达分钟级，钉住快照挡 checkpoint + BUSY_SNAPSHOT）
+    db.rollback()
+    async with llm_task_slot():
+        spec_out = await run_tool("generate_study_materials", inp, ctx)
     record_metadata_usage(db, spec_out.metadata, user.id)  # err.md A6：计量
     # ok 用 LLM 规约；repaired/error 降级 default_materials_from_plan(plan)
     if spec_out.status == "ok":
@@ -2590,7 +2631,10 @@ async def generate_quiz_endpoint(
                 return _quiz_result(existing, content)
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径）
-    spec, spec_out = await _generate_quiz_spec(db, plan, content, user.id)
+    db.rollback()  # iter 368：排队等槽前释放读快照（槽位紧张时等待可达分钟级）
+    # iter 368：前台生成补全局 LLM 背压（后台路径经 _schedule_quiz_background 的 _gated）
+    async with llm_task_slot():
+        spec, spec_out = await _generate_quiz_spec(db, plan, content, user.id)
     rows = _persist_quizzes(db, plan.id, spec)
     result = _quiz_result(rows, content, spec_title=spec.title)
     if spec_out.status != "ok":

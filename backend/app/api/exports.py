@@ -352,7 +352,12 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
         session_id=str(session_id),
         args={"plan_id": str(plan_id), "plan": content},
     )
-    spec_out = await run_tool("build_plan_slides", inp, ctx)
+    from app.core.concurrency import llm_task_slot
+
+    # iter 368：补全局 LLM 背压（与生成/材料/测验同口径——此前 slides 导出可绕开
+    # 信号量，高负载叠加触发供应商限流）
+    async with llm_task_slot():
+        spec_out = await run_tool("build_plan_slides", inp, ctx)
     # ok 用 LLM 规约；repaired/error 降级 default_spec_from_plan(plan)
     if spec_out.status == "ok":
         spec = SlideSpec.model_validate(spec_out.data)

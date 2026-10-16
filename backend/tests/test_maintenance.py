@@ -47,12 +47,21 @@ def test_cleanup_orphan_session_dirs(client, auth_headers):
     (root / str(sid)).mkdir(parents=True, exist_ok=True)  # 活会话目录
     (root / "999999").mkdir(parents=True)  # 孤儿目录
     (root / "not-a-sid").mkdir(parents=True)  # 非数字目录 -> 不动
+    (root / "888888").mkdir(parents=True)  # 新落盘孤儿（备份恢复窗口）-> 冷却期内保留
+
+    # iter 368：孤儿删除加 24h mtime 冷却——把 999999 回拨到窗外使其成为可删候选
+    import os
+    import time
+
+    old = time.time() - 25 * 3600
+    os.utime(root / "999999", (old, old))
 
     removed = cleanup_orphan_session_dirs()
     assert removed == 1
     assert (root / str(sid)).exists()
     assert not (root / "999999").exists()
     assert (root / "not-a-sid").exists()
+    assert (root / "888888").exists()
 
 
 def test_run_maintenance_returns_stats():
