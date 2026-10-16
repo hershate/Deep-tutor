@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "official-clear-blue",
+  "name": "清白蓝",
+  "author": "Reasonix",
+  "description": "清透白底与克制蓝色，适合专注阅读和日常工作。",
+  "license": "MIT",
+  "tokens": {
+    "light": {
+      "bg": "#F5F7FA", "bgSoft": "#FFFFFF", "bgElev": "#F0F3F7", "panel": "#FFFFFF",
+      "border": "#DCE2EA", "borderSoft": "#E8EDF3",
+      "fg": "#202936", "fgStrong": "#182231", "fgDim": "#566274", "fgFaint": "#637083",
+      "accent": "#356AD2", "accentFg": "#FFFFFF", "accentInk": "#285BBC",
+      "link": "#285BBC", "brand": "#285BBC", "halo": "#356AD2", "labelAgent": "#285BBC",
+      "float": "#FFFFFF", "floatHi": "#F0F3F7", "codeBg": "#F0F3F7", "sunkBg": "#F5F7FA",
+      "synKeyword": "#7545A0", "synString": "#276749", "synNumber": "#975312", "synFunction": "#285BBC"
+    },
+    "dark": {
+      "bg": "#151B24", "bgSoft": "#1A2330", "bgElev": "#253142", "panel": "#202B3A",
+      "border": "#39485D", "borderSoft": "#2B394C",
+      "fg": "#E3EBF6", "fgStrong": "#F2F6FC", "fgDim": "#BCC9DA", "fgFaint": "#A0AFBF",
+      "accent": "#8FB8F4", "accentFg": "#142135", "accentInk": "#A6C5FF",
+      "link": "#A6C5FF", "brand": "#A6C5FF", "halo": "#8FB8F4", "labelAgent": "#A6C5FF",
+      "float": "#202B3A", "floatHi": "#253142", "codeBg": "#1A2330", "sunkBg": "#151B24",
+      "synKeyword": "#C8AEED", "synString": "#9FD2AD", "synNumber": "#E4BD84", "synFunction": "#A6C5FF"
+    }
+  }
+}

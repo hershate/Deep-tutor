@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "official-tea-green",
+  "name": "茶绿",
+  "author": "Reasonix",
+  "description": "柔和暖白与低饱和茶绿，营造安静舒展的工作台。",
+  "license": "MIT",
+  "tokens": {
+    "light": {
+      "bg": "#F3F4EE", "bgSoft": "#FBFCF8", "bgElev": "#EAF0E8", "panel": "#FFFFFF",
+      "border": "#D7DFD3", "borderSoft": "#E5EAE1",
+      "fg": "#27342D", "fgStrong": "#1C2C23", "fgDim": "#56665B", "fgFaint": "#627065",
+      "accent": "#42745D", "accentFg": "#FFFFFF", "accentInk": "#35624D",
+      "link": "#35624D", "brand": "#35624D", "halo": "#42745D", "labelAgent": "#35624D",
+      "float": "#FFFFFF", "floatHi": "#EAF0E8", "codeBg": "#EEF2EA", "sunkBg": "#F3F4EE",
+      "synKeyword": "#725489", "synString": "#35624D", "synNumber": "#8A581B", "synFunction": "#326578"
+    },
+    "dark": {
+      "bg": "#18211B", "bgSoft": "#1D2921", "bgElev": "#2A392F", "panel": "#243229",
+      "border": "#415448", "borderSoft": "#324439",
+      "fg": "#E5EDE2", "fgStrong": "#F3F7F0", "fgDim": "#C0CFBF", "fgFaint": "#A3B3A6",
+      "accent": "#93BE9E", "accentFg": "#15261C", "accentInk": "#AED3B6",
+      "link": "#AED3B6", "brand": "#AED3B6", "halo": "#93BE9E", "labelAgent": "#AED3B6",
+      "float": "#243229", "floatHi": "#2A392F", "codeBg": "#1D2921", "sunkBg": "#18211B",
+      "synKeyword": "#C9B3DC", "synString": "#AED3B6", "synNumber": "#DEC18E", "synFunction": "#A2CBD3"
+    }
+  }
+}
