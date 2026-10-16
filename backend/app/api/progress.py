@@ -61,6 +61,39 @@ def _node_view(node: models.KnowledgeNode, row: models.Progress | None) -> dict:
     }
 
 
+def _apply_progress_update(db: Session, row: models.Progress, body: ProgressUpdate) -> models.Progress:
+    """iter 367：乐观锁更新——并发提交同节点时后写者按最新值重放计算，防绝对值覆盖丢更新。
+
+    旧实现读-改-写无版本控制：两个标签页同时提交同一节点（线程池真并发），
+    后提交者以陈旧 mastery 计算的结果直接覆盖前一次的加权增量。
+    """
+    fresh = row
+    for _ in range(5):
+        old_mastery = fresh.mastery
+        mastery = compute_mastery(old_mastery, body.status.value, body.quiz_score)
+        matched = (
+            db.query(models.Progress)
+            .filter(models.Progress.id == fresh.id, models.Progress.mastery == old_mastery)
+            .update({"status": body.status, "mastery": mastery}, synchronize_session=False)
+        )
+        db.commit()
+        if matched:
+            db.refresh(fresh)
+            return fresh
+        db.rollback()  # 失配：并发者已改写，重读最新值重放
+        again = db.query(models.Progress).filter_by(id=fresh.id).one_or_none()
+        if again is None:
+            return fresh  # 行被级联删除：放弃（下次请求走插入路径）
+        fresh = again
+    # 极端争用退化：无条件写保请求成功（丢更新窗口已从常态缩至连续 5 次失配后）
+    last = db.query(models.Progress).filter_by(id=row.id).one()
+    last.status = body.status
+    last.mastery = compute_mastery(last.mastery, body.status.value, body.quiz_score)
+    db.commit()
+    db.refresh(last)
+    return last
+
+
 @router.post("")
 def update_progress(
     body: ProgressUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -84,10 +117,7 @@ def update_progress(
         .one_or_none()
     )
     if row is not None:
-        mastery = compute_mastery(row.mastery, body.status.value, body.quiz_score)
-        row.status = body.status
-        row.mastery = mastery
-        db.commit()
+        row = _apply_progress_update(db, row, body)
     else:
         row = models.Progress(
             plan_id=body.plan_id, node_id=node.id, status=body.status,
@@ -104,9 +134,7 @@ def update_progress(
                 .filter_by(plan_id=body.plan_id, node_id=node.id)
                 .one()
             )
-            row.status = body.status
-            row.mastery = compute_mastery(row.mastery, body.status.value, body.quiz_score)
-            db.commit()
+            row = _apply_progress_update(db, row, body)
     db.refresh(row)
     mastery = row.mastery
     # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应

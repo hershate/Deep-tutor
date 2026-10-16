@@ -247,6 +247,9 @@ def _export_plan(db: DbSession, plan: models.Plan, user_id: int) -> dict:
         units_out.append(
             {
                 "node_sid": id_to_sid.get(u.node_id) if u.node_id else None,
+                # iter 367：node_sids（iter 348 单元覆盖知识点）此前漏导——往返后
+                # scope.node_ids 局部重生成/按单元重生成静默失效
+                "node_sids": [str(s) for s in (u.node_sids or [])],
                 "stage_index": u.stage_index,
                 "title": u.title,
                 "prerequisites": u.prerequisites or [],
@@ -571,15 +574,23 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
     db.flush()
 
     # 知识点笔记（iter 105）：随节点还原（note 字段缺省=无笔记，兼容旧备份）
+    # iter 367：备份内同 sid 重复出现时只取首条——两条同 (user_id,node_id) 的
+    # NodeNote 会撞唯一约束让整包导入 500（手工编辑/损坏备份的健壮性）
+    seen_note_sids: set[str] = set()
     for n in p.get("knowledge_nodes") or []:
         if not isinstance(n, dict):
             continue
         note_content = n.get("note")
         if not isinstance(note_content, str) or not note_content.strip():
             continue
-        row = sid_to_node.get(str(n.get("sid") or ""))
+        sid = str(n.get("sid") or "")
+        row = sid_to_node.get(sid)
         if row is None:
             continue  # 无 sid 锚点的节点无法重关联笔记
+        if sid in seen_note_sids:
+            _skip("重复节点笔记")
+            continue
+        seen_note_sids.add(sid)
         db.add(
             models.NodeNote(
                 user_id=user_id, node_id=row.id, content=note_content.strip()[:20_000]
@@ -613,15 +624,21 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
         )
 
     progress_room = _MAX_PROGRESS
+    seen_progress_sids: set[str] = set()  # iter 367：同上，重复 (plan_id,node_id) 撞唯一约束防 500
     for pr in p.get("progress") or []:
         if not isinstance(pr, dict):
             continue
-        node = sid_to_node.get(str(pr.get("node_sid") or ""))
+        sid = str(pr.get("node_sid") or "")
+        node = sid_to_node.get(sid)
         if node is None:
+            continue
+        if sid in seen_progress_sids:
+            _skip("重复进度记录")
             continue
         if progress_room <= 0:
             _skip("进度记录")
             continue
+        seen_progress_sids.add(sid)
         progress_room -= 1
         status = _enum_or(models.ProgressStatus, pr.get("status")) or models.ProgressStatus.not_started
         db.add(
@@ -709,9 +726,14 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             continue
         units_room -= 1
         node = sid_to_node.get(str(u.get("node_sid") or ""))
+        raw_sids = u.get("node_sids")
         unit = models.StudyUnit(
             plan_id=plan.id,
             node_id=node.id if node else None,
+            # iter 367：回填单元覆盖知识点（sid 直存列，无需 id 映射；旧备份缺省 []）
+            node_sids=[str(s) for s in raw_sids if isinstance(s, str)][:100]
+            if isinstance(raw_sids, list)
+            else [],
             stage_index=u.get("stage_index") if isinstance(u.get("stage_index"), int) else None,
             title=title,
             prerequisites=u.get("prerequisites") if isinstance(u.get("prerequisites"), list) else [],
@@ -744,10 +766,14 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
 def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary: dict) -> None:
     """供应商档案：空 key 导入（凭证不随备份走），一律置为未激活——
     用户在设置页补填 API Key 后手动激活，避免空 key 档案被误用。
-    同名档案已存在则跳过（(user_id,name) 唯一约束）。"""
+    同名档案已存在则跳过（(user_id,name) 唯一约束）。
+    iter 367：条数上限（iter 246 配额补丁漏项）——构造备份可带无限个不同名档案。"""
+    _MAX_PROFILES = 50
     existing = {
         r.name for r in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
     }
+    room = _MAX_PROFILES - len(existing)
+    profiles_skipped = 0
     for pr in profiles:
         if not isinstance(pr, dict):
             continue
@@ -757,6 +783,13 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
         if name in existing:
             summary["skipped"].append(f"供应商档案「{name}」已存在，已跳过")
             continue
+        if room <= 0:
+            profiles_skipped += 1
+            continue
+        room -= 1
+        # iter 367：kind 缺省时旧表达式 (… or None)[:64] 即 None[:64] TypeError——
+        # 备份档案不带 kind 会让整包导入 500（测试实测暴露）
+        kind_val = str(pr.get("kind") or "").strip().lower()
         db.add(
             models.LlmProviderProfile(
                 user_id=user.id,
@@ -764,9 +797,11 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
                 base_url=str(pr.get("base_url") or "")[:512],
                 api_key="",  # 凭证边界：不随备份导入
                 model=str(pr.get("model") or "")[:128],
-                kind=(str(pr.get("kind") or "").strip().lower() or None)[:64],  # iter 313 协议
+                kind=kind_val[:64] if kind_val else None,  # iter 313 协议
                 is_active=False,
             )
         )
         existing.add(name)
         summary["provider_profiles"] += 1
+    if profiles_skipped:
+        summary["skipped"].append(f"供应商档案达上限 {_MAX_PROFILES} 条，{profiles_skipped} 条未导入")

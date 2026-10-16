@@ -1820,14 +1820,22 @@ async def _materials_sse(
             for t in pending:
                 if not t.done():
                     t.cancel()  # 断连/预算中断/异常 -> 取消在途 worker（已付费未消费结果丢弃，有界 ≤并发数-1）
-        if body.scope is not None or body.unit_ids:
-            _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
-        all_units = (
-            db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
-        )
-        _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
-        db.commit()
-        _cleanup_stale_material_files(old_paths, new_paths)
+            # iter 367：重排/index 重写/旧文件清理移入 finally——预算超限 return 与客户端
+            # 断连（GeneratorExit 在 yield 点抛出）此前都绕过本段：旧单元行已在流前删除并
+            # 提交，其 unit_*.md 成为永久孤儿，index.md 仍引用已删除单元（幂等操作，
+            # 成功路径行为不变；异常路径会话先 rollback 复位）
+            try:
+                db.rollback()
+                if body.scope is not None or body.unit_ids:
+                    _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
+                all_units = (
+                    db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
+                )
+                _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
+                db.commit()
+                _cleanup_stale_material_files(old_paths, new_paths)
+            except Exception:  # noqa: BLE001  收尾失败不影响已生成内容
+                log.exception("材料流收尾清理失败 plan=%s", plan_id)
         # 后端插件事件（API.md §8.5）：材料生成完成（全量/局部均广播；监听器异常隔离）
         from app.plugins import bus as plugin_bus
 

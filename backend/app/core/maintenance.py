@@ -47,7 +47,12 @@ def vacuum_db(db_path: str | None = None) -> None:
 
 
 def cleanup_orphan_session_dirs(data_dir: str | None = None) -> int:
-    """清理孤儿会话目录（DB 已无对应 sessions 行）。返回删除数量。"""
+    """清理孤儿会话目录（DB 已无对应 sessions 行）。返回删除数量。
+
+    iter 367：rmtree 前对候选目录**逐个即时重查** DB——快照查询与删除之间存在
+    新建会话窗口（POST /sessions 落盘新目录但快照未含），不重查会误删活跃会话
+    的全部文件（解析文本/单元/导出，DB 行完好但内容全失）。
+    """
     from app.core.settings import settings
     from app.db import models
     from app.db.base import SessionLocal
@@ -56,18 +61,23 @@ def cleanup_orphan_session_dirs(data_dir: str | None = None) -> int:
     if not root.exists():
         return 0
     db = SessionLocal()
+    removed = 0
     try:
         alive = {row[0] for row in db.query(models.Session.id).all()}
-    finally:
-        db.close()
-    removed = 0
-    for child in root.iterdir():
-        if not child.is_dir() or not child.name.isdigit():
-            continue
-        if int(child.name) not in alive:
+        for child in root.iterdir():
+            if not child.is_dir() or not child.name.isdigit():
+                continue
+            sid = int(child.name)
+            if sid in alive:
+                continue
+            # 快照后新建的会话（窗口竞态）-> 即时重查兜底
+            if db.query(models.Session.id).filter(models.Session.id == sid).first() is not None:
+                continue
             shutil.rmtree(child, ignore_errors=True)
             removed += 1
             log.info("清理孤儿会话目录: %s", child)
+    finally:
+        db.close()
     return removed
 
 
@@ -91,43 +101,73 @@ def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
     try:
         running_ids = {row[0] for row in db.query(models.Run.id).filter(models.Run.status == models.RunStatus.running).all()}
         # committed 区有效性：<rid, committed, status> 元组
+        # iter 367：列投影取代全 ORM 行加载——Run 行随历史线性增长，全量
+        # .all() 把 content 等大列一并载入只为取三个标量
         valid_committed: dict[str, bool] = {}  # run_id_str -> 应保留
-        for r in db.query(models.Run).all():
+        rows = db.query(models.Run.id, models.Run.workspace_committed, models.Run.status).all()
+        for rid, committed, status in rows:
             # iter 365：awaiting_approval 的 run workspace_committed 恒 False（_finalize_chat
             # 走 pass 不 commit；promote_artifact 仅复制不置位）——须显式保留，否则 24h 维护
             # 误删其 committed 产物，用户 approve 时 file_missing，待审批产物永久丢失。
-            valid_committed[str(r.id)] = bool(r.workspace_committed) or r.status in (
+            valid_committed[str(rid)] = bool(committed) or status in (
                 models.RunStatus.running,
                 models.RunStatus.awaiting_approval,
             )
     finally:
         db.close()
 
-    # data/runs/<id>/ —— 非 running 一律清
+    # data/runs/<id>/ —— 非 running 一律清（快照后新建的 run 即时重查兜底，同上）
     runs_root = root / "runs"
     if runs_root.exists():
-        for child in runs_root.iterdir():
-            if not child.is_dir() or not child.name.isdigit():
-                continue
-            if int(child.name) not in running_ids:
+        db = SessionLocal()
+        try:
+            for child in runs_root.iterdir():
+                if not child.is_dir() or not child.name.isdigit():
+                    continue
+                rid = int(child.name)
+                if rid in running_ids:
+                    continue
+                cur = (
+                    db.query(models.Run.status)
+                    .filter(models.Run.id == rid)
+                    .scalar()
+                )
+                if cur == models.RunStatus.running:
+                    continue  # 快照后新建/状态回升的 run，保留 scratch
                 shutil.rmtree(child, ignore_errors=True)
                 removed += 1
                 log.info("清理孤儿 run scratch 目录: %s", child)
+        finally:
+            db.close()
 
-    # data/workspaces/<tid>/<rid>/ —— 仅清无效（run 行删 / mid-commit 半成品）
+    # data/workspaces/<tid>/<rid>/ —— 仅清无效（run 行删 / mid-commit 半成品）；
+    # 删除前即时重查该 run 的有效性（快照后 approve/commit 置位的窗口兜底）
     ws_root = root / "workspaces"
     if ws_root.exists():
-        for tdir in ws_root.iterdir():
-            if not tdir.is_dir():
-                continue
-            for rdir in tdir.iterdir():
-                if not rdir.is_dir() or not rdir.name.isdigit():
+        db = SessionLocal()
+        try:
+            for tdir in ws_root.iterdir():
+                if not tdir.is_dir():
                     continue
-                keep = valid_committed.get(rdir.name, False)
-                if not keep:
+                for rdir in tdir.iterdir():
+                    if not rdir.is_dir() or not rdir.name.isdigit():
+                        continue
+                    if valid_committed.get(rdir.name, False):
+                        continue
+                    cur = (
+                        db.query(models.Run.workspace_committed, models.Run.status)
+                        .filter(models.Run.id == int(rdir.name))
+                        .one_or_none()
+                    )
+                    if cur is not None and (
+                        cur[0] or cur[1] in (models.RunStatus.running, models.RunStatus.awaiting_approval)
+                    ):
+                        continue  # 快照后已 approve/commit，保留
                     shutil.rmtree(rdir, ignore_errors=True)
                     removed += 1
                     log.info("清理无效/孤儿 committed 工作区: %s", rdir)
+        finally:
+            db.close()
     return removed
 
 
