@@ -1,0 +1,84 @@
+name: Withdraw a Studio version
+
+# Pulls a published Studio release out of the update catalog (or puts it back),
+# so installs stop being offered it without waiting for a new release. Only the
+# catalog changes: the release's files stay where they are, and a withdrawn
+# release can be restored with the same run.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to withdraw or restore, for example 2.36.0"
+        required: true
+        type: string
+      reason:
+        description: "Why it is withdrawn (shown to users on that version); ignored when restoring"
+        required: false
+        type: string
+      restore:
+        description: "Put a withdrawn version back instead of withdrawing it"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: studio-catalog
+  cancel-in-progress: false
+
+jobs:
+  withdraw:
+    name: ${{ inputs.restore && 'restore' || 'withdraw' }} ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: studio-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: studio
+          persist-credentials: false
+
+      - name: Update the Studio catalog
+        env:
+          VERSION: ${{ inputs.version }}
+          REASON: ${{ inputs.reason }}
+          RESTORE: ${{ inputs.restore }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_SECRET_ACCESS_KEY != '' && secrets.R2_ACCOUNT_ID != '' && secrets.R2_BUCKET != '' }}
+        run: |
+          if [ "$HAS_R2" != "true" ]; then
+            echo "::error::R2 credentials are not configured, so the catalog cannot be changed"
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like 2.36.0"
+            exit 1
+          fi
+          aws configure set aws_access_key_id "${{ secrets.R2_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          aws configure set default.region auto
+          endpoint="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          current=/tmp/studio-versions-current.json
+          next=/tmp/studio-versions-next.json
+          aws s3 cp "s3://${R2_BUCKET}/studio/versions.json" "$current" --endpoint-url "$endpoint"
+          if [ "$RESTORE" = "true" ]; then
+            bash scripts/withdraw-version.sh "$current" --restore "$VERSION" "$at" > "$next"
+            jq -e --arg v "$VERSION" '.versions | map(select((.version | ltrimstr("v")) == $v)) | length == 1' "$next" >/dev/null
+          else
+            bash scripts/withdraw-version.sh "$current" "$VERSION" "$REASON" "$at" > "$next"
+            jq -e --arg v "$VERSION" '(.versions | map(select((.version | ltrimstr("v")) == $v)) | length == 0) and (.withdrawn | map(select((.version | ltrimstr("v")) == $v)) | length == 1)' "$next" >/dev/null
+          fi
+          aws s3 cp "$next" "s3://${R2_BUCKET}/studio/versions.json" \
+            --endpoint-url "$endpoint" \
+            --content-type "application/json; charset=utf-8" \
+            --cache-control "public, max-age=300, stale-if-error=86400"
+          echo "Studio catalog updated for $VERSION (restore=$RESTORE)"
+
+      - name: Keep the GitHub release off the latest slot
+        if: ${{ !inputs.restore }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release edit "studio-v${VERSION}" --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
