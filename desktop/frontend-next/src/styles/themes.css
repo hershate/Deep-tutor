@@ -1,0 +1,3 @@
+.pal-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0 }
+.pal-rm { align-self: flex-start }
+.pal-cell:has(.pal-rm) { padding-bottom: 8px }

@@ -1,0 +1,21 @@
+.addp-presets { margin: 0 0 14px }
+.addp-presets-toggle {
+  display: flex; align-items: center; gap: 8px; inline-size: 100%; padding: 8px 11px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--raised); color: var(--text);
+}
+.addp-presets-toggle > span { color: var(--muted); font: var(--fs-micro) var(--ui) }
+.addp-presets > .fields { margin: 8px 0 }
+.addp-presets-group h4 { margin: 10px 0 6px; font: var(--w-med) var(--fs-micro) var(--ui); color: var(--faint); overflow-wrap: anywhere }
+.addp-presets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px }
+.addp-preset {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-inline-size: 0;
+  padding: 9px 11px; text-align: start; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--raised); color: var(--text);
+}
+.addp-preset:hover { background: var(--overlay) }
+.addp-preset:focus-visible, .addp-presets-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px }
+.addp-preset > span { font: var(--w-med) var(--fs-ui) var(--ui); overflow-wrap: anywhere }
+.addp-preset > small { font: var(--fs-micro) var(--ui); color: var(--muted) }
+.addp-presets-note { margin: 0 0 12px; color: var(--muted); font: var(--fs-meta) var(--ui) }
+.addp-presets-note .act { margin-inline-start: 8px }
+.addp-preset-form .fields { margin-top: 4px }

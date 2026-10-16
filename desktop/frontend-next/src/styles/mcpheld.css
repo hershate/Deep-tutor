@@ -1,0 +1,6 @@
+.srv-held { margin: 6px 0 0 15px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--overlay); font: var(--w-reg) var(--fs-ui)/1.55 var(--ui); color: var(--text); display: grid; gap: 6px; justify-items: start }
+.srv-held ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; max-width: 100% }
+.srv-held li { display: flex; gap: 8px; align-items: baseline; min-width: 0 }
+.srv-held li b { font-weight: var(--w-med); overflow-wrap: anywhere }
+.srv-held li i { font-style: normal; color: var(--muted); white-space: nowrap }
+.srv-held .hn { color: var(--muted) }

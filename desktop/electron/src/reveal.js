@@ -1,0 +1,133 @@
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+
+// A pane's base as the hub publishes it. Nothing else may steer a request this
+// process sends with the credential, and the unprefixed root is no pane.
+const PANE_BASE = /^\/rt\/[A-Za-z0-9_-]+$/;
+const DOCUMENT_MEDIA = new Set([
+  ".pdf", ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".rtf",
+  ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif", ".heic",
+  ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".mp4", ".mov", ".webm", ".mkv",
+]);
+
+function refused(error, code = "") {
+  return { code, error };
+}
+
+// What this machine accepts as a place to show. On Windows a share or a device
+// namespace (\\host\share, \\?\, \??\) is reached just by being selected, so
+// only a drive-letter path passes.
+function local(target, platform) {
+  if (platform !== "win32") return path.posix.isAbsolute(target);
+  return /^[A-Za-z]:[\\/]/.test(target);
+}
+
+// locate asks the kernel where a workspace entry lives. The page names a pane
+// and a workspace-relative path, never a location on disk: the kernel owns the
+// root and refuses whatever resolves outside it, and only its answer is shown.
+async function locate(client, base, rel, platform) {
+  if (!PANE_BASE.test(base)) return { refusal: refused("not a pane this window publishes") };
+  const query = rel ? `?path=${encodeURIComponent(rel)}` : "";
+  return ask(client, `${base}/workspace/locate${query}`, platform);
+}
+
+async function ask(client, url, platform) {
+  let res;
+  try {
+    res = await client.request("GET", url);
+  } catch (err) {
+    return { refusal: refused(err.message) };
+  }
+  let body = null;
+  try {
+    body = JSON.parse(res.body);
+  } catch {
+    // Read below as an answer that names nothing.
+  }
+  if (res.status < 200 || res.status >= 300) {
+    return { refusal: body && typeof body.code === "string" ? body : refused(`HTTP ${res.status}`) };
+  }
+  if (!body || typeof body.path !== "string" || !local(body.path, platform)) {
+    return { refusal: refused("the kernel named no location on this machine") };
+  }
+  return { target: body.path };
+}
+
+// reveal selects the entry in its folder, the workspace root included. Nothing
+// here is ever opened: a directory can be an application bundle, and opening
+// one launches it. null means it was shown.
+async function reveal(client, shell, base, rel, platform = process.platform) {
+  const found = await locate(client, String(base), String(rel), platform);
+  if (found.refusal) return found.refusal;
+  shell.showItemInFolder(found.target);
+  return null;
+}
+
+// A project the sidebar lists needs no pane: the hub answers for the folders
+// it lists and refuses any other, so the page still names no location itself.
+async function revealWorkspace(client, shell, root, platform = process.platform) {
+  const found = await ask(client, `/host/workspaces/locate?root=${encodeURIComponent(String(root))}`, platform);
+  if (found.refusal) return found.refusal;
+  shell.showItemInFolder(found.target);
+  return null;
+}
+
+// The shell's own logs folder. The shell names it, never the page, and it is
+// opened rather than selected: it is a directory this app created. null means
+// it was shown.
+async function revealLogs(shell, dir) {
+  if (!dir) return { error: "the logs folder is unknown" };
+  const failed = await shell.openPath(String(dir));
+  return failed ? { error: failed } : null;
+}
+
+// A folder openPath may enter: a directory, and on macOS not an application
+// bundle, which openPath would launch instead of showing.
+async function isPlainFolder(target, platform, fsApi) {
+  let stat;
+  try {
+    stat = await fsApi.stat(target);
+  } catch {
+    return false;
+  }
+  if (!stat.isDirectory()) return false;
+  if (platform !== "darwin") return true;
+  try {
+    await fsApi.access(path.join(target, "Contents", "Info.plist"));
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// openWorkspace enters a folder the sidebar lists instead of selecting it in
+// its parent. The kernel names the folder; anything that is not a plain folder
+// is only selected, as revealWorkspace does.
+async function openWorkspace(client, shell, root, platform = process.platform, fsApi = fs.promises) {
+  const found = await ask(client, `/host/workspaces/locate?root=${encodeURIComponent(String(root))}`, platform);
+  if (found.refusal) return found.refusal;
+  if (!(await isPlainFolder(found.target, platform, fsApi))) {
+    shell.showItemInFolder(found.target);
+    return null;
+  }
+  const why = await shell.openPath(found.target);
+  return why ? refused(why) : null;
+}
+
+async function openFile(client, shell, base, rel, platform = process.platform, fsApi = fs.promises) {
+  const found = await locate(client, String(base), String(rel), platform);
+  if (found.refusal) return found.refusal;
+  try {
+    if (!(await fsApi.stat(found.target)).isFile()) return refused("not a regular file");
+    const ext = (platform === "win32" ? path.win32 : path.posix).extname(found.target).toLowerCase();
+    if (!DOCUMENT_MEDIA.has(ext)) return refused("only documents and media can be opened");
+    const why = await shell.openPath(found.target);
+    return why ? refused(why) : null;
+  } catch (err) {
+    return refused(err.message);
+  }
+}
+
+module.exports = { reveal, revealWorkspace, revealLogs, openWorkspace, openFile };

@@ -1,0 +1,3 @@
+.sessnote, .rmtolder { display: block; padding: 5px 9px 7px 22px; font: var(--w-reg) var(--fs-meta) var(--ui); color: var(--ghost) }
+.rmtolder { padding-left: 32px }
+.rail .sessnote { margin: 4px 18px; padding: 0; color: var(--faint) }

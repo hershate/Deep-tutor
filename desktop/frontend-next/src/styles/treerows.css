@@ -1,0 +1,27 @@
+.rowswap { display: grid; align-items: center; justify-items: end; }
+.rowswap > * { grid-area: 1 / 1; transition: opacity var(--m-line); }
+.machrow > .rowswap { grid-area: 1 / 4; }
+.machrow[data-group] .rmtpip { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
+.machrow[data-group] .rowcount { opacity: 1; }
+.rmts > .rmt { padding-left: 8px; }
+.rowcount { pointer-events: none; padding-inline: 4px; font: var(--w-reg) var(--fs-micro)/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--faint); }
+.rowbtns { display: flex; align-items: center; gap: 2px; }
+.rowbtns, .rowswap > .machpick { opacity: 0; }
+:is(.wsrow, .machrow):is(:hover, :focus-within) :is(.rowbtns, .rowswap > .machpick),
+.rowswap:has([aria-expanded="true"], [data-busy]) :is(.rowbtns, .machpick) { opacity: 1; }
+:is(.wsrow, .machrow):is(:hover, :focus-within) .rowcount,
+.rowswap:has([aria-expanded="true"], [data-busy]) .rowcount { opacity: 0; }
+@media (hover: none) {
+  .rowbtns, .rowswap > .machpick { opacity: 1; }
+  .rowcount { display: none; }
+}
+:is(.rowswap .machpick, .machacts .machpick, .rowbtns .wsadd, .rowbtns .wsmore) { width: 22px; height: 22px; border-radius: 6px; color: var(--text); }
+:is(.rowswap .machpick, .rowbtns .wsadd, .rowbtns .wsmore) { box-shadow: inset 0 0 0 1px var(--hair); }
+:is(.rowswap .machpick, .machacts .machpick, .rowbtns .wsadd, .rowbtns .wsmore):is(:hover, :active, [aria-expanded="true"], [data-busy]):not(:disabled) { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
+.machrow:is([data-here], [data-group]) .rmtname { font-size: 11px; font-weight: 640; letter-spacing: .04em; color: var(--muted); }
+.rowcount[data-words] { font: var(--w-reg) 11px/1 var(--ui); }
+.rowcount[data-pill] { min-width: 18px; padding: 2px 5px; border-radius: var(--r-pill); background: var(--overlay); color: var(--muted); text-align: center; }
+.wsrow .rowbtns .wsmore { opacity: 1; }
+.studio-session-segments button { font-size: 12px; }
+.studio-session-segments b { font-size: 10px; }
+.rail .machrow { margin-right: 15px; }

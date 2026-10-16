@@ -1,0 +1,4 @@
+.jt-key { color: var(--syn-fn); }
+.jt-str { color: var(--syn-str); }
+.jt-num { color: var(--syn-num); }
+.jt-lit { color: var(--syn-key); }

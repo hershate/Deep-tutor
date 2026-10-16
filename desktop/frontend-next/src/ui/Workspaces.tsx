@@ -1,0 +1,786 @@
+import { inScope } from "./sessionScope";
+import { Fragment, type ReactNode, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { t } from "../i18n";
+import { seconds } from "../i18n/format";
+import type { HubPort, RuntimeView, TreeSession, TreeWorkspace } from "../port/hub";
+import type { Adder } from "./addws";
+import { pinToViewport } from "./place";
+import { useRailQuery } from "./railsearch";
+import { StudioIcon } from "./StudioIcon";
+import { RowCount } from "./RowCount";
+import { Cross } from "./glyphs";
+import { copyText } from "./CopyButton";
+import { sessionInfoText } from "./sessionInfo";
+import { download } from "../port/download";
+import { host } from "../port/host";
+import { useTreeKeys } from "./tree";
+import { useDismiss } from "./dismiss";
+import { asksDelete } from "./keys";
+import { clearDraftForSession } from "./drafts";
+import { WorkspaceOrder, workspaceMenuKeys } from "./WorkspaceOrder";
+import { WorkspaceReveal } from "./WorkspaceReveal";
+import { SessionMenu } from "./SessionMenu";
+import { pinnedFirst } from "./pinorder";
+import { Confirm, removeHint } from "./WorkspaceConfirm";
+import { UnreadCount, UnreadDot } from "./UnreadMark";
+import { NO_PAGING, atCap, sessionCount, unloaded, type TreePaging } from "./treewindow";
+import { SessionBatch, useSelectedRows } from "./SessionBatch";
+import { LocalMachine } from "./LocalMachine";
+import { useWorkspaceDrag } from "./useWorkspaceDrag";
+
+const parentOf = (root: string) => root.replace(/[/\\]+$/, "").split(/[/\\]/).slice(-2, -1)[0] ?? "";
+
+interface Props {
+  hub: HubPort;
+  tree: TreeWorkspace[];
+  // False until the kernel first answers; an empty tree before then is unread.
+  treeRead: boolean;
+  runtimes: RuntimeView[];
+  active: string;
+  // Collapsed workspaces are the window's own state, not the kernel's, so the
+  // sidebar keeps them here rather than asking for them back every reload.
+  folded: Set<string>;
+  onFold: (root: string, folded: boolean) => void;
+  reload: () => Promise<void>;
+  paging?: TreePaging;
+  // The session path being opened, or empty. The row shows it selected and busy
+  // before the kernel answers; the owner clears it on failure.
+  opening?: string;
+  onOpen: (req: { root?: string; sessionPath?: string }) => Promise<void>;
+  onFocus: (id: string) => void;
+  onClose: (ids: string[]) => Promise<void>;
+  // Which of these panes are mid-turn. A callback rather than a prop: run state
+  // changes constantly and this is only ever asked at confirmation time.
+  liveIds: (ids: string[]) => string[];
+  // Which of these belong in the running list: the live ones, and the ones that finished within the chosen grace.
+  listedIds?: (ids: string[]) => string[];
+  runs: Record<string, { run: string; live: boolean }>;
+  scope?: "all" | "live" | "pinned" | "archived";
+  pinned?: Set<string>;
+  onPin?: (path: string) => void;
+  onPause?: (runtimeId: string) => void;
+  onArchive?: (path: string, archived: boolean, runtimeId?: string) => Promise<void>;
+  onRename: (path: string, title: string, mode?: "inline" | "dialog") => void;
+  onError: (e: unknown) => void;
+  // 打开项目这个动作归 App —— 首启那条横幅按的是同一个它。
+  adder: Adder;
+  // Remote hosts render into this same tree. The rail is a list of machines and
+  // this one is among them: opening a session in a folder on a machine is one
+  // intent, and it used to be drawn as two.
+  children?: ReactNode;
+}
+
+// A conversation a pane holds before its first turn is written has only a file
+// name; calling it that would show a timestamp where every other row shows words.
+const rowLabel = (session: TreeSession) =>
+  session.title || (session.runtimeId && !session.turns ? t("新会话") : session.name);
+
+function WorkspacesView({ hub, tree, treeRead, runtimes, active, folded, reload, paging = NO_PAGING, onFold, opening = "", onOpen, onFocus, onClose, liveIds, listedIds = liveIds, runs, scope = "all", pinned = new Set(), onPin = () => {}, onPause = () => {}, onArchive = async () => {}, onRename, onError, adder, children }: Props) {
+  const [busy, setBusy] = useState("");
+  // Folding a machine is the reader's own preference, held the way a host row
+  // holds it.
+  const [hereShut, setHereShut] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [selection, setSelection] = useState<Set<string> | null>(null);
+  // The row a Delete key asked about. The question replaces that row, so focus
+  // goes back to it once the question is gone, or a keyboard is left nowhere.
+  const askedByKey = useRef("");
+  const needle = useRailQuery();
+  useEffect(() => { setSelection((current) => current === null ? null : new Set()); }, [needle, scope]);
+  const toggleSelection = (path: string) => setSelection((current) => {
+    if (!current) return current;
+    const next = new Set(current);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    return next;
+  });
+  const treeKeys = useTreeKeys();
+  // Renaming is a pencil, not a double-click: a single click already opens the
+  // session, so a double one would open it twice on the way to the edit.
+  const [editing, setEditing] = useState("");
+  const [sessionMenu, setSessionMenu] = useState("");
+  const [sessionMenuAt, setSessionMenuAt] = useState({ x: 0, y: 0 });
+  const sessionMenuBox = useRef<HTMLDivElement>(null);
+  const sessionMenuPortal = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLElement | null>(null);
+  const dismissMenu = () => {
+    if (menuTrigger.current?.dataset.target === sessionMenu) menuTrigger.current.focus();
+    setSessionMenu("");
+  };
+  const openWorkspaceMenu = (root: string, trigger: HTMLElement, at?: { x: number; y: number }) => {
+    menuTrigger.current = trigger;
+    const anchor = trigger.getBoundingClientRect();
+    setSessionMenuAt(at ?? { x: anchor.right + 8, y: anchor.top - 7 });
+    setSessionMenu(root);
+  };
+  useDismiss(!!sessionMenu, sessionMenuBox, dismissMenu, sessionMenuPortal);
+  useEffect(() => {
+    if (sessionMenu && menuTrigger.current?.dataset.target === sessionMenu) {
+      sessionMenuPortal.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus();
+    }
+  }, [sessionMenu]);
+  useLayoutEffect(() => {
+    if (sessionMenuPortal.current) pinToViewport(sessionMenuPortal.current, sessionMenuAt.x, sessionMenuAt.y, 12);
+  }, [sessionMenu, sessionMenuAt]);
+  // Finishing is a transition this run witnessed, not a state a row can hold: a
+  // persisted done replays nothing when the window opens or the scope changes.
+  const priorRun = useRef<Record<string, string>>({});
+  const [justDone, setJustDone] = useState<Set<string>>(new Set());
+
+  // A first sighting only records what the state already was, so a row that is
+  // done as it mounts is history and says so silently. Each timer clears only
+  // the ids it added, which is why nothing has to be cancelled when `runs`
+  // moves on: the animation has already been spent by then.
+  useEffect(() => {
+    const fresh = newlyDone(priorRun.current, runs);
+    if (fresh.length === 0) return;
+    setJustDone((prev) => new Set([...prev, ...fresh]));
+    window.setTimeout(() => {
+      setJustDone((prev) => {
+        const next = new Set(prev);
+        for (const id of fresh) next.delete(id);
+        return next;
+      });
+    }, 1200);
+  }, [runs]);
+  // Folders whose next page is being read, or could not be.
+  const [paged, setPaged] = useState<Record<string, "loading" | "failed">>({});
+  const more = async (root: string) => {
+    setPaged((prev) => ({ ...prev, [root]: "loading" }));
+    try {
+      await paging.more(root);
+      setPaged(({ [root]: _, ...rest }) => rest);
+    } catch {
+      setPaged((prev) => ({ ...prev, [root]: "failed" }));
+    }
+  };
+  // Conversations whose conflict copies the reader asked to see.
+  const [spread, setSpread] = useState<Set<string>>(new Set());
+  // Two folders can share a name — a worktree copy carries the project's own.
+  // Only then is the extra word worth the room it takes.
+  const twice = new Set(tree.map((w) => w.name).filter((n, i, all) => all.indexOf(n) !== i));
+
+  // A row that is already open is a pane to focus, never a second runtime for
+  // one transcript — the kernel refuses that, and it is what forked a recovery
+  // branch on every save when two writers shared a file.
+  const pick = async (ws: TreeWorkspace, session: TreeSession) => {
+    // The tree and runtime list arrive from separate reads. During a close or
+    // restore the tree can briefly retain an id that no longer exists; focusing
+    // that stale id changes no pane and makes the row look unclickable.
+    if (session.runtimeId && runtimes.some((rt) => rt.id === session.runtimeId)) {
+      onFocus(session.runtimeId);
+      return;
+    }
+    try {
+      await onOpen({ root: ws.root, sessionPath: session.path });
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  const startSession = async (ws: TreeWorkspace) => {
+    setBusy("new:" + ws.root);
+    try {
+      await onOpen({ root: ws.root });
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  // Dragging reorders the whole remembered list, so a search that hides rows turns it off.
+  const drag = useWorkspaceDrag(needle ? [] : tree.filter((w) => w.remembered).map((w) => w.root), async (root, before) => {
+    try {
+      await hub.placeWorkspace(root, before);
+      await reload();
+    } catch (e) {
+      onError(e);
+    }
+  });
+
+  const panesOf = (root: string) => runtimes.filter((rt) => rt.root === root).map((rt) => rt.id);
+
+  const dropWorkspace = async (ws: TreeWorkspace) => {
+    if (confirm !== ws.root) {
+      setConfirm(ws.root);
+      return;
+    }
+    setConfirm("");
+    try {
+      // Closed here for the same reason dropSession does it: the kernel will not
+      // pull a folder out from under a pane that is writing, and leaving that to
+      // the reader only means asking which of eight tabs belong to this one.
+      const open = panesOf(ws.root);
+      if (open.length && liveIds(open).length === 0) await onClose(open);
+      await hub.removeWorkspace(ws.root);
+      await reload();
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  useEffect(() => {
+    const path = askedByKey.current;
+    if (!path || confirm === path) return;
+    askedByKey.current = "";
+    // Another question took over: its own button holds focus now.
+    if (confirm) return;
+    const rows = treeKeys.ref.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [];
+    for (const el of rows) if (el.dataset.target === path) el.focus();
+  }, [confirm, treeKeys.ref]);
+
+  const askDelete = (path: string) => {
+    askedByKey.current = path;
+    setConfirm(path);
+  };
+
+  const archive = (session: TreeSession) => {
+    setSessionMenu("");
+    void onArchive(session.path, !session.archived, session.runtimeId).catch(onError);
+  };
+
+  const dropSession = async (session: TreeSession) => {
+    if (confirm !== session.path) {
+      setConfirm(session.path);
+      return;
+    }
+    // The row is about to go, and focus with it: the next row takes it, or the
+    // one before when this was the last.
+    const rows = [...(treeKeys.ref.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])];
+    const asked = treeKeys.ref.current?.querySelector('[role="alertdialog"]');
+    const after = asked ? rows.findIndex((el) => asked.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) : -1;
+    const heir = after >= 0 ? rows[after] : rows[rows.length - 1];
+    setConfirm("");
+    try {
+      // An idle pane is closed and waited on, since its runtime holds the
+      // transcript's lease until it is down. A running one is left for the
+      // kernel to refuse: a delete never stops work in progress.
+      if (session.runtimeId && liveIds([session.runtimeId]).length === 0) await onClose([session.runtimeId]);
+      await hub.removeSession(session.path);
+      clearDraftForSession("", session.path);
+      await reload();
+      if (document.activeElement && document.activeElement !== document.body) return;
+      (heir?.isConnected ? heir : treeKeys.ref.current?.querySelector<HTMLElement>('[role="treeitem"]'))?.focus();
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  const saveSession = async (session: TreeSession) => {
+    setBusy("export:" + session.path);
+    try {
+      const exported = await hub.exportSession(session.path);
+      const records = exported.content
+        .split(/\r?\n/)
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line) as unknown);
+      const content = JSON.stringify(
+        { version: 1, title: session.title || session.name, exportedAt: new Date().toISOString(), records },
+        null,
+        2,
+      );
+      const clean = (session.title || exported.name || session.name).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "reasonix-session";
+      const filename = `${clean}.json`;
+      const saved = await host().saveText(filename, content);
+      if (saved === null) download(filename, content);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy("");
+      setSessionMenu("");
+    }
+  };
+
+  // Filtering is client-side because the tree is already here: the kernel has no
+  // search route, and a round trip to re-derive what the window is holding would
+  // be slower than the typing. A hit on the folder keeps all of its sessions.
+  const hit = (ws: TreeWorkspace) => {
+    if (!needle) return ws;
+    const named = (x: TreeSession) => (x.title || x.name || "").toLowerCase().includes(needle);
+    if (ws.name.toLowerCase().includes(needle)) return ws;
+    const sessions = ws.sessions.filter(named);
+    return sessions.length ? { ...ws, sessions } : null;
+  };
+  const searchedTree = needle ? (tree.map(hit).filter(Boolean) as TreeWorkspace[]) : tree;
+  const shownTree = searchedTree
+    .map((ws) => ({
+      ...ws,
+      sessions: pinnedFirst(ws.sessions.filter((session) =>
+        inScope(session, scope, !!needle, !!session.runtimeId && listedIds([session.runtimeId]).length > 0, pinned.has(session.path))), pinned),
+    }))
+    .filter((ws) => scope === "all" || ws.sessions.length > 0);
+  // A fold is a resting-state preference: while a word is being typed it would
+  // hide the very rows that word just found.
+  const shutHere = needle ? false : hereShut;
+  const searching = !!needle;
+  const loadedRows = (root: string) => tree.find((x) => x.root === root)?.sessions.length ?? 0;
+  // What the kernel is asked to count: the archived rows when that is the view,
+  // otherwise the active ones, and everything while a word is being searched
+  // for, since a search is allowed to find an archived conversation.
+  const kernelScope = scope === "archived" ? "archived" : searching ? "" : "active";
+  const [asked, setAsked] = useState(needle);
+  useEffect(() => {
+    if (!needle) return setAsked("");
+    const wait = setTimeout(() => setAsked(needle), 250);
+    return () => clearTimeout(wait);
+  }, [needle]);
+  useEffect(() => {
+    paging.view({ scope: kernelScope, q: asked });
+  }, [paging, kernelScope, asked]);
+  const pagedScope = scope === "all" || scope === "archived";
+  const displayed = shutHere ? [] : shownTree.filter((ws) => needle || !folded.has(ws.root))
+    .flatMap((ws) => ws.sessions);
+  const selected = useSelectedRows(displayed, selection, setSelection);
+
+  return (
+    <>
+      <SessionBatch hub={hub} selection={selection} selected={selected} displayed={displayed} onSelect={setSelection}
+        onExit={() => treeKeys.ref.current?.querySelector<HTMLElement>('[data-action="machine.menu"]')?.focus()}
+        onBusy={(pending) => { setBusy(pending ? "batch" : ""); if (pending) { setSessionMenu(""); setEditing(""); setConfirm(""); } }}
+        onClose={onClose} onArchive={onArchive} liveIds={liveIds} reload={reload} onError={onError} />
+      <div className="scroll">
+        <div role="tree" aria-label={t("机器、工作区与会话")} aria-multiselectable={selection !== null} inert={busy === "batch"} data-action-keydown="tree.navigate" ref={treeKeys.ref} onKeyDown={treeKeys.onKeyDown}>
+          <LocalMachine shut={shutHere} count={treeRead ? tree.length : undefined} adder={adder}
+            canSelect={displayed.length > 0} selecting={selection !== null}
+            onToggle={() => setHereShut((v) => !v)} onSelect={() => setSelection(new Set())} />
+          {shutHere ? null : shownTree.map((ws) => {
+            // A fold is a resting-state preference; while a query is on it would hide
+            // the very rows the query just found.
+            const shut = needle ? false : folded.has(ws.root);
+            // Only while the question is on screen: panesOf walks every runtime.
+            const doomed = confirm === ws.root ? panesOf(ws.root) : [];
+            const busyPanes = liveIds(doomed).length;
+            return (
+              <div className="wsnode" key={ws.root} data-current={panesOf(ws.root).includes(active) ? "" : undefined} data-missing={ws.missing ? "" : undefined}>
+                {confirm === ws.root ? (
+                  <Confirm
+                    what={t("从列表移除「{name}」？", { name: ws.name })}
+                    hint={removeHint(doomed.length, busyPanes)}
+                    go={t("移除")}
+                    danger={busyPanes > 0}
+                    onGo={() => void dropWorkspace(ws)}
+                    onCancel={() => setConfirm("")}
+                  />
+                ) : (
+                  <div
+                    ref={sessionMenu === ws.root ? sessionMenuBox : undefined}
+                    data-action-contextmenu="workspace.menu"
+                    data-action-keydown="workspace.menu"
+                    data-action-dragstart="workspace.reorder"
+                    data-action-dragover="workspace.reorder"
+                    data-action-dragleave="workspace.reorder"
+                    data-action-drop="workspace.reorder"
+                    data-action-dragend="workspace.reorder"
+                    data-target={ws.root}
+                    data-drop={drag.over?.root === ws.root ? drag.over.edge : undefined}
+                    data-dragging={drag.dragging === ws.root ? "" : undefined}
+                    draggable={ws.remembered && !needle}
+                    onDragStart={(ev) => drag.start(ev, ws.root)}
+                    onDragOver={(ev) => drag.hover(ev, ws.root)}
+                    onDragLeave={() => drag.leave(ws.root)}
+                    onDrop={(ev) => drag.drop(ev, ws.root)}
+                    onDragEnd={drag.end}
+                    className="wsrow"
+                    role="treeitem"
+                    aria-haspopup="menu"
+                    aria-expanded={!shut}
+                    onClick={() => onFold(ws.root, !shut)}
+                    onContextMenu={(ev) => {
+                      if ((ev.target as HTMLElement).closest("input, textarea, [role='menu']")) return;
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      openWorkspaceMenu(ws.root, ev.currentTarget, ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : undefined);
+                    }}
+                    onKeyDown={(ev) => {
+                      if (ev.target !== ev.currentTarget) return;
+                      if (ev.key !== "ContextMenu" && !(ev.shiftKey && ev.key === "F10")) return;
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      openWorkspaceMenu(ws.root, ev.currentTarget);
+                    }}
+                  >
+                    <button className="twist" tabIndex={-1} aria-hidden="true">
+                      <svg viewBox="0 0 10 10">
+                        <path d="M3.4 1.6 6.8 5 3.4 8.4" />
+                      </svg>
+                    </button>
+                    <i className="wsdot" aria-hidden="true" />
+                    <span className="wsname" title={ws.root}>
+                      {ws.name}
+                    </span>
+                    {/* A tag is this project's identity, so it takes a second line and
+                        the name keeps the row; the count and the actions share one slot. */}
+                    {(ws.isolated || twice.has(ws.name)) && (
+                      <span className="wsmeta">
+                        <em className="wstag">{ws.isolated ? t("隔离") : parentOf(ws.root)}</em>
+                      </span>
+                    )}
+                    <span className="wsacts">
+                      {shut && <UnreadCount n={ws.sessions.filter((x) => x.unread).length} />}
+                      <span className="rowswap">
+                      <RowCount c={pagedScope ? sessionCount(ws, ws.sessions.length) : { shown: ws.sessions.length }} />
+                      <span className="rowbtns">
+                      <button
+                        data-action="session.new"
+                        className="wsadd"
+                        data-busy={busy === "new:" + ws.root ? "" : undefined}
+                        disabled={ws.missing}
+                        title={t("在 {name} 下新建会话", { name: ws.name })}
+                        aria-label={t("在 {name} 下新建会话", { name: ws.name })}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          void startSession(ws);
+                        }}
+                      >
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M8 3.7v8.6M3.7 8h8.6" />
+                        </svg>
+                      </button>
+                      <button
+                        className="wsmore"
+                        data-action="workspace.menu"
+                        data-target={ws.root}
+                        title={t("更多操作")}
+                        aria-label={t("项目操作：{name}", { name: ws.name })}
+                        aria-expanded={sessionMenu === ws.root}
+                        aria-haspopup="menu"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          if (sessionMenu === ws.root) setSessionMenu("");
+                          else openWorkspaceMenu(ws.root, ev.currentTarget);
+                        }}
+                      >
+                        <StudioIcon name="more" />
+                      </button>
+                      </span>
+                      </span>
+                    </span>
+                    {sessionMenu === ws.root && createPortal(
+                      <div ref={sessionMenuPortal} className="session-pop" role="menu" aria-label={t("项目操作")} data-action-keydown="workspace.menu" data-target={ws.root} onKeyDown={workspaceMenuKeys} onClick={(ev) => ev.stopPropagation()}>
+                        <div className="session-pop-head">
+                          <b>{ws.name}</b>
+                          <small className="session-pop-path" title={ws.root}>{ws.root}</small>
+                        </div>
+                        <WorkspaceReveal ws={ws} hub={hub} dismiss={dismissMenu} onError={onError} />
+                        {ws.remembered && <WorkspaceOrder root={ws.root} position={tree.filter((w) => w.remembered).findIndex((w) => w.root === ws.root)} total={tree.filter((w) => w.remembered).length}
+                          hub={hub} reload={reload} dismiss={dismissMenu} onError={onError} />}
+                        <div className="session-pop-group">
+                          <button className="danger" role="menuitem" data-action="workspace.remove" onClick={() => { setConfirm(ws.root); dismissMenu(); }}>
+                            <StudioIcon name="close" /><span>{t("从列表移除")}</span><small>{t("不删除文件")}</small>
+                          </button>
+                        </div>
+                      </div>,
+                      document.body,
+                    )}
+                  </div>
+                )}
+
+                {/* 子项自己成一块，才能拿到那条层级引导线。缩进单独说不清楚层级：
+                    两级差 18px，扫一眼只读得出“有点错位”。 */}
+                {!shut && (
+                  <div className="kids">
+                {ws.sessions.map((session) => {
+                    const on = opening ? session.path === opening : session.runtimeId === active;
+                    const run = session.runtimeId ? runs[session.runtimeId]?.run : undefined;
+                    if (confirm === session.path) {
+                      return (
+                        <Confirm
+                          key={session.path}
+                          what={t("删除「{name}」？", { name: rowLabel(session) })}
+                          hint={t(!session.runtimeId ? "连同其记录一并删除" : liveIds([session.runtimeId]).length ? "正在运行，停止后才能删除" : "它的面板会先关掉")}
+                          go={t("删除")}
+                          danger
+                          onGo={() => void dropSession(session)}
+                          onCancel={() => setConfirm("")}
+                        />
+                      );
+                    }
+                    const versions = session.versions ?? [];
+                    const copies = session.copies ?? [];
+                    const kept = [...versions.map((s) => ({ s, version: true })), ...copies.map((s) => ({ s, version: false }))];
+                    const open = spread.has(session.path);
+                    return (
+                      <Fragment key={session.path}>
+                      <div
+                        ref={sessionMenu === session.path ? sessionMenuBox : undefined}
+                        data-action-click={selection ? "session.selection" : "session.open"}
+                        data-action-contextmenu="session.menu"
+                        aria-haspopup="menu"
+                        data-action-keydown={selection ? ["session.selection"] : ["session.open", "session.delete"]}
+                        data-target={session.path}
+                        className="sessrow sessrow-context"
+                        role="treeitem"
+                        aria-selected={selection ? selection.has(session.path) : on}
+                        data-on={on ? "" : undefined}
+                        data-live={session.runtimeId ? "" : undefined}
+                        data-run={run === "idle" ? undefined : run}
+                        data-unread={session.unread ? "" : undefined}
+                        data-just-done={session.runtimeId && justDone.has(session.runtimeId) ? "" : undefined}
+                        data-busy={opening === session.path ? "" : undefined}
+                        onClick={(ev) => { if (selection) toggleSelection(session.path); else if (ev.detail < 2) void pick(ws, session); }}
+                        data-action-dblclick={selection ? undefined : "session.rename"}
+                        onDoubleClick={(ev) => {
+                          if (selection || (ev.target as HTMLElement).closest("input, button, [role='menu']")) return;
+                          setEditing(session.path);
+                        }}
+                        onContextMenu={(ev) => {
+                          if ((ev.target as HTMLElement).closest("input, textarea, [role='menu']")) return;
+                          if (selection) { ev.preventDefault(); return; }
+                          ev.preventDefault();
+                          ev.stopPropagation();
+                          menuTrigger.current = ev.currentTarget;
+                          setSessionMenuAt({ x: ev.clientX, y: ev.clientY });
+                          setSessionMenu(session.path);
+                        }}
+                        tabIndex={0}
+                        onKeyDown={(ev) => {
+                          if (ev.target !== ev.currentTarget) return;
+                          if (editing === session.path) return;
+                          if (selection) {
+                            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.stopPropagation(); toggleSelection(session.path); }
+                            return;
+                          }
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.preventDefault();
+                            void pick(ws, session);
+                          } else if (asksDelete(ev)) {
+                            ev.preventDefault();
+                            askDelete(session.path);
+                          }
+                        }}
+                      >
+                        {selection && <input type="checkbox" className="session-select" tabIndex={-1} aria-label={t("选择会话：{name}", { name: rowLabel(session) })}
+                          data-action-click="session.selection" data-action-change="session.selection" data-target={session.path} checked={selection.has(session.path)}
+                          onClick={(ev) => ev.stopPropagation()} onChange={() => toggleSelection(session.path)} />}
+                        <i className="pip" />
+                        {editing === session.path ? (
+                          <input className="sessedit" aria-label={t("重命名该会话")} placeholder={t("聊天标题")} autoFocus
+                            defaultValue={session.title || session.name}
+                            onClick={(ev) => ev.stopPropagation()}
+                            data-action-blur="session.rename" data-action-keydown="session.rename" data-target={session.path}
+                            onBlur={(ev) => {
+                              const next = ev.currentTarget.value.trim();
+                              setEditing("");
+                              if (next !== "" && next !== (session.title || session.name).trim()) onRename(session.path, next, "inline");
+                            }}
+                            onKeyDown={(ev) => {
+                              if (ev.key === "Enter") {
+                                ev.preventDefault();
+                                ev.currentTarget.blur();
+                              } else if (ev.key === "Escape") {
+                                ev.preventDefault();
+                                ev.stopPropagation();
+                                ev.currentTarget.value = session.title || session.name;
+                                ev.currentTarget.blur();
+                              }
+                            }} />
+                        ) : (
+                          <span className="sesstitle" title={rowLabel(session)}>
+                            {pinned.has(session.path) && <StudioIcon name="pin" className="sesspin" aria-label={t("已置顶")} />}
+                            <span>{rowLabel(session)}</span>{session.archived && <em className="sessarch">{t("已归档")}</em>}
+                          </span>
+                        )}
+                        {session.unread && <UnreadDot kind="row" />}
+                        {kept.length > 0 && (
+                          <button
+                            className="sesscopies"
+                            aria-expanded={open}
+                            title={
+                              versions.length && copies.length
+                                ? t("早先版本与恢复副本")
+                                : versions.length
+                                  ? t("编辑、重新生成或回退之前的对话版本")
+                                  : t("本次对话被外部程序改写时留下的副本")
+                            }
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setSpread((prev) => {
+                                const next = new Set(prev);
+                                if (open) next.delete(session.path);
+                                else next.add(session.path);
+                                return next;
+                              });
+                            }}
+                          >
+                            {`+${kept.length}`}
+                          </button>
+                        )}
+                        {session.legacy && (
+                          <span className="sesslegacy" title={t("由 Reasonix 1.x 创建：Studio 只读打开，继续对话会另存为新会话")} aria-label={t("由 Reasonix 1.x 创建：Studio 只读打开，继续对话会另存为新会话")}>{t("旧")}</span>
+                        )}
+                        <span className="sessquick">
+                          <button
+                            data-action="session.archive" data-target={session.path}
+                            data-value={session.archived ? "restore" : "archive"}
+                            title={t(session.archived ? "取消归档" : "归档会话")}
+                            aria-label={t(session.archived ? "取消归档：{title}" : "归档会话：{title}", { title: rowLabel(session) })}
+                            disabled={!!session.runtimeId && liveIds([session.runtimeId]).length > 0}
+                            onClick={(ev) => { ev.stopPropagation(); archive(session); }}
+                          ><StudioIcon name="archive" /></button>
+                          <button
+                            className="danger" data-action="session.delete" data-target={session.path}
+                            title={t("删除会话")}
+                            aria-label={t("删除会话：{title}", { title: rowLabel(session) })}
+                            onClick={(ev) => { ev.stopPropagation(); askDelete(session.path); }}
+                          ><StudioIcon name="trash" /></button>
+                        </span>
+                        {sessionMenu === session.path && (
+                          <SessionMenu
+                            ref={sessionMenuPortal}
+                            session={session}
+                            label={rowLabel(session)}
+                            live={!!session.runtimeId && liveIds([session.runtimeId]).length > 0}
+                            pinned={pinned.has(session.path)}
+                            exporting={busy === "export:" + session.path}
+                            onPin={() => { onPin(session.path); setSessionMenu(""); }}
+                            onRename={() => { setSessionMenu(""); onRename(session.path, session.title || session.name); }}
+                            onPause={() => { onPause(session.runtimeId!); setSessionMenu(""); }}
+                            onClose={() => {
+                              const id = session.runtimeId!;
+                              setSessionMenu("");
+                              void onClose([id]).catch(onError);
+                            }}
+                            onArchive={() => archive(session)}
+                            onCopyInfo={() => { void copyText(sessionInfoText(session, ws.root)).catch(onError); setSessionMenu(""); }}
+                            onExport={() => void saveSession(session)}
+                            onDelete={() => { setConfirm(session.path); setSessionMenu(""); }}
+                          />
+                        )}
+                      </div>
+                      {open &&
+                        kept.map(({ s: copy, version }) =>
+                          confirm === copy.path ? (
+                            <Confirm
+                              key={copy.path}
+                              what={version ? t("删除这个早先版本？") : t("删除这份恢复副本？")}
+                              hint={t("连同其记录一并删除")}
+                              go={t("删除")}
+                              danger
+                              onGo={() => void dropSession(copy)}
+                              onCancel={() => setConfirm("")}
+                            />
+                          ) : (
+                            <div
+                              data-action-click="session.open"
+                              data-action-keydown={["session.open", "session.delete"]}
+                              data-target={copy.path}
+                              key={copy.path}
+                              className="sessrow sesscopy"
+                              role="treeitem"
+                              aria-selected={opening === copy.path}
+                              data-on={opening === copy.path ? "" : undefined}
+                              data-busy={opening === copy.path ? "" : undefined}
+                              onClick={() => void pick(ws, copy)}
+                              tabIndex={0}
+                              onKeyDown={(ev) => {
+                                if (ev.target !== ev.currentTarget) return;
+                                if (ev.key === "Enter" || ev.key === " ") {
+                                  ev.preventDefault();
+                                  void pick(ws, copy);
+                                } else if (asksDelete(ev)) {
+                                  ev.preventDefault();
+                                  askDelete(copy.path);
+                                }
+                              }}
+                            >
+                              <i className="pip" />
+                              <span className="sesstitle" title={rowLabel(copy)}>
+                                <span>{version ? t("早先版本 · {n} 轮", { n: copy.turns ?? 0 }) : t("恢复副本")}</span>
+                              </span>
+                              <button
+                                className="wsdel"
+                                data-action="session.delete"
+                                data-target={copy.path}
+                                title={t("删除该会话")}
+                                aria-label={t("删除该会话")}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setConfirm(copy.path);
+                                }}
+                              >
+                                <Cross />
+                              </button>
+                            </div>
+                          ),
+                        )}
+                      </Fragment>
+                    );
+                  })}
+
+                {pagedScope && unloaded(ws, loadedRows(ws.root)) > 0 && (
+                  atCap(loadedRows(ws.root)) ? (
+                    <small className="sessnote">{t("还有 {n} 个较早的会话 · 用搜索查找", { n: unloaded(ws, loadedRows(ws.root)) })}</small>
+                  ) : (
+                    <button
+                      className="sessmore"
+                      disabled={paged[ws.root] === "loading"}
+                      data-action="session.more"
+                      onClick={() => void more(ws.root)}
+                    >
+                      {paged[ws.root] === "loading"
+                        ? t("正在加载…")
+                        : paged[ws.root] === "failed"
+                          ? t("加载失败 · 重试")
+                          : t("显示更多（还有 {n} 个）", { n: unloaded(ws, loadedRows(ws.root)) })}
+                    </button>
+                  )
+                )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!shutHere && tree.length > 0 && shownTree.length === 0 && (
+            <div className="ws-empty">{t("没有匹配的会话")}</div>
+          )}
+          {!shutHere && tree.length === 0 && (treeRead ? (
+            <div className="ws-empty">{t("尚无文件夹")}</div>
+          ) : (
+            <TreeReading />
+          ))}
+          {children}
+        </div>
+      </div>
+
+    </>
+  );
+}
+
+// Display only, timed from this row's mount; whether the tree is read is `treeRead`.
+export function TreeReading() {
+  const [since] = useState(() => Date.now());
+  const [now, setNow] = useState(since);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const ms = now - since;
+  return (
+    <div className="ws-empty ws-reading" role="status" aria-busy="true">
+      <StudioIcon name="clock" />
+      <span>{t("正在读取文件夹…")}</span>
+      {/* Outside the live region's speech: a status that re-announces itself every second is noise. */}
+      {ms >= 1000 && <span className="ws-reading-t" aria-hidden="true">{seconds(ms, 0)}</span>}
+    </div>
+  );
+}
+
+// Panes report upward on every usage round, so the window repaints often; the
+// tree it holds does not change nearly that often.
+export const Workspaces = memo(WorkspacesView);
+
+// Which runs reached "done" since `before` last recorded them. A state is not
+// an event: `done` persists, so only a change no first sighting can produce —
+// both sides known and different — is the completion this window watched.
+export function newlyDone(
+  before: Record<string, string>,
+  runs: Record<string, { run: string; live: boolean }>,
+): string[] {
+  const fresh: string[] = [];
+  for (const [id, st] of Object.entries(runs)) {
+    if (st.run === "done" && before[id] !== undefined && before[id] !== "done") fresh.push(id);
+    before[id] = st.run;
+  }
+  return fresh;
+}

@@ -1,0 +1,763 @@
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { t } from "../i18n";
+import { reason } from "../i18n/kernel";
+import { host } from "../port/host";
+import type {
+  AgentPort,
+  BrowserTab,
+  WorkspaceChange,
+} from "../port/port";
+import { openPage, observePageTabs } from "./browser_open";
+import { useBrowserSelection } from "./useBrowserSelection";
+import { useColumnOpening } from "./useColumnOpening";
+import { WorkbenchLauncher } from "./WorkbenchLauncher";
+import { AgentBrowserPanel, ManualBrowserPanel, UNREAD_TABS } from "./BrowserPanel";
+import { DiffView } from "./cards/DiffView";
+import { useOnBump } from "./useOnBump";
+import { StudioIcon } from "./StudioIcon";
+import { LazyMarkdown } from "./LazyMarkdown";
+import type { LocalRefs } from "./Markdown";
+import { docRef } from "./docrefs";
+import { useGlance } from "./glance";
+import { useWorkbenchFiles } from "./useWorkbenchFiles";
+import { keyOf, labelOf, type Surface } from "./workbench_tabs";
+import { useTabClose } from "./useTabClose";
+import { BrowserTabMenu } from "./BrowserTabMenu";
+import { WorkbenchFileMenu, type FileMenu } from "./WorkbenchFileMenu";
+import { WorkbenchSelectionMenu, type SelectionMenu } from "./WorkbenchSelectionMenu";
+import { WorkbenchChanges } from "./WorkbenchChanges";
+import { WorkbenchHistory } from "./WorkbenchHistory";
+import { WorkbenchExplorerHead } from "./WorkbenchExplorerHead";
+import { WorkbenchFileBar, type FileMode } from "./WorkbenchFileBar";
+import { useHtmlPreview } from "./useHtmlPreview";
+import { setShowsHiddenFiles, showsHiddenFiles } from "../state/prefs";
+import { useCommitCard } from "./CommitCard";
+import { BrowserWideToggle } from "./BrowserWideToggle";
+import { WorkspaceImage, isWorkspaceImage } from "./WorkspaceImage";
+
+// The editor and its grammars load with the first file opened, not with Studio.
+const CodeEditor = lazy(() => import("./CodeEditor"));
+
+type TreeRow = {
+  kind: "folder" | "file";
+  path: string;
+  name: string;
+  depth: number;
+};
+
+/** Folders first at every level, with the tree still reading as a tree. Sorting
+ *  flat paths as text interleaves `bin/` with `boot.test.exe`, because text is
+ *  the only thing it compares. Segment by segment, whichever row is a directory
+ *  where the two paths part wins there, and its children stay under it. */
+function before(a: TreeRow, b: TreeRow): number {
+  const x = a.path.split("/"), y = b.path.split("/");
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] === y[i]) continue;
+    const dirs = [i < x.length - 1 || a.kind === "folder", i < y.length - 1 || b.kind === "folder"];
+    return dirs[0] === dirs[1] ? x[i].localeCompare(y[i]) : dirs[0] ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+
+function treeRows(
+  files: string[],
+  directories: string[],
+  query: string,
+  closed: Set<string>,
+): TreeRow[] {
+  const matches = query
+    ? files.filter((path) =>
+        path.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+      )
+    : files;
+  const folders = new Set<string>(directories);
+  for (const path of matches)
+    for (let i = 1, bits = path.split("/"); i < bits.length; i++)
+      folders.add(bits.slice(0, i).join("/"));
+  const hidden = (path: string) =>
+    [...closed].some(
+      (folder) => path === folder || path.startsWith(`${folder}/`),
+    );
+  const rows: TreeRow[] = [...folders]
+    .filter(
+      (path) => ![...closed].some((parent) => path.startsWith(`${parent}/`)),
+    )
+    .map((path) => ({
+      kind: "folder",
+      path,
+      name: path.split("/").at(-1)!,
+      depth: path.split("/").length - 1,
+    }));
+  rows.push(
+    ...matches
+      .filter((path) => !hidden(path.split("/").slice(0, -1).join("/")))
+      .map((path) => ({
+        kind: "file" as const,
+        path,
+        name: path.split("/").at(-1)!,
+        depth: path.split("/").length - 1,
+      })),
+  );
+  return rows.sort(before);
+}
+
+export function WorkbenchPanel({
+  port,
+  tabs: allTabs,
+  manual,
+  browserAsk = 0,
+  shown,
+  scheme,
+  changes,
+  onTreeChanged,
+  running = false,
+  wrote = 0,
+  remote = false,
+  workspaceRoot = "",
+  revealChanges = 0,
+  toggleFiles = 0,
+  onCloseManual,
+  onSurfaces,
+  onExternal,
+  onAddToChat,
+  onQuoteSelection,
+  wideMode,
+  fileRequest,
+}: {
+  port: AgentPort;
+  tabs: BrowserTab[];
+  manual: boolean;
+  /** Counts the title-bar Browser presses; a change asks for a browser, not just the column. */
+  browserAsk?: number;
+  shown: boolean;
+  scheme: "light" | "dark";
+  changes: WorkspaceChange[];
+  /** Called after the panel committed, so the list is read again. */
+  onTreeChanged?: () => void;
+  /** Whether a turn is in flight: one that settles can have written files git
+   *  does not list, so the change set alone does not say the tree moved. */
+  running?: boolean;
+  /** Finished calls that may have written, so the tree follows a turn mid-way. */
+  wrote?: number;
+  /** The workspace is on another machine, so its paths mean nothing here. */
+  remote?: boolean;
+  workspaceRoot?: string;
+  revealChanges?: number;
+  /** A press on the Files button: opens the explorer, or folds it when it is the open one. */
+  toggleFiles?: number;
+  onCloseManual: () => void;
+  // How many surfaces the strip holds, for the pane's own tab to count.
+  onSurfaces: (n: number) => void;
+  onExternal: (url: string) => void;
+  onAddToChat?: (reference: string) => void;
+  // Text selected in an open file, with the file it came from, on its way to the composer.
+  onQuoteSelection?: (text: string, path: string) => void;
+  wideMode?: { wide: boolean; onToggle: () => void };
+  fileRequest?: { path: string };
+}) {
+  const preview = useHtmlPreview(port, allTabs, remote);
+  const tabs = preview.tabs;
+  const [files, setFiles] = useState<string[]>([]),
+    [directories, setDirectories] = useState<string[]>([]),
+    [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [showFiles, setShowFiles] = useState(false);
+  const [launcher, setLauncher] = useState(false);
+  const newTab = useRef<HTMLButtonElement>(null);
+  const toggleLauncher = () => { supersede(); setLauncher((open) => !open); };
+  const chooseFiles = () => { supersede(); setLauncher(false); setShowFiles(true); };
+  const commit = useCommitCard(port, () => onTreeChanged?.());
+  const toggleExplorer = () => { supersede(); setLauncher(false); setShowFiles((on) => launcher || !on); };
+  useOnBump(revealChanges, chooseFiles);
+  useOnBump(toggleFiles, toggleExplorer);
+  const [query, setQuery] = useState(""),
+    [selected, setSelected] = useState("");
+  // Docked, the file list hides the canvas a page is drawn in, so choosing any
+  // surface steps the list aside.
+  const select = useCallback((key: string) => {
+    setShowFiles(false);
+    setLauncher(false);
+    setFailed("");
+    setSelected(key);
+  }, []);
+  const { pick, follow, supersede, current } = useBrowserSelection(port, select, allTabs);
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set()),
+    [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // The explorer's own failure, drawn in the explorer: the file view's error
+  // sits in a canvas the docked file list hides.
+  const [listFailed, setListFailed] = useState("");
+  const [hidden, setHidden] = useState(showsHiddenFiles);
+  const openFolders = useRef<string[]>([]);
+  openFolders.current = directories.filter((path) => !collapsed.has(path));
+  const [browsers, setBrowsers] = useState<string[]>([]),
+    [hosts, setHosts] = useState<Record<string, string>>({});
+  const minted = useRef(0);
+  const [mode, setMode] = useState<FileMode>("file");
+  const [failed, setFailed] = useState("");
+  // Showing a file where it lives needs a shell on the kernel's own machine.
+  const revealable = !remote && port.revealsFiles();
+  const [platform, setPlatform] = useState("");
+  useEffect(() => void host().describe().then((h) => setPlatform(h.platform)), []);
+  const scope = useMemo(() => ({ port, workspaceRoot }), [port, workspaceRoot]);
+  const listedScope = useRef(scope);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const folderRequests = useMemo(() => new Map<string, symbol>(), [scope]);
+  const menuId = useRef(0);
+  const [menu, setMenu] = useState<(FileMenu & { scope: typeof scope; id: number }) | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  useEffect(closeMenu, [closeMenu, scope, shown]);
+  const reveal = (path: string) => {
+    setMenu(null);
+    port.revealInFileManager(path).then(() => setListFailed(""), (e) => setListFailed(reason(e)));
+  };
+  // The system menu stays wherever there is text to copy: this one is a shortcut.
+  const offerMenu = (e: MouseEvent<HTMLElement>, path: string, folder: boolean) => {
+    if (listedScope.current !== scope || document.getSelection()?.isCollapsed === false) return;
+    e.preventDefault();
+    // The context-menu key reports no pointer, so the row itself is the anchor.
+    const row = e.currentTarget.getBoundingClientRect();
+    const keyed = e.clientX === 0 && e.clientY === 0;
+    setMenu({ path, folder, scope, id: ++menuId.current, anchor: e.currentTarget, x: keyed ? row.left + 24 : e.clientX, y: keyed ? row.bottom : e.clientY });
+  };
+  const changeKey = changes
+    .map((change) => `${change.status}:${change.path}`)
+    .join("\n");
+  // The kernel reads the disk on every listing and keeps nothing, so the tree is
+  // only as stale as the last time it asked. A delete in another application
+  // tells nobody here; looking back at the window is when it can have happened.
+  const glance = useGlance();
+  useEffect(() => {
+    if (!shown) return;
+    folderRequests.clear();
+    let live = true;
+    void (async () => {
+      try {
+        const top = await port.workspaceFiles("", query, hidden);
+        let files = top.files;
+        let dirs = top.directories;
+        // A reload is the tree read again, not the reader's place in it lost:
+        // the folders they had open are read again, parents before children,
+        // and one that is gone or unreadable now simply closes.
+        const open = new Set<string>();
+        if (!query) {
+          const depth = (path: string) => path.split("/").length;
+          for (const path of [...openFolders.current].sort((a, b) => depth(a) - depth(b))) {
+            if (!dirs.includes(path)) continue;
+            try {
+              const inner = await port.workspaceFiles(path, "", hidden);
+              files = [...files, ...inner.files];
+              dirs = [...dirs, ...inner.directories];
+              open.add(path);
+            } catch {
+              // Left closed; the next click says why.
+            }
+          }
+        }
+        if (!live) return;
+        listedScope.current = scope;
+        setFiles([...new Set(files)]);
+        setDirectories([...new Set(dirs)]);
+        setCollapsed(query ? new Set() : new Set(dirs.filter((path) => !open.has(path))));
+        setListFailed("");
+      } catch (e) {
+        if (live) setListFailed(reason(e));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [port, scope, folderRequests, shown, changeKey, query, hidden, glance, running, wrote]);
+  // Closing the column preserves its tabs; only each tab’s close button removes it.
+  const agentPage = tabs.find((tab) => tab.active) ?? tabs[0];
+  const agentTarget = agentPage?.target ?? "";
+  const agentAt = agentPage ? `${agentPage.target} ${agentPage.url}` : "";
+  const visited = useRef(hosts);
+  visited.current = hosts;
+  const dropBlankStart = useCallback(() => setBrowsers((open) => open.filter((id) => !!visited.current[id])), []);
+  const agentNow = useRef(agentTarget);
+  agentNow.current = agentTarget;
+  const filesAsk = useMemo(() => ({ revealChanges, fileRequest }), [revealChanges, fileRequest]);
+  useColumnOpening({ manual, browserAsk, filesAsk, port, agentNow, dropBlankStart, pick, follow, current, setFailed, setBrowsers, manualSelection: selected.startsWith("manual:") ? selected : `manual:${browsers[0] ?? "b0"}` });
+  // A page that has just appeared is the one somebody wants to see, whoever
+  // opened it: the agent's popup, or a link the person followed, which opens
+  // beside the agent's tab without becoming the one it acts on.
+  const known = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (tabs === UNREAD_TABS) return;
+    const ids = tabs.map((tab) => tab.target);
+    if (known.current === null) {
+      known.current = new Set(ids);
+      return;
+    }
+    const fresh = ids.filter((id) => !known.current!.has(id));
+    for (const id of ids) known.current.add(id);
+    if (fresh.length) {
+      dropBlankStart();
+      fresh.forEach((id) => follow(`browser:${id}`));
+    }
+  }, [tabs, dropBlankStart, follow, port]);
+  // Where the agent is looking, followed as it moves: a new page, or the same
+  // tab sent somewhere else.
+  const lastAgent = useRef<string | null>(null);
+  useEffect(() => {
+    const before = lastAgent.current;
+    lastAgent.current = agentAt;
+    if (!before || !agentAt || before === agentAt) return;
+    dropBlankStart();
+    follow(`browser:${agentTarget}`);
+  }, [agentAt, agentTarget, dropBlankStart, follow]);
+  // Preview claims hide fresh tabs until settlement; both followers must capture
+  // the revealed notification before its openings retire.
+  useEffect(() => { if (allTabs !== UNREAD_TABS) observePageTabs(port, allTabs, !preview.pending); }, [port, allTabs, preview.pending]);
+  const noteHost = useCallback(
+    (id: string, host: string) =>
+      setHosts((v) => (v[id] === host ? v : { ...v, [id]: host })),
+    [],
+  );
+  const surfaces = useMemo<Surface[]>(
+    () =>
+      [
+        ...browsers.map((id) => ({ kind: "manual", id }) as const),
+        ...tabs.map((tab) => ({ kind: "browser", tab }) as const),
+        ...openFiles.map((path) => ({ kind: "file", path }) as const),
+      ].filter((s) => !dismissed.has(keyOf(s))),
+    [browsers, tabs, openFiles, dismissed],
+  );
+  const active =
+    surfaces.find((s) => keyOf(s) === selected) ??
+    surfaces.find((s) => s.kind === "browser" && s.tab.active) ??
+    surfaces[0];
+  // A document opens rendered: it is read far more often than edited, and the
+  // source view is one click away.
+  const filePath = active?.kind === "file" ? active.path : "";
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+  // A right-click over text selected in an open file offers to bring that passage into the
+  // conversation; anywhere else, or with nothing selected, the browser's own menu stays.
+  const offerSelectionMenu = (e: MouseEvent<HTMLElement>) => {
+    if (!onQuoteSelection || !filePath) return;
+    const selection = document.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!selection || selection.isCollapsed || !text || !e.currentTarget.contains(selection.anchorNode)) return;
+    e.preventDefault();
+    setSelectionMenu({ text, x: e.clientX, y: e.clientY, anchor: e.currentTarget });
+  };
+  const readable = /\.(md|markdown|mdx)$/i.test(filePath);
+  const previewable = !!filePath && preview.can(filePath);
+  useEffect(() => {
+    setMode((m) => {
+      const kept = (m === "read" && !readable) || (m === "preview" && !previewable) ? "file" : m;
+      return kept === "file" ? (readable ? "read" : previewable ? "preview" : "file") : kept;
+    });
+  }, [filePath, readable, previewable]);
+  const previewTab = previewable ? preview.tabFor(filePath) : undefined;
+  const { open: openPreview, sync: syncPreview } = preview;
+  const { file, draft, diff, busy, error: fileFailed, setDraft, save } = useWorkbenchFiles({
+    port, workspaceRoot, path: isWorkspaceImage(filePath) ? "" : filePath, openPaths: openFiles, shown, refresh: JSON.stringify([changeKey, glance, running, wrote]),
+    poll: (readable && mode === "read") || (previewable && mode === "preview"),
+  });
+  const revision = file?.revision;
+  useEffect(() => {
+    if (mode !== "preview" || !previewable || !shown || showFiles || launcher || previewTab || (!revision && !fileFailed && !failed)) return;
+    openPreview(filePath, revision).catch((e) => {
+      setFailed(reason(e));
+      setMode("file");
+    });
+  }, [mode, previewable, shown, showFiles, launcher, previewTab, revision, fileFailed, failed, filePath, openPreview, tabs]);
+  useEffect(() => {
+    if (mode === "preview" && revision) syncPreview(filePath, revision);
+  }, [mode, filePath, revision, syncPreview]);
+  const rows = useMemo(
+    () => treeRows(files, directories, query, collapsed),
+    [files, directories, query, collapsed],
+  );
+  useEffect(() => onSurfaces(surfaces.length), [onSurfaces, surfaces.length]);
+  // A strip wider than the column scrolls, and the tab being shown is always
+  // brought into it: a selected tab nobody can see reads as a tab that closed.
+  const strip = useRef<HTMLDivElement>(null);
+  const activeKey = active ? keyOf(active) : "";
+  useEffect(() => {
+    strip.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeKey, surfaces.length]);
+  // Picking a file is asking to read it. Docked, the list and the file share one
+  // column, so the list steps aside; side by side it stays where it is.
+  const openFile = useCallback((path: string) => {
+    setOpenFiles((v) => (v.includes(path) ? v : [...v, path]));
+    setDismissed((v) => {
+      const n = new Set(v);
+      n.delete(`file:${path}`);
+      return n;
+    });
+    pick(`file:${path}`);
+  }, [pick]);
+  useEffect(() => { if (fileRequest) openFile(fileRequest.path); }, [fileRequest, openFile]);
+  // A rendered document's own links open beside it and its images load from the
+  // tree. Held stable per document, so typing re-renders the text alone.
+  const openRef = useRef(openFile);
+  openRef.current = openFile;
+  const docRefs = useMemo<LocalRefs>(
+    () => ({
+      link: (href) => {
+        const to = docRef(filePath, href);
+        return to ? () => openRef.current(to) : null;
+      },
+      image: (src) => {
+        const at = docRef(filePath, src);
+        return at ? port.workspaceImageURL(at) : null;
+      },
+    }),
+    [filePath, port],
+  );
+  const toggleFolder = async (path: string) => {
+    if (listedScope.current !== scope) return;
+    const ticket = Symbol();
+    folderRequests.set(path, ticket);
+    const current = () => currentScope.current === scope && folderRequests.get(path) === ticket;
+    if (!collapsed.has(path)) {
+      setCollapsed((v) => new Set(v).add(path));
+      return;
+    }
+    try {
+      const result = await port.workspaceFiles(path, "", hidden);
+      if (!current()) return;
+      setFiles((v) => [...new Set([...v, ...result.files])]);
+      setDirectories((v) => [...new Set([...v, ...result.directories])]);
+      setCollapsed((v) => {
+        const n = new Set(v);
+        n.delete(path);
+        result.directories.forEach((dir) => n.add(dir));
+        return n;
+      });
+      setListFailed("");
+    } catch (e) {
+      if (current()) setListFailed(reason(e));
+    }
+  };
+  // Native views support sites that refuse framing; web hosts retain the iframe fallback.
+  const openingBrowser = useRef<Promise<BrowserTab> | null>(null);
+  const addBrowser = async () => {
+    supersede();
+    const valid = current();
+    if (!host().drawsBrowserViews()) {
+      const id = `b${(minted.current += 1)}`;
+      setBrowsers((v) => [...v, id]);
+      pick(`manual:${id}`);
+      return;
+    }
+    const page = openingBrowser.current ??= openPage(port, "about:blank");
+    try {
+      const tab = await page;
+      if (valid()) pick(`browser:${tab.target}`);
+    } catch (e) {
+      if (valid()) setFailed(reason(e));
+    } finally {
+      if (openingBrowser.current === page) openingBrowser.current = null;
+    }
+  };
+  const { close: closeTabs, closing, closeFailure } = useTabClose({ port, surfaces, selected, showFiles: showFiles || launcher, setBrowsers, setOpenFiles, setDismissed, setSelected, onCloseManual, onCloseSelected: () => setFailed("") });
+  const close = (targets: Surface[]) => { supersede(); return closeTabs(targets); };
+  const dismissTabMenu = useCallback(() => setTabMenu(null), []);
+  const [tabMenu, setTabMenu] = useState<{ surface: Surface; x: number; y: number; anchor: HTMLElement } | null>(null);
+  const pages = surfaces.filter((s) => s.kind !== "file");
+  const tabAt = tabMenu ? surfaces.findIndex((s) => keyOf(s) === keyOf(tabMenu.surface)) : -1;
+  const tabOthers = tabMenu ? pages.filter((s) => keyOf(s) !== keyOf(tabMenu.surface)) : [];
+  const tabRight = tabAt < 0 ? [] : surfaces.slice(tabAt + 1).filter((s) => s.kind !== "file");
+  const returning = useRef("");
+  useEffect(() => {
+    if (tabMenu && tabAt < 0) setTabMenu(null);
+    if (tabMenu || closing || !returning.current) return;
+    const picks = [...document.querySelectorAll<HTMLButtonElement>(".workbench-tab-pick")];
+    const back = picks.find((b) => b.dataset.target === returning.current) ?? picks.find((b) => b.closest('[aria-selected="true"]'));
+    returning.current = "";
+    (back ?? newTab.current)?.focus();
+  }, [tabMenu, tabAt, surfaces, closing]);
+  const offerTabMenu = (e: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, surface: Surface) => {
+    if (surface.kind === "file" || closing || document.getSelection()?.isCollapsed === false) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const anchor = e.currentTarget.matches("button") ? e.currentTarget : e.currentTarget.querySelector<HTMLElement>(".workbench-tab-pick")!;
+    const rect = anchor.getBoundingClientRect();
+    const pointed = "clientX" in e && (e.clientX !== 0 || e.clientY !== 0);
+    setTabMenu({ surface, x: pointed ? e.clientX : rect.left, y: pointed ? e.clientY : rect.bottom, anchor });
+  };
+  return (
+    <section className="workbench" aria-label={t("工作台")} data-action-keydown="layer.dismiss" onKeyDown={(e) => {
+      if (launcher && e.key === "Escape") { e.stopPropagation(); toggleLauncher(); newTab.current?.focus(); }
+    }}>
+      <header className="workbench-tabs">
+        <div
+          className="workbench-tablist"
+          role="tablist"
+          ref={strip}
+          onWheel={(e) => {
+            if (e.deltaY && strip.current) strip.current.scrollLeft += e.deltaY;
+          }}
+        >
+        {surfaces.map((surface) => (
+          <div
+            className="workbench-tab"
+            key={keyOf(surface)}
+            role="tab"
+            aria-selected={!launcher && surface === active}
+            data-live={surface.kind === "browser" && surface.tab.active ? "" : undefined}
+            data-action-contextmenu="workbench.browser-menu" data-target={keyOf(surface)}
+            onContextMenu={(e) => offerTabMenu(e, surface)}
+          >
+            <button
+              className="workbench-tab-pick"
+              data-action-click="workbench.tab"
+              data-action-keydown="workbench.browser-menu"
+              data-target={keyOf(surface)}
+              title={
+                surface.kind === "browser"
+                  ? `${surface.tab.active ? `${t("模型正在操作这个页面")}
+` : ""}${surface.tab.url}`
+                  : labelOf(surface, hosts)
+              }
+              aria-haspopup={surface.kind === "file" ? undefined : "menu"}
+              aria-expanded={surface.kind === "file" ? undefined : tabMenu !== null && keyOf(tabMenu.surface) === keyOf(surface)}
+              onClick={() => pick(keyOf(surface))}
+              onKeyDown={(e) => { if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) offerTabMenu(e, surface); }}
+            >
+              <StudioIcon name={surface.kind === "file" ? "file" : "globe"} />
+              <span>{labelOf(surface, hosts)}</span>
+            </button>
+            <button
+              className="workbench-tab-close"
+              data-action="workbench.close"
+              data-target={keyOf(surface)}
+              aria-label={t("关闭 {name}", { name: labelOf(surface, hosts) })}
+              title={t("关闭")}
+              disabled={closing}
+              onClick={() => void close([surface])}
+            >
+              <StudioIcon name="close" />
+            </button>
+          </div>
+        ))}
+        </div>
+        {wideMode && <BrowserWideToggle {...wideMode} />}
+        <button
+          className="workbench-files"
+          data-action="workbench.files"
+          aria-pressed={showFiles && !launcher}
+          aria-label={t("文件")}
+          title={t("文件")}
+          onClick={toggleExplorer}
+        >
+          <StudioIcon name="folder" />
+        </button>
+        <button
+          className="workbench-new"
+          data-action="workbench.new"
+          ref={newTab}
+          aria-label={t("新建标签")}
+          title={t("新建标签")}
+          aria-expanded={launcher}
+          onClick={toggleLauncher}
+        >
+          <StudioIcon name="plus" />
+        </button>
+      </header>
+      {closeFailure && <div className="workbench-error workbench-close-error" role="alert">{closeFailure}</div>}
+      <div className="workbench-body" data-files={showFiles && !launcher ? "" : undefined}>
+        <main className="workbench-canvas">
+          {failed && (launcher || active?.kind !== "file") && (
+            <div className="workbench-error" role="alert">
+              {failed}
+            </div>
+          )}
+          {(launcher || !active) && (
+            <WorkbenchLauncher
+              key={String(launcher)} focus={launcher}
+              changes={changes.length}
+              onFiles={chooseFiles}
+              onChanges={() => changes[0] && openFile(changes[0].path)}
+              onBrowser={() => void addBrowser()}
+            />
+          )}
+          <div className="workbench-content" hidden={launcher || !active} data-action-contextmenu="workbench.quote-selection" onContextMenu={offerSelectionMenu}>
+          {browsers.map((id) => (
+            <ManualBrowserPanel
+              key={id}
+              id={id}
+              hidden={!(active?.kind === "manual" && active.id === id)}
+              onAddress={noteHost}
+              onExternal={onExternal}
+              scheme={scheme}
+            />
+          ))}
+          {active?.kind === "browser" && (
+            <AgentBrowserPanel
+              tabs={[active.tab]}
+              shown={shown && !launcher}
+              showTabs={false}
+            />
+          )}
+          {active?.kind === "file" && (isWorkspaceImage(active.path) ? <WorkspaceImage key={active.path} port={port} path={active.path} /> : (
+            <>
+              <WorkbenchFileBar
+                path={active.path}
+                mode={mode}
+                onMode={setMode}
+                readable={readable}
+                previewable={previewable}
+                canSave={!busy && file?.path === active.path && draft !== file.content}
+                onSave={() => void save()}
+              />
+              {(fileFailed || failed) && !(mode === "preview" && previewTab) && (
+                <div className="workbench-error" role="alert">
+                  {fileFailed || failed}
+                </div>
+              )}
+              {mode === "preview" ? (
+                previewTab ? (
+                  <AgentBrowserPanel tabs={[previewTab]} shown={shown && !launcher} showTabs={false} />
+                ) : (
+                  <div className="workbench-empty">{t("正在读取…")}</div>
+                )
+              ) : busy && !file ? (
+                <div className="workbench-empty">{t("正在读取…")}</div>
+              ) : mode === "diff" ? (
+                <div className="workbench-diff">
+                  <DiffView path={active.path} diff={diff} />
+                </div>
+              ) : mode === "read" && file && file.path === active.path ? (
+                <div className="workbench-read">
+                  <LazyMarkdown text={draft} local={docRefs} />
+                </div>
+              ) : file && file.path === active.path ? (
+                <Suspense fallback={<div className="workbench-empty">{t("正在读取…")}</div>}>
+                  <CodeEditor
+                    key={active.path}
+                    path={active.path}
+                    value={draft}
+                    dark={scheme === "dark"}
+                    onChange={setDraft}
+                    onSave={() => void save()}
+                  />
+                </Suspense>
+              ) : null}
+            </>
+          ))}
+          </div>
+        </main>
+        <aside className="workbench-explorer">
+          <WorkbenchExplorerHead
+            port={port}
+            count={files.length + directories.length}
+            revealable={revealable}
+            hidden={hidden}
+            onHidden={(on) => {
+              setShowsHiddenFiles(on);
+              setHidden(on);
+            }}
+            onReveal={() => reveal("")}
+          />
+          <label className="workbench-search">
+            <StudioIcon name="search" />
+            <input
+              aria-label={t("搜索文件")}
+              data-action="workbench.search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("搜索文件")}
+            />
+            {query && (
+              <button data-action="workbench.clear-search" aria-label={t("清除搜索")} onClick={() => setQuery("")}>
+                <StudioIcon name="close" />
+              </button>
+            )}
+          </label>
+          {listFailed && (
+            <div className="workbench-error" role="alert">
+              {listFailed}
+            </div>
+          )}
+          {/* What differs, without opening anything. The tree marks a changed
+              file only once its folder is expanded, so a change three levels
+              down was invisible until someone went looking for it. */}
+          {changes.length > 0 && (
+            <WorkbenchChanges
+              port={port}
+              changes={changes}
+              current={active?.kind === "file" && mode === "diff" ? active.path : ""}
+              onOpen={(path) => {
+                openFile(path);
+                setMode("diff");
+              }}
+              onChanged={onTreeChanged}
+              commit={commit}
+            />
+          )}
+          {!remote && <WorkbenchHistory port={port} />}
+          <div className="workbench-filelist">
+            {rows.map((row) =>
+              row.kind === "folder" ? (
+                <button
+                  className="workbench-tree-row"
+                  data-action-click="workbench.folder"
+                  data-target={row.path}
+                  key={`d:${row.path}`}
+                  style={{ paddingInlineStart: 8 + row.depth * 14 }}
+                  aria-expanded={!collapsed.has(row.path)}
+                  onClick={() => void toggleFolder(row.path)}
+                  data-action-contextmenu="workbench.menu"
+                  onContextMenu={(e) => offerMenu(e, row.path, true)}
+                >
+                  <StudioIcon
+                    name={collapsed.has(row.path) ? "chevron" : "down"}
+                  />
+                  <StudioIcon name="folder" />
+                  <span>{row.name}</span>
+                </button>
+              ) : (
+                <button
+                  className="workbench-tree-row"
+                  data-action-click="workbench.file"
+                  data-target={row.path}
+                  key={row.path}
+                  style={{ paddingInlineStart: 8 + row.depth * 14 }}
+                  title={row.path}
+                  aria-current={
+                    active?.kind === "file" && active.path === row.path
+                      ? "page"
+                      : undefined
+                  }
+                  onClick={() => openFile(row.path)}
+                  data-action-contextmenu="workbench.menu"
+                  onContextMenu={(e) => offerMenu(e, row.path, false)}
+                >
+                  <span />
+                  <StudioIcon name="file" />
+                  <span>{row.name}</span>
+                  {changes.find((item) => item.path === row.path) && (
+                    <em>
+                      {changes.find((item) => item.path === row.path)?.status ||
+                        "M"}
+                    </em>
+                  )}
+                </button>
+              ),
+            )}
+            {!rows.length && (
+              <p className="workbench-no-files">{t("没有匹配的文件")}</p>
+            )}
+          </div>
+          {menu?.scope === scope && shown && (
+            <WorkbenchFileMenu key={menu.id} menu={menu} root={workspaceRoot}
+              revealable={revealable} platform={platform} onReveal={reveal} onAddToChat={onAddToChat} onClose={closeMenu} />
+          )}
+        </aside>
+      </div>
+      {selectionMenu && shown && onQuoteSelection && filePath && (
+        <WorkbenchSelectionMenu menu={selectionMenu} onQuote={(text) => onQuoteSelection(text, filePath)} onClose={() => setSelectionMenu(null)} />
+      )}
+      {tabMenu && <BrowserTabMenu menu={tabMenu} others={tabOthers.length > 0} right={tabRight.length > 0} onDismiss={dismissTabMenu} onClose={(mode) => {
+        const target = tabMenu.surface;
+        returning.current = keyOf(target);
+        setTabMenu(null);
+        void close(mode === "one" ? [target] : mode === "others" ? tabOthers : mode === "right" ? tabRight : pages);
+      }} />}
+    </section>
+  );
+}

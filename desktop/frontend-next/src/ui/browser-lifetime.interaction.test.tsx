@@ -1,0 +1,134 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import "./testkit";
+import { WorkbenchPanel } from "./WorkbenchPanel";
+import { MockPort } from "../port/mock";
+import { host } from "../port/host";
+import { HttpError, type BrowserTab } from "../port/port";
+import { observePageTabs, openPage, unseenPageOpenings } from "./browser_open";
+const agent: BrowserTab = {id:'a', target:'ta', url:'https://agent.example', title:'Agent', active:true};
+const page: BrowserTab = {id:'b', target:'tb', url:'file:///w/index.html', title:'Failed preview', active:false};
+const props = {manual:false, shown:true, scheme:'dark' as const, changes:[], onSurfaces:vi.fn(), onCloseManual:vi.fn(), onExternal:vi.fn()};
+const filesShown = () => document.querySelector('.workbench-body')!.hasAttribute('data-files');
+afterEach(() => {cleanup(); vi.restoreAllMocks();});
+it.each(['event-first', 'reply-first'])('preserves newer Files when preview workspace lookup delays browser request: %s', async (order) => {
+  vi.spyOn(host(), 'drawsBrowserViews').mockReturnValue(true);
+  const port = new MockPort();
+  vi.spyOn(port, 'workspaceFiles').mockResolvedValue({files:['index.html'],directories:[]});
+  vi.spyOn(port, 'workspaceFile').mockResolvedValue({path:'index.html',content:'hello',revision:'r1'});
+  let root!: (v: Awaited<ReturnType<MockPort['workspaces']>>) => void;
+  const workspaces = vi.spyOn(port, 'workspaces').mockReturnValue(new Promise(done => {root=done;}));
+  let fail!: (e: unknown) => void;
+  const open = vi.spyOn(port,'browserOpen').mockReturnValue(new Promise((_,reject)=>{fail=reject;}));
+  const {rerender} = render(<WorkbenchPanel {...props} port={port} tabs={[agent]} />);
+  fireEvent.click(await screen.findByRole('button',{name:'index.html'}));
+  await waitFor(()=>expect(workspaces).toHaveBeenCalled());
+  expect(open).not.toHaveBeenCalled();
+  fireEvent.click(document.querySelector('[data-action="workbench.files"]')!);
+  expect(filesShown()).toBe(true);
+  await act(async()=>root({current:'/w',canSwitch:true,canIsolate:true,recents:[]}));
+  expect(open).toHaveBeenCalledOnce();
+  if(order==='event-first') rerender(<WorkbenchPanel {...props} port={port} tabs={[agent,page]} />);
+  await act(async()=>fail(new HttpError(400,'failed',{code:'browser.open_failed',params:{tab:page.id}})));
+  if(order==='reply-first') rerender(<WorkbenchPanel {...props} port={port} tabs={[agent,page]} />);
+  await act(async()=>{});
+  expect(filesShown()).toBe(true);
+  expect(screen.getByRole('tab',{name:'Failed preview'}).getAttribute('aria-selected')).toBe('false');
+});
+it('retires an opening whose tab was observed then closed before the response', async()=>{
+  const port=new MockPort(); let done!: (v:BrowserTab)=>void;
+  vi.spyOn(port,'browserOpen').mockReturnValue(new Promise(resolve=>{done=resolve;}));
+  const {rerender}=render(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent]} />);
+  const pending=openPage(port,page.url);
+  fireEvent.click(document.querySelector('[data-action="workbench.files"]')!);
+  rerender(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent,page]} />);
+  rerender(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent]} />);
+  await act(async()=>{done(page);await pending;});
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+});
+it.each(['resolve', 'reject'])('preserves new mounted panel Files selection after an old open %s', async(outcome)=>{
+  const port=new MockPort(); let done!: (v:BrowserTab)=>void; let fail!: (e:unknown)=>void;
+  vi.spyOn(port,'browserOpen').mockReturnValue(new Promise((resolve,reject)=>{done=resolve;fail=reject;}));
+  const pending=openPage(port,page.url).catch(()=>{});
+  const initial=render(<WorkbenchPanel {...props} manual shown={false} port={port} tabs={[agent]} />);
+  initial.unmount();
+  const {rerender}=render(<WorkbenchPanel {...props} manual shown={false} port={port} tabs={[agent]} />);
+  fireEvent.click(document.querySelector('[data-action="workbench.files"]')!);
+  rerender(<WorkbenchPanel {...props} manual shown={false} port={port} tabs={[agent,page]} />);
+  await act(async()=>{if(outcome==='resolve') done(page); else fail(new HttpError(400,'failed',{code:'browser.open_failed',params:{tab:page.id}})); await pending;});
+  expect(filesShown()).toBe(true);
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+  rerender(<WorkbenchPanel {...props} manual shown={false} port={port} tabs={[{...agent,active:false},{...page,active:true,url:'https://legitimate.example'}]} />);
+  await act(async()=>{});
+  expect(filesShown()).toBe(false);
+  expect(screen.getByRole('tab',{name:'Failed preview'}).getAttribute('aria-selected')).toBe('true');
+});
+it.each(['resolve', 'reject'])('preserves latest Files choice across concurrent mixed opens that %s independently', async(outcome)=>{
+  const port=new MockPort(); const done: ((v:BrowserTab)=>void)[]=[]; const fail: ((e:unknown)=>void)[]=[];
+  vi.spyOn(port,'browserOpen').mockImplementation(()=>new Promise((resolve,reject)=>{done.push(resolve);fail.push(reject);}));
+  const first=openPage(port,page.url).catch(()=>{}); const second=openPage(port,'https://second.example').catch(()=>{});
+  const other={...page,id:'c',target:'tc',title:'Second'}; const genuine={...page,id:'d',target:'td',title:'Genuine'};
+  const {rerender}=render(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent]} />);
+  fireEvent.click(document.querySelector('[data-action="workbench.files"]')!);
+  rerender(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent,page]} />);
+  await act(async()=>{done[0](page);await first;});
+  expect(filesShown()).toBe(true);
+  rerender(<WorkbenchPanel {...props} shown={false} port={port} tabs={[agent,page,other,genuine]} />);
+  await act(async()=>{if(outcome==='resolve')done[1](other);else fail[1](new HttpError(400,'failed',{code:'browser.open_failed',params:{tab:other.id}}));await second;});
+  expect(filesShown()).toBe(false);
+  expect(screen.getByRole('tab',{name:'Genuine'}).getAttribute('aria-selected')).toBe('true');
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+});
+
+it.each(['fulfilled', 'rejected'])('remembers raw observations through a claim and close until %s settlement reconciles', async (outcome) => {
+  const port = new MockPort();
+  let done!: (tab: BrowserTab) => void, fail!: (error: unknown) => void;
+  vi.spyOn(port, 'browserOpen').mockReturnValue(new Promise((resolve, reject) => {done=resolve; fail=reject;}));
+  const pending = openPage(port, page.url).catch(() => {});
+  observePageTabs(port, [page], false);
+  observePageTabs(port, [], false);
+  await act(async () => {
+    if (outcome === 'fulfilled') done(page);
+    else fail(new HttpError(400, 'failed', {code:'browser.open_failed',params:{tab:page.id}}));
+    await pending;
+  });
+  expect(unseenPageOpenings(port)).toHaveLength(1);
+  observePageTabs(port, [], true);
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+});
+
+it('does not reuse historical observations for a new opening with the same public ID', async () => {
+  const port = new MockPort();
+  let done!: (tab: BrowserTab) => void;
+  vi.spyOn(port, 'browserOpen').mockImplementation(() => new Promise(resolve => {done=resolve;}));
+  const first = openPage(port, page.url);
+  observePageTabs(port, [page]);
+  observePageTabs(port, []);
+  await act(async () => {done(page); await first;});
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+  const next = openPage(port, page.url);
+  await act(async () => {done(page); await next;});
+  expect(unseenPageOpenings(port)).toHaveLength(1);
+  observePageTabs(port, [page]);
+  expect(unseenPageOpenings(port)).toHaveLength(0);
+});
+
+it('follows a genuine agent tab while an older preview is still preparing its workspace', async () => {
+  vi.spyOn(host(), 'drawsBrowserViews').mockReturnValue(true);
+  const port = new MockPort();
+  vi.spyOn(port, 'workspaceFiles').mockResolvedValue({files:['index.html'],directories:[]});
+  vi.spyOn(port, 'workspaceFile').mockResolvedValue({path:'index.html',content:'hello',revision:'r1'});
+  let root!: (value: Awaited<ReturnType<MockPort['workspaces']>>) => void;
+  const lookup = vi.spyOn(port, 'workspaces').mockReturnValue(new Promise(done => {root=done;}));
+  const open = vi.spyOn(port, 'browserOpen').mockResolvedValue(page);
+  const {rerender} = render(<WorkbenchPanel {...props} port={port} tabs={[agent]} />);
+  fireEvent.click(await screen.findByRole('button',{name:'index.html'}));
+  await waitFor(()=>expect(lookup).toHaveBeenCalled());
+  fireEvent.click(document.querySelector('[data-action="workbench.files"]')!);
+  const fresh = {...agent,id:'fresh',target:'tf',title:'Fresh',active:false};
+  rerender(<WorkbenchPanel {...props} port={port} tabs={[agent,fresh]} />);
+  await waitFor(()=>expect(screen.getByRole('tab',{name:'Fresh'}).getAttribute('aria-selected')).toBe('true'));
+  expect(open).not.toHaveBeenCalled();
+  await act(async()=>root({current:'/w',canSwitch:true,canIsolate:true,recents:[]}));
+});

@@ -1,0 +1,4 @@
+.surface-kit { min-width: 0; overflow-wrap: anywhere; font-family: var(--mantine-font-family); }
+.surface-kit .xview, .surface-kit .xv-stack { gap: var(--mantine-spacing-lg); }
+.surface-kit .xv-row > * { min-width: 0; }
+.surface-kit .mantine-Textarea-input { resize: vertical; }

@@ -1,0 +1,51 @@
+.rich-workspace { container-type: inline-size; min-width: 0; }
+.rich-expanded { position: fixed; inset: 20px; z-index: 1000; overflow: auto; background: var(--surface); }
+.rich-split { display: grid; gap: 20px; min-width: 0; }
+.rich-map { height: 400px; border-radius: var(--mantine-radius-md); overflow: hidden; position: relative; background: var(--mantine-color-default-hover); }
+.rich-map .maplibregl-map { font-family: var(--ui); }
+.rich-map-status { position: absolute; top: 12px; left: 12px; right: 52px; z-index: 1; }
+.rich-map-list { max-height: 430px; overflow: auto; padding: 2px; }
+.rich-stop[data-active="true"] { background: color-mix(in srgb, var(--mantine-color-teal-light) 30%, var(--mantine-color-body)); }
+.rich-map-pin { border: 2px solid white; box-shadow: 0 2px 8px #0003; }
+.rich-table { overflow: auto; max-height: 440px; }
+.rich-table table { width: 100%; min-width: 360px; border-collapse: collapse; font-size: 13px; }
+.rich-table th, .rich-table td { padding: 12px; text-align: start; border-bottom: 1px solid var(--mantine-color-default-border); overflow-wrap: anywhere; max-width: 320px; }
+.rich-table th { background: var(--mantine-color-default-hover); font-weight: 500; }
+.rich-chart { min-width: 0; }
+@container (min-width: 700px) { .rich-split { grid-template-columns: minmax(0, 1.3fr) minmax(260px, .8fr); } .rich-map { height: 490px; } .rich-map-list { max-height: 420px; } }
+@media (max-width: 600px) { .rich-expanded { inset: 6px; } .rich-map { height: 300px; } }
+
+.rich-workspace-body { padding: 8px 0; background: transparent; }
+.rich-heading { padding-bottom: 8px; }
+.rich-eyebrow { letter-spacing: .08em; }
+.rich-title { font-size: clamp(20px, 3cqi, 28px); font-weight: 600; letter-spacing: -.025em; line-height: 1.3; }
+.rich-expanded { border: 1px solid var(--mantine-color-default-border); border-radius: 16px; box-shadow: 0 20px 80px #0003; padding: 28px; }
+.rich-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; background: var(--mantine-color-default-hover); border-radius: 12px; }
+.rich-metric { background: transparent; }
+.rich-metric-value { font-size: clamp(20px, 4cqi, 36px); letter-spacing: -.04em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rich-chart { padding-inline: 0; background: transparent; }
+.rich-products { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.rich-product { border: 1px solid var(--mantine-color-default-border); background: var(--mantine-color-body); }
+.rich-product[data-selected="true"] { border-color: var(--mantine-color-teal-6); background: color-mix(in srgb, var(--mantine-color-teal-light) 30%, var(--mantine-color-body)); }
+.rich-product-price { font-size: 30px; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.rich-stop { background: transparent; border-bottom: 1px solid var(--mantine-color-default-border); }
+@container (min-width: 540px) { .rich-products { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 980px) { .rich-products { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: 420px) { .rich-metrics { gap: 0; } .rich-metric { padding: 10px; } }
+
+.rich-table thead th { position: sticky; top: 0; z-index: 1; background: var(--mantine-color-body); }
+.rich-table tbody th { position: sticky; left: 0; background: var(--mantine-color-body); }
+.rich-table tr[data-different="true"] td { background: color-mix(in srgb, var(--mantine-color-teal-light) 16%, transparent); }
+.rich-product .mantine-Title-root { overflow-wrap: anywhere; }
+.rich-heading > :first-child { min-width: 0; }
+.rich-heading button { flex-shrink: 0; }
+
+.rich-map-overview { position: absolute; left: 12px; bottom: 28px; z-index: 1; box-shadow: 0 2px 8px #0002; }
+
+.rich-option-media { aspect-ratio: 4 / 3; overflow: hidden; border-radius: 10px; background: var(--mantine-color-default-hover); display: grid; place-items: center; color: var(--mantine-color-dimmed); font-size: 12px; }
+.rich-option-media img { width: 100%; height: 100%; display: block; min-height: 0; }
+
+.rich-option-source { display: block; margin-top: 6px; color: var(--mantine-color-dimmed); font-size: 11px; overflow-wrap: anywhere; }
+
+.rich-photo-trigger { width: 100%; cursor: zoom-in; }
+.rich-photo-viewer { aspect-ratio: auto; height: min(65vh, 720px); }

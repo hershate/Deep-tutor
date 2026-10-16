@@ -1,0 +1,9 @@
+.call[data-k="me"] .out .skillpin { width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: var(--r-md); background: var(--raised); color: var(--text); }
+.skillpin > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; font: var(--w-med) var(--fs-ui) var(--ui); }
+.skillpin > summary::-webkit-details-marker { display: none; }
+.skillpin .studio-icon { width: 14px; height: 14px; color: var(--accent-ink); flex: none; }
+.skillpin-args { color: var(--muted); font-weight: var(--w-reg); overflow-wrap: anywhere; }
+.skillpin-more { margin-left: auto; padding-left: 12px; color: var(--faint); font: var(--w-reg) var(--fs-meta) var(--ui); }
+.skillpin[open] .skillpin-more { visibility: hidden; }
+.skillpin-desc { margin: 8px 0 0; color: var(--muted); font-size: var(--fs-meta); }
+.skillpin-text { max-height: 280px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: var(--w-reg) 11.5px/1.6 var(--mono); }

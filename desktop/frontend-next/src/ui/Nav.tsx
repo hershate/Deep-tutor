@@ -1,0 +1,84 @@
+import { t } from "../i18n";
+import { FeedbackBadge } from "./feedbackentry";
+import { ICON, type Section } from "./prefsnav";
+import { StudioIcon } from "./StudioIcon";
+
+// Settings entries share their destination's mark with prefsnav.
+const CHAT = "M3.2 4.4a1.2 1.2 0 0 1 1.2-1.2h7.2a1.2 1.2 0 0 1 1.2 1.2v5a1.2 1.2 0 0 1-1.2 1.2H7.2L4.4 13v-2.4a1.2 1.2 0 0 1-1.2-1.2Z";
+type Mark = "chat" | "files" | Section;
+
+// Every entry goes somewhere that exists. A rail of icons that open nothing is
+// the cheapest thing to draw and the most expensive thing to keep.
+const TO: [Mark, string, string | null, string?][] = [
+  ["chat", "会话", null],
+  ["usage", "用量", "usage"],
+  ["files", "文件", "files", "files.open"],
+  ["tools", "工具与权限", "tools"],
+  ["ext", "扩展", "ext"],
+  ["memory", "记忆", "memory"],
+  ["remote", "远程", "remote"],
+];
+
+const FOOT: [Mark, string, string, string][] = [
+  ["account", "账号", "account", "chrome.account"],
+  ["advanced", "设置", "", "chrome.settings"],
+];
+
+interface Props {
+  at: string | null;
+  onGo: (sec?: string) => void;
+  onFiles: () => void;
+  onHome: () => void;
+  /** The conversation item already shows the conversation, so pressing it again
+   *  does what the rail beside it can: open or close the workspace column. */
+  onRail: () => void;
+  onFeedback: () => void;
+  /** Opens the study tutor sheet. */
+  onTutor: () => void;
+  /** A new session in the window's folder, the same action as the sidebar's. */
+  onNew: () => void;
+  feedbackUnread: number;
+  /** False keeps the column mounted but out of the way and out of reach. */
+  shown: boolean;
+}
+
+export function Nav({ at, onGo, onFiles, onHome, onRail, onFeedback, onTutor, onNew, feedbackUnread, shown }: Props) {
+  const btn = ([key, label, sec, action]: [Mark, string, string | null, string?]) => (
+    <button
+      key={key}
+      className="navbtn"
+      data-action={action}
+      aria-label={t(label)}
+      aria-current={(sec ?? null) === at ? "page" : undefined}
+      onClick={() => (key === "files" ? onFiles() : sec === null ? (at === null ? onRail() : onHome()) : onGo(sec || undefined))}
+    >
+      {key === "files" ? <StudioIcon name="file" aria-hidden="true" /> : <svg viewBox="0 0 16 16" aria-hidden="true">
+        {key === "chat" ? <path d={CHAT} /> : ICON[key]}
+      </svg>}
+      <span className="navhint" role="tooltip">{t(label)}</span>
+    </button>
+  );
+  return (
+    <nav className="nav" aria-label={t("主导航")} aria-hidden={shown ? undefined : true} inert={!shown}>
+      <div className="navgrp">
+        <button className="navbtn" data-action="session.new" aria-label={t("新建会话")} onClick={onNew}>
+          <StudioIcon name="plus" aria-hidden="true" />
+          <span className="navhint" role="tooltip">{t("新建会话")}</span>
+        </button>
+        {TO.map(btn)}
+      </div>
+      <div className="navgrp foot">
+        <button className="navbtn" data-action="tutor.open" aria-label={t("学习导师")} onClick={onTutor}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14 4.9v7L8 9.5 2 11.9v-7zM8 9.5v4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+          <span className="navhint" role="tooltip">{t("学习导师")}</span>
+        </button>
+        <button className="navbtn" data-action="feedback.open" onClick={onFeedback}>
+          <StudioIcon name="feedback" aria-hidden="true" />
+          <span className="navhint" role="tooltip">{t("发送反馈")}</span>
+          <FeedbackBadge unread={feedbackUnread} />
+        </button>
+        {FOOT.map(btn)}
+      </div>
+    </nav>
+  );
+}
