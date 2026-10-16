@@ -636,8 +636,8 @@ const due = await DeepTutor.api.get('/progress/review/due')
 
 - `path` 以 `/` 开头，相对 `/api` 前缀。
 - 失败抛出 `ApiError`（含 HTTP 状态码）；401 时若为过期的 JWT 会话，前端会自动跳转登录页（与自身请求行为一致）。
-- 后端 REST 端点全集见 [plan/03-api-frontend.md](plan/03-api-frontend.md) §一
-  （REST 端点为内部契约，可能随版本演进；插件应做好兼容）。
+- 后端 REST 端点全集见 [docs/archive/plan-v1/03-api-frontend.md](docs/archive/plan-v1/03-api-frontend.md) §一
+  （REST 端点为内部契约，可能随版本演进；插件应做好兼容；v2 端点设计见 plan/reasonix/03）。
 
 #### `api.request<T = unknown>(path: string, init?: ApiRequestInit): Promise<T>`（v1.2.0）
 
