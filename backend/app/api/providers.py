@@ -91,6 +91,17 @@ def _owned_or_404(db: Session, profile_id: int, user: User) -> models.LlmProvide
     return p
 
 
+# iter 368：写操作限流（30/min）+ 每用户档案数上限（防行数无界增长拖慢
+# get_provider 的 active 扫描与档案列表渲染；正常用量远达不到）
+_PROVIDER_WRITE_PER_MIN = 30
+_MAX_PROVIDERS_PER_USER = 50
+
+
+def _check_provider_write(user: User) -> None:
+    if not limiter.check(f"provider_write:{user.id}", _PROVIDER_WRITE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
+
+
 @router.get("")
 def list_providers(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     rows = (
@@ -128,6 +139,14 @@ def list_provider_kinds() -> dict:
 def create_provider(
     body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_provider_write(user)
+    if (
+        db.query(models.LlmProviderProfile).filter_by(user_id=user.id).count()
+        >= _MAX_PROVIDERS_PER_USER
+    ):
+        raise ApiError(
+            "quota_exceeded", f"供应商档案数量已达上限（{_MAX_PROVIDERS_PER_USER}），请先删除不再使用的档案"
+        )
     dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
     if dup is not None:
         raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409)
@@ -158,6 +177,7 @@ def update_provider(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    _check_provider_write(user)
     p = _owned_or_404(db, profile_id, user)
     if body.name is not None and body.name != p.name:
         dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
@@ -186,6 +206,7 @@ def update_provider(
 def delete_provider(
     profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_provider_write(user)
     p = _owned_or_404(db, profile_id, user)
     db.delete(p)
     db.commit()
@@ -197,6 +218,7 @@ def activate_provider(
     profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     """启用档案（同一用户内同时至多一个 active；启用后 get_provider(user_id) 走该档案）。"""
+    _check_provider_write(user)
     p = _owned_or_404(db, profile_id, user)
     for other in db.query(models.LlmProviderProfile).filter_by(user_id=user.id, is_active=True).all():
         other.is_active = False
@@ -208,6 +230,7 @@ def activate_provider(
 @router.post("/deactivate")
 def deactivate_providers(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """取消当前用户所有档案启用 -> get_provider 回退 .env（ANTHROPIC_API_KEY）。"""
+    _check_provider_write(user)
     for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id, is_active=True).all():
         p.is_active = False
     db.commit()

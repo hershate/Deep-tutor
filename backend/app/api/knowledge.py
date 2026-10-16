@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
 
@@ -29,6 +30,12 @@ _VALID_STATUS = {"not_started", "learning", "done"}
 
 # 笔记内容上限（err.md A5 同款思路：防无界 Text 写入）
 _MAX_NOTE_CHARS = 20_000
+
+# iter 368：读路径限流（聚合端点逐方案读 plan JSON 文件，重度用户秒级连点可打满文件 IO；
+# 30/min 仍宽于前端轮询与正常翻页）；导出为整页 Markdown 渲染（CPU 密集）10/min
+_KNOWLEDGE_LIST_PER_MIN = 30
+_KNOWLEDGE_EXPORT_PER_MIN = 10
+_NODE_NOTE_WRITE_PER_MIN = 60
 
 
 @router.get("")
@@ -48,6 +55,8 @@ def list_knowledge(
     """
     from app.api.plans import _load_plan_content
 
+    if not limiter.check(f"knowledge_list:{user.id}", _KNOWLEDGE_LIST_PER_MIN):
+        raise ApiError("rate_limited", "请求过于频繁，请稍后再试", status=429)
     query = (
         db.query(models.KnowledgeNode)
         .join(models.Plan, models.KnowledgeNode.plan_id == models.Plan.id)
@@ -152,6 +161,8 @@ def list_notes(
     """
     from app.api.plans import _load_plan_content
 
+    if not limiter.check(f"knowledge_list:{user.id}", _KNOWLEDGE_LIST_PER_MIN):
+        raise ApiError("rate_limited", "请求过于频繁，请稍后再试", status=429)
     rows = (
         db.query(models.NodeNote, models.KnowledgeNode)
         .join(models.KnowledgeNode, models.NodeNote.node_id == models.KnowledgeNode.id)
@@ -202,6 +213,8 @@ def export_knowledge_handbook(
     """
     from app.api.plans import _load_plan_content
 
+    if not limiter.check(f"knowledge_export:{user.id}", _KNOWLEDGE_EXPORT_PER_MIN):
+        raise ApiError("rate_limited", "导出过于频繁，请稍后再试", status=429)
     nodes = (
         db.query(models.KnowledgeNode)
         .join(models.Plan, models.KnowledgeNode.plan_id == models.Plan.id)
@@ -327,6 +340,8 @@ def put_node_note(
     并发：先查后插竞态由 uq_node_notes_user_node 唯一约束兜底（同 progress A11 模式），
     撞约束时回滚后按更新重放。
     """
+    if not limiter.check(f"node_note_write:{user.id}", _NODE_NOTE_WRITE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     _owned_node_or_404(db, node_id, user)
     content = body.content.strip()
     note = db.query(models.NodeNote).filter_by(user_id=user.id, node_id=node_id).first()

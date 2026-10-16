@@ -57,6 +57,17 @@ async def lifespan(app: FastAPI):
             "（python -c \"import secrets; print(secrets.token_hex(32))\"）",
             settings.auth_token,
         )
+    # iter 368：JWT_SECRET 弱值告警（显式 env 配置才可能弱——空值走 .jwt_secret
+    # 持久化随机串，进程级随机兜底，均安全）。过短或常见默认值可被离线伪造全部 JWT
+    if settings.jwt_secret and (
+        settings.jwt_secret.strip().lower()
+        in {"secret", "jwt-secret", "change-me", "changeme", "change-me-please", "test", "123456"}
+        or len(settings.jwt_secret) < 32
+    ):
+        log.warning(
+            "JWT_SECRET 为弱值（过短或常见默认串），可被离线暴力破解后伪造任意用户 JWT——"
+            "请改为随机长串（python -c \"import secrets; print(secrets.token_hex(32))\"）"
+        )
     settings.ensure_dirs()
     # err.md C2：启动即执行 alembic 迁移（旧库增量加列/建表），不再仅依赖
     # scripts/start.* 的前置迁移；随后 init_db 兜底保证模型定义的表齐全

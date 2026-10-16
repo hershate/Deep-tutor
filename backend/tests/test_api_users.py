@@ -7,7 +7,7 @@ from app.core.security import hash_password
 BASE = "/api/users"
 
 
-def _mk_user(username: str, password: str = "pw1234", is_admin: bool = False) -> int:
+def _mk_user(username: str, password: str = "pw123456", is_admin: bool = False) -> int:
     from app.db.base import SessionLocal
     from app.db.models import User
 
@@ -22,7 +22,7 @@ def _mk_user(username: str, password: str = "pw1234", is_admin: bool = False) ->
         db.close()
 
 
-def _login(client, username: str, password: str = "pw1234") -> dict:
+def _login(client, username: str, password: str = "pw123456") -> dict:
     r = client.post("/api/auth/login", json={"username": username, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
@@ -41,7 +41,7 @@ def test_requires_admin(client):
     _mk_user("bob")
     hb = _login(client, "bob")
     assert client.get(BASE, headers=hb).status_code == 403
-    assert client.post(BASE, json={"username": "x", "password": "pw1234"}, headers=hb).status_code == 403
+    assert client.post(BASE, json={"username": "x", "password": "pw123456"}, headers=hb).status_code == 403
     assert client.put(f"{BASE}/1", json={"name": "y"}, headers=hb).status_code == 403
     assert client.delete(f"{BASE}/1", headers=hb).status_code == 403
 
@@ -61,21 +61,21 @@ def test_list_and_create(client):
     assert "password_hash" not in r.text  # 不泄露哈希
 
     r = client.post(
-        BASE, json={"username": "alice", "password": "pw1234", "name": "爱丽丝", "is_admin": False}, headers=ha
+        BASE, json={"username": "alice", "password": "pw123456", "name": "爱丽丝", "is_admin": False}, headers=ha
     )
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["username"] == "alice" and body["name"] == "爱丽丝" and body["is_admin"] is False
 
     # 新用户可登录
-    r = client.post("/api/auth/login", json={"username": "alice", "password": "pw1234"})
+    r = client.post("/api/auth/login", json={"username": "alice", "password": "pw123456"})
     assert r.status_code == 200
 
 
 def test_create_duplicate_username_409(client):
     ha = _admin(client)
-    client.post(BASE, json={"username": "alice", "password": "pw1234"}, headers=ha)
-    r = client.post(BASE, json={"username": "alice", "password": "pw9999"}, headers=ha)
+    client.post(BASE, json={"username": "alice", "password": "pw123456"}, headers=ha)
+    r = client.post(BASE, json={"username": "alice", "password": "pw999956"}, headers=ha)
     assert r.status_code == 409
 
 
@@ -83,19 +83,19 @@ def test_create_validation(client):
     ha = _admin(client)
     # 密码过短 422；空白用户名 400
     assert client.post(BASE, json={"username": "a", "password": "x"}, headers=ha).status_code == 422
-    assert client.post(BASE, json={"username": "   ", "password": "pw1234"}, headers=ha).status_code == 400
+    assert client.post(BASE, json={"username": "   ", "password": "pw123456"}, headers=ha).status_code == 400
 
 
 def test_update_name_and_reset_password(client):
     ha = _admin(client)
-    uid = client.post(BASE, json={"username": "alice", "password": "pw1234"}, headers=ha).json()["id"]
+    uid = client.post(BASE, json={"username": "alice", "password": "pw123456"}, headers=ha).json()["id"]
 
-    r = client.put(f"{BASE}/{uid}", json={"name": "新名字", "password": "newpass1"}, headers=ha)
+    r = client.put(f"{BASE}/{uid}", json={"name": "新名字", "password": "newpass12"}, headers=ha)
     assert r.status_code == 200 and r.json()["name"] == "新名字"
 
     # 旧密码失效，新密码可登录
-    assert client.post("/api/auth/login", json={"username": "alice", "password": "pw1234"}).status_code == 401
-    assert client.post("/api/auth/login", json={"username": "alice", "password": "newpass1"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "alice", "password": "pw123456"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "alice", "password": "newpass12"}).status_code == 200
 
 
 def test_update_not_found(client):
@@ -136,7 +136,7 @@ def test_cannot_delete_self(client):
 def test_cannot_remove_last_admin(client):
     """删除任意管理员 -> 409（iter 346 F5 收紧：admin 一律禁删）；降级到最后一名管理员 -> 409。"""
     ha = _admin(client)
-    uid = client.post(BASE, json={"username": "second", "password": "pw1234", "is_admin": True}, headers=ha).json()[
+    uid = client.post(BASE, json={"username": "second", "password": "pw123456", "is_admin": True}, headers=ha).json()[
         "id"
     ]
     # iter 346（F5）：禁删任意管理员（旧仅剩 1 admin 才禁，现一律禁）-> second 是 admin，删除 409
@@ -144,7 +144,7 @@ def test_cannot_remove_last_admin(client):
 
     # second 未被删（仍 admin）；root 也是管理员。验证降级护栏经 s2 视角：
     # second2 管理员登录后尝试降级 root（root 是除 second2 外唯一管理员 -> 降后仍剩 second2，允许）
-    uid2 = client.post(BASE, json={"username": "s2", "password": "pw1234", "is_admin": True}, headers=ha).json()["id"]
+    uid2 = client.post(BASE, json={"username": "s2", "password": "pw123456", "is_admin": True}, headers=ha).json()["id"]
     hs2 = _login(client, "s2")
     from app.db.base import SessionLocal
     from app.db.models import User
@@ -168,7 +168,7 @@ def test_delete_cascades_user_data(client):
     from app.db import models
 
     ha = _admin(client)
-    uid = client.post(BASE, json={"username": "alice", "password": "pw1234"}, headers=ha).json()["id"]
+    uid = client.post(BASE, json={"username": "alice", "password": "pw123456"}, headers=ha).json()["id"]
 
     db = SessionLocal()
     try:
@@ -226,7 +226,7 @@ def test_delete_user_cancels_running_chat_run(client, monkeypatch):
     from app.db import models
 
     ha = _admin(client)
-    uid = client.post(BASE, json={"username": "alice", "password": "pw1234"}, headers=ha).json()["id"]
+    uid = client.post(BASE, json={"username": "alice", "password": "pw123456"}, headers=ha).json()["id"]
 
     db = SessionLocal()
     try:

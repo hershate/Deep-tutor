@@ -10,16 +10,43 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from collections.abc import Iterator
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
 from app.core.settings import settings
 from app.db.base import SessionLocal
 from app.db.models import User
+
+log = logging.getLogger("deep_tutor.api.auth")
+
+# 认证失败 per-IP 限流（iter 368）：失败计数才消耗桶——已认证请求不受影响；
+# 30/min 仍宽于正常客户端多标签页恢复（token 吊销后各页重试），但足以把
+# PAT/.env token 在线爆破约束到每年 ~10^7 量级组合以下
+_AUTH_FAIL_PER_MIN = 30
+
+
+def _client_host(request: Request | None) -> str:
+    return request.client.host if request is not None and request.client else "unknown"
+
+
+def _gate_auth_failure(request: Request | None) -> None:
+    """认证失败统一出口：per-IP 失败限流 + 日志（ip + 路径，不含 token 原文）。"""
+    from app.core.ratelimit import limiter
+
+    host = _client_host(request)
+    path = request.url.path if request is not None else ""
+    if not limiter.check(f"auth_fail:{host}", _AUTH_FAIL_PER_MIN):
+        log.warning("认证失败限流触发 ip=%s path=%s", host, path)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="认证失败次数过多，请稍后再试",
+        )
+    log.warning("认证失败 ip=%s path=%s", host, path)
 
 
 def _extract_token(authorization: str | None, x_auth_token: str | None) -> str | None:
@@ -32,8 +59,12 @@ def _extract_token(authorization: str | None, x_auth_token: str | None) -> str |
 
 def _is_env_token(token: str) -> bool:
     # auth_token_configured：历史模板占位值（change-me-please）不是有效凭证，
-    # 不参与比较（否则人尽皆知的占位串即可认证，iter 90）
-    return settings.auth_token_configured and secrets.compare_digest(token, settings.auth_token)
+    # 不参与比较（否则人尽皆知的占位串即可认证，iter 90）。
+    # iter 368：encode 后按字节比较——compare_digest 对非 ASCII str 抛 TypeError，
+    # 恶意 Bearer 头（多字节字符）会把 401 变 500
+    return settings.auth_token_configured and secrets.compare_digest(
+        token.encode(), settings.auth_token.encode()
+    )
 
 
 def _user_by_token_credential(db: Session, token: str) -> User | None:
@@ -81,10 +112,12 @@ async def require_auth(
     authorization: str | None = Header(default=None),
     x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
     db: Session = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI 注入；测试直调可传 None
 ) -> None:
     """校验请求认证：JWT / AUTH_TOKEN / 个人访问令牌任一通过即可；
     零配置开放本机模式（passwordless_open，iter 89）直接放行。
-    JWT 须同时通过业务校验（用户存在 + 未吊销，iter 367）。"""
+    JWT 须同时通过业务校验（用户存在 + 未吊销，iter 367）。
+    失败路径 per-IP 限流 + 日志（iter 368，防 PAT 在线爆破）。"""
     token = _extract_token(authorization, x_auth_token)
     if token:
         payload = decode_token(token)
@@ -100,6 +133,7 @@ async def require_auth(
 
     if passwordless_open(db):
         return
+    _gate_auth_failure(request)
     raise HTTPException(status_code=401, detail="invalid auth token")
 
 
@@ -162,10 +196,15 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
     x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
     db: Session = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI 注入；测试直调可传 None
 ) -> User:
-    """当前登录用户（401 未认证）。数据隔离端点以此取归属。"""
+    """当前登录用户（401 未认证）。数据隔离端点以此取归属。
+
+    失败路径 per-IP 限流 + 日志（iter 368）——部分仅挂本依赖的路由（/auth/me、
+    setup 等）不经过 require_auth，爆破同样在此被约束。"""
     user = resolve_user(db, authorization, x_auth_token)
     if user is None:
+        _gate_auth_failure(request)
         raise HTTPException(status_code=401, detail="invalid auth token")
     return user
 
@@ -180,6 +219,7 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 async def get_current_user_id(
     authorization: str | None = Header(default=None),
     x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI 注入；测试直调可传 None
 ) -> int:
     """SSE / 长连接端点用：解析当前用户 id 并**立即释放** DB 会话（iter 366）。
 
@@ -187,11 +227,13 @@ async def get_current_user_id(
     （含 StreamingResponse 整个流期）才关闭——SSE 长连接会因此钉死一条连接池槽位
     数分钟。100 用户的 EventsBridge（每标签一条常驻 SSE）即耗尽连接池。本依赖解析
     user.id 后在 finally 内关闭会话，流期不再占用连接（流内需要查库时各自开短会话）。
+    失败路径同 get_current_user：per-IP 限流 + 日志（iter 368）。
     """
     db = SessionLocal()
     try:
         user = resolve_user(db, authorization, x_auth_token)
         if user is None:
+            _gate_auth_failure(request)
             raise HTTPException(status_code=401, detail="invalid auth token")
         return user.id
     finally:

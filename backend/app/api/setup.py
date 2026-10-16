@@ -22,7 +22,7 @@ from __future__ import annotations
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, resolve_user
 from app.api.errors import ApiError
 from app.api.providers import _validate_base_url
+from app.core.ratelimit import limiter
 from app.core.security import create_token, hash_password
 from app.core.settings import settings
 from app.core.setup_state import is_dismissed, mark_dismissed
@@ -40,6 +41,9 @@ from app.llm import get_active_profile
 router = APIRouter(prefix="/setup", tags=["setup"])  # 公开路由：不挂 require_auth
 
 _DEFAULT_PROFILE_NAME = "默认"
+# 写操作 per-IP 限流（iter 368）：开放模式下 POST /setup 是唯一"接管"入口，
+# 限流拉长首个来访者竞态窗口（正常使用一次即成，不受影响）
+_SETUP_WRITE_PER_MIN = 10
 
 
 def _setup_caller(
@@ -62,7 +66,7 @@ class SetupIn(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    password: str | None = Field(default=None, min_length=4, max_length=256)
+    password: str | None = Field(default=None, min_length=8, max_length=256)  # iter 368：4 -> 8
     api_key: str | None = Field(default=None, min_length=1, max_length=256)
     base_url: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)
@@ -103,7 +107,15 @@ def setup_status(db: Annotated[Session, Depends(get_db)]) -> dict:
 
 
 @router.post("")
-def setup(body: SetupIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_setup_caller)]) -> dict:
+def setup(
+    body: SetupIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(_setup_caller)],
+    request: Request,
+) -> dict:
+    client_host = request.client.host if request.client else "unknown"
+    if not limiter.check(f"setup_write:{client_host}", _SETUP_WRITE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     password_set = False
     provider_configured = False
 
@@ -114,6 +126,12 @@ def setup(body: SetupIn, db: Annotated[Session, Depends(get_db)], user: Annotate
         # 会被立即误判为已吊销（测试实证）；代价是与改密同一秒内签发的旧 token
         # 不被吊销（攻击者无法在该秒级窗口内先取得合法 JWT，可接受）
         user.tokens_valid_after = float(int(time.time()))
+        # iter 368：改密同时吊销该用户全部 active PAT（同 users.update_user 口径）
+        from app.core.credentials import KIND_AUTH_TOKEN
+
+        db.query(models.CredentialProfile).filter_by(
+            user_id=user.id, kind=KIND_AUTH_TOKEN, is_active=True
+        ).update({"is_active": False})
         password_set = True
 
     if body.api_key:
@@ -158,9 +176,15 @@ def setup(body: SetupIn, db: Annotated[Session, Depends(get_db)], user: Annotate
 
 
 @router.post("/dismiss")
-def dismiss(user: Annotated[User, Depends(_setup_caller)]) -> dict:  # noqa: ARG001
+def dismiss(
+    user: Annotated[User, Depends(_setup_caller)],
+    request: Request,
+) -> dict:
     """iter 367（批次五）：补 _setup_caller 门禁——此前完全公开，认证已配置时任何
     未认证调用方可翻全局 dismiss 状态（向导从此不再弹出，诱导部署停留在未配置态）。
     开放模式下与 POST /setup 同语义（resolve_user 懒创建 admin，首个来访者）。"""
+    client_host = request.client.host if request.client else "unknown"
+    if not limiter.check(f"setup_write:{client_host}", _SETUP_WRITE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     mark_dismissed()
     return {"ok": True}

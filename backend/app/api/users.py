@@ -11,7 +11,7 @@
 - 不能删除/降级最后一名管理员（系统至少保留一名管理员）；
 - 删除用户级联清理其数据（sessions ORM 级联 plans/materials 等 + 文件目录；
   provider profiles / api_usage 行删除，防 FK 违约）；
-- username 唯一 409；密码最短 4 位。
+- username 唯一 409；密码最短 8 位（存量短密码登录不受影响，iter 368）。
 """
 
 from __future__ import annotations
@@ -54,7 +54,8 @@ def _admin_count(db: Session) -> int:
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=4, max_length=256)
+    # iter 368：最短 8 位（原 4 位对暴露在网络的服务过弱；存量短密码登录不受影响）
+    password: str = Field(min_length=8, max_length=256)
     name: str = Field(default="", max_length=64)
     is_admin: bool = False
 
@@ -62,7 +63,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=64)
     is_admin: bool | None = None
-    password: str | None = Field(default=None, min_length=4, max_length=256)  # 重置密码；None -> 不变
+    password: str | None = Field(default=None, min_length=8, max_length=256)  # 重置密码；None -> 不变
 
 
 @router.get("")
@@ -124,6 +125,13 @@ def update_user(
     if body.password is not None:
         u.password_hash = hash_password(body.password)
         u.tokens_valid_after = time.time()  # err.md A9：重置密码吊销旧 JWT
+        # iter 368：改密同时吊销该用户全部 active PAT——此前 PAT 不随改密失效，
+        # 泄漏的令牌可在改密后无限期继续访问（JWT 有 tva 吊销、PAT 无）
+        from app.core.credentials import KIND_AUTH_TOKEN
+
+        db.query(models.CredentialProfile).filter_by(
+            user_id=u.id, kind=KIND_AUTH_TOKEN, is_active=True
+        ).update({"is_active": False})
     db.commit()
     db.refresh(u)
     return _user_out(u)

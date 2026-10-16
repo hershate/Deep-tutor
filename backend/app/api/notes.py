@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
 
@@ -35,6 +36,14 @@ _LIST_PREVIEW_CHARS = 300  # 列表预览截断（完整内容走 GET /notes/{id
 # iter 292：导入安全覆盖
 _IMPORT_MAX_ENTRY_BYTES = 100_000  # 单条目原始字节上限（≈ 覆盖 _MAX_CONTENT_CHARS 的 UTF-8 字节）
 _IMPORT_TOTAL_BYTES_CAP = 5 * 1024 * 1024  # 全部条目解压总量上限（防 zip bomb）
+# iter 368：写/导出限流——写路径逐条含 20k 字文本落库，导出为流式 zip 压缩（CPU 密集）
+_NOTES_WRITE_PER_MIN = 60
+_NOTES_EXPORT_PER_MIN = 10
+
+
+def _check_notes_write(user: User) -> None:
+    if not limiter.check(f"notes_write:{user.id}", _NOTES_WRITE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
 
 
 def _out(n: models.Note, *, preview: bool = False) -> dict:
@@ -84,6 +93,7 @@ def list_notes(db: Session = Depends(get_db), user: User = Depends(get_current_u
 
 @router.post("", status_code=201)
 def create_note(body: NoteIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    _check_notes_write(user)
     title, content = _normalize(body)
     if db.query(models.Note).filter_by(user_id=user.id).count() >= _MAX_NOTES_PER_USER:
         raise ApiError("quota_exceeded", f"笔记数已达上限 {_MAX_NOTES_PER_USER} 条，请先删除不再需要的笔记")
@@ -118,6 +128,7 @@ async def import_notes(
     zip 仅内存 read 不落盘（无 zip slip）、UTF-8 解码失败跳过、空标题+空正文跳过（同 _normalize）。
     返回 {imported, skipped, quota_full}。
     """
+    _check_notes_write(user)
     existing = db.query(models.Note).filter_by(user_id=user.id).count()
     imported = 0
     skipped = 0
@@ -185,6 +196,8 @@ def export_notes_zip(
     """
     from app.api.plans import _safe_download_name
 
+    if not limiter.check(f"notes_export:{user.id}", _NOTES_EXPORT_PER_MIN):
+        raise ApiError("rate_limited", "导出过于频繁，请稍后再试", status=429)
     notes = (
         db.query(models.Note)
         .filter_by(user_id=user.id)
@@ -252,6 +265,7 @@ def get_note(note_id: int, db: Session = Depends(get_db), user: User = Depends(g
 def update_note(
     note_id: int, body: NoteIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    _check_notes_write(user)
     note = _owned_or_404(db, note_id, user)
     note.title, note.content = _normalize(body)
     db.commit()
@@ -261,6 +275,7 @@ def update_note(
 
 @router.delete("/{note_id}")
 def delete_note(note_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    _check_notes_write(user)
     db.delete(_owned_or_404(db, note_id, user))
     db.commit()
     return {"ok": True}

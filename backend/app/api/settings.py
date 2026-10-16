@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_daily_budget, get_db, require_auth
+from app.api.errors import ApiError
 from app.core.settings import effective_search_engine, settings
 from app.db import models
 from app.db.models import User
@@ -157,15 +158,21 @@ _VALID_PRICING_FIELDS = PRICING_FIELDS  # (input/output/cache_read/cache_write)_
 
 
 def _clean_model_pricing(table: dict) -> dict:
-    """清洗模型计费表输入：模型名非空 + 仅保留已知 4 数值字段（非负）。
+    """清洗模型计费表输入：模型名非空 + 仅保留已知 4 数值字段（非负、有限）。
 
     条目缺失的字段补 0（计费表条目须 4 字段齐全，避免 resolve 时静默缺省）。
+    iter 368：条目数 ≤200、模型名 ≤128 字符（防无界 JSON 落 UserPref）；
+    NaN/inf 经 JSON 解析可达且 `num < 0` 判不出，须 isfinite 显式拒。
     """
+    import math
+
     cleaned: dict = {}
     if not isinstance(table, dict):
         return cleaned
     for model, fields in table.items():
         if not isinstance(model, str) or not model.strip() or not isinstance(fields, dict):
+            continue
+        if len(cleaned) >= 200 or len(model) > 128:
             continue
         entry: dict = {}
         for key in _VALID_PRICING_FIELDS:
@@ -174,6 +181,8 @@ def _clean_model_pricing(table: dict) -> dict:
                     num = float(fields[key])
                 except (TypeError, ValueError):
                     continue
+                if not math.isfinite(num):
+                    continue  # NaN/inf 不入表（会毒化成本累计）
                 if num < 0:
                     continue  # 单价非负
                 entry[key] = num
@@ -224,6 +233,10 @@ def update_pricing_settings(
 
     from app.agent.cost import MODEL_PRICING_PREF_KEY, load_model_pricing
 
+    from app.core.ratelimit import limiter
+
+    if not limiter.check(f"pricing_write:{user.id}", 30):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     cleaned = _clean_model_pricing(body.pricing)
     row = (
         db.query(models.UserPref)

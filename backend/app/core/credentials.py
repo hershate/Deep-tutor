@@ -88,11 +88,13 @@ def match_auth_token_credential(db, token: str) -> dict | None:
 
     逐条 compare_digest（N 小：每用户配额 ≤20，全局行数有界）；无命中 -> None。
     仅在 JWT 与 .env token 均失败后的路径调用（已认证请求零新增查询）。
+    iter 368：encode 后按字节比较——compare_digest 对非 ASCII str 抛 TypeError，
+    恶意 Bearer 头（多字节字符）会把 401 变 500。
     """
     if not token:
         return None
     for cred in list_active_credentials(None, KIND_AUTH_TOKEN, db):
-        if secrets.compare_digest(token, cred["api_key"]):
+        if secrets.compare_digest(token.encode(), cred["api_key"].encode()):
             return cred
     return None
 
