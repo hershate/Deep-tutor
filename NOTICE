@@ -1,0 +1,53 @@
+# NOTICE — 第三方作品引用与许可声明
+
+> 本文件依据 MIT License 的署名要求与本仓库的引用决策（note/12 决策 #30/#42）建立，
+> 是 Deep-tutor 对其所 incorporated 的第三方作品的**权威声明**。分发本仓库或其构建产物时，本文件与对应 LICENSE 必须一并保留。
+
+## 一、Reasonix（DeepSeek-Reasonix）
+
+**本仓库的内核与桌面端基于 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 深度改造。**
+
+| 项 | 值 |
+|---|---|
+| 上游仓库 | https://github.com/esengine/DeepSeek-Reasonix （`studio` 分支） |
+| 维护者 | Huahui Yu（@esengine）与全体 [Reasonix Contributors](https://github.com/esengine/DeepSeek-Reasonix/graphs/contributors) |
+| 基线快照 | `R-Tutor-src-studio-20261017.zip`（2026-10-17 工作树快照，内含上游完成的 Deep-tutor 学习域嫁接 `internal/runtime/tutor` 与产品翻转后的 Studio 前端） |
+| 许可 | **MIT License** — Copyright (c) 2026 Reasonix Contributors，全文见根目录 [`LICENSE-REASONIX`](./LICENSE-REASONIX) |
+| 吸收记录 | `stage.md` iter R1（逐批 commit 清单与全链验证）；映射与修订见 `note/12-Reasonix改造决策.md` 修订记录、`plan/reasonix/01-仓库布局与内核落位.md` 执行状态注记 |
+
+### 吸收范围（路径映射）
+
+| 上游位置 | 本仓库位置 | 内容 |
+|---|---|---|
+| `internal/` `cmd/` `tools/` `sdk/` | 同路径 | Go 内核与命令/门禁/SDK |
+| `desktop/` | 同路径 | Electron 宿主 + frontend-next 统一前端（Deep-tutor Studio 的基座） |
+| `docs/` | `docs/kernel/` | 内核工程文档（SPEC/TUTOR/TOOL_CONTRACT 等 40+ 份） |
+| `scripts/` | `scripts/reasonix/` | 上游工具脚本 |
+| `.github/` | `docs/kernel/upstream/github/` | 上游 CI/模板（存档，不在本仓生效） |
+| 根 README±/AGENTS/CLAUDE/REASONIX/CONTRIBUTING/SECURITY/design-qa/.env.example/.gitignore/.gitattributes | `docs/kernel/upstream/` | 与本仓根文件同名冲突的上游原件（原样存档） |
+| `LICENSE` | `LICENSE-REASONIX` | 上游 MIT 许可 |
+| `note/graft/STAGE.md` | `note/graft/STAGE.md` | 上游嫁接进度一手档案 |
+| `workers/` `npm/` `release-notes/` `examples/` `benchmark/` `benchmarks/` `output/` `.githooks/` `.reasonix/` `.signpath/` 及根级构建文件 | 同路径 | 周边资产（部分功能按决策不接线：遥测/自动更新/远程访问/云端 workers，见 note/12 #12/#37 及修订记录） |
+
+### 修改披露（截至本文件建立时）
+
+对吸收内容的**代码级修改仅一处**：`internal/tools/productdocs/{docs.go,docs_test.go}` 两行 import 路径 `reasonix/docs → reasonix/docs/kernel`（docs 目录重定位的必然适配，commit `5af3470`）。其余为纯搬运性质：路径重定位（见上表）、`git add -f` 补纳上游 `.gitignore` 挡住的 3 个基准夹具 png（commit `7b40d7a`）。后续对本部分的实质修改将持续记录于 `stage.md` 与 git 历史。
+
+## 二、随 Reasonix 捆绑的第三方许可（原样保留）
+
+| 组件 | 许可 | 文件 |
+|---|---|---|
+| Inter 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/Inter-OFL.txt` |
+| Noto Sans SC 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/NotoSansSC-OFL.txt` |
+| IBM Plex Mono 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/IBMPlexMono-OFL.txt` |
+| CUA Driver | 见其许可文件 | `desktop/electron/assets/cua-driver-LICENSE.txt` |
+
+Go/npm 依赖按各自模块许可证分发，清单见 `go.sum` / `desktop/frontend-next/package.json`。
+
+## 三、本仓库自有部分
+
+`backend/`、`frontend/`、`extension/`、`plugins/`、`skills/`、`note/`、`plan/`、`docs/archive/` 等 Deep-tutor 原有内容与后续本仓自研代码（含对吸收内核的后续改造），沿用根目录 [`LICENSE`](./LICENSE)。
+
+---
+
+**致谢**：感谢 Reasonix 维护者 Huahui Yu 与全体贡献者——其缓存优先的 Agent 循环、工具调用修复与成本计量三支柱最早启发了 Deep-tutor 的 Python 版实现；本项目如今更进一步直接以其内核为基座进行改造。推荐访问[上游项目](https://github.com/esengine/DeepSeek-Reasonix)了解原版 Reasonix。
