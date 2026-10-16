@@ -392,6 +392,7 @@ async def create_text_document(
     if existing is not None:
         return _doc_out(existing, deduped=True)
     _check_kb_quota(db, user.id)
+    db.rollback()  # iter 368：释放读快照——解析期间不持读事务（防 BUSY_SNAPSHOT + 挡 checkpoint）
 
     out = await parse_material(
         ToolInput(tool="parse_material", session_id=f"kb-{user.id}", args={"kind": "text", "source": body.text}),
@@ -399,6 +400,11 @@ async def create_text_document(
     )
     if out.status == "error" and out.errors:
         raise ApiError(out.errors[0].code, out.errors[0].message)
+    # 解析后重查去重/配额：等待期间并发请求可能已插入同哈希行或打满配额
+    existing = _dedup_lookup(db, user.id, content_hash)
+    if existing is not None:
+        return _doc_out(existing, deduped=True)
+    _check_kb_quota(db, user.id)
     text = out.data.get("text", "")
     title = (body.title or "").strip() or content.split("\n", 1)[0][:40]
     doc = models.KbDocument(
@@ -434,6 +440,7 @@ async def create_url_document(
     if existing is not None:
         return _doc_out(existing, deduped=True)
     _check_kb_quota(db, user.id)
+    db.rollback()  # iter 368：释放读快照——URL 抓取可达数十秒，期间不持读事务
 
     out = await parse_material(
         ToolInput(tool="parse_material", session_id=f"kb-{user.id}", args={"kind": "url", "source": url}),
@@ -441,6 +448,11 @@ async def create_url_document(
     )
     if out.status == "error" and out.errors:
         raise ApiError(out.errors[0].code, out.errors[0].message)
+    # 解析后重查去重/配额：等待期间并发请求可能已插入同哈希行或打满配额
+    existing = _dedup_lookup(db, user.id, content_hash)
+    if existing is not None:
+        return _doc_out(existing, deduped=True)
+    _check_kb_quota(db, user.id)
     text = out.data.get("text", "")
     title = (body.title or "").strip() or url[:80]
     doc = models.KbDocument(

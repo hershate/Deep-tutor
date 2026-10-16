@@ -1,6 +1,6 @@
 """进度 API（plan/03 §一 progress，P2 iter 39）。
 
-POST /api/progress           { plan_id, node_id, status, quiz_score? } -> 更新进度（覆盖写，幂等）
+POST /api/progress           { plan_id, node_id, status, quiz_score? } -> 更新进度（覆盖写；每次提交按一次复习事件累计掌握度，非幂等）
 GET  /api/progress/{plan_id} -> 进度总览（nodes + mastery_avg）
 
 掌握度/复习间隔计算在 app/tools/record_progress.py（纯 Python 确定性，plan/02 §9），
@@ -85,8 +85,11 @@ def _apply_progress_update(db: Session, row: models.Progress, body: ProgressUpda
         if again is None:
             return fresh  # 行被级联删除：放弃（下次请求走插入路径）
         fresh = again
-    # 极端争用退化：无条件写保请求成功（丢更新窗口已从常态缩至连续 5 次失配后）
-    last = db.query(models.Progress).filter_by(id=row.id).one()
+    # 极端争用退化：无条件写保请求成功（丢更新窗口已从常态缩至连续 5 次失配后）。
+    # iter 368：one() -> one_or_none——行被级联删除时 NoResultFound 会把 200 变 500
+    last = db.query(models.Progress).filter_by(id=row.id).one_or_none()
+    if last is None:
+        return fresh  # 行已不存在：放弃（下次请求走插入路径）
     last.status = body.status
     last.mastery = compute_mastery(last.mastery, body.status.value, body.quiz_score)
     db.commit()
@@ -98,7 +101,12 @@ def _apply_progress_update(db: Session, row: models.Progress, body: ProgressUpda
 def update_progress(
     body: ProgressUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    """更新单节点进度（覆盖写，幂等）：掌握度加权 + 间隔重复（record_progress）。"""
+    """更新单节点进度（覆盖写）：掌握度加权 + 间隔重复（record_progress）。
+
+    iter 368 口径修正：**非幂等**——每次提交都按一次复习事件累计掌握度（compute_mastery
+    为加权增量）；网络重试/双击重放会重复累计。防重由前端负责（QuizModal 按 quizzes 重置、
+    Review 卡片单次提交），服务端以 60/min 限流兜底。
+    """
     if not limiter.check(f"update_progress:{user.id}", 60):
         raise ApiError("rate_limited", "更新过于频繁，请稍后再试", status=429)
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
@@ -127,14 +135,21 @@ def update_progress(
         try:
             db.commit()
         except IntegrityError:
-            # err.md A11：并发请求先插了同 (plan_id, node_id) 行（唯一约束兜底）-> 转为更新
+            # err.md A11：并发请求先插了同 (plan_id, node_id) 行（唯一约束兜底）-> 转为更新。
+            # iter 368：one() -> one_or_none——并发者插入后旋即级联删除时不再 500
             db.rollback()
-            row = (
+            again = (
                 db.query(models.Progress)
                 .filter_by(plan_id=body.plan_id, node_id=node.id)
-                .one()
+                .one_or_none()
             )
-            row = _apply_progress_update(db, row, body)
+            if again is None:
+                # 并发行已消失：按插入重放（row 已回滚为瞬时态，可重新 add）
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+            else:
+                row = _apply_progress_update(db, again, body)
     db.refresh(row)
     mastery = row.mastery
     # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应

@@ -168,12 +168,19 @@ def _dedup_lookup(db: Session, session_id: int, content_hash: str) -> MaterialOu
 async def _store(
     db: Session, session_id: int, kind: str, source: str, *, text_override: str | None = None
 ) -> MaterialOut:
-    """解析 -> 持久化解析文本 -> DB 行（先查 content hash 去重 + 配额）。"""
+    """解析 -> 持久化解析文本 -> DB 行（先查 content hash 去重 + 配额）。
+
+    iter 368：去重/配额读检查后即 rollback 释放读快照——解析（URL 抓取可达分钟级）
+    期间不得持有读事务（SQLite WAL 下升级写会 BUSY_SNAPSHOT，且钉住快照挡 checkpoint，
+    同 kb.create_text_document / parse_document 口径）；解析完成后在新鲜状态上重查
+    去重/配额（等待期间并发请求可能已插入同哈希行或打满配额）。
+    """
     content_hash = _hash_source(text_override if text_override is not None else source.strip())
     deduped = _dedup_lookup(db, session_id, content_hash)
     if deduped is not None:
         return deduped
     _check_material_quota(db, session_id)
+    db.rollback()
 
     args = {"kind": kind, "source": source}
     if text_override is not None:
@@ -181,6 +188,11 @@ async def _store(
     out = await parse_material(ToolInput(tool="parse_material", session_id=str(session_id), args=args), _ctx(session_id))
     if out.status == "error" and out.errors:
         raise ApiError(out.errors[0].code, out.errors[0].message)
+    # 解析后重查：并发同哈希插入 -> 复用其行（本请求的解析结果弃用，防重复行）
+    deduped = _dedup_lookup(db, session_id, content_hash)
+    if deduped is not None:
+        return deduped
+    _check_material_quota(db, session_id)
     text = out.data.get("text", "")
     meta = out.data.get("meta", {})
     # source 字段存可读摘要（文件名/URL/文本前 200 字）

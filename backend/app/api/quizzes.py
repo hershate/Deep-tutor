@@ -60,10 +60,10 @@ def submit_quiz(
     # choice 服务器判分；fill/short 自评（correct=None）
     correct: bool | None = None
     if quiz.type == models.QuizType.choice:
-        # payload 缺 answer（异常/降级数据）时判 None——否则 None==None 误判正确，
-        # 空提交即可刷「答对」虚增掌握度
+        # payload 缺/空 answer（异常/降级数据）时判 None——否则 None==None 或 ""==""（空选）
+        # 均会误判「答对」，空提交即可刷掌握度（iter 368：空串 answer 同样视为不可判分）
         answer = payload.get("answer")
-        if answer is not None:
+        if answer:
             correct = body.user_answer.get("selected") == answer
     db.add(models.QuizAttempt(quiz_id=quiz.id, user_answer=body.user_answer, correct=correct))
     db.commit()
@@ -168,7 +168,13 @@ def wrong_queue(
     latest_by_quiz: dict[int, models.QuizAttempt] = {}
     for a in attempts:
         latest_by_quiz.setdefault(a.quiz_id, a)
-    wrong_ids = [qid for qid, a in latest_by_quiz.items() if a.correct is False]
+    # iter 368：按最新 attempt id 倒序**后再**截断——此前 dict 插入序（quiz_id 升序）
+    # 截断，limit 外的最近判错被无差别丢弃，与文档「最近判错在前」相悖
+    wrong_ids = sorted(
+        (qid for qid, a in latest_by_quiz.items() if a.correct is False),
+        key=lambda qid: latest_by_quiz[qid].id,
+        reverse=True,
+    )
     if not wrong_ids:
         return {"items": [], "total": 0}
     total = len(wrong_ids)
