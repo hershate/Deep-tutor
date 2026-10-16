@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -29,6 +30,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, require_auth
+from app.api.sse_utils import SSE_HEADERS
 from app.plugins import bus
 
 log = logging.getLogger("deep_tutor.api.events")
@@ -41,12 +43,27 @@ GLOBAL_EVENTS: frozenset[str] = frozenset({"startup", "shutdown"})
 
 _HEARTBEAT_S = 15.0
 
+# iter 367（批次四）：session_id -> 归属用户 TTL 缓存——生成期进度类事件高频携带同一
+# session_id，此前每事件 × 每订阅者各开一次短会话同步查 DB（在事件循环上执行）：
+# N 订阅者 × M 事件/秒 = N×M 查询/秒。60s TTL 把同一 sid 收敛到 ~1 次/分钟；
+# 全清式防膨胀（容量小、TTL 内重建成本可忽略）。
+_SID_CACHE_TTL = 60.0
+_SID_CACHE_MAX = 4096
+_sid_owner_cache: dict[int, tuple[int | None, float]] = {}
+
+
+def _session_owner(db: Session, sid: int) -> int | None:
+    from app.db.models import Session as SessionModel
+
+    sess = db.get(SessionModel, sid)
+    return sess.user_id if sess is not None else None
+
 
 def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | None:
     """解析事件的归属用户 id（用于按用户过滤 SSE 流）。
 
     - payload 带 user_id（int）-> 直接归属；
-    - 否则带 session_id（int）-> 经 DB 解析 session.user_id（事件为人频，O(1) 查询可接受）；
+    - 否则带 session_id（int）-> 经 DB 解析 session.user_id（带 TTL 缓存，见上方注释）；
     - 都无 -> None（调用方按 GLOBAL_EVENTS 决定广播或丢弃）。
     db 为 None 时开短生命周期会话查询（事件流路径用）。
     """
@@ -55,18 +72,27 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
         return uid
     sid = payload.get("session_id")
     if isinstance(sid, int) and sid > 0:
+        now = time.monotonic()
+        cached = _sid_owner_cache.get(sid)
+        if cached is not None and now - cached[1] < _SID_CACHE_TTL:
+            return cached[0]
+        own: Session | None = None
         if db is None:
             from app.db.base import SessionLocal
 
             own = SessionLocal()
-            try:
-                return resolve_owner(payload, own)
-            finally:
+            query_db: Session = own
+        else:
+            query_db = db
+        try:
+            owner = _session_owner(query_db, sid)
+        finally:
+            if own is not None:
                 own.close()
-        from app.db.models import Session
-
-        sess = db.get(Session, sid)
-        return sess.user_id if sess is not None else None
+        if len(_sid_owner_cache) >= _SID_CACHE_MAX:
+            _sid_owner_cache.clear()
+        _sid_owner_cache[sid] = (owner, now)
+        return owner
     return None
 
 
@@ -147,4 +173,6 @@ async def event_stream(user_id: int = Depends(get_current_user_id)) -> Streaming
         finally:
             off()  # 退订 sink（客户端断开/取消时）
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    # iter 367（批次四）：补 SSE_HEADERS（no-cache/keep-alive/禁 nginx 缓冲）——其余
+    # SSE 端点（plans/memory）均已带，漏在此处时反代环境下事件流会被缓冲至超时
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)

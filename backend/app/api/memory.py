@@ -835,7 +835,7 @@ async def _run_chat(
         log.exception("chat run %s failed", run_id)
         stream.publish("error", {"code": "internal_error", "message": str(exc)})
     finally:
-        _finalize_chat(db, run_id, thread_id, stream)
+        await _finalize_chat(db, run_id, thread_id, stream)
         db.close()
 
 
@@ -886,8 +886,13 @@ def _force_run_terminal(run_id: int, status) -> None:
         rescue.close()
 
 
-def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream) -> None:
-    """run 收口：落终态 + commit 工作区 + bus 推送 + 终态 SSE（cancel/异常也执行）。"""
+async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream) -> None:
+    """run 收口：落终态 + commit 工作区 + bus 推送 + 终态 SSE（cancel/异常也执行）。
+
+    iter 367（批次四）：commit_run_workspace 文件搬移（copytree/move，工作区可达 MB 级）
+    移 to_thread——此前同步执行阻塞事件循环，多 run 同时收口时全局卡顿；DB 写仍留
+    循环（单行级，快）。取消到达时 to_thread 的 await 会被弃但线程跑完（文件不半搬）。
+    """
     from app.plugins import bus
 
     try:
@@ -909,7 +914,7 @@ def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _ChatStream
             elif result.status == "done":
                 run.status = models.RunStatus.done
                 try:
-                    commit_run_workspace(db, run_id, thread_id)
+                    await asyncio.to_thread(commit_run_workspace, db, run_id, thread_id)
                 except Exception:  # noqa: BLE001  commit 失败不阻断终态
                     log.warning("commit 工作区失败 run=%s", run_id, exc_info=True)
             elif result.status in ("interrupted", "max_steps"):

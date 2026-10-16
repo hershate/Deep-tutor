@@ -80,4 +80,4 @@ if ($env:NO_BROWSER -ne "1") {
 # 单进程运行（不加 --workers）：SSE 流 / 限流 / 并发配额 / 插件事件总线 / 后台任务 / LLM 信号量
 # 均为进程内状态——多 worker 下各进程独立（SSE 续接/取消、配额计数、事件推送会失准）。
 # 多进程部署需 sticky session + Redis 共享这些状态（当前未实现，按单进程设计）。
-& $venvPy -m uvicorn app.main:app --host 0.0.0.0 --port $listenPort --app-dir backend
+& $venvPy -m uvicorn app.main:app --host 0.0.0.0 --port $listenPort --app-dir backend --timeout-graceful-shutdown 20

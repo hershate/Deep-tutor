@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -71,11 +72,13 @@ async def preview_backup_endpoint(
     if len(raw) > _MAX_BACKUP_BYTES:
         raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
     try:
-        data = json.loads(raw)
+        # iter 367（批次四）：大 JSON 解析移 to_thread——256MB json.loads 在事件循环上
+        # 可阻塞数秒，多用户并发时拖垮所有请求（含 SSE 心跳）
+        data = await asyncio.to_thread(json.loads, raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
     try:
-        return backup_core.preview_backup(data)
+        return await asyncio.to_thread(backup_core.preview_backup, data)
     except backup_core.BackupFormatError as exc:
         raise ApiError("invalid_backup", str(exc), status=400) from None
 
@@ -92,11 +95,12 @@ async def import_backup(
     if len(raw) > _MAX_BACKUP_BYTES:
         raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
     try:
-        data = json.loads(raw)
+        data = await asyncio.to_thread(json.loads, raw)  # 同 preview：大解析移 to_thread
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
     try:
-        summary = backup_core.restore_backup(db, user, data)
+        # iter 367（批次四）：restore 全程同步 DB/文件写，移 to_thread 防阻塞事件循环
+        summary = await asyncio.to_thread(backup_core.restore_backup, db, user, data)
         db.commit()
     except backup_core.BackupFormatError as exc:
         db.rollback()

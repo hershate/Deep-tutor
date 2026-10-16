@@ -1794,11 +1794,14 @@ async def _materials_sse(
                 except BaseException:
                     raise  # 断连/取消 -> finally 统一取消全部 worker，不遗留后台 LLM 调用
                 unit, resources, degraded, metadata = task.result()
-                # err.md A6：逐单元成本纳入预算守卫与 api_usage 计量（生成器内顺序归集）
+                # err.md A6：逐单元成本纳入预算守卫与 api_usage 计量（生成器内顺序归集）。
+                # iter 367（批次四）：计量/落库/提交移 to_thread——同步 SQLite + 文件写
+                # 在事件循环上执行，多用户并发时逐单元阻塞放大为全局卡顿（db 会话仅
+                # 本生成器顺序使用，worker 无 db 访问，线程化无竞态）
                 if metadata is not None:
                     if ctx.budget:
                         ctx.budget.add(metadata.cost)
-                    record_metadata_usage(db, metadata, user_id)
+                    await asyncio.to_thread(record_metadata_usage, db, metadata, user_id)
                 if ctx.budget and ctx.budget.exceeded():
                     log.warning("材料生成预算超限 plan=%s spent=%.4f", plan_id, ctx.budget.spent)
                     yield _sse("error", {"code": "budget_exceeded", "message": "本次生成预算已用尽，已保留已生成单元"})
@@ -1807,7 +1810,8 @@ async def _materials_sse(
                     degraded_count += 1
                 up_i = units[i]
                 new_paths.append(
-                    _insert_study_unit(
+                    await asyncio.to_thread(
+                        _insert_study_unit,
                         db,
                         plan_id,
                         session_id,
@@ -1818,7 +1822,7 @@ async def _materials_sse(
                         node_sids=up_i.node_sids,
                     )
                 )
-                db.commit()  # 逐单元提交：断线保留已生成进度
+                await asyncio.to_thread(db.commit)  # 逐单元提交：断线保留已生成进度
                 yield _sse("unit_done", {"order": i + 1, "title": unit.title, "degraded": degraded})
         finally:
             for t in pending:
@@ -1829,15 +1833,22 @@ async def _materials_sse(
             # 提交，其 unit_*.md 成为永久孤儿，index.md 仍引用已删除单元（幂等操作，
             # 成功路径行为不变；异常路径会话先 rollback 复位）
             try:
-                db.rollback()
-                if body.scope is not None or body.unit_ids:
-                    _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
-                all_units = (
-                    db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
-                )
-                _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
-                db.commit()
-                _cleanup_stale_material_files(old_paths, new_paths)
+                # iter 367（批次四）：收尾重排/index 重写/旧文件清理移 to_thread（同步 IO
+                # 不阻塞事件循环）。整段融合为单个线程调用：断连 aclose 的 finally 中
+                # await 可能被取消——单次 to_thread 被弃后线程仍会跑完全部步骤（线程不可
+                # 取消），分多个 await 则首个被取消即跳过其余步骤（孤儿文件回归 B1 修复）
+                def _cleanup_finally() -> None:
+                    db.rollback()
+                    if body.scope is not None or body.unit_ids:
+                        _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
+                    all_units = (
+                        db.query(models.StudyUnit).filter_by(plan_id=plan_id).order_by(models.StudyUnit.order).all()
+                    )
+                    _write_materials_index(session_id, content, all_units)  # plan/02 §13 index 文档
+                    db.commit()
+                    _cleanup_stale_material_files(old_paths, new_paths)
+
+                await asyncio.to_thread(_cleanup_finally)
             except Exception:  # noqa: BLE001  收尾失败不影响已生成内容
                 log.exception("材料流收尾清理失败 plan=%s", plan_id)
         # 后端插件事件（API.md §8.5）：材料生成完成（全量/局部均广播；监听器异常隔离）

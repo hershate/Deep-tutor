@@ -143,6 +143,27 @@ async def lifespan(app: FastAPI):
     maintenance_task = asyncio.create_task(maintenance_loop(stop_event))
     yield
     await plugin_bus.emit_async("shutdown", {})
+    # iter 367（批次四）：优雅关停——取消在途生成/对话任务并等收口。分钟级 LLM 流
+    # 否则会把 uvicorn 关停挂住（无超时则无限等；硬杀则丢 finalize 落账，stale
+    # running 只能等下次启动恢复收敛）。取消后 plans 走 _finalize 落 error 终态、
+    # memory 走 CancelledError -> _finalize_chat 落 interrupted，均为既有路径
+    from app.api.memory import _RUN_STREAMS
+    from app.api.plans import _STREAMS
+
+    pending: list[asyncio.Task] = []
+    for st in list(_STREAMS.values()):
+        if st.task is not None and not st.task.done() and st.terminal_id is None:
+            st.task.cancel()
+            pending.append(st.task)
+    for st in list(_RUN_STREAMS.values()):
+        st.request_cancel()
+        if st.task is not None and not st.task.done():
+            st.task.cancel()
+            pending.append(st.task)
+    if pending:
+        _done, still = await asyncio.wait(pending, timeout=15)
+        if still:
+            log.warning("关停时 %d 个任务未在 15s 内收口（放弃等待，由启动恢复兜底）", len(still))
     stop_event.set()
     maintenance_task.cancel()
     try:
