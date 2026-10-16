@@ -126,11 +126,14 @@ def test_export_plan_path_traversal_safe():
     ctx = ExecContext(session_id="x", trace_id="t", data_dir=st.data_dir)
     out = asyncio.run(export_plan(inp, ctx))
     assert out.status == "ok"
-    path = out.data["file_url"]
-    assert ".." not in path
+    # iter 367：file_url 不再回显服务器路径（恒 ""）；路径安全改从实际落盘位置验证
+    # （_safe_seg 清洗 ../../evil -> evil、../../pwn -> pwn）
+    assert out.data["file_url"] == ""
     from pathlib import Path
 
-    assert str(Path(path).resolve()).startswith(str(Path(st.data_dir).resolve()))
+    written = Path(st.data_dir) / "sessions" / "evil" / "exports" / "pwn.md"
+    assert written.exists()
+    assert str(written.resolve()).startswith(str(Path(st.data_dir).resolve()))
 
 
 # --- quiz 作答大小上限 ---

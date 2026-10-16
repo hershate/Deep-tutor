@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -260,7 +259,7 @@ def test_cleanup_rechecks_db_before_rmtree(client, auth_headers):
 def test_materials_budget_exceeded_still_cleans_old_files(client, auth_headers, monkeypatch):
     """预算超限 return 路径执行收尾：旧单元文件清理 + index 重写（此前成永久孤儿）。"""
     from test_api_plans_materials import _MaterialsProvider, _make_plan
-    from test_api_plans_materials_sse import _parse_sse, _unit_resp
+    from test_api_plans_materials_sse import _parse_sse
 
     from app.api import plans as plans_mod
     from app.db import models
@@ -316,7 +315,7 @@ def test_materials_budget_exceeded_still_cleans_old_files(client, auth_headers, 
 
 
 def _resp_json(payload: str):
-    from app.llm.base import LLMProvider, LLMResponse, LLMUsage
+    from app.llm.base import LLMResponse, LLMUsage
 
     return LLMResponse(
         content=payload,

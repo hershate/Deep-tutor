@@ -152,14 +152,19 @@ async def lifespan(app: FastAPI):
 
     pending: list[asyncio.Task] = []
     for st in list(_STREAMS.values()):
-        if st.task is not None and not st.task.done() and st.terminal_id is None:
-            st.task.cancel()
-            pending.append(st.task)
+        task = getattr(st, "task", None)
+        if task is not None and not task.done() and st.terminal_id is None:
+            task.cancel()
+            pending.append(task)
     for st in list(_RUN_STREAMS.values()):
-        st.request_cancel()
-        if st.task is not None and not st.task.done():
-            st.task.cancel()
-            pending.append(st.task)
+        try:
+            st.request_cancel()
+        except Exception:  # noqa: BLE001  测试假流可能未实现——跳过软取消
+            pass
+        task = getattr(st, "task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            pending.append(task)
     if pending:
         _done, still = await asyncio.wait(pending, timeout=15)
         if still:

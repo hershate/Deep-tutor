@@ -402,7 +402,7 @@ def test_finalize_chat_does_not_downgrade_approved_done():
             usage=LLMUsage(input_tokens=1, output_tokens=1, model="fake"),
             error="cancelled",
         )
-        _finalize_chat(db, run.id, t.id, stream)
+        asyncio.run(_finalize_chat(db, run.id, t.id, stream))
         db.expire_all()
         run2 = db.get(models.Run, run.id)
         assert run2.status == models.RunStatus.done, "已审批 done 不得被 interrupted 降级"
