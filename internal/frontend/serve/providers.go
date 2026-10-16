@@ -1,0 +1,606 @@
+// providers.go — adding, listing and removing model providers.
+package serve
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"reasonix/internal/model/catalog"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"reasonix/internal/base/netclient"
+	"reasonix/internal/contract/config"
+	"reasonix/internal/contract/provider"
+	"reasonix/internal/safety/endpointclient"
+	"reasonix/internal/safety/redirectguard"
+)
+
+// hostGrants are the surfaces a host opens on behalf of its one local client.
+// They travel together because they are one decision — "this server is a window,
+// not a network service" — and three independent bools spell states no host
+// means: signing in but not switching folders, editing providers but not either.
+type hostGrants struct {
+	workspaceSwitch bool // POST /workspace; see AllowWorkspaceSwitch
+	accountAuth     bool // /account routes; see AllowAccountAuth
+	providerEdit    bool // /providers writes; see AllowProviderEdit
+	localDesktop    bool // POST /workspace/editor, GET /workspace/locate; see AllowLocalDesktop
+	installReport   bool // market installs may be reported; see AllowMarketInstallReport
+}
+
+// AllowProviderEdit grants the /providers routes. Off until a host asks:
+// adding one writes an API key into the credential store of the machine
+// running the kernel, so a server reachable over the network must not let a
+// client do it. The desktop shell asks because its only client is its window.
+func (s *Server) AllowProviderEdit() { s.grants.providerEdit = true }
+
+func (s *Server) registerProviderRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /providers", s.providers)
+	mux.HandleFunc("GET /providers/protocols", s.providerProtocols)
+	mux.HandleFunc("GET /providers/presets", s.providerPresets)
+	mux.HandleFunc("POST /providers/presets/install", s.installProviderPreset)
+	mux.HandleFunc("POST /providers", s.saveProvider)
+	mux.HandleFunc("POST /providers/probe", s.probeProvider)
+	mux.HandleFunc("POST /providers/remove", s.removeProvider)
+	mux.HandleFunc("POST /providers/edit", s.editProvider)
+	mux.HandleFunc("POST /providers/display-name", s.renameProvider)
+	mux.HandleFunc("POST /providers/websearch", s.setProviderWebSearch)
+	mux.HandleFunc("POST /providers/thinking", s.setProviderThinking)
+	mux.HandleFunc("POST /providers/continuation", s.setProviderContinuation)
+	s.registerProviderCheckRoutes(mux)
+}
+
+const providerProbeTimeout = 20 * time.Second
+
+// providerNameRE is what may become a config table name and part of a model
+// ref ("<provider>/<model>"), so a slash or whitespace cannot be allowed in.
+var providerNameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+// providerView is one configured provider as the panel lists it.
+type providerView struct {
+	Name string `json:"name"`
+	// DisplayName is the label a person gave this entry; empty is none set.
+	DisplayName  string            `json:"displayName,omitempty"`
+	Kind         string            `json:"kind"`
+	BaseURL      string            `json:"baseUrl"`
+	Models       []string          `json:"models"`
+	ModelAliases map[string]string `json:"modelAliases,omitempty"`
+	// VisionModels is which of them read images, so the form shows the current
+	// answer instead of asking the user to remember it.
+	VisionModels []string `json:"visionModels"`
+	// CanSetVision is false where the kernel refuses image input for every model
+	// on this endpoint whatever the config says — an editor offering the toggle
+	// there is offering a switch that does nothing.
+	CanSetVision bool `json:"canSetVision"`
+	// VisionSettable narrows that to the models the refusal does not cover. One
+	// endpoint now serves text-only and image-taking models side by side, so a
+	// single boolean per connection answers for models it was never asked about.
+	VisionSettable []string `json:"visionSettable"`
+	// WebSearch is the endpoint-executed search tool: CanWebSearch says this
+	// door offers one at all, WebSearch whether it is on. The OpenAI chat wire
+	// has no format for it, so the answer differs per protocol on one account.
+	CanWebSearch bool `json:"canWebSearch"`
+	WebSearch    bool `json:"webSearch"`
+	// CanListModels is false where the protocol declares no model listing, so
+	// the editor does not offer to read one.
+	CanListModels bool `json:"canListModels"`
+	// SendsThinking is whether thinking/reasoning_effort may go on the wire.
+	// CanSetThinking is false where the protocol never carries them, so the UI
+	// offers the switch only where a gateway can actually reject the request.
+	CanSetThinking bool `json:"canSetThinking"`
+	SendsThinking  bool `json:"sendsThinking"`
+	// EffortField is where a chosen effort level lands in this wire's request
+	// body, declared by the protocol so every panel words it from one source.
+	EffortField string `json:"effortField"`
+	// Continuation is how this endpoint carries context between turns, and
+	// CanSetContinuation whether its protocol has the choice at all. Empty is
+	// vendor detection, which is what an uncharacterised endpoint must keep.
+	CanSetContinuation bool   `json:"canSetContinuation"`
+	Continuation       string `json:"continuation"`
+	Default            string `json:"default"`
+	HasKey             bool   `json:"hasKey"`
+	// KeyEnv names the credential slot. Two entries at one host holding
+	// different keys are two accounts and must not be shown as one.
+	KeyEnv string `json:"keyEnv,omitempty"`
+	// InUse marks the provider the running conversation is on. Removing it
+	// would leave the session pointing at a model that no longer exists.
+	InUse bool `json:"inUse"`
+	// Preset marks an entry that came from the curated catalog rather than
+	// from this panel, so the UI can say where it came from.
+	Preset bool `json:"preset"`
+	// The three no probe can answer: a wrong window moves compaction to the
+	// wrong moment, and a relay without its headers refuses every request.
+	ContextWindow   int `json:"contextWindow,omitempty"`
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+	// Stored idle_timeout_seconds; zero is "not set", the built-in default.
+	IdleTimeoutSeconds int `json:"idleTimeoutSeconds,omitempty"`
+	// What a source without one waits, so a form can name the default.
+	IdleTimeoutDefault int               `json:"idleTimeoutDefault"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	ExtraBody          map[string]any    `json:"extraBody,omitempty"`
+	// Which request shape controls thinking here, as declared. Empty is "not
+	// declared", which is a different answer from "none" and the reason the
+	// effort ladder can come out empty on a relay.
+	ReasoningProtocol string `json:"reasoningProtocol,omitempty"`
+	// The declared effort vocabulary and its default, as stored; empty is none.
+	SupportedEfforts []string `json:"supportedEfforts,omitempty"`
+	DefaultEffort    string   `json:"defaultEffort,omitempty"`
+	// Per chat model: its own declared vocabulary, the one it inherits when it
+	// declares none, and a reasoning protocol it declares for itself.
+	ModelEfforts     map[string]modelEffortView `json:"modelEfforts,omitempty"`
+	InheritedEfforts map[string]modelEffortView `json:"inheritedEfforts,omitempty"`
+	ModelProtocols   map[string]string          `json:"modelProtocols,omitempty"`
+	// Per chat model: the window and output cap it declares for itself, and the
+	// ones it inherits when it declares none.
+	ModelLimits     map[string]modelLimitsView `json:"modelLimits,omitempty"`
+	InheritedLimits map[string]modelLimitsView `json:"inheritedLimits,omitempty"`
+}
+
+func (s *Server) providers(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := config.Load()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	current, _, _ := strings.Cut(currentModelRef(s.ctl()), "/")
+	out := make([]providerView, 0, len(cfg.Providers))
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		settable := visionSettableOf(cfg, p)
+		out = append(out, providerView{
+			Name:               p.Name,
+			DisplayName:        strings.TrimSpace(p.DisplayName),
+			Kind:               strings.ToLower(strings.TrimSpace(p.Kind)),
+			BaseURL:            p.BaseURL,
+			Models:             nonNilStrings(p.ChatModelList()),
+			ModelAliases:       p.ModelAliases,
+			VisionModels:       nonNilStrings(visionModelsOf(cfg, p)),
+			CanSetVision:       len(settable) > 0 || config.CanConfigureVision(p),
+			VisionSettable:     nonNilStrings(settable),
+			CanWebSearch:       config.HasServerWebSearchCapability(p),
+			WebSearch:          config.EffectiveWebSearch(p),
+			CanListModels:      config.CanListModels(p),
+			CanSetThinking:     config.CanConfigureThinkingParams(p),
+			SendsThinking:      config.SendsThinkingParams(p),
+			EffortField:        config.EffortFieldForEntry(p),
+			CanSetContinuation: config.CanConfigureContinuation(p),
+			Continuation:       string(config.ContinuationOf(p)),
+			Default:            p.DefaultModel(),
+			HasKey:             p.APIKey() != "",
+			KeyEnv:             p.APIKeyEnv,
+			InUse:              p.Name == current,
+			Preset:             strings.TrimSpace(p.PresetID) != "",
+			ReasoningProtocol:  strings.ToLower(strings.TrimSpace(p.ReasoningProtocol)),
+			SupportedEfforts:   config.StoredEffortLevels(p.SupportedEfforts),
+			DefaultEffort:      strings.ToLower(strings.TrimSpace(p.DefaultEffort)),
+			ModelEfforts:       modelEffortsOf(p),
+			InheritedEfforts:   inheritedEffortsOf(p),
+			ModelProtocols:     modelProtocolsOf(p),
+			ModelLimits:        modelLimitsOf(p),
+			InheritedLimits:    inheritedLimitsOf(p),
+			ContextWindow:      p.ContextWindow,
+			MaxOutputTokens:    p.MaxOutputTokens,
+			IdleTimeoutSeconds: p.IdleTimeoutSeconds,
+			IdleTimeoutDefault: int(provider.StreamIdleTimeout / time.Second),
+			Headers:            p.Headers,
+			ExtraBody:          p.ExtraBody,
+		})
+	}
+	writeJSON(w, out)
+}
+
+// protocolView is one wire format a source may be saved as. No label rides
+// along: the list is the kernel's, the words for it are each frontend's.
+type protocolView struct {
+	Kind            string `json:"kind"`
+	Answers         string `json:"answers"`
+	Discovery       string `json:"discovery"`
+	ServerWebSearch bool   `json:"serverWebSearch"`
+	ReasoningParams bool   `json:"reasoningParams"`
+	EffortField     string `json:"effortField"`
+	// EffortUnder is the reasoning protocols under which the field holds; empty
+	// when the wire fixes it.
+	EffortUnder []string `json:"effortUnder"`
+}
+
+// providerProtocols lists what a chooser may offer, so a wire added to the
+// kernel reaches every panel without a frontend release.
+func (s *Server) providerProtocols(w http.ResponseWriter, _ *http.Request) {
+	catalog := config.Protocols()
+	out := make([]protocolView, 0, len(catalog))
+	for _, p := range catalog {
+		out = append(out, protocolView{
+			Kind:            p.Kind,
+			Answers:         string(p.Answers),
+			Discovery:       p.Discovery,
+			ServerWebSearch: p.ServerWebSearch,
+			ReasoningParams: p.ReasoningParams,
+			EffortField:     p.EffortField,
+			EffortUnder:     nonNilStrings(p.EffortUnder),
+		})
+	}
+	writeJSON(w, out)
+}
+
+// probeProvider reports what an endpoint turns out to be. It writes nothing:
+// the user sees the guesses and confirms them before anything is saved.
+func (s *Server) probeProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.grants.at(r).providerEdit {
+		refuse(w, http.StatusForbidden, "provider.editing_disabled", "provider editing is not enabled on this server", nil)
+		return
+	}
+	var body struct {
+		BaseURL string `json:"baseUrl"`
+		APIKey  string `json:"apiKey"`
+	}
+	if !decodeProviderBody(w, r, &body) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), providerProbeTimeout)
+	defer cancel()
+	proxied, direct := probeClients()
+	got, err := catalog.ProbeEndpoint(ctx, catalog.ProbeOptions{
+		BaseURL: body.BaseURL,
+		APIKey:  body.APIKey,
+		Client:  proxied,
+		Direct:  direct,
+	})
+	if err != nil {
+		writeProbeFailure(w, err, body.APIKey)
+		return
+	}
+	writeJSON(w, struct {
+		Kind       string   `json:"kind"`
+		BaseURL    string   `json:"baseUrl"`
+		Kinds      []string `json:"kinds"`
+		AuthHeader bool     `json:"authHeader"`
+		Models     []string `json:"models"`
+		Default    string   `json:"default"`
+		Efforts    []string `json:"efforts"`
+		Effort     string   `json:"effort"`
+		Vision     []string `json:"vision"`
+		Ambiguous  bool     `json:"ambiguous"`
+		NoProxy    bool     `json:"noProxy"`
+	}{
+		Kind:       got.Kind,
+		BaseURL:    got.BaseURL,
+		Kinds:      nonNilStrings(got.Kinds),
+		AuthHeader: got.AuthHeader,
+		Models:     nonNilStrings(got.Models),
+		Default:    got.Default,
+		Efforts:    nonNilStrings(got.Efforts),
+		Effort:     got.Effort,
+		Vision:     nonNilStrings(got.Vision),
+		Ambiguous:  got.Ambiguous,
+		NoProxy:    got.NoProxy,
+	})
+}
+
+// saveProvider writes one provider and its key. The key goes to the credential
+// store, never into the config file — a config is something a user pastes into
+// an issue.
+func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.grants.at(r).providerEdit {
+		refuse(w, http.StatusForbidden, "provider.editing_disabled", "provider editing is not enabled on this server", nil)
+		return
+	}
+	var body struct {
+		Name              string            `json:"name"`
+		Kind              string            `json:"kind"`
+		BaseURL           string            `json:"baseUrl"`
+		APIKey            string            `json:"apiKey"`
+		Models            []string          `json:"models"`
+		Default           string            `json:"default"`
+		AuthHeader        bool              `json:"authHeader"`
+		NoProxy           bool              `json:"noProxy"`
+		Effort            string            `json:"effort"`
+		Vision            []string          `json:"vision"`
+		ContextWindow     int               `json:"contextWindow"`
+		MaxOutputTokens   int               `json:"maxOutputTokens"`
+		ReasoningProtocol *string           `json:"reasoningProtocol"`
+		Headers           map[string]string `json:"headers"`
+		ExtraBody         map[string]any    `json:"extraBody"`
+		Replace           bool              `json:"replace"`
+	}
+	if !decodeProviderBody(w, r, &body) {
+		return
+	}
+	entry, err := providerEntryFrom(body.Name, body.Kind, body.BaseURL, body.Default, body.Effort, body.Models, body.Vision, body.AuthHeader, body.NoProxy)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.ContextWindow < 0 || body.MaxOutputTokens < 0 {
+		refuse(w, http.StatusBadRequest, "provider.bad_token_limit", "token limits cannot be negative", nil)
+		return
+	}
+	entry.ContextWindow = body.ContextWindow
+	entry.MaxOutputTokens = body.MaxOutputTokens
+	if body.ReasoningProtocol != nil {
+		stored, ok := config.StoredReasoningProtocol(*body.ReasoningProtocol)
+		if !ok {
+			refuse(w, http.StatusBadRequest, "provider.bad_reasoning_protocol", "unsupported reasoning protocol", map[string]any{"protocol": *body.ReasoningProtocol})
+			return
+		}
+		entry.ReasoningProtocol = stored
+	}
+	entry.Headers = trimmedHeaders(body.Headers)
+	if path, ok := firstNullPath(body.ExtraBody, ""); ok {
+		refuse(w, http.StatusBadRequest, "provider.extra_body_null", fmt.Sprintf("extra body field %q cannot be null", path), map[string]any{"path": path})
+		return
+	}
+	entry.ExtraBody = body.ExtraBody
+	known, err := config.Load()
+	if err != nil || known == nil {
+		refuse(w, http.StatusInternalServerError, "provider.config_unreadable", "the configuration could not be read, so no key slot can be chosen", nil)
+		return
+	}
+	// Adding writes a new account; only onboarding, filling in the entry a fresh
+	// install already names, replaces one, and it says so.
+	prev, taken := known.Provider(entry.Name)
+	if taken && !body.Replace {
+		refuse(w, http.StatusConflict, "provider.name_taken", "a provider with this name already exists", map[string]any{"name": entry.Name})
+		return
+	}
+	if taken {
+		entry.DisplayName = prev.DisplayName
+	}
+	if !storeProviderEntries(w, known, []config.ProviderEntry{entry}, body.APIKey, body.Replace) {
+		return
+	}
+	// No rebuild: switches read config from disk. A runtime that started with
+	// no provider holds a stand-in, so it moves to the new one now.
+	if err := s.leaveNoProvider(r.Context(), entry); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, map[string]any{"name": entry.Name, "models": nonNilStrings(entry.ModelList())})
+}
+
+func (s *Server) removeProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.grants.at(r).providerEdit {
+		refuse(w, http.StatusForbidden, "provider.editing_disabled", "provider editing is not enabled on this server", nil)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !decodeProviderBody(w, r, &body) {
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		refuse(w, http.StatusBadRequest, "provider.name_required", "a provider name is required", nil)
+		return
+	}
+	// The conversation on this provider moves to what remains once it is gone.
+	// Only work in progress stops that; an open, idle pane does not.
+	current, _, _ := strings.Cut(currentModelRef(s.ctl()), "/")
+	inUse := current == name
+	if inUse && controllerHasActiveRuntimeWork(s.ctl()) {
+		busy(w, "provider.running", "the conversation on this model is running; stop it first", nil)
+		return
+	}
+	cfg := config.LoadForEdit(config.UserConfigPath())
+	removal, err := cfg.RemoveProvider(name)
+	if err != nil {
+		switch {
+		case errors.Is(err, config.ErrProviderNotFound):
+			// Already gone is the state the caller asked for: a second click, or
+			// another window that got there first.
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeErr(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	if err := cfg.SaveTo(config.UserConfigPath()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// With nothing left the runtime moves to the stand-in, which is what makes
+	// the window ask for a connection now, as it does on a first launch.
+	if inUse {
+		target := removalSuccessor(cfg)
+		if target == "" {
+			target = config.UnconfiguredRef
+		}
+		if err := s.switchModel(r.Context(), target); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		s.refreshProviderSetup(currentModelRef(s.ctl()))
+	}
+	if len(removal.Moved) == 0 && len(removal.Cleared) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, providerRemovalView{
+		MovedTo: removal.MovedTo,
+		Moved:   nonNilStrings(removal.Moved),
+		Cleared: nonNilStrings(removal.Cleared),
+	})
+}
+
+// providerRemovalView is what a removal changed besides the provider: role ids
+// ("default", "planner", "vision", "subagent:<skill>", ...) handed to MovedTo or
+// emptied.
+type providerRemovalView struct {
+	MovedTo string   `json:"movedTo"`
+	Moved   []string `json:"moved"`
+	Cleared []string `json:"cleared"`
+}
+
+// removalSuccessor is where a conversation on a removed provider goes: the saved
+// default, or what a window would open on when that default names nothing.
+func removalSuccessor(cfg *config.Config) string {
+	target := cfg.DefaultModel
+	if _, found := cfg.ResolveModel(target); !found && target != "" {
+		start, _ := cfg.ResolveStartupChatModel()
+		target = start.Ref
+	}
+	return target
+}
+
+// providerEntryFrom validates what the panel sent and builds the config entry.
+// Only the fields the panel can honestly fill are set; everything else keeps
+// its zero value so a hand-edited config is not silently overwritten.
+func providerEntryFrom(name, kind, baseURL, def, effort string, models, vision []string, authHeader, noProxy bool) (config.ProviderEntry, error) {
+	name = strings.TrimSpace(name)
+	if !providerNameRE.MatchString(name) {
+		return config.ProviderEntry{}, refusal(http.StatusUnprocessableEntity, "provider.name_invalid", errors.New("provider name must be letters, digits, dot, dash or underscore"), nil)
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if !config.SupportedProviderKind(kind) {
+		return config.ProviderEntry{}, refusal(http.StatusUnprocessableEntity, "provider.kind_unsupported", fmt.Errorf("unsupported provider kind %q", kind), map[string]any{"kind": kind})
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return config.ProviderEntry{}, refusal(http.StatusUnprocessableEntity, "provider.endpoint_required", errors.New("an endpoint address is required"), nil)
+	}
+	chat := make([]string, 0, len(models))
+	for _, m := range models {
+		if m = strings.TrimSpace(m); m != "" {
+			chat = append(chat, m)
+		}
+	}
+	if len(chat) == 0 {
+		return config.ProviderEntry{}, refusal(http.StatusUnprocessableEntity, "provider.no_models_picked", errors.New("pick at least one model"), nil)
+	}
+	def = strings.TrimSpace(def)
+	if def != "" && !slices.Contains(chat, def) {
+		return config.ProviderEntry{}, refusal(http.StatusUnprocessableEntity, "provider.default_not_selected", fmt.Errorf("default model %q is not one of the selected models", def), map[string]any{"model": def})
+	}
+	return config.ProviderEntry{
+		Name:         name,
+		Kind:         kind,
+		BaseURL:      strings.TrimSpace(baseURL),
+		Models:       chat,
+		Default:      def,
+		APIKeyEnv:    providerKeyEnv(name),
+		AuthHeader:   authHeader,
+		NoProxy:      noProxy,
+		Effort:       strings.TrimSpace(effort),
+		VisionModels: vision,
+	}, nil
+}
+
+// providerKeyEnv is where this provider's key is stored. config owns the rule,
+// because the store that refuses an invalid slot is the same package: this held
+// its own copy and produced "129_API_KEY" for a relay called "129".
+func providerKeyEnv(name string) string { return config.APIKeyEnvFor(name) }
+
+// probeClients builds the two routes a probe tries: the user's configured proxy
+// first, then a direct one for endpoints that only answer without it.
+func probeClients() (proxied, direct *http.Client) {
+	spec := netclient.ProxySpec{Mode: netclient.ModeAuto}
+	if cfg, err := config.Load(); err == nil && cfg != nil {
+		spec = cfg.NetworkProxySpec()
+	}
+	proxied, _ = endpointclient.New(spec, netclient.TransportOptions{})
+	direct, _ = endpointclient.New(netclient.ProxySpec{Mode: netclient.ModeOff}, netclient.TransportOptions{})
+	return proxied, direct
+}
+
+func decodeProviderBody(w http.ResponseWriter, r *http.Request, into any) bool {
+	return decodeBody(w, r, into)
+}
+
+// nonNilStrings keeps an empty list an empty list. A nil slice marshals to
+// null, and a client that maps over it takes its whole render down.
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
+}
+
+// Probing fails in ways that each send the user somewhere different: a refused
+// key to the console, a 404 to the address bar, an embedding-only gateway to a
+// different service entirely. The identity travels; the wording does not.
+const (
+	codeProbeAddressMissing  = "provider.probe.address_missing"
+	codeProbeUnauthorized    = "provider.probe.unauthorized"
+	codeProbePaymentRequired = "provider.probe.payment_required"
+	codeProbeRateLimited     = "provider.probe.rate_limited"
+	codeProbePathNotFound    = "provider.probe.path_not_found"
+	codeProbeNoChatModels    = "provider.probe.no_chat_models"
+	codeProbeUpstreamError   = "provider.probe.upstream_error"
+	codeProbeTimeout         = "provider.probe.timeout"
+	codeProbeRedirectRefused = "provider.probe.redirect_refused"
+	codeProbeUnreachable     = "provider.probe.unreachable"
+	codeProbeNotCompatible   = "provider.probe.not_compatible"
+	codeProbeFailed          = "provider.probe.failed"
+
+	codeProbeDecisionPathNotFound  = "provider.probe.decision_path_not_found"
+	codeProbeDecisionNotCompatible = "provider.probe.decision_not_compatible"
+	codeProbeDecisionRejected      = "provider.probe.decision_rejected"
+	codeNoModelsPicked             = "provider.no_models_picked"
+)
+
+// probeReasonRefusal is the one place a probe identity becomes a status and a dotted
+// code, shared by the refusal the add flow gets and the finding a check carries.
+func probeReasonRefusal(reason catalog.ProbeReason) (status int, code string) {
+	switch reason {
+	case catalog.ProbeAddressMissing:
+		return http.StatusBadRequest, codeProbeAddressMissing
+	case catalog.ProbeUnauthorized:
+		return http.StatusUnauthorized, codeProbeUnauthorized
+	case catalog.ProbePaymentRequired:
+		return http.StatusPaymentRequired, codeProbePaymentRequired
+	case catalog.ProbeRateLimited:
+		return http.StatusTooManyRequests, codeProbeRateLimited
+	case catalog.ProbePathNotFound:
+		return http.StatusNotFound, codeProbePathNotFound
+	case catalog.ProbeNoChatModels:
+		return http.StatusUnprocessableEntity, codeProbeNoChatModels
+	case catalog.ProbeUpstreamError:
+		return http.StatusBadGateway, codeProbeUpstreamError
+	case catalog.ProbeTimeout:
+		return http.StatusGatewayTimeout, codeProbeTimeout
+	case catalog.ProbeUnreachable:
+		return http.StatusBadGateway, codeProbeUnreachable
+	case catalog.ProbeRedirectRefused:
+		return http.StatusBadGateway, codeProbeRedirectRefused
+	default:
+		return http.StatusBadGateway, codeProbeNotCompatible
+	}
+}
+
+// writeProbeFailure sends the diagnosis out under its own code. What the
+// endpoint said reaches the message only through endpointDetail: its body can
+// echo the request, and this route receives the key typed into the draft.
+func writeProbeFailure(w http.ResponseWriter, err error, apiKey string) {
+	var probe *catalog.ProbeError
+	if !errors.As(err, &probe) {
+		refuse(w, http.StatusInternalServerError, codeProbeFailed, "provider probe failed", nil)
+		return
+	}
+	status, code := probeReasonRefusal(probe.Reason)
+	message := "probe: " + string(probe.Reason)
+	if detail := endpointDetail(probe.Body, func() string { return apiKey }); detail != "" {
+		message += ": " + detail
+	}
+	var left *redirectguard.OriginLeft
+	if errors.As(err, &left) {
+		message = left.Error()
+		probe.Params = map[string]any{"from": left.From, "target": left.To}
+	}
+	refuse(w, status, code, message, probe.Params)
+}
+
+// firstModelRef is the ref a freshly saved provider is selected by: its default
+// model, or its first when none is marked.
+func firstModelRef(e config.ProviderEntry) string {
+	models := e.ModelList()
+	if len(models) == 0 {
+		return ""
+	}
+	model := models[0]
+	if d := strings.TrimSpace(e.Default); d != "" && slices.Contains(models, d) {
+		model = d
+	}
+	return e.Name + "/" + model
+}
