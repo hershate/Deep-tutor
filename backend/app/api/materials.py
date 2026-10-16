@@ -101,6 +101,10 @@ _URL_RATE_PER_MIN = 10
 # iter 248：上传限流（次/分钟/用户）——_read_capped 只限单请求内存，并发 N 个
 # 50MB 上传的内存叠加此前无防（多用户部署 OOM 面；与 iter 247 kb 上传口径一致）
 _UPLOAD_RATE_PER_MIN = 20
+# iter 367（批次五）：解析/纯文本入库限流（次/分钟/用户）——解析含 OCR/whisper
+# 等重 CPU/长耗时路径；text 入库无成本内容可脚本灌行。此前两者均无限流
+_PARSE_RATE_PER_MIN = 20
+_TEXT_RATE_PER_MIN = 30
 
 
 def _hash_source(data: bytes | str) -> str:
@@ -348,6 +352,10 @@ async def parse_material_document(
     同资料并发解析 -> 409。无原件（text/url 类）-> 400。
     """
     mode = body.mode if body else "full"
+    # iter 367（批次五）：解析限流——重 CPU/长耗时（OCR/whisper 可达分钟级），
+    # 脚本循环触发可占满解析并发与内存
+    if not limiter.check(f"parse:{user.id}", _PARSE_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"解析限每分钟 {_PARSE_RATE_PER_MIN} 次，请稍后再试")
     mat = _owned_material_or_404(db, material_id, user)
     originals = originals_dir(mat.session_id)
     matches = sorted(originals.glob(f"{mat.id}.*"))
@@ -431,6 +439,9 @@ async def text_material(
     _get_session_or_404(db, body.session_id, user)
     if not body.text or not body.text.strip():
         raise ApiError("empty_content", "文本为空")
+    # iter 367（批次五）：入库限流——无成本内容可脚本灌行（配额只限总量不限速率）
+    if not limiter.check(f"text:{user.id}", _TEXT_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"文本入库限每分钟 {_TEXT_RATE_PER_MIN} 次，请稍后再试")
     return await _store(db, body.session_id, "text", body.text, text_override=body.text)
 
 

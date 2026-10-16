@@ -35,7 +35,14 @@ from app.agent.context import ExecContext, Timeouts
 from app.agent.cost import record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.errors import ApiError
-from app.api.materials import _URL_RATE_PER_MIN, _hash_source, _read_capped, _validate_upload
+from app.api.materials import (
+    _PARSE_RATE_PER_MIN,
+    _TEXT_RATE_PER_MIN,
+    _URL_RATE_PER_MIN,
+    _hash_source,
+    _read_capped,
+    _validate_upload,
+)
 from app.api.plans import _safe_download_name
 from app.api.sessions import _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
@@ -299,6 +306,9 @@ async def parse_document(
     事务外解析（err.md B22）；同文档并发解析 -> 409。
     """
     mode = (body.mode if body else "full")
+    # iter 367（批次五）：解析限流——与 materials parse 同口径（重 CPU/长耗时路径）
+    if not limiter.check(f"kb_parse:{user.id}", _PARSE_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"解析限每分钟 {_PARSE_RATE_PER_MIN} 次，请稍后再试")
     doc = _owned_doc_or_404(db, document_id, user)
     if doc.original_path is None:
         raise ApiError("bad_request", "该文档无原件（text/url 类创建时已解析入库）", status=400)
@@ -374,6 +384,9 @@ async def create_text_document(
     content = body.text.strip()
     if not content:
         raise ApiError("empty_content", "文本为空")
+    # iter 367（批次五）：入库限流——与 materials text 同口径（配额只限总量不限速率）
+    if not limiter.check(f"kb_text:{user.id}", _TEXT_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"文档入库限每分钟 {_TEXT_RATE_PER_MIN} 次，请稍后再试")
     content_hash = _hash_source(body.text)
     existing = _dedup_lookup(db, user.id, content_hash)
     if existing is not None:

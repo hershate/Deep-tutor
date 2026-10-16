@@ -57,17 +57,40 @@ def get_db() -> Iterator[SessionLocal]:  # type: ignore[type-arg]
         db.close()
 
 
+def _jwt_payload_valid(db: Session, payload: dict) -> bool:
+    """JWT 载荷的业务有效性：签发用户仍存在 + 未被吊销（tokens_valid_after，err.md A9）。
+
+    与 resolve_user 的 JWT 分支同口径（含 +1s iat 容差，iter 246）。require_auth 此前
+    只做密码学校验即放行——用户已删/改密后的旧 JWT 仍可通过仅挂 require_auth 的路由
+    （iter 367 批次五）。单 PK 读，成本相对每请求已开的会话可忽略。
+    """
+    try:
+        user_id = int(payload.get("sub", ""))
+        iat = float(payload.get("iat", 0))
+    except (TypeError, ValueError):
+        return False
+    user = db.get(User, user_id)
+    if user is None:
+        return False
+    if iat + 1 <= (user.tokens_valid_after or 0):
+        return False
+    return True
+
+
 async def require_auth(
     authorization: str | None = Header(default=None),
     x_auth_token: str | None = Header(default=None, alias="X-Auth-Token"),
     db: Session = Depends(get_db),
 ) -> None:
     """校验请求认证：JWT / AUTH_TOKEN / 个人访问令牌任一通过即可；
-    零配置开放本机模式（passwordless_open，iter 89）直接放行。"""
+    零配置开放本机模式（passwordless_open，iter 89）直接放行。
+    JWT 须同时通过业务校验（用户存在 + 未吊销，iter 367）。"""
     token = _extract_token(authorization, x_auth_token)
     if token:
-        if decode_token(token) is not None:
-            return
+        payload = decode_token(token)
+        if payload is not None:
+            if _jwt_payload_valid(db, payload):
+                return
         if _is_env_token(token):
             return
         if _user_by_token_credential(db, token) is not None:

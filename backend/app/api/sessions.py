@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.api.plans import _STREAMS, _clarify_questions_from_state, _plan_topic, cancel_running_generation
+from app.core.ratelimit import limiter
 from app.core.storage import delete_material_files, delete_session_files
 from app.db import models
 from app.db.models import User
@@ -29,6 +30,9 @@ router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(
 
 # 每用户会话数上限（err.md A24：此前会话创建无配额，DB 行/文件目录无界增长）
 _MAX_SESSIONS_PER_USER = 200
+# iter 367（批次五）：创建限流（次/分钟/用户）——配额只限总量；脚本快速建删循环
+# 仍可高频打 DB + 会话目录增删
+_CREATE_RATE_PER_MIN = 30
 
 
 class SessionCreate(BaseModel):
@@ -44,6 +48,8 @@ class SessionOut(BaseModel):
 def create_session(
     body: SessionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> SessionOut:
+    if not limiter.check(f"sess_create:{user.id}", _CREATE_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"创建会话限每分钟 {_CREATE_RATE_PER_MIN} 次，请稍后再试")
     count = db.query(models.Session).filter_by(user_id=user.id).count()
     if count >= _MAX_SESSIONS_PER_USER:
         raise ApiError(

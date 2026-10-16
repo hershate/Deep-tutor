@@ -111,21 +111,65 @@ _ZIP_MAX_ENTRIES = 10_000
 
 
 def _check_zip_safety(path: Path) -> None:
+    """zip 防护（R23 + iter 367 批次五实际流校验）。
+
+    第一层（声明值）：中央目录条目数与声明的解压总大小（原有检查）。攻击者可伪造
+    头部（声明 file_size=1000、实际流解压 600MB）绕过——实验验证：声明值检查通过，
+    随后 zf.read()/docx 库按无参 read() 全量累积解压输出，CRC 校验在爆内存**之后**
+    才失败。
+    第二层（实际流，iter 367）：对每个条目做有界流式解压计数——lift 声明值钳制
+    （_left 置大， zipfile.read(n) 会截断到声明值、检不出伪造），按 1MB 块读到流尾，
+    校验实际解压字节数与声明一致且累计不超硬上限。块读不累积，内存恒为 O(1MB)。
+    """
     import zipfile
 
     try:
         with zipfile.ZipFile(path) as zf:
             infos = zf.infolist()
+            if len(infos) > _ZIP_MAX_ENTRIES:
+                raise _ParseError("payload_too_large", f"压缩包条目数 {len(infos)} 超上限 {_ZIP_MAX_ENTRIES}")
+            declared_total = sum(i.file_size for i in infos)
+            if declared_total > _ZIP_MAX_UNCOMPRESSED:
+                raise _ParseError(
+                    "payload_too_large",
+                    f"解压后总大小 {declared_total / 1024 / 1024:.0f}MB 超上限 {_ZIP_MAX_UNCOMPRESSED / 1024 / 1024:.0f}MB",
+                )
+            actual_total = 0
+            for info in infos:
+                if info.is_dir():
+                    continue
+                if info.flag_bits & 0x1:
+                    # 加密条目：OPC（docx/pptx 容器）不支持加密，库解析必失败，直接拒
+                    raise _ParseError("parse_failed", "加密的压缩条目不受支持")
+                try:
+                    with zf.open(info) as f:
+                        # lift 声明值钳制（私有字段，仅此处、防伪造头的纵深防御用）：
+                        # read(n) 否则截断到声明 file_size，实际流大小不可验证
+                        f._left = 1 << 62  # noqa: SLF001
+                        entry_total = 0
+                        while True:
+                            chunk = f.read(1 << 20)
+                            if not chunk:
+                                break
+                            entry_total += len(chunk)
+                            if entry_total + actual_total > _ZIP_MAX_UNCOMPRESSED:
+                                raise _ParseError(
+                                    "payload_too_large",
+                                    f"实际解压大小超上限 {_ZIP_MAX_UNCOMPRESSED / 1024 / 1024:.0f}MB（疑似伪造压缩头）",
+                                )
+                except zipfile.BadZipFile as exc:
+                    # 伪造头典型症状：实际流与声明/CRC 不一致
+                    raise _ParseError("parse_failed", f"损坏的压缩条目 {info.filename}（头信息与实际数据不一致）") from exc
+                if entry_total != info.file_size:
+                    raise _ParseError(
+                        "payload_too_large",
+                        f"压缩条目 {info.filename} 声明 {info.file_size} 字节但实际解压 {entry_total} 字节（伪造头）",
+                    )
+                actual_total += entry_total
+    except _ParseError:
+        raise
     except zipfile.BadZipFile as exc:
         raise _ParseError("parse_failed", f"损坏的 {path.suffix} 文件（非合法 zip 容器）") from exc
-    if len(infos) > _ZIP_MAX_ENTRIES:
-        raise _ParseError("payload_too_large", f"压缩包条目数 {len(infos)} 超上限 {_ZIP_MAX_ENTRIES}")
-    total = sum(i.file_size for i in infos)
-    if total > _ZIP_MAX_UNCOMPRESSED:
-        raise _ParseError(
-            "payload_too_large",
-            f"解压后总大小 {total / 1024 / 1024:.0f}MB 超上限 {_ZIP_MAX_UNCOMPRESSED / 1024 / 1024:.0f}MB",
-        )
 
 
 def _parse_text(source: str) -> tuple[str, dict]:

@@ -50,8 +50,10 @@ def test_export_md(client, auth_headers):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["format"] == "md"
-    assert body["file_url"].endswith(".md")
-    assert Path(body["file_url"]).exists()
+    # iter 367：file_url 不再回显服务器绝对路径（信息泄露）——正文随响应返回
+    assert body["file_url"] == ""
+    assert body["filename"].endswith(".md")
+    assert "# React" in body["content"]
 
 
 def test_export_pdf_degrades_to_md(client, auth_headers):

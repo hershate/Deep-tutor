@@ -39,7 +39,9 @@ def test_export_md_writes_file():
         assert out.status == "ok"
         assert out.data["format"] == "md"
         assert out.data["chars"] > 0
-        fpath = Path(out.data["file_url"])
+        # iter 367：file_url 不再回显服务器绝对路径（信息泄露），恒 ""
+        assert out.data["file_url"] == ""
+        fpath = Path(d) / "sessions" / "s" / "exports" / "p1.md"
         assert fpath.exists()
         content = fpath.read_text(encoding="utf-8")
         assert "# React" in content
@@ -54,7 +56,7 @@ def test_unsupported_format_degrades_to_md():
         assert out.status == "repaired"
         assert out.data["format"] == "md"
         assert out.errors[0].code == "unsupported_format"
-        assert Path(out.data["file_url"]).exists()
+        assert (Path(d) / "sessions" / "s" / "exports" / "p2.md").exists()
 
 
 def test_empty_plan_is_error():
@@ -72,7 +74,7 @@ def test_assemble_from_upstream():
     with tempfile.TemporaryDirectory() as d:
         out = _run({"format": "md", "plan_id": "p3"}, d, upstream=upstream)
         assert out.status == "ok"
-        content = Path(out.data["file_url"]).read_text(encoding="utf-8")
+        content = (Path(d) / "sessions" / "s" / "exports" / "p3.md").read_text(encoding="utf-8")
         assert "# Go" in content
         assert "基础" in content
 

@@ -310,6 +310,52 @@ _URL_ATTR = re.compile(r'(href|src)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))', r
 _DANGEROUS_SCHEME = re.compile(r"^(javascript|vbscript):", re.IGNORECASE)
 _CLASS_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
 
+# iter 367（批次五）：白名单化。黑名单枚举跟不上攻击面——svg（SMIL 动画 XSS）、
+# math/maction、form/input/button（幻灯片内钓鱼表单）、base/frame 等标签存活；
+# action/formaction/xlink:href/poster/srcset/data/ping 等 URL 承载属性不在
+# href/src 检查内。改为标签白名单 + 属性白名单：非白名单标签剥除标签记号
+# （内部文本保留，未知语义无损），白名单标签重建时仅保留白名单属性——URL 承载
+# 属性只剩 href/src，scheme 净化对其仍生效（双保险）。
+_ALLOWED_TAGS = frozenset({
+    "a", "abbr", "article", "b", "blockquote", "br", "caption", "code", "col", "colgroup",
+    "dd", "del", "details", "div", "dl", "dt", "em", "figcaption", "figure", "footer",
+    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "i", "img", "ins", "kbd", "li",
+    "mark", "ol", "p", "pre", "q", "s", "section", "small", "span", "strong", "sub",
+    "summary", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul",
+})
+_ALLOWED_ATTRS = frozenset({
+    "class", "alt", "title", "href", "src", "width", "height",
+    "colspan", "rowspan", "lang", "dir", "start", "type", "open",
+})
+_TAG_TOKEN = re.compile(r"<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9:.-]*)((?:\s[^<>]*)?)(/?)\s*>")
+_ATTR_TOKEN = re.compile(r'([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))')
+_HTML_COMMENT = re.compile(r"<!--[\s\S]*?-->", re.DOTALL)
+
+
+def _rebuild_whitelisted_tag(m: re.Match) -> str:
+    """白名单标签记号重建：closing 原样；开标签仅保留白名单属性（URL scheme 净化）。"""
+    closing, name, attrs_src, self_closing = m.group(1), m.group(2).lower(), m.group(3) or "", m.group(4)
+    if closing:
+        return f"</{name}>"
+    kept: list[str] = []
+    for am in _ATTR_TOKEN.finditer(attrs_src):
+        aname = am.group(1).lower()
+        if aname not in _ALLOWED_ATTRS:
+            continue
+        if am.group(2) is not None:
+            val = f'"{am.group(2)}"'
+        elif am.group(3) is not None:
+            val = f"'{am.group(3)}'"
+        else:
+            val = am.group(4) or ""
+        if aname in ("href", "src"):
+            inner = val[1:-1] if val[:1] in "\"'" else val
+            if _DANGEROUS_SCHEME.match(re.sub(r"[\x00-\x20\x7f]", "", inner or "")):
+                val = '"#"'
+        kept.append(f"{aname}={val}" if val else aname)
+    attrs = (" " + " ".join(kept)) if kept else ""
+    return f"<{name}{attrs}{'/' if self_closing else ''}>"
+
 
 def _neutralize_url_attr(m: re.Match) -> str:
     """href/src 属性值：剥 ASCII 控制字符后判 javascript/vbscript -> 置 '#'，否则原样。"""
@@ -322,16 +368,23 @@ def _neutralize_url_attr(m: re.Match) -> str:
 
 
 def _sanitize_content_html(s: str) -> str:
-    """清理 LLM 生成的 content_html：去危险块/标签、on* 事件属性与 javascript: 链接（防 XSS）。"""
+    """清理 LLM 生成的 content_html：白名单标签/属性 + 危险块/标签、on* 事件属性与
+    javascript: 链接净化（防 XSS；iter 367 起黑名单外再全量白名单，见 _ALLOWED_TAGS 注释）。"""
     import html
 
     # iter 364：先解码 HTML 实体——浏览器属性值实体解码先于 URL scheme 解析，故
     # java&#115;cript: 经 _JS_URL_ATTR（字面 javascript:）不匹配后浏览器仍执行。解码后过滤覆盖
     s = html.unescape(s)
+    s = _HTML_COMMENT.sub("", s)  # 注释/条件注释整块去除
     s = _SCRIPT_STYLE_BLOCK.sub("", s)  # <script>...</script> 整块
     s = _UNSAFE_TAG.sub("", s)  # 残留开/闭危险标签
-    s = _EVENT_ATTRS.sub("", s)  # on*= 事件属性
-    s = _URL_ATTR.sub(_neutralize_url_attr, s)  # href/src 的 javascript:/vbscript:（剥控制字符后判）-> "#"
+    # 白名单：非白名单标签剥记号（文本保留）；白名单标签重建属性
+    s = _TAG_TOKEN.sub(
+        lambda m: _rebuild_whitelisted_tag(m) if m.group(2).lower() in _ALLOWED_TAGS else "",
+        s,
+    )
+    s = _EVENT_ATTRS.sub("", s)  # 纵深：重建后不应残留（属性白名单已剥 on*）
+    s = _URL_ATTR.sub(_neutralize_url_attr, s)  # 纵深：href/src scheme 净化双保险
     return s
 
 

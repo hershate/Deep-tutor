@@ -4,7 +4,8 @@
 - GET  /setup/status  公开：返回向导所需的状态标志（granular flags，
   后续新增向导步骤只需加字段）
 - POST /setup         开放模式或 admin：一次性完成「设访问密码 / 配 LLM API Key」
-- POST /setup/dismiss 公开：仅标记已跳过（纯 UI 引导开关，无安全面）
+- POST /setup/dismiss 同上门禁（_setup_caller，iter 367 收紧——此前完全公开）：
+  仅标记已跳过（纯 UI 引导开关）
 
 设计要点：
 - body 字段全可选 + pydantic extra=ignore -> 后续新增配置项不破坏旧客户端。
@@ -157,6 +158,9 @@ def setup(body: SetupIn, db: Annotated[Session, Depends(get_db)], user: Annotate
 
 
 @router.post("/dismiss")
-def dismiss() -> dict:
+def dismiss(user: Annotated[User, Depends(_setup_caller)]) -> dict:  # noqa: ARG001
+    """iter 367（批次五）：补 _setup_caller 门禁——此前完全公开，认证已配置时任何
+    未认证调用方可翻全局 dismiss 状态（向导从此不再弹出，诱导部署停留在未配置态）。
+    开放模式下与 POST /setup 同语义（resolve_user 懒创建 admin，首个来访者）。"""
     mark_dismissed()
     return {"ok": True}

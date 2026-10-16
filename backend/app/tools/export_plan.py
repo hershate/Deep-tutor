@@ -42,7 +42,10 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     file_path = base / f"{plan_id}.md"
     file_path.write_text(md, encoding="utf-8")
 
-    data = {"file_url": str(file_path), "format": "md", "chars": len(md), "content": md, "filename": f"{plan_id}.md"}
+    # iter 367（批次五）：file_url 不再回显服务器绝对路径（网络服务信息泄露：
+    # 暴露部署目录布局）；响应已含 content+filename，前端 md 导出走内容下载，
+    # 不消费 file_url。与 exports.py 其余响应（恒 ""）口径统一。
+    data = {"file_url": "", "format": "md", "chars": len(md), "content": md, "filename": f"{plan_id}.md"}
     if degraded_format:
         return ToolOutput(
             tool="export_plan",
