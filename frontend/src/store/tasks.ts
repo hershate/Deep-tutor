@@ -513,7 +513,13 @@ if (typeof window !== 'undefined') {
       })
       return
     }
-    if (e.key !== STORAGE_KEY || e.newValue == null) return
+    if (e.key !== STORAGE_KEY) return
+    // iter 369 B16：他标签登出（clearAuth 删 dt_tasks_v1）-> 本标签内存台账同步清空，
+    // 否则任务中心继续显示前任用户的任务标题/rawText（跨用户信息泄漏窗口直至刷新）。
+    if (e.newValue == null) {
+      useTaskStore.setState((s) => (Object.keys(s.tasks).length > 0 ? { tasks: {} } : s))
+      return
+    }
     let incoming: PersistedTask[]
     try {
       const arr = JSON.parse(e.newValue) as PersistedTask[]

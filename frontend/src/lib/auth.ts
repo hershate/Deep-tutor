@@ -11,6 +11,9 @@
 const TOKEN_KEY = 'dt_token'
 const USER_KEY = 'dt_user'
 
+/** localStorage 键名导出（main.tsx 跨标签 storage 监听比对用）。 */
+export const AUTH_STORAGE_KEYS = [TOKEN_KEY, USER_KEY] as const
+
 /** 登录态/用户信息变化事件（Layout 等据此响应式刷新，err.md D17）。 */
 export const AUTH_CHANGED_EVENT = 'dt-auth-changed'
 
@@ -69,6 +72,8 @@ export function clearAuth(): void {
   try {
     localStorage.removeItem('dt_tasks_v1')
     localStorage.removeItem('dt_tasks_v1_tombstones')
+    // iter 369 B16：搜索历史同属用户本地数据——登出不清则公共设备上后任可见前任搜索词
+    localStorage.removeItem('dt-search-history')
   } catch {
     /* localStorage 不可用：忽略 */
   }

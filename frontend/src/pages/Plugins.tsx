@@ -4,6 +4,7 @@ import Card from '../components/Card'
 import { toast } from '../components/Toast'
 import {
   ApiError,
+  type BackendPluginStatus,
   disableBackendPlugin,
   enableBackendPlugin,
   getBackendPlugins,
@@ -84,13 +85,20 @@ export default function Plugins() {
   }
 
   // --- 后端插件热管理（管理员）：reload/disable/enable，无需重启 ---
+  // iter 369 B16：reload/enable 返回 {plugin:{state,error}}——装载失败时 state=failed
+  // 但 HTTP 200，此前一律 toast 成功（假反馈，插件实际没起来）；改为按 state 分流
+  function toastLoadResult(id: string, r: { plugin: BackendPluginStatus }, verb: string) {
+    if (r.plugin.state === 'loaded') toast.success(`插件 ${id} 已${verb}`)
+    else toast.error(`插件 ${id} ${verb}失败（${r.plugin.state}）：${r.plugin.error || '未知错误'}`)
+  }
+
   async function backendReload(id: string) {
     if (toggling) return
     setToggling(id)
     try {
-      await reloadBackendPlugin(id)
+      const r = await reloadBackendPlugin(id)
       await queryClient.invalidateQueries({ queryKey: ['backend-plugins'] })
-      toast.success(`插件 ${id} 已热重载`)
+      toastLoadResult(id, r, '热重载')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '重载失败')
     } finally {
@@ -116,9 +124,9 @@ export default function Plugins() {
     if (toggling) return
     setToggling(id)
     try {
-      await enableBackendPlugin(id)
+      const r = await enableBackendPlugin(id)
       await queryClient.invalidateQueries({ queryKey: ['backend-plugins'] })
-      toast.success(`插件 ${id} 已启用`)
+      toastLoadResult(id, r, '启用')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '启用失败')
     } finally {

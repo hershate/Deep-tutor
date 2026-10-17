@@ -101,6 +101,9 @@ export default function Plans() {
       await deleteSession(p.session_id)
       removeTask(planTaskId(p.session_id))
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      // iter 369 B16：同步失效方案系缓存（['plans','learn']/['plans','today'] 前缀命中）——
+      // 此前学习中心/今日任务持有已删方案直至 staleTime 过期，点进去 404
+      void queryClient.invalidateQueries({ queryKey: ['plans'] })
       // 删的是本页最后一条且非首页 -> 回一页，否则原地刷新
       if (items.length === 1 && page > 1) setPage((v) => v - 1)
       else setReloadKey((k) => k + 1)
@@ -160,6 +163,7 @@ export default function Plans() {
       }
     }
     void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    void queryClient.invalidateQueries({ queryKey: ['plans'] }) // iter 369 B16：同单删——方案系缓存同步失效
     setSelected(new Set())
     setSelectMode(false)
     setBatchProgress('')
@@ -186,6 +190,7 @@ export default function Plans() {
       await deleteSession(s.session_id)
       removeTask(planTaskId(s.session_id))
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      void queryClient.invalidateQueries({ queryKey: ['plans'] }) // iter 369 B16：同单删
       setReloadKey((k) => k + 1)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '删除失败，请重试')

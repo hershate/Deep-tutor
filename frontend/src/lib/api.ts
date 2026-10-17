@@ -1495,8 +1495,8 @@ export const patchThread = (id: number, body: { title?: string }) =>
   apiFetch<Thread>(`/threads/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 export const deleteThread = (id: number) =>
   apiFetch<{ ok: boolean }>(`/threads/${id}`, { method: 'DELETE' })
-export const listMessages = (id: number, limit = 100) =>
-  apiFetch<{ items: ChatMessage[] }>(`/threads/${id}/messages?limit=${limit}`)
+export const listMessages = (id: number, limit = 100, beforeId?: number) =>
+  apiFetch<{ items: ChatMessage[] }>(`/threads/${id}/messages?limit=${limit}${beforeId != null ? `&before_id=${beforeId}` : ''}`)
 export const listThreadMemory = (id: number) =>
   apiFetch<{ items: MemoryItem[] }>(`/threads/${id}/memory`)
 export const addThreadMemory = (id: number, body: { content: string; kind?: string }) =>

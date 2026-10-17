@@ -43,15 +43,19 @@ export default function UserManager() {
 
   const users = data?.users ?? []
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, opts?: { resetCreate?: boolean }) {
     if (busy) return // 防重入：请求在途时表单 Enter 仍可触发 onSubmit
     setBusy(true)
     setOpError('')
     try {
       await action()
       await qc.invalidateQueries({ queryKey: ['users'] })
-      setForm(EMPTY_CREATE)
-      setShowForm(false)
+      // iter 369 B16：仅创建成功才收起/清空创建表单——此前重置他人密码/删除/改管理员
+      // 等任意操作成功都会把管理员正填一半的创建表单清掉（输入丢失）
+      if (opts?.resetCreate) {
+        setForm(EMPTY_CREATE)
+        setShowForm(false)
+      }
       setResetId(null)
       setResetPw('')
     } catch (e) {
@@ -66,13 +70,15 @@ export default function UserManager() {
       setOpError('密码至少 8 位')
       return
     }
-    void run(() =>
-      createUser({
-        username: form.username.trim(),
-        password: form.password,
+    void run(
+      () =>
+        createUser({
+          username: form.username.trim(),
+          password: form.password,
         name: form.name.trim(),
         is_admin: form.is_admin,
       }),
+      { resetCreate: true },
     )
   }
 
@@ -171,7 +177,7 @@ export default function UserManager() {
             初始密码（至少 8 位）
             <input
               required
-              minLength={4}
+              minLength={8}
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -288,7 +294,7 @@ export default function UserManager() {
               >
                 <input
                   required
-                  minLength={4}
+                  minLength={8}
                   type="password"
                   placeholder="新密码（至少 8 位）"
                   value={resetPw}

@@ -37,7 +37,7 @@ export default function Clarify() {
 
   // 三级回退第 3 级：state/台账均无问题时才查服务端（深链/刷新恢复）
   const needFetch = (!stateQuestions || stateQuestions.length === 0) && !(task?.questions?.length)
-  const { data: detail, isLoading } = useQuery({
+  const { data: detail, isLoading, isError, error: detailError, refetch } = useQuery({
     queryKey: ['sessions', sid, 'detail'],
     queryFn: () => getSession(sid),
     enabled: needFetch && !!sid,
@@ -102,6 +102,23 @@ export default function Clarify() {
       <div className="space-y-4" role="status" aria-label="加载澄清问题">
         <h2 className="text-2xl font-bold">补充信息</h2>
         <SkeletonCards count={2} />
+      </div>
+    )
+  }
+
+  // iter 369 B16：取数失败显式报错——此前报错走「没有待回答的澄清问题」分支，
+  // 误导用户以为已答过/状态已变（实为网络/服务端故障，重试可恢复）
+  if (needFetch && isError) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">补充信息</h2>
+        <p className="text-red-500">澄清问题加载失败：{detailError instanceof Error ? detailError.message : '未知错误'}</p>
+        <button
+          onClick={() => void refetch()}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+        >
+          重试
+        </button>
       </div>
     )
   }

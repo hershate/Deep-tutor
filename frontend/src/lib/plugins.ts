@@ -1038,6 +1038,14 @@ const skinsApi = {
     if (!def || !def.name || def.name === 'default') throw new Error('[DeepTutor] skin.name 必填且不能为 default')
     skinRegistry.set(def.name, { tokens: {}, darkTokens: {}, ...def })
     _track('skins', def.name)
+    // iter 369 B16：注册时若该皮肤正是用户保存的选择 -> 立即应用。init 时插件皮肤尚未
+    // 注册（脚本异步注入晚于 applySkin(saved)），saved 查无此名静默失败；此后既不在刷新
+    // 后恢复、也不在插件停用->启用后恢复（unregister 回退 default 但 dt_skin 仍存）。
+    try {
+      if (localStorage.getItem(SKIN_KEY) === def.name && activeSkin !== def.name) applySkin(def.name)
+    } catch {
+      /* localStorage 不可用：跳过恢复 */
+    }
     // 通知监听器（Plugins 页据此重渲染，下拉框显示新皮肤——此前 register 不通知是 bug）
     skinListeners.forEach((fn) => {
       try {

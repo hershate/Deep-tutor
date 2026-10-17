@@ -154,7 +154,7 @@ export default function Wiki() {
     if (params.get('doc')) switchView('docs')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params])
-  const { data: notesOv } = useQuery({
+  const { data: notesOv, isError: notesErr, error: notesError, refetch: notesRefetch } = useQuery({
     queryKey: ['notes-overview'],
     queryFn: getNotesOverview,
     staleTime: 30_000,
@@ -378,7 +378,15 @@ export default function Wiki() {
         <KbDocsView />
       ) : view === 'notes' ? (
         /* 我的笔记（iter 161）：跨方案全部笔记，更新近者在前 */
-        !notesOv ? (
+        notesErr ? (
+          /* iter 369 B16：失败态——此前报错时 notesOv 恒 undefined，视图永挂骨架屏 */
+          <div className="py-8 text-center text-sm text-red-500">
+            笔记加载失败：{notesError instanceof Error ? notesError.message : '未知错误'}
+            <button onClick={() => void notesRefetch()} className="ml-2 text-blue-600 underline">
+              重试
+            </button>
+          </div>
+        ) : !notesOv ? (
           <SkeletonCards count={3} />
         ) : notesOv.total === 0 ? (
           <EmptyState

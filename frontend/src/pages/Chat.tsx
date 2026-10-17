@@ -8,8 +8,8 @@
 // GET /threads/{id}/runs/active 附流续看（而非 POST 触发 409）；用户消息乐观渲染、run 结束
 // 待消息刷新落定再清流式气泡（免闪烁）、错误清流、流式自动滚动跟随。
 
-import { useEffect, useRef, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { memo, useEffect, useRef, useState, type UIEvent } from 'react'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { openSSE, SseError, type SSEEvent } from '../lib/sse'
 import { getToken } from '../lib/auth'
 import Markdown from '../components/Markdown'
@@ -78,8 +78,23 @@ export default function Chat() {
   const reconnectAttemptedRef = useRef<number | null>(null) // 已尝试附流续看的会话 id（防重复）
   const doneRef = useRef<number | null>(null) // run 已 done，待 messages 刷新落定再清流（免闪烁 BUG-6）
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  // iter 369 B16：贴底跟随——用户上翻阅读（离底 >40px）时暂停自动滚动，回到底部自动恢复
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const pinnedRef = useRef(true)
 
-  const threadsQ = useQuery({ queryKey: ['threads'], queryFn: () => listThreads() })
+  // iter 369 B16：会话列表改无限查询（20 条/页，后端 /threads?page= 分页）——此前只取
+  // 首页 20 条且无翻页入口，更早会话永久不可达（列表看起来是全部，实则截断）。
+  const threadsQ = useInfiniteQuery({
+    queryKey: ['threads'],
+    queryFn: ({ pageParam }) => listThreads(pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((n, p) => n + p.items.length, 0)
+      return last.items.length > 0 && loaded < last.total ? all.length + 1 : undefined
+    },
+  })
+  const threads = threadsQ.data?.pages.flatMap((p) => p.items) ?? []
+  const threadsTotal = threadsQ.data?.pages[threadsQ.data.pages.length - 1]?.total ?? 0
   const msgsQ = useQuery({
     queryKey: ['messages', activeId],
     queryFn: () => listMessages(activeId!),
@@ -93,6 +108,10 @@ export default function Chat() {
 
   const messages = msgsQ.data?.items ?? []
   const streaming = stream
+  // 「加载更早」翻页态（msgsQ 只取最近 100 条，更早历史按 before_id 向上翻）
+  const [noMoreMsgs, setNoMoreMsgs] = useState(false)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
+  const [deletingThread, setDeletingThread] = useState(false)
 
   const createM = useMutation({
     mutationFn: () => createThread({ title: '新对话', kind: 'chat' }),
@@ -113,13 +132,15 @@ export default function Chat() {
     setInput('') // iter 363：切会话清空输入框，防跨会话草稿串味
     doneRef.current = null
     reconnectAttemptedRef.current = null
+    setNoMoreMsgs(false) // iter 369 B16：新会话翻页状态复位
+    pinnedRef.current = true // 切会话默认贴底（首屏滚到底）
     return () => ac.abort() // 切走或卸载即中止本会话的 SSE（流不再向已卸载组件投递）
   }, [activeId])
 
   // 切回时若会话仍有 running run 且本地无流 -> 附流续看（iter 360 BUG-3）
   useEffect(() => {
     if (activeId == null || reconnectAttemptedRef.current === activeId) return
-    const thread = threadsQ.data?.items.find((t) => t.id === activeId)
+    const thread = threads.find((t) => t.id === activeId)
     if (thread?.running) {
       reconnectAttemptedRef.current = activeId
       void reconnectActive(activeId)
@@ -136,10 +157,44 @@ export default function Chat() {
     }
   }, [msgsQ.isFetching, msgsQ.dataUpdatedAt, activeId])
 
-  // 流式增长 / 消息变化 -> 自动滚动到底（iter 360 BUG-11）
+  // 流式增长 / 消息变化 -> 仅当用户贴底时自动滚动到底（iter 360 BUG-11 原为无条件滚；
+  // iter 369 B16：长回复/历史长会话中用户上翻阅读时被强拉回底部，阅读位置丢失）
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+    if (pinnedRef.current) bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
   }, [stream?.text, stream?.thinking, messages.length, pendingUser, error])
+
+  function onScrollMsgs(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
+
+  // iter 369 B16：加载更早消息（before_id 向上翻页）。注意 run done/失效刷新会把缓存
+  // 重置为最近 100 条（queryFn 不带 before_id），已展开的历史随之折叠——数据无损，可再点开。
+  async function loadEarlier() {
+    if (activeId == null || loadingEarlier || messages.length === 0) return
+    setLoadingEarlier(true)
+    try {
+      const res = await listMessages(activeId, 100, messages[0].id)
+      if (res.items.length < 100) setNoMoreMsgs(true)
+      if (res.items.length > 0) {
+        // 前插后保持视口位置：记录插前滚动几何，DOM 更新后按高度差补偿
+        const el = scrollRef.current
+        const prevHeight = el?.scrollHeight ?? 0
+        const prevTop = el?.scrollTop ?? 0
+        queryClient.setQueryData<{ items: ChatMessage[] }>(['messages', activeId], (old) =>
+          old ? { items: [...res.items, ...old.items] } : old,
+        )
+        requestAnimationFrame(() => {
+          if (!el) return
+          el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
+        })
+      }
+    } catch {
+      /* 翻页失败静默：按钮保留，用户可重试 */
+    } finally {
+      setLoadingEarlier(false)
+    }
+  }
 
   // 统一事件处理：POST 新 run 与 GET 附流续看共用（tid 锁定发起/续看会话）
   function makeEventHandler(tid: number) {
@@ -284,7 +339,7 @@ export default function Chat() {
           ＋ 新对话
         </button>
         <div className="flex-1 overflow-y-auto">
-          {(threadsQ.data?.items ?? []).map((t: Thread) => (
+          {threads.map((t: Thread) => (
             <div
               key={t.id}
               role="button"
@@ -308,11 +363,11 @@ export default function Chat() {
                   e.stopPropagation()
                   // iter 346（F4）：重命名会话（后端 PATCH /threads/{id} 已就绪）
                   const next = window.prompt('重命名对话', t.title || '')
-                  if (next && next.trim() && next.trim() !== (t.title || '')) {
-                    patchThread(t.id, { title: next.trim() }).then(() =>
-                      queryClient.invalidateQueries({ queryKey: ['threads'] }),
-                    )
-                  }
+                      if (next && next.trim() && next.trim() !== (t.title || '')) {
+                        patchThread(t.id, { title: next.trim() })
+                          .then(() => queryClient.invalidateQueries({ queryKey: ['threads'] }))
+                          .catch((err) => setError(err instanceof Error ? err.message : '重命名失败，请重试'))
+                      }
                 }}
                 className="hidden shrink-0 rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-200 hover:text-slate-700 group-hover:block dark:hover:bg-slate-700 dark:hover:text-slate-200"
                 aria-label={`重命名对话「${t.title || t.id}」`}
@@ -322,7 +377,16 @@ export default function Chat() {
               </button>
             </div>
           ))}
-          {threadsQ.data?.items.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">尚无对话，点上方新建</p>}
+          {threads.length < threadsTotal && (
+            <button
+              onClick={() => void threadsQ.fetchNextPage()}
+              disabled={!threadsQ.hasNextPage || threadsQ.isFetchingNextPage}
+              className="mb-1 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              {threadsQ.isFetchingNextPage ? '加载中…' : `加载更多（${threads.length}/${threadsTotal}）`}
+            </button>
+          )}
+          {threads.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">尚无对话，点上方新建</p>}
         </div>
       </aside>
 
@@ -340,7 +404,7 @@ export default function Chat() {
         ) : (
           <>
             <header className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
-              <span className="truncate text-sm font-medium">{threadsQ.data?.items.find((x) => x.id === activeId)?.title || `对话 ${activeId}`}</span>
+              <span className="truncate text-sm font-medium">{threads.find((x) => x.id === activeId)?.title || `对话 ${activeId}`}</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowMemory((v) => !v)}
@@ -350,23 +414,38 @@ export default function Chat() {
                 </button>
                 <button
                   onClick={() => {
+                    if (deletingThread) return
                     if (confirm('删除此对话及其全部记录？')) {
-                      deleteThread(activeId).then(() => {
-                        queryClient.invalidateQueries({ queryKey: ['threads'] })
-                        setActiveId(null)
-                      })
+                      setDeletingThread(true)
+                      deleteThread(activeId)
+                        .then(() => {
+                          queryClient.invalidateQueries({ queryKey: ['threads'] })
+                          setActiveId(null)
+                        })
+                        .catch((e) => setError(e instanceof Error ? e.message : '删除失败，请重试'))
+                        .finally(() => setDeletingThread(false))
                     }
                   }}
-                  className="rounded px-2 py-0.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+                  disabled={deletingThread}
+                  className="rounded px-2 py-0.5 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
                 >
-                  删除
+                  {deletingThread ? '删除中…' : '删除'}
                 </button>
               </div>
             </header>
 
             {showMemory && <MemoryPanel items={memQ.data?.items ?? []} loading={memQ.isLoading} />}
 
-            <div className="flex-1 space-y-3 overflow-y-auto p-3">
+            <div ref={scrollRef} onScroll={onScrollMsgs} className="flex-1 space-y-3 overflow-y-auto p-3">
+              {messages.length >= 100 && !noMoreMsgs && (
+                <button
+                  onClick={() => void loadEarlier()}
+                  disabled={loadingEarlier}
+                  className="mx-auto block rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {loadingEarlier ? '加载中…' : '加载更早的消息'}
+                </button>
+              )}
               {messages.map((m: ChatMessage) => (
                 <MessageBubble key={m.id} role={m.role} content={m.content} />
               ))}
@@ -409,7 +488,9 @@ export default function Chat() {
   )
 }
 
-function MessageBubble({ role, content }: { role: string; content: unknown }) {
+// iter 369 B16：memo 化——流式期间 stream.text 每 delta 触发整页重渲染，长会话下
+// 全部历史气泡（含 Markdown 重解析）反复重算；消息列表不变时跳过。
+const MessageBubble = memo(function MessageBubble({ role, content }: { role: string; content: unknown }) {
   const text = blocksText(content)
   const thinking = blocksThinking(content)
   const tools = blocksTools(content)
@@ -442,7 +523,7 @@ function MessageBubble({ role, content }: { role: string; content: unknown }) {
       </div>
     </div>
   )
-}
+})
 
 function StreamingBubble({ stream }: { stream: Streaming }) {
   const toolList = Object.entries(stream.tools)
