@@ -24,10 +24,13 @@ export default function Timeline({ schedule, stageNames = [] }: Props) {
   )
 
   const weeks = useMemo(() => {
-    if (days.length === 0) return []
-    const first = new Date(days[0].date + 'T00:00:00').getTime()
+    // iter 371：过滤非法日期串（LLM 产物可能带 '2025/06/01' 等非 ISO 串 -> NaN），
+    // 否则全部聚到同一 NaN 周键下且渲染「第 NaN 周」（weekday 守卫同口径）
+    const valid = days.filter((d) => !Number.isNaN(new Date(d.date + 'T00:00:00').getTime()))
+    if (valid.length === 0) return []
+    const first = new Date(valid[0].date + 'T00:00:00').getTime()
     const groups = new Map<number, ScheduleDay[]>()
-    for (const d of days) {
+    for (const d of valid) {
       const t = new Date(d.date + 'T00:00:00').getTime()
       const week = Math.floor((t - first) / (7 * 86400_000)) + 1
       groups.set(week, [...(groups.get(week) ?? []), d])

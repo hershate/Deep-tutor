@@ -12,10 +12,25 @@ export default function SharedPlan() {
 
   useEffect(() => {
     if (!token) return
+    // iter 371：竞态守卫（同站 err.md D6 模式）——地址栏换分享码时旧请求晚到
+    // 不覆盖新数据；切换期间重置 loading/error，不展示陈旧方案
+    let cancelled = false
+    setLoading(true)
+    setData(null)
+    setError('')
     getShared(token)
-      .then(setData)
-      .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-      .finally(() => setLoading(false))
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof ApiError ? e.message : '加载失败')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
   if (loading)

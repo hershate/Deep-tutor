@@ -12,6 +12,7 @@
 // - 倒计时不用 aria-live（每秒更新会刷屏读屏器），role=timer + 静态 aria-label。
 import { useEffect, useRef, useState } from 'react'
 import { toast } from './Toast'
+import { appTitle } from '../lib/title'
 
 const PRESETS = [15, 25, 45] // 分钟；25 = 经典番茄钟
 const MAX_MINUTES = 180
@@ -42,7 +43,6 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
   const pausedLeftRef = useRef(0) // 暂停时刻冻结的剩余毫秒
   const minsRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const titleRef = useRef<string | null>(null)
   const audioRef = useRef<AudioContext | null>(null)
   // iter 365 E4：onComplete 经 ref 同步最新值——tick 闭包捕获 start() 时的 onComplete，
   // 而父组件内联 onComplete 闭包捕获当时的 note；计时期间用户输入 note 变化不会进入旧闭包，
@@ -99,11 +99,9 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     }
   }
 
+  // iter 371：改走 lib/title 分层——不再快照/恢复整串标题（会恢复到陈旧角标）
   function restoreTitle() {
-    if (titleRef.current !== null) {
-      document.title = titleRef.current
-      titleRef.current = null
-    }
+    appTitle.setTimer(null)
   }
 
   // 卸载清理：interval、页面 title、AudioContext 都必须还原/释放
@@ -131,7 +129,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     const totalSec = Math.ceil(left / 1000)
     const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
     const ss = String(totalSec % 60).padStart(2, '0')
-    document.title = `⏱ ${mm}:${ss} · Deep-tutor`
+    appTitle.setTimer(`⏱ ${mm}:${ss}`)
   }
 
   function start() {
@@ -142,7 +140,6 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     }
     minsRef.current = mins
     endAtRef.current = Date.now() + mins * 60_000
-    if (titleRef.current === null) titleRef.current = document.title
     ensureAudio() // iter 266：借开始点击的用户手势解锁 AudioContext
     clearTimer()
     setPaused(false)
@@ -162,7 +159,7 @@ export default function FocusTimer({ busy, onComplete }: FocusTimerProps) {
     const totalSec = Math.ceil(left / 1000)
     const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
     const ss = String(totalSec % 60).padStart(2, '0')
-    document.title = `⏸ ${mm}:${ss} · Deep-tutor`
+    appTitle.setTimer(`⏸ ${mm}:${ss}`)
   }
 
   function resume() {

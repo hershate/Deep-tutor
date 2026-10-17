@@ -15,6 +15,8 @@ export default function HomeKbGenerate() {
   const [busy, setBusy] = useState(false)
   const kbQ = useQuery({ queryKey: ['kb-docs', 'home'], queryFn: () => listKbDocuments({ limit: 50 }), staleTime: 60_000 })
   const docs = (kbQ.data?.documents ?? []).filter((d) => d.status === 'parsed')
+  // iter 371：取满 50 条说明可能被截断——提示用户到知识库页看全量，避免「更早文档不可达却无感知」
+  const maybeTruncated = (kbQ.data?.documents ?? []).length >= 50
 
   function toggle(id: number) {
     setSel((s) => {
@@ -56,6 +58,7 @@ export default function HomeKbGenerate() {
       </div>
       <p className="text-xs text-slate-500 dark:text-slate-400">
         选择已解析为文本的知识库文档作为生成资料（PDF 等二进制须先在知识库解析为文本）
+        {maybeTruncated && ' · 仅列出最近 50 篇，更多请在知识库页查看'}
       </p>
       <ul className="max-h-48 space-y-1 overflow-y-auto">
         {docs.map((d) => (

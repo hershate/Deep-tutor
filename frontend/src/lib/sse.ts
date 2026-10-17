@@ -90,20 +90,24 @@ export async function readSSEStream(
       )
     })
 
+  let firstChunk = true
   for (;;) {
     const { value, done } = await readWithWatchdog()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
+    // iter 371：流首 BOM 剥除（WHATWG SSE 要求）；整流改按三种行尾（CR LF / LF / 裸 CR）
+    // 统一切分——此前 split('\n') 遇裸 CR 行尾的流永不出空行，事件全部静默丢弃
+    if (firstChunk) {
+      if (buffer.charCodeAt(0) === 0xfeff) buffer = buffer.slice(1)
+      firstChunk = false
+    }
+    const lines = buffer.split(/\r\n|\r|\n/)
     buffer = lines.pop() ?? ''
-    for (const raw of lines) {
-      // iter 244 F8：SSE 规范允许 CR LF / CR / LF 三种行尾（中间代理可改写）——剥 \r
-      const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+    for (const line of lines) {
       if (line === '') {
-        if (cur.data !== '' || cur.event || cur.id) {
-          if (cur.id) lastId = cur.id
-          onEvent({ ...cur })
-        }
+        // 规范：data 为空的块不派发（仅 id/event 的块丢弃）；id 仍记账供 Last-Event-ID 续接
+        if (cur.id) lastId = cur.id
+        if (cur.data !== '') onEvent({ ...cur })
         cur = { data: '' }
         continue
       }

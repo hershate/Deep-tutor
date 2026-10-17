@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import ErrorBoundary from './ErrorBoundary'
 import { pages as _pages, PAGES_PREFIX } from '../lib/plugins'
+import { appTitle } from '../lib/title'
 
 // 插件页面宿主（插件 API v1.4.0）：挂载在 /p/* 单一路由下，按子路径匹配插件注册的页面渲染。
 // 设计要点：
@@ -16,12 +17,12 @@ export default function PluginPageHost() {
   const sub = pathname.startsWith(PAGES_PREFIX) ? pathname.slice(PAGES_PREFIX.length) : ''
   const def = sub ? _pages.get(sub) : undefined
 
-  // document.title 跟随插件页面标题；卸载/换页还原默认
+  // document.title 跟随插件页面标题；卸载/换页还原默认（iter 371 走 lib/title 分层）
   useEffect(() => {
     if (def?.title) {
-      document.title = `${def.title} · Deep-tutor`
+      appTitle.setBase(def.title)
       return () => {
-        document.title = 'Deep-tutor'
+        appTitle.setBase(null)
       }
     }
   }, [def?.title])

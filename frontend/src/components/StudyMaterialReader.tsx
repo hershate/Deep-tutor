@@ -1,7 +1,7 @@
 // 自学材料阅读器（P2，plan/07 §六 / plan/06 §五 StudyMaterialReader）：
 // 单元导航 + 内容渲染（react-markdown + sanitize）+ 上一/下一单元 + 标记已学 + 去测验。
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Markdown from './Markdown'
 import { ApiError, downloadUnitSlides, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
@@ -17,43 +17,14 @@ interface Props {
 
 const INDEX_ID = -1
 
-// iter 262：单元内目录（本节导航）——从 markdown 提取 h1-h3 大纲，点击滚动到对应标题。
-// 无需标题 id（rehype-sanitize schema 不保证保留 id 属性）：提取顺序与渲染容器内
-// querySelectorAll('h1,h2,h3') 文档序一一对齐，按索引 scrollIntoView。
+// iter 262：单元内目录（本节导航）——提取 h1-h3 大纲，点击滚动到对应标题。
+// iter 371：目录改从**渲染后 DOM** 派生（与 jumpToHeading 的 querySelectorAll 同一来源，
+// 天然按索引对齐）。此前用正则从 markdown 源提取，引用块内标题（> ## x）/ 缩进标题
+// （1-3 空格 # x）等 LLM 常见产物在「源提取」与「渲染 DOM」两处不一致，跳转落错标题。
+// 无需标题 id（rehype-sanitize schema 不保证保留 id 属性）：按文档序索引 scrollIntoView。
 interface TocItem {
   level: number
   text: string
-}
-
-function extractToc(md: string): TocItem[] {
-  const out: TocItem[] = []
-  let inCode = false
-  let prevText = '' // setext 标题（===/--- 下划线式）兜底：上一非空纯文本行
-  for (const line of md.split('\n')) {
-    if (/^\s*```/.test(line)) {
-      inCode = !inCode
-      prevText = ''
-      continue
-    }
-    if (inCode) continue
-    const atx = /^(#{1,3})\s+(.+?)\s*#*\s*$/.exec(line)
-    if (atx) {
-      const text = atx[2].replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim()
-      if (text) out.push({ level: atx[1].length, text })
-      prevText = ''
-      continue
-    }
-    if (/^(=+|-+)\s*$/.test(line) && prevText) {
-      out.push({ level: line.startsWith('=') ? 1 : 2, text: prevText })
-      prevText = ''
-      continue
-    }
-    // 纯文本行才可能是 setext 标题上一行（排除列表/引用/表格/空行）
-    prevText = /^[^#>\-*|\s].*\S/.test(line)
-      ? line.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim()
-      : ''
-  }
-  return out.slice(0, 50) // 防御：畸形文档超长目录截断
 }
 
 // iter 256：阅读器字号调节（A−/A+ 四档，默认标准=text-sm）——localStorage 记忆（iter 145 同款模式，
@@ -151,8 +122,21 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const current = idx >= 0 ? units[idx] : null
   const doneCount = units.filter((u) => u.done).length // iter 265：导航顶部已学进度
 
-  // iter 262：当前视图（路线图/单元）markdown 的标题大纲
-  const toc = useMemo(() => extractToc(isIndex ? indexMd : content), [isIndex, indexMd, content])
+  // iter 262/371：当前视图（路线图/单元）标题大纲——渲染提交后从 DOM 派生
+  // （同 jumpToHeading 的查询来源，索引天然对齐；畸形文档超长截断 50 同旧防御）
+  const [toc, setToc] = useState<TocItem[]>([])
+  const tocSource = isIndex ? indexMd : content
+  useEffect(() => {
+    const heads = contentRef.current?.querySelectorAll('.markdown-body h1, .markdown-body h2, .markdown-body h3')
+    setToc(
+      heads
+        ? [...heads]
+            .slice(0, 50)
+            .map((h) => ({ level: Number(h.tagName.slice(1)), text: (h.textContent ?? '').trim() }))
+            .filter((t) => t.text)
+        : [],
+    )
+  }, [tocSource])
 
   // iter 262：目录跳转——提取顺序与渲染标题文档序对齐，按索引 scrollIntoView
   function jumpToHeading(index: number) {
@@ -310,18 +294,15 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
         setContent(r.content_md)
         setContentTitle(r.title)
         setResources(r.resources ?? [])
-        setRewriting(false)
         setShowRewrite(false)
-        setRewriteMsg('')
       }
     } catch (e) {
-      if (ac.signal.aborted) {
-        setRewriting(false)
-        setRewriteMsg('')
-        return
-      }
-      setRewriteErr(e instanceof ApiError ? e.message : '重写失败')
+      if (!ac.signal.aborted) setRewriteErr(e instanceof ApiError ? e.message : '重写失败')
+    } finally {
+      // iter 371：复位统一收口——此前早退分支（aborted/已切走）不复位 rewriting，
+      // 到达时重写面板永卡「正在重写…」且按钮禁用
       setRewriting(false)
+      setRewriteMsg('')
     }
   }
 

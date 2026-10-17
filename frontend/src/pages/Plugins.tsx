@@ -227,7 +227,7 @@ export default function Plugins() {
                   </span>
                   <button
                     onClick={() => void toggleFrontend(url)}
-                    disabled={toggling === url}
+                    disabled={toggling !== null}
                     className={`shrink-0 rounded-lg border px-3 py-1 text-xs transition-all active:scale-95 disabled:opacity-50 ${
                       off
                         ? 'border-slate-300 text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -363,7 +363,7 @@ export default function Plugins() {
                         {(p.state === 'loaded' || p.state === 'failed') && (
                           <button
                             onClick={() => void backendReload(p.id)}
-                            disabled={toggling === p.id}
+                            disabled={toggling !== null}
                             className="rounded-lg border border-blue-200 px-2 py-0.5 text-xs text-blue-600 transition-all hover:bg-blue-50 active:scale-95 disabled:opacity-50 dark:border-blue-900 dark:text-blue-400 dark:hover:bg-blue-950"
                           >
                             {toggling === p.id ? '…' : '🔄 重载'}
@@ -372,7 +372,7 @@ export default function Plugins() {
                         {p.state === 'loaded' && (
                           <button
                             onClick={() => void backendDisable(p.id)}
-                            disabled={toggling === p.id}
+                            disabled={toggling !== null}
                             className="rounded-lg border border-amber-200 px-2 py-0.5 text-xs text-amber-600 transition-all hover:bg-amber-50 active:scale-95 disabled:opacity-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950"
                           >
                             {toggling === p.id ? '…' : '⏸ 停用'}
@@ -381,7 +381,7 @@ export default function Plugins() {
                         {p.state === 'disabled' && (
                           <button
                             onClick={() => void backendEnable(p.id)}
-                            disabled={toggling === p.id}
+                            disabled={toggling !== null}
                             className="rounded-lg border border-emerald-200 px-2 py-0.5 text-xs text-emerald-600 transition-all hover:bg-emerald-50 active:scale-95 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
                           >
                             {toggling === p.id ? '…' : '▶ 启用'}

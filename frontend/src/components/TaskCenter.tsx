@@ -12,6 +12,7 @@ import {
   type TaskPhase,
 } from '../store/tasks'
 import { toast } from './Toast'
+import { appTitle } from '../lib/title'
 
 /** 生成管线工具 -> 中文步骤名（8 工具，iter 184 B2 step_index 对齐）。 */
 export const TOOL_LABELS: Record<string, string> = {
@@ -202,11 +203,11 @@ export default function TaskCenter() {
   const activeCount = entries.filter((t) => isActivePhase(t.phase)).length
   const hasFinished = entries.some((t) => isTerminalPhase(t.phase))
 
-  // document.title 角标（iter 188 F3，用户已定：仅应用内通知 + 标题角标）
+  // document.title 角标（iter 188 F3；iter 371 改走 lib/title 分层——与专注计时/插件页标题互不覆盖）
   useEffect(() => {
-    document.title = activeCount > 0 ? `(${activeCount}) Deep-tutor` : 'Deep-tutor'
+    appTitle.setBadge(activeCount)
     return () => {
-      document.title = 'Deep-tutor'
+      appTitle.setBadge(0)
     }
   }, [activeCount])
 
