@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import StudyMaterialReader from './StudyMaterialReader'
 import { toast } from './Toast'
 import { ApiError, downloadMaterials, listStudyUnits, type StudyUnitMeta } from '../lib/api'
+import { useModalEsc } from '../lib/modalEsc'
 import { engine } from '../lib/taskEngine'
 import { materialsTaskId, useTaskStore } from '../store/tasks'
 
@@ -127,14 +128,8 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
     prevPhaseRef.current = phase
   }, [phase, task?.materialsUnits, task?.errorMessage, refetchUnits])
 
-  // Esc 关闭
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc 关闭（iter 368：经全局弹层栈——仅当本弹层为栈顶时响应）
+  useModalEsc(true, onClose)
 
   // 曾刷新后的「刷新查看」：重读列表；已有单元 -> 任务完成，清台账条目
   async function onRefreshAfterStale() {

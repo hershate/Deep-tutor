@@ -297,6 +297,25 @@ export const engine = {
         void engine.attach(t.sessionId).catch(() => undefined)
       }
     }
+    // iter 368：材料 zombie 收敛——材料 SSE 不可重放（刷新即断，服务端流随断连取消），
+    // 台账中 running 且 >5min 无事件且无本页 live 连接的材料任务必为僵尸，落连接丢失
+    // 错误给重试入口（否则任务中心永远转圈）。5min 阈值避免误杀慢单元生成中的他页活流。
+    const staleBefore = Date.now() - 5 * 60_000
+    for (const t of Object.values(store().tasks)) {
+      if (
+        t.kind === 'materials' &&
+        t.phase === 'running' &&
+        (t.updatedAt ?? 0) < staleBefore &&
+        !live.has(t.id)
+      ) {
+        store().update(t.id, {
+          phase: 'error',
+          conn: 'closed',
+          errorCode: 'conn_lost',
+          errorMessage: '页面刷新断开生成连接，请重试',
+        })
+      }
+    }
   },
 
   /**

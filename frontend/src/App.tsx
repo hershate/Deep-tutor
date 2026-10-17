@@ -54,7 +54,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
     }
   }
   if (!getToken()) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // iter 368：带上 search（如 /plans/1?materials=1）——此前登录后回跳丢查询参数
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   }
   return <>{children}</>
 }

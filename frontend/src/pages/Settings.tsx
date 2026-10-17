@@ -635,8 +635,9 @@ function PasswordCard() {
   async function submit() {
     if (busy) return
     setErr('')
-    if (pw.length < 4) {
-      setErr('密码至少 4 位')
+    // iter 368：与后端 min_length=8 对齐（4 位会被 422，提示与实现一致）
+    if (pw.length < 8) {
+      setErr('密码至少 8 位')
       return
     }
     if (pw !== pw2) {
@@ -650,6 +651,8 @@ function PasswordCard() {
       await qc.invalidateQueries({ queryKey: SETUP_QUERY_KEY })
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : '设置失败，请重试')
+    } finally {
+      // iter 368：成功路径此前不复位 busy——若刷新后卡片仍在（dismiss 已置等场景）按钮永久禁用
       setBusy(false)
     }
   }
@@ -663,7 +666,7 @@ function PasswordCard() {
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div>
           <label htmlFor="pw-card-1" className="mb-1 block text-xs font-medium text-amber-900 dark:text-amber-100">
-            密码（≥4 位）
+            密码（≥8 位）
           </label>
           <input
             id="pw-card-1"

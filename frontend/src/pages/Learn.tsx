@@ -24,6 +24,7 @@ export default function Learn() {
   const [topic, setTopic] = useState('')
   const [dueNodes, setDueNodes] = useState<ProgressNode[]>([])
   const [logs, setLogs] = useState<LearningLogItem[]>([])
+  const [logsFailed, setLogsFailed] = useState(false) // iter 368：日志区加载失败可见（此前静默空白）
   const [totalMinutes, setTotalMinutes] = useState(0)
   const [minutes, setMinutes] = useState('30')
   const [note, setNote] = useState('')
@@ -79,8 +80,11 @@ export default function Learn() {
       .then((r) => {
         setLogs(r.logs)
         setTotalMinutes(r.total_minutes)
+        setLogsFailed(false)
       })
-      .catch(() => {}) // 日志区失败不阻塞整页
+      .catch(() => {
+        setLogsFailed(true) // iter 368：不阻塞整页，但可见（此前静默——用户以为没记过）
+      })
   }, [id])
 
   useEffect(() => {
@@ -393,12 +397,16 @@ export default function Learn() {
             </span>
           )}
         </div>
+        {logsFailed && logs.length === 0 && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" role="status">
+            学习日志加载失败（打卡不受影响），刷新页面可重试
+          </p>
+        )}
         {logs.length > 0 && (
           <>
             <div className="mt-4 border-t pt-3 dark:border-slate-700">
               <CheckinCalendar logs={logs} />
-            </div>
-            <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+            </div>            <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
               {logs.slice(0, 10).map((l) => (
                 <li key={l.id} className="flex items-center gap-1">
                   <span className="text-slate-400">{l.date}</span> · {l.minutes} 分钟

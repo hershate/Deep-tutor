@@ -81,6 +81,9 @@ export default function KbDocsView() {
   const [parseBusy, setParseBusy] = useState(false)
   const [confirmBusyId, setConfirmBusyId] = useState<number | null>(null)
   const uploadingRef = useRef(false)
+  const activeAcRef = useRef<AbortController | null>(null) // iter 368：在传文件的上传控制器（行内 ✕ 取消用）
+  // 卸载即中止在传上传（切页后无人消费结果，白耗带宽）
+  useEffect(() => () => activeAcRef.current?.abort(), [])
   const deepLinkHandledRef = useRef(false)
 
   // iter 257：全局搜索结果深链（/wiki?doc=<id>）——直接打开对应文档查看器。
@@ -144,17 +147,24 @@ export default function KbDocsView() {
     ])
   }
 
-  // 顺序上传泵：任一时刻只传一个文件（防并发抢带宽/进度混乱）
+  // 顺序上传泵：任一时刻只传一个文件（防并发抢带宽/进度混乱）。
+  // iter 368：在传文件可取消（abort 中止 XHR——此前大文件传错只能干等或刷新）
   useEffect(() => {
     if (uploadingRef.current) return
     const next = uploads.findIndex((u) => u.status === 'pending')
     if (next === -1) return
     uploadingRef.current = true
     const item = uploads[next]
+    const ac = new AbortController()
+    activeAcRef.current = ac
     setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, status: 'uploading' } : u)))
-    uploadKbDocument(item.file, (p) => {
-      setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, progress: p } : u)))
-    })
+    uploadKbDocument(
+      item.file,
+      (p) => {
+        setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, progress: p } : u)))
+      },
+      ac.signal,
+    )
       .then((doc) => {
         setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, status: 'done', progress: 100 } : u)))
         if (doc.meta?.deduped) toast.info(`「${doc.title}」内容已存在，已复用既有文档`)
@@ -162,12 +172,20 @@ export default function KbDocsView() {
         invalidate()
       })
       .catch((e) => {
+        const aborted = e instanceof ApiError && e.code === 'aborted'
         const msg = e instanceof ApiError ? e.message : '上传失败'
-        setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, status: 'error', error: msg } : u)))
-        toast.error(`${item.file.name}：${msg}`)
+        if (aborted) {
+          // 取消：该行标记取消并从队列移除，其余 pending 继续泵
+          setUploads((prev) => prev.filter((_, i) => i !== next))
+          toast.info(`已取消上传：${item.file.name}`)
+        } else {
+          setUploads((prev) => prev.map((u, i) => (i === next ? { ...u, status: 'error', error: msg } : u)))
+          toast.error(`${item.file.name}：${msg}`)
+        }
       })
       .finally(() => {
         uploadingRef.current = false
+        if (activeAcRef.current === ac) activeAcRef.current = null
         setUploads((prev) => [...prev]) // 触发泵检查下一个 pending
       })
   }, [uploads])
@@ -492,6 +510,16 @@ export default function KbDocsView() {
                           ? `❌ ${u.error ?? '失败'}`
                           : '排队中'}
                   </span>
+                  {u.status === 'uploading' && (
+                    <button
+                      onClick={() => activeAcRef.current?.abort()}
+                      aria-label={`取消上传 ${u.file.name}`}
+                      title="取消上传"
+                      className="shrink-0 rounded px-1 text-xs text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 {(u.status === 'uploading' || u.status === 'pending') && (
                   <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">

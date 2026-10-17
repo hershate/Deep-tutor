@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from './Toast'
 import { ApiError, generateQuiz, getWrongQuizzes, submitQuiz, updateProgress, type QuizItemData } from '../lib/api'
+import { useModalEsc } from '../lib/modalEsc'
 import { events } from '../lib/plugins'
 
 interface Props {
@@ -135,15 +136,9 @@ export default function QuizModal({ planId, onClose, wrong = false }: Props) {
     openWbRef.current = false
   }, [quizzes])
 
-  // Esc 关闭（生成中经 requestClose 提示重开可见）
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') requestClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, generating])
+  // Esc 关闭（生成中经 requestClose 提示重开可见；iter 368：经全局弹层栈，
+  // 仅当本弹层为栈顶时响应——叠加弹层一次 Esc 只关最上层）
+  useModalEsc(true, requestClose)
 
   const choiceIdx = quizzes.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice')
   // iter 355：开放题（无自动判分），「完成自评」入口按其 node_id 回写 done

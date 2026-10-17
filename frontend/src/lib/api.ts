@@ -71,7 +71,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit & { timeoutMs
     throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
   }
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  // iter 368：空体 200 此前直接 res.json() 抛 SyntaxError（表现为莫名的解析失败）；
+  // 非空但非 JSON 给明确错误而非裸异常
+  const text = await res.text()
+  if (!text) return undefined as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError('bad_response', `响应不是有效 JSON（HTTP ${res.status}）`, res.status)
+  }
 }
 
 // --- auth（P4 多用户，iter 59）---
@@ -184,13 +192,27 @@ export const parseMaterial = (materialId: number, mode: 'full' | 'fast' = 'full'
 
 // 大文件上传（plan/09 §七 前端边界：字节级进度）。用 XHR 而非 fetch——
 // fetch 的上传进度（Request duplex stream）浏览器支持差，XHR upload.onprogress 全量可用。
+// iter 368：支持 AbortSignal——路由切换/用户取消时中止上传（此前请求悬空跑完，
+// 大文件白耗带宽且回调已失效无反馈）。
 export function uploadMaterial(
   sessionId: number,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<MaterialOut> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    const onAbort = () => {
+      xhr.abort()
+      reject(new ApiError('aborted', '上传已取消', 0))
+    }
+    if (signal) {
+      if (signal.aborted) {
+        reject(new ApiError('aborted', '上传已取消', 0))
+        return
+      }
+      signal.addEventListener('abort', onAbort)
+    }
     xhr.open('POST', `${BASE}/materials/upload`)
     xhr.setRequestHeader('Authorization', `Bearer ${token()}`)
     xhr.timeout = 10 * 60 * 1000 // err.md D15：大文件上传 10 分钟超时（此前永不超时）
@@ -198,6 +220,7 @@ export function uploadMaterial(
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
     }
     xhr.onload = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
       const body = (() => {
         try {
           return JSON.parse(xhr.responseText)
@@ -213,8 +236,14 @@ export function uploadMaterial(
         reject(new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${xhr.status}`, xhr.status))
       }
     }
-    xhr.onerror = () => reject(new ApiError('network_error', '网络错误', 0))
-    xhr.ontimeout = () => reject(new ApiError('upstream_timeout', '上传超时', 504))
+    xhr.onerror = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      reject(new ApiError('network_error', '网络错误', 0))
+    }
+    xhr.ontimeout = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      reject(new ApiError('upstream_timeout', '上传超时', 504))
+    }
     const form = new FormData()
     form.append('session_id', String(sessionId))
     form.append('file', file)
@@ -1252,10 +1281,26 @@ export const listKbDocuments = (params: { q?: string; kind?: string; limit?: num
 // 单篇文档（iter 257：全局搜索结果深链 /wiki?doc=<id> 用——不受列表分页/筛选影响）
 export const getKbDocument = (id: number) => apiFetch<KbDocument>(`/kb/documents/${id}`)
 
-// XHR 上传（字节级进度，同 uploadMaterial——fetch 上传进度浏览器支持差，XHR upload.onprogress 全量可用）
-export function uploadKbDocument(file: File, onProgress?: (percent: number) => void): Promise<KbDocument> {
+// XHR 上传（字节级进度，同 uploadMaterial——fetch 上传进度浏览器支持差，XHR upload.onprogress 全量可用）。
+// iter 368：支持 AbortSignal（同 uploadMaterial）。
+export function uploadKbDocument(
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<KbDocument> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    const onAbort = () => {
+      xhr.abort()
+      reject(new ApiError('aborted', '上传已取消', 0))
+    }
+    if (signal) {
+      if (signal.aborted) {
+        reject(new ApiError('aborted', '上传已取消', 0))
+        return
+      }
+      signal.addEventListener('abort', onAbort)
+    }
     xhr.open('POST', `${BASE}/kb/documents/upload`)
     xhr.setRequestHeader('Authorization', `Bearer ${token()}`)
     xhr.timeout = 10 * 60 * 1000 // 大文件上传 10 分钟超时（同 uploadMaterial）
@@ -1263,6 +1308,7 @@ export function uploadKbDocument(file: File, onProgress?: (percent: number) => v
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
     }
     xhr.onload = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
       const body = (() => {
         try {
           return JSON.parse(xhr.responseText)
@@ -1278,8 +1324,14 @@ export function uploadKbDocument(file: File, onProgress?: (percent: number) => v
         reject(new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${xhr.status}`, xhr.status))
       }
     }
-    xhr.onerror = () => reject(new ApiError('network_error', '网络错误', 0))
-    xhr.ontimeout = () => reject(new ApiError('upstream_timeout', '上传超时', 504))
+    xhr.onerror = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      reject(new ApiError('network_error', '网络错误', 0))
+    }
+    xhr.ontimeout = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      reject(new ApiError('upstream_timeout', '上传超时', 504))
+    }
     const form = new FormData()
     form.append('file', file)
     xhr.send(form)

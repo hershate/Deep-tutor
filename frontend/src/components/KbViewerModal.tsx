@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import Markdown from './Markdown'
 import { toast } from './Toast'
 import { ApiError, downloadKbRaw, fetchKbRawBlob, getKbParsed, type KbDocument, type KbParsed } from '../lib/api'
+import { useModalEsc } from '../lib/modalEsc'
 
 type ViewMode = 'pdf' | 'image' | 'audio' | 'video' | 'parsed'
 
@@ -50,14 +51,8 @@ export default function KbViewerModal({ doc, docs, onClose, onNavigate }: Props)
     setViewOverride(null)
   }, [doc.id])
 
-  // Esc 关闭（仿 QuizModal）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc 关闭（iter 368：经全局弹层栈——仅当本弹层为栈顶时响应，叠加弹层只关最上层）
+  useModalEsc(true, onClose)
 
   // 切换文档时重载：blob 模式取原件，parsed 模式取解析文本
   useEffect(() => {

@@ -49,8 +49,24 @@ export default function EventsBridge() {
         const cap = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS)
         const backoff = 250 + Math.random() * (cap - 250)
         attempt += 1
+        // iter 368：sleep 可被 abort 唤醒——此前卸载只 clearTimeout，promise 永不 resolve，
+        // loop 协程永久挂起（每次挂载/卸载泄漏一个；登出登录循环下累积）
         await new Promise<void>((resolve) => {
-          reconnectTimer = setTimeout(resolve, backoff)
+          const onAbort = () => {
+            clearTimeout(timer)
+            resolve()
+          }
+          const timer = setTimeout(() => {
+            controller.signal.removeEventListener('abort', onAbort)
+            resolve()
+          }, backoff)
+          reconnectTimer = timer
+          if (controller.signal.aborted) {
+            clearTimeout(timer)
+            resolve()
+            return
+          }
+          controller.signal.addEventListener('abort', onAbort)
         })
         reconnectTimer = undefined
       }

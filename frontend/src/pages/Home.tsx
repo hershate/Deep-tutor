@@ -58,6 +58,10 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false) // 拖拽悬停高亮（plan/06 §四.1 拖拽上传）
   const [error, setError] = useState('')
   const rawTextRef = useRef<HTMLTextAreaElement>(null)
+  // iter 368：资料上传池的 AbortController——卸载（切页/登出）即中止在传上传，
+  // 此前请求悬空跑完白耗带宽且回调已无人消费
+  const uploadAcRef = useRef<AbortController | null>(null)
+  useEffect(() => () => uploadAcRef.current?.abort(), [])
   // iter 353：结构化时间输入（可选；authoritative 覆盖 LLM 从 raw_text 的抽取）
   const [dailyMinutes, setDailyMinutes] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -172,12 +176,14 @@ export default function Home() {
         }
         let firstErr: string | null = null
         let filesDone = 0
+        const uploadAc = new AbortController()
+        uploadAcRef.current = uploadAc
         if (files.length) setUploadProgress(`处理资料 0/${files.length}`)
         await _runPool(files, async (f) => {
           if (firstErr) return // 一项失败后停止派新（已派发的让其完成，再统一抛错）
           let materialId: number
           try {
-            const m = await uploadMaterial(session_id, f.file, (pct) => setUploadPct(pct))
+            const m = await uploadMaterial(session_id, f.file, (pct) => setUploadPct(pct), uploadAc.signal)
             materialId = m.material_id
           } catch (e) {
             firstErr = `${f.file.name} 上传失败：${e instanceof ApiError ? e.message : '网络错误'}`

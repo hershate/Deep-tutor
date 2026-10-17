@@ -62,8 +62,8 @@ export default function UserManager() {
   }
 
   function submitCreate() {
-    if (form.password.length < 4) {
-      setOpError('密码至少 4 位')
+    if (form.password.length < 8) {
+      setOpError('密码至少 8 位')
       return
     }
     void run(() =>
@@ -78,8 +78,8 @@ export default function UserManager() {
 
   function submitReset() {
     if (resetId === null) return
-    if (resetPw.length < 4) {
-      setOpError('密码至少 4 位')
+    if (resetPw.length < 8) {
+      setOpError('密码至少 8 位')
       return
     }
     void run(() => updateUser(resetId, { password: resetPw }))
@@ -168,7 +168,7 @@ export default function UserManager() {
             </label>
           </div>
           <label className="block text-sm">
-            初始密码（至少 4 位）
+            初始密码（至少 8 位）
             <input
               required
               minLength={4}
@@ -290,7 +290,7 @@ export default function UserManager() {
                   required
                   minLength={4}
                   type="password"
-                  placeholder="新密码（至少 4 位）"
+                  placeholder="新密码（至少 8 位）"
                   value={resetPw}
                   onChange={(e) => setResetPw(e.target.value)}
                   className="rounded-lg border px-2 py-1 text-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"

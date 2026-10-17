@@ -32,8 +32,8 @@ export default function Setup() {
     if (busy) return
     setError('')
     if (password || password2) {
-      if (password.length < 4) {
-        setError('密码至少 4 位')
+      if (password.length < 8) {
+        setError('密码至少 8 位')
         return
       }
       if (password !== password2) {
@@ -96,7 +96,7 @@ export default function Setup() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label htmlFor="setup-pw" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
-                  密码（≥4 位）
+                  密码（≥8 位）
                 </label>
                 <input
                   id="setup-pw"

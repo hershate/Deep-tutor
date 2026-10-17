@@ -70,6 +70,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [unitQuery, setUnitQuery] = useState('')
   const [debouncedUnitQ, setDebouncedUnitQ] = useState('')
   const [unitHits, setUnitHits] = useState<UnitSearchHit[] | null>(null)
+  const [unitSearchFailed, setUnitSearchFailed] = useState(false) // iter 368：失败与无命中区分
   const [unitSearchTruncated, setUnitSearchTruncated] = useState(false)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedUnitQ(unitQuery.trim()), 300)
@@ -78,6 +79,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   useEffect(() => {
     if (!debouncedUnitQ) {
       setUnitHits(null)
+      setUnitSearchFailed(false)
       setUnitSearchTruncated(false)
       return
     }
@@ -86,10 +88,17 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
       .then((r) => {
         if (cancelled) return
         setUnitHits(r.items)
+        setUnitSearchFailed(false)
         setUnitSearchTruncated(r.truncated)
       })
       .catch(() => {
-        if (!cancelled) setUnitHits([]) // 检索失败按无命中呈现（导航仍可用——清空即回）
+        // iter 368：检索失败按「失败」而非「无命中」呈现（此前误导用户以为不存在；
+        // 导航仍可用——清空即回）
+        if (!cancelled) {
+          setUnitHits([])
+          setUnitSearchFailed(true)
+          setUnitSearchTruncated(false)
+        }
       })
     return () => {
       cancelled = true
@@ -253,8 +262,9 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
     try {
       const r = await markUnitDone(current.id, !current.done)
       onUnitsChange(units.map((u) => (u.id === current.id ? { ...u, done: r.done } : u)))
-    } catch {
-      // 标记失败不打断阅读（下次进入列表会重取）
+    } catch (e) {
+      // iter 368：失败仍不打断阅读，但给出可见提示（此前静默——用户以为已标记，进度却没变）
+      toast.error(e instanceof ApiError ? e.message : '标记失败，请重试')
     } finally {
       setDoneBusy(false)
     }
@@ -370,7 +380,9 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
         {unitHits !== null ? (
           <ul className="space-y-1" aria-label={`单元内容检索结果，${unitHits.length} 个命中`}>
             {unitHits.length === 0 && (
-              <li className="px-1 text-xs text-slate-400 dark:text-slate-500">无命中单元</li>
+              <li className="px-1 text-xs text-slate-400 dark:text-slate-500">
+                {unitSearchFailed ? '检索失败，请稍后重试' : '无命中单元'}
+              </li>
             )}
             {unitSearchTruncated && (
               <li className="px-1 text-[10px] text-amber-600 dark:text-amber-400">单元较多，仅扫描前 50 个</li>

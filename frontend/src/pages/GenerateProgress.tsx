@@ -11,6 +11,7 @@ import { SkeletonCards } from '../components/Skeleton'
 import { TOOL_LABELS, fmtElapsed } from '../components/TaskCenter'
 import { toast } from '../components/Toast'
 import { ApiError } from '../lib/api'
+import { useModalEsc } from '../lib/modalEsc'
 import { engine } from '../lib/taskEngine'
 import { isHttpUrl } from '../lib/url'
 import { planTaskId, useTaskStore } from '../store/tasks'
@@ -102,15 +103,8 @@ export default function GenerateProgress() {
     return () => clearInterval(t)
   }, [phase])
 
-  // 部分方案预览弹窗：Esc 关闭（与 QuizModal/MaterialsModal/KbViewerModal 行为一致）
-  useEffect(() => {
-    if (!showPartial) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowPartial(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showPartial])
+  // 部分方案预览弹窗：Esc 关闭（iter 368：经全局弹层栈，与 QuizModal/MaterialsModal/KbViewerModal 行为一致）
+  useModalEsc(showPartial, () => setShowPartial(false))
 
   const onCancel = () => {
     if (!window.confirm('确定取消生成吗？已产生的费用不会退回。')) return
