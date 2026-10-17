@@ -184,10 +184,13 @@ def test_anthropic_client_cache_reuse_and_bounds():
         c1 = _shared_client("k1", None)
         assert _shared_client("k1", None) is c1  # 同 key 复用（此前每次新建且从不关闭）
         assert _shared_client("k2", None) is not c1  # 不同 key 各自独立
-        # 有界 FIFO：超出上限后缓存不无限增长
-        for i in range(12):
+        # 有界：超出上限后缓存不无限增长（iter 369 上限 8→32 且 FIFO→LRU 命中续命，
+        # 断言跟随模块常量而非硬编码）
+        from app.llm.anthropic_provider import _CLIENT_CACHE_MAX
+
+        for i in range(_CLIENT_CACHE_MAX + 6):
             _shared_client(f"key-{i}", None)
-        assert len(_clients) <= 8
+        assert len(_clients) <= _CLIENT_CACHE_MAX
 
         # 跨事件循环自动重建（缓存 client 绑定旧循环，换循环复用会 Event loop is closed）
         reset_client_cache()

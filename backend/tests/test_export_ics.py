@@ -34,7 +34,9 @@ def test_build_ics_basic():
     lines = _unfold(ics)
     assert lines[0] == "BEGIN:VCALENDAR" and lines[-2] == "END:VCALENDAR"  # 末尾 CRLF 产生空尾行
     assert any(line == "DTSTART;VALUE=DATE:20260720" for line in lines)
-    assert any(line.startswith("UID:dt-7-0-2026-07-20@deep-tutor") for line in lines)
+    # iter 369：UID 按日稳定（首现=纯日期；同日重复条目才加 -2/-3 后缀）——
+    # 不再含条目下标，排期增删后重导出同日 UID 不变（日历软件幂等更新）
+    assert any(line.startswith("UID:dt-7-2026-07-20@deep-tutor") for line in lines)
     assert any("阶段1 基础语法" in line and line.startswith("SUMMARY:") for line in lines)
     assert any("预计时长：60 分钟" in line for line in lines)
     assert any(line.startswith("X-WR-CALNAME:") and "Python 入门" in line for line in lines)
