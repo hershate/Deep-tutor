@@ -171,6 +171,9 @@ interface PageDef {
     icon?: string              // 图标（emoji/字符），缺省 🧩
     order?: number             // 排序权重，小的在前，缺省 100
   }
+  override?: string            // v1.16.0：覆盖宿主页面路由（如 'plans' -> 替换 /plans 页面）；
+                               // 受保护路由不可覆盖（plugins/settings/login/setup）。设 override 后
+                               // path 仅作注册键，组件在应用 Layout 内渲染（含错误边界隔离）
 }
 ```
 
@@ -629,6 +632,7 @@ const stats = await DeepTutor.api.get('/progress/stats/summary')
 
 const usage = await DeepTutor.api.get('/usage')
 // => { total_tokens, total_cost, cache_hit_rate, calls, today_cost, daily_budget_usd }
+// 注：成本/预算类数值一律按 CNY（人民币）计价——*_usd 为历史字段名，前端全链展示为￥
 
 const due = await DeepTutor.api.get('/progress/review/due')
 // => { items: [...], total }
@@ -832,6 +836,7 @@ PLUGIN_META = {
 | `api.storage` | `StorageNamespace` | 持久化 KV 存储（v1.11.0）：每插件私有 JSON KV（`get/set/delete/has/keys/clear`），原子写防并发损坏、JSON 校验、损坏容错、按 data_dir 命名空间隔离（§8.4g） |
 | `api.webhooks` | `WebhooksNamespace` | 事件→外部 URL 非阻塞推送（v1.15.0）：`register(url, events, secret)` 把指定事件经 bus 协程监听器非阻塞投递到外部 Webhook（Slack/Discord/自动化），标准载荷 + HMAC-SHA256 签名 + 10s 超时 + 错误隔离，一行替代 events.on+httpx ~20 行（§8.4h） |
 | `api.middleware` | `MiddlewareNamespace` | HTTP 中间件注册（v1.17.0）：`register(fn)` 全请求拦截（限流/IP/审计/安全头）——用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation（fn 异常→透传不阻断）+ rollback（§8.4i） |
+| `api.memory` | `MemoryNamespace` | 记忆系统 CRUD 门面（v1.19.0，= `api.threads` 别名）：进程内对会话/消息/记忆库增删查改（`list/create/get/delete_thread`、`list_messages/add_message`、`save/recall/delete_memory`），按 user_id 归属校验；`create_thread` 校验与 REST `/api/threads` 一致（kind 白名单/长度上限/500 配额/30 每分钟频控/session 归属，iter 370 对齐）（§11.6） |
 
 #### `api.routes` —— REST 路由（命名空间隔离）
 
@@ -1471,7 +1476,9 @@ api.storage.clear()                              # 清空本插件全部 KV
   `ValueError`。**键**须非空字符串。
 - **命名空间隔离**：存于插件私有 `data_dir`（`<DATA_DIR>/plugins/<id>/storage.json`），插件间天然隔离。
 - **持久化**：随插件 `data_dir` 落盘（原子 tmp+rename），进程重启后仍在。
-- **并发**：单事件循环内同步操作原子；`set/delete/clear` 经 `os.replace` 原子写（防并发写损坏）。
+- **并发**（iter 369 修订）：sync 插件路由跑 anyio 线程池、事件监听器经 bus 护栏也在
+  线程池——并非单线程。实例级锁串行化读-改-写（防交错丢更新）；`set/delete/clear`
+  写唯一 tmp 名 + `os.replace` 原子替换（防并发写损坏/Windows PermissionError）。
 
 ```python
 # 例：习惯追踪插件记录连续天数（持久化跨重启）
@@ -1531,7 +1538,10 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
       "events": ["plan_created"],
       "tools": [],
       "parsers": [],
-      "exporters": []
+      "exporters": [],
+      "providers": [],
+      "webhooks": [],
+      "middleware": []
     }
   ],
   "subscribed_events": ["plan_created", "shutdown", "startup"]
@@ -1539,6 +1549,8 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 ```
 
 `state: "failed"` 时 `error` 给出失败原因（import/register/id 非法/重复/min_api 不兼容）。
+每插件行含全部扩展点台账：`routes/events/tools/parsers/exporters/providers/webhooks/middleware`
+（后四项为 v1.15.0-v1.19.0 陆续补齐的可观测字段；`middleware` 标记高敏感扩展点注册者）。
 
 本端点同时是内置「插件」管理页（`/plugins`，后端插件区块）的数据源——
 管理员可在页面直接查看各插件装载状态与错误，无需手工调用。
@@ -1701,6 +1713,7 @@ for (;;) {
 | 后端 | 1.20.0 | 2026-07-24 | 新增核心事件 `quiz_ready`（payload `{plan_id, session_id, user_id, quiz_count}`）：自学材料全量生成完成后**后台预生成测验**完成时广播（iter 349，用户 /goal「生成自学资料时后台出题」）——仅本方案尚无 quiz 时预生成（不覆盖用户已生成题），按归属用户过滤经 `/api/events/stream` 转发，前端据此提示「测验已就绪」。配合 `generate_quiz` 工具新增 `post_process=ensure_quiz_coverage`（iter 349：每知识点必有题，缺的补自评题兜底，根治「缺题」）。事件只增不改，minor 向后兼容。 |
 | 后端 | 1.19.0 | 2026-07-24 | 记忆系统 CRUD 门面 `api.memory`（= `api.threads`）：插件进程内对会话/消息/记忆库做增删查改（list/create/get/delete_thread、list/add_message、save/recall/delete_memory），按 user_id 归属校验；对应新增 REST `/api/threads` `/api/runs` `/api/memory` 全量 CRUD + Agent 对话 SSE（`POST /api/threads/{id}/runs`，见「§记忆系统」）。Agent 工具（workspace_*/web_search/web_fetch/memory_*/load_thread_history/promote_artifact）注册入工具表，可经 `api.tools.call` 调用。 |
 | 后端 | 1.18.0 | 2026-07-23 | 插件**热管理**（无需重启整个项目）：`loader.unload_plugin/reload_plugin/disable_plugin/enable_plugin` + 3 个管理员端点 `POST /api/plugins/{id}/reload\|disable\|enable`（§8.7）；保留每插件 API 门面（`_plugin_apis`）供 unload 调 `_rollback()` 逆序撤销全部注册（路由/中间件/工具/事件/解析器/导出器/Provider/scheduler/webhook）；`disable` 持久化禁用状态到 `<DATA_DIR>/plugin_state.json`，重启后 `load_plugins` 跳过停用插件（记 `state:"disabled"`）；`PluginStatus.state` 加 `"disabled"` 取值 + `remove_status` 助手；用户 /goal "插件能热重启以及在插件页内直接关闭或打开" |
+| 前端 | 1.16.0 | 2026-07-23 | `pages.register` 支持 `override`：插件页面覆盖宿主路由（如 `override: 'plans'` 替换 /plans 页面本体，path 退化为注册键）；受保护路由（plugins/settings/login/setup）不可覆盖防锁死管理入口；覆盖组件在应用 Layout 内渲染 + 错误边界隔离；皮肤令牌 2→7（iter 332-333） |
 | 前端 | 1.17.0 | 2026-07-23 | 前端插件**热启停**（无需刷新页面）：`plugins.disable(url)`/`enable(url)`/`isDisabled(url)`——注入脚本期间追踪其注册（widgets/pages/overlays/skins 台账 `_pluginRegistrations`），停用时按键逆注册清除（即时消失），启用时重新注入脚本重新注册；停用 URL 持久化 `dt_plugins_disabled`（与 `dt_plugins` 分离，刷新后不自动加载）；`skins.unregister(name)` 注销皮肤（热停用插件时清皮肤，激活皮肤被注销回退 default）；`unload` 升级为彻底移除（含注册清除，不再需刷新）；Plugins 页加前端启停开关 + 后端重载/停用/启用按钮 |
 | 后端 | 1.17.0 | 2026-07-23 | 新增 `api.middleware.register(fn)`：插件注册 HTTP 中间件（全请求拦截——限流/IP 过滤/审计日志/安全响应头/内容过滤）；fn 签名 `async (request, call_next) -> Response`（Starlette BaseHTTPMiddleware dispatch 语义）；**error isolation**（fn 异常→透传原请求不阻断全部端点，同事件监听器隔离）；rollback（register 失败移除中间件）；用户 /goal "后端可引入额外安全防护插件" |
 | 后端 | 1.16.0 | 2026-07-23 | `api.webhooks.register(events=None)` 全事件支持（subscribe_all sync sink + create_task）；新增 4 个 widget 插槽（learn/notes/usage/wiki） |
@@ -1762,10 +1775,11 @@ for (;;) {
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST/GET | `/api/threads`、`/api/threads/{id}` | 会话增/列表/详情 |
-| PATCH/DELETE | `/api/threads/{id}` | 改标题/删会话（级联消息/运行/产物/记忆） |
-| GET/DELETE | `/api/threads/{id}/messages[/{mid}]` | 会话历史（分页）/ 删消息 |
+| POST/GET | `/api/threads`、`/api/threads/{id}` | 会话增/列表/详情。POST 请求体 `ThreadIn`：`title≤256`、`kind∈{chat, plan_generation}`、`model≤128`、`session_id` 须属本人（否则 422/404）；写入 30 次/分（429 `rate_limited`）+ 500 条/用户配额（429 `quota_exceeded`）。列表 `page≥1`、`limit 1-100`（默认 20） |
+| PATCH/DELETE | `/api/threads/{id}` | 改标题/删会话（级联消息/运行/产物/记忆）。PATCH 长度上限同 POST |
+| GET/DELETE | `/api/threads/{id}/messages[/{mid}]` | 会话历史（`limit 1-500` 默认 100、`before_id` 向前翻页）/ 删消息 |
 | POST | `/api/threads/{id}/runs` | **Agent 对话 SSE**（见 §11.3） |
+| GET | `/api/threads/{id}/runs/active` | 附流到当前 running run（切回/多标签续看；404 `no_active_run`/`no_active_stream` 时前端改走拉消息） |
 | GET | `/api/threads/{id}/runs`、`/api/runs/{id}`、`/api/runs/{id}/steps` | 运行列表/详情/步骤 |
 | DELETE/POST | `/api/runs/{id}`、`/api/runs/{id}/cancel` | 删运行（非 running）/ 取消 |
 | POST | `/api/runs/{id}/approve` | 用户确认草稿提升（promote） |
@@ -1774,11 +1788,14 @@ for (;;) {
 
 ### 11.3 Agent 对话 SSE：`POST /api/threads/{id}/runs`
 
-请求体 `{ message, max_steps?, thinking?, model? }`，响应 `text/event-stream`（fetch+ReadableStream
+请求体 RunIn：`message` 1-200000 字符、`max_steps` 1-200（默认 25）、`thinking` bool、`model≤128`；
+超界 422。配额拒绝：每 thread 已有 running run -> `409 run_already_running`；全局并发满 ->
+`503 chat_run_busy`；当日预算耗尽 -> `402 budget_exceeded`。响应 `text/event-stream`（fetch+ReadableStream
 携带鉴权头，复用 [sse.ts](frontend/src/lib/sse.ts)）。事件：
 
 ```
 event: run_start     data: { run_id, model }
+event: message_start data: { run_id, role }      # 每轮 assistant 消息开始（多步 run 每步一条）
 event: text_delta    data: { text }              # 流式逐字（DeepSeek 式）
 event: thinking_delta data: { text }             # 思考过程（可折叠）
 event: tool_call     data: { id, name, step }    # 工具调用开始
@@ -1822,3 +1839,9 @@ def register(api):
 
 方法：`list_threads/create_thread/get_thread/delete_thread`、`list_messages/add_message`、
 `save_memory/recall_memories/delete_memory`。Agent run 本身经 REST SSE 触发（插件可挂路由转发）。
+
+校验与错误（iter 370 对齐 REST）：`create_thread` 的 kind 白名单（`chat`/`plan_generation`）、
+`title≤256`/`model≤128` 超界抛 `ValueError`；500 条/用户配额与 30 次/分钟频控抛 `RuntimeError`；
+`session_id` 须属该用户（否则 `ValueError`）。`save_memory`：content 1-20000 字符、kind≤32、
+`memory_write` 60 次/分钟、2000 条/用户、`thread_id` 须属该用户（跨用户注入拒绝）。
+`add_message`：`message_write` 60 次/分钟、纯文本 ≤200k 字符 / block list ≤64 块（每块 dict）。

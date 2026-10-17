@@ -51,9 +51,16 @@ echo "==> 安装/校验后端依赖"
 # 2. .env（iter 89 零配置开箱即用：缺失不再退出——后端以「开放本机模式」启动，
 #    首次打开浏览器进入设置向导，可在界面内完成密码/API Key 配置；不代为生成 .env，
 #    避免模板弱 token change-me-please 反成认证配置）
+# iter 370 B18：零配置引导态默认只绑 127.0.0.1——开放模式在首个用户设密码前完全免认证，
+# 绑 0.0.0.0 会把「任何人可认领」的服务暴露给局域网。有 .env（用户已显式配置）仍默认
+# 0.0.0.0 供局域网访问；两种情况均可用 HOST 环境变量覆盖（如 HOST=0.0.0.0）。
 if [ ! -f .env ]; then
   echo "==> 未找到 .env：以零配置模式启动（首次打开浏览器将引导完成初始设置）"
+  HOST_DEFAULT=127.0.0.1
+else
+  HOST_DEFAULT=0.0.0.0
 fi
+HOST_BIND="${HOST:-$HOST_DEFAULT}"
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）
 if [ ! -f frontend/dist/index.html ]; then
@@ -72,8 +79,8 @@ export PYTHONPATH=backend
 echo "==> 数据库迁移"
 "$VENV_PY" -m app.db.migrate
 
-# 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问；PORT 已在脚本头解析）
-echo "==> 启动 Deep-tutor：http://localhost:${PORT}（局域网 http://<本机IP>:${PORT}）"
+# 5. 启动（后端同端口托管 SPA 与 /api；HOST_BIND 见步骤 2；PORT 已在脚本头解析）
+echo "==> 启动 Deep-tutor：http://localhost:${PORT}（绑定 ${HOST_BIND}；局域网访问需绑 0.0.0.0）"
 # 自动打开浏览器（NO_BROWSER=1 关闭）：延迟 3s 等服务就绪
 if [ "${NO_BROWSER:-}" != "1" ]; then
   ( sleep 3; xdg-open "http://localhost:${PORT}" >/dev/null 2>&1 \
@@ -82,4 +89,4 @@ fi
 # 单进程运行（不加 --workers）：SSE 流 / 限流 / 并发配额 / 插件事件总线 / 后台任务 / LLM 信号量
 # 均为进程内状态——多 worker 下各进程独立（SSE 续接/取消、配额计数、事件推送会失准）。
 # 多进程部署需 sticky session + Redis 共享这些状态（当前未实现，按单进程设计）。
-exec "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --app-dir backend --timeout-graceful-shutdown 20
+exec "$VENV_PY" -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --app-dir backend --timeout-graceful-shutdown 20

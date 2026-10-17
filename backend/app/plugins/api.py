@@ -1066,14 +1066,42 @@ class MemoryNamespace:
         finally:
             db.close()
 
+    _MAX_THREADS_PER_USER = 500  # 与 REST /threads 配额一致（iter 370 对齐）
+
     def create_thread(
-        self, user_id: int, *, title: str = "", kind: str = "chat", session_id: int | None = None
+        self,
+        user_id: int,
+        *,
+        title: str = "",
+        kind: str = "chat",
+        session_id: int | None = None,
+        model: str = "",
     ) -> dict:
         from app.db import models
 
+        # iter 370：与 REST /threads 硬化对齐——kind 白名单/长度上限/配额/频控/session 归属，
+        # 防插件以门面身份绕过校验写入越权或超长数据（String 列不限长，超长 title 随列表全量回传）
+        from app.core.ratelimit import limiter
+
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+        if kind not in ("chat", "plan_generation"):
+            raise ValueError(f"kind 非法: {kind!r}（需 chat/plan_generation）")
+        if len(title) > 256:
+            raise ValueError("title 长度须 ≤256")
+        if len(model) > 128:
+            raise ValueError("model 长度须 ≤128")
+        if not limiter.check(f"thread_write:{user_id}", 30):
+            raise RuntimeError("rate_limited: thread_write")
         db = self._db()
         try:
-            t = models.Thread(user_id=user_id, title=title, kind=kind, session_id=session_id)
+            if db.query(models.Thread).filter_by(user_id=user_id).count() >= self._MAX_THREADS_PER_USER:
+                raise RuntimeError("threads 配额已满（500/用户）")
+            if session_id is not None:
+                sess = db.get(models.Session, session_id)
+                if sess is None or sess.user_id != user_id:
+                    raise ValueError("session_id 不存在或不属于该用户")
+            t = models.Thread(user_id=user_id, title=title, kind=kind, session_id=session_id, model=model)
             db.add(t)
             db.commit()
             db.refresh(t)
@@ -1129,10 +1157,32 @@ class MemoryNamespace:
         finally:
             db.close()
 
+    _MAX_MESSAGE_CHARS = 200_000  # 与 REST RunIn.message 上限一致
+    _MAX_MESSAGE_BLOCKS = 64
+
     def add_message(self, thread_id: int, user_id: int, role: str, content) -> dict | None:
-        """追加一条消息（role: user/assistant/system；content 为 Anthropic block list 或纯文本）。"""
+        """追加一条消息（role: user/assistant/system；content 为 Anthropic block list 或纯文本）。
+
+        iter 370：频控（message_write 60/分钟）与长度上限（纯文本 200k 字符 / block list
+        ≤64 块且每块须 dict）——此前无界，失控插件可无限刷 messages 行。
+        """
         from app.db import models
 
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
+        from app.core.ratelimit import limiter
+
+        if not limiter.check(f"message_write:{user_id}", 60):
+            raise RuntimeError("rate_limited: message_write")
+        if isinstance(content, str):
+            if len(content) > self._MAX_MESSAGE_CHARS:
+                raise ValueError(f"纯文本 content 须 ≤{self._MAX_MESSAGE_CHARS} 字符")
+            content = [{"type": "text", "text": content}]
+        elif isinstance(content, list):
+            if len(content) > self._MAX_MESSAGE_BLOCKS or not all(isinstance(b, dict) for b in content):
+                raise ValueError(f"content block list 须 ≤{self._MAX_MESSAGE_BLOCKS} 块且每块为 dict")
+        else:
+            raise ValueError("content 须为纯文本字符串或 block list")
         db = self._db()
         try:
             t = db.get(models.Thread, thread_id)
@@ -1148,6 +1198,9 @@ class MemoryNamespace:
         finally:
             db.close()
 
+    _MAX_MEMORIES_PER_USER = 2000  # 与 REST /memory 配额一致（iter 370 对齐）
+    _MAX_MEMORY_CHARS = 20000
+
     def save_memory(
         self, user_id: int, content: str, *, kind: str = "note", scope: str = "user", thread_id: int | None = None
     ) -> dict:
@@ -1156,14 +1209,33 @@ class MemoryNamespace:
         # iter 363：scope 校验 + thread_id 一致性——此前 scope="user" 传 thread_id 静默丢、
         # scope="thread" 缺 thread_id 仍以 scope="thread"+thread_id=None 入库（孤儿记忆，被 user
         # 级召回混入）。改为显式校验：scope="thread" 必须有 thread_id，否则报错（不静默退化）。
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id 必须是正整数")
         if scope not in ("user", "thread"):
             raise ValueError(f"scope 必须是 'user' 或 'thread'，得到 {scope!r}")
         if scope == "thread" and thread_id is None:
             raise ValueError("scope='thread' 需提供 thread_id")
+        # iter 370：与 REST /memory 硬化对齐——长度/频控/配额；并补 thread 归属校验
+        # （此前可把记忆挂到他人 thread 上，victim 的 thread 记忆列表会混入攻击者内容）
+        if not isinstance(content, str) or not (1 <= len(content) <= self._MAX_MEMORY_CHARS):
+            raise ValueError(f"content 须为 1-{self._MAX_MEMORY_CHARS} 字符")
+        if len(kind) > 32:
+            raise ValueError("kind 长度须 ≤32")
+        from app.core.ratelimit import limiter
+
+        if not limiter.check(f"memory_write:{user_id}", 60):
+            raise RuntimeError("rate_limited: memory_write")
         if scope == "user":
             thread_id = None  # user 级记忆 thread_id 无意义，明确置空（不混入会话级）
         db = self._db()
         try:
+            if db.query(models.Memory).filter_by(user_id=user_id).count() >= self._MAX_MEMORIES_PER_USER:
+                raise RuntimeError("memories 配额已满（2000/用户）")
+            if thread_id is not None:
+                th = db.get(models.Thread, thread_id)
+                if th is None or th.user_id != user_id:
+                    raise ValueError("thread_id 不存在或不属于该用户")
+
             m = models.Memory(
                 user_id=user_id,
                 thread_id=thread_id,

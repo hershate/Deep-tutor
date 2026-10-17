@@ -222,8 +222,7 @@ Deep-tutor/
 cd backend
 python -m venv .venv && . .venv/Scripts/activate   # Windows: source .venv/bin/activate (Linux)
 pip install -r requirements.txt
-cd .. && uvicorn backend.app.main:app --reload --app-dir backend
-# 或：cd backend && uvicorn app.main:app --reload
+uvicorn app.main:app --reload   # dev 后端默认 :8000
 ```
 
 健康检查：`curl -H "X-Auth-Token: <你的 AUTH_TOKEN>" http://localhost:8000/api/health`
@@ -233,7 +232,7 @@ cd .. && uvicorn backend.app.main:app --reload --app-dir backend
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000）
+npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000；后端若起在 41173 等其他端口，用 VITE_API_PROXY_TARGET=http://localhost:41173 npm run dev 覆盖）
 ```
 
 ## 配置项（.env，全部可选）
@@ -303,7 +302,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 ## 插件开发
 
-> ⚠️ **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后：前端插件宿主 `window.DeepTutor` 废弃（能力改由 Reasonix 插件包 / Extension 结构化 UI 承担）；后端 Python 插件体系终结（9 个内置插件功能将在新架构全部等价实现，见 `plan/reasonix/05` 阶段③等价表）；前端插件示例的四项功能（番茄钟/浮层笔记/换肤/阅读器）将作为内置能力在新前端重建。v1 插件在 Python 版运行期间继续可用。
+> ⚠️ **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后：前端插件宿主 `window.DeepTutor` 废弃（能力改由 Reasonix 插件包 / Extension 结构化 UI 承担）；后端 Python 插件体系终结（8 个内置插件 + 1 个默认禁用的示例插件，功能将在新架构全部等价实现，见 `plan/reasonix/05` 阶段③等价表）；前端插件示例的四项功能（番茄钟/浮层笔记/换肤/阅读器）将作为内置能力在新前端重建。v1 插件在 Python 版运行期间继续可用。
 
 Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；**当前版本号以 [API.md](./API.md) 文首版本线表为准**，本文件不钉版本防过期）：
 
