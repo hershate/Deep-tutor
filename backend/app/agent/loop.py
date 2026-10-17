@@ -139,6 +139,12 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
     except asyncio.TimeoutError:
         # 与 run_tool 外层捕获同语义（upstream_timeout），但在此携带已累积 usage
         return _billed(_error_output(tool, "upstream_timeout", f"{tool.name} 超时（{ctx.timeouts.llm}s）"))
+    except asyncio.CancelledError:
+        # iter 382：取消照常传播（不吞——编排器/前端依赖 cancelled 事件码），但已累积的
+        # 部分 usage（修复链前几轮已烧 token）寄存 ctx，由任务收口方统一落账——此前随
+        # 协程局部变量丢弃，api_usage 无行 = 绕过日预算守卫的成本黑洞（iter 243 语义补全）
+        ctx.orphan_billed.append(build_metadata(total, last_model, ctx.model_pricing, provider=prov))
+        raise
     except Exception as exc:  # noqa: BLE001  LLM 非瞬态错误（4xx 等）：记成本后按工具失败处理
         log.exception("工具 %s LLM 调用异常", tool.name)
         return _billed(_error_output(tool, "tool_exception", str(exc)))

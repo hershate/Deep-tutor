@@ -183,6 +183,9 @@ class _SessionStream:
         # iter 380：发起用户 id——_finalize「会话已删除」守卫的兜底落账锚点
         # （ToolCall 挂 session FK 不可写，api_usage 按 user 键照记；见 _persist_tool_calls）
         self.user_id: int | None = None
+        # iter 382：孤儿计量寄存（ctx.orphan_billed 的同一 list 对象，_run_start 挂接）——
+        # 取消传播时已烧的部分 usage 由此落账（见 _drain_orphan_billed）
+        self.orphan_billed: list = []
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -689,6 +692,21 @@ def _schedule_cleanup(session_id: int, stream: "_SessionStream | None" = None) -
         _STREAMS.pop(session_id, None)
 
 
+def _drain_orphan_billed(db: Session, stream: "_SessionStream") -> None:
+    """iter 382：落账并清空孤儿计量寄存（取消传播时 loop 寄存的部分 usage）。
+
+    在 _finalize 各分支之前统一调用——cancelled/异常/守卫（会话已删）路径全部覆盖；
+    正常 done 路径寄存为空（no-op）。异常吞掉（审计写入不阻塞主流程）。
+    """
+    try:
+        while stream.orphan_billed:
+            m = stream.orphan_billed.pop(0)
+            if getattr(m, "tokens_in", 0) or getattr(m, "tokens_out", 0):
+                record_metadata_usage(db, m, stream.user_id)
+    except Exception:  # noqa: BLE001
+        log.exception("孤儿计量落账失败 session=%s", stream.session_id)
+
+
 def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> None:
     """编排器任务结束回调：持久化结果 + 发布终态事件（与流客户端解耦）。
 
@@ -697,6 +715,8 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
     """
     db = SessionLocal()
     try:
+        # iter 382：取消传播寄存的部分计量先行落账（用户已删时 record 内部自防 FK）
+        _drain_orphan_billed(db, stream)
         # 会话已删除（如 DELETE /sessions 先取消了任务），或 rowid 被新会话复用
         # （err.md A12：旧任务 finalize 会把结果写进无关新会话）-> 不写 DB，
         # 仅发终态 + 清理。trace_id 匹配才说明该会话仍属本次生成。
@@ -988,6 +1008,9 @@ async def _run_start(
                 # iter 355：用户 LLM 输出上限偏好（None -> 回退默认 100k，防 quiz 截断）
                 llm_max_tokens=get_active_max_tokens(user_id, db=resolv_db),
             )
+            # iter 382：孤儿计量寄存器挂流（同一 list 对象）——取消传播时 loop 寄存的
+            # 部分 usage 由 _finalize 统一落账（见 _drain_orphan_billed）
+            stream.orphan_billed = ctx.orphan_billed
         except Exception as exc:  # noqa: BLE001
             log.exception("生成环境解析失败 session=%s", session_id, exc_info=exc)
             eid = stream.publish("error", {"code": "internal_error", "message": "生成环境解析失败", "stage": ""})
@@ -1893,6 +1916,10 @@ async def _materials_sse(
                     )
                     out = await run_tool("generate_unit_content", inp, ctx)
                     metadata = out.metadata
+                    # iter 382：完成即寄存孤儿计量——断连/预算中断时「已完成未消费」的
+                    # usage 由 finally 统一落账（主循环消费后移除防双落；取消打断在
+                    # run_tool 内部的部分计量由 loop 层寄存同一列表）
+                    ctx.orphan_billed.append(metadata)
                     if out.status == "ok":
                         # model_validate 双检失败 -> 异常上抛（同旧串行：流以 error 收尾）
                         data = UnitContentSpec.model_validate(out.data)
@@ -1941,6 +1968,9 @@ async def _materials_sse(
                     if ctx.budget:
                         ctx.budget.add(metadata.cost)
                     await asyncio.to_thread(record_metadata_usage, db, metadata, user_id)
+                    # iter 382：已消费——移出孤儿寄存（断连时 finally 不再重复落账）
+                    if metadata in ctx.orphan_billed:
+                        ctx.orphan_billed.remove(metadata)
                 if ctx.budget and ctx.budget.exceeded():
                     log.warning("材料生成预算超限 plan=%s spent=%.4f", plan_id, ctx.budget.spent)
                     yield _sse("error", {"code": "budget_exceeded", "message": "本次生成预算已用尽，已保留已生成单元"})
@@ -1978,6 +2008,16 @@ async def _materials_sse(
                 # 取消），分多个 await 则首个被取消即跳过其余步骤（孤儿文件回归 B1 修复）
                 def _cleanup_finally() -> None:
                     db.rollback()
+                    # iter 382：孤儿计量统一落账——断连/预算中断时「已完成未消费」的
+                    # worker 计量 + 取消打断在 LLM 调用内的部分计量（loop 层寄存）。
+                    # 在 db.rollback 之后（丢弃半截事务）逐条补记，随下方 commit 一并提交。
+                    for m in list(ctx.orphan_billed):
+                        if m is not None:
+                            try:
+                                record_metadata_usage(db, m, user_id)
+                            except Exception:  # noqa: BLE001 单条失败不阻断其余清理
+                                log.exception("材料流孤儿计量落账失败 plan=%s", plan_id)
+                        ctx.orphan_billed.remove(m)
                     if body.scope is not None or body.unit_ids:
                         _resequence_study_units(db, plan_id)  # 局部生成后全量重排 order
                     all_units = (

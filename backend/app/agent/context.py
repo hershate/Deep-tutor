@@ -53,3 +53,9 @@ class ExecContext:
     # iter 355：该次生成的 LLM 输出 token 上限（None -> _chat_with_retry 回退 settings.llm_max_tokens）。
     # 由各 ctx 构造点按用户偏好 get_active_max_tokens 注入（用户可在设置页调节，防 quiz 截断）。
     llm_max_tokens: int | None = None
+    # iter 382：孤儿计量寄存器——LLM 调用被取消（CancelledError 传播，不吞）时，已累积
+    # 的部分 usage 随协程局部变量丢弃 = 不可观测成本黑洞（日预算只信 api_usage 求和）。
+    # loop._run_llm_tool 在取消传播前把 build_metadata(total,...) 寄存于此；由任务收口方
+    # （plans._finalize / 材料流 finally）统一落账后清空。材料流 worker 的「run_tool 已完成
+    # 但主循环未消费」窗口亦复用此寄存（正常消费路径移除条目防双落）。
+    orphan_billed: list = field(default_factory=list)

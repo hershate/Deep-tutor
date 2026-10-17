@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R25（2026-10-18，Python v1 深度审计第二十二轮「iter 382」，✅ 完成）**：同一 /goal 第二十二遍——**长连流家族断连取消与 finalize 收敛语义一致性**（材料 SSE / quiz 后台 / slides / kb，对照 R23/R24 已钉死的 plans/chat/events 三类流语义标准：断连任务独立、终态必达、计费守恒、内存零泄漏、硬取消传播）。1 个真实缺口修复、3 个新回归、1 commit：
+
+- **缺口（取消路径成本黑洞，iter 243 语义的最后一处缺口）**：LLM 工具调用在途被取消（task.cancel → CancelledError 传播）时，**已累积的部分 usage 随协程局部变量丢弃**——run_tool 的 except Exception 不捕 CancelledError（Python 3.8+ 属 BaseException），_billed 的回填值无人消费，api_usage 无行 = 绕过日预算守卫的不可观测黑洞。触发面：①编排任务取消（删会话/删用户，R23 场景）；②材料流断连取消在途 worker；③材料流「worker 已完成、主循环未消费」窗口（断连恰在 task.result() 前——历轮修复覆盖了文件清理与槽释放，计量面漏了）。
+- **修复（寄存器设计，不吞取消）**：`ExecContext.orphan_billed` 列表——`loop._run_llm_tool` 在 CancelledError 传播前寄存 `build_metadata(total,...)`（设计取舍：**不吞取消**——吞掉会让编排器走 error 而非 cancelled 终态，前端 taskEngine 的 cancelled 相位与事件码语义回归）；`plans._run_start` 把 `ctx.orphan_billed` 挂到 stream（同一 list 对象）+ `_finalize` 开头统一 drain（cancelled/异常/守卫分支全覆盖，record_metadata_usage 内部自 commit、FK 自防）；材料流三接线：worker run_tool 完成即寄存、主循环消费后移除（防双落）、finally 清理线程统一落账（在 rollback 后逐条补记，随 index 写入同事务提交）。
+- **分派（clean，留档）**：slides/quiz/kb 为同步或短后台任务——线程池执行不受客户端断连中断、计费在调用完成点即时落账、quiz 后台对会话删除的 FK 冲突已留档（R23：计费已先行落账）；前端材料流为裸 fetch 无自动重连（非幂等端点无误重连双计费）；材料流断连的收敛延迟 = 心跳间隔（≤15s，Starlette aclose 等 yield 注入的固有机制）。
+- **回归（test_iter382_cancel_billing.py，3 用例）**：T1 单测级——畸形响应（accumulate 100/50）后挂起再 cancel：CancelledError 照常传播 + orphan_billed 恰一条且 token 守恒；T2 端到端——生成中 DELETE 会话（iter 380 后台线程流模式）：取消后 intent 修复链第一轮的部分计量经 _finalize drain 落 api_usage（用户键幸存）；T3 材料流断连（`agen.aclose()` = Starlette 客户端断连的内部机制）——unit1 挂起、unit2 完成：断连后 unit2 的未消费计量 drain 落账（增量恰 1 行 100/50）、内容不落库（丢弃可重生成）、unit1 挂起取消零伪造行。测试技巧留档：**async generator 挂在 yield 处不自行推进**——两次 anext 消费 unit_start 后 ensure_future 尚未执行到，须第三次 anext 驱动到 keepalive yield，worker 才被创建（首版 T3 因此假失败）。
+- **门禁**：全量 pytest **1442 通过/1 跳过**（+3）+ ruff（app/tests + 根 plugins/）全绿；前端无改动（材料流前端本就无自动重连，无接线需求）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R24（2026-10-17，Python v1 深度审计第二十一轮「iter 381」，✅ 完成）**：同一 /goal 第二十一遍——**更新面 × 服务端内存态一致性矩阵**（全部 PATCH/PUT/DELETE 端点对进程内状态——SSE 流身份/事件归属缓存/TTL 缓存/解析锁/注册表——的失效与同步语义，R4-R23 未系统核对过的交叉面）。2 个真实缺口修复 + 1 个测试时序缺陷修复、6 个新回归/更新、1 commit：
 
 - **修复 1（事件归属缓存跨用户错发窗口）**：`resolve_owner` 的 session_id→owner 60s TTL 缓存（iter 367 为「每事件×每订阅者查库」加的收敛层）在「删会话后 SQLite 复用 rowid」场景把新会话事件按缓存的**旧 owner** 过滤——旧 owner 收到他人 plan_created/materials_completed（含 topic/单元数＝**跨用户信息泄露**）且正主收不到（前端 toast/实时刷新静默失效）。修复＝**移除缓存即时查库**：负载前提已不成立（现事件面仅 plan_created/materials_completed 不带 user_id，每方案 2 次；其余核心事件全部直归属零查询），直查=每订阅者×每方案 2 次主键读可忽略；即时查库即真实归属，窗口彻底关死（删除/rowid 复用/备份导入恢复均自洽）。
