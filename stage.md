@@ -38,6 +38,13 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R34（2026-10-19，Python v1 深度审计第三十一轮「iter 391」，✅ 完成）**：同一 /goal 第三十一遍——**前端交互面二轮深读抽检（R31 未精读的五页：Home/Plans/Review/Wiki/Learn 组件级『表达与实现一致性』）**。1 处交互缺陷修复，tsc+build 与全量 1458 门禁绿：
+
+- **深读矩阵（五页全部过目，分派结论）**：Home——草稿持久化（rawText+urls，时间字段不入草稿=接受：注释明示草稿范围为描述与链接、结构化字段重填成本低）/prefill 取代陈旧草稿/上传池 3 路有界并发+firstErr 停派发/失败清理孤儿会话/卸载中止在传上传（iter 368）/SSE 启动异常码分诊（409/503/402 toast+出口）；Plans——占位行状态机（running/clarify/interrupted/error/idle 五态徽标+活跃 5s 条件轮询）/批量删 session 去重+顺序 await+失败计数/选择作用域翻页清空/错误-空态分治（iter 369 B16）/删除级联缓存失效；Review——翻卡诚实回忆（未翻面先翻面）/回写失败不跳卡/判分锁+键盘流+弹层守卫/离页失效快照（iter 367 M5）/重练薄弱多轮收窄；Wiki——单飞状态循环/深链强制 docs 视图/三视图错误态齐备（iter 369 B16）/热力图当日明细按需拉取；Learn——打卡 1-1440 校验+未来日期拦截/补卡成功复位今天/D4 操作错误与整页错误分离/D6 切换防覆写/日志失败可见不阻塞（iter 368）。
+- **缺陷 H1（Home 每日时长超界静默丢弃·表达不一致）**：手输超界值（如 5000）被 timeOpts 构造的过滤条件静默丢弃——界面上值仍在、提交无报错，实际生成走 LLM 猜测时长（用户以为已生效）。HTML min/max 只约束步进器不拦手输。修复：start() 入口显式校验报错（「每日时长须在 1-1440 分钟之间」，与 Learn 打卡同口径），内层过滤条件移除（单一事实源）。
+- **回归**：`npm run build`（tsc --noEmit + vite build）绿；后端未动但按流程全量 pytest 1458 通过/1 跳过。
+- **下一步**：滚动审计续（候选：备份/恢复链真实进程演练复验 R26；或剩余小组件二轮抽检（MaterialsModal/KbChatPanel/TaskCenter 等）；或过夜档 soak 择机）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R33（2026-10-19，Python v1 深度审计第三十轮「iter 390」，✅ 完成）**：同一 /goal 第三十遍——**授权矩阵横向复验（R18 auth_matrix 之后新增/变更端点的角色×端点证据面）**。零产品缺陷（授权面全部成立），2 个行为级测试缺口补齐 + 1 项测试基建留档，全量 1458 通过：
 
 - **静态矩阵复跑（auth_matrix.py）**：158 路由（USER 138 / ADMIN 14 / PUBLIC 6），PUBLIC 面与 R18 裁定完全一致（login/health/shared token/setup 三件套）；R23-R32 变更端点授权级别零漂移——插件热管理四端点（R27 async 化）仍 ADMIN+频控、pricing GET/PUT 仍 USER 且 `user.id` 逐用户隔离（UserPref user_id+key，30/min 限流 + 409 基线）、notes/节点笔记 PUT 仍 USER+owned、SSE 流仍 require_auth。

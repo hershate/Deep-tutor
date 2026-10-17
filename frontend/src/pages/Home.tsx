@@ -155,6 +155,14 @@ export default function Home() {
       setError('请输入需求描述，或上传资料 / 添加网页链接')
       return
     }
+    // iter 391（R34）：每日时长超界（如手输 5000）此前被静默丢弃——timeOpts 过滤条件
+    // 不满足即不带该字段，用户以为已生效实际走 LLM 猜测（表达与实现不一致）；
+    // 改显式报错拦截（与 Learn 打卡 1-1440 校验同口径）
+    const _dm = Number(dailyMinutes)
+    if (dailyMinutes.trim() !== '' && (!Number.isFinite(_dm) || _dm < 1 || _dm > 1440)) {
+      setError('每日时长须在 1-1440 分钟之间（留空则由 AI 按描述推测）')
+      return
+    }
     setLoading(true)
     try {
       const { session_id } = await createSession(rawText.slice(0, 40) || '学习方案')
@@ -222,11 +230,11 @@ export default function Home() {
       }
       // iter 194 F9：生成由任务引擎发起（SSE 连接 App 级常驻，切页不丢）；
       // 启动即败按异常码引导——已建会话不删（区别于上传失败），留 idle 占位可稍后继续
-      // iter 353：结构化时间字段（表单直填）传给 understand_intent（authoritative 覆盖 LLM 抽取）
-      const _dm = Number(dailyMinutes)
+      // iter 353：结构化时间字段（表单直填）传给 understand_intent（authoritative 覆盖 LLM 抽取）；
+      // dailyMinutes 已在 start() 入口显式校验（1-1440 或空），此处不再静默过滤
       const timeOpts: TimeOptions | undefined = (() => {
         const o: TimeOptions = {}
-        if (dailyMinutes && Number.isFinite(_dm) && _dm >= 1 && _dm <= 1440) o.daily_minutes = _dm
+        if (dailyMinutes) o.daily_minutes = _dm
         if (startDate) o.start_date = startDate
         if (deadline) o.deadline = deadline
         return Object.keys(o).length ? o : undefined
