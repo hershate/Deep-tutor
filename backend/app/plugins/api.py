@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -688,12 +689,25 @@ class StorageNamespace:
 
     def _save(self) -> None:
         """原子写：唯一 tmp 文件 + os.replace（防并发写中途崩溃留下半写文件；
-        调用方持 _lock）。tmp 名带 uuid 防两线程写同一中间路径。"""
+        调用方持 _lock）。tmp 名带 uuid 防两线程写同一中间路径。
+
+        iter 372 R13：Windows 高频同文件 replace 的瞬时共享冲突（杀软/索引器扫过
+        目标文件）会让 write/replace 瞬态 PermissionError 逃出 set()——并发突发下
+        实测 2/5 复现，插件该次写入丢失且异常上抛。短重试窗口（10-50ms，与 plans
+        溢出 JSON 的 os.replace 重试同法）内几乎必成；连续失败才上抛硬错误。"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_name(f"{self._path.name}.{uuid.uuid4().hex}.tmp")
         try:
-            tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, self._path)
+            payload = json.dumps(self._data, ensure_ascii=False)
+            for attempt in range(5):
+                try:
+                    tmp.write_text(payload, encoding="utf-8")
+                    os.replace(tmp, self._path)
+                    return
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.01 * (attempt + 1))
         finally:
             # 异常路径（写失败/replace 失败）不留 tmp 残留
             try:
