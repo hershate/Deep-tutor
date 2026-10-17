@@ -163,7 +163,9 @@ def _persist_message_sync(db, thread_id: int, role, content, run_id: int | None,
     db.commit()
 
 
-async def _persist_message(db, thread_id: int, role, content, run_id: int | None, usage: LLMUsage | None = None) -> None:
+async def _persist_message(
+    db, thread_id: int, role, content, run_id: int | None, usage: LLMUsage | None = None
+) -> None:
     # iter 366：DB 写经 to_thread 移出事件循环——SQLite 写串行下高并发提交不再阻塞 loop
     # （心跳/其他请求保持响应）。Session 顺序访问（此处 await 挂起，无并发触同一 Session），安全。
     await asyncio.to_thread(_persist_message_sync, db, thread_id, role, content, run_id, usage)
@@ -248,16 +250,13 @@ def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT)
     """
     from app.db.models import Message
 
-    rows = (
-        db.query(Message)
-        .filter_by(thread_id=thread_id)
-        .order_by(Message.id.desc())
-        .limit(limit)
-        .all()
-    )
+    rows = db.query(Message).filter_by(thread_id=thread_id).order_by(Message.id.desc()).limit(limit).all()
     msgs = [{"role": r.role.value, "content": r.content} for r in reversed(rows)]
-    while msgs and msgs[0]["role"] == "user" and isinstance(msgs[0]["content"], list) and any(
-        isinstance(b, dict) and b.get("type") == "tool_result" for b in msgs[0]["content"]
+    while (
+        msgs
+        and msgs[0]["role"] == "user"
+        and isinstance(msgs[0]["content"], list)
+        and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in msgs[0]["content"])
     ):
         msgs.pop(0)
 
@@ -265,7 +264,8 @@ def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT)
     for m in msgs:
         if isinstance(m.get("content"), list):
             m["content"] = [
-                b for b in m["content"]
+                b
+                for b in m["content"]
                 if not (isinstance(b, dict) and b.get("type") == "thinking" and not b.get("signature"))
             ]
             if m["content"] == []:
@@ -280,20 +280,14 @@ def load_thread_messages(db, thread_id: int, limit: int = DEFAULT_HISTORY_LIMIT)
         c = msgs[i].get("content")
         if msgs[i]["role"] != "assistant" or not isinstance(c, list):
             continue
-        tu_ids = [
-            b.get("id")
-            for b in c
-            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
-        ]
+        tu_ids = [b.get("id") for b in c if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")]
         if not tu_ids:
             continue
         nxt = msgs[i + 1] if i + 1 < len(msgs) else None
         answered: set = set()
         if nxt is not None and nxt["role"] == "user" and isinstance(nxt.get("content"), list):
             answered = {
-                b.get("tool_use_id")
-                for b in nxt["content"]
-                if isinstance(b, dict) and b.get("type") == "tool_result"
+                b.get("tool_use_id") for b in nxt["content"] if isinstance(b, dict) and b.get("type") == "tool_result"
             }
         unanswered = [tid for tid in tu_ids if tid not in answered]
         if not unanswered:
@@ -373,6 +367,7 @@ async def run_agent_loop(
         # iter 363：promote_artifact 置 awaiting_approval 后退出循环（run 待用户 approve，
         # _finalize_chat 保持该终态；不退出则 run 继续跑与 approve 冲突）
         from app.db.models import Run as _Run, RunStatus as _RunStatus
+
         _cur_run = db.get(_Run, run_id)
         if _cur_run is not None and _cur_run.status == _RunStatus.awaiting_approval:
             return AgentRunResult(status="done", final_text=last_text, steps=step, usage=total_usage)
@@ -385,9 +380,7 @@ async def run_agent_loop(
         acc = _StreamAccumulator()
         t0 = time.monotonic()
         try:
-            async for chunk in provider.stream_agentic(
-                messages, system=system, tools=tools or None, thinking=thinking
-            ):
+            async for chunk in provider.stream_agentic(messages, system=system, tools=tools or None, thinking=thinking):
                 acc.feed(chunk)
                 if emit:
                     if chunk.text:
@@ -395,7 +388,9 @@ async def run_agent_loop(
                     if chunk.thinking:
                         await emit("thinking_delta", {"text": chunk.thinking})
                     if chunk.tool_use_start:
-                        await emit("tool_call", {"id": chunk.tool_use_start[0], "name": chunk.tool_use_start[1], "step": step})
+                        await emit(
+                            "tool_call", {"id": chunk.tool_use_start[0], "name": chunk.tool_use_start[1], "step": step}
+                        )
                     if chunk.tool_use_delta:
                         await emit("tool_progress", {"id": chunk.tool_use_delta[0], "step": step})
         except asyncio.CancelledError as exc:
@@ -406,7 +401,12 @@ async def run_agent_loop(
             # usage（此前空 usage 覆盖会把 run.budget_used 写成 0）
             if acc.usage is not None and (acc.usage.input_tokens or acc.usage.output_tokens):
                 accumulate_usage(total_usage, acc.usage)
-                meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
+                meta = build_metadata(
+                    acc.usage,
+                    acc.usage.model,
+                    ctx.model_pricing,
+                    provider=getattr(ctx.llm_provider, "kind", "anthropic"),  # iter 370 计量归属
+                )
                 try:
                     await asyncio.shield(asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id))
                 except Exception:  # noqa: BLE001  补记失败不阻断取消传播
@@ -422,7 +422,12 @@ async def run_agent_loop(
             # 须入账——否则本轮 LLM 费用已发生却写不进 api_usage/预算（成本黑洞，iter 243 同型）
             if acc.usage is not None:
                 accumulate_usage(total_usage, acc.usage)
-                meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
+                meta = build_metadata(
+                    acc.usage,
+                    acc.usage.model,
+                    ctx.model_pricing,
+                    provider=getattr(ctx.llm_provider, "kind", "anthropic"),  # iter 370 计量归属
+                )
                 await asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id)
                 if ctx.budget is not None:
                     ctx.budget.add(meta.cost)
@@ -432,17 +437,35 @@ async def run_agent_loop(
         turn_usage = acc.usage or LLMUsage()
         if turn_usage.input_tokens or turn_usage.output_tokens:
             accumulate_usage(total_usage, turn_usage)
-            meta = build_metadata(turn_usage, turn_usage.model, ctx.model_pricing)
+            meta = build_metadata(
+                turn_usage,
+                turn_usage.model,
+                ctx.model_pricing,
+                provider=getattr(ctx.llm_provider, "kind", "anthropic"),  # iter 370 计量归属
+            )
             await asyncio.to_thread(record_metadata_usage, db, meta, user_id)
             if ctx.budget is not None:
                 ctx.budget.add(meta.cost)
                 if ctx.budget.exceeded():
                     await _persist_run_step(
-                        db, run_id, step, "message", "assistant", {}, {"reason": "budget_exceeded"},
-                        usage=turn_usage, duration_ms=int((time.monotonic() - t0) * 1000),
+                        db,
+                        run_id,
+                        step,
+                        "message",
+                        "assistant",
+                        {},
+                        {"reason": "budget_exceeded"},
+                        usage=turn_usage,
+                        duration_ms=int((time.monotonic() - t0) * 1000),
                         model_pricing=ctx.model_pricing,
                     )
-                    return AgentRunResult(status="interrupted", final_text=last_text, steps=step + 1, usage=total_usage, error="budget_exceeded")
+                    return AgentRunResult(
+                        status="interrupted",
+                        final_text=last_text,
+                        steps=step + 1,
+                        usage=total_usage,
+                        error="budget_exceeded",
+                    )
 
         # 5) 持久化 assistant 消息 + run_step
         blocks = acc.to_content_blocks()
@@ -450,8 +473,16 @@ async def run_agent_loop(
         if blocks:
             await _persist_message(db, thread_id, _role("assistant"), blocks, run_id, turn_usage)
         await _persist_run_step(
-            db, run_id, step, "message", "assistant", {}, {"text": last_text[:500]},
-            usage=turn_usage, stop_reason=acc.stop_reason, duration_ms=int((time.monotonic() - t0) * 1000),
+            db,
+            run_id,
+            step,
+            "message",
+            "assistant",
+            {},
+            {"text": last_text[:500]},
+            usage=turn_usage,
+            stop_reason=acc.stop_reason,
+            duration_ms=int((time.monotonic() - t0) * 1000),
             model_pricing=ctx.model_pricing,
         )
         if emit:
@@ -473,16 +504,29 @@ async def run_agent_loop(
                 try:
                     res = await tool_executor(tu, ctx)
                     await _persist_run_step(
-                        db, run_id, step, "tool_call", tu.name, tu.input,
+                        db,
+                        run_id,
+                        step,
+                        "tool_call",
+                        tu.name,
+                        tu.input,
                         {"content": (res.content or "")[:1000], **res.meta},
-                        duration_ms=int((time.monotonic() - tt0) * 1000), is_error=res.is_error,
+                        duration_ms=int((time.monotonic() - tt0) * 1000),
+                        is_error=res.is_error,
                     )
                 except Exception as exc:  # noqa: BLE001
                     res = AgentToolResult(content=f"工具执行异常: {exc}", is_error=True)
                     try:
                         await _persist_run_step(
-                            db, run_id, step, "tool_call", tu.name, tu.input, {"error": str(exc)},
-                            duration_ms=int((time.monotonic() - tt0) * 1000), is_error=True,
+                            db,
+                            run_id,
+                            step,
+                            "tool_call",
+                            tu.name,
+                            tu.input,
+                            {"error": str(exc)},
+                            duration_ms=int((time.monotonic() - tt0) * 1000),
+                            is_error=True,
                         )
                     except Exception:  # noqa: BLE001  iter 365 B2：_persist_run_step 自身失败不穿透
                         db.rollback()
@@ -498,9 +542,7 @@ async def run_agent_loop(
         done_ids = {r["tool_use_id"] for r in results_msg}
         for tu in acc.tool_use_blocks():
             if tu.id not in done_ids:
-                results_msg.append(
-                    {"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True}
-                )
+                results_msg.append({"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True})
         if results_msg:
             try:
                 await _persist_message(db, thread_id, _role("user"), results_msg, run_id)

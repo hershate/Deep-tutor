@@ -62,7 +62,11 @@ def _classify(exc: BaseException) -> Exception:
         return TransientLLMError(str(exc) or exc.__class__.__name__)
     name = type(exc).__name__
     msg = str(exc).lower()
-    if name in {"ConnectError", "TimeoutException", "ReadTimeout", "APIConnectionError", "RateLimitError"} or "timeout" in msg or "temporarily" in msg:
+    if (
+        name in {"ConnectError", "TimeoutException", "ReadTimeout", "APIConnectionError", "RateLimitError"}
+        or "timeout" in msg
+        or "temporarily" in msg
+    ):
         return TransientLLMError(str(exc) or name)
     if isinstance(exc, Exception):
         return exc
@@ -90,6 +94,7 @@ class PluginProvider(LLMProvider):
         self._model = model or entry.default_model
         self._api_key = api_key or ""
         self._base_url = base_url or ""
+        self.kind = entry.kind  # iter 370：计量归属（api_usage.provider 不再一律 anthropic）
 
     async def chat(
         self,
@@ -108,13 +113,22 @@ class PluginProvider(LLMProvider):
             # 管线无限悬挂）；超时映射 TransientLLMError（可重试语义）
             coro = (
                 handler(
-                    system, user, model=used_model, max_tokens=max_tokens,
-                    api_key=self._api_key, base_url=self._base_url,
+                    system,
+                    user,
+                    model=used_model,
+                    max_tokens=max_tokens,
+                    api_key=self._api_key,
+                    base_url=self._base_url,
                 )
                 if asyncio.iscoroutinefunction(handler)
                 else asyncio.to_thread(
-                    handler, system, user, model=used_model, max_tokens=max_tokens,
-                    api_key=self._api_key, base_url=self._base_url,
+                    handler,
+                    system,
+                    user,
+                    model=used_model,
+                    max_tokens=max_tokens,
+                    api_key=self._api_key,
+                    base_url=self._base_url,
                 )
             )
             raw = await asyncio.wait_for(coro, timeout=_HANDLER_TIMEOUT_S)
@@ -133,14 +147,28 @@ class PluginProvider(LLMProvider):
             resp_model = used_model
         usage_raw = _require(raw, "usage", container=".")
         usage = LLMUsage(
-            input_tokens=max(0, _as_int(_require(usage_raw, "input_tokens", container="usage."), "input_tokens", container="usage.")),
-            output_tokens=max(0, _as_int(_require(usage_raw, "output_tokens", container="usage."), "output_tokens", container="usage.")),
-            cache_read_input_tokens=max(0, _as_int(usage_raw.get("cache_read_input_tokens", 0), "cache_read_input_tokens", container="usage.")),
-            cache_creation_input_tokens=max(0, _as_int(usage_raw.get("cache_creation_input_tokens", 0), "cache_creation_input_tokens", container="usage.")),
+            input_tokens=max(
+                0, _as_int(_require(usage_raw, "input_tokens", container="usage."), "input_tokens", container="usage.")
+            ),
+            output_tokens=max(
+                0,
+                _as_int(_require(usage_raw, "output_tokens", container="usage."), "output_tokens", container="usage."),
+            ),
+            cache_read_input_tokens=max(
+                0, _as_int(usage_raw.get("cache_read_input_tokens", 0), "cache_read_input_tokens", container="usage.")
+            ),
+            cache_creation_input_tokens=max(
+                0,
+                _as_int(
+                    usage_raw.get("cache_creation_input_tokens", 0), "cache_creation_input_tokens", container="usage."
+                ),
+            ),
             model=resp_model,
         )
         stop_reason = raw.get("stop_reason") if isinstance(raw, dict) else None
-        return LLMResponse(content=content, usage=usage, stop_reason=stop_reason if isinstance(stop_reason, str) else None)
+        return LLMResponse(
+            content=content, usage=usage, stop_reason=stop_reason if isinstance(stop_reason, str) else None
+        )
 
     def estimate_cost(self, usage: LLMUsage) -> float:
         # 复用内置价目表：已知模型族计价，未知（多数新协议模型）-> 0（用户用量页可见、不计费）

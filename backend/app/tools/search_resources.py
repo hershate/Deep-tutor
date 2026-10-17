@@ -85,9 +85,7 @@ def _derive_stage_topics(inp: ToolInput) -> list[list[str]]:
                 if not isinstance(topics, list):
                     cleaned.append([])
                     continue
-                cleaned.append(
-                    [t for t in (str(x).strip()[:MAX_QUERY_CHARS] for x in topics[:5]) if t]
-                )
+                cleaned.append([t for t in (str(x).strip()[:MAX_QUERY_CHARS] for x in topics[:5]) if t])
             return cleaned
         log.warning("stage_topics 显式入参非法（%s），忽略改派生", type(explicit).__name__)
     stages_data = ((inp.upstream or {}).get("design_stages") or {}).get("data") or {}
@@ -160,9 +158,7 @@ def total_resource_cap(total_nodes: int) -> int:
     return min(_BASE_TOTAL + max(0, total_nodes), _HARD_MAX_TOTAL)
 
 
-async def _run_web_queries(
-    queries: list[tuple[int, str, int]], engine: str, bing_key: str
-) -> list[list[dict] | None]:
+async def _run_web_queries(queries: list[tuple[int, str, int]], engine: str, bing_key: str) -> list[list[dict] | None]:
     """并发执行全部检索查询（有界 _SEARCH_CONCURRENCY，iter 228；iter 360 每查询候选数动态）。
 
     queries 元素为 (stage_index, topic, count)；count 为该查询向搜索引擎请求的候选数
@@ -182,9 +178,7 @@ async def _run_web_queries(
     return await asyncio.gather(*(_one(topic, count) for _, topic, count in queries))
 
 
-async def _verify_candidates(
-    items: list[tuple[int, dict]], session_id: str, ctx: ExecContext
-) -> dict[str, dict]:
+async def _verify_candidates(items: list[tuple[int, dict]], session_id: str, ctx: ExecContext) -> dict[str, dict]:
     """并发校验候选 URL（有界 _VERIFY_CONCURRENCY，iter 228），返回 {候选原 url: verify data}。
 
     - 按 URL 去重：同 URL 只验一次（stage_level 取首个出现阶段；verify_url 进程内
@@ -246,7 +240,11 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 "note": "SEARCH_ENGINE=bing 但未配置 BING_API_KEY，未执行检索；改用 SEARCH_ENGINE=auto 可免 Key 网页检索",
                 "suggested_keywords": keywords[:20],
             },
-            errors=[ToolError(code="no_search_key", message="SEARCH_ENGINE=bing 但未配置 BING_API_KEY，search_resources 不可用")],
+            errors=[
+                ToolError(
+                    code="no_search_key", message="SEARCH_ENGINE=bing 但未配置 BING_API_KEY，search_resources 不可用"
+                )
+            ],
         )
 
     # --- 阶段 1：并发检索（iter 228；iter 360 主题数/候选数随阶段难度动态）---
@@ -317,7 +315,9 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 "note": f"检索引擎（{engine}）不可用，未获得结果；请人工补充资源",
                 "suggested_keywords": keywords[:20],
             },
-            errors=[ToolError(code="search_unavailable", message=f"检索引擎（{engine}）全部查询失败，search_resources 降级")],
+            errors=[
+                ToolError(code="search_unavailable", message=f"检索引擎（{engine}）全部查询失败，search_resources 降级")
+            ],
         )
 
     # iter 346（F1 兼容）：无候选（检索成功但 0 命中，或全 invalid 换源）-> 不调 LLM 筛选
@@ -337,7 +337,9 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if screen_usage is not None:
         from app.agent.cost import build_metadata
 
-        out.metadata = build_metadata(screen_usage)
+        out.metadata = build_metadata(
+            screen_usage, provider=getattr(ctx.llm_provider, "kind", "anthropic")
+        )  # iter 370 计量归属
     return out
 
 
@@ -771,7 +773,12 @@ async def _account_screen_usage(usage: LLMUsage | None, ctx: ExecContext) -> Non
         return
     from app.agent.cost import build_metadata, record_metadata_usage  # 延迟导入（同上）
 
-    meta = build_metadata(usage, usage.model, ctx.model_pricing)
+    meta = build_metadata(
+        usage,
+        usage.model,
+        ctx.model_pricing,
+        provider=getattr(ctx.llm_provider, "kind", "anthropic"),  # iter 370 计量归属
+    )
     if ctx.budget is not None:
         ctx.budget.add(meta.cost)
 

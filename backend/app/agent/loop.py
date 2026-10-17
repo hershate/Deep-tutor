@@ -99,12 +99,13 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
     total = LLMUsage()
     last_error: str | None = None
     last_model = ""
+    prov = getattr(ctx.llm_provider, "kind", "anthropic")  # iter 370：计量归属协议
 
     def _billed(out: ToolOutput) -> ToolOutput:
         """iter 243：异常/取消出口亦回填已累积 usage——此前这些路径 metadata 全零，
         已成功的重试轮次 token 不进 tool_calls/api_usage，而日预算只信 api_usage
         -> 绕过入口守卫的成本黑洞（cancel/timeout/4xx 后重试成本全部隐形）。"""
-        out.metadata = build_metadata(total, last_model, ctx.model_pricing)
+        out.metadata = build_metadata(total, last_model, ctx.model_pricing, provider=prov)
         return out
 
     try:
@@ -121,7 +122,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
                 # 无意义且白烧修复额度 -> 直接降级，提示用户调高上限。
                 log.warning("工具 %s 输出达 max_tokens 上限被截断（可在设置页调高「LLM 输出上限」）", tool.name)
                 out = _degraded(tool, "max_tokens", "输出超 max_tokens 上限被截断")
-                out.metadata = build_metadata(total, last_model, ctx.model_pricing)
+                out.metadata = build_metadata(total, last_model, ctx.model_pricing, provider=prov)
                 return out
             data, err = _parse_and_validate(resp.content, tool.output_model)
             if err is None:
@@ -131,7 +132,7 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
                     tool=tool.name,
                     status="ok",
                     data=data,
-                    metadata=build_metadata(total, last_model, ctx.model_pricing),
+                    metadata=build_metadata(total, last_model, ctx.model_pricing, provider=prov),
                 )
             last_error = err
             log.warning("工具 %s 第 %d 次校验失败: %s", tool.name, attempt, err)
@@ -144,13 +145,11 @@ async def _run_llm_tool(tool: Tool, inp: ToolInput, ctx: ExecContext) -> ToolOut
 
     # 重试耗尽 -> 降级默认 + 告警（Pillar 2）
     out = _degraded(tool, "schema_violation", f"修复重试 {REPAIR_MAX_RETRIES} 次仍不符: {last_error}")
-    out.metadata = build_metadata(total, last_model, ctx.model_pricing)
+    out.metadata = build_metadata(total, last_model, ctx.model_pricing, provider=prov)
     return out
 
 
-async def _chat_with_retry(
-    ctx: ExecContext, system: str, message: str, *, max_tokens: int | None = None
-):
+async def _chat_with_retry(ctx: ExecContext, system: str, message: str, *, max_tokens: int | None = None):
     """LLM 调用 + 瞬态错误指数退避（err.md B1：限流/连接失败/5xx 不占修复重试额度）。
 
     超时（asyncio.TimeoutError）与非瞬态 API 错误（4xx 等）不重试，直接上抛。
@@ -170,8 +169,9 @@ async def _chat_with_retry(
         except TransientLLMError as exc:
             if i >= LLM_TRANSIENT_MAX_RETRIES or ctx.cancel_event.is_set():
                 raise
-            log.warning("LLM 瞬态错误（第 %d/%d 次）: %s；%.1fs 后重试",
-                        i + 1, LLM_TRANSIENT_MAX_RETRIES + 1, exc, delay)
+            log.warning(
+                "LLM 瞬态错误（第 %d/%d 次）: %s；%.1fs 后重试", i + 1, LLM_TRANSIENT_MAX_RETRIES + 1, exc, delay
+            )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 10.0)
     raise AssertionError("unreachable")  # pragma: no cover
@@ -205,11 +205,7 @@ def _sanitize_for_prompt(obj: Any) -> Any:
     - 超长字符串截断（防单字段塞入整份资料）。
     """
     if isinstance(obj, dict):
-        return {
-            k: _sanitize_for_prompt(v)
-            for k, v in obj.items()
-            if not (k == "chunks" and "text" in obj)
-        }
+        return {k: _sanitize_for_prompt(v) for k, v in obj.items() if not (k == "chunks" and "text" in obj)}
     if isinstance(obj, list):
         return [_sanitize_for_prompt(v) for v in obj]
     if isinstance(obj, str) and len(obj) > _MAX_PROMPT_FIELD_CHARS:
@@ -218,10 +214,7 @@ def _sanitize_for_prompt(obj: Any) -> Any:
 
 
 def _repair_feedback(error: str | None) -> str:
-    return (
-        "\n\n[校验失败反馈] 上次输出未通过 schema 校验："
-        f"{error}\n请修正后仅返回符合 schema 的合法 JSON 对象。"
-    )
+    return f"\n\n[校验失败反馈] 上次输出未通过 schema 校验：{error}\n请修正后仅返回符合 schema 的合法 JSON 对象。"
 
 
 def _parse_and_validate(content: str, output_model: type[BaseModel] | None) -> tuple[dict[str, Any], str | None]:

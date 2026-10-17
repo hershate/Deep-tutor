@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -174,7 +175,7 @@ class ToolsNamespace:
         if tool.llm:
             db = SessionLocal()
             try:
-                record_metadata_usage(db, out.metadata, user_id)
+                await asyncio.to_thread(record_metadata_usage, db, out.metadata, user_id)  # iter 370：commit 出循环
             finally:
                 db.close()
 
@@ -406,10 +407,10 @@ class LlmNamespace:
         # 用量计量（err.md A6：与宿主端点同口径；record 内部容错，计量失败不阻断业务）
         from app.agent.cost import build_metadata, record_metadata_usage
 
-        metadata = build_metadata(resp.usage)
+        metadata = build_metadata(resp.usage, provider=getattr(provider, "kind", "anthropic"))  # iter 370
         db = SessionLocal()
         try:
-            record_metadata_usage(db, metadata, user_id)
+            await asyncio.to_thread(record_metadata_usage, db, metadata, user_id)  # iter 370：commit 出循环
         finally:
             db.close()
 
@@ -475,10 +476,10 @@ class LlmNamespace:
             raise ApiError("bad_gateway", f"LLM 流式调用失败: {exc}") from exc
         finally:
             if captured_usage is not None:
-                metadata = build_metadata(captured_usage)
+                metadata = build_metadata(captured_usage, provider=getattr(provider, "kind", "anthropic"))  # iter 370
                 db = SessionLocal()
                 try:
-                    record_metadata_usage(db, metadata, user_id)
+                    await asyncio.to_thread(record_metadata_usage, db, metadata, user_id)  # iter 370：commit 出循环
                 finally:
                     db.close()
 
@@ -527,7 +528,9 @@ class ProvidersNamespace:
         - label：人类可读协议名（GET /providers/kinds 展示用），可选。
         """
         if not callable(handler):
-            raise TypeError("handler 必须是 callable（async 或 sync，签名 (system, user, *, model, max_tokens) -> dict）")
+            raise TypeError(
+                "handler 必须是 callable（async 或 sync，签名 (system, user, *, model, max_tokens) -> dict）"
+            )
         norm = providers.normalize_kind(kind)
         if not providers.valid_kind_name(norm):
             raise ValueError(f"provider kind 非法: {kind!r}（需匹配 [a-z0-9][a-z0-9_-]{{0,31}}）")
@@ -917,18 +920,14 @@ class RoutesNamespace:
         # FastAPI 0.139 起 include_router 惰性挂载（路由表条目为 _IncludedRouter 包装，
         # 无 .path 属性）——回滚不能按路径前缀过滤，改为记录本次挂载追加的对象按身份摘除
         before = len(self._app.router.routes)
-        self._app.include_router(
-            router, prefix=full, dependencies=dependencies, tags=[f"plugin:{self._pid}"]
-        )
+        self._app.include_router(router, prefix=full, dependencies=dependencies, tags=[f"plugin:{self._pid}"])
         added = tuple(self._app.router.routes[before:])
         self._status.routes.append(full)
 
         def _unmount(added: tuple = added) -> None:
             # iter 247：register 中途失败的回滚——按对象身份摘除本次挂载加入的条目
-            #（不用 ==：_IncludedRouter 是 dataclass，字段相等会误删他人的同构挂载）
-            self._app.router.routes[:] = [
-                r for r in self._app.router.routes if all(r is not a for a in added)
-            ]
+            # （不用 ==：_IncludedRouter 是 dataclass，字段相等会误删他人的同构挂载）
+            self._app.router.routes[:] = [r for r in self._app.router.routes if all(r is not a for a in added)]
 
         self._rollbacks.append(_unmount)
         return full
@@ -1056,12 +1055,20 @@ class MemoryNamespace:
         limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主
         db = self._db()
         try:
-            rows = db.query(models.Thread).filter_by(user_id=user_id).order_by(models.Thread.updated_at.desc()).limit(limit).all()
+            rows = (
+                db.query(models.Thread)
+                .filter_by(user_id=user_id)
+                .order_by(models.Thread.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
             return [{"id": t.id, "title": t.title, "kind": t.kind, "session_id": t.session_id} for t in rows]
         finally:
             db.close()
 
-    def create_thread(self, user_id: int, *, title: str = "", kind: str = "chat", session_id: int | None = None) -> dict:
+    def create_thread(
+        self, user_id: int, *, title: str = "", kind: str = "chat", session_id: int | None = None
+    ) -> dict:
         from app.db import models
 
         db = self._db()
@@ -1109,8 +1116,16 @@ class MemoryNamespace:
             t = db.get(models.Thread, thread_id)
             if t is None or t.user_id != user_id:
                 return []
-            rows = db.query(models.Message).filter_by(thread_id=thread_id).order_by(models.Message.id.desc()).limit(limit).all()
-            return [{"id": m.id, "role": m.role.value, "content": m.content, "run_id": m.run_id} for m in reversed(rows)]
+            rows = (
+                db.query(models.Message)
+                .filter_by(thread_id=thread_id)
+                .order_by(models.Message.id.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {"id": m.id, "role": m.role.value, "content": m.content, "run_id": m.run_id} for m in reversed(rows)
+            ]
         finally:
             db.close()
 
@@ -1133,7 +1148,9 @@ class MemoryNamespace:
         finally:
             db.close()
 
-    def save_memory(self, user_id: int, content: str, *, kind: str = "note", scope: str = "user", thread_id: int | None = None) -> dict:
+    def save_memory(
+        self, user_id: int, content: str, *, kind: str = "note", scope: str = "user", thread_id: int | None = None
+    ) -> dict:
         from app.db import models
 
         # iter 363：scope 校验 + thread_id 一致性——此前 scope="user" 传 thread_id 静默丢、
@@ -1161,7 +1178,9 @@ class MemoryNamespace:
         finally:
             db.close()
 
-    def recall_memories(self, user_id: int, *, q: str = "", scope: str | None = None, thread_id: int | None = None, limit: int = 10) -> list[dict]:
+    def recall_memories(
+        self, user_id: int, *, q: str = "", scope: str | None = None, thread_id: int | None = None, limit: int = 10
+    ) -> list[dict]:
         from app.db import models
 
         limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主

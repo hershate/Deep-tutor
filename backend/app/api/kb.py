@@ -124,9 +124,7 @@ def _owned_doc_or_404(db: Session, document_id: int, user: User) -> models.KbDoc
 
 def _check_kb_quota(db: Session, user_id: int) -> None:
     """每用户知识库文档数 ≤200；超限 -> 429 quota_exceeded。"""
-    count = db.scalar(
-        select(func.count(models.KbDocument.id)).where(models.KbDocument.user_id == user_id)
-    ) or 0
+    count = db.scalar(select(func.count(models.KbDocument.id)).where(models.KbDocument.user_id == user_id)) or 0
     if count >= _MAX_KB_DOCS_PER_USER:
         raise ApiError(
             "quota_exceeded",
@@ -275,9 +273,7 @@ async def upload_document(
 
 
 @router.post("/documents/{document_id}/confirm")
-def confirm_document(
-    document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def confirm_document(document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """确认添加到知识库：pending（暂存待确认）-> confirmed（已添加，未解析）。幂等。"""
     doc = _owned_doc_or_404(db, document_id, user)
     if doc.status == "pending":
@@ -305,7 +301,7 @@ async def parse_document(
     （覆盖解析文本）。解析失败**行保留状态不变**（用户可换档重试），不删文档。
     事务外解析（err.md B22）；同文档并发解析 -> 409。
     """
-    mode = (body.mode if body else "full")
+    mode = body.mode if body else "full"
     # iter 367（批次五）：解析限流——与 materials parse 同口径（重 CPU/长耗时路径）
     if not limiter.check(f"kb_parse:{user.id}", _PARSE_RATE_PER_MIN):
         raise ApiError("rate_limited", f"解析限每分钟 {_PARSE_RATE_PER_MIN} 次，请稍后再试")
@@ -498,7 +494,9 @@ def list_documents(
                 stmt.where(models.KbDocument.title.contains(qs)).order_by(models.KbDocument.id.desc()).limit(limit)
             ).all()
         )
-        hits = content_search_docs(db, user.id, qs, limit - len(title_rows), {d.id for d in title_rows}, kind=kind_filter)
+        hits = content_search_docs(
+            db, user.id, qs, limit - len(title_rows), {d.id for d in title_rows}, kind=kind_filter
+        )
         rows = title_rows + [d for d, _ in hits]
     else:
         rows = db.scalars(stmt.order_by(models.KbDocument.id.desc()).limit(limit)).all()
@@ -506,9 +504,7 @@ def list_documents(
 
 
 @router.get("/documents/{document_id}")
-def get_document(
-    document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def get_document(document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     return _doc_out(_owned_doc_or_404(db, document_id, user))
 
 
@@ -534,9 +530,7 @@ def rename_document(
 
 
 @router.delete("/documents/{document_id}")
-def delete_document(
-    document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def delete_document(document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """删除文档：先删行提交，再尽力清磁盘文件（文件清理失败不阻塞，幂等）。
 
     err.md B22：文件名不再等于行 id（上传改随机 id 预命名）——按行内记录的路径删，
@@ -766,9 +760,7 @@ def generate_from_documents(
     docs_by_id = {
         d.id: d
         for d in db.scalars(
-            select(models.KbDocument).where(
-                models.KbDocument.user_id == user.id, models.KbDocument.id.in_(ordered_ids)
-            )
+            select(models.KbDocument).where(models.KbDocument.user_id == user.id, models.KbDocument.id.in_(ordered_ids))
         ).all()
     }
     for doc_id in ordered_ids:
@@ -939,9 +931,7 @@ def _assemble_chat_context(docs: list[models.KbDocument]) -> tuple[list[dict], l
 
 
 @router.post("/chat")
-async def chat_with_kb(
-    body: KbChatIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+async def chat_with_kb(body: KbChatIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """知识库问答：仅依据库内文档经 LLM 回答（kb_answer 工具），返回 answer + 引用映射。
 
     上下文：指定 document_ids（归属校验，缺失/他人 -> 404）或缺省最近 20 篇已解析文档；
@@ -988,9 +978,7 @@ async def chat_with_kb(
     try:
         provider = get_provider(user.id)
     except Exception:  # noqa: BLE001  无 key/无 active 档案
-        raise ApiError(
-            "no_llm_provider", "未配置 LLM 供应商，请先在设置页配置 API Key 或启用供应商档案"
-        ) from None
+        raise ApiError("no_llm_provider", "未配置 LLM 供应商，请先在设置页配置 API Key 或启用供应商档案") from None
 
     ctx = ExecContext(
         session_id=f"kb-{user.id}",
@@ -1013,13 +1001,18 @@ async def chat_with_kb(
 
     async with llm_task_slot():
         out = await run_tool("kb_answer", inp, ctx)
-    record_metadata_usage(db, out.metadata, user.id)  # err.md A6：计量（含失败路径的已耗 tokens）
+    # iter 370：计量/记录提交移 to_thread（busy_timeout 最长 10s，同步 commit 冻结事件循环）
+    await asyncio.to_thread(
+        record_metadata_usage, db, out.metadata, user.id
+    )  # err.md A6：计量（含失败路径的已耗 tokens）
 
     if out.status != "ok":
         code = out.errors[0].code if out.errors else "tool_exception"
         if code == "upstream_timeout":
             raise ApiError("upstream_timeout", "LLM 响应超时，请稍后重试")
-        log.warning("知识库问答失败: user=%s code=%s msg=%s", user.id, code, out.errors[0].message if out.errors else "")
+        log.warning(
+            "知识库问答失败: user=%s code=%s msg=%s", user.id, code, out.errors[0].message if out.errors else ""
+        )
         raise ApiError("bad_gateway", "LLM 调用失败，请稍后重试")
 
     spec = KbAnswerSpec.model_validate(out.data)
@@ -1036,10 +1029,15 @@ async def chat_with_kb(
         doc_ids=[d["doc_id"] for d in payload] if body.document_ids is not None else [],
         context_docs=len(payload),
     )
-    db.add(record)
-    db.commit()
+
+    def _persist_record() -> int:
+        db.add(record)
+        db.commit()
+        return record.id
+
+    record_id = await asyncio.to_thread(_persist_record)  # iter 370：commit 出循环
     return {
-        "record_id": record.id,
+        "record_id": record_id,
         "answer": spec.answer,
         "citations": citations,
         "omitted_titles": omitted,
@@ -1081,14 +1079,10 @@ def list_chat_records(
 
 
 @router.delete("/chats/{record_id}")
-def delete_chat_record(
-    record_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def delete_chat_record(record_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """删除单条问答记录；他人记录一律 404（防枚举，同文档删除）。"""
     record = db.scalar(
-        select(models.KbChatRecord).where(
-            models.KbChatRecord.id == record_id, models.KbChatRecord.user_id == user.id
-        )
+        select(models.KbChatRecord).where(models.KbChatRecord.id == record_id, models.KbChatRecord.user_id == user.id)
     )
     if record is None:
         raise ApiError("not_found", f"问答记录 {record_id} 不存在")

@@ -31,6 +31,9 @@ class ToolMetadata(BaseModel):
     cost: float = 0.0
     duration_ms: int = 0
     model: str = ""
+    # iter 370：用量归属协议（anthropic / 插件协议名）——此前全链恒 anthropic，
+    # 插件协议用户（OpenAI 兼容/Ollama 等）的 api_usage.provider 100% 失真
+    provider: str = "anthropic"
 
 
 class ToolInput(BaseModel):

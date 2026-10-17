@@ -37,7 +37,7 @@ def accumulate_usage(total: LLMUsage, add: LLMUsage) -> None:
 
 
 def build_metadata(
-    total: LLMUsage, model: str = "", model_pricing: dict | None = None
+    total: LLMUsage, model: str = "", model_pricing: dict | None = None, provider: str = "anthropic"
 ) -> ToolMetadata:
     """usage -> ToolMetadata（含 cost）。
 
@@ -54,6 +54,7 @@ def build_metadata(
         cache_write=total.cache_creation_input_tokens,
         cost=cost,
         model=used_model,
+        provider=provider,
     )
 
 
@@ -78,9 +79,7 @@ def load_model_pricing(db, user_id: int | None) -> dict:
         return {}
 
 
-def estimate_cost_from_metadata(
-    metadata: ToolMetadata, model_pricing: dict | None = None
-) -> float:
+def estimate_cost_from_metadata(metadata: ToolMetadata, model_pricing: dict | None = None) -> float:
     """iter 356：重算 metadata 的 cost（从 token 数重建 usage），按用户模型计费表。
 
     model_pricing 非空 -> 精确模型名匹配 -> 族默认；空 -> 族默认。
@@ -108,6 +107,9 @@ def record_metadata_usage(db, metadata: ToolMetadata, user_id: int | None = None
     """
     if not (metadata.tokens_in or metadata.tokens_out):
         return
+    # iter 370：metadata.provider（build_metadata 由 provider.kind 填充）优先于
+    # 遗留 provider 形参——旧调用方不传参也能拿到正确归属
+    provider = metadata.provider or provider or "anthropic"
     try:
         from app.db.models import ApiUsage
 

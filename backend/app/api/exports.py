@@ -186,8 +186,7 @@ async def _export_plugin(
                 raise TypeError("data 须为 bytes")
             if len(blob) > exporters.MAX_BYTES:
                 raise ValueError(
-                    f"data 大小 {len(blob) / 1024 / 1024:.0f}MB 超上限"
-                    f" {exporters.MAX_BYTES / 1024 / 1024:.0f}MB"
+                    f"data 大小 {len(blob) / 1024 / 1024:.0f}MB 超上限 {exporters.MAX_BYTES / 1024 / 1024:.0f}MB"
                 )
         resp: dict = {"file_url": "", "format": entry.format, "filename": Path(filename).name}
         if text is not None:
@@ -374,7 +373,7 @@ async def _export_slides(plan_id: int, session_id: int, content: dict, user_id: 
 
         db = SessionLocal()
         try:
-            record_metadata_usage(db, spec_out.metadata, user_id)
+            await asyncio.to_thread(record_metadata_usage, db, spec_out.metadata, user_id)  # iter 370：commit 出循环
         finally:
             db.close()
 

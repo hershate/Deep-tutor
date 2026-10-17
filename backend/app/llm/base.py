@@ -106,7 +106,13 @@ class AgenticStreamChunk:
 
 
 class LLMProvider:
-    """LLM Provider 抽象基类。"""
+    """LLM Provider 抽象基类。
+
+    kind：协议标识（"anthropic"=内置 / 插件协议名），经 build_metadata 流入
+    ToolMetadata.provider -> api_usage.provider（iter 370 计量归属闭合）。
+    """
+
+    kind: str = "anthropic"
 
     async def chat(
         self,

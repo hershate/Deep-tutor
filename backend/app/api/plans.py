@@ -114,18 +114,23 @@ def _check_generate_quota(db: Session, user: User, session_id: int) -> None:
 
     仅在「新起一次生成」时检查；续接/终态回放不受限。
     """
-    running = db.query(models.OrchestratorState).join(
-        models.Session, models.Session.id == models.OrchestratorState.session_id
-    ).filter(
-        models.Session.user_id == user.id,
-        models.OrchestratorState.session_id != session_id,
-        models.OrchestratorState.status == models.OrchestratorStatus.running,
-    ).count()
+    running = (
+        db.query(models.OrchestratorState)
+        .join(models.Session, models.Session.id == models.OrchestratorState.session_id)
+        .filter(
+            models.Session.user_id == user.id,
+            models.OrchestratorState.session_id != session_id,
+            models.OrchestratorState.status == models.OrchestratorStatus.running,
+        )
+        .count()
+    )
     if running >= _MAX_GENERATE_PER_USER:
         raise ApiError("conflict", "您已有另一个生成任务运行中（每用户并发 1）", status=409)
     active = sum(1 for s in _STREAMS.values() if s.terminal_id is None)
     if active >= _MAX_GENERATE_GLOBAL:
         raise ApiError("server_busy", "当前生成任务较多，请稍后重试（全局并发上限）", status=503)
+
+
 _RETENTION_SECONDS = 300.0  # 终态后保留时长（秒），供迟到重连；超时自动清理
 
 
@@ -274,9 +279,7 @@ def _clarify_questions_from_state(state: models.OrchestratorState) -> list:
     return list(intent.get("clarify_questions") or [])
 
 
-def _terminal_event(
-    db: Session, session_id: int, state: models.OrchestratorState
-) -> tuple[str, dict] | None:
+def _terminal_event(db: Session, session_id: int, state: models.OrchestratorState) -> tuple[str, dict] | None:
     """终态快路径（plan/10 §十二）：返回 (event, data) 或 None（需正常生成）。
 
     - done -> 查最新 plan 回放 done {plan_id}；无 plan（状态不一致）-> None 重新生成。
@@ -287,12 +290,7 @@ def _terminal_event(
     稳定性：页面刷新或断线重连时不触发重复生成（防重复计费/重复方案）。
     """
     if state.status == models.OrchestratorStatus.done:
-        plan = (
-            db.query(models.Plan)
-            .filter_by(session_id=session_id)
-            .order_by(models.Plan.created_at.desc())
-            .first()
-        )
+        plan = db.query(models.Plan).filter_by(session_id=session_id).order_by(models.Plan.created_at.desc()).first()
         if plan is not None:
             return "done", {"plan_id": plan.id}
         return None
@@ -442,9 +440,7 @@ def _start_full_generation(
                 intent_args[k] = intent_overrides[k]
     args_by_tool = {"understand_intent": intent_args}
     return StreamingResponse(
-        _run_start(
-            stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user_id
-        ),
+        _run_start(stream, session_id, args_by_tool, initial_upstream, _parse_last_event_id(request), user_id=user_id),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -509,7 +505,13 @@ def clarify(
         _check_generate_quota(db, user, session_id)
         check_daily_budget(db, user.id)  # err.md A6：日预算守卫
         stream = _occupy_generation(db, session_id, raw_text)
-    args_by_tool = {"understand_intent": {"raw_text": raw_text, "parsed": [{"text": "", "meta": p["meta"]} for p in parsed], "answers": body.answers}}
+    args_by_tool = {
+        "understand_intent": {
+            "raw_text": raw_text,
+            "parsed": [{"text": "", "meta": p["meta"]} for p in parsed],
+            "answers": body.answers,
+        }
+    }
     user_id = user.id  # iter 366：提取 primitive，db.close() 后流式不触 ORM
     db.close()  # 流式期间不用请求 db，早释放连接池槽
     return StreamingResponse(
@@ -537,9 +539,7 @@ def cancel_running_generation(session_id: int) -> bool:
 
 
 @router.post("/{session_id}/cancel")
-async def cancel(
-    session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+async def cancel(session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """取消运行中的生成（plan/10 §十一）。
 
     取消活动流的编排器任务 -> done-callback（`_finalize`）发 `error{code:cancelled}`
@@ -636,6 +636,7 @@ def _schedule_cleanup(session_id: int, stream: "_SessionStream | None" = None) -
         if stream is None:
             handle = loop.call_later(_RETENTION_SECONDS, _STREAMS.pop, session_id, None)
         else:
+
             def _pop_if_same(sid: int = session_id, target: "_SessionStream" = stream) -> None:
                 if _STREAMS.get(sid) is target:
                     _STREAMS.pop(sid, None)
@@ -660,11 +661,7 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         # （err.md A12：旧任务 finalize 会把结果写进无关新会话）-> 不写 DB，
         # 仅发终态 + 清理。trace_id 匹配才说明该会话仍属本次生成。
         state = db.get(models.OrchestratorState, session_id)
-        if (
-            db.get(models.Session, session_id) is None
-            or state is None
-            or state.trace_id != stream.trace_id
-        ):
+        if db.get(models.Session, session_id) is None or state is None or state.trace_id != stream.trace_id:
             if stream.terminal_id is None:
                 eid = stream.publish("error", {"code": "cancelled", "message": "会话已删除", "stage": ""})
                 stream.mark_terminal(eid)
@@ -675,8 +672,12 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
-                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
-                partial=partial, last_event_id=str(stream.seq),
+                db,
+                session_id,
+                models.OrchestratorStatus.error,
+                stream.trace_id,
+                partial=partial,
+                last_event_id=str(stream.seq),
                 last_error={"code": "cancelled", "message": "生成已取消"},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
@@ -691,8 +692,12 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
-                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
-                partial=partial, last_event_id=str(stream.seq),
+                db,
+                session_id,
+                models.OrchestratorStatus.error,
+                stream.trace_id,
+                partial=partial,
+                last_event_id=str(stream.seq),
                 last_error={"code": "internal_error", "message": "生成失败"},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
@@ -707,8 +712,13 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             eid = stream.publish("done", data)
             stream.mark_terminal(eid)
             _set_state(
-                db, session_id, models.OrchestratorStatus.done, stream.trace_id,
-                last_event_id=str(stream.seq), last_error={}, budget_used=cost,
+                db,
+                session_id,
+                models.OrchestratorStatus.done,
+                stream.trace_id,
+                last_event_id=str(stream.seq),
+                last_error={},
+                budget_used=cost,
             )
             # iter 184 B3：自动标题回填——空标题/「学习方案」/raw_text 截断前缀标题
             # （Home 传 rawText.slice(0,40)）-> intent.topic；手工标题不满足前缀条件不覆盖
@@ -752,8 +762,12 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
             }
             _set_state(
-                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
-                partial=partial, last_event_id=str(stream.seq),
+                db,
+                session_id,
+                models.OrchestratorStatus.error,
+                stream.trace_id,
+                partial=partial,
+                last_event_id=str(stream.seq),
                 last_error={"code": "generation_failed", "message": msg},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
@@ -769,7 +783,10 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         try:
             db.rollback()
             _set_state(
-                db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                db,
+                session_id,
+                models.OrchestratorStatus.error,
+                stream.trace_id,
                 partial={"raw_text": stream.raw_text, "outputs": {}},
                 last_event_id=str(stream.seq),
                 last_error={"code": "internal_error", "message": "生成失败"},
@@ -878,7 +895,10 @@ async def _run_start(
             try:  # err.md A22：try/finally 保证 Session 关闭
                 # iter 184 B4：无 provider 失败亦持久化原始输入（可重试）
                 _set_state(
-                    db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                    db,
+                    session_id,
+                    models.OrchestratorStatus.error,
+                    stream.trace_id,
                     partial={"raw_text": stream.raw_text, "outputs": {}},
                     last_event_id=str(stream.seq),
                     last_error={"code": "no_llm_provider", "message": str(exc)[:500]},
@@ -919,7 +939,10 @@ async def _run_start(
             err_db = SessionLocal()
             try:
                 _set_state(
-                    err_db, session_id, models.OrchestratorStatus.error, stream.trace_id,
+                    err_db,
+                    session_id,
+                    models.OrchestratorStatus.error,
+                    stream.trace_id,
                     partial={"raw_text": stream.raw_text, "outputs": {}},
                     last_event_id=str(stream.seq),
                     last_error={"code": "internal_error", "message": str(exc)[:500]},
@@ -932,6 +955,7 @@ async def _run_start(
             return
     finally:
         resolv_db.close()
+
     def _on_event(e: str, d: dict) -> int:
         # iter 185 B5：发布前更新流级实时进度（tool_start 记步骤，tool_end 累计费用）
         if e == "tool_start":
@@ -942,9 +966,7 @@ async def _run_start(
             stream.cost += float((d.get("metadata") or {}).get("cost") or 0.0)
         return stream.publish(e, d)
 
-    orch = Orchestrator(
-        registry, ctx, event_cb=_on_event, max_tool_calls=settings.max_tool_calls
-    )
+    orch = Orchestrator(registry, ctx, event_cb=_on_event, max_tool_calls=settings.max_tool_calls)
     stream.executed = orch.executed  # iter 243：台账共享（取消/异常时 _finalize 落账已执行部分）
     # iter 345：plan-gen 旁挂统一 Run 模型（默认关闭；overlay 行，不动 Orchestrator/SSE）
     if settings.agent_runs_enabled and user_id:
@@ -952,6 +974,7 @@ async def _run_start(
             stream.overlay_run_id = _create_plan_gen_overlay(session_id, user_id, stream.raw_text)
         except Exception:  # noqa: BLE001  overlay 失败不阻断生成
             log.warning("plan-gen overlay 创建失败 session=%s", session_id, exc_info=True)
+
     async def _orch_task():
         # 全局 LLM 信号量背压（iter 366）：超额生成任务排队等待，防跨用户并发触发
         # 模型供应商速率限制风暴与内存线性膨胀。任务级包裹（跑完即返回的协程）保证槽释放。
@@ -1082,7 +1105,7 @@ def _persist_tool_calls(
                 db.add(
                     models.ApiUsage(
                         user_id=usage_user_id,
-                        provider="anthropic",
+                        provider=m.provider or "anthropic",  # iter 370：按元数据归属（此前恒 anthropic 失真）
                         model=m.model,
                         tokens_in=m.tokens_in,
                         tokens_out=m.tokens_out,
@@ -1097,9 +1120,7 @@ def _persist_tool_calls(
             executed_names.add(out.tool)
             _add_call(out.tool, out)
         if outputs:
-            existing = {
-                r[0] for r in db.query(models.ToolCall.tool).filter_by(session_id=session_id).all()
-            }
+            existing = {r[0] for r in db.query(models.ToolCall.tool).filter_by(session_id=session_id).all()}
             for name, out in outputs.items():
                 if name in executed_names or name in existing:
                     continue
@@ -1115,9 +1136,7 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
     # version = 该会话现有最大版本 + 1（plan/10 §十三 plans.version += 1；首版 1）
     # iter 367：投影聚合取代全版本加载——旧行 all() 会把每版 ≤512KB 的 content
     # JSON 列整表载入内存只为求 max(version)，多版本会话 finalize 时内存/IO 双放大
-    max_version = (
-        db.query(func.max(models.Plan.version)).filter_by(session_id=session_id).scalar()
-    )
+    max_version = db.query(func.max(models.Plan.version)).filter_by(session_id=session_id).scalar()
     version = (max_version or 0) + 1
     plan = models.Plan(session_id=session_id, content=plan_dict, version=version)
     db.add(plan)
@@ -1256,8 +1275,10 @@ def list_plans(
     user: User = Depends(get_current_user),
 ) -> dict:
     # P4 隔离：仅列当前用户会话下的方案；指定 session_id 须为本用户会话（否则 404）
-    q_ = db.query(models.Plan).join(models.Session, models.Plan.session_id == models.Session.id).filter(
-        models.Session.user_id == user.id
+    q_ = (
+        db.query(models.Plan)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id)
     )
     if session_id is not None:
         get_owned_session(db, session_id, user)
@@ -1294,7 +1315,12 @@ def list_plans(
         items = q_.offset((page - 1) * limit).limit(limit).all()
     else:
         # id 倒序决胜：同秒创建的方案（批量/测试）默认排序确定性
-        items = q_.order_by(models.Plan.created_at.desc(), models.Plan.id.desc()).offset((page - 1) * limit).limit(limit).all()
+        items = (
+            q_.order_by(models.Plan.created_at.desc(), models.Plan.id.desc())
+            .offset((page - 1) * limit)
+            .limit(limit)
+            .all()
+        )
     # iter 263：方案平均掌握度（列表页进度条，免逐方案开详情判断滞后）——
     # progress 行惰性创建，无行节点按 0 计（knowledge.py 同款口径），LEFT JOIN 防只算已触节点虚高
     plan_ids = [p.id for p in items]
@@ -1320,8 +1346,11 @@ def list_plans(
     return {
         "items": [
             PlanSummary(
-                id=p.id, session_id=p.session_id, version=p.version,
-                created_at=str(p.created_at), topic=_plan_topic(p),
+                id=p.id,
+                session_id=p.session_id,
+                version=p.version,
+                created_at=str(p.created_at),
+                topic=_plan_topic(p),
                 avg_mastery=mastery_map.get(p.id),
             ).model_dump()
             for p in items
@@ -1379,9 +1408,7 @@ def today_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 
 @router.get("/{plan_id}")
-def get_plan(
-    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def get_plan(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     return {"id": plan.id, "session_id": plan.session_id, "version": plan.version, "plan": _load_plan_content(plan)}
 
@@ -1478,9 +1505,7 @@ def _all_unit_plans(content: dict) -> list[UnitPlan]:
             stage=s,
             stage_index=s.get("index"),
             nodes=stage_nodes.get(s.get("index"), []),
-            node_sids=[
-                str(n.get("id") or "") for n in stage_nodes.get(s.get("index"), []) if n.get("id")
-            ],
+            node_sids=[str(n.get("id") or "") for n in stage_nodes.get(s.get("index"), []) if n.get("id")],
         )
         for s in stages
     ][:_MAX_MATERIAL_UNITS]
@@ -1524,9 +1549,7 @@ def _unit_plan_for_existing(content: dict, unit: models.StudyUnit) -> UnitPlan:
     )
 
 
-def _delete_study_units(
-    db: Session, plan_id: int, stage_indexes: set[int] | None = None
-) -> list[str]:
+def _delete_study_units(db: Session, plan_id: int, stage_indexes: set[int] | None = None) -> list[str]:
     """删除旧单元（ORM 级联 study_materials），返回旧内容文件路径（提交与文件清理由调用方负责）。
 
     stage_indexes 非空时仅删该 scope 内单元（plan/02 §13 局部生成不清整方案）。
@@ -1787,9 +1810,7 @@ async def _materials_sse(
                 resources = await search_unit_resources(" ".join(query_parts), ctx, limit=_unit_resource_limit(up))
                 # iter 360（issue 3）：剥离单元正文中未在已验证资源池内的引用链接（防 LLM 臆造引文）
                 if unit is not None:
-                    unit.content_md = sanitize_citations(
-                        unit.content_md, collect_material_urls(content, resources)
-                    )
+                    unit.content_md = sanitize_citations(unit.content_md, collect_material_urls(content, resources))
                 return unit, resources, degraded, metadata
 
         pending = [asyncio.ensure_future(_gen_one(i, up)) for i, up in enumerate(units)]
@@ -2060,7 +2081,9 @@ async def generate_materials(
     db.rollback()
     async with llm_task_slot():
         spec_out = await run_tool("generate_study_materials", inp, ctx)
-    record_metadata_usage(db, spec_out.metadata, user.id)  # err.md A6：计量
+    await asyncio.to_thread(
+        record_metadata_usage, db, spec_out.metadata, user.id
+    )  # err.md A6：计量（iter 370：commit 出循环）
     # ok 用 LLM 规约；repaired/error 降级 default_materials_from_plan(plan)
     if spec_out.status == "ok":
         spec = StudyMaterialsSpec.model_validate(spec_out.data)
@@ -2121,12 +2144,7 @@ async def export_materials(
         raise ApiError("rate_limited", f"导出限每分钟 {_EXPORTS_RATE_PER_MIN} 次，请稍后再试")
 
     plan, content = _plan_or_404(db, plan_id, user)
-    units = (
-        db.query(models.StudyUnit)
-        .filter_by(plan_id=plan.id)
-        .order_by(models.StudyUnit.order)
-        .all()
-    )
+    units = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
     if not units:
         raise ApiError("not_found", "该方案尚无自学材料，请先生成", status=404)
 
@@ -2159,9 +2177,7 @@ async def export_materials(
         )
     try:
         # 病态内容下 weasyprint 可挂起——wait_for 释放请求（线程不可杀，但有界）；超时降级 md
-        pdf = await asyncio.wait_for(
-            asyncio.to_thread(build_pdf, {"intent": {"topic": topic}}, md), timeout=120.0
-        )
+        pdf = await asyncio.wait_for(asyncio.to_thread(build_pdf, {"intent": {"topic": topic}}, md), timeout=120.0)
     except TimeoutError:
         return _materials_file_response(
             md.encode("utf-8"),
@@ -2171,9 +2187,7 @@ async def export_materials(
             warning="PDF 渲染超时（120s），已降级为 Markdown",
         )
     log.info("材料 PDF 导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(pdf) / 1024)
-    return _materials_file_response(
-        pdf, "application/pdf", f"{safe_topic}-自学材料.pdf", f"materials-{plan_id}.pdf"
-    )
+    return _materials_file_response(pdf, "application/pdf", f"{safe_topic}-自学材料.pdf", f"materials-{plan_id}.pdf")
 
 
 def _content_disposition(filename_utf8: str, filename_ascii: str) -> str:
@@ -2320,10 +2334,14 @@ async def _materials_html_zip_response(
     # LLM 用量计入 api_usage（日预算统计口径完整）
     if any(m.tokens_in or m.tokens_out for m in all_metadatas):
         udb = SessionLocal()
-        try:
+
+        def _record_all():  # iter 370：整批单线程内逐条记（N 单元 N 次 commit 不出循环）
             for m in all_metadatas:
                 if m.tokens_in or m.tokens_out:
                     record_metadata_usage(udb, m, user_id)
+
+        try:
+            await asyncio.to_thread(_record_all)
         finally:
             udb.close()
 
@@ -2357,17 +2375,10 @@ def _safe_download_name(name: str) -> str:
 
 
 @router.get("/{plan_id}/materials")
-def list_materials(
-    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def list_materials(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """自学材料单元列表（plan/03 §一 GET /plans/{id}/materials）：元数据 + index 文档，不含单元内容。"""
     plan, _content = _plan_or_404(db, plan_id, user)
-    units = (
-        db.query(models.StudyUnit)
-        .filter_by(plan_id=plan.id)
-        .order_by(models.StudyUnit.order)
-        .all()
-    )
+    units = db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
     return {
         "units": [
             {
@@ -2427,9 +2438,7 @@ def search_materials(
         if not u.materials:
             continue
         try:
-            text = read_unit_content(u.materials[0].content_md_path)[
-                : _MATERIALS_SCAN_MAX_CHARS
-            ]  # 自动串联拆分子文件
+            text = read_unit_content(u.materials[0].content_md_path)[:_MATERIALS_SCAN_MAX_CHARS]  # 自动串联拆分子文件
         except OSError:  # 内容文件缺失：跳过不报错（与 get_study_unit_content 的 404 不同——检索宜宽）
             continue
         snippet = _hit_snippet(text, qs)
@@ -2519,9 +2528,7 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
     )
     # quiz 题源联动（iter 49）：已持久化自学单元「检查理解」自测题 -> 题源（无单元/无小节 -> 空）
     unit_contents: list[tuple[str, str]] = []
-    for u in (
-        db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all()
-    ):
+    for u in db.query(models.StudyUnit).filter_by(plan_id=plan.id).order_by(models.StudyUnit.order).all():
         if not u.materials:
             continue
         try:
@@ -2540,8 +2547,16 @@ async def _generate_quiz_spec(db: Session, plan: models.Plan, content: dict, use
             **({"unit_check_questions": check_questions} if check_questions else {}),
         },
     )
+    # iter 370：LLM 调用（30-90s）前释放读快照——上面 StudyUnit 查询在端点 rollback
+    # 之后又打开了事务，WAL 下持读快照跨 await，其它写者提交后本会话计量落账/
+    # _persist_quizzes 提交将撞 BUSY_SNAPSHOT（busy_timeout 对快照冲突无效）：已付费
+    # 的 quiz 结果整体 500 丢失，用户重试再烧一遍 token（同族端点 kb/materials 的
+    # 「primitive 提取 -> rollback -> LLM」既有口径，quiz 路径此前漏了）
+    db.rollback()
     spec_out = await run_tool("generate_quiz", inp, ctx)
-    record_metadata_usage(db, spec_out.metadata, user_id)  # err.md A6：计量
+    # iter 370：计量移 to_thread（内部含 load_model_pricing 查询+commit，写争用时
+    # busy_timeout 最长 10s——同步执行会冻结整个事件循环）
+    await asyncio.to_thread(record_metadata_usage, db, spec_out.metadata, user_id)  # err.md A6：计量
     if spec_out.status == "ok":
         spec = QuizSpec.model_validate(spec_out.data)
     else:
@@ -2647,9 +2662,11 @@ async def generate_quiz_endpoint(
     # iter 368：refresh 同样等待——refresh 的 delete+insert 与后台 _persist_quizzes
     # 交错同样写锁竞争 + 双份 LLM 成本（等待后 refresh 仍会重新生成，语义不变）
     if plan.id in _BG_QUIZ_INFLIGHT:
+        pid = plan.id  # rollback 后 ORM 属性过期，循环内再访问会重开读事务——先取 primitive
+        db.rollback()  # iter 370：等待循环最长 ~180s，先释放读快照（plan/content 已取 primitive）
         for _ in range(90):  # 最多等 ~180s
             await asyncio.sleep(2)
-            if plan.id not in _BG_QUIZ_INFLIGHT:
+            if pid not in _BG_QUIZ_INFLIGHT:
                 break
         db.expire_all()
         if not refresh:
@@ -2670,9 +2687,7 @@ async def generate_quiz_endpoint(
 
 
 @router.get("/{plan_id}/quiz/wrong")
-def wrong_quizzes(
-    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def wrong_quizzes(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """错题重练（iter 114）：筛出最近一次作答判错的题原题重练，零 LLM 成本。
 
     判定：每题取最新一条 QuizAttempt（created_at 倒序，同刻 id 大者优先），
@@ -2703,11 +2718,7 @@ def _wrong_quiz_rows(db: Session, plan: models.Plan) -> list[models.Quiz]:
     latest_by_quiz: dict[int, models.QuizAttempt] = {}
     for a in attempts:
         latest_by_quiz.setdefault(a.quiz_id, a)
-    return [
-        q
-        for q in quizzes
-        if (la := latest_by_quiz.get(q.id)) is not None and la.correct is False
-    ]
+    return [q for q in quizzes if (la := latest_by_quiz.get(q.id)) is not None and la.correct is False]
 
 
 def _wrong_quiz_title(content: dict) -> str:
@@ -2715,25 +2726,19 @@ def _wrong_quiz_title(content: dict) -> str:
 
 
 @router.get("/{plan_id}/quiz/stats")
-def quiz_stats(
-    plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def quiz_stats(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """测验历史统计（iter 152）：题数 / 作答次数 / 判分正确率 + 当前错题数。
 
     accuracy 口径：correct IS NOT NULL 的作答中 correct IS True 占比（自评题 None 不计）；
     无任何判分作答 -> None（前端不显示）。wrong_count 与 GET quiz/wrong 同判定。
     """
     plan, _content = _plan_or_404(db, plan_id, user)
-    quiz_count = (
-        db.query(func.count(models.Quiz.id)).filter_by(plan_id=plan.id).scalar() or 0
-    )
+    quiz_count = db.query(func.count(models.Quiz.id)).filter_by(plan_id=plan.id).scalar() or 0
     attempts, graded, correct = (
         db.query(
             func.count(models.QuizAttempt.id),
             func.count(models.QuizAttempt.correct),  # count 跳过 NULL
-            func.coalesce(
-                func.sum(case((models.QuizAttempt.correct.is_(True), 1), else_=0)), 0
-            ),
+            func.coalesce(func.sum(case((models.QuizAttempt.correct.is_(True), 1), else_=0)), 0),
         )
         .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
         .filter(models.Quiz.plan_id == plan.id)

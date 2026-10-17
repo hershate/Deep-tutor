@@ -115,9 +115,7 @@ def _hash_source(data: bytes | str) -> str:
 
 def _check_material_quota(db: Session, session_id: int) -> None:
     """每会话资料数 ≤20（plan/09 §二十）；超限 -> 429 quota_exceeded。"""
-    count = db.scalar(
-        select(func.count(models.Material.id)).where(models.Material.session_id == session_id)
-    ) or 0
+    count = db.scalar(select(func.count(models.Material.id)).where(models.Material.session_id == session_id)) or 0
     if count >= _MAX_MATERIALS_PER_SESSION:
         raise ApiError(
             "quota_exceeded",
@@ -185,7 +183,9 @@ async def _store(
     args = {"kind": kind, "source": source}
     if text_override is not None:
         args["source"] = text_override
-    out = await parse_material(ToolInput(tool="parse_material", session_id=str(session_id), args=args), _ctx(session_id))
+    out = await parse_material(
+        ToolInput(tool="parse_material", session_id=str(session_id), args=args), _ctx(session_id)
+    )
     if out.status == "error" and out.errors:
         raise ApiError(out.errors[0].code, out.errors[0].message)
     # 解析后重查：并发同哈希插入 -> 复用其行（本请求的解析结果弃用，防重复行）
@@ -315,8 +315,13 @@ async def upload_material(
 
     # 建行 pending 即提交拿 id（R20 用 id 命名原件；写事务极短，err.md B22）
     material = models.Material(
-        session_id=session_id, kind="file", source=filename, parsed_chars=0, meta={},
-        content_hash=content_hash, status="pending",
+        session_id=session_id,
+        kind="file",
+        source=filename,
+        parsed_chars=0,
+        meta={},
+        content_hash=content_hash,
+        status="pending",
     )
     db.add(material)
     db.commit()
@@ -466,9 +471,7 @@ def _owned_unit_or_404(db: Session, unit_id: int, user: User) -> models.StudyUni
 
 
 @router.get("/{unit_id}")
-def get_study_unit_content(
-    unit_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+def get_study_unit_content(unit_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """自学材料单元内容（plan/03 §一 GET /materials/{unit_id}，P2 iter 43）。
 
     偏离记录：返回 content_md（前端 react-markdown 渲染）替代 plan 的 content_html；
@@ -589,18 +592,20 @@ async def export_unit_slides(
         from app.agent.cost import record_metadata_usage
 
         udb = SessionLocal()
-        try:
+
+        def _record_all():  # iter 370：整批单线程内逐条记（每次 commit 含 fsync，N 单元 N 次提交不出循环）
             for m in metadatas:
                 if m.tokens_in or m.tokens_out:
                     record_metadata_usage(udb, m, user.id)
+
+        try:
+            await asyncio.to_thread(_record_all)
         finally:
             udb.close()
 
     html = render_slides_html(spec, base_template)
     safe_title = _safe_unit_filename(unit_title)
-    headers = {
-        "Content-Disposition": _unit_content_disposition(f"{safe_title}.html", f"unit-{unit_id}.html")
-    }
+    headers = {"Content-Disposition": _unit_content_disposition(f"{safe_title}.html", f"unit-{unit_id}.html")}
     if degraded and provider is not None:
         # 仅 LLM 两阶段皆败才告警（无 key 走确定性是预期路径，不算降级）
         from urllib.parse import quote
@@ -612,6 +617,8 @@ async def export_unit_slides(
 
 class UnitDoneIn(BaseModel):
     done: bool
+
+
 @router.post("/{unit_id}/done")
 def mark_unit_done(
     unit_id: int,
@@ -641,9 +648,7 @@ class ClipIn(BaseModel):
 
 
 @router.post("/clip")
-async def clip_material(
-    body: ClipIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict:
+async def clip_material(body: ClipIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """剪藏（浏览器插件用）：创建会话（归属当前用户）+ 解析入资料，返回生成页路径。
 
     - text：剪藏选中文本；url：剪藏页面链接（复用 /materials/url 的 SSRF 防护与解析）。
