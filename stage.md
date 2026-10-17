@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R19（2026-10-17，Python v1 深度审计第十六轮「iter 376」，✅ 完成）**：同一 /goal 第十六遍——**前端供应链审计（R10 pip-audit 的对称面）+ 全局错误恢复核查**。20 项漏洞分派，运行时可达项全部修复（20→11，余项均破坏性升级留档）；1 commit：
+
+- **审计口径**：本机 registry 为 npmmirror（audit 端点未实现）——`npm audit --registry=npmjs.org` 直连官方；本地 npm 缓存有一条损坏内容项（rehype-katex tarball ENOENT），换干净临时缓存目录绕过。
+- **修复（运行时可达，随产物发给浏览器）**：①**katex 原型污染绕过 trust 限制（GHSA-238p-pmpm-9mq7）**——用户 markdown 数学公式直达的运行时代码。直接依赖升 ^0.18.10 后，rehype-katex@7/micromark-extension-math 仍各嵌一份**漏洞版 0.16.47**（peer ^0.16 落嵌套，且 rehype-katex 实际加载的是自己那份）——加 `overrides: {"katex": "^0.18.10"}` 强制全树去重（npm 规则：直接依赖 spec 须与 override 一致，同步升）。烟雾实证：renderToString 正常产出、`\href{javascript:}` 在 trust 默认关下不产出 `<a>`（渲染链本就 sanitize→katex 双保险）；②react-router-dom 6.26→6.30.6、postcss→8.5.30、browserslist/nanoid/baseline-browser-mapping/source-map-js（非破坏性 audit fix 一并）。
+- **留档豁免（11 项，全部需破坏性升级，可达性已核）**：tailwind≤3.4.19 链（braces/micromatch/fast-glob/chokidar/postcss-selector-parser/nested，6 high+1 mod）——**纯构建期**，攻击需向构建管线喂恶意 glob/选择器（输入全在仓库内），v2 前端重做时升 tailwind 4；vite≤6.4.2/esbuild（mod，dev server 请求窃取）——**仅 dev server**，vite 配置无 host 覆盖（默认仅 localhost），生产走 FastAPI 静态托管；react-router 6（2 mod：backslash 开放重绕 + SSR 反序列化）——SSR 不适用（纯 SPA）；开放重绕**本应用不可达**：全部 `to` 为静态串、唯一动态 `navigate(from)` 的 from 来自 `location.state`（应用内编程导航才可设置，URL 无法注入）且值域为站内 path+search、handleUnauthorized 走静态 '/login'——v7.18.4 迁移留 v2 前端。
+- **全局错误恢复核查**：Layout 页面级 ErrorBoundary（iter 273）已在——顶栏/侧栏不随页面崩、resetKey=路由路径切换自愈、fallback 带重载/回首页；插件 overlay/小组件各有隔离边界。无白屏缺口，零改动。
+- **门禁**：前端 tsc+vite build 绿（3.56s）；后端本轮零改动（工作树仅 frontend/package*，R18 的 1415 通过仍有效）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R18（2026-10-17，Python v1 深度审计第十五轮「iter 375」，✅ 完成）**：同一 /goal 第十五遍——**全路由授权矩阵审计（新证据类别）**。R4-R17 从未系统核对过「158 条路由每条的认证级别与所有权 scope」。2 个真实修复、4 个新回归、1 份可复跑矩阵脚本：
 
 - **矩阵提取 `tests/auth_matrix.py`**：lifespan 内递归展开路由（R17 工具复用），按 dependant 依赖匹配 require_admin/require_auth/get_current_user 分级，handler 源码静态所有权特征（user.id/get_owned_…/resolve_owner）辅助。分布：**PUBLIC 6 / USER 139 / ADMIN 13**。

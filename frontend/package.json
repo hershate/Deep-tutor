@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
-    "katex": "^0.18.1",
+    "katex": "^0.18.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
@@ -35,5 +35,8 @@
   },
   "allowScripts": {
     "esbuild@0.21.5": true
+  },
+  "overrides": {
+    "katex": "^0.18.10"
   }
 }
