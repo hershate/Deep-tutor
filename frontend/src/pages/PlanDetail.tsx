@@ -12,7 +12,7 @@ import { SkeletonCards } from '../components/Skeleton'
 import Timeline, { type ScheduleDay } from '../components/Timeline'
 import { toast } from '../components/Toast'
 import WidgetSlot from '../components/WidgetSlot'
-import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, listPlans, regenerateStream, revokeShare, type PlanSummary, type QuizStats, type ShareStatus } from '../lib/api'
+import { ApiError, createShare, exportPlan, getPlan, getQuizStats, getShare, listPlans, regenerateStream, revokeShare, shareExpiryText, type PlanSummary, type QuizStats, type ShareStatus } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 import { onTablistKeyDown } from '../lib/tabs'
 
@@ -260,13 +260,14 @@ export default function PlanDetail() {
     try {
       const r = await createShare(Number(planId))
       const url = `${window.location.origin}${r.path}`
-      setShare({ shared: true, token: r.token, path: r.path })
+      setShare({ shared: true, token: r.token, path: r.path, created_at: r.created_at, expires_at: r.expires_at })
+      const expiry = shareExpiryText(r.expires_at)
       try {
         await navigator.clipboard.writeText(url)
-        setShareMsg('链接已复制')
+        setShareMsg(`链接已复制，${expiry}`)
         toast.success('分享链接已复制到剪贴板')
       } catch {
-        setShareMsg(url) // 剪贴板不可用（非安全上下文）则直接展示
+        setShareMsg(`${url}（${expiry}）`) // 剪贴板不可用（非安全上下文）则直接展示
         toast.info('剪贴板不可用，请手动复制链接')
       }
     } catch (e) {
@@ -578,6 +579,15 @@ export default function PlanDetail() {
       )}
       {exportUrl && <div className="text-xs text-slate-500 dark:text-slate-400">已导出: {exportUrl}</div>}
       {shareMsg && <div className="break-all text-xs text-emerald-600 dark:text-emerald-400">{shareMsg}</div>}
+      {/* iter 373：分享有效期常驻提示——打开已分享方案即可见（此前仅在复制时
+          顺带出现，属主无从得知链接会何时失效） */}
+      {share?.shared && (
+        <div className="text-xs text-slate-500 dark:text-slate-400">分享{shareExpiryText(share.expires_at)}</div>
+      )}
+      {/* 链接过期：告知旧链已失效（此前静默变回「未分享」，属主不知链接为何打不开） */}
+      {share?.expired && !share.shared && (
+        <div className="text-xs text-amber-600 dark:text-amber-400">上次的分享链接已过期失效，再次分享将生成新链接</div>
+      )}
 
       {/* 插件小组件插槽（API.md §二 plan.detail，v1.3.0）：方案级插件面板；
           插件组件内可经 React Router useParams() 取 planId 做方案级数据展示/操作 */}

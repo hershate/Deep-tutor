@@ -426,11 +426,11 @@ function SharesCard() {
     <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">分享链接</h3>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        当前活跃的只读分享——知道链接的任何人无需登录即可查看对应方案；不再需要的链接请及时撤销。
+        知道链接的任何人无需登录即可查看对应方案；链接默认 90 天有效，到期自动失效（标注「已过期」的已不可访问）。不再需要的链接请及时撤销。
       </p>
       <ul className="mt-3 divide-y dark:divide-slate-700">
         {shares.map((s) => (
-          <li key={s.plan_id} className="flex flex-wrap items-center gap-2 py-2">
+          <li key={s.plan_id} className={`flex flex-wrap items-center gap-2 py-2 ${s.expired ? 'opacity-60' : ''}`}>
             <Link
               to={`/plans/${s.plan_id}`}
               className="min-w-0 flex-1 truncate text-sm font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
@@ -441,12 +441,28 @@ function SharesCard() {
             <span className="text-xs tabular-nums text-slate-400" title="创建时间">
               {s.created_at.slice(0, 10)}
             </span>
-            <button
-              onClick={() => copy(s.path)}
-              className="rounded px-2 py-1 text-xs text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
-            >
-              复制链接
-            </button>
+            {s.expired ? (
+              // iter 373：过期链接公开 404——标注状态且不提供复制（复制死链是陷阱）；
+              // 保留撤销用于清理行。服务端下发 expired，前端不做本地时钟判定
+              <span
+                className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+                title="链接已过期，任何人不可再访问"
+              >
+                已过期
+              </span>
+            ) : (
+              <span className="text-xs tabular-nums text-slate-400" title="失效时间">
+                {s.expires_at ? `至 ${s.expires_at.slice(0, 10)}` : '永久有效'}
+              </span>
+            )}
+            {!s.expired && (
+              <button
+                onClick={() => copy(s.path)}
+                className="rounded px-2 py-1 text-xs text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
+              >
+                复制链接
+              </button>
+            )}
             <button
               onClick={() => revoke(s)}
               disabled={busyId !== null}

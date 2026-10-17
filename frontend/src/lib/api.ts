@@ -1209,6 +1209,10 @@ export interface ShareStatus {
   token?: string
   path?: string
   created_at?: string
+  /** iter 372 起链接默认 90 天有效（SHARE_DEFAULT_EXPIRE_DAYS，0=永久→null） */
+  expires_at?: string | null
+  /** 链接已过期（shared=false 时区分「从未分享」与「已过期」） */
+  expired?: boolean
 }
 export interface SharedPlanData {
   title: string
@@ -1227,10 +1231,20 @@ export interface SharedPlanData {
   }
 }
 export const createShare = (planId: number) =>
-  apiFetch<{ token: string; path: string; created_at: string }>(`/plans/${planId}/share`, { method: 'POST' })
+  apiFetch<{ token: string; path: string; created_at: string; expires_at: string | null }>(`/plans/${planId}/share`, {
+    method: 'POST',
+  })
 export const revokeShare = (planId: number) => apiFetch<void>(`/plans/${planId}/share`, { method: 'DELETE' })
 export const getShare = (planId: number) => apiFetch<ShareStatus>(`/plans/${planId}/share`)
 export const getShared = (token: string) => apiFetch<SharedPlanData>(`/shared/${token}`)
+
+/** 分享有效期展示文案。expires_at 为服务端 naive UTC ISO 串——与既有
+ *  created_at.slice(0,10) 展示口径一致，直接截串不做 Date 换算（本地时区
+ *  往返在午夜边界会漂移一天）。null=永久。 */
+export function shareExpiryText(expiresAt: string | null | undefined): string {
+  if (!expiresAt) return '永久有效'
+  return `有效期至 ${expiresAt.slice(0, 10)}`
+}
 
 // 全局分享管理（iter 258）：当前用户全部活跃分享链接（设置页安全审计面——遗忘的公开链接可见可撤销）
 export interface ShareItem {
@@ -1239,6 +1253,9 @@ export interface ShareItem {
   token: string
   path: string
   created_at: string
+  expires_at: string | null
+  /** 过期链接不再可公开访问（行仍在，可撤销清理） */
+  expired: boolean
 }
 export const listShares = () => apiFetch<{ shares: ShareItem[] }>('/shares')
 
