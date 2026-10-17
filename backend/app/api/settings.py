@@ -197,6 +197,10 @@ class ModelPricingIn(BaseModel):
     """模型计费表（CNY / 1M tokens）。pricing 为空 -> 清空回退默认。"""
 
     pricing: dict = Field(default_factory=dict)
+    # iter 379（R22）：可选装载基线（GET 返回的 updated_at 原样回传），不匹配 -> 409——
+    # 计费表是整表读改写（设置页载入->编辑->全量 PUT），双标签后保存者静默吞掉先保存者
+    # 的条目；不传保持旧行为（插件/外部调用方兼容）。秒粒度限制同笔记先例。
+    expected_updated_at: str | None = Field(default=None, max_length=64)
 
 
 @router.get("/pricing")
@@ -208,11 +212,18 @@ def get_pricing_settings(
     单位 CNY（人民币）/ 1M tokens；用户表精确匹配优先，未命中回退族默认。
     计费时按此表 resolve_pricing 重算 api_usage.cost（用量页 / 日预算即用户实际单价）。
     """
-    from app.agent.cost import load_model_pricing
+    from app.agent.cost import MODEL_PRICING_PREF_KEY, load_model_pricing
 
+    row = (
+        db.query(models.UserPref)
+        .filter_by(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
+        .one_or_none()
+    )
     return {
         "defaults": default_pricing_table(),
         "table": load_model_pricing(db, user.id),
+        # iter 379（R22）：装载基线——全表覆盖写面的乐观并发依据（同笔记 expected_updated_at 先例）
+        "updated_at": row.updated_at.isoformat() if (row is not None and row.updated_at) else None,
         "note": "单价为 CNY（人民币）/1M tokens。默认值据主流国产模型公开计价，可能随官方"
         "调整过时；建议按你的实际账单编辑。核对链接见后端 app/llm/pricing.py 模块说明。",
     }
@@ -243,17 +254,27 @@ def update_pricing_settings(
         .filter_by(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
         .one_or_none()
     )
+    # iter 379（R22）：装载基线不匹配（含他窗口已清空删行 -> cur=None）-> 409 拒绝盲覆盖
+    if body.expected_updated_at is not None:
+        cur = row.updated_at.isoformat() if (row is not None and row.updated_at) else None
+        if cur != body.expected_updated_at:
+            raise ApiError("conflict", "计费表已在其他窗口被修改，请刷新后重试", status=409)
     if not cleaned:
         if row is not None:
             db.delete(row)
             db.commit()
+        new_ts = None
     else:
         if row is None:
             row = models.UserPref(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
             db.add(row)
         row.value = json.dumps(cleaned, ensure_ascii=False)
         db.commit()
+        db.refresh(row)
+        new_ts = row.updated_at.isoformat() if row.updated_at else None
     return {
         "defaults": default_pricing_table(),
         "table": load_model_pricing(db, user.id),
+        # iter 379（R22）：保存后新基线（清空删行 -> None），前端随回读表一起采纳
+        "updated_at": new_ts,
     }

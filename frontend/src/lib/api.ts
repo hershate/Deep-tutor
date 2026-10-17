@@ -801,12 +801,14 @@ export interface PricingTable {
   defaults: Record<string, ModelPricingEntry>
   table: Record<string, ModelPricingEntry>
   note?: string
+  /** 装载基线（iter 379 R22）：全表覆盖写的乐观并发依据；无已存表 -> null */
+  updated_at?: string | null
 }
 export const getPricing = () => apiFetch<PricingTable>('/settings/pricing')
-export const updatePricing = (pricing: Record<string, Partial<ModelPricingEntry>>) =>
+export const updatePricing = (pricing: Record<string, Partial<ModelPricingEntry>>, expectedUpdatedAt?: string | null) =>
   apiFetch<PricingTable>('/settings/pricing', {
     method: 'PUT',
-    body: JSON.stringify({ pricing }),
+    body: JSON.stringify({ pricing, expected_updated_at: expectedUpdatedAt ?? null }),
   })
 
 // --- API Key 凭证档案（iter 223：设置页可视化管理全部 Key，多档案卡片切换）---

@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R22（2026-10-17，Python v1 深度审计第十九轮「iter 379」，✅ 完成）**：同一 /goal 第十九遍——**全量覆盖型写面并发语义收尾**（R21 笔记缺口的同类别残留面）。9 处 PUT/PATCH 逐一读实现分派 + 1 处真实缺口修复，3 个新回归、1 commit：
+
+- **写面矩阵（除 R21 已修两处笔记外，余 7 处逐一定性）**：①PATCH /threads/{id}（title/model 标量）②PUT /credentials/{id}（None=保留的标量合并 + 重名 409）③PUT /providers/{id}（同上）④PUT /kb/documents/{id}（仅 title 单字段重命名）⑤PUT /settings/prefs（exclude_unset 键级合并——改 A 不动 B，双标签改不同键互不吞）⑥PUT /users/{id}（管理员面标量）——均字段级/单字段/管理面，**无跨字段合并丢失面，clean**；⑦**PUT /settings/pricing——整表读改写（设置页载入→编辑→全量 PUT，UserPref 单行 JSON ≤200 模型×4 单价），双标签后保存者静默吞掉先保存者条目＝R21 同类真实缺口**。
+- **修复（乐观并发，R21 先例原样）**：ModelPricingIn 加可选 `expected_updated_at`，不匹配（含他窗口清空删行 -> cur=None）→ 409 `conflict`「计费表已在其他窗口被修改，请刷新后重试」；不传保持旧行为。GET /pricing 与 PUT 回执均加 `updated_at` 基线（加性字段）。
+- **前端（ModelPricingManager）**：`baseline` 状态与 `rows` 的派生版本一一绑定——初始化（data 装载）与自身保存成功（saved 回执）时采纳；**后台 refetch 换新表不回写基线**（rows 仍派生自旧版本，基线必须跟旧版本走，否则他窗口保存会被静默吞掉——这是本轮接线的关键点）。409 经既有 opError 呈现，编辑行保留。
+- **回归（test_iter379_pricing_concurrency.py，DB 回拨法）**：过期基线 409 且他窗条目不被吞 / 新鲜基线放行+回执新基线+GET 一致 / 不传 LWW 兼容 / 他窗清空删行后旧基线 409、清空后 GET 基线归 null。
+- **门禁**：并发回归 7/7（含 R21 4）、settings 族 36 通过、ruff 绿、前端 tsc+build 绿（3.52s）、全量 pytest **1428 通过/1 跳过**（+3）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R21（2026-10-17，Python v1 深度审计第十八轮「iter 378」，✅ 完成）**：同一 /goal 第十八遍——**同用户多标签页并发写语义审计**。逐路径分派 + 1 处真实缺口修复（笔记双写丢失更新防护），4 个新回归、2 commit：
 
 - **并发语义矩阵（逐路径分派）**：①进度更新 POST /progress——已有乐观锁（iter 367 mastery CAS 重放 + 插入竞态 A11 兜底），无需动；②测验提交——纯 append（每次作答一行，「最新 attempt」口径消费），无丢失更新面；③学习打卡——append by design（多次打卡各记一条）；④计划重生成——sessions 状态机互斥 409（既有）；⑤**自由笔记 PUT /notes/{id} 与知识节点笔记 PUT /knowledge/notes/{node_id}——全量盲覆盖（last-write-wins），双标签编辑同笔记后保存者静默吞掉先保存者的修改，零提示**＝真实缺口。

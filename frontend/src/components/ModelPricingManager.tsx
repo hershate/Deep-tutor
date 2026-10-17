@@ -46,6 +46,10 @@ export default function ModelPricingManager() {
   const { data, isLoading, error } = useQuery({ queryKey: ['pricing'], queryFn: getPricing, staleTime: 60_000 })
   const [rows, setRows] = useState<Row[]>([])
   const [inited, setInited] = useState(false)
+  // iter 379（R22）：装载基线——与 rows 的版本一一对应（初始化与自身保存成功时采纳，
+  // 后台 refetch 换新表不回写基线：rows 仍派生自旧版本，基线必须跟着旧版本走，
+  // 否则他窗口的保存会被本窗口静默吞掉）。409 时编辑内容保留，用户可对照刷新。
+  const [baseline, setBaseline] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [opError, setOpError] = useState('')
 
@@ -54,6 +58,7 @@ export default function ModelPricingManager() {
     if (inited || !data) return
     const src = data.table && Object.keys(data.table).length > 0 ? data.table : data.defaults
     setRows(toRows(src))
+    setBaseline(data.updated_at ?? null)
     setInited(true)
   }, [data, inited])
 
@@ -103,8 +108,9 @@ export default function ModelPricingManager() {
     try {
       // iter 370：保存成功回读服务端清洗后的表（NaN/负数归 0、超长丢弃、截 200 条
       // 均以落库结果为准）——此前界面保留原输入，与服务端持久化状态静默分叉
-      const saved = await updatePricing(obj)
+      const saved = await updatePricing(obj, baseline)
       setRows(toRows(saved.table && Object.keys(saved.table).length > 0 ? saved.table : saved.defaults))
+      setBaseline(saved.updated_at ?? null)
       toast.success(`模型计费已保存（${Object.keys(saved.table ?? {}).length} 个模型）`)
       await qc.invalidateQueries({ queryKey: ['pricing'] })
     } catch (e) {
