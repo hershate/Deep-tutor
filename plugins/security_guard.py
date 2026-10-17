@@ -23,8 +23,8 @@ from fastapi import APIRouter, Depends
 PLUGIN_META = {
     "id": "security_guard",
     "name": "安全防护中间件",
-    "version": "0.1.0",
-    "description": "安全响应头 + 请求统计（middleware+events+storage+routes）",
+    "version": "0.2.0",
+    "description": "安全响应头 + 请求统计（middleware+events+storage+routes；stats 管理员）",
     "min_api": "1.17",  # middleware(1.17) + events(1.0) + storage(1.11) + routes(1.0)
 }
 
@@ -62,7 +62,9 @@ def register(api):
     router = APIRouter()
 
     @router.get("/stats")
-    def stats(user=Depends(api.deps.get_current_user)):
+    def stats(admin=Depends(api.deps.require_admin)):
+        # iter 375 R18：请求计数是全站路径->频次画像（哪些端点被用、量多大），
+        # 对普通认证用户属运营情报（侦察辅助）——收紧为管理员（插件本身即运维工具）
         return {
             "plugin": api.id,
             "request_counts": dict(counts),

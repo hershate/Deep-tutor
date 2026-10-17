@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R18（2026-10-17，Python v1 深度审计第十五轮「iter 375」，✅ 完成）**：同一 /goal 第十五遍——**全路由授权矩阵审计（新证据类别）**。R4-R17 从未系统核对过「158 条路由每条的认证级别与所有权 scope」。2 个真实修复、4 个新回归、1 份可复跑矩阵脚本：
+
+- **矩阵提取 `tests/auth_matrix.py`**：lifespan 内递归展开路由（R17 工具复用），按 dependant 依赖匹配 require_admin/require_auth/get_current_user 分级，handler 源码静态所有权特征（user.id/get_owned_…/resolve_owner）辅助。分布：**PUBLIC 6 / USER 139 / ADMIN 13**。
+- **PUBLIC 6 全部白名单内**：auth/login、health、shared/{token}（R15/R16 已审计）、setup/status（仅 4 个布尔标志）、setup 与 setup/dismiss——后者经 `_setup_caller`（resolve_user→非管理员 403）+ 10/min IP 限流，**R7 期 iter 367/368 已闭合接管窗口**，本轮复核确认。
+- **ADMIN 13 核对**：users CRUD、plugins 热管理、mcp_bridge tools/invoke、provider_bridge PUT config、webhook set/del config——与「全局 admin 管理」决策（note/12 第四轮）一致；provider_bridge GET config/chat 留 USER 属桥接共享设计（管理员配 Key、用户使用，明文不回显）。
+- **USER 139 的 43 条静态无所有权证据项逐一分派**：全部经命名 helper（`_owned_material_or_404`/`_owned_or_404`/`_due_items`(join Session.user_id)/`_owned_thread`/`_owned_run`）或既有家族隔离测试覆盖（sessions/plans/quiz/unit/providers/usage/shares/notes/credentials/kb/logs/threads/active_run 等十余人测试文件点名核对）；`runs/{id}/files/{name}` 读路径经 DB 存档 path 而非用户输入——无路径穿越。
+- **真实修复 1（跨用户隐私泄露）**：`study_stats` 插件 storage 为每插件全局 KV——**所有用户的学习分钟/答题数/连续天数聚成一份，任意认证用户经 /dashboard 可见他人学习数据**（docstring 却宣称「我全局学了多久」＝表达与实现不一致）。三类事件 payload 均带 user_id（发射点核对），改按 `days:{uid}`/`quiz_count:{uid}` 等键分用户记账、dashboard 只读本人、scheduler 逐用户重算 streak；旧全局键弃置不迁移（v1 演示插件）。v0.1.0→0.2.0。3 新回归：双用户互不可见 / 无 user_id 载荷不混入真实用户视图 /（见下）。既有 16 用例补齐事件 user_id 对齐仪表盘用户。
+- **真实修复 2（运营情报暴露）**：`security_guard /stats` 返回全站路径→频次画像，对普通认证用户属侦察辅助——收紧 `require_admin`（插件本身即运维工具），v0.1.0→0.2.0，新增非管理员 403 + 管理员 200 回归。
+- **门禁**：全量 pytest **1415 通过/1 跳过**（+3）+ ruff（app/tests + 根 plugins/）全绿。前端无改动（两插件端点前端零消费已核实）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R17（2026-10-17，Python v1 深度审计第十四轮「iter 374」，✅ 完成）**：同一 /goal 第十四遍——**前后端契约系统性 diff（新证据类别）**。动机：R16 发现 api.ts 的 share 类型是陈旧的（加 expires_at 前没同步），说明「手写 TS 类型 ↔ 后端真实返回」这道缝从未被系统性核对过——tsc 信任声明，幽灵字段=运行时 undefined 解引用、缺字段=能力不可见。结论先行：**零真实契约 BUG**（干净账单）。1 commit、0 产品代码改动、3 份可复用审计脚本入库：
 
 - **Side A 后端提取器 `tests/contract_audit.py`**：lifespan 内递归展开 FastAPI 0.139 惰性 `_IncludedRouter` 得 158 条路由（×方法），AST 提取返回形状（literal dict 键并集 / pydantic `model_dump()` 字段 / 同模块+跨模块 helper 跟进深度 2 / `x: dict = {...}` AnnAssign / `return await` / `asyncio.to_thread(helper)` 解包 / 多分支 kind 优先级合并）——154/158 可比形状（12 response 流、1 none、3 多态混合豁免）。

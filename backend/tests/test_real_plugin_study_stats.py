@@ -92,8 +92,8 @@ def test_streak_consecutive_days(tmp_path, auth_headers):
     from app.plugins import bus
 
     today = date.today()
-    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 30})
-    bus.emit("learning_log_added", {"date": (today - timedelta(days=1)).isoformat(), "minutes": 20})
+    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 30, "user_id": 1})
+    bus.emit("learning_log_added", {"date": (today - timedelta(days=1)).isoformat(), "minutes": 20, "user_id": 1})
     _ensure_admin()
     client = TestClient(app)
     r = client.get("/api/plugins/study_stats/dashboard", headers=auth_headers)
@@ -105,8 +105,8 @@ def test_streak_breaks_on_gap(tmp_path, auth_headers):
     from app.plugins import bus
 
     today = date.today()
-    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 10})
-    bus.emit("learning_log_added", {"date": (today - timedelta(days=3)).isoformat(), "minutes": 10})  # 隔 3 天
+    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 10, "user_id": 1})
+    bus.emit("learning_log_added", {"date": (today - timedelta(days=3)).isoformat(), "minutes": 10, "user_id": 1})  # 隔 3 天
     _ensure_admin()
     client = TestClient(app)
     assert client.get("/api/plugins/study_stats/dashboard", headers=auth_headers).json()["streak"] == 1
@@ -117,9 +117,9 @@ def test_week_minutes_window(tmp_path, auth_headers):
     from app.plugins import bus
 
     today = date.today()
-    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 40})
-    bus.emit("learning_log_added", {"date": (today - timedelta(days=3)).isoformat(), "minutes": 60})  # 本周内
-    bus.emit("learning_log_added", {"date": (today - timedelta(days=10)).isoformat(), "minutes": 100})  # 本周外
+    bus.emit("learning_log_added", {"date": today.isoformat(), "minutes": 40, "user_id": 1})
+    bus.emit("learning_log_added", {"date": (today - timedelta(days=3)).isoformat(), "minutes": 60, "user_id": 1})  # 本周内
+    bus.emit("learning_log_added", {"date": (today - timedelta(days=10)).isoformat(), "minutes": 100, "user_id": 1})  # 本周外
     _ensure_admin()
     client = TestClient(app)
     d = client.get("/api/plugins/study_stats/dashboard", headers=auth_headers).json()
@@ -135,7 +135,7 @@ def test_persists_across_reload(tmp_path, auth_headers):
     from app.plugins.loader import reset_plugins
 
     _load_real("study_stats", tmp_path)
-    bus.emit("learning_log_added", {"date": "2026-07-23", "minutes": 30})
+    bus.emit("learning_log_added", {"date": "2026-07-23", "minutes": 30, "user_id": 1})
     reset_plugins()  # 清运行时（storage 文件保留）
 
     from app.main import create_app
@@ -196,7 +196,7 @@ def test_invalid_date_falls_back_today(tmp_path, auth_headers):
     app = _load_real("study_stats", tmp_path)
     from app.plugins import bus
 
-    bus.emit("learning_log_added", {"date": "not-a-date", "minutes": 50})  # 非法 date
+    bus.emit("learning_log_added", {"date": "not-a-date", "minutes": 50, "user_id": 1})  # 非法 date
     _ensure_admin()
     client = TestClient(app)
     d = client.get("/api/plugins/study_stats/dashboard", headers=auth_headers).json()
