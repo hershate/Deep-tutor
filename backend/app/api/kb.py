@@ -44,7 +44,7 @@ from app.api.materials import (
     _validate_upload,
 )
 from app.api.plans import _safe_download_name
-from app.api.sessions import _MAX_SESSIONS_PER_USER
+from app.api.sessions import _CREATE_RATE_PER_MIN, _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
 from app.core.settings import settings
@@ -755,6 +755,10 @@ def generate_from_documents(
     -> write_parsed_text 复制到会话目录 -> 一次 commit；任一异常回滚 +
     delete_session_files 上抛。不复制原件（会话材料仅需解析文本注入）。
     """
+    # iter 372 R11：与 POST /sessions 同桶频控——本端点同样建会话（外加逐文档复制资料+文件写，
+    # 单次成本高于普通建会话）；不共桶则两条路径各 30/min 可叠加绕出 60/min
+    if not limiter.check(f"sess_create:{user.id}", _CREATE_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"创建会话限每分钟 {_CREATE_RATE_PER_MIN} 次，请稍后再试")
     # 请求内 id 去重（保序），防同一文档重复建料
     ordered_ids = list(dict.fromkeys(body.document_ids))
     docs_by_id = {

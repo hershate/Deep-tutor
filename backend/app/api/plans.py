@@ -100,6 +100,10 @@ _SUB_QUEUE_MAX = 512
 # 与 LLM 速率限额调整；全局 LLM 信号量（concurrency.llm_task_slot）兜底真实并发。
 _MAX_GENERATE_PER_USER = settings.max_concurrent_generations_per_user
 _MAX_GENERATE_GLOBAL = settings.max_concurrent_generations
+# 生成族起始频控（iter 372 R11）：并发配额只约束同时运行数，快败循环（error 终态→立即
+# 重试）每轮都要 _load_parsed_materials + 状态写入，无频次约束可被高频打满；人类交互
+# 远低于此阈值
+_GEN_START_RATE_PER_MIN = 12
 # raw_text 截断（plan/09 §十 understand_intent.raw_text ≤10k）
 _MAX_RAW_TEXT_CHARS = 10_000
 # 注入 prompt 的资料总量上限（err.md A14/B2）：20 条 × 大文件极端下拼接可近 GB 级，
@@ -129,6 +133,12 @@ def _check_generate_quota(db: Session, user: User, session_id: int) -> None:
     active = sum(1 for s in _STREAMS.values() if s.terminal_id is None)
     if active >= _MAX_GENERATE_GLOBAL:
         raise ApiError("server_busy", "当前生成任务较多，请稍后重试（全局并发上限）", status=503)
+
+
+def _gate_generate_start(user: User) -> None:
+    """生成族起始频控（iter 372 R11）——generate/retry/clarify/regenerate/materials 共桶。"""
+    if not limiter.check(f"plans_gen:{user.id}", _GEN_START_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"生成启动限每分钟 {_GEN_START_RATE_PER_MIN} 次，请稍后再试")
 
 
 _RETENTION_SECONDS = 300.0  # 终态后保留时长（秒），供迟到重连；超时自动清理
@@ -352,6 +362,7 @@ def generate(
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     get_owned_session(db, body.session_id, user)  # P4 隔离：他人会话 404
+    _gate_generate_start(user)
 
     parsed = _load_parsed_materials(db, body.session_id)
     # raw_text ≤10k 截断（plan/09 §十）
@@ -460,6 +471,7 @@ def retry(
     - 响应即标准生成 SSE 流（事件与 /generate 完全一致，前端同一消费路径）。
     """
     get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
+    _gate_generate_start(user)
     parsed = _load_parsed_materials(db, session_id)
     with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
         state = db.get(models.OrchestratorState, session_id)
@@ -488,6 +500,7 @@ def clarify(
 ) -> StreamingResponse:
     """澄清续接（plan/10 §四）：paused_clarify 状态下以 answers 重跑 understand_intent -> 继续 pipeline。"""
     get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
+    _gate_generate_start(user)
     parsed = _load_parsed_materials(db, session_id)
     with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
         state = db.get(models.OrchestratorState, session_id)
@@ -565,6 +578,7 @@ def regenerate(
     - plans.version += 1（_persist_plan 自动递增）。
     """
     plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
+    _gate_generate_start(user)
     session_id = plan.session_id
     if body.scope not in PIPELINE:
         raise ApiError("bad_request", f"scope 必须为有效工具名: {PIPELINE}", status=400)
@@ -2004,6 +2018,7 @@ async def generate_materials(
         }
 
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（仅新生成路径；幂等重渲染不耗 LLM）
+    _gate_generate_start(user)  # iter 372 R11：仅 LLM 新生成路径计频（幂等重渲染不限）
     if body.unit_ids:
         picked = [_unit_plan_for_existing(content, u) for u in unit_rows]
     else:
