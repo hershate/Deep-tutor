@@ -125,6 +125,15 @@ class Settings(BaseSettings):
     # 无限增长）；maintenance 每日轮删超期行。0 = 不裁剪（保留全部历史）。
     api_usage_retention_days: int = Field(default=180, ge=0, description="api_usage 保留天数（0=不裁剪）")
 
+    # --- 定期运维节奏（iter 372 R14：默认恒为每日/24h，无需配置；开放为旋钮供
+    # 运维调节与实进程验证加速驱动（tests/soak_maintenance.py））---
+    maintenance_interval_seconds: int = Field(
+        default=86_400, ge=1, description="维护循环周期秒数（默认每天一轮）"
+    )
+    orphan_grace_seconds: int = Field(
+        default=86_400, ge=0, description="孤儿目录 mtime 冷却窗秒数（默认 24h，窗口内不删）"
+    )
+
     # --- 搜索 ---
     search_engine: str = Field(
         default="auto",

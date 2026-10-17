@@ -15,20 +15,30 @@ from pathlib import Path
 
 log = logging.getLogger("deep_tutor.maintenance")
 
-# 后台周期（秒）：每天一次
-MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
+# 节奏参数自 settings（iter 372 R14）：默认恒为每日一轮 / 24h 冷却（历史常量语义
+# 不变），开放为运维旋钮 + 实进程验证加速驱动（tests/soak_maintenance.py）。
+# 冷却窗设计依据（iter 368）：DB 重查兜不住备份恢复/导入的写序窗口（先落文件、
+# 后单事务提交行——快照+重查都在提交前看，行必不存在）；mtime 冷却保证新落盘
+# 目录当轮必不删。
 
-# iter 368：孤儿目录 mtime 冷却窗——删除候选目录须「最后修改于 24h 前」。
-# DB 重查兜不住备份恢复/导入的写序窗口（先落文件、后单事务提交行——快照+重查都在
-# 提交前看，行必不存在）；mtime 冷却保证新落盘目录当轮必不删。
-_ORPHAN_GRACE_SECONDS = 24 * 3600
+
+def _interval_seconds() -> int:
+    from app.core.settings import settings
+
+    return max(1, settings.maintenance_interval_seconds)
+
+
+def _grace_seconds() -> int:
+    from app.core.settings import settings
+
+    return max(0, settings.orphan_grace_seconds)
 
 
 def _dir_recently_touched(path: Path) -> bool:
     """目录（或其内任一直接子项）在冷却窗内被写过 -> 视为活跃，跳过删除。"""
     import time
 
-    cutoff = time.time() - _ORPHAN_GRACE_SECONDS
+    cutoff = time.time() - _grace_seconds()
     try:
         if path.stat().st_mtime > cutoff:
             return True
@@ -305,16 +315,17 @@ def run_maintenance() -> dict:
 
 
 async def maintenance_loop(stop_event) -> None:
-    """后台周期任务：每 MAINTENANCE_INTERVAL_SECONDS 执行一轮（asyncio.Event 停止）。
+    """后台周期任务：每 settings.maintenance_interval_seconds 执行一轮（Event 停止）。
 
     err.md C13：先等待一个周期再执行——启动即跑 VACUUM 会在服务冷启动
-    （迁移/恢复占用写锁）时争抢资源；首轮推迟到 24h 后不影响运维目标。
+    （迁移/恢复占用写锁）时争抢资源；首轮推迟一个周期不影响运维目标。
     """
     import asyncio
 
+    interval = _interval_seconds()
     while not stop_event.is_set():
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=MAINTENANCE_INTERVAL_SECONDS)
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
             break  # stop_event 已置位 -> 退出
         except TimeoutError:
             pass
