@@ -1,6 +1,7 @@
 """协作分享 API（P5）：方案只读分享链接。
 
-- POST   /api/plans/{plan_id}/share  创建（或返回既有）分享链接（仅方案所有者）
+- POST   /api/plans/{plan_id}/share  创建（或返回既有）分享链接（仅方案所有者；
+                                     既有已过期则轮换 token 重发，见 create_share）
 - DELETE /api/plans/{plan_id}/share  撤销链接（仅方案所有者）
 - GET    /api/plans/{plan_id}/share  查询单方案分享状态（仅方案所有者）
 - GET    /api/shares                 当前用户全部活跃分享链接（iter 258 全局管理面）
@@ -82,6 +83,15 @@ def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depen
             db.rollback()
             link = db.query(ShareLink).filter_by(plan_id=plan.id).one()
         db.refresh(link)
+    elif _share_expired(link):
+        # iter 373 R16：既有链接已过期时沿用会原样返回一条公开 404 的死链——
+        # 前端「分享」按钮触发的正是本路径（get_share 过期即 shared=false）。
+        # 轮换 token 并重置 created_at（90 天重新计时）：旧 token 即使已被
+        # 复制到别处也继续保持失效，属主拿到的是可用的新链接。
+        link.token = secrets.token_urlsafe(24)
+        link.created_at = datetime.utcnow()
+        db.commit()
+        db.refresh(link)
     return {
         "token": link.token,
         "path": f"/shared/{link.token}",
@@ -125,8 +135,9 @@ _SHARED_READ_RATE_PER_MIN = 30
 
 @manage_router.get("")
 def list_shares(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
-    """当前用户全部活跃分享链接（新→旧）——安全审计面：逐方案创建/撤销之外，
-    「我到底分享出去了哪些」需要全局视图，遗忘的公开链接长期有效。"""
+    """当前用户全部分享链接（新→旧）——安全审计面：逐方案创建/撤销之外，
+    「我到底分享出去了哪些」需要全局视图。iter 373 起逐条带 expired 标记
+    （过期链接不再可公开访问，但行仍在——前端标注后可撤销清理）。"""
     rows = (
         db.query(ShareLink, Plan)
         .join(Plan, ShareLink.plan_id == Plan.id)  # INNER JOIN：方案已删的孤儿链接自动不可见
@@ -144,6 +155,7 @@ def list_shares(db: Session = Depends(get_db), user: User = Depends(get_current_
                 "path": f"/shared/{link.token}",
                 "created_at": link.created_at.isoformat(),
                 "expires_at": _share_expiry(link).isoformat() if _share_expiry(link) else None,
+                "expired": _share_expired(link),
             }
             for link, plan in rows
         ]
