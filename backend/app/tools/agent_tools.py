@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.agent import workspace as ws
@@ -44,6 +45,11 @@ def _need_db(ctx: ExecContext, tool: str) -> ToolOutput | None:
     return None
 
 
+# iter 369：memory_save 与 REST /memories（app/api/memory.py）同口径的配额常量
+_MAX_MEMORIES_PER_USER = 2000
+_MAX_MEMORY_CHARS = 20000
+
+
 # ---------------------------------------------------------------------------
 # 工作区文件工具（沙箱内，原子写）
 # ---------------------------------------------------------------------------
@@ -58,7 +64,8 @@ async def workspace_write(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if not name:
         return _err(tool, "empty_required", "name 必填")
     try:
-        rel = ws.write_file(ctx.run_id, name, content)
+        # iter 369：文件 IO 移 to_thread（async 壳同步体此前直接跑在事件循环上）
+        rel = await asyncio.to_thread(ws.write_file, ctx.run_id, name, content)
     except ValueError as exc:
         return _err(tool, "invalid_path", str(exc))
     return _ok(tool, {"name": rel, "bytes": len(content.encode("utf-8"))})
@@ -72,7 +79,7 @@ async def workspace_read(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if not name:
         return _err(tool, "empty_required", "name 必填")
     try:
-        content = ws.read_file(ctx.run_id, name)
+        content = await asyncio.to_thread(ws.read_file, ctx.run_id, name)
     except FileNotFoundError:
         return _err(tool, "not_found", f"工作区无此文件: {name}")
     except ValueError as exc:
@@ -91,7 +98,7 @@ async def workspace_edit(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if not name:
         return _err(tool, "empty_required", "name 必填")
     try:
-        n = ws.edit_file(ctx.run_id, name, old, new, replace_all=replace_all)
+        n = await asyncio.to_thread(ws.edit_file, ctx.run_id, name, old, new, replace_all=replace_all)
     except FileNotFoundError:
         return _err(tool, "not_found", f"工作区无此文件: {name}")
     except ValueError as exc:
@@ -103,7 +110,7 @@ async def workspace_list(inp: ToolInput, ctx: ExecContext) -> ToolOutput:  # noq
     tool = "workspace_list"
     if e := _need_run(ctx, tool):
         return e
-    return _ok(tool, {"files": ws.list_files(ctx.run_id)})
+    return _ok(tool, {"files": await asyncio.to_thread(ws.list_files, ctx.run_id)})
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +153,9 @@ async def web_fetch(inp: ToolInput, ctx: ExecContext) -> ToolOutput:  # noqa: AR
         return _err(tool, "fetch_failed", str(exc) if "Data" not in str(exc) else "抓取失败")
     # 引用头（供模型 grounding 引用）
     source = meta.get("final_url") or url
-    return _ok(tool, {"url": source, "title": meta.get("title", ""), "text": text, "chars": meta.get("chars", len(text))})
+    return _ok(
+        tool, {"url": source, "title": meta.get("title", ""), "text": text, "chars": meta.get("chars", len(text))}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -161,22 +170,40 @@ async def memory_save(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     content = str(inp.args.get("content", ""))
     if not content.strip():
         return _err(tool, "empty_required", "content 必填")
-    kind = str(inp.args.get("kind", "note") or "note")
+    # iter 369：与 REST /memories 同口径的配额族——模型自写路径此前不设防，长跑 run
+    # 可把 memories 表刷爆（iter 365 为防刷库加的配额对 agent 路径失效）
+    # 顺序对齐 REST（Pydantic 先验长度不耗限流额度，再限流，最后查配额）
+    if len(content) > _MAX_MEMORY_CHARS:
+        return _err(tool, "too_long", f"content 超 {_MAX_MEMORY_CHARS} 字符上限（与 /memories 同口径，请精简后重存）")
+    from app.core.ratelimit import limiter
+
+    if not limiter.check(f"memory_write:{ctx.user_id}", 60):
+        return _err(tool, "rate_limited", "记忆写入过于频繁（60/分钟，与 /memories 同口径）")
+    kind = str(inp.args.get("kind", "note") or "note")[:64]
     scope = str(inp.args.get("scope", "thread") or "thread")
     if scope not in ("thread", "user"):
         scope = "thread"
     from app.db.models import Memory
 
-    m = Memory(
-        user_id=ctx.user_id,
-        thread_id=ctx.thread_id if (scope == "thread" and ctx.thread_id) else None,
-        scope=scope,
-        kind=kind,
-        content=content,
-    )
-    ctx.db.add(m)
-    ctx.db.commit()
-    ctx.db.refresh(m)
+    def _save():
+        # 计数+插入+提交一次线程内完成（commit 移 to_thread 防写锁争用冻结事件循环）
+        if ctx.db.query(Memory).filter_by(user_id=ctx.user_id).count() >= _MAX_MEMORIES_PER_USER:
+            return None
+        m = Memory(
+            user_id=ctx.user_id,
+            thread_id=ctx.thread_id if (scope == "thread" and ctx.thread_id) else None,
+            scope=scope,
+            kind=kind,
+            content=content,
+        )
+        ctx.db.add(m)
+        ctx.db.commit()
+        ctx.db.refresh(m)
+        return m
+
+    m = await asyncio.to_thread(_save)
+    if m is None:
+        return _err(tool, "quota_exceeded", f"记忆数达上限 {_MAX_MEMORIES_PER_USER} 条/用户（与 /memories 同口径）")
     return _ok(tool, {"id": m.id, "scope": scope})
 
 
@@ -204,10 +231,7 @@ async def memory_recall(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     return _ok(
         tool,
         {
-            "memories": [
-                {"id": r.id, "kind": r.kind, "scope": r.scope, "content": r.content[:1000]}
-                for r in rows
-            ],
+            "memories": [{"id": r.id, "kind": r.kind, "scope": r.scope, "content": r.content[:1000]} for r in rows],
             "count": len(rows),
         },
     )
@@ -222,11 +246,16 @@ async def memory_delete(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return _err(tool, "empty_required", "id 必填")
     from app.db.models import Memory
 
-    m = ctx.db.query(Memory).filter_by(id=mid, user_id=ctx.user_id).first()
-    if m is None:
+    def _delete() -> bool:
+        m = ctx.db.query(Memory).filter_by(id=mid, user_id=ctx.user_id).first()
+        if m is None:
+            return False
+        ctx.db.delete(m)
+        ctx.db.commit()
+        return True
+
+    if not await asyncio.to_thread(_delete):  # iter 369：commit 移 to_thread
         return _err(tool, "not_found", "记忆不存在或无权访问")
-    ctx.db.delete(m)
-    ctx.db.commit()
     return _ok(tool, {"deleted": mid})
 
 
@@ -247,9 +276,7 @@ async def load_thread_history(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         content = m["content"]
         if isinstance(content, list):
             text = " ".join(
-                b.get("text", "")
-                for b in content
-                if isinstance(b, dict) and b.get("type") in ("text", "thinking")
+                b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") in ("text", "thinking")
             )
             tools = [b.get("name") for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
         else:
@@ -270,20 +297,23 @@ async def search_messages(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 
     # JSON 列 LIKE 会转义非 ASCII（中文存 \uXXXX），故加载后在 Python 内做子串匹配
     # （content 读出已反序列化）。扫最近 200 条，命中取前 20。
-    rows = (
-        ctx.db.query(Message)
-        .filter(Message.thread_id == ctx.thread_id)
-        .order_by(Message.id.desc())
-        .limit(200)
-        .all()
-    )
-    hits = [r for r in rows if q in _msg_text(r.content)][:20]
+    # iter 369：查询+全量反序列化+匹配移 to_thread（长会话 200 条消息含长正文，
+    # 此前整段跑在事件循环上，多 run 并发时全局卡顿）
+    def _search() -> list:
+        rows = (
+            ctx.db.query(Message)
+            .filter(Message.thread_id == ctx.thread_id)
+            .order_by(Message.id.desc())
+            .limit(200)
+            .all()
+        )
+        return [r for r in rows if q in _msg_text(r.content)][:20]
+
+    hits = await asyncio.to_thread(_search)
     return _ok(
         tool,
         {
-            "matches": [
-                {"id": r.id, "role": r.role.value, "snippet": _msg_text(r.content)[:500]} for r in hits
-            ],
+            "matches": [{"id": r.id, "role": r.role.value, "snippet": _msg_text(r.content)[:500]} for r in hits],
             "count": len(hits),
         },
     )
@@ -291,7 +321,9 @@ async def search_messages(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 
 def _msg_text(content) -> str:
     if isinstance(content, list):
-        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") in ("text", "thinking"))
+        return " ".join(
+            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") in ("text", "thinking")
+        )
     return str(content)
 
 
@@ -323,55 +355,68 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     src = _resolve_in(scratch_dir(ctx.run_id), name)
     if not src.is_file():
         return _err(tool, "not_found", f"工作区无此产物: {name}")
-    dst_dir = committed_dir(ctx.thread_id, ctx.run_id)
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    dst = _resolve_in(dst_dir, name)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    # iter 364：原子写（tmp + os.replace），防复制中途崩溃致 dst 半写
-    import os
 
-    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
-    try:
-        tmp.write_bytes(src.read_bytes())
-        os.replace(tmp, dst)
-    finally:
-        if tmp.exists():
-            tmp.unlink(missing_ok=True)
-    # iter 364：同名重 promote 复用既有 RunArtifact（免重复登记）
-    art = ctx.db.query(RunArtifact).filter_by(run_id=ctx.run_id, name=name).first()
-    if art is None:
-        art = RunArtifact(
-            run_id=ctx.run_id,
-            thread_id=ctx.thread_id,
-            name=name,
-            path=dst.relative_to(_root()).as_posix(),
-            kind="committed",
-            size=dst.stat().st_size,
+    # iter 369：文件复制（MB 级草稿读写）+ 登记提交整段移 to_thread——此前同步执行
+    # 阻塞事件循环，多 run 并发 promote 时全局卡顿
+    def _promote() -> int:
+        dst_dir = committed_dir(ctx.thread_id, ctx.run_id)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = _resolve_in(dst_dir, name)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        # iter 364：原子写（tmp + os.replace），防复制中途崩溃致 dst 半写
+        import os
+
+        tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_bytes(src.read_bytes())
+            os.replace(tmp, dst)
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+        # iter 364：同名重 promote 复用既有 RunArtifact（免重复登记）
+        art = ctx.db.query(RunArtifact).filter_by(run_id=ctx.run_id, name=name).first()
+        if art is None:
+            art = RunArtifact(
+                run_id=ctx.run_id,
+                thread_id=ctx.thread_id,
+                name=name,
+                path=dst.relative_to(_root()).as_posix(),
+                kind="committed",
+                size=dst.stat().st_size,
+            )
+            ctx.db.add(art)
+            ctx.db.flush()  # 取 art.id 供 run_step 记录
+        else:
+            art.path = dst.relative_to(_root()).as_posix()
+            art.size = dst.stat().st_size
+        # 提议：run 进待审批 + 记 run_step（实际提升由 POST /runs/{id}/approve 执行）
+        run.status = RunStatus.awaiting_approval
+        ctx.db.add(
+            RunStep(
+                run_id=ctx.run_id,
+                step_index=run.step_count,
+                type="approval",
+                name="promote_artifact",
+                input={"name": name, "target_kind": target_kind, "artifact_id": art.id},
+                output={"status": "awaiting_approval"},
+            )
         )
-        ctx.db.add(art)
-        ctx.db.flush()  # 取 art.id 供 run_step 记录
-    else:
-        art.path = dst.relative_to(_root()).as_posix()
-        art.size = dst.stat().st_size
-    # 提议：run 进待审批 + 记 run_step（实际提升由 POST /runs/{id}/approve 执行）
-    run.status = RunStatus.awaiting_approval
-    ctx.db.add(
-        RunStep(
-            run_id=ctx.run_id,
-            step_index=run.step_count,
-            type="approval",
-            name="promote_artifact",
-            input={"name": name, "target_kind": target_kind, "artifact_id": art.id},
-            output={"status": "awaiting_approval"},
-        )
-    )
-    ctx.db.commit()
+        ctx.db.commit()
+        return art.id
+
+    artifact_id = await asyncio.to_thread(_promote)
     # iter 364：设 cancel_event 让 agent_loop 工具循环尽快 break（缩小 awaiting_approval 与
     # approve 的竞态窗口——原要等下一轮主循环检查，期间 approve 可致 agent 多跑 1+ 轮烧预算）
     ctx.cancel_event.set()
     return _ok(
         tool,
-        {"proposed": True, "artifact_id": art.id, "name": name, "target_kind": target_kind, "run_status": "awaiting_approval"},
+        {
+            "proposed": True,
+            "artifact_id": artifact_id,
+            "name": name,
+            "target_kind": target_kind,
+            "run_status": "awaiting_approval",
+        },
     )
 
 
@@ -379,18 +424,54 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
 # 注册
 # ---------------------------------------------------------------------------
 
-workspace_write_tool = Tool(name="workspace_write", llm=False, func=workspace_write, description="向本任务工作区写入/覆盖文件（草拟大文件/学习计划）")
-workspace_read_tool = Tool(name="workspace_read", llm=False, func=workspace_read, description="读取本任务工作区文件内容")
-workspace_edit_tool = Tool(name="workspace_edit", llm=False, func=workspace_edit, description="字符串替换编辑工作区文件（old 须存在，多处需 replace_all）")
-workspace_list_tool = Tool(name="workspace_list", llm=False, func=workspace_list, description="列出本任务工作区全部文件（名+大小）")
-web_search_tool = Tool(name="web_search", llm=False, func=web_search, description="联网搜索（Bing 双引擎，返标题/URL/验证标记）")
-web_fetch_tool = Tool(name="web_fetch", llm=False, func=web_fetch, description="抓取网页正文（SSRF 防护+正文提取，返 markdown+引用）")
-memory_save_tool = Tool(name="memory_save", llm=False, func=memory_save, description="保存一条记忆（会话级/用户级，agent 草稿记忆库）")
-memory_recall_tool = Tool(name="memory_recall", llm=False, func=memory_recall, description="按需召回记忆（子串过滤，按需加载——非自动召回）")
-memory_delete_tool = Tool(name="memory_delete", llm=False, func=memory_delete, description="删除一条记忆（按 id，归属校验）")
-load_thread_history_tool = Tool(name="load_thread_history", llm=False, func=load_thread_history, description="加载本会话最近历史消息（按需回放对话内记忆）")
-search_messages_tool = Tool(name="search_messages", llm=False, func=search_messages, description="在本会话历史中搜索含某关键词的消息")
-promote_artifact_tool = Tool(name="promote_artifact", llm=False, func=promote_artifact, description="提议把工作区产物提升为正式方案/材料/笔记（待用户确认）")
+workspace_write_tool = Tool(
+    name="workspace_write",
+    llm=False,
+    func=workspace_write,
+    description="向本任务工作区写入/覆盖文件（草拟大文件/学习计划）",
+)
+workspace_read_tool = Tool(
+    name="workspace_read", llm=False, func=workspace_read, description="读取本任务工作区文件内容"
+)
+workspace_edit_tool = Tool(
+    name="workspace_edit",
+    llm=False,
+    func=workspace_edit,
+    description="字符串替换编辑工作区文件（old 须存在，多处需 replace_all）",
+)
+workspace_list_tool = Tool(
+    name="workspace_list", llm=False, func=workspace_list, description="列出本任务工作区全部文件（名+大小）"
+)
+web_search_tool = Tool(
+    name="web_search", llm=False, func=web_search, description="联网搜索（Bing 双引擎，返标题/URL/验证标记）"
+)
+web_fetch_tool = Tool(
+    name="web_fetch", llm=False, func=web_fetch, description="抓取网页正文（SSRF 防护+正文提取，返 markdown+引用）"
+)
+memory_save_tool = Tool(
+    name="memory_save", llm=False, func=memory_save, description="保存一条记忆（会话级/用户级，agent 草稿记忆库）"
+)
+memory_recall_tool = Tool(
+    name="memory_recall", llm=False, func=memory_recall, description="按需召回记忆（子串过滤，按需加载——非自动召回）"
+)
+memory_delete_tool = Tool(
+    name="memory_delete", llm=False, func=memory_delete, description="删除一条记忆（按 id，归属校验）"
+)
+load_thread_history_tool = Tool(
+    name="load_thread_history",
+    llm=False,
+    func=load_thread_history,
+    description="加载本会话最近历史消息（按需回放对话内记忆）",
+)
+search_messages_tool = Tool(
+    name="search_messages", llm=False, func=search_messages, description="在本会话历史中搜索含某关键词的消息"
+)
+promote_artifact_tool = Tool(
+    name="promote_artifact",
+    llm=False,
+    func=promote_artifact,
+    description="提议把工作区产物提升为正式方案/材料/笔记（待用户确认）",
+)
 
 AGENT_TOOLS = [
     workspace_write_tool,
@@ -410,18 +491,57 @@ AGENT_TOOLS = [
 
 # 工具入参 JSON schema（广告给模型的 tools[].input_schema）
 AGENT_TOOL_SCHEMAS: dict[str, dict] = {
-    "workspace_write": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
+    "workspace_write": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "content": {"type": "string"}},
+        "required": ["name", "content"],
+    },
     "workspace_read": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-    "workspace_edit": {"type": "object", "properties": {"name": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "replace_all": {"type": "boolean"}}, "required": ["name", "old", "new"]},
+    "workspace_edit": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "old": {"type": "string"},
+            "new": {"type": "string"},
+            "replace_all": {"type": "boolean"},
+        },
+        "required": ["name", "old", "new"],
+    },
     "workspace_list": {"type": "object", "properties": {}},
-    "web_search": {"type": "object", "properties": {"query": {"type": "string"}, "count": {"type": "integer"}}, "required": ["query"]},
+    "web_search": {
+        "type": "object",
+        "properties": {"query": {"type": "string"}, "count": {"type": "integer"}},
+        "required": ["query"],
+    },
     "web_fetch": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
-    "memory_save": {"type": "object", "properties": {"content": {"type": "string"}, "kind": {"type": "string"}, "scope": {"type": "string", "enum": ["thread", "user"]}}, "required": ["content"]},
-    "memory_recall": {"type": "object", "properties": {"q": {"type": "string"}, "scope": {"type": "string", "enum": ["thread", "user"]}, "limit": {"type": "integer"}}},
+    "memory_save": {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string"},
+            "kind": {"type": "string"},
+            "scope": {"type": "string", "enum": ["thread", "user"]},
+        },
+        "required": ["content"],
+    },
+    "memory_recall": {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string"},
+            "scope": {"type": "string", "enum": ["thread", "user"]},
+            "limit": {"type": "integer"},
+        },
+    },
     "memory_delete": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]},
     "load_thread_history": {"type": "object", "properties": {"limit": {"type": "integer"}}},
     "search_messages": {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
-    "promote_artifact": {"type": "object", "properties": {"name": {"type": "string"}, "target_kind": {"type": "string", "enum": ["plan", "material", "note"]}}, "required": ["name", "target_kind"]},
+    "promote_artifact": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "target_kind": {"type": "string", "enum": ["plan", "material", "note"]},
+        },
+        "required": ["name", "target_kind"],
+    },
 }
 
 

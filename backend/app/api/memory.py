@@ -19,6 +19,7 @@ import json
 import logging
 import time
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -97,20 +98,20 @@ def _owned_run(db: Session, run_id: int, user) -> models.Run:
 
 class ThreadIn(BaseModel):
     title: str = Field(default="", max_length=256)
-    kind: str = "chat"
+    # kind 白名单（iter 369）：String(32) 列不限长不校验值——客户端可存任意串
+    kind: Literal["chat", "plan_generation"] = "chat"
     session_id: int | None = None
     model: str = Field(default="", max_length=128)
 
 
 class ThreadPatch(BaseModel):
-    title: str | None = None
-    model: str | None = None
+    # iter 369：补长度上限（SQLite 不截断 VARCHAR，5MB 级 title 会随每次 list_threads 全量回传）
+    title: str | None = Field(default=None, max_length=256)
+    model: str | None = Field(default=None, max_length=128)
 
 
 def _thread_out(t: models.Thread, db: Session) -> dict:
-    last_msg = (
-        db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id.desc()).first()
-    )
+    last_msg = db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id.desc()).first()
     running = db.query(models.Run).filter_by(thread_id=t.id, status=models.RunStatus.running).first()
     return {
         "id": t.id,
@@ -120,7 +121,11 @@ def _thread_out(t: models.Thread, db: Session) -> dict:
         "model": t.model,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
-        "last_preview": (last_msg.content[0].get("text", "")[:80] if last_msg and last_msg.content and isinstance(last_msg.content[0], dict) else ""),
+        "last_preview": (
+            last_msg.content[0].get("text", "")[:80]
+            if last_msg and last_msg.content and isinstance(last_msg.content[0], dict)
+            else ""
+        ),
         "running": running is not None,
     }
 
@@ -135,7 +140,9 @@ def create_thread(body: ThreadIn, user=Depends(get_current_user), db: Session = 
     # session_id 须属当前用户——防 Thread→Plan 提升路径向他人会话注入 plan（跨用户隔离）
     if body.session_id is not None:
         get_owned_session(db, body.session_id, user)
-    t = models.Thread(user_id=user.id, title=body.title, kind=body.kind or "chat", session_id=body.session_id, model=body.model)
+    t = models.Thread(
+        user_id=user.id, title=body.title, kind=body.kind or "chat", session_id=body.session_id, model=body.model
+    )
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -171,14 +178,26 @@ def patch_thread(thread_id: int, body: ThreadPatch, user=Depends(get_current_use
     return _thread_out(t, db)
 
 
+def _cancel_run_stream(run_id: int) -> None:
+    """软+硬取消 run 流（iter 369 从 cancel_run 抽出，三处共用）：
+    cancel_event 只在步/工具边界生效，正在进行的 stream_agentic 流式读取（SDK 超时
+    最长 300s）须 task.cancel 打断——否则删除路径删完行后台 run 仍烧 token/占全局槽。"""
+    stream = _RUN_STREAMS.get(run_id)
+    if stream is None:
+        return
+    stream.request_cancel()  # 线程安全：同步端点跨线程触发 asyncio.Event（iter 363）
+    task = getattr(stream, "task", None)
+    if task is not None and not task.done() and stream._loop is not None:
+        stream._loop.call_soon_threadsafe(task.cancel)
+
+
 @router.delete("/threads/{thread_id}")
 def delete_thread(thread_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     t = _owned_thread(db, thread_id, user)
-    # 取消该 thread 运行中的 chat run（否则删 thread 后后台 run 仍烧 LLM 预算，iter 363）
+    # 取消该 thread 运行中的 chat run（否则删 thread 后后台 run 仍烧 LLM 预算，iter 363；
+    # iter 369：与 cancel_run 对齐做硬取消——软取消半边打不断在途流式读取）
     for r in db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).all():
-        stream = _RUN_STREAMS.get(r.id)
-        if stream is not None:
-            stream.request_cancel()
+        _cancel_run_stream(r.id)
     db.delete(t)  # ORM 级联：messages/runs/run_steps/artifacts/memories
     db.commit()
     return {"ok": True}
@@ -274,7 +293,12 @@ def delete_thread_memory(thread_id: int, memory_id: int, user=Depends(get_curren
 
 @router.get("/memory")
 def list_user_memory(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(models.Memory).filter_by(user_id=user.id, thread_id=None).order_by(models.Memory.updated_at.desc()).all()
+    rows = (
+        db.query(models.Memory)
+        .filter_by(user_id=user.id, thread_id=None)
+        .order_by(models.Memory.updated_at.desc())
+        .all()
+    )
     return {"items": [_mem_out(m) for m in rows]}
 
 
@@ -387,15 +411,9 @@ def delete_run(run_id: int, user=Depends(get_current_user), db: Session = Depend
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _owned_run(db, run_id, user)
-    stream = _RUN_STREAMS.get(run_id)
-    if stream is not None:
-        stream.request_cancel()  # 线程安全：同步端点跨线程触发 asyncio.Event（iter 363）
-        # iter 367：双保险硬取消——cancel_event 只在步/工具边界生效，正在进行的
-        # stream_agentic 流式读取（SDK 默认超时最长 600s）此前无法打断，run 继续
-        # 烧 token/占全局槽。task.cancel 触发 _run_chat 的 CancelledError 收敛。
-        task = getattr(stream, "task", None)
-        if task is not None and not task.done() and stream._loop is not None:
-            stream._loop.call_soon_threadsafe(task.cancel)
+    if run_id in _RUN_STREAMS:
+        # iter 367 双保险硬取消 + iter 369 抽出共用（delete_thread/delete_user 同口径）
+        _cancel_run_stream(run_id)
         return {"ok": True}
     raise HTTPException(status_code=409, detail="not_running")
 
@@ -411,8 +429,7 @@ def list_files(run_id: int, user=Depends(get_current_user), db: Session = Depend
     rows = db.query(models.RunArtifact).filter_by(run_id=run_id).order_by(models.RunArtifact.name).all()
     return {
         "items": [
-            {"id": a.id, "name": a.name, "kind": a.kind, "size": a.size, "promoted_to": a.promoted_to}
-            for a in rows
+            {"id": a.id, "name": a.name, "kind": a.kind, "size": a.size, "promoted_to": a.promoted_to} for a in rows
         ]
     }
 
@@ -448,12 +465,7 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
     r = _owned_run(db, run_id, user)
     if r.status != models.RunStatus.awaiting_approval:
         raise HTTPException(status_code=409, detail="not_awaiting_approval")
-    step = (
-        db.query(models.RunStep)
-        .filter_by(run_id=run_id, type="approval")
-        .order_by(models.RunStep.id.desc())
-        .first()
-    )
+    step = db.query(models.RunStep).filter_by(run_id=run_id, type="approval").order_by(models.RunStep.id.desc()).first()
     if step is None:
         raise HTTPException(status_code=404, detail="no_proposal")
     name = step.input.get("name", "")
@@ -516,7 +528,9 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
 
 class RunIn(BaseModel):
     message: str = Field(min_length=1, max_length=200_000)
-    max_steps: int | None = None
+    # iter 369：上界 200（客户端可传任意大值；未知模型计价 0 时预算守卫失效，run 仅受
+    # max_steps 约束——超大值可让单 run 跑数小时占全局槽 + messages/run_steps 线性膨胀）
+    max_steps: int | None = Field(default=None, ge=1, le=200)
     thinking: bool = False
     model: str | None = Field(default=None, max_length=128)
 
@@ -577,8 +591,14 @@ async def start_run(
     last_event_id = _parse_last_event_id(request)
     task = asyncio.create_task(
         _run_chat(
-            run_id, thread_id, user.id, body.message, stream,
-            max_steps=body.max_steps or 25, thinking=body.thinking, model_override=body.model,
+            run_id,
+            thread_id,
+            user.id,
+            body.message,
+            stream,
+            max_steps=body.max_steps or 25,
+            thinking=body.thinking,
+            model_override=body.model,
         )
     )
     _CHAT_RUN_TASKS.add(task)  # 持强引用防 create_task 被 GC 中途回收（iter 363）
@@ -608,11 +628,7 @@ async def stream_active_run(
       重启残留）-> 404 no_active_stream；前端两种 404 均静默改走正常拉消息。
     """
     _owned_thread(db, thread_id, user)
-    run = (
-        db.query(models.Run)
-        .filter_by(thread_id=thread_id, status=models.RunStatus.running)
-        .first()
-    )
+    run = db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).first()
     if run is None:
         raise HTTPException(status_code=404, detail="no_active_run")
     stream = _RUN_STREAMS.get(run.id)
@@ -671,7 +687,7 @@ class _ChatStream:
         item = (eid, event, data)
         self._events.append(item)
         if len(self._events) > self._MAX_EVENTS:  # FIFO 修剪（防无界增长）
-            self._events = self._events[-self._MAX_EVENTS:]
+            self._events = self._events[-self._MAX_EVENTS :]
         for q in list(self._subs):
             try:
                 q.put_nowait(item)
@@ -780,7 +796,9 @@ async def _run_chat(
             return
         # 仅 Anthropic 协议支持原生 tool_use；plugin provider 拒绝（phase 1）
         if not isinstance(provider, AnthropicProvider):
-            stream.publish("error", {"code": "unsupported_provider", "message": "当前供应商不支持 Agent 对话（需 Anthropic 协议）"})
+            stream.publish(
+                "error", {"code": "unsupported_provider", "message": "当前供应商不支持 Agent 对话（需 Anthropic 协议）"}
+            )
             return
         registry = default_registry()
         tools = agent_tool_definitions()
@@ -823,20 +841,27 @@ async def _run_chat(
                 thinking=thinking,
             )
         stream.result = result
-    except asyncio.CancelledError:
-        # iter 367：cancel_run 的 task.cancel 硬取消（流式读取无检查点，cancel_event
-        # 打不断）——收敛为 interrupted 终态后正常返回，让 finally 的 _finalize_chat
-        # 落库/发终态（吞取消是有意的：清理已完成，run 生命周期就此闭合）
+    except asyncio.CancelledError as exc:
+        # iter 367：cancel_run/delete 的 task.cancel 硬取消（流式读取无检查点，
+        # cancel_event 打不断）——收敛为 interrupted 终态后正常返回，让 finally 的
+        # _finalize_chat 落库/发终态（吞取消是有意的：清理已完成，run 生命周期就此闭合）。
+        # iter 369：保留循环已累计的 usage（agent_loop 在取消路径把 total_usage 挂到
+        # 异常对象上）——此前空 usage 覆盖会把 run.budget_used 写成 0（已入账累计也显示 0）
+        partial = getattr(exc, "partial_usage", None)
         stream.result = AgentRunResult(
-            status="interrupted", final_text="", steps=0, usage=LLMUsage(), error="cancelled"
+            status="interrupted", final_text="", steps=0, usage=partial or LLMUsage(), error="cancelled"
         )
         return
     except Exception as exc:  # noqa: BLE001  任务异常隔离——保已产出 + 终态
         log.exception("chat run %s failed", run_id)
         stream.publish("error", {"code": "internal_error", "message": str(exc)})
     finally:
-        await _finalize_chat(db, run_id, thread_id, stream)
-        db.close()
+        # iter 369：嵌套 try/finally——finalize 自身被二次取消打断时 db.close() 仍执行
+        # （此前异常穿透会跳过 close，连接延迟归还池）
+        try:
+            await _finalize_chat(db, run_id, thread_id, stream)
+        finally:
+            db.close()
 
 
 async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
@@ -891,10 +916,15 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
 
     iter 367（批次四）：commit_run_workspace 文件搬移（copytree/move，工作区可达 MB 级）
     移 to_thread——此前同步执行阻塞事件循环，多 run 同时收口时全局卡顿；DB 写仍留
-    循环（单行级，快）。取消到达时 to_thread 的 await 会被弃但线程跑完（文件不半搬）。
+    循环（单行级，快）。
+    iter 369：二次取消/关停取消落在收口窗口的加固——final_status 预置（此前 UnboundLocalError
+    会让终态 SSE 永不发、_RUN_STREAMS 泄漏、db 会话泄漏）；workspace commit 经 shield
+    + 捕 CancelledError（取消不打断收口，搬移线程后台跑完文件不半搬，其后收口路径无
+    await 不再可被打断）。
     """
     from app.plugins import bus
 
+    final_status = "error"  # 预置：任何异常/取消路径下 finally 均有值可发
     try:
         run = db.get(models.Run, run_id)
         if run is None:
@@ -914,7 +944,11 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
             elif result.status == "done":
                 run.status = models.RunStatus.done
                 try:
-                    await asyncio.to_thread(commit_run_workspace, db, run_id, thread_id)
+                    await asyncio.shield(asyncio.to_thread(commit_run_workspace, db, run_id, thread_id))
+                except asyncio.CancelledError:
+                    # 二次取消不打断收口：搬移线程经 shield 后台完成（文件不半搬），
+                    # 吞掉本轮取消信号继续落终态（其后收口路径无 await，不可再被打断）
+                    pass
                 except Exception:  # noqa: BLE001  commit 失败不阻断终态
                     log.warning("commit 工作区失败 run=%s", run_id, exc_info=True)
             elif result.status in ("interrupted", "max_steps"):
@@ -925,7 +959,11 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
                 run.status = models.RunStatus.error
                 run.error = {"message": result.error}
             if result is not None and result.usage:
-                run.budget_used = usage_cost(result.usage)
+                # iter 369：按用户计费表（与 api_usage/用量页同口径；失败回退族默认）
+                try:
+                    run.budget_used = usage_cost(result.usage, get_active_model_pricing(run.user_id, db=db))
+                except Exception:  # noqa: BLE001
+                    run.budget_used = usage_cost(result.usage)
             from sqlalchemy import func as _func
 
             run.ended_at = _func.now()

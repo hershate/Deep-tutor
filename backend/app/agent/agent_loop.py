@@ -398,10 +398,12 @@ async def run_agent_loop(
                         await emit("tool_call", {"id": chunk.tool_use_start[0], "name": chunk.tool_use_start[1], "step": step})
                     if chunk.tool_use_delta:
                         await emit("tool_progress", {"id": chunk.tool_use_delta[0], "step": step})
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
             # iter 369：硬取消（/runs/{id}/cancel 的 task.cancel / 关停取消）打断流读取时，
             # 本轮 message_start 已到的 input/cache tokens 已向供应商计费——补记后原样重抛
-            # （取消语义不变；shield 防补记 await 被紧随的二次取消打断）
+            # （取消语义不变；shield 防补记 await 被紧随的二次取消打断）。
+            # partial_usage 挂到异常对象：_run_chat 的 CancelledError 分支据此恢复累计
+            # usage（此前空 usage 覆盖会把 run.budget_used 写成 0）
             if acc.usage is not None and (acc.usage.input_tokens or acc.usage.output_tokens):
                 accumulate_usage(total_usage, acc.usage)
                 meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
@@ -409,6 +411,10 @@ async def run_agent_loop(
                     await asyncio.shield(asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id))
                 except Exception:  # noqa: BLE001  补记失败不阻断取消传播
                     log.warning("agent_loop 取消路径补记 usage 失败", exc_info=True)
+            try:
+                exc.partial_usage = total_usage
+            except (AttributeError, TypeError):  # noqa: BLE001  异常对象不可设属性（理论边缘）
+                pass
             raise
         except Exception as exc:  # noqa: BLE001  provider 异常隔离——终止保已计量
             log.warning("agent_loop provider error at step %d: %s", step, exc)

@@ -157,12 +157,12 @@ def delete_user(
     # iter 365：取消该用户运行中的 chat run（同 delete_thread 模式）。删 user -> ORM 级联
     # 删 Thread/Run 行，但 _run_chat 后台任务仍持独立 SessionLocal 在跑——下次 persist 撞
     # 失效 FK 抛 IntegrityError 被吞，当轮 LLM 费用已发生却写不进 api_usage -> 成本黑洞。
-    from app.api.memory import _RUN_STREAMS
+    from app.api.memory import _cancel_run_stream
 
     for r in db.query(models.Run).filter_by(user_id=u.id, status=models.RunStatus.running).all():
-        stream = _RUN_STREAMS.get(r.id)
-        if stream is not None:
-            stream.request_cancel()
+        # iter 369：与 cancel_run 同口径硬取消（软取消打不断在途流式读取——用户行已删
+        # 后 LLM 仍在跑，api_usage 插入撞 FK 费用无法落账 + 占全局 chat 槽）
+        _cancel_run_stream(r.id)
     # 级联清理：会话（ORM 级联 plans/materials/quizzes 等 + 文件目录）-> 供应商档案/用量 -> 用户
     session_ids = [s.id for s in db.query(models.Session).filter_by(user_id=u.id).all()]
     for sid in session_ids:
