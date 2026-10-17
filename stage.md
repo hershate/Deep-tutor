@@ -38,6 +38,14 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R14（2026-10-17，Python v1 深度审计第十一轮「iter 372」，✅ 完成）**：同一 /goal 第十一遍——**维护任务真实调度实证**（此前 maintenance 只有函数级单测，lifespan 拉起的 `maintenance_loop` 周期调度层从未在真实进程下验证）。2 commit、0 新自动测试（实证走手工脚本）：
+
+- **节奏旋钮化（行为保持）**：`maintenance_interval_seconds` / `orphan_grace_seconds` 入 Settings（默认恒 86400=每日/24h，语义不变）；maintenance.py 模块常量改读 settings——兼作运维调节旋钮与实进程验证的加速驱动口；.env.example 补模板行。
+- **真实调度四实证（`backend/tests/soak_maintenance.py` 手工脚本，加速 3s/轮 + 8s 冷却）**：真实 uvicorn 子进程两阶段（起服建 schema → 离线种子 → 加速节奏起服观察循环）。①**WAL checkpoint(TRUNCATE) 由循环真实触发**（日志「WAL checkpoint(TRUNCATE) 完成」+ 事后 `-wal` 0 字节截断实证）；②**prune_api_usage 按 API_USAGE_RETENTION_DAYS=180 裁掉 200 天旧行、保留新行，且幂等**（裁剪日志恰出现一次——后续轮次 0 删不再记）；③**孤儿目录冷却双向语义**：陈旧孤儿（mtime 3 天前）首轮即删（恰一次）、新鲜孤儿 8s 冷却窗内不删/过期后由后续轮删除、存活会话目录（行在、mtime 30 天前）多轮永不删——「行在则不删」与冷却窗各自独立生效；④服务面全程健康 + 关停后 `integrity_check=ok`。首跑即全绿（+5.9s 前两轮四命中、+11.3s 到期侧、日志幂等计数、-wal 截断）。
+- **门禁**：后端全量 pytest **1405 通过/1 跳过** + ruff 全仓（含 maintenance/settings 改动回归：test_maintenance/test_iter368_stability/test_iter370_usage_pruning 全绿）；前端无改动。
+- **遗留（承前未变）**：CSP（v2）、币种字段改名（待追认）、share 过期默认、SQLite 专有日期函数、事件断线游标（v2 #60）、transformers CVE（marker-pdf 锁）、GET /notes 无分页（30MB 上界接受）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R13（2026-10-17，Python v1 深度审计第十轮「iter 372」，✅ 完成）**：同一 /goal 第十遍——**读路径收尾 + 全量门禁偶发牵出的真并发 BUG**。3 commit、2 个新回归测试：
 
 - **thread 记忆列表两端收敛**：GET /threads/{id}/memory 此前无界全量返回（2000 条/用户配额 × 20000 字符/条上限最坏 ~40MB 单响应），而 Chat 页记忆面板只是 160px 速览小窗且 `items.map` 全量渲染——后端封顶最近 200 条 + `total` 全量计数（加性扩展），前端只渲染最近 50 条并如实显示总数（「仅显示最近 50 条（共 N 条）」）；API.md §11.2 行勘误注记。回归锁死封顶数/total 口径/updated_at 倒序。
