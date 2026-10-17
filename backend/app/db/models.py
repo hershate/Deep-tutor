@@ -253,7 +253,8 @@ class KbDocument(Base):
     __tablename__ = "kb_documents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # iter 371 R9：列表页主过滤列补索引（此前无索引全表扫，随上传量线性劣化）
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     kind: Mapped[MaterialKind] = mapped_column(Enum(MaterialKind), nullable=False)
     ext: Mapped[str] = mapped_column(String(16), default="")
@@ -388,7 +389,7 @@ class Quiz(Base):
     __tablename__ = "quizzes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False, index=True)  # iter 371 R9：进度面板按方案取题
     node_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_nodes.id"))
     type: Mapped[QuizType] = mapped_column(Enum(QuizType), default=QuizType.choice)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)  # 题干/选项/答案/解析
@@ -405,7 +406,7 @@ class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id"), nullable=False)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id"), nullable=False, index=True)  # iter 371 R9：错题队列按题取最新 attempt（全库增速最快表）
     user_answer: Mapped[dict] = mapped_column(JSON, default=dict)
     correct: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -436,11 +437,13 @@ class Progress(Base):
 
 class LearningLog(Base):
     __tablename__ = "learning_logs"
+    # iter 371 R9：打卡日历/今日分钟按 (plan_id, date) 取行——复合索引
+    __table_args__ = (Index("ix_learning_logs_plan_date", "plan_id", "date"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
-    minutes: Mapped[int] = mapped_column(Integer, default=0)
+    minutes: Mapped[int] = mapped_column(Integer, default=0)  # (plan_id,date) 复合索引见 __table_args__
     note: Mapped[str | None] = mapped_column(Text)
 
     plan: Mapped[Plan] = relationship(back_populates="learning_logs")

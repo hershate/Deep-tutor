@@ -95,7 +95,8 @@ def _api_usage_composite_indexed(insp) -> bool:
 
 
 _REVISION_PROBES = [
-    ("e8c4a1f63b02", _api_usage_composite_indexed),  # iter 369 api_usage 复合索引（head）
+    ("b9d2e4f71a35", _has_index("quizzes", "ix_quizzes_plan_id")),  # iter 371 R9 热查询索引（head）
+    ("e8c4a1f63b02", _api_usage_composite_indexed),  # iter 369 api_usage 复合索引
     ("c5d7e9a13b28", _provider_pricing_removed),  # iter 356 删每卡计价列
     # iter 356：price 列仍在 = 旧库已到 d8a2f5c91b34 代；stamp 后 upgrade 跑 c5d7e9a13b28 删列
     ("d8a2f5c91b34", _has_column("llm_provider_profiles", "price_input_per_mtok")),
