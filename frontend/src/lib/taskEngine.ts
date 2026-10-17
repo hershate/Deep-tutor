@@ -31,6 +31,7 @@ import {
   type TaskPhase,
 } from '../store/tasks'
 import { toast } from '../components/Toast'
+import { getToken } from './auth'
 
 type NavigateFn = (path: string, opts?: { replace?: boolean }) => void
 type StreamOnEvent = (event: string, data: Record<string, unknown>) => void
@@ -287,7 +288,11 @@ export const engine = {
       booted = false
       if (bootAttempts < BOOT_MAX_RETRIES) {
         bootAttempts += 1
-        setTimeout(() => void engine.boot(), bootAttempts * 10_000)
+        // iter 370：登出（无 token）后重试必 401 -> handleUnauthorized 整页硬刷新；
+        // 重试前查鉴权态，已登出则放弃（下次登录页面刷新自然再 boot）
+        setTimeout(() => {
+          if (getToken()) void engine.boot()
+        }, bootAttempts * 10_000)
       }
       return
     }

@@ -184,6 +184,7 @@ function KindSection({ kind }: { kind: CredentialKind }) {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 placeholder="如：主力 Key"
+                maxLength={64}
               />
             </label>
             <label className="text-sm">
@@ -194,6 +195,7 @@ function KindSection({ kind }: { kind: CredentialKind }) {
                   onChange={(e) => setForm({ ...form, api_key: e.target.value })}
                   className="w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                   placeholder={form.id !== null ? '留空保持不变' : meta.keyPlaceholder}
+                  maxLength={256}
                   type="password"
                   autoComplete="new-password"
                   required={form.id === null}

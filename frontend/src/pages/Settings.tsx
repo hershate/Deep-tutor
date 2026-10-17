@@ -187,11 +187,18 @@ function BudgetRow({ data }: { data: AppSettings }) {
   const [busy, setBusy] = useState(false)
 
   async function save(reset: boolean) {
+    // iter 370：空串经 Number('')===0 原本静默通过——用户编辑后清空再保存即无确认
+    // 地解除每日花费上限；显式拦截并要求填 0 表达「不限」意图
+    if (!reset && value.trim() === '') {
+      toast.error('预算不能为空；设为不限请明确填 0')
+      return
+    }
     const n = reset ? null : Number(value)
     if (!reset && (!Number.isFinite(n) || (n as number) < 0 || (n as number) > 100000)) {
       toast.error('预算须在 0-100000 之间（0 = 不限）')
       return
     }
+    if (!reset && n === 0 && !window.confirm('预算设为 0 将解除每日花费上限（不限），确定？')) return
     setBusy(true)
     try {
       await updatePrefs({ daily_budget_usd: n })
@@ -253,7 +260,10 @@ function BudgetRow({ data }: { data: AppSettings }) {
           </>
         ) : (
           <>
-            <span className="tabular-nums">{`￥${data.daily_budget_effective}`}</span>
+            {/* iter 370：0=不限显式标注（与 Usage 页 BudgetBar 口径一致，不再裸显 ￥0 误导） */}
+            <span className="tabular-nums">
+              {data.daily_budget_effective > 0 ? `￥${data.daily_budget_effective}` : '不限（￥0）'}
+            </span>
             <button
               onClick={() => {
                 setValue(String(data.daily_budget_effective))
@@ -369,8 +379,23 @@ function MaxTokensRow({ data }: { data: AppSettings }) {
 function SharesCard() {
   const qc = useQueryClient()
   const [busyId, setBusyId] = useState<number | null>(null)
-  const { data } = useQuery({ queryKey: ['shares'], queryFn: listShares, staleTime: 30_000 })
+  const { data, isError, error, refetch } = useQuery({ queryKey: ['shares'], queryFn: listShares, staleTime: 30_000 })
   const shares = data?.shares ?? []
+  // iter 370：失败态显式警告——本卡是「我分享出去了哪些」的安全审计面，查询失败与
+  // 「无活跃分享」不可区分会让用户误以为没有公开链接（宁可示警不可静默）
+  if (isError) {
+    return (
+      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/40">
+        <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-200">分享链接状态未知</h3>
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          查询失败：{error instanceof Error ? error.message : '未知错误'}——无法确认当前是否存在活跃的公开分享链接。
+        </p>
+        <button onClick={() => void refetch()} className="mt-2 rounded-lg border border-amber-400 px-3 py-1 text-xs text-amber-800 dark:text-amber-200">
+          重试
+        </button>
+      </section>
+    )
+  }
   if (!data || shares.length === 0) return null
 
   async function copy(path: string) {

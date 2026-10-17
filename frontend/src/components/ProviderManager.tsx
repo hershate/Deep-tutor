@@ -168,6 +168,7 @@ export default function ProviderManager() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 placeholder="如：官方中转"
+                maxLength={64}
               />
             </label>
             <label className="text-sm">
@@ -177,6 +178,7 @@ export default function ProviderManager() {
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
                 className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
                 placeholder="如：claude-sonnet-5"
+                maxLength={128}
               />
             </label>
           </div>
@@ -193,6 +195,9 @@ export default function ProviderManager() {
                   {'plugin_id' in k ? `（插件 ${k.plugin_id}）` : ''}
                 </option>
               ))}
+              {!kindOptions.some((k) => k.kind === form.kind) && (
+                <option value={form.kind}>{form.kind}（插件未装载）</option>
+              )}
             </select>
           </label>
           {isPluginKind && (
@@ -207,6 +212,7 @@ export default function ProviderManager() {
               onChange={(e) => setForm({ ...form, base_url: e.target.value })}
               className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
               placeholder="https://relay.example.com"
+              maxLength={256}
               type="url"
             />
           </label>
@@ -217,6 +223,7 @@ export default function ProviderManager() {
               onChange={(e) => setForm({ ...form, api_key: e.target.value })}
               className="mt-1 w-full rounded-lg border px-2 py-1 transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
               placeholder={form.id !== null ? '留空保持不变' : 'sk-...'}
+              maxLength={256}
               type="password"
               autoComplete="new-password"
               required={form.id === null}
@@ -270,10 +277,19 @@ export default function ProviderManager() {
                 )}
                 {p.kind && p.kind !== 'anthropic' && (
                   <span
-                    className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                    title="协议（插件 Provider）"
+                    className={`rounded px-1.5 py-0.5 text-xs ${
+                      kindOptions.some((k) => k.kind === p.kind)
+                        ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                    }`}
+                    title={
+                      kindOptions.some((k) => k.kind === p.kind)
+                        ? '协议（插件 Provider）'
+                        : '插件协议当前不可用（插件未装载/未启用）'
+                    }
                   >
                     {p.kind}
+                    {kindOptions.some((k) => k.kind === p.kind) ? '' : '（插件未装载）'}
                   </span>
                 )}
               </div>

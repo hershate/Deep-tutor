@@ -22,7 +22,11 @@ export default function Usage() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">用量统计</h2>
         <button
-          onClick={() => refetch()}
+          onClick={() => {
+            void refetch()
+            void daily.refetch()
+            void byModel.refetch()
+          }}
           disabled={isFetching}
           className="rounded-lg border px-3 py-1.5 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50 disabled:active:scale-100"
         >
@@ -62,9 +66,21 @@ export default function Usage() {
       )}
 
       {/* iter 131：近 14 日按日费用柱状图（纯 CSS，悬浮看明细） */}
+      {daily.isError && (
+        <p className="text-sm text-red-500">
+          按日趋势加载失败：{daily.error instanceof Error ? daily.error.message : '未知错误'}
+          <button onClick={() => void daily.refetch()} className="ml-2 text-blue-600 underline">重试</button>
+        </p>
+      )}
       {daily.data && daily.data.items.length > 0 && <DailyChart items={daily.data.items} />}
 
       {/* iter 303：按模型费用分解 */}
+      {byModel.isError && (
+        <p className="text-sm text-red-500">
+          按模型分解加载失败：{byModel.error instanceof Error ? byModel.error.message : '未知错误'}
+          <button onClick={() => void byModel.refetch()} className="ml-2 text-blue-600 underline">重试</button>
+        </p>
+      )}
       {byModel.data && byModel.data.items.length > 0 && <ModelBreakdown items={byModel.data.items} />}
     </div>
   )

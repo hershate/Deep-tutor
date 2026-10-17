@@ -53,7 +53,9 @@ function pushHistory(q: string) {
 
 export default function Search() {
   const [params, setParams] = useSearchParams()
-  const q = (params.get('q') ?? '').trim()
+  // iter 370：深链 q 超 100 字符（后端 Query max_length=100）截断——原值请求必 422，
+  // 「重试」按钮重试必再失败成永久错误态；输入框 maxLength 只约束手输不约束 URL
+  const q = (params.get('q') ?? '').trim().slice(0, 100)
   const [input, setInput] = useState(q)
   // URL 变化（前进/后退/顶栏提交）同步输入框
   useEffect(() => setInput(q), [q])

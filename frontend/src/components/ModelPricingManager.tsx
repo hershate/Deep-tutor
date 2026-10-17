@@ -64,10 +64,23 @@ export default function ModelPricingManager() {
     for (const r of rows) {
       const m = r.model.trim()
       if (!m) continue
+      if (m.length > 128) {
+        // iter 370：与后端清洗同上界（超长条目会被静默丢弃，此前界面与服务端状态分叉）
+        setOpError(`模型名超 128 字符：${m.slice(0, 24)}…`)
+        return
+      }
       const key = m.toLowerCase()
       if (seen.has(key)) {
         setOpError(`模型名重复：${m}`)
         return
+      }
+      // iter 370：非空但非法的单价（如 1O）此前被 num() 静默归 0 入库——该模型成本
+      // 全记 0 且界面仍显示原输入，直接污染用量/日预算链；改为就地报错
+      for (const [label, v] of [['输入', r.in], ['输出', r.out], ['缓存读', r.cr], ['缓存写', r.cw]] as const) {
+        if (v.trim() !== '' && (!Number.isFinite(Number(v)) || Number(v) < 0)) {
+          setOpError(`「${m}」${label}单价须为非负数字（当前：${v}）`)
+          return
+        }
       }
       seen.add(key)
       obj[m] = {
@@ -77,11 +90,18 @@ export default function ModelPricingManager() {
         cache_write_per_mtok: num(r.cw),
       }
     }
+    if (Object.keys(obj).length > 200) {
+      setOpError('计费表最多 200 个模型（与后端上限一致），请删减后保存')
+      return
+    }
     setBusy(true)
     setOpError('')
     try {
-      await updatePricing(obj)
-      toast.success(`模型计费已保存（${Object.keys(obj).length} 个模型）`)
+      // iter 370：保存成功回读服务端清洗后的表（NaN/负数归 0、超长丢弃、截 200 条
+      // 均以落库结果为准）——此前界面保留原输入，与服务端持久化状态静默分叉
+      const saved = await updatePricing(obj)
+      setRows(toRows(saved.table && Object.keys(saved.table).length > 0 ? saved.table : saved.defaults))
+      toast.success(`模型计费已保存（${Object.keys(saved.table ?? {}).length} 个模型）`)
       await qc.invalidateQueries({ queryKey: ['pricing'] })
     } catch (e) {
       setOpError(e instanceof ApiError ? e.message : '保存失败，请重试')

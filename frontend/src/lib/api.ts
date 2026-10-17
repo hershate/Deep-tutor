@@ -12,6 +12,9 @@ function token(): string {
 }
 
 export class ApiError extends Error {
+  // iter 370：422 校验错误的字段级明细（后端统一错误体 details.errors：[{loc, msg}]）
+  details?: Array<{ loc?: string[]; msg?: string }>
+
   constructor(public code: string, message: string, public status: number) {
     super(message)
   }
@@ -945,9 +948,21 @@ export interface BackupImportResult {
 async function throwIfNotOk(res: Response): Promise<void> {
   if (res.ok) return
   handleUnauthorized(res.status)
-  const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } }
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: { code?: string; message?: string; details?: { errors?: Array<{ loc?: string[]; msg?: string }> } }
+  }
   const err = body?.error ?? {}
-  throw new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+  const e = new ApiError(err.code ?? 'http_error', err.message ?? `HTTP ${res.status}`, res.status)
+  const detailErrs = err.details?.errors
+  if (Array.isArray(detailErrs) && detailErrs.length > 0) {
+    // iter 370：设置页等表单 422 此前只剩「请求参数校验失败」笼统文案（字段超长/非
+    // http(s) 等具体原因被丢），拼首条字段级错误供定位
+    e.details = detailErrs
+    const first = detailErrs[0]
+    const field = Array.isArray(first.loc) ? first.loc.filter((x) => x !== 'body').join('.') : ''
+    e.message = field ? `${e.message}（${field}: ${first.msg ?? '非法'}）` : `${e.message}（${first.msg ?? '非法'}）`
+  }
+  throw e
 }
 
 /** 触发浏览器下载 Blob（文件名优先取 Content-Disposition 的 filename 星号形式，支持 RFC 5987 中文名）。 */

@@ -94,7 +94,12 @@ export default function HeaderSearch() {
           if (!ac.signal.aborted) setLoading(false)
         })
     }, DEBOUNCE_MS)
-    return () => window.clearTimeout(t)
+    // iter 370：cleanup 同步中止在途请求——此前仅 clearTimeout，旧词请求已发出时
+    // 新词头 250ms 内旧结果到达即闪现；卸载亦不再有残留请求回写状态
+    return () => {
+      window.clearTimeout(t)
+      abortRef.current?.abort()
+    }
   }, [query])
 
   // 点击外部关闭

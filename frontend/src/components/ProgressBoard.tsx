@@ -303,9 +303,9 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
         <VerifyCard
           planId={planId}
           node={verifyNode}
-          onDone={(status) => {
-            void setStatus(verifyNode, status)
-            // 答错也保留卡片显示结果（解析），用户可「收起」手动关闭
+          onDone={async (status) => {
+            await setStatus(verifyNode, status)
+            // 状态写库确认后才收卡（失败时错误条可见、卡片保留供重试）；答错保留卡片显示解析
             if (status === 'done') setVerifyNode(null)
           }}
           onClose={() => setVerifyNode(null)}

@@ -34,8 +34,10 @@ export default function EventsBridge() {
             }
             events.emit(ev.event, payload)
           }, controller.signal)
-          // 流干净结束（后端关闭/HTTP2 EOF）——非停止则重连
-          attempt = 0
+          // 流干净结束（后端关闭/HTTP2 EOF）——非停止则重连。
+          // iter 370：不再重置 attempt——「接受连接即关」循环（后端重启风暴/代理拒绝）
+          // 每次都被当干净结束，退避永停在 250ms-1s 区间无限快打 /api/events/stream；
+          // 让 attempt 继续递增（正常长连接的 attempt 本就随每次重连增长，上限 30s）
         } catch (err) {
           if (stopped || controller.signal.aborted) break
           // 401：openSSE 已触发登录跳转，不再重连
