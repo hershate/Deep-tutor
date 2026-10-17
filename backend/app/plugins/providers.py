@@ -91,7 +91,14 @@ def register(entry: ProviderEntry) -> None:
 def unregister(entry: ProviderEntry) -> None:
     """移除该 entry 名下的 kind（loader register 失败回滚/热卸载用；按对象身份匹配）。
 
-    iter 369：该 kind 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
+    iter 369：该 kind 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。
+    iter 386 R29：先从全部 displaced 栈剔除本 entry（其插件被覆盖后重载时旧 entry
+    以幽灵身份留栈，后续回填会复活已卸载插件的 handler——详见 parsers.unregister）。"""
+    for kind in [k for k, stk in _displaced.items() if any(e is entry for e in stk)]:
+        stk = _displaced[kind]
+        stk[:] = [e for e in stk if e is not entry]
+        if not stk:
+            _displaced.pop(kind, None)
     for kind in [k for k, v in _providers.items() if v is entry]:
         stack = _displaced.get(kind)
         if stack:

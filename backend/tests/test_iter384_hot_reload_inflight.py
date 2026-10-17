@@ -130,8 +130,10 @@ def test_cancel_from_foreign_thread_cancels():
 
     async def main():
         ran = asyncio.Event()
-        h = scheduler.every(0.05, lambda: ran.set())  # 首跑在 t=0.05
-        await asyncio.sleep(0.02)  # 任务处于 sleep 等待（_fut_waiter 非 None）
+        # iter 386：时序裕量放宽——debug 模式 asyncio 开销大且全量套件高负载下，0.02s
+        # 取消对 0.05s 首跳仅 30ms 裕量（全量偶发红）；0.5s 首跳留 0.45s 取消窗口
+        h = scheduler.every(0.5, lambda: ran.set())  # 首跑在 t=0.5
+        await asyncio.sleep(0.05)  # 任务处于 sleep 等待（_fut_waiter 非 None）
         err: dict = {}
 
         def _cancel():
@@ -147,14 +149,14 @@ def test_cancel_from_foreign_thread_cancels():
 
         # 取消已投递到循环——异步轮询等待任务终止（同步 sleep 会堵死循环，回调永不到达）
         async def _await_done() -> bool:
-            deadline = time.monotonic() + 2.0
+            deadline = time.monotonic() + 5.0
             while not h._task.done() and time.monotonic() < deadline:  # noqa: SLF001
                 await asyncio.sleep(0.01)
             return h._task.done()  # noqa: SLF001
 
         assert await _await_done()
         assert h._task.cancelled() or h._task.done()  # noqa: SLF001
-        assert not ran.is_set()  # 0.05 间隔、t=0.02 取消 -> fn 从未到点
+        assert not ran.is_set()  # 0.5 间隔、t=0.05 取消 -> fn 从未到点
 
     asyncio.run(main(), debug=True)  # debug=True：跨线程不安全操作必炸（旧实现红）
 

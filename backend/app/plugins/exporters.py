@@ -69,9 +69,7 @@ def register(entry: ExporterEntry) -> None:
     fmt = entry.format
     existing = _exporters.get(fmt)
     if existing is not None and existing is not entry:
-        log.warning(
-            "插件导出器覆盖既有注册: %s（原 %s <- 新 %s）", fmt, existing.plugin_id, entry.plugin_id
-        )
+        log.warning("插件导出器覆盖既有注册: %s（原 %s <- 新 %s）", fmt, existing.plugin_id, entry.plugin_id)
     if not entry.override and fmt in BUILTIN_FORMATS:
         # iter 365 C10：不写入——find_exporter 对内置格式返回 None（内置接管），但 all_entries
         # 此前仍返回它 -> GET /export/formats 展示并不生效的格式（UI 与行为不一致）。
@@ -90,7 +88,14 @@ def register(entry: ExporterEntry) -> None:
 def unregister(entry: ExporterEntry) -> None:
     """移除该 entry 的注册（loader register 失败回滚/热卸载用；按对象身份匹配）。
 
-    iter 369：该 format 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
+    iter 369：该 format 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。
+    iter 386 R29：先从全部 displaced 栈剔除本 entry（其插件被覆盖后重载时旧 entry
+    以幽灵身份留栈，后续回填会复活已卸载插件的 handler——详见 parsers.unregister）。"""
+    for fmt in [k for k, stk in _displaced.items() if any(e is entry for e in stk)]:
+        stk = _displaced[fmt]
+        stk[:] = [e for e in stk if e is not entry]
+        if not stk:
+            _displaced.pop(fmt, None)
     for fmt in [k for k, v in _exporters.items() if v is entry]:
         stack = _displaced.get(fmt)
         if stack:

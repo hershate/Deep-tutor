@@ -70,9 +70,7 @@ def register(entry: ParserEntry) -> None:
     for ext in entry.extensions:
         existing = _parsers.get(ext)
         if existing is not None and existing is not entry:
-            log.warning(
-                "插件解析器覆盖既有注册: %s（原 %s <- 新 %s）", ext, existing.plugin_id, entry.plugin_id
-            )
+            log.warning("插件解析器覆盖既有注册: %s（原 %s <- 新 %s）", ext, existing.plugin_id, entry.plugin_id)
         if not entry.override and ext in _builtin_exts():
             # iter 365 C10：不写入（同 exporters）——find_parser 返回 None 但 all_entries 仍展示
             log.warning(
@@ -90,7 +88,15 @@ def register(entry: ParserEntry) -> None:
 def unregister(entry: ParserEntry) -> None:
     """移除该 entry 名下全部 ext（loader register 失败回滚/热卸载用；按对象身份匹配）。
 
-    iter 369：该 ext 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
+    iter 369：该 ext 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。
+    iter 386 R29：entry 自身也可能作为前任躺在 displaced 栈里（其插件被覆盖后重载：
+    旧 entry 的 unregister 对 map 是 no-op，旧 entry 此前以幽灵身份永留栈）——后续
+    卸载按栈顶回填时会复活已卸载插件的 handler。故先从全部 displaced 栈剔除本 entry。"""
+    for ext in [k for k, stk in _displaced.items() if any(e is entry for e in stk)]:
+        stk = _displaced[ext]
+        stk[:] = [e for e in stk if e is not entry]
+        if not stk:
+            _displaced.pop(ext, None)
     for ext in [k for k, v in _parsers.items() if v is entry]:
         stack = _displaced.get(ext)
         if stack:

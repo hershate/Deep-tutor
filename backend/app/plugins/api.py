@@ -14,6 +14,7 @@ import os
 import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -56,6 +57,27 @@ if TYPE_CHECKING:
 # v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
 #         无需重启服务器即可在 /plugins 页热管理插件。
 API_VERSION = "1.20.0"
+
+
+@asynccontextmanager
+async def _stateless_lifespan(app: Any) -> Any:
+    """无状态 lifespan（yield None）——替换插件路由器的 _DefaultLifespan 用（iter 386 R29，
+    见 RoutesNamespace.mount 注释）。"""
+    yield None
+
+
+def _detach_default_lifespan(router: Any) -> None:
+    """把子路由器的默认 lifespan 换为无状态实现（iter 386 R29，mount 前调用）。
+
+    include_router 无条件合并子路由器 lifespan 进 app.router.lifespan_context 且无反合并
+    API——默认 _DefaultLifespan 持有路由器本体，令合并链永久钉死插件路由图（含 endpoint
+    闭包捕获的 api 门面图）。router.on_startup/on_shutdown handler 已被 include 复制进
+    app 事件表（app 侧执行一次），换无状态实现行为不变且消除潜在双跑。自定义 lifespan
+    的路由器不替换（罕见高级用法，保留既有合并语义）。"""
+    from fastapi.routing import _DefaultLifespan  # noqa: SLF001  上游私有类；改名即 ImportError 显性暴露
+
+    if isinstance(getattr(router, "lifespan_context", None), _DefaultLifespan):
+        router.lifespan_context = _stateless_lifespan
 
 
 class ToolsNamespace:
@@ -939,6 +961,15 @@ class RoutesNamespace:
             raise ValueError("prefix 需以 / 开头")
         full = f"/api/plugins/{self._pid}{prefix}"
         dependencies = [Depends(require_auth)] if auth else []
+        # iter 386 R29：阻断 include_router 的 lifespan 永久合并泄漏——include 末段无条件
+        # _merge_lifespan_context(self.lifespan_context, router.lifespan_context)，且无反合并
+        # API：卸载只摘路由条目，合并链闭包永久持有插件 APIRouter→路由→endpoint（endpoint
+        # 闭包捕获 api 门面时整张 api 图连同插件状态被长寿引用；真实进程实测每次热重载
+        # 泄漏 1 个内核句柄 + 数百对象）。默认 APIRouter 的 lifespan 是 _DefaultLifespan
+        # （仅跑 router.on_startup/on_shutdown，而这些 handler 已被 include 复制进 app 事件表
+        # 由 app 侧执行——合并链里的默认 lifespan 反而会双跑）——换为无状态实现：行为不变、
+        # 断开合并链对插件路由器图的挂载。插件自带自定义 lifespan（非默认）时不替换。
+        _detach_default_lifespan(router)
         # FastAPI 0.139 起 include_router 惰性挂载（路由表条目为 _IncludedRouter 包装，
         # 无 .path 属性）——回滚不能按路径前缀过滤，改为记录本次挂载追加的对象按身份摘除
         before = len(self._app.router.routes)

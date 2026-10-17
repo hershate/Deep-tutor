@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R29（2026-10-18，Python v1 深度审计第二十六轮「iter 386」，✅ 完成）**：同一 /goal 第二十六遍——**长时间运行内存/句柄泄漏巡检（热管理多代循环趋势）+ 沿线两个真缺陷修复**。7 新回归、patrol/soak 双脚本验证，全量 1455 通过：
+
+- **静态审计（模块级增长容器清单化）**：runtime._statuses/_plugin_tools、loader._plugin_apis/_disabled_ids、bus 三表（done 回调清引用）、scheduler._tasks（iter 365 C4）、webhooks._bg_tasks、providers/parsers/exporters 注册表 + displaced 栈、plans._STREAMS / memory._RUN_STREAMS / _CHAT_RUN_TASKS（R23-R24 已审）、verify_url 缓存（TTL+4096 上限）、频控桶（惰性淘汰+_MAX_KEYS 兜底）、LLM client 缓存（LRU+aclose 调度 iter 365 B3）、skills 注册表（文件有界）——除 displaced 栈外全部有界。
+- **缺陷 A（displaced 幽灵复活·三注册表同构）**：iter 369 的覆盖回填栈按身份管理前任，但被覆盖插件**重载**后旧 entry 对 map 是 no-op、以幽灵身份永留栈——后续卸载按栈顶回填会**复活已卸载插件的 handler**（解析器/导出器/Provider，致命序列：A 注册→B 覆盖→A 重载→B 卸载→A 卸载 ⇒ map 指向死 B）。修复：unregister(entry) 先把 entry 自身从全部 displaced 栈剔除（3 处同构修复）；4 回归（三注册表各一 + 活前任正常回填不回归）。
+- **泄漏 patrol（tests/soak_leak_patrol.py，手工运行）**：自检插件（进程内 ctypes 读自身 RSS/句柄——伪句柄须按 64 位指针传参，默认 int 截断会静默失败）+ 8 插件 30 代 reload/disable/enable 循环 × 流量。首轮结果：RSS 平稳（+2.2MB/30 代）、dt_plugin 模块逐出恒稳、**句柄线性 +1/代**（60 代 +75）。
+- **四层二分定位**：纯流量平稳（含 webhook 死端口路径）⇒ 重载路径；逐插件二分 ⇒ hookp 单独即漏；变体二分 ⇒ 纯路由（含 emit 闭包）漏、纯 webhook 注册平稳；第三变体 ⇒ **常量返回路由平稳——触发器 = 路由闭包捕获 `api` 门面**。进程内最小复现放大（20 代 +123 句柄、gc 后仍滞留 14k 函数/1676 Dependant）+ 引用者透视 ⇒ **根因（FastAPI 0.139 源码级）：include_router 末段无条件 `_merge_lifespan_context` 把子路由器 lifespan 合并进 app.router.lifespan_context 且无反合并 API——卸载只摘路由条目，合并链闭包永久持有插件 APIRouter→路由→endpoint（捕获 api 时整张门面图连同插件状态被长寿引用）**。
+- **缺陷 B 修复（RoutesNamespace.mount）**：include 前把默认 `_DefaultLifespan` 换为无状态实现（router.on_startup/on_shutdown handler 本就被 include 复制进 app 事件表由 app 侧执行——行为不变，且消除合并链里默认 lifespan 的潜在双跑）；自定义 lifespan 路由器不替换（保留既有语义）。weakref 红绿验证（修复前 api 图不死→修复后可回收）+3 回归。**patrol 终验：句柄 30 代漂移 +0（344→345 震荡）、RSS +2.4MB、模块逐出干净**；R28 热管理 soak 复验全绿。
+- **测试基建留档**：① gc 断言类测试中，测试帧的局部变量（router/默认参元组）会把待回收图钉住致假红——被测对象图须在辅助函数内构造；② 泄漏趋势断言按实测墙钟换算（宿主机 sleep 超时会伪装成服务端异常）；③ 进程内 GetProcessHandleCount/GetProcessMemoryInfo 需显式 argtypes/restype。
+- **门禁**：全量 pytest 1455 通过/1 跳过（1448 基线 + 7 新增）+ ruff（app/tests + 根 plugins/）全绿。
+- **下一步**：滚动审计续（候选：前端契约一致性抽检——R19/R21/R22 已有矩阵基底的增量复核；或长时间低频 soak 过夜档）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R28（2026-10-18，Python v1 深度审计第二十五轮「iter 385」，✅ 完成）**：同一 /goal 第二十五遍——**真实进程插件热管理 soak（R27 修复的线上语义复验 + soak 首个战果）**。1 个 soak 实证缺陷修复，soak 脚本入库，连续两轮全绿：
 
 - **soak（tests/soak_plugin_hotreload.py，手工运行不自动收集）**：5 型插件（调度器 every/中间件/webhook+事件/LLM Provider+计量/api.tools.call）× 8 worker 请求风暴（~3000 请求/轮）× 并发 reload 全部→disable 全部→enable 全部交错 + SSE 事件流常开 + 本地 webhook 接收器（HMAC 验签）。全绿×2：**S1 复验**（reload/enable 后全部 loaded，修复前调度器插件必 failed）；**S2 复验**（disable 后 tick 文件 3s 采样全平零泄漏，enable 恢复递增）；**500=0**、中间件头 on/off 双向生效、**SSE 全程存活心跳不断**、**webhook 稳定期 10/10 精确投递 + 验签全对**、**计量精确守恒**（complete 200 次数 == api_usage soak-model 行数，tokens 严格 10/5 每行）、优雅关停 + integrity ok。
