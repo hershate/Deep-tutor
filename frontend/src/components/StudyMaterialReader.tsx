@@ -3,7 +3,7 @@
 // 数据：GET /plans/{id}/materials（列表）+ GET /materials/{unit_id}（内容，选中时按需加载）。
 import { useEffect, useRef, useState } from 'react'
 import Markdown from './Markdown'
-import { ApiError, downloadUnitSlides, generateMaterialsStream, getStudyUnitContent, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
+import { ApiError, downloadUnitSlides, generateMaterialsStream, getStudyUnitContent, listStudyUnits, markUnitDone, saveTextFile, searchStudyUnits, type StudyUnitMeta, type UnitResource, type UnitSearchHit } from '../lib/api'
 import { isHttpUrl } from '../lib/url'
 import { toast } from './Toast'
 
@@ -100,6 +100,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   const [resources, setResources] = useState<UnitResource[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [contentRetry, setContentRetry] = useState(0) // iter 393：失败重试（重进同一单元不重触发 effect）
   const [doneBusy, setDoneBusy] = useState(false)
   const [pptBusy, setPptBusy] = useState(false) // iter 359：单元导出 HTML-PPT 进行中
   // iter 346（F6）：阅读内重写本单元——复用 generateMaterialsStream（单单元 unitIds + depth）
@@ -169,7 +170,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
         if (!ac.signal.aborted) setLoading(false)
       })
     return () => ac.abort()
-  }, [currentId])
+  }, [currentId, contentRetry])
 
   // iter 261：内容就绪（加载完成/路线图直出）后恢复本单元上次滚动位置；
   // rAF 等一帧布局完成再设 scrollTop，卸载/再切换取消
@@ -203,7 +204,10 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   }
 
   function locateFirstHit(q: string) {
-    const root = contentRef.current
+    // iter 393（R36）：仅扫正文容器——此前 TreeWalker 从内容区根出发，工具条（A−/A+）、
+    // 「目标：」行、参考资料等 chrome 文本同样命中，高亮/滚动落在非正文位置
+    // （搜「A」直接标记字号按钮，搜目标词滚到元信息行）。
+    const root = contentRef.current?.querySelector('.markdown-body')
     if (!root || !q) return
     const needle = q.toLowerCase()
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
@@ -274,6 +278,7 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
   // 对齐「Partial Result Regeneration」局部重写 UX（§八 J）——对选中单元细粒度重写，非整体重生。
   async function startRewrite() {
     if (!current) return
+    const oldOrder = current.order // iter 393：刷新后按 order 定位回原位（后端保位）
     setRewriteErr('')
     setRewriting(true)
     setRewriteMsg('正在重写…')
@@ -288,12 +293,28 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
       if (ac.signal.aborted) return
       if (currentIdRef.current !== current.id) return // iter 363：已切走，丢弃旧单元重写结果
       setRewriteMsg('重写完成，正在刷新…')
-      // currentId 未变，加载 effect 不会自动重跑 -> 手动重取内容刷新
-      const r = await getStudyUnitContent(current.id, ac.signal)
-      if (!ac.signal.aborted && currentIdRef.current === current.id) {
-        setContent(r.content_md)
-        setContentTitle(r.title)
-        setResources(r.resources ?? [])
+      // iter 393（R36）：重写是「删旧行插新行」——新单元是新 id（SSE 事件不携带 id），
+      // 旧 id 已 404。此前直接 getStudyUnitContent(旧 id) 必报「学习单元不存在」（重写
+      // 其实已成功并计费），且父级 units 仍指向已删行（点导航继续 404）。改为重取列表
+      // -> 按 order 定位新行（后端已保位；rowid 复用巧合 id 未变时手动重取内容）。
+      const lst = await listStudyUnits(planId, ac.signal)
+      if (ac.signal.aborted || currentIdRef.current !== current.id) return
+      onUnitsChange(lst.units)
+      const next =
+        lst.units.find((u) => u.order === oldOrder) ??
+        lst.units.find((u) => u.title === current.title) ??
+        lst.units[0]
+      if (next) {
+        if (next.id === current.id) {
+          const r = await getStudyUnitContent(next.id, ac.signal)
+          if (!ac.signal.aborted && currentIdRef.current === current.id) {
+            setContent(r.content_md)
+            setContentTitle(r.title)
+            setResources(r.resources ?? [])
+          }
+        } else {
+          setCurrentId(next.id) // 新行：加载 effect 自动拉新内容
+        }
         setShowRewrite(false)
       }
     } catch (e) {
@@ -518,6 +539,12 @@ export default function StudyMaterialReader({ planId, units, indexMd = '', onUni
             {error && (
               <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
                 {error}
+                <button
+                  onClick={() => setContentRetry((n) => n + 1)}
+                  className="ml-2 font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
+                >
+                  重试
+                </button>
               </div>
             )}
             {!loading && !error && current && (

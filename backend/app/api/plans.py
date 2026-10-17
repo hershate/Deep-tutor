@@ -1677,6 +1677,7 @@ def _unit_plan_for_existing(content: dict, unit: models.StudyUnit) -> UnitPlan:
         stage_index=unit.stage_index,
         nodes=unit_nodes,
         node_sids=list(unit.node_sids or []),
+        orig_order=unit.order,  # iter 393 R36：重插写回原 order，resequence 后留在原位
     )
 
 
@@ -1984,7 +1985,8 @@ async def _materials_sse(
                         db,
                         plan_id,
                         session_id,
-                        i,
+                        # iter 393 R36：重生成单元写回原 order（保位）；新顺序号仅用于全新生成
+                        up_i.orig_order if up_i.orig_order is not None else i,
                         unit,
                         resources,
                         stage_index=up_i.stage_index,

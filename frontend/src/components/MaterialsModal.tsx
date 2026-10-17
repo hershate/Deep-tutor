@@ -81,27 +81,34 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
     [planId, taskTitle],
   )
 
-  // 打开：先查已存单元（幂等免 LLM）；无单元且无进行中任务 -> 按 full 生成
-  useEffect(() => {
-    const ac = new AbortController()
-    setListLoading(true)
-    listStudyUnits(planId, ac.signal)
-      .then((lst) => {
-        if (ac.signal.aborted) return
+  // 打开：先查已存单元（幂等免 LLM）；无单元且无进行中任务 -> 按 full 生成。
+  // iter 393（R36）：提取为可复用回调——列表加载失败（非任务错误）此前只有错误横幅
+  // 无任何恢复动作，重进同一弹窗才能重试。
+  const loadUnits = useCallback(
+    async (signal?: AbortSignal) => {
+      setListLoading(true)
+      try {
+        const lst = await listStudyUnits(planId, signal)
+        if (signal?.aborted) return
         setUnits(lst.units)
         setIndexMd(lst.index_md ?? '')
         const t = useTaskStore.getState().tasks[materialsTaskId(planId)]
         if (lst.units.length === 0 && t?.phase !== 'running') {
           engine.startMaterials(planId, { depth: 'full', refresh: false, title: taskTitle })
         }
-      })
-      .catch((e) => {
-        if (ac.signal.aborted) return
+      } catch (e) {
+        if (signal?.aborted) return
         setError(e instanceof ApiError ? e.message : '加载失败')
-      })
-      .finally(() => {
-        if (!ac.signal.aborted) setListLoading(false)
-      })
+      } finally {
+        if (!signal?.aborted) setListLoading(false)
+      }
+    },
+    [planId, taskTitle],
+  )
+
+  useEffect(() => {
+    const ac = new AbortController()
+    void loadUnits(ac.signal)
     return () => ac.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId])
@@ -314,12 +321,22 @@ export default function MaterialsModal({ planId, planTitle, onClose, onOpenQuiz 
           {error && !running && (
             <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
               {error}
-              {task?.phase === 'error' && (
+              {task?.phase === 'error' ? (
                 <button
                   onClick={() => startGeneration(depth, true)}
                   className="ml-2 font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
                 >
                   重试生成
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setError('')
+                    void loadUnits()
+                  }}
+                  className="ml-2 font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
+                >
+                  重试加载
                 </button>
               )}
             </div>

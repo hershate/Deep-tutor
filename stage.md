@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R36（2026-10-19，Python v1 深度审计第三十三轮「iter 393」，✅ 完成）**：同一 /goal 第三十三遍——**前端剩余小组件二轮抽检（MaterialsModal / KbChatPanel / TaskCenter / TaskPanel / StudyMaterialReader 组件级『表达与实现一致性』精读 + 阅读器重写链后端穿透）**。1 条功能链断裂修复（前后端各一）+ 5 处交互缺陷修复，全量 1460 门禁绿：
+
+- **核心缺陷（阅读器内「重写本单元」链路 id 断裂，前后端）**：后端 unit_ids 重生成是**删旧行插新行**（plans.py，新 id；SSE 事件不携带 id；`_cleanup_stale_material_files` 注释自证 rowid 复用仅巧合）——前端重写完成后 `getStudyUnitContent(旧 id)` **必 404**（重写实际已成功并计费，界面却报「学习单元不存在」），且父级 units 列表仍指向已删行（点导航继续 404，新单元不可见直到重开弹窗）。修复：前端重写完成后重取单元列表→按 order 定位新行（rowid 复用巧合 id 未变时手动重取内容）+ 同步父级列表；后端配套保位修复（见下）。
+- **后端 B1（重生成丢失 order → 同阶段单元错位）**：新行 order 一律用流内顺序号（子集内 0 起），`_resequence_study_units` 稳定排序后重写单元抢占同阶段兄弟位置——**测试先行实证**：同阶段 4 单元选「乙+丁」重生成，序列变为 甲、乙'、**丁'、丙**（丙被挤后）；单单元保位也依赖未定义的同序 tie-break。修复：UnitPlan 增 `orig_order`（默认 None 不影响全新生成/scope 整阶段路径），`_unit_plan_for_existing` 透传原 order，`_materials_sse` 插入写回——重生成单元确定性留在原位（前端按 order 定位的依赖）。
+- **其余五处交互缺陷（R31 同族）**：① KbChatPanel 历史查询失败被空态掩盖——`useQuery` 未取 isError，失败渲染成新手引导空态（用户误以为历史全丢）；补错误横幅+重试+空态守卫（isError/isFetching）。② StudyMaterialReader 检索定位误中非正文 chrome——TreeWalker 从内容区根出发，工具条（A−/A+）、「目标：」行、参考资料同样命中（搜「A」标记字号按钮）；约束到 `.markdown-body`。③ 阅读器单元内容加载失败无重试（重进同一单元不重触发 effect）——contentRetry 计数器入加载 effect 依赖 + 重试按钮。④ MaterialsModal 列表加载失败无恢复动作（非任务错误只有横幅，须关窗重开）——提取 loadUnits 回调 + 「重试加载」按钮（与任务错误的「重试生成」分治）。⑤ KbChatPanel togglePick 上限 toast 在 setState updater 内——StrictMode/并发渲染下 updater 可重放，副作用不保证恰好一次；校验移出 updater。
+- **回归**：+2 测试（同阶段多选/单选重生成保位，test_api_unit_regen.py，修复前实证失败→修复后绿）；门禁 ruff 全绿 + 全量 pytest **1460 通过**/1 跳过（+2）+ 前端 tsc/build 绿。
+- **审计干净面留档**：TaskCenter/TaskPanel（台账排序/进度口径/取消重试分诊/start_rejected 走 startPlan/标题角标分层）与 MaterialsModal 既有面（iter 363 phase 合并 effect、iter 368 弹层栈、深度切换确认、导出三选一、staleRunning 刷新即真相）全部成立；阅读器滚动记忆/检索失败分治（iter 368）/重写面板复位收口（iter 371）亦成立。
+- **下一步**：滚动审计续（候选：kb/知识库文档链专项；或过夜档 soak 择机（SOAK_MINUTES=480）；或 HomeKbGenerate/KbDocsView/KbViewerModal 等 kb 族组件随 kb 专项同轮）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R35（2026-10-19，Python v1 深度审计第三十二轮「iter 392」，✅ 完成）**：同一 /goal 第三十二遍——**备份/恢复链真实进程演练（R26 静态结论的真实 uvicorn × 并发流量复验）**。零产品缺陷（R26 全部结论实证成立），演练脚本入库，连续两轮全绿：
 
 - **演练（tests/soak_restore_drill.py，手工运行不自动收集）**：真实 uvicorn × u1 种子（150 篇 24KB 笔记直插 + API 全链路建会话/材料含文件落盘）× 4.9→3.6MB 备份导出/预检 × u2 并发流量（读 300ms 间隔 + 笔记 CRUD churn 40 写/min）× restore 窗口内**双导入竞态**（+10ms 第二发）× SSE 看护 × 进程外只读核对。

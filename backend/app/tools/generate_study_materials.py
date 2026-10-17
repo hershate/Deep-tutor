@@ -237,6 +237,9 @@ class UnitPlan:
 
     nodes：本单元覆盖的知识点 dict 列表（含 name/difficulty/must_learn）。
     stage：所属阶段 dict（难度递进上下文 + brief 降级用）。stage_index/node_sids 供持久化。
+    orig_order（iter 393 R36）：既有单元重生成时携带原 order——重生成是删行重插，新行
+    写回原 order 后 _resequence_study_units 稳定排序才能保位；不设（None）用流内顺序号
+    （全新生成 / scope 整阶段替换，流内顺序即目标顺序）。
     """
 
     title: str
@@ -244,6 +247,7 @@ class UnitPlan:
     stage_index: int | None
     nodes: list[dict[str, Any]]
     node_sids: list[str]
+    orig_order: int | None = None
 
 
 def _node_stage_index(node: dict[str, Any], stages: list[dict[str, Any]]) -> int | None:

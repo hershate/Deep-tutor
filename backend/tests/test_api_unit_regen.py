@@ -86,6 +86,77 @@ def _post_materials(client, headers, plan_id, body, sse=True):
     return client.post(f"/api/plans/{plan_id}/materials", json=body, headers=h)
 
 
+def _seed_same_stage_units(count: int = 4) -> dict[str, object]:
+    """单阶段 count 个单元（同 stage_index=0，orders 0..n-1）——暴露同阶段内 order 竞争。"""
+    from app.core.storage import write_unit_content
+    from app.db import models
+
+    titles = ["单元甲", "单元乙", "单元丙", "单元丁"][:count]
+    db = SessionLocal()
+    try:
+        sess = models.Session(user_id=1, title="同阶段重排会话")
+        db.add(sess)
+        db.flush()
+        plan = models.Plan(
+            session_id=sess.id,
+            version=1,
+            content={
+                "intent": {"topic": "同阶段主题"},
+                "stages": [{"index": 0, "name": "唯一阶段", "topics": [{"name": t} for t in titles]}],
+            },
+        )
+        db.add(plan)
+        db.flush()
+        ids = []
+        for i, title in enumerate(titles):
+            unit = models.StudyUnit(plan_id=plan.id, stage_index=0, title=title, order=i)
+            db.add(unit)
+            db.flush()
+            path = write_unit_content(sess.id, unit.id, f"# {title}\n\n原始内容")
+            db.add(models.StudyMaterial(unit_id=unit.id, content_md_path=str(path), size=10))
+            ids.append(unit.id)
+        db.commit()
+        return {"plan_id": plan.id, "unit_ids": ids, "titles": titles}
+    finally:
+        db.close()
+
+
+def test_unit_ids_regeneration_preserves_position(client, auth_headers):
+    """iter 393（R36）：同阶段多单元重生成须保位——重生成是删行重插，新行 order 曾一律
+    从流内顺序号（0 起）编号，_resequence 稳定排序后重写单元抢占同阶段兄弟位置
+    （选乙+丁时序列变为 甲乙'丁'丙）；且即便单单元重写的保位也依赖未定义的同序 tie-break。
+    修复：UnitPlan 透传 orig_order，新行写回原 order。"""
+    _mk_admin()
+    seeded = _seed_same_stage_units()
+    ids = seeded["unit_ids"]
+    titles = seeded["titles"]
+    r = _post_materials(client, auth_headers, seeded["plan_id"], {"unit_ids": [ids[1], ids[3]]})
+    assert r.status_code == 200, r.text
+
+    units = _units()
+    assert len(units) == 4
+    by_title = {u.title: u for u in units}
+    assert by_title[titles[0]].id == ids[0]  # 未选中原行保留
+    assert by_title[titles[2]].id == ids[2]
+    assert by_title[titles[1]].id != ids[1]  # 选中行被替换
+    assert by_title[titles[3]].id != ids[3]
+    assert [u.title for u in units] == titles  # 各单元留在原位
+
+
+def test_unit_ids_single_middle_regeneration_preserves_position(client, auth_headers):
+    """单单元（中间位）重生成保位（阅读器「重写本单元」路径，前端按 order 定位新行）。"""
+    _mk_admin()
+    seeded = _seed_same_stage_units()
+    ids = seeded["unit_ids"]
+    titles = seeded["titles"]
+    r = _post_materials(client, auth_headers, seeded["plan_id"], {"unit_ids": [ids[2]]})
+    assert r.status_code == 200, r.text
+    units = _units()
+    assert len(units) == 4
+    assert [u.title for u in units] == titles
+    assert [u.order for u in units] == [0, 1, 2, 3]
+
+
 def test_unit_ids_regenerates_selected_only(client, auth_headers):
     _mk_admin()
     seeded = _seed_plan_with_units()

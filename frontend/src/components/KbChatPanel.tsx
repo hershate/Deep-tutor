@@ -43,7 +43,7 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const { data } = useQuery({
+  const { data, isError, isFetching, refetch } = useQuery({
     queryKey: ['kb-chats'],
     queryFn: () => listKbChats({ limit: HISTORY_LIMIT }),
     staleTime: 10_000,
@@ -58,16 +58,16 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
   }
 
   function togglePick(id: number) {
+    // iter 393（R36）：上限校验移出 setState updater——updater 在 StrictMode/并发渲染下
+    // 可能被重放，副作用（toast）不保证恰好一次
+    if (!picked.has(id) && picked.size >= MAX_CHAT_DOCS) {
+      toast.error(`一次问答最多限定 ${MAX_CHAT_DOCS} 篇文档`)
+      return
+    }
     setPicked((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-      else {
-        if (next.size >= MAX_CHAT_DOCS) {
-          toast.error(`一次问答最多限定 ${MAX_CHAT_DOCS} 篇文档`)
-          return prev
-        }
-        next.add(id)
-      }
+      else next.add(id)
       return next
     })
   }
@@ -196,7 +196,17 @@ export default function KbChatPanel({ docs, onOpenDoc }: Props) {
       )}
 
       <div ref={listRef} className="max-h-96 min-h-24 space-y-3 overflow-y-auto px-4 py-3">
-        {records.length === 0 && !pendingQ && errors.length === 0 && (
+        {/* iter 393（R36）：历史查询失败按「失败」呈现——此前错误被吞、空数据渲染成
+            新手引导空态，用户误以为历史记录全部丢失 */}
+        {isError && (
+          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            历史记录加载失败（新提问不受影响）。
+            <button onClick={() => void refetch()} className="ml-2 font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-red-200">
+              重试
+            </button>
+          </div>
+        )}
+        {records.length === 0 && !pendingQ && errors.length === 0 && !isError && !isFetching && (
           <p className="py-4 text-center text-xs text-slate-500 dark:text-slate-400">
             向你的知识库提问——AI 仅依据库内文档回答并标注出处；问答记录自动保存，便于日后参考
           </p>
