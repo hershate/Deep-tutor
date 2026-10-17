@@ -56,6 +56,41 @@ def parse_interfaces(src: str) -> dict[str, dict[str, dict]]:
     return out
 
 
+def strip_comments(src: str) -> str:
+    """iter 387 R30：引号感知的注释剥离（' " ` 与模板串内的 // 不动）。
+
+    _balanced 计数所有括号种类且不跳注释——接口体提取在 JSDoc 内的 `->`、`)` 等
+    字符处提前截断（实测：PricingTable 的 updated_at 因「无已存表 -> null」注释
+    整字段丢失 -> 契约 diff 假阳性「遗漏字段」）。剥离后括号平衡不再受注释干扰。"""
+    out: list[str] = []
+    i = 0
+    n = len(src)
+    while i < n:
+        c = src[i]
+        if c in "'\"`":
+            q = c
+            j = i + 1
+            while j < n and src[j] != q:
+                if src[j] == "\\":
+                    j += 1
+                j += 1
+            j = min(j + 1, n)
+            out.append(src[i:j])
+            i = j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j == -1 else j  # 行注释：连同本行（不含换行）剔除
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def parse_fields(body: str) -> dict[str, dict]:
     fields: dict[str, dict] = {}
     # 按顶层分号/换行切字段；类型内的 {} [] () <> 整段保护——保护段内部的
@@ -340,7 +375,7 @@ def resolve_type(type_text: str, interfaces: dict) -> dict:
 
 
 def main() -> None:
-    src = API_TS.read_text(encoding="utf-8")
+    src = strip_comments(API_TS.read_text(encoding="utf-8"))  # iter 387 R30：先剥注释
     interfaces = parse_interfaces(src)
     raw_calls = parse_calls(src)
     calls = []

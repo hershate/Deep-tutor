@@ -38,6 +38,14 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R30（2026-10-18，Python v1 深度审计第二十七轮「iter 387」，✅ 完成）**：同一 /goal 第二十七遍——**前端契约一致性增量复核（R23-R29 后端改动 vs R19/R21/R22 契约矩阵基底）**。零产品缺陷（1 个契约提取器工具缺陷修复），全量 1455 通过：
+
+- **形状面（契约三件套复跑）**：contract_audit（158 路由）→ contract_frontend（61 接口/107 调用）→ contract_diff 复跑。首轮 diff 报 2 行「遗漏字段」（GET/PUT /settings/pricing 的 `updated_at` vs PricingTable）——查证前端**已声明**（api.ts PricingTable JSDoc 注明装载基线），提取 JSON 实证漏提；根因 `_balanced()` 把 JSDoc 注释里的 `->` 计入尖括号深度，接口体在 `无已存表 -` 处截断。修复：contract_frontend.py 增引号感知 `strip_comments()`（保留 ' " ` 字符串含转义、剥 // 与 /* */），入口统一先剥注释再解析。复跑 **diff 与 R17 基线字节一致（rc=0）——本会话 R23-R29 全部后端改动（删除族收敛/热管理 async 化/404 信封/displaced 栈/lifespan 修复等）前端契约零漂移**。
+- **行为面（逐项核查，全部成立）**：① SSE 重连契约——api.ts 声明「调用方负责重连退避与生命周期」↔ EventsBridge.tsx 实装（指数退避+full jitter ≤30s、干净关闭 attempt 不复位防快打循环 iter 370、sleep 可被 abort 唤醒防协程泄漏 iter 368、401 不重连、卸载清理完整）——R24 心跳重鉴权造成的服务端主动断流有兜底；② 乐观并发 409——notes/pricing PUT 均回传 expected_updated_at（api.ts 452-456/808-811），taskEngine 409-stale→interrupted 可重试、failFast 402/404/409；③ 插件热管理 429 信封——`rate_limited` 码中文 message 经 http 层 `new ApiError(err.code, err.message, status)` 原样透出 → Plugins.tsx catch toast 呈现；页面单飞互斥（toggling 禁用全部按钮）+ useQuery `retry:false`（无自动重试风暴）+ GET 列表不限流（invalidateQueries 不吃 20/min 配额，设计自洽）；④ `api.tools.call` 未知工具 404 信封——前端无直接调用面（grep 证实），仅后端插件面消费（R28 已端点级钉死双契约），分派销案；⑤ 基线 diff 报告其余项（credentials 幻影端点模板工件等）系 R17-R22 时代已裁定项，未变。
+- **工作区核查**：契约生成物四件（backend/frontend_contract.json、contract_diff_report.txt、auth_matrix.json）.gitignore 覆盖确认（b2cff97 入库）；iter380 测试已入库、probe 脚本已清——本轮唯一改动 = contract_frontend.py。
+- **门禁**：全量 pytest 1455 通过/1 跳过（基线不动，本轮无新增测试——工具修复由三件套复跑字节等价验证）+ ruff（app/tests + 根 plugins/）全绿。
+- **下一步**：滚动审计续（候选：长时间低频 soak 过夜档；或前端交互逻辑专项——表单/编辑器丢失更新面在 R22 已覆盖、剩余交互面抽检）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R29（2026-10-18，Python v1 深度审计第二十六轮「iter 386」，✅ 完成）**：同一 /goal 第二十六遍——**长时间运行内存/句柄泄漏巡检（热管理多代循环趋势）+ 沿线两个真缺陷修复**。7 新回归、patrol/soak 双脚本验证，全量 1455 通过：
 
 - **静态审计（模块级增长容器清单化）**：runtime._statuses/_plugin_tools、loader._plugin_apis/_disabled_ids、bus 三表（done 回调清引用）、scheduler._tasks（iter 365 C4）、webhooks._bg_tasks、providers/parsers/exporters 注册表 + displaced 栈、plans._STREAMS / memory._RUN_STREAMS / _CHAT_RUN_TASKS（R23-R24 已审）、verify_url 缓存（TTL+4096 上限）、频控桶（惰性淘汰+_MAX_KEYS 兜底）、LLM client 缓存（LRU+aclose 调度 iter 365 B3）、skills 注册表（文件有界）——除 displaced 栈外全部有界。
