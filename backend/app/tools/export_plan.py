@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +39,13 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     root = Path(ctx.data_dir or "data").resolve()
     if not str(base).startswith(str(root)):
         return _err("invalid_path", "非法的会话标识")
-    base.mkdir(parents=True, exist_ok=True)
-    file_path = base / f"{plan_id}.md"
-    file_path.write_text(md, encoding="utf-8")
+    # iter 371：落盘移 to_thread——溢出方案 md 可达 MB 级，同步写在事件循环上
+    # 与 exports.py 其余导出路径（render/pdf/ics/apkg 均 to_thread）口径不一致
+    def _write() -> None:
+        base.mkdir(parents=True, exist_ok=True)
+        (base / f"{plan_id}.md").write_text(md, encoding="utf-8")
+
+    await asyncio.to_thread(_write)
 
     # iter 367（批次五）：file_url 不再回显服务器绝对路径（网络服务信息泄露：
     # 暴露部署目录布局）；响应已含 content+filename，前端 md 导出走内容下载，

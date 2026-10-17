@@ -209,6 +209,11 @@ def create_app() -> FastAPI:
     # 请求体大小限制（Content-Length 预检，防超大 body OOM；路由解析前拒）
     @app.middleware("http")
     async def _limit_request_body(request, call_next):
+        # iter 371：备份导入/预检豁免通用 body 上限——两端点各有 256MB 自限且有界读取
+        # （read(_MAX_BACKUP_BYTES+1)）。v2 备份含 kb 原件可超通用上限（默认 ~55MB），
+        # 不豁免则「导出后导不回」（往返断裂，实测口径：multipart 先过本中间件）。
+        if request.url.path in ("/api/backup/import", "/api/backup/preview"):
+            return await call_next(request)
         cl = request.headers.get("content-length")
         if cl:
             try:
@@ -239,6 +244,26 @@ def create_app() -> FastAPI:
 
             request = _StarletteRequest(request.scope, _receive)
         return await call_next(request)
+
+    # 安全响应头（iter 371，网络暴露面基础防护）。注册在 body 限流之后
+    # （Starlette 后注册者在外层）——413 短路响应同样带头：
+    # - nosniff：防 MIME 嗅探把用户上传内容当脚本执行（KB/材料文件经本服务回传）
+    # - X-Frame-Options DENY：防点击劫持（token 存 localStorage 的 SPA 被嵌框架钓鱼）
+    # - Referrer-Policy no-referrer：防 URL（含分享 token 等 query）外泄给第三方链接
+    # CSP 刻意不加：v1 前端插件体系依赖运行时注入脚本/样式，收紧会破坏既有能力——
+    # 列为遗留，v2 前端（无 eval 注入）再上
+    _SECURITY_HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+    }
+
+    @app.middleware("http")
+    async def _add_security_headers(request, call_next):
+        resp = await call_next(request)
+        for k, v in _SECURITY_HEADERS.items():
+            resp.headers.setdefault(k, v)
+        return resp
 
     app.include_router(api_router)
 

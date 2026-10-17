@@ -303,7 +303,8 @@ def check_daily_budget(db: Session | None, user_id: int) -> None:
     if spent >= limit:
         raise ApiError(
             "budget_exceeded",
-            f"当日 LLM 预算已用尽（${spent:.4f} / ${limit:.4f}），请明天再试或在设置页调整日预算",
+            # iter 371：币种口径统一 CNY（前端全链￥，$ 残留修正）
+            f"当日 LLM 预算已用尽（￥{spent:.4f} / ￥{limit:.4f}），请明天再试或在设置页调整日预算",
             status=402,
         )
 

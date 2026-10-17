@@ -72,16 +72,12 @@ def _validate_intent(data: dict, inp: ToolInput) -> dict:
     dl = data.get("deadline")
     if dl:
         try:
-            day = datetime.fromisoformat(str(dl).strip()).date()
+            data["deadline"] = datetime.fromisoformat(str(dl).strip()).date().isoformat()  # 规范化去时间部分
         except ValueError:
             data["deadline"] = None
-        else:
-            if day < date.today():
-                data["deadline"] = None
-                data["needs_clarify"] = True
-                data.setdefault("clarify_questions", []).append(
-                    f"检测到你提供的截止日期（{day.isoformat()}）已过，请提供新的截止日期，或说明没有截止时间。"
-                )
+        # 过期判定挪至 args 覆盖之后统一执行（iter 371）：此前先对 LLM 抽取值判过期
+        # 再被 args 权威值覆盖——过期澄清问题残留 + needs_clarify 不重估（表单填了
+        # 合法日期仍被追问「日期已过」）；反向地，args 填过期日期又绕过了过期策略
 
     dm = data.get("daily_minutes")
     if dm is not None:
@@ -119,10 +115,23 @@ def _validate_intent(data: dict, inp: ToolInput) -> dict:
             pass
     if args.get("deadline"):
         try:
-            datetime.fromisoformat(str(args["deadline"]).strip())
-            data["deadline"] = str(args["deadline"]).strip()
+            data["deadline"] = datetime.fromisoformat(str(args["deadline"]).strip()).date().isoformat()
         except ValueError:
             pass
+    # iter 371：对**最终** deadline 统一校验（无论来源 LLM 抽取或表单 args）
+    dl_final = data.get("deadline")
+    if dl_final:
+        try:
+            day = datetime.fromisoformat(str(dl_final).strip()).date()
+        except ValueError:
+            data["deadline"] = None
+        else:
+            if day < date.today():
+                data["deadline"] = None
+                data["needs_clarify"] = True
+                data.setdefault("clarify_questions", []).append(
+                    f"检测到你提供的截止日期（{day.isoformat()}）已过，请提供新的截止日期，或说明没有截止时间。"
+                )
     if args.get("start_date"):
         try:
             datetime.fromisoformat(str(args["start_date"]).strip())

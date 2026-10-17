@@ -36,8 +36,10 @@ _MODEL = genanki.Model(
 
 
 def _deck_id(plan_id: int) -> int:
-    # 由 plan_id 派生稳定 deck id（同一方案重复导出进同一牌组；Anki 按 id 去重更新）
-    return 2026071800 + plan_id % 100000
+    # 由 plan_id 派生稳定 deck id（同一方案重复导出进同一牌组；Anki 按 id 去重更新）。
+    # iter 371：模数 10 万 -> 9000 万——消除 plan_id 相差 10 万的两方案并组同一牌组
+    # （Anki 按 deck id 去重，碰撞时第二方案卡片会并入第一方案牌组）
+    return 2026071800 + plan_id % 90_000_000
 
 
 def _card_front(quiz: dict) -> str:

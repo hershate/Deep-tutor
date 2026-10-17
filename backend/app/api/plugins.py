@@ -50,9 +50,19 @@ def list_plugins(user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
     }
 
 
+def _gate_plugin_admin(user: User) -> None:
+    """iter 371：热管理写端点频控——reload/enable 是重操作（卸载+import+register+回滚登记），
+    失控客户端/脚本循环调用会持续占用解释器与文件 IO；admin-only 已限面，再限速率。"""
+    from app.core.ratelimit import limiter
+
+    if not limiter.check(f"plugin_admin:{user.id}", 20):
+        raise ApiError("rate_limited", "插件热管理操作过于频繁，请稍后再试", status=429)
+
+
 @router.post("/{plugin_id}/reload")
 def reload_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
     """热重载一个已加载的插件（unload + 重新导入 + register）。"""
+    _gate_plugin_admin(user)
     app = request.app
     status = loader.reload_plugin(app, plugin_id)
     if status is None:
@@ -63,6 +73,7 @@ def reload_plugin(plugin_id: str, request: Request, user: User = Depends(require
 @router.post("/{plugin_id}/disable")
 def disable_plugin(plugin_id: str, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
     """禁用一个插件（unload + 持久化禁用状态）。"""
+    _gate_plugin_admin(user)
     ok = loader.disable_plugin(plugin_id)
     if not ok:
         raise ApiError("not_found", f"插件 {plugin_id} 不存在", status=404)
@@ -72,6 +83,7 @@ def disable_plugin(plugin_id: str, user: User = Depends(require_admin)) -> dict:
 @router.post("/{plugin_id}/enable")
 def enable_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
     """启用一个被禁用的插件（重新加载）。"""
+    _gate_plugin_admin(user)
     app = request.app
     status = loader.enable_plugin(app, plugin_id)
     if status is None:

@@ -86,8 +86,16 @@ def _no_network_url_fetcher(url: str) -> dict:
 
         header, _, payload = url.partition(",")
         mime = header[5:].split(";")[0] or "text/plain"
+        # iter 371：畸形 data: URI 一律降级空内容（与外联拦截同口径），不抛——
+        # md 来源含 LLM 输出，padding 错误/超限曾会冒泡成 500 击穿「超时才降级」意图
+        if len(payload) > 10 * 1024 * 1024:  # 10MB 上限（防解码放大内存）
+            log.warning("PDF 渲染已丢弃超大 data: URI（%d 字符）", len(payload))
+            return {"string": b"", "mime_type": mime}
         if ";base64" in header:
-            return {"string": base64.b64decode(payload), "mime_type": mime}
+            try:
+                return {"string": base64.b64decode(payload), "mime_type": mime}
+            except Exception:  # noqa: BLE001  binascii.Error 等 padding/字母表错误
+                return {"string": b"", "mime_type": mime}
         from urllib.parse import unquote_to_bytes
 
         return {"string": unquote_to_bytes(payload), "mime_type": mime}
