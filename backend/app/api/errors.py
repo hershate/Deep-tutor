@@ -30,6 +30,20 @@ class ApiError(Exception):
         super().__init__(message)
 
 
+class UnknownToolError(ApiError, ValueError):
+    """api.tools.call 未注册工具（iter 385 R28）。
+
+    双继承：``except ValueError`` 的既有插件与 api.tools.call 契约（API.md「未知工具 ->
+    ValueError」）保持兼容；未捕获时经宿主统一错误信封以 404 呈现——此前裸 ValueError
+    逃出插件路由成 500，插件热管理窗口期（unload 后在途路由请求 / reload 重注册前）
+    的在途调用被错误地恶化为服务器错误。定义在本叶子模块：plugins.api 顶层导入会
+    构成 app.api.__init__ 循环，门面在抛出点函数内局部导入。"""
+
+    def __init__(self, message: str) -> None:
+        ApiError.__init__(self, "not_found", message, status=404)
+        ValueError.__init__(self, message)
+
+
 # 错误码 -> HTTP 状态（plan/09 §十六）。扩展性：新增码在此登记。
 CODE_STATUS: dict[str, int] = {
     "unauthorized": 401,

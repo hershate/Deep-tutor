@@ -15,6 +15,7 @@ import asyncio
 import pytest
 from pydantic import BaseModel
 
+from app.api.errors import ApiError
 from app.db.base import SessionLocal
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 from app.plugins.api import BackendPluginAPI
@@ -54,7 +55,9 @@ class _JsonProvider(LLMProvider):
         self._content = content
 
     async def chat(self, system, user, *, model=None, max_tokens=4096, cache_system=True):
-        return LLMResponse(content=self._content, usage=LLMUsage(input_tokens=20, output_tokens=5, model="claude-sonnet-5"))
+        return LLMResponse(
+            content=self._content, usage=LLMUsage(input_tokens=20, output_tokens=5, model="claude-sonnet-5")
+        )
 
 
 # --- Python 工具调用 ---
@@ -79,9 +82,7 @@ def test_call_core_tool_parse_material(monkeypatch):
     """插件可调用宿主核心工具（parse_material kind=text）——'新工作流'组合性。"""
     _no_budget_block(monkeypatch)
     uid = _make_user()
-    res = asyncio.run(
-        _facade().tools.call("parse_material", {"kind": "text", "source": "一段学习材料"}, user_id=uid)
-    )
+    res = asyncio.run(_facade().tools.call("parse_material", {"kind": "text", "source": "一段学习材料"}, user_id=uid))
     assert res["status"] == "ok"
     assert res["data"]["text"] == "一段学习材料"
     assert res["data"]["meta"]["source_type"] == "text"
@@ -162,6 +163,48 @@ def test_call_unknown_tool_raises(monkeypatch):
     _no_budget_block(monkeypatch)
     with pytest.raises(ValueError, match="未注册的工具"):
         asyncio.run(_facade().tools.call("nope", {}, user_id=1))
+
+
+def test_call_unknown_tool_is_404_envelope(monkeypatch):
+    """iter 385 R28：未知工具异常双继承 ApiError(not_found, 404)——此前裸 ValueError
+    逃出插件路由成 500（热管理窗口期在途调用的正常时序被恶化为服务器错误）。"""
+    from app.api.errors import UnknownToolError
+
+    exc = None
+    try:
+        asyncio.run(_facade().tools.call("nope", {}, user_id=1))
+    except ValueError as e:
+        exc = e
+    assert isinstance(exc, UnknownToolError)
+    assert isinstance(exc, ApiError)
+    assert exc.code == "not_found" and exc.status == 404
+    assert "未注册的工具" in str(exc)
+
+
+def test_plugin_route_unknown_tool_http_404(tmp_path):
+    """端点级：插件路由未捕获未知工具异常 -> 宿主统一错误信封 404（非 500）。"""
+    (tmp_path / "toolmiss.py").write_text(
+        "from fastapi import APIRouter\n\n"
+        'PLUGIN_META = {"id": "toolmiss", "name": "TM", "version": "0.1.0"}\n\n'
+        "def register(api):\n"
+        "    router = APIRouter()\n\n"
+        "    @router.get('/boom')\n"
+        "    async def boom():\n"
+        "        return await api.tools.call('ghost_tool', {}, user_id=1)\n\n"
+        "    api.routes.mount(router, auth=False)\n",
+        encoding="utf-8",
+    )
+    from app.main import create_app
+    from app.plugins.loader import load_plugins
+
+    app = create_app()
+    load_plugins(app, tmp_path)
+    from fastapi.testclient import TestClient
+
+    r = TestClient(app).get("/api/plugins/toolmiss/boom")
+    assert r.status_code == 404, r.text
+    assert r.json()["error"]["code"] == "not_found"
+    assert "ghost_tool" in r.json()["error"]["message"]
 
 
 def test_call_python_tool_error_is_envelope(monkeypatch):
@@ -257,5 +300,3 @@ def test_core_tool_description_falls_back_to_dict():
     """核心工具 Tool.description 缺省空 -> tool_metadata 回退 TOOL_DESCRIPTIONS（parse_material）。"""
     pm = next(x for x in _facade().tools.list() if x["name"] == "parse_material")
     assert pm["description"]  # 来自 TOOL_DESCRIPTIONS（核心工具未设字段）
-
-

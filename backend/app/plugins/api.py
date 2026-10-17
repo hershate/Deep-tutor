@@ -148,7 +148,13 @@ class ToolsNamespace:
 
         registry = default_registry()
         if not registry.has(name):
-            raise ValueError(f"未注册的工具: {name}")
+            # iter 385 R28：裸 ValueError 逃出插件路由 -> 500。热管理窗口期（unload 后
+            # 在途路由请求 / reload 重注册前）工具短暂缺席属正常时序，须优雅降级为
+            # 404 信封（与 providers/parsers/exporters 扩展点同一降级口径）。双继承
+            # ValueError：既有插件 except ValueError 兼容、api.tools.call 契约不变
+            from app.api.errors import UnknownToolError
+
+            raise UnknownToolError(f"未注册的工具: {name}")
         tool = registry.get(name)
 
         provider = None

@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R28（2026-10-18，Python v1 深度审计第二十五轮「iter 385」，✅ 完成）**：同一 /goal 第二十五遍——**真实进程插件热管理 soak（R27 修复的线上语义复验 + soak 首个战果）**。1 个 soak 实证缺陷修复，soak 脚本入库，连续两轮全绿：
+
+- **soak（tests/soak_plugin_hotreload.py，手工运行不自动收集）**：5 型插件（调度器 every/中间件/webhook+事件/LLM Provider+计量/api.tools.call）× 8 worker 请求风暴（~3000 请求/轮）× 并发 reload 全部→disable 全部→enable 全部交错 + SSE 事件流常开 + 本地 webhook 接收器（HMAC 验签）。全绿×2：**S1 复验**（reload/enable 后全部 loaded，修复前调度器插件必 failed）；**S2 复验**（disable 后 tick 文件 3s 采样全平零泄漏，enable 恢复递增）；**500=0**、中间件头 on/off 双向生效、**SSE 全程存活心跳不断**、**webhook 稳定期 10/10 精确投递 + 验签全对**、**计量精确守恒**（complete 200 次数 == api_usage soak-model 行数，tokens 严格 10/5 每行）、优雅关停 + integrity ok。
+- **soak 战果（真缺陷·已修）**：`api.tools.call` 未知工具抛裸 `ValueError`——插件热管理窗口期（unload 后在途路由请求 / reload 重注册前，在途请求挂在依赖解析 await 上恢复时工具已注销）逃出插件路由成 **500**。其余四个扩展点（providers/parsers/exporters）同类时序均信封化优雅降级，唯独 tools 500。修复：`UnknownToolError(ApiError(not_found,404), ValueError)` 双继承（app/api/errors.py 叶子模块定义——门面顶层导入会构成 app.api.__init__ 环）：既有 `except ValueError` 插件与 API.md 契约完全兼容，未捕获时宿主统一信封 404。+2 回归（类型双契约 / 端点级 404 信封非 500）+ API.md 契约同步。
+- **调查并销案两条**：① disable 窗 503（no_llm_provider）= 在途请求恢复时 Provider 已注销的设计内信封降级（与 429 频控同类，可重试）——soak 判定改 500 零容忍 + 503 有界豁免（≤5）；② 启动窗 tick +5~6/s 疑双任务——时间戳诊断实证服务端节奏恒 0.31s 单任务（单/五插件环境一致、无任何 <0.2s 间隔），系宿主机 time.sleep 实际超时的测量伪影——soak 窗口断言全部改按**实测墙钟**换算周期数。
+- **soak 方法论沉淀（脚本注释留档）**：泄漏检测的 tick 计数必须落共享文件（模块级 dict 在 disable→enable 重执行模块后归零，断言空真——首版实证踩坑）；进程外直读 DATA_DIR 文件可绕过「禁用期路由 404」的观测盲区。
+- **门禁**：全量 pytest 1448 通过/1 跳过（1446 基线 + 2 新增）+ ruff（app/tests + 根 plugins/）全绿。
+- **下一步**：滚动审计续（R23-R28 已覆盖删除族/更新面/取消计费/导入写入族/热管理两轮；候选新证据面：前端契约一致性、或长时间运行内存/句柄泄漏巡检）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R27（2026-10-18，Python v1 深度审计第二十四轮「iter 384」，✅ 完成）**：同一 /goal 第二十四遍——**插件热重载 × 在途请求交互全矩阵审计（十二扩展点逐面分派）**。2 个真实缺陷修复 + 1 个既有测试前缀误命中修复，4 新回归，全量 1446 通过：
 
 - **审计矩阵（分派结论）**：routes 按身份摘除（在途请求持已匹配路由对象跑完旧代码，设计内降级）✓；events/sinks/webhooks 退订后在途协程有界完成（10s 超时 + 强引用台账）✓；SSE sink 经 call_soon_threadsafe（R24 已处理）✓；parsers/exporters/providers 三注册表身份匹配注销 + displaced 栈回填前任（iter 369），在途调用持 entry 对象跑完 ✓；工具注册表每请求快照（default_registry）+ remove_tool 相等性实为 func 身份 ✓；PluginProvider 持 entry 无逐次查表 ✓；middleware 栈重建原子替换、在途走旧栈 ✓；api.llm 在途用量 finally 落账 ✓。留档接受 1 项：reload 后新旧 StorageNamespace 实例并存窗口（旧实例内存态滞后写可覆盖新写，窗口=在途请求生命周期、仅插件 KV、真正修复需静默等待在途——v1 接受）。

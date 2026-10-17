@@ -902,7 +902,10 @@ res = await api.tools.call(
   `export_plan`/`generate_study_materials`/`build_plan_slides` 等），在自有路由里把它们
   串成新的端到端工作流——无需重实现解析/检索/出题。LLM 工具按 `user_id` 解析供应商 +
   日预算守卫 + `api_usage` 计量（与生成端点同口径）；用户未配置供应商 ->
-  `ApiError(no_llm_provider, 503)`。未知工具 -> `ValueError`；工具执行失败 ->
+  `ApiError(no_llm_provider, 503)`。未知工具 -> `ValueError`（iter 385 起为其与
+  `ApiError(not_found, 404)` 的双继承子类 `UnknownToolError`：`except ValueError`
+  兼容不变；路由内未捕获时经宿主统一错误信封以 **404** 呈现——插件热管理窗口期的
+  在途调用优雅降级，此前裸 `ValueError` 会成 500）；工具执行失败 ->
   信封 `status="error"`（**不抛**，交插件检查 `errors` 处理）。
 - **注意**：内置生成 PIPELINE 步骤固定，不会自动调用新工具；与核心工具同名会覆盖核心
   实现（注册表告警）——替换核心工具属高级用法，请充分测试（§九）。
