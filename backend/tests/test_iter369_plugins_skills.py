@@ -120,7 +120,10 @@ def test_package_plugin_submodule_reload(tmp_path):
     loader.unload_plugin("pkg")
     import sys
 
-    assert not [m for m in sys.modules if m.startswith("dt_plugin_pkg")]
+    # iter 384：精确匹配本插件的模块名与前缀子模块——裸 startswith("dt_plugin_pkg")
+    # 会误命中他测试装载的 dt_plugin_pkgp（pkgp），组合序下假红
+    assert "dt_plugin_pkg" not in sys.modules
+    assert not [m for m in sys.modules if m.startswith("dt_plugin_pkg.")]
 
 
 # --- M1：StorageNamespace 线程安全 ---

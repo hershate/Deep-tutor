@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R27（2026-10-18，Python v1 深度审计第二十四轮「iter 384」，✅ 完成）**：同一 /goal 第二十四遍——**插件热重载 × 在途请求交互全矩阵审计（十二扩展点逐面分派）**。2 个真实缺陷修复 + 1 个既有测试前缀误命中修复，4 新回归，全量 1446 通过：
+
+- **审计矩阵（分派结论）**：routes 按身份摘除（在途请求持已匹配路由对象跑完旧代码，设计内降级）✓；events/sinks/webhooks 退订后在途协程有界完成（10s 超时 + 强引用台账）✓；SSE sink 经 call_soon_threadsafe（R24 已处理）✓；parsers/exporters/providers 三注册表身份匹配注销 + displaced 栈回填前任（iter 369），在途调用持 entry 对象跑完 ✓；工具注册表每请求快照（default_registry）+ remove_tool 相等性实为 func 身份 ✓；PluginProvider 持 entry 无逐次查表 ✓；middleware 栈重建原子替换、在途走旧栈 ✓；api.llm 在途用量 finally 落账 ✓。留档接受 1 项：reload 后新旧 StorageNamespace 实例并存窗口（旧实例内存态滞后写可覆盖新写，窗口=在途请求生命周期、仅插件 KV、真正修复需静默等待在途——v1 接受）。
+- **S1（行为不一致·真缺陷）**：热管理端点 reload/disable/enable 原为 sync def——FastAPI 跑 anyio 线程池，register 内 `api.scheduler.every/once` 的 `get_running_loop()` 必抛 RuntimeError → **使用调度器的插件启动成功（lifespan 内有循环）但永远无法热重载/热启用**（热路径必 failed）。修复：三端点改 `async def`——register/回滚在事件循环线程执行，与启动路径同语义（register 阻塞暴露面与启动一致，admin+频控 20/min 已限面）。
+- **S2（线程安全·真缺陷）**：卸载回滚的 `TaskHandle.cancel` 在线程池线程裸调 `task.cancel()`——asyncio Task 非线程安全：debug 模式 `_check_thread` 抛 RuntimeError 被回滚异常隔离吞掉 → **任务泄漏、已卸载插件的旧代码永续后台跑**（红验证：独立脚本 debug 模式实证 RuntimeError + 任务悬置 cancelling 态不终止）；非 debug 轻则取消延迟生效（Future.cancel 内部 call_soon 不唤醒选择器）。修复：`scheduler._cancel_task` 判断当前线程即所属循环线程，否则经 `call_soon_threadsafe` 投递取消（循环已关静默返回）；TaskHandle.cancel 与 reset 统一走它（覆盖插件 sync 路由自行 cancel、conftest reset_plugins 测试线程路径）。
+- **附带加固**：scheduler.every/once 任意线程可注册——无循环上下文回退 `bind_loop` 绑定的宿主主循环（load_plugins 于 lifespan 内绑定、reset_plugins 解绑防指向已关闭循环；Event 握手 10s 超时报可诊断错误）——覆盖插件 sync 路由直接注册调度的面；`SchedulerNamespace` docstring 同步（"须在循环内调用"的旧约束已失效）。
+- **既有测试修复（iter 369 假红）**：`test_package_plugin_submodule_reload` 的 sys.modules 残留断言裸 `startswith("dt_plugin_pkg")` 误命中他测试装载的 `dt_plugin_pkgp`（pkgp）——组合序确定性假红（stash 实证与本轮改动无关）；收窄为精确名 + `dt_plugin_pkg.` 前缀。
+- **回归（tests/test_iter384_hot_reload_inflight.py，4 个）**：T1 端到端——调度器插件完整热生命周期（lifespan 加载→reload 保持 loaded 且旧任务取消/新任务跑→disable 计数冻结+路由 404→enable 恢复）；T2 跨线程 cancel（debug 模式钉死旧实现红）；T3 线程池上下文注册回退绑定循环；T4 未绑定明确报错。测试基建留档：协程内同步轮询/join 会堵死事件循环使 threadsafe 回调永不到达（须异步轮询 / `await asyncio.to_thread(t.join)`）。
+- **门禁**：全量 pytest 1446 通过/1 跳过（1442 基线 + 4 新增）+ ruff（app/tests + 根 plugins/）全绿。
+- **下一步**：滚动审计续（候选：真实插件级 soak——多插件并发装载/卸载 × 在途请求风暴）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R26（2026-10-18，Python v1 深度审计第二十三轮「iter 383」，✅ 完成）**：同一 /goal 第二十三遍——**备份导入写入族竞态（R23 删除族的对偶面）+ R23-R25 新改动路径的真实进程 soak 复验**。零产品代码改动（审计面 clean + 1 项留档），1 个 soak 脚本入库、1 commit：
 
 - **静态审计（导入面分派）**：_RESTORE_LOCK 互斥 ✓（iter 369）；restore 全程 to_thread ✓（R6 B14，导入不冻事件循环）；append-only 不触内存态（无 _STREAMS/_RUN_STREAMS 失效需求，导入无 running 状态白名单）✓；preview 摘要无一致性承诺（TOCTOU 无害）✓；导入事务持写锁期间 id 分配不受并发删除交错（写锁串行）✓。

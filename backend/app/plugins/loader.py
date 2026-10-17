@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import logging
@@ -127,9 +128,7 @@ def _import_module(path: Path):
     for stale in [m for m in list(sys.modules) if m == mod_name or m.startswith(mod_name + ".")]:
         sys.modules.pop(stale, None)
     if path.name == "plugin.py":
-        spec = importlib.util.spec_from_file_location(
-            mod_name, path, submodule_search_locations=[str(path.parent)]
-        )
+        spec = importlib.util.spec_from_file_location(mod_name, path, submodule_search_locations=[str(path.parent)])
     else:
         spec = importlib.util.spec_from_file_location(mod_name, path)
     if spec is None or spec.loader is None:
@@ -150,6 +149,13 @@ def load_plugins(app: FastAPI, plugins_dir: str | Path | None = None) -> list[ru
         log.info("插件目录不存在，跳过插件加载: %s", root)
         return []
     _load_disabled()  # 加载禁用状态
+    # iter 384 R27：绑定宿主主循环——热管理路径（线程池线程）重跑 register 时，
+    # api.scheduler.every/once 回退到该循环创建任务。防御式：测试线程直接调
+    # load_plugins（无运行循环）时不绑定，线程池上下文的调度注册报明确错误。
+    try:
+        scheduler.bind_loop(asyncio.get_running_loop())
+    except RuntimeError:
+        pass
     for path in _iter_plugin_files(root):
         _load_one(app, path)  # 禁用插件由 _load_one 记 disabled 状态
     statuses = runtime.statuses()
@@ -187,7 +193,11 @@ def _load_one(app: FastAPI, path: Path) -> runtime.PluginStatus | None:
     if fallback in _disabled_ids or _peek_plugin_id(path) in _disabled_ids:
         pid = _peek_plugin_id(path) or fallback
         status = runtime.PluginStatus(
-            id=pid, name=pid, version="", file=str(path), state="disabled",
+            id=pid,
+            name=pid,
+            version="",
+            file=str(path),
+            state="disabled",
         )
         runtime.record(status)
         log.info("插件 %s 已禁用，跳过加载", pid)
@@ -198,8 +208,12 @@ def _load_one(app: FastAPI, path: Path) -> runtime.PluginStatus | None:
         log.exception("插件导入失败 %s", path)
         runtime.record(
             runtime.PluginStatus(
-                id=fallback, name=fallback, version="", file=str(path),
-                state="failed", error=f"import: {exc}",
+                id=fallback,
+                name=fallback,
+                version="",
+                file=str(path),
+                state="failed",
+                error=f"import: {exc}",
             )
         )
         return
@@ -367,6 +381,7 @@ def _find_plugin_file(pid: str) -> Path | None:
             return path
     return None
 
+
 def get_plugin_statuses() -> list[runtime.PluginStatus]:
     """当前加载状态台账（GET /api/plugins 数据源）。"""
     return runtime.statuses()
@@ -380,5 +395,6 @@ def reset_plugins() -> None:
     exporters.reset()
     providers.reset()
     scheduler.reset()
+    scheduler.bind_loop(None)  # iter 384 R27：绑定随隔离解除（防指向已关闭循环）
     _plugin_apis.clear()
     _disabled_ids.clear()

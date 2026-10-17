@@ -627,9 +627,11 @@ class SchedulerNamespace:
     （定时同步 / 每日摘要 / 周期轮询 MCP 等；此前只有路由触发与事件触发）。
 
     任务跑在宿主事件循环；fn 可 async（await）或 sync（须非阻塞，重活 fn 内 to_thread）。
-    fn 异常隔离（记日志不杀循环）。返回 TaskHandle.cancel() 单独取消；插件卸载（reset_plugins）
-    统一取消全部。任务不持久化——进程重启即失（插件 register/startup 重新注册）。
-    须在运行中的事件循环内调用（register 期间 / async 路由内）。
+    fn 异常隔离（记日志不杀循环）。返回 TaskHandle.cancel() 单独取消（任意线程可调，iter 384）；
+    插件卸载（unload 回滚/reset_plugins）统一取消全部。任务不持久化——进程重启即失
+    （插件 register/startup 重新注册）。iter 384 R27：任意线程可注册——循环内直接创建；
+    线程池/无循环上下文（热管理端点重跑 register、插件 sync 路由）回退到宿主主循环
+    （load_plugins 于 lifespan 内 bind_loop 绑定）。
     """
 
     def __init__(self, plugin_id: str, rollbacks: list) -> None:

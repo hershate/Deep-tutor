@@ -60,8 +60,13 @@ def _gate_plugin_admin(user: User) -> None:
 
 
 @router.post("/{plugin_id}/reload")
-def reload_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
-    """热重载一个已加载的插件（unload + 重新导入 + register）。"""
+async def reload_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
+    """热重载一个已加载的插件（unload + 重新导入 + register）。
+
+    iter 384 R27：async def——register/回滚在事件循环线程执行（与启动路径 lifespan 内
+    load_plugins 同语义）。此前 sync def 跑 anyio 线程池，api.scheduler.every/once 在
+    register 内 get_running_loop 必抛 -> 调度器插件永远无法热重载（启动成功、热路径
+    failed 的行为不一致）。"""
     _gate_plugin_admin(user)
     app = request.app
     status = loader.reload_plugin(app, plugin_id)
@@ -71,8 +76,11 @@ def reload_plugin(plugin_id: str, request: Request, user: User = Depends(require
 
 
 @router.post("/{plugin_id}/disable")
-def disable_plugin(plugin_id: str, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
-    """禁用一个插件（unload + 持久化禁用状态）。"""
+async def disable_plugin(plugin_id: str, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
+    """禁用一个插件（unload + 持久化禁用状态）。
+
+    iter 384 R27：async def——unload 的回滚（含调度任务 cancel）在事件循环线程执行，
+    task.cancel() 不再跨线程（asyncio Task 非线程安全，见 scheduler._cancel_task）。"""
     _gate_plugin_admin(user)
     ok = loader.disable_plugin(plugin_id)
     if not ok:
@@ -81,8 +89,8 @@ def disable_plugin(plugin_id: str, user: User = Depends(require_admin)) -> dict:
 
 
 @router.post("/{plugin_id}/enable")
-def enable_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
-    """启用一个被禁用的插件（重新加载）。"""
+async def enable_plugin(plugin_id: str, request: Request, user: User = Depends(require_admin)) -> dict:  # noqa: ARG001
+    """启用一个被禁用的插件（重新加载）。语义对齐 reload（iter 384 R27：async def）。"""
     _gate_plugin_admin(user)
     app = request.app
     status = loader.enable_plugin(app, plugin_id)
