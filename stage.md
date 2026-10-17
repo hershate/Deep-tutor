@@ -38,6 +38,16 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R15（2026-10-17，Python v1 深度审计第十二轮「iter 372」，✅ 完成）**：同一 /goal 第十二遍——**长跑模拟 + 三项安全遗留处置**。4 commit、4 个新回归测试：
+
+- **长跑模拟（`backend/tests/soak_longrun.py` 手工脚本）**：组合 8 用户风暴 ×90s × 加速维护 5s/轮（跨 ~18 个维护周期叠加负载），**14498 请求零 5xx**；内存 6MB→6MB（前后 1/3 窗口均值漂移 +0MB）、句柄 75→76（Δ+1）——无累积泄漏；DB 增长 0.09MB、**-wal 峰值 1.2MB 且收尾被 checkpoint 截断回 0 字节**；负载中并发双导入 [200,409] 互斥仍成立、200 天种子行在负载窗口内被裁剪（维护与负载互不干扰）；关停后 integrity/foreign_key 干净、threads 落库 480 与成功响应计数一致。指标口径经 tasklist 交叉验证（ctypes GetProcessMemoryInfo 与系统一致）。
+- **CSP 落地（销 R5/R8 遗留「CSP 刻意不加」）**：全站 `Content-Security-Policy`——v1 插件 inline 注入所需的 script/style `'unsafe-inline'` 保留（已核全仓零 eval/new Function，**不含 unsafe-eval**），其余全收紧：**connect-src 'self'（XSS 后数据外带被拦）**、object-src 'none'、base-uri/form-action/frame-ancestors 收口、媒体 self+blob（KB 预览）、图片放行 https:（用户 markdown 外链图为被动内容）。**真浏览器实证**：起服加载 SPA，设置向导完整渲染（3 JS+1 CSS 全载）、`securitypolicyviolation` 事件零条——CSP 不破坏既有功能。回归并入安全头测试（413 短路也带头）。v2 前端（无 inline 注入）再收紧 script/style。
+- **share 过期默认（销 R5 遗留「share 永久链接」，**待追认缺省 90 天**）**：`SHARE_DEFAULT_EXPIRE_DAYS`（默认 90，0=恢复永久）——读取时按 created_at+天数判定（零迁移）；公开端点过期与不存在**同形 404**（不向探测者泄露存在性）；属主查询面回传 `expired` 标记 + 全响应面加性 `expires_at`；3 回归（默认过期/0=永久恢复并即时生效/创建响应 90 天口径）。
+- **transformers CVE 复核（豁免留档，v2 自然销项）**：2026-10-17 实查——修复路径存在（marker-pdf 2.0.0 要求 transformers≥5.12+surya≥0.22+torch≥2.7，四包大版本迁移）；但 transformers 在本服务**仅经 marker_single 子进程 CLI 触达**（parse_material.py:380 `shutil.which`+subprocess，服务进程零导入、仅认证用户 full 档 PDF 解析触发、上传 50MB 上限+parse 限流），且 note/12 决策 v2 砍掉整个 OCR 栈（PDF 用 Go 真实现）——v1 生命周期内迁移无回报窗，维持豁免。
+- **门禁**：后端全量 pytest **1409 通过/1 跳过**（+4）+ ruff 全仓；前端无改动。
+- **遗留（更新）**：~~CSP~~（R15 已上，script/style 收紧留 v2）、~~share 过期默认~~（R15 90 天待追认）、币种字段改名（待追认）、SQLite 专有日期函数、事件断线游标（v2 #60）、transformers CVE（豁免留档 v2 销项）、GET /notes 无分页（30MB 上界接受）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R14（2026-10-17，Python v1 深度审计第十一轮「iter 372」，✅ 完成）**：同一 /goal 第十一遍——**维护任务真实调度实证**（此前 maintenance 只有函数级单测，lifespan 拉起的 `maintenance_loop` 周期调度层从未在真实进程下验证）。2 commit、0 新自动测试（实证走手工脚本）：
 
 - **节奏旋钮化（行为保持）**：`maintenance_interval_seconds` / `orphan_grace_seconds` 入 Settings（默认恒 86400=每日/24h，语义不变）；maintenance.py 模块常量改读 settings——兼作运维调节旋钮与实进程验证的加速驱动口；.env.example 补模板行。
