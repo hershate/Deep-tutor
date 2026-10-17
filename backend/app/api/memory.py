@@ -69,6 +69,8 @@ _MAX_TOOL_RESULT_CHARS = 20_000  # iter 364：工具回灌 LLM 的字符上限�
 # iter 365：记忆子系统资源配额 + 写限流（对照 sessions/notes/kb 配额族，防 DoS 刷库膨胀）
 _MAX_THREADS_PER_USER = 500
 _MAX_MEMORIES_PER_USER = 2000
+# 单 thread 记忆列表端点封顶（iter 372 R13；速览面板用，total 另给全量计数）
+_THREAD_MEMORY_LIST_CAP = 200
 _RUN_CREATE_LOCK = asyncio.Lock()  # check-and-create 临界段
 
 
@@ -262,8 +264,17 @@ class MemoryIn(BaseModel):
 @router.get("/threads/{thread_id}/memory")
 def list_thread_memory(thread_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _owned_thread(db, thread_id, user)
-    rows = db.query(models.Memory).filter_by(thread_id=thread_id).order_by(models.Memory.updated_at.desc()).all()
-    return {"items": [_mem_out(m) for m in rows]}
+    # iter 372 R13：封顶最近 200 条 + total 全量计数——此前无界全量返回（2000 条配额 ×
+    # 20k 字符上限最坏 ~40MB）；Chat 页记忆面板是速览小窗，前端也只渲染最近 50 条
+    rows = (
+        db.query(models.Memory)
+        .filter_by(thread_id=thread_id)
+        .order_by(models.Memory.updated_at.desc())
+        .limit(_THREAD_MEMORY_LIST_CAP)
+        .all()
+    )
+    total = db.query(models.Memory).filter_by(thread_id=thread_id).count()
+    return {"items": [_mem_out(m) for m in rows], "total": total}
 
 
 @router.post("/threads/{thread_id}/memory")

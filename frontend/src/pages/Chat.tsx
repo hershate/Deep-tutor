@@ -434,7 +434,9 @@ export default function Chat() {
               </div>
             </header>
 
-            {showMemory && <MemoryPanel items={memQ.data?.items ?? []} loading={memQ.isLoading} />}
+            {showMemory && (
+              <MemoryPanel items={memQ.data?.items ?? []} total={memQ.data?.total ?? 0} loading={memQ.isLoading} />
+            )}
 
             <div ref={scrollRef} onScroll={onScrollMsgs} className="flex-1 space-y-3 overflow-y-auto p-3">
               {messages.length >= 100 && !noMoreMsgs && (
@@ -555,23 +557,31 @@ function StreamingBubble({ stream }: { stream: Streaming }) {
   )
 }
 
-function MemoryPanel({ items, loading }: { items: MemoryItem[]; loading: boolean }) {
+function MemoryPanel({ items, total, loading }: { items: MemoryItem[]; total: number; loading: boolean }) {
+  // 速览小窗只渲染最近 50 条（后端列表本身已封顶 200 + 给全量 total）；条数多时全量渲染
+  // 会把 160px 高的小窗塞进上千节点
+  const shown = items.slice(0, 50)
   return (
     <div className="max-h-40 overflow-y-auto border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/50">
-      <p className="mb-1 font-medium text-slate-500">记忆库（{items.length}）</p>
+      <p className="mb-1 font-medium text-slate-500">记忆库（{total}）</p>
       {loading ? (
         <p className="text-slate-400">加载中…</p>
-      ) : items.length === 0 ? (
+      ) : shown.length === 0 ? (
         <p className="text-slate-400">暂无记忆。助手会按需保存要点。</p>
       ) : (
-        <ul className="space-y-1">
-          {items.map((m) => (
-            <li key={m.id} className="rounded bg-white px-2 py-1 dark:bg-slate-800">
-              <span className="mr-1 text-[10px] text-slate-400">[{m.kind}]</span>
-              {m.content.slice(0, 120)}
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-1">
+            {shown.map((m) => (
+              <li key={m.id} className="rounded bg-white px-2 py-1 dark:bg-slate-800">
+                <span className="mr-1 text-[10px] text-slate-400">[{m.kind}]</span>
+                {m.content.slice(0, 120)}
+              </li>
+            ))}
+          </ul>
+          {total > shown.length && (
+            <p className="mt-1 text-[10px] text-slate-400">仅显示最近 {shown.length} 条（共 {total} 条）</p>
+          )}
+        </>
       )}
     </div>
   )

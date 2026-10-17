@@ -1513,6 +1513,6 @@ export const deleteThread = (id: number) =>
 export const listMessages = (id: number, limit = 100, beforeId?: number) =>
   apiFetch<{ items: ChatMessage[] }>(`/threads/${id}/messages?limit=${limit}${beforeId != null ? `&before_id=${beforeId}` : ''}`)
 export const listThreadMemory = (id: number) =>
-  apiFetch<{ items: MemoryItem[] }>(`/threads/${id}/memory`)
+  apiFetch<{ items: MemoryItem[]; total: number }>(`/threads/${id}/memory`)
 export const addThreadMemory = (id: number, body: { content: string; kind?: string }) =>
   apiFetch<MemoryItem>(`/threads/${id}/memory`, { method: 'POST', body: JSON.stringify(body) })
