@@ -1788,7 +1788,7 @@ for (;;) {
 | DELETE/POST | `/api/runs/{id}`、`/api/runs/{id}/cancel` | 删运行（非 running）/ 取消 |
 | POST | `/api/runs/{id}/approve` | 用户确认草稿提升（promote） |
 | GET | `/api/runs/{id}/files[/{name}]` | 工作区产物列表/读 |
-| GET/POST/DELETE | `/api/threads/{id}/memory[/{mid}]`、`/api/memory[/{mid}]` | 记忆库 CRUD（thread / user 作用域） |
+| GET/POST/DELETE | `/api/threads/{id}/memory[/{mid}]`、`/api/memory[/{mid}]` | 记忆库 CRUD（thread / user 作用域）。iter 372 勘误：thread 列表返回最近 200 条 + `total` 全量计数（此前无界全量，最坏 ~40MB 单响应） |
 
 ### 11.3 Agent 对话 SSE：`POST /api/threads/{id}/runs`
 
