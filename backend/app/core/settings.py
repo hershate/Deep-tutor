@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     # --- 预算（成本控制 Pillar 3）---
     budget_per_session_usd: float = Field(default=1.0, description="会话预算")
     daily_budget_usd: float = Field(default=10.0, description="每日预算")
+    # iter 370（R6 裁决缺省项 F4）：api_usage 保留天数（每 LLM 调用一行，长期运行
+    # 无限增长）；maintenance 每日轮删超期行。0 = 不裁剪（保留全部历史）。
+    api_usage_retention_days: int = Field(default=180, ge=0, description="api_usage 保留天数（0=不裁剪）")
 
     # --- 搜索 ---
     search_engine: str = Field(

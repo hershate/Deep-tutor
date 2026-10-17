@@ -256,13 +256,52 @@ def cleanup_orphan_run_dirs(data_dir: str | None = None) -> int:
     return removed
 
 
+def prune_api_usage() -> int:
+    """api_usage 保留策略（iter 370，R6 裁决缺省项 F4）。
+
+    每 LLM 调用一行、无保留策略时长期运行无限增长（日预算聚合扫描/备份体积/
+    VACUUM 时长线性劣化）。每日运维轮删超期行（created_at 为 naive UTC，与写入端
+    func.now() 同口径）。settings.api_usage_retention_days=0 禁用（保留全部历史）。
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.settings import settings
+
+    days = settings.api_usage_retention_days
+    if days <= 0:
+        return 0
+    # 列为 naive UTC（写入端 func.now()/CURRENT_TIMESTAMP）——转 naive 再比较
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
+    from app.db.base import SessionLocal
+    from app.db.models import ApiUsage
+
+    db = SessionLocal()
+    try:
+        removed = (
+            db.query(ApiUsage)
+            .filter(ApiUsage.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        if removed:
+            log.info("api_usage 保留裁剪：删除 %d 行（保留 %d 天）", removed, days)
+        return removed
+    except Exception:  # noqa: BLE001 - 裁剪失败不拖垮运维轮
+        db.rollback()
+        log.warning("api_usage 保留裁剪失败（下轮重试）", exc_info=True)
+        return 0
+    finally:
+        db.close()
+
+
 def run_maintenance() -> dict:
-    """执行一轮运维（checkpoint + 清孤儿 + 门控 VACUUM），返回统计。"""
+    """执行一轮运维（checkpoint + 清孤儿 + 用量裁剪 + 门控 VACUUM），返回统计。"""
     removed = cleanup_orphan_session_dirs()
     removed += cleanup_orphan_run_dirs()
+    pruned = prune_api_usage()
     checkpoint_db()
     vacuum_db()
-    return {"orphan_dirs_removed": removed}
+    return {"orphan_dirs_removed": removed, "api_usage_pruned": pruned}
 
 
 async def maintenance_loop(stop_event) -> None:
