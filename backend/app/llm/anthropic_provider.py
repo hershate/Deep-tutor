@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 
 import anthropic
+import httpx
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
@@ -33,11 +35,18 @@ from app.llm.pricing import estimate_cost
 # 供应商连通性测试）新建 client 且从不 aclose；每个 client 一个 httpx 连接池 +
 # SSL 上下文，长期运行 fd/内存缓涨。按 (api_key, base_url) 有界缓存共享；
 # 记录创建时事件循环，跨循环使用（测试逐用例 asyncio.run 新循环）自动重建，
-# 防 "Event loop is closed"。FIFO 有界淘汰（淘汰条目由 GC 回收连接池）。
-_CLIENT_CACHE_MAX = 8
-_clients: dict[tuple[str, str | None], tuple[AsyncAnthropic, "asyncio.AbstractEventLoop | None"]] = {}
+# 防 "Event loop is closed"。
+# iter 369：FIFO 8 槽 -> LRU 32 槽——多用户（>8 个不同 key/base_url 档案）下热点
+# key 被反复淘汰重建（每请求新 SSLContext + TLS 重握手 + aclose task 调度），
+# 实质退化回"每请求一 client"；LRU 命中续位后热点稳定驻留。
+_CLIENT_CACHE_MAX = 32
+_clients: OrderedDict[tuple[str, str | None], tuple[AsyncAnthropic, "asyncio.AbstractEventLoop | None"]] = OrderedDict()
 # iter 365 B3：被淘汰/覆写的旧 client 的 aclose task 引用（防 GC 中断关闭）
 _closing_tasks: set[asyncio.Task] = set()
+# iter 369：显式 HTTP 超时（SDK 默认 read=600s + 内部重试 2 次）——插件/慢滴流
+# 场景单步可挂满 600s 且无宿主级上限；read 对流式响应是 chunk 间隔超时，正常生成
+# （tokens 持续到达）不受影响，只截断真正的悬挂连接。
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=120.0, pool=10.0)
 
 
 def _schedule_aclose(client: AsyncAnthropic) -> None:
@@ -67,14 +76,16 @@ def _shared_client(api_key: str, base_url: str | None) -> AsyncAnthropic:
     key = (api_key, base_url)
     hit = _clients.get(key)
     if hit is not None and hit[1] is loop:
+        _clients.move_to_end(key)  # LRU 命中续位（iter 369）
         return hit[0]
     # iter 365 B3：覆写/淘汰旧 client 前 schedule aclose（防连接池/SSL 句柄慢泄漏）
-    if key in _clients:  # 同 key 跨事件循环覆写
-        _schedule_aclose(_clients[key][0])
-    elif len(_clients) >= _CLIENT_CACHE_MAX:  # 新 key 且缓存满：FIFO 淘汰最旧
+    if hit is not None:  # 同 key 跨事件循环覆写
+        _schedule_aclose(hit[0])
+        del _clients[key]
+    elif len(_clients) >= _CLIENT_CACHE_MAX:  # 新 key 且缓存满：LRU 淘汰最久未用
         old_key = next(iter(_clients))
         _schedule_aclose(_clients.pop(old_key)[0])
-    client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+    client = AsyncAnthropic(api_key=api_key, base_url=base_url, timeout=_HTTP_TIMEOUT, max_retries=2)
     _clients[key] = (client, loop)
     return client
 
@@ -173,6 +184,7 @@ class AnthropicProvider(LLMProvider):
         output_tokens = 0
         cache_read = 0
         cache_creation = 0
+        event_stream = None
         try:
             event_stream = await self._client.messages.create(
                 model=used_model,
@@ -194,7 +206,24 @@ class AnthropicProvider(LLMProvider):
                     u = event.usage
                     output_tokens = getattr(u, "output_tokens", 0) or 0
         except anthropic.APIError as exc:
+            # iter 369：与 stream_agentic（iter 365 B1）同口径——异常前 message_start 已到的
+            # input/cache tokens 已向供应商计费，先补发部分 usage 再抛（防计量黑洞）
+            yield StreamChunk(usage=LLMUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_input_tokens=cache_read,
+                cache_creation_input_tokens=cache_creation,
+                model=used_model,
+            ))
             raise _map_transient(exc) from exc
+        finally:
+            # iter 369：异常/取消/消费方提前退出路径显式关流——SDK AsyncStream 无 __del__，
+            # 正常耗尽自会归还连接，异常退出时靠 GC 兜底会在共享 client 上缓涨未关连接
+            if event_stream is not None:
+                try:
+                    await event_stream.close()
+                except Exception:  # noqa: BLE001  关闭失败不掩盖原异常（GC 兜底）
+                    pass
         yield StreamChunk(usage=LLMUsage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -331,6 +360,7 @@ class AnthropicProvider(LLMProvider):
         input_tokens = output_tokens = cache_read = cache_creation = 0
         stop_reason: str | None = None
         index_to_id: dict[int, str] = {}  # content_block index -> tool_use_id（input_json_delta 归属）
+        event_stream = None
         try:
             event_stream = await self._client.messages.create(stream=True, **kwargs)
             async for event in event_stream:
@@ -378,6 +408,14 @@ class AnthropicProvider(LLMProvider):
                 stop_reason=stop_reason,
             )
             raise _map_transient(exc) from exc
+        finally:
+            # iter 369：异常/取消/消费方提前退出路径显式关流（同 stream()；SDK AsyncStream
+            # 无 __del__，异常退出靠 GC 兜底会在共享 client 上缓涨未关连接）
+            if event_stream is not None:
+                try:
+                    await event_stream.close()
+                except Exception:  # noqa: BLE001  关闭失败不掩盖原异常（GC 兜底）
+                    pass
         yield AgenticStreamChunk(
             usage=LLMUsage(
                 input_tokens=input_tokens,

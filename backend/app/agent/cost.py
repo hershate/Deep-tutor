@@ -19,8 +19,11 @@ from app.tools.base import ToolMetadata
 MODEL_PRICING_PREF_KEY = "model_pricing"
 
 
-def usage_cost(usage: LLMUsage) -> float:
-    return estimate_cost(usage, usage.model)
+def usage_cost(usage: LLMUsage, model_pricing: dict | None = None) -> float:
+    """按 usage 估算费用（CNY）。model_pricing 为用户模型计费表（可选）——
+    不传则纯族默认（自配非 Anthropic 模型族默认 miss -> 0，与 api_usage 实记口径
+    不一致，仅用于无表上下文的旧调用）。"""
+    return estimate_cost(usage, usage.model, model_pricing)
 
 
 def accumulate_usage(total: LLMUsage, add: LLMUsage) -> None:
@@ -137,4 +140,9 @@ def record_metadata_usage(db, metadata: ToolMetadata, user_id: int | None = None
         )
         db.commit()
     except Exception:  # noqa: BLE001
+        # iter 369：补日志——此前完全静默，DB 抖动（SQLite BUSY）下 api_usage 行丢失
+        # 且无可观测信号（日预算系统性少计）；计量仍不阻断业务
+        import logging
+
+        logging.getLogger("deep_tutor.cost").warning("api_usage 记量失败（已回滚）", exc_info=True)
         db.rollback()

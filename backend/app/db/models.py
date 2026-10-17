@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -545,6 +546,10 @@ class ApiUsage(Base):
     """
 
     __tablename__ = "api_usage"
+    # iter 369：复合索引——日预算守卫（check_daily_budget 每计费请求执行）与
+    # /usage 系列按 (user_id, created_at >= since) 过滤，仅有 user_id 单列索引时
+    # 取索引后仍逐行过滤日期，用量行数随使用线性增长后守卫请求路径线性变慢。
+    __table_args__ = (Index("ix_api_usage_user_created", "user_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)  # P4 iter 58 按用户隔离

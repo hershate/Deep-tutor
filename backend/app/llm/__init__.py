@@ -34,7 +34,9 @@ def get_active_profile(user_id: int | None = None, db=None) -> "dict | None":
             q = sess.query(models.LlmProviderProfile).filter_by(is_active=True)
             if user_id is not None:
                 q = q.filter_by(user_id=user_id)
-            p = q.first()
+            # iter 369：order_by(id) 定序——并发 activate 竞态下可能出现多 active 行，
+            # first() 无排序时选择不确定（凭证归属漂移）；按 id 稳定取最早启用的档案
+            p = q.order_by(models.LlmProviderProfile.id).first()
             if p is None:
                 return None
             return {"name": p.name, "base_url": p.base_url or "", "api_key": p.api_key, "model": p.model or "", "kind": p.kind or ""}
@@ -42,6 +44,13 @@ def get_active_profile(user_id: int | None = None, db=None) -> "dict | None":
             if own:
                 sess.close()
     except Exception:  # noqa: BLE001
+        # iter 369：回退 .env 全局 key 是凭证/成本归属漂移（用量仍记该用户）——
+        # 须留可观测信号，不再完全静默
+        import logging
+
+        logging.getLogger("deep_tutor.llm").warning(
+            "get_active_profile 读 DB 失败，回退 .env 全局凭证（user_id=%s）", user_id, exc_info=True
+        )
         return None
 
 

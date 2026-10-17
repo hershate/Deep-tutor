@@ -182,6 +182,7 @@ def _persist_run_step_sync(
     stop_reason: str | None = None,
     duration_ms: int = 0,
     is_error: bool = False,
+    model_pricing: dict | None = None,
 ) -> None:
     from app.db.models import RunStep
 
@@ -197,7 +198,9 @@ def _persist_run_step_sync(
             stop_reason=stop_reason,
             tokens_in=usage.input_tokens if usage else 0,
             tokens_out=usage.output_tokens if usage else 0,
-            cost=usage_cost(usage) if usage else 0.0,
+            # iter 369：按用户计费表估算（与 api_usage/用量页同口径；族默认对自配
+            # 非 Anthropic 模型恒 0，显示与实记不一致）
+            cost=usage_cost(usage, model_pricing) if usage else 0.0,
             model=usage.model if usage else "",
             duration_ms=duration_ms,
         )
@@ -395,6 +398,18 @@ async def run_agent_loop(
                         await emit("tool_call", {"id": chunk.tool_use_start[0], "name": chunk.tool_use_start[1], "step": step})
                     if chunk.tool_use_delta:
                         await emit("tool_progress", {"id": chunk.tool_use_delta[0], "step": step})
+        except asyncio.CancelledError:
+            # iter 369：硬取消（/runs/{id}/cancel 的 task.cancel / 关停取消）打断流读取时，
+            # 本轮 message_start 已到的 input/cache tokens 已向供应商计费——补记后原样重抛
+            # （取消语义不变；shield 防补记 await 被紧随的二次取消打断）
+            if acc.usage is not None and (acc.usage.input_tokens or acc.usage.output_tokens):
+                accumulate_usage(total_usage, acc.usage)
+                meta = build_metadata(acc.usage, acc.usage.model, ctx.model_pricing)
+                try:
+                    await asyncio.shield(asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id))
+                except Exception:  # noqa: BLE001  补记失败不阻断取消传播
+                    log.warning("agent_loop 取消路径补记 usage 失败", exc_info=True)
+            raise
         except Exception as exc:  # noqa: BLE001  provider 异常隔离——终止保已计量
             log.warning("agent_loop provider error at step %d: %s", step, exc)
             # iter 365 B1：异常前 provider 已 yield 的部分 usage（message_start 的 input_tokens）
@@ -419,6 +434,7 @@ async def run_agent_loop(
                     await _persist_run_step(
                         db, run_id, step, "message", "assistant", {}, {"reason": "budget_exceeded"},
                         usage=turn_usage, duration_ms=int((time.monotonic() - t0) * 1000),
+                        model_pricing=ctx.model_pricing,
                     )
                     return AgentRunResult(status="interrupted", final_text=last_text, steps=step + 1, usage=total_usage, error="budget_exceeded")
 
@@ -430,6 +446,7 @@ async def run_agent_loop(
         await _persist_run_step(
             db, run_id, step, "message", "assistant", {}, {"text": last_text[:500]},
             usage=turn_usage, stop_reason=acc.stop_reason, duration_ms=int((time.monotonic() - t0) * 1000),
+            model_pricing=ctx.model_pricing,
         )
         if emit:
             await emit("message_end", {"step": step, "stop_reason": acc.stop_reason})

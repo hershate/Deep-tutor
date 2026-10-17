@@ -274,7 +274,7 @@ def check_daily_budget(db: Session | None, user_id: int) -> None:
             return check_daily_budget(own, user_id)
         finally:
             own.close()
-    from datetime import date
+    from datetime import date, datetime, time, timedelta
 
     from sqlalchemy import func
 
@@ -284,14 +284,18 @@ def check_daily_budget(db: Session | None, user_id: int) -> None:
     limit = get_daily_budget(db, user_id)
     if limit <= 0:
         return
-    # iter 167 口径：本地日（'localtime' 修饰符），与 /usage today_cost 一致——
-    # 此前用 UTC 日，UTC+8 0-8 点的花费被计入"昨天"，守卫与用量页显示不符
-    today = date.today().isoformat()
+    # iter 167 口径：本地日，与 /usage today_cost 一致——此前用 UTC 日，UTC+8 0-8 点的
+    # 花费被计入"昨天"，守卫与用量页显示不符。
+    # iter 369：谓词改可索引形式（created_at >= 本地 0 点换算 UTC naive，与 usage.py
+    # since_utc 同源换算）——原 func.date(col,'localtime') 对列套函数，无法走
+    # (user_id, created_at) 复合索引，每个计费请求全扫该用户历史 usage 行（线性劣化）。
+    local_offset = datetime.now().astimezone().utcoffset() or timedelta(0)
+    since_utc = datetime.combine(date.today(), time.min) - local_offset
     spent = (
         db.query(func.coalesce(func.sum(models.ApiUsage.cost), 0.0))
         .filter(
             models.ApiUsage.user_id == user_id,
-            func.date(models.ApiUsage.created_at, "localtime") == today,
+            models.ApiUsage.created_at >= since_utc,
         )
         .scalar()
         or 0.0

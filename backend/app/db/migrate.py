@@ -81,7 +81,10 @@ def _provider_pricing_removed(insp) -> bool:
 
 
 _REVISION_PROBES = [
-    ("c5d7e9a13b28", _provider_pricing_removed),  # iter 356 删每卡计价列（最新 head）
+    # iter 369：e8c4a1f63b02（api_usage 复合索引）为加索引迁移——无索引的 c5d7e9a13b28
+    # 代旧库 stamp 到 c5d7e9a13b28 后 upgrade 会正常补建；有索引的 create_all 新库由
+    # 迁移内 if_not_exists 幂等，无需单独探针。
+    ("c5d7e9a13b28", _provider_pricing_removed),  # iter 356 删每卡计价列
     # iter 356：price 列仍在 = 旧库已到 d8a2f5c91b34 代；stamp 后 upgrade 跑 c5d7e9a13b28 删列
     ("d8a2f5c91b34", _has_column("llm_provider_profiles", "price_input_per_mtok")),
     ("f0a2c5d839b1", _has_column("study_units", "node_sids")),  # iter 348 材料知识点驱动
