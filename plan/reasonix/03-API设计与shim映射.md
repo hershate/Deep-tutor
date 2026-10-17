@@ -79,7 +79,7 @@
 | 端点 | 说明 |
 |---|---|
 | GET /api/export/formats · POST /api/export/plans/{id} | md/pdf(Go 真实现 #28)/ics/apkg/slides |
-| POST/DELETE/GET /api/plans/{id}/share · GET /api/shares `[admin]` · GET /api/shared/{token}（免登录只读） | iter 372 起默认 90 天过期（SHARE_DEFAULT_EXPIRE_DAYS，0=永久；过期与不存在同形 404、响应带 expires_at）——shim 须保语义 |
+| POST/DELETE/GET /api/plans/{id}/share · GET /api/shares `[admin]` · GET /api/shared/{token}（免登录只读） | iter 372 起默认 90 天过期（SHARE_DEFAULT_EXPIRE_DAYS，0=永久；过期与不存在同形 404、响应带 expires_at；iter 373 起过期后再创建轮换 token 重发、/shares 逐条带 expired）——shim 须保语义 |
 | GET /api/backup/export · POST /api/backup/preview|import | v1 格式 v2（threads/memories/kb_documents 索引互链 + 原件内嵌，`version>2` 拒绝）；import 上限 256MB（413 `too_large`）、并发导入互斥（409 `conflict`，同 plans 生成立即拒绝约定）——shim 须保语义 |
 | GET /api/events/stream `[SSE]` | **全局事件流**（#60，§六） |
 | GET /api/health | 探活 |
