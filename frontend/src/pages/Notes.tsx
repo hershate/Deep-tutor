@@ -226,7 +226,11 @@ export default function Notes() {
 
   async function openNote(n: FreeNote) {
     if (busy || loadingId !== null) return
-    if (draft.id !== n.id && !confirmDiscard()) return
+    // iter 388（R31）：点击当前正编辑（dirty）的笔记——同 id 原本跳过 confirmDiscard 直接
+    // 重取全文覆盖编辑器，最后 500ms 防抖窗内未落盘的输入会被静默丢弃；编辑中直接不动作
+    if (draft.id === n.id) {
+      if (dirty) return
+    } else if (!confirmDiscard()) return
     // iter 248：在途序号——打开 A 期间点「新建」，A 的迟到响应不得覆写新草稿
     const seq = ++openSeq.current
     setLoadingId(n.id)

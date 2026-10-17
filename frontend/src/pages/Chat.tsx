@@ -13,6 +13,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { openSSE, SseError, type SSEEvent } from '../lib/sse'
 import { getToken } from '../lib/auth'
 import Markdown from '../components/Markdown'
+import { toast } from '../components/Toast'
 import {
   createThread,
   deleteThread,
@@ -118,6 +119,10 @@ export default function Chat() {
     onSuccess: (t) => {
       queryClient.invalidateQueries({ queryKey: ['threads'] })
       setActiveId(t.id)
+    },
+    // iter 388（R31）：创建失败此前零反馈——按钮弹回但什么都没发生，用户无从得知
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : '创建对话失败，请重试')
     },
   })
 
@@ -364,9 +369,11 @@ export default function Chat() {
                   // iter 346（F4）：重命名会话（后端 PATCH /threads/{id} 已就绪）
                   const next = window.prompt('重命名对话', t.title || '')
                       if (next && next.trim() && next.trim() !== (t.title || '')) {
+                        // iter 388（R31）：重命名失败改 toast——setError 仅在选中会话时可见，
+                        // activeId 为 null（刚进页面在列表直接重命名）时失败完全不可见
                         patchThread(t.id, { title: next.trim() })
                           .then(() => queryClient.invalidateQueries({ queryKey: ['threads'] }))
-                          .catch((err) => setError(err instanceof Error ? err.message : '重命名失败，请重试'))
+                          .catch((err) => toast.error(err instanceof Error ? err.message : '重命名失败，请重试'))
                       }
                 }}
                 className="hidden shrink-0 rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-200 hover:text-slate-700 group-hover:block dark:hover:bg-slate-700 dark:hover:text-slate-200"
@@ -386,7 +393,20 @@ export default function Chat() {
               {threadsQ.isFetchingNextPage ? '加载中…' : `加载更多（${threads.length}/${threadsTotal}）`}
             </button>
           )}
-          {threads.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">尚无对话，点上方新建</p>}
+          {/* iter 388（R31）：列表加载失败不得落「尚无对话」空态（假信息——用户会以为
+              会话全丢）；错误卡 + 重试，与 Notes/Plans 同口径 */}
+          {threadsQ.isError && (
+            <div role="alert" className="mb-1 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+              <p>会话列表加载失败：{threadsQ.error instanceof Error ? threadsQ.error.message : '未知错误'}</p>
+              <button
+                onClick={() => void threadsQ.refetch()}
+                className="mt-1 rounded border border-red-300 px-1.5 py-0.5 transition-colors hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+              >
+                重试
+              </button>
+            </div>
+          )}
+          {!threadsQ.isError && threads.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">尚无对话，点上方新建</p>}
         </div>
       </aside>
 
@@ -439,6 +459,19 @@ export default function Chat() {
             )}
 
             <div ref={scrollRef} onScroll={onScrollMsgs} className="flex-1 space-y-3 overflow-y-auto p-3">
+              {/* iter 388（R31）：消息加载失败此前渲染成空白会话（messages 回退 [] 且无任何
+                  提示）——错误卡 + 重试，不用假空白掩盖 */}
+              {msgsQ.isError && (
+                <div role="alert" className="mx-auto max-w-md rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+                  <p>消息加载失败：{msgsQ.error instanceof Error ? msgsQ.error.message : '未知错误'}</p>
+                  <button
+                    onClick={() => void msgsQ.refetch()}
+                    className="mt-1 rounded border border-red-300 px-1.5 py-0.5 text-xs transition-colors hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+                  >
+                    重试
+                  </button>
+                </div>
+              )}
               {messages.length >= 100 && !noMoreMsgs && (
                 <button
                   onClick={() => void loadEarlier()}

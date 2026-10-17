@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R31（2026-10-18，Python v1 深度审计第二十八轮「iter 388」，✅ 完成）**：同一 /goal 第二十八遍——**前端交互逻辑专项抽检（组件级『表达与实现一致性』：编辑器/表单流程、UI 状态机与加载失败路径、导航与权限交互）**。5 处用户交互缺陷修复（4 处集中在 Chat.tsx），tsc+build 与全量 1455 门禁绿：
+
+- **审计矩阵（精读分派，全部过目）**：编辑器/表单——Notes（openSeq 迟到响应/draftRef 并发输入/自动草稿+beforeunload 双保险/批量删重置）、NodeNoteEditor（同款草稿兜底+保存往返不覆盖）、Settings 行内编辑（预算空串拦截 iter 370/0=不限确认）、ModelPricingManager（R22 基线绑定/init+自保存采纳/重复与非法单价就地报错）、UserManager/ProviderManager/CredentialManager（统一 run() 防重入+opError 模式）；状态机——GenerateProgress（attach 判态/404/idle 引导/断线双横幅/iter 364-368 修复在位）、PlanDetail（D1/D3/D6/D8 分离+版本对比/重生成 planIdRef 守卫）、QuizModal（M10 集合更换清作答/回写去重 ref/键盘流）；导航权限——RequireAuth（needs_setup/open_mode/token 三态+search 保留）、Login/Setup（skipBusy 分离）、auth 401 链（apiFetch/SSE/上传三面 + clearAuth 清用户级 localStorage）、Home dt-home-prefill 消费闭环。**留档接受**：NodeNoteEditor 收起 <500ms 防抖窗（草稿兜底既有设计）、Home 可选增强面板静默隐失（非假信息）。
+- **缺陷 C1（Chat 新对话失败零反馈）**：createM useMutation 无 onError——创建失败按钮弹回但无任何提示。修复：onError → toast。
+- **缺陷 C2（会话列表错误伪装空态·假信息）**：listThreads 失败时 items 回退 []，列表落「尚无对话，点上方新建」——用户会误以为全部会话丢失（/goal「表达与实现一致」直接命中）。修复：threadsQ.isError 错误卡+重试（Notes/Plans 同口径），空态加 !isError 守卫。全仓同类排查：仅 Chat 一处 endemic（Wiki/Plans/LearnIndex/Search/Usage/Review/SharedPlan/Learn/Clarify 均有显式错误分支）。
+- **缺陷 C3（消息错误伪装空白会话）**：listMessages 失败渲染成完全空白的对话区（无任何提示）。修复：msgsQ.isError 错误卡+重试。
+- **缺陷 C4（重命名失败不可见路径）**：patchThread 失败写 setError——仅选中会话时可见，activeId 为 null（刚进页在列表直接重命名）时失败完全不可见。修复：改全局 toast。
+- **缺陷 N1（Notes 数据丢失窄窗）**：点击列表中**当前正编辑（dirty）**的笔记——同 id 跳过 confirmDiscard 直接 GET 全文覆盖编辑器，最后 500ms 防抖窗内未落盘的输入被静默丢弃（防抖已落盘则有恢复确认双保险，仅 <500ms 窗裸奔）。修复：同 id 且 dirty 直接不动作（编辑中无需重取）；非 dirty 保留原重取刷新路径。
+- **回归**：前端无测试基建（无 vitest/jest）——门禁为 `npm run build`（tsc --noEmit + vite build）两轮绿；后端未动但按既定流程跑全量 pytest 1455 通过/1 跳过。
+- **下一步**：滚动审计续（候选：长时间低频 soak 过夜档；或 Home/Plans/Review 剩余交互面第二轮抽检）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R30（2026-10-18，Python v1 深度审计第二十七轮「iter 387」，✅ 完成）**：同一 /goal 第二十七遍——**前端契约一致性增量复核（R23-R29 后端改动 vs R19/R21/R22 契约矩阵基底）**。零产品缺陷（1 个契约提取器工具缺陷修复），全量 1455 通过：
 
 - **形状面（契约三件套复跑）**：contract_audit（158 路由）→ contract_frontend（61 接口/107 调用）→ contract_diff 复跑。首轮 diff 报 2 行「遗漏字段」（GET/PUT /settings/pricing 的 `updated_at` vs PricingTable）——查证前端**已声明**（api.ts PricingTable JSDoc 注明装载基线），提取 JSON 实证漏提；根因 `_balanced()` 把 JSDoc 注释里的 `->` 计入尖括号深度，接口体在 `无已存表 -` 处截断。修复：contract_frontend.py 增引号感知 `strip_comments()`（保留 ' " ` 字符串含转义、剥 // 与 /* */），入口统一先剥注释再解析。复跑 **diff 与 R17 基线字节一致（rc=0）——本会话 R23-R29 全部后端改动（删除族收敛/热管理 async 化/404 信封/displaced 栈/lifespan 修复等）前端契约零漂移**。
