@@ -1,7 +1,10 @@
-"""iter 371 R8：网络暴露面基础防护回归。
+"""iter 371 R8 + iter 372 R15：网络暴露面基础防护回归。
 
-- 全站安全响应头（nosniff / X-Frame-Options DENY / Referrer-Policy no-referrer）：
+- 全站安全响应头（nosniff / X-Frame-Options DENY / Referrer-Policy no-referrer / CSP）：
   API 响应、SPA 静态回退响应、以及 body 限流 413 短路响应（中间件须在限流外层）均带头。
+- CSP（R15）：v1 插件 inline 注入所需的 script/style unsafe-inline 保留；其余收紧
+  （connect-src 'self'、object-src 'none'、base-uri/form-action/frame-ancestors），
+  且**不含** unsafe-eval（全仓已核零 eval/new Function）。
 - 402 budget_exceeded 消息币种口径为 CNY（￥）——与前端全链展示一致（$ 残留修正）。
 """
 
@@ -25,6 +28,19 @@ def test_security_headers_on_api():
         assert r.headers.get(k) == v, k
 
 
+def test_csp_directives():
+    r = client.get("/api/health")
+    csp = r.headers.get("content-security-policy", "")
+    assert csp, "缺 Content-Security-Policy"
+    assert "connect-src 'self'" in csp, "connect-src 未收紧（XSS 外带面）"
+    assert "object-src 'none'" in csp
+    assert "base-uri 'self'" in csp and "form-action 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "script-src 'self' 'unsafe-inline'" in csp, "v1 插件 inline 注入所需"
+    assert "unsafe-eval" not in csp, "禁止 unsafe-eval"
+    assert "default-src 'self'" in csp
+
+
 def test_security_headers_on_413_short_circuit():
     # Content-Length 预检在限流中间件短路返回 413——安全头中间件注册在其外层，
     # 短路响应也必须带头（否则最大的拒绝响应反而是无防护面）
@@ -36,6 +52,7 @@ def test_security_headers_on_413_short_circuit():
     assert r.status_code == 413, r.text
     for k, v in _EXPECTED.items():
         assert r.headers.get(k) == v, k
+    assert "content-security-policy" in r.headers
 
 
 def test_budget_message_currency_cny():

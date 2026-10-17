@@ -250,12 +250,31 @@ def create_app() -> FastAPI:
     # - nosniff：防 MIME 嗅探把用户上传内容当脚本执行（KB/材料文件经本服务回传）
     # - X-Frame-Options DENY：防点击劫持（token 存 localStorage 的 SPA 被嵌框架钓鱼）
     # - Referrer-Policy no-referrer：防 URL（含分享 token 等 query）外泄给第三方链接
-    # CSP 刻意不加：v1 前端插件体系依赖运行时注入脚本/样式，收紧会破坏既有能力——
-    # 列为遗留，v2 前端（无 eval 注入）再上
+    # CSP（iter 372 R15）：v1 插件体系依赖运行时注入 inline 脚本/样式——script/style
+    # 保留 'unsafe-inline'（并已核全仓零 eval/new Function，**不含** unsafe-eval），
+    # 其余全收紧：connect-src 'self'（XSS 后数据外带被拦）、object-src 'none'、
+    # base-uri/form-action/frame-ancestors 收口、媒体仅 self+blob（KB 预览）、
+    # 图片放行 https:（用户 markdown 外链图为被动内容，rehype-sanitize 已清洗标签面）。
+    # v2 前端（无 inline 注入）再收紧 script/style。
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https:; "
+        "media-src 'self' blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-src 'self' blob:; "
+        "frame-ancestors 'none'"
+    )
     _SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": _CSP,
     }
 
     @app.middleware("http")
