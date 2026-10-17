@@ -7,6 +7,12 @@
 **凭证边界**：api_key 等敏感字段绝不导出——供应商档案以空 key 导出，
 导入后在设置页补填并激活。
 
+iter 369 R6 备份覆盖面闭合（version 2）：v1 只导出会话族，threads/messages/runs/
+memories/kb_documents 五类表及 kb 原件文件不在备份内——恢复后这些数据直接丢失
+且无提示（数据完整性缺口）。v2 新增顶层键 threads/memories/kb_documents（v1 旧备份
+无该键 -> 导入侧按空处理，往返兼容）。kb 原件以 base64 内联（单文件 ≤32MB，
+超限跳过并记 skipped——与上传 50MB 上限同量级但留 JSON 体积余量）。
+
 导入（restore_backup）：**追加式还原**——全部以新行重建（不覆盖现有数据，
 重复导入产生副本，UI 已提示）；外键全量重映射，知识节点树/进度/测验/单元
 按节点 sid 重关联；大内容经 app.core.storage 重新落盘（新 session/unit id 命名）。
@@ -16,6 +22,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import math
@@ -25,13 +32,22 @@ from typing import Any
 
 from sqlalchemy.orm import Session as DbSession
 
-from app.core.storage import read_unit_content, write_parsed_text, write_unit_content
+from app.core.storage import (
+    read_unit_content,
+    save_kb_upload,
+    write_kb_parsed_text,
+    write_parsed_text,
+    write_unit_content,
+)
 from app.db import models
 
 log = logging.getLogger(__name__)
 
 FORMAT = "deep-tutor-backup"
-VERSION = 1
+VERSION = 2
+
+# iter 369 R6：kb 原件 base64 内联的单文件上限（字节，解码前以原文长度近似估算）
+_KB_ORIGINAL_MAX_BYTES = 32 * 1024 * 1024
 
 # 与 app.api.plans.PLAN_OVERFLOW_BYTES 保持一致（plan/01 §五：>512KB 溢出文件）；
 # 不跨层 import api 模块，故在此冗余定义（稳定常量，变更概率极低）
@@ -96,12 +112,7 @@ def _load_plan_content(plan: models.Plan) -> dict:
 def build_export(db: DbSession, user: models.User) -> dict:
     """组装当前用户的完整备份 dict（不落盘，由端点序列化为下载响应）。"""
     sessions_out: list[dict] = []
-    sessions = (
-        db.query(models.Session)
-        .filter_by(user_id=user.id)
-        .order_by(models.Session.id)
-        .all()
-    )
+    sessions = db.query(models.Session).filter_by(user_id=user.id).order_by(models.Session.id).all()
     for sess in sessions:
         materials_out = [
             {
@@ -137,8 +148,7 @@ def build_export(db: DbSession, user: models.User) -> dict:
     ]
 
     prefs_out = {  # 用户偏好 KV（iter 177）：日预算等覆盖项随备份走
-        r.key: r.value
-        for r in db.query(models.UserPref).filter_by(user_id=user.id).all()
+        r.key: r.value for r in db.query(models.UserPref).filter_by(user_id=user.id).all()
     }
 
     notes_out = [  # 独立自由笔记（iter 227）：顶层 notes 键，v1 兼容（旧备份无该键不还原）
@@ -146,25 +156,126 @@ def build_export(db: DbSession, user: models.User) -> dict:
         for n in db.query(models.Note).filter_by(user_id=user.id).order_by(models.Note.id).all()
     ]
 
+    # --- iter 369 R6（version 2）：threads/messages/runs + memories + kb_documents ---
+    # threads 与 messages/runs 内部以列表下标互关联（导入侧按下标重映射新 id）；
+    # thread.session_id（plan-gen overlay 桥接）不导出——会话经追加式还原得到新 id，
+    # 跨族重映射引入序耦合，且该链接仅是导航便利，缺省 None 不影响数据本体。
+    user_threads = db.query(models.Thread).filter_by(user_id=user.id).order_by(models.Thread.id).all()
+    thread_id_to_idx = {t.id: i for i, t in enumerate(user_threads)}
+    threads_out: list[dict] = []
+    for t in user_threads:
+        thread_runs = db.query(models.Run).filter_by(thread_id=t.id).order_by(models.Run.id).all()
+        run_id_to_idx = {r.id: i for i, r in enumerate(thread_runs)}
+        runs_out = [
+            {
+                "kind": r.kind.value,
+                # 非终态（running/awaiting_approval）收敛为 interrupted——恢复的 run
+                # 无工作区/事件流可续，保留原态会让前端显示「运行中」但永远等不到事件
+                "status": r.status.value
+                if r.status.value in ("done", "error", "interrupted", "cancelled")
+                else "interrupted",
+                "step_count": r.step_count,
+                "budget_used": r.budget_used,
+                "trace_id": r.trace_id,
+                "error": r.error or {},
+                "started_at": _iso(r.started_at),
+                "ended_at": _iso(r.ended_at),
+            }
+            for r in thread_runs
+        ]
+        messages_out = [
+            {
+                "role": m.role.value,
+                "content": m.content if isinstance(m.content, list) else [],
+                "tokens_in": m.tokens_in,
+                "tokens_out": m.tokens_out,
+                "model": m.model,
+                # 关联 run 以下标表达（导入侧先建 runs 再按下标回填 run_id）
+                "run_idx": run_id_to_idx.get(m.run_id),
+                "created_at": _iso(m.created_at),
+            }
+            for m in db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id).all()
+        ]
+        threads_out.append(
+            {
+                "title": t.title,
+                "kind": t.kind,
+                "model": t.model,
+                "created_at": _iso(t.created_at),
+                "updated_at": _iso(t.updated_at),
+                "runs": runs_out,
+                "messages": messages_out,
+            }
+        )
+
+    memories_out = [
+        {
+            "scope": m.scope,
+            "kind": m.kind,
+            "content": m.content,
+            "meta": m.meta or {},
+            "created_at": _iso(m.created_at),
+            "updated_at": _iso(m.updated_at),
+            # thread 关联以下标表达（scope=user 恒 None）
+            "thread_idx": thread_id_to_idx.get(m.thread_id),
+        }
+        for m in db.query(models.Memory).filter_by(user_id=user.id).order_by(models.Memory.id).all()
+    ]
+
+    kb_docs_out: list[dict] = []
+    for d in db.query(models.KbDocument).filter_by(user_id=user.id).order_by(models.KbDocument.id).all():
+        original_b64: str | None = None
+        if d.original_path:
+            try:
+                raw = Path(d.original_path).read_bytes()
+            except OSError:
+                log.warning("备份导出：kb 原件读取失败 %s", d.original_path)
+                raw = None
+            if raw is not None:
+                if len(raw) > _KB_ORIGINAL_MAX_BYTES:
+                    log.warning(
+                        "备份导出：kb 原件超 %dMB 上限跳过内联 %s",
+                        _KB_ORIGINAL_MAX_BYTES // 1024 // 1024,
+                        d.original_path,
+                    )
+                else:
+                    original_b64 = base64.b64encode(raw).decode("ascii")
+        kb_docs_out.append(
+            {
+                "title": d.title,
+                "kind": d.kind.value,
+                "ext": d.ext,
+                "source": d.source,
+                "parsed_text": _read_text(d.parsed_text_path),
+                "parsed_chars": d.parsed_chars,
+                "meta": d.meta or {},
+                "content_hash": d.content_hash,
+                "status": d.status,
+                "created_at": _iso(d.created_at),
+                "updated_at": _iso(d.updated_at),
+                "original_b64": original_b64,
+            }
+        )
+
     return {
         "format": FORMAT,
         "version": VERSION,
-        "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # 与全库 UTC 约定一致（其余时间戳均 func.now()/UTC；本地时间仅用于人类可读导出标题/文件名）
+        "exported_at": datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        ),  # 与全库 UTC 约定一致（其余时间戳均 func.now()/UTC；本地时间仅用于人类可读导出标题/文件名）
         "user": {"username": user.username or "", "name": user.name},
         "provider_profiles": profiles_out,
         "prefs": prefs_out,
         "notes": notes_out,
         "sessions": sessions_out,
+        "threads": threads_out,
+        "memories": memories_out,
+        "kb_documents": kb_docs_out,
     }
 
 
 def _export_plan(db: DbSession, plan: models.Plan, user_id: int) -> dict:
-    nodes = (
-        db.query(models.KnowledgeNode)
-        .filter_by(plan_id=plan.id)
-        .order_by(models.KnowledgeNode.id)
-        .all()
-    )
+    nodes = db.query(models.KnowledgeNode).filter_by(plan_id=plan.id).order_by(models.KnowledgeNode.id).all()
     id_to_sid = {n.id: n.sid for n in nodes}
     # 知识点笔记（iter 105）：node_id -> content（仅当前用户；空内容不出现在导出）
     note_map: dict[int, str] = {}
@@ -293,9 +404,7 @@ def validate_backup(data: Any) -> dict:
     if not isinstance(version, int) or version < 1:
         raise BackupFormatError("备份文件 version 字段缺失或非法")
     if version > VERSION:
-        raise BackupFormatError(
-            f"备份版本过新（v{version} > 当前支持的 v{VERSION}），请升级 Deep-tutor 后再导入"
-        )
+        raise BackupFormatError(f"备份版本过新（v{version} > 当前支持的 v{VERSION}），请升级 Deep-tutor 后再导入")
     if not isinstance(data.get("sessions") or [], list):
         raise BackupFormatError("备份文件 sessions 字段非法")
     return data
@@ -319,9 +428,7 @@ def preview_backup(data: Any) -> dict:
         "plans": len(plans),
         "materials": sum(len(s.get("materials") or []) for s in sessions),
         "knowledge_nodes": sum(len(p.get("knowledge_nodes") or []) for p in plans),
-        "node_notes": sum(
-            1 for p in plans for n in (p.get("knowledge_nodes") or []) if n.get("note")
-        ),
+        "node_notes": sum(1 for p in plans for n in (p.get("knowledge_nodes") or []) if n.get("note")),
         "progress": sum(len(p.get("progress") or []) for p in plans),
         "learning_logs": sum(len(p.get("learning_logs") or []) for p in plans),
         "quizzes": sum(len(p.get("quizzes") or []) for p in plans),
@@ -329,6 +436,12 @@ def preview_backup(data: Any) -> dict:
         "provider_profiles": len(data.get("provider_profiles") or []),
         "prefs": len(data.get("prefs")) if isinstance(data.get("prefs"), dict) else 0,
         "notes": len(data.get("notes") or []),
+        # iter 369 R6（version 2 新增段；v1 旧备份无键 -> 0）
+        "threads": sum(1 for t in data.get("threads") or [] if isinstance(t, dict)),
+        "messages": sum(len(t.get("messages") or []) for t in data.get("threads") or [] if isinstance(t, dict)),
+        "runs": sum(len(t.get("runs") or []) for t in data.get("threads") or [] if isinstance(t, dict)),
+        "memories": sum(1 for m in data.get("memories") or [] if isinstance(m, dict)),
+        "kb_documents": sum(1 for d in data.get("kb_documents") or [] if isinstance(d, dict)),
     }
 
 
@@ -378,6 +491,12 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
         "node_notes": 0,
         "prefs": 0,
         "notes": 0,
+        # iter 369 R6（version 2 新增段）
+        "threads": 0,
+        "messages": 0,
+        "runs": 0,
+        "memories": 0,
+        "kb_documents": 0,
         "skipped": [],
     }
 
@@ -431,7 +550,9 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
                 row.parsed_text_path = str(write_parsed_text(sess.id, row.id, text))
             summary["materials"] += 1
         if mats_skipped:
-            summary["skipped"].append(f"会话「{sess.title or sess.id}」资料超每会话 {_MAX_MATERIALS_PER_SESSION} 份上限，{mats_skipped} 份未导入")
+            summary["skipped"].append(
+                f"会话「{sess.title or sess.id}」资料超每会话 {_MAX_MATERIALS_PER_SESSION} 份上限，{mats_skipped} 份未导入"
+            )
 
         plans_room = _MAX_PLANS_PER_SESSION
         plans_skipped = 0
@@ -444,12 +565,240 @@ def restore_backup(db: DbSession, user: models.User, data: dict) -> dict:
             plans_room -= 1
             _restore_plan(db, sess, p, summary, user.id)
         if plans_skipped:
-            summary["skipped"].append(f"会话「{sess.title or sess.id}」方案超每会话 {_MAX_PLANS_PER_SESSION} 个上限，{plans_skipped} 个未导入")
+            summary["skipped"].append(
+                f"会话「{sess.title or sess.id}」方案超每会话 {_MAX_PLANS_PER_SESSION} 个上限，{plans_skipped} 个未导入"
+            )
 
     _restore_profiles(db, user, data.get("provider_profiles") or [], summary)
     _restore_prefs(db, user, data.get("prefs") or {}, summary)
     _restore_notes(db, user, data.get("notes") or [], summary, _MAX_NOTES)
+    # iter 369 R6：v2 新增段（v1 旧备份无键 -> 空列表直接返回，往返兼容）。
+    # memories 的 thread 关联按下标 -> 新 Thread 行（导出顺序），故先还原 threads 拿映射。
+    restored_threads = _restore_threads(db, user, data.get("threads") or [], summary)
+    _restore_memories(db, user, data.get("memories") or [], restored_threads, summary)
+    _restore_kb_documents(db, user, data.get("kb_documents") or [], summary)
     return summary
+
+
+def _restore_threads(db: DbSession, user: models.User, threads: Any, summary: dict) -> list[models.Thread]:
+    """threads/messages/runs（iter 369 R6）：追加式还原，按下标重映射 runs->messages
+    的关联；返回新 Thread 行列表（导出顺序，供 memories 段做下标映射）。
+
+    配额与 API 路径同口径：threads 每用户 ≤200（同 sessions）、runs 每会话 ≤2000、
+    messages 每会话 ≤5000（REST 无总上限但导出侧天然有界，此处防构造备份放大）。
+    """
+    if not isinstance(threads, list):
+        return []
+    _MAX_THREADS, _MAX_RUNS_PER_THREAD, _MAX_MSGS_PER_THREAD = 200, 2000, 5000
+    room = _MAX_THREADS - db.query(models.Thread).filter_by(user_id=user.id).count()
+    out: list[models.Thread] = []
+    threads_skipped = 0
+    for t in threads:
+        if not isinstance(t, dict):
+            continue
+        if room <= 0:
+            threads_skipped += 1
+            continue
+        room -= 1
+        kind = str(t.get("kind") or "chat")
+        if kind not in ("chat", "plan_generation"):  # 与 ThreadIn 白名单同口径
+            kind = "chat"
+        row = models.Thread(
+            user_id=user.id,
+            title=str(t.get("title") or "")[:256],
+            kind=kind,
+            model=str(t.get("model") or "")[:128],
+        )
+        if dt := _parse_dt(t.get("created_at")):
+            row.created_at = dt
+        if dt := _parse_dt(t.get("updated_at")):
+            row.updated_at = dt
+        db.add(row)
+        db.flush()  # 取新 thread_id
+        out.append(row)
+        summary["threads"] += 1
+
+        # runs 先建（messages.run_idx -> 新 run id）
+        run_rows: list[models.Run] = []
+        runs_room = _MAX_RUNS_PER_THREAD
+        runs_skipped = 0
+        for r in t.get("runs") or []:
+            if not isinstance(r, dict) or runs_room <= 0:
+                runs_skipped += 1
+                continue
+            runs_room -= 1
+            status = str(r.get("status") or "interrupted")
+            if status not in ("done", "error", "interrupted", "cancelled"):
+                status = "interrupted"  # 非终态收敛（导出侧同规则，坏备份双保险）
+            run = models.Run(
+                thread_id=row.id,
+                user_id=user.id,
+                kind=_enum_or(models.RunKind, r.get("kind")) or models.RunKind.chat,
+                status=models.RunStatus(status),
+                step_count=max(0, _int_or(r.get("step_count"), 0)),
+                budget_used=max(0.0, _float_or(r.get("budget_used"), 0.0)),
+                workspace_dir="",  # 工作区不随备份走（恢复的 run 无可续工作区）
+                workspace_committed=False,
+                trace_id=str(r.get("trace_id") or "")[:64],
+                error=r.get("error") if isinstance(r.get("error"), dict) else {},
+            )
+            if dt := _parse_dt(r.get("started_at")):
+                run.started_at = dt
+            if dt := _parse_dt(r.get("ended_at")):
+                run.ended_at = dt
+            db.add(run)
+            run_rows.append(run)
+            summary["runs"] += 1
+        if runs_skipped:
+            summary["skipped"].append(
+                f"会话「{row.title or row.id}」run 记录超 {_MAX_RUNS_PER_THREAD} 条上限，{runs_skipped} 条未导入"
+            )
+        db.flush()
+
+        msgs_room = _MAX_MSGS_PER_THREAD
+        msgs_skipped = 0
+        for m in t.get("messages") or []:
+            if not isinstance(m, dict) or msgs_room <= 0:
+                msgs_skipped += 1
+                continue
+            msgs_room -= 1
+            role = _enum_or(models.MessageRole, m.get("role"))
+            if role is None:
+                continue  # 角色非法的消息无 Anthropic 语义，跳过
+            run_idx = m.get("run_idx")
+            msg = models.Message(
+                thread_id=row.id,
+                role=role,
+                content=m.get("content") if isinstance(m.get("content"), list) else [],
+                tokens_in=max(0, _int_or(m.get("tokens_in"), 0)),
+                tokens_out=max(0, _int_or(m.get("tokens_out"), 0)),
+                model=str(m.get("model") or "")[:128],
+                run_id=run_rows[run_idx].id if isinstance(run_idx, int) and 0 <= run_idx < len(run_rows) else None,
+            )
+            if dt := _parse_dt(m.get("created_at")):
+                msg.created_at = dt
+            db.add(msg)
+            summary["messages"] += 1
+        if msgs_skipped:
+            summary["skipped"].append(
+                f"会话「{row.title or row.id}」消息超 {_MAX_MSGS_PER_THREAD} 条上限，{msgs_skipped} 条未导入"
+            )
+        db.flush()
+    if threads_skipped:
+        summary["skipped"].append(f"对话会话数达上限 {_MAX_THREADS} 个，{threads_skipped} 个未导入")
+    return out
+
+
+def _restore_memories(
+    db: DbSession,
+    user: models.User,
+    memories: Any,
+    restored_threads: list[models.Thread],
+    summary: dict,
+) -> None:
+    """memories（iter 369 R6）：追加式还原；thread_idx 按导出下标映射到新 Thread 行。
+    配额与 REST /memories 及 agent 工具同口径（每用户 ≤2000，content ≤20000 字符）。"""
+    if not isinstance(memories, list):
+        return
+    _MAX_MEMORIES, _MAX_CHARS = 2000, 20_000
+    room = _MAX_MEMORIES - db.query(models.Memory).filter_by(user_id=user.id).count()
+    skipped = 0
+    for m in memories:
+        if not isinstance(m, dict):
+            continue
+        content = str(m.get("content") or "")
+        if not content.strip():
+            continue
+        if room <= 0:
+            skipped += 1
+            continue
+        room -= 1
+        scope = str(m.get("scope") or "thread")
+        if scope not in ("thread", "user"):
+            scope = "thread"
+        thread_idx = m.get("thread_idx")
+        thread = (
+            restored_threads[thread_idx]
+            if isinstance(thread_idx, int) and 0 <= thread_idx < len(restored_threads)
+            else None
+        )
+        row = models.Memory(
+            user_id=user.id,
+            thread_id=thread.id if (scope == "thread" and thread) else None,
+            scope=scope,
+            kind=str(m.get("kind") or "note")[:32],
+            content=content[:_MAX_CHARS],
+            meta=m.get("meta") if isinstance(m.get("meta"), dict) else {},
+        )
+        if dt := _parse_dt(m.get("created_at")):
+            row.created_at = dt
+        if dt := _parse_dt(m.get("updated_at")):
+            row.updated_at = dt
+        db.add(row)
+        summary["memories"] += 1
+    if skipped:
+        summary["skipped"].append(f"记忆数达上限 {_MAX_MEMORIES} 条，{skipped} 条未导入")
+    db.flush()
+
+
+def _restore_kb_documents(db: DbSession, user: models.User, docs: Any, summary: dict) -> None:
+    """kb_documents（iter 369 R6）：追加式还原——parsed 文本重落盘（新 doc id 命名）、
+    原件 base64 解码重存；配额与 /kb 同口径（每用户 ≤200）。"""
+    if not isinstance(docs, list):
+        return
+    _MAX_KB_DOCS = 200  # 对齐 app.api.kb._MAX_KB_DOCS_PER_USER
+    room = _MAX_KB_DOCS - db.query(models.KbDocument).filter_by(user_id=user.id).count()
+    skipped = 0
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        title = str(d.get("title") or "")[:256]
+        if not title:
+            continue
+        if room <= 0:
+            skipped += 1
+            continue
+        room -= 1
+        kind = _enum_or(models.MaterialKind, d.get("kind"))
+        if kind is None:
+            summary["skipped"].append(f"知识库文档「{title}」kind 非法，已跳过")
+            continue
+        status = str(d.get("status") or "parsed")
+        if status not in ("pending", "confirmed", "parsed"):
+            status = "parsed"
+        row = models.KbDocument(
+            user_id=user.id,
+            title=title,
+            kind=kind,
+            ext=str(d.get("ext") or "")[:16],
+            source=str(d.get("source") or "")[:1024],
+            parsed_chars=max(0, _int_or(d.get("parsed_chars"), 0)),
+            meta=d.get("meta") if isinstance(d.get("meta"), dict) else {},
+            content_hash=(str(d.get("content_hash"))[:64] if d.get("content_hash") else None),
+            status=status,
+        )
+        if dt := _parse_dt(d.get("created_at")):
+            row.created_at = dt
+        if dt := _parse_dt(d.get("updated_at")):
+            row.updated_at = dt
+        db.add(row)
+        db.flush()  # 取新 doc_id 命名文件
+        text = d.get("parsed_text")
+        if isinstance(text, str) and text:
+            row.parsed_text_path = str(write_kb_parsed_text(user.id, row.id, text))
+        b64 = d.get("original_b64")
+        if isinstance(b64, str) and b64:
+            try:
+                raw = base64.b64decode(b64, validate=True)
+            except (ValueError, TypeError):
+                summary["skipped"].append(f"知识库文档「{title}」原件数据损坏，仅还原解析文本")
+                raw = None
+            if raw is not None:
+                row.original_path = str(save_kb_upload(user.id, row.id, raw, row.ext))
+        summary["kb_documents"] += 1
+    if skipped:
+        summary["skipped"].append(f"知识库文档数达上限 {_MAX_KB_DOCS} 篇，{skipped} 篇未导入")
+    db.flush()
 
 
 def _restore_notes(db: DbSession, user: models.User, notes: Any, summary: dict, max_notes: int = 500) -> None:
@@ -594,11 +943,7 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             _skip("重复节点笔记")
             continue
         seen_note_sids.add(sid)
-        db.add(
-            models.NodeNote(
-                user_id=user_id, node_id=row.id, content=note_content.strip()[:20_000]
-            )
-        )
+        db.add(models.NodeNote(user_id=user_id, node_id=row.id, content=note_content.strip()[:20_000]))
         summary["node_notes"] += 1
     db.flush()
 
@@ -734,9 +1079,7 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
             plan_id=plan.id,
             node_id=node.id if node else None,
             # iter 367：回填单元覆盖知识点（sid 直存列，无需 id 映射；旧备份缺省 []）
-            node_sids=[str(s) for s in raw_sids if isinstance(s, str)][:100]
-            if isinstance(raw_sids, list)
-            else [],
+            node_sids=[str(s) for s in raw_sids if isinstance(s, str)][:100] if isinstance(raw_sids, list) else [],
             stage_index=u.get("stage_index") if isinstance(u.get("stage_index"), int) else None,
             title=title,
             prerequisites=u.get("prerequisites") if isinstance(u.get("prerequisites"), list) else [],
@@ -772,9 +1115,7 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
     同名档案已存在则跳过（(user_id,name) 唯一约束）。
     iter 367：条数上限（iter 246 配额补丁漏项）——构造备份可带无限个不同名档案。"""
     _MAX_PROFILES = 50
-    existing = {
-        r.name for r in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
-    }
+    existing = {r.name for r in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()}
     room = _MAX_PROFILES - len(existing)
     profiles_skipped = 0
     for pr in profiles:

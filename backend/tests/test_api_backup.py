@@ -121,7 +121,7 @@ def test_backup_roundtrip_full_fidelity(client, auth_headers):
     seeded = _seed_rich_data(user_id)
 
     exported = _export(client, auth_headers)
-    assert exported["format"] == "deep-tutor-backup" and exported["version"] == 1
+    assert exported["format"] == "deep-tutor-backup" and exported["version"] == 2  # iter 370：v2 覆盖 threads/memories/kb
     raw = json.dumps(exported, ensure_ascii=False)
     assert "sk-secret-should-not-export" not in raw  # 凭证边界：api_key 绝不导出
     assert exported["provider_profiles"][0]["name"] == "默认"
