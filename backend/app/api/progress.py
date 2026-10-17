@@ -12,6 +12,7 @@ record_progress docstring）；非 UTC 时区在日界最多差 1 天，对 1-14
 
 from __future__ import annotations
 
+import time
 from datetime import date as dt_date
 
 from fastapi import APIRouter, Depends, Query
@@ -357,22 +358,45 @@ def stats_summary(
 
     streak 语义：有打卡的日期倒序连成链，链尾须为今天或昨天（今天还没打卡不清零）。
     日界按服务器本地日（与 LearningLogIn.date 默认值同口径）。
+    iter 369：SQL 聚合 + 仅取 distinct 日期（此前全量载入该用户 LearningLog ORM 行
+    到 Python 求和，行数随打卡线性增长——同 err.md A19 的 usage 修法）。
     """
     from datetime import timedelta
 
-    rows = (
+    base_q = (
         db.query(models.LearningLog)
         .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
         .join(models.Session, models.Plan.session_id == models.Session.id)
         .filter(models.Session.user_id == user.id)
-        .all()
     )
+    total_minutes, total_logs = db.query(
+        func.coalesce(func.sum(models.LearningLog.minutes), 0),
+        func.count(models.LearningLog.id),
+    ).select_from(models.LearningLog).join(
+        models.Plan, models.LearningLog.plan_id == models.Plan.id
+    ).join(
+        models.Session, models.Plan.session_id == models.Session.id
+    ).filter(models.Session.user_id == user.id).one()
+
     today = dt_date.today()
     week_start = today - timedelta(days=6)  # 含今天共 7 天
-    total_minutes = sum(r.minutes for r in rows)
-    week_minutes = sum(r.minutes for r in rows if r.date >= week_start)
+    week_minutes = (
+        db.query(func.coalesce(func.sum(models.LearningLog.minutes), 0))
+        .select_from(models.LearningLog)
+        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+        .join(models.Session, models.Plan.session_id == models.Session.id)
+        .filter(models.Session.user_id == user.id, models.LearningLog.date >= week_start)
+        .scalar()
+        or 0
+    )
 
-    days = sorted({r.date for r in rows}, reverse=True)
+    # streak 只需去重日期序列（几十行），不载 minutes/note 等列
+    day_rows = (
+        base_q.with_entities(models.LearningLog.date)
+        .group_by(models.LearningLog.date)
+        .all()
+    )
+    days = sorted({r[0] for r in day_rows}, reverse=True)
     streak = 0
     if days and days[0] >= today - timedelta(days=1):
         expected = days[0]
@@ -383,10 +407,10 @@ def stats_summary(
             expected -= timedelta(days=1)
 
     return {
-        "total_minutes": total_minutes,
-        "week_minutes": week_minutes,
+        "total_minutes": int(total_minutes or 0),
+        "week_minutes": int(week_minutes),
         "streak_days": streak,
-        "total_logs": len(rows),
+        "total_logs": int(total_logs),
     }
 
 
@@ -424,6 +448,30 @@ def stats_calendar(
 
 # --- 学习时长按方案分布（iter 304）：答「时间花在哪个方案上 / 哪个被冷落」 ---
 
+# iter 369：方案主题缓存（plan_id -> (过期时间, topic)）——/stats/by-plan 此前对聚合
+# 结果逐 plan 调 _load_plan_content（溢出方案每次从磁盘读 ≤512KB JSON + parse，多方案
+# 用户一次 stats 触发上百次大 JSON 读，只为取 intent.topic）。TTL 5 分钟（重生成后
+# 短暂陈旧可接受，本端点为分析视图）；FIFO 上界防无界增长。
+_PLAN_TOPIC_TTL = 300.0
+_PLAN_TOPIC_CACHE_MAX = 512
+_plan_topic_cache: dict[int, tuple[float, str]] = {}
+
+
+def _plan_topic_cached(db: Session, pid: int) -> str:
+    from app.api.plans import _load_plan_content
+
+    hit = _plan_topic_cache.get(pid)
+    now = time.monotonic()
+    if hit is not None and now <= hit[0]:
+        return hit[1]
+    plan = db.get(models.Plan, pid)
+    content = _load_plan_content(plan) if plan is not None else {}
+    topic = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
+    if len(_plan_topic_cache) >= _PLAN_TOPIC_CACHE_MAX:
+        _plan_topic_cache.pop(next(iter(_plan_topic_cache)), None)
+    _plan_topic_cache[pid] = (now + _PLAN_TOPIC_TTL, topic)
+    return topic
+
 
 @router.get("/stats/by-plan")
 def stats_by_plan(
@@ -434,8 +482,6 @@ def stats_by_plan(
     与 stats_summary（总量）/ stats_calendar（按日）互补——本端点按方案拆分，
     供多方案用户看时间分布、发现被冷落的方案。只读、按用户隔离、SQL 聚合（同 stats 口径）。
     """
-    from app.api.plans import _load_plan_content
-
     rows = (
         db.query(
             models.LearningLog.plan_id,
@@ -448,16 +494,10 @@ def stats_by_plan(
         .group_by(models.LearningLog.plan_id)
         .all()
     )
-    topics: dict[int, str] = {}
-    for pid, _m, _d in rows:
-        if pid not in topics:
-            plan = db.get(models.Plan, pid)
-            content = _load_plan_content(plan) if plan is not None else {}
-            topics[pid] = str((content.get("intent") or {}).get("topic") or content.get("title") or "")
     items = [
         {
             "plan_id": pid,
-            "topic": topics.get(pid, ""),
+            "topic": _plan_topic_cached(db, pid),
             "minutes": int(m),
             "last_date": str(d) if d is not None else None,
         }

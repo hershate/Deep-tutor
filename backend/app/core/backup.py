@@ -531,10 +531,13 @@ def _restore_plan(db: DbSession, sess: models.Session, p: dict, summary: dict, u
     # 大方案同样溢出落盘（与 _persist_plan 同规则，DB 行不塞超大 JSON）
     content_json = json.dumps(content, ensure_ascii=False)
     if content and len(content_json.encode("utf-8")) > _PLAN_OVERFLOW_BYTES:
-        from app.core.storage import exports_dir
+        from app.core.storage import atomic_write_text, exports_dir
 
+        # iter 369：tmp+os.replace 原子写（与正常生成路径 plans._persist_plan 同口径）——
+        # 裸 write_text 中途崩溃/IO 错留下半截 plan_<id>.json，若其后 commit 成功或
+        # 重试导入复用同 id，content_path 指向截断文件 -> 大方案静默变空
         path = exports_dir(sess.id) / f"plan_{plan.id}.json"
-        path.write_text(content_json, encoding="utf-8")
+        atomic_write_text(path, content_json)
         plan.content_path = str(path)
         plan.content = {}
     summary["plans"] += 1
