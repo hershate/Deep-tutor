@@ -16,11 +16,11 @@ alembic>=1.13,<2.0
 
 # AI 编排
 anthropic>=0.40,<1.0
-pyjwt>=2.8,<3.0                   # P4 多用户 JWT 认证（iter 57）
+pyjwt>=2.15,<3.0                   # P4 多用户 JWT 认证（iter 57）
 
 # 文档解析（P0 范围：PDF/Word/PPTX/Markdown/TXT/网页）
 marker-pdf>=1.10,<2.0             # PDF -> Markdown（marker_single CLI，--force_ocr；本地已装）
-pypdf>=4.0,<7.0                   # PDF 快速提取档（iter 225 解析质量多档：纯文本抽取，无 OCR/版面）
+pypdf>=6.19,<7.0                   # PDF 快速提取档（iter 225 解析质量多档：纯文本抽取，无 OCR/版面）
 python-docx>=1.1,<2.0
 python-pptx>=0.6,<2.0
 httpx>=0.27,<1.0                  # 网页抓取 / Bing 搜索
@@ -29,7 +29,9 @@ charset-normalizer>=3.3,<4.0      # 编码检测（R25）
 
 # 多模态（P3；R9：缺失时对应入口禁用 + 提示安装，不影响其余功能）
 pytesseract>=0.3.10,<1.0          # 图片 OCR（另需系统安装 tesseract-ocr 二进制）
-Pillow>=10.0,<13.0                # 图片读取（pytesseract 依赖）
+Pillow>=12.3,<13.0                # 图片读取（pytesseract 依赖）。iter 372：10.4.0 存在 13 个已知 CVE
+                                  # （恶意图片解码可达，网络暴露面）强制 >=12.3；marker-pdf/surya 钉 <11 属上游
+                                  # 保守约束——12.x 下导入/CLI/PIL 操作面已实证正常，pip check 警告已知悉
 # faster-whisper>=1.0,<2.0        # 音视频转写（可选：体积大 + 首次使用下载模型；用时装）
 
 # 测试
