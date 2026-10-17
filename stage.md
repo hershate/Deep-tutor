@@ -43,6 +43,7 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 - **thread 记忆列表两端收敛**：GET /threads/{id}/memory 此前无界全量返回（2000 条/用户配额 × 20000 字符/条上限最坏 ~40MB 单响应），而 Chat 页记忆面板只是 160px 速览小窗且 `items.map` 全量渲染——后端封顶最近 200 条 + `total` 全量计数（加性扩展），前端只渲染最近 50 条并如实显示总数（「仅显示最近 50 条（共 N 条）」）；API.md §11.2 行勘误注记。回归锁死封顶数/total 口径/updated_at 倒序。
 - **插件存储 Windows 共享冲突丢写修复（全量门禁偶发失败牵出的真 BUG）**：全量套件偶发 `test_storage_namespace_concurrent_writes` 失败 → 独立连跑 **2/5 复现**，捕获 `PermissionError(13)` 从 set() 逃逸——StorageNamespace._save 高频同文件 write+replace 下 Windows 瞬时共享冲突（杀软/索引器扫过目标文件）令插件该次写入丢失且异常上抛。补 10-50ms 短重试窗口（与 plans 溢出 JSON 的 os.replace 重试同法，连续 5 败才上抛）；修复后连跑 **8/8 全绿**。教训：全量套件的偶发红不是噪音，先复现率实证再定性。
 - **其余读热点核查（结论：干净）**：kb chats 列表 offset/limit 分页 ✓、messages limit≤500 ✓、GET /api/memory（user 作用域）分页 ✓、runs/steps/artifacts id 型有界 ✓、progress 统计 R6 已 SQL 聚合化 ✓。
+- **R13 追加（同日第二轮）**：①user 级 GET /api/memory 复查发现同为无界全量（前端无消费方、插件 REST 代理可达）——与 thread 级同口径封顶 200 + total，回归并入 test_iter372_thread_memory_cap；②R11–R13 全部改动后**真实进程 soak 复跑全绿**（1157 请求零 5xx、双导入 [200,409]、崩溃重启恢复、优雅关停、integrity/foreign_key 零违规；net_err=8 为风暴截止时刻客户端侧中断计数，非服务错误）。
 - **门禁**：后端全量 pytest **1405 通过/1 跳过**（+1）+ ruff 全仓；前端 tsc/vite build 全绿（R8 后首次复跑）。
 - **遗留（承前未变）**：CSP（v2）、币种字段改名（待追认）、share 过期默认、SQLite 专有日期函数、事件断线游标（v2 #60）、transformers CVE（marker-pdf 锁）、GET /notes 无分页（30MB 上界接受）。
 - **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
