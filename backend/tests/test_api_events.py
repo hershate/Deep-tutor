@@ -188,11 +188,12 @@ def test_events_generator_yields_own_event_and_filters_others():
 
 
 def test_events_generator_heartbeat_on_idle():
-    """空队列超时 -> 发心跳注释行（不产生客户端事件，仅保活）。"""
+    """空队列超时 -> 发心跳注释行（不产生客户端事件，仅保活）。reauth=False 跳过
+    身份重验（iter 381 加入；重验语义见 test_iter381_events_reauth.py）。"""
     from app.api.events import events_generator
 
     queue: asyncio.Queue = asyncio.Queue()
-    gen = events_generator(queue, user_id=1, heartbeat_s=0.05)
+    gen = events_generator(queue, user_id=1, heartbeat_s=0.05, reauth=False)
     frame = asyncio.run(gen.__anext__())
     assert frame == ": ping\n\n"
     asyncio.run(gen.aclose())

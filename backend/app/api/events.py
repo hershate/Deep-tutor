@@ -22,15 +22,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, require_auth
 from app.api.sse_utils import SSE_HEADERS
+from app.core.security import decode_token
 from app.plugins import bus
 
 log = logging.getLogger("deep_tutor.api.events")
@@ -43,13 +43,15 @@ GLOBAL_EVENTS: frozenset[str] = frozenset({"startup", "shutdown"})
 
 _HEARTBEAT_S = 15.0
 
-# iter 367（批次四）：session_id -> 归属用户 TTL 缓存——生成期进度类事件高频携带同一
-# session_id，此前每事件 × 每订阅者各开一次短会话同步查 DB（在事件循环上执行）：
-# N 订阅者 × M 事件/秒 = N×M 查询/秒。60s TTL 把同一 sid 收敛到 ~1 次/分钟；
-# 全清式防膨胀（容量小、TTL 内重建成本可忽略）。
-_SID_CACHE_TTL = 60.0
-_SID_CACHE_MAX = 4096
-_sid_owner_cache: dict[int, tuple[int | None, float]] = {}
+# iter 381：移除 session_id -> owner 的 60s TTL 缓存（iter 367 曾为「每事件×每订阅者
+# 查库」加的收敛层）。两个理由：
+# 1. 负载前提已不成立——现事件面仅 plan_created / materials_completed 不带 user_id
+#    （每方案生成 2 次走 session_id 解析），其余核心事件全部直归属（零查询）；
+#    直查 = 每订阅者 × 每方案 2 次主键读，可忽略。
+# 2. TTL 缓存有跨用户错发窗口——删会话后 SQLite 复用 rowid，60s 内新会话（可能属
+#    其他用户）的事件按缓存的旧 owner 过滤：旧 owner 收到他人 plan_created/
+#    materials_completed（含 topic/单元数 = 跨用户信息泄露）且正主收不到自己的
+#    事件（前端 toast/实时刷新失效）。即时查库即真实归属，窗口彻底关死。
 
 
 def _session_owner(db: Session, sid: int) -> int | None:
@@ -63,7 +65,8 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
     """解析事件的归属用户 id（用于按用户过滤 SSE 流）。
 
     - payload 带 user_id（int）-> 直接归属；
-    - 否则带 session_id（int）-> 经 DB 解析 session.user_id（带 TTL 缓存，见上方注释）；
+    - 否则带 session_id（int）-> 经 DB 即时解析 session.user_id（iter 381 起直查，
+      见上方注释的窗口论证）；
     - 都无 -> None（调用方按 GLOBAL_EVENTS 决定广播或丢弃）。
     db 为 None 时开短生命周期会话查询（事件流路径用）。
     """
@@ -72,10 +75,6 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
         return uid
     sid = payload.get("session_id")
     if isinstance(sid, int) and sid > 0:
-        now = time.monotonic()
-        cached = _sid_owner_cache.get(sid)
-        if cached is not None and now - cached[1] < _SID_CACHE_TTL:
-            return cached[0]
         own: Session | None = None
         if db is None:
             from app.db.base import SessionLocal
@@ -85,14 +84,10 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
         else:
             query_db = db
         try:
-            owner = _session_owner(query_db, sid)
+            return _session_owner(query_db, sid)
         finally:
             if own is not None:
                 own.close()
-        if len(_sid_owner_cache) >= _SID_CACHE_MAX:
-            _sid_owner_cache.clear()
-        _sid_owner_cache[sid] = (owner, now)
-        return owner
     return None
 
 
@@ -113,11 +108,32 @@ def format_frame(event: str, payload: dict[str, Any], user_id: int, db: Session 
     return f"event: {safe_event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _user_still_valid(user_id: int, token_iat: int | None) -> bool:
+    """iter 381：SSE 流身份重验——用户仍存在 + JWT 未被吊销水位越过（与 deps 的
+    JWT 业务校验同口径，含 +1s iat 容差）。PAT/开放模式（token_iat=None）只验用户
+    存在性。短会话主键读，每心跳周期（15s）一次，微秒级。"""
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        u = db.get(User, user_id)
+        if u is None:
+            return False
+        if token_iat is not None and token_iat + 1 <= (u.tokens_valid_after or 0):
+            return False
+        return True
+    finally:
+        db.close()
+
+
 async def events_generator(
     queue: asyncio.Queue[tuple[str, dict[str, Any]]],
     user_id: int,
     *,
     heartbeat_s: float = _HEARTBEAT_S,
+    token_iat: int | None = None,
+    reauth: bool = True,
 ) -> Any:
     """SSE 帧生成器：从 queue 取 (event, payload)，按用户过滤后 yield 帧；空闲发心跳。
 
@@ -127,11 +143,17 @@ async def events_generator(
     iter 366：不再持有常驻 DB 会话——归属解析（format_frame -> resolve_owner）仅在
     payload 带 session_id 时开短生命周期会话（多数事件带 user_id 直归属，零 DB），
     避免 100 用户各一条常驻 EventsBridge SSE 钉死 100+ 连接池槽位。
+    iter 381：心跳周期重验身份（reauth）——SSE 流只在建立时认证一次，此前吊销后
+    （管理员删用户 / 改密更新 tokens_valid_after）已建立的流靠心跳保活**永续**接收
+    该用户全部实时事件。重验失败即 return 断流（客户端按既有退避重连，重新走完整
+    认证链 -> 401）。单测用 reauth=False 跳过（无真实用户行）。
     """
     while True:
         try:
             event, payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
         except asyncio.TimeoutError:
+            if reauth and not _user_still_valid(user_id, token_iat):
+                return
             yield ": ping\n\n"  # SSE 注释行=心跳，不产生客户端事件，仅保活
             continue
         frame = format_frame(event, payload, user_id)  # db=None：按需开短会话解析 session_id
@@ -140,12 +162,26 @@ async def events_generator(
 
 
 @router.get("/stream")
-async def event_stream(user_id: int = Depends(get_current_user_id)) -> StreamingResponse:
+async def event_stream(
+    request: Request, user_id: int = Depends(get_current_user_id)
+) -> StreamingResponse:
     """实时事件流（SSE）。连接期间转发该用户的事件（+ 全局生命周期事件）。
 
     客户端断开 -> 生成器被取消 -> finally 退订 sink（无监听泄漏）。
     iter 366：用 get_current_user_id（解析后即释放会话），流期不钉连接池槽位。
+    iter 381：从 Bearer JWT 提取 iat 随流传入——心跳周期重验吊销水位（见
+    events_generator docstring）；非 JWT 凭证（AUTH_TOKEN/PAT/开放模式）iat 为
+    None，只重验用户存在性。直调单测可传 headers 为空 dict 的 stub。
     """
+    token_iat: int | None = None
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        try:
+            claims = decode_token(auth[7:].strip())
+            iat = claims.get("iat")
+            token_iat = int(iat) if isinstance(iat, (int, float)) else None
+        except Exception:  # noqa: BLE001  非 JWT 的 Bearer（PAT 等）或解码失败 -> 只验存在性
+            token_iat = None
     # iter 365 C8：有界队列防慢客户端 OOM——挂起/慢读的连接持续入队无界 Queue 会线性吃内存
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=100)
     loop = asyncio.get_running_loop()
@@ -168,7 +204,7 @@ async def event_stream(user_id: int = Depends(get_current_user_id)) -> Streaming
 
     async def stream():
         try:
-            async for frame in events_generator(queue, user_id):
+            async for frame in events_generator(queue, user_id, token_iat=token_iat):
                 yield frame
         finally:
             off()  # 退订 sink（客户端断开/取消时）

@@ -86,10 +86,13 @@ def test_all_events_sink_loop_branch_still_nonblocking():
     assert done.is_set()
 
 
-# --- events.resolve_owner TTL 缓存 ---
+# --- events.resolve_owner session_id 解析（iter 381 起：直查无缓存） ---
 
 
-def test_resolve_owner_sid_cached(monkeypatch):
+def test_resolve_owner_sid_direct_query(monkeypatch):
+    """iter 381 语义更新：session_id -> owner 每次即时查库（原 60s TTL 缓存因
+    删会话后 rowid 复用的跨用户错发窗口移除，见 events.py 注释）。本测试钉死
+    「即时性」——连续解析同 sid 各查一次（无陈旧值），归属变化立即可见。"""
     from app.api import events as ev
 
     db = SessionLocal()
@@ -112,15 +115,11 @@ def test_resolve_owner_sid_cached(monkeypatch):
         return orig(query_db, query_sid)
 
     monkeypatch.setattr(ev, "_session_owner", counting)
-    ev._sid_owner_cache.clear()
-    try:
-        r1 = ev.resolve_owner({"session_id": sid})
-        r2 = ev.resolve_owner({"session_id": sid})
-        r3 = ev.resolve_owner({"session_id": sid})
-        assert (r1, r2, r3) == (uid, uid, uid)
-        assert len(calls) == 1, f"同一 session_id 应命中 TTL 缓存（实际查询 {len(calls)} 次）"
-    finally:
-        ev._sid_owner_cache.clear()
+    r1 = ev.resolve_owner({"session_id": sid})
+    r2 = ev.resolve_owner({"session_id": sid})
+    r3 = ev.resolve_owner({"session_id": sid})
+    assert (r1, r2, r3) == (uid, uid, uid)
+    assert len(calls) == 3, f"每次解析都应即时查库（实际查询 {len(calls)} 次）"
 
 
 # --- events SSE 响应头 ---
@@ -129,7 +128,10 @@ def test_resolve_owner_sid_cached(monkeypatch):
 def test_event_stream_sse_headers():
     from app.api.events import SSE_HEADERS, event_stream
 
-    resp = asyncio.run(event_stream(user_id=1))
+    class _StubReq:  # iter 381：端点新增 request 参数（提取 Bearer iat 供心跳重验）
+        headers: dict = {}
+
+    resp = asyncio.run(event_stream(request=_StubReq(), user_id=1))
     assert resp.headers["cache-control"] == "no-cache", "反代/浏览器缓冲会把事件流攒到超时"
     assert resp.headers["x-accel-buffering"] == SSE_HEADERS["X-Accel-Buffering"]
     asyncio.run(resp.body_iterator.aclose())  # 退订 sink，防测试进程内泄漏

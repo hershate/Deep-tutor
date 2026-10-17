@@ -38,6 +38,16 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R24（2026-10-17，Python v1 深度审计第二十一轮「iter 381」，✅ 完成）**：同一 /goal 第二十一遍——**更新面 × 服务端内存态一致性矩阵**（全部 PATCH/PUT/DELETE 端点对进程内状态——SSE 流身份/事件归属缓存/TTL 缓存/解析锁/注册表——的失效与同步语义，R4-R23 未系统核对过的交叉面）。2 个真实缺口修复 + 1 个测试时序缺陷修复、6 个新回归/更新、1 commit：
+
+- **修复 1（事件归属缓存跨用户错发窗口）**：`resolve_owner` 的 session_id→owner 60s TTL 缓存（iter 367 为「每事件×每订阅者查库」加的收敛层）在「删会话后 SQLite 复用 rowid」场景把新会话事件按缓存的**旧 owner** 过滤——旧 owner 收到他人 plan_created/materials_completed（含 topic/单元数＝**跨用户信息泄露**）且正主收不到（前端 toast/实时刷新静默失效）。修复＝**移除缓存即时查库**：负载前提已不成立（现事件面仅 plan_created/materials_completed 不带 user_id，每方案 2 次；其余核心事件全部直归属零查询），直查=每订阅者×每方案 2 次主键读可忽略；即时查库即真实归属，窗口彻底关死（删除/rowid 复用/备份导入恢复均自洽）。
+- **修复 2（吊销后已建事件流永续）**：GET /api/events/stream 只在建立时认证一次，SSE 靠 15s 心跳保活无寿命——管理员删用户/改密（tokens_valid_after）后，**已建立的流永续接收该用户全部实时事件**。修复＝events_generator 心跳周期重验身份：`_user_still_valid`（用户存在 + JWT 吊销水位，与 deps 的 JWT 业务校验同口径含 +1s iat 容差；PAT/开放模式只验存在性），失败即断流，客户端按既有退避重连→重新认证→401。端点从 Bearer 提取 iat 随流传入（request 参数；非 JWT 凭证 iat=None）。每心跳一次短会话主键读（微秒级，15s 周期），100 用户 SSE ≈ 7 查询/秒。
+- **分派（clean，留档）**：PATCH /threads（title/model 标量；在途 run 启动时锁定 model 不受影响）；PUT credentials/providers（anthropic 客户端缓存按 (key,base_url) 寻址，换 key 自然新 client+旧 client 后台关闭 R6；在途 run 持旧 provider 跑完＝有限寿命快照语义）；PUT prefs（daily_budget/llm_max_tokens 下次生成前读取生效，在途快照）；PUT pricing（落账点按最新表重算）；PUT users 改密（新请求 401 R5；已建生成/chat 流有限寿命+R23 wait_generation_settled 收敛，可接受）；PUT kb title/notes（无内存态；notes R21 已审）；plugins 热管理（displaced 栈 R6）；_PARSE_LOCKS（finally pop，R23 T4 护栏）；_STREAMS 300s 保留窗（R23 已验证 DB 行删除后不再被引用）；plan topic 5min 缓存（消费方 stats_by_plan 以 DB LearningLog 聚合为准，plan 删→logs 级联删→不再触达，重生成陈旧注释已声明）。
+- **测试**：test_iter381_events_reauth.py 5 用例——rowid 复用归属即时翻转（正主收/旧主不收，防引擎行为变化显式 skip）；正常用户心跳持续（重验不误伤）；删用户断流；JWT 吊销断流（含 iat+1 容差边界恰吊销）；PAT 模式只验存在性。既有测试同步：iter367 缓存测试反转为直查语义（3 次解析 3 次查库）、events 心跳测试 reauth=False、event_stream 直调传 stub request。
+- **测试时序缺陷修复（全量偶发红根因）**：test_plugin_scheduler test_every_cancel_stops 全量跑 1 失败（单独 8/8 过）——实証定性：cancel 打断的是调度循环等待，**已在途的 to_thread fn 线程不可中断且必然完成**（iter 368 sync-fn 移线程池的固有语义），测试在 cancel 后立即采样基线把这次在途完成误判为「cancel 后仍在跑」。修＝基线采样延后一个窗口（0.12s）吸收在途轮次，断言强度不变（0.1s 无新轮次）；修后 6 连跑全绿。教训与 R13 同款：全量偶发红先复现率实证再定性，本次定性为测试假设缺陷而非产品缺陷。
+- **门禁**：全量 pytest **1439 通过/1 跳过**（+5）+ ruff（app/tests + 根 plugins/）全绿；前端无改动。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R23（2026-10-17，Python v1 深度审计第二十轮「iter 380」，✅ 完成）**：同一 /goal 第二十遍——**删除族 × 在途操作竞态审计**（R4-R22 从未系统核对过「每个 DELETE 端点执行时，恰有任务在途操作同一资源」的存活假设）。2 个真实缺口修复 + 1 项测试基建发现、6 个新回归、1 commit：
 
 - **修复 1（删除路径成本黑洞）**：生成中 DELETE /sessions → 取消任务 → `_finalize` 「会话已删除」守卫一刀切**不写 DB**——理由只对 tool_calls 成立（session FK 不可写），但取消前已执行工具烧掉的 **api_usage（user 键）本可保留**，结果整批蒸发：日预算只信 api_usage 求和，缺账 = 预算绕过通道（iter 243 语义的删除路径缺口）。修复（三层）：①`_SessionStream` 增 `user_id` 锚点（`_run_start` 赋值）；②守卫分支 + 取消/异常路径均传 `orphan_user_id`，`_persist_tool_calls` 会话已删时降级 usage-only（跳过 ToolCall 只落 ApiUsage，计价同口径）；③落账撞 FK（与删除事务交错的竞态）再降级 `_persist_usage_only` 重试；用户亦被级联删时整段跳过（FK 防孤儿行，配合 users.py 显式清 api_usage）。

@@ -100,8 +100,13 @@ def test_every_cancel_stops():
         h = api.scheduler.every(0.02, lambda: count.__setitem__("n", count["n"] + 1))
         await asyncio.sleep(0.07)  # 跑 ~2-3 次
         h.cancel()
+        # iter 381：先等一个窗口再采样基线——cancel 打断的是调度循环的等待，已在途的
+        # to_thread fn 线程不可中断且必然完成（iter 368 sync-fn 移线程池的固有语义：
+        # cancel 停后续轮次，不抹掉已开始的那次）。高负载下该轮可能恰在 cancel 时刻
+        # 启动，立即采样会把这次完成误判为「cancel 后仍在跑」（全量套件偶发红的根因）。
+        await asyncio.sleep(0.12)
         after = count["n"]
-        await asyncio.sleep(0.1)  # 取消后不应再跑
+        await asyncio.sleep(0.1)  # 取消后不应再有新轮次开始
         assert count["n"] == after  # 计数稳定
 
     asyncio.run(main())
