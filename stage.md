@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R13（2026-10-17，Python v1 深度审计第十轮「iter 372」，✅ 完成）**：同一 /goal 第十遍——**读路径收尾 + 全量门禁偶发牵出的真并发 BUG**。3 commit、2 个新回归测试：
+
+- **thread 记忆列表两端收敛**：GET /threads/{id}/memory 此前无界全量返回（2000 条/用户配额 × 20000 字符/条上限最坏 ~40MB 单响应），而 Chat 页记忆面板只是 160px 速览小窗且 `items.map` 全量渲染——后端封顶最近 200 条 + `total` 全量计数（加性扩展），前端只渲染最近 50 条并如实显示总数（「仅显示最近 50 条（共 N 条）」）；API.md §11.2 行勘误注记。回归锁死封顶数/total 口径/updated_at 倒序。
+- **插件存储 Windows 共享冲突丢写修复（全量门禁偶发失败牵出的真 BUG）**：全量套件偶发 `test_storage_namespace_concurrent_writes` 失败 → 独立连跑 **2/5 复现**，捕获 `PermissionError(13)` 从 set() 逃逸——StorageNamespace._save 高频同文件 write+replace 下 Windows 瞬时共享冲突（杀软/索引器扫过目标文件）令插件该次写入丢失且异常上抛。补 10-50ms 短重试窗口（与 plans 溢出 JSON 的 os.replace 重试同法，连续 5 败才上抛）；修复后连跑 **8/8 全绿**。教训：全量套件的偶发红不是噪音，先复现率实证再定性。
+- **其余读热点核查（结论：干净）**：kb chats 列表 offset/limit 分页 ✓、messages limit≤500 ✓、GET /api/memory（user 作用域）分页 ✓、runs/steps/artifacts id 型有界 ✓、progress 统计 R6 已 SQL 聚合化 ✓。
+- **门禁**：后端全量 pytest **1405 通过/1 跳过**（+1）+ ruff 全仓；前端 tsc/vite build 全绿（R8 后首次复跑）。
+- **遗留（承前未变）**：CSP（v2）、币种字段改名（待追认）、share 过期默认、SQLite 专有日期函数、事件断线游标（v2 #60）、transformers CVE（marker-pdf 锁）、GET /notes 无分页（30MB 上界接受）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R12（2026-10-17，Python v1 深度审计第九轮「iter 372」，✅ 完成）**：同一 /goal 第九遍——**契约一致性终检 + 读路径热点下推**。3 commit（含 1 处性能修复）、2 个新回归测试：
 
 - **API 契约终检（结论：干净，零修复）**：以 openapi()（lifespan 装载后 145 端点，含 /api/tools、/api/plugins、providers/kinds、events/stream、双 formats 等惰性挂载面）为权威面，对 API.md 做双向差集——澄清 API.md 自我定位为**插件 API 契约**（头部第 7-10 行明示），核心 REST 129 端点不属其范围（v1 无核心目录文档属设计现状，v2 目录为 plan/reasonix/03）；其自身声称面全部核实：§11.2 记忆族压缩表格按行语义（POST→集合/GET→两者/DELETE→{mid}）逐条命中实际路由、11 条「幽灵」全为解析器叉积伪差；文档声称参数界（threads page≥1/limit 1-100 默认 20、messages limit 1-500 默认 100 + before_id）与 openapi schema 逐字段一致；§11.3 RunIn 边界承 R6 B17 既有回归。
