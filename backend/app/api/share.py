@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -45,6 +46,26 @@ def _load_content(plan: Plan) -> dict:
     return content or {}
 
 
+# iter 372 R15（待追认缺省）：分享链接默认有效期。此前永久有效——「遗忘的公开
+# 链接长期暴露」是网络服务面已知风险（/shares 管理面 docstring 即为此而设）。
+# created_at 为 naive UTC（server_default func.now()=SQLite CURRENT_TIMESTAMP），
+# 与 datetime.utcnow() 同口径比较；SHARE_DEFAULT_EXPIRE_DAYS=0 恢复永久。
+def _share_expiry(link: ShareLink) -> datetime | None:
+    from app.core.settings import settings
+
+    days = settings.share_default_expire_days
+    if days <= 0 or link.created_at is None:
+        return None
+    return link.created_at + timedelta(days=days)
+
+
+def _share_expired(link: ShareLink) -> bool:
+    from datetime import datetime
+
+    exp = _share_expiry(link)
+    return exp is not None and datetime.utcnow() >= exp
+
+
 @router.post("/{plan_id}/share", status_code=201)
 def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     if not limiter.check(f"share_write:{user.id}", 30):
@@ -61,7 +82,12 @@ def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depen
             db.rollback()
             link = db.query(ShareLink).filter_by(plan_id=plan.id).one()
         db.refresh(link)
-    return {"token": link.token, "path": f"/shared/{link.token}", "created_at": link.created_at.isoformat()}
+    return {
+        "token": link.token,
+        "path": f"/shared/{link.token}",
+        "created_at": link.created_at.isoformat(),
+        "expires_at": _share_expiry(link).isoformat() if _share_expiry(link) else None,
+    }
 
 
 @router.delete("/{plan_id}/share", status_code=204)
@@ -82,7 +108,15 @@ def get_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(
     link = db.query(ShareLink).filter_by(plan_id=plan.id).first()
     if link is None:
         return {"shared": False}
-    return {"shared": True, "token": link.token, "path": f"/shared/{link.token}", "created_at": link.created_at.isoformat()}
+    if _share_expired(link):
+        return {"shared": False, "expired": True}
+    return {
+        "shared": True,
+        "token": link.token,
+        "path": f"/shared/{link.token}",
+        "created_at": link.created_at.isoformat(),
+        "expires_at": _share_expiry(link).isoformat() if _share_expiry(link) else None,
+    }
 
 
 # 公开读限流（防 token 探测/抓取滥用；192bit token 本身不可枚举，此为纵深防御）
@@ -109,6 +143,7 @@ def list_shares(db: Session = Depends(get_db), user: User = Depends(get_current_
                 "token": link.token,
                 "path": f"/shared/{link.token}",
                 "created_at": link.created_at.isoformat(),
+                "expires_at": _share_expiry(link).isoformat() if _share_expiry(link) else None,
             }
             for link, plan in rows
         ]
@@ -168,8 +203,9 @@ def read_shared(token: str, request: Request, db: Session = Depends(get_db)) -> 
     if not limiter.check(f"shared_read:{ip}", _SHARED_READ_RATE_PER_MIN):
         raise ApiError("rate_limited", "访问过于频繁，请稍后再试", status=429)
     link = db.query(ShareLink).filter_by(token=token).first()
-    if link is None:
-        raise ApiError("not_found", "分享链接不存在或已撤销")
+    if link is None or _share_expired(link):
+        # 过期与不存在同形 404——公开端点不区分二者（不向探测者泄露链接存在性）
+        raise ApiError("not_found", "分享链接不存在或已失效")
     plan = db.get(Plan, link.plan_id)
     if plan is None:
         raise ApiError("not_found", "方案已删除")

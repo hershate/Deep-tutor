@@ -134,6 +134,12 @@ class Settings(BaseSettings):
         default=86_400, ge=0, description="孤儿目录 mtime 冷却窗秒数（默认 24h，窗口内不删）"
     )
 
+    # iter 372 R15（待追认缺省）：分享链接默认有效期天数——公开只读链接此前永久有效，
+    # 「遗忘的链接长期暴露」是网络服务面的已知风险；0 = 恢复永久有效。
+    share_default_expire_days: int = Field(
+        default=90, ge=0, description="分享链接默认有效天数（自创建起算；0=永久）"
+    )
+
     # --- 搜索 ---
     search_engine: str = Field(
         default="auto",
