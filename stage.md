@@ -38,6 +38,18 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R26（2026-10-18，Python v1 深度审计第二十三轮「iter 383」，✅ 完成）**：同一 /goal 第二十三遍——**备份导入写入族竞态（R23 删除族的对偶面）+ R23-R25 新改动路径的真实进程 soak 复验**。零产品代码改动（审计面 clean + 1 项留档），1 个 soak 脚本入库、1 commit：
+
+- **静态审计（导入面分派）**：_RESTORE_LOCK 互斥 ✓（iter 369）；restore 全程 to_thread ✓（R6 B14，导入不冻事件循环）；append-only 不触内存态（无 _STREAMS/_RUN_STREAMS 失效需求，导入无 running 状态白名单）✓；preview 摘要无一致性承诺（TOCTOU 无害）✓；导入事务持写锁期间 id 分配不受并发删除交错（写锁串行）✓。
+- **留档（v1 接受，v2 数据层销项）**：导入事务持 SQLite 写锁期间（实测 0.41-0.53s/30 线程载荷；上限 256MB 导入可超 busy_timeout 10s），在途 _finalize 的同步 commit 在**事件循环上等锁**——秒级循环冻结窗口（全部用户 SSE 心跳停发/请求停）与极端超时后的计费丢失（record 吞异常回滚）。R7 已裁定导入维持单事务（产品决策），v2 SQL 数据层多连接并发写天然分离。
+- **真实进程 soak（tests/soak_restore_races.py，手工运行不自动收集）**：
+  - **S2 = R24 修复的真实进程复验**：真实 SSE socket 连接 → 管理员改密（吊销 tokens_valid_after）→ 服务端 **15.0s 收流**（恰一个心跳周期——重验机制精确生效；浏览器/EventsBridge 同路径）。
+  - **S1 = 删除族×导入写入族交错风暴**：8 用户 15s 混合读写**含删除**（386 次成功删除）× 期间串行 3 笔实质导入（threads×60 messages 载荷，写锁各持 0.4-0.5s）+ 导出 910KB——**1302 请求零 5xx**（429=限流设计行为）。
+  - **S3 = 事后完整性**：优雅关停后 SQLite integrity_check=ok、foreign_key_check 零违规；threads=90/messages=5400 与 3×(30×60) 导入精确对账。
+- **测试基建发现（留档）**：httpx 0.28.1 的 `stream()` 进入阶段会等首个网络读——SSE「头即时、首字节 15s 心跳」场景进入即 ReadTimeout（客户端特性；原始 socket 实证服务端头即时到达、心跳准时）——soak 的事件流长连接须用原始 socket（本脚本已按此实现）。
+- **门禁**：全量 pytest 1442 通过/1 跳过（本轮零产品改动，基线不变）+ ruff（app/tests + 根 plugins/）全绿。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R25（2026-10-18，Python v1 深度审计第二十二轮「iter 382」，✅ 完成）**：同一 /goal 第二十二遍——**长连流家族断连取消与 finalize 收敛语义一致性**（材料 SSE / quiz 后台 / slides / kb，对照 R23/R24 已钉死的 plans/chat/events 三类流语义标准：断连任务独立、终态必达、计费守恒、内存零泄漏、硬取消传播）。1 个真实缺口修复、3 个新回归、1 commit：
 
 - **缺口（取消路径成本黑洞，iter 243 语义的最后一处缺口）**：LLM 工具调用在途被取消（task.cancel → CancelledError 传播）时，**已累积的部分 usage 随协程局部变量丢弃**——run_tool 的 except Exception 不捕 CancelledError（Python 3.8+ 属 BaseException），_billed 的回填值无人消费，api_usage 无行 = 绕过日预算守卫的不可观测黑洞。触发面：①编排任务取消（删会话/删用户，R23 场景）；②材料流断连取消在途 worker；③材料流「worker 已完成、主循环未消费」窗口（断连恰在 task.result() 前——历轮修复覆盖了文件清理与槽释放，计量面漏了）。
