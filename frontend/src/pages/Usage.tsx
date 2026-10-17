@@ -67,7 +67,7 @@ export default function Usage() {
 
       {/* iter 131：近 14 日按日费用柱状图（纯 CSS，悬浮看明细） */}
       {daily.isError && (
-        <p className="text-sm text-red-500">
+        <p role="alert" className="text-sm text-red-500">
           按日趋势加载失败：{daily.error instanceof Error ? daily.error.message : '未知错误'}
           <button onClick={() => void daily.refetch()} className="ml-2 text-blue-600 underline">重试</button>
         </p>
@@ -76,7 +76,7 @@ export default function Usage() {
 
       {/* iter 303：按模型费用分解 */}
       {byModel.isError && (
-        <p className="text-sm text-red-500">
+        <p role="alert" className="text-sm text-red-500">
           按模型分解加载失败：{byModel.error instanceof Error ? byModel.error.message : '未知错误'}
           <button onClick={() => void byModel.refetch()} className="ml-2 text-blue-600 underline">重试</button>
         </p>

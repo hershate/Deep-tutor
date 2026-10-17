@@ -342,7 +342,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <footer className="border-t bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="w-full px-4 py-3 text-xs text-slate-500 dark:text-slate-500">
-          Deep-tutor · Phase 1 MVP
+          Deep-tutor
         </div>
       </footer>
       {/* iter 110：回到顶部（右下悬浮，Toast z-50 短暂遮挡可接受；scale-in 入场） */}

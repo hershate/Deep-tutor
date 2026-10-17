@@ -99,10 +99,10 @@ export default function App() {
                     残留上一会话的问题与答案 */}
                 <Route path="/clarify/:sessionId" element={<RemountByKeyParam><Clarify /></RemountByKeyParam>} />
                 <Route path="/plans" element={<MaybeOverride hostPath="plans"><Plans /></MaybeOverride>} />
-                <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans"><PlanDetail /></MaybeOverride>} />
+                <Route path="/plans/:planId" element={<MaybeOverride hostPath="plans/:planId"><PlanDetail /></MaybeOverride>} />
                 {/* iter 346（F9）：学习中心独立聚合页 /learn（今日学习 + 各方案卡片，drill-down /learn/:planId） */}
                 <Route path="/learn" element={<MaybeOverride hostPath="learn"><LearnIndex /></MaybeOverride>} />
-                <Route path="/learn/:planId" element={<MaybeOverride hostPath="learn"><Learn /></MaybeOverride>} />
+                <Route path="/learn/:planId" element={<MaybeOverride hostPath="learn/:planId"><Learn /></MaybeOverride>} />
                 {/* iter 281：跨方案统一复习工作流页（翻卡自评 + 掌握度回写） */}
                 <Route path="/review" element={<MaybeOverride hostPath="review"><Review /></MaybeOverride>} />
                 <Route path="/wiki" element={<MaybeOverride hostPath="wiki"><Wiki /></MaybeOverride>} />

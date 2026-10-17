@@ -235,7 +235,7 @@ export default function ProviderManager() {
               disabled={busy}
               className="rounded-lg bg-blue-600 px-3 py-1 text-sm text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[.98] disabled:opacity-50 disabled:active:scale-100"
             >
-              {form.id === null ? '创建' : '保存'}
+              {busy ? '保存中…' : form.id === null ? '创建' : '保存'}
             </button>
             <button
               type="button"

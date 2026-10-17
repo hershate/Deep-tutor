@@ -36,7 +36,8 @@ function WeekMinutesWidget() {
 function ReviewDueWidget() {
   const { data } = useQuery({ queryKey: ['review-due'], queryFn: getReviewDue, staleTime: 60_000 })
   if (!data || data.total === 0) return null
-  return <StatCard to="/wiki" icon="📅" value={`${data.total} 项`} label="今日待复习" />
+  // iter 281 起复习入口统一直达翻卡页（与顶栏徽标一致），不再绕 wiki
+  return <StatCard to="/review" icon="📅" value={`${data.total} 项`} label="今日待复习" />
 }
 
 function TodayCostWidget() {

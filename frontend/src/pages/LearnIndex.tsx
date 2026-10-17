@@ -11,8 +11,9 @@ export default function LearnIndex() {
   const plans = plansQ.data?.items ?? []
   const todayItems = todayQ.data?.items ?? []
   // iter 369 B16：失败态显式呈现——此前查询报错被 data??[] 吞掉，页面显示「尚无排程/
-  // 尚无方案」误导用户以为数据为空（表达与实现不一致）
-  const loadError = plansQ.error ?? todayQ.error
+  // 尚无方案」误导用户以为数据为空（表达与实现不一致）。
+  // iter 370：方案区块错误只用 plansQ.error——此前混入 todayQ.error 会把「今日任务查询
+  // 失败」误显示为方案列表失败，且重试按钮刷的是已成功的 plansQ
 
   return (
     <div className="space-y-6">
@@ -30,7 +31,7 @@ export default function LearnIndex() {
       >
         <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">📅 今日学习</h2>
         {todayQ.isError ? (
-          <p className="text-sm text-red-500">
+          <p role="alert" className="text-sm text-red-500">
             今日任务加载失败：{todayQ.error instanceof Error ? todayQ.error.message : '未知错误'}
             <button onClick={() => void todayQ.refetch()} className="ml-2 text-blue-600 underline">
               重试
@@ -71,9 +72,9 @@ export default function LearnIndex() {
         aria-label="我的方案"
       >
         <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">📚 我的方案（{plans.length}）</h2>
-        {loadError ? (
-          <p className="text-sm text-red-500">
-            方案列表加载失败：{loadError instanceof Error ? loadError.message : '未知错误'}
+        {plansQ.error ? (
+          <p role="alert" className="text-sm text-red-500">
+            方案列表加载失败：{plansQ.error instanceof Error ? plansQ.error.message : '未知错误'}
             <button onClick={() => void plansQ.refetch()} className="ml-2 text-blue-600 underline">
               重试
             </button>

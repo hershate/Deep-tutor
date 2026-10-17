@@ -339,10 +339,10 @@ export default function Notes() {
     const targets = notes.filter((n) => selected.has(n.id))
     if (targets.length === 0 || batchDeleting) return
     const dirtyOpen = dirty && draft.id !== null && selected.has(draft.id)
-    const preview = targets.map((n) => n.title || '无题').slice(0, 5).join('、')
+    const previewTitles = targets.map((n) => n.title || '无题').slice(0, 5).join('、')  // 避免遮蔽分栏预览开关 state
     const more = targets.length > 5 ? ` 等 ${targets.length} 篇` : ''
     const warn = dirtyOpen ? '\n⚠️ 其中包含你正在编辑且未保存的笔记，其未保存修改将一并丢失。' : ''
-    if (!window.confirm(`确定删除选中的 ${targets.length} 篇笔记？\n${preview}${more}${warn}\n删除后不可恢复。`)) return
+    if (!window.confirm(`确定删除选中的 ${targets.length} 篇笔记？\n${previewTitles}${more}${warn}\n删除后不可恢复。`)) return
     setBatchDeleting(true)
     setBatchProgress('')
     let ok = 0

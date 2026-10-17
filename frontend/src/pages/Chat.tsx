@@ -452,13 +452,14 @@ export default function Chat() {
               {/* 乐观渲染的用户消息：发送即显示，done 后由消息刷新取代（iter 360 BUG-5） */}
               {pendingUser && <MessageBubble role="user" content={pendingUser} />}
               {streaming && <StreamingBubble stream={streaming} />}
-              {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>}
+              {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>}
               <div ref={bottomRef} />
             </div>
 
             <div className="border-t border-slate-200 p-2 dark:border-slate-700">
               <div className="flex gap-2">
                 <textarea
+                  aria-label="对话输入"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {

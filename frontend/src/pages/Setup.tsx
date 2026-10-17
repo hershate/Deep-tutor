@@ -21,6 +21,8 @@ export default function Setup() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // iter 370：skip 与提交共用 busy 会让主按钮在「跳过」期间误显「保存中…」——独立标志
+  const [skipBusy, setSkipBusy] = useState(false)
 
   // 不需要向导（已完成/已跳过）-> 直接回首页；状态查询失败不阻塞（放行回首页按旧逻辑走）
   if (!isLoading && (isError || (status && !status.needs_setup))) {
@@ -59,8 +61,8 @@ export default function Setup() {
   }
 
   async function skip() {
-    if (busy) return
-    setBusy(true)
+    if (busy || skipBusy) return
+    setSkipBusy(true)
     try {
       await dismissSetup()
     } catch {
@@ -68,6 +70,7 @@ export default function Setup() {
     }
     await qc.invalidateQueries({ queryKey: SETUP_QUERY_KEY })
     navigate('/', { replace: true })
+    setSkipBusy(false)
   }
 
   return (
@@ -201,7 +204,7 @@ export default function Setup() {
             <button
               type="button"
               onClick={skip}
-              disabled={busy}
+              disabled={busy || skipBusy}
               className="px-4 py-2 text-sm text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 disabled:opacity-50"
             >
               跳过，稍后配置

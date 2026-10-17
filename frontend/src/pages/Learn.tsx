@@ -406,7 +406,8 @@ export default function Learn() {
           <>
             <div className="mt-4 border-t pt-3 dark:border-slate-700">
               <CheckinCalendar logs={logs} />
-            </div>            <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+            </div>
+            <ul className="mt-3 space-y-1 text-sm text-slate-600 dark:text-slate-300">
               {logs.slice(0, 10).map((l) => (
                 <li key={l.id} className="flex items-center gap-1">
                   <span className="text-slate-400">{l.date}</span> · {l.minutes} 分钟

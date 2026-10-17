@@ -77,7 +77,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
                 </span>
               ) : (
                 <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                  {m.parsed_chars > 0 ? `约 ${m.parsed_chars} 字` : '未解析'}
+                  {m.parsed_chars > 0 ? `约 ${m.parsed_chars} 字` : '已解析 · 无文本'}
                 </span>
               )}
               {m.status === 'pending' && (
@@ -86,7 +86,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
                   disabled={busyId !== null}
                   className="shrink-0 rounded-lg bg-green-600 px-2 py-0.5 text-xs font-medium text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50"
                 >
-                  确认
+                  {busyId === m.material_id ? '处理中…' : '确认'}
                 </button>
               )}
               {m.status !== 'parsed' && m.kind === 'file' && (
@@ -96,7 +96,7 @@ export default function MaterialsPanel({ sessionId }: { sessionId: number }) {
                   title="按默认管线解析（高质量）；PDF 快速提取请到知识库操作"
                   className="shrink-0 rounded-lg border border-violet-200 px-2 py-0.5 text-xs text-violet-600 transition-all hover:bg-violet-50 active:scale-95 disabled:opacity-50 dark:border-violet-900 dark:text-violet-400 dark:hover:bg-violet-950"
                 >
-                  解析
+                  {busyId === m.material_id ? '处理中…' : '解析'}
                 </button>
               )}
               <button

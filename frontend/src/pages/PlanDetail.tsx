@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useModalEsc } from '../lib/modalEsc'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import MaterialsModal from '../components/MaterialsModal'
@@ -172,6 +173,8 @@ export default function PlanDetail() {
   const [versionRefresh, setVersionRefresh] = useState(0) // iter 365 E2：重生成 done 后触发版本下拉重拉
   // iter 301：版本对比
   const [showCompare, setShowCompare] = useState(false)
+  // iter 370：对比弹层接入全局 Esc 栈（有 role=dialog 但此前无 Esc 关闭，键盘用户只能找按钮）
+  useModalEsc(showCompare, () => setShowCompare(false))
   const [compareOtherId, setCompareOtherId] = useState<number | null>(null)
   const [compareOther, setCompareOther] = useState<PlanData | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)

@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.17.0'
+export const API_VERSION = '1.18.0'
 
 // ---------------------------------------------------------------------------
 // 插件注册追踪（v1.17.0）：热启停（plugins.disable/enable）的基础
@@ -169,7 +169,10 @@ export interface PageDef {
   title?: string
   /** 侧栏导航项；缺省则页面可达但不出现在导航（深链/二级页用） */
   nav?: PageNavDef
-  /** v1.16.0：覆盖宿主页面路由（如 'plans' → 替换 /plans 页面）。受保护路由不可覆盖（/plugins、/settings、/login、/setup）。
+  /** v1.16.0：覆盖宿主页面路由（如 'plans' → 替换 /plans 页面）。v1.18.0 起白名单校验：
+   * 仅 OVERRIDABLE_ROUTES 可覆盖（home/plans/plans/:planId/learn/learn/:planId/review/wiki/notes/usage），
+   * 其余值（含受保护路由与未接线页面如 chat/search）注册即抛 Error（此前静默不生效）。
+   * 粒度：'plans'/'learn' 仅覆盖列表页，详情页需单独覆盖 'plans/:planId'/'learn/:planId'。
    * 设 override 后，path 仅作注册键（实际路由由 override 值决定宿主页）。组件在应用 Layout 内渲染（含错误边界隔离）。 */
   override?: string
 }
@@ -182,6 +185,15 @@ const pageListeners = new Set<() => void>()
 const pageOverrides = new Map<string, PageDef>()
 /** 受保护路由——不可被插件覆盖（防止锁死管理/设置入口） */
 const PROTECTED_ROUTES = new Set(['plugins', 'settings', 'login', 'setup'])
+/**
+ * v1.18.0：可覆盖宿主路由白名单（与 App.tsx 实际接线的 MaybeOverride 一一对应）。
+ * 此前 override 只拒受保护路由，'chat'/'search' 等未接线值静默入库永不生效——
+ * 插件作者以为已覆盖、用户看到的仍是宿主页（表达与实现不一致）。改为注册期显式报错。
+ * 粒度同步细化：'plans'/'learn' 只覆盖列表页，详情页独立键 'plans/:planId'/'learn/:planId'。
+ */
+export const OVERRIDABLE_ROUTES = [
+  'home', 'plans', 'plans/:planId', 'learn', 'learn/:planId', 'review', 'wiki', 'notes', 'usage',
+] as const
 
 function notifyPages() {
   pageRegistryVersion += 1
@@ -214,11 +226,18 @@ const pagesApi = {
     }
     if (typeof def.component !== 'function') throw new Error('[DeepTutor] page.component 必须是组件')
     if (def.nav && typeof def.nav.label !== 'string') throw new Error('[DeepTutor] page.nav.label 必填')
-    // v1.16.0：页面覆盖——override 指定宿主路由（如 'plans'），受保护路由拒绝
+    // v1.16.0：页面覆盖——override 指定宿主路由；v1.18.0 起白名单校验（见 OVERRIDABLE_ROUTES）
     if (def.override) {
-      const hostPath = def.override.toLowerCase()
+      const hostPath = def.override.replace(/^\/+|\/+$/g, '').toLowerCase()
       if (PROTECTED_ROUTES.has(hostPath)) {
         throw new Error(`[DeepTutor] 受保护路由不可覆盖: /${hostPath}（/plugins、/settings、/login、/setup 始终保留）`)
+      }
+      if (!(OVERRIDABLE_ROUTES as readonly string[]).includes(hostPath)) {
+        throw new Error(
+          `[DeepTutor] override 目标未接覆盖点，注册被拒绝: /${hostPath}。` +
+            `可覆盖路由（v1.18.0 白名单）: ${OVERRIDABLE_ROUTES.map((r) => '/' + r).join(' ')}。` +
+            `chat/search 等未接线页面请用 pages.register 自有路径 + nav 导航项`,
+        )
       }
       pageOverrides.set(hostPath, { ...def, path })
       _track('pages', hostPath)

@@ -16,7 +16,7 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.17.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 前端插件 API | `1.18.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
 | 后端插件 API | `1.20.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
@@ -171,9 +171,12 @@ interface PageDef {
     icon?: string              // 图标（emoji/字符），缺省 🧩
     order?: number             // 排序权重，小的在前，缺省 100
   }
-  override?: string            // v1.16.0：覆盖宿主页面路由（如 'plans' -> 替换 /plans 页面）；
-                               // 受保护路由不可覆盖（plugins/settings/login/setup）。设 override 后
-                               // path 仅作注册键，组件在应用 Layout 内渲染（含错误边界隔离）
+  override?: string            // v1.16.0：覆盖宿主页面路由；v1.18.0 起白名单校验——仅
+                               // home/plans/plans/:planId/learn/learn/:planId/review/wiki/notes/usage
+                               // 可覆盖，其余值（受保护路由与未接线页面如 chat/search）注册即抛
+                               // Error（此前静默不生效）。粒度：'plans' 仅覆盖列表页，详情页需单独
+                               // 覆盖 'plans/:planId'。设 override 后 path 仅作注册键，组件在应用
+                               // Layout 内渲染（含错误边界隔离）
 }
 ```
 
@@ -1713,6 +1716,7 @@ for (;;) {
 | 后端 | 1.20.0 | 2026-07-24 | 新增核心事件 `quiz_ready`（payload `{plan_id, session_id, user_id, quiz_count}`）：自学材料全量生成完成后**后台预生成测验**完成时广播（iter 349，用户 /goal「生成自学资料时后台出题」）——仅本方案尚无 quiz 时预生成（不覆盖用户已生成题），按归属用户过滤经 `/api/events/stream` 转发，前端据此提示「测验已就绪」。配合 `generate_quiz` 工具新增 `post_process=ensure_quiz_coverage`（iter 349：每知识点必有题，缺的补自评题兜底，根治「缺题」）。事件只增不改，minor 向后兼容。 |
 | 后端 | 1.19.0 | 2026-07-24 | 记忆系统 CRUD 门面 `api.memory`（= `api.threads`）：插件进程内对会话/消息/记忆库做增删查改（list/create/get/delete_thread、list/add_message、save/recall/delete_memory），按 user_id 归属校验；对应新增 REST `/api/threads` `/api/runs` `/api/memory` 全量 CRUD + Agent 对话 SSE（`POST /api/threads/{id}/runs`，见「§记忆系统」）。Agent 工具（workspace_*/web_search/web_fetch/memory_*/load_thread_history/promote_artifact）注册入工具表，可经 `api.tools.call` 调用。 |
 | 后端 | 1.18.0 | 2026-07-23 | 插件**热管理**（无需重启整个项目）：`loader.unload_plugin/reload_plugin/disable_plugin/enable_plugin` + 3 个管理员端点 `POST /api/plugins/{id}/reload\|disable\|enable`（§8.7）；保留每插件 API 门面（`_plugin_apis`）供 unload 调 `_rollback()` 逆序撤销全部注册（路由/中间件/工具/事件/解析器/导出器/Provider/scheduler/webhook）；`disable` 持久化禁用状态到 `<DATA_DIR>/plugin_state.json`，重启后 `load_plugins` 跳过停用插件（记 `state:"disabled"`）；`PluginStatus.state` 加 `"disabled"` 取值 + `remove_status` 助手；用户 /goal "插件能热重启以及在插件页内直接关闭或打开" |
+| 前端 | 1.18.0 | 2026-10-17 | `pages.override` 表达一致收口：可覆盖路由白名单（`OVERRIDABLE_ROUTES`，与 App.tsx 接线的 MaybeOverride 一一对应）——此前 `override:'chat'/'search'` 等未接线值静默入库永不生效（插件作者以为已覆盖，用户看到的仍是宿主页），现注册即抛 Error 并列出合法值；粒度细化：`'plans'`/`'learn'` 仅覆盖列表页，详情页独立键 `'plans/:planId'`/`'learn/:planId'`（此前整节吞并，插件无法只换列表保留宿主详情） |
 | 前端 | 1.16.0 | 2026-07-23 | `pages.register` 支持 `override`：插件页面覆盖宿主路由（如 `override: 'plans'` 替换 /plans 页面本体，path 退化为注册键）；受保护路由（plugins/settings/login/setup）不可覆盖防锁死管理入口；覆盖组件在应用 Layout 内渲染 + 错误边界隔离；皮肤令牌 2→7（iter 332-333） |
 | 前端 | 1.17.0 | 2026-07-23 | 前端插件**热启停**（无需刷新页面）：`plugins.disable(url)`/`enable(url)`/`isDisabled(url)`——注入脚本期间追踪其注册（widgets/pages/overlays/skins 台账 `_pluginRegistrations`），停用时按键逆注册清除（即时消失），启用时重新注入脚本重新注册；停用 URL 持久化 `dt_plugins_disabled`（与 `dt_plugins` 分离，刷新后不自动加载）；`skins.unregister(name)` 注销皮肤（热停用插件时清皮肤，激活皮肤被注销回退 default）；`unload` 升级为彻底移除（含注册清除，不再需刷新）；Plugins 页加前端启停开关 + 后端重载/停用/启用按钮 |
 | 后端 | 1.17.0 | 2026-07-23 | 新增 `api.middleware.register(fn)`：插件注册 HTTP 中间件（全请求拦截——限流/IP 过滤/审计日志/安全响应头/内容过滤）；fn 签名 `async (request, call_next) -> Response`（Starlette BaseHTTPMiddleware dispatch 语义）；**error isolation**（fn 异常→透传原请求不阻断全部端点，同事件监听器隔离）；rollback（register 失败移除中间件）；用户 /goal "后端可引入额外安全防护插件" |

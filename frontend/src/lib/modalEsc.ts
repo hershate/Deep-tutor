@@ -11,8 +11,8 @@ interface Entry {
 
 const stack: Entry[] = []
 
-/** 栈顶判定（导出供测试）：当前是否轮到该 entry 响应 Esc。 */
-export function isTop(entry: Entry): boolean {
+/** 栈顶判定：当前是否轮到该 entry 响应 Esc（仅模块内使用）。 */
+function isTop(entry: Entry): boolean {
   return stack[stack.length - 1] === entry
 }
 

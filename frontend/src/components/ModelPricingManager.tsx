@@ -8,6 +8,7 @@ import { SkeletonLines } from './Skeleton'
 import { toast } from './Toast'
 
 interface Row {
+  id: number // 稳定 key：行可增删，index key 会致输入焦点/状态错位
   model: string
   in: string
   out: string
@@ -15,7 +16,9 @@ interface Row {
   cw: string
 }
 
-const EMPTY_ROW: Row = { model: '', in: '', out: '', cr: '', cw: '' }
+const EMPTY_ROW = { model: '', in: '', out: '', cr: '', cw: '' } // id 由 nextRowId 补
+let rowSeq = 0
+const nextRowId = () => ++rowSeq
 
 /** Record<模型, Entry> -> 可编辑行数组（顺序稳定：按 key 排序） */
 function toRows(map: Record<string, ModelPricingEntry> | undefined): Row[] {
@@ -23,6 +26,7 @@ function toRows(map: Record<string, ModelPricingEntry> | undefined): Row[] {
   return Object.keys(map)
     .sort()
     .map((m) => ({
+      id: nextRowId(),
       model: m,
       in: String(map[m].input_per_mtok ?? ''),
       out: String(map[m].output_per_mtok ?? ''),
@@ -158,7 +162,7 @@ export default function ModelPricingManager() {
           </div>
           <ul className="space-y-2">
             {rows.map((r, i) => (
-              <li key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[1.4fr_repeat(4,1fr)_auto] sm:items-center">
+              <li key={r.id} className="grid grid-cols-2 gap-2 sm:grid-cols-[1.4fr_repeat(4,1fr)_auto] sm:items-center">
                 <label className="text-sm sm:col-span-1 col-span-2">
                   <span className="sm:hidden text-xs text-slate-500">模型名</span>
                   <input
@@ -195,7 +199,7 @@ export default function ModelPricingManager() {
           </ul>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setRows((prev) => [...prev, { ...EMPTY_ROW }])}
+              onClick={() => setRows((prev) => [...prev, { ...EMPTY_ROW, id: nextRowId() }])}
               disabled={busy}
               className="rounded-lg border px-3 py-1 text-sm transition-all hover:bg-slate-50 active:scale-95 dark:border-slate-600 dark:hover:bg-slate-700 disabled:opacity-50"
             >
