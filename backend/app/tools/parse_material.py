@@ -110,6 +110,13 @@ _ZIP_MAX_UNCOMPRESSED = 512 * 1024 * 1024  # 512MB
 _ZIP_MAX_ENTRIES = 10_000
 
 
+def check_zip_safety(path: Path) -> None:
+    """公开别名（iter 369）：zip 防护供插件（如 epub_reader）复用——私有符号
+    ``_check_zip_safety`` 不受兼容承诺保护，官方示例带头 import 会诱导插件作者
+    照抄（宿主重构时运行期才暴雷）。语义与内部调用完全一致。"""
+    _check_zip_safety(path)
+
+
 def _check_zip_safety(path: Path) -> None:
     """zip 防护（R23 + iter 367 批次五实际流校验）。
 

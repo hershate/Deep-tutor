@@ -47,9 +47,11 @@ def _strip_html(html: str) -> str:
 
 def _extract_chapters(path: Path) -> list[tuple[str, str]]:
     """从 epub 提取 [(标题, 正文)]；标题取首个 h1-h3，无则用文件名。zipfile 只 read 不 extract。"""
-    from app.tools.parse_material import _check_zip_safety
+    # iter 369：改用公开别名——私有符号不受 API 兼容承诺保护（API.md §9.1.3），
+    # 官方示例带头违反「只依赖稳定符号」契约会诱导插件作者照抄
+    from app.tools.parse_material import check_zip_safety
 
-    _check_zip_safety(path)  # iter 365：zip bomb 防护（同 docx/pptx；插件 parser 路径绕过内置检查）
+    check_zip_safety(path)  # iter 365：zip bomb 防护（同 docx/pptx；插件 parser 路径绕过内置检查）
     chapters: list[tuple[str, str]] = []
     with zipfile.ZipFile(path) as zf:
         names = sorted(n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm")))

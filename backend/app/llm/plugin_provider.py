@@ -40,6 +40,11 @@ from app.plugins.providers import ProviderEntry
 
 log = logging.getLogger("deep_tutor.llm.plugin_provider")
 
+# iter 369：插件 handler 宿主级执行上限（秒）——scheduler 300s、webhook 10s、Anthropic
+# SDK read 300s，唯独插件 Provider 此前无界（悬挂 handler 吊死请求与生成主线）；
+# 对齐 scheduler 的 300s 量级
+_HANDLER_TIMEOUT_S = 300.0
+
 
 class PluginProviderError(Exception):
     """插件 Provider handler 抛出的非瞬态错误 / 返回契约不合规。"""
@@ -98,16 +103,25 @@ class PluginProvider(LLMProvider):
         used_model = model or self._model or ""
         handler = self._entry.handler
         try:
-            if asyncio.iscoroutinefunction(handler):
-                raw = await handler(
+            # iter 369：宿主级执行上限——插件 handler 无契约强制超时，悬挂（无超时的外部
+            # 调用/死循环 await）会吊死请求与生成主线（经供应商档案 kind 分发后该用户整条
+            # 管线无限悬挂）；超时映射 TransientLLMError（可重试语义）
+            coro = (
+                handler(
                     system, user, model=used_model, max_tokens=max_tokens,
                     api_key=self._api_key, base_url=self._base_url,
                 )
-            else:
-                raw = await asyncio.to_thread(
+                if asyncio.iscoroutinefunction(handler)
+                else asyncio.to_thread(
                     handler, system, user, model=used_model, max_tokens=max_tokens,
                     api_key=self._api_key, base_url=self._base_url,
                 )
+            )
+            raw = await asyncio.wait_for(coro, timeout=_HANDLER_TIMEOUT_S)
+        except TimeoutError:
+            raise TransientLLMError(
+                f"插件 Provider handler 执行超时（>{_HANDLER_TIMEOUT_S:.0f}s，kind={self._entry.kind}）"
+            ) from None
         except Exception as exc:  # noqa: BLE001  handler 任意异常 -> 分类映射
             raise _classify(exc) from exc
 

@@ -12,7 +12,8 @@
 | 包插件 | `plugins/hello/plugin.py`（+ 任意辅助模块） | 多文件插件；包内用**相对导入**（`from . import helper`） |
 | 临时停用 | `plugins/_hello.py` 或 `plugins/_hello/` | 名字加 `_` 前缀即跳过加载 |
 
-放置文件后**重启后端**生效（当前版本不支持热重载）。加载结果（成功/失败及原因）见
+放置**新**插件文件后重启后端首次发现；**已装载**插件支持热管理（`POST /api/plugins/{id}/reload`、
+`/disable`、`/enable`，v1.18.0，详见 API.md §8.7）。加载结果（成功/失败及原因）见
 管理员端点 `GET /api/plugins`，或启动日志中的 `插件加载完成：loaded=N failed=M`。
 
 ## 最小插件

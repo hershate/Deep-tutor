@@ -770,7 +770,8 @@ def register(api):
 装载与验证：
 
 ```bash
-# 1. 重启后端（当前版本不支持热重载）
+# 1. 新插件首次发现需重启后端；已装载插件可热管理
+#    （POST /api/plugins/{id}/reload | /disable | /enable，见 §8.7 热管理端点）
 # 2. 验证端点（带你的认证头）
 curl -H "Authorization: Bearer <token>" http://localhost:8000/api/plugins/hello/hello
 # 3. 查看插件加载状态（管理员）

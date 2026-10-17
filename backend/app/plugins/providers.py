@@ -63,6 +63,10 @@ class ProviderEntry:
 
 # kind -> entry；同一 kind 后注册覆盖前者
 _providers: dict[str, ProviderEntry] = {}
+# iter 369：kind -> 被覆盖的前任栈——覆盖者卸载时回填前任（此前直接删键，前任插件仍
+# loaded 但 find_provider 返回 None；providers 侧更敏感：用户档案 kind 的 api_key
+# 送达对象随装载/卸载顺序漂移）
+_displaced: dict[str, list[ProviderEntry]] = {}
 
 
 def register(entry: ProviderEntry) -> None:
@@ -80,13 +84,22 @@ def register(entry: ProviderEntry) -> None:
             existing.plugin_id,
             entry.plugin_id,
         )
+        _displaced.setdefault(entry.kind, []).append(existing)
     _providers[entry.kind] = entry
 
 
 def unregister(entry: ProviderEntry) -> None:
-    """移除该 entry 名下的 kind（loader register 失败回滚用；按对象身份匹配）。"""
+    """移除该 entry 名下的 kind（loader register 失败回滚/热卸载用；按对象身份匹配）。
+
+    iter 369：该 kind 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
     for kind in [k for k, v in _providers.items() if v is entry]:
-        _providers.pop(kind, None)
+        stack = _displaced.get(kind)
+        if stack:
+            _providers[kind] = stack.pop()
+            if not stack:
+                _displaced.pop(kind, None)
+        else:
+            _providers.pop(kind, None)
 
 
 def find_provider(kind: str) -> ProviderEntry | None:
@@ -104,3 +117,4 @@ def all_entries() -> list[ProviderEntry]:
 def reset() -> None:
     """清空注册表（测试隔离 / reset_plugins 调用）。"""
     _providers.clear()
+    _displaced.clear()

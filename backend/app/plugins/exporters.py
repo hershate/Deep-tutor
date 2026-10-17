@@ -59,6 +59,9 @@ class ExporterEntry:
 
 
 _exporters: dict[str, ExporterEntry] = {}
+# iter 369：format -> 被覆盖的前任栈——覆盖者卸载时回填前任（此前直接删键，前任插件
+# 仍 loaded 但 find_exporter 返回 None，导出 unsupported_format、台账与运行态漂移）
+_displaced: dict[str, list[ExporterEntry]] = {}
 
 
 def register(entry: ExporterEntry) -> None:
@@ -79,13 +82,23 @@ def register(entry: ExporterEntry) -> None:
             fmt,
         )
         return
+    if existing is not None and existing is not entry:
+        _displaced.setdefault(fmt, []).append(existing)
     _exporters[fmt] = entry
 
 
 def unregister(entry: ExporterEntry) -> None:
-    """移除该 entry 的注册（loader register 失败回滚用；按对象身份匹配）。"""
+    """移除该 entry 的注册（loader register 失败回滚/热卸载用；按对象身份匹配）。
+
+    iter 369：该 format 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
     for fmt in [k for k, v in _exporters.items() if v is entry]:
-        _exporters.pop(fmt, None)
+        stack = _displaced.get(fmt)
+        if stack:
+            _exporters[fmt] = stack.pop()
+            if not stack:
+                _displaced.pop(fmt, None)
+        else:
+            _exporters.pop(fmt, None)
 
 
 def find_exporter(fmt: str) -> ExporterEntry | None:
@@ -122,3 +135,4 @@ def valid_format_name(fmt: str) -> bool:
 def reset() -> None:
     """清空注册表（测试隔离 / reset_plugins 调用）。"""
     _exporters.clear()
+    _displaced.clear()

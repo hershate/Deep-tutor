@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -662,6 +664,11 @@ class StorageNamespace:
         self._path = Path(data_dir) / "storage.json"
         self._data: dict[str, Any] = {}
         self._loaded = False
+        # iter 369：实例级锁——sync 插件路由跑 anyio 线程池、事件监听器经 bus._guard_to_thread
+        # 也在线程池；并发 get/set 的读-改-写会交错丢更新，两线程并发 _save 写同一固定
+        # .tmp 名会交错损坏（Linux 下 replace 后对旧 inode 继续写 / Windows 下
+        # PermissionError 逃出 set()），损坏 JSON 下次启动被静默重置 {}——插件全部数据丢失
+        self._lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
@@ -677,11 +684,19 @@ class StorageNamespace:
             self._data = {}
 
     def _save(self) -> None:
-        """原子写：tmp 文件 + os.replace（防并发写中途崩溃留下半写文件）。"""
+        """原子写：唯一 tmp 文件 + os.replace（防并发写中途崩溃留下半写文件；
+        调用方持 _lock）。tmp 名带 uuid 防两线程写同一中间路径。"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_name(self._path.name + ".tmp")
-        tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, self._path)
+        tmp = self._path.with_name(f"{self._path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self._path)
+        finally:
+            # 异常路径（写失败/replace 失败）不留 tmp 残留
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
     @staticmethod
     def _check_key(key: str) -> None:
@@ -697,40 +712,46 @@ class StorageNamespace:
 
     def get(self, key: str, default: Any = None) -> Any:
         self._check_key(key)
-        self._ensure_loaded()
-        return self._data.get(key, default)
+        with self._lock:
+            self._ensure_loaded()
+            return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
         self._check_key(key)
         self._check_value(value)
-        self._ensure_loaded()
-        self._data[key] = value
-        self._save()
+        with self._lock:
+            self._ensure_loaded()
+            self._data[key] = value
+            self._save()
 
     def delete(self, key: str) -> bool:
         """删除键；返回是否确实删除了一个。"""
         self._check_key(key)
-        self._ensure_loaded()
-        if key in self._data:
-            del self._data[key]
-            self._save()
-            return True
-        return False
+        with self._lock:
+            self._ensure_loaded()
+            if key in self._data:
+                del self._data[key]
+                self._save()
+                return True
+            return False
 
     def has(self, key: str) -> bool:
         self._check_key(key)
-        self._ensure_loaded()
-        return key in self._data
+        with self._lock:
+            self._ensure_loaded()
+            return key in self._data
 
     def keys(self) -> list[str]:
-        self._ensure_loaded()
-        return list(self._data.keys())
+        with self._lock:
+            self._ensure_loaded()
+            return list(self._data.keys())
 
     def clear(self) -> None:
         """清空本插件全部 KV。"""
-        self._ensure_loaded()
-        self._data = {}
-        self._save()
+        with self._lock:
+            self._ensure_loaded()
+            self._data = {}
+            self._save()
 
 
 class WebhooksNamespace:
@@ -785,9 +806,24 @@ class WebhooksNamespace:
         self._status.webhooks.append(url)
 
         class _Handle:
+            def __init__(self_inner) -> None:
+                self_inner._done = False
+
             def unregister(self_inner) -> None:
+                if self_inner._done:
+                    return
+                self_inner._done = True
                 for off in offs:
                     off()
+                # iter 369：同步清台账与回滚闭包——插件改配置（unregister 旧 handle 再
+                # register 新）时，_rollbacks 与 status.webhooks 此前单调增长（每次配置
+                # 变更多一条失效闭包 + 一条重复 URL）
+                if url in self._status.webhooks:
+                    self._status.webhooks.remove(url)
+                try:
+                    self._rollbacks.remove(handle.unregister)
+                except ValueError:
+                    pass
 
         handle = _Handle()
         self._rollbacks.append(handle.unregister)

@@ -21,6 +21,7 @@ import importlib.util
 import json
 import logging
 import re
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -120,7 +121,11 @@ def _fallback_id(path: Path) -> str:
 def _import_module(path: Path):
     """以独立模块名导入插件文件；包插件带 submodule_search_locations 支持相对导入。"""
     mod_name = f"dt_plugin_{_fallback_id(path)}"
-    sys.modules.pop(mod_name, None)  # 重复加载（测试/重载）时以新模块对象为准
+    # iter 369：连同子模块一并清——包插件 `from . import helper` 首次加载会在 sys.modules
+    # 留下 dt_plugin_<id>.helper；只 pop 父名时重载/重导入命中旧子模块（helper.py 改动
+    # 不生效、新旧代码混合），卸载后子模块也永不释放
+    for stale in [m for m in list(sys.modules) if m == mod_name or m.startswith(mod_name + ".")]:
+        sys.modules.pop(stale, None)
     if path.name == "plugin.py":
         spec = importlib.util.spec_from_file_location(
             mod_name, path, submodule_search_locations=[str(path.parent)]
@@ -254,6 +259,23 @@ def _load_one(app: FastAPI, path: Path) -> runtime.PluginStatus | None:
     return status
 
 
+def _evict_plugin_module(mod_name: str, source_dir: Path | None) -> None:
+    """从 sys.modules 逐出插件模块及其子模块并清插件目录 __pycache__（iter 369）。
+
+    两个残留来源（均实证）：
+    - sys.modules 残留会让重导入命中旧代码（helper 改动不生效、新旧混合）；
+    - **pyc 字节码陈旧**：Windows 下源文件两次写入落在同一时间刻度（计时粒度）时，
+      pyc 头记录的源 mtime 与新源相同，SourceFileLoader 判 pyc 有效直接用旧字节码
+      （8 次实验 6 次复现）——删除 __pycache__ 根治（下次导入重新编译，代价可忽略）。
+    """
+    for stale in [m for m in list(sys.modules) if m == mod_name or m.startswith(mod_name + ".")]:
+        sys.modules.pop(stale, None)
+    if source_dir is not None:
+        pycache = source_dir / "__pycache__"
+        if pycache.is_dir():
+            shutil.rmtree(pycache, ignore_errors=True)
+
+
 def unload_plugin(pid: str) -> bool:
     """热卸载一个插件：调用其 _rollback() 逆序撤销全部注册（路由/事件/工具/解析器/导出器/Provider/scheduler/webhook/middleware），
     从 _plugin_apis + _statuses 移除。返回是否确实卸载了一个插件。"""
@@ -262,6 +284,11 @@ def unload_plugin(pid: str) -> bool:
         if api is None:
             return False
         api._rollback()
+        file_path = next((s.file for s in runtime.statuses() if s.id == pid and s.file), None)
+        _evict_plugin_module(
+            f"dt_plugin_{_fallback_id(Path(file_path)) if file_path else pid}",
+            Path(file_path).parent if file_path else None,
+        )
         runtime.remove_status(pid)
         log.info("插件已卸载（热）：%s", pid)
         return True
@@ -275,6 +302,12 @@ def reload_plugin(app: FastAPI, pid: str) -> runtime.PluginStatus | None:
         if path is None:
             return None
         unload_plugin(pid)  # RLock 可重入：reload 持锁调 unload 安全
+        # iter 369：failed/disabled 插件从未进入 _plugin_apis——unload 直接 return False，
+        # 旧 failed 状态行残留会让 _load_one 的重复检查误报「插件 id 重复」并再叠加一行
+        # failed 台账（改坏源码后修复再 reload 是热重载的核心用例，此前必踩）；
+        # 模块/pyc 逐出须对 failed（曾部分 exec）同样执行
+        runtime.remove_status(pid)
+        _evict_plugin_module(f"dt_plugin_{_fallback_id(path)}", path.parent)
         return _load_one(app, path)
 
 

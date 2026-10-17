@@ -26,6 +26,9 @@ log = logging.getLogger("deep_tutor.skills")
 # 无跨线程竞态；测试经 reset_skill_registry() 隔离。
 _CACHE: dict[str, str] | None = None
 
+# iter 369：单 Skill 正文上限（字符）——正文会注入对应 LLM 调用的 system prompt
+_MAX_BODY_CHARS = 64_000
+
 
 def load_skills(skills_dir: str | Path) -> dict[str, str]:
     """扫描 skills_dir，返回 {skill_name: 正文} 注册表。
@@ -64,7 +67,12 @@ def reset_skill_registry() -> None:
 
 
 def _parse_skill(path: Path) -> tuple[str | None, str | None]:
-    """解析单个 SKILL.md -> (name, body)。失败返回 (None, None) + 告警。"""
+    """解析单个 SKILL.md -> (name, body)。失败返回 (None, None) + 告警。
+
+    iter 369：正文超 64KB 截断 + 告警——正文整段进入 skill_registry 并在对应
+    LLM 调用时注入 system prompt，用户放置的超大 SKILL.md 会让每次调用携带
+    巨量前缀（延迟/费用），无告警无截断。
+    """
     try:
         raw = path.read_text(encoding="utf-8-sig")  # 容忍 BOM
     except OSError as exc:  # noqa: BLE001
@@ -75,6 +83,12 @@ def _parse_skill(path: Path) -> tuple[str | None, str | None]:
     if not name:
         name = path.parent.name  # frontmatter 无 name -> 回退目录名
     body = body.strip()
+    if len(body) > _MAX_BODY_CHARS:
+        log.warning(
+            "Skill %s 正文 %d 字符超上限 %d，已截断（防超大 SKILL.md 逐次注入 system prompt）",
+            name, len(body), _MAX_BODY_CHARS,
+        )
+        body = body[:_MAX_BODY_CHARS] + "\n…[SKILL.md 超长已截断]"
     if not body:
         log.warning("Skill 正文为空，跳过: %s", path)
         return None, None

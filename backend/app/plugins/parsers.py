@@ -60,6 +60,9 @@ class ParserEntry:
 
 # ext -> entry；同一 entry 可覆盖多个 ext，故 _parsers.values() 含重复 entry（去重见 all_entries）
 _parsers: dict[str, ParserEntry] = {}
+# iter 369：key -> 被覆盖的前任栈——插件 B 覆盖 A 后 B 卸载时，此前直接删键（A 仍
+# loaded 但 find_parser 返回 None，台账与运行态漂移、上传该格式被拒）；现按栈回填前任
+_displaced: dict[str, list[ParserEntry]] = {}
 
 
 def register(entry: ParserEntry) -> None:
@@ -79,13 +82,23 @@ def register(entry: ParserEntry) -> None:
                 ext,
             )
             continue
+        if existing is not None and existing is not entry:
+            _displaced.setdefault(ext, []).append(existing)
         _parsers[ext] = entry
 
 
 def unregister(entry: ParserEntry) -> None:
-    """移除该 entry 名下全部 ext（loader register 失败回滚用；按对象身份匹配）。"""
+    """移除该 entry 名下全部 ext（loader register 失败回滚/热卸载用；按对象身份匹配）。
+
+    iter 369：该 ext 存在被覆盖的前任 -> 回填栈顶前任（覆盖者卸载不连坐被覆盖者）。"""
     for ext in [k for k, v in _parsers.items() if v is entry]:
-        _parsers.pop(ext, None)
+        stack = _displaced.get(ext)
+        if stack:
+            _parsers[ext] = stack.pop()
+            if not stack:
+                _displaced.pop(ext, None)
+        else:
+            _parsers.pop(ext, None)
 
 
 def find_parser(ext: str) -> ParserEntry | None:
@@ -130,3 +143,4 @@ def all_entries() -> list[ParserEntry]:
 def reset() -> None:
     """清空注册表（测试隔离 / reset_plugins 调用）。"""
     _parsers.clear()
+    _displaced.clear()
