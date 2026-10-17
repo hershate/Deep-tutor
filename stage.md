@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R17（2026-10-17，Python v1 深度审计第十四轮「iter 374」，✅ 完成）**：同一 /goal 第十四遍——**前后端契约系统性 diff（新证据类别）**。动机：R16 发现 api.ts 的 share 类型是陈旧的（加 expires_at 前没同步），说明「手写 TS 类型 ↔ 后端真实返回」这道缝从未被系统性核对过——tsc 信任声明，幽灵字段=运行时 undefined 解引用、缺字段=能力不可见。结论先行：**零真实契约 BUG**（干净账单）。1 commit、0 产品代码改动、3 份可复用审计脚本入库：
+
+- **Side A 后端提取器 `tests/contract_audit.py`**：lifespan 内递归展开 FastAPI 0.139 惰性 `_IncludedRouter` 得 158 条路由（×方法），AST 提取返回形状（literal dict 键并集 / pydantic `model_dump()` 字段 / 同模块+跨模块 helper 跟进深度 2 / `x: dict = {...}` AnnAssign / `return await` / `asyncio.to_thread(helper)` 解包 / 多分支 kind 优先级合并）——154/158 可比形状（12 response 流、1 none、3 多态混合豁免）。
+- **Side B 前端解析器 `tests/contract_frontend.py`**：解析 api.ts 61 接口 + 107 个 `apiFetch<T>` 调用点（模板串/拼接/方法提取），类型解析支持内联对象/联合分支并集/接口引用嵌套。
+- **Side C 双向 diff `tests/contract_diff.py`**：URL 模板归一（`${x}`→`{}`、剥查询串、条件查询尾 `{}` 剥离、无 method 默认 GET 回退）后比对幽灵端点/幽灵字段/遗漏字段（含嵌套一层）。终版报告 10 行**逐项代码级分派**：AuthUser×3=接口在 auth.ts（跨文件误报）、SessionStatusDetail=type 别名交集（含 clarify_questions）、getPlan `unknown`+三处消费 cast 均正确取 `.plan`/`.session_id`、export 幽灵 4 项=提取器 AnnAssign 缺陷（已修，ics/event_count/html/slide_count 后端实发）、export 遗漏 chars/bytes_b64 与 progress node_id=加性字段 UI 未用（无害）、quiz/wrong `warning`=与 generate 共型且 `?? ''` 兜底、pricing PUT `note`=消费方只读 table/defaults 且立即 refetch GET、credentials=三元实参解析器不支持（后端实有 GET /credentials）。
+- **补盲区人工核**：SSE 事件名 `quiz_ready` 双端一致（plans.py:2615 发射 / QuizModal 订阅；插件事件面走 API.md 自有契约 R12 已审）；`live` 载荷 5 键（current_tool/step_index/total_steps/cost/last_event_id）双端一致；`latest_plan/error` 嵌套一致。
+- **审计工具自身修了 6 个缺陷**（惰性路由展开、嵌套函数 dedent、Await/to_thread 解包、AnnAssign、TS 泛型 `<>` 与引号的字段切分保护+mask、kind 优先级）——工具缺陷会产出假阳/假阴，逐项以代码复核后才下「干净」结论（不编造）。
+- **门禁**：全量 pytest **1412 通过/1 跳过**（与 R16 基线一致；一次 1411/2 为 `test_real_url_reachable_or_skip` 真网络探测的外网可用性波动，-rs 复跑确认）+ ruff 全绿。前端无改动（本轮零产品代码变更）。
+- **价值**：R16 类「陈旧类型」缺口被系统性排除（107 调用×158 路由全量核对），且审计脚本可复跑——后续改 API 时可作契约回归工具。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R16（2026-10-17，Python v1 深度审计第十三轮「iter 373」，✅ 完成）**：同一 /goal 第十三遍——**闭合 R15 自己引入的「表达与实现不一致」**：share 加了 90 天过期但前端零呈现（属主不知链接何时失效、到期后静默 404），且审计发现两处过期后续语义缺口。3 commit、3 个新回归测试：
 
 - **后端缺口 A（死链回发）**：`create_share` 对既有**已过期**链接原样沿用——前端「分享」按钮（get_share 过期即 shared=false，按钮回到『分享』态）触发的正是该路径，用户会拿到 201 + 一条公开 404 的死链。修复：过期则**轮换 token + 重置 created_at**（90 天重新计时）：旧 token 即使已被复制到别处保持失效，属主拿到可用新链接；未过期链接幂等语义不变（同 token 原样返回，避免每次点「复制分享链接」意外换 token 作废已分享出去的链接）——两种路径各有回归钉死。
