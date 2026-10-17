@@ -180,6 +180,9 @@ class _SessionStream:
         # iter 345：plan-gen 旁挂 Run 模型的 overlay run_id（settings.agent_runs_enabled
         # 开启时由 _run_start 创建；_overlay_done 据 orchestrator_state 终态标记，不动 _finalize）
         self.overlay_run_id: int | None = None
+        # iter 380：发起用户 id——_finalize「会话已删除」守卫的兜底落账锚点
+        # （ToolCall 挂 session FK 不可写，api_usage 按 user 键照记；见 _persist_tool_calls）
+        self.user_id: int | None = None
 
     def publish(self, event: str, data: dict) -> int:
         """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
@@ -551,6 +554,29 @@ def cancel_running_generation(session_id: int) -> bool:
     return True
 
 
+def wait_generation_settled(session_id: int, timeout: float = 15.0) -> bool:
+    """iter 380：等待会话在途编排任务收敛（_finalize 已执行完）后返回。
+
+    删除族端点（DELETE /sessions、/users）先 cancel 再删行——但 cancel 只是调度，
+    _finalize（事件循环线程）与本端点的删除事务（线程池）并发交错时会撞 FK：
+    finalize 落账新插的 api_usage 行会让 user 删除的级联 FK 检查失败（500）；
+    tool_calls 批量写撞已删 session 行整批回滚（计费丢失，需降级兜底）。
+    收敛判据 = task.done() 且 terminal_id 已置位（_finalize 各分支含兜底 except
+    均以 mark_terminal 收尾，且落账发生在其之前）。取消传播通常毫秒级；超时返回
+    False 由调用方容忍（降级兜底仍在，数据一致性不依赖本等待）。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        stream = _STREAMS.get(session_id)
+        if stream is None:
+            return True
+        task = stream.task
+        if task is None or (task.done() and stream.terminal_id is not None):
+            return True
+        time.sleep(0.02)
+    return False
+
+
 @router.post("/{session_id}/cancel")
 async def cancel(session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """取消运行中的生成（plan/10 §十一）。
@@ -676,6 +702,15 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         # 仅发终态 + 清理。trace_id 匹配才说明该会话仍属本次生成。
         state = db.get(models.OrchestratorState, session_id)
         if db.get(models.Session, session_id) is None or state is None or state.trace_id != stream.trace_id:
+            # iter 380：tool_calls（session FK）不可写，但取消前已执行工具烧掉的 api_usage
+            # （user 键）仍须落账——日预算守卫只信 api_usage 求和，此处缺账 = 预算绕过通道
+            # （iter 243 语义的删除路径补全）。rowid 复用场景账单同样记 stream.user_id
+            # （发起用户），不会写进复用后的无关新会话。用户亦被级联删时由
+            # _persist_tool_calls 存活检查整段跳过（防 FK 孤儿行）。
+            if stream.executed:
+                _persist_tool_calls(
+                    db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
+                )
             if stream.terminal_id is None:
                 eid = stream.publish("error", {"code": "cancelled", "message": "会话已删除", "stage": ""})
                 stream.mark_terminal(eid)
@@ -683,7 +718,11 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         if task.cancelled():
             # iter 184 B4：取消亦持久化原始输入与错误详情（可重试）
             # iter 243：取消前已执行的工具调用亦落账（成本黑洞：日预算只信 api_usage）
-            _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
+            # iter 380：带 orphan_user_id——「删除会话触发取消」与本端点（线程池）的级联
+            # 删除并发交错时，落账可能撞已删行 FK，由 _persist_tool_calls 降级重试 usage-only
+            _persist_tool_calls(
+                db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
+            )
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
                 db,
@@ -702,8 +741,10 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
             result = task.result()
         except Exception as exc:  # noqa: BLE001
             log.exception("orchestrator 任务异常: %s", exc)
-            # iter 243：异常前已执行的工具调用亦落账（同取消路径）
-            _persist_tool_calls(db, session_id, stream.trace_id, executed=stream.executed)
+            # iter 243：异常前已执行的工具调用亦落账（同取消路径）；iter 380 orphan 兜底同上
+            _persist_tool_calls(
+                db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
+            )
             partial = {"raw_text": stream.raw_text, "outputs": {}}
             _set_state(
                 db,
@@ -896,6 +937,7 @@ async def _run_start(
     局部重生成传 scope（plan/10 §十三：从受影响工具起级联重跑其下游，重跑范围最小化）。
     user_id：发起用户（P4 iter 58）：LLM 供应商档案按该用户解析（get_provider(user_id)）。
     """
+    stream.user_id = user_id  # iter 380：_finalize 会话已删守卫的兜底落账锚点
     # 无 LLM Provider -> 发 error 终态（不启动任务）；档案按发起用户解析（P4 隔离）
     # iter 366：一次会话解析供应商/计费/上限/Bing key（此前各开一条短会话，每次生成 churn 4 条连接）
     resolv_db = SessionLocal()
@@ -1077,6 +1119,8 @@ def _persist_tool_calls(
     trace_id: str,
     outputs: dict[str, ToolOutput] | None = None,
     executed: list[ToolOutput] | None = None,
+    *,
+    orphan_user_id: int | None = None,
 ) -> None:
     """持久化 tool_calls + api_usage（成本计量 Pillar 3，plan/01 §三）。批量写，失败不阻塞。
 
@@ -1089,10 +1133,18 @@ def _persist_tool_calls(
       且仅当 DB 尚无该工具记录时——重生成/澄清续接/重试的重建上游（_reconstruct_upstream
       / partial dump，已在库）跳过，防重复 tool_calls 行。
     api_usage.user_id 取会话归属用户（P4 iter 58 按用户统计用量）。
+
+    iter 380 orphan 路径：会话已删除（生成中 DELETE / rowid 复用）时以 orphan_user_id
+    （发起用户）降级落 usage-only——ToolCall 挂 session FK 不可写（旧逻辑整批插失败回滚，
+    在途已烧 token 全部蒸发）；api_usage 按 user 键照记（成本守恒）。用户亦被级联删时
+    整段跳过（防 FK 孤儿行），异常兜底同旧。
     """
     try:
         sess = db.get(models.Session, session_id)
-        usage_user_id = sess.user_id if sess is not None else None
+        if sess is None:
+            if orphan_user_id is None or db.get(models.User, orphan_user_id) is None:
+                return  # 无归属锚点 / 用户已随级联删除（api_usage 亦被级联清理）
+        usage_user_id = sess.user_id if sess is not None else orphan_user_id
         # iter 356：按当前用户「模型计费表」重算 cost（精确模型名 -> 族默认）——
         # 设置页维护的模型计费可能随时调整，落账时统一按最新表重算。
         table = load_model_pricing(db, usage_user_id)
@@ -1101,21 +1153,24 @@ def _persist_tool_calls(
             m = out.metadata
             err_msg = "; ".join(e.message for e in out.errors) if out.errors else None
             cost = estimate_cost_from_metadata(m, model_pricing=table)
-            db.add(
-                models.ToolCall(
-                    session_id=session_id,
-                    tool=tool_name,
-                    input={},
-                    output=out.data,
-                    status=out.status,
-                    error=err_msg,
-                    llm_tokens_in=m.tokens_in,
-                    llm_tokens_out=m.tokens_out,
-                    cost=cost,
-                    duration_ms=m.duration_ms,
+            if sess is not None:  # orphan 路径无 session 行可挂，只落 api_usage
+                db.add(
+                    models.ToolCall(
+                        session_id=session_id,
+                        tool=tool_name,
+                        input={},
+                        output=out.data,
+                        status=out.status,
+                        error=err_msg,
+                        llm_tokens_in=m.tokens_in,
+                        llm_tokens_out=m.tokens_out,
+                        cost=cost,
+                        duration_ms=m.duration_ms,
+                    )
                 )
-            )
             if m.tokens_in or m.tokens_out:  # LLM 调用才记 api_usage
+                if usage_user_id is None:
+                    return
                 db.add(
                     models.ApiUsage(
                         user_id=usage_user_id,
@@ -1133,7 +1188,7 @@ def _persist_tool_calls(
         for out in executed or []:
             executed_names.add(out.tool)
             _add_call(out.tool, out)
-        if outputs:
+        if outputs and sess is not None:  # 会话已删时 outputs 补登无意义（防 FK）
             existing = {r[0] for r in db.query(models.ToolCall.tool).filter_by(session_id=session_id).all()}
             for name, out in outputs.items():
                 if name in executed_names or name in existing:
@@ -1143,6 +1198,45 @@ def _persist_tool_calls(
     except Exception:  # noqa: BLE001  审计写入失败不阻塞主流程
         log.exception("持久化 tool_calls 失败")
         db.rollback()
+        # iter 380：删除竞态兜底——「删除会话触发的取消」与 DELETE /sessions 端点（线程池）
+        # 并发交错时，本函数读 session 行可能早于端点提交（查得「还在」走正常路径），随后
+        # INSERT 撞已删行 FK 整批回滚，在途已烧 token 蒸发。降级重试 usage-only（api_usage
+        # 按 user 键不受 session 删除影响），成本守恒不依赖时序运气。
+        if orphan_user_id is not None and executed:
+            _persist_usage_only(db, orphan_user_id, executed)
+
+
+def _persist_usage_only(db: Session, user_id: int, executed: list[ToolOutput]) -> None:
+    """iter 380：usage-only 降级落账（会话删除竞态的兜底路径）。
+
+    只写 api_usage（user 键）——session 级 tool_calls 已不可写。用户亦被级联删除时
+    跳过（api_usage 随用户级联清理，且 FK 会拒绝写入）。失败静默（调用方已 log）。
+    """
+    try:
+        if db.get(models.User, user_id) is None:
+            return
+        table = load_model_pricing(db, user_id)
+        for out in executed:
+            m = out.metadata
+            if not (m.tokens_in or m.tokens_out):  # LLM 调用才记 api_usage（同 _add_call 口径）
+                continue
+            cost = estimate_cost_from_metadata(m, model_pricing=table)
+            db.add(
+                models.ApiUsage(
+                    user_id=user_id,
+                    provider=m.provider or "anthropic",
+                    model=m.model,
+                    tokens_in=m.tokens_in,
+                    tokens_out=m.tokens_out,
+                    cache_read=m.cache_read,
+                    cache_write=m.cache_write,
+                    cost=cost,
+                )
+            )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("usage-only 降级落账失败 user=%s", user_id)
 
 
 def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:

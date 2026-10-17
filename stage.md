@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R23（2026-10-17，Python v1 深度审计第二十轮「iter 380」，✅ 完成）**：同一 /goal 第二十遍——**删除族 × 在途操作竞态审计**（R4-R22 从未系统核对过「每个 DELETE 端点执行时，恰有任务在途操作同一资源」的存活假设）。2 个真实缺口修复 + 1 项测试基建发现、6 个新回归、1 commit：
+
+- **修复 1（删除路径成本黑洞）**：生成中 DELETE /sessions → 取消任务 → `_finalize` 「会话已删除」守卫一刀切**不写 DB**——理由只对 tool_calls 成立（session FK 不可写），但取消前已执行工具烧掉的 **api_usage（user 键）本可保留**，结果整批蒸发：日预算只信 api_usage 求和，缺账 = 预算绕过通道（iter 243 语义的删除路径缺口）。修复（三层）：①`_SessionStream` 增 `user_id` 锚点（`_run_start` 赋值）；②守卫分支 + 取消/异常路径均传 `orphan_user_id`，`_persist_tool_calls` 会话已删时降级 usage-only（跳过 ToolCall 只落 ApiUsage，计价同口径）；③落账撞 FK（与删除事务交错的竞态）再降级 `_persist_usage_only` 重试；用户亦被级联删时整段跳过（FK 防孤儿行，配合 users.py 显式清 api_usage）。
+- **修复 2（删除端点 500）**：`cancel_running_generation`/`_cancel_run_stream` 只**调度**取消——`_finalize`（事件循环线程）与 delete_user/delete_session 的删除事务（线程池）并发交错时，finalize 新插的 api_usage 行会让 user 删除的级联 FK 检查失败 → **DELETE /users 500 用户删不成**（实测复现：单独跑通过、全量跑必挂的时序敏感缺陷）；session 侧同交错致 tool_calls 整批回滚（只剩降级兜底）。修复：新增 `plans.wait_generation_settled`（`task.done()` 且 `terminal_id` 置位判收敛——`_finalize` 各分支含兜底 except 均以 mark_terminal 收尾且落账在前；取消传播毫秒级，15s 超时容忍、降级兜底仍在），`delete_session`/`delete_user` 取消后等收敛再删。
+- **测试基建发现（坑，留档）**：**starlette 1.3.1 `TestClient.stream()` 是完全缓冲 transport**（`portal.call` 等 ASGI app 整体返回后才让 with 块进入）——「流进行中在主线程做别的」不能用同步 `with client.stream(...)`：无超时兜底的挂起（如门控 LLM 阻塞）with 永远进不去；有 LLM 120s 硬超时兜底的要等 2 分钟才进入（且 DELETE 实际发生在任务收敛后——测的已不是「生成中删」）。正确模式 = **后台线程发流请求（线程恰挂在 transport 等 app 返回 = HTTP 请求在途状态），主线程轮询到位后 DELETE，终态后 join**；探活走 fixture client 同一 portal 事件循环顺带驱动后台任务。
+- **回归（test_iter380_delete_inflight_races.py，6 用例，4s）**：T1 生成中删会话——删除前计费未落、删除后 intent 100/50 token 落 api_usage（钉死修复 1）+ session/state/plan/tool_calls 零残留 + 流收敛（terminal 判据）；T2 对话 run 在途删 thread——硬取消 + 级联 + finalize run=None 优雅收口 + `_RUN_STREAMS` 清空；T3 生成中删用户（admin）——在途取消 + 全库零孤儿（含 orphan 落账识别用户已删不插行）+ 管理员完好；T4 三护栏——生成中删资料 409 / 解析中删 KB 文档 409 / running run 删 409（统一信封）+ DB-running-无流残留（重启后形态）删 thread 200 收敛。5 连跑全绿（4s/次）。
+- **静态分派（clean，留档）**：其余 DELETE 无在途写面——kb/notes 问答记录=请求内原子持久化；笔记/凭证/供应商/分享/记忆/打卡日志=叶子行。已知良性残留：生成 quiz 的 HTTP 请求在途时会话被删 → quiz 行插入撞 FK 500（计费已在调用完成时落账 user 键，语义即「会话已不存在」，可接受留档）。
+- **顺带**：R17/R18 手工审计脚本的 4 个生成物（backend_contract.json / frontend_contract.json / contract_diff_report.txt / auth_matrix.json）加入 .gitignore（脚本复跑再生，不入库）；上一会话遗留的调试探针（test_iter380_probe*.py）已删。
+- **门禁**：全量 pytest **1434 通过/1 跳过**（+6）+ ruff（app/tests + 根 plugins/）全绿；前端无改动。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R22（2026-10-17，Python v1 深度审计第十九轮「iter 379」，✅ 完成）**：同一 /goal 第十九遍——**全量覆盖型写面并发语义收尾**（R21 笔记缺口的同类别残留面）。9 处 PUT/PATCH 逐一读实现分派 + 1 处真实缺口修复，3 个新回归、1 commit：
 
 - **写面矩阵（除 R21 已修两处笔记外，余 7 处逐一定性）**：①PATCH /threads/{id}（title/model 标量）②PUT /credentials/{id}（None=保留的标量合并 + 重名 409）③PUT /providers/{id}（同上）④PUT /kb/documents/{id}（仅 title 单字段重命名）⑤PUT /settings/prefs（exclude_unset 键级合并——改 A 不动 B，双标签改不同键互不吞）⑥PUT /users/{id}（管理员面标量）——均字段级/单字段/管理面，**无跨字段合并丢失面，clean**；⑦**PUT /settings/pricing——整表读改写（设置页载入→编辑→全量 PUT，UserPref 单行 JSON ≤200 模型×4 单价），双标签后保存者静默吞掉先保存者条目＝R21 同类真实缺口**。

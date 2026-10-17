@@ -79,6 +79,12 @@ def delete_session(
         raise ApiError("conflict", "会话内有资料正在解析中，请解析完成后再删除会话", status=409)
     # running 态：先 cancel 编排器任务再删（plan/10 §十一），防僵尸任务 _finalize 撞 FK
     cancel_running_generation(session_id)
+    # iter 380：等任务收敛（_finalize 落账完成）再删——cancel 只是调度，finalize 与
+    # 本端点删除事务并发交错时 tool_calls 批量写撞已删行整批回滚（在途计费丢失，
+    # 只剩降级兜底）。取消传播毫秒级，15s 超时容忍（兜底仍在）。
+    from app.api.plans import wait_generation_settled
+
+    wait_generation_settled(session_id)
     # 级联：DB 行（relationship cascade=all,delete-orphan）+ 文件目录
     db.delete(sess)
     db.commit()

@@ -129,3 +129,10 @@ scripts/reasonix/official-theme-art/__pycache__/
 
 # Python 后端测试运行时数据（/data/ 锚定后显形，仍不入库）
 /backend/data/
+
+# 手工审计脚本生成物（tests/contract_audit.py、contract_frontend.py、contract_diff.py、
+# auth_matrix.py 复跑再生；iter 374/375 的 JSON 快照与 diff 报告不入库）
+/backend/tests/backend_contract.json
+/backend/tests/frontend_contract.json
+/backend/tests/contract_diff_report.txt
+/backend/tests/auth_matrix.json
