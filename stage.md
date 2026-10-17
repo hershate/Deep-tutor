@@ -38,6 +38,16 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R37（2026-10-19，Python v1 深度审计第三十四轮「iter 394」，✅ 完成）**：同一 /goal 第三十四遍——**kb/知识库文档链专项（后端 kb.py 全链 + 前端 kb 族组件）**。深审计型轮次：链路经 iter 212-372 多轮打磨质量高，1 处交互缺陷修复 + 1 个行为级测试缺口补齐，全量 1461 门禁绿：
+
+- **审计范围**：后端 kb.py（1095 行全读——upload 三段式 pending/confirmed/parsed 状态机、per-doc 解析互斥 + rowid 复用防护（iter 247）、原件读取 R20 路径越界防线、删除防解析中 409、孤儿清理（commit 失败/解析中被删 unlink）、问答快照自包含（citations 落 title 不落外链）、导出 spool 流式、generate 逐文档复制 + 异常回滚清目录）；前端 HomeKbGenerate / KbDocsView（796 行）/ KbViewerModal / （R36 已修的 KbChatPanel）。
+- **干净面确认**：text/url 类文档 status 落模型默认 "parsed"（创建即已解析，语义正确——一度疑为错杀，查 models.py:269 server_default 后排除）；用户级联删除 kb_documents/kb_chat_records 行（User 侧 cascade）+ delete_kb_files 磁盘清理（users.py:190）既有测试双钉死；上传随机 id 预命名 + 撞名重摇（iter 228）；KbViewerModal blob revoke 闭包修复（iter 367 M12）/双弹层 Esc 栈；KbDocsView 上传泵单飞 + 在传取消（iter 368）/深链一次性消费/重命名 Enter+blur 防双触发。
+- **缺陷修复（KbDocsView.toggleSelect）**：选择上限 toast 在 setState updater 内——StrictMode/并发渲染下 updater 可重放，副作用不保证恰好一次（与 R36 KbChatPanel.togglePick 同款反模式，全仓最后两处已清零）；校验移出 updater。
+- **测试缺口补齐**：generate_from_documents 拒绝未解析文档（pending/confirmed → 404「尚未解析」引导）无行为级钉死 → 新增回归（含 404 无孤儿会话断言、confirmed 同拒）。
+- **低危留档（不动）**：① 上传并发同内容双插窗口极短（读+写盘后 commit），影响=重复行多占一格配额，且「不加唯一约束」为既定设计决策（models 注释明示）；text/url 路径已有解析后重查双保险；② export ids 全非法时 wanted 空 → id==-1 → 404「知识库为空」文案略误导（合法前端不可达）；③ KbDocsView 列表 error 面无显式重试按钮（筛选/搜索切换是天然重试入口）；④ 上传行 key 含 index，取消行后 index 漂移致 DOM 重建（纯视觉）。
+- **门禁**：ruff 全绿 + 全量 pytest **1461 通过**/1 跳过（+1）+ 前端 tsc/build 绿。
+- **下一步**：滚动审计续（候选：过夜档 soak 择机（SOAK_MINUTES=480，小时级以上长窗证据仍缺）；或 HeaderSearch/ShortcutsHelp/UsageMeter/ProgressBoard 等零散组件扫尾；或 MaterialOut/kb 契约漂移复跑）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R36（2026-10-19，Python v1 深度审计第三十三轮「iter 393」，✅ 完成）**：同一 /goal 第三十三遍——**前端剩余小组件二轮抽检（MaterialsModal / KbChatPanel / TaskCenter / TaskPanel / StudyMaterialReader 组件级『表达与实现一致性』精读 + 阅读器重写链后端穿透）**。1 条功能链断裂修复（前后端各一）+ 5 处交互缺陷修复，全量 1460 门禁绿：
 
 - **核心缺陷（阅读器内「重写本单元」链路 id 断裂，前后端）**：后端 unit_ids 重生成是**删旧行插新行**（plans.py，新 id；SSE 事件不携带 id；`_cleanup_stale_material_files` 注释自证 rowid 复用仅巧合）——前端重写完成后 `getStudyUnitContent(旧 id)` **必 404**（重写实际已成功并计费，界面却报「学习单元不存在」），且父级 units 列表仍指向已删行（点导航继续 404，新单元不可见直到重开弹窗）。修复：前端重写完成后重取单元列表→按 order 定位新行（rowid 复用巧合 id 未变时手动重取内容）+ 同步父级列表；后端配套保位修复（见下）。

@@ -300,16 +300,16 @@ export default function KbDocsView() {
 
   // --- 选择 / 生成 / 导出 ---
   function toggleSelect(id: number) {
+    // iter 394（R37）：上限校验移出 setState updater——updater 在 StrictMode/并发渲染下
+    // 可能被重放，副作用（toast）不保证恰好一次（同 iter 393 KbChatPanel.togglePick）
+    if (!selected.has(id) && selected.size >= MAX_GENERATE_SELECT) {
+      toast.error(`一次最多选择 ${MAX_GENERATE_SELECT} 篇文档`)
+      return
+    }
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-      else {
-        if (next.size >= MAX_GENERATE_SELECT) {
-          toast.error(`一次最多选择 ${MAX_GENERATE_SELECT} 篇文档`)
-          return prev
-        }
-        next.add(id)
-      }
+      else next.add(id)
       return next
     })
   }

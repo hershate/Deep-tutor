@@ -140,6 +140,31 @@ def test_generate_other_user_doc_404_no_orphan(client, auth_headers):
     assert _session_count() == before
 
 
+def test_generate_unparsed_doc_404_guides_parse(client, auth_headers):
+    """iter 394（R37）：pending/confirmed（未解析）文档 -> 404 引导先解析，且无孤儿会话。"""
+    r = client.post(
+        f"{BASE}/documents/upload",
+        files={"file": ("未解析.md", BytesIO("# 未解析文档\n".encode("utf-8")), "text/markdown")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["status"] == "pending"
+
+    before = _session_count()
+    rr = client.post(f"{BASE}/generate", json={"document_ids": [doc["id"]]}, headers=auth_headers)
+    assert rr.status_code == 404
+    assert "尚未解析" in rr.json()["error"]["message"]
+    assert _session_count() == before  # 回滚无孤儿会话
+
+    # confirmed（已确认未解析）同样拒绝
+    rc = client.post(f"{BASE}/documents/{doc['id']}/confirm", headers=auth_headers)
+    assert rc.status_code == 200 and rc.json()["status"] == "confirmed"
+    rr2 = client.post(f"{BASE}/generate", json={"document_ids": [doc["id"]]}, headers=auth_headers)
+    assert rr2.status_code == 404
+    assert _session_count() == before
+
+
 def test_generate_ids_validation_422(client, auth_headers):
     d = _mk_text_doc(client, auth_headers, "x")
     assert client.post(f"{BASE}/generate", json={"document_ids": []}, headers=auth_headers).status_code == 422
