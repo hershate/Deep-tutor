@@ -38,6 +38,14 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R33（2026-10-19，Python v1 深度审计第三十轮「iter 390」，✅ 完成）**：同一 /goal 第三十遍——**授权矩阵横向复验（R18 auth_matrix 之后新增/变更端点的角色×端点证据面）**。零产品缺陷（授权面全部成立），2 个行为级测试缺口补齐 + 1 项测试基建留档，全量 1458 通过：
+
+- **静态矩阵复跑（auth_matrix.py）**：158 路由（USER 138 / ADMIN 14 / PUBLIC 6），PUBLIC 面与 R18 裁定完全一致（login/health/shared token/setup 三件套）；R23-R32 变更端点授权级别零漂移——插件热管理四端点（R27 async 化）仍 ADMIN+频控、pricing GET/PUT 仍 USER 且 `user.id` 逐用户隔离（UserPref user_id+key，30/min 限流 + 409 基线）、notes/节点笔记 PUT 仍 USER+owned、SSE 流仍 require_auth。
+- **行为级证据盘点（缺口仅 2）**：既有覆盖确认——reload/disable 非管理员 403（test_plugin_hotreload）、SSE 未认证 401（test_api_events）、pricing 跨用户隔离（test_api_pricing）+ 409（iter379）、自由笔记跨用户 404（test_api_free_notes）、节点笔记跨用户 404（test_api_notes）、SSE 心跳重验断流（iter381）、tools.call 404 信封（test_plugin_tools_call）。**缺口**：enable 403 与 GET /api/plugins 列表 403 无行为级钉死（前端有 403 分支但后端无断言）→ 新增 tests/test_iter390_auth_matrix_incremental.py 三测试（enable 403 / 列表 403 / 列表+三端点未认证 401）。
+- **测试基建留档（全量首跑红→二分定位）**：新测试复用 test_plugin_hotreload 的插件 id "pp"/路径 ping 时，其「disable 后 404」断言在组合序下必炸——根因：`reset_plugins` 按设计**不摘已挂载路由**（docstring 明示「已挂载的路由随 app 实例存在」，conftest 每测试隔离的既有语义；端点 disable 走 _unmount 身份摘除才是产品路径且正确——进程级探针实证 reset 后路由仍 200 系测试助手语义而非产品缺陷）。处置：装载型测试的插件 id/路由路径须全仓唯一（本测试改 amx390/ping390 + 注释留档雷区）。
+- **门禁**：全量 pytest 1458 通过/1 跳过（1455 基线 + 3 新增）+ ruff 全绿。
+- **下一步**：滚动审计续（候选：Home/Plans/Review 前端交互面二轮抽检；或备份/恢复链路的真实进程演练复验 R26 结论；或过夜档 soak 择机）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R32（2026-10-18，Python v1 深度审计第二十九轮「iter 389」，✅ 完成）**：同一 /goal 第二十九遍——**长时间低频真实进程 soak（时间维度证据：补齐 R29 泄漏修复在时间而非代数维度的验证）**。零产品缺陷（审计面 clean），soak 脚本入库，40 分钟全绿：
 
 - **静态审计（时间维度增长面清单化）**：① SSE 事件流端点——有界队列（maxsize=100，满则丢帧防慢客户端 OOM，iter 365 C8）+ finally 退订 sink + 心跳周期重验身份（iter 381）+ call_soon_threadsafe 跨线程入队（循环已关静默），连接生命周期无注册表残留；② 宿主唯一后台任务 maintenance_loop——自愈闭环内建（api_usage 保留裁剪 iter 370 / WAL checkpoint(TRUNCATE) iter 368 / 门控 VACUUM / 孤儿目录 mtime 冷却清理）；③ bus._sinks append/remove 对称；④ 29 张 DB 表清单化——历史增长面仅 api_usage（有保留策略）与 Run 系（维护环收敛），其余均限界。全部分派 clean。
