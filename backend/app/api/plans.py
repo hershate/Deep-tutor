@@ -2715,25 +2715,19 @@ def wrong_quizzes(plan_id: int, db: Session = Depends(get_db), user: User = Depe
 
 def _wrong_quiz_rows(db: Session, plan: models.Plan) -> list[models.Quiz]:
     """错题行（iter 114 判定逻辑，iter 134 抽出供导出复用）：每题最新作答判错 -> 原题。"""
+    from app.api.quizzes import latest_attempts_by_quiz
+
     quizzes = db.query(models.Quiz).filter_by(plan_id=plan.id).all()
     if not quizzes:
         return []
-    # 单查询取全部作答，按 quiz 分组后组内首条即最新（避免逐题 N+1）
-    attempts = (
+    # 每题最新 attempt 窗口函数下推（iter 372 R12：不再全量物化 ORM 对象，语义不变）
+    latest = latest_attempts_by_quiz(
+        db,
         db.query(models.QuizAttempt)
         .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
-        .filter(models.Quiz.plan_id == plan.id)
-        .order_by(
-            models.QuizAttempt.quiz_id,
-            models.QuizAttempt.created_at.desc(),
-            models.QuizAttempt.id.desc(),
-        )
-        .all()
+        .filter(models.Quiz.plan_id == plan.id),
     )
-    latest_by_quiz: dict[int, models.QuizAttempt] = {}
-    for a in attempts:
-        latest_by_quiz.setdefault(a.quiz_id, a)
-    return [q for q in quizzes if (la := latest_by_quiz.get(q.id)) is not None and la.correct is False]
+    return [q for q in quizzes if (la := latest.get(q.id)) is not None and la[1] is False]
 
 
 def _wrong_quiz_title(content: dict) -> str:

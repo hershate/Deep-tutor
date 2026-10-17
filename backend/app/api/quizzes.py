@@ -13,6 +13,7 @@ import json
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
@@ -22,6 +23,28 @@ from app.db import models
 from app.db.models import User
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"], dependencies=[Depends(require_auth)])
+
+
+def latest_attempts_by_quiz(db: Session, base) -> dict[int, tuple[int, bool | None]]:
+    """每题最新 attempt（created_at 倒序、同刻 id 大者优先）-> {quiz_id: (attempt_id, correct)}。
+
+    iter 372 R12：错题族三端点此前把**全部** attempt 物化为 ORM 对象再 dict 累积——
+    quiz_attempts 是全库增速最快表（每次提交一行，永不清理），用户级查询随历史作答
+    线性劣化（万级作答 = 每次打开复习页载入万级完整 ORM 对象）。窗口函数下推后
+    SQL 引擎内分组取首，仅物化 ≤题数 行。排序语义与旧 dict 累积逐字一致。
+    """
+    rn = func.row_number().over(
+        partition_by=models.QuizAttempt.quiz_id,
+        order_by=(models.QuizAttempt.created_at.desc(), models.QuizAttempt.id.desc()),
+    ).label("rn")
+    sub = base.with_entities(
+        models.QuizAttempt.id.label("aid"),
+        models.QuizAttempt.quiz_id.label("qid"),
+        models.QuizAttempt.correct.label("correct"),
+        rn,
+    ).subquery()
+    rows = db.query(sub.c.qid, sub.c.aid, sub.c.correct).filter(sub.c.rn == 1).all()
+    return {qid: (aid, correct) for qid, aid, correct in rows}
 
 # 提交限流（err.md A23：此前可无限刷提交记录，quiz_attempts 行无限增长）
 _SUBMIT_RATE_PER_MIN = 60
@@ -96,23 +119,15 @@ def wrong_overview(db: Session = Depends(get_db), user: User = Depends(get_curre
     """
     from app.api.plans import _load_plan_content
 
-    attempts = (
+    latest = latest_attempts_by_quiz(
+        db,
         db.query(models.QuizAttempt)
         .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
         .join(models.Plan, models.Quiz.plan_id == models.Plan.id)
         .join(models.Session, models.Plan.session_id == models.Session.id)
-        .filter(models.Session.user_id == user.id)
-        .order_by(
-            models.QuizAttempt.quiz_id,
-            models.QuizAttempt.created_at.desc(),
-            models.QuizAttempt.id.desc(),
-        )
-        .all()
+        .filter(models.Session.user_id == user.id),
     )
-    latest_by_quiz: dict[int, models.QuizAttempt] = {}
-    for a in attempts:
-        latest_by_quiz.setdefault(a.quiz_id, a)
-    wrong_ids = [qid for qid, a in latest_by_quiz.items() if a.correct is False]
+    wrong_ids = [qid for qid, (_aid, correct) in latest.items() if correct is False]
     if not wrong_ids:
         return {"items": [], "total": 0}
 
@@ -152,35 +167,27 @@ def wrong_queue(
     """
     from app.api.plans import _load_plan_content
 
-    attempts = (
+    latest = latest_attempts_by_quiz(
+        db,
         db.query(models.QuizAttempt)
         .join(models.Quiz, models.QuizAttempt.quiz_id == models.Quiz.id)
         .join(models.Plan, models.Quiz.plan_id == models.Plan.id)
         .join(models.Session, models.Plan.session_id == models.Session.id)
-        .filter(models.Session.user_id == user.id)
-        .order_by(
-            models.QuizAttempt.quiz_id,
-            models.QuizAttempt.created_at.desc(),
-            models.QuizAttempt.id.desc(),
-        )
-        .all()
+        .filter(models.Session.user_id == user.id),
     )
-    latest_by_quiz: dict[int, models.QuizAttempt] = {}
-    for a in attempts:
-        latest_by_quiz.setdefault(a.quiz_id, a)
     # iter 368：按最新 attempt id 倒序**后再**截断——此前 dict 插入序（quiz_id 升序）
     # 截断，limit 外的最近判错被无差别丢弃，与文档「最近判错在前」相悖
-    wrong_ids = sorted(
-        (qid for qid, a in latest_by_quiz.items() if a.correct is False),
-        key=lambda qid: latest_by_quiz[qid].id,
+    wrong_pairs = sorted(
+        ((aid, qid) for qid, (aid, correct) in latest.items() if correct is False),
         reverse=True,
     )
+    wrong_ids = [qid for _aid, qid in wrong_pairs]
     if not wrong_ids:
         return {"items": [], "total": 0}
     total = len(wrong_ids)
     capped = wrong_ids[: max(1, min(limit, 200))]
     quizzes = db.query(models.Quiz).filter(models.Quiz.id.in_(capped)).all()
-    order = {qid: latest_by_quiz[qid].id for qid in capped}  # 最近判错在前
+    order = {qid: latest[qid][0] for qid in capped}  # 最近判错在前
     quizzes.sort(key=lambda q: order.get(q.id, 0), reverse=True)
     topics: dict[int, str] = {}
     items = []
