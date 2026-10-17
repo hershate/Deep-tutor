@@ -304,13 +304,16 @@ def delete_thread_memory(thread_id: int, memory_id: int, user=Depends(get_curren
 
 @router.get("/memory")
 def list_user_memory(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    # iter 372 R13：与 thread 级列表同口径封顶 + total（2000 条配额 × 20k 字符最坏 ~40MB）
     rows = (
         db.query(models.Memory)
         .filter_by(user_id=user.id, thread_id=None)
         .order_by(models.Memory.updated_at.desc())
+        .limit(_THREAD_MEMORY_LIST_CAP)
         .all()
     )
-    return {"items": [_mem_out(m) for m in rows]}
+    total = db.query(models.Memory).filter_by(user_id=user.id, thread_id=None).count()
+    return {"items": [_mem_out(m) for m in rows], "total": total}
 
 
 @router.post("/memory")

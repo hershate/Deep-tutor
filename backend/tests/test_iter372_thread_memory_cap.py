@@ -48,3 +48,9 @@ def test_thread_memory_list_capped_with_total():
     # updated_at 倒序：最近在前
     assert body["items"][0]["content"] == "记忆249"
     assert body["items"][-1]["content"] == "记忆50"
+
+    # user 作用域（thread_id=None）同口径封顶：种子全部带 thread_id -> 空
+    r2 = client.get("/api/memory",
+                    headers={"Authorization": f"Bearer {create_token(uid, 'memcap_372')}"})
+    assert r2.status_code == 200
+    assert r2.json() == {"items": [], "total": 0}
