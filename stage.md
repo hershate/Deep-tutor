@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R32（2026-10-18，Python v1 深度审计第二十九轮「iter 389」，✅ 完成）**：同一 /goal 第二十九遍——**长时间低频真实进程 soak（时间维度证据：补齐 R29 泄漏修复在时间而非代数维度的验证）**。零产品缺陷（审计面 clean），soak 脚本入库，40 分钟全绿：
+
+- **静态审计（时间维度增长面清单化）**：① SSE 事件流端点——有界队列（maxsize=100，满则丢帧防慢客户端 OOM，iter 365 C8）+ finally 退订 sink + 心跳周期重验身份（iter 381）+ call_soon_threadsafe 跨线程入队（循环已关静默），连接生命周期无注册表残留；② 宿主唯一后台任务 maintenance_loop——自愈闭环内建（api_usage 保留裁剪 iter 370 / WAL checkpoint(TRUNCATE) iter 368 / 门控 VACUUM / 孤儿目录 mtime 冷却清理）；③ bus._sinks append/remove 对称；④ 29 张 DB 表清单化——历史增长面仅 api_usage（有保留策略）与 Run 系（维护环收敛），其余均限界。全部分派 clean。
+- **soak 脚本（tests/soak_overnight.py，手工运行不自动收集）**：真实 uvicorn 进程 ×3 用户低频读（3s 间隔）× 笔记 CRUD 净零写（每 12 周期，含 expected_updated_at 乐观并发链长跑复验）× SSE 常开双流心跳看护（ping 计数 + 最大间隙）× churn 流 300s 周期断开重连（重连质量面）× 分钟级采样（进程内 ctypes RSS/句柄/asyncio 任务/OS 线程 + 进程外只读直连 DB 九表行数 + WAL 尺寸）× 维护环 120s 加速运转。**两相设计**：流量相（32min）捕「随请求增长」，空闲相（8min，零流量仅 SSE+采样）捕「随时间增长」——真时间维度与流量维度解耦。旋钮支持过夜档（SOAK_MINUTES=480）。
+- **结果（40 分钟正式跑，exit 0）**：628 请求**零 5xx**（全 200）；SSE 双流各 **159 心跳全程零断**（maxgap 恰 15s=心跳周期本身）；churn 重连 **8/8**；**RSS 130.7→131.8MB（总 +1.2MB 噪声级，空闲相 +0.2MB）**；**句柄 336→329（净 -7，空闲相 +0）**；asyncio 任务/OS 线程恒稳（19/3）；WAL 在 0~0.07MB 震荡被维护环反复截断回 0（checkpoint 生效实证）；DB 九表全程零增量、notes 收尾净零、api_usage 零行（无 LLM 流量不自增）。R29 修复的时间维度证据面闭合。
+- **测试脚本自身缺陷（烟雾三轮修复，方法论复用）**：① ctypes 伪句柄须 argtypes=[c_void_p,...] 显式签名（R29 patrol 同款坑，默认 int 截断静默失败）；② metrics 键名 threads 与聊天表 threads 撞名——DB 快照覆盖进程指标，改 os_threads；③ notes 基线须取在长驻笔记创建前；④ 任务数断言改中位数斜率——churn 连接/维护 to_thread/采样请求各占瞬态任务，单点差分误报。
+- **门禁**：全量 pytest 1455 通过/1 跳过（本轮无新增自动测试——soak 为手工脚本，由 40 分钟全绿实证）+ ruff 全绿。
+- **下一步**：滚动审计续（候选：Home/Plans/Review 前端交互面二轮抽检；或 auth/权限面横向复验 R18 矩阵后的增量端点；或过夜档 soak 长窗（SOAK_MINUTES=480）择机）；或回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R31（2026-10-18，Python v1 深度审计第二十八轮「iter 388」，✅ 完成）**：同一 /goal 第二十八遍——**前端交互逻辑专项抽检（组件级『表达与实现一致性』：编辑器/表单流程、UI 状态机与加载失败路径、导航与权限交互）**。5 处用户交互缺陷修复（4 处集中在 Chat.tsx），tsc+build 与全量 1455 门禁绿：
 
 - **审计矩阵（精读分派，全部过目）**：编辑器/表单——Notes（openSeq 迟到响应/draftRef 并发输入/自动草稿+beforeunload 双保险/批量删重置）、NodeNoteEditor（同款草稿兜底+保存往返不覆盖）、Settings 行内编辑（预算空串拦截 iter 370/0=不限确认）、ModelPricingManager（R22 基线绑定/init+自保存采纳/重复与非法单价就地报错）、UserManager/ProviderManager/CredentialManager（统一 run() 防重入+opError 模式）；状态机——GenerateProgress（attach 判态/404/idle 引导/断线双横幅/iter 364-368 修复在位）、PlanDetail（D1/D3/D6/D8 分离+版本对比/重生成 planIdRef 守卫）、QuizModal（M10 集合更换清作答/回写去重 ref/键盘流）；导航权限——RequireAuth（needs_setup/open_mode/token 三态+search 保留）、Login/Setup（skipBusy 分离）、auth 401 链（apiFetch/SSE/上传三面 + clearAuth 清用户级 localStorage）、Home dt-home-prefill 消费闭环。**留档接受**：NodeNoteEditor 收起 <500ms 防抖窗（草稿兜底既有设计）、Home 可选增强面板静默隐失（非假信息）。
