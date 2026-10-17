@@ -448,10 +448,12 @@ export interface NodeNote {
   updated_at: string | null
 }
 export const getNodeNote = (nodeId: number) => apiFetch<NodeNote>(`/knowledge/notes/${nodeId}`)
-export const putNodeNote = (nodeId: number, content: string) =>
+// iter 378：expectedUpdatedAt = 装载时的 updated_at 原样回传（乐观并发），
+// 他窗口已保存 -> 409 conflict；不传 = 旧行为（兼容插件/外部调用）
+export const putNodeNote = (nodeId: number, content: string, expectedUpdatedAt?: string | null) =>
   apiFetch<NodeNote>(`/knowledge/notes/${nodeId}`, {
     method: 'PUT',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, expected_updated_at: expectedUpdatedAt ?? null }),
   })
 
 // 独立自由笔记（iter 227）：标题+正文，不依附方案；列表 content 为 300 字预览
@@ -467,8 +469,11 @@ export const listFreeNotes = () => apiFetch<{ items: FreeNote[]; total: number }
 export const createFreeNote = (title: string, content: string) =>
   apiFetch<FreeNote>('/notes', { method: 'POST', body: JSON.stringify({ title, content }) })
 export const getFreeNote = (id: number) => apiFetch<FreeNote>(`/notes/${id}`)
-export const updateFreeNote = (id: number, title: string, content: string) =>
-  apiFetch<FreeNote>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ title, content }) })
+export const updateFreeNote = (id: number, title: string, content: string, expectedUpdatedAt?: string | null) =>
+  apiFetch<FreeNote>(`/notes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ title, content, expected_updated_at: expectedUpdatedAt ?? null }),
+  })
 export const deleteFreeNote = (id: number) => apiFetch<{ ok: boolean }>(`/notes/${id}`, { method: 'DELETE' })
 
 // --- progress（P2，plan/03 §一）---

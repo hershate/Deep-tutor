@@ -85,7 +85,9 @@ export default function NodeNoteEditor({ nodeId, onSaved }: Props) {
     setBusy(true)
     const sent = content
     try {
-      const r = await putNodeNote(nodeId, sent)
+      // iter 378：装载基线 updatedAt 随保存回传（乐观并发）——他窗口已改 -> 409，
+      // 服务端消息经 catch 的 toast.error 呈现，编辑器内容保留
+      const r = await putNodeNote(nodeId, sent, updatedAt)
       // 保存往返期间的继续输入不覆盖（同 Notes M3 口径）
       if (contentRef.current === sent) {
         setContent(r.content)

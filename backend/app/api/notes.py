@@ -69,6 +69,9 @@ def _owned_or_404(db: Session, note_id: int, user: User) -> models.Note:
 class NoteIn(BaseModel):
     title: str = Field(default="", max_length=_MAX_TITLE_CHARS)
     content: str = Field(default="", max_length=_MAX_CONTENT_CHARS)
+    # iter 378 R21：乐观并发期望值——客户端把装载时的 updated_at 原样回传，
+    # 与库中不一致（他窗口已改写）-> 409，防双标签盲覆盖丢更新；不传保持旧 LWW 行为
+    expected_updated_at: str | None = Field(default=None, max_length=64)
 
 
 def _normalize(body: NoteIn) -> tuple[str, str]:
@@ -267,6 +270,12 @@ def update_note(
 ) -> dict:
     _check_notes_write(user)
     note = _owned_or_404(db, note_id, user)
+    # iter 378 R21：期望时间戳不匹配 = 其他窗口已保存更新版本 -> 409 拒绝盲覆盖
+    # （不传 = 旧行为；等秒精度下同秒双写仍 LWW——SQLite CURRENT_TIMESTAMP 秒粒度所限）
+    if body.expected_updated_at is not None:
+        cur = note.updated_at.isoformat() if note.updated_at else None
+        if cur != body.expected_updated_at:
+            raise ApiError("conflict", "笔记已在其他窗口被修改，请刷新后重试", status=409)
     note.title, note.content = _normalize(body)
     db.commit()
     db.refresh(note)

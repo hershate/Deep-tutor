@@ -265,8 +265,10 @@ export default function Notes() {
     try {
       const sentTitle = draft.title
       const sentContent = draft.content
+      // iter 378：装载基线 updated_at 随保存回传（乐观并发）——他窗口已改 -> 409，
+      // 服务端消息经 catch 的 toast.error 呈现，编辑器内容保留（用户可复制后刷新）
       const saved = draft.id
-        ? await updateFreeNote(draft.id, sentTitle, sentContent)
+        ? await updateFreeNote(draft.id, sentTitle, sentContent, draft.updatedAt)
         : await createFreeNote(sentTitle, sentContent)
       clearStoredDraft(draft.id) // iter 272：保存成功清草稿（防下次打开复活已存内容）
       // iter 367（批次六 M3）：保存往返期间的并发输入不得被服务端回显覆盖——

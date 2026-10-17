@@ -38,6 +38,14 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R21（2026-10-17，Python v1 深度审计第十八轮「iter 378」，✅ 完成）**：同一 /goal 第十八遍——**同用户多标签页并发写语义审计**。逐路径分派 + 1 处真实缺口修复（笔记双写丢失更新防护），4 个新回归、2 commit：
+
+- **并发语义矩阵（逐路径分派）**：①进度更新 POST /progress——已有乐观锁（iter 367 mastery CAS 重放 + 插入竞态 A11 兜底），无需动；②测验提交——纯 append（每次作答一行，「最新 attempt」口径消费），无丢失更新面；③学习打卡——append by design（多次打卡各记一条）；④计划重生成——sessions 状态机互斥 409（既有）；⑤**自由笔记 PUT /notes/{id} 与知识节点笔记 PUT /knowledge/notes/{node_id}——全量盲覆盖（last-write-wins），双标签编辑同笔记后保存者静默吞掉先保存者的修改，零提示**＝真实缺口。
+- **修复（乐观并发，兼容式）**：两处 PUT 加可选 `expected_updated_at`（客户端把装载基线的 updated_at 原样回传），不匹配（含他窗口清空删行 -> cur=None）→ 409 `conflict`「笔记已在其他窗口被修改，请刷新后重试」；**不传保持旧行为**（插件/外部调用方兼容）。前端 Notes.tsx / NodeNoteEditor 把已跟踪的基线时间戳随保存回传（两编辑器本就在状态里维护 updatedAt，仅接线）；409 经既有 toast.error 呈现服务端消息，编辑器内容保留（用户可复制后刷新，不静默丢失）。已知粒度限制：SQLite CURRENT_TIMESTAMP 秒级——同秒双写仍 LWW（代码注释留档）。
+- **回归（test_iter378_note_concurrency.py，DB 回拨 updated_at 模拟他窗口先保存，避开秒粒度等待）**：过期期望 409 且服务端内容不被吞 / 基线一致放行 / 不传兼容 LWW / 节点笔记清空删行后的旧基线 409。
+- **门禁**：全量 pytest **1425 通过/1 跳过**（+4）+ ruff 绿 + 前端 tsc+vite build 绿（前端接线改动）。
+- **下一步**：回到 M1 剩余（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R20（2026-10-17，Python v1 深度审计第十七轮「iter 377」，✅ 完成）**：同一 /goal 第十七遍——**LLM 调用面异常注入审计（真实端点 + monkeypatch）**。三层静态审计（provider 异常映射/工具层 _billed/落账层 executed 全量记）+ 6 场景端点级注入全部通过，**零真实缺陷**——此前 iter 243 成本黑洞语义与 R24 断连持久化只有注释/单元级声称，本轮首次端点级钉死（`tests/test_iter377_llm_failure_injection.py`，6 用例）。1 commit：
 
 - **注入矩阵（ScriptedProvider 按脚本出牌 + POST /plans/generate 真端点）**：①429 瞬态重试耗尽（首工具）→ error 终态、重试恰 N+1 次有界、零伪造计费（失败调用无 usage 不落账）、tool_calls error 留痕、无 Plan 行；②首轮成功(畸形 JSON)+次轮 4xx → error 终态且**首轮 100/50 token 必须落账**（日预算只信 api_usage——成本黑洞端点级回归）；③中途（第 3 工具）4xx → error 终态 + 前两轮落账 + 无 Plan；④intent 畸形修复耗尽 → **降级澄清追问**（default_data needs_clarify=True，paused_clarify 优于硬错误，用户可补信息续跑）+ 修复链聚合落账；⑤stages 畸形修复耗尽 → repaired 降级续跑交付（Pillar 2，泛型模板方案 + tool_calls repaired 留痕）+ 聚合计费；⑥**客户端断流**（收到首事件即断开）→ 生成任务独立完成、done + Plan 持久化 + 5 行计费（R24「单一持久化路径」首次端点级验证）。

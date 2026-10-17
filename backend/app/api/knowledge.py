@@ -326,6 +326,8 @@ def get_node_note(
 
 class NoteIn(BaseModel):
     content: str = Field(default="", max_length=_MAX_NOTE_CHARS)
+    # iter 378 R21：乐观并发期望值（同自由笔记 /notes 语义），不匹配 -> 409
+    expected_updated_at: str | None = Field(default=None, max_length=64)
 
 
 @router.put("/notes/{node_id}")
@@ -345,6 +347,12 @@ def put_node_note(
     _owned_node_or_404(db, node_id, user)
     content = body.content.strip()
     note = db.query(models.NodeNote).filter_by(user_id=user.id, node_id=node_id).first()
+    # iter 378 R21：期望时间戳不匹配（含他窗口已清空/删除 -> note=None 而 cur=None）
+    # -> 409 拒绝盲覆盖；不传 = 旧行为
+    if body.expected_updated_at is not None:
+        cur = note.updated_at.isoformat() if (note is not None and note.updated_at) else None
+        if cur != body.expected_updated_at:
+            raise ApiError("conflict", "笔记已在其他窗口被修改，请刷新后重试", status=409)
     if not content:
         if note is not None:
             db.delete(note)
