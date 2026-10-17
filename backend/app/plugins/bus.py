@@ -6,10 +6,12 @@ quiz_submitted，清单与 payload 见 API.md）；插件亦可 emit 自定义�
 
 稳定性语义（宿主承诺）：
 - 每个监听器独立 try/except——单个监听器异常不影响其余监听器与宿主流程；
-- emit() 同步安全：同步端点（线程池、无事件循环）亦可调用。同步监听器就地执行；
-  协程监听器有运行循环时调度为后台任务，无循环时在临时新循环中执行（会阻塞当前线程
-  直至完成——监听器应保持轻量，重活请自行后台化）；
-- emit_async() 供异步上下文（lifespan / async 端点）按订阅顺序 await 全部监听器。
+- emit() 同步安全：同步端点（线程池、无事件循环）亦可调用。同步监听器在线程池
+  线程就地执行；事件循环上下文（async 端点内 emit）下同步监听器经 to_thread 后台
+  任务执行（iter 368：插件误写阻塞调用不再卡死循环；毫秒级不再严格保序）。
+  协程监听器有运行循环时调度为后台任务，无循环时在有界 daemon 线程中执行；
+- emit_async() 供异步上下文（lifespan / async 端点）按订阅顺序 await 全部监听器
+  （同步监听器逐个 to_thread，保序）。
 """
 
 from __future__ import annotations
@@ -105,6 +107,17 @@ async def _guard_await(coro: Any, event: str) -> None:
         log.exception("插件事件协程监听器异常 (%s)", event)
 
 
+async def _guard_to_thread(fn: Handler, event: str, payload: dict[str, Any]) -> None:
+    """同步监听器移出事件循环执行（iter 368）；返回 awaitable（lambda 包协程等罕见
+    形态）则在循环上 await（与原就地调用语义等价）。异常隔离。"""
+    try:
+        result = await asyncio.to_thread(fn, payload)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:  # noqa: BLE001  隔离：监听器异常不外溢
+        log.exception("插件事件监听器异常 (%s)", event)
+
+
 def _run_awaitable_in_thread(coro: Any, event: str) -> None:
     """后台线程跑协程监听器（独立事件循环）。异常隔离（_guard_await 已记日志）。"""
     try:
@@ -125,15 +138,26 @@ def _run_bounded_thread(coro: Any, event: str, sem: threading.BoundedSemaphore) 
 
 
 def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
+    """单监听器分发（iter 368 重构）：
+
+    - 协程监听器：有运行循环 -> 后台任务；无循环（线程池同步端点）-> 有界 daemon 线程。
+    - 同步监听器：无循环 -> 就地执行（线程池线程，不碰循环，顺序不变）；
+      有运行循环（async 端点内 emit()）-> to_thread 后台任务——插件是用户可装载代码，
+      误写阻塞调用（requests/大文件 IO）此前直接卡死事件循环整段服务。
+      代价：循环上下文里同步监听器不再严格保序（毫秒级窗口，现网监听器为计数/日志，
+      无顺序依赖）。
+    """
     try:
-        result = fn(payload)
-        if inspect.isawaitable(result):
-            try:
-                loop = asyncio.get_running_loop()
-                task = loop.create_task(_guard_await(result, event))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if asyncio.iscoroutinefunction(fn):
+            if loop is not None:
+                task = loop.create_task(_guard_await(fn(payload), event))
                 _bg_tasks.add(task)  # 持强引用防 GC 中途回收（iter 365 C5）
                 task.add_done_callback(_bg_tasks.discard)
-            except RuntimeError:
+            else:
                 # 同步端点线程池：无运行循环 -> 有界 daemon 线程跑，不阻塞当前线程（iter 364/366）。
                 # 原 asyncio.run 阻塞当前线程——webhook sink 含 10s httpx 超时，并发即可抽干
                 # anyio 线程池（默认 40），饿死后续同步端点（含登录）。iter 366：原每次新起
@@ -146,8 +170,15 @@ def _dispatch(fn: Handler, event: str, payload: dict[str, Any]) -> None:
                     )
                     return
                 threading.Thread(
-                    target=_run_bounded_thread, args=(result, event, sem), daemon=True
+                    target=_run_bounded_thread, args=(fn(payload), event, sem), daemon=True
                 ).start()
+        else:
+            if loop is not None:
+                task = loop.create_task(_guard_to_thread(fn, event, payload))
+                _bg_tasks.add(task)
+                task.add_done_callback(_bg_tasks.discard)
+            else:
+                fn(payload)  # 线程池线程就地执行（原语义）
     except Exception:  # noqa: BLE001  隔离：监听器异常不外溢
         log.exception("插件事件监听器异常 (%s)", event)
 
@@ -170,13 +201,17 @@ def emit(event: str, payload: dict[str, Any] | None = None) -> None:
 
 
 async def emit_async(event: str, payload: dict[str, Any] | None = None) -> None:
-    """异步广播（lifespan/async 上下文）：按订阅顺序逐个 await（各隔离）。"""
+    """异步广播（lifespan/async 上下文）：按订阅顺序逐个 await（各隔离）。
+
+    iter 368：同步监听器经 to_thread 执行（保序——逐个 await 完再下一个），
+    不再在事件循环上就地运行（阻塞调用会卡死整段服务）。"""
     payload = payload or {}
     for fn in list(_listeners.get(event, [])):
         try:
-            result = fn(payload)
-            if inspect.isawaitable(result):
-                await result
+            if asyncio.iscoroutinefunction(fn):
+                await fn(payload)
+            else:
+                await _guard_to_thread(fn, event, payload)
         except Exception:  # noqa: BLE001  隔离：监听器异常不外溢
             log.exception("插件事件监听器异常 (%s)", event)
     _notify_sinks(event, payload)

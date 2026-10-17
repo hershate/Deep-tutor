@@ -923,13 +923,15 @@ class EventsNamespace:
 
 
 class SettingsView:
-    """只读安全配置视图：名称含 key/secret/password/token 的字段一律不暴露。
+    """只读安全配置视图：名称含 key/secret/password/token/dsn/conn/url 的字段一律不暴露。
 
     插件与宿主同进程运行、本身即受信代码（可直接 import app.core.settings），
     本视图只是防「顺手误读机密并外发」的便利层，不是安全边界。
+    iter 368：_DENY 补 url/dsn/conn——内网服务地址（SMB/数据库 DSN/内部 base_url）
+    对「可被诱导外发的插件」同样是敏感侦察信息。
     """
 
-    _DENY = ("key", "secret", "password", "token")
+    _DENY = ("key", "secret", "password", "token", "dsn", "conn", "url")
 
     def get(self, name: str, default: Any = None) -> Any:
         from app.core.settings import settings

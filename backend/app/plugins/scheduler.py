@@ -55,13 +55,25 @@ class TaskHandle:
             pass
 
 
+# iter 368：单次调度执行上限——插件 sync fn 误写阻塞调用（requests/大文件 IO）或
+# async fn 悬挂时，把事件循环卡死整段服务；超时取消并记日志（下轮照常）
+_JOB_TIMEOUT_S = 300.0
+
+
 async def _safe_run(fn: Callable[..., Any]) -> None:
-    """执行 fn（async await / sync 直接调）；异常隔离记日志不外抛。"""
+    """执行 fn（async await / sync 经 to_thread 移出循环）；异常/超时隔离记日志不外抛。
+
+    iter 368：① sync fn 移 to_thread——契约虽写明「sync 须非阻塞」，但插件是用户可
+    装载的代码，误写阻塞调用（requests、time.sleep、大文件 IO）此前直接卡事件循环
+    整段服务无响应；② 300s 执行上限兜底悬挂任务（async fn 内死等 IO 同样卡节奏）。
+    """
     try:
         if asyncio.iscoroutinefunction(fn):
-            await fn()
+            await asyncio.wait_for(fn(), timeout=_JOB_TIMEOUT_S)
         else:
-            fn()
+            await asyncio.wait_for(asyncio.to_thread(fn), timeout=_JOB_TIMEOUT_S)
+    except TimeoutError:
+        log.warning("插件调度任务执行超时（>%ss，已放弃等待本轮）: %r", _JOB_TIMEOUT_S, fn)
     except Exception:  # noqa: BLE001  插件 fn 异常隔离：记日志，不杀循环/不影响他任务
         log.exception("插件调度任务执行异常（已隔离）")
 

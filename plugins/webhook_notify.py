@@ -60,7 +60,9 @@ def register(api):
         return {"ok": True, "url": body.url, "events": list(body.events), "has_secret": bool(body.secret)}
 
     @router.get("/config")
-    def get_config(user=Depends(api.deps.get_current_user)):
+    def get_config(user=Depends(api.deps.require_admin)):
+        # iter 368：查看与设置/删除同门禁——webhook 目标 URL 属集成配置（可能含内网
+        # 地址或 URL 内嵌凭证），此前任意登录用户可读
         cfg = api.storage.get("webhook_config")
         if not isinstance(cfg, dict) or not cfg.get("url"):
             return {"configured": False}
