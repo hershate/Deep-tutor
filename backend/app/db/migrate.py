@@ -67,11 +67,11 @@ def _has_index(table: str, index: str):
 
 
 def _provider_pricing_removed(insp) -> bool:
-    """c5d7e9a13b28 代（iter 356 删每卡计价列，最新 head）特征：study_units 有 node_sids
+    """c5d7e9a13b28 代（iter 356 删每卡计价列）特征：study_units 有 node_sids
     （≥f0a2c5d839b1 基线）且 llm_provider_profiles 已无 price_input_per_mtok 列。
 
     删列迁移无"新增"特征，故用「较新基线 + 该列已不存在」组合识别——既能把最新
-    create_all 库直接 stamp 到 head（upgrade 无操作），又不误命中「price 列仍在的
+    create_all 库直接 stamp 到对应版本（upgrade 无操作），又不误命中「price 列仍在的
     d8a2f5c91b34 代库」（那种库列仍在 -> 不命中 -> 落到下一探针 stamp d8a2f5c91b34，
     upgrade 再跑 c5d7e9a13b28 删列）。
     """
@@ -80,10 +80,22 @@ def _provider_pricing_removed(insp) -> bool:
     return not _has_column("llm_provider_profiles", "price_input_per_mtok")(insp)
 
 
+def _api_usage_composite_indexed(insp) -> bool:
+    """e8c4a1f63b02（iter 369 head，api_usage(user_id, created_at) 复合索引）特征：
+    c5d7e9a13b28 代基线 + 该索引已建（当前模型 create_all 的库）。无索引的旧库
+    不命中 -> 落到下一探针 stamp c5d7e9a13b28，upgrade 经 if_not_exists 补建。
+
+    此前误判「加索引迁移无需探针」：当前模型 create_all 的新库会被 stamp 到
+    c5d7e9a13b28（落后一个版本），虽因迁移幂等而无实害，但版本表失真——后续若
+    有非幂等迁移挂在其上，旧库升级路径即被污染。
+    """
+    if not _provider_pricing_removed(insp):
+        return False
+    return _has_index("api_usage", "ix_api_usage_user_created")(insp)
+
+
 _REVISION_PROBES = [
-    # iter 369：e8c4a1f63b02（api_usage 复合索引）为加索引迁移——无索引的 c5d7e9a13b28
-    # 代旧库 stamp 到 c5d7e9a13b28 后 upgrade 会正常补建；有索引的 create_all 新库由
-    # 迁移内 if_not_exists 幂等，无需单独探针。
+    ("e8c4a1f63b02", _api_usage_composite_indexed),  # iter 369 api_usage 复合索引（head）
     ("c5d7e9a13b28", _provider_pricing_removed),  # iter 356 删每卡计价列
     # iter 356：price 列仍在 = 旧库已到 d8a2f5c91b34 代；stamp 后 upgrade 跑 c5d7e9a13b28 删列
     ("d8a2f5c91b34", _has_column("llm_provider_profiles", "price_input_per_mtok")),
