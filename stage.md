@@ -38,6 +38,13 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R38（2026-10-20，Python v1 深度审计第三十五轮「iter 395」，🟡 进行中——过夜档 soak 在跑 + 扫尾已交付）**：同一 /goal 第三十五遍——**过夜档 soak 启动（SOAK_MINUTES=480）+ 零散组件扫尾并行**：
+
+- **过夜档 soak（tests/soak_overnight.py，复用 R32 基建）**：已于本机后台启动（2026-10-20 05:35，uvicorn :10819，流量 472 分钟 + 空闲 8 分钟，读间隔 3s/churn 300s/维护 120s；起跑即健康通过 + SSE 双流建连 + 采样中）。断言面：零 5xx、SSE 心跳不断 + churn 100% 重连、RSS 流量相漂移 ≤48MB / 空闲相斜率 ≤12MB、句柄/线程/任务斜率、全表零增长 + notes 净零、WAL ≤4MB 无单调增长。**结果由后续轮次收尾补记**（8 小时完成后）。
+- **零散组件扫尾（六组件精读，1 缺陷修复）**：① ProgressBoard——进度加载失败错误卡无重试路径（此前依赖 refreshToken 联动或重挂载），补 retryTick + 重试按钮（与 R31 Chat / R36 阅读器/材料弹窗口径统一）。其余五组件干净留档：HeaderSearch（防抖+abort iter 370/IME 组合态/`/` 劫持防护/combobox ARIA）、ShortcutsHelp（Portal 修复 iter 346 F3/`?` 劫持防护）、UsageMeter（失败静默不渲染，非关键 widget 可接受）、CheckinCalendar（月历数学/跨年归一/汇总口径全对）、FocusTimer（终点时间戳防漂移/暂停冻结/AudioContext 手势解锁静默降级/title 分层 iter 371/onComplete ref iter 365 E4/卸载资源全清）。
+- **门禁**：ruff 全绿 + 全量 pytest 1461 通过/1 跳过 + 前端 tsc/build 绿（soak 独立数据目录不与门禁互扰）。
+- **下一步**：soak 完成后收尾补记（结果断言 + 证据留档）；或滚动审计续（候选：契约漂移复跑；或回 M1 剩余——多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+
 **iter R37（2026-10-19，Python v1 深度审计第三十四轮「iter 394」，✅ 完成）**：同一 /goal 第三十四遍——**kb/知识库文档链专项（后端 kb.py 全链 + 前端 kb 族组件）**。深审计型轮次：链路经 iter 212-372 多轮打磨质量高，1 处交互缺陷修复 + 1 个行为级测试缺口补齐，全量 1461 门禁绿：
 
 - **审计范围**：后端 kb.py（1095 行全读——upload 三段式 pending/confirmed/parsed 状态机、per-doc 解析互斥 + rowid 复用防护（iter 247）、原件读取 R20 路径越界防线、删除防解析中 409、孤儿清理（commit 失败/解析中被删 unlink）、问答快照自包含（citations 落 title 不落外链）、导出 spool 流式、generate 逐文档复制 + 异常回滚清目录）；前端 HomeKbGenerate / KbDocsView（796 行）/ KbViewerModal / （R36 已修的 KbChatPanel）。

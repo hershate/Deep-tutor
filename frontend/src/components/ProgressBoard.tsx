@@ -218,6 +218,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
   const [error, setError] = useState('')
   const [opError, setOpError] = useState('')
   const [busyNode, setBusyNode] = useState('')
+  const [retryTick, setRetryTick] = useState(0) // iter 395（R38）：加载失败重试（refreshToken 联动外的前端自主恢复）
   const [verifyNode, setVerifyNode] = useState<ProgressNode | null>(null) // iter 346（F10 #6）
 
   useEffect(() => {
@@ -239,7 +240,7 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
     return () => {
       cancelled = true
     }
-  }, [planId, refreshToken])
+  }, [planId, refreshToken, retryTick])
 
   async function setStatus(node: ProgressNode, status: ProgressStatus) {
     if (status === node.status || busyNode) return
@@ -273,6 +274,12 @@ export default function ProgressBoard({ planId, refreshToken = 0, onChanged }: P
     return (
       <div role="alert" className="animate-fade-in rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
+        <button
+          onClick={() => setRetryTick((n) => n + 1)}
+          className="ml-2 font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
+        >
+          重试
+        </button>
       </div>
     )
   if (nodes.length === 0) return null
