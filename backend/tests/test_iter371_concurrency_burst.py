@@ -10,7 +10,6 @@ ASGITransport 直连应用，8 个虚拟用户并发执行建会话/改名/列�
 
 import asyncio
 
-import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
