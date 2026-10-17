@@ -499,10 +499,17 @@ def _unit_content_disposition(filename_utf8: str, filename_ascii: str) -> str:
     return f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{quote(filename_utf8)}"
 
 
+_CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _safe_unit_filename(name: str) -> str:
-    """文件名清洗：剔除 Windows/zip 非法符，限长 50（与 plans.py _safe_download_name 同口径）。"""
-    cleaned = "".join("_" if c in '\\/:*?"<>|' else c for c in name).strip(". ") or "单元"
+    """文件名清洗：剔除 Windows/zip 非法符与控制字符（LLM 输出的标题可含换行），限长 50
+    （与 plans.py _safe_download_name 同口径）。"""
+    cleaned = _CTRL_CHARS_RE.sub("", "".join("_" if c in '\\/:*?"<>|' else c for c in name)).strip(". ") or "单元"
     return cleaned[:50]
+
+
+_UNIT_EXPORT_RATE_PER_MIN = 12  # 单元 PPT 导出限流（与 exports.py / plans.py 导出同口径，共用 export:{uid} 键）
 
 
 @router.get("/{unit_id}/export")
@@ -518,10 +525,14 @@ async def export_unit_slides(
     LLM 生成 SlideSpec（无 key/失败降级 default_spec_from_unit 确定性按 ### 切分）。
     返回自包含 HTML 附件（前端 Blob 下载，浏览器打开即演示，无需额外文件服务/鉴权）。
     LLM 用量计入 api_usage / 日预算（与 _export_slides 同口径）。
+    iter 369：LLM 两阶段包 llm_task_slot（与 _export_slides 同口径——此前本端点绕过
+    全局背压且 GET 零限流）；内容读移 to_thread。
     """
     fmt = (format or "html").lower()
     if fmt != "html":
         raise ApiError("invalid_format", f"不支持的导出格式：{format}（仅支持 html）", status=400)
+    if not limiter.check(f"export:{user.id}", _UNIT_EXPORT_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"导出限每分钟 {_UNIT_EXPORT_RATE_PER_MIN} 次，请稍后再试")
 
     unit = _owned_unit_or_404(db, unit_id, user)
     session_id = unit.plan.session_id
@@ -530,7 +541,7 @@ async def export_unit_slides(
     content_md = ""
     if unit.materials:
         try:
-            content_md = read_unit_content(unit.materials[0].content_md_path)
+            content_md = await asyncio.to_thread(read_unit_content, unit.materials[0].content_md_path)
         except OSError:
             # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
             log.warning("单元 PPT 导出：单元 %s 内容文件缺失 path=%s", unit.id, unit.materials[0].content_md_path)
@@ -562,9 +573,16 @@ async def export_unit_slides(
     )
     # iter 359 续：LLM 两阶段——build 生成草稿 + review 审校修正（格式/内容/分页），
     # 任一成功用 LLM 产物，两者皆败或无 key 才确定性兜底（用户反馈硬模板格式不对）。
-    spec, metadatas, degraded = await generate_unit_slides_spec(
-        unit.title or "自学单元", content_md, ctx, session_id=str(session_id), unit_id=str(unit_id)
-    )
+    # iter 369：包全局 LLM 背压槽；进入前释放读快照（槽等待/LLM 期间不持读事务，
+    # 同 kb chat / materials._store 口径）。快照所需属性先取_plain值，rollback 后不再碰 ORM。
+    unit_title = unit.title or "自学单元"
+    db.rollback()
+    from app.core.concurrency import llm_task_slot
+
+    async with llm_task_slot():
+        spec, metadatas, degraded = await generate_unit_slides_spec(
+            unit_title, content_md, ctx, session_id=str(session_id), unit_id=str(unit_id)
+        )
 
     # LLM 用量计入 api_usage（日预算统计口径完整；确定性兜底零用量不入库）
     if any(m.tokens_in or m.tokens_out for m in metadatas):
@@ -579,7 +597,7 @@ async def export_unit_slides(
             udb.close()
 
     html = render_slides_html(spec, base_template)
-    safe_title = _safe_unit_filename(unit.title or "自学单元")
+    safe_title = _safe_unit_filename(unit_title)
     headers = {
         "Content-Disposition": _unit_content_disposition(f"{safe_title}.html", f"unit-{unit_id}.html")
     }

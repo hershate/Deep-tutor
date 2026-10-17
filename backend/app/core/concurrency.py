@@ -76,9 +76,17 @@ def llm_task_slot() -> Any:
 
 
 def webhook_slot() -> Any:
-    """Webhook 投递槽：限 >0 返回信号量（超额排队）；否则占位。防 100 用户 × webhook
+    """Webhook 投递槽：限 >0 返回信号量（acquire 排队）；否则占位。防 100 用户 × webhook
     同时触发打满出站连接/文件描述符。"""
     sem = _loop_sem("webhook", settings.max_concurrent_webhook_deliveries)
+    return sem if sem is not None else _NULL_SLOT
+
+
+def search_fetch_slot() -> Any:
+    """搜索引擎抓取槽（iter 369）：bing_web 免 Key 抓取的进程级上界。此前并发上界只有
+    主检索 pipeline 内的局部信号量（每次调用各一个），材料流 3 worker × 多用户叠加时对
+    cn.bing.com 的并发抓取无界——易触发反爬（验证码页）。跨 pipeline/材料流共享。"""
+    sem = _loop_sem("search_fetch", settings.max_concurrent_search_fetches)
     return sem if sem is not None else _NULL_SLOT
 
 

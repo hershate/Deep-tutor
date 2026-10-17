@@ -101,8 +101,17 @@ def _robots_put(host: str, allowed: bool) -> None:
     _robots_cache[host] = (time.monotonic() + _ROBOTS_TTL, allowed)
 
 
+# iter 369：robots 抓取改流式 + 字节上限——此前非流式裸读全量进内存，攻击者 host
+# 返回巨型 robots.txt（5s 超时内高速链路可达 GB 级）可打内存尖峰（正文/搜索页均有上限，唯 robots 裸读）。
+_ROBOTS_MAX_BYTES = 65536
+
+
 async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
-    """按 robots.txt 判定是否允许抓取该 URL；robots 获取/解析失败 -> 放行（可达性自会判定）。"""
+    """按 robots.txt 判定是否允许抓取该 URL；robots 获取/解析失败 -> 放行（可达性自会判定）。
+
+    流式抓取 ≤64KB 前缀解析（robots 规则通常在前部，超长无解析意义；截断方向安全——
+    至多误判为不允许抓取该 host，不会误放行）。
+    """
     parsed = urlparse(url)
     host = parsed.netloc
     hit = _robots_cache.get(host)
@@ -110,11 +119,16 @@ async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
         return hit[1]
     allowed = True
     try:
-        resp = await client.get(f"{parsed.scheme}://{host}/robots.txt", timeout=5.0)
-        if resp.status_code == 200:
-            rp = urllib.robotparser.RobotFileParser()
-            rp.parse(resp.text.splitlines())
-            allowed = rp.can_fetch(_USER_AGENT, url)
+        async with client.stream("GET", f"{parsed.scheme}://{host}/robots.txt", timeout=5.0) as resp:
+            if resp.status_code == 200:
+                buf = b""
+                async for chunk in resp.aiter_bytes(8192):
+                    buf += chunk
+                    if len(buf) >= _ROBOTS_MAX_BYTES:
+                        break
+                rp = urllib.robotparser.RobotFileParser()
+                rp.parse(buf[:_ROBOTS_MAX_BYTES].decode("utf-8", errors="replace").splitlines())
+                allowed = rp.can_fetch(_USER_AGENT, url)
     except httpx.HTTPError:
         pass
     _robots_put(host, allowed)  # iter 236：经有界写入（FIFO 上界）

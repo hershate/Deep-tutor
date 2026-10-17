@@ -976,7 +976,9 @@ async def chat_with_kb(
             .limit(_CHAT_DEFAULT_DOCS)
         ).all()
 
-    payload, omitted = _assemble_chat_context(list(docs))
+    # iter 369：组装含最多 20 篇 × ~500KB 同步文件读，移 to_thread 防阻塞事件循环
+    # （docs 为已加载 ORM 对象快照 list，_read_doc_text 仅取已载属性，不触碰 Session）
+    payload, omitted = await asyncio.to_thread(_assemble_chat_context, list(docs))
     if not payload:
         raise ApiError("empty_content", "知识库暂无可用文档（请先上传文档）")
 

@@ -614,7 +614,8 @@ async def _bing_web_search(query: str, count: int = 5, key: str = "") -> list[di
         async with client.stream("GET", BING_WEB_ENDPOINT, headers=BING_WEB_HEADERS, params=params) as resp:
             resp.raise_for_status()
             host = urlparse(str(resp.url)).hostname or ""
-            if not host.endswith("bing.com"):
+            # iter 369：endswith("bing.com") 会被 evilbing.com/notbing.com 等后缀域绕过——改精确域判定
+            if host != "bing.com" and not host.endswith(".bing.com"):
                 raise ValueError(f"重定向到非 Bing 域: {host}")
             content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type:
@@ -643,11 +644,19 @@ _ENGINE_FUNCS = {"bing_api": _bing_api_search_with_settings, "bing_web": _bing_w
 
 
 async def _search_web(query: str, engine: str, count: int = 5, key: str = "") -> list[dict]:
-    """统一检索调度入口（测试 monkeypatch seam）。key 为有效 Bing Key（免 Key 引擎忽略）。"""
+    """统一检索调度入口（测试 monkeypatch seam）。key 为有效 Bing Key（免 Key 引擎忽略）。
+
+    iter 369：进程级抓取槽（concurrency.search_fetch_slot）——此前 _SEARCH_CONCURRENCY
+    只是 _run_web_queries 每次调用的局部信号量（仅主 pipeline），材料流 3 worker × 多用户
+    叠加时对 cn.bing.com 的并发抓取无进程上界（模块注释自述并发过高易触发反爬）。
+    """
+    from app.core.concurrency import search_fetch_slot
+
     func = _ENGINE_FUNCS.get(engine)
     if func is None:
         raise ValueError(f"未知搜索引擎: {engine}")
-    return await func(query[:MAX_QUERY_CHARS], count=count, key=key)
+    async with search_fetch_slot():
+        return await func(query[:MAX_QUERY_CHARS], count=count, key=key)
 
 
 MAX_PER_UNIT = 3  # 单单元补充资料默认上限（iter 48，plan/07 §三 步骤 2）；iter 360 调用方可按单元复杂度动态传入

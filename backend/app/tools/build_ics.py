@@ -71,6 +71,10 @@ def build_ics(plan_id: int, content: dict, now: datetime | None = None) -> tuple
     ]
     events = 0
     skipped = 0
+    # iter 369：UID 按日稳定（同方案同日重导出 -> 同 UID，日历软件按 UID 幂等更新）。
+    # 此前 UID 含条目下标 i：方案重生成/排期增删后重导出，同日 i 平移 -> 新 UID ->
+    # 日历按新事件**追加**，用户日历出现重复学习日。同日多条目以出现序号区分。
+    day_seen: dict[str, int] = {}
     for i, item in enumerate(schedule):
         if not isinstance(item, dict):
             skipped += 1
@@ -96,9 +100,14 @@ def build_ics(plan_id: int, content: dict, now: datetime | None = None) -> tuple
             desc_parts.append(f"预计时长：{est} 分钟")
         desc = "\n".join(desc_parts) or "学习日"
 
+        day_key = day.isoformat()
+        nth = day_seen.get(day_key, 0)
+        day_seen[day_key] = nth + 1
+        uid_day = day_key if nth == 0 else f"{day_key}-{nth + 1}"
+
         event = [
             "BEGIN:VEVENT",
-            f"UID:dt-{plan_id}-{i}-{day.isoformat()}@deep-tutor",
+            f"UID:dt-{plan_id}-{uid_day}@deep-tutor",
             f"DTSTAMP:{dtstamp}",
             f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}",
             "SUMMARY:" + _escape(summary),

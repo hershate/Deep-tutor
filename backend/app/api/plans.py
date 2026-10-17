@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -38,6 +39,7 @@ from app.api.sse_utils import (
     format_sse_frame as _sse,
 )
 from app.core.credentials import resolve_bing_api_key
+from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
 from app.db.base import SessionLocal
@@ -2109,10 +2111,14 @@ async def export_materials(
     - md：所有单元拼成单个 Markdown 文件
     - pdf：拼成单个 PDF（weasyprint 不可用或渲染超时 -> 降级 md + X-Export-Warning 头）
     - html：每单元一个自包含 HTML 幻灯片（借助 ppt-slide-builder）打包成 zip
-    单元内容经 read_unit_content 自动串联拆分子文件；无单元 -> 404。"""
+    单元内容经 read_unit_content 自动串联拆分子文件；无单元 -> 404。
+    iter 369：与 POST /api/export 同口径限流（html 格式含 N 单元 × 2 次 LLM 调用，
+    此前 GET 端点零限流）；md/zip 的文件读与打包移 to_thread（防大方案导出阻塞事件循环）。"""
     fmt = (format or "zip").lower()
     if fmt not in {"zip", "md", "pdf", "html"}:
         raise ApiError("invalid_format", f"不支持的导出格式：{format}（支持 md/pdf/zip/html）", status=400)
+    if not limiter.check(f"export:{user.id}", _EXPORTS_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"导出限每分钟 {_EXPORTS_RATE_PER_MIN} 次，请稍后再试")
 
     plan, content = _plan_or_404(db, plan_id, user)
     units = (
@@ -2126,13 +2132,16 @@ async def export_materials(
 
     topic = (content.get("intent") or {}).get("topic") or "学习方案"
     safe_topic = _safe_download_name(topic)
+    items = _unit_export_items(units)  # ORM 懒加载在事件循环线程完成，其后不再触碰 ORM
 
     if fmt == "zip":
-        return _materials_zip_response(units, plan.session_id, plan_id, safe_topic)
+        return await asyncio.to_thread(_materials_zip_response, items, plan.session_id, plan_id, safe_topic)
     if fmt == "html":
-        return await _materials_html_zip_response(units, plan.session_id, plan_id, safe_topic, user.id)
+        # 释放读快照（槽等待 + 逐单元 LLM 期间不持读事务，同 kb chat / materials._store 口径）
+        db.rollback()
+        return await _materials_html_zip_response(items, plan.session_id, plan_id, safe_topic, user.id)
 
-    md = _materials_combined_md(units, plan.session_id, topic)
+    md = await asyncio.to_thread(_materials_combined_md, items, plan.session_id, topic)
 
     if fmt == "md":
         return _materials_file_response(
@@ -2186,31 +2195,46 @@ def _materials_file_response(
     return Response(content=body, media_type=media_type, headers=headers)
 
 
-def _materials_combined_md(units: list, session_id: int, topic: str) -> str:
+_EXPORTS_RATE_PER_MIN = 12  # 材料导出限流（与 exports.py POST /api/export 同口径，共用 export:{uid} 键）
+
+
+def _unit_export_items(units: list) -> list[tuple[int, str, str | None]]:
+    """(单元 id, 标题, 内容文件路径) 快照——ORM 懒加载在事件循环线程内完成，其后文件
+    IO/打包可安全交线程池（不跨线程触碰 SQLAlchemy Session）。"""
+    items: list[tuple[int, str, str | None]] = []
+    for u in units:
+        mats = u.materials
+        items.append((u.id, u.title or "自学单元", mats[0].content_md_path if mats else None))
+    return items
+
+
+def _materials_combined_md(items: list[tuple[int, str, str | None]], session_id: int, topic: str) -> str:
     """所有自学单元拼成单个 Markdown（iter 354 md/pdf 导出用）：
     标题 + index 路线图（如有）+ 每单元「## 单元 N：标题」分隔 + 内容
-    （read_unit_content 自动串联 .pN 拆分子文件）。"""
+    （read_unit_content 自动串联 .pN 拆分子文件）。纯 IO/CPU 函数（to_thread 执行）。"""
     parts: list[str] = [f"# {topic} — 自学材料", ""]
     index_md = _read_materials_index(session_id)
     if index_md:
         parts.extend([index_md.strip(), "", "---", ""])
-    for i, u in enumerate(units, 1):
+    for i, (_uid, title, path) in enumerate(items, 1):
         body = ""
-        if u.materials:
+        if path:
             try:
-                body = read_unit_content(u.materials[0].content_md_path)
+                body = read_unit_content(path)
             except OSError:
-                log.warning("导出材料：单元 %s 内容文件缺失", u.id)
-        parts.append(f"## 单元 {i}：{u.title}")
+                log.warning("导出材料：单元内容文件缺失 path=%s", path)
+        parts.append(f"## 单元 {i}：{title}")
         parts.append("")
         parts.append(body or "（本单元暂无内容）")
         parts.append("")
     return "\n".join(parts).strip() + "\n"
 
 
-def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_topic: str) -> Response:
+def _materials_zip_response(
+    items: list[tuple[int, str, str | None]], session_id: int, plan_id: int, safe_topic: str
+) -> Response:
     """全案自学材料 zip（iter 99 原逻辑抽出，format=zip 复用）：
-    00-路线图.md（index，如有）+ 每单元一个 md（按 order 编号）。"""
+    00-路线图.md（index，如有）+ 每单元一个 md（按 order 编号）。纯 IO/CPU 函数（to_thread 执行）。"""
     import io
     import zipfile
 
@@ -2219,19 +2243,16 @@ def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_top
         index_md = _read_materials_index(session_id)
         if index_md:
             zf.writestr("00-路线图.md", index_md)
-        for i, u in enumerate(units, 1):
+        for i, (_uid, title, path) in enumerate(items, 1):
             md = ""
-            if u.materials:
+            if path:
                 try:
-                    md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
+                    md = read_unit_content(path)  # 自动串联拆分子文件
                 except OSError:
-                    log.warning("导出材料：单元 %s 内容文件缺失", u.id)
-            zf.writestr(
-                f"{i:02d}-{_safe_download_name(u.title)}.md",
-                md or f"# {u.title}\n\n（本单元暂无内容）",
-            )
+                    log.warning("导出材料：单元内容文件缺失 path=%s", path)
+            zf.writestr(f"{i:02d}-{_safe_download_name(title)}.md", md or f"# {title}\n\n（本单元暂无内容）")
     filename = f"{safe_topic}-自学材料.zip"
-    log.info("材料导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(units), len(buf.getvalue()) / 1024)
+    log.info("材料导出：plan=%s 单元=%d 大小=%.1fKB", plan_id, len(items), len(buf.getvalue()) / 1024)
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
@@ -2240,15 +2261,16 @@ def _materials_zip_response(units: list, session_id: int, plan_id: int, safe_top
 
 
 async def _materials_html_zip_response(
-    units: list, session_id: int, plan_id: int, safe_topic: str, user_id: int
+    items: list[tuple[int, str, str | None]], session_id: int, plan_id: int, safe_topic: str, user_id: int
 ) -> Response:
     """全案自学材料 HTML 幻灯片导出（iter 359 续，借助 ppt-slide-builder）：
 
     每单元一个自包含 HTML 幻灯片打包成 zip（01-单元名.html …）。**LLM 两阶段**生成
     （build_unit_slides 草稿 + review_unit_slides 审校修正）——用户反馈硬模板格式不对，
     改为 LLM 检查并修正（任一阶段成功用 LLM 产物；无 key/皆败才确定性兜底）。
-    模板缺失 -> internal_error（vendored，正常不应发生）。逐单元串行（LLM 调用有序、可测）。
-    """
+    模板缺失 -> internal_error（vendored，正常不应发生）。逐单元串行（LLM 调用有序、可测）；
+    每单元 LLM 调用包 llm_task_slot（iter 369：与 _export_slides 同口径——此前本端点
+    每单元 2 次 LLM × N 单元完全绕过全局背压），文件读 to_thread。"""
     import io
     import zipfile
 
@@ -2279,20 +2301,21 @@ async def _materials_html_zip_response(
     all_metadatas = []
     entries: list[tuple[str, str]] = []
     degraded_count = 0
-    for i, u in enumerate(units, 1):
+    for i, (uid, title, path) in enumerate(items, 1):
         md = ""
-        if u.materials:
+        if path:
             try:
-                md = read_unit_content(u.materials[0].content_md_path)  # 自动串联拆分子文件
+                md = await asyncio.to_thread(read_unit_content, path)
             except OSError:
-                log.warning("导出 HTML：单元 %s 内容文件缺失", u.id)
-        spec, metas, degraded = await generate_unit_slides_spec(
-            u.title or "自学单元", md, ctx, session_id=str(session_id), unit_id=str(u.id)
-        )
+                log.warning("导出 HTML：单元内容文件缺失 path=%s", path)
+        async with llm_task_slot():
+            spec, metas, degraded = await generate_unit_slides_spec(
+                title, md, ctx, session_id=str(session_id), unit_id=str(uid)
+            )
         all_metadatas.extend(metas)
         if degraded:
             degraded_count += 1
-        entries.append((f"{i:02d}-{_safe_download_name(u.title)}.html", render_slides_html(spec, base_template)))
+        entries.append((f"{i:02d}-{_safe_download_name(title)}.html", render_slides_html(spec, base_template)))
 
     # LLM 用量计入 api_usage（日预算统计口径完整）
     if any(m.tokens_in or m.tokens_out for m in all_metadatas):
@@ -2312,7 +2335,7 @@ async def _materials_html_zip_response(
     log.info(
         "材料 HTML 导出：plan=%s 单元=%d 降级=%d 大小=%.1fKB",
         plan_id,
-        len(units),
+        len(items),
         degraded_count,
         len(buf.getvalue()) / 1024,
     )
@@ -2323,9 +2346,13 @@ async def _materials_html_zip_response(
     )
 
 
+_CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _safe_download_name(name: str) -> str:
-    """文件名清洗：剔除 Windows/zip 非法字符，限长 50。"""
-    cleaned = "".join("_" if c in '\\/:*?"<>|' else c for c in name).strip(". ") or "材料"
+    """文件名清洗：剔除 Windows/zip 非法字符与控制字符（LLM 输出的标题可含换行——
+    控制字符进 zip 条目名会让解压端异常），限长 50。"""
+    cleaned = _CTRL_CHARS_RE.sub("", "".join("_" if c in '\\/:*?"<>|' else c for c in name)).strip(". ") or "材料"
     return cleaned[:50]
 
 

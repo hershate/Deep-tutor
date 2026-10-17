@@ -105,8 +105,12 @@ async def export_plan_endpoint(
 
     content = plan.content
     if not content and plan.content_path:
+        # 溢出方案 >512KB（上界不封顶）——同步读+json.loads 移 to_thread，防阻塞事件循环
+        def _load_overflow() -> dict:
+            return json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
+
         try:
-            content = json.loads(Path(plan.content_path).read_text(encoding="utf-8"))
+            content = await asyncio.to_thread(_load_overflow)
         except Exception:  # noqa: BLE001
             content = {}
     if not content:
@@ -216,7 +220,7 @@ async def _export_pdf(plan_id: int, session_id: int, content: dict) -> dict:
             "安装：pip install weasyprint（Windows 另需 GTK 运行时）"
         )
         return result
-    md = render_markdown(content)
+    md = await asyncio.to_thread(render_markdown, content)
     try:
         # 病态内容下 weasyprint 渲染可挂起——wait_for 释放请求（线程不可杀，
         # 但有 12 次/分限流兜底，线程泄漏有界）；超时降级 md 而非 500
