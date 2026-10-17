@@ -123,10 +123,18 @@ def test_cleanup_orphan_run_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(ws.settings, "data_dir", str(tmp_path))
     # r 仍 running -> scratch 保留
     ws.write_file(r.id, "in-progress.md", "x")
-    # 造一个孤儿 run 目录（DB 无对应 running run）
+    # 造一个孤儿 run 目录（DB 无对应 running run）；iter 368 起孤儿删除带 24h mtime
+    # 冷却（备份恢复窗口保护）——回拨到窗外使其成为可删候选
     orphan = tmp_path / "runs" / "999999" / "workspace"
     orphan.mkdir(parents=True)
     (orphan / "stale.md").write_text("旧")
+    import os
+    import time
+
+    old = time.time() - 25 * 3600
+    os.utime(tmp_path / "runs" / "999999", (old, old))
+    os.utime(orphan, (old, old))
+    os.utime(orphan / "stale.md", (old, old))
     from app.core.maintenance import cleanup_orphan_run_dirs
 
     removed = cleanup_orphan_run_dirs(str(tmp_path))
