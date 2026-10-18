@@ -38,12 +38,12 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
-**iter R38（2026-10-20，Python v1 深度审计第三十五轮「iter 395」，🟡 进行中——过夜档 soak 在跑 + 扫尾已交付）**：同一 /goal 第三十五遍——**过夜档 soak 启动（SOAK_MINUTES=480）+ 零散组件扫尾并行**：
+**iter R38（2026-10-20，Python v1 深度审计第三十五轮「iter 395」，✅ 完成）**：同一 /goal 第三十五遍——**过夜档 soak（SOAK_MINUTES=480 真实进程 8 小时长窗全绿）+ 零散组件扫尾**：
 
-- **过夜档 soak（tests/soak_overnight.py，复用 R32 基建）**：已于本机后台启动（2026-10-20 05:35，uvicorn :10819，流量 472 分钟 + 空闲 8 分钟，读间隔 3s/churn 300s/维护 120s；起跑即健康通过 + SSE 双流建连 + 采样中）。断言面：零 5xx、SSE 心跳不断 + churn 100% 重连、RSS 流量相漂移 ≤48MB / 空闲相斜率 ≤12MB、句柄/线程/任务斜率、全表零增长 + notes 净零、WAL ≤4MB 无单调增长。**结果由后续轮次收尾补记**（8 小时完成后）。
+- **过夜档 soak（tests/soak_overnight.py，R32 基建，480 分钟档）——小时级以上长窗证据面补齐，全部断言通过**：请求 9295 全 200（唯一 net_err=1 为 churn 流断开瞬间的预期网络错误，非 5xx）；SSE 常开双流各 1918 心跳、最大间隙 15s（断言 ≤45s）、churn 流 92 次重连 100% 成功；**RSS 131.0→136.2MB（8 小时 +5.2MB，断言 ≤48）**；句柄 336→329（-7 无泄漏）；asyncio 任务 25→19、OS 线程 3→3（无任务/线程累积）；notes 净零（CRUD 平衡）、api_usage 零增长；WAL 收尾 0.02MB（checkpoint 持续生效）。此前证据链：R32 40 分钟中窗 → 本轮 480 分钟过夜档，时间维度外推闭合。
 - **零散组件扫尾（六组件精读，1 缺陷修复）**：① ProgressBoard——进度加载失败错误卡无重试路径（此前依赖 refreshToken 联动或重挂载），补 retryTick + 重试按钮（与 R31 Chat / R36 阅读器/材料弹窗口径统一）。其余五组件干净留档：HeaderSearch（防抖+abort iter 370/IME 组合态/`/` 劫持防护/combobox ARIA）、ShortcutsHelp（Portal 修复 iter 346 F3/`?` 劫持防护）、UsageMeter（失败静默不渲染，非关键 widget 可接受）、CheckinCalendar（月历数学/跨年归一/汇总口径全对）、FocusTimer（终点时间戳防漂移/暂停冻结/AudioContext 手势解锁静默降级/title 分层 iter 371/onComplete ref iter 365 E4/卸载资源全清）。
 - **门禁**：ruff 全绿 + 全量 pytest 1461 通过/1 跳过 + 前端 tsc/build 绿（soak 独立数据目录不与门禁互扰）。
-- **下一步**：soak 完成后收尾补记（结果断言 + 证据留档）；或滚动审计续（候选：契约漂移复跑；或回 M1 剩余——多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
+- **下一步**：滚动审计续（候选：契约漂移复跑；或回 M1 剩余——多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）。
 
 **iter R37（2026-10-19，Python v1 深度审计第三十四轮「iter 394」，✅ 完成）**：同一 /goal 第三十四遍——**kb/知识库文档链专项（后端 kb.py 全链 + 前端 kb 族组件）**。深审计型轮次：链路经 iter 212-372 多轮打磨质量高，1 处交互缺陷修复 + 1 个行为级测试缺口补齐，全量 1461 门禁绿：
 
