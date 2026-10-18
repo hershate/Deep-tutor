@@ -38,6 +38,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R40（2026-10-20，Python v1 深度审计第三十七轮「iter 397」，✅ 完成——审计覆盖闭合盘点）**：同一 /goal 第三十七遍——**全仓『文件 × R1-R39 已审计轮次』覆盖映射盘点 + 最后补漏精读**。零缺陷（补漏面全部干净），**滚动审计证据面宣告闭合**：
+
+- **盘点方法**：全仓 88 后端 py（非 init）+ 68 前端 ts/tsx（非 vite-env）逐文件建立「stage.md 轮次日志提及 × note/ 领域笔记提及」矩阵（提及是精读的保守下界；矩阵假阴性只会高估未覆盖面，不漏真缺口）。
+- **后端零 UNTOUCHED**：全部文件至少有轮次日志或领域笔记覆盖（note/ 01-11 为 2026-10-12 全项目系统分析）。8 个仅笔记提及文件本轮补核：sse_utils（SSE 无状态叶子，帧规范干净）、ratelimit（iter 246 锁原子性 + 惰性淘汰 + key 洪泛兜底，干净）本轮精读；generate_study_materials 为 R36 深改对象；anthropic_provider/plugin_provider（LLM 供应商层，结构快扫 + iter 380 异常注入六场景端点级钉死行为面）、migrate（note×7）、build_ics/build_plan_slides（export 端点测试覆盖）由行为级证据兜底。
+- **前端 5 个 UNTOUCHED 本轮全部补读**：modalEsc（全局弹层栈基件——栈生命周期/active 切换/closeRef 防陈旧/splice 防错位，全对）、tabs（WAI-ARIA 键盘模式）、homeDashboard（4 widget 无数据自隐藏模式一致）、EmptyState/Skeleton（哑组件）——全部干净；PlanOutline（仅笔记提及）一并补读（parent_id 孤儿节点归根防丢失 ✓）。
+- **行为级兜底面复核**：158 路由 × 授权矩阵两轮零漂移（R18/R33）+ 契约面两轮零漂移（R30/R39）+ 1461 测试全绿 + 四大真实进程演练（热管理风暴/泄漏巡检/40 分钟中窗/480 分钟过夜档 soak）+ 恢复演练互斥双方向——API 行为面的证据与文件精读面正交互补。
+- **闭合结论**：R1-R40 后全仓每文件至少有「轮次精读 | 领域笔记分析+行为级测试覆盖 | 本轮补漏精读」三者之一；核心数据操作/安全面（backup/kb/materials/plans/users/credentials/plugins、storage 路径安全、ratelimit/locks/concurrency 基件、taskEngine/SSE 前端交互）均有轮次级深读 + 回归钉死。**Python v1 滚动审计证据面穷尽，后续转入 M1 剩余项**（多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行）；新变更随时可按既有门禁与脚本复验。
+- **门禁**：本轮零代码变更；ruff 复跑绿；全量 1461 通过为 R38 门禁态且此后无代码变更（R39/R40 均零代码变更）。
+
 **iter R39（2026-10-20，Python v1 深度审计第三十六轮「iter 396」，✅ 完成）**：同一 /goal 第三十六遍——**契约漂移复跑（R30 基线 × R36-R38 变更面）**。零漂移零缺陷（变更全部在实现层，不触契约形状），审计证据闭合：
 
 - **双向契约零漂移**：contract_audit.py（158 路由）与 contract_frontend.py（61 接口/107 调用面）重提取后与 R30 基线 **byte-identical**（diff 0 行）——R36 的 plans.py 保位修复（`_insert_study_unit` order 参数化 + UnitPlan.orig_order）是内部实现层改动、R36-R38 前端修复全在组件内部（错误态按钮/重试逻辑），均不改 API 返回形状。
