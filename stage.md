@@ -38,6 +38,14 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R39（2026-10-20，Python v1 深度审计第三十六轮「iter 396」，✅ 完成）**：同一 /goal 第三十六遍——**契约漂移复跑（R30 基线 × R36-R38 变更面）**。零漂移零缺陷（变更全部在实现层，不触契约形状），审计证据闭合：
+
+- **双向契约零漂移**：contract_audit.py（158 路由）与 contract_frontend.py（61 接口/107 调用面）重提取后与 R30 基线 **byte-identical**（diff 0 行）——R36 的 plans.py 保位修复（`_insert_study_unit` order 参数化 + UnitPlan.orig_order）是内部实现层改动、R36-R38 前端修复全在组件内部（错误态按钮/重试逻辑），均不改 API 返回形状。
+- **重点核对（order 字段 × 前端消费一致性）**：`GET /plans/{plan_id}/materials` 契约 top=[index_md, units]、units 元素嵌套键集 [done, estimated_time, id, objectives, **order**, prerequisites, stage_index, title]——order 稳定收录；R36 修复只改 order 的**值语义**（重生成单元写回原 order 保位），不改键集。前端 StudyUnitMeta.order 消费（阅读器重写后按 order 定位新行）与契约一致。
+- **双向 diff 报告复跑**：重新生成的 contract_diff_report.txt 与 R30 版逐行一致（9 条既有分派项不变：AuthUser/AdminUser/SessionStatusDetail 等「遗漏」=提取器 AST 口径已知局限、quiz/wrong warning 与 pricing note 幽灵=R17 已分派、credentials 幽灵端点=动态拼接路径已知；无新增幽灵/遗漏条目）。
+- **门禁**：本轮零代码变更（工作区干净，契约基线 json 按 R30 惯例 gitignore 本地留存）；ruff 复跑绿；全量 pytest 1461 通过为 R38 门禁态且此后无代码变更。
+- **下一步**：滚动审计续（候选：回 M1 剩余——多实例 spike → 模块重命名 → 品牌化 → 门禁基线 → 冒烟产物，见 iter R1 下步行；或 R40 大轮次里程碑盘点）。
+
 **iter R38（2026-10-20，Python v1 深度审计第三十五轮「iter 395」，✅ 完成）**：同一 /goal 第三十五遍——**过夜档 soak（SOAK_MINUTES=480 真实进程 8 小时长窗全绿）+ 零散组件扫尾**：
 
 - **过夜档 soak（tests/soak_overnight.py，R32 基建，480 分钟档）——小时级以上长窗证据面补齐，全部断言通过**：请求 9295 全 200（唯一 net_err=1 为 churn 流断开瞬间的预期网络错误，非 5xx）；SSE 常开双流各 1918 心跳、最大间隙 15s（断言 ≤45s）、churn 流 92 次重连 100% 成功；**RSS 131.0→136.2MB（8 小时 +5.2MB，断言 ≤48）**；句柄 336→329（-7 无泄漏）；asyncio 任务 25→19、OS 线程 3→3（无任务/线程累积）；notes 净零（CRUD 平衡）、api_usage 零增长；WAL 收尾 0.02MB（checkpoint 持续生效）。此前证据链：R32 40 分钟中窗 → 本轮 480 分钟过夜档，时间维度外推闭合。
