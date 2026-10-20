@@ -70,7 +70,7 @@ def test_login_checks_account_bucket(client, monkeypatch):
 def test_test_provider_error_no_body_echo(client, auth_headers, monkeypatch):
     r = client.post(
         "/api/providers",
-        json={"name": "内网", "base_url": "http://192.168.1.1:8080", "api_key": "sk-x"},
+        json={"name": "中转", "base_url": "https://relay.example.com", "api_key": "sk-x"},
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text

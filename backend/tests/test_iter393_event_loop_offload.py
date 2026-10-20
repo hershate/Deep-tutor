@@ -269,16 +269,37 @@ def test_material_text_persists_parsed_text_file(client, auth_headers):
 
 
 def test_material_commit_failure_cleans_parsed_text(client, auth_headers, monkeypatch):
-    """提交失败：回滚 + 清理已落盘解析文本（异步化不得丢孤儿清理）。"""
+    """提交失败：回滚 + 清理已落盘解析文本（异步化不得丢孤儿清理）。
+
+    iter 394：材料文本落库路径改走 app.core.quota.guarded_commit_async
+    （检查 + 落盘 + 提交同锁同线程）。此处改用「提交阶段失败」的包装器模拟：
+    经**真实实现**完成 flush + 落盘后再让 commit 抛错——若只把整个守卫函数
+    替换为抛错，落盘从未发生，清理分支就成了空断言（iter 394 实测：该用例
+    曾因守卫入口改名而静默失效、回归失去护栏）。
+    """
     from app.api import materials as mat_mod
     from app.db import models
     from app.db.base import SessionLocal
     from pathlib import Path
 
-    async def _boom(db):
-        raise RuntimeError("模拟提交失败")
+    real_guarded = mat_mod.guarded_commit_async
 
-    monkeypatch.setattr(mat_mod, "commit_async", _boom)
+    class _FailCommitSession:
+        """委托真实 Session，仅让 commit() 失败（其余操作在真实会话上进行）。"""
+
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def commit(self):
+            raise RuntimeError("模拟提交失败")
+
+    async def _boom(db, obj, check, key, after_flush=None):
+        await real_guarded(_FailCommitSession(db), obj, check, key, after_flush=after_flush)
+
+    monkeypatch.setattr(mat_mod, "guarded_commit_async", _boom)
     sid = client.post("/api/sessions", json={"title": "iter393-fail"}, headers=auth_headers).json()[
         "session_id"
     ]

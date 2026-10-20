@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import contextlib
 
+import pytest
+
 BASE = "/api/providers"
 
 
@@ -523,6 +525,86 @@ def test_pat_min_length_16(client, auth_headers):
     assert r.status_code == 201, r.text
 
 
+# --- 决策一（iter 394）：开放模式 setup 端点仅回环客户端可调用 ----------------
+
+
+def test_setup_endpoints_loopback_only_in_open_mode(client, remote_client, monkeypatch):
+    """开放模式（无人设过口令）下 /setup 与 /setup/dismiss 仅回环客户端可调用。
+
+    这两个端点是唯一的「认领管理员」入口：开放给任意可达客户端 = 允许远程
+    抢占管理员口令（写 password_hash + 吊销 admin 的 JWT/PAT）或翻转全局
+    dismiss 状态。LAN 部署改用 .env 的 ADMIN_PASSWORD / AUTH_TOKEN。
+    """
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "")  # 开放模式
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")
+
+    r = remote_client.post("/api/setup", json={"password": "supersecret123"})
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "forbidden"
+    r = remote_client.post("/api/setup/dismiss")
+    assert r.status_code == 403, r.text
+
+    # 回环客户端放行
+    r = client.post("/api/setup/dismiss")
+    assert r.status_code == 200, r.text
+    r = client.post("/api/setup", json={"password": "supersecret123"})
+    assert r.status_code == 200, r.text
+
+
+def test_setup_endpoints_remote_allowed_when_authenticated(remote_client, auth_headers):
+    """已配置认证（非开放模式）-> 远程调用放行（管理员凭据即可）。
+
+    注：AUTH_TOKEN 且未配 ADMIN_PASSWORD 时库里无管理员账号，/setup 本就 403
+    （iter 367 的 _setup_caller 口径，与本次回环门禁无关）——此处造一个管理员。
+    """
+    _mk_user("boss", is_admin=True)
+    r = remote_client.post("/api/setup/dismiss", headers=auth_headers)
+    assert r.status_code == 200, r.text
+
+
+# --- 决策二（iter 394）：base_url 私网/环回/元数据拦截 ------------------------
+
+
+def test_provider_base_url_private_blocked(client, auth_headers):
+    """base_url 指向私网/环回/元数据 -> 422（默认拦截，防借服务探测内网）。"""
+    for url in (
+        "http://127.0.0.1:11434/v1",
+        "http://192.168.1.10:8080",
+        "http://10.0.0.5:8000",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]:8080",
+    ):
+        r = client.post(
+            BASE, json={"name": "内网", "base_url": url, "api_key": "sk-x"}, headers=auth_headers
+        )
+        assert r.status_code == 422, (url, r.text)
+
+
+def test_provider_base_url_private_allowed_by_switch(client, auth_headers, monkeypatch):
+    """ALLOW_PRIVATE_LLM_BASE_URL=1 -> 放行（本地模型服务 / 内网中转场景）。"""
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "allow_private_llm_base_url", True)
+    r = client.post(
+        BASE,
+        json={"name": "本地", "base_url": "http://127.0.0.1:11434/v1", "api_key": "sk-x"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+
+def test_setup_base_url_private_blocked(client, monkeypatch):
+    """首次设置向导的 base_url 同样受守卫（复用 providers._validate_base_url）。"""
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "")
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")
+    r = client.post("/api/setup", json={"base_url": "http://127.0.0.1:11434/v1"})
+    assert r.status_code == 422, r.text
+
+
 # --- P2-10：配额 check-then-act 竞态 ---------------------------------------
 
 
@@ -556,3 +638,91 @@ def test_credential_quota_not_bypassed_by_concurrency(client, auth_headers):
         assert db.query(models.CredentialProfile).count() == 20
     finally:
         db.close()
+
+
+# --- 决策二收尾：存量档案的调用期拒绝 + 启动告警 -----------------------------
+
+
+def _seed_active_profile(base_url: str) -> int:
+    """直接入库一个 active 供应商档案（绕过写时校验，模拟规则引入前的存量档案）。
+
+    使用**独立用户**：避免与既有夹具用户的 active 档案互相干扰
+    （get_provider 按用户取「任意 active 档案」，同用户多档案会让断言不确定）。
+    """
+    from app.db import models
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        user = User(name="iter394-legacy", username="iter394-legacy", password_hash="", is_admin=False)
+        db.add(user)
+        db.flush()
+        p = models.LlmProviderProfile(
+            user_id=user.id,
+            name="存量档案",
+            base_url=base_url,
+            api_key="sk-existing",
+            model="",
+            kind=None,
+            is_active=True,
+        )
+        db.add(p)
+        db.commit()
+        return user.id
+    finally:
+        db.close()
+
+
+def test_legacy_private_base_url_profile_rejected_at_call_time(monkeypatch):
+    """存量 active 档案 base_url 指向私网 -> 取 Provider 即拒绝（不等生成时才炸）。"""
+    from app.core import settings as settings_mod
+    from app.llm import get_provider
+
+    monkeypatch.setattr(settings_mod.settings, "allow_private_llm_base_url", False)
+    uid = _seed_active_profile("http://192.168.1.50:8080/v1")
+    with pytest.raises(RuntimeError) as exc:
+        get_provider(uid)
+    assert "base_url" in str(exc.value)
+
+
+def test_legacy_private_base_url_profile_allowed_by_switch(monkeypatch):
+    """ALLOW_PRIVATE_LLM_BASE_URL=1 -> 存量私网档案照常可用（本地模型服务场景）。"""
+    from app.core import settings as settings_mod
+    from app.llm import get_provider
+
+    monkeypatch.setattr(settings_mod.settings, "allow_private_llm_base_url", True)
+    uid = _seed_active_profile("http://127.0.0.1:11434/v1")
+    provider = get_provider(uid)
+    assert provider is not None
+
+
+def test_startup_warning_flags_private_active_profiles():
+    """启动告警须点名存量私网档案，且不误报公网档案。"""
+    import asyncio
+
+    from app.main import _private_provider_base_urls
+
+    hits = asyncio.run(
+        _private_provider_base_urls(
+            [
+                ("内网档", "http://192.168.1.50:8080/v1"),
+                ("元数据档", "http://169.254.169.254/latest/meta-data/"),
+                ("公网档", "https://api.anthropic.com"),
+            ]
+        )
+    )
+    assert len(hits) == 2, hits
+    assert any("内网档" in h for h in hits)
+    assert any("元数据档" in h for h in hits)
+    assert not any("公网档" in h for h in hits)
+
+
+def test_display_url_strips_credentials():
+    """日志展示 URL 必须剔除 userinfo（口令/token 不可进日志）。"""
+    from app.core.urlguard import display_url
+
+    shown = display_url("https://user:secret@api.example.com/v1")
+    assert "secret" not in shown and "user" not in shown
+    assert "api.example.com" in shown
+    assert display_url("https://api.example.com/v1") == "https://api.example.com/v1"
