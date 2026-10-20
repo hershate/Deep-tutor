@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_auth
+from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.settings import settings
@@ -30,8 +30,12 @@ _HTTPS_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def _mask(key: str) -> str:
-    """密钥掩码：仅末 4 位可见（不回显明文）。"""
-    return f"...{key[-4:]}" if len(key) >= 4 else "****"
+    """密钥掩码：仅末 4 位可见（不回显明文）。
+
+    iter 394：长度 <8 时整体掩码——此前 len>=4 即回显末 4 位，4~7 位密钥会被
+    **完整回显**（与「不回显明文」的口径矛盾；api_key 下限为 1 位）。
+    """
+    return f"...{key[-4:]}" if len(key) >= 8 else "****"
 
 
 def _out(p: models.LlmProviderProfile) -> dict:
@@ -54,11 +58,27 @@ def _validate_base_url(v: str) -> str:
 
 
 def _normalize_kind(v: str | None) -> str:
-    """规范化协议 kind：小写、去空白；'' / None -> ''（存 NULL，get_provider 视作 'anthropic'）。"""
+    """规范化协议 kind（小写、去空白）；'' / None -> ''（存 NULL，get_provider 视作 'anthropic'）。
+
+    仅用于**创建**（ProviderIn）：创建时未指定协议即默认 anthropic。
+    """
     if v is None:
         return ""
     k = v.strip().lower()
     return k
+
+
+def _normalize_kind_update(v: str | None) -> str | None:
+    """更新语义（iter 394）：None（含未传）-> 保留原值；'' -> 重置为 anthropic。
+
+    iter 394 修复：此前 ProviderUpdate 复用创建用的 _normalize_kind，None 被归一为 ''，
+    而更新分支判据是 `if body.kind is not None`（归一后恒真）-> **不传 kind 也会把档案
+    协议重置为 anthropic**：插件协议（iter 313 kind 扩展点）被静默改掉，与本字段
+    注释「None -> 保留原值」直接矛盾。更新须保留 None 语义，故与创建用归一函数分离。
+    """
+    if v is None:
+        return None
+    return v.strip().lower()
 
 
 class ProviderIn(BaseModel):
@@ -77,10 +97,10 @@ class ProviderUpdate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1, max_length=256)  # None -> 保留原值
     base_url: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)
-    kind: str | None = Field(default=None, max_length=64)  # None -> 保留原值；'' -> 重置为 anthropic
+    kind: str | None = Field(default=None, max_length=64)  # None/未传 -> 保留原值；'' -> 重置为 anthropic
 
     _check_url = field_validator("base_url")(_validate_base_url)
-    _norm_kind = field_validator("kind")(_normalize_kind)
+    _norm_kind = field_validator("kind")(_normalize_kind_update)
 
 
 def _owned_or_404(db: Session, profile_id: int, user: User) -> models.LlmProviderProfile:
@@ -190,7 +210,7 @@ def update_provider(
         p.model = body.model
     if body.api_key is not None:  # 不传 -> 保留原值
         p.api_key = body.api_key
-    if body.kind is not None:  # iter 313：不传 -> 保留；'' -> NULL（重置为 anthropic）
+    if body.kind is not None:  # iter 313/394：不传或 None -> 保留；'' -> NULL（重置为 anthropic）
         p.kind = body.kind or None
     try:
         db.commit()
@@ -244,6 +264,11 @@ async def test_provider(
     """连通性测试（iter 53）：用档案凭据发起一次最小 LLM 调用，返回 ok/error。
 
     不激活档案、不改任何状态；错误信息截断（防回显敏感内容）。
+
+    iter 394：补齐计费口径——本端点发起的是**真实计费 LLM 调用**（供应商照常计费），
+    但此前既不过 check_daily_budget 也不落 api_usage（其余计费端点均有）->
+    日预算对该调用失明、用量页/日统计不显示，属「计量不可绕过」原则的缺口。
+    绝对金额极小（max_tokens=8、5 次/min），但口径必须与其他计费端点一致。
     """
     # iter 364：限流（LLM 计费调用，120s 上限——防用户自我消耗额度）
     if not limiter.check(f"provider_test:{user.id}", 5):
@@ -264,15 +289,25 @@ async def test_provider(
         provider = PluginProvider(entry, model=model, api_key=p.api_key, base_url=p.base_url or "")
     else:
         provider = AnthropicProvider(api_key=p.api_key, model=model, base_url=p.base_url or None)
+    # iter 394：日预算守卫（err.md A6，与生成/材料/测验/幻灯片同口径）——
+    # 在**发起调用前**判定；预算耗尽 -> 402，不再白跑一次计费请求。
+    # 放线程执行：check_daily_budget 自开短会话做聚合查询，同步调用会占住事件循环。
+    import asyncio
+
+    await asyncio.to_thread(check_daily_budget, None, user.id)
+
+    from app.core.concurrency import llm_task_slot
+
     try:
         # 显式 120s 上限（与 Timeouts.llm 一致）：SDK 默认超时 600s，慢/挂死端点
         # 会让测试请求悬挂过久
-        import asyncio
-
-        await asyncio.wait_for(
-            provider.chat("你是连通性测试探针。", "ping", max_tokens=8, cache_system=False),
-            timeout=120.0,
-        )
+        # iter 394：补全局 LLM 背压槽（iter 368 口径）——此前本端点可绕开信号量，
+        # 高负载下并发测试请求会与生成链路叠加冲击供应商限流。
+        async with llm_task_slot():
+            resp = await asyncio.wait_for(
+                provider.chat("你是连通性测试探针。", "ping", max_tokens=8, cache_system=False),
+                timeout=120.0,
+            )
     except Exception as exc:  # noqa: BLE001  任何失败均作为测试结果返回（非 500）
         if isinstance(exc, asyncio.TimeoutError):
             msg = "连接超时（120s）"  # TimeoutError 的 str() 为空串，须显式给消息
@@ -283,4 +318,15 @@ async def test_provider(
             status = getattr(exc, "status_code", None)
             msg = type(exc).__name__ + (f"（HTTP {status}）" if isinstance(status, int) else "")
         return {"ok": False, "model": model, "error": msg}
+    # iter 394：用量计入 api_usage（日预算统计与用量页口径完整；计量失败不阻断业务）
+    from app.agent.cost import build_metadata, record_metadata_usage
+    from app.db.base import SessionLocal
+
+    metadata = build_metadata(resp.usage, provider=getattr(provider, "kind", "anthropic"))
+    udb = SessionLocal()
+    try:
+        # 记量含 DB 提交（fsync）——放线程，避免占住事件循环（iter 393 口径）
+        await asyncio.to_thread(record_metadata_usage, udb, metadata, user.id)
+    finally:
+        udb.close()
     return {"ok": True, "model": model}

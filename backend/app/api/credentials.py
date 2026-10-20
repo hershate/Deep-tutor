@@ -45,8 +45,12 @@ def _check_write_rate(user: User) -> None:
 
 
 def _mask(key: str) -> str:
-    """密钥掩码：仅末 4 位可见（不回显明文）。"""
-    return f"...{key[-4:]}" if len(key) >= 4 else "****"
+    """密钥掩码：仅末 4 位可见（不回显明文）。
+
+    iter 394：长度 <8 时整体掩码——此前 len>=4 即回显末 4 位，4~7 位密钥会被
+    **完整回显**（与「不回显明文」的口径矛盾；api_key 下限为 1 位）。
+    """
+    return f"...{key[-4:]}" if len(key) >= 8 else "****"
 
 
 def _out(p: models.CredentialProfile) -> dict:
