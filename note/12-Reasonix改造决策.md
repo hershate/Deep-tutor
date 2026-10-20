@@ -184,6 +184,11 @@
 
 ## 修订记录
 
+### 2026-10-20：v1 表数校准（26 → 29）
+
+- **表数校准**：依据段与决策 #13 / #31 / #46 中的「26 表」是 2026-10-12 笔记快照时点值；当前 v1 schema 实测 **29 张 ORM 表**（`Base.metadata.tables`，`backend/app/db/models.py`），「26 表等价物」应按 **v1 领域表全集（29 张）** 理解。决策实质（领域数据全 SQL、表结构自由设计、内核自身会话/记忆保留文件态）不变，故不改决策正文，仅在此登记口径。
+- **同步**：`plan/reasonix/02` 语义基准改为「note/02（29 张表）」；`plan/reasonix/00` 架构图与 R6 风险项的「26 表」改为「v1 领域表全集（29 张）」。`plan/reasonix/02` 的目标表清单为 25 行——目标 schema 依 #46 自由设计，与 v1 表数不一一对应。
+
 ### 2026-10-20：上游无关资产清除（修订 #37 的处置范围收窄）
 
 用户裁定：「同时清理上游树中与本仓无关的资产（如 release-notes/、benchmarks/、examples/、workers/ 等），仅保留内核必需部分」。据此修订：
@@ -195,7 +200,7 @@
 - **对阶段③的影响**：`examples/` 移除后，原「example_hello → 扩展开发示例（sdk/ 示例+文档）」的等价物落在 `sdk/go/examples/`（starterextension / toolextension / providerextension / fullsidecar）与本仓 `plugin-examples/`、`skills/`。
 - **对 M1.5（门禁基线重建）的影响**：`tools/repolint` 的 `release-note` 规则与 `docs.go` 前缀映射随 `release-notes/` 移除而失效；`baseline.json` 仍含被删文件的 23 条记录，需在 M1.5 重建基线时一并清理。移除后 repolint 报告行数 2433→2429，未新增（门禁既有红色源于基线未按本仓树重建，与本次移除无关）。
 - **随被测对象一并移除的上游 effect 测试**（commit `2f7cade`）：`examples/` 树清除后，7 个上游用例的被测对象（上游 9 个示例套件）已不存在，用例随被测对象移除，每个文件仅含该 1 个用例，无其他断言丢失：`internal/ext/skill/scenario_examples_test.go`、`internal/assembly/boot/effect_{bundled_skill_reference,installed_compatible_command,mcp_author_example,repo_map_example,review_context_example,work_note_prompt_example}_test.go`。基于 `sdk/go/examples/` 的 4 个 effect 测试保留。
-- **重定位失效路径常量的修复**（docs 树重定位的必要适配，见 [`NOTICE`](../NOTICE) 修改披露）：`internal/contract/tool/contract_test.go`、`internal/assembly/boot/boot_test.go`、`internal/frontend/cli/{compact_ratio_test.go,upgrade_pointer_contract_test.go}`、`internal/frontend/serve/theme_author_example_test.go`、`internal/ext/extension/protocolgen/generate.go`、`tools/repolint/docs.go`、`tools/repolint/docs_test.go`、`sdk/go/sdk.go`、`internal/ext/hook/hook.go`、`scripts/reasonix/official-theme-art/provenance.py`、`docs/kernel/{DOCS_STANDARD,EXTENSION_PROTOCOL,PLUGIN_PACKAGES}.md`。这些常量在上游树指向 `docs/` 与 `scripts/`，在本仓指向 `docs/kernel/` 与 `scripts/reasonix/`；修复后 `internal/contract/tool`、`internal/ext/extension/protocolgen`、`internal/assembly/boot`、`internal/frontend/cli`、`tools/repolint` 五个包恢复绿。
+- **重定位失效路径常量的修复**（docs 树重定位的必要适配，见 [`NOTICE`](../NOTICE) 修改披露）：`internal/contract/tool/contract_test.go`、`internal/assembly/boot/boot_test.go`、`internal/frontend/cli/{compact_ratio_test.go,upgrade_pointer_contract_test.go}`、`internal/frontend/serve/theme_author_example_test.go`、`internal/ext/extension/protocolgen/generate.go`、`tools/repolint/docs.go`、`tools/repolint/docs_test.go`、`sdk/go/sdk.go`、`internal/ext/hook/hook.go`、`scripts/reasonix/official-theme-art/provenance.py`、`docs/kernel/{DOCS_STANDARD,EXTENSION_PROTOCOL,PLUGIN_PACKAGES}.md`。这些常量在上游树指向 `docs/` 与 `scripts/`，在本仓指向 `docs/kernel/` 与 `scripts/reasonix/`；修复后 `internal/contract/tool`、`internal/ext/extension/protocolgen`、`internal/assembly/boot`、`internal/frontend/cli`、`internal/frontend/serve`、`tools/repolint` 六个包恢复绿。
 
 ### 2026-10-17：REF 全部内容吸收（修订 #37 的处置方式）
 
