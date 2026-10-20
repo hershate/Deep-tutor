@@ -21,7 +21,7 @@ func TestStudioThemeAuthorExampleLifecycle(t *testing.T) {
 	t.Setenv("REASONIX_HOME", reasonixHome)
 	t.Setenv("REASONIX_STATE_HOME", reasonixHome)
 	source := filepath.Join(testenv.TempDir(t), "theme-example")
-	if err := os.CopyFS(source, os.DirFS(filepath.Join("..", "..", "..", "docs", "themes"))); err != nil {
+	if err := os.CopyFS(source, os.DirFS(filepath.Join("..", "..", "..", "docs", "kernel", "themes"))); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(source, "paper-dawn", "theme.json"))

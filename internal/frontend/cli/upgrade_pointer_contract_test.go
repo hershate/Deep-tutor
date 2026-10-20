@@ -65,7 +65,7 @@ func legacy139Accepts(rel ghRelease) error {
 
 func loadStudioPointer(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "testdata", "cli-pointer-v2.24.0.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "reasonix", "testdata", "cli-pointer-v2.24.0.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

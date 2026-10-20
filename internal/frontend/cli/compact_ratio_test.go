@@ -18,7 +18,7 @@ func TestCompactRatioHelpAndDocsUseConfigBounds(t *testing.T) {
 			t.Fatalf("usage = %q, want %q", out, want)
 		}
 	}
-	body, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "CLI.md"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "kernel", "CLI.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
