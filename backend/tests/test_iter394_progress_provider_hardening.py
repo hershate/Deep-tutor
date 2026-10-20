@@ -350,3 +350,123 @@ def test_update_progress_duplicate_node_sid_picks_first(client, auth_headers, mo
     assert r.status_code == 200, r.text
     assert r.json()["updated"] is True
     assert r.json()["status"] == "learning"
+
+
+# --- P2-11：/setup/status 的 llm_configured 按用户解析 -----------------------
+
+
+def _mk_user(username: str, password: str = "pw12345678", is_admin: bool = False) -> int:
+    from app.core.security import hash_password
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    db = SessionLocal()
+    try:
+        u = User(
+            name=username,
+            username=username,
+            password_hash=hash_password(password),
+            is_admin=is_admin,
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u.id
+    finally:
+        db.close()
+
+
+def _login(client, username: str, password: str = "pw12345678") -> dict:
+    r = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_setup_status_llm_configured_is_per_user(client, monkeypatch):
+    """iter 394：llm_configured 按调用者解析——甲配了 key，乙没配 -> 乙看到「未配置」。
+
+    此前用全局查询（任一用户的 active 档案即算已配置）：多用户下所有用户看到同一个
+    值，未配 key 的用户横幅不出现而 LLM 调用必失败。
+    """
+    from app.core import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")  # .env 无 key
+
+    _mk_user("alice")
+    _mk_user("bob")
+    alice = _login(client, "alice")
+    bob = _login(client, "bob")
+
+    # 甲配置并启用供应商档案
+    r = client.post(
+        BASE,
+        json={"name": "甲的中转", "base_url": "https://relay.example.com", "api_key": "sk-alice-1234"},
+        headers=alice,
+    )
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    assert client.post(f"{BASE}/{pid}/activate", headers=alice).status_code == 200
+
+    # 甲：已配置
+    body = client.get("/api/setup/status", headers=alice).json()
+    assert body["llm_configured"] is True
+    # 乙：未配置（全局口径会误报 True）
+    body = client.get("/api/setup/status", headers=bob).json()
+    assert body["llm_configured"] is False
+    # 无凭据（公开访问）：实例级口径——甲配过 -> 实例已配置
+    body = client.get("/api/setup/status").json()
+    assert body["llm_configured"] is True
+    # needs_setup 仍是实例级判定：普通用户不会被弹去 /setup
+    assert client.get("/api/setup/status", headers=bob).json()["needs_setup"] is False
+
+
+def test_setup_status_public_get_creates_no_user(client, monkeypatch):
+    """iter 394：公开 GET /setup/status 不产生建用户的写副作用。"""
+    from app.core import settings as settings_mod
+    from app.db.base import SessionLocal
+    from app.db.models import User
+
+    monkeypatch.setattr(settings_mod.settings, "auth_token", "")
+    monkeypatch.setattr(settings_mod.settings, "anthropic_api_key", "")
+
+    assert client.get("/api/setup/status").status_code == 200
+    db = SessionLocal()
+    try:
+        assert db.query(User.id).count() == 0, "公开状态查询不得创建用户"
+    finally:
+        db.close()
+
+
+# --- P2-10：配额 check-then-act 竞态 ---------------------------------------
+
+
+def test_credential_quota_not_bypassed_by_concurrency(client, auth_headers):
+    """iter 394：并发创建不得突破每类 20 个上限。
+
+    配额判定是「先查后写」：计数与插入之间若无互斥，25 个并发请求可同时通过
+    「未达上限」检查并写入 25 行（上限被并发绕过）。修复后：恰好 20 个成功。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    def _create(i: int):
+        return client.post(
+            "/api/credentials",
+            json={"kind": "bing", "name": f"并发键{i}", "api_key": "sk-concurrent-0001"},
+            headers=auth_headers,
+        )
+
+    with ThreadPoolExecutor(max_workers=25) as ex:
+        results = list(ex.map(_create, range(25)))
+
+    codes = [r.status_code for r in results]
+    assert codes.count(201) == 20, f"应恰好 20 个成功，实际 {codes.count(201)}（{codes}）"
+    assert codes.count(429) == 5, f"其余应被配额拒绝，实际 {codes}"
+
+    db = SessionLocal()
+    try:
+        assert db.query(models.CredentialProfile).count() == 20
+    finally:
+        db.close()
