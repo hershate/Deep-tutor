@@ -36,9 +36,20 @@
 
 ### 修改披露
 
-**代码级修改**：`internal/tools/productdocs/{docs.go,docs_test.go}` 两行 import 路径 `reasonix/docs → reasonix/docs/kernel`（docs 目录重定位的必要适配，commit `5af3470`）。除此之外，吸收内容中的 Go 代码未作实质修改。
+**代码级修改**（除 `internal/ext/hook/hook.go` 的失效引用修正外，均为 `docs/` → `docs/kernel/` 重定位的必要适配）：
 
-**文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**按新位置修正，文字内容未改：
+| 文件 | 修改 |
+|---|---|
+| `internal/tools/productdocs/{docs.go,docs_test.go}` | 2 行 import 路径 `reasonix/docs → reasonix/docs/kernel`（commit `5af3470`） |
+| `internal/contract/tool/contract_test.go` | `contractPath` 由 `../../../docs/TOOL_CONTRACT.md` 改为 `../../../docs/kernel/TOOL_CONTRACT.md`，另 3 处提示文本同步 |
+| `internal/assembly/boot/boot_test.go` | 读取工具合约文档的路径增加 `kernel` 层级 |
+| `internal/ext/extension/protocolgen/generate.go` | `MarkdownArtifactPath` 由 `docs/EXTENSION_PROTOCOL.generated.md` 改为 `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
+| `internal/ext/hook/hook.go` | 注释引用的 `docs/DESKTOP_HOOKS.md`（该文件在上游树与本仓均不存在）改为 `docs/kernel/GUIDE.zh-CN.md:610` |
+| `sdk/go/sdk.go` | 注释路径 `docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
+
+上述之外，吸收内容中的 Go 代码未作实质修改。
+
+**文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 
 | 文件 | 修改 |
 |---|---|
@@ -46,6 +57,9 @@
 | `sdk/go/README.md` | 2 处：`../../docs/X.md` → `../../docs/kernel/X.md` |
 | `sdk/go/examples/{providerextension,starterextension,toolextension}/README.md` | 8 处：`../../../../docs/X.md` → `../../../../docs/kernel/X.md` |
 | `docs/kernel/{EXTENSIONS,MARKET_AUTHOR_GUIDE,THEME_AUTHOR_GUIDE}.md` | 6 处：`../<dir>/` → `../../<dir>/`（重定位层级失配） |
+| `docs/kernel/DOCS_STANDARD.md` | 4 处表格路径 `docs/` → `docs/kernel/`（重定位），新增一段「本仓适配」说明（重定位映射、上游已移除树、CI 与 repolint 实际生效范围），L2 中文副本路径同步为 `docs/kernel/*` |
+| `docs/kernel/EXTENSION_PROTOCOL.md` | 1 处：`docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
+| `docs/kernel/PLUGIN_PACKAGES.md` | 1 处：`docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
 | `docs/kernel/upstream/{README,README.zh-CN,CONTRIBUTING,design-qa}.md` | 57 处：`./docs/X.md` → `../X.md`、`docs/design/theme-palettes/` → `../design/theme-palettes/`、`desktop/`、`sdk/go/` → `../../../` |
 
 以下上游文档中指向**已移除目录**的链接改为无链接的说明性表述，保留被引用内容的能力边界描述：
@@ -58,6 +72,30 @@
 **根级配置文件** `.gitattributes`、`.gitignore` 合并自上游，移除已删除目录的失效规则（`benchmarks/**/*.sh`、`/npm/.stage/`、`benchmarks/context-maintenance-e2e/run/`）并修正一处注释。
 
 **状态声明添加**：在 `desktop/README.md`、`desktop/frontend-next/README.md` 顶部各加一段本仓状态说明（上游产品名属上游语境、本地化与品牌化属阶段① M1.2 / M1.4），文字为新增，文档原有内容未改。
+
+**上游测试移除**：`examples/` 树清除后，7 个上游 effect 测试的**被测对象**（上游 9 个示例套件）已不存在，用例随被测对象一并移除：
+
+| 文件 | 用例 |
+|---|---|
+| `internal/ext/skill/scenario_examples_test.go` | `TestScenarioExamplesDiscoverWithoutInvalidFrontmatter` |
+| `internal/assembly/boot/effect_bundled_skill_reference_test.go` | `TestEffectBundledSkillReferenceReachesProviderAfterCopyInstall` |
+| `internal/assembly/boot/effect_installed_compatible_command_test.go` | `TestEffectInstalledCompatibleCommandLifecycle` |
+| `internal/assembly/boot/effect_mcp_author_example_test.go` | `TestEffectMCPAuthorExampleInstallLifecycle` |
+| `internal/assembly/boot/effect_repo_map_example_test.go` | `TestEffectRepoMapExampleLifecycle` |
+| `internal/assembly/boot/effect_review_context_example_test.go` | `TestEffectReviewContextExampleLifecycle` |
+| `internal/assembly/boot/effect_work_note_prompt_example_test.go` | `TestEffectWorkNotePromptExampleLifecycle` |
+
+每个文件仅含上表所列的单个用例，无其他断言丢失。基于 `sdk/go/examples/` 的 effect 测试（`effect_fullsidecar_test.go`、`effect_installed_sdk_sidecar_test.go`、`effect_sdk_provider_test.go`、`effect_sdk_tool_test.go`）保留，对应资产未移除。
+
+**门禁工具改动**：
+
+| 文件 | 修改 |
+|---|---|
+| `tools/repolint/wireparity.go` | `readMirrors` 表移除指向 `cmd/e2ebench/main.go` 的失效条目（该入口随上游资产清除移除） |
+| `tools/repolint/docs.go` | `docClassByPrefix` 的机器读前缀 `docs/EXTENSION_PROTOCOL.generated.md` 改为 `docs/kernel/EXTENSION_PROTOCOL.generated.md`；`translatedDocs` 三个路径改为 `docs/kernel/GUIDE.zh-CN.md`、`docs/kernel/CLI.zh-CN.md`、`docs/kernel/upstream/README.zh-CN.md` |
+| `tools/repolint/docs_test.go` | `TestOnlyOnboardingPagesKeepAChineseCopy` 的夹具路径同步为上述中文副本路径，断言的非入门页同步为 `docs/kernel/SPEC.zh-CN.md` |
+
+**脚本改动**：`scripts/reasonix/official-theme-art/provenance.py` 的 `DOCS` 由 `../../docs` 改为 `../../../docs/kernel`（`scripts/` 重定位为 `scripts/reasonix/` 后原相对路径失效），输出提示文本同步。
 
 **纯搬运性质**：路径重定位（见吸收范围表）、`git add -f` 补纳上游 `.gitignore` 挡住的 3 个基准夹具 png（commit `7b40d7a`）。
 

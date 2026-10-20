@@ -246,7 +246,7 @@ Deep-tutor/
 ├── docs/archive/    # Python 时代归档（plan-v1 12 份 / chat.md / err.md 审计清单）
 ├── ── Reasonix 内核（Go，吸收自上游，见 NOTICE）──
 ├── internal/        # 内核实现（base/contract/safety/state/model/platform/tools/ext/runtime/session/assembly + runtime/tutor=Deep-tutor 学习域）
-├── cmd/             # 命令行入口（reasonix / reasonix-studio-host / reasonix-plugin-example / e2ebench / studio-delta / extension-protocol-gen / signpath-contract）
+├── cmd/             # 命令行入口（reasonix / reasonix-studio-host / reasonix-plugin-example / extension-protocol-gen / studio-delta）
 ├── tools/           # 工程门禁（repolint / covergate / pricecheck 等）
 ├── sdk/             # Go SDK
 ├── benchmark/       # 上游 Go 基准测试包
