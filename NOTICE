@@ -43,6 +43,9 @@
 | `internal/tools/productdocs/{docs.go,docs_test.go}` | 2 行 import 路径 `reasonix/docs → reasonix/docs/kernel`（commit `5af3470`） |
 | `internal/contract/tool/contract_test.go` | `contractPath` 由 `../../../docs/TOOL_CONTRACT.md` 改为 `../../../docs/kernel/TOOL_CONTRACT.md`，另 3 处提示文本同步 |
 | `internal/assembly/boot/boot_test.go` | 读取工具合约文档的路径增加 `kernel` 层级 |
+| `internal/frontend/cli/compact_ratio_test.go` | 读取 CLI 文档的路径增加 `kernel` 层级 |
+| `internal/frontend/cli/upgrade_pointer_contract_test.go` | 读取 CLI 指针夹具的路径增加 `reasonix` 层级（`scripts/` → `scripts/reasonix/`） |
+| `internal/frontend/serve/theme_author_example_test.go` | 主题示例目录的路径增加 `kernel` 层级 |
 | `internal/ext/extension/protocolgen/generate.go` | `MarkdownArtifactPath` 由 `docs/EXTENSION_PROTOCOL.generated.md` 改为 `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
 | `internal/ext/hook/hook.go` | 注释引用的 `docs/DESKTOP_HOOKS.md`（该文件在上游树与本仓均不存在）改为 `docs/kernel/GUIDE.zh-CN.md:610` |
 | `sdk/go/sdk.go` | 注释路径 `docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
