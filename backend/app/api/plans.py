@@ -39,6 +39,7 @@ from app.api.sse_utils import (
     format_sse_frame as _sse,
 )
 from app.core.credentials import resolve_bing_api_key
+from app.core.dbwrite import commit_async, flush_async
 from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
@@ -2275,7 +2276,7 @@ async def _materials_sse(
                         node_sids=up_i.node_sids,
                     )
                 )
-                await asyncio.to_thread(db.commit)  # 逐单元提交：断线保留已生成进度
+                await commit_async(db)  # 逐单元提交：断线保留已生成进度
                 yield _sse("unit_done", {"order": i + 1, "title": unit.title, "degraded": degraded})
         finally:
             for t in pending:
@@ -2448,7 +2449,7 @@ async def generate_materials(
             old_paths = [m.content_md_path for u in unit_rows for m in u.materials]
             for u in unit_rows:
                 db.delete(u)  # cascade study_materials
-            db.flush()
+            await flush_async(db)
         elif body.scope is None:
             old_paths = _delete_study_units(db, plan.id)  # 全量替换
         elif body.scope.stage_indexes is not None:
@@ -2462,8 +2463,8 @@ async def generate_materials(
             old_paths = [m.content_md_path for u in old_units for m in u.materials]
             for u in old_units:
                 db.delete(u)  # cascade study_materials
-            db.flush()
-        db.commit()  # 流开始前提交替换意图（断线亦不残留新旧混合）
+            await flush_async(db)
+        await commit_async(db)  # 流开始前提交替换意图（断线亦不残留新旧混合）
         # iter 366：提取 primitive（plan.id/session_id、user.id），db.close() 后流式不触 ORM
         plan_id, sid, uid = plan.id, plan.session_id, user.id
         db.close()  # 流式期间不用请求 db（_materials_sse 自管），早释放连接池槽

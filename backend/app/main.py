@@ -18,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
 from app.api import api_router
+from app.core.dbwrite import commit_async, shutdown_pool
 from app.core.logging import setup_logging
 from app.core.settings import settings
 from app.db.base import init_db
@@ -132,7 +133,7 @@ async def lifespan(app: FastAPI):
             .values(status=models.OrchestratorStatus.interrupted)
         )
         if stale.rowcount:
-            db.commit()
+            await commit_async(db)
             log.warning("启动恢复：%d 个 stale running 会话已收敛为 interrupted", stale.rowcount)
         # iter 345 记忆系统：收敛 stale running runs（崩溃/重启残留 -> interrupted；
         # 弃用 resume 改"新 run"续——历史在 messages，连续性不丢；半截 tool_use 重放非幂等）
@@ -142,7 +143,7 @@ async def lifespan(app: FastAPI):
             .values(status=models.RunStatus.interrupted)
         )
         if stale_runs.rowcount:
-            db.commit()
+            await commit_async(db)
             log.warning("启动恢复：%d 个 stale running run 已收敛为 interrupted", stale_runs.rowcount)
         # P4 多用户（iter 57）：启动收敛管理员账号（旧单用户数据归管理员）
         from app.core.security import ensure_admin_user
@@ -245,6 +246,8 @@ async def lifespan(app: FastAPI):
         await orphan_reaper_task
     except (asyncio.CancelledError, Exception):  # noqa: BLE001
         pass
+    # iter 393：回收写线程池（写提交移出事件循环的专用池）——不再等在途写完成
+    shutdown_pool()
     log.info("Deep-tutor 后端关闭")
 
 

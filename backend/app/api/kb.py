@@ -47,6 +47,7 @@ from app.api.plans import _safe_download_name
 from app.api.sessions import _CREATE_RATE_PER_MIN, _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
+from app.core.dbwrite import commit_async, flush_async
 from app.core.settings import settings
 from app.core.storage import (
     _kb_root,
@@ -147,20 +148,52 @@ def _dedup_lookup(db: Session, user_id: int, content_hash: str) -> models.KbDocu
     )
 
 
+def _apply_parsed(doc: models.KbDocument, path: Path, text: str) -> None:
+    """把解析结果回填到文档行（落盘后、提交前）。"""
+    doc.parsed_text_path = str(path)
+    doc.parsed_chars = len(text)
+
+
+def _rollback_and_clean(db: Session, path: Path | None) -> None:
+    """提交失败：回滚 + 清理已落盘的解析文本（防孤儿文件，行已不存在无引用）。"""
+    db.rollback()
+    if path is not None:
+        path.unlink(missing_ok=True)
+
+
 def _persist_parsed(db: Session, user_id: int, doc: models.KbDocument, text: str) -> models.KbDocument:
-    """解析文本落盘 + 提交（失败回滚，防孤儿行/文件，同 materials err.md A15）。"""
-    path = None
+    """解析文本落盘 + 提交（失败回滚，防孤儿行/文件，同 materials err.md A15）。
+
+    同步路径——调用方须在 worker 线程（生成产物自动沉淀，见 add_text_document_sync）。
+    async 端点请用 _persist_parsed_async（落盘与提交均移出事件循环）。
+    """
+    path = write_kb_parsed_text(user_id, doc.id, text)
     try:
-        path = write_kb_parsed_text(user_id, doc.id, text)
-        doc.parsed_text_path = str(path)
-        doc.parsed_chars = len(text)
+        _apply_parsed(doc, path, text)
         db.commit()
     except Exception:
-        db.rollback()
         # iter 247：commit 失败（磁盘满/库锁）时清理已落盘的解析文本——此前只回滚行，
         # 文件成孤儿（行已不存在，无任何清理路径引用它），注释与行为不符
-        if path is not None:
-            path.unlink(missing_ok=True)
+        _rollback_and_clean(db, path)
+        raise
+    db.refresh(doc)
+    return doc
+
+
+async def _persist_parsed_async(
+    db: Session, user_id: int, doc: models.KbDocument, text: str
+) -> models.KbDocument:
+    """async 端点路径（iter 393）：落盘与提交均移出事件循环。
+
+    落盘为同步写（最大 500k 字 ≈1.5MB）、提交会争 SQLite 写锁（busy_timeout
+    10s）——任一留在事件循环线程内都会冻结全服务（含 SSE 心跳）。
+    """
+    path = await asyncio.to_thread(write_kb_parsed_text, user_id, doc.id, text)
+    try:
+        _apply_parsed(doc, path, text)
+        await commit_async(db)
+    except Exception:
+        await asyncio.to_thread(_rollback_and_clean, db, path)
         raise
     db.refresh(doc)
     return doc
@@ -264,7 +297,7 @@ async def upload_document(
     )
     db.add(doc)
     try:
-        db.commit()
+        await commit_async(db)
     except Exception:
         db.rollback()
         path.unlink(missing_ok=True)  # 防孤儿原件（err.md A15）
@@ -339,7 +372,8 @@ async def parse_document(
                 raise ApiError(out.errors[0].code, out.errors[0].message)
             text = out.data.get("text", "")
             stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
-            parsed_path = write_kb_parsed_text(user.id, stem, text)
+            # iter 393：解析文本落盘移出事件循环（同 materials parse）
+            parsed_path = await asyncio.to_thread(write_kb_parsed_text, user.id, stem, text)
             try:
                 doc = _owned_doc_or_404(db, document_id, user)  # rollback 后重取实例
             except ApiError:
@@ -356,7 +390,7 @@ async def parse_document(
             doc.meta = {**(doc.meta or {}), **out.data.get("meta", {})}
             doc.status = "parsed"
             try:
-                db.commit()
+                await commit_async(db)
             except Exception:
                 db.rollback()
                 parsed_path.unlink(missing_ok=True)  # iter 247：同 _persist_parsed 防孤儿
@@ -415,8 +449,8 @@ async def create_text_document(
         content_hash=content_hash,
     )
     db.add(doc)
-    db.flush()
-    return _doc_out(_persist_parsed(db, user.id, doc, text))
+    await flush_async(db)
+    return _doc_out(await _persist_parsed_async(db, user.id, doc, text))
 
 
 class KbUrlIn(BaseModel):
@@ -463,8 +497,8 @@ async def create_url_document(
         content_hash=content_hash,
     )
     db.add(doc)
-    db.flush()
-    return _doc_out(_persist_parsed(db, user.id, doc, text))
+    await flush_async(db)
+    return _doc_out(await _persist_parsed_async(db, user.id, doc, text))
 
 
 # --- 列表 / 详情 / 重命名 / 删除 ---

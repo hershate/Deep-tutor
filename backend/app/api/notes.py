@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.core.dbwrite import commit_async
 from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
@@ -182,7 +183,8 @@ async def import_notes(
         else:
             consume(name, data)
     if imported:
-        db.commit()
+        # iter 393：批量插入的提交移出事件循环（写锁争用会阻塞至 busy_timeout 冻结全服务）
+        await commit_async(db)
     return {"imported": imported, "skipped": skipped, "quota_full": quota_full}
 
 

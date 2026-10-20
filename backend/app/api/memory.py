@@ -35,6 +35,7 @@ from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
 from app.core.concurrency import llm_task_slot
 from app.core.credentials import resolve_bing_api_key
+from app.core.dbwrite import commit_async
 from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
@@ -1015,7 +1016,8 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
             # iter 392：commit 移出事件循环线程——写锁争用时可等 busy_timeout（10s），
             # 留在事件循环会冻结全部请求与 SSE 心跳（会话属该 run 的请求线程，
             # 此处无并发使用，check_same_thread=False 下跨线程 commit 安全）。
-            await asyncio.to_thread(db.commit)
+            # iter 393：改走专用写线程池（与默认线程池隔离，长锁等待不占用文件 IO 槽位）
+            await commit_async(db)
             final_status = run.status.value
             # bus 推送（/api/events/stream 按归属用户过滤转发）
             try:

@@ -30,6 +30,7 @@ from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned
 from app.api.errors import ApiError
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
+from app.core.dbwrite import commit_async, flush_async
 from app.core.settings import settings
 from app.core.storage import (
     delete_session_files,
@@ -206,12 +207,15 @@ async def _store(
         content_hash=content_hash,
     )
     db.add(material)
-    db.flush()
+    # iter 393：flush 触发的 INSERT 才是真正获取 SQLite 写锁的点——留在事件循环
+    # 线程内，写锁被占时会阻塞至 busy_timeout（10s）冻结全服务（含 SSE 心跳）
+    await flush_async(db)
     parsed_path = None
     try:
-        parsed_path = write_parsed_text(session_id, material.id, text)
+        # iter 393：解析文本落盘（最大 500k 字 ≈1.5MB）移出事件循环
+        parsed_path = await asyncio.to_thread(write_parsed_text, session_id, material.id, text)
         material.parsed_text_path = str(parsed_path)
-        db.commit()
+        await commit_async(db)
     except Exception:
         db.rollback()
         # iter 248：commit 失败（磁盘满/库锁）清理已落盘解析文本防孤儿（同 kb _persist_parsed）
@@ -324,7 +328,7 @@ async def upload_material(
         status="pending",
     )
     db.add(material)
-    db.commit()
+    await commit_async(db)
     db.refresh(material)
     try:
         # iter 248：大文件写盘移出事件循环（50MB 同步 write 阻塞数百毫秒，同 kb）
@@ -332,7 +336,7 @@ async def upload_material(
     except Exception:
         # 原件落盘失败：删行防孤儿（err.md A15）
         db.delete(material)
-        db.commit()
+        await commit_async(db)
         raise
     return MaterialOut(material_id=material.id, kind="file", meta={}, status="pending")
 
@@ -409,7 +413,8 @@ async def parse_material_document(
             if out.status == "error" and out.errors:
                 raise ApiError(out.errors[0].code, out.errors[0].message)
             text = out.data.get("text", "")
-            parsed_path = write_parsed_text(session_id, material_id, text)
+            # iter 393：解析文本落盘移出事件循环（同 _store）
+            parsed_path = await asyncio.to_thread(write_parsed_text, session_id, material_id, text)
             try:
                 mat = _owned_material_or_404(db, material_id, user)  # rollback 后重取实例
             except ApiError:
@@ -426,7 +431,7 @@ async def parse_material_document(
             mat.meta = {**(mat.meta or {}), **out.data.get("meta", {})}
             mat.status = "parsed"
             try:
-                db.commit()
+                await commit_async(db)
             except Exception:
                 db.rollback()
                 parsed_path.unlink(missing_ok=True)  # iter 248：commit 失败防孤儿
@@ -680,7 +685,7 @@ async def clip_material(body: ClipIn, db: Session = Depends(get_db), user: User 
 
     sess = models.Session(user_id=user.id, title=title[:256])
     db.add(sess)
-    db.commit()
+    await commit_async(db)
     db.refresh(sess)
     try:
         if body.kind == "text":
@@ -693,11 +698,12 @@ async def clip_material(body: ClipIn, db: Session = Depends(get_db), user: User 
             doomed = db.get(models.Session, sess.id)
             if doomed is not None:
                 db.delete(doomed)
-                db.commit()
+                await commit_async(db)
         except Exception:  # noqa: BLE001
             db.rollback()
         try:
-            delete_session_files(sess.id)
+            # iter 393：会话目录递归删除（rmtree）移出事件循环
+            await asyncio.to_thread(delete_session_files, sess.id)
         except Exception:  # noqa: BLE001
             pass
         raise
