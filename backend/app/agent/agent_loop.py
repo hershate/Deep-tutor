@@ -368,12 +368,16 @@ async def run_agent_loop(
         # _finalize_chat 保持该终态；不退出则 run 继续跑与 approve 冲突）
         from app.db.models import Run as _Run, RunStatus as _RunStatus
 
-        _cur_run = db.get(_Run, run_id)
+        # iter 397：读库移出事件循环——此前每 step 在**事件循环线程**同步查
+        # 一次 Run 主键 + 50 条含 JSON 大字段的 Message（load_thread_messages），
+        # 写锁争用/checkpoint 期间阻塞全站（含 SSE 心跳）。写路径此前已按
+        # iter 366 口径移出，读路径漏了——同口径补齐。
+        _cur_run = await asyncio.to_thread(db.get, _Run, run_id)
         if _cur_run is not None and _cur_run.status == _RunStatus.awaiting_approval:
             return AgentRunResult(status="done", final_text=last_text, steps=step, usage=total_usage)
 
         # 2) 加载历史 + 前缀缓存
-        messages = load_thread_messages(db, thread_id, history_limit)
+        messages = await asyncio.to_thread(load_thread_messages, db, thread_id, history_limit)
         _apply_prefix_cache(messages)
 
         # 3) 流式调用

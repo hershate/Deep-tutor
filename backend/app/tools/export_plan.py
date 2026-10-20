@@ -30,7 +30,11 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if degraded_format:
         fmt = "md"
 
-    md = render_markdown(plan)
+    # iter 397：Markdown 渲染移出事件循环——溢出方案可达 MB 级，同步渲染在事件
+    # 循环线程上阻塞全站请求（含 SSE 心跳、登录）。与 exports.py 的 PDF 路径
+    # （`await asyncio.to_thread(render_markdown, content)`）同口径——此前只有
+    # 落盘移了、渲染没移。
+    md = await asyncio.to_thread(render_markdown, plan)
     # 路径安全（对齐 storage.py `_session_root` 语义）：session_id/plan_id 清洗为
     # 安全字符集 + resolve 后 containment 校验——当前 HTTP 路径传入均为 int 不可达，
     # 但本工具在注册表中，插件/未来调用点可能传入外部字符串（"../.."），纵深防御。

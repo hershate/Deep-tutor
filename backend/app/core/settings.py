@@ -117,6 +117,13 @@ class Settings(BaseSettings):
         description="插件协程事件监听器（同步上下文 emit，如 webhook 投递）的后台线程数上限；"
         "超额丢弃事件（best-effort，防 OS 线程无界膨胀 OOM）",
     )
+    max_concurrent_password_verifications: int = Field(
+        default=4,
+        description="进程内并发口令校验（pbkdf2）数上限：iter 397——每次登录尝试一次 "
+        "pbkdf2-hmac-sha256 600k 轮（实测 ~0.19s CPU），未认证的并发登录可占满 "
+        "anyio 工作线程池使全部同步端点瘫痪。超额按「登录请求过多」429 快速失败。"
+        "0=不限（不推荐）",
+    )
     max_concurrent_webhook_deliveries: int = Field(
         default=16,
         description="插件 Webhook 并发投递上限（httpx 出站连接数）；超额排队，防 100 用户 × webhook "

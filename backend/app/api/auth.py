@@ -8,6 +8,8 @@ login 不设 require_auth（认证本身）；失败统一 401（不区分用户
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import hashlib
 import logging
 
@@ -17,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.errors import ApiError
+from app.core.concurrency import PasswordVerifyBusy, password_pool, password_verify_slot
 from app.core.ratelimit import limiter
 from app.core.security import create_token, dummy_verify, verify_password
 from app.db.models import User
@@ -30,9 +33,12 @@ _LOGIN_RATE_PER_MIN = 10
 # 账号维度聚合桶：ip+username 桶可被多 IP 分布式爆破绕过（每桶独立计数），
 # 账号维度再设一道较宽上限（正常用户不会从 >20 个不同 IP 一分钟内登录同一账号）
 _LOGIN_ACCT_RATE_PER_MIN = 20
-# iter 368：per-IP 聚合桶——每次登录尝试无论命中哪个用户名都执行一次 pbkdf2（~200k 轮），
-# 单 IP 高频轮换用户名可绕过上面两个桶白耗 CPU；60/min 仍宽于共享出口 NAT 的正常使用
+# iter 368：per-IP 聚合桶——每次登录尝试无论命中哪个用户名都执行一次 pbkdf2（600k 轮，
+# 实测 ~0.19s CPU），单 IP 高频轮换用户名可绕过上面两个桶白耗 CPU；60/min 仍宽于共享
+# 出口 NAT 的正常使用
 _LOGIN_IP_RATE_PER_MIN = 60
+# iter 397：并发口令校验上限（超出者等待超时后按 429 快速失败，不无限排队）
+_LOGIN_VERIFY_TIMEOUT = 5.0
 
 
 class LoginIn(BaseModel):
@@ -49,25 +55,61 @@ def _user_out(user: User) -> dict:
     }
 
 
+async def _verify_password_async(password: str, stored: str) -> bool:
+    """口令校验：独立小线程池 + 并发闸（iter 397）。
+
+    iter 397 背景：login 此前是**同步端点** -> 跑在 Starlette 的 anyio 工作线程池
+    （默认 40 槽）。每次尝试一次 pbkdf2-hmac-sha256 600k 轮（实测 ~0.19s CPU），
+    40 个并发登录即可占满全部槽位，使**所有同步端点**（用户管理/会话/导出/分享）
+    排队——未认证的 CPU 放大器。改 async 端点后，口令校验移到独立小池（不占
+    anyio 槽位），并加并发闸：超额并发等待超时后按 429 快速失败而非无限排队。
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        async with password_verify_slot(_LOGIN_VERIFY_TIMEOUT):
+            return await loop.run_in_executor(
+                password_pool(), functools.partial(verify_password, password, stored)
+            )
+    except PasswordVerifyBusy:
+        raise ApiError("rate_limited", "登录请求过多，请稍后再试", status=429) from None
+
+
+async def _dummy_verify_async(password: str) -> None:
+    """用户不存在时的等耗时路径（防用户名枚举），口径同 _verify_password_async。"""
+    loop = asyncio.get_running_loop()
+    try:
+        async with password_verify_slot(_LOGIN_VERIFY_TIMEOUT):
+            await loop.run_in_executor(password_pool(), functools.partial(dummy_verify, password))
+    except PasswordVerifyBusy:
+        raise ApiError("rate_limited", "登录请求过多，请稍后再试", status=429) from None
+
+
 @router.post("/login")
-def login(body: LoginIn, request: Request, db: Session = Depends(get_db)) -> dict:
+async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)) -> dict:
     # err.md A8：限流 + 时序拉平（不存在的用户也执行一次 pbkdf2 运算，
-    # 消除「用户不存在短路 vs 200k 轮校验」的响应时间差，防用户名枚举）
+    # 消除「用户不存在短路 vs 600k 轮校验」的响应时间差，防用户名枚举）
+    # iter 397：端点改 async——同步端点会在 anyio 工作线程池里占住槽位做纯 CPU
+    # 的 pbkdf2（未认证即可触发），见 _verify_password_async 的说明。
     client_host = request.client.host if request.client else "unknown"
+    # iter 397（E9）：用户名归一化——建号时 strip（users.create_user），登录时不 strip
+    # -> 带首尾空白的账号（API 客户端常见）永远登不上，且两个限流桶键会因空白变体
+    # 被分裂成多桶。归一后查库与限流键同口径。
+    username = body.username.strip()
     if not limiter.check(f"login:ip:{client_host}", _LOGIN_IP_RATE_PER_MIN):
         raise ApiError("rate_limited", "登录尝试过于频繁，请稍后再试", status=429)
-    if not limiter.check(f"login:{client_host}:{body.username}", _LOGIN_RATE_PER_MIN):
+    if not limiter.check(f"login:{client_host}:{username}", _LOGIN_RATE_PER_MIN):
         raise ApiError("rate_limited", "登录尝试过于频繁，请稍后再试", status=429)
-    if not limiter.check(f"login:acct:{body.username}", _LOGIN_ACCT_RATE_PER_MIN):
+    if not limiter.check(f"login:acct:{username}", _LOGIN_ACCT_RATE_PER_MIN):
         raise ApiError("rate_limited", "该账号登录尝试过于频繁，请稍后再试", status=429)
     # 日志脱敏（iter 368）：不落用户名原文，仅哈希前缀供关联同源尝试
-    user_tag = hashlib.sha256(body.username.encode()).hexdigest()[:12]
-    user = db.query(User).filter_by(username=body.username).first()
+    user_tag = hashlib.sha256(username.encode()).hexdigest()[:12]
+    # 用户名查库走索引点查（快），留在事件循环；耗 CPU 的 pbkdf2 才进独立池
+    user = db.query(User).filter_by(username=username).first()
     if user is None:
-        dummy_verify(body.password)
+        await _dummy_verify_async(body.password)
         log.warning("登录失败（用户不存在）ip=%s user=%s", client_host, user_tag)
         raise ApiError("unauthorized", "用户名或密码错误", status=401)
-    if not verify_password(body.password, user.password_hash):
+    if not await _verify_password_async(body.password, user.password_hash):
         log.warning("登录失败（密码错误）ip=%s user=%s uid=%s", client_host, user_tag, user.id)
         raise ApiError("unauthorized", "用户名或密码错误", status=401)
     return {"token": create_token(user.id, user.username or ""), "user": _user_out(user)}

@@ -35,7 +35,7 @@ from app.agent.cost import usage_cost
 from app.agent.workspace import commit_run_workspace, create_run_workspace
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, format_sse_frame
-from app.core.concurrency import llm_task_slot
+from app.core.concurrency import acquire_bounded, llm_task_slot, loop_lock
 from app.core.credentials import resolve_bing_api_key
 from app.core.dbwrite import commit_async
 from app.core.quota import quota_slot
@@ -77,7 +77,12 @@ _MAX_THREADS_PER_USER = 500
 _MAX_MEMORIES_PER_USER = 2000
 # 单 thread 记忆列表端点封顶（iter 372 R13；速览面板用，total 另给全量计数）
 _THREAD_MEMORY_LIST_CAP = 200
-_RUN_CREATE_LOCK = asyncio.Lock()  # check-and-create 临界段
+# iter 397：run 创建临界段的**等待上限**（秒）。临界段内含 SQLite 写（写锁争用
+# 时可等 busy_timeout 10s），此前是无界等待：一个慢事务把**所有用户**的 chat
+# run 创建排成串行队列（第 N 个请求等 N×10s，尾延迟无界）。加上限后转为
+# 「有界等待 -> 503 chat_run_busy（可重试）」。
+# 约束本身（每 thread 至多 1 个 running run + 全局上限）仍由同一临界段保证原子性。
+_RUN_CREATE_LOCK_WAIT = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -731,8 +736,16 @@ async def start_run(
     model = body.model or thread.model or ""
     # iter 364：DB 操作移到线程池（独立 session）不阻塞 event loop——原锁内同步 DB commit
     # 最坏等 SQLite busy_timeout 5s，冻结整个 loop（其他用户 SSE 心跳停发/附流无响应）
-    async with _RUN_CREATE_LOCK:
+    # iter 397：锁改「按事件循环缓存」（模块级 asyncio.Lock 跨循环复用会在争用时抛
+    # 「bound to a different event loop」）+ **有界等待**（拿不到锁 -> 503 chat_run_busy，
+    # 不再让一个慢写事务把全站 run 创建排成无界串行队列）。
+    create_lock = loop_lock("chat_run_create")
+    if not await acquire_bounded(create_lock, _RUN_CREATE_LOCK_WAIT):
+        raise HTTPException(status_code=503, detail="chat_run_busy")
+    try:
         run_id = await asyncio.to_thread(_create_chat_run_db, thread_id, user.id, model)
+    finally:
+        create_lock.release()
     stream = _ChatStream()
     _RUN_STREAMS[run_id] = stream
     last_event_id = _parse_last_event_id(request)
@@ -1027,11 +1040,19 @@ async def _run_chat(
             # （发终态事件 + _RUN_STREAMS.pop）不会跑：注册表残留一条，
             # 且 runs 行永远停在 running -> 每 thread 至多 1 个 running 的硬约束
             # 让该会话**永久 409**。故在此强制收敛 run 行并清理注册表。
-            _force_run_terminal(run_id, models.RunStatus.interrupted)
+            # iter 397：强制收敛含 DB 写（写锁争用时可等 busy_timeout 10s）——
+            # 此前在**事件循环线程**同步调用，写锁被占时冻结全站（连 SSE 心跳都停）。
+            # 改走 to_thread + shield：既不占事件循环，又不被本轮取消打断收口
+            # （shield 让搬移/写入在后台跑完，与 iter 369 commit 工作区同口径）。
+            await asyncio.shield(
+                asyncio.to_thread(_force_run_terminal, run_id, models.RunStatus.interrupted)
+            )
             raise
         except Exception:  # noqa: BLE001
             log.warning("chat run %s 收口失败", run_id, exc_info=True)
-            _force_run_terminal(run_id, models.RunStatus.error)
+            await asyncio.shield(
+                asyncio.to_thread(_force_run_terminal, run_id, models.RunStatus.error)
+            )
         finally:
             db.close()
             # iter 391：注册表清理放在 _run_chat 自身的 finally（无条件执行），

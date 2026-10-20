@@ -31,6 +31,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.core.settings import settings
@@ -51,6 +53,7 @@ _NULL_SLOT = _NullSlot()
 # 按名缓存的 (信号量, 绑定事件循环)。跨循环（测试 asyncio.run / daemon 线程新循环）
 # 自动重建，防 "Future attached to a different loop"。
 _semaphores: dict[str, tuple[asyncio.Semaphore, asyncio.AbstractEventLoop | None]] = {}
+_locks: dict[str, tuple[asyncio.Lock, asyncio.AbstractEventLoop | None]] = {}
 
 
 def _loop_sem(key: str, size: int) -> asyncio.Semaphore | None:
@@ -91,9 +94,62 @@ def search_fetch_slot() -> Any:
 
 
 def reset_llm_semaphore() -> None:
-    """测试隔离：清空全部缓存信号量（防跨事件循环残留 waiters）。"""
+    """测试隔离：清空全部缓存信号量与锁（防跨事件循环残留 waiters）。"""
     _semaphores.clear()
+    _locks.clear()
 
+
+# ---------------------------------------------------------------------------
+# 临界段锁（iter 397）
+# ---------------------------------------------------------------------------
+
+
+def loop_lock(key: str) -> asyncio.Lock:
+    """按事件循环缓存的互斥锁（测试逐用例 asyncio.run 起新循环时自动重建）。
+
+    模块级 ``asyncio.Lock`` 只在**争用路径**上绑定事件循环（Python 3.10+
+    的 ``_LoopBoundMixin._get_loop``）——首次争用后锁即绑定该循环；换循环再
+    争用会抛「is bound to a different event loop」。故按循环缓存（同
+    ``_loop_sem`` 的信号量口径），避免跨循环复用同一把锁。
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None  # 无运行循环（同步上下文）：用无绑定的新锁
+    cur = _locks.get(key)
+    if cur is None or cur[1] is not loop:
+        lk = asyncio.Lock()
+        _locks[key] = (lk, loop)
+        return lk
+    return cur[0]
+
+
+async def acquire_bounded(lock: asyncio.Lock, timeout: float) -> bool:
+    """带**等待上限**地获取锁：拿到返回 True，超时返回 False（调用方快失败）。
+
+    实现要点（与 ``_TimedSlot`` 同款）：acquire 走独立 task + shield——
+    ``wait_for`` 超时只取消等待包装，acquire 本身不被取消（``Lock.acquire``
+    在「即将获得」瞬间被取消会丢锁）。竞态：恰好在超时瞬间拿到锁 -> 立即
+    release，防锁泄漏。
+
+    用途：临界段内含**可长时间等待的外部资源**（如 SQLite 写锁 busy_timeout）
+    的锁，若无上限，一个慢持有者会把所有等待者排成 N 倍延迟的串行队列
+    （尾延迟无界）。加上限后转为「有界等待 -> 失败可重试」。
+    """
+    task = asyncio.ensure_future(lock.acquire())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        return True
+    except (asyncio.TimeoutError, TimeoutError):
+        if task.done() and not task.cancelled() and task.exception() is None:
+            lock.release()  # 竞态：恰好在超时瞬间拿到许可 -> 归还，防锁泄漏
+        else:
+            task.cancel()
+            try:
+                await task
+            except BaseException:  # noqa: BLE001  取消路径异常吞掉（清理收尾）
+                pass
+        return False
 
 # ---------------------------------------------------------------------------
 # 插件 LLM 调用（iter 393）
@@ -118,11 +174,19 @@ class PluginLLMBusy(RuntimeError):
 
 
 class _TimedSlot:
-    """带等待上限的槽：超时放弃并抛 PluginLLMBusy（不无限排队）。"""
+    """带等待上限的槽：超时放弃并抛 busy 异常（不无限排队）。"""
 
-    def __init__(self, sem: asyncio.Semaphore, timeout: float) -> None:
+    def __init__(
+        self,
+        sem: asyncio.Semaphore,
+        timeout: float,
+        exc_factory: type[RuntimeError] = PluginLLMBusy,
+        label: str = "插件 LLM 调用槽",
+    ) -> None:
         self._sem = sem
         self._timeout = timeout
+        self._exc_factory = exc_factory
+        self._label = label
 
     async def __aenter__(self) -> None:
         # shield + 独立取消：wait_for 超时只取消等待包装，acquire 本身不被取消
@@ -140,7 +204,7 @@ class _TimedSlot:
                     await task
                 except BaseException:  # noqa: BLE001  取消路径异常吞掉（清理收尾）
                     pass
-            raise PluginLLMBusy(f"等待插件 LLM 调用槽超过 {self._timeout:g}s") from None
+            raise self._exc_factory(f"等待{self._label}超过 {self._timeout:g}s") from None
         except BaseException:
             task.cancel()
             raise
@@ -162,3 +226,43 @@ def plugin_llm_task_slot(timeout: float = _PLUGIN_LLM_WAIT_SECONDS) -> Any:
     if sem is None:
         return _NULL_SLOT
     return _TimedSlot(sem, timeout)
+
+
+# ---------------------------------------------------------------------------
+# 口令校验（iter 397）
+# ---------------------------------------------------------------------------
+
+_PWD_WAIT_SECONDS = 5.0
+_pwd_pool: ThreadPoolExecutor | None = None
+_pwd_pool_lock = threading.Lock()
+
+
+class PasswordVerifyBusy(RuntimeError):
+    """等待口令校验槽超时（资源争用，可重试语义）。"""
+
+
+def password_pool() -> ThreadPoolExecutor:
+    """口令校验专用小线程池。
+
+    与 anyio 默认工作线程池**隔离**：每次登录尝试一次 pbkdf2-hmac-sha256
+    600k 轮（实测 ~0.19s CPU）。此前 login 是同步端点 -> 跑在 anyio 池（默认
+    40 槽）里，40 个并发登录即可占满全部槽位，使**所有同步端点**（用户管理/
+    会话/导出/分享）排队——未认证的 CPU 放大器。改 async 端点后，口令校验若
+    仍走默认池，问题只是从「占满 anyio」变成「占满默认执行器」，故另开小池。
+    """
+    global _pwd_pool
+    with _pwd_pool_lock:
+        if _pwd_pool is None:
+            workers = max(1, settings.max_concurrent_password_verifications or 1)
+            _pwd_pool = ThreadPoolExecutor(
+                max_workers=workers, thread_name_prefix="pwd-verify"
+            )
+        return _pwd_pool
+
+
+def password_verify_slot(timeout: float = _PWD_WAIT_SECONDS) -> Any:
+    """口令校验槽：限制进程内并发 pbkdf2 数；等待超时抛 PasswordVerifyBusy。"""
+    sem = _loop_sem("pwd_verify", settings.max_concurrent_password_verifications)
+    if sem is None:
+        return _NULL_SLOT
+    return _TimedSlot(sem, timeout, PasswordVerifyBusy, "口令校验槽")

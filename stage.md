@@ -89,7 +89,16 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
     - **未过度收紧**：`anthropic`/`bing` 类供应商 Key 不建立对本实例的认证能力 -> 不受限；`DELETE`/`deactivate` 属破坏而非「建立信任」，开放模式本就可远程删数据 -> 不额外收紧。
     - 口径统一为：**开放模式下「信任面建立」（认证凭据 + 出站目标）一律限回环**，与 iter 394「`POST /setup` 仅回环」一致；回环（本机）调用全程不受影响。
 
-- **下一步**：① 继续复核并落地其余子 agent 发现（kb/materials 的 K2/K3/K4/K7/K10/K12/K13/K14/K15/K16、exports/users/auth 的 E2~E13、app/agent 的 A1~A19）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
+- **iter 397-B2（事件循环冻结与无界排队，✅ 完成）**：主会话逐条读原文复核 app/agent 与 exports/users/auth 两份报告，确认 **A4 / A5 / A6 / E2 / E4** 五条成立并已修复（均为「在事件循环线程里做重活」或「无界排队」）。
+  - **A4（high）：run 创建临界段无界排队 + 锁跨事件循环复用**。`api/memory.py` 原用**模块级全局** `asyncio.Lock`，且**无上限等待**：临界段内含 SQLite 写（写锁争用时可等 busy_timeout 10s），一个慢事务把**所有用户**的 chat run 创建排成串行队列（第 N 个请求等 N×10s，尾延迟无界）。另：模块级 `asyncio.Lock` 只在**争用路径**绑定事件循环，换循环再争用会抛「bound to a different event loop」（测试逐用例 `asyncio.run` 起新循环）。修法：① `core/concurrency.py` 新增 `loop_lock(key)`（按事件循环缓存，同 `_loop_sem` 口径）与 `acquire_bounded(lock, timeout)`（有界等待 + 竞态归还，防丢锁/漏许可）；② 临界段改为 `acquire_bounded` + **10s 上限**，超时 -> **503 chat_run_busy**（快失败可重试，取代无界排队）。约束语义（每 thread 至多 1 个 running run + 全局上限）**不变**——仍由同一临界段保证「计数 + 插入」原子性。
+  - **A5（high）：强制收敛 run 终态在事件循环线程同步写库**。`api/memory.py` 的 `_run_chat` 收口 finally 里 `_force_run_terminal(run_id, …)` **同步调用**（内部 `SessionLocal()` + `commit()`），写锁被占时**冻结全站**（连 SSE 心跳都停）；而同文件 `_finalize_chat` 的同类调用早已是 `await asyncio.to_thread(...)`——读原文确认口径不一致。修法：两处改 `await asyncio.shield(asyncio.to_thread(...))`（既不占事件循环，又不被本轮取消打断收口，与 iter 369「shield + commit 工作区」同口径）。
+  - **A6（high）：agent loop 每 step 在事件循环线程同步查库**。`agent/agent_loop.py` 写路径早已按 iter 366 移出，**读路径漏了**：`db.get(Run, run_id)` + `load_thread_messages`（50 条含 JSON 大字段的 Message）每 step 都在事件循环线程执行。修法：两处改 `await asyncio.to_thread(...)`（Session 顺序访问，同 `record_metadata_usage` 既有口径）。
+  - **E2（high）：登录是未认证的 CPU 放大器**。`POST /api/auth/login` 原为**同步端点** -> 跑在 Starlette anyio 工作线程池（默认 40 槽）；每次尝试一次 pbkdf2-hmac-sha256 **600k 轮**（子 agent 实测 ~0.19s/次 CPU），**40 个并发登录即可占满全部槽位**，使**所有同步端点**（用户管理/会话/导出/分享）排队——而 per-IP 桶允许同一分钟内 40 个并发，单 IP 即可触发。修法：① 端点改 `async def`（不再占 anyio 槽）；② 口令校验移到**独立小线程池**（`concurrency.password_pool()`，`pwd-verify` 前缀，4 workers）；③ 加**并发闸** `password_verify_slot`（按 `settings.max_concurrent_password_verifications`，默认 4；等待超时 -> **429** 快失败）。另修注释与实现不符处：原文写「~200k 轮」，实现是 600k 轮。
+  - **E9（low）：登录用户名不归一化**。建号时 `strip`（`users.create_user`）而登录不 strip -> 带首尾空白的账号**永远登不上**（API 客户端常见），且两个限流桶键会因空白变体被分裂成多桶。修法：登录入口统一 `strip` 后再查库与分桶。
+  - **E4（medium）：md 导出的 Markdown 渲染留在事件循环**。`tools/export_plan.py` 的 `render_markdown(plan)` 同步执行（溢出方案可达 MB 级），而**同仓 PDF 路径早已 `await asyncio.to_thread(render_markdown, content)`**——此前只把落盘移了、渲染没移。修法：渲染一并移入 `to_thread`。
+  - 回归：新增 `tests/test_iter397_event_loop_offload.py`（11 条，逐条断言「不在事件循环线程执行」+ 有界等待/锁隔离语义）。相关面回归（auth/open_mode/users/setup/chat-lifecycle/export/memory/agent/concurrency）**129 passed**。
+
+- **下一步**：① 继续复核并落地其余子 agent 发现（kb/materials 的 K2/K3/K4/K7/K10/K12/K13/K14/K15/K16、exports/users/auth 的 E3/E5~E8/E10~E13、app/agent 的 A1~A3/A7~A19、app/tools 面报告）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
 
 **iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，✅ 完成）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
 
