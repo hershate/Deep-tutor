@@ -2,13 +2,15 @@
 
 ## 证据基线
 
+> 行数口径：总行数（`[System.IO.File]::ReadAllLines` 逐文件累加，等价 `wc -l`），与文中行号引用同口径。
+
 | 项 | 值 |
 |----|----|
 | 核对日期 | 2026-10-20 |
 | 分支 | `refactor/reasonix` |
 | v1 证据 | `backend/app/llm/base.py`（177 行）、`backend/app/llm/__init__.py`（161 行）、`backend/app/llm/anthropic_provider.py`（428 行）、`backend/app/llm/plugin_provider.py`（175 行）、`backend/app/llm/pricing.py`（178 行）、`backend/app/agent/budget.py`（44 行）、`backend/app/agent/cost.py`（150 行）、`backend/app/api/deps.py`（335 行）、`backend/app/core/concurrency.py`（95 行）、`backend/app/core/settings.py` |
 | v2 证据 | `internal/model/openai/openai.go`、`internal/model/anthropic/anthropic.go`、`internal/model/responses/responses.go`、`internal/contract/provider/`（provider.go / usage.go / chunk.go）、`internal/contract/pricing/`（rates.go / catalog.go / quote.go / money.go / ledger.go）、`internal/runtime/tutor/llm.go`（212 行）、`internal/runtime/tutor/usage.go`（110 行）、`internal/runtime/tutor/service.go`（663 行）、`internal/frontend/serve/tutor.go`（601 行） |
-| v1 规模 | `backend/app/api/*.py` 28 文件 / 24 路由模块；OpenAPI 119 paths / 145 operations；ORM 29 表；alembic 26 迁移；`backend/tests` 177 文件 / 1458 test 函数（pytest 收集 1462）；`backend/app` 22 614 行；`frontend/src` 19 190 行；端口 41173 |
+| v1 规模 | `backend/app/api/*.py` 28 文件 / 24 路由模块；OpenAPI 119 paths / 145 operations；ORM 29 表；alembic 26 迁移；`backend/tests` 177 文件 / 1458 test 函数（pytest 收集 1462）；`backend/app` 26 583 行；`frontend/src` 20 250 行；端口 41173 |
 | v2 规模 | 根 `go.mod`：`module reasonix` / `go 1.26.0`；`/tutor/*` 路由集中在 `internal/frontend/serve/tutor*.go`，**无 `/api` 兼容层** |
 
 ## 1. Provider 抽象（llm/base.py）

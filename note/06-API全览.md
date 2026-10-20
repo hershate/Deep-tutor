@@ -5,7 +5,7 @@
 > - **OpenAPI 实测导出**：`PYTHONPATH=backend AUTH_TOKEN=<探针值> python -c "from app.main import create_app; app=create_app(); spec=app.openapi()"` → **119 paths / 145 operations**，全部带 `/api` 前缀。
 > - **路由模块**：`backend/app/api/` 共 28 个文件 = `__init__.py` + `deps.py` + `errors.py` + `sse_utils.py` + **24 个路由模块**；`share.py` 贡献 3 个 router（`router` / `manage_router` / `public_router`），全库合计 26 个 `APIRouter` 实例。
 > - **ORM 29 表**（`backend/app/db/models.py`）；**alembic 26 个迁移**（`backend/alembic/versions/`）。
-> - **测试与体量**：`backend/tests/` 177 个文件；`backend/app` 22614 行；`frontend/src` 19396 行（`[System.IO.File]::ReadAllLines` 逐文件累加口径；`Get-Content | Measure-Object -Line` 口径为 19190 行，差异源于末行无换行符的计数方式）。
+> - **测试与体量**：`backend/tests/` 177 个文件；`backend/app` 26 583 行；`frontend/src` 20 469 行（`.ts`/`.tsx` 20 250 + `.css` 219；总行数口径，`[System.IO.File]::ReadAllLines` 逐文件累加）。
 > - **资产**：`plugins/` 9 个插件文件（8 个 `.py` 可加载 + 1 个 `.disabled` 停用，见 `backend/app/plugins/loader.py:107-115`）；`skills/` 8 个目录；v1 监听端口 41173。
 > - **Go 侧**：`go.mod` = `module reasonix` / `go 1.26.0`；`/tutor/*` 路由集中于 `internal/frontend/serve/tutor*.go`；**无 `/api` 兼容层**（阶段① M3.5 待建）。
 
@@ -87,7 +87,7 @@ flowchart TD
 
 补充说明：
 
-- **路由模块数 = 24**（`api/` 下除 `__init__.py` / `deps.py` / `errors.py` / `sse_utils.py` 外的文件）；**`APIRouter` 实例数 = 26**（`share.py:33,35,37` 三个）。
+- **路由模块数 = 24**（`api/` 下除 `__init__.py` / `deps.py` / `errors.py` / `sse_utils.py` 外的文件）；**`APIRouter` 实例数 = 26**（不含 `api/__init__.py:10` 的根 `api_router`；`share.py:33,35,37` 贡献 3 个）。
 - `memory` 模块的 router **无前缀**（api/memory.py:52），路径直挂 `/api/threads/*`、`/api/runs/*`、`/api/memory*`。
 - `plans` 族的 `retry` / `clarify` / `cancel` 三个端点参数名是 `{session_id}` 而非 `{plan_id}`（OpenAPI 实测路径参数名）。
 - `GET /api/sessions/{id}` 返回 **live 实时进度**（`_STREAMS` 内存态：current_tool / step / cost，api/plans.py:88）；`DELETE` 级联取消生成。

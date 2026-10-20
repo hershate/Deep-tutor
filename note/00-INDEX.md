@@ -3,7 +3,7 @@
 > 分析范围：`F:\Github\repo\Deep-tutor` 全仓库（backend / frontend / plugins / extension / skills / internal / cmd / sdk / desktop / tools / docs / plan）
 > 重基线日期：2026-10-20（分支 `refactor/reasonix`）
 > 行号口径：以重基线日工作区为准；`backend/` 与 `frontend/` 为 Python v1 实现，`internal/` 与 `cmd/` 为 Go 内核改造形态。
-> 统计口径：代码行数按非空行计（`Get-Content | Measure-Object -Line`）；表数取 `Base.metadata.tables`；端点数取 OpenAPI 实际导出。
+> 统计口径：代码行数按**总行数**计（`[System.IO.File]::ReadAllLines` 逐文件累加，等价 `wc -l`），与文中行号引用同口径；表数取 `Base.metadata.tables`；端点数取 OpenAPI 实际导出。
 
 ## 目录
 
@@ -47,16 +47,16 @@
 
 | 区域 | 规模 |
 |---|---|
-| `backend/app` | 94 个 `.py`，22 614 行 |
-| `backend/tests` | 177 个 `.py`，29 438 行，1458 个 test 函数（pytest 收集 1462 用例） |
+| `backend/app` | 94 个 `.py`，26 583 行 |
+| `backend/tests` | 177 个 `.py`，37 338 行，1458 个 test 函数（pytest 收集 1462 用例） |
 | `backend/alembic/versions` | 26 个迁移 |
 | `backend/app/api` | 28 个 `.py`（24 个路由模块 + `deps.py`/`errors.py`/`sse_utils.py`/`__init__.py`）；OpenAPI 119 paths / 145 operations |
 | `backend/app/db/models.py` | 29 张 ORM 表 |
-| `frontend/src` | 73 个 `.ts`/`.tsx`（另 1 个 `.css`），19 190 行；19 页 + 38 组件 |
-| `plugins/` | 8 个 `.py` + 1 个 `.disabled`（723 行，不含 README） |
-| `extension/` | 7 个代码文件（338 行，含 README） |
+| `frontend/src` | 73 个 `.ts`/`.tsx`（另 1 个 `.css` 219 行），20 250 行；19 页 + 38 组件 |
+| `plugins/` | 8 个 `.py` + 1 个 `.disabled`（891 行，不含 README） |
+| `extension/` | 7 个代码文件（343 行）+ README（27 行） |
 | `skills/` | 8 个目录，19 个文件 |
-| `internal/` | 12 个一级子包，4812 个 `.go`，772 730 行 |
+| `internal/` | 12 个一级子包，4812 个 `.go`，834 739 行 |
 | `cmd/` | 5 个入口目录，21 个 `.go` |
 
 ## 架构速览

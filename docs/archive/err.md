@@ -74,7 +74,7 @@
 - [x] **A22. plans.py:528-530, 538-540 `SessionLocal(); _set_state(); db.close()` 非 try/finally** — commit 异常时 Session 泄漏。
 - [x] **A23. /quizzes/submit 无频率/次数限制，quiz_attempts 行无限增长** — `quizzes.py:26-49`。
 - [x] **A24. 会话创建无每用户数量配额** — `sessions.py:34-42`。
-- [x] **A25. /health 无认证且回显 disk_free_mb、skills_loaded 等内部信息** — `health.py:24-51`。
+- [x] **A25. /health 无认证且回显 disk_free_mb、skills_loaded 等内部信息** — `health.py:24-49`。
 
 ---
 
