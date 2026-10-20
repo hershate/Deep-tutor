@@ -1,7 +1,9 @@
 """iter 372 R11：备份 v2 大载荷与配额边界实测。
 
 既有 v2 回归（test_iter370_backup_v2）覆盖小载荷正确性；本轮补两类规模化证据：
-- 配额边界（软跳过语义）：threads ≤200 上限处精确截断、重复导入不放大、skipped 留痕；
+- 配额边界（软跳过语义）：threads ≤500 上限处精确截断、重复导入不放大、skipped 留痕
+  （iter 396：还原侧上限由 200 对齐 API 口径 500——200~500 个 thread 的用户做
+  「导出→导入」往返原本会静默丢会话）；
 - 真实端点全量往返：150 线程 × 10 消息（1500 条）+ 8 篇带 ~128KB base64 原件的
   知识库文档 → export（流式 FileResponse）→ import（to_thread 提交链）→ 计数精确 +
   原件字节级一致 + 耗时在秒级（高负载下的稳定性实测，非仅功能正确性）。
@@ -43,7 +45,7 @@ def _count(model, **kw) -> int:
 
 
 def test_thread_quota_boundary_soft_skip():
-    """250 线程备份 → 空用户精确导入 200、50 跳过留痕；再次导入不放大。"""
+    """550 线程备份 → 空用户精确导入 500、50 跳过留痕；再次导入不放大。"""
     uid, tok = _mk_user("bk_quota")
     h = {"Authorization": f"Bearer {tok}"}
     backup = {
@@ -51,7 +53,7 @@ def test_thread_quota_boundary_soft_skip():
         "threads": [
             {"title": f"t{i}", "kind": "chat", "model": "m",
              "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]}
-            for i in range(250)
+            for i in range(550)
         ],
         "memories": [], "kb_documents": [],
     }
@@ -59,8 +61,8 @@ def test_thread_quota_boundary_soft_skip():
                     files={"file": ("b.json", json.dumps(backup), "application/json")}, headers=h)
     assert r.status_code == 200, r.text[:300]
     body = r.json()
-    assert body["threads"] == 200, body["threads"]
-    assert _count(models.Thread, user_id=uid) == 200
+    assert body["threads"] == 500, body["threads"]
+    assert _count(models.Thread, user_id=uid) == 500
     assert any("对话会话数达上限" in s for s in body["skipped"]), body["skipped"]
 
     # 二次导入：room=0，全部跳过，不放大占用
@@ -68,7 +70,7 @@ def test_thread_quota_boundary_soft_skip():
                      files={"file": ("b.json", json.dumps(backup), "application/json")}, headers=h)
     assert r2.status_code == 200
     assert r2.json()["threads"] == 0, r2.json()["threads"]
-    assert _count(models.Thread, user_id=uid) == 200
+    assert _count(models.Thread, user_id=uid) == 500
 
 
 def test_scale_roundtrip_threads_messages_kb_originals(tmp_path):

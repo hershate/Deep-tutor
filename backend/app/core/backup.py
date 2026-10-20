@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session as DbSession
 
+from app.core.settings import settings
 from app.core.storage import (
     read_unit_content,
     save_kb_upload,
@@ -106,7 +107,10 @@ _MAX_SESSIONS = 200
 _MAX_MATERIALS_PER_SESSION = 20
 _MAX_NOTES = 500
 _MAX_PLANS_PER_SESSION = 50
-_MAX_THREADS = 200
+# iter 396：还原侧的对话会话上限此前是 200，而在线 API 是 500（memory.py 的
+# _MAX_THREADS_PER_USER）——拥有 200~500 个 thread 的用户做「导出→导入」往返会
+# 静默丢 thread（只在 summary.skipped 留一行）。按 API 口径对齐为 500。
+_MAX_THREADS = 500
 _MAX_RUNS_PER_THREAD = 2000
 _MAX_MSGS_PER_THREAD = 5000
 _MAX_MEMORIES = 2000
@@ -697,7 +701,15 @@ def _count_payload_rows(data: dict) -> int:
         total += len(_as_list(s.get("materials")))
         for p in _as_dicts(s.get("plans")):
             total += 1
-            total += len(_as_list(p.get("knowledge_nodes")))
+            # iter 396：知识点笔记（node.note 非空）会**额外**插一行 NodeNote，
+            # 此前未计入 -> 10 万节点全带笔记时实际插入 20 万行，超预算一倍
+            # （放大单事务持锁时长）。
+            for n in _as_list(p.get("knowledge_nodes")):
+                total += 1
+                if isinstance(n, dict):
+                    note = n.get("note")
+                    if isinstance(note, str) and note.strip():
+                        total += 1
             total += len(_as_list(p.get("resources")))
             total += len(_as_list(p.get("progress")))
             total += len(_as_list(p.get("learning_logs")))
@@ -885,6 +897,12 @@ def restore_backup(
 
         plans_room = _MAX_PLANS_PER_SESSION
         plans_skipped = 0
+        # iter 396：版本号去重——备份里可能含重复 version（构造/损坏文件），而
+        # schema 无 (session_id, version) 唯一约束 -> 还原后同会话出现重号版本，
+        # 方案列表/版本选择器错乱。正常备份的 version 原样保留（往返保真），仅在
+        # 重号或非递增时顺延为 max+1。
+        used_versions: set[int] = set()
+        max_version = 0
         for p in s.get("plans") or []:
             if not isinstance(p, dict):
                 continue
@@ -892,7 +910,12 @@ def restore_backup(
                 plans_skipped += 1
                 continue
             plans_room -= 1
-            _restore_plan(db, sess, p, summary, user.id, created_files)
+            v = _int_or(p.get("version"), 0)
+            if v <= 0 or v <= max_version or v in used_versions:
+                v = max_version + 1
+            used_versions.add(v)
+            max_version = max(max_version, v)
+            _restore_plan(db, sess, p, summary, user.id, created_files, version=v)
         if plans_skipped:
             summary["skipped"].append(
                 f"会话「{sess.title or sess.id}」方案超每会话 {_MAX_PLANS_PER_SESSION} 个上限，{plans_skipped} 个未导入"
@@ -1247,6 +1270,7 @@ def _restore_plan(
     summary: dict,
     user_id: int,
     created_files: list[str] | None = None,
+    version: int | None = None,
 ) -> None:
     # iter 246：单方案子对象配额——构造备份此前可在一次导入里写入无限行
     # （外层仅有会话/资料/笔记配额）；超限跳过并计入 skipped（对齐外层配额语义）
@@ -1264,7 +1288,11 @@ def _restore_plan(
     plan = models.Plan(
         session_id=sess.id,
         content=content,
-        version=_int_or(p.get("version"), 1),
+        # iter 396：version 由调用方按会话内顺序去重后传入（重号/非递增时顺延为
+        # max+1）——备份里的 version 可能重复（构造/损坏文件），schema 又无
+        # (session_id, version) 唯一约束，还原后同会话出现重号版本 -> 方案列表/
+        # 版本选择器错乱。不传 version 时沿用备份值（兼容单测直调）。
+        version=version if version is not None else _int_or(p.get("version"), 1),
     )
     if dt := _parse_dt(p.get("created_at")):
         plan.created_at = dt
@@ -1549,6 +1577,20 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
         if name in existing:
             summary["skipped"].append(f"供应商档案「{name}」已存在，已跳过")
             continue
+        # iter 396：写时 SSRF 校验——base_url 是**服务端出站目标**且由备份内容
+        # 控制；导入不校验即可写入 file:// 之类非法协议，或指向私网 / 云元数据
+        # （169.254.169.254）的域名（调用期只做字面量判定，不解析 DNS）。此处补
+        # 与 api/providers.py 写时同口径的校验（解析 DNS 后判私网），非法即跳过。
+        base_url = str(pr.get("base_url") or "")[:512]
+        if base_url and not settings.allow_private_llm_base_url:
+            from app.core.urlguard import check_outbound_url
+
+            ok, reason = check_outbound_url(base_url)
+            if not ok:
+                summary["skipped"].append(
+                    f"供应商档案「{name}」base_url 被安全策略拒绝（{reason}），已跳过"
+                )
+                continue
         if room <= 0:
             profiles_skipped += 1
             continue
@@ -1560,7 +1602,7 @@ def _restore_profiles(db: DbSession, user: models.User, profiles: list, summary:
             models.LlmProviderProfile(
                 user_id=user.id,
                 name=name,
-                base_url=str(pr.get("base_url") or "")[:512],
+                base_url=base_url,
                 api_key="",  # 凭证边界：不随备份导入
                 model=str(pr.get("model") or "")[:128],
                 kind=kind_val[:64] if kind_val else None,  # iter 313 协议
