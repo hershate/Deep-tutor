@@ -56,7 +56,13 @@ if TYPE_CHECKING:
 #         用户 /goal "后端可引入额外安全防护插件"；BaseHTTPMiddleware + error isolation + rollback。
 # v1.18.0：后端插件热重启——unload/reload/enable/disable + REST 端点 + 持久化禁用状态。
 #         无需重启服务器即可在 /plugins 页热管理插件。
-API_VERSION = "1.20.0"
+# v1.21.0：iter 393 行为收紧（无签名变更）——
+#         ① api.memory.recall_memories(scope="thread") 缺 thread_id 抛 ValueError（此前不过滤，
+#            返回该用户全部记忆，含其他 thread 的会话级与 user 级）；
+#         ② api.memory.delete_thread 先取消该 thread 在途 chat run（软+硬），同 REST 口径；
+#         ③ api.llm.complete / api.tools.call 经独立插件 LLM 信号量收口（等待超时 -> server_busy
+#            503 可重试），此前完全绕过全局背压、并发无上界。
+API_VERSION = "1.21.0"
 
 
 @asynccontextmanager

@@ -17,7 +17,7 @@
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
 | 前端插件 API | `1.18.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.20.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 后端插件 API | `1.21.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -749,7 +749,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.20.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.21.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -1146,6 +1146,13 @@ async for text in api.llm.stream(
     # 用法：拼接 yield 的文本即完整补全
 ```
 
+> **iter 393 补充 —— 插件面 LLM 背压**：`api.llm.complete` 与 `api.tools.call`（LLM 工具）
+> 现经**独立**的插件 LLM 信号量收口（`MAX_CONCURRENT_PLUGIN_LLM_CALLS`，默认 8），此前
+> 完全绕过全局背压、并发无上界。等待超过 30s 抛 `ApiError("server_busy")`（可重试语义），
+> 而非无限排队。独立于全局信号量是刻意为之：宿主 LLM 任务持槽期间调插件工具、插件工具
+> 再调 `api.llm.complete` 会构成同信号量嵌套等待而互锁。`api.llm.stream` 是 provider 级
+> async generator，**不**纳入该槽（消费方提前退出会漏槽）。
+
 - Anthropic 真流式（逐 token yield）；插件 Provider 回退非流式（一次性 yield 全文）。
 - 日预算守卫 + `api_usage` 计量同 `complete`（usage 在流末尾摄取，部分消费可能不计量）。
 - 错误映射同 `complete`（`no_llm_provider`/`server_busy`/`bad_gateway`，在 `async for` 中抛出）。
@@ -1535,7 +1542,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.20.0",
+  "api_version": "1.21.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1716,6 +1723,7 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.21.0 | 2026-10-21 | 插件面行为收紧（无签名变更，iter 393）：① `api.memory.recall_memories(scope="thread")` 缺 `thread_id` 抛 `ValueError`——此前过滤器被整体跳过、返回该用户**全部**记忆（含其他 thread 的会话级与 user 级），与 `save_memory` 拒绝同一入参的口径矛盾；② `api.memory.delete_thread` 先取消该 thread 在途的 chat run（软+硬），与 REST `DELETE /api/threads/{id}` 同口径——此前直接删行，后台 run 继续烧 LLM 预算、其后续落库撞已删 thread 外键；③ `api.llm.complete` / `api.tools.call`（LLM 工具）经**独立**插件 LLM 信号量收口（新增 `MAX_CONCURRENT_PLUGIN_LLM_CALLS`，默认 8），等待超时抛 `server_busy`（503 可重试）——此前完全绕过全局背压、并发无上界；独立于全局信号量是为避免宿主 LLM 任务与插件调用嵌套等待互锁。`api.llm.stream` 为 provider 级 async generator，不纳入该槽。 |
 | 后端 | 1.20.0 | 2026-07-24 | 新增核心事件 `quiz_ready`（payload `{plan_id, session_id, user_id, quiz_count}`）：自学材料全量生成完成后**后台预生成测验**完成时广播（iter 349，用户 /goal「生成自学资料时后台出题」）——仅本方案尚无 quiz 时预生成（不覆盖用户已生成题），按归属用户过滤经 `/api/events/stream` 转发，前端据此提示「测验已就绪」。配合 `generate_quiz` 工具新增 `post_process=ensure_quiz_coverage`（iter 349：每知识点必有题，缺的补自评题兜底，根治「缺题」）。事件只增不改，minor 向后兼容。 |
 | 后端 | 1.19.0 | 2026-07-24 | 记忆系统 CRUD 门面 `api.memory`（= `api.threads`）：插件进程内对会话/消息/记忆库做增删查改（list/create/get/delete_thread、list/add_message、save/recall/delete_memory），按 user_id 归属校验；对应新增 REST `/api/threads` `/api/runs` `/api/memory` 全量 CRUD + Agent 对话 SSE（`POST /api/threads/{id}/runs`，见「§记忆系统」）。Agent 工具（workspace_*/web_search/web_fetch/memory_*/load_thread_history/promote_artifact）注册入工具表，可经 `api.tools.call` 调用。 |
 | 后端 | 1.18.0 | 2026-07-23 | 插件**热管理**（无需重启整个项目）：`loader.unload_plugin/reload_plugin/disable_plugin/enable_plugin` + 3 个管理员端点 `POST /api/plugins/{id}/reload\|disable\|enable`（§8.7）；保留每插件 API 门面（`_plugin_apis`）供 unload 调 `_rollback()` 逆序撤销全部注册（路由/中间件/工具/事件/解析器/导出器/Provider/scheduler/webhook）；`disable` 持久化禁用状态到 `<DATA_DIR>/plugin_state.json`，重启后 `load_plugins` 跳过停用插件（记 `state:"disabled"`）；`PluginStatus.state` 加 `"disabled"` 取值 + `remove_status` 助手；用户 /goal "插件能热重启以及在插件页内直接关闭或打开" |
@@ -1852,3 +1860,9 @@ def register(api):
 `session_id` 须属该用户（否则 `ValueError`）。`save_memory`：content 1-20000 字符、kind≤32、
 `memory_write` 60 次/分钟、2000 条/用户、`thread_id` 须属该用户（跨用户注入拒绝）。
 `add_message`：`message_write` 60 次/分钟、纯文本 ≤200k 字符 / block list ≤64 块（每块 dict）。
+
+> **iter 393 补充**：`recall_memories(scope="thread")` 必须传 `thread_id`，否则抛 `ValueError`
+> （此前过滤器被整体跳过，返回该用户**全部**记忆，含其他 thread 的会话级与 user 级）。
+> `delete_thread` 与 REST `DELETE /api/threads/{id}` 同口径：先取消该 thread 在途的 chat
+> run（软+硬取消），再删行——避免后台 run 继续烧 LLM 预算、其后续落库撞已删 thread 的
+> 外键。
