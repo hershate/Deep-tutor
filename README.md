@@ -297,6 +297,8 @@ make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 
 **CI 现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff → pytest 覆盖率 ≥80% → OpenAPI 契约 → 前端 build），**未纳入 Go 门禁**；Go 门禁基线重建与 CI 接入属阶段① M1.5。
 
+`internal/safety/sandbox` 的 `TestIsWindowsWSLBash` 按文件身份判定 WSL 启动器，需本机存在 `C:\Windows\System32\bash.exe`；未装 WSL 的机器上该用例失败，属环境依赖。
+
 ---
 
 ## 9. 改造形态 v2 现状
