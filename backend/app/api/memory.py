@@ -557,8 +557,14 @@ def _create_chat_run_db(thread_id: int, user_id: int, model: str) -> int:
     """
     db = SessionLocal()
     try:
-        existing = db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).first()
-        if existing:
+        # iter 391：用配置上限而非硬编码 1——settings.max_running_chat_per_thread
+        # 此前定义了却从未被引用（err.md A7 同型：配置项零引用 = 运维改了没效果）。
+        running = (
+            db.query(models.Run)
+            .filter_by(thread_id=thread_id, status=models.RunStatus.running)
+            .count()
+        )
+        if running >= _MAX_RUNNING_PER_THREAD:
             raise HTTPException(status_code=409, detail="run_already_running")
         global_running = (
             db.query(models.Run)
@@ -783,6 +789,17 @@ async def _chat_relay(stream: _ChatStream, last_event_id: int):
         # （此前仅 /runs/{id}/cancel 与 delete_thread 会置 cancel_event）
         if stream.terminal_id is None and not stream.has_subscribers():
             stream.request_cancel()
+            # iter 391：硬取消——软取消只在步/工具边界生效（agent_loop 检查
+            # cancel_event），正在进行的 provider.stream_agentic 流式读取
+            # （SDK 超时最长 300s）打不断：客户端断连后后台 run 继续烧 token
+            # 并占住全局 LLM 槽（16 槽耗尽后新生成/对话请求无限排队，
+            # 表现为"服务像死了"）。与 /runs/{id}/cancel、delete_thread 同口径。
+            task = getattr(stream, "task", None)
+            if task is not None and not task.done():
+                try:
+                    task.cancel()
+                except Exception:  # noqa: BLE001  取消失败不阻断收尾
+                    log.warning("chat run %s 硬取消失败", getattr(stream, "task", None), exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -874,8 +891,22 @@ async def _run_chat(
         # （此前异常穿透会跳过 close，连接延迟归还池）
         try:
             await _finalize_chat(db, run_id, thread_id, stream)
+        except asyncio.CancelledError:
+            # iter 391：二次取消落在收口窗口——此时 _finalize_chat 的函数体可能
+            # 根本没开始执行（await 处立即抛 CancelledError），其内部 finally
+            # （发终态事件 + _RUN_STREAMS.pop）不会跑：注册表残留一条，
+            # 且 runs 行永远停在 running -> 每 thread 至多 1 个 running 的硬约束
+            # 让该会话**永久 409**。故在此强制收敛 run 行并清理注册表。
+            _force_run_terminal(run_id, models.RunStatus.interrupted)
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("chat run %s 收口失败", run_id, exc_info=True)
+            _force_run_terminal(run_id, models.RunStatus.error)
         finally:
             db.close()
+            # iter 391：注册表清理放在 _run_chat 自身的 finally（无条件执行），
+            # 不依赖 _finalize_chat 内部的 pop——二次取消路径下后者不会执行。
+            _RUN_STREAMS.pop(run_id, None)
 
 
 async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
@@ -981,7 +1012,10 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
             from sqlalchemy import func as _func
 
             run.ended_at = _func.now()
-            db.commit()
+            # iter 392：commit 移出事件循环线程——写锁争用时可等 busy_timeout（10s），
+            # 留在事件循环会冻结全部请求与 SSE 心跳（会话属该 run 的请求线程，
+            # 此处无并发使用，check_same_thread=False 下跨线程 commit 安全）。
+            await asyncio.to_thread(db.commit)
             final_status = run.status.value
             # bus 推送（/api/events/stream 按归属用户过滤转发）
             try:
@@ -994,7 +1028,8 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
     except Exception:  # noqa: BLE001  finalize 本身异常也要发终态 + 强制落库防永久 running
         log.warning("finalize chat run %s 失败", run_id, exc_info=True)
         final_status = "error"
-        _force_run_terminal(run_id, models.RunStatus.error)
+        # iter 392：强制收敛同样含 DB 写，移出事件循环线程
+        await asyncio.to_thread(_force_run_terminal, run_id, models.RunStatus.error)
     finally:
         eid = stream.publish("done", {"run_id": run_id, "status": final_status})
         stream.mark_terminal(eid)

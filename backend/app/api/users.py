@@ -169,10 +169,11 @@ def delete_user(
         cancel_running_generation(sid)  # 防僵尸编排器任务 _finalize 撞 FK（同 DELETE /sessions）
     # iter 380：等任务收敛（_finalize 落账完成）再删——cancel 只是调度，finalize 落账
     # 新插的 api_usage 行会让 user 删除的级联 FK 检查失败（500，用户删不成）。
-    from app.api.plans import wait_generation_settled
+    # iter 391：批量等待用**总**超时（15s 覆盖全部会话），而非每会话各 15s
+    # （200 个会话最坏 50 分钟独占一个线程池槽 -> 并发删用户可卡死全服务）。
+    from app.api.plans import wait_generations_settled
 
-    for sid in session_ids:
-        wait_generation_settled(sid)
+    wait_generations_settled(session_ids)
     for sid in session_ids:
         sess = db.get(models.Session, sid)
         if sess is not None:
