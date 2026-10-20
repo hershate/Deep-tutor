@@ -38,17 +38,40 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
-**iter 396（2026-10-21，v1 Python 后端未审面续审与事件归属收敛轮，⏳ 进行中）**：承接 iter 392~395 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 395「下一步」列出的未审面：`api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py` 的导入/还原链（explore 子 agent 审计中）；主会话同步推进已坐实的**事件归属面**修复（核心事件载荷直归属 `user_id`）。
+**iter 396（2026-10-21，v1 Python 后端未审面续审与数据面/暴露面加固轮，✅ 完成）**：承接 iter 392~395 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 395「下一步」列出的未审面：`api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py` 的导入/还原链。
 
-- **本轮修复（1 个 commit）**：
+- **审查方法**：一个 explore 子 agent 审计四个目标文件（+ 依赖链），产出 **26 条发现**（notes 6 / sessions 4 / memory 6 / backup 8，另列 14 条「已核实干净」及依据行号）；主会话**逐条读原文复核**，只修「已坐实或明确成立」的问题，对最强论断写**实证探针**，并为每处修复补回归（含「修复前必红」的验证）。
+
+- **本轮修复（8 个 commit）**：
 
   | commit | 主题 | 关键内容 |
   |---|---|---|
-  | `6e620ef` | 核心事件载荷直归属 user_id | `plan_created` / `materials_completed` 此前**仅带 `session_id`**，SSE 端须经 `resolve_owner` 查库解析 `session.user_id`（iter 381 起直查、无缓存）——成本为每事件 × 每订阅者 × 一次主键读 + 一个连接池槽位；且归属解析**依赖 `sessions` 行存活**，行已删（或 rowid 被复用）时解析不出归属 -> 事件按 safe-by-default 丢弃，正主收不到自己的「方案/材料已就绪」通知（前端 toast 与实时刷新静默失效）。现两事件直传 `user_id`（后端插件 API 1.21.0→1.22.0，载荷只增键向后兼容；前端插件 API 1.18.0→1.19.0，TS 类型补 `user_id?`）：归属判定**零查库**、不依赖会话行存活。`resolve_owner` 行为零改动，插件自定义事件仅带 `session_id` 的回落路径保留。`_owner_payload` 只写正整数（bool/None/0 一律不写，避免 `resolve_owner` 把 `user_id=True` 判给用户 1）。回归 8 条 |
+  | `6e620ef` | 核心事件载荷直归属 user_id | `plan_created` / `materials_completed` 此前**仅带 `session_id`**：SSE 端须经 `resolve_owner` 查库解析 `session.user_id`（iter 381 起直查、无缓存）——成本为每事件 × 每订阅者 × 一次主键读；且归属解析**依赖 `sessions` 行存活**，行已删（或 rowid 被复用）时解析不出归属 -> 事件按 safe-by-default 丢弃，正主收不到自己的「方案/材料已就绪」通知。现两事件直传 `user_id`（后端插件 API 1.21.0→**1.22.0**，载荷只增键；前端 1.18.0→**1.19.0**，TS 类型补 `user_id?`）：归属判定**零查库**、不依赖会话行存活。`resolve_owner` 行为零改动，插件自定义事件仅带 `session_id` 的回落路径保留。回归 8 条 |
+  | `6349cc6` | 笔记导入路径加固 | ① **配额竞态闭合**：`POST /api/notes/import` 此前在函数开头数一次 `existing` 即判 500 条上限、不持 `quota_slot`、不在提交前复查 -> 两个并发 import（或 import 与并发 create_note）各看到同一 `existing`，实际落库可达 ~2 倍上限；现「计数 + 批量插入 + 提交」同在 `quota_slot("note:{uid}")` 内（与 create_note 同键）。② **zip 解压内存放大封死**：`zf.read(name)` 走 `ZipExtFile._read1(MAX_N=1<<31)`，zlib 把整个 deflate 成员一次性展开且**与中央目录声明的 `file_size` 无关**（声明值可谎报，原「声明值 >100KB 即跳过」检查可被绕过）-> 改 `zf.open()` + 64KiB 分块读（单块上限同时约束 zlib 单次解压输出），并按**实际解压字节**判单条上限、累计超总预算即停。③ 整段解析移入 `asyncio.to_thread`（此前在 async 端点内同步解压，大条目卡住全站请求与 SSE 心跳）。④ 导出 zip 重名条目去重后仍可能撞名（解压时后者覆盖前者 = 笔记静默丢失）-> 编号直到不重名。回归 6 条 |
+  | `a8b985c` | 记忆系统删除/提升/读取/列表 | ① **删 thread 与在途 chat run 的写并发**：此前只 cancel 不等收敛就删行，而 agent 落库写（`_persist_message`/`_persist_run_step`，走 `asyncio.to_thread` **不可中断**）可能落在「子行已删、thread 行未删」之间 -> 删 thread 行触发 `FOREIGN KEY constraint failed` -> **500 且 thread 未删**；落在 thread 行删除之后 -> 写入自身 FK 失败。现先 cancel 再等收敛（`_wait_runs_settled`，同 sessions.py 范式）+ **有界重试**（回滚重载 ORM 对象），仍失败 409。② **chat run 异常不再外泄内部细节**：SSE `error` 此前直接回显 `str(exc)`（含表名/列名/SQL 片段），改固定文案 + 细节进日志。③ **提升为笔记复用 `/notes` 的上限与配额**（标题未截 256、正文未截 20000、不检查 500 条配额 -> 可把 notes 表撑到远超上限）。④ 产物读取按 20 万字符上限截断并置 `truncated`（此前全量读入内存并整份返回）。⑤ 会话列表去 N+1（逐条 2 次查询 -> limit=100 即 201 次；改两次批量查询）。回归 8 条 |
+  | `17321f9` | 备份还原路径加固 | ① **`base_url` 补写时 SSRF 校验**：备份里的 base_url 是**服务端出站目标**且由备份内容控制，导入不校验即可写入 `file://` 或指向私网/云元数据（`169.254.169.254`）的地址（调用期只做字面量判定、不解析 DNS）-> 补与 `api/providers.py` 同口径的 `check_outbound_url`（解析 DNS 后判私网），非法即跳过并记入 `skipped`（`ALLOW_PRIVATE_LLM_BASE_URL=1` 放行）。② **还原侧 thread 上限 200 -> 500**（对齐在线 API——200~500 个 thread 的用户「导出→导入」往返原本静默丢会话）。③ **方案 `version` 按会话内顺序去重**（备份可能含重复 version，schema 无 `(session_id, version)` 唯一约束 -> 同会话重号版本，方案列表/版本选择器错乱；正常备份 version 原样保留，往返保真不变）。④ 行数预算 `_count_payload_rows` **计入知识点笔记**（每个带 `note` 的节点额外插一行 `NodeNote`，此前最多低估一倍）。回归 6 条 |
+  | `0da20e0` | 会话删除端点异步化 | `DELETE /api/sessions/{id}` 此前是同步端点，等在途生成收敛（最多 15s）期间**独占一个 anyio 工作线程** -> 并发删除可占满线程池（默认 40 槽）使全站同步端点（含登录）排队。改 async 三段式：准备（写线程）-> 异步等待（新增 `plans.wait_generation_settled_async`，**不占线程**）-> 删除（写线程）+ 文件清理（线程池）；文件清理失败此前被 `except: pass` 静默吞掉（Windows 文件占用导致残留目录运维无从发现），改记 warning。回归 3 条 |
+  | `0ae7429` | 备份覆盖面披露（B8） | 后端早已算出「未纳入备份的 9 张表」并随 export/preview/import 回传，UI 一律不显示 -> 设置页「导出全部学习数据」的表述与实现不符。新增 `GET /api/backup/coverage`（事实源 `core/backup.not_backed_up()`，前端不硬编码副本）+ 设置页折叠展示未备份清单。回归 2 条 |
+  | `f1660cf` · 本条 | 进度记录 | stage.md 增量 |
 
-- **审计进度**：子 agent 审计 `api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py`（导入/还原链）——**结果待回**；主会话复核后再定修复批次。
+- **被实证坐实/明确成立的关键点**：
+  1. **zip 解压内存放大（N3）**：探针 `dt_probe_zip_amp2.py`——构造中央目录**谎报** `file_size` 的 zip（97KB 请求体，实际内容 100MB 零字节）：`zf.read(name)` **峰值分配 204.8 MiB**（zlib 单次展开整个 deflate 成员后才在 CRC 处报错，异常被捕获但内存峰值已产生）；改 `zf.open()` + 64KiB 分块读后 **峰值 0.3 MiB**。原「声明值 >100KB 即跳过」只挡得住**诚实**声明。
+  2. **删 thread 的 FK 竞态（M1）**：用 SQLAlchemy `before_cursor_execute` 事件在 `DELETE FROM threads` 执行前**注入**一行引用该 thread 的 message（精确复现竞态窗口）-> 稳定触发 `FOREIGN KEY constraint failed`（修复前 500 且 thread 未删）；有界重试后 200 且残留行被级联清干净。
+  3. **笔记导入配额竞态（N1）**：490 条预置 + 2 个并发各导入 10 篇 -> 修复后落库**恰好 500**（修复前两者都读到 `existing=490`，可达 510）。
+  4. **事件归属依赖会话行存活**：带 `session_id` 的事件在会话行删除后 `resolve_owner` 返回 None -> 事件按 safe-by-default 丢弃（正主收不到）；带 `user_id` 后照常转发（新增回归用例锁定）。
+  5. 子 agent 另核实「用户隔离无漏洞、导入不产生路径穿越、`read_file` 无穿越、全局请求体上限存在、重验/事务/补偿链闭合、配额互斥已正确落地」等 14 项**未坐实即不动**。
 
-- **下一步**：① 子 agent 结果回后逐条复核 sessions/notes/memory/backup 四面（坐实才修，含实证探针）；② 跑全量回归（预期 1571+8 = 1579 passed / 1 skipped）并同步 note/06、note/08 与 AGENTS.md 规模；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+- **实测基线（本轮）**：全量套件 **1604 passed / 1 skipped**（391.32s，新增 33 条）；唯一 skip 为 `marker_single` 未安装（环境项，非回归）。`ruff check app/ tests/` 全通过；前端 `tsc --noEmit` 与 `vite build` 均通过（备份覆盖面 UI）；OpenAPI **120 paths / 146 operations**（+1 覆盖面端点）。
+
+- **本轮发现但未修（后续 iter 候选，含不修理由）**：
+  - **B1 备份导入单事务独占 SQLite 写锁（产品级待定夺）**：一次满额导入（`_MAX_TOTAL_ROWS`=10 万行）在**单个事务**内逐段 flush，且期间夹带大量文件 IO（解析文本/kb 原件/单元内容落盘）-> 写锁被按住数十秒到数分钟，其间全服写请求等满 `busy_timeout`(10s) -> 503/500。两条修法均涉产品取舍：① 下调单次导入行数上限（改变「一次备份能带多少数据」的承诺）；② 文件落盘移出事务（临时路径 -> commit -> rename，事务时长大减但需改补偿链）或拆批提交（引入「部分成功」语义）。**未自行决断，待用户定夺。**
+  - **B2 导出无总量上限（产品级待定夺）**：`_MAX_EXPORT_BYTES`(256MB) 只约束 kb 原件内联；notes/messages/plans.content 等大字段不计入预算，重度用户单次导出可把 worker 撑爆。修法二选一同样是产品取舍：超预算 **413 拒绝**（备份拿不到，需另寻导出范围）或**逐字段截断 + 明确披露**（备份不完整，违背「备份」语义）。
+  - **M4 `MemoryIn.scope` 被静默忽略**：`POST /threads/{id}/memory` 接受 `scope` 字段但恒强制 `scope="thread"`（用户级记忆另有端点）。改法（删除字段 / 非 thread 报 422）会改 v1 API 语义，而 note/11 记明「v1 契约冻结，只改勘误不改语义」-> 未动，待定。
+  - **S1 删资料与在途解析的窄窗口**：`DELETE /sessions/{sid}/materials/{mid}` 与解析端各看各的锁（删除端读 `lock.locked()`，解析端 `setdefault` 后再 `async with`）-> 窗口内解析可能写出孤儿解析文件（DB 无对应行）。子 agent 标注为「推测」，无触发记录；根治需两端共用同一把锁（跨线程获取 asyncio 锁），改动面大于收益，未动。
+  - **S4 删会话把绑定 thread 的 `session_id` 置空**：`Thread.session_id` 可空 FK 且 `Session.threads` 无 delete 级联 -> 删会话后 thread 留存但 plan-gen 桥接失效（后续 `approve` 提升为 plan 返回 400 `thread_has_no_session`）。属**优雅降级**而非数据损坏；子 agent 标注为「推测」，未动。
+  - **N5 乐观并发秒级分辨率**（iter395 已列，沿用）：`updated_at` 为 SQLite `CURRENT_TIMESTAMP`（秒粒度）-> 同秒双写仍 LWW，波及笔记/节点笔记/偏好/计费表。彻底修法需 `rev` 整数列（跨 4 张表 + 既有基线格式），未动。
+
+- **下一步**：① 待用户定夺 B1/B2 的产品级取舍（备份导入写锁时长、导出行情上限与截断/拒绝语义）；② 继续 v1 Python 后端未审面（`api/kb.py`、`api/materials.py`、`api/exports.py`、`api/users.py`、`api/auth.py`、`app/tools/`、`app/agent/`）；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
 
 **iter 395（2026-10-21，v1 Python 后端未审面续审与并发/暴露面加固轮，✅ 完成）**：承接 iter 392~394 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393/394「下一步」列出的未审面：`api/knowledge.py`、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`（+ `api/search.py` 复核）。
 
