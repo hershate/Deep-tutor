@@ -16,8 +16,8 @@
 
 | 版本线 | 当前版本 | 暴露位置 |
 |---|---|---|
-| 前端插件 API | `1.18.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
-| 后端插件 API | `1.21.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
+| 前端插件 API | `1.19.0` | 浏览器全局 `window.DeepTutor.version`（React 树渲染前挂载） |
+| 后端插件 API | `1.22.0` | 插件 `register(api)` 收到的 `api.version`；状态端点 `GET /api/plugins` 的 `api_version` |
 
 ---
 
@@ -590,10 +590,10 @@ interface SkinDef {
 |---|---|---|---|
 | `skinchange` | `{ name: string }` | 前端 | 皮肤切换后（含亮/暗切换引起的令牌重放） |
 | `taskchange`（v1.1.0） | `{ id; kind; phase; title }` | 前端 | 方案/材料生成任务的每次相位迁移 |
-| `plan_created`（v1.7.0） | `{ plan_id; session_id; version; topic }` | 后端 | 方案新版本落库后（生成/重生成/重试统一收口） |
+| `plan_created`（v1.7.0） | `{ plan_id; session_id; version; topic; user_id }` | 后端 | 方案新版本落库后（生成/重生成/重试统一收口）；`user_id` 自后端 v1.22.0 起直传（归属判定零查库） |
 | `progress_updated`（v1.7.0） | `{ user_id; plan_id; node_id; status; mastery }` | 后端 | 单节点进度更新提交后 |
 | `quiz_submitted`（v1.7.0） | `{ user_id; quiz_id; plan_id; type; correct }` | 后端 | 测验作答提交后 |
-| `materials_completed`（v1.7.0） | `{ plan_id; session_id; unit_count; degraded_count; partial }` | 后端 | 自学材料生成完成 |
+| `materials_completed`（v1.7.0） | `{ plan_id; session_id; unit_count; degraded_count; partial; user_id }` | 后端 | 自学材料生成完成；`user_id` 自后端 v1.22.0 起直传 |
 | `quiz_ready`（v1.20.0） | `{ plan_id; session_id; user_id; quiz_count }` | 后端 | 材料完成后台预生成测验完成（用户打开测验即命中缓存，免等待） |
 | `learning_log_added`（v1.7.0） | `{ user_id; plan_id; log_id; date; minutes; note }` | 后端 | 学习打卡提交后 |
 | `<plugin 自定义>`（v1.7.0） | 任意 | 后端 | 后端插件 `api.events.emit("myplugin.x", {...})`（按归属用户过滤推送） |
@@ -749,7 +749,7 @@ URL 必须 `http(s)://` 开头；脚本加载失败 reject。
 后端插件 = 一个 Python 文件（或包），放入插件目录后**重启后端自动装载**，通过
 `register(api)` 门面获得扩展能力：挂 REST 路由、订阅核心事件、注册 Agent 工具。
 
-- **API 版本**：`1.21.0`（`api.version`，与前端 API 独立版本线）
+- **API 版本**：`1.22.0`（`api.version`，与前端 API 独立版本线）
 - **兼容性承诺**：minor/patch 向后兼容（只增不改）；插件只依赖 `api` 门面即受本承诺保护——
   **直接 import 宿主内部模块不在兼容性承诺范围内**（内部重构不另行通知）。
 - **运行环境**：后端进程内（与宿主同权限，见 §九 安全规范）。
@@ -1526,10 +1526,10 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 |---|---|---|
 | `startup` | `{}` | 后端启动完成、全部插件加载后（await 逐个监听器） |
 | `shutdown` | `{}` | 后端开始关闭时（await 逐个监听器） |
-| `plan_created` | `{ plan_id: int, session_id: int, version: int, topic: str }` | 方案新版本落库后（生成/重生成/重试统一收口） |
+| `plan_created` | `{ plan_id: int, session_id: int, version: int, topic: str, user_id: int }` | 方案新版本落库后（生成/重生成/重试统一收口）；`user_id` 自 v1.22.0 起直传——此前仅带 `session_id`，SSE 端每条订阅者需查库解析归属，且会话已删时事件被按「不可归属」丢弃 |
 | `progress_updated` | `{ user_id: int, plan_id: int, node_id: str, status: str, mastery: float }` | 单节点进度更新提交后 |
 | `quiz_submitted` | `{ user_id: int, quiz_id: int, plan_id: int, type: str \| null, correct: bool \| null }` | 测验作答提交后 |
-| `materials_completed`（v1.1.0） | `{ plan_id: int, session_id: int, unit_count: int, degraded_count: int, partial: bool }` | 自学材料生成完成（SSE 逐单元流与同步 JSON 生成两路径均广播；`partial: true` 表示 scope/unit_ids 局部重生成；幂等重渲染不广播——无新生成） |
+| `materials_completed`（v1.1.0） | `{ plan_id: int, session_id: int, unit_count: int, degraded_count: int, partial: bool, user_id: int }` | 自学材料生成完成（SSE 逐单元流与同步 JSON 生成两路径均广播；`partial: true` 表示 scope/unit_ids 局部重生成；幂等重渲染不广播——无新生成）；`user_id` 自 v1.22.0 起直传（同 `plan_created`） |
 | `quiz_ready`（v1.20.0） | `{ plan_id: int, session_id: int, user_id: int, quiz_count: int }` | 材料完成后台预生成测验完成（iter 349：材料全量生成完成后后台出题，仅本方案尚无 quiz 时预生成、不覆盖用户已生成题；按归属用户过滤经 `/api/events/stream` 转发，前端据此提示「测验已就绪」） |
 | `learning_log_added`（v1.2.0） | `{ user_id: int, plan_id: int, log_id: int, date: str, minutes: int, note: str \| null }` | 学习打卡提交后（`date` 为 ISO 日期） |
 | `run_completed`（v1.7.0/1.19.0） | `{ user_id: int, run_id: int, thread_id: int, status: str }` | Agent 对话 run 终态后（done/interrupted/error/awaiting_approval；按归属用户过滤经 `/api/events/stream` 转发） |
@@ -1542,7 +1542,7 @@ api.settings.data_dir / api.settings.plugins_dir    # 常用路径属性
 
 ```json
 {
-  "api_version": "1.21.0",
+  "api_version": "1.22.0",
   "plugins": [
     {
       "id": "hello", "name": "Hello", "version": "0.1.0",
@@ -1606,8 +1606,8 @@ Server-Sent Events。前端插件 / 外部替代前端 / CLI 据此构建实时 
 
 **用户隔离（P4 安全默认）**：服务端按归属用户过滤事件——
 
-- payload 带 `user_id`（如 `progress_updated`/`quiz_submitted`/`learning_log_added`）-> 仅转发给该用户；
-- payload 带 `session_id`（如 `plan_created`/`materials_completed`）-> 服务端解析 `session.user_id` 后仅转发给归属用户；
+- payload 带 `user_id`（**核心事件全部如此**：`progress_updated`/`quiz_submitted`/`learning_log_added`/`quiz_ready`/`run_completed`/`plan_created`/`materials_completed`）-> 仅转发给该用户，**零查库**；
+- payload 仅带 `session_id`（插件自定义事件等）-> 服务端解析 `session.user_id` 后仅转发给归属用户；会话行已删则解析不出归属，按下一条丢弃；
 - `startup`/`shutdown` 等全局生命周期事件 -> 广播给全部连接；
 - 既无 `user_id`/`session_id` 又非全局的事件（如某些插件自定义事件）-> **丢弃**（safe-by-default，防跨用户泄露）。
 
@@ -1618,7 +1618,7 @@ event: progress_updated
 data: {"user_id": 1, "plan_id": 7, "node_id": "n3", "status": "done", "mastery": 0.8}
 
 event: plan_created
-data: {"plan_id": 12, "session_id": 3, "version": 1, "topic": "React"}
+data: {"plan_id": 12, "session_id": 3, "version": 1, "topic": "React", "user_id": 1}
 
 : ping
 ```
@@ -1723,6 +1723,8 @@ for (;;) {
 
 | 版本线 | 版本 | 日期 | 变更 |
 |---|---|---|---|
+| 后端 | 1.22.0 | 2026-10-21 | 核心事件 `plan_created` / `materials_completed` 载荷追加 `user_id`（iter 396）：此前二者仅带 `session_id`，SSE 端每条订阅者需查库解析 `session.user_id` 才能判定归属（iter 381 起直查，无缓存），且**会话行已删**时解析不出归属 -> 事件按 safe-by-default 丢弃，正主收不到自己的生成完成通知。带 `user_id` 后归属判定**零 DB**，与其余核心事件（`progress_updated`/`quiz_submitted`/`learning_log_added`/`quiz_ready`/`run_completed`）同一口径；载荷只增键，既有键与事件名不变，minor 向后兼容。 |
+| 前端 | 1.19.0 | 2026-10-21 | `DeepTutorEventMap` 的 `plan_created` / `materials_completed` 载荷类型补 `user_id?: number`（后端 v1.22.0 起直传；旧宿主缺此键故为可选）——此前 TS 类型与后端实际载荷不一致，插件作者按类型取 `user_id` 恒为 `undefined`。仅类型层增量，运行时 API 行为不变。 |
 | 后端 | 1.21.0 | 2026-10-21 | 插件面行为收紧（无签名变更，iter 393）：① `api.memory.recall_memories(scope="thread")` 缺 `thread_id` 抛 `ValueError`——此前过滤器被整体跳过、返回该用户**全部**记忆（含其他 thread 的会话级与 user 级），与 `save_memory` 拒绝同一入参的口径矛盾；② `api.memory.delete_thread` 先取消该 thread 在途的 chat run（软+硬），与 REST `DELETE /api/threads/{id}` 同口径——此前直接删行，后台 run 继续烧 LLM 预算、其后续落库撞已删 thread 外键；③ `api.llm.complete` / `api.tools.call`（LLM 工具）经**独立**插件 LLM 信号量收口（新增 `MAX_CONCURRENT_PLUGIN_LLM_CALLS`，默认 8），等待超时抛 `server_busy`（503 可重试）——此前完全绕过全局背压、并发无上界；独立于全局信号量是为避免宿主 LLM 任务与插件调用嵌套等待互锁。`api.llm.stream` 为 provider 级 async generator，不纳入该槽。 |
 | 后端 | 1.20.0 | 2026-07-24 | 新增核心事件 `quiz_ready`（payload `{plan_id, session_id, user_id, quiz_count}`）：自学材料全量生成完成后**后台预生成测验**完成时广播（iter 349，用户 /goal「生成自学资料时后台出题」）——仅本方案尚无 quiz 时预生成（不覆盖用户已生成题），按归属用户过滤经 `/api/events/stream` 转发，前端据此提示「测验已就绪」。配合 `generate_quiz` 工具新增 `post_process=ensure_quiz_coverage`（iter 349：每知识点必有题，缺的补自评题兜底，根治「缺题」）。事件只增不改，minor 向后兼容。 |
 | 后端 | 1.19.0 | 2026-07-24 | 记忆系统 CRUD 门面 `api.memory`（= `api.threads`）：插件进程内对会话/消息/记忆库做增删查改（list/create/get/delete_thread、list/add_message、save/recall/delete_memory），按 user_id 归属校验；对应新增 REST `/api/threads` `/api/runs` `/api/memory` 全量 CRUD + Agent 对话 SSE（`POST /api/threads/{id}/runs`，见「§记忆系统」）。Agent 工具（workspace_*/web_search/web_fetch/memory_*/load_thread_history/promote_artifact）注册入工具表，可经 `api.tools.call` 调用。 |

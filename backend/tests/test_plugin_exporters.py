@@ -566,7 +566,7 @@ def test_status_endpoint_exposes_exporters(tmp_path):
         r = c.get("/api/plugins", headers={"Authorization": "Bearer test-token"})
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["api_version"] == "1.21.0"
+        assert body["api_version"] == "1.22.0"
         foo = [p for p in body["plugins"] if p["id"] == "epubexp"][0]
         assert foo["exporters"] == ["epub"]
 

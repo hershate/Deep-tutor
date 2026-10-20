@@ -62,7 +62,11 @@ if TYPE_CHECKING:
 #         ② api.memory.delete_thread 先取消该 thread 在途 chat run（软+硬），同 REST 口径；
 #         ③ api.llm.complete / api.tools.call 经独立插件 LLM 信号量收口（等待超时 -> server_busy
 #            503 可重试），此前完全绕过全局背压、并发无上界。
-API_VERSION = "1.21.0"
+# v1.22.0：核心事件 plan_created / materials_completed 载荷追加 user_id（iter 396）——
+#         此前二者仅带 session_id，SSE 端每条订阅者需查库解析 session.user_id，且会话
+#         已删时事件按「不可归属」丢弃（正主收不到）；带 user_id 后归属判定零 DB。
+#         载荷只增键，既有键与事件名不变，向后兼容。
+API_VERSION = "1.22.0"
 
 
 @asynccontextmanager

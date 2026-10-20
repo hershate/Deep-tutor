@@ -15,7 +15,7 @@ import { apiFetch } from './api'
 import { toast as _hostToast, type ToastAction } from '../components/Toast'
 import { useUIStore } from '../store/ui'
 
-export const API_VERSION = '1.18.0'
+export const API_VERSION = '1.19.0'
 
 // ---------------------------------------------------------------------------
 // 插件注册追踪（v1.17.0）：热启停（plugins.disable/enable）的基础
@@ -1127,14 +1127,15 @@ export interface DeepTutorEventMap {
    *  任务全量状态可经 api.get('/sessions') 主动查询。 */
   taskchange: { id: string; kind: 'plan' | 'materials'; phase: string; title: string }
   // —— 后端事件桥（iter 315，SSE 转发；载荷见 API.md「§核心事件清单」）——
-  /** 方案新版本落库后（生成/重生成/重试统一收口） */
-  plan_created: { plan_id: number; session_id: number; version: number; topic: string }
+  /** 方案新版本落库后（生成/重生成/重试统一收口）
+   *  user_id：后端 v1.22.0 起随载荷直传（归属判定零查库）；旧宿主缺此键故为可选。 */
+  plan_created: { plan_id: number; session_id: number; version: number; topic: string; user_id?: number }
   /** 单节点进度更新提交后 */
   progress_updated: { user_id: number; plan_id: number; node_id: string; status: string; mastery: number }
   /** 测验作答提交后 */
   quiz_submitted: { user_id: number; quiz_id: number; plan_id: number; type: string | null; correct: boolean | null }
-  /** 自学材料生成完成 */
-  materials_completed: { plan_id: number; session_id: number; unit_count: number; degraded_count: number; partial: boolean }
+  /** 自学材料生成完成（user_id 同上：后端 v1.22.0 起直传） */
+  materials_completed: { plan_id: number; session_id: number; unit_count: number; degraded_count: number; partial: boolean; user_id?: number }
   /** 后台测验预生成完成（iter 350：材料完成后后台出题，就绪提醒；经 SSE 按 user 过滤转发） */
   quiz_ready: { plan_id: number; session_id: number; user_id: number; quiz_count: number }
   /** 学习打卡提交后 */

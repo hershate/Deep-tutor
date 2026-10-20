@@ -225,7 +225,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 > **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后前端插件宿主 `window.DeepTutor` 废弃（能力由 Reasonix 插件包与 Extension 结构化 UI 承担）；后端 Python 进程内插件体系终结（9 个内置插件实例的功能在新架构等价实现，映射表见 `plan/reasonix/05` 阶段③）；前端插件示例的番茄钟 / 浮层笔记 / 换肤 / 阅读器四项作为内置能力在新前端重建。v1 运行期间继续可用。
 
-- **前端插件**（`window.DeepTutor`，当前 `1.18.0`，见 `frontend/src/lib/plugins.ts`）：小组件插槽、皮肤令牌、API 事件、REST 代理、热启停、插件 URL 持久化加载。侧栏「插件」页可视化加载 / 移除 / 启停。契约见 [`API.md`](./API.md)。
+- **前端插件**（`window.DeepTutor`，当前 `1.19.0`，见 `frontend/src/lib/plugins.ts`）：小组件插槽、皮肤令牌、API 事件、REST 代理、热启停、插件 URL 持久化加载。侧栏「插件」页可视化加载 / 移除 / 启停。契约见 [`API.md`](./API.md)。
 - **后端插件**（[`plugins/`](./plugins/) 目录，当前 `1.20.0`）：Python 插件自动发现装载，路由命名空间 `/api/plugins/<id>/`（默认带宿主认证），可注册工具、解析器、导出器、供应商协议、MCP 桥、事件订阅、定时任务与 Webhook。`.py` 文件放入 `plugins/` 重启生效，`_` 前缀停用。装载约定见 [plugins/README.md](./plugins/README.md)。
 
 ---

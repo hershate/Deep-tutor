@@ -997,7 +997,7 @@ def _finalize_persist(
             return [(eid, "error", data)]
         if result.status == "done":
             _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
-            plan_id = _persist_plan(db, session_id, result.plan)
+            plan_id = _persist_plan(db, session_id, result.plan, stream.user_id)
             cost = stream.budget.spent if stream.budget else 0.0
             data = {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(cost, 6)}}
             eid = stream.reserve_terminal("done", data)
@@ -1545,7 +1545,28 @@ def _persist_usage_only(db: Session, user_id: int, executed: list[ToolOutput]) -
         log.exception("usage-only 降级落账失败 user=%s", user_id)
 
 
-def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
+def _owner_payload(payload: dict, user_id: int | None) -> dict:
+    """事件载荷补**直归属键** ``user_id``（iter 396）。
+
+    核心事件除 plan_created / materials_completed 外均带 user_id——SSE 端据此**零 DB**
+    判定归属（``resolve_owner`` 直读 payload）；这两个事件此前仅带 session_id，每条
+    订阅者需查库解析 session.user_id（iter 381 起直查，主键读 × 订阅者数 × 事件数），
+    且**会话已删除**时解析为「无归属」-> 事件按 safe-by-default 丢弃，正主收不到自己
+    的生成完成通知（前端 toast / 实时刷新静默失效）。
+
+    补键后：归属判定不再依赖会话行存活，SSE 转发零查库，与 progress_updated /
+    quiz_submitted / learning_log_added 同口径。
+
+    非正整数（None / bool / 0）不写键——``resolve_owner`` 用 ``type(uid) is int`` 判别
+    （iter 395 的 bool 防线：``user_id=True`` 会被误判给用户 1），此时自动回落
+    session_id 解析路径（行为与改前一致，不引入回归）。
+    """
+    if type(user_id) is int and user_id > 0:
+        payload["user_id"] = user_id
+    return payload
+
+
+def _persist_plan(db: Session, session_id: int, plan_dict: dict, user_id: int | None = None) -> int:
     content_json = json.dumps(plan_dict, ensure_ascii=False)
     # version = 该会话现有最大版本 + 1（plan/10 §十三 plans.version += 1；首版 1）
     # iter 367：投影聚合取代全版本加载——旧行 all() 会把每版 ≤512KB 的 content
@@ -1573,12 +1594,15 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict) -> int:
 
     plugin_bus.emit(
         "plan_created",
-        {
-            "plan_id": plan.id,
-            "session_id": session_id,
-            "version": plan.version,
-            "topic": str(((plan_dict or {}).get("intent") or {}).get("topic") or ""),
-        },
+        _owner_payload(
+            {
+                "plan_id": plan.id,
+                "session_id": session_id,
+                "version": plan.version,
+                "topic": str(((plan_dict or {}).get("intent") or {}).get("topic") or ""),
+            },
+            user_id,
+        ),
     )
     return plan.id
 
@@ -2320,13 +2344,16 @@ async def _materials_sse(
 
         plugin_bus.emit(
             "materials_completed",
-            {
-                "plan_id": plan_id,
-                "session_id": session_id,
-                "unit_count": total,
-                "degraded_count": degraded_count,
-                "partial": body.scope is not None or bool(body.unit_ids),
-            },
+            _owner_payload(
+                {
+                    "plan_id": plan_id,
+                    "session_id": session_id,
+                    "unit_count": total,
+                    "degraded_count": degraded_count,
+                    "partial": body.scope is not None or bool(body.unit_ids),
+                },
+                user_id,
+            ),
         )
         yield _sse("done", {"unit_count": total, "degraded_count": degraded_count})
         # iter 349 part B：全量材料完成后后台预生成测验（用户打开测验即命中缓存，免等待）；
@@ -2537,13 +2564,16 @@ async def generate_materials(
 
     plugin_bus.emit(
         "materials_completed",
-        {
-            "plan_id": plan.id,
-            "session_id": plan.session_id,
-            "unit_count": len(spec.units),
-            "degraded_count": len(spec.units) if spec_out.status != "ok" else 0,
-            "partial": body.scope is not None,
-        },
+        _owner_payload(
+            {
+                "plan_id": plan.id,
+                "session_id": plan.session_id,
+                "unit_count": len(spec.units),
+                "degraded_count": len(spec.units) if spec_out.status != "ok" else 0,
+                "partial": body.scope is not None,
+            },
+            user.id,
+        ),
     )
     md = render_materials_md(spec)
     result: dict = {
