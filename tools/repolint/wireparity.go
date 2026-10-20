@@ -253,9 +253,7 @@ type wireMirror struct {
 // charts the few numbers it compares — so only one direction is a defect: a
 // name the reader declares and the writer never sends reads as zero forever,
 // which is what a rename on the writing side looks like from here.
-var readMirrors = []readMirror{
-	{"cmd/e2ebench/main.go", "runMetrics", "internal/frontend/cli/run_metrics.go", "RunMetrics"},
-}
+var readMirrors = []readMirror{}
 
 type readMirror struct {
 	readerFile, readerType, writerFile, writerType string
