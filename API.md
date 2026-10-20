@@ -1763,7 +1763,7 @@ for (;;) {
 ## 十一、记忆系统与 Agent 对话 API（iter 345）
 
 > **用途**：AI 对话的**会话历史记忆 + 全量任务记录（永不丢）+ Claude Code 式工作区 +
-> 完整 Agent（多轮工具调用）+ DeepSeek 式实时界面 + 全面 CRUD（插件可用）**。
+> 完整 Agent（多轮工具调用）+ DeepSeek 式实时界面 + 完整 CRUD（插件可用）**。
 > 仿 OpenAI Assistants **Thread / Message / Run / RunStep** 持久化模型，与既有 plan-gen
 > （sessions/orchestrator_state）并行。数据模型见 [stage.md](stage.md) iter 345 / [plan 文件]。
 
