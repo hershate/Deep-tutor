@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,6 +26,40 @@ from app.skills.loader import get_skill_registry
 # 请求体大小上限（防超大 JSON/multipart 体 OOM）：上传限额 + multipart 开销余量。
 # Content-Length 预检在路由解析前拒，避免 Starlette 全量读取 body 入内存。
 _MAX_BODY_BYTES = settings.max_upload_bytes + 5 * 1024 * 1024
+
+# iter 391：孤立生成流回收器周期（秒）
+_ORPHAN_REAPER_INTERVAL = 15.0
+
+
+async def _orphan_stream_reaper(stop_event) -> None:
+    """周期回收孤立的生成流（iter 391）。
+
+    孤立 = 占位成功但编排任务从未启动：客户端在端点执行期间断开 -> 响应体
+    生成器永不被迭代 -> 任务从未创建 -> 该流永久留在 _STREAMS（terminal_id
+    is None），既占全局生成槽位（8 条即全服生成 503），又让会话停在 running 态
+    （后续 /generate 只能续接到一条永不产事件的死流）。
+
+    iter 392：状态收敛含 DB 写，移 to_thread——写锁争用时可等 busy_timeout（10s），
+    留在事件循环会冻结全部请求与 SSE 心跳。终态事件发布经 _SessionStream 的
+    跨线程投递路径转交事件循环（订阅队列属该循环）。
+    """
+    from app.api.plans import _reap_orphan_streams
+
+    reaper_log = logging.getLogger("deep_tutor.orphan_reaper")
+
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=_ORPHAN_REAPER_INTERVAL)
+                return  # stop_event 已置位 -> 正常退出
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await asyncio.to_thread(_reap_orphan_streams)
+            except Exception:  # noqa: BLE001  回收失败不影响下一轮
+                reaper_log.warning("孤立生成流回收异常", exc_info=True)
+    except asyncio.CancelledError:
+        raise
 
 
 @asynccontextmanager
@@ -69,6 +104,11 @@ async def lifespan(app: FastAPI):
             "请改为随机长串（python -c \"import secrets; print(secrets.token_hex(32))\"）"
         )
     settings.ensure_dirs()
+    # iter 392：登记主事件循环——同步端点在线程池线程发布 SSE 终态事件时，
+    # 须经本循环投递（订阅队列属该循环，跨线程 set_result 不安全）。
+    from app.api.plans import set_main_loop
+
+    set_main_loop(asyncio.get_running_loop())
     # err.md C2：启动即执行 alembic 迁移（旧库增量加列/建表），不再仅依赖
     # scripts/start.* 的前置迁移；随后 init_db 兜底保证模型定义的表齐全
     # （create_all 对已存在表为 no-op；测试夹具 drop_all 后亦靠它重建）。
@@ -146,12 +186,15 @@ async def lifespan(app: FastAPI):
     )
     await plugin_bus.emit_async("startup", {})
     # 定期运维（plan/09 §一：VACUUM + 清孤儿文件，每 24h 后台执行）
-    import asyncio
-
     from app.core.maintenance import maintenance_loop
 
     stop_event = asyncio.Event()
     maintenance_task = asyncio.create_task(maintenance_loop(stop_event))
+    # iter 391：孤立生成流周期回收器（15s）——占位成功但编排任务从未启动的流
+    # （客户端在端点执行期间断开，响应体生成器永不被迭代）会永久占用全局生成
+    # 槽位并让会话停在 running 态。maintenance_loop 周期为 24h，对这类秒级泄漏
+    # 太慢，故单独设快频回收器。
+    orphan_reaper_task = asyncio.create_task(_orphan_stream_reaper(stop_event))
     yield
     await plugin_bus.emit_async("shutdown", {})
     # iter 367（批次四）：优雅关停——取消在途生成/对话任务并等收口。分钟级 LLM 流
@@ -180,10 +223,26 @@ async def lifespan(app: FastAPI):
         _done, still = await asyncio.wait(pending, timeout=15)
         if still:
             log.warning("关停时 %d 个任务未在 15s 内收口（放弃等待，由启动恢复兜底）", len(still))
+    # iter 392：等待 finalize 收口任务（持久化在 worker 线程，事件循环侧投递终态）。
+    # 不等则循环关闭时收口丢失 -> 会话停在 running 态（只能靠下次启动恢复收敛）。
+    from app.api.plans import _FINALIZE_TASKS
+
+    fin_pending = [t for t in list(_FINALIZE_TASKS) if not t.done()]
+    if fin_pending:
+        _done, still = await asyncio.wait(fin_pending, timeout=10)
+        if still:
+            log.warning("关停时 %d 个 finalize 收口未在 10s 内完成（由启动恢复兜底）", len(still))
     stop_event.set()
     maintenance_task.cancel()
+    orphan_reaper_task.cancel()
+    # iter 392：注销主事件循环——避免关停后仍有线程池请求向已关闭循环投递终态事件
+    set_main_loop(None)
     try:
         await maintenance_task
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        pass
+    try:
+        await orphan_reaper_task
     except (asyncio.CancelledError, Exception):  # noqa: BLE001
         pass
     log.info("Deep-tutor 后端关闭")
@@ -297,6 +356,13 @@ def create_app() -> FastAPI:
     # err.md A4：Starlette 层 404/405 与请求校验 422 同样走统一错误格式
     app.add_exception_handler(StarletteHTTPException, errors.starlette_http_exception_handler)
     app.add_exception_handler(RequestValidationError, errors.request_validation_handler)
+    # iter 392：SQLite 写锁争用 -> 503 + Retry-After（可重试语义），非争用错误仍 500
+    import sqlite3
+
+    from sqlalchemy.exc import OperationalError
+
+    app.add_exception_handler(OperationalError, errors.db_busy_exception_handler)
+    app.add_exception_handler(sqlite3.OperationalError, errors.db_busy_exception_handler)
     app.add_exception_handler(Exception, errors.unhandled_exception_handler)
 
     # 免 nginx 本地直起（iter 67）：FRONTEND_DIST 指向构建产物时由后端托管 SPA。

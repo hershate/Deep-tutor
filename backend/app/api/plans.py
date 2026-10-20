@@ -76,6 +76,20 @@ log = logging.getLogger("deep_tutor.api.plans")
 
 router = APIRouter(prefix="/plans", tags=["plans"], dependencies=[Depends(require_auth)])
 
+# iter 392：主事件循环引用。同步端点在线程池线程执行，其间发布的 SSE 终态事件
+# 须转交事件循环投递（订阅队列属该循环，跨线程 set_result 不安全）。
+# 由 lifespan 启动时登记（set_main_loop）。
+_MAIN_LOOP: asyncio.AbstractEventLoop | None = None
+
+# iter 392：finalize 收口任务集合（持强引用防 create_task 被 GC 回收；关停可等待）
+_FINALIZE_TASKS: set[asyncio.Task] = set()
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    """登记主事件循环（lifespan 启动时调用；测试可不登记）。"""
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop
+
 # _SSE_HEADERS / _sse / _HEARTBEAT_SECONDS 抽至 app/api/sse_utils.py（iter 345），
 # 与新对话/Agent SSE 共用叶子 helper；_SessionStream（带 plan-gen 运行态）留本模块。
 
@@ -143,6 +157,15 @@ def _gate_generate_start(user: User) -> None:
 
 _RETENTION_SECONDS = 300.0  # 终态后保留时长（秒），供迟到重连；超时自动清理
 
+# iter 391：孤立生成流的宽限期（秒）。
+# 占位（_occupy_generation）在端点内完成，而编排任务的创建在响应体生成器首次被
+# 迭代时（_run_start）。两者之间客户端断开 -> 生成器永不被拉取 -> 任务从未创建，
+# 该流永久留在 _STREAMS（terminal_id is None）：既占全局生成配额（8 个槽位耗尽后
+# 全服 503），又让会话停在 running 态（后续 /generate 只能续接到一条永不产事件的
+# 死流，前端表现为 SSE 永久挂起）。
+# 宽限期覆盖"端点返回 -> 响应开始"的正常时延，超过即判定为孤立并回收。
+_ORPHAN_STREAM_GRACE = 30.0
+
 
 class _SessionStream:
     """单会话 SSE 事件缓冲 + 订阅扇出（plan/10 §十二）。
@@ -177,6 +200,8 @@ class _SessionStream:
         # 任务被取消/异常时 result 不可得，_finalize 借此落账已执行的工具调用
         # （成本计量不留黑洞：日预算守卫只信 api_usage 每日求和）。
         self.executed: list[ToolOutput] = []
+        # iter 391：占位时刻（monotonic）——孤立流判定用（任务从未启动且已超宽限期）
+        self.created_monotonic: float = time.monotonic()
         # iter 345：plan-gen 旁挂 Run 模型的 overlay run_id（settings.agent_runs_enabled
         # 开启时由 _run_start 创建；_overlay_done 据 orchestrator_state 终态标记，不动 _finalize）
         self.overlay_run_id: int | None = None
@@ -186,11 +211,42 @@ class _SessionStream:
         # iter 382：孤儿计量寄存（ctx.orphan_billed 的同一 list 对象，_run_start 挂接）——
         # 取消传播时已烧的部分 usage 由此落账（见 _drain_orphan_billed）
         self.orphan_billed: list = []
+        # iter 392：事件 id 分配锁——finalize 的持久化跑在 worker 线程（DB 写不等事件
+        # 循环），须与事件循环侧的 publish 争用同一把锁，避免 id 重号。
+        self._id_lock = threading.Lock()
+        # iter 392：已预分配但尚未投递的事件（跨线程投递窗口内）——mark_terminal 借此
+        # 取得终态副本，避免「终态已标记但事件未入历史」导致 relay 兜底拿不到内容。
+        self._pending_events: dict[int, tuple[str, dict]] = {}
+        # iter 392：事件循环引用——订阅队列属该循环，跨线程发布须经 call_soon_threadsafe。
+        self._loop: asyncio.AbstractEventLoop | None = None
 
-    def publish(self, event: str, data: dict) -> int:
-        """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。"""
-        self.seq += 1
-        eid = self.seq
+    def reserve_event_id(self) -> int:
+        """预分配事件 id（线程安全）。
+
+        finalize 在 worker 线程持久化时先预占终态 id，事件循环侧再按该 id 投递——
+        ``orchestrator_state.last_event_id`` 与实际 SSE 事件 id 因此恒一致（不依赖
+        投递时刻的 seq）。
+        """
+        with self._id_lock:
+            self.seq += 1
+            return self.seq
+
+    def reserve_terminal(self, event: str, data: dict) -> int:
+        """预占终态事件 id 并登记事件内容（worker 线程调用）。
+
+        事件循环侧随后用 ``publish_reserved(eid, event, data)`` 投递——两者 id 一致，
+        故 ``last_event_id`` 与客户端收到的 SSE 事件 id 恒等。
+        """
+        eid = self.reserve_event_id()
+        self._pending_events[eid] = (event, data)
+        return eid
+
+    def publish_reserved(self, eid: int, event: str, data: dict) -> None:
+        """按预分配 id 投递事件（**须在事件循环线程**调用）。"""
+        self._deliver(eid, event, data)
+
+    def _deliver(self, eid: int, event: str, data: dict) -> None:
+        """把事件写入历史并扇出到订阅者队列（**须在事件循环线程**执行）。"""
         item = (eid, event, data)
         self._events.append(item)
         if len(self._events) > _MAX_BUFFERED_EVENTS:
@@ -205,15 +261,59 @@ class _SessionStream:
             except asyncio.QueueFull:
                 self.unsubscribe(q)
                 log.warning("SSE 慢订阅缓冲超限剔除 session=%s", self.session_id)
+        self._pending_events.pop(eid, None)
+
+    def _schedule_delivery(self, eid: int, event: str, data: dict) -> None:
+        """投递事件：同线程直接投，跨线程经事件循环 call_soon_threadsafe 投递。
+
+        iter 392：同步端点跑在线程池线程，若在彼处直接 ``queue.put_nowait``，
+        订阅者队列的 waiter future 会被跨线程 set_result（asyncio 非线程安全）。
+        """
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None:
+            # 事件循环线程内：直投（保持既有同步语义——订阅者立即可见）
+            if self._loop is not running:
+                self._loop = running
+            self._deliver(eid, event, data)
+            return
+        # 非事件循环线程：转交主事件循环投递（主循环优先；已关闭则视为不可用）
+        loop = _MAIN_LOOP
+        if loop is None or loop.is_closed():
+            loop = self._loop
+        if loop is None or loop.is_closed():
+            # 无可用事件循环（仅测试直调/进程退出期）：尽力直投
+            self._deliver(eid, event, data)
+            return
+        try:
+            loop.call_soon_threadsafe(self._deliver, eid, event, data)
+        except RuntimeError:  # pragma: no cover  循环已关闭
+            log.warning("事件循环不可用，终态事件直投 session=%s", self.session_id)
+            self._deliver(eid, event, data)
+
+    def publish(self, event: str, data: dict) -> int:
+        """发一事件：分配递增 id，入历史 + 扇出到所有订阅者队列。返回事件 id。
+
+        可从任意线程调用（跨线程时投递被转交事件循环）。
+        """
+        eid = self.reserve_event_id()
+        self._pending_events[eid] = (event, data)
+        self._schedule_delivery(eid, event, data)
         return eid
 
     def mark_terminal(self, eid: int) -> None:
         """标记终态事件 id（投递后流结束）。"""
         self.terminal_id = eid
-        for e, event, data in reversed(self._events):  # iter 363：保存终态副本
-            if e == eid:
-                self.terminal_event = (event, data)
-                break
+        meta = self._pending_events.get(eid)
+        if meta is None:
+            for e, event, data in reversed(self._events):  # iter 363：保存终态副本
+                if e == eid:
+                    meta = (event, data)
+                    break
+        if meta is not None:
+            self.terminal_event = meta
 
     def subscribe(self, last_event_id: int) -> asyncio.Queue:
         """订阅：新建有界队列，先重放历史 (id > last_event_id)，再接实时。"""
@@ -369,6 +469,9 @@ def generate(
 ) -> StreamingResponse:
     get_owned_session(db, body.session_id, user)  # P4 隔离：他人会话 404
     _gate_generate_start(user)
+    # iter 391：先回收孤立生成流（占位后编排任务从未启动——客户端在端点执行期间断开）。
+    # 不回收则：全局生成槽位被永久占用（8 条即全服 503）、会话停在 running 态。
+    _reap_orphan_streams()
 
     parsed = _load_parsed_materials(db, body.session_id)
     # raw_text ≤10k 截断（plan/09 §十）
@@ -378,6 +481,11 @@ def generate(
         # 运行中：有活动流 -> 续接（重放 + 实时，带 Last-Event-ID）；无活动流（进程重启等 stale）-> 409
         if state is not None and state.status == models.OrchestratorStatus.running:
             stream = _STREAMS.get(body.session_id)
+            if stream is not None and _stream_is_orphaned(stream):
+                # iter 391：孤立流——续接它只会挂到一条永不产事件的死流（SSE 永久挂起）。
+                # 回收后按"生成已中断"处理，用户可重试。
+                _reap_orphan_streams()
+                stream = None
             if stream is not None:
                 # 注意：不再要求 terminal_id is None——_finalize 先 mark_terminal
                 # 后 _set_state(done)，窗口期内 terminal 流 + running 态并存；
@@ -478,6 +586,7 @@ def retry(
     """
     get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
     _gate_generate_start(user)
+    _reap_orphan_streams()  # iter 391：回收孤立流，释放全局生成槽位与该会话占用
     parsed = _load_parsed_materials(db, session_id)
     with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
         state = db.get(models.OrchestratorState, session_id)
@@ -507,6 +616,7 @@ def clarify(
     """澄清续接（plan/10 §四）：paused_clarify 状态下以 answers 重跑 understand_intent -> 继续 pipeline。"""
     get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404
     _gate_generate_start(user)
+    _reap_orphan_streams()  # iter 391：回收孤立流，释放全局生成槽位与该会话占用
     parsed = _load_parsed_materials(db, session_id)
     with _OCCUPY_LOCK:  # err.md A1：检查与占位同临界区
         state = db.get(models.OrchestratorState, session_id)
@@ -580,6 +690,24 @@ def wait_generation_settled(session_id: int, timeout: float = 15.0) -> bool:
     return False
 
 
+def wait_generations_settled(session_ids: list[int], timeout: float = 15.0) -> bool:
+    """批量等待多个会话收敛——**总**超时（一份预算覆盖全部会话）。
+
+    iter 391：DELETE /api/users/{id} 逐会话调用 wait_generation_settled（每次各 15s
+    超时），用户有 200 个会话时最坏 200×15s = 50 分钟独占一个 anyio 线程池槽
+    （默认 40 槽）——并发删用户足以让全服务（含登录）卡死。
+    单个会话超时即返回 False（调用方容忍：降级兜底仍在，数据一致性不依赖本等待）。
+    """
+    deadline = time.monotonic() + timeout
+    for sid in session_ids:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        if not wait_generation_settled(sid, timeout=remaining):
+            return False
+    return True
+
+
 @router.post("/{session_id}/cancel")
 async def cancel(session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """取消运行中的生成（plan/10 §十一）。
@@ -608,6 +736,7 @@ def regenerate(
     """
     plan = get_owned_plan(db, plan_id, user)  # P4 隔离：他人方案 404
     _gate_generate_start(user)
+    _reap_orphan_streams()  # iter 391：回收孤立流，释放全局生成槽位与该会话占用
     session_id = plan.session_id
     if body.scope not in PIPELINE:
         raise ApiError("bad_request", f"scope 必须为有效工具名: {PIPELINE}", status=400)
@@ -692,6 +821,83 @@ def _schedule_cleanup(session_id: int, stream: "_SessionStream | None" = None) -
         _STREAMS.pop(session_id, None)
 
 
+def _stream_is_orphaned(stream: "_SessionStream") -> bool:
+    """流是否已孤立：占位成功但编排任务从未启动（或已消失且未落终态）。
+
+    孤立流的后遗症（三者同时发生）：
+    1. `terminal_id is None` -> _check_generate_quota 按活跃计数，永久占用一个
+       全局生成槽位；8 条孤立流即让全服生成 503 直到重启；
+    2. 会话 orchestrator_state 停在 running -> 该会话 /generate 只能续接到一条
+       永不产事件的死流（前端 SSE 永久挂起），且该用户的 per-user 并发额度被占；
+    3. 无 task -> _finalize 永不执行 -> 永不落终态、终不清理。
+
+    宽限期覆盖"端点返回 -> 响应体首次迭代"的正常时延；超过即判定孤立。
+    """
+    if stream.terminal_id is not None:
+        return False  # 已有终态（_finalize 已跑）——不是孤立
+    task = stream.task
+    if task is not None and not task.done():
+        return False  # 编排任务在跑——正常
+    return (time.monotonic() - stream.created_monotonic) > _ORPHAN_STREAM_GRACE
+
+
+def _reap_orphan_streams() -> int:
+    """回收孤立的生成流；返回回收条数。
+
+    回收动作（幂等、可重复调用）：
+    - 从 _STREAMS 移除（释放全局生成槽位）；
+    - 会话状态收敛为 interrupted + last_error（释放该会话与该用户的并发额度，
+      并让后续 /generate 走"终态回放"分支而不是续接到死流）；
+    - 发布终态 error 事件并 mark_terminal（让已挂载的订阅者正常收尾，不再空转）。
+
+    由 lifespan 的周期回收器与各生成端点的自愈分支共同调用。
+    """
+    victims = [s for s in list(_STREAMS.values()) if _stream_is_orphaned(s)]
+    if not victims:
+        return 0
+    from app.db.base import SessionLocal
+
+    for stream in victims:
+        sid = stream.session_id
+        if _STREAMS.get(sid) is not stream:
+            continue  # 已被新一轮占位替换
+        _STREAMS.pop(sid, None)
+        try:
+            db = SessionLocal()
+            try:
+                _set_state(
+                    db,
+                    sid,
+                    models.OrchestratorStatus.interrupted,
+                    stream.trace_id,
+                    last_error={
+                        "code": "generation_abandoned",
+                        "message": "生成连接中断，任务未启动，请重试",
+                        "retryable": True,
+                    },
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001  状态收敛失败不阻断其余回收
+            log.warning("孤立生成流状态收敛失败 session=%s", sid, exc_info=True)
+        try:
+            eid = stream.publish(
+                "error",
+                {
+                    "code": "generation_abandoned",
+                    "message": "生成连接中断，任务未启动，请重试",
+                    "stage": "",
+                    "retryable": True,
+                },
+            )
+            stream.mark_terminal(eid)
+        except Exception:  # noqa: BLE001
+            log.warning("孤立生成流终态事件发布失败 session=%s", sid, exc_info=True)
+    log.warning("回收孤立生成流 %d 条（占位后任务未启动）", len(victims))
+    return len(victims)
+
+
 def _drain_orphan_billed(db: Session, stream: "_SessionStream") -> None:
     """iter 382：落账并清空孤儿计量寄存（取消传播时 loop 寄存的部分 usage）。
 
@@ -707,14 +913,22 @@ def _drain_orphan_billed(db: Session, stream: "_SessionStream") -> None:
         log.exception("孤儿计量落账失败 session=%s", stream.session_id)
 
 
-def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> None:
-    """编排器任务结束回调：持久化结果 + 发布终态事件（与流客户端解耦）。
+def _finalize_persist(
+    session_id: int, stream: "_SessionStream", task: asyncio.Task
+) -> list[tuple[int, str, dict | None]]:
+    """worker 线程执行：全部持久化 + 预占终态事件 id。返回待发布动作序列。
 
-    单一持久化路径：无论客户端是否断连，任务结束即持久化（防 stale running / 丢进度，R24）。
-    在事件循环线程内同步执行（SQLite 写入快）；异常兜底确保流不挂死。
+    动作项 ``(eid, event, data)``：``data`` 为 None 表示「无新事件，仅以 eid 标记
+    终态」（澄清分支——clarify_needed 已由编排器 emit）。
+
+    iter 392：本函数跑在 worker 线程——DB 写遇写锁争用可等 busy_timeout（10s），
+    留在事件循环线程会冻结全部请求与 SSE 心跳。终态事件的**投递**仍在事件循环
+    线程（订阅队列属该循环），故此处只预占 id 与事件内容。
     """
     db = SessionLocal()
     try:
+        # iter 392：澄清分支的终态 id = 已 emit 的 clarify_needed 事件 id（不新占）
+        seq_before = stream.seq
         # iter 382：取消传播寄存的部分计量先行落账（用户已删时 record 内部自防 FK）
         _drain_orphan_billed(db, stream)
         # 会话已删除（如 DELETE /sessions 先取消了任务），或 rowid 被新会话复用
@@ -732,9 +946,10 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                     db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
                 )
             if stream.terminal_id is None:
-                eid = stream.publish("error", {"code": "cancelled", "message": "会话已删除", "stage": ""})
-                stream.mark_terminal(eid)
-            return
+                data = {"code": "cancelled", "message": "会话已删除", "stage": ""}
+                eid = stream.reserve_terminal("error", data)
+                return [(eid, "error", data)]
+            return []
         if task.cancelled():
             # iter 184 B4：取消亦持久化原始输入与错误详情（可重试）
             # iter 243：取消前已执行的工具调用亦落账（成本黑洞：日预算只信 api_usage）
@@ -744,19 +959,19 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
             )
             partial = {"raw_text": stream.raw_text, "outputs": {}}
+            data = {"code": "cancelled", "message": "生成已取消", "stage": ""}
+            eid = stream.reserve_terminal("error", data)
             _set_state(
                 db,
                 session_id,
                 models.OrchestratorStatus.error,
                 stream.trace_id,
                 partial=partial,
-                last_event_id=str(stream.seq),
+                last_event_id=str(eid),
                 last_error={"code": "cancelled", "message": "生成已取消"},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
-            eid = stream.publish("error", {"code": "cancelled", "message": "生成已取消", "stage": ""})
-            stream.mark_terminal(eid)
-            return
+            return [(eid, "error", data)]
         try:
             result = task.result()
         except Exception as exc:  # noqa: BLE001
@@ -766,32 +981,31 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 db, session_id, stream.trace_id, executed=stream.executed, orphan_user_id=stream.user_id
             )
             partial = {"raw_text": stream.raw_text, "outputs": {}}
+            data = {"code": "internal_error", "message": "生成失败", "stage": ""}
+            eid = stream.reserve_terminal("error", data)
             _set_state(
                 db,
                 session_id,
                 models.OrchestratorStatus.error,
                 stream.trace_id,
                 partial=partial,
-                last_event_id=str(stream.seq),
+                last_event_id=str(eid),
                 last_error={"code": "internal_error", "message": "生成失败"},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
-            eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
-            stream.mark_terminal(eid)
-            return
+            return [(eid, "error", data)]
         if result.status == "done":
             _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
             plan_id = _persist_plan(db, session_id, result.plan)
             cost = stream.budget.spent if stream.budget else 0.0
             data = {"plan_id": plan_id, "metadata": {"tools": len(result.outputs), "cost": round(cost, 6)}}
-            eid = stream.publish("done", data)
-            stream.mark_terminal(eid)
+            eid = stream.reserve_terminal("done", data)
             _set_state(
                 db,
                 session_id,
                 models.OrchestratorStatus.done,
                 stream.trace_id,
-                last_event_id=str(stream.seq),
+                last_event_id=str(eid),
                 last_error={},
                 budget_used=cost,
             )
@@ -805,7 +1019,8 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 if t == "" or t == "学习方案" or (stream.raw_text or "").startswith(t):
                     sess.title = topic[:256]
                     db.commit()
-        elif result.status == "paused_clarify":
+            return [(eid, "done", data)]
+        if result.status == "paused_clarify":
             _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
             partial = {
                 "raw_text": stream.raw_text,
@@ -817,40 +1032,38 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 models.OrchestratorStatus.paused_clarify,
                 stream.trace_id,
                 partial=partial,
-                last_event_id=str(stream.seq),
+                last_event_id=str(seq_before),
                 last_error={},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
-            # clarify_needed 已由编排器 emit（stream.seq 即其 id）；标记终态使流结束
-            stream.mark_terminal(stream.seq)
-        else:
-            # iter 243：error/interrupted 终态此前完全跳过落账——失败/预算中断前
-            # 已烧掉的 token 不进 api_usage，反复失败重试即可绕过日预算守卫
-            _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
-            msg = result.errors[-1] if result.errors else "生成失败"
-            data = {"code": "generation_failed", "message": msg, "stage": ""}
-            eid = stream.publish("error", data)
-            stream.mark_terminal(eid)
-            # iter 184 B4：失败亦持久化原始输入与已产出 outputs（可重试；续跑升级留路）
-            partial = {
-                "raw_text": stream.raw_text,
-                "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
-            }
-            _set_state(
-                db,
-                session_id,
-                models.OrchestratorStatus.error,
-                stream.trace_id,
-                partial=partial,
-                last_event_id=str(stream.seq),
-                last_error={"code": "generation_failed", "message": msg},
-                budget_used=stream.budget.spent if stream.budget else 0.0,
-            )
+            # clarify_needed 已由编排器 emit（其 id 即 seq_before）；标记终态使流结束
+            return [(seq_before, "", None)]
+        # iter 243：error/interrupted 终态此前完全跳过落账——失败/预算中断前
+        # 已烧掉的 token 不进 api_usage，反复失败重试即可绕过日预算守卫
+        _persist_tool_calls(db, session_id, stream.trace_id, outputs=result.outputs, executed=result.executed)
+        msg = result.errors[-1] if result.errors else "生成失败"
+        data = {"code": "generation_failed", "message": msg, "stage": ""}
+        eid = stream.reserve_terminal("error", data)
+        # iter 184 B4：失败亦持久化原始输入与已产出 outputs（可重试；续跑升级留路）
+        partial = {
+            "raw_text": stream.raw_text,
+            "outputs": {t: {"status": o.status, "data": o.data} for t, o in result.outputs.items()},
+        }
+        _set_state(
+            db,
+            session_id,
+            models.OrchestratorStatus.error,
+            stream.trace_id,
+            partial=partial,
+            last_event_id=str(eid),
+            last_error={"code": "generation_failed", "message": msg},
+            budget_used=stream.budget.spent if stream.budget else 0.0,
+        )
+        return [(eid, "error", data)]
     except Exception:  # noqa: BLE001  持久化失败不阻塞流；兜底发终态防挂死
         log.exception("finalize 异常 session=%s", session_id)
-        if stream.terminal_id is None:
-            eid = stream.publish("error", {"code": "internal_error", "message": "生成失败", "stage": ""})
-            stream.mark_terminal(eid)
+        data = {"code": "internal_error", "message": "生成失败", "stage": ""}
+        eid = stream.reserve_terminal("error", data) if stream.terminal_id is None else stream.seq
         # iter 367：兜底补落 error 态（此前缺失）——done/clarify 分支的持久化异常
         # （commit 撞锁/磁盘满）会让 orchestrator_state 永久停留 running：此后
         # /generate 409「生成已中断」、/retry 要求 error/interrupted 亦 409，
@@ -863,15 +1076,74 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
                 models.OrchestratorStatus.error,
                 stream.trace_id,
                 partial={"raw_text": stream.raw_text, "outputs": {}},
-                last_event_id=str(stream.seq),
+                last_event_id=str(eid),
                 last_error={"code": "internal_error", "message": "生成失败"},
                 budget_used=stream.budget.spent if stream.budget else 0.0,
             )
         except Exception:  # noqa: BLE001  DB 已不可写时仅留日志，流侧终态已保证不挂死
             log.exception("finalize 兜底 _set_state 亦失败 session=%s", session_id)
+        if stream.terminal_id is None:
+            return [(eid, "error", data)]
+        return []
     finally:
         db.close()
+
+
+def _apply_finalize_actions(
+    session_id: int, stream: "_SessionStream", actions: list[tuple[int, str, dict | None]]
+) -> None:
+    """在事件循环线程投递终态事件并收尾（iter 392）。"""
+    try:
+        for eid, event, data in actions:
+            if data is None:
+                # 无新事件（澄清分支）：仅标记既有终态
+                stream.mark_terminal(eid)
+            else:
+                stream.publish_reserved(eid, event, data)
+                stream.mark_terminal(eid)
+    finally:
         _schedule_cleanup(session_id, stream)
+
+
+async def _finalize_async(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> None:
+    """finalize 编排：持久化（worker 线程）-> 终态投递（事件循环线程）-> overlay 收口。"""
+    try:
+        actions = await asyncio.to_thread(_finalize_persist, session_id, stream, task)
+    except Exception:  # noqa: BLE001  兜底：worker 线程整体失败也要发终态防挂死
+        log.exception("finalize worker 异常 session=%s", session_id)
+        actions = []
+    _apply_finalize_actions(session_id, stream, actions)
+    # iter 392：overlay run 收口须在状态落库之后（据 orchestrator_state 终态判定
+    # done/error/interrupted）——此前它是编排任务的独立 done-callback，与 finalize 的
+    # 落库无序，读到的仍是 running 态 -> overlay 被误标 interrupted。
+    await asyncio.to_thread(_overlay_done, session_id, stream)
+
+
+def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> None:
+    """编排器任务结束回调：持久化结果 + 发布终态事件（与流客户端解耦）。
+
+    单一持久化路径：无论客户端是否断连，任务结束即持久化（防 stale running / 丢进度，R24）。
+
+    iter 392：持久化移出事件循环线程（DB 写遇写锁争用可等 busy_timeout=10s，留在
+    事件循环会冻结全部请求与 SSE 心跳）；终态事件投递仍回事件循环线程。
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # pragma: no cover - 无运行循环（测试直调 done_callback）
+        loop = None
+    if loop is None:
+        # 无事件循环可用：退化为同步收口（发布走 publish 的跨线程兜底路径）
+        try:
+            actions = _finalize_persist(session_id, stream, task)
+        except Exception:  # noqa: BLE001
+            log.exception("finalize 异常 session=%s", session_id)
+            actions = []
+        _apply_finalize_actions(session_id, stream, actions)
+        _overlay_done(session_id, stream)
+        return
+    fin = loop.create_task(_finalize_async(session_id, stream, task))
+    _FINALIZE_TASKS.add(fin)  # 持强引用 + 关停可等待（防 create_task 被 GC 回收）
+    fin.add_done_callback(_FINALIZE_TASKS.discard)
 
 
 def _create_plan_gen_overlay(session_id: int, user_id: int, raw_text: str) -> int | None:
@@ -1063,9 +1335,8 @@ async def _run_start(
     task = asyncio.create_task(_orch_task())
     stream.task = task
     task.add_done_callback(lambda t: _finalize(session_id, stream, t))
-    # overlay 收口（独立回调，在 _finalize 之后；据 orchestrator_state 终态标记 run + bus 推送）
-    if stream.overlay_run_id is not None:
-        task.add_done_callback(lambda t: _overlay_done(session_id, stream))
+    # iter 392：overlay 收口并入 finalize 流程（状态落库之后再跑），不再作为独立
+    # done-callback——否则与 finalize 的落库无序，读到 running 态会误标 interrupted。
 
     async for chunk in _relay(stream, last_event_id):
         yield chunk
@@ -2787,6 +3058,11 @@ def _schedule_quiz_background(plan_id: int, session_id: int, user_id: int) -> No
     task = asyncio.create_task(_gated())
     _BG_QUIZ_TASKS.add(task)
     task.add_done_callback(_BG_QUIZ_TASKS.discard)
+    # iter 391：inflight 标志的释放不能只依赖协程内的 finally——任务在首次执行前
+    # 被取消（关停/取消）时协程体根本没跑，finally 不会执行，plan_id 永久留在
+    # _BG_QUIZ_INFLIGHT -> POST /{plan_id}/quiz 每次都白等 90×2s = 180s。
+    # done_callback 在任务结束（含被取消）时必定触发。
+    task.add_done_callback(lambda _t: _BG_QUIZ_INFLIGHT.discard(plan_id))
 
 
 @router.post("/{plan_id}/quiz")
