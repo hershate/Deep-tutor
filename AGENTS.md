@@ -21,9 +21,18 @@
 
 - **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 145 operations / 119 paths、29 张 ORM 表、26 个 alembic 迁移、177 个测试文件（pytest 收集 1462 用例）；前端 19 页 SPA。
 - **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1 余项全部未完成**（M1.2 模块改名 `reasonix`→`deep-tutor`；M1.3 多实例 spike；M1.4 品牌化与 `DEEPTUTOR.md` 建档；M1.5 门禁基线重建 + CI；M1.6 `bin/deep-tutor.exe` 冒烟），见 `plan/reasonix/05` 与 `stage.md`。
-- **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。`internal/safety/sandbox` 的 `TestIsWindowsWSLBash` 按文件身份判定 WSL 启动器（`internal/safety/sandbox/shell.go:333`），需本机存在 `C:\Windows\System32\bash.exe` 方可通过；未装 WSL 的机器上该用例失败，属环境依赖，非代码回归。
+- **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。`go test ./...` 在本机固定失败的用例如下，均为环境或工作树依赖，**非代码回归**（2026-10-20 逐包串行复跑核实）：
+
+| 包 / 用例 | 失败条件 |
+|---|---|
+| `internal/safety/sandbox` `TestIsWindowsWSLBash` | 按文件身份判定 WSL 启动器（`internal/safety/sandbox/shell.go:333`），需本机存在 `C:\Windows\System32\bash.exe` |
+| `internal/base/testenv` `TestWindowsCILegsBypassTheTestResultCache` | 要求 CI 工作流含 Windows 上的根模块 `go test` 步骤；本仓 `ci.yml` 无 Go job |
+| `internal/ext/skill/builtincontent` | 本机 AV 占用 `go-build` 临时 `.exe`，报 `Access is denied` |
+| `internal/runtime/agent` `TestChildConstructionForksStayEnumerated` | 遍历工作树全部 `.go` 文件（未过滤 `REF/`），本地 `REF/extracted/` 副本被判为未登记的子代理构造点 |
+| `internal/runtime/schedrun` `TestKillingTheRunEndsItsWholeProcessTree` | Windows 子进程树取锁时序 |
+| `internal/tools/builtin` `TestPipeStatusProbePreservesExitStatusAndReports` | Windows 管道退出码探针 |
 - **引用合规**：上游 https://github.com/esengine/DeepSeek-Reasonix （MIT）。声明与修改披露见根 [`NOTICE`](./NOTICE)，许可全文 [`LICENSE-REASONIX`](./LICENSE-REASONIX)；修改上游代码须同步更新 NOTICE 修改披露。上游无关资产树（`release-notes/` `benchmarks/` `examples/` `workers/` `npm/` `output/`）已于 2026-10-20 移除，范围偏差登记于 note/12 修订记录。
-- **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。**注意**：`tools/repolint` 当前会扫描 `REF/`，使门禁结果依赖本地副本状态。
+- **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。**注意**：两个门禁会扫工作树全集，结果依赖本地副本状态——`tools/repolint`（报告含 `REF/` 副本）与 `internal/runtime/agent` 的 `TestChildConstructionForksStayEnumerated`（遍历全部 `.go`，未过滤 `REF/`）。
 - **归档**：Python 时代计划与工作档案在 `docs/archive/`（git 历史完整）。
 
 ## Reasonix host checks

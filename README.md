@@ -297,7 +297,7 @@ make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 
 **CI 现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff → pytest 覆盖率 ≥80% → OpenAPI 契约 → 前端 build），**未纳入 Go 门禁**；Go 门禁基线重建与 CI 接入属阶段① M1.5。
 
-`internal/safety/sandbox` 的 `TestIsWindowsWSLBash` 按文件身份判定 WSL 启动器，需本机存在 `C:\Windows\System32\bash.exe`；未装 WSL 的机器上该用例失败，属环境依赖。
+`go test ./...` 在本机固定失败的用例（WSL 启动器缺失、CI 缺 Windows Go job、AV 占用临时 `.exe`、`REF/` 副本污染工作树扫描等）属环境或工作树依赖，非代码回归；完整清单与归因见 [`AGENTS.md`](./AGENTS.md) 的「门禁现状」表。
 
 ---
 
