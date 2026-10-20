@@ -1141,7 +1141,18 @@ def _finalize(session_id: int, stream: "_SessionStream", task: asyncio.Task) -> 
         _apply_finalize_actions(session_id, stream, actions)
         _overlay_done(session_id, stream)
         return
-    fin = loop.create_task(_finalize_async(session_id, stream, task))
+    try:
+        fin = loop.create_task(_finalize_async(session_id, stream, task))
+    except RuntimeError:  # pragma: no cover  循环正在关闭（关停窗口）
+        log.warning("事件循环关闭，finalize 退化为同步收口 session=%s", session_id)
+        try:
+            actions = _finalize_persist(session_id, stream, task)
+        except Exception:  # noqa: BLE001
+            log.exception("finalize 异常 session=%s", session_id)
+            actions = []
+        _apply_finalize_actions(session_id, stream, actions)
+        _overlay_done(session_id, stream)
+        return
     _FINALIZE_TASKS.add(fin)  # 持强引用 + 关停可等待（防 create_task 被 GC 回收）
     fin.add_done_callback(_FINALIZE_TASKS.discard)
 
