@@ -38,6 +38,34 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 392（2026-10-21，v1 Python 后端长稳审查与修复轮，✅ 代码完成 / 测试进行中）**：用户指令「继续进行详细的检查，直到逻辑闭合，代码安全、稳定可长期运行；确保长时间高负载、多用户高频率使用下的稳定性；检查并修复所有逻辑错误；严格检查任何导致数据操作问题的 BUG；确保稳定性与代码安全性（需暴露为网络服务）；禁止随意停止，持续进行」。本轮**先审 v1 Python 后端**（当前可运行、即将以网络服务暴露的多用户服务），Go Reasonix 内核次之（阶段① M1.2 即将改名、M2 将新建 `internal/web` 承载多用户层）。
+
+- **审查方法**：两个 explore 子 agent 并行审计（备份/恢复数据操作、并发与配额），主会话对每条发现先写**实证探针**复核再决定是否修复——推翻 2 条静态假设（见下「被实证推翻的假设」），避免修不存在的问题。
+
+- **本轮修复（6 个 commit）**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `6d84d2b` | 备份导入导出硬化与写锁持有时长治理 | 总行数预算 10 万（超限 413，不做部分导入）、导出字节预算 256MB、preview/import 配额口径统一并按本机已有额度抵扣、材料三段制状态往返、重复 sid 首条胜出、下标重映射按 payload 下标、畸形 payload 400、整数钳制、时区归一、文件补偿登记册、not_backed_up 覆盖面披露、互斥锁前置到读文件之前、解析文本并发落盘（2000 文件 7.09s → 2.39s） |
+  | `808867c` | 路径穿越守卫归一化 Windows 扩展长度前缀 | `storage._session_root`/`_kb_root`/`agent/workspace` 沙箱守卫/`kb` 原件回读/`export_plan`/`agent_tools` 产物登记统一走 `resolve_under_root`/`is_within_root`/`relative_to_root` |
+  | `67a7dd0` | 生成流收口治理 | 孤立生成流回收（宽限期 30s + lifespan 15s 周期器）、finalize 持久化移出事件循环、事件跨线程投递（`call_soon_threadsafe` + 事件 id 分配加锁）、overlay run 收口并入 finalize、后台测验 inflight 标志 done_callback 兜底释放、关停等待 finalize 收口 |
+  | `9058714` | 对话 run 生命周期 | 断连硬取消、二次取消强制收敛 run 终态 + 无条件 pop 注册表、收口 commit 移出事件循环、`max_running_chat_per_thread` 由死配置改为生效、`delete_user` 改总预算等待 |
+  | `5c0f143` | 数据库写锁争用返回 503 + Retry-After | busy/locked 特征命中 -> 503 `server_busy` + `Retry-After: 1`；非争用类 OperationalError 仍 500 |
+  | `954ef71` | iter392 回归 19 条 | 并发/收口/503/孤立流/配额/路径守卫/并发落盘全覆盖 |
+  | `d6851ae` | finalize 在事件循环关闭时退化为同步收口 | 关停窗口内 create_task 抛 RuntimeError 会让该流永不落终态、订阅者挂死 |
+
+- **被实证推翻的假设（未改代码，记录以免后续重复）**：
+  1. **F3 / BUSY_SNAPSHOT 不成立**——本仓 SQLAlchemy 2.0 + pysqlite 为 `isolation_level=None`（DBAPI autocommit）：SELECT **不**开启读事务（`dbapi in_transaction=False`），SQLAlchemy 只在首个 DML 前发真 `BEGIN`（实测多语句写原子，rollback 可整批撤销）。故「读快照升级为写」在本仓配置下不会触发 `database is locked`；仓库既有的 `db.rollback()` 释放读快照约定（kb.py/materials.py）在此配置下为防御性措施。原判定的修复点（`_occupy_generation` 加 rollback）**未实施**。
+  2. **`DELETE /api/threads/{id}`、`DELETE /api/users/{id}` 在 chat run 在途时无 FK/并发缺陷**——真实 ASGI 应用 + `httpx.ASGITransport` 探针复现：硬取消 + `_finalize_chat` 的 `run is None` 兜底已足够，`delete_thread` 路径安全，无需修复。
+
+- **实测基线（本轮）**：全量套件 **1499 passed / 1 skipped**（388.04s，含 iter392 新增 19 条）；唯一 skip 为 `marker_single` 未安装（环境项，非回归）。中途一轮为 1479 passed / 2 skipped——多出的 1 项 skip 是 `test_verify_url.py` 的网络不可用跳过（环境相关）。`go build ./...` 退出码 0（Go 侧未改动）。
+
+- **备份导入写锁持有多轮实测**（`data/sessions` 下 2000 个解析文本文件）：串行落盘 7.09s -> 并发落盘 2.39s；期间竞争写者等待 0.000s（此前写锁独占期内其他写请求等满 `busy_timeout=10s` 后 500）。**单事务语义未变**（原子性优先，不改批量提交），降级链改为：事件循环不被阻塞（finalize 移 worker 线程）+ 竞争写者得 503 可重试。
+
+- **本轮发现但未修（后续 iter 候选）**：`_STREAMS` 终态后 300s 保留窗口的内存足迹（F10）；LLM 信号量在无运行 loop 时被替换（F12）；备份导入在行数预算上限（10 万行）下单事务持锁仍可达数十秒（DB 插入成本为主，文件 IO 已压缩）；日预算为 check-then-act 无预留，并发下实际花费可达上限的并发倍数（暴露面已被全局/单用户并发上限 + 每会话预算上限约束，非无界）；SSE 事件桥（`/api/events/stream`）与插件总线（`app/plugins/bus.py`）本轮复核**未发现缺陷**（有界队列 100、跨线程经 `call_soon_threadsafe`、finally 退订、心跳周期重验身份、按用户过滤 safe-by-default）。
+
+- **下一步**：① 成本计量与预算绕过路径审计（`cost.py`/`budget.py`/`api_usage` 落账，`check_daily_budget` 只信 `api_usage` 求和）；② SSE 事件流生命周期与背压复核；③ Go 侧 `internal/runtime/tutor` 存储/并发/数据操作审计；④ 文档偏差（`note/01` 规模行「4,819 .go / 774,044 行」与实测 4,812 / 834,739 不符；M1.2 重命名范围文档称 8,629 处 import，实测 8,434 处带引号 / 8,776 处任意 `reasonix/`）——待单独 iter 处理。
+
 **iter R47（2026-10-20，历史细粒度拆分轮，✅ 完成）**：承接 iter R46——R46 的成果以 1 个 commit 提交 15 个文件、混装 2 个主题（SSE 口径复核 + 代词清扫），与仓库「细粒度 commit」约定不符，故将本会话 24 个 commit 整体重写为 **45 个主题单一 commit**（工作树内容零变化；加上本轮进度记录 commit，本会话区间最终为 46 个 commit）。
 
 - **拆分口径**：1 个 commit = 1 项可独立回退的逻辑变更（代码修复 / 文档主题 / 披露登记 / 进度记录分列）。原 24 个 commit 中 12 个混装多主题，逐个拆分为：
