@@ -37,9 +37,11 @@ _MAX_BACKUP_BYTES = 256 * 1024 * 1024
 _EXPORT_RATE_PER_MIN = 10
 _IMPORT_RATE_PER_MIN = 5
 _PREVIEW_RATE_PER_MIN = 10
-# iter 369：进程级导入互斥——restore 单事务期间持有 SQLite 写锁，并发导入各读相同
+# iter 369：进程级备份操作互斥——restore 单事务期间持有 SQLite 写锁，并发导入各读相同
 # 配额计数可越过上限、且第二个导入大概率在写锁上等满 busy_timeout 后 500；
-# 第二个请求立即 409（同 plans 生成 409 立即拒绝约定）
+# 第二个请求立即 409（同 plans 生成 409 立即拒绝约定）。
+# iter 369 复审：锁在 **读文件 + JSON 解析之前** 取（非阻塞），preview 与 import 共用——
+# 锁必须覆盖真正吃内存的阶段，否则并发备份解析的内存峰值无上界。
 _RESTORE_LOCK = threading.Lock()
 
 
@@ -84,26 +86,43 @@ def export_backup(
 @router.post("/preview")
 async def preview_backup_endpoint(
     file: UploadFile,
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     """导入预检（iter 159）：解析备份并返回计数，不写库。
 
     与 /import 同的大小/JSON/结构校验；区别仅在不调用 restore。
+    计数按与 restore 同一套配额计算（本机已有数据占用的额度一并抵扣），
+    因此显示的是"实际会导入多少条"。
     """
     _check_rate(user, "preview", _PREVIEW_RATE_PER_MIN)
-    raw = await file.read(_MAX_BACKUP_BYTES + 1)
-    if len(raw) > _MAX_BACKUP_BYTES:
-        raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
+    # iter 369 复审：互斥锁必须在 **读文件 + JSON 解析之前** 取——原实现先
+    # await file.read(256MB) + json.loads（峰值约 1.5GB Python 对象），再取锁，
+    # 锁根本没约束住它想防的内存峰值：N 个并发预览各自吃一份 256MB + 1.5GB，
+    # 合计可把小内存部署机撑爆。preview 与 import 共用同一把锁（互相排斥），
+    # 使"全进程在途的备份解析内存"有确定上界。
+    if not _RESTORE_LOCK.acquire(blocking=False):
+        raise ApiError("conflict", "已有备份操作正在进行，请稍后再试", status=409)
     try:
-        # iter 367（批次四）：大 JSON 解析移 to_thread——256MB json.loads 在事件循环上
-        # 可阻塞数秒，多用户并发时拖垮所有请求（含 SSE 心跳）
-        data = await asyncio.to_thread(json.loads, raw)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
-    try:
-        return await asyncio.to_thread(backup_core.preview_backup, data)
-    except backup_core.BackupFormatError as exc:
-        raise ApiError("invalid_backup", str(exc), status=400) from None
+        raw = await file.read(_MAX_BACKUP_BYTES + 1)
+        if len(raw) > _MAX_BACKUP_BYTES:
+            raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
+        try:
+            # iter 367（批次四）：大 JSON 解析移 to_thread——256MB json.loads 在事件循环上
+            # 可阻塞数秒，多用户并发时拖垮所有请求（含 SSE 心跳）
+            data = await asyncio.to_thread(json.loads, raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
+        try:
+            return await asyncio.to_thread(
+                backup_core.preview_backup, data, db, user.id
+            )
+        except backup_core.BackupTooLargeError as exc:
+            raise ApiError("too_large", str(exc), status=413) from None
+        except backup_core.BackupFormatError as exc:
+            raise ApiError("invalid_backup", str(exc), status=400) from None
+    finally:
+        _RESTORE_LOCK.release()
 
 
 @router.post("/import")
@@ -114,32 +133,42 @@ async def import_backup(
 ) -> dict:
     """导入备份 JSON（追加式：全部以新数据重建，不覆盖现有数据）。"""
     _check_rate(user, "import", _IMPORT_RATE_PER_MIN)
-    raw = await file.read(_MAX_BACKUP_BYTES + 1)
-    if len(raw) > _MAX_BACKUP_BYTES:
-        raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
-    try:
-        data = await asyncio.to_thread(json.loads, raw)  # 同 preview：大解析移 to_thread
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
-    # iter 369：导入互斥——restore 单事务持 SQLite 写锁，并发导入会配额竞态 + 写锁等待 500
+    # iter 369 复审：锁在读文件 + 解析**之前**取（见 preview 同款说明）：
+    # 原顺序下互斥锁约束不到真正吃内存的读/解析阶段。
     if not _RESTORE_LOCK.acquire(blocking=False):
         raise ApiError("conflict", "已有备份导入正在进行，请稍后再试", status=409)
+    created_files: list[str] = []
     try:
+        raw = await file.read(_MAX_BACKUP_BYTES + 1)
+        if len(raw) > _MAX_BACKUP_BYTES:
+            raise ApiError("too_large", "备份文件过大（上限 256MB）", status=413)
+        try:
+            data = await asyncio.to_thread(json.loads, raw)  # 同 preview：大解析移 to_thread
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ApiError("invalid_backup", "备份文件不是合法 JSON", status=400) from None
         try:
             # iter 367：restore 全程同步 DB/文件写移 to_thread；iter 369：commit/rollback
             # 一并入 to_thread——大导入的 commit 需刷全部脏页 + fsync（慢盘秒级），
             # 留在事件循环上会冻结全部请求（含 SSE 心跳）
             def _restore_and_commit() -> dict:
-                summary = backup_core.restore_backup(db, user, data)
+                summary = backup_core.restore_backup(db, user, data, created_files)
                 db.commit()
                 return summary
 
             summary = await asyncio.to_thread(_restore_and_commit)
+        except backup_core.BackupTooLargeError as exc:
+            await asyncio.to_thread(db.rollback)
+            raise ApiError("too_large", str(exc), status=413) from None
         except backup_core.BackupFormatError as exc:
             await asyncio.to_thread(db.rollback)
             raise ApiError("invalid_backup", str(exc), status=400) from None
         except Exception:  # noqa: BLE001  单事务：任何硬错误整体回滚，不留半截数据
             await asyncio.to_thread(db.rollback)
+            # 补偿：DB 回滚不回滚磁盘——已落盘的解析文本/kb 原件/单元内容需删除，
+            # 否则成为无主孤儿（kb 原件孤儿不被 maintenance 回收，data/kb 无限增长）
+            removed = await asyncio.to_thread(backup_core.cleanup_created_files, created_files)
+            if removed:
+                log.warning("备份导入失败，已补偿删除 %d 个落盘文件", removed)
             log.exception("备份导入失败")
             raise ApiError("import_failed", "导入失败：数据已回滚，未做任何改动", status=500) from None
     finally:
