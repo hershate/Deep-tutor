@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -29,6 +30,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, require_auth
+from app.api.errors import ApiError
 from app.api.sse_utils import SSE_HEADERS
 from app.core.security import decode_token
 from app.plugins import bus
@@ -42,6 +44,44 @@ router = APIRouter(prefix="/events", tags=["events"], dependencies=[Depends(requ
 GLOBAL_EVENTS: frozenset[str] = frozenset({"startup", "shutdown"})
 
 _HEARTBEAT_S = 15.0
+
+# iter 395：并发事件流连接上限（单用户 + 全局）——此前**无上限**：每条连接持有一个
+# 100 槽队列 + 一个 bus sink，单客户端可开任意条（内存线性增长）；且每次 emit 需
+# 遍历全部 sink（O(连接数)）-> 事件风暴下 CPU 放大。对照 plans/memory 生成流均有
+# 全局槽位上限。实测前端每应用实例仅 1 条（EventsBridge），多标签页也就数条——
+# 故阈值取宽（单用户 16 / 全局 256），只为挡住「开满 thousands 条」这类滥用。
+_MAX_STREAMS_PER_USER = 16
+_MAX_STREAMS_TOTAL = 256
+_streams_lock = threading.Lock()
+_streams_by_user: dict[int, int] = {}
+_streams_total = 0
+
+
+def _acquire_stream_slot(user_id: int) -> None:
+    """占用一条事件流槽位；超限抛 429（防单客户端开满连接耗尽内存/事件分发）。"""
+    global _streams_total
+    with _streams_lock:
+        per_user = _streams_by_user.get(user_id, 0)
+        if per_user >= _MAX_STREAMS_PER_USER or _streams_total >= _MAX_STREAMS_TOTAL:
+            raise ApiError(
+                "rate_limited",
+                f"事件流连接数达上限（单用户 {_MAX_STREAMS_PER_USER} 条），请关闭多余连接后重试",
+                status=429,
+            )
+        _streams_by_user[user_id] = per_user + 1
+        _streams_total += 1
+
+
+def _release_stream_slot(user_id: int) -> None:
+    """释放事件流槽位（连接断开时；计数器只减不增，异常路径也不会为负）。"""
+    global _streams_total
+    with _streams_lock:
+        n = _streams_by_user.get(user_id, 0)
+        if n <= 1:
+            _streams_by_user.pop(user_id, None)
+        else:
+            _streams_by_user[user_id] = n - 1
+        _streams_total = max(0, _streams_total - 1)
 
 # iter 381：移除 session_id -> owner 的 60s TTL 缓存（iter 367 曾为「每事件×每订阅者
 # 查库」加的收敛层）。两个理由：
@@ -200,7 +240,13 @@ async def event_stream(
         except RuntimeError:
             pass
 
-    off = bus.subscribe_all(sink)
+    # iter 395：先占槽（超限直接 429，不入总线），再订阅；订阅异常则归还槽位。
+    _acquire_stream_slot(user_id)
+    try:
+        off = bus.subscribe_all(sink)
+    except Exception:
+        _release_stream_slot(user_id)
+        raise
 
     async def stream():
         try:
@@ -208,6 +254,7 @@ async def event_stream(
                 yield frame
         finally:
             off()  # 退订 sink（客户端断开/取消时）
+            _release_stream_slot(user_id)
 
     # iter 367（批次四）：补 SSE_HEADERS（no-cache/keep-alive/禁 nginx 缓冲）——其余
     # SSE 端点（plans/memory）均已带，漏在此处时反代环境下事件流会被缓冲至超时
