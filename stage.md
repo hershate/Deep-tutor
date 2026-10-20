@@ -38,6 +38,34 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R47（2026-10-20，历史细粒度拆分轮，✅ 完成）**：承接 iter R46——R46 的成果以 1 个 commit 提交 15 个文件、混装 2 个主题（SSE 口径复核 + 代词清扫），与仓库「细粒度 commit」约定不符，故将本会话 24 个 commit 整体重写为 **45 个主题单一 commit**（工作树内容零变化；加上本轮进度记录 commit，本会话区间最终为 46 个 commit）。
+
+- **拆分口径**：1 个 commit = 1 项可独立回退的逻辑变更（代码修复 / 文档主题 / 披露登记 / 进度记录分列）。原 24 个 commit 中 12 个混装多主题，逐个拆分为：
+
+| 原 commit | 拆为 | 拆分后主题 |
+|---|---|---|
+| `bec5525` | 2 | 清除 v1 期遗留草稿 `.claude/plan.md` ／ 清除上游无关资产树（release-notes·benchmarks·examples·workers·npm·output） |
+| `3fa7748` | 4 | 死链修复 ／ `docs/kernel/README.md` 索引重写 ／ NOTICE 重写 ／ `.gitattributes`·`.gitignore` 失效规则清理 |
+| `a3b7484` | 0 | `backend/.openapi_dump.json` 为生成物，原「先加后撤」两 commit 合并为不加，净树不变 |
+| `49089a6` | 2 | 移除随资产清除而失效的上游件（cmd/e2ebench·cmd/signpath-contract·.signpath·prod_fast_test + repolint 条目）／ 权威文档重写 |
+| `5b5dbda` | 2 | Go 门禁实况 ／ 上游文档本仓状态声明 + NOTICE 登记 |
+| `731daef` | 2 | note/11 重基线 ／ note/01·02 标题层级修正 |
+| `2f7cade` | 3 | 移除 7 个失效 effect 测试 ／ note/10 重基线 ／ note/07 复核修正 |
+| `aa672b7` | 3 | note/00-INDEX 编码损坏修复 ／ 规模数字校准 ／ 去除修辞词 |
+| `95035c4` | 3 | 代码路径常量修复 ／ 内核文档路径适配 ／ NOTICE 与笔记披露登记 |
+| `cc30596` | 2 | 测试夹具路径修复 ／ 披露登记 |
+| `a432948` | 3 | 修辞词清扫 ／ 归档计数修正 ／ 进度记录 |
+| `497806d` | 3 | note/12 表数校准 ／ 方案族复核 ／ 进度记录 |
+| `c75fa12` | 5 | note/10 SSE 口径复核 ／ 根文档与 NOTICE 代词清扫 ／ note/12 与方案族代词清扫 ／ 资产侧与 skill 文案清扫 ／ 进度记录 |
+
+  其余 11 个原 commit 主题单一，原样保留（`b5d85b3`、`562e3c4`、`458b6d8`、`f07e6b9`、`76e0eda`、`146adcc`、`8b714d5`、`0496050`、`f36d9f1`、`ee91b15`、`cd13af0`）。
+
+- **重放方式**：先建安全分支 `backup/pre-split`（旧 tip `c75fa12`），再 `git reset --hard` 回基线 `738b983`，按原顺序逐 commit 重放。涉及同一文件内多主题的 2 处（`note/00-INDEX` 的编码修复与规模校准、`stage.md` 的实测基线行与迭代条目）以中间态文件内容分列提交，避免合并冲突——冲突标记 `<<<<<<<` / `=======` / `>>>>>>>` 全仓复扫 0 处。
+
+- **校验**：重写后 `HEAD^{tree}` = `63568f097e11cfcc336831f87d8006f520aa5daa`，与拆分前 `backup/pre-split^{tree}` 逐字节相同；`git diff backup/pre-split` 输出为空；`go build ./...` 与 `go vet ./...` 退出码 0；Python v1 **1461 passed / 1 skipped** 基线沿用 R45（工作树逐字节一致，结论不随历史重写变化）。
+
+- **下一步**：同 iter R46——M1 剩余项（多实例 spike M1.3 → 模块重命名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
 **iter R46（2026-10-20，SSE 口径复核与第一方文档代词清扫轮，✅ 完成）**：承接 iter R45——R45 收口表数与方案族，本轮处理两项遗留项：tutor 面 SSE 通道数口径、以及第一方文档的人称代词残留。
 
 - **SSE 通道数复核（口径统一为「产品面 3 条」）**：全仓 Go 非测试代码中设置 `text/event-stream` 响应头的位置共 **4 处**，均在 `internal/frontend/serve`——`eventstream.go:276`（`GET /events` 控制器事件流）、`tutor.go:573`（`/tutor/...` 生成流）、`tutor_data.go:177`（`/tutor/plans/{pid}/materials` SSE 分支）、`browser_host.go:195`（`GET /browser-host/stream`，仅在 `opts.BrowserHost != nil` 时注册，`browser_host.go:180-183`，属 browser-host 窗口侧中继，不计入产品面）。其余命中项为客户端侧（`internal/ext/plugin/transport_http.go:150`、`transport_sse.go:111,126` 的 MCP SSE 传输；`internal/model/anthropic/anthropic.go:311`、`internal/model/openai/chat_headers.go:19` 的上游 LLM Accept 头）。据此修正 `note/10` §4.1 标题为「Go 侧产品面三条 SSE 通道」并补写出点全表、§5 对照表「3 条 SSE」→「产品面 3 条 SSE + browser-host 窗口中继 1 条（条件注册）」、`stage.md` 实测基线行同改；§4.3 原仅列 v1 三条通道，**漏 v1 材料流**，补 `POST /api/plans/{id}/materials`（`Accept: text/event-stream`，客户端 `frontend/src/lib/api.ts:319-345`，Go 侧 `tutor_data.go:155-210`），标题改为「与 v1 SSE 通道的对应（v1 四类 / Go 侧三条产品面）」。
