@@ -1,3 +1,0 @@
-prompt = "Add a function add(a, b) returning a+b to util.py."
-class = "generic"
-timeout_sec = 180

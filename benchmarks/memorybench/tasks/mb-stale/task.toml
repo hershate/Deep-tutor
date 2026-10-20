@@ -1,4 +1,0 @@
-prompt = "Confirm the current release branch of this repo and write it into answer.txt."
-class = "stale"
-timeout_sec = 180
-memory_markers = ["MEMKEY-STALE1"]

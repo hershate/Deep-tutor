@@ -1,2 +1,0 @@
-draft proposal (never merged): raise the retry budget to 11 once the queue
-backpressure work lands. Do not treat this as the current value.

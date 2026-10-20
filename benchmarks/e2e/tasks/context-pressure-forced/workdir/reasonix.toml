@@ -1,5 +1,0 @@
-# Reasonix project configuration.
-
-[agent]
-compact_ratio = 0.005
-soft_compact_ratio = 0.003
