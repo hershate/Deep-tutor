@@ -30,6 +30,54 @@ def _root() -> Path:
     return Path(settings.data_dir).resolve()
 
 
+def strip_ext_prefix(p: Path | str) -> str:
+    """去掉 Windows 扩展长度前缀（``\\\\?\\``）——ntpath.realpath 在部分路径形态下
+    （并发建目录、junction、超长路径等）会返回带前缀形式，与未带前缀的根路径做
+    ``relative_to`` 比较会**误判越界**（合法路径被拒 -> 500 / 工具报错）。
+    UNC 形态 ``\\\\?\\UNC\\host\\share`` 还原为 ``\\\\host\\share``。
+    """
+    s = str(p)
+    if s.startswith("\\\\?\\"):
+        s = s[4:]
+        if s.startswith("UNC\\"):
+            s = "\\\\" + s[4:]
+    return s
+
+
+def is_within_root(root: Path, target: Path) -> bool:
+    """target 是否位于 root 之内（路径穿越守卫，Windows 前缀形态无关）。
+
+    两侧都先剥扩展长度前缀再比较；``PureWindowsPath`` 的比较本身大小写不敏感。
+    """
+    try:
+        Path(strip_ext_prefix(target)).relative_to(Path(strip_ext_prefix(root)))
+        return True
+    except ValueError:
+        return False
+
+
+def relative_to_root(root: Path, target: Path) -> str:
+    """target 相对 root 的 posix 路径（Windows 扩展长度前缀形态无关）。
+
+    产物登记等场景需要「相对 data_dir 的路径」；resolve() 偶发返回 \\?\\ 前缀形态时，
+    逐处 relative_to 会抛 ValueError。
+    """
+    return Path(strip_ext_prefix(target)).relative_to(Path(strip_ext_prefix(root))).as_posix()
+
+
+def resolve_under_root(root: Path, *parts: str) -> Path:
+    """解析 ``root/parts`` 并校验其仍在 root 之内；越界抛 ValueError。
+
+    与逐处手写 ``resolve().relative_to(root)`` 等价，但统一处理 Windows 扩展长度
+    前缀形态（否则合法路径会被误判越界——iter 392 实测：备份导入并发写文件时
+    目录刚被创建，resolve() 返回 ``\\\\?\\`` 前缀形态，越界守卫抛错致整次导入失败）。
+    """
+    base = root.joinpath(*parts).resolve()
+    if not is_within_root(root, base):
+        raise ValueError(f"路径越界: {base}")
+    return base
+
+
 def _session_root(session_id: int | str) -> Path:
     """会话目录，确保在 data_dir 内（防路径遍历）。"""
     root = _root()
@@ -37,12 +85,8 @@ def _session_root(session_id: int | str) -> Path:
     sid = str(session_id)
     if not sid.replace("_", "").isalnum():
         raise ValueError(f"非法 session_id: {session_id}")
-    base = (root / "sessions" / sid).resolve()
-    try:
-        base.relative_to(root)  # 不在 root 内则抛 ValueError
-    except ValueError as exc:
-        raise ValueError(f"路径越界: {base}") from exc
-    return base
+    # iter 392：越界判定统一走 resolve_under_root（Windows 扩展长度前缀形态无关）
+    return resolve_under_root(root, "sessions", sid)
 
 
 def originals_dir(session_id: int | str) -> Path:
@@ -276,12 +320,7 @@ def _kb_root(user_id: int | str) -> Path:
     uid = str(user_id)
     if not uid.replace("_", "").isalnum():
         raise ValueError(f"非法 user_id: {user_id}")
-    base = (root / "kb" / uid).resolve()
-    try:
-        base.relative_to(root)  # 不在 root 内则抛 ValueError
-    except ValueError as exc:
-        raise ValueError(f"路径越界: {base}") from exc
-    return base
+    return resolve_under_root(root, "kb", uid)
 
 
 def kb_originals_dir(user_id: int | str) -> Path:

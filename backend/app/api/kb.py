@@ -52,6 +52,7 @@ from app.core.storage import (
     _kb_root,
     delete_kb_document_files,
     delete_session_files,
+    is_within_root,
     kb_originals_dir,
     kb_parsed_dir,
     save_kb_upload,
@@ -600,9 +601,12 @@ def get_document_raw(
     if not doc.original_path:
         raise ApiError("not_found", f"知识库文档 {document_id} 无原件（text/url 类仅有解析文本）")
     # R20 防线：DB 路径 resolve 后须仍在本用户 kb 目录内（防库被篡改后路径穿越）
+    # iter 392：containment 判定走 storage.is_within_root（Windows 扩展长度前缀形态
+    # 无关——resolve() 偶发返回 \\?\ 前缀时，逐处手写 relative_to 会误判越界）
     try:
         resolved = Path(doc.original_path).resolve()
-        resolved.relative_to(_kb_root(user.id))
+        if not is_within_root(_kb_root(user.id), resolved):
+            raise ValueError("路径越界")
     except (ValueError, OSError):
         log.warning("知识库原件路径越界: doc=%s", document_id)
         raise ApiError("not_found", f"知识库文档 {document_id} 的原件缺失") from None

@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 
 from app.core.settings import settings
+from app.core.storage import is_within_root, relative_to_root
 
 log = logging.getLogger("deep_tutor.agent.workspace")
 
@@ -34,10 +35,10 @@ def _root() -> Path:
 
 
 def _check_under_root(p: Path) -> None:
-    try:
-        p.resolve().relative_to(_root())
-    except ValueError as exc:
-        raise ValueError(f"工作区路径越界: {p}") from exc
+    # iter 392：containment 判定走 storage.is_within_root（Windows 扩展长度前缀形态
+    # 无关——resolve() 偶发返回 \\?\ 前缀时，逐处手写 relative_to 会误判越界）
+    if not is_within_root(_root(), p.resolve()):
+        raise ValueError(f"工作区路径越界: {p}")
 
 
 def _digit(seg, label: str) -> str:
@@ -76,10 +77,9 @@ def _resolve_in(root: Path, name: str) -> Path:
     if norm == "" or ".." in norm.split("/"):
         raise ValueError(f"非法工作区文件名: {name}")
     p = (root / norm).resolve()
-    try:
-        p.relative_to(root.resolve())
-    except ValueError as exc:
-        raise ValueError(f"工作区路径越界: {name}") from exc
+    # iter 392：同 storage.is_within_root（前缀形态无关，防误判越界）
+    if not is_within_root(root.resolve(), p):
+        raise ValueError(f"工作区路径越界: {name}")
     return p
 
 
@@ -189,7 +189,7 @@ def commit_run_workspace(db, run_id: int, thread_id: int) -> list:
     else:
         dst.mkdir(parents=True, exist_ok=True)
     run.workspace_committed = True
-    run.workspace_dir = dst.relative_to(_root()).as_posix()
+    run.workspace_dir = relative_to_root(_root(), dst)  # iter 392: 前缀形态无关
     if has_files:
         for p in sorted(dst.rglob("*")):
             if p.is_file():

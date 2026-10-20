@@ -14,6 +14,7 @@ from typing import Any
 
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
+from app.core.storage import is_within_root
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
 
@@ -37,7 +38,9 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     plan_id = _safe_seg(str(args.get("plan_id", "plan")))
     base = (Path(ctx.data_dir or "data") / "sessions" / sid / "exports").resolve()
     root = Path(ctx.data_dir or "data").resolve()
-    if not str(base).startswith(str(root)):
+    # iter 392：containment 判定走 storage.is_within_root（原 str.startswith 前缀比较
+    # 既非路径语义、又对 Windows 扩展长度前缀形态失配）
+    if not is_within_root(root, base):
         return _err("invalid_path", "非法的会话标识")
     # iter 371：落盘移 to_thread——溢出方案 md 可达 MB 级，同步写在事件循环上
     # 与 exports.py 其余导出路径（render/pdf/ics/apkg 均 to_thread）口径不一致

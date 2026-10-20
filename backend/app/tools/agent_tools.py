@@ -344,6 +344,7 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         return _err(tool, "invalid_enum", "target_kind 须为 plan/material/note")
     from app.db.models import Run, RunArtifact, RunStatus, RunStep
     from app.agent.workspace import scratch_dir, committed_dir, _resolve_in, _root
+    from app.core.storage import relative_to_root
 
     run = ctx.db.get(Run, ctx.run_id)
     if run is None:
@@ -380,14 +381,14 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
                 run_id=ctx.run_id,
                 thread_id=ctx.thread_id,
                 name=name,
-                path=dst.relative_to(_root()).as_posix(),
+                path=relative_to_root(_root(), dst),
                 kind="committed",
                 size=dst.stat().st_size,
             )
             ctx.db.add(art)
             ctx.db.flush()  # 取 art.id 供 run_step 记录
         else:
-            art.path = dst.relative_to(_root()).as_posix()
+            art.path = relative_to_root(_root(), dst)
             art.size = dst.stat().st_size
         # 提议：run 进待审批 + 记 run_step（实际提升由 POST /runs/{id}/approve 执行）
         run.status = RunStatus.awaiting_approval
