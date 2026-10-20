@@ -148,13 +148,23 @@ def get_default_user(db: Session) -> User:
     return user
 
 
-def resolve_user(db: Session, authorization: str | None, x_auth_token: str | None) -> User | None:
+def resolve_user(
+    db: Session,
+    authorization: str | None,
+    x_auth_token: str | None,
+    *,
+    create_missing: bool = True,
+) -> User | None:
     """解析请求身份为 User（JWT -> 对应用户；AUTH_TOKEN -> 首个管理员/首个用户）；失败 -> None。
 
     AUTH_TOKEN 回退路径下若库中无任何用户 -> 自动创建默认用户（与旧单用户行为一致，
     保证仅配置 AUTH_TOKEN 的本地部署/既有调用方在 P4 后仍可用）。
     零配置开放本机模式（iter 89）：无有效 token 且 passwordless_open -> 首个管理员
     （懒创建空密码 admin）。
+
+    iter 394：``create_missing=False`` 时**不创建**任何用户（.env token 回退的默认用户、
+    开放模式的懒创建 admin 一律只查不建）——供公开只读端点（如 GET /setup/status）
+    解析调用者身份使用，避免公开 GET 产生写副作用。
     """
     token = _extract_token(authorization, x_auth_token)
     if token:
@@ -178,7 +188,10 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
                 return None
             return user
         if _is_env_token(token):
-            return db.query(User).filter_by(is_admin=True).first() or get_default_user(db)
+            admin = db.query(User).filter_by(is_admin=True).first()
+            if admin is not None:
+                return admin
+            return get_default_user(db) if create_missing else None
         # 个人访问令牌（iter 223）：命中 active auth_token 档案 -> 档案归属用户
         token_user = _user_by_token_credential(db, token)
         if token_user is not None:
@@ -188,7 +201,10 @@ def resolve_user(db: Session, authorization: str | None, x_auth_token: str | Non
     from app.core.security import get_or_create_open_admin, passwordless_open
 
     if passwordless_open(db):
-        return get_or_create_open_admin(db)
+        if create_missing:
+            return get_or_create_open_admin(db)
+        admin = db.query(User).filter_by(is_admin=True).first()
+        return admin  # 可能为 None（开放模式尚未懒创建 admin）
     return None
 
 

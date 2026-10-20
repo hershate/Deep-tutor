@@ -79,30 +79,50 @@ class SetupIn(BaseModel):
         return v
 
 
-def _llm_configured() -> bool:
-    """「get_provider() 可用」语义：env key（模板占位值不算，iter 90）、任一 active
-    供应商档案、或任一 active Anthropic 回退 Key 凭证档案（iter 223）。"""
+def _llm_configured(db: Session, user_id: int | None) -> bool:
+    """「get_provider(user_id) 可用」语义（**按调用者**）：env key（模板占位值不算，iter 90）、
+    该用户的 active 供应商档案、或该用户的 active Anthropic 回退 Key 凭证档案（iter 223）。
+
+    iter 394：此前用全局查询（任一用户的 active 档案即算已配置）——多用户下
+    所有用户看到同一个值：甲配了 key，乙没配也被告知「已配置」，横幅不出现
+    而调用必失败。user_id=None -> 实例级（任一用户的 active 档案），供 needs_setup（实例级流程）判定。
+    """
     from app.core.credentials import KIND_ANTHROPIC, get_active_credential
 
+    if settings.anthropic_key_configured:
+        return True
     return (
-        settings.anthropic_key_configured
-        or get_active_profile() is not None
-        or get_active_credential(None, KIND_ANTHROPIC) is not None
+        get_active_profile(user_id, db=db) is not None
+        or get_active_credential(user_id, KIND_ANTHROPIC, db) is not None
     )
 
 
 @router.get("/status")
-def setup_status(db: Annotated[Session, Depends(get_db)]) -> dict:
+def setup_status(
+    db: Annotated[Session, Depends(get_db)],
+    authorization: Annotated[str | None, Header()] = None,
+    x_auth_token: Annotated[str | None, Header(alias="X-Auth-Token")] = None,
+) -> dict:
+    """向导状态（公开端点）。
+
+    iter 394：llm_configured 改**按调用者**解析——多用户下全局口径会让未配 key 的
+    用户被告知「已配置」（横幅不出现，调用却失败）。调用者身份解析用
+    resolve_user(create_missing=False)：公开 GET 不产生建用户的写副作用。
+    needs_setup 仍是**实例级**判定（向导是实例级一次性流程）：按调用者判定会把
+    「本用户没配 key」误判成「实例待初始化」，把普通用户弹去 /setup。
+    """
     from app.core.security import passwordless_open
 
     open_mode = passwordless_open(db)
-    llm_ok = _llm_configured()
+    user = resolve_user(db, authorization, x_auth_token, create_missing=False)
+    llm_ok = _llm_configured(db, user.id if user is not None else None)
+    llm_ok_instance = _llm_configured(db, None)
     dismissed = is_dismissed()
     return {
         "open_mode": open_mode,
         "llm_configured": llm_ok,
         "dismissed": dismissed,
-        "needs_setup": (not dismissed) and (open_mode or not llm_ok),
+        "needs_setup": (not dismissed) and (open_mode or not llm_ok_instance),
     }
 
 
