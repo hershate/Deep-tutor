@@ -31,6 +31,8 @@
 | `internal/runtime/agent` `TestChildConstructionForksStayEnumerated` | 遍历工作树全部 `.go` 文件（未过滤 `REF/`），本地 `REF/extracted/` 副本被判为未登记的子代理构造点 |
 | `internal/runtime/schedrun` `TestKillingTheRunEndsItsWholeProcessTree` | Windows 子进程树取锁时序 |
 | `internal/tools/builtin` `TestPipeStatusProbePreservesExitStatusAndReports` | Windows 管道退出码探针 |
+
+另：`internal/assembly/boot` 单包本机耗时 **974.9 秒**，超过 Go 默认 600 秒超时上限，`go test ./...` 一次性执行必然报 timeout panic（`make test` 同）；该包单独执行（`-timeout 25m`）通过，`internal/frontend/serve` 单独执行亦通过。Go 侧门禁的实际执行方式（分批 + 超时上限）属 M1.5 待定项。
 - **引用合规**：上游 https://github.com/esengine/DeepSeek-Reasonix （MIT）。声明与修改披露见根 [`NOTICE`](./NOTICE)，许可全文 [`LICENSE-REASONIX`](./LICENSE-REASONIX)；修改上游代码须同步更新 NOTICE 修改披露。上游无关资产树（`release-notes/` `benchmarks/` `examples/` `workers/` `npm/` `output/`）已于 2026-10-20 移除，范围偏差登记于 note/12 修订记录。
 - **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。**注意**：两个门禁会扫工作树全集，结果依赖本地副本状态——`tools/repolint`（报告含 `REF/` 副本）与 `internal/runtime/agent` 的 `TestChildConstructionForksStayEnumerated`（遍历全部 `.go`，未过滤 `REF/`）。
 - **归档**：Python 时代计划与工作档案在 `docs/archive/`（git 历史完整）。
