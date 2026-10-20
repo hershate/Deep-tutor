@@ -13,7 +13,7 @@ It is how an installed plugin with a `runtime` block intercepts runtime events, 
 
 - Protocol ID: `reasonix.extension.v2`
 - Machine-readable schema: `internal/ext/extension/protocol/schema.generated.json`
-- Method/event/limit/error index: `docs/EXTENSION_PROTOCOL.generated.md`
+- Method/event/limit/error index: `docs/kernel/EXTENSION_PROTOCOL.generated.md`
   (generated, drift-checked in CI)
 - Go SDK (implements everything below): `sdk/go`
 

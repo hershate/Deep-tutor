@@ -10,6 +10,8 @@ reviewed: 2026-09-17
 Scope: every Markdown file on the `studio` branch outside `benchmarks/`.
 Enforcement: `make check` and CI run `repolint`; rule IDs below name its findings.
 
+> 本仓适配（2026-10-20）：本文件随上游 `docs/` 树迁入 `docs/kernel/`。上文生效路径在本仓的对应关系：`docs/` → `docs/kernel/`；上游原件存档于 `docs/kernel/upstream/`（含 `upstream/github/` CI 模板）；`release-notes/`、`.signpath/`、`.github/CODEOWNERS` 随上游无关资产清除移除，`tools/repolint/baseline.json` 仍是上游基线，本仓 CI（`.github/workflows/ci.yml`）只跑 Python v1 四步门禁，`repolint` 由 `make check` 调用。下列规则编号保持上游语义。
+
 ## 1. Ownership
 
 | ID | Rule |
@@ -24,22 +26,22 @@ Current areas:
 | Area | Paths | Primary | Backup |
 | --- | --- | --- | --- |
 | Kernel, Studio shell, tooling, standing instructions | `*` | @esengine | @SivanCola |
-| User guides and references | `docs/`, `sdk/`, `README*`, `SECURITY.md` | @SivanCola | @esengine |
-| Studio contracts and processes | `docs/STUDIO_*.md`, `docs/DOCS_STANDARD.md`, `docs/*_CONTRACT.md`, `docs/TOOL_APPROVAL_MODES.md`, `docs/CAPABILITY_DIAGNOSTICS.md`, `docs/CHECKPOINTS.md`, `docs/EXTENSION_*.md`, `docs/SUBAGENT_*.md`, `docs/SESSION_MEMORY_RETRIEVAL.md` | @esengine | @SivanCola |
-| Release lines and moving between them | `docs/ROADMAP.md`, `docs/MIGRATING.md` | @esengine | @SivanCola |
-| Kernel design proposals | `docs/design/` | @esengine | @SivanCola |
-| Release notes and release signing | `release-notes/`, `.signpath/`, `release-studio.yml` | @esengine | @SivanCola |
+| User guides and references | `docs/kernel/`, `sdk/`, `README*`, `SECURITY.md` | @SivanCola | @esengine |
+| Studio contracts and processes | `docs/kernel/STUDIO_*.md`, `docs/kernel/DOCS_STANDARD.md`, `docs/kernel/*_CONTRACT.md`, `docs/kernel/TOOL_APPROVAL_MODES.md`, `docs/kernel/CAPABILITY_DIAGNOSTICS.md`, `docs/kernel/CHECKPOINTS.md`, `docs/kernel/EXTENSION_*.md`, `docs/kernel/SUBAGENT_*.md`, `docs/kernel/SESSION_MEMORY_RETRIEVAL.md` | @esengine | @SivanCola |
+| Release lines and moving between them | `docs/kernel/ROADMAP.md`, `docs/kernel/MIGRATING.md` | @esengine | @SivanCola |
+| Kernel design proposals | `docs/kernel/design/` | @esengine | @SivanCola |
+| Release notes and release signing | `release-notes/`, `.signpath/`, `release-studio.yml`（上游树，本仓已移除） | @esengine | @SivanCola |
 
 ## 2. Document classes
 
 | Class | Paths | Header | Prose width |
 | --- | --- | --- | --- |
 | Document | everything not listed below | required | 320 |
-| Landing | `README.md`, `README.zh-CN.md` | none (CODEOWNERS) | 320 |
-| Machine-read | `REASONIX.md`, `AGENTS.md`, `CLAUDE.md`, `.github/`, `.reasonix/`, skill and guardian prompts, `docs/EXTENSION_PROTOCOL.generated.md` | none (CODEOWNERS) | 320 |
-| Release note | `release-notes/` | none (published verbatim) | 200 per item |
+| Landing | `README.md`, `docs/kernel/upstream/README.zh-CN.md` | none (CODEOWNERS) | 320 |
+| Machine-read | `REASONIX.md`, `AGENTS.md`, `CLAUDE.md`, `.github/`, `.reasonix/`, skill and guardian prompts, `docs/kernel/EXTENSION_PROTOCOL.generated.md` | none (CODEOWNERS) | 320 |
+| Release note | `release-notes/`（上游树，本仓已移除） | none (published verbatim) | 200 per item |
 
-The class table lives in `tools/repolint/docs.go`. Change both together.
+The class table lives in `tools/repolint/docs.go`. Change both together. 本仓已按 `docs/kernel/` 重定位同步该表。
 
 ## 3. Header (`doc-owner`)
 
@@ -85,7 +87,7 @@ Sections are reviewed by the owner. The gate checks header, width and language o
 | ID | Rule |
 | --- | --- |
 | L1 | English is the maintained language of every document. |
-| L2 | Only `README.zh-CN.md`, `docs/GUIDE.zh-CN.md` and `docs/CLI.zh-CN.md` MAY keep a Chinese copy. |
+| L2 | Only `docs/kernel/upstream/README.zh-CN.md`, `docs/kernel/GUIDE.zh-CN.md` and `docs/kernel/CLI.zh-CN.md` MAY keep a Chinese copy. |
 | L3 | Release notes are written in Chinese, the language Studio users read. |
 
 ## 7. Lifecycle

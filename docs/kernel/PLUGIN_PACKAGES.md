@@ -475,7 +475,7 @@ a compiler or sidecar) is not part of this repository.
 
 The `runtime` block declares a code extension — a sidecar process Reasonix
 launches and talks to over the Extension Protocol (JSON-RPC 2.0 over stdio;
-see `docs/EXTENSION_PROTOCOL.generated.md` for the method index and
+see `docs/kernel/EXTENSION_PROTOCOL.generated.md` for the method index and
 `sdk/go/README.md` for the Go SDK):
 
 - `command`/`args`/`env` are **exec form only** — the command is the
