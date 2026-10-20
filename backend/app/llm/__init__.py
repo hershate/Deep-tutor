@@ -123,6 +123,19 @@ def get_provider(user_id: int | None = None, db=None) -> LLMProvider:
     """
     profile = get_active_profile(user_id, db=db)
     if profile is not None:
+        # iter 394：出站目标私网防护（**字面量**判定：纯计算不触网，可在事件循环
+        # 线程内同步调用，不会阻塞）。写时校验（api/providers.py）已拦新档案；此处
+        # 覆盖历史档案（规则引入前创建）与「写时安全、调用时指向内网」的变更。
+        base_url = profile.get("base_url") or ""
+        if base_url and not settings.allow_private_llm_base_url:
+            from app.core.urlguard import check_outbound_url
+
+            ok, reason = check_outbound_url(base_url, resolve=False)
+            if not ok:
+                raise RuntimeError(
+                    f"供应商档案 base_url 被安全策略拒绝：{reason}"
+                    "（如需指向内网模型服务，设 ALLOW_PRIVATE_LLM_BASE_URL=1）"
+                )
         # iter 313：档案 kind 选择协议——'anthropic'（默认/NULL/空白）走内置 AnthropicProvider；
         # 插件协议（api.providers 注册的 kind）分发到 PluginProvider（档案 api_key/base_url 作凭证）。
         kind = (profile.get("kind") or "").strip().lower() or "anthropic"

@@ -26,6 +26,12 @@ from app.agent.context import ExecContext
 from app.agent.registry import Tool
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
+# 云元数据端点（R19）与私网判定：单一事实源在 app/core/urlguard.py
+# （iter 394：LLM 供应商 base_url 的出站校验共用同一套规则，避免两处漂移）。
+# 旧名保留——既有测试与 monkeypatch 依赖 _is_private_ip / _METADATA_HOSTS。
+from app.core.urlguard import METADATA_HOSTS as _METADATA_HOSTS
+from app.core.urlguard import is_private_ip as _is_private_ip
+
 log = logging.getLogger("deep_tutor.tools.verify")
 
 URL_TIMEOUT = 30.0
@@ -50,8 +56,6 @@ _LOGIN_WALL_KEYWORDS = (
     "验证您是真人",
     "安全验证",
 )
-# 云元数据端点（R19）
-_METADATA_HOSTS = {"169.254.169.254", "169.254.170.2", "metadata.google.internal"}
 
 # 结果缓存（P5 缓存深度优化）：进程内 TTL 缓存，同 URL 在有效期内不重复发 HTTP。
 # 成功判定缓存 24h；失败判定（可能瞬时故障）缓存 1h。容量上限 FIFO 淘汰。
@@ -336,24 +340,6 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
     if _is_private_ip(ip):
         return False, f"私网/环回 IP {ip}"
     return True, ""
-
-
-def _is_private_ip(ip: ipaddress._BaseAddress) -> bool:
-    # CGNAT（100.64/10）与已废弃 site-local（fec0::/10）在 ipaddress 的
-    # is_private/is_reserved 下均为 False（部分云内网/校园网使用），显式补拦——
-    # 这两段无合法公网学习资源，拦截零误伤
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip in _CGNAT_NETWORK
-        or ip in _SITE_LOCAL_NETWORK
-    )
-
-
-_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
-_SITE_LOCAL_NETWORK = ipaddress.ip_network("fec0::/10")
 
 
 def _err(code: str, message: str) -> ToolOutput:

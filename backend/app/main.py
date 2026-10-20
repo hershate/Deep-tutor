@@ -117,6 +117,22 @@ async def _orphan_stream_reaper(stop_event) -> None:
         raise
 
 
+async def _private_provider_base_urls(pairs: list[tuple[str, str]]) -> list[str]:
+    """筛出 base_url 指向私网/环回/元数据的供应商档案（iter 394 启动告警用）。
+
+    pairs：[(档案名, base_url)]。DNS 解析放线程（不占事件循环，iter 393 口径）。
+    返回可直接写入日志的描述列表。
+    """
+    from app.core.urlguard import check_outbound_url, display_url
+
+    hits: list[str] = []
+    for name, url in pairs:
+        ok, reason = await asyncio.to_thread(check_outbound_url, url)
+        if not ok:
+            hits.append(f"{name} -> {display_url(url)}（{reason}）")
+    return hits
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = setup_logging(settings.log_level)
@@ -191,6 +207,7 @@ async def lifespan(app: FastAPI):
     from app.db.base import SessionLocal
 
     db = SessionLocal()
+    _active_provider_urls: list[tuple[str, str]] = []
     try:
         stale = db.execute(
             update(models.OrchestratorState)
@@ -214,11 +231,31 @@ async def lifespan(app: FastAPI):
         from app.core.security import ensure_admin_user
 
         ensure_admin_user(db)
+        # iter 394：存量 active 供应商档案的 base_url 若指向私网/环回/元数据，
+        # 其调用会被 llm.get_provider 拒绝（RuntimeError）。规则引入前建档的
+        # 用户不会在「写档案」时被拦，只在真正生成时才发现——启动期点名告警。
+        _active_provider_urls = [
+            (p.name, p.base_url)
+            for p in db.query(models.LlmProviderProfile)
+            .filter(models.LlmProviderProfile.is_active.is_(True))
+            .filter(models.LlmProviderProfile.base_url != "")
+            .all()
+        ]
     finally:
         db.close()
+    if _active_provider_urls and not settings.allow_private_llm_base_url:
+        _hits = await _private_provider_base_urls(_active_provider_urls)
+        if _hits:
+            log.warning(
+                "%d 个 active 供应商档案的 base_url 指向私网/环回/元数据，LLM 调用将被拒绝：%s"
+                "（若确为内网模型服务，请设 ALLOW_PRIVATE_LLM_BASE_URL=1）",
+                len(_hits),
+                "；".join(_hits),
+            )
     if not settings.admin_password and not settings.auth_token_configured:
         log.info("未配置认证（ADMIN_PASSWORD/AUTH_TOKEN 均空）：以开放本机模式运行——"
-                 "免登录直接使用，局域网内任何人可访问；可在前端设置页设置访问密码")
+                 "免登录直接使用，局域网内任何人可访问；可在前端设置页设置访问密码。"
+                 "（iter 394：首次设置向导 /api/setup、/api/setup/dismiss 仅接受本机回环请求）")
     elif not settings.admin_password:
         log.warning("ADMIN_PASSWORD 未配置：JWT 登录不可用，仅 AUTH_TOKEN 回退（P4 多用户）")
     # err.md C17：CORS * 兜底告警（配合凭证/自定义头时是危险配置）

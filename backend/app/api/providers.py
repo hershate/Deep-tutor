@@ -55,6 +55,20 @@ def _out(p: models.LlmProviderProfile) -> dict:
 def _validate_base_url(v: str) -> str:
     if v and not _HTTPS_RE.match(v):
         raise ValueError("base_url 必须以 http:// 或 https:// 开头")
+    # iter 394：SSRF 防护——base_url 是**服务端出站目标**且由用户自选：允许指向
+    # 127.0.0.1 / 内网 / 云元数据（169.254.169.254）即等于「借服务器探测内网」
+    # （/providers/{id}/test 与真实 LLM 调用都以它为目标发请求；响应虽不回显正文，
+    # 但异常类型名 + HTTP 状态码仍构成弱内网 oracle）。
+    # 默认拦截；确需访问内网模型服务（本地 Ollama 等）设 ALLOW_PRIVATE_LLM_BASE_URL=1。
+    if v and not settings.allow_private_llm_base_url:
+        from app.core.urlguard import check_outbound_url
+
+        ok, reason = check_outbound_url(v)
+        if not ok:
+            raise ValueError(
+                f"base_url 被安全策略拒绝：{reason}"
+                "（如需指向内网模型服务，设 ALLOW_PRIVATE_LLM_BASE_URL=1）"
+            )
     return v
 
 
@@ -306,6 +320,20 @@ async def test_provider(
     await asyncio.to_thread(check_daily_budget, None, user.id)
 
     from app.core.concurrency import llm_task_slot
+
+    # iter 394：出站前复检 base_url 目标（写时校验已拦；此处防「写时安全、
+    # 调用时指向内网」——DNS 记录变更或本轮之前创建的历史档案）。DNS 解析放线程，
+    # 不占事件循环（iter 393 口径）。
+    if p.base_url and not settings.allow_private_llm_base_url:
+        from app.core.urlguard import check_outbound_url
+
+        ok, reason = await asyncio.to_thread(check_outbound_url, p.base_url)
+        if not ok:
+            raise ApiError(
+                "ssrf_blocked",
+                f"base_url 被安全策略拒绝：{reason}"
+                "（如需指向内网模型服务，设 ALLOW_PRIVATE_LLM_BASE_URL=1）",
+            )
 
     try:
         # 显式 120s 上限（与 Timeouts.llm 一致）：SDK 默认超时 600s，慢/挂死端点

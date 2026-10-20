@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # （max_tokens 是输出上限非目标，不会增加常规调用成本）。用户可在设置页按模型实际输出上限
     # 调节（过高如超模型输出上限会触发 400）。用户级覆盖见 PUT /settings/prefs。
     llm_max_tokens: int = Field(default=100_000, description="LLM 单次输出 token 上限（防截断）")
+    # iter 394：允许供应商档案 base_url 指向私网/环回/元数据地址（默认 0=拦截）。
+    # base_url 是服务端出站目标且用户可自选：允许指向 127.0.0.1/内网/云元数据
+    # 即等于「借服务器探测内网」的 SSRF 面（SSRF 防护同 materials 抓取路径）。
+    # 确需访问本地模型服务（Ollama / LM Studio / 内网中转）时置 1 放行。
+    allow_private_llm_base_url: bool = Field(
+        default=False, description="允许 LLM 供应商 base_url 指向私网/环回地址（本地模型服务；默认拦截防 SSRF）"
+    )
 
     # --- 认证（本地单用户 token；P4 多用户 JWT）---
     auth_token: str = Field(default="", description="本地单用户 token（可选；P4 起作 JWT 兼容回退，未设任何密码时进入开放本机模式 iter 89）")
