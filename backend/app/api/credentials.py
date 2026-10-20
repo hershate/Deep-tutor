@@ -19,12 +19,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_auth
+from app.api.deps import get_current_user, get_db, require_auth, require_local_in_open_mode
 from app.api.errors import ApiError
 from app.core.credentials import (
     CREDENTIAL_KINDS,
@@ -51,6 +51,25 @@ def _check_write_rate(user: User) -> None:
     （test_quota_per_kind_429 连续 22 次写不应被限流误伤）。"""
     if not limiter.check(f"cred_write:{user.id}", 30):
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
+
+
+_PAT_LOCAL_ONLY = "开放模式下个人访问令牌（PAT）仅允许本机（回环地址）创建或修改"
+
+
+def _guard_pat_write(db: Session, request: Request | None, kind: str) -> None:
+    """开放模式（零配置免认证）下 PAT 写入限回环（iter 397）。
+
+    PAT 是**可认证的持久凭据**：开放模式下远程未认证客户端可建一个 active PAT，
+    而 PAT 在管理员随后设密/配 AUTH_TOKEN（关闭开放模式）后**依然有效**——
+    即「以为已经加固、实则留有后门」。改密路径会吊销 active PAT
+    （users.update_user / setup 同口径），但 .env 配 AUTH_TOKEN 的收敛路径不会，
+    后门更长命。故开放模式下的 PAT 建立/改写/启用一律限回环客户端。
+
+    其余 kind（anthropic/bing 的供应商 Key）不建立对本实例的认证能力，不受限。
+    """
+    if kind != KIND_AUTH_TOKEN:
+        return
+    require_local_in_open_mode(db, request, _PAT_LOCAL_ONLY)
 
 
 def _mask(key: str) -> str:
@@ -140,9 +159,13 @@ def list_credentials(
 
 @router.post("", status_code=201)
 def create_credential(
-    body: CredentialIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    body: CredentialIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
     _check_write_rate(user)
+    _guard_pat_write(db, request, body.kind)
     # iter 394：配额判定是「先查后写」——计数与插入之间若无互斥，25 个并发创建请求
     # 可同时通过「<20 上限」检查并写入 25 行（每类上限 20 被并发绕过）。
     # 单进程部署下进程内互斥即可（app/core/quota.py，分段锁，无界增长避免）。
@@ -182,11 +205,14 @@ def create_credential(
 def update_credential(
     credential_id: int,
     body: CredentialUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
+    if body.api_key is not None:  # 改写 PAT 值 = 换一把攻击者已知的钥匙
+        _guard_pat_write(db, request, p.kind)
     if body.name is not None and body.name != p.name:
         _check_dup_name(db, user, p.kind, body.name)
         p.name = body.name
@@ -227,10 +253,15 @@ def _activate(db: Session, user: User, p: models.CredentialProfile) -> None:
 
 @router.post("/{credential_id}/activate")
 def activate_credential(
-    credential_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    credential_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
     _check_write_rate(user)
     p = _owned_or_404(db, credential_id, user)
+    # iter 397：启用 PAT = 把「已埋下的令牌」变成可用凭据——同样限回环
+    _guard_pat_write(db, request, p.kind)
     _activate(db, user, p)
     db.commit()
     return _out(p)

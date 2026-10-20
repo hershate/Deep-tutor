@@ -19,12 +19,12 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_db, require_admin, require_local_in_open_mode
 from app.core.ratelimit import limiter
 from app.api.errors import ApiError
 from app.api.plans import cancel_running_generation
@@ -72,10 +72,21 @@ def list_users(db: Session = Depends(get_db), _admin: User = Depends(require_adm
     return {"users": [_user_out(u) for u in rows]}
 
 
+_OPEN_MODE_LOCAL_ONLY = "开放模式下用户管理仅允许本机（回环地址）访问"
+
+
 @router.post("", status_code=201)
 def create_user(
-    body: UserCreate, db: Session = Depends(get_db), _admin: User = Depends(require_admin)
+    body: UserCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> dict:
+    # iter 397（E1）：开放模式（零配置免认证）下，本端点可**造出带口令的账号**——
+    # 远程未认证客户端建管理员 -> 登录取得管理员 JWT -> 远程接管；且该凭据在
+    # 管理员随后设密（关闭开放模式）后依然有效（持久化后门）。故开放模式下的
+    # 用户管理写操作一律限回环客户端（与 POST /setup 同口径，iter 394）。
+    require_local_in_open_mode(db, request, _OPEN_MODE_LOCAL_ONLY)
     if not limiter.check(f"users_write:{_admin.id}", 20):
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     username = body.username.strip()
@@ -105,9 +116,12 @@ def create_user(
 def update_user(
     user_id: int,
     body: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict:
+    # iter 397（E1）：开放模式下重置他人口令 = 远程接管（可把自己改成管理员再改密）。
+    require_local_in_open_mode(db, request, _OPEN_MODE_LOCAL_ONLY)
     if not limiter.check(f"users_write:{admin.id}", 20):
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     u = db.get(User, user_id)
@@ -139,8 +153,13 @@ def update_user(
 
 @router.delete("/{user_id}")
 def delete_user(
-    user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ) -> dict:
+    # iter 397（E1）：开放模式下删号 = 远程破坏（可删掉真实管理员账号）。
+    require_local_in_open_mode(db, request, _OPEN_MODE_LOCAL_ONLY)
     if not limiter.check(f"users_write:{admin.id}", 20):
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     u = db.get(User, user_id)

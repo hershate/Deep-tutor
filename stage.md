@@ -79,7 +79,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **启动期缺「开放本机模式」告警**（暴露面，运维侧唯一信号缺失）：开放模式（无 AUTH_TOKEN / 无人设口令 / 无 active PAT）下后端**完全免认证**——任何能连到本端口的客户端都拥有全部数据的读写权（含用户管理与数据导出）。此前该状态**只有前端横幅**（`Layout.tsx` 的 open_mode 横幅）提示，无浏览器的服务端部署看不到任何信号；启动期只对**弱** AUTH_TOKEN / 弱 JWT_SECRET 告警，**比弱 token 更严重的「完全没有认证」反而静默**。现新增 `app.core.security.open_mode_notice(db)`（可测助手）+ 启动期（`init_db` 之后）记 WARNING。回归 4 条（`tests/test_iter397_open_mode_notice.py`）。
     - 附注：测试环境 conftest 固定设 `AUTH_TOKEN=test-token`（否则全用例 401），故**测试环境根本进不了开放模式**——这正是该告警长期未被发现的原因。
 
-- **下一步**：① 复核并落地 4 个子 agent 的审计发现（逐条读原文验证，只修坐实项）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
+- **iter 397-B1（开放模式信任面回环守卫，✅ 完成）**：4 个 explore 子 agent 报告已收 3 份（kb/materials 16 条、exports/users/auth 13 条、app/agent 19 条；app/tools 面报告在途）。主会话**逐条读原文复核**后确认 **E1 为最高危**并已修复。
+  - **E1（已坐实，high）：开放模式（零配置免认证）下 `/api/users` 写端点无回环限制 = 远程管理员接管**。`require_admin` → `get_current_user` → `resolve_user` → `get_or_create_open_admin` 在开放模式下对**任何**客户端放行，而 `POST /api/users` 直接把 `is_admin` 取自请求体：远程未认证请求 `POST /api/users {"username":"pwn","password":"…","is_admin":true}` -> **201**，随即可用该账号登录取得管理员 JWT。iter 394 虽已为 `POST /setup` 加回环限制并称其为「开放模式下**唯一**的认领管理员入口」，但该前提被本条证伪（`note/06` 同一表述需同步修正）。`PUT /api/users/{id}`（重置他人口令）与 `DELETE /api/users/{id}`（删号）同理暴露。
+    - **实证**：新增 `tests/test_iter397_open_mode_admin_takeover.py`（16 条，含「修复前必红」验证）——修复前远程 `POST /api/users` 实测返回 **201 + 完整用户体**。
+    - **修法**：① 回环判定从 `api/setup.py` 上提到 `api/deps.py::is_loopback_client`（共用，避免两处实现漂移），`setup.py` 保留薄封装；② 新增 `deps.require_local_in_open_mode(db, request, message)` 统一守卫（判定置于 `resolve_user` 之前，避免远程调用触发「懒创建 admin」的写副作用）；③ `api/users.py` 三个写端点接入。
+  - **同族升级路径一并封堵（E1 的持久后门变体）**：仅堵 `POST /api/users` 不足——**能在开放模式关闭后依然认证的凭据**都能留后门：
+    - **PAT（`kind=auth_token`）**：`POST /api/credentials` / `PUT /api/credentials/{id}`（改写值）/ `POST /api/credentials/{id}/activate` -> 开放模式下限回环。改密路径（`users.update_user` / `POST /setup`）虽会吊销 active PAT，但「.env 配 AUTH_TOKEN」的收敛路径**不吊销**（`ensure_admin_user` 只改密码与 `tokens_valid_after`）-> 后门更长命。
+    - **供应商档案 `base_url`**：`POST /api/providers` / `PUT /api/providers/{id}` / `POST /api/providers/{id}/activate` -> 开放模式下限回环。`base_url` 是**服务端出站目标**：一旦被改指向攻击者地址，此后本实例所有 LLM 请求（提问 + 注入的文档全文）都发往该地址，**且在运营方随后配 AUTH_TOKEN 关闭开放模式后依然生效**（持久数据外泄通道）。SSRF 策略只拦内网/环回目标，攻击者公网地址照过。
+    - **未过度收紧**：`anthropic`/`bing` 类供应商 Key 不建立对本实例的认证能力 -> 不受限；`DELETE`/`deactivate` 属破坏而非「建立信任」，开放模式本就可远程删数据 -> 不额外收紧。
+    - 口径统一为：**开放模式下「信任面建立」（认证凭据 + 出站目标）一律限回环**，与 iter 394「`POST /setup` 仅回环」一致；回环（本机）调用全程不受影响。
+
+- **下一步**：① 继续复核并落地其余子 agent 发现（kb/materials 的 K2/K3/K4/K7/K10/K12/K13/K14/K15/K16、exports/users/auth 的 E2~E13、app/agent 的 A1~A19）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
 
 **iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，✅ 完成）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
 

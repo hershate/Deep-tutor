@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
+from app.api.deps import (
+    check_daily_budget,
+    get_current_user,
+    get_db,
+    require_auth,
+    require_local_in_open_mode,
+)
 from app.api.errors import ApiError
 from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
@@ -137,6 +143,22 @@ def _check_provider_write(user: User) -> None:
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
 
 
+def _guard_provider_write(db: Session, request: Request | None) -> None:
+    """开放模式（零配置免认证）下供应商档案写入限回环（iter 397）。
+
+    供应商档案的 base_url 是**服务端出站目标**：一旦被改指向攻击者地址，此后
+    本实例所有 LLM 请求（用户提问 + 注入的文档全文）都发往该地址——即便运营方
+    随后配了 AUTH_TOKEN/ADMIN_PASSWORD 关闭开放模式，这条改道**依然生效**
+    （持久数据外泄通道）。SSRF 策略只拦内网/环回目标，攻击者的公网地址照过。
+
+    与 iter 394「开放模式下 POST /setup 仅回环」同口径：开放模式是本机零配置
+    模式，信任面（认证凭据 + 出站目标）的建立动作一律限回环客户端。
+    """
+    require_local_in_open_mode(
+        db, request, "开放模式下 LLM 供应商档案仅允许本机（回环地址）配置"
+    )
+
+
 @router.get("")
 def list_providers(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     rows = (
@@ -172,9 +194,13 @@ def list_provider_kinds() -> dict:
 
 @router.post("", status_code=201)
 def create_provider(
-    body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    body: ProviderIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
     _check_provider_write(user)
+    _guard_provider_write(db, request)
     # iter 394：配额判定是「先查后写」——并发创建可同时通过「<50 上限」检查，
     # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥）。
     with quota_slot(f"provider:{user.id}"):
@@ -217,10 +243,12 @@ def create_provider(
 def update_provider(
     profile_id: int,
     body: ProviderUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     _check_provider_write(user)
+    _guard_provider_write(db, request)
     p = _owned_or_404(db, profile_id, user)
     if body.name is not None and body.name != p.name:
         dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
@@ -258,10 +286,14 @@ def delete_provider(
 
 @router.post("/{profile_id}/activate")
 def activate_provider(
-    profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    profile_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """启用档案（同一用户内同时至多一个 active；启用后 get_provider(user_id) 走该档案）。"""
     _check_provider_write(user)
+    _guard_provider_write(db, request)
     p = _owned_or_404(db, profile_id, user)
     for other in db.query(models.LlmProviderProfile).filter_by(user_id=user.id, is_active=True).all():
         other.is_active = False

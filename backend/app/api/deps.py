@@ -34,6 +34,53 @@ def _client_host(request: Request | None) -> str:
     return request.client.host if request is not None and request.client else "unknown"
 
 
+def is_loopback_client(request: Request | None) -> bool:
+    """客户端是否为回环地址（127.0.0.0/8 / ::1 / ::ffff:127.x）。
+
+    只看**直连对端**（request.client.host），不信任 X-Forwarded-For——该头可被
+    客户端伪造，用它判定会把「可伪造的头」变成绕过回环限制的通路。
+    经反向代理部署时直连对端是代理地址（非回环）-> 开放模式下的受限端点
+    不可达（须在 .env 配 ADMIN_PASSWORD / AUTH_TOKEN 后走认证路径）。
+
+    iter 397：自 setup.py 上提至此共用——此前该判定只存在于 setup.py，
+    而 /api/users 的写端点（同样能在开放模式下造出带口令的管理员账号）
+    缺同款守卫，构成「远程管理员接管」缺口（E1）。
+    """
+    if request is None or request.client is None:
+        return False
+    host = (request.client.host or "").strip().lower()
+    if not host:
+        return False
+    if host in {"localhost", "::1", "0:0:0:0:0:0:0:1"}:
+        return True
+    if host.startswith("::ffff:"):  # IPv4-mapped IPv6
+        host = host[len("::ffff:") :]
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def require_local_in_open_mode(
+    db: Session, request: Request | None, message: str
+) -> None:
+    """开放模式（零配置免认证）下的写端点守卫：非回环客户端 -> 403。
+
+    开放模式按定义「无人设过口令」，任何能连到端口的客户端都拥有全部读写权。
+    少数端点会**新建凭据**（用户管理建带口令的账号、setup 首次设密），这类端点
+    必须额外限制为回环客户端——否则「零配置 + 端口可达」= 远程接管（iter 397 E1）。
+
+    判定置于 resolve_user 之前：避免远程未认证调用触发「懒创建 admin」的写副作用。
+    """
+    from app.api.errors import ApiError
+    from app.core.security import passwordless_open
+
+    if passwordless_open(db) and not is_loopback_client(request):
+        raise ApiError("forbidden", message, status=403)
+
+
 def _gate_auth_failure(request: Request | None) -> None:
     """认证失败统一出口：per-IP 失败限流 + 日志（ip + 路径，不含 token 原文）。"""
     from app.core.ratelimit import limiter

@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, resolve_user
+from app.api.deps import get_db, is_loopback_client, resolve_user
 from app.api.errors import ApiError
 from app.api.providers import _validate_base_url
 from app.core.ratelimit import limiter
@@ -53,26 +53,11 @@ _SETUP_WRITE_PER_MIN = 10
 def _is_loopback_client(request: Request | None) -> bool:
     """客户端是否为回环地址（127.0.0.0/8 / ::1 / ::ffff:127.x）。
 
-    只看**直连对端**（request.client.host），不信任 X-Forwarded-For——该头可被
-    客户端伪造，用它判定会把「可伪造的头」变成绕过回环限制的通路。
-    经反向代理部署时直连对端是代理地址（非回环）-> 开放模式下 setup 端点
-    不可达（须在 .env 配 ADMIN_PASSWORD / AUTH_TOKEN 后走认证路径）。
+    iter 397：判定实现上提到 app/api/deps.py 共用（本处保留薄封装以兼容既有引用）——
+    此前只有 setup 端点有回环守卫，而 users.py 的写端点（同样能在开放模式下造出
+    带口令的管理员账号）缺同款守卫，构成远程管理员接管缺口。
     """
-    if request is None or request.client is None:
-        return False
-    host = (request.client.host or "").strip().lower()
-    if not host:
-        return False
-    if host in {"localhost", "::1", "0:0:0:0:0:0:0:1"}:
-        return True
-    if host.startswith("::ffff:"):  # IPv4-mapped IPv6
-        host = host[len("::ffff:") :]
-    try:
-        import ipaddress
-
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    return is_loopback_client(request)
 
 
 def _setup_caller(
