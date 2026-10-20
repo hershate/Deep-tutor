@@ -154,6 +154,17 @@ flowchart TD
 
 **iter 395：作答记录保留策略（用户已决）**——`quiz_attempts` 是全库增速最快的表（每次提交一行、此前永不清理）。运维每日轮按 `settings.quiz_attempt_keep_per_quiz`（默认 **10**）**每题**保留最新 N 条（分批删除，避免长时间持写锁把并发写打成 503）。**最新一条始终保留** -> 错题本判定（每题最新作答 `correct IS False`）逐字不变；受影响的只有「总作答次数 / 正确率」统计（`GET /plans/{id}/quiz/stats`）与备份体积。`0` = 保留全部历史。
 
+**iter 396：未审面续审（sessions / notes / memory / backup）后的七处加固**——
+- **核心事件载荷直归属**：`plan_created` / `materials_completed` 此前仅带 `session_id`，SSE 端每事件 × 每订阅者查库解析 `session.user_id`，且解析依赖会话行存活（会话已删 -> 事件按 safe-by-default 丢弃，正主收不到通知）。现直传 `user_id`（后端插件 API 1.22.0 / 前端 1.19.0，载荷只增键），归属判定零查库。
+- **笔记导入路径**（`POST /api/notes/import`）：① 配额竞态闭合——此前在函数开头数一次 `existing` 即判定 500 条上限、不持 `quota_slot`、不在提交前复查，两个并发 import（或 import 与并发 create_note）各看到同一 `existing` -> 实际落库可达 ~2 倍上限；现「计数 + 批量插入 + 提交」同在 `quota_slot("note:{uid}")` 内（与 create_note 同键）。② zip 解压内存放大封死——`zf.read(name)` 走 `ZipExtFile._read1(MAX_N=1<<31)`，zlib 把整个 deflate 成员一次性展开且**与中央目录声明的 `file_size` 无关**（声明值可谎报，原「声明值 > 100KB 即跳过」检查可被绕过）；实测 97KB 请求体 -> 峰值分配 **204.8MiB**（探针 `dt_probe_zip_amp2.py`），改 `zf.open()` + 64KiB 分块读后峰值 **0.3MiB**，并按**实际解压字节**判单条上限、累计超总预算即停（不再遍历解压后续条目）。③ 整段解析移入 `asyncio.to_thread`（此前在 async 端点内同步解压，大条目卡住全站请求与 SSE 心跳）。
+- **删 thread 与在途 chat run 的写并发**（`DELETE /api/threads/{id}`）：此前只 cancel 不等收敛就删行，而 agent 落库写（`_persist_message` / `_persist_run_step`，走 `asyncio.to_thread` **不可中断**）可能落在「子行已删、thread 行未删」之间 -> 删 thread 行触发 `FOREIGN KEY constraint failed` -> **500 且 thread 未删**；落在 thread 行删除之后 -> 写入自身 FK 失败。现先 cancel 再等在途 run 收敛（`_wait_runs_settled`，同 sessions.py 范式），并对删除做**有界重试**（回滚 + 重载 ORM 对象），仍失败返回 409。
+- **chat run 异常不再外泄内部细节**：SSE 的 `error` 事件此前直接回显 `str(exc)`（IntegrityError 文本含表名/列名/SQL 片段），现为固定文案 + 细节进服务端日志（与 `api/errors.py`「不回显敏感信息」口径一致）。
+- **提升为笔记复用 notes 的上限与配额**：`POST /api/runs/{id}/approve` 直接建 Note（标题未截 256、正文未截 20000、不检查 500 条配额），现复用 `/notes` 的规范化常量与 `quota_slot("note:{uid}")`，超限 429。
+- **会话列表去 N+1**：`GET /api/threads` 逐条 2 次查询（limit=100 即 201 次），改两次批量查询（各 thread 的 `max(message.id)` 与 running run 集合）后 Python 侧拼装。
+- **备份还原路径**：① `provider_profiles.base_url` 补**写时 SSRF 校验**（与 `api/providers.py` 同口径，`check_outbound_url` 解析 DNS 后判私网；此前导入完全不校验，可写入 `file://` 或指向私网/云元数据的地址，调用期仅做字面量判定不解析 DNS）；② 还原侧 thread 上限 **200 -> 500**（与在线 API 对齐——200~500 个 thread 的用户「导出→导入」往返原本静默丢会话）；③ 方案版本号按会话内顺序**去重**（备份可能含重复 `version`，schema 无 `(session_id, version)` 唯一约束 -> 同会话重号版本）；④ 行数预算 `_count_payload_rows` 计入知识点笔记（每个带 `note` 的节点额外插一行 `NodeNote`，此前 10 万节点全带笔记时实际插入 20 万行，超预算一倍）。
+- **会话删除端点不再独占工作线程**：`DELETE /api/sessions/{id}` 此前是同步端点，等在途生成收敛（最多 15s）期间独占一个 anyio 工作线程，并发删除可占满线程池（默认 40 槽）使全站同步端点（含登录）排队。现为 async 三段式：准备（写线程）-> 异步等待（`wait_generation_settled_async`，**不占线程**）-> 删除（写线程）+ 文件清理（线程池）；文件清理失败此前被 `except: pass` 静默吞掉，现记 warning。
+- **备份覆盖面披露**（B8）：后端早已计算「未纳入备份的表」（审计流水 / 用量台账 / 分享链接 / 凭证档案等）与「因体积上限跳过的 kb 原件数」并随 export/preview/import 回传，UI 一律不显示 -> 「导出全部学习数据」的表述与实现不符。现新增 `GET /api/backup/coverage`（同一事实源），设置页折叠展示未备份清单。
+
 ## 5. 典型请求生命周期（以 POST /api/plans/generate 为例）
 
 ```mermaid

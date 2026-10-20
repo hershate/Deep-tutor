@@ -185,6 +185,7 @@ try/finally 双保险：
 `GET /api/events/stream`（SSE）把插件事件总线转发给认证客户端（前端 EventsBridge / 外部替代前端）：
 
 - **用户隔离**（safe-by-default）：`resolve_owner`——payload 带 user_id 直归属（iter 395：`type(uid) is int`，bool 不算 int，否则 `user_id=True` 会被判给 user 1）；带 session_id 经 DB 即时解析归属（iter 381 移除 TTL 缓存，关死跨用户错发窗口）；`format_frame`——归属非本用户时丢弃、不可归属的非全局事件丢弃、仅 `GLOBAL_EVENTS = {startup, shutdown}` 广播全员；事件名剥换行（防伪 data 行注入）；payload 不可 JSON 序列化时降级 `default=str`（iter 395：此前直接抛 TypeError 让整条流崩断）；
+- **核心事件全部直归属**（iter 396）：`plan_created` / `materials_completed` 此前**仅带 `session_id`**，归属判定须经 DB 解析 `session.user_id`（每事件 × 每订阅者一次主键读），且解析**依赖会话行存活**——会话已删或 rowid 被复用时解析不出归属，事件按 safe-by-default 丢弃，正主收不到自己的「方案/材料已就绪」通知。现两事件直传 `user_id`（后端插件 API 1.22.0，载荷只增键）：归属判定零查库、不依赖会话行存活；插件自定义事件仅带 `session_id` 的回落路径不变；
 - 有界队列 100 + 15s `: ping` 心跳；sink 经 `call_soon_threadsafe` 跨线程入队；
 - **连接数上限**（iter 395）：单用户 16 条 / 全局 256 条，超限 429——此前无上限，每条连接持 100 槽队列 + 一个 bus sink，且每次 emit 遍历全部 sink（O(连接数)）；
 - **清理兜底**（iter 395）：槽位与 sink 的释放挂在 `StreamingResponse` 的 `BackgroundTask`（Starlette 在响应结束后必跑，含客户端提前断开路径）+ 生成器 finally，幂等——客户端在响应体开始前断开时 body_iterator 从未被迭代，未启动的 async generator 的 finally 不会执行，只挂 finally 会永久泄漏；
