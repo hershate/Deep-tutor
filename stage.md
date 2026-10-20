@@ -38,6 +38,22 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R44（2026-10-20，语义清单核验轮，✅ 完成）**：承接 iter R43——R43 统一了数字口径，本轮把核验从「数字与行号」推进到**清单实体本身**（表名 / 端点 / 命名空间 / 工具 / 版本），逐项与代码或实跑导出比对，修正 2 处结构表述。
+
+- **端点清单**：note/06 §3 的 26 个模块计数与实跑 OpenAPI 逐前缀比对**全部一致**（`plans` 15+3、`memory` 3+13+7=23、`kb` 16、`progress` 11 等），合计 **145 operations / 119 paths**；`api/__init__.py:10-36` 注册区间与 `api_router = APIRouter(prefix="/api")`（第 10 行）一致。
+
+- **插件门面**：note/07 的 15 个命名空间 + `api.threads` 别名与 `api.py:1354-1369` 装配块逐项一致（`self.threads = self.memory` 在 `api.py:1369`）；各命名空间引入版本与 `API.md` §十 版本历史逐项一致（tools 1.7/1.8/1.13、llm 1.5/1.6/1.14、mcp 1.9/1.12、webhooks 1.15/1.16、middleware 1.17、memory 1.19 等）；`api.py:59` 的 `API_VERSION = "1.20.0"` 与后端插件 API 版本一致。
+
+- **工具面**：note/03 的 PIPELINE 8 工具与 `orchestrator.py:32-41` 一致，注册 9 个（`tools/__init__.py:28-36`，含不在 PIPELINE 的 `verify_url`）一致，`AGENT_TOOL_SCHEMAS` 12 个工具与 `agent_tools.py:493-545` 一致；note/09 的 9 个工具模块行数（650 / 180 / 169 / 80 / 856 / 363 / 131 / 81 / 182）逐项命中。
+
+- **数据面**：note/02 的 29 张 ORM 表名与 `Base.metadata.tables` 实测逐一命中（缺失 0）；note/05 的 LLM 与计量模块行数（177 / 161 / 428 / 175 / 178 / 44 / 150 / 335 / 95）逐项命中，`__init__.py:126-149` 的协议分发区间与代码一致。
+
+- **本轮修正**：note/09 §1 标题「流水线 8 工具」→ **「流水线 8 工具 + verify_url」**（该节实含 9 个小节，`verify_url` 独立注册且不在 PIPELINE）；note/06 的 `APIRouter` 实例数补注「**不含根 `api_router`**」（实测 27 处 `APIRouter(`，扣除 `api/__init__.py:10` 后为 26）。
+
+- **门禁**：本轮零代码变更；全仓死链与行号引用越界复扫均为 0。
+
+- **下一步**：同 iter R42——M1 剩余项（多实例 spike → 模块重命名 → 品牌化与 `DEEPTUTOR.md` → 门禁基线重建与 CI → `bin/deep-tutor.exe` 冒烟）。
+
 **iter R43（2026-10-20，文档数字口径统一轮，✅ 完成）**：承接 iter R42 的复核——按实际代码逐项验证 R42 写入的数字，发现并修正**行数口径混用**：笔记头部声明「非空行」（`Get-Content | Measure-Object -Line`），而逐文件行数用的是总行数（`ReadAllLines`，等价 `wc -l`），同一份文档内两种口径并存。已统一为**总行数**口径（与文中行号引用同口径），并按该口径重算全部聚合数字。
 
 - **口径统一**：note/00–11 统一声明「行数为总行数（`[System.IO.File]::ReadAllLines` 逐文件累加，等价 `wc -l`）」；note/00/01/02/03/04/05/06/07/09/10/11 逐份补口径行。
