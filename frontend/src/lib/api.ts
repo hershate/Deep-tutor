@@ -950,6 +950,18 @@ export interface BackupImportResult {
   node_notes: number
   prefs: number // iter 177：用户偏好项数
   skipped: string[]
+  /** iter 396：未纳入备份的表（后端计算并回传；此前前端从不显示 ->
+   *  「导出全部学习数据」的表述与实现不符） */
+  not_backed_up?: string[]
+}
+
+/** iter 396：备份覆盖面（未纳入备份的表 + 导出内联原件字节预算） */
+export interface BackupCoverage {
+  not_backed_up: string[]
+  export_inline_bytes_limit: number
+}
+export async function getBackupCoverage(): Promise<BackupCoverage> {
+  return apiFetch<BackupCoverage>('/backup/coverage')
 }
 
 /** 非 JSON 响应的错误解析（与 apiFetch 同一约定）。 */
@@ -1088,6 +1100,8 @@ export interface BackupPreview {
   study_units: number
   provider_profiles: number
   prefs: number // iter 177：用户偏好项数
+  /** iter 396：未纳入备份的表（后端事实源，前端据此提示实际边界） */
+  not_backed_up?: string[]
 }
 export async function previewBackup(file: File): Promise<BackupPreview> {
   const fd = new FormData()

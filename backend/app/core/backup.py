@@ -95,6 +95,21 @@ _NOT_BACKED_UP = [
     "credential_profiles",  # 凭证档案（密钥边界：绝不导出）
 ]
 
+def not_backed_up() -> list[str]:
+    """未纳入备份的表清单（公开只读入口）。
+
+    iter 396：此前该清单只在 export/preview/import 的响应体里回传，前端一律
+    不显示 -> 「导出全部学习数据」的表述与实现不符。现由 UI 经
+    ``GET /api/backup/coverage`` 取同一事实源，避免前端硬编码副本漂移。
+    """
+    return list(_NOT_BACKED_UP)
+
+
+def export_inline_bytes_limit() -> int:
+    """导出内联原件（知识库原件）的字节预算（公开只读入口）。"""
+    return _MAX_EXPORT_BYTES
+
+
 # ---------------------------------------------------------------------------
 # 导入配额（模块级常量）
 # ---------------------------------------------------------------------------

@@ -200,6 +200,28 @@ def test_restore_plan_version_preserved_for_normal_backup(client):
 
 
 # ---------------------------------------------------------------------------
+# 5. 覆盖面披露端点
+# ---------------------------------------------------------------------------
+
+
+def test_backup_coverage_endpoint_lists_not_backed_up(client, auth_headers):
+    """GET /backup/coverage 返回未纳入备份的表（前端据此提示实际边界）。"""
+    from app.core import backup as backup_core
+
+    r = client.get("/api/backup/coverage", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["not_backed_up"] == backup_core.not_backed_up()
+    assert "share_links" in body["not_backed_up"]
+    assert "credential_profiles" in body["not_backed_up"]
+    assert body["export_inline_bytes_limit"] > 0
+
+
+def test_backup_coverage_requires_auth(client):
+    assert client.get("/api/backup/coverage").status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # 4. 行数预算计入知识点笔记
 # ---------------------------------------------------------------------------
 

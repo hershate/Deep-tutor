@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import ProviderManager from '../components/ProviderManager'
@@ -7,7 +7,7 @@ import CredentialManager from '../components/CredentialManager'
 import UserManager from '../components/UserManager'
 import { SkeletonLines } from '../components/Skeleton'
 import { toast } from '../components/Toast'
-import { ApiError, downloadBackup, getSettings, importBackup, listShares, postSetup, previewBackup, revokeShare, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview, type ShareItem } from '../lib/api'
+import { ApiError, downloadBackup, getBackupCoverage, getSettings, importBackup, listShares, postSetup, previewBackup, revokeShare, updatePrefs, type AppSettings, type BackupImportResult, type BackupPreview, type ShareItem } from '../lib/api'
 import { setAuth } from '../lib/auth'
 import { SETUP_QUERY_KEY, useSetupStatus } from '../lib/setup'
 
@@ -504,6 +504,22 @@ function BackupCard() {
   const [pending, setPending] = useState<{ file: File; preview: BackupPreview } | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [lastBackup, setLastBackup] = useState<string | null>(readLastBackup)
+  // iter 396：备份覆盖面（未纳入备份的表）——后端事实源，避免前端硬编码漂移
+  const [coverage, setCoverage] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void getBackupCoverage()
+      .then((c) => {
+        if (alive) setCoverage(c.not_backed_up)
+      })
+      .catch(() => {
+        /* 覆盖面提示缺失不阻断备份功能 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   async function doExport() {
     if (exporting) return
@@ -561,10 +577,20 @@ function BackupCard() {
     <section className="rounded-xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">数据备份</h3>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        导出全部学习数据（会话/方案/知识节点/进度/打卡/自学材料）为 JSON 文件，可用于迁移或存档；
-        导入为<strong>追加还原</strong>（不覆盖现有数据，重复导入会产生副本）。
+        导出学习数据本体（会话/方案/知识节点/进度/打卡/自学材料/笔记/供应商档案/偏好）为 JSON 文件，
+        可用于迁移或存档；导入为<strong>追加还原</strong>（不覆盖现有数据，重复导入会产生副本）。
         API Key 等凭证不随备份导出，导入后请在上方供应商档案中补填并激活。
       </p>
+      {/* iter 396：覆盖面披露——「导出全部学习数据」的实际边界（后端事实源） */}
+      {coverage && coverage.length > 0 && (
+        <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <summary className="cursor-pointer select-none">
+            不在备份范围内的数据（{coverage.length} 类：审计流水、用量台账、分享链接、凭证档案等）
+          </summary>
+          <p className="mt-1 leading-relaxed">{coverage.join('、')}</p>
+          <p className="mt-1">其中分享链接撤销后不可复原，凭证档案属密钥边界绝不导出。</p>
+        </details>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           type="button"

@@ -50,6 +50,21 @@ def _check_rate(user: User, bucket: str, limit: int) -> None:
         raise ApiError("rate_limited", "备份操作过于频繁，请稍后再试", status=429)
 
 
+@router.get("/coverage")
+def backup_coverage() -> dict:
+    """备份覆盖面披露（iter 396）。
+
+    返回未纳入备份的表清单 + 导出内联原件的字节预算。设置页据此显式提示
+    「导出全部学习数据」的实际边界——此前后端已把该清单随 export/preview/import
+    计算并回传，UI 一律不显示，用户无从知道审计流水、用量台账、分享链接等并未
+    备份（分享链接撤销后不可复原，凭证档案属密钥边界绝不导出）。
+    """
+    return {
+        "not_backed_up": backup_core.not_backed_up(),
+        "export_inline_bytes_limit": backup_core.export_inline_bytes_limit(),
+    }
+
+
 @router.get("/export")
 def export_backup(
     db: Session = Depends(get_db),
