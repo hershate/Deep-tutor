@@ -304,14 +304,76 @@ def prune_api_usage() -> int:
         db.close()
 
 
+def prune_quiz_attempts(batch: int = 2000) -> int:
+    """作答记录保留裁剪（iter 395）：**每题**保留最新 N 条（N=settings.quiz_attempt_keep_per_quiz）。
+
+    quiz_attempts 是全库增速最快的表（每次提交一行，原先永不清理）——长期运行
+    无限增长，并连带拖慢错题本/复习页/统计的窗口函数查询（实测 5 万条作答时
+    wrong-queue 约 93ms、stats 约 120ms，随历史线性劣化）。
+
+    口径：按 (created_at desc, id desc) 取每题最新 N 条，其余删除。**最新一条始终
+    保留**（N>=1）-> 错题本判定（每题最新作答 correct IS False）逐字不变；受影响的
+    只有「总作答次数 / 正确率」统计（GET /plans/{id}/quiz/stats）与备份体积。
+
+    分批删除（每批一个事务）——单条大 DELETE 会长时间持 SQLite 写锁，把并发写
+    请求全打成 503。0 = 禁用（保留全部历史）。
+    """
+    from app.core.settings import settings
+
+    keep = int(settings.quiz_attempt_keep_per_quiz)
+    if keep <= 0:
+        return 0
+    from sqlalchemy import text
+
+    from app.db.base import SessionLocal
+    from app.db.models import QuizAttempt
+
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                "SELECT id FROM ("
+                "  SELECT id, ROW_NUMBER() OVER ("
+                "    PARTITION BY quiz_id ORDER BY created_at DESC, id DESC"
+                "  ) AS rn FROM quiz_attempts"
+                ") WHERE rn > :keep"
+            ),
+            {"keep": keep},
+        ).all()
+        ids = [int(r[0]) for r in rows]
+        if not ids:
+            return 0
+        removed = 0
+        for i in range(0, len(ids), max(1, batch)):
+            chunk = ids[i : i + max(1, batch)]
+            db.query(QuizAttempt).filter(QuizAttempt.id.in_(chunk)).delete(
+                synchronize_session=False
+            )
+            db.commit()
+            removed += len(chunk)
+        log.info("作答记录保留裁剪：删除 %d 行（每题保留最新 %d 条）", removed, keep)
+        return removed
+    except Exception:  # noqa: BLE001 - 裁剪失败不拖垮运维轮
+        db.rollback()
+        log.warning("作答记录保留裁剪失败（下轮重试）", exc_info=True)
+        return 0
+    finally:
+        db.close()
+
+
 def run_maintenance() -> dict:
-    """执行一轮运维（checkpoint + 清孤儿 + 用量裁剪 + 门控 VACUUM），返回统计。"""
+    """执行一轮运维（checkpoint + 清孤儿 + 用量裁剪 + 作答裁剪 + 门控 VACUUM），返回统计。"""
     removed = cleanup_orphan_session_dirs()
     removed += cleanup_orphan_run_dirs()
     pruned = prune_api_usage()
+    pruned_attempts = prune_quiz_attempts()
     checkpoint_db()
     vacuum_db()
-    return {"orphan_dirs_removed": removed, "api_usage_pruned": pruned}
+    return {
+        "orphan_dirs_removed": removed,
+        "api_usage_pruned": pruned,
+        "quiz_attempts_pruned": pruned_attempts,
+    }
 
 
 async def maintenance_loop(stop_event) -> None:

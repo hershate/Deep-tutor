@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -158,7 +158,7 @@ def wrong_overview(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 @router.get("/wrong-queue")
 def wrong_queue(
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
@@ -193,7 +193,7 @@ def wrong_queue(
     if not wrong_ids:
         return {"items": [], "total": 0}
     total = len(wrong_ids)
-    capped = wrong_ids[: max(1, min(limit, 200))]
+    capped = wrong_ids[:limit]
     quizzes = db.query(models.Quiz).filter(models.Quiz.id.in_(capped)).all()
     order = {qid: latest[qid][0] for qid in capped}  # 最近判错在前
     quizzes.sort(key=lambda q: order.get(q.id, 0), reverse=True)

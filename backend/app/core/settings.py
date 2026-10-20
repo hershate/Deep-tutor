@@ -137,6 +137,14 @@ class Settings(BaseSettings):
     # iter 370（R6 裁决缺省项 F4）：api_usage 保留天数（每 LLM 调用一行，长期运行
     # 无限增长）；maintenance 每日轮删超期行。0 = 不裁剪（保留全部历史）。
     api_usage_retention_days: int = Field(default=180, ge=0, description="api_usage 保留天数（0=不裁剪）")
+    # iter 395：作答记录（quiz_attempts）保留条数（**每题**保留最新 N 条）——
+    # 该表每次提交写一行、永不清理，是全库增速最快的表。0 = 不裁剪（保留全部）。
+    # 口径：保留每题按 (created_at desc, id desc) 的最新 N 条 -> 错题本判定
+    # （每题最新作答 correct IS False）逐字不变；「总作答次数/正确率」统计
+    # （GET /plans/{id}/quiz/stats）只覆盖保留窗口内的记录。
+    quiz_attempt_keep_per_quiz: int = Field(
+        default=10, ge=0, description="每题保留的作答条数（0=不裁剪）"
+    )
 
     # --- 定期运维节奏（iter 372 R14：默认恒为每日/24h，无需配置；开放为旋钮供
     # 运维调节与实进程验证加速驱动（tests/soak_maintenance.py））---
