@@ -572,7 +572,7 @@ def test_plugin_llm_slot_times_out_with_busy_error(monkeypatch):
     from app.core.concurrency import PluginLLMBusy, plugin_llm_task_slot
     from app.core.settings import settings
 
-    monkeypatch.setattr(settings, "max_concurrent_llm_calls", 1)
+    monkeypatch.setattr(settings, "max_concurrent_plugin_llm_calls", 1)
     concurrency.reset_llm_semaphore()
 
     async def scenario() -> str:

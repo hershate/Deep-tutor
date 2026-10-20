@@ -158,7 +158,7 @@ def plugin_llm_task_slot(timeout: float = _PLUGIN_LLM_WAIT_SECONDS) -> Any:
     ——消费方提前退出未 aclose 会漏槽到 GC；插件面为运维方可信代码，该路径
     维持现状并在 plugins/api.py 内注明。
     """
-    sem = _loop_sem("plugin_llm", settings.max_concurrent_llm_calls)
+    sem = _loop_sem("plugin_llm", settings.max_concurrent_plugin_llm_calls)
     if sem is None:
         return _NULL_SLOT
     return _TimedSlot(sem, timeout)

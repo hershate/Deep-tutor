@@ -99,6 +99,12 @@ class Settings(BaseSettings):
         default=16,
         description="全局并发 LLM 调用上限（provider 级信号量）：防止超额触发模型供应商速率限制与内存膨胀。0=不限",
     )
+    max_concurrent_plugin_llm_calls: int = Field(
+        default=8,
+        description="插件面 LLM 调用并发上限（独立信号量，不与全局 LLM 信号量共用）："
+        "插件经 api.llm.complete / api.tools.call 直连供应商，iter 393 起独立收口——"
+        "独立是为了避免与宿主 LLM 任务嵌套等待死锁；等待超时按 503 server_busy 降级。0=不限",
+    )
     max_plugin_event_threads: int = Field(
         default=32,
         description="插件协程事件监听器（同步上下文 emit，如 webhook 投递）的后台线程数上限；"
