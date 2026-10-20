@@ -38,6 +38,18 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 396（2026-10-21，v1 Python 后端未审面续审与事件归属收敛轮，⏳ 进行中）**：承接 iter 392~395 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 395「下一步」列出的未审面：`api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py` 的导入/还原链（explore 子 agent 审计中）；主会话同步推进已坐实的**事件归属面**修复（核心事件载荷直归属 `user_id`）。
+
+- **本轮修复（1 个 commit）**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `6e620ef` | 核心事件载荷直归属 user_id | `plan_created` / `materials_completed` 此前**仅带 `session_id`**，SSE 端须经 `resolve_owner` 查库解析 `session.user_id`（iter 381 起直查、无缓存）——成本为每事件 × 每订阅者 × 一次主键读 + 一个连接池槽位；且归属解析**依赖 `sessions` 行存活**，行已删（或 rowid 被复用）时解析不出归属 -> 事件按 safe-by-default 丢弃，正主收不到自己的「方案/材料已就绪」通知（前端 toast 与实时刷新静默失效）。现两事件直传 `user_id`（后端插件 API 1.21.0→1.22.0，载荷只增键向后兼容；前端插件 API 1.18.0→1.19.0，TS 类型补 `user_id?`）：归属判定**零查库**、不依赖会话行存活。`resolve_owner` 行为零改动，插件自定义事件仅带 `session_id` 的回落路径保留。`_owner_payload` 只写正整数（bool/None/0 一律不写，避免 `resolve_owner` 把 `user_id=True` 判给用户 1）。回归 8 条 |
+
+- **审计进度**：子 agent 审计 `api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py`（导入/还原链）——**结果待回**；主会话复核后再定修复批次。
+
+- **下一步**：① 子 agent 结果回后逐条复核 sessions/notes/memory/backup 四面（坐实才修，含实证探针）；② 跑全量回归（预期 1571+8 = 1579 passed / 1 skipped）并同步 note/06、note/08 与 AGENTS.md 规模；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
 **iter 395（2026-10-21，v1 Python 后端未审面续审与并发/暴露面加固轮，✅ 完成）**：承接 iter 392~394 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393/394「下一步」列出的未审面：`api/knowledge.py`、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`（+ `api/search.py` 复核）。
 
 - **审查方法**：一个 explore 子 agent 并行审计五模块（结构化输出：每条发现附位置/等级/证据强度，并列出「已核实干净」的点与依据行号），主会话逐条读原文复核，对关键结论写**实证探针**（并发 500、SSE 槽位泄漏、错题族查询成本），只修坐实或明确成立的问题；前端相关项由一个 worker 实施并回报，主会话复核 diff 后提交。
