@@ -119,6 +119,50 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+# iter 392：SQLite 写锁争用（database is locked / database is busy）——SQLite 单写者，
+# 写-写争用超 busy_timeout 即抛此错。此前落到通用 500（不可重试语义），前端无从
+# 提示用户稍后重试；实为瞬时资源争用，应回 503 + Retry-After。
+_DB_BUSY_MARKERS = (
+    "database is locked",
+    "database is busy",
+    "database table is locked",
+    "sqlite_busy",
+)
+
+
+def is_db_busy_error(exc: BaseException) -> bool:
+    """判定异常是否为数据库写锁争用（busy/locked）。
+
+    SQLAlchemy 将 DBAPI 异常包在 ``.orig`` 里；此处两处都查。
+    """
+    for candidate in (getattr(exc, "orig", None), exc):
+        if candidate is None:
+            continue
+        msg = str(candidate).lower()
+        if any(marker in msg for marker in _DB_BUSY_MARKERS):
+            return True
+    return False
+
+
+async def db_busy_exception_handler(request: Request, exc: Exception) -> JSONResponse:  # noqa: ARG001
+    """数据库写锁争用 -> 503 + Retry-After（可重试）；非争用错误仍走 500。"""
+    import logging
+
+    if not is_db_busy_error(exc):
+        logging.getLogger("deep_tutor").exception("未处理异常: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content=_error_body("internal_error", "内部错误"),
+        )
+    logging.getLogger("deep_tutor").warning("数据库写锁争用，返回 503：%s", exc)
+    resp = JSONResponse(
+        status_code=503,
+        content=_error_body("server_busy", "数据库繁忙（写入争用），请稍后重试"),
+    )
+    resp.headers["Retry-After"] = "1"
+    return resp
+
+
 # err.md A20：HTTP 状态 -> 通用错误码的独立映射（此前复用 CODE_STATUS 取首个匹配，
 # 任意 400 被打成 "unsupported_format" 等不相干业务码，误导前端分支处理）
 _STATUS_TO_CODE: dict[int, str] = {
