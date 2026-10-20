@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
@@ -62,39 +63,67 @@ def _node_view(node: models.KnowledgeNode, row: models.Progress | None) -> dict:
     }
 
 
-def _apply_progress_update(db: Session, row: models.Progress, body: ProgressUpdate) -> models.Progress:
+def _apply_progress_update(
+    db: Session, row: models.Progress, body: ProgressUpdate
+) -> models.Progress | None:
     """iter 367：乐观锁更新——并发提交同节点时后写者按最新值重放计算，防绝对值覆盖丢更新。
 
     旧实现读-改-写无版本控制：两个标签页同时提交同一节点（线程池真并发），
     后提交者以陈旧 mastery 计算的结果直接覆盖前一次的加权增量。
+
+    iter 394：返回 None 表示「进度行在并发窗口内被级联删除」（方案/节点被删），
+    调用方须据此放弃本次更新——此前返回已删行实例，调用方随后 db.refresh(row)
+    触发 SQLAlchemy InvalidRequestError（500）。
+
+    iter 394（二）：主键先取为普通 int（row_id）——行被并发删除后，本会话内的 ORM
+    实例已过期，再访问 row.id 会触发 ORM 刷新 -> ObjectDeletedError（500）。
+    同理，提交后的 db.refresh 也可能撞上行已删除 -> 捕获后返回 None。
     """
     fresh = row
+    row_id = row.id  # 主键快照：后续一律用它查库，不再触碰可能已过期的 ORM 实例
     for _ in range(5):
         old_mastery = fresh.mastery
+        old_status = fresh.status
         mastery = compute_mastery(old_mastery, body.status.value, body.quiz_score)
         matched = (
             db.query(models.Progress)
-            .filter(models.Progress.id == fresh.id, models.Progress.mastery == old_mastery)
+            .filter(
+                models.Progress.id == row_id,
+                models.Progress.mastery == old_mastery,
+                # iter 394：CAS 谓词补 status——此前只比 mastery，而「status 变、mastery 不变」
+                # 的更新（status ∈ {not_started, learning} 且无 quiz_score -> compute_mastery
+                # 返回 old）**不改变 mastery**，谓词因此无法察觉并发者改过 status，
+                # 属「乐观锁只锁了一半行」。补上 status 后并发 status 变更会被检出并重放。
+                models.Progress.status == old_status,
+            )
             .update({"status": body.status, "mastery": mastery}, synchronize_session=False)
         )
         db.commit()
         if matched:
-            db.refresh(fresh)
+            try:
+                db.refresh(fresh)
+            except ObjectDeletedError:
+                return None  # 行在提交后被级联删除
             return fresh
         db.rollback()  # 失配：并发者已改写，重读最新值重放
-        again = db.query(models.Progress).filter_by(id=fresh.id).one_or_none()
+        again = db.query(models.Progress).filter_by(id=row_id).one_or_none()
         if again is None:
-            return fresh  # 行被级联删除：放弃（下次请求走插入路径）
+            # iter 394：行被级联删除——返回 None 交调用方处理。此前返回已删行实例，
+            # 调用方随后 db.refresh(row) 触发 SQLAlchemy InvalidRequestError（500）。
+            return None  # 下次请求走插入路径
         fresh = again
     # 极端争用退化：无条件写保请求成功（丢更新窗口已从常态缩至连续 5 次失配后）。
     # iter 368：one() -> one_or_none——行被级联删除时 NoResultFound 会把 200 变 500
-    last = db.query(models.Progress).filter_by(id=row.id).one_or_none()
+    last = db.query(models.Progress).filter_by(id=row_id).one_or_none()
     if last is None:
-        return fresh  # 行已不存在：放弃（下次请求走插入路径）
+        return None  # iter 394：同上行已删除——不返回失效实例（见上）
     last.status = body.status
     last.mastery = compute_mastery(last.mastery, body.status.value, body.quiz_score)
     db.commit()
-    db.refresh(last)
+    try:
+        db.refresh(last)
+    except ObjectDeletedError:
+        return None  # iter 394：提交后行被级联删除
     return last
 
 
@@ -112,9 +141,14 @@ def update_progress(
         raise ApiError("rate_limited", "更新过于频繁，请稍后再试", status=429)
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
     node = (
+        # iter 394：one_or_none -> first（同 sid 重复行不再抛 MultipleResultsFound 变 500）。
+        # schema 未对 (plan_id, sid) 建唯一约束——同 sid 重复节点确实可能出现（LLM 生成的
+        # knowledge_map 出现重复 id，或节点缺 id 时 sid="" 多行；core/backup.py 的导入去重
+        # 已按「同 sid 取首条」处理）。此处取 id 最小的一条（与备份去重口径一致，结果确定）。
         db.query(models.KnowledgeNode)
         .filter_by(plan_id=body.plan_id, sid=body.node_id)
-        .one_or_none()
+        .order_by(models.KnowledgeNode.id)
+        .first()
     )
     if node is None:
         # plan/02 §9 errors：节点不存在 -> 忽略并记录 warning
@@ -127,6 +161,11 @@ def update_progress(
     )
     if row is not None:
         row = _apply_progress_update(db, row, body)
+        if row is None:
+            # iter 394：进度行在并发窗口内被级联删除——放弃本次更新（下次请求走插入
+            # 路径）。此前返回已删行实例，调用方 db.refresh(row) 抛 InvalidRequestError
+            # （500）；且此处不应再 refresh 一个不存在的行。
+            return {"updated": False, "warning": "progress_row_deleted"}
     else:
         row = models.Progress(
             plan_id=body.plan_id, node_id=node.id, status=body.status,
@@ -148,10 +187,21 @@ def update_progress(
                 # 并发行已消失：按插入重放（row 已回滚为瞬时态，可重新 add）
                 db.add(row)
                 db.commit()
-                db.refresh(row)
+                try:
+                    db.refresh(row)
+                except ObjectDeletedError:
+                    # iter 394：插入后行即被级联删除 -> 放弃本次更新
+                    return {"updated": False, "warning": "progress_row_deleted"}
             else:
                 row = _apply_progress_update(db, again, body)
-    db.refresh(row)
+                if row is None:
+                    # iter 394：同上（行在 CAS 窗口内被级联删除）
+                    return {"updated": False, "warning": "progress_row_deleted"}
+    try:
+        db.refresh(row)
+    except ObjectDeletedError:
+        # iter 394：更新提交后行被级联删除 -> 放弃本次更新（此前抛 InvalidRequestError -> 500）
+        return {"updated": False, "warning": "progress_row_deleted"}
     mastery = row.mastery
     # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应
     from app.plugins import bus as plugin_bus
