@@ -30,5 +30,4 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 .githooks/** text eol=lf
-benchmarks/**/*.sh text eol=lf
 internal/runtime/agent/testdata/perseveration/** -text

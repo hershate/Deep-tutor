@@ -16,7 +16,7 @@ env/
 .env.*.local
 
 # 运行时数据（SQLite + 上传/解析/导出等，plan/01 §五 存储策略）
-# 锚定根目录：内核 benchmarks/desktop 内含同名源码目录 data/，不得误伤
+# 锚定根目录：内核 desktop 等子目录内含同名源码目录 data/，不得误伤
 /data/
 
 # 用户自装后端插件（仓库仅收录装载约定 README 与官方示例；自己的插件不入库）
@@ -56,7 +56,6 @@ Thumbs.db
 /bin/
 /dist/
 /stage/
-/npm/.stage/
 /reasonix
 /reasonix.exe
 /e2ebench
@@ -117,8 +116,6 @@ desktop/**/.reasonix/
 
 # CodeGraph 索引（本地重建）
 .codegraph/
-
-benchmarks/context-maintenance-e2e/run/
 
 # 本地草稿
 temp/
