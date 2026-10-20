@@ -15,12 +15,37 @@
 - **分支与提交**：改造工作在 `refactor/reasonix` 分支；细粒度 commit 由 agent 自主提交（**不 push**，由用户合并 main）。
 - **提问**：出现任何产品级/方向级未明确内容，及时问用户（AskUserQuestion），不要猜。
 - **节奏**：全自动推进，但任务拆分尽可能细、每一步谨慎（小步可验证增量）。
-- **内核引入后**（M1 起）：遵守 `DEEPTUTOR.md` 工程规约（分层依赖、缓存稳定前缀、注释规范、预提交清单 gofmt/vet/lint/test）。
+- **内核引入后**（M1 起）：工程规约待落 `DEEPTUTOR.md`（M1.4 交付项，**当前文件不存在**）。在此之前，Go 侧改动遵循上游 `docs/kernel/` 的既有规约与 `Makefile` 门禁命令；建档后以 `DEEPTUTOR.md` 为准。
 
-## 仓库状态速览（2026-10-17）
+## 仓库状态速览（2026-10-20）
 
-- **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。
-- **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿；M1 余项（多实例 spike → 模块改名 `deep-tutor` → DEEPTUTOR.md → 门禁基线）见 `plan/reasonix/05` 与 `stage.md`。
-- **引用合规**：上游 https://github.com/esengine/DeepSeek-Reasonix （MIT）。声明与修改披露见根 [`NOTICE`](./NOTICE)，许可全文 [`LICENSE-REASONIX`](./LICENSE-REASONIX)；修改上游代码须同步更新 NOTICE 修改披露。
-- **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。
+- **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 145 operations / 119 paths、29 张 ORM 表、26 个 alembic 迁移、177 个测试文件（pytest 收集 1461 用例）；前端 19 页 SPA。
+- **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1 余项全部未完成**（M1.2 模块改名 `reasonix`→`deep-tutor`；M1.3 多实例 spike；M1.4 品牌化与 `DEEPTUTOR.md` 建档；M1.5 门禁基线重建 + CI；M1.6 `bin/deep-tutor.exe` 冒烟），见 `plan/reasonix/05` 与 `stage.md`。
+- **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。
+- **引用合规**：上游 https://github.com/esengine/DeepSeek-Reasonix （MIT）。声明与修改披露见根 [`NOTICE`](./NOTICE)，许可全文 [`LICENSE-REASONIX`](./LICENSE-REASONIX)；修改上游代码须同步更新 NOTICE 修改披露。上游无关资产树（`release-notes/` `benchmarks/` `examples/` `workers/` `npm/` `output/`）已于 2026-10-20 移除，范围偏差登记于 note/12 修订记录。
+- **参考副本**：`REF/`（gitignore，不入库）= 吸收用源快照（zip 为备份），仅供对照。**注意**：`tools/repolint` 当前会扫描 `REF/`，使门禁结果依赖本地副本状态。
 - **归档**：Python 时代计划与工作档案在 `docs/archive/`（git 历史完整）。
+
+## Reasonix host checks
+
+下列路径决定运行时允许执行的行为，路径下的改动需要 `review` + `security_review` 才能结束一轮。敏感性为显式声明，不由路径名推断。同一份清单同时是覆盖率门禁（`make coverage-gate`）的对象：每条路径被锁定在既有覆盖率下限，下调需 `make coverage-gate-update -allow-drop` 并说明理由。清单原文见 [`docs/kernel/upstream/REASONIX.md`](./docs/kernel/upstream/REASONIX.md)。
+
+- sensitive: internal/safety/permission/**
+- sensitive: internal/safety/sandbox/**
+- sensitive: internal/safety/shellsafe/**
+- sensitive: internal/base/shellparse/**
+- sensitive: internal/session/control/approval.go
+- sensitive: internal/session/control/approval_bridge.go
+- sensitive: internal/session/control/approval_orchestration.go
+- sensitive: internal/model/providerbroker/**
+- sensitive: internal/ext/installsource/**
+- sensitive: internal/ext/plugin/**
+- sensitive: internal/ext/pluginpkg/**
+- sensitive: internal/base/netclient/**
+- sensitive: internal/safety/redirectguard/**
+- sensitive: internal/safety/endpointclient/**
+- sensitive: internal/safety/egress/**
+- sensitive: internal/platform/browser/**
+- sensitive: internal/platform/computer/**
+
+`internal/web/auth/**`、`internal/web/session/**`、`internal/web/shim/**` 三条待阶段① M2/M3 建成 `internal/web` 服务层后追加（见 `plan/reasonix/01` §五）。

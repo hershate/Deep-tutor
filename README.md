@@ -1,129 +1,99 @@
 # Deep-tutor
 
-> **版本：v0.1.0.0**
+> **版本**：v0.1.0.0（Python 实现）· 改造形态 v2 进行中
 >
-> 一个还在不断打磨中的**个人 / 学习性质项目**。它想解决的问题是：当你想学一个新东西，手里有一堆资料、或者只有一个模糊的念头时，能不能让 AI 帮你理出一条清楚的学习路线，并且在学的过程中陪着你练习、复习、记笔记。
+> 本地优先的单机 AI 学习助手。输入学习目标与资料，产出结构化学习方案，并覆盖做题、间隔复习、自学讲义、笔记、知识库与 AI 对话的学习闭环。
 >
-> 它**做不到完美**，很多地方还比较粗糙，作者希望它对你有用，也欢迎你指出它的不足。
-
-> 🔨 **改造公告（2026-10-15）**：本项目正在向 **Reasonix 内核（Go）架构完全改造**——单二进制多用户服务 + 四前端（Web / Deep-tutor Studio / CLI / TUI / ACP），完整使用 Reasonix 的内核能力（工具审批、Rewind、子代理、MCP、插件包、技能、双模型等）。
-> 当前仓库状态：**Python v0.1.x 仍为可用实现**；改造决策（61 项）见 [`note/12`](./note/12-Reasonix改造决策.md)，完整方案见 [`plan/reasonix/`](./plan/README.md)，进度见 [`stage.md`](./stage.md)，实施分支 `refactor/reasonix`。
-> 内核来源与致谢见文末「[开源许可与致谢](#开源许可与致谢)」。
+> **改造公告（2026-10-15 起）**：项目正向 **Reasonix 内核（Go）架构改造**——单二进制多用户服务 + 四前端（Web / Deep-tutor Studio / CLI / TUI / ACP），接入 Reasonix 内核能力（工具审批、Rewind、子代理、MCP、插件包、技能、双模型）。
+> 当前可用实现仍为 **Python v0.1.x**（`backend/` + `frontend/`，端口 41173），保留至改造阶段① M5 验收后停用，阶段④删除。
+> 改造决策（61 项）见 [`note/12`](./note/12-Reasonix改造决策.md)，方案见 [`plan/reasonix/`](./plan/README.md)，进度见 [`stage.md`](./stage.md)，实施分支 `refactor/reasonix`。上游来源与引用声明见 [`NOTICE`](./NOTICE)。
 
 ---
 
-## 这是什么（写给第一次来的朋友）
+## 1. 能力范围
 
-简单说，Deep-tutor 是一个**帮你把"想学的东西"变成"能照着做的学习计划"**的小工具。
+### 1.1 资料与需求转学习方案
 
-你可以：
+- **输入**：文件上传（PDF / DOCX / PPTX / TXT / MD / EPUB，可批量）、粘贴文字、网页链接、纯需求描述；图片走 OCR、音视频走转写（需额外依赖，见 §5.3）。
+- **上传分三段**：暂存 → 确认 → 解析，材料是否入库、是否解析、解析质量高低由使用方逐项决定。
+- **意图澄清**：信息不足时生成追问（当前水平、每日可用时长等），回答后继续。
+- **生成过程实时可见**：SSE 推送工具级进度，断线可续接，任务可取消。
+- **局部重生成**：阶段设计 / 资源 / 排程等区段可带反馈重跑，方案保留历史版本并支持结构化对比。
+- **日程时间线**：按周分组逐日展示，自动高亮当日与下一项任务。
 
-- 上传一份 PDF / Word / PPT，或者粘贴一段文字、贴一个网页链接，甚至只写一句"我想学 React"；
-- 它会先弄明白你想学什么、现在什么水平、每天能花多少时间；
-- 然后像一位耐心的老师那样，帮你把一个大目标**拆成几个阶段**、每个阶段**该学哪些知识点**、**去哪里找靠谱的资料**、**怎么安排时间**；
-- 最后它还会**自己检查一遍**这份计划合不合理（知识点有没有断层、难度是不是跳跃太大、时间够不够），不合理就试着改一改。
+### 1.2 学习闭环
 
-计划生成之后，它还能陪你走完学习过程：**做题、记录进度、间隔复习、生成自学讲义、记笔记、建个人知识库、和 AI 对话**。
+- **练习测验**：按知识点出题（选择 / 填空 / 简答 / 开放题），服务端判分，错题可重练。
+- **进度跟踪**：逐知识点维护掌握度，到期复习提醒。
+- **间隔复习**：到期知识点与错题合并为翻卡自评队列（忘了 / 模糊 / 记住了），按掌握度排定复习间隔。
+- **自学讲义**：逐单元生成 Markdown 学习材料，阅读器支持字号调节、目录导航、内容检索、单篇下载。
+- **打卡与统计**：打卡（含补卡）、连续天数、打卡热力图、学习时长分布、番茄钟专注计时。
 
-> 📌 一句话定位：**本地优先、单机开箱即用**的 AI 学习助手。装在自己电脑上用最舒服，也可以在信任的家庭/小团队局域网内共享。
+### 1.3 笔记与知识库
 
----
+- **知识库**：文档直接上传（不依赖学习方案），可搜索、按类型筛选，原件与解析文本对照查看；支持基于文档问答并给出引用出处，问答记录入库。
+- **独立笔记**：标题 + Markdown 正文，编辑器带格式工具栏，支持 `.md` 导出与 ZIP 批量导入导出。
+- **全局搜索**：顶栏输入即出建议，聚合方案 / 笔记 / 知识库 / 知识点四域。
 
-## 它能帮你做什么
+### 1.4 AI 对话
 
-### 1. 把资料 / 需求变成学习方案
+- 会话历史持久化，AI 可显式存取记忆条目（记忆仅按需召回，不自动注入每轮上下文）。
+- 对话内可执行联网搜索、网页抓取、工作区文件读写，并将草稿提升为正式方案或笔记（需确认）。
 
-- **多种输入方式**：上传文件（PDF / DOCX / PPTX / TXT / MD / EPUB，可批量）、粘贴文字、网页链接、纯需求描述；图片可 OCR、音视频可转写（需额外装依赖，见下文"不足"）。
-- **上传后先暂存、由你确认**：是否入库、是否解析、解析质量高低，都由你逐项决定，不会偷偷处理。
-- **看不懂你的需求时会追问**：比如会问你"现在是什么基础？""每天能学多久？"，回答完再生成。
-- **实时进度**：生成过程像看直播一样实时显示在做什么，断了能接着来，随时能取消。
-- **可以局部重做**：觉得某一环节（阶段设计 / 资源 / 排程）不满意？带反馈重跑那一节就行，历史版本都能切换和对比。
-- **日程时间线**：学习日程按周分组、逐日展示，自动高亮"今天"和下一个要做的事。
+### 1.5 导出与分享
 
-### 2. 边学边练
-
-- **练习测验**：按知识点出题（选择 / 填空 / 简答 / 开放题），服务器判分，错题可以重练。
-- **进度跟踪**：每个知识点的掌握程度一目了然，有"待复习"提醒。
-- **间隔复习**：到期的知识点 + 错题统一在一个页面翻卡自评（忘了 / 模糊 / 记住了），像 Anki 那样安排复习节奏。
-- **自学讲义**：逐单元生成自学材料，带阅读器（字号调节、目录导航、内容检索、单篇下载）。
-- **打卡与统计**：学习打卡（支持补卡）、连续天数、打卡热力图、学习时长分布、番茄钟专注计时器。
-
-### 3. 记笔记、建知识库
-
-- **知识库**：文档直接上传（不依赖学习方案），可搜索、按类型筛选，原件与解析文本对照查看；还能**就着文档向 AI 提问**（带引用出处），问答记录会保存。
-- **独立笔记**：自由创建（标题 + Markdown 正文，编辑器带格式工具栏），支持导出 `.md`、打包 ZIP，也能从 ZIP 批量导入（方便和 Obsidian / Notion 互导）。
-- **全局搜索**：顶栏搜索框输入即出建议，一键搜方案 / 笔记 / 知识库 / 知识点。
-
-### 4. 和 AI 聊聊
-
-- 一个类似 DeepSeek 的对话页面，**会话历史不丢失**，AI 还能主动记住你交代过的要点（可随时查看和管理）。
-- AI 在对话里可以**真正动手**：联网搜索、抓取网页、读写它自己的工作区文件、把草稿提升为正式方案/笔记（需你确认）。
-
-### 5. 导出和分享
-
-- 方案可以导出为 **Markdown / PDF / PPT 风格网页幻灯片 / 日历(.ics) / Anki 卡片包**。
-- 可以生成**只读分享链接**（免登录查看），在设置页能统一管理、随时撤销。
-- 全量数据支持**备份导出 / 导入**（导入前有预检摘要）。
+- 方案导出：Markdown / PDF / PPT 风格网页幻灯片 / 日历（.ics）/ Anki 卡片包（.apkg）。
+- 只读分享链接（免登录访问），设置页统一管理与撤销。
+- 全量数据备份导出 / 导入，导入前提供预检摘要。
 
 ---
 
-## ⚠️ 它还不够好的地方（请你先了解）
+## 2. 已知限制
 
-诚实地说，这个项目有不少局限。**请在使用前花一分钟读完这一节**，尤其是和安全、费用相关的几条。
+### 2.1 安全
 
-### 关于安全（最重要）
+- **面向本机 / 受信任局域网设计**，未做公网加固。暴露到公网须前置 HTTPS 反向代理（Caddy / Nginx）并严格配置认证。
+- **零配置首次启动进入开放模式**：未设密码时免登录运行并监听全部网卡，同一局域网内任意设备可访问数据。设置访问密码后开放模式自动关闭。
+- **认证存在已知权衡**：浏览器登录凭证（JWT）以明文存于 localStorage；配置 `VITE_AUTH_TOKEN` 时该值被打包进前端产物。两者均以本机或受信任局域网为前提，不适用于公网多用户场景。
 
-- **它是为"本地 / 信任的局域网"设计的，不是一个上过锁的云端产品。** 如果你要把它暴露到公共互联网，请务必在前面加一层 HTTPS 反向代理（如 Caddy / Nginx），并认真配置认证。**不建议直接公网裸跑。**
-- **零配置首次启动是"开放模式"**：为了让你开箱即用，没设密码时它会免登录运行，并且监听所有网卡——**同一局域网内的任何人都能访问你的数据**。请务必在首次设置向导或"设置"页里设一个访问密码（设了之后开放模式会自动关闭）。
-- **认证设计存在已知权衡**：浏览器登录凭证（JWT）以明文存在浏览器的 localStorage 里；如果配置了 `VITE_AUTH_TOKEN`，它会被打包进前端代码。这些设计都假定你是在**本机或受信任的局域网**里使用，不适合公网多用户场景。
+### 2.2 费用
 
-### 关于费用
+- 生成功能调用付费 AI 接口，按人民币 ¥ 计价。内置会话级 / 每日预算守卫，作用于多数路径但不能杜绝异常支出，需关注用量页趋势。
 
-- **生成功能依赖付费的 AI 接口**，会产生真实费用（以人民币 ¥ 计价）。你需要在设置页配置自己的 API Key。虽然内置了**会话级 / 每日预算守卫**来防止费用失控，但它只是"尽量兜底"，**不能 100% 杜绝异常花费**，请你留意用量页的费用趋势。
+### 2.3 功能完整度
 
-### 关于功能完整度
+- **高级输入需额外依赖**：图片 OCR（tesseract）、音视频转写（faster-whisper）、PDF 导出（weasyprint）默认未安装，缺失时对应入口返回 `dependency_missing`，其余功能不受影响。
+- **记忆非自动召回**：AI 仅在需要时读取已记要点，属设计取舍。
+- **幻灯片为 HTML 网页**，非 PowerPoint 原生文件。
+- **存储为单机 SQLite 文件**，适合个人使用，未针对高并发多用户设计（PostgreSQL 迁移未实现）。
 
-- **部分高级输入需要额外装依赖**：图片 OCR（需 tesseract）、音视频转写（需 faster-whisper）、PDF 导出（需 weasyprint）默认都没装；没装时对应入口会明确提示"依赖缺失"，其余功能不受影响。
-- **记忆功能不是全自动的**：AI 只会在它觉得需要时去翻自己记下的要点，而不是像某些产品那样自动召回全部历史。这是有意为之的设计，但如果你期待"全自动记忆"，可能会觉得不够。
-- **幻灯片是网页（HTML），不是真正的 .pptx 文件**：导出的"PPT 风格幻灯片"是可以在浏览器里演示的 HTML，不是 PowerPoint 原生文件。
-- **数据库是单机文件（SQLite）**：个人使用完全够，但它不是为"很多人同时高强度使用"设计的（未来有迁移到 PostgreSQL 的打算，目前未实现）。
+### 2.4 成熟度
 
-### 关于成熟度
+- 个人性质项目，无服务等级保证。代码经 2026-07-18 全项目自审（87 项，修复记录见 [`docs/archive/err.md`](./docs/archive/err.md)），未发现的问题仍然可能存在，重要数据须自行备份。
+- 界面信息密度较高，键盘快捷键（`?` 查看全表）可缓解初次上手成本。
+- 文档以中文为主，无完整英文文档。
+- 资源检索依赖 Bing 搜索、生成能力依赖第三方模型，其可用性、速率限制与内容政策直接影响本工具。
 
-- **这是一个个人 / 学习性质项目，没有服务等级保证（SLA）。** 代码经历过一次较彻底的自审（2026-07-18，发现并修复了 87 项问题，详见 [`docs/archive/err.md`](./docs/archive/err.md)），但**几乎可以肯定仍存在未被发现的问题**。请把它当作"还不错但需自行承担风险"的工具，重要数据请记得备份。
-- **功能很多，初次上手可能有点懵**：界面信息密度较高，新用户可能需要一点时间摸索。我们尽量做了键盘快捷键（`?` 查看全部）和引导，但还远谈不上"傻瓜式"。
-- **文档以中文为主**：对中文用户友好，但暂无完整的英文文档。
-- **依赖外部服务**：资源检索依赖 Bing 搜索、生成能力依赖第三方 AI 模型，它们的服务可用性、速率限制、内容政策都会影响到本工具。
+### 2.5 已知小项
 
-### 已知、暂未处理的小项
-
-- 开发服务器依赖 `esbuild` 存在一个已知安全告警（仅影响本地 `npm run dev` 开发，**不影响生产构建产物**；计划在 Vite 大版本升级时一并处理，详见 [`docs/archive/err.md`](./docs/archive/err.md) E6）。
-- 前端暂未引入 ESLint 代码检查（CI 中已强制 `tsc` 类型检查）。
-
-> 尽管有上面这些不足，作者仍然尽力让它**稳定、可回滚、可审计**：每次 AI 调用都有记录、生成过程可中断可恢复、数据库可备份可迁移。
+- 开发服务器依赖的 `esbuild` 存在一项安全告警，仅影响本地 `npm run dev`，不影响生产构建产物（记录见 [`docs/archive/err.md`](./docs/archive/err.md) E6）。
+- 前端未引入 ESLint，CI 已强制 `tsc` 类型检查。
 
 ---
 
-## 适合谁、不适合谁
+## 3. 适用场景
 
-✅ **可能适合你**，如果你：
+**适用**：自学方向明确但缺路线图；资料分散需要结构化学习路径；要求数据自持、不上传至不受信任的云服务；愿意自行配置 API Key 并承担相应费用。
 
-- 想自学某个领域，但不知道该按什么顺序学；
-- 手里有一堆资料，想要一份结构化的学习路线；
-- 喜欢本地部署、自己掌控数据、不想把内容传到不信任的云服务；
-- 愿意自己配一下 AI API Key，并承担相应费用。
-
-❌ **可能不适合你**，如果你：
-
-- 想要一个开箱即用、零成本、零配置的"成品"商业软件；
-- 要在公网上面向很多陌生用户提供服务（它没做这层加固）；
-- 完全不想接触任何命令行或配置项。
+**不适用**：要求零配置零成本的成品软件；公网陌生用户大规模服务；不接受任何命令行或配置操作。
 
 ---
 
-## 三分钟试用（最简方式）
+## 4. 启动
 
-> 需要：**Python 3.11+**（必需）、**Node.js 20+**（仅首次构建前端需要）。
+### 4.1 一键脚本
+
+前置：**Python 3.11+**（必需）、**Node.js 20+**（仅首次构建前端需要）。
 
 ```bash
 # Windows（PowerShell）
@@ -133,205 +103,235 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 bash scripts/start.sh
 ```
 
-这个脚本会自动完成：建虚拟环境 → 装依赖 → 构建前端 → 数据库迁移 → 启动服务 → 打开浏览器。之后再运行会跳过已完成的步骤，秒级启动。
+脚本依次完成：建虚拟环境 → 装依赖 → 构建前端 → 数据库迁移 → 启动服务 → 打开浏览器。重复执行跳过已完成步骤。
 
-启动后访问 **http://localhost:41173** （局域网内其他机器用 `http://<你的IP>:41173`）。
+服务地址 `http://localhost:41173`，局域网内其他设备使用 `http://<本机IP>:41173`。首次访问进入设置向导（访问密码与 AI API Key 均可跳过，后续补充）；未配置 API Key 时应用可正常浏览数据，生成类功能不可用。
 
-- **首次进入**会看到一个设置向导：可以设置访问密码、配置 AI API Key（都能跳过，之后再补）。
-- 没配 API Key 时，应用照常打开、数据照常能看，只是"生成"类功能暂时不能用。
+端口改写：PowerShell 用 `-Port 9000`，或设置 `PORT` 环境变量。默认端口取 41173 而非 8000，因 8000 常落入 Windows 系统保留端口段导致绑定失败。
 
-> 想换端口？加 `--port 9000`（PowerShell 用 `-Port 9000`，或设 `PORT` 环境变量）。
-> 默认端口是 41173 而不是常见的 8000，是因为 8000 在 Windows 上经常落在系统保留端口段里导致启动失败。
+### 4.2 手动开发启动
+
+后端：
+
+```bash
+cd backend
+python -m venv .venv && . .venv/Scripts/activate   # Linux: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload   # dev 默认 :8000
+```
+
+健康检查：`curl -H "X-Auth-Token: <AUTH_TOKEN>" http://localhost:8000/api/health`
+
+前端：
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:5173，/api 经 Vite 代理到 :8000
+# 后端在其他端口时：VITE_API_PROXY_TARGET=http://localhost:41173 npm run dev
+```
 
 ---
 
-## 常见问题（FAQ）
+## 5. 配置
 
-**Q：不写任何配置真的能启动吗？**
-能。不配 `.env`、不设密码也能跑（以"开放本机模式"运行）。但请务必在向导或设置页设个密码，尤其是局域网共享时。
+### 5.1 `.env`（全部可选）
 
-**Q：必须用 Anthropic 的 Claude 吗？**
-不是。当前推荐用性价比更高的 `deepseek-v4-flash`（在设置页配一个指向 DeepSeek 兼容端点的"供应商档案"即可）。未配置任何供应商档案时，会回退到默认的 `claude-sonnet-5`。接入任何第三方模型时，请遵守对应平台的服务条款与使用规范，自行配置合法凭证并承担费用与合规责任。
+```bash
+cp .env.example .env
+```
 
-**Q：数据存在哪里？安全吗？**
-全部存在本地的 `data/` 目录（一个 SQLite 文件 + 上传/导出的文件）。停机后把整个 `data/` 打包即可备份；也可以在"设置 → 备份"里导出 JSON。**不会自动上传到任何地方**（除了你主动调用 AI 接口时，内容会发给所配置的模型供应商）。
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | 空 | 生成功能所需。也可在设置向导 / 设置页以供应商档案或 Anthropic 回退 Key 档案配置，档案优先于 `.env` |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5` | 默认模型。当前推荐 `deepseek-v4-flash`（需在设置页配置指向 DeepSeek 兼容端点的供应商档案） |
+| `AUTH_TOKEN` | 空 | 简单令牌回退，与 JWT 双轨；始终有效，用于个人访问令牌失效时防锁死 |
+| `ADMIN_USERNAME` | `admin` | 管理员登录名，启动时自动创建 / 收敛 |
+| `ADMIN_PASSWORD` | 空 | 管理员初始密码；配置后启动时设置或重置该账号密码 |
+| `JWT_SECRET` | 空 | 留空则生成随机密钥并持久化到 `data/.jwt_secret`（重启不失效）；多实例部署须显式设为同一值 |
+| `JWT_EXPIRE_DAYS` | `7` | JWT 有效期（天） |
+| `DB_PATH` | `data/deep-tutor.db` | SQLite 路径 |
+| `DATABASE_URL` | 空 | 完整 SQLAlchemy URL，配置后优先于 `DB_PATH` |
+| `DATA_DIR` / `SKILLS_DIR` / `PLUGINS_DIR` / `FRONTEND_DIST` | `data` / `skills` / `plugins` / 空 | 存储、方法论、插件目录与前端产物目录 |
+| `MAX_UPLOAD_MB` | `50` | 单文件上传上限 |
+| `MAX_TOOL_CALLS` | `20` | 单会话工具调用轮次上限 |
+| `MAX_REGENERATIONS` | `2` | 方案重生成上限 |
+| `LLM_MAX_TOKENS` | `100000` | 单次 LLM 输出上限；可在设置页按用户调低 |
+| `DB_BUSY_TIMEOUT_MS` / `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` | `10000` / `20` / `80` / `30` | SQLite 写争用等待与连接池参数；并发 SSE 会占用连接，需按用户数上调 |
+| `MAX_CONCURRENT_GENERATIONS` / `..._PER_USER` | `8` / `1` | 方案生成并发配额（超额 503） |
+| `MAX_CONCURRENT_CHAT_RUNS` / `MAX_RUNNING_CHAT_PER_THREAD` | `8` / `1` | 对话 run 并发配额 |
+| `MAX_CONCURRENT_LLM_CALLS` | `16` | 全局 LLM 调用背压信号量，0 表示不限 |
+| `MAX_PLUGIN_EVENT_THREADS` | `32` | 插件事件后台线程上限 |
+| `MAX_CONCURRENT_WEBHOOK_DELIVERIES` | `16` | 插件 Webhook 出站并发上限 |
+| `MAX_CONCURRENT_SEARCH_FETCHES` | `2` | 搜索页面抓取并发上限 |
+| `BUDGET_PER_SESSION_USD` / `DAILY_BUDGET_USD` | `1.0` / `10` | 会话与日预算；字段名为历史遗留，计费按设置页模型计费表以 ¥ 计价 |
+| `API_USAGE_RETENTION_DAYS` | `180` | 用量台账保留天数，0 表示永久 |
+| `MAINTENANCE_INTERVAL_SECONDS` / `ORPHAN_GRACE_SECONDS` | `86400` / `86400` | 定期运维节奏与孤儿目录冷却 |
+| `SHARE_DEFAULT_EXPIRE_DAYS` | `90` | 分享链接默认有效期，0 表示永久 |
+| `SEARCH_ENGINE` | `auto` | `auto`（有 Key 用付费 API，无 Key 用免 Key 网页版）/ `bing` / `bing_web` |
+| `BING_API_KEY` | 空 | Bing 搜索 Key；亦可在设置页建档案切换 |
+| `OCR_LANGUAGES` / `WHISPER_MODEL` / `MEDIA_MAX_MINUTES` | `eng+chi_sim` / `base` / `30` | OCR 语言包、转写模型与转写时长上限 |
+| `AGENT_RUNS_ENABLED` | `false` | 方案生成旁挂 run 记录 |
+| `CORS_ORIGINS` | `http://localhost:5173` | 允许的跨域来源 |
+| `LOG_LEVEL` | `info` | 日志级别 |
 
-**Q：生成的学习方案靠谱吗？**
-它由 AI 生成，并经过了五维自动校验（依赖是否完整、难度是否递进、认知负荷、里程碑可行性、缺口分析）。但 AI 会犯错，**资源链接可能失效、内容可能有偏差**——请把它当作"一个挺能干的初稿"，关键之处仍需你自己判断。
+模板占位值（`change-me-please`、`sk-ant-xxxx`）被识别为未配置。
 
-**Q：忘记密码怎么办？**
-在 `.env` 里设置 `ADMIN_PASSWORD` 后重启，会强制重置管理员密码；或者一直可以用 `AUTH_TOKEN` 作为回退登录。
+启动时自动执行迁移：新库建表、旧库增量升级、历史 `create_all` 时期的无版本库按 schema 特征探测代际后接续迁移。
+
+### 5.2 部署 / 升级 / 备份
+
+本地部署为单进程托管前端 SPA 与 `/api`，无需 Docker 或反向代理：
+
+```bash
+bash scripts/start.sh          # Linux / macOS
+# Windows: powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+升级：
+
+```bash
+git pull
+bash scripts/start.sh   # 依赖 / 前端 / 迁移增量处理
+```
+
+数据全部位于 `data/`（SQLite + 上传与导出文件）：
+
+```bash
+tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
+# Windows: Compress-Archive data dt-backup-$(Get-Date -f yyyyMMdd).zip
+```
+
+亦可在「设置 → 备份」导出 / 导入 JSON 备份（方案、进度、笔记、偏好等，导入前有预检摘要）。
+
+### 5.3 可选依赖
+
+| 能力 | 依赖 | 缺失时行为 |
+|---|---|---|
+| 图片 OCR | 系统安装 `tesseract` + 中文语言包；`pip install pytesseract Pillow` | 入口报 `dependency_missing` |
+| 音视频转写 | `pip install faster-whisper`（首次使用自动下载模型） | 入口报 `dependency_missing` |
+| PDF 导出 | `pip install weasyprint`（Windows 另需 GTK 运行时，Linux 需 pango） | 降级为 Markdown 并附提示 |
+| HTTPS | 反向代理（Caddy / Nginx Proxy Manager 等） | 不适用本机 / 局域网部署 |
 
 ---
+
+## 6. 浏览器扩展
+
+[`extension/`](./extension/) 为 Manifest V3 扩展：网页选中文本或整页链接一键剪藏为会话资料（`POST /api/materials/clip`），供 Web 端直接生成方案。装载与配置见其 [README](./extension/README.md)。
+
 ---
 
-> 以下内容面向**开发者和进阶用户**。普通使用者可以不看。
+## 7. 插件开发
 
-## 技术栈
+> **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后前端插件宿主 `window.DeepTutor` 废弃（能力由 Reasonix 插件包与 Extension 结构化 UI 承担）；后端 Python 进程内插件体系终结（9 个内置插件实例的功能在新架构等价实现，映射表见 `plan/reasonix/05` 阶段③）；前端插件示例的番茄钟 / 浮层笔记 / 换肤 / 阅读器四项作为内置能力在新前端重建。v1 运行期间继续可用。
 
-> **改造目标形态（v2，进行中）**：Go 单二进制（Reasonix 内核）多用户服务 + SQL（SQLite 预留 PG）+ 四前端全套 + /api 重设计（旧 SPA 经 shim 兼容层回归）。详见 [`plan/reasonix/`](./plan/README.md)。以下为当前可用的 Python 实现。
+- **前端插件**（`window.DeepTutor`，当前 `1.18.0`，见 `frontend/src/lib/plugins.ts`）：小组件插槽、皮肤令牌、API 事件、REST 代理、热启停、插件 URL 持久化加载。侧栏「插件」页可视化加载 / 移除 / 启停。契约见 [`API.md`](./API.md)。
+- **后端插件**（[`plugins/`](./plugins/) 目录，当前 `1.20.0`）：Python 插件自动发现装载，路由命名空间 `/api/plugins/<id>/`（默认带宿主认证），可注册工具、解析器、导出器、供应商协议、MCP 桥、事件订阅、定时任务与 Webhook。`.py` 文件放入 `plugins/` 重启生效，`_` 前缀停用。装载约定见 [plugins/README.md](./plugins/README.md)。
 
-- **后端**：Python 3.11+ / FastAPI / SQLAlchemy 2.0 / SQLite（WAL）/ Alembic / pydantic v2 / pydantic-settings / anthropic SDK / pyjwt；PDF 解析 marker（高质量）+ pypdf（快速）；可选 tesseract OCR / faster-whisper 转写；Anki 导出 genanki。
-- **前端**：React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + react-markdown + react-window + KaTeX（数学公式）。
-- **AI 架构**（借鉴 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 三支柱）：缓存优先循环、工具调用修复（校验 + 重试≤3 → 降级默认）、成本计量 + 预算守卫；两层执行模型（确定性编排器 + 内层工具循环）；Skill 作方法论指令源（[`skills/`](./skills/)）。
-- **部署**：本地直起脚本（[`scripts/start.sh`](./scripts/start.sh) / [`start.ps1`](./scripts/start.ps1)，uvicorn 单进程托管前端 SPA + `/api`，默认端口 `41173`）。
+---
 
-## 目录结构
+## 8. 工程结构
 
-> 2026-10-17 起，仓库为**双栈并存**：Reasonix 内核（Go，改造目标形态，已全量吸收自上游 studio 快照）+ Python v1（当前可用实现，保留至阶段① M5 验收）。内核的引用声明与路径映射见 [`NOTICE`](./NOTICE)。
+### 8.1 目录
 
 ```text
 Deep-tutor/
 ├── ── 改造工程与文档（本仓自有）──
 ├── plan/            # 改造方案（plan/reasonix/ 六份）；Python 时代计划已归档 docs/archive/plan-v1/
-├── note/            # 项目分析笔记（01–11）+ Reasonix 改造决策档案（12，改造宪法）+ graft/ 上游嫁接一手档案
-├── stage.md         # 分阶段实施进度跟踪（活文件，持续追加）
+├── note/            # 项目分析笔记（01–11）+ 改造决策档案（12）+ graft/ 上游嫁接一手档案
+├── stage.md         # 实施进度跟踪（活文件，持续追加）
 ├── API.md           # v1 插件 API 契约（改造期 = shim 兼容层验收基准）
 ├── NOTICE           # 第三方作品引用与许可声明（Reasonix 吸收权威声明）
 ├── AGENTS.md        # 仓库工作指引（AI agent 与人类协作者）
 ├── docs/archive/    # Python 时代归档（plan-v1 12 份 / chat.md / err.md 审计清单）
-├── ── Reasonix 内核（Go，吸收自上游，见 NOTICE；完整清单 docs/kernel/README.md）──
+├── ── Reasonix 内核（Go，吸收自上游，见 NOTICE）──
 ├── internal/        # 内核实现（base/contract/safety/state/model/platform/tools/ext/runtime/session/assembly + runtime/tutor=Deep-tutor 学习域）
-├── cmd/             # 命令行入口（tui/serve/acp/studio 等）
-├── tools/  sdk/     # 门禁（repolint 等）/ Go SDK
+├── cmd/             # 命令行入口（reasonix / reasonix-studio-host / reasonix-plugin-example / e2ebench / studio-delta / extension-protocol-gen / signpath-contract）
+├── tools/           # 工程门禁（repolint / covergate / pricecheck 等）
+├── sdk/             # Go SDK
+├── benchmark/       # 上游 Go 基准测试包
 ├── desktop/         # Electron 宿主 + frontend-next 统一前端（阶段④前端基座）
-├── docs/kernel/     # 上游工程文档（原样冻结，溯源说明见其 README；upstream/=与本仓根冲突的上游原件存档）
+├── docs/kernel/     # 内核工程文档（上游原样吸收，溯源与已移除资产说明见其 README；upstream/ = 与本仓根冲突的上游原件存档）
 ├── scripts/reasonix/# 上游工具脚本
-├── workers/ npm/ examples/ benchmark*/ output/ release-notes/   # 内核周边资产（workers 等禁用项代码保留、不接线）
 ├── go.mod 等        # 根级构建基座（Makefile/golangci/goreleaser/.githooks 等）
 ├── ── Python v1（当前可用实现，41173 端口；阶段④退役）──
-├── backend/         # FastAPI 后端（app / alembic / tests 1100+ 项）
-├── frontend/        # Vite + React 前端（阶段①②作 shim 回归工具）
+├── backend/         # FastAPI 后端（app / alembic / tests，1461 个 pytest 用例）
+├── frontend/        # Vite + React 前端（19 页，阶段①②作 shim 回归工具）
 ├── extension/       # 浏览器扩展（MV3 网页剪藏，阶段④重构）
-├── plugins/         # 后端插件目录（功能将由 Reasonix 扩展体系等价承接）
-├── plugin-examples/ # 前端插件示例（四功能将在新前端重建）
-├── skills/          # LLM 方法论 Skill（deep-tutor-* 与 vendor 复用）
+├── plugins/         # 后端插件目录（9 个实例：8 个 .py + 1 个 .disabled）
+├── plugin-examples/ # 前端插件示例（四项功能将在新前端重建）
+├── skills/          # LLM 方法论 Skill（deep-tutor-* 6 个 + vendor 复用 2 个）
 ├── scripts/         # 本地直起脚本 start.sh / start.ps1（另含 reasonix/ 上游脚本）
 ├── ── 运行时与参考 ──
-├── data/            # 运行时数据（gitignore，启动时自动创建；v2 目录总图见 plan/reasonix/02）
-├── REF/             # 吸收用上游源快照（gitignore，20261017 zip 为本地备份，仅供对照）
+├── data/            # 运行时数据（gitignore，启动时自动创建）
+├── REF/             # 吸收用上游源快照（gitignore，仅供对照）
 ├── .env.example     # Python v1 环境变量样例（内核配置见 reasonix.example.toml）
 └── README.md
 ```
 
-## 手动开发启动
+上游无关资产树（`release-notes/` `benchmarks/` `examples/` `workers/` `npm/` `output/`）已于 2026-10-20 移除，范围与理由见 [`docs/kernel/README.md`](./docs/kernel/README.md) 与 note/12 修订记录。
 
-### 1. 后端
+### 8.2 技术栈
 
-```bash
-cd backend
-python -m venv .venv && . .venv/Scripts/activate   # Windows: source .venv/bin/activate (Linux)
-pip install -r requirements.txt
-uvicorn app.main:app --reload   # dev 后端默认 :8000
-```
+- **后端（v1）**：Python 3.11+ / FastAPI / SQLAlchemy 2.0 / SQLite（WAL）/ Alembic / pydantic v2 / pydantic-settings / anthropic SDK / pyjwt；PDF 解析 marker（高质量）+ pypdf（快速档）；可选 tesseract OCR / faster-whisper 转写；Anki 导出 genanki。
+- **前端（v1）**：React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + React Router + Zustand + react-markdown + react-window + KaTeX。
+- **AI 架构**：缓存优先循环、工具调用修复（校验 + 重试 ≤3 → 降级默认）、成本计量与预算守卫；两层执行模型（确定性编排器 + 内层工具循环）；Skill 作方法论指令源（[`skills/`](./skills/)）。
+- **内核（v2 目标形态）**：Go 单二进制（Reasonix 内核）+ 多用户 SQL 域 + `/api` 兼容层 + 四前端。
 
-健康检查：`curl -H "X-Auth-Token: <你的 AUTH_TOKEN>" http://localhost:8000/api/health`
-
-### 2. 前端
-
-```bash
-cd frontend
-npm install
-npm run dev   # http://localhost:5173 （/api 经 Vite 代理到 :8000；后端若起在 41173 等其他端口，用 VITE_API_PROXY_TARGET=http://localhost:41173 npm run dev 覆盖）
-```
-
-## 配置项（.env，全部可选）
-
-> **零配置开箱即用**：不配任何参数也能启动。下方字段用于多用户、固定密钥等高级场景。完整说明见 [`docs/archive/plan-v1/09-audit.md`](./docs/archive/plan-v1/09-audit.md) §十七。
-
-```bash
-cp .env.example .env   # 可选。所有字段均有默认值或可在界面内配置
-```
-
-| 变量 | 说明 |
-| --- | --- |
-| `JWT_SECRET` | JWT 签名密钥。留空则自动生成随机密钥并持久化到 `data/.jwt_secret`（重启不失效；多实例部署需显式设置同一密钥）。生成：`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `ADMIN_PASSWORD` | 多用户场景建议。管理员初始密码，启动时自动创建/收敛 `ADMIN_USERNAME`（默认 `admin`）账号；也可在首次设置向导/设置页直接设置（忘记密码时配此项重启可强制重置） |
-| `AUTH_TOKEN` | 简单 token 回退（与 JWT 双轨；API/浏览器扩展可用它认证）。始终有效——即使设置页建了个人访问令牌（PAT），也可用它回退登录防锁死 |
-| `DATABASE_URL` | 可选。完整 SQLAlchemy URL（如切换 PostgreSQL）；留空则使用 `DB_PATH` 的 SQLite（默认 `data/deep-tutor.db`） |
-| `ANTHROPIC_API_KEY` | 生成功能必需（也可在首次设置向导或 Web 设置页配置供应商档案 / Anthropic 回退 Key 档案，无需写入 .env；档案优先于 .env） |
-| `ANTHROPIC_MODEL` | 模型名，代码默认值 `claude-sonnet-5`；**当前推荐 `deepseek-v4-flash`**（见下方说明，可在设置页 / 供应商档案覆盖） |
-| `SEARCH_ENGINE` | 资源搜索引擎：`auto`（默认，有 key 用付费 API、无 key 用免 Key 网页版）/ `bing`（仅付费 API）/ `bing_web`（仅免 Key 网页版） |
-| `BING_API_KEY` | 可选。不配置时自动使用免 Key 的 Bing 网页版；也可在设置页建 Bing Key 档案卡片切换 |
-| `BUDGET_PER_SESSION_USD` / `DAILY_BUDGET_USD` | 会话 / 日预算（字段名沿用 USD，实际计费按设置页「模型计费」表以人民币 ¥ 计；可在设置页按用户覆盖） |
-
-> **推荐模型**：当前推荐使用 `deepseek-v4-flash`（性价比高，「模型计费」表已预填其参考价）。需在「设置」页配置一个指向 DeepSeek 兼容端点（`base_url`）的供应商档案（含该模型对应的 `api_key`）方可生效；未配置任何供应商档案时回退到 `ANTHROPIC_MODEL` 默认值 `claude-sonnet-5`。
->
-> **模型使用合规**：接入任何第三方模型（DeepSeek / Anthropic / OpenAI 等）时，请遵守对应平台的服务条款与使用规范（API 用量与速率限制、内容政策、数据合规、计费规则等），自行配置合法有效的凭证并承担相应费用与合规责任。
-
-> **安全提示（认证设计权衡）**：前端 JWT 明文存于 localStorage，且 `VITE_AUTH_TOKEN`（若设置）会打包进客户端 bundle——两者都假定本机/受信局域网部署。多用户或公网部署请勿设置 `VITE_AUTH_TOKEN`（走登录页 JWT），并在公网前加 HTTPS 反代。
-
-启动时自动执行数据库迁移（`app.db.migrate`）：新库建表、旧库增量迁移；历史 `create_all` 时期的无版本库会按 schema 特征探测代际后接续迁移，无需手工处理。
-
-## 部署 / 升级 / 备份
-
-**部署（本地直起，本机/局域网）**：单个 Python 进程托管前端 SPA + `/api`（默认 `:41173`），无需 Docker/nginx：
-
-```bash
-bash scripts/start.sh          # Linux / macOS
-# 或：powershell -ExecutionPolicy Bypass -File scripts\start.ps1   # Windows
-```
-
-脚本自动完成：建 `backend/.venv` → 装依赖 → 无 `.env` 时以零配置模式继续 → 无 `frontend/dist` 且有 npm 时自动构建前端 → 数据库迁移 → 启动并自动打开浏览器（`NO_BROWSER=1` 关闭）。再次运行幂等秒过。依赖：Python 3.11+（必需）、Node.js 20+（仅首次构建前端需要）。
-
-**升级**：
-
-```bash
-git pull
-bash scripts/start.sh   # 依赖/前端/迁移自动增量处理（Windows 用 start.ps1）
-```
-
-**备份**：数据全部在 `data/`（SQLite + 上传/导出文件），停机后整体打包即可：
-
-```bash
-tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
-# Windows PowerShell: Compress-Archive data dt-backup-$(Get-Date -f yyyyMMdd).zip
-```
-
-也可在应用内使用「设置 → 备份」导出 / 导入 JSON 备份（方案、进度、笔记、偏好等，导入前有预检摘要）。
-
-### 可选依赖
-
-- **OCR / 音视频转写**：默认未装（降级设计，其余功能不受影响）。上传图片 OCR 需安装 `tesseract`（+ 中文语言包）与 `pip install pytesseract Pillow`，音视频转写需 `pip install faster-whisper`（装进 `backend/.venv`）；缺失时对应入口报 `dependency_missing`。
-- **PDF 导出**：需 `pip install weasyprint`（Windows 另需 GTK 运行时，Linux 需 pango）；缺失时 PDF 导出自动降级为 Markdown + 提示。
-- **HTTPS**：本机/局域网部署不需要；若暴露公网，请在前面加一层反代（Caddy / Nginx Proxy Manager 等）终止 TLS 并转发到 `:41173`。
-
-## 浏览器扩展（网页剪藏）
-
-[`extension/`](./extension/) 为 MV3 浏览器扩展：在任意网页选中文本，一键发送到 Deep-tutor 成为会话资料。装载方式与配置见其 [README](./extension/README.md)。
-
-## 插件开发
-
-> ⚠️ **改造期状态（note/12 决策 #6/#25/#59）**：以下两条插件版本线属 **v1（Python 版）**。改造后：前端插件宿主 `window.DeepTutor` 废弃（能力改由 Reasonix 插件包 / Extension 结构化 UI 承担）；后端 Python 插件体系终结（8 个内置插件 + 1 个默认禁用的示例插件，功能将在新架构全部等价实现，见 `plan/reasonix/05` 阶段③等价表）；前端插件示例的四项功能（番茄钟/浮层笔记/换肤/阅读器）将作为内置能力在新前端重建。v1 插件在 Python 版运行期间继续可用。
-
-Deep-tutor 提供前后端两条插件 API 版本线（各自语义化版本、只增不改；**当前版本号以 [API.md](./API.md) 文首版本线表为准**，本文件不钉版本防过期）：
-
-- **前端插件**（`window.DeepTutor`，当前 `1.17.0`）：浏览器端 JS 插件——小组件插槽（首页仪表盘 / 侧栏底部 / 方案详情 / 方案列表 / 复习 / 学习中心 / 笔记 / 用量 / 知识库）、皮肤令牌、API 事件、REST 代理（`api.get` / `api.request`）、热启停（disable/enable/unload/reload）、插件 URL 持久化加载。侧栏 🧩「插件」页可视化加载/移除/启停（免控制台）；也可控制台试：`await DeepTutor.plugins.load('https://…/plugin.js')`。
-- **后端插件**（[`plugins/`](./plugins/) 目录，当前 `1.20.0`）：Python 插件自动发现装载——REST 路由命名空间 `/api/plugins/<id>/`（默认带宿主认证）、核心事件订阅（方案/材料/进度/测验/打卡/记忆/启动关闭）、Agent 工具注册、记忆系统 CRUD 门面、自定义 LLM 协议（`provider_bridge`）、MCP 桥（HTTP + stdio）。把 `.py` 文件放进 `plugins/` 重启即生效，`_` 前缀即停用；内置示例见 [plugins/](./plugins/)（study_export_pack / study_stats / epub_reader / ai_tutor / security_guard / webhook_notify / provider_bridge / mcp_bridge），装载约定见 [plugins/README.md](./plugins/README.md)。
-
-## 测试与 CI
+### 8.3 测试与门禁
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 超过 1100 项测试（含契约/漂移守卫）
+.venv/Scripts/python -m pytest        # 1461 个用例
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```
 
-GitHub Actions CI（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）四步门禁：ruff → pytest（覆盖率 ≥80%）→ OpenAPI 契约检查 → 前端 build。
+Go 侧门禁命令在 `Makefile`：
 
-## 了解更多
+```bash
+make lint     # golangci-lint + go run ./tools/repolint
+make check    # repolint -changed（仅报告工作树变更）
+make test     # 根模块 + desktop + sdk/go 三个模块的 go test
+```
 
-- **Reasonix 改造方案**：[`plan/reasonix/`](./plan/README.md)（六份：总方案/仓库与内核/数据层/API 与 shim/多用户集成/任务分解）
-- **改造决策档案（61 项，改造宪法）**：[`note/12-Reasonix改造决策.md`](./note/12-Reasonix改造决策.md)
-- 项目分析笔记（架构/数据/流水线/Agent/LLM/API/插件/前端）：[`note/00-INDEX.md`](./note/00-INDEX.md)
+**CI 现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff → pytest 覆盖率 ≥80% → OpenAPI 契约 → 前端 build），**未纳入 Go 门禁**；Go 门禁基线重建与 CI 接入属阶段① M1.5。
+
+---
+
+## 9. 改造形态 v2 现状
+
+| 任务 | 状态 |
+|---|---|
+| M1.1 内核吸收与裁剪 | 完成（2026-10-17，8289 文件入库） |
+| M1.2 模块改名 `reasonix` → `deep-tutor` | 未开始（`go.mod` 仍为 `module reasonix`，全仓 8629 处 `reasonix/` import） |
+| M1.3 多实例 spike | 未开始 |
+| M1.4 品牌化与 `DEEPTUTOR.md` 建档 | 未开始（`DEEPTUTOR.md` 尚不存在） |
+| M1.5 门禁基线重建 + CI 接入 | 未开始（`tools/repolint/baseline.json` 仍为上游基线） |
+| M1.6 `bin/deep-tutor.exe` 冒烟 | 未开始（`cmd/` 下仍为 `reasonix` 系列入口） |
+| M2 数据层与认证（SQL + sqlc + JWT/PAT） | 未开始 |
+| M3 生成流水线 + `/api` 兼容层 | 未开始（`internal/frontend/serve` 仅挂 `/tutor/*`，无 `/api` shim，旧 SPA 暂不能对接 Go 服务） |
+| M4 学习闭环全页 | 未开始 |
+| M5 管理页 + 事件流 + 旧 SPA 19 页回归 | 未开始 |
+
+Go 侧学习域实现位于 `internal/runtime/tutor/`（R-Tutor 移植，约 60 个 Go 文件），8 步流水线与 v1 同构；存储当前为 state root 下的 JSON 文件树，阶段① M2/M3 改为 SQL。
+
+---
+
+## 10. 相关文档
+
+- 改造方案：[`plan/reasonix/`](./plan/README.md)（总方案 / 仓库与内核 / 数据层 / API 与 shim / 多用户集成 / 任务分解）
+- 改造决策档案（61 项，改造宪法）：[`note/12-Reasonix改造决策.md`](./note/12-Reasonix改造决策.md)
+- 项目分析笔记（架构 / 数据 / 流水线 / Agent / LLM / API / 插件 / 基础设施 / 工具 / 前端 / 周边）：[`note/00-INDEX.md`](./note/00-INDEX.md)
 - 实施进度：[`stage.md`](./stage.md)
 - 插件契约（v1，shim 验收基准）：[`API.md`](./API.md)
 - Python 时代设计归档：[`docs/archive/`](./docs/archive/README.md)
 
-## 开源许可与致谢
+---
 
-- 本项目内核与桌面端吸收自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），遵循其 **MIT License**（全文见 [`LICENSE-Reasonix`](./LICENSE-REASONIX)）。感谢 Reasonix 的维护者 **Huahui Yu** 与全体贡献者——缓存优先的 Agent 循环、工具调用修复、成本计量三支柱最早启发了本项目的 Python 版实现，如今更进一步直接以其内核为基座。
-- **引用与修改的权威声明见 [`NOTICE`](./NOTICE)**：吸收范围与路径映射、对上游代码的全部修改披露（目前仅 productdocs 两行 import 适配）、随内核携带的第三方许可（Inter / Noto Sans SC / IBM Plex Mono 字体 OFL、cua-driver LICENSE）。
-- 内核文档（上游 `docs/`）整体落在 [`docs/kernel/`](./docs/kernel/)，其溯源说明见 [`docs/kernel/README.md`](./docs/kernel/README.md)；随内核携带的工程规约将在改造 M1 里程碑本地化为 `DEEPTUTOR.md`。
-- 其余本项目自有代码沿用仓库根 [`LICENSE`](./LICENSE)。
+## 11. 开源许可
+
+- 内核与桌面端吸收自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），遵循其 **MIT License**（全文见 [`LICENSE-REASONIX`](./LICENSE-REASONIX)）。上游维护者 Huahui Yu 与全体贡献者。
+- 引用与修改披露见 [`NOTICE`](./NOTICE)：吸收范围与路径映射、已移除的上游资产、随内核携带的第三方许可（Inter / Noto Sans SC / IBM Plex Mono 字体 OFL、cua-driver LICENSE）。
+- 内核文档整体位于 [`docs/kernel/`](./docs/kernel/)，溯源与资产处置说明见其 [README](./docs/kernel/README.md)。
+- 本仓自有代码沿用根目录 [`LICENSE`](./LICENSE)。

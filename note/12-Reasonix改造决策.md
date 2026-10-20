@@ -184,6 +184,17 @@
 
 ## 修订记录
 
+### 2026-10-20：上游无关资产清除（修订 #37 的处置范围收窄）
+
+用户裁定：「同时清理上游树中与本仓无关的资产（如 release-notes/、benchmarks/、examples/、workers/ 等），仅保留内核必需部分」。据此修订：
+
+- **#37（内核裁剪）处置范围收窄**：2026-10-17 修订的「全部内容入库、禁用项不接线」适用于**内核代码**（Go 源码、构建基座、门禁工具、SDK、桌面端），该项不变；**上游产品周边资产**改为按「与本仓目标形态是否相关」判定，不再无条件入库。
+- **已移除的上游资产**（commit `bec5525`，内容保留于 git 历史）：`release-notes/`（上游 65 份版本发布说明）、`benchmarks/`（上游 15 组评测夹具 + 129 个 Go 包）、`examples/`（上游 9 个 skill/命令/MCP 套件）、`workers/`（上游 accounts/forum/crash-report 云服务，即 #12 的禁用项）、`npm/`（上游 CLI npm 分发包）、`output/`（上游 agent-workbench v4–v6 原型产物）。
+- **对 #12（遥测/云服务禁用）的影响**：`workers/` 原为「保留但不接线」的禁用项载体，移除后 #12 的禁用语义由装配层不注册/不暴露实现，无需该载体；内核 Go 代码中的对应接线点未作改动。
+- **保留的上游资产**：`internal/`、`cmd/`、`tools/`、`sdk/`、`benchmark/`、`desktop/`、`scripts/reasonix/`、`docs/kernel/`（含 `upstream/` 原件存档）。
+- **对阶段③的影响**：`examples/` 移除后，原「example_hello → 扩展开发示例（sdk/ 示例+文档）」的等价物落在 `sdk/go/examples/`（starterextension / toolextension / providerextension / fullsidecar）与本仓 `plugin-examples/`、`skills/`。
+- **对 M1.5（门禁基线重建）的影响**：`tools/repolint` 的 `release-note` 规则与 `docs.go` 前缀映射随 `release-notes/` 移除而失效；`baseline.json` 仍含被删文件的 23 条记录，需在 M1.5 重建基线时一并清理。移除后 repolint 报告行数 2433→2429，未新增（门禁既有红色源于基线未按本仓树重建，与本次移除无关）。
+
 ### 2026-10-17：REF 全部内容吸收（修订 #37 的处置方式）
 
 用户目标指示：「REF 文件夹下的改造实现（R-Tutor 20261017 快照）逐步吸收、细粒度 commit、直至包含全部内容」。据此修订：

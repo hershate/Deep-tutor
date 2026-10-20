@@ -100,7 +100,7 @@ flowchart TD
 
 | 守卫 | 位置（file:line） | 阈值 / 行为 |
 |------|------|------|
-| 认证 | 各 router `dependencies=[Depends(require_auth)]`（26 个 router 中 19 个挂载） | 未认证 401；失败 per-IP 30/min → 429（deps.py:30） |
+| 认证 | 各 router `dependencies=[Depends(require_auth)]`（26 个 router 中 20 个挂载） | 未认证 401；失败 per-IP 30/min → 429（deps.py:30） |
 | 归属隔离 | `get_owned_session`（deps.py:316）· `get_owned_plan`（deps.py:327）· `_owned_thread`（api/memory.py:82）· `_owned_run`（api/memory.py:89） | 跨用户一律 **404 not_found**（防枚举） |
 | 生成配额 | `_check_generate_quota`（api/plans.py:116-135） | 每用户并发 **1**（`max_concurrent_generations_per_user`）→ 409；全局 **8**（`max_concurrent_generations`）→ 503 server_busy |
 | 生成族频控 | `_gate_generate_start`（api/plans.py:138-141） | `plans_gen:{uid}` **12/min**，generate/retry/clarify/regenerate/materials 共桶 → 429 |
@@ -183,12 +183,13 @@ flowchart LR
 | 方案 / 测验 / 进度 / 笔记 / 检索 / 用量 / kb / 分享 / 备份 | 已覆盖（路径前缀 `/tutor` + 资源名改写） |
 | 导出格式 | 拆为按扩展名的独立端点：`export.md` / `.ics` / `.pdf` / `.apkg` / `.html`（slides），另有单元级 `units/{uid}/export.html`（tutor_data.go:26-31）；v1 为 `GET /api/export/formats` + `POST /api/export/{plan_id}` 二元结构 |
 | **auth / login / me / setup / users / providers / credentials / preferences / memory(threads,runs) / events / tools / plugins** | **未覆盖**：Go 侧无对应 /tutor 端点 |
-| 配额与限流 | 仅保留重生成上限（`ErrRegenQuota` → 429 `tutor.regen_quota`，`internal/runtime/tutor/service.go:343-344`）、日预算（`ErrBudgetExceeded` → 402 `tutor.budget_exceeded`，service.go:68-78，阈值取 `TUTOR_DAILY_BUDGET` 环境变量，缺省 **10**，见 `internal/frontend/serve/tutor.go:118-128`）、单会话占用（`ErrBusy` → 409 `tutor.busy`，tutor.go:169-170）；**无 per-IP 限流、无 per-user 资源配额、无 body 限额中间件** |
+| 配额与限流 | 仅保留重生成上限（`ErrRegenQuota` → 429 `tutor.regen_quota`，`internal/runtime/tutor/service.go:343-344`）、日预算（`ErrBudgetExceeded` → 402 `tutor.budget_exceeded`，service.go:68-78，阈值取 `TUTOR_DAILY_BUDGET` 环境变量，缺省 **10**，见 `internal/frontend/serve/tutor.go:118-128`）、单会话占用（`ErrBusy` → 409 `tutor.busy`，tutor.go:169-170）；**无 per-IP 限流、无 per-user 资源配额** |
+| body 限额 | v1 为**通用中间件**（`main.py:210-246`，覆盖全部路由，55MB + chunked 限量读）；Go 侧**无通用 body 中间件**，改为逐端点 `MaxBytesReader` / `LimitReader`：tutor_data.go:169（1MB）· tutor_data.go:652（8MB）· tutor_kb.go:54（70MB）· tutor_kb.go:82（10MB）· tutor_kb.go:209（1MB）· tutor_backup.go:72（360MB） |
 | 统一错误信封 | **形态不同**：Go 侧为 `refuse(w, status, code, message, nil)` 的扁平 `{code, message}` 结构（`internal/frontend/serve/tutor.go:165-214` 共 21 个哨兵错误分支），非 v1 的 `{"error": {code, message, details}}` 嵌套信封 |
 
 ### 6.3 shim 缺位事实
 
 - **无 `/api` 兼容层**：Go 侧只暴露 `/tutor/*`（78 端点）+ 内核自身路由（`routes.go:12-111`），旧 SPA 依赖的 `/api/*`（145 operations）**在 Go 服务上全部 404**。阶段① **M3.5 待建** shim 映射层（设计见 `plan/reasonix/03-API设计与shim映射.md`）。
-- **鉴权未落地到 tutor 面**：`/tutor/*` 走通用中间件链 `logMiddleware(auth.middleware(auth.hostGuard(csrfGuard(auth.mutationGate(routes())))))`（`internal/frontend/serve/serve.go:398`）；其中 CSRF 守卫只要求 POST 带 `application/json`（serve.go:409-419），`mutationGate` 在无鉴权模式下要求 launch token（`internal/frontend/serve/launch_token.go:57-63`），**无 v1 式的用户级 JWT / 多用户归属隔离**——v1 的 `require_auth` 四级链、`get_owned_*` 归属守卫在 Go 侧不存在。
+- **鉴权未落地到 tutor 面**：`/tutor/*` 走通用中间件链 `logMiddleware(auth.middleware(auth.hostGuard(csrfGuard(auth.mutationGate(routes())))))`（`internal/frontend/serve/serve.go:398`）；该链中 CSRF 守卫只要求 POST 带 `application/json`（serve.go:409-419），`mutationGate` 在无鉴权模式下要求 launch token（`internal/frontend/serve/launch_token.go:57-63`），**无 v1 式的用户级 JWT / 多用户归属隔离**——v1 的 `require_auth` 四级链、`get_owned_*` 归属守卫在 Go 侧不存在。
 - **上传形态不同**：Go 侧材料上传收 JSON `{filename, content_base64}`（tutor.go:361-389），非 multipart 表单。
 - **备份体量**：`/tutor/backup/import` 读包上限 `backupReaderCap = 360 << 20`（tutor_backup.go:18、72），解码后阈值对齐 v1 的 256MB。

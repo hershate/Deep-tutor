@@ -14,6 +14,22 @@
 | [04-多用户与内核集成.md](reasonix/04-多用户与内核集成.md) | 用户装配层、per-user 装配、内核多实例化清单、Chat/审批/Rewind/planner 审查者 |
 | [05-四阶段任务分解与验收.md](reasonix/05-四阶段任务分解与验收.md) | M1–M5 细粒度任务、阶段②③④、9 插件等价表、19 页回归清单 |
 
+## 执行状态（2026-10-20）
+
+阶段① 进度：
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M1.1 内核吸收与裁剪 | 完成 | 8289 文件入库；上游无关资产树已按 01 §二 原表剔除（commit `bec5525`） |
+| M1.2 模块/import 重命名 | 未开始 | `go.mod` 仍为 `module reasonix`，全仓 8629 处 `reasonix/` import |
+| M1.3 多实例 spike | 未开始 | 04 §四矩阵待回填 |
+| M1.4 品牌化 + `DEEPTUTOR.md` | 未开始 | `DEEPTUTOR.md` 尚不存在 |
+| M1.5 门禁基线重建 + CI | 未开始 | `tools/repolint/baseline.json` 仍为上游基线；CI 只跑 Python v1 门禁 |
+| M1.6 `bin/deep-tutor.exe` | 未开始 | `cmd/` 下仍为 `reasonix` 系列入口 |
+| M2 / M3 / M4 / M5 | 未开始 | M3.5 shim 层缺位，旧 SPA 暂不能对接 Go 服务 |
+
+偏差登记：上游资产剔除范围与 note/12 修订记录 #37 的差异记于该文件修订记录及 01 执行状态注记。
+
 ## 必读配套
 
 - [note/12-Reasonix改造决策.md](../note/12-Reasonix改造决策.md) — **改造宪法**：61 项已确认决策（五轮），实施遇分歧先对照
