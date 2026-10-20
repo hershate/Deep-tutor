@@ -71,7 +71,19 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **S4 删会话把绑定 thread 的 `session_id` 置空**：`Thread.session_id` 可空 FK 且 `Session.threads` 无 delete 级联 -> 删会话后 thread 留存但 plan-gen 桥接失效（后续 `approve` 提升为 plan 返回 400 `thread_has_no_session`）。属**优雅降级**而非数据损坏；子 agent 标注为「推测」，未动。
   - **N5 乐观并发秒级分辨率**（iter395 已列，沿用）：`updated_at` 为 SQLite `CURRENT_TIMESTAMP`（秒粒度）-> 同秒双写仍 LWW，波及笔记/节点笔记/偏好/计费表。彻底修法需 `rev` 整数列（跨 4 张表 + 既有基线格式），未动。
 
-- **下一步**：① 待用户定夺 B1/B2 的产品级取舍（备份导入写锁时长、导出行情上限与截断/拒绝语义）；② 继续 v1 Python 后端未审面（`api/kb.py`、`api/materials.py`、`api/exports.py`、`api/users.py`、`api/auth.py`、`app/tools/`、`app/agent/`）；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+- **下一步**：① B1/B2 的产品级取舍已由用户定夺（见 iter 396-B）；② 继续 v1 Python 后端未审面（`api/kb.py`、`api/materials.py`、`api/exports.py`、`api/users.py`、`api/auth.py`、`app/tools/`、`app/agent/`）；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
+**iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，🚧 进行中）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
+
+- **B1 备份导入：文件落盘移出写事务（本条 commit）**：还原全程持 SQLite 写锁，而单文件「建+写」成本（Windows ~2.7ms）是对应 DB 插入（~0.2ms）的十余倍——文件 IO 落在事务内会把写锁持有时长放大一个数量级（还原上限 10 万行 -> 可产生十万级文件），期间全服务写请求等满 busy_timeout(10s) 后 500。
+  - **两段式**：① **预暂存（事务外，写锁未持有）**：按「载荷位置键」（`mat`/`plan`/`unit`/`kbparsed`/`kborig`）把内容写到 `data/.restore-staging/<uuid>/`（与目标同卷，rename 才可用）；② **改名（事务内）**：拿到新行 id 后 `os.replace` 到最终路径（纯元数据操作）。改名放在**事务内**而非 commit 之后——避免「DB 已提交但文件缺失」窗口；回滚仍由既有 `created_files` 补偿链兜底。
+  - **对不上即回退**：暂存缺失/数量不符时**回退为事务内直写**（宁可多持锁片刻，绝不丢数据）；预暂存与还原两遍按同一套载荷位置键配对，配对不上不会静默错配。
+  - **配套优化**：① 目录解析加缓存（`Path.resolve()` 在 Windows 上 ~0.46ms/次；实测 1250 个文件触发 2505 次 resolve、耗时 1.57s，**全部落在事务内**）；② 单元行改为**一次 flush 取全部 unit_id**（此前逐单元 flush = N 次数据库往返）。
+  - **实测（探针 `dt_probe_b1_lock.py`，50 会话 × (5 资料 + 20 单元) + 1 知识库原件 = 1252 个落盘文件）**：写锁持有时长 **9.248s → 3.29s（-65%）**；剖析（`dt_probe_b1_prof.py`）显示事务内剩余最大项已转为 DB 插入本身。
+  - **反直觉实测（`dt_probe_rename_bench.py`）**：并发 `os.replace` 在 NTFS 上**远慢于串行**（1252 次改名：1 线程 0.52s / 2 线程 1.67s / 4 线程 7.32s / 8 线程 8.31s——8 线程比串行慢 16 倍，元数据锁/过滤驱动争抢）-> 改名**保持串行**；并发只用于「新建 + 写内容」的预暂存阶段（实测并行有效）。
+  - **回归**：新增 `tests/test_iter396_backup_b1_staging.py` 9 条（内容落盘全部早于首条 INSERT / 暂存同卷 / 改名后内容正确 / >500 行 .pN 拆分 / 回退直写不丢数据 / 失败导入补偿删除已改名文件 / 暂存目录不残留）。全量 **1613 passed / 1 skipped**。
+
+- **B2 备份导出：改流式写出**：🚧 待落地（`core/backup.write_export` 逐项写出 + 知识库原件分块 base64）。
 
 **iter 395（2026-10-21，v1 Python 后端未审面续审与并发/暴露面加固轮，✅ 完成）**：承接 iter 392~394 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393/394「下一步」列出的未审面：`api/knowledge.py`、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`（+ `api/search.py` 复核）。
 

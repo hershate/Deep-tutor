@@ -38,6 +38,9 @@ import base64
 import json
 import logging
 import math
+import os
+import shutil
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,8 +49,16 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.core.settings import settings
 from app.core.storage import (
+    atomic_write_bytes,
+    data_root,
+    kb_original_path,
+    kb_parsed_text_path,
+    parsed_text_path,
+    prune_unit_parts,
     read_unit_content,
     save_kb_upload,
+    unit_content_parts,
+    unit_content_paths,
     write_kb_parsed_text,
     write_parsed_text,
     write_unit_content,
@@ -55,7 +66,7 @@ from app.core.storage import (
 from app.db import models
 
 if TYPE_CHECKING:  # pragma: no cover
-    from concurrent.futures import Future, ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger(__name__)
 
@@ -767,33 +778,234 @@ def _write_pool() -> "ThreadPoolExecutor":
     return _WRITE_POOL
 
 
-def _submit_parsed_texts(
-    pairs: list[tuple[models.Material, str]],
-    created_files: list[str] | None,
-) -> list[tuple[models.Material, "Future[str]"]]:
-    """提交解析文本写入（并发，返回待回填的 (row, future)）。
+# ---------------------------------------------------------------------------
+# 文件暂存（iter 396 B1）：把文件落盘移出写事务
+# ---------------------------------------------------------------------------
 
-    iter 392：单文件建/写成本（~2.7ms）远高于对应 DB 插入（~0.2ms），逐条串行写
-    使**写事务持有期**被文件 IO 拉长数倍——导入期间全服务写请求等满 busy_timeout
-    后失败。并发写缩短持锁时长，语义不变（文件仍先于 commit 落盘，失败仍可补偿）。
+# 暂存目录名（置于 data_dir 下，与最终路径同卷 -> os.replace 可用）
+_STAGING_DIRNAME = ".restore-staging"
 
-    跨会话统一提交（而非每会话等一批）：单会话最多 20 份资料，按会话等待会把并行
-    度限在 20，200 个会话 = 4000 个文件仍是串行量级。
+# 预暂存的批量阈值：按字节与条数双限，避免整份载荷的内容副本同时驻留内存
+# （一次导入的载荷可达 256MB，逐条全量缓存会把内存峰值再抬一个量级）。
+_STAGE_BATCH_BYTES = 8 * 1024 * 1024
+_STAGE_BATCH_ITEMS = 64
 
-    线程安全：worker 只做文件 IO 与 list.append（GIL 原子）；ORM 属性回填在调用
-    线程完成（SQLAlchemy Session 非线程安全）。
+# 落盘文件作业（iter 396 B1）：
+#   (位置键, 目标路径组, 改名失败时的直写动作, 单元内容 .pN 保留段数)
+# 作业在还原过程中登记，事务末尾统一批量改名（并发）——见 _apply_file_jobs。
+_FileJob = tuple[Any, list[Path], Any, int | None]
+
+
+class _StagedFiles:
+    """备份还原的文件暂存器（iter 396 B1）。
+
+    动机：还原全程持 SQLite 写锁，而单文件「建+写」成本（Windows ~2.7ms）是
+    对应 DB 插入（~0.2ms）的十余倍——文件 IO 落在事务内会把写锁持有时长放大
+    一个数量级（还原上限 10 万行 -> 可产生十万级文件），期间全服务写请求
+    等满 busy_timeout(10s) 后 500。
+
+    做法（两段式）：
+    1. **预暂存（事务外，写锁尚未持有）**：按「载荷位置键」把内容写到暂存目录；
+    2. **改名（事务内）**：拿到新行 id 后把暂存文件 os.replace 到最终路径。
+       改名是纯元数据操作（~0.1ms），事务内只剩它。
+
+    暂存目录置于 data_dir 下（与最终路径同卷，rename 才可用）。位置键只依赖
+    载荷结构（不含配额判定），故预暂存与还原两遍的遍历顺序天然一致；还原侧
+    因配额/校验跳过而未被改名的暂存文件在结束时统一清理。
+
+    任何一处对不上（暂存缺失、数量不符）都**回退为事务内直写**——宁可多持锁
+    片刻，也不丢数据。
     """
-    if not pairs:
-        return []
 
-    def _one(row: models.Material, text: str) -> str:
-        path = str(write_parsed_text(row.session_id, row.id, text))
-        if created_files is not None:
-            created_files.append(path)  # list.append 线程安全（GIL）
-        return path
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._dir: Path | None = None
+        self._items: dict[Any, list[Path]] = {}
+        self._pending: list[tuple[Any, list[bytes]]] = []
+        self._pending_bytes = 0
+        self._seq = 0
 
-    pool = _write_pool()
-    return [(row, pool.submit(_one, row, text)) for row, text in pairs]
+    # -- 阶段一：登记 + 落盘（事务外） --
+    def add(self, key: Any, parts: list[bytes]) -> None:
+        """登记一组待暂存内容（parts[0] 对应主文件，其余按序对应 .pN）。"""
+        self._pending.append((key, parts))
+        self._pending_bytes += sum(len(p) for p in parts)
+        if len(self._pending) >= _STAGE_BATCH_ITEMS or self._pending_bytes >= _STAGE_BATCH_BYTES:
+            self._flush_batch()
+
+    def flush(self) -> None:
+        """把剩余登记内容写入暂存目录（并发；仍在事务外）。"""
+        self._flush_batch()
+
+    def _flush_batch(self) -> None:
+        if not self._pending:
+            return
+        if self._dir is None:
+            self._dir = self._root / _STAGING_DIRNAME / uuid.uuid4().hex
+            self._dir.mkdir(parents=True, exist_ok=True)
+        batch, self._pending = self._pending, []
+        self._pending_bytes = 0
+        jobs: list[tuple[Path, bytes]] = []
+        for key, parts in batch:
+            paths: list[Path] = []
+            for part in parts:
+                self._seq += 1
+                p = self._dir / f"{self._seq:08d}.stage"
+                paths.append(p)
+                jobs.append((p, part))
+            self._items[key] = paths
+        pool = _write_pool()
+        futures = [pool.submit(atomic_write_bytes, p, data) for p, data in jobs]
+        # 等全部 worker 结束再抛错：否则失败路径清理暂存目录时仍有 worker 在写，
+        # 会在清理后把目录重建出来（留下垃圾目录）。
+        error: BaseException | None = None
+        for fut in futures:
+            try:
+                fut.result()
+            except BaseException as exc:  # noqa: BLE001 - 汇总后原样抛出
+                error = error or exc
+        if error is not None:
+            raise error
+
+    # -- 阶段二：改名（事务内） --
+    def promote(
+        self, key: Any, finals: list[Path], created_files: list[str] | None = None
+    ) -> bool:
+        """把 key 的暂存文件改名到最终路径；成功返回 True。
+
+        未暂存 / 数量不符 / 暂存文件缺失一律返回 False 且**不动任何文件**
+        （先全量校验再逐个改名），调用方据此回退为事务内直写。
+        """
+        staged = self._items.get(key)
+        if not staged or len(staged) != len(finals):
+            return False
+        if not all(p.exists() for p in staged):
+            return False
+        for src, dst in zip(staged, finals):
+            os.replace(src, dst)
+            if created_files is not None:
+                created_files.append(str(dst))
+        return True
+
+    def promote_all(
+        self, jobs: list[tuple[Any, list[Path]]], created_files: list[str] | None = None
+    ) -> set[Any]:
+        """批量改名（**串行**，事务内）；返回未能改名的位置键集合。
+
+        刻意不并发：微基准 dt_probe_rename_bench.py（1252 个 4KB 文件改名）实测
+        并发 os.replace 在 NTFS 元数据锁 / 过滤驱动上互相争抢，反而远慢于串行——
+        workers=1 0.52s、2 1.67s、4 7.32s、8 8.31s（8 线程比串行慢 16 倍）。
+        故此处串行执行；批量 API 的价值在于统一收口与「失败即回退直写」。
+
+        单个失败不影响其余——调用方按失败集合回退为事务内直写。
+        """
+        if not jobs:
+            return set()
+        failed: set[Any] = set()
+        for key, finals in jobs:
+            try:
+                if not self.promote(key, finals, created_files):
+                    failed.add(key)
+            except BaseException as exc:  # noqa: BLE001 - 汇总后原样抛出
+                failed.add(key)
+                raise exc
+        return failed
+
+    def cleanup(self) -> None:
+        """清理暂存目录（还原结束/失败时调用）。"""
+        if self._dir is None:
+            return
+        shutil.rmtree(self._dir, ignore_errors=True)
+        try:
+            self._dir.parent.rmdir()  # 仅在空时成功（并发导入时保留父目录）
+        except OSError:
+            pass
+
+
+def _stage_restore_files(
+    data: dict,
+    stager: _StagedFiles,
+    sessions_room: int,
+    kb_room: int,
+) -> None:
+    """预暂存还原将写入的文件内容（事务外，写锁尚未持有）。
+
+    按「载荷位置键」与还原阶段一一对应：
+      ("mat", 会话下标, 资料下标)          -> 资料解析文本
+      ("plan", 会话下标, 方案下标)         -> 方案溢出 JSON
+      ("unit", 会话下标, 方案下标, 单元下标) -> 单元内容（main + .pN 分段）
+      ("kbparsed", 文档下标)               -> 知识库解析文本
+      ("kborig", 文档下标)                 -> 知识库原件（base64 解码后）
+
+    配额判定在此**镜像**还原阶段（同一套常量、同样的跳过顺序），避免为注定
+    被跳过的条目白写磁盘；对不上时还原阶段会回退直写，暂存文件最终统一清理
+    ——不会丢数据。
+    """
+    for si, s in enumerate(data.get("sessions") or []):
+        if not isinstance(s, dict):
+            continue
+        if sessions_room <= 0:
+            break
+        sessions_room -= 1
+        mats_room = _MAX_MATERIALS_PER_SESSION
+        for mi, m in enumerate(s.get("materials") or []):
+            if not isinstance(m, dict):
+                continue
+            if mats_room <= 0:
+                continue
+            if _enum_or(models.MaterialKind, m.get("kind")) is None:
+                continue  # 还原阶段同样跳过（kind 非法）
+            mats_room -= 1
+            text = m.get("parsed_text")
+            if isinstance(text, str) and text:
+                stager.add(("mat", si, mi), [text.encode("utf-8")])
+        plans_room = _MAX_PLANS_PER_SESSION
+        for pi, p in enumerate(s.get("plans") or []):
+            if not isinstance(p, dict):
+                continue
+            if plans_room <= 0:
+                continue
+            plans_room -= 1
+            content = p.get("content") if isinstance(p.get("content"), dict) else {}
+            content_json = json.dumps(content, ensure_ascii=False)
+            if content and len(content_json.encode("utf-8")) > _PLAN_OVERFLOW_BYTES:
+                stager.add(("plan", si, pi), [content_json.encode("utf-8")])
+            units_room = _MAX_UNITS
+            for ui, u in enumerate(p.get("study_units") or []):
+                if not isinstance(u, dict):
+                    continue
+                if units_room <= 0:
+                    continue
+                if not str(u.get("title") or "")[:256]:
+                    continue  # 还原阶段同样跳过（空标题）
+                units_room -= 1
+                content_md = u.get("content_md")
+                if isinstance(content_md, str) and content_md:
+                    stager.add(
+                        ("unit", si, pi, ui),
+                        [part.encode("utf-8") for part in unit_content_parts(content_md)],
+                    )
+    for di, d in enumerate(data.get("kb_documents") or []):
+        if not isinstance(d, dict):
+            continue
+        if not str(d.get("title") or "")[:256]:
+            continue
+        if kb_room <= 0:
+            break
+        kb_room -= 1
+        if _enum_or(models.MaterialKind, d.get("kind")) is None:
+            continue
+        text = d.get("parsed_text")
+        if isinstance(text, str) and text:
+            stager.add(("kbparsed", di), [text.encode("utf-8")])
+        b64 = d.get("original_b64")
+        if isinstance(b64, str) and b64:
+            try:
+                raw = base64.b64decode(b64, validate=True)
+            except (ValueError, TypeError):
+                raw = None
+            if raw is not None and len(raw) <= _KB_ORIGINAL_MAX_BYTES:
+                stager.add(("kborig", di), [raw])
 
 
 def restore_backup(
@@ -807,6 +1019,11 @@ def restore_backup(
     单事务语义：本函数只 flush，commit/rollback 由调用方（端点）负责。
     created_files：可选的落盘文件登记簿——restore 期间写入磁盘的路径追加其中，
     端点在事务失败时据此删除（DB 回滚不回滚磁盘，kb 原件孤儿不被 maintenance 回收）。
+
+    iter 396 B1：**文件落盘移出写事务**——内容先写暂存区（事务外，写锁未持有），
+    事务内只做改名（os.replace）。还原的文件量可达十万级（行数预算上限），
+    逐个建文件（~2.7ms/个）落在事务内会把写锁持有时长放大到分钟级，
+    期间全服务写请求等满 busy_timeout 后 500；改名是元数据操作（~0.1ms/个）。
     """
     data = validate_backup(data)
     total_rows = _count_payload_rows(data)
@@ -815,6 +1032,51 @@ def restore_backup(
             f"备份将创建约 {total_rows} 行，超过单次导入上限 {_MAX_TOTAL_ROWS} 行——"
             "请拆分为多个备份分批导入"
         )
+    # 配额余量先算好（只读查询，不持写锁）：预暂存与还原两阶段共用同一口径
+    sessions_room = _MAX_SESSIONS - db.query(models.Session).filter_by(user_id=user.id).count()
+    kb_room = _MAX_KB_DOCS - db.query(models.KbDocument).filter_by(user_id=user.id).count()
+    stager = _StagedFiles(data_root())
+    try:
+        # 阶段一（事务外）：内容落盘到暂存区（写锁此时尚未持有）
+        _stage_restore_files(data, stager, sessions_room, kb_room)
+        stager.flush()
+        # 阶段二（事务内）：只改名，不建文件
+        return _restore_rows(db, user, data, created_files, stager, sessions_room, kb_room)
+    finally:
+        stager.cleanup()
+
+
+def _apply_file_jobs(
+    stager: _StagedFiles,
+    jobs: list["_FileJob"],
+    created_files: list[str] | None,
+) -> None:
+    """执行落盘文件的改名（事务内，批量串行）；未改名的回退为事务内直写。
+
+    改名失败（暂存缺失/数量不符）不得让数据丢失——回退直写只是多持锁片刻。
+    """
+    if not jobs:
+        return
+    failed = stager.promote_all([(key, finals) for key, finals, _fb, _pk in jobs], created_files)
+    for key, finals, fallback, prune_keep in jobs:
+        if key in failed:
+            path = fallback()
+            if created_files is not None:
+                created_files.append(str(path))
+        elif prune_keep is not None:
+            prune_unit_parts(finals[0], prune_keep)
+
+
+def _restore_rows(
+    db: DbSession,
+    user: models.User,
+    data: dict,
+    created_files: list[str] | None,
+    stager: _StagedFiles,
+    sessions_room: int,
+    kb_room: int,
+) -> dict:
+    """还原主体（事务内）：建行 + 把暂存文件改名到最终路径。"""
     summary: dict[str, Any] = {
         "sessions": 0,
         "materials": 0,
@@ -843,13 +1105,13 @@ def restore_backup(
 
     # 配额与 API 路径一致（对齐 sessions.py/materials.py/notes.py 上限）：
     # 导入不放大用户的资源占用，超限部分跳过并记入 skipped（导入不硬失败）
-    # 配额常量在模块级（与 preview 共用，见 _MAX_SESSIONS 等定义）
-    sessions_room = _MAX_SESSIONS - db.query(models.Session).filter_by(user_id=user.id).count()
+    # 配额常量在模块级（与 preview 共用，见 _MAX_SESSIONS 等定义）；
+    # sessions_room / kb_room 由 restore_backup 预先算好传入（与预暂存同口径）。
 
-    # iter 392：解析文本文件写入的待回填项（并发提交，末尾统一回填 parsed_text_path）
-    pending_writes: list[tuple[models.Material, "Future[str]"]] = []
+    # 落盘文件作业表（iter 396 B1）：登记后于事务末尾统一批量改名
+    file_jobs: list["_FileJob"] = []
 
-    for s in data.get("sessions") or []:
+    for si, s in enumerate(data.get("sessions") or []):
         if not isinstance(s, dict):
             continue
         if sessions_room <= 0:
@@ -865,8 +1127,8 @@ def restore_backup(
 
         mats_room = _MAX_MATERIALS_PER_SESSION
         mats_skipped = 0
-        pending_texts: list[tuple[models.Material, str]] = []
-        for m in s.get("materials") or []:
+        pending_texts: list[tuple[models.Material, str, int]] = []
+        for mi, m in enumerate(s.get("materials") or []):
             if not isinstance(m, dict):
                 continue
             if mats_room <= 0:
@@ -896,15 +1158,26 @@ def restore_backup(
             db.add(row)
             text = m.get("parsed_text")
             if isinstance(text, str) and text:
-                pending_texts.append((row, text))
+                pending_texts.append((row, text, mi))
             summary["materials"] += 1
-        # iter 392：解析文本文件并发落盘（一次 flush 拿全部 material_id）。
-        # 此前逐条 flush + 逐条建文件：Windows 建文件 ~2.7ms/个，2000 个资料即 5.4s，
-        # 且全部发生在**写事务打开期间** -> SQLite 写锁被独占同样时长，期间全服务
-        # 写请求等满 busy_timeout(10s) 后 500/503。并发写把持锁时长压到约 1/N。
+        # iter 396 B1：解析文本**改名**进最终路径（内容已在事务外写入暂存区）。
+        # 此前建文件（~2.7ms/个，2000 个资料即 5.4s）全部发生在**写事务打开期间**
+        # -> SQLite 写锁被独占同样时长，期间全服务写请求等满 busy_timeout(10s)
+        # 后 500/503；现在事务内只剩 os.replace（~0.1ms/个）。
         if pending_texts:
             db.flush()  # 取 material_id 命名解析文本文件
-            pending_writes.extend(_submit_parsed_texts(pending_texts, created_files))
+            for row, text, mi in pending_texts:
+                final = parsed_text_path(sess.id, row.id)
+                row.parsed_text_path = str(final)
+                # 登记改名作业（事务末尾统一并发执行）；直写动作作为回退
+                file_jobs.append(
+                    (
+                        ("mat", si, mi),
+                        [final],
+                        (lambda sid=sess.id, r=row, t=text: write_parsed_text(sid, r.id, t)),
+                        None,
+                    )
+                )
         if mats_skipped:
             summary["skipped"].append(
                 f"会话「{sess.title or sess.id}」资料超每会话 {_MAX_MATERIALS_PER_SESSION} 份上限，{mats_skipped} 份未导入"
@@ -918,7 +1191,7 @@ def restore_backup(
         # 重号或非递增时顺延为 max+1。
         used_versions: set[int] = set()
         max_version = 0
-        for p in s.get("plans") or []:
+        for pi, p in enumerate(s.get("plans") or []):
             if not isinstance(p, dict):
                 continue
             if plans_room <= 0:
@@ -930,7 +1203,18 @@ def restore_backup(
                 v = max_version + 1
             used_versions.add(v)
             max_version = max(max_version, v)
-            _restore_plan(db, sess, p, summary, user.id, created_files, version=v)
+            _restore_plan(
+                db,
+                sess,
+                p,
+                summary,
+                user.id,
+                created_files,
+                version=v,
+                stage_key=(si, pi),
+                stager=stager,
+                file_jobs=file_jobs,
+            )
         if plans_skipped:
             summary["skipped"].append(
                 f"会话「{sess.title or sess.id}」方案超每会话 {_MAX_PLANS_PER_SESSION} 个上限，{plans_skipped} 个未导入"
@@ -943,11 +1227,19 @@ def restore_backup(
     # memories 的 thread 关联按下标 -> 新 Thread 行（导出顺序），故先还原 threads 拿映射。
     restored_threads = _restore_threads(db, user, data.get("threads") or [], summary)
     _restore_memories(db, user, data.get("memories") or [], restored_threads, summary)
-    _restore_kb_documents(db, user, data.get("kb_documents") or [], summary, created_files)
-    # iter 392：解析文本写入全部完成 -> 回填 parsed_text_path（主线程改 ORM 状态）。
-    # 任一写入失败在此抛出（DB 事务随之回滚，已落盘文件已登记于 created_files 可补偿）。
-    for row, fut in pending_writes:
-        row.parsed_text_path = fut.result()
+    _restore_kb_documents(
+        db,
+        user,
+        data.get("kb_documents") or [],
+        summary,
+        created_files,
+        stager=stager,
+        room=kb_room,
+        file_jobs=file_jobs,
+    )
+    # iter 396 B1：落盘文件统一改名（事务内，批量串行）——内容已在事务外写入
+    # 暂存区，此处只剩 os.replace（纯元数据操作）；失败的回退为事务内直写。
+    _apply_file_jobs(stager, file_jobs, created_files)
     return summary
 
 
@@ -1151,14 +1443,22 @@ def _restore_kb_documents(
     docs: Any,
     summary: dict,
     created_files: list[str] | None = None,
+    stager: "_StagedFiles | None" = None,
+    room: int | None = None,
+    file_jobs: list["_FileJob"] | None = None,
 ) -> None:
     """kb_documents（iter 369 R6）：追加式还原——parsed 文本重落盘（新 doc id 命名）、
-    原件 base64 解码重存；配额与 /kb 同口径（每用户 ≤200）。"""
+    原件 base64 解码重存；配额与 /kb 同口径（每用户 ≤200）。
+
+    iter 396 B1：文件内容在事务外已写入暂存区，此处只改名（stager 为 None 时
+    回退为事务内直写，单测直调本函数不受影响）。
+    """
     if not isinstance(docs, list):
         return
-    room = _MAX_KB_DOCS - db.query(models.KbDocument).filter_by(user_id=user.id).count()
+    if room is None:
+        room = _MAX_KB_DOCS - db.query(models.KbDocument).filter_by(user_id=user.id).count()
     skipped = 0
-    for d in docs:
+    for di, d in enumerate(docs):
         if not isinstance(d, dict):
             continue
         title = str(d.get("title") or "")[:256]
@@ -1194,10 +1494,22 @@ def _restore_kb_documents(
         db.flush()  # 取新 doc_id 命名文件
         text = d.get("parsed_text")
         if isinstance(text, str) and text:
-            path = write_kb_parsed_text(user.id, row.id, text)
-            row.parsed_text_path = str(path)
-            if created_files is not None:
-                created_files.append(str(path))
+            final = kb_parsed_text_path(user.id, row.id)
+            row.parsed_text_path = str(final)
+            if file_jobs is None:
+                # 无作业表（单测直调）-> 事务内直写
+                write_kb_parsed_text(user.id, row.id, text)
+                if created_files is not None:
+                    created_files.append(str(final))
+            else:
+                file_jobs.append(
+                    (
+                        ("kbparsed", di),
+                        [final],
+                        (lambda uid=user.id, did=row.id, t=text: write_kb_parsed_text(uid, did, t)),
+                        None,
+                    )
+                )
         b64 = d.get("original_b64")
         if isinstance(b64, str) and b64:
             try:
@@ -1213,10 +1525,26 @@ def _restore_kb_documents(
                 )
                 raw = None
             if raw is not None:
-                path = save_kb_upload(user.id, row.id, raw, row.ext)
-                row.original_path = str(path)
-                if created_files is not None:
-                    created_files.append(str(path))
+                final = kb_original_path(user.id, row.id, row.ext)
+                row.original_path = str(final)
+                if file_jobs is None:
+                    # 无作业表（单测直调）-> 事务内直写
+                    save_kb_upload(user.id, row.id, raw, row.ext)
+                    if created_files is not None:
+                        created_files.append(str(final))
+                else:
+                    file_jobs.append(
+                        (
+                            ("kborig", di),
+                            [final],
+                            (
+                                lambda uid=user.id, did=row.id, r=raw, e=row.ext: save_kb_upload(
+                                    uid, did, r, e
+                                )
+                            ),
+                            None,
+                        )
+                    )
         summary["kb_documents"] += 1
     if skipped:
         summary["skipped"].append(f"知识库文档数达上限 {_MAX_KB_DOCS} 篇，{skipped} 篇未导入")
@@ -1286,6 +1614,9 @@ def _restore_plan(
     user_id: int,
     created_files: list[str] | None = None,
     version: int | None = None,
+    stage_key: tuple[int, int] | None = None,
+    stager: "_StagedFiles | None" = None,
+    file_jobs: list["_FileJob"] | None = None,
 ) -> None:
     # iter 246：单方案子对象配额——构造备份此前可在一次导入里写入无限行
     # （外层仅有会话/资料/笔记配额）；超限跳过并计入 skipped（对齐外层配额语义）
@@ -1322,11 +1653,23 @@ def _restore_plan(
         # 裸 write_text 中途崩溃/IO 错留下半截 plan_<id>.json，若其后 commit 成功或
         # 重试导入复用同 id，content_path 指向截断文件 -> 大方案静默变空
         path = exports_dir(sess.id) / f"plan_{plan.id}.json"
-        atomic_write_text(path, content_json)
         plan.content_path = str(path)
         plan.content = {}
-        if created_files is not None:
-            created_files.append(str(path))
+        if file_jobs is None:
+            # 无作业表（单测直调）-> 事务内直写
+            atomic_write_text(path, content_json)
+            if created_files is not None:
+                created_files.append(str(path))
+        else:
+            # iter 396 B1：内容已在事务外写入暂存区，此处只登记改名作业
+            file_jobs.append(
+                (
+                    ("plan", *stage_key),
+                    [path],
+                    (lambda p=path, cj=content_json: atomic_write_text(p, cj)),
+                    None,
+                )
+            )
     summary["plans"] += 1
 
     # 知识节点两遍插入（先建行取 id，再按 sid 回填父引用），sid -> 新行映射
@@ -1519,7 +1862,8 @@ def _restore_plan(
             summary["quiz_attempts"] += 1
 
     units_room = _MAX_UNITS
-    for u in p.get("study_units") or []:
+    unit_rows: list[tuple[models.StudyUnit, dict, int]] = []
+    for ui, u in enumerate(p.get("study_units") or []):
         if not isinstance(u, dict):
             continue
         title = str(u.get("title") or "")[:256]
@@ -1547,13 +1891,38 @@ def _restore_plan(
         if dt := _parse_dt(u.get("done_at")):
             unit.done_at = dt
         db.add(unit)
-        db.flush()  # 取 unit_id 命名内容文件
+        unit_rows.append((unit, u, ui))
         summary["study_units"] += 1
-        content_md = u.get("content_md")
-        if isinstance(content_md, str) and content_md:
-            path = write_unit_content(sess.id, unit.id, content_md)  # >500 行自动拆子文件
-            if created_files is not None:
-                created_files.append(str(path))
+    # iter 396 B1：先建全部单元行、再一次性 flush 取 unit_id——此前逐单元 flush
+    # 是 N 次数据库往返，十万级单元时是写锁持有时长的主要来源。
+    if unit_rows:
+        db.flush()
+        for unit, u, ui in unit_rows:
+            content_md = u.get("content_md")
+            if not (isinstance(content_md, str) and content_md):
+                continue
+            if file_jobs is None:
+                # 无作业表（单测直调）-> 事务内直写
+                path = write_unit_content(sess.id, unit.id, content_md)  # >500 行自动拆子文件
+                if created_files is not None:
+                    created_files.append(str(path))
+            else:
+                # 内容已在事务外写入暂存区；此处只登记改名作业（>500 行的 .pN
+                # 拆分规则与 write_unit_content 共用 unit_content_parts）
+                finals = unit_content_paths(sess.id, unit.id, content_md)
+                file_jobs.append(
+                    (
+                        ("unit", *stage_key, ui),
+                        finals,
+                        (
+                            lambda sid=sess.id, uid=unit.id, md=content_md: write_unit_content(
+                                sid, uid, md
+                            )
+                        ),
+                        len(finals),
+                    )
+                )
+                path = finals[0]
             db.add(
                 models.StudyMaterial(
                     unit_id=unit.id,

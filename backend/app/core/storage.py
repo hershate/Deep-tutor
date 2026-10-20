@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
 from app.core.settings import settings
@@ -26,8 +27,27 @@ def _rmtree_orphan_aware(base: Path) -> None:
         log.warning("目录删除不完整（可能文件被占用），遗留：%s", base)
 
 
+@lru_cache(maxsize=64)
+def _root_cached(data_dir: str) -> Path:
+    """data_dir 的解析结果（缓存）——见 _root 的说明。"""
+    return Path(data_dir).resolve()
+
+
 def _root() -> Path:
-    return Path(settings.data_dir).resolve()
+    """data_dir 根目录（已 resolve）。
+
+    iter 396 B1：解析结果带缓存——``Path.resolve()`` 在 Windows 上约 0.46ms/次
+    （走 ntpath.realpath），备份还原逐文件解析会话目录时会被放大到秒级
+    （实测 1250 个文件 -> 2505 次 resolve -> 1.57s，且全部落在写事务内）。
+    缓存键含 data_dir 原文，设置变更即换键；``resolve_under_root`` 的越界
+    校验在首次计算时已完成，路径由 data_dir + id 唯一确定。
+    """
+    return _root_cached(str(settings.data_dir))
+
+
+def data_root() -> Path:
+    """data_dir 根目录（已 resolve）——备份暂存区等需与最终路径同卷的场景用（iter 396 B1）。"""
+    return _root()
 
 
 def strip_ext_prefix(p: Path | str) -> str:
@@ -78,6 +98,12 @@ def resolve_under_root(root: Path, *parts: str) -> Path:
     return base
 
 
+@lru_cache(maxsize=4096)
+def _session_root_cached(root_str: str, sid: str) -> Path:
+    """会话目录解析结果（缓存）——见 _session_root 的说明。"""
+    return resolve_under_root(Path(root_str), "sessions", sid)
+
+
 def _session_root(session_id: int | str) -> Path:
     """会话目录，确保在 data_dir 内（防路径遍历）。"""
     root = _root()
@@ -86,7 +112,8 @@ def _session_root(session_id: int | str) -> Path:
     if not sid.replace("_", "").isalnum():
         raise ValueError(f"非法 session_id: {session_id}")
     # iter 392：越界判定统一走 resolve_under_root（Windows 扩展长度前缀形态无关）
-    return resolve_under_root(root, "sessions", sid)
+    # iter 396 B1：解析结果带缓存（还原时同一会话的目录被逐文件反复解析）
+    return _session_root_cached(str(root), sid)
 
 
 def originals_dir(session_id: int | str) -> Path:
@@ -162,6 +189,11 @@ def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
     _atomic_write_text(path, text, encoding)
 
 
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """公开原子写（字节）——备份还原的「暂存区落盘」用（iter 396 B1）。"""
+    _atomic_write_bytes(path, content)
+
+
 def save_upload(session_id: int | str, material_id: int, content: bytes, ext: str) -> Path:
     """保存上传原件（用 material_id 命名，非原始文件名，R20）。"""
     safe = _safe_ext(ext)
@@ -171,8 +203,13 @@ def save_upload(session_id: int | str, material_id: int, content: bytes, ext: st
     return path
 
 
+def parsed_text_path(session_id: int | str, material_id: int) -> Path:
+    """资料解析文本的目标路径（只算路径，不写文件）——备份还原「先暂存后改名」用（iter 396 B1）。"""
+    return parsed_dir(session_id) / f"{material_id}.txt"
+
+
 def write_parsed_text(session_id: int | str, material_id: int, text: str) -> Path:
-    path = parsed_dir(session_id) / f"{material_id}.txt"
+    path = parsed_text_path(session_id, material_id)
     _atomic_write_text(path, text)
     return path
 
@@ -226,6 +263,20 @@ def _split_at_headings(text: str, max_lines: int = _MAX_UNIT_FILE_LINES) -> list
     return parts or [text]
 
 
+def unit_content_parts(content_md: str) -> list[str]:
+    """单元内容的分段（main + .pN）——备份还原的暂存/改名与正常写入共用同一分段规则（iter 396 B1）。"""
+    if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES:
+        return [content_md]
+    return _split_at_headings(content_md)
+
+
+def unit_content_paths(session_id: int | str, unit_id: int, content_md: str) -> list[Path]:
+    """单元内容的目标路径列表（main + .pN，只算路径不写文件）——备份还原的暂存+改名用（iter 396 B1）。"""
+    main = materials_dir(session_id) / f"unit_{unit_id}.md"
+    parts = unit_content_parts(content_md)
+    return [main] + [_part_path(main, i) for i in range(2, len(parts) + 1)]
+
+
 def write_unit_content(session_id: int | str, unit_id: int, content_md: str) -> Path:
     """写单元内容（>500 行自动拆子文件，plan/02 §13），返回主文件路径。
 
@@ -233,11 +284,7 @@ def write_unit_content(session_id: int | str, unit_id: int, content_md: str) -> 
     则旧内容已删、新内容未落盘 -> 单元内容彻底丢失。新顺序：原子写新 main + .pN（覆盖旧同名），
     全部成功后清编号超出新 parts 数的旧 .pN；任一写失败则旧版本仍完整（可重试）。"""
     main = materials_dir(session_id) / f"unit_{unit_id}.md"
-    parts = (
-        [content_md]
-        if content_md.count("\n") + 1 <= _MAX_UNIT_FILE_LINES
-        else _split_at_headings(content_md)
-    )
+    parts = unit_content_parts(content_md)
     _atomic_write_text(main, parts[0])  # 原子覆盖 main（先写新，失败旧 main 仍在）
     for i, part in enumerate(parts[1:], 2):
         _atomic_write_text(_part_path(main, i), part)  # 原子覆盖 .pN
@@ -254,6 +301,15 @@ def _delete_extra_parts(main: Path, keep_count: int) -> None:
             break
         part.unlink(missing_ok=True)
         n += 1
+
+
+def prune_unit_parts(main: Path, keep_count: int) -> None:
+    """删编号 > keep_count 的 .pN 拆分子文件（公开入口，iter 396 B1）。
+
+    备份还原走「暂存 + 改名」路径时不经 write_unit_content，需显式清理旧残留
+    （还原失败重试会复用同一 unit_id，残留 .pN 会让读回内容多出旧段落）。
+    """
+    _delete_extra_parts(main, keep_count)
 
 
 def read_unit_content(path: str | Path) -> str:
@@ -314,13 +370,20 @@ def delete_material_files(session_id: int | str, material_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=4096)
+def _kb_root_cached(root_str: str, uid: str) -> Path:
+    """知识库目录解析结果（缓存）——见 _kb_root 的说明。"""
+    return resolve_under_root(Path(root_str), "kb", uid)
+
+
 def _kb_root(user_id: int | str) -> Path:
     """用户知识库目录，确保在 data_dir 内（R20 防路径遍历，同 _session_root）。"""
     root = _root()
     uid = str(user_id)
     if not uid.replace("_", "").isalnum():
         raise ValueError(f"非法 user_id: {user_id}")
-    return resolve_under_root(root, "kb", uid)
+    # iter 396 B1：解析结果带缓存（同 _session_root）
+    return _kb_root_cached(str(root), uid)
 
 
 def kb_originals_dir(user_id: int | str) -> Path:
@@ -335,17 +398,27 @@ def kb_parsed_dir(user_id: int | str) -> Path:
     return d
 
 
-def save_kb_upload(user_id: int | str, doc_id: int | str, content: bytes, ext: str) -> Path:
-    """保存知识库上传原件（用 doc_id 命名，非原始文件名，R20）。"""
+def kb_original_path(user_id: int | str, doc_id: int | str, ext: str) -> Path:
+    """知识库原件的目标路径（只算路径，不写文件）——备份还原的暂存+改名用（iter 396 B1）。"""
     safe = _safe_ext(ext)
     name = f"{doc_id}.{safe}" if safe else str(doc_id)
-    path = kb_originals_dir(user_id) / name
+    return kb_originals_dir(user_id) / name
+
+
+def save_kb_upload(user_id: int | str, doc_id: int | str, content: bytes, ext: str) -> Path:
+    """保存知识库上传原件（用 doc_id 命名，非原始文件名，R20）。"""
+    path = kb_original_path(user_id, doc_id, ext)
     _atomic_write_bytes(path, content)
     return path
 
 
+def kb_parsed_text_path(user_id: int | str, doc_id: int | str) -> Path:
+    """知识库解析文本的目标路径（只算路径，不写文件）——备份还原的暂存+改名用（iter 396 B1）。"""
+    return kb_parsed_dir(user_id) / f"{doc_id}.txt"
+
+
 def write_kb_parsed_text(user_id: int | str, doc_id: int | str, text: str) -> Path:
-    path = kb_parsed_dir(user_id) / f"{doc_id}.txt"
+    path = kb_parsed_text_path(user_id, doc_id)
     _atomic_write_text(path, text)
     return path
 
