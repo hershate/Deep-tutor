@@ -26,7 +26,7 @@
 |---|--------|------|
 | 1 | 仓库起点 | **当前仓库内改造**：Deep-tutor 仓库新建 Go 后端逐步替换 Python，保留 git 历史 |
 | 2 | Web 特性不变的严格度 | **前端可重做**（只保留产品能力清单）；后端 /api 契约不再是逐字节硬约束 |
-| 3 | /tutor/* 与 /api 关系 | **tutor.Service 不动 + 新增 /api 兼容路由层复用它**；/tutor/* 保留给 Studio |
+| 3 | /tutor/* 与 /api 关系 | **tutor.Service 不动 + 新增 /api 兼容路由层复用 tutor.Service**；/tutor/* 保留给 Studio |
 | 4 | 前端范围 | **四前端全套**：Web / Electron Studio / CLI / TUI / ACP |
 
 ### B. 前端
@@ -81,7 +81,7 @@
 | # | 决策点 | 决策 |
 |---|--------|------|
 | 29 | 交付形态 | **主二进制**（内嵌新 SPA + tutor + serve/CLI/TUI/ACP，多用户 Web 服务形态，端口 41173，Windows 优先）+ **Studio 安装包单独构建** |
-| 30 | 阶段/验收/上游 | **四阶段递进**；验收以 Deep-tutor 现有功能清单回归（逐项 + SSE 事件序列对拍）；Reasonix 源码作一次性基线搬入，**自由修改不跟上游，以本仓库为中心，但仓库内明写引用 Reasonix 代码并遵守其 MIT 协议** |
+| 30 | 阶段/验收/上游 | **四阶段递进**；验收以 Deep-tutor 现有功能清单回归（逐项 + SSE 事件序列对拍）；Reasonix 源码作一次性基线搬入，**自由修改不跟上游，以本仓库为中心，但仓库内明写引用 Reasonix 代码并遵守 MIT 协议** |
 
 ## 三、四阶段划分（已确认骨架）
 

@@ -5,7 +5,7 @@
 
 ## 一、设计原则
 
-1. **/api 是唯一对外承诺契约**（#34）：新前端、浏览器扩展、Studio webview、CLI/TUI/ACP 的 Web 通道都走它；Reasonix 原生端点（/events、/providers 等 serve 路由）不对外承诺，仅内部与 /tutor/* Studio 面板使用（#3）。
+1. **/api 是唯一对外承诺契约**（#34）：新前端、浏览器扩展、Studio webview、CLI/TUI/ACP 的 Web 通道都走 /api；Reasonix 原生端点（/events、/providers 等 serve 路由）不对外承诺，仅内部与 /tutor/* Studio 面板使用（#3）。
 2. **v2 形态一步到位**（#45）：不背 v1 历史包袱（如 Anthropic block 原生形态的消息结构）；事件名沿用 snake_case 但按新域重定义。
 3. **统一中间件链**：JWT/PAT 认证 → 归属注入（ctx user_id）→ 配额/限流 → 错误信封。错误信封保持 `{error:{code,message,details}}` 结构（好设计保留），码表重定义（§四）。
 4. **SSE 三用保持**：生成流（POST + fetch ReadableStream 携带 Bearer）、Chat run 流、全局事件流（GET 常驻）；全部支持 `Last-Event-ID` 续接与 15s 心跳。
