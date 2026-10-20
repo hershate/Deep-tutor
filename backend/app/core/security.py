@@ -161,6 +161,23 @@ def passwordless_open(db) -> bool:
     return db.query(User.id).filter(User.password_hash != "").first() is None
 
 
+def open_mode_notice(db) -> str | None:
+    """开放本机模式（免认证）的运维告警文案；非开放模式返回 None（iter 397）。
+
+    开放模式下后端**完全免认证**：任何能连到本端口的客户端都拥有全部数据的
+    读写权（含用户管理与数据导出）。此前该状态只有前端横幅提示（Layout.tsx 的
+    open_mode 横幅），无浏览器的服务端部署看不到任何信号——比「弱 AUTH_TOKEN」
+    更严重的情形反而静默（启动期只对弱 token / 弱 JWT_SECRET 告警）。
+    """
+    if not passwordless_open(db):
+        return None
+    return (
+        "当前处于「开放本机模式」：未配置 AUTH_TOKEN / ADMIN_PASSWORD，"
+        "任何能访问本服务端口的客户端都可免认证读写全部数据（含用户管理与数据导出）"
+        "——若需暴露到网络，请先在 .env 配置 AUTH_TOKEN 或 ADMIN_PASSWORD"
+    )
+
+
 def get_or_create_open_admin(db) -> User:
     """开放模式下的身份锚点：返回首个管理员；库中无管理员则懒创建
     （username=ADMIN_USERNAME，password_hash="" —— 空 hash 在 verify_password

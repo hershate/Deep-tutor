@@ -73,7 +73,15 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 - **下一步**：① B1/B2 的产品级取舍已由用户定夺（见 iter 396-B）；② 继续 v1 Python 后端未审面（`api/kb.py`、`api/materials.py`、`api/exports.py`、`api/users.py`、`api/auth.py`、`app/tools/`、`app/agent/`）；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
 
-**iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，🚧 进行中）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
+**iter 397（2026-10-21，v1 Python 后端剩余未审面续审与暴露面加固轮，🚧 进行中）**：承接 iter 396-B 的「下一步 ② 继续 v1 Python 后端未审面」。本轮审计面：`api/kb.py`、`api/materials.py`、`api/exports.py`、`api/users.py`、`api/auth.py`、`app/tools/`、`app/agent/`（前五项与后两项分派 4 个 explore 子 agent 并行审计）。
+
+- **主会话自查发现并修复（1）**：
+  - **启动期缺「开放本机模式」告警**（暴露面，运维侧唯一信号缺失）：开放模式（无 AUTH_TOKEN / 无人设口令 / 无 active PAT）下后端**完全免认证**——任何能连到本端口的客户端都拥有全部数据的读写权（含用户管理与数据导出）。此前该状态**只有前端横幅**（`Layout.tsx` 的 open_mode 横幅）提示，无浏览器的服务端部署看不到任何信号；启动期只对**弱** AUTH_TOKEN / 弱 JWT_SECRET 告警，**比弱 token 更严重的「完全没有认证」反而静默**。现新增 `app.core.security.open_mode_notice(db)`（可测助手）+ 启动期（`init_db` 之后）记 WARNING。回归 4 条（`tests/test_iter397_open_mode_notice.py`）。
+    - 附注：测试环境 conftest 固定设 `AUTH_TOKEN=test-token`（否则全用例 401），故**测试环境根本进不了开放模式**——这正是该告警长期未被发现的原因。
+
+- **下一步**：① 复核并落地 4 个子 agent 的审计发现（逐条读原文验证，只修坐实项）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
+
+**iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，✅ 完成）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
 
 - **B1 备份导入：文件落盘移出写事务（本条 commit）**：还原全程持 SQLite 写锁，而单文件「建+写」成本（Windows ~2.7ms）是对应 DB 插入（~0.2ms）的十余倍——文件 IO 落在事务内会把写锁持有时长放大一个数量级（还原上限 10 万行 -> 可产生十万级文件），期间全服务写请求等满 busy_timeout(10s) 后 500。
   - **两段式**：① **预暂存（事务外，写锁未持有）**：按「载荷位置键」（`mat`/`plan`/`unit`/`kbparsed`/`kborig`）把内容写到 `data/.restore-staging/<uuid>/`（与目标同卷，rename 才可用）；② **改名（事务内）**：拿到新行 id 后 `os.replace` 到最终路径（纯元数据操作）。改名放在**事务内**而非 commit 之后——避免「DB 已提交但文件缺失」窗口；回滚仍由既有 `created_files` 补偿链兜底。

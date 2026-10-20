@@ -187,6 +187,22 @@ async def lifespan(app: FastAPI):
 
     run_migrations()
     init_db()
+    # iter 397：开放本机模式告警——运维侧此前无任何信号（只有前端横幅）。
+    # 开放模式（无 AUTH_TOKEN / 无人设口令 / 无 active PAT）下后端**完全免认证**：
+    # 任何能连到本端口的客户端都拥有全部数据的读写权（含用户管理、数据导出）。
+    try:
+        from app.core.security import open_mode_notice
+        from app.db.base import SessionLocal as _SessionLocal
+
+        _probe = _SessionLocal()
+        try:
+            _open_notice = open_mode_notice(_probe)
+        finally:
+            _probe.close()
+    except Exception:  # noqa: BLE001 - 告警失败不阻断启动
+        _open_notice = None
+    if _open_notice:
+        log.warning(_open_notice)
     # iter 394：历史明文个人访问令牌升级为 sha256 摘要存储（明文入库 -> 库/备份
     # 泄露即令牌泄露）。启动期一次性收敛（幂等）；写库走线程池，保持「DB 写不在
     # 事件循环线程」的一致口径。失败不阻断启动（旧明文行仍可认证）。
