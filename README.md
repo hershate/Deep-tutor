@@ -306,7 +306,7 @@ make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 | 任务 | 状态 |
 |---|---|
 | M1.1 内核吸收与裁剪 | 完成（2026-10-17，8289 文件入库） |
-| M1.2 模块改名 `reasonix` → `deep-tutor` | 未开始（`go.mod` 仍为 `module reasonix`，全仓 8629 处 `reasonix/` import） |
+| M1.2 模块改名 `reasonix` → `deep-tutor` | 未开始（`go.mod` 仍为 `module reasonix`，全仓 8,431 处 `reasonix/` 模块路径 import，2026-10-21 实测） |
 | M1.3 多实例 spike | 未开始 |
 | M1.4 品牌化与 `DEEPTUTOR.md` 建档 | 未开始（`DEEPTUTOR.md` 尚不存在） |
 | M1.5 门禁基线重建 + CI 接入 | 未开始（`tools/repolint/baseline.json` 仍为上游基线） |

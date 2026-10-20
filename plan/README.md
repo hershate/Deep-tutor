@@ -21,7 +21,7 @@
 | 任务 | 状态 | 说明 |
 |---|---|---|
 | M1.1 内核吸收与裁剪 | 完成 | 8289 文件入库；上游无关资产树已按 01 §二 原表剔除（commit `bec5525`） |
-| M1.2 模块/import 重命名 | 未开始 | `go.mod` 仍为 `module reasonix`，全仓 8629 处 `reasonix/` import |
+| M1.2 模块/import 重命名 | 未开始 | `go.mod` 仍为 `module reasonix`，全仓 8,431 处 `reasonix/` 模块路径 import（2026-10-21 实测） |
 | M1.3 多实例 spike | 未开始 | 04 §四矩阵待回填 |
 | M1.4 品牌化 + `DEEPTUTOR.md` | 未开始 | `DEEPTUTOR.md` 尚不存在 |
 | M1.5 门禁基线重建 + CI | 未开始 | `tools/repolint/baseline.json` 仍为上游基线；CI 只跑 Python v1 门禁 |

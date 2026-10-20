@@ -64,7 +64,7 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 - **本轮发现但未修（后续 iter 候选）**：`_STREAMS` 终态后 300s 保留窗口的内存足迹（F10）；LLM 信号量在无运行 loop 时被替换（F12）；备份导入在行数预算上限（10 万行）下单事务持锁仍可达数十秒（DB 插入成本为主，文件 IO 已压缩）；日预算为 check-then-act 无预留，并发下实际花费可达上限的并发倍数（暴露面已被全局/单用户并发上限 + 每会话预算上限约束，非无界）；SSE 事件桥（`/api/events/stream`）与插件总线（`app/plugins/bus.py`）本轮复核**未发现缺陷**（有界队列 100、跨线程经 `call_soon_threadsafe`、finally 退订、心跳周期重验身份、按用户过滤 safe-by-default）。
 
-- **下一步**：① 成本计量与预算绕过路径审计（`cost.py`/`budget.py`/`api_usage` 落账，`check_daily_budget` 只信 `api_usage` 求和）；② SSE 事件流生命周期与背压复核；③ Go 侧 `internal/runtime/tutor` 存储/并发/数据操作审计；④ 文档偏差（`note/01` 规模行「4,819 .go / 774,044 行」与实测 4,812 / 834,739 不符；M1.2 重命名范围文档称 8,629 处 import，实测 8,434 处带引号 / 8,776 处任意 `reasonix/`）——待单独 iter 处理。
+- **下一步**：① 成本计量与预算绕过路径审计（`cost.py`/`budget.py`/`api_usage` 落账，`check_daily_budget` 只信 `api_usage` 求和）——**已复核**：chat 路径由 `agent/agent_loop.py` 每轮即时 `record_metadata_usage` 记账（取消/异常路径亦补记），无绕过通道；仅余并发下 check-then-act 的超额（已被全局/单用户并发上限 + 每会话预算上限约束）；② SSE 事件流生命周期与背压复核——**已复核未发现缺陷**；③ Go 侧 `internal/runtime/tutor` 存储/并发/数据操作审计——**已复核**：`Service` 占用表 `s.mu` + 运行态 `run.mu` 双锁、finalize 有「会话已删/被重新占用则不写回」守卫、store 写入全走 `fileutil.AtomicOverwriteFile`、列表读经 stat 校验缓存且返回副本、缓存有互斥保护；④ 文档偏差已在本轮校正（`note/01` 规模行 → 4,812 `.go` / 834,739 总行数、§7.1 `assembly` 343→337、`ext` 539→538、`backend/tests` 179 `.py`/1500 用例；M1.2 重命名范围 8,629 → 实测 8,431 处模块路径 import，README/plan/note 同步）；⑤ 后续候选：`_STREAMS` 终态 300s 保留窗口内存足迹（F10）、LLM 信号量无 loop 时被替换（F12）。
 
 **iter R47（2026-10-20，历史细粒度拆分轮，✅ 完成）**：承接 iter R46——R46 的成果以 1 个 commit 提交 15 个文件、混装 2 个主题（SSE 口径复核 + 代词清扫），与仓库「细粒度 commit」约定不符，故将本会话 24 个 commit 整体重写为 **45 个主题单一 commit**（工作树内容零变化；加上本轮进度记录 commit，本会话区间最终为 46 个 commit）。
 
