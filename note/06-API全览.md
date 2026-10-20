@@ -26,7 +26,8 @@ flowchart TD
 ```
 
 - **四级链顺序**（`require_auth` deps.py:121-137 / `resolve_user` deps.py:159-192）：JWT → `.env` AUTH_TOKEN → 个人访问令牌 → 开放本机模式。
-- 常量时间比较：`.env` token 走 `secrets.compare_digest(token.encode(), settings.auth_token.encode())`（deps.py:65-67），PAT 走逐档 `compare_digest`（`core/credentials.py:97`）——**先 encode 再比**，非 ASCII str 直接比较会抛 `TypeError` 把 401 变 500（deps.py:63-64）。
+- 常量时间比较：`.env` token 走 `secrets.compare_digest(token.encode(), settings.auth_token.encode())`（deps.py:65-67），PAT 走逐档 `compare_digest`（`core/credentials.py`，**摘要行比 sha256 摘要、旧明文行比明文**）——**先 encode 再比**，非 ASCII str 直接比较会抛 `TypeError` 把 401 变 500（deps.py:63-64）。
+- **PAT 存储（iter 394）**：`credential_profiles.api_key` 对 `auth_token` 类存 `sha256:<hex>` 摘要（明文不入库——库/备份泄露即令牌泄露）；读路径兼容历史明文行，启动期 `upgrade_plaintext_tokens()` 一次性升级；新建/改写最小长度 **16** 位（8 -> 16：per-IP 30/min 的失败限流挡不住多 IP 分布式爆破）；掩码显示「****（摘要）」。
 - **失败路径才查库**：已认证请求零额外 DB 查询（deps.py:131 注释）；PAT 匹配仅在 JWT 与 `.env` token 双失败后调用（deps.py:129）。
 - 模板占位值 `change-me-please`（`core/settings.py:32`）/ `sk-ant-xxxxxxxx`（`core/settings.py:33`）经派生属性 `auth_token_configured` / `anthropic_key_configured` 视为**未配置**（settings.py:170-177）。
 - 认证失败统一出口 `_gate_auth_failure`（deps.py:37-49）：`limiter.check(f"auth_fail:{ip}", 30)` 超限 → **429**（deps.py:30 `_AUTH_FAIL_PER_MIN = 30`），日志只记 ip + path，不记 token 原文。
@@ -136,6 +137,12 @@ flowchart TD
 | `backup export` / `preview` / `import` | 10 / 10 / 5 每分钟 | api/backup.py:37-39 |
 
 资源配额（超限 429 `quota_exceeded`）：sessions **200**/用户（api/sessions.py:32）、materials **20**/会话（api/materials.py:99）、notes **500**/用户（api/notes.py:32）、kb_documents **200**/用户（api/kb.py:74）、credential_profiles **20**/类/用户（api/credentials.py:34）、provider_profiles **50**/用户（api/providers.py:97）、threads **500**/用户（api/memory.py:70）、memories **2000**/用户（api/memory.py:71）、学习日志 **10000**/用户（api/progress.py:35）。
+
+**iter 394：配额判定闭合「先查后写」竞态**——计数与插入之间若无互斥，并发请求可同时通过「未达上限」检查，实际写入数按并发数突破上限（25 个并发创建 -> 25 行，上限 20）。现经 `core/quota.py` 的 `quota_slot`（分段线程锁）与 `guarded_commit_async`（异步端点「检查 -> 入队 -> flush -> 落盘 -> 提交」同锁同线程）闭合，落地 8 个写入面（sessions / credentials / providers / notes / threads / memories / 学习日志 / materials / kb）。**必须含提交**：pysqlite 传统事务模式下未提交的 INSERT 其他连接不可见，只锁检查防不住。
+
+**iter 394：两项出站/暴露面收紧**——
+- `POST /api/setup` 与 `POST /api/setup/dismiss`（公开端点）在**开放模式**（无人设过口令、无 AUTH_TOKEN、无 active PAT）下**仅接受本机回环请求**（403）：这两个端点是唯一的「认领管理员」入口，开放给局域网任意客户端等于允许远程抢占管理员口令或翻转全局 dismiss 状态。LAN 部署改用 `.env` 的 `ADMIN_PASSWORD` / `AUTH_TOKEN`。
+- 供应商档案 `base_url` 是**服务端出站目标**且用户可自选：默认**拦截私网/环回/链路本地/云元数据**目标（写时校验 + 调用前复检，422 / `ssrf_blocked`），确需指向本地模型服务（Ollama / LM Studio / 内网中转）时设 `ALLOW_PRIVATE_LLM_BASE_URL=1` 放行。判定规则单一事实源在 `core/urlguard.py`（与材料抓取的 SSRF 防护同源）。
 
 ## 5. 典型请求生命周期（以 POST /api/plans/generate 为例）
 
