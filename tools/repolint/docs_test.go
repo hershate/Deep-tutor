@@ -159,14 +159,15 @@ func TestQuotedParagraphsAreSeparateProseBlocks(t *testing.T) {
 
 func TestOnlyOnboardingPagesKeepAChineseCopy(t *testing.T) {
 	root := docRepo(t, map[string]string{
-		".github/CODEOWNERS":    "* @a @b\n",
-		"README.zh-CN.md":       "# 入门\n",
-		"docs/GUIDE.zh-CN.md":   "---\nowner: @a\nbackup: @b\nstatus: active\nreviewed: 2026-09-17\n---\n",
-		"docs/SPEC.zh-CN.md":    "---\nowner: @a\nbackup: @b\nstatus: active\nreviewed: 2026-09-17\n---\n",
-		"benchmarks/x.zh-CN.md": "corpus",
+		".github/CODEOWNERS":                   "* @a @b\n",
+		"docs/kernel/upstream/README.zh-CN.md": "# 入门\n",
+		"docs/kernel/GUIDE.zh-CN.md":           "---\nowner: @a\nbackup: @b\nstatus: active\nreviewed: 2026-09-17\n---\n",
+		"docs/kernel/CLI.zh-CN.md":             "---\nowner: @a\nbackup: @b\nstatus: active\nreviewed: 2026-09-17\n---\n",
+		"docs/kernel/SPEC.zh-CN.md":            "---\nowner: @a\nbackup: @b\nstatus: active\nreviewed: 2026-09-17\n---\n",
+		"benchmarks/x.zh-CN.md":                "corpus",
 	})
 	got := ruleFindings(checkDocs(root), ruleDocLanguage)
-	if len(got) != 1 || got[0].File != "docs/SPEC.zh-CN.md" {
+	if len(got) != 1 || got[0].File != "docs/kernel/SPEC.zh-CN.md" {
 		t.Fatalf("findings = %+v, want only the non-onboarding translation", got)
 	}
 }

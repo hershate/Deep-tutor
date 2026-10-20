@@ -19,7 +19,7 @@ import (
 const (
 	SchemaArtifactPath   = "internal/ext/extension/protocol/schema.generated.json"
 	HashArtifactPath     = "internal/ext/extension/protocol/schema_hash.generated.go"
-	MarkdownArtifactPath = "docs/EXTENSION_PROTOCOL.generated.md"
+	MarkdownArtifactPath = "docs/kernel/EXTENSION_PROTOCOL.generated.md"
 	// SDKTypesArtifactPath is the Go DTO mirror compiled into the stdlib-only
 	// extension SDK module.
 	SDKTypesArtifactPath = "sdk/go/types_generated.go"

@@ -47,7 +47,7 @@ var docClassByPrefix = []struct {
 	{"REASONIX.md", classMachine},
 	{"AGENTS.md", classMachine},
 	{"CLAUDE.md", classMachine},
-	{"docs/EXTENSION_PROTOCOL.generated.md", classMachine},
+	{"docs/kernel/EXTENSION_PROTOCOL.generated.md", classMachine},
 	{".github/", classMachine},
 	{".reasonix/", classMachine},
 	{"internal/ext/skill/builtincontent/", classMachine},
@@ -62,9 +62,9 @@ var docSkippedPrefixes = []string{"benchmarks/"}
 // translatedDocs are the onboarding pages kept in Chinese beside the English
 // original. Every other document has one language, English.
 var translatedDocs = []string{
-	"README.zh-CN.md",
-	"docs/GUIDE.zh-CN.md",
-	"docs/CLI.zh-CN.md",
+	"docs/kernel/GUIDE.zh-CN.md",
+	"docs/kernel/CLI.zh-CN.md",
+	"docs/kernel/upstream/README.zh-CN.md",
 }
 
 var (

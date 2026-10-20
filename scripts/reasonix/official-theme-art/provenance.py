@@ -1,4 +1,4 @@
-"""Emit docs/THEME_ASSETS.md — provenance & licence ledger for the
+"""Emit docs/kernel/THEME_ASSETS.md — provenance & licence ledger for the
 official theme assets. Reads hashes from out/report.json (produced by build.py).
 """
 from __future__ import annotations
@@ -8,7 +8,7 @@ import json
 import os
 
 HERE = os.path.dirname(__file__)
-DOCS = os.path.join(HERE, "..", "..", "docs")
+DOCS = os.path.join(HERE, "..", "..", "..", "docs", "kernel")
 
 # scene function name + seed per theme (see scenes.py).
 SCENES = {
@@ -70,7 +70,7 @@ def main():
 
     with open(os.path.join(DOCS, "THEME_ASSETS.md"), "w") as f:
         f.write("\n".join(en))
-    print("wrote docs/THEME_ASSETS.md")
+    print("wrote docs/kernel/THEME_ASSETS.md")
 
 
 if __name__ == "__main__":

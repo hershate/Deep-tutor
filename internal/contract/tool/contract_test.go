@@ -17,9 +17,9 @@ import (
 
 // updateContract rewrites the document instead of failing, for the round that
 // changed a description on purpose.
-var updateContract = flag.Bool("update-contract", false, "rewrite docs/TOOL_CONTRACT.md from the registry")
+var updateContract = flag.Bool("update-contract", false, "rewrite docs/kernel/TOOL_CONTRACT.md from the registry")
 
-const contractPath = "../../../docs/TOOL_CONTRACT.md"
+const contractPath = "../../../docs/kernel/TOOL_CONTRACT.md"
 
 func TestBuiltinToolContractDocumentation(t *testing.T) {
 	entries := tool.BuiltinContractEntries()
@@ -58,7 +58,7 @@ func TestBuiltinToolContractDocumentation(t *testing.T) {
 		t.Log("rewrote " + contractPath)
 		return
 	}
-	t.Errorf("docs/TOOL_CONTRACT.md no longer says what the registry does.\n"+
+	t.Errorf("docs/kernel/TOOL_CONTRACT.md no longer says what the registry does.\n"+
 		"Regenerate it: go test ./internal/contract/tool -run TestBuiltinToolContractDocumentation -update-contract\n%s",
 		firstDifference(string(doc), next))
 }
@@ -69,7 +69,7 @@ func contractWithTable(doc string, entries []tool.ContractEntry) (string, error)
 	lines := strings.Split(doc, "\n")
 	head := slices.Index(lines, "| Tool | Read-only | Description |")
 	if head < 0 || head+1 >= len(lines) {
-		return "", errors.New("docs/TOOL_CONTRACT.md has no tool table to generate into")
+		return "", errors.New("docs/kernel/TOOL_CONTRACT.md has no tool table to generate into")
 	}
 	end := head + 2
 	for end < len(lines) && strings.HasPrefix(lines[end], "| `") {
