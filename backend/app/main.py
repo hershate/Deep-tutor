@@ -28,8 +28,62 @@ from app.skills.loader import get_skill_registry
 # Content-Length 预检在路由解析前拒，避免 Starlette 全量读取 body 入内存。
 _MAX_BODY_BYTES = settings.max_upload_bytes + 5 * 1024 * 1024
 
+# iter 393：备份导入/预检的 body 上限——此前这两个路径被**完全豁免**通用上限。
+# 豁免的理由（v2 备份含 kb 原件可超通用上限 ~55MB，不豁免则「导出后导不回」）成立，
+# 但「无上限」本身是洞：Starlette 对 multipart **文件 part 无大小限制**
+# （max_part_size 只管非文件字段），文件写入 SpooledTemporaryFile（>1MB 落系统临时
+# 目录）；且 FastAPI 先 `body = await request.form()` 解析 body、再 solve_dependencies
+# 跑鉴权（fastapi/routing.py:423 vs :474）——未认证客户端可用单请求把任意大的体
+# 写进临时目录。iter 393 实证：64MB 体落盘后仍返回 401。
+# 故改为按路径给更高但**有界**的阈值：256MB（备份文件上限）+ multipart 开销余量。
+_BACKUP_BODY_LIMIT = 256 * 1024 * 1024 + 5 * 1024 * 1024
+
+# iter 393：全局在途请求体预算——单请求有界仍挡不住并发叠加（N 个并发上传 =
+# N × 单请求上限的临时磁盘占用，且认证前即可触发）。超预算 -> 503 + Retry-After，
+# 保证系统临时目录的请求体占用有硬上界。
+_BODY_BUDGET_BYTES = 1024 * 1024 * 1024  # 1GB
+_body_inflight = 0
+
 # iter 391：孤立生成流回收器周期（秒）
 _ORPHAN_REAPER_INTERVAL = 15.0
+
+
+def _acquire_body_budget(nbytes: int) -> bool:
+    """占用全局在途请求体预算；超预算返回 False（调用方回 503 + Retry-After）。
+
+    iter 393：单请求体上限只约束「一个请求」，并发上传仍可叠加出 N × 上限的
+    系统临时目录占用（Starlette 把 multipart 文件落 SpooledTemporaryFile）。
+    此处给聚合占用设硬上界，超出即拒（背压语义，可重试）。
+    """
+    global _body_inflight
+    if nbytes <= 0:
+        return True
+    if _body_inflight + nbytes > _BODY_BUDGET_BYTES:
+        return False
+    _body_inflight += nbytes
+    return True
+
+
+def _release_body_budget(nbytes: int) -> None:
+    global _body_inflight
+    if nbytes <= 0:
+        return
+    _body_inflight = max(0, _body_inflight - nbytes)
+
+
+def _body_budget_response() -> JSONResponse:
+    resp = JSONResponse(
+        status_code=503,
+        content={
+            "error": {
+                "code": "server_busy",
+                "message": "并发上传总量超上限，请稍后重试",
+                "details": {},
+            }
+        },
+    )
+    resp.headers["Retry-After"] = "1"
+    return resp
 
 
 async def _orphan_stream_reaper(stop_event) -> None:
@@ -271,40 +325,54 @@ def create_app() -> FastAPI:
     # 请求体大小限制（Content-Length 预检，防超大 body OOM；路由解析前拒）
     @app.middleware("http")
     async def _limit_request_body(request, call_next):
-        # iter 371：备份导入/预检豁免通用 body 上限——两端点各有 256MB 自限且有界读取
-        # （read(_MAX_BACKUP_BYTES+1)）。v2 备份含 kb 原件可超通用上限（默认 ~55MB），
-        # 不豁免则「导出后导不回」（往返断裂，实测口径：multipart 先过本中间件）。
-        if request.url.path in ("/api/backup/import", "/api/backup/preview"):
-            return await call_next(request)
+        # iter 393：备份导入/预检不再**豁免**上限，改按路径给更高但有界的阈值
+        # （v2 备份含 kb 原件可超通用上限 ~55MB，不设则「导出后导不回」；但无上限
+        # 时未认证客户端可用单请求写满系统临时目录——见 _BACKUP_BODY_LIMIT 注释）。
+        is_backup = request.url.path in ("/api/backup/import", "/api/backup/preview")
+        limit = _BACKUP_BODY_LIMIT if is_backup else _MAX_BODY_BYTES
         cl = request.headers.get("content-length")
         if cl:
             try:
-                if int(cl) > _MAX_BODY_BYTES:
-                    return JSONResponse(
-                        {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
-                        status_code=413,
-                    )
+                declared = int(cl)
             except ValueError:
-                pass
-            return await call_next(request)
+                declared = 0
+            if declared > limit:
+                return JSONResponse(
+                    {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
+                    status_code=413,
+                )
+            # iter 393：全局在途体预算（并发上传叠加的临时磁盘占用上界）
+            if not _acquire_body_budget(declared):
+                return _body_budget_response()
+            try:
+                return await call_next(request)
+            finally:
+                _release_body_budget(declared)
         # err.md A5/C18：chunked 传输无 Content-Length，预检被绕过 -> 流式限量读取，
         # 超限即拒；未超限则把已读 body 重新包装给下游
         if "chunked" in request.headers.get("transfer-encoding", "").lower():
+            # 无 Content-Length：按上限计入预算（最坏情况）
+            if not _acquire_body_budget(limit):
+                return _body_budget_response()
             body = bytearray()
-            async for chunk in request.stream():
-                body.extend(chunk)
-                if len(body) > _MAX_BODY_BYTES:
-                    return JSONResponse(
-                        {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
-                        status_code=413,
-                    )
+            try:
+                async for chunk in request.stream():
+                    body.extend(chunk)
+                    if len(body) > limit:
+                        return JSONResponse(
+                            {"error": {"code": "payload_too_large", "message": "请求体超上限", "details": {}}},
+                            status_code=413,
+                        )
 
-            async def _receive():
-                return {"type": "http.request", "body": bytes(body), "more_body": False}
+                async def _receive():
+                    return {"type": "http.request", "body": bytes(body), "more_body": False}
 
-            from starlette.requests import Request as _StarletteRequest
+                from starlette.requests import Request as _StarletteRequest
 
-            request = _StarletteRequest(request.scope, _receive)
+                request = _StarletteRequest(request.scope, _receive)
+                return await call_next(request)
+            finally:
+                _release_body_budget(limit)
         return await call_next(request)
 
     # 安全响应头（iter 371，网络暴露面基础防护）。注册在 body 限流之后

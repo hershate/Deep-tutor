@@ -50,6 +50,9 @@ def isolate():
     from app.core.concurrency import reset_llm_semaphore
 
     reset_llm_semaphore()  # 全局 LLM 信号量跨测试隔离（iter 366：信号量按事件循环缓存）
+    from app import main as main_mod
+
+    main_mod._body_inflight = 0  # iter 393：全局在途请求体预算（跨测试归零）
     Base.metadata.drop_all(bind=engine)
     # alembic_version 非 ORM 表，drop_all 不会清：残留旧版本号会让启动迁移对
     # create_all 已建的新表再执行 CREATE -> "table already exists"（iter 176 实证）
