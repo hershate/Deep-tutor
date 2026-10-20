@@ -38,6 +38,48 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 395（2026-10-21，v1 Python 后端未审面续审与并发/暴露面加固轮，✅ 完成）**：承接 iter 392~394 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393/394「下一步」列出的未审面：`api/knowledge.py`、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`（+ `api/search.py` 复核）。
+
+- **审查方法**：一个 explore 子 agent 并行审计五模块（结构化输出：每条发现附位置/等级/证据强度，并列出「已核实干净」的点与依据行号），主会话逐条读原文复核，对关键结论写**实证探针**（并发 500、SSE 槽位泄漏、错题族查询成本），只修坐实或明确成立的问题；前端相关项由一个 worker 实施并回报，主会话复核 diff 后提交。
+
+- **本轮修复（11 个 commit）**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `dc5e25b` | 用户偏好原子 upsert | `PUT /api/settings/prefs` 与 `/pricing` 此前「先查后插」：并发首写同一格时双方都读到「无行」-> 都 INSERT -> 后者撞 `uq_user_prefs_user_key` -> `IntegrityError` 未捕获 -> **500**（实测 8 并发：prefs 4 个 500、pricing 7 个 500）。改用数据库原生 upsert（单条 DML，冲突交数据库解决）；偏好写补 30/min 限流 |
+  | `b61f2ae` | 事件流连接数上限 | `GET /api/events/stream` 此前**无上限**：每条连接持 100 槽队列 + 一个 bus sink（`_sinks` 无界列表），且每次 emit 遍历全部 sink（O(连接数)）-> 单客户端可开满连接耗内存/放大 CPU。补单用户 16 / 全局 256 条上限（超限 429） |
+  | `0f38b37` | 错题族读限流 | `/quizzes/wrong-overview` 与 `/wrong-queue` 每次对本用户**全部**作答历史跑窗口函数，此前无限流 -> 补 30/min |
+  | `1d9aadd` | iter395 回归 8 条 | 并发写面 500、事件流槽位、错题族限流 |
+  | `09ff6a3` | 事件流加固五处 | ① 清理兜底改挂 `BackgroundTask`（客户端在响应体开始前断开时 body_iterator 从未被迭代，未启动的 async generator 的 finally 不执行 -> 槽位与 sink 永久泄漏）；② 归属解析与身份重验的同步 DB 读移出事件循环（池耗尽时 `pool.connect()` 阻塞最多 30s -> 全站冻结，同 iter 364/393 写路径失效模式）；③ 身份重验不再依赖队列空闲（此前只在 `queue.get()` 超时分支 -> 事件连发时已吊销用户的流持续收事件）；④ `bool` 不算 int（`user_id=True` 此前被判给 user 1）；⑤ payload 不可 JSON 序列化时降级 `default=str`（此前直接抛 TypeError 打断订阅者的流） |
+  | `dd6f699` | 事件流重验时机修正 | 上一提交把重验改为纯截止时间驱动，导致 iter381 契约「吊销 -> 下个心跳断流」在首个心跳失效；现改为**队列空闲即重验 或 截止时间到期重验**（两者取一）。另修 `format_frame(owner=None)` 被误当「未解析」-> 退回同步查库（改用独立哨兵 `_OWNER_UNRESOLVED`） |
+  | `cfc6346` | 知识节点状态筛选下推 | `GET /api/knowledge?status=...` 此前 status 不进 SQL（SQL 只按 q/plan_id 过滤并 `LIMIT`，取回后才在 Python 侧过滤）-> 节点数 > limit 的重度用户按状态筛选只见「最新 limit 个节点」里的匹配项（结果严重偏少甚至为空，chip 计数同样失真）。现 status 下推 SQL（limit 之前），`stats` 改为按全量匹配节点分组统计；顺带修节点笔记提交后 `db.refresh` 遇级联删除抛 `ObjectDeletedError` -> 500 |
+  | `01ab5e1` | 作答记录保留策略（用户已决） | `quiz_attempts` 是全库增速最快的表（每次提交一行、此前永不清理）。运维每日轮**每题**保留最新 N 条（`quiz_attempt_keep_per_quiz`，默认 10），**分批删除**（每批 2000 行一事务，避免长时间持写锁把并发写打成 503）；**最新一条始终保留** -> 错题本判定逐字不变；受影响的只有「总作答次数/正确率」统计与备份体积。顺带 `/wrong-queue` 的 `limit` 改 `Query(ge=1, le=200)` |
+  | `bf6ff88` | 计费表误清空拒绝 | `PUT /api/settings/pricing` 输入非空但清洗后为空（字段名写错/全为非法值）此前走「删除整张表」分支（与端点 docstring「空对象 -> 删除；否则清洗后 upsert」矛盾）-> **400 拒绝**并列出无效条目；显式空对象仍是「清空」；显式空条目 = 四项全 0。另：偏好 upsert 按 `engine.dialect.name` 分派 SQLite/PostgreSQL（此前绑定 SQLite 方言，与 `DATABASE_URL` 可切 Postgres 的承诺不符） |
+  | `f0aa894` | 分享页与分享链接五处 | ① 分享页标题恒为「学习方案」（方案内容无顶层 title/topic，主题在 `content.intent.topic`）-> 改走 `_plan_topic(plan)`；② 分享页从不显示配套资源（前端渲染 stage 级 `resources`，真实资源在顶层 `content.resources`）-> 改渲染顶层；③ 过期链接并发轮换 -> 后到者拿到已失效 token（无条件覆盖）-> 改 CAS 条件更新 + 重读；④ 公开读限流此前只按 IP 分桶（反代后全站共用一个桶，30/min 即全站 429）-> 改「按链接 token 30/min + 按 IP 600/min」双桶；⑤ `GET /api/shares` 全量返回且无限流 -> 补 limit（100/500）与 30/min |
+  | `c8830f0` | iter395 回归补充 19 条 | 状态筛选下推、stats 全量、事件流三项健壮性、计费表误清空、作答保留（含「最新一条判错必须留存」）、错题队列 limit 边界、分享专项 7 条 |
+  | `3340109` | 文档同步 | note/04（事件流章节重写）、note/06（iter395 四处加固 + 状态筛选 + 保留策略）、note/08（维护轮次补 `prune_quiz_attempts` + 设置项） |
+
+- **一项产品级决策（用户确认）**：作答记录（`quiz_attempts`）保留策略——**按题保留最近 N 次（默认 10）**，错题本判定（每题最新作答 `correct IS False`）逐字不变；「总作答次数 / 正确率」统计与备份体积只覆盖保留窗口。
+
+- **被实证坐实/明确成立的关键点**：
+  1. **并发写偏好的 500**：探针 `dt_probe_prefs.py`（8 并发）-> 修复前 prefs 4/8、pricing 7/8 返回 500（`UNIQUE constraint failed: user_prefs.user_id, user_prefs.key`）；修复后 8/8 200。
+  2. **错题族查询成本随历史线性劣化**：探针 `dt_probe_quiz_cost.py`（1 用户 / 200 题 / **5 万条作答**）-> wrong-queue 93ms、wrong-overview 70ms、`quiz/stats` 120ms；`quiz_attempts` 只有 `quiz_id` 单列索引（窗口函数需额外排序）。保留策略把表体量封顶在「题目数 × N」，从根上缓解；复合索引 `(quiz_id, created_at, id)` 收益实测约 35%（wrong-queue 93ms -> 61ms），本轮未加（需 alembic 迁移，留作候选）。
+  3. **事件流槽位泄漏属真实风险类**：探针 `dt_probe_sse_leak.py`（最小 ASGI harness，客户端提前断开）在我方实测**未复现**泄漏（Starlette 1.3 的 task-group 路径下生成器通常已启动，finally 执行）；但「未启动的 async generator 的 finally 不执行」是 Python 语义，泄漏窗口取决于取消时机（服务关停/中间件超时）。故按**防御性修复**落地 BackgroundTask 兜底 + 幂等清理，而非声称已复现。
+  4. **知识节点状态筛选确实返回错误数据**：子 agent 读原文坐实（status 不在 SQL 内），并由本轮回归（600 节点 / 300 done -> 应返回 300）实测覆盖。
+
+- **实测基线（本轮）**：全量套件 **1571 passed / 1 skipped**（381.12s，含 iter395 新增 27 条）；唯一 skip 为 `marker_single` 未安装（环境项，非回归）。`ruff check app/ tests/` 全通过；`go build ./...` 退出码 0（Go 侧未改动）；前端 `tsc --noEmit` 与 `vite build` 均通过（分享页改动）。
+
+- **本轮发现但未修（后续 iter 候选，含不修理由）**：
+  - **乐观并发只有秒级分辨率**（`updated_at` 用 SQLite `CURRENT_TIMESTAMP`，秒粒度）：同一秒内的双标签页保存会静默覆盖；波及笔记 / 节点笔记 / 用户偏好 / 计费表的 `expected_updated_at` 基线。彻底修法需加 `rev` 整数列或改用 Python 侧微秒时间戳（涉及 4 张表的写路径与既有基线格式），本轮未做（改动面大且属「已知限制」，notes.py 早已如实标注）。
+  - **`quiz_attempts` 复合索引**（`(quiz_id, created_at, id)`）：实测约 35% 收益，需 alembic 迁移，暂缓。
+  - **知识列表/导出每请求最多 500~2000 次磁盘读**（逐 plan_id `db.get` + `_load_plan_content` 回读大方案文件）：可改批量 `IN` 查询 + 文件读缓存，本轮未做。
+  - **搜索的 LIKE 未转义**（`contains` 默认 `autoescape=False`）：`%`/`_` 会被当通配符，且前导 `%` 无法走索引；影响精确度与扫描成本，本轮未做。
+  - **`has_note` 与「我的笔记」列表口径不一**（前者不排除空内容行）：正常写入路径会删空行，仅历史/导入数据可见，未做。
+  - **`share` 公开读的 IP 桶在反代后仍是粗粒度**：本轮已按链接分桶解决主要误伤，但「可信代理头取真实 IP」需引入 trusted-proxies 配置，未做。
+  - **正解除吊销后的既有 SSE 流**：重验周期仍为 15s（心跳口径），吊销到断流最多 15s 窗口。
+
+- **下一步**：① 继续 v1 Python 后端未审面（`api/sessions.py`、`api/notes.py`、`api/memory.py`、`api/plans.py` 的生成/取消/落库链、`core/backup.py` 的导入链）；② 评估「乐观并发基线改微秒/rev」的迁移方案（跨 4 表，先出方案再实施）；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
 **iter 394（2026-10-21，v1 Python 后端配额竞态与网络暴露面收紧轮，✅ 完成）**：承接 iter 392/393 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393「下一步」列出的首批未审面：`api/progress.py`、`api/credentials.py`、`api/providers.py`、`api/setup.py`。
 
 - **审查方法**：一个 explore 子 agent 并行审计四模块，主会话逐条读原文复核并写实证探针；沿用 iter 392/393 口径——**先坐实再修**，修复后验证「回归可捕获性」（移除配额锁后并发用例 rc=1，确认测试真能捕获回归而非空断言）。
