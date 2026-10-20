@@ -93,3 +93,72 @@ def search_fetch_slot() -> Any:
 def reset_llm_semaphore() -> None:
     """测试隔离：清空全部缓存信号量（防跨事件循环残留 waiters）。"""
     _semaphores.clear()
+
+
+# ---------------------------------------------------------------------------
+# 插件 LLM 调用（iter 393）
+# ---------------------------------------------------------------------------
+
+# 插件面此前完全绕过全局 LLM 背压：api.llm.complete / api.llm.stream /
+# api.tools.call 直连供应商，并发无上界（多用户 + 插件并发 -> 429 退避风暴、
+# 连接与内存线性膨胀）。宿主各 LLM 路径（生成/对话/材料/测验/slides 导出）均已
+# 经 llm_task_slot 收口，插件面是最后的缺口。
+#
+# 但**不能直接复用宿主信号量**：宿主 LLM 任务持槽期间可能调插件工具，插件工具
+# 内部再调 api.llm.complete -> 同一信号量嵌套等待 -> 持槽任务互等（死锁）。
+# 故用**独立信号量**（不与宿主争用，插件不能饿死宿主，宿主也不被插件拖死），
+# 并对等待设上限：超时抛 PluginLLMBusy（503 可重试），把极端嵌套降级为
+# 有界失败而非挂死。
+
+_PLUGIN_LLM_WAIT_SECONDS = 30.0
+
+
+class PluginLLMBusy(RuntimeError):
+    """等待插件 LLM 槽超时（资源争用，可重试语义）。"""
+
+
+class _TimedSlot:
+    """带等待上限的槽：超时放弃并抛 PluginLLMBusy（不无限排队）。"""
+
+    def __init__(self, sem: asyncio.Semaphore, timeout: float) -> None:
+        self._sem = sem
+        self._timeout = timeout
+
+    async def __aenter__(self) -> None:
+        # shield + 独立取消：wait_for 超时只取消等待包装，acquire 本身不被取消
+        # （Semaphore.acquire 在「即将获得」瞬间被取消会丢槽）。
+        task = asyncio.ensure_future(self._sem.acquire())
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            if task.done() and not task.cancelled() and task.exception() is None:
+                # 竞态：恰好在超时瞬间拿到许可 -> 立即归还，防槽泄漏
+                self._sem.release()
+            else:
+                task.cancel()
+                try:
+                    await task
+                except BaseException:  # noqa: BLE001  取消路径异常吞掉（清理收尾）
+                    pass
+            raise PluginLLMBusy(f"等待插件 LLM 调用槽超过 {self._timeout:g}s") from None
+        except BaseException:
+            task.cancel()
+            raise
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        self._sem.release()
+        return False
+
+
+def plugin_llm_task_slot(timeout: float = _PLUGIN_LLM_WAIT_SECONDS) -> Any:
+    """插件 LLM 调用槽（独立预算 + 有界等待）。
+
+    仅用于**跑完即返回的普通协程**（api.llm.complete / api.tools.call）。
+    provider 级 async generator（api.llm.stream）按本模块既定约定**不得**包槽
+    ——消费方提前退出未 aclose 会漏槽到 GC；插件面为运维方可信代码，该路径
+    维持现状并在 plugins/api.py 内注明。
+    """
+    sem = _loop_sem("plugin_llm", settings.max_concurrent_llm_calls)
+    if sem is None:
+        return _NULL_SLOT
+    return _TimedSlot(sem, timeout)

@@ -198,7 +198,18 @@ class ToolsNamespace:
             bing_api_key=resolve_bing_api_key(user_id),  # search_resources 等按用户解析
         )
         inp = ToolInput(tool=name, session_id=sid, args=args, upstream=upstream or {})
-        out = await run_tool(name, inp, ctx)
+        # iter 393：插件面补 LLM 背压（独立预算 + 有界等待，见 concurrency.plugin_llm_task_slot）。
+        # 此前插件工具直连供应商，并发无上界。超时 -> 503 可重试（非挂死）。
+        if tool.llm:
+            from app.core.concurrency import PluginLLMBusy, plugin_llm_task_slot
+
+            try:
+                async with plugin_llm_task_slot():
+                    out = await run_tool(name, inp, ctx)
+            except PluginLLMBusy as exc:
+                raise ApiError("server_busy", f"插件 LLM 调用繁忙，请稍后重试: {exc}") from None
+        else:
+            out = await run_tool(name, inp, ctx)
 
         # 用量计量（LLM 工具有 cost；Python 工具 metadata 空 -> record 内部容错不记）
         if tool.llm:
@@ -427,7 +438,14 @@ class LlmNamespace:
                 raise ApiError("no_llm_provider", f"用户 {user_id} 未配置 LLM 供应商") from exc
             check_daily_budget(None, user_id)  # 日预算守卫（err.md A6，同生成/slides 端点）
         try:
-            resp = await provider.chat(system, prompt, max_tokens=max_tokens)
+            # iter 393：插件 LLM 补全局背压（独立预算 + 有界等待）——此前直连供应商，
+            # 并发无上界（429 退避风暴 + 连接/内存线性膨胀）。
+            from app.core.concurrency import PluginLLMBusy, plugin_llm_task_slot
+
+            async with plugin_llm_task_slot():
+                resp = await provider.chat(system, prompt, max_tokens=max_tokens)
+        except PluginLLMBusy as exc:
+            raise ApiError("server_busy", f"插件 LLM 调用繁忙，请稍后重试: {exc}") from None
         except TransientLLMError as exc:
             raise ApiError("server_busy", f"LLM 服务暂时不可用（可退避重试）: {exc}") from exc
         except Exception as exc:  # noqa: BLE001
@@ -470,6 +488,11 @@ class LlmNamespace:
         错误映射同 complete（no_llm_provider/server_busy/bad_gateway）。max_tokens 收敛 [1, 8192]。
 
         用法：``async for text in api.llm.stream(user.id, "总结这段", system="你是助教"): ...``
+
+        iter 393：**不**包 LLM 背压槽——本方法是 provider 级 async generator，按
+        app/core/concurrency.py 的既定约定，槽只可包「跑完即返回的普通协程」
+        （消费方提前退出未 aclose 会漏槽到 GC）。api.llm.complete / api.tools.call
+        已包（独立预算 + 有界等待），流式路径的并发由插件自身控制。
         """
         from app.agent.cost import build_metadata, record_metadata_usage
         from app.api.deps import check_daily_budget
@@ -553,7 +576,8 @@ class ProvidersNamespace:
         - kind：协议名（如 "openai"、"ollama"）；自动规范化为小写，字符集 [a-z0-9][a-z0-9_-]{0,31}；
           'anthropic' 为内置保留，注册拒绝。
         - handler：补全函数，async 或 sync，签名 (system, user, *, model, max_tokens) -> dict（见类 docstring）。
-        - default_model：该 kind 的默认模型名（api.llm 未显式传 model 时用），可选。
+        - default_model：该 kind 的默认模型名（api.llm.complete 传 provider_kind=该 kind
+          时使用；complete 不接受 model 参数——模型由档案/默认模型决定），可选。
         - label：人类可读协议名（GET /providers/kinds 展示用），可选。
         """
         if not callable(handler):
@@ -768,8 +792,20 @@ class StorageNamespace:
         self._check_value(value)
         with self._lock:
             self._ensure_loaded()
+            had = key in self._data
+            old = self._data.get(key)
             self._data[key] = value
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                # iter 393：落盘失败不得留下「内存已改、磁盘未改」的分叉——此前
+                # _save 抛错（如 Windows PermissionError 重试耗尽）后 get() 仍返回
+                # 未持久化的新值，进程重启即丢。
+                if had:
+                    self._data[key] = old
+                else:
+                    self._data.pop(key, None)
+                raise
 
     def delete(self, key: str) -> bool:
         """删除键；返回是否确实删除了一个。"""
@@ -777,8 +813,14 @@ class StorageNamespace:
         with self._lock:
             self._ensure_loaded()
             if key in self._data:
+                old = self._data[key]
                 del self._data[key]
-                self._save()
+                try:
+                    self._save()
+                except Exception:
+                    # iter 393：同 set()——落盘失败回滚内存变更，保持内存/磁盘一致
+                    self._data[key] = old
+                    raise
                 return True
             return False
 
@@ -1182,6 +1224,14 @@ class MemoryNamespace:
             t = db.get(models.Thread, thread_id)
             if t is None or t.user_id != user_id:
                 return False
+            # iter 393：取消该 thread 在途的 chat run（与 REST /threads/{id} 同口径，
+            # api/memory.py:197-206）——此前插件面直接删行：后台 run 继续烧 LLM 预算，
+            # 其后续落库 Message(thread_id=已删) 在 PRAGMA foreign_keys=ON 下抛
+            # IntegrityError，run 异常终止且状态残留。
+            from app.api.memory import _cancel_run_stream
+
+            for r in db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).all():
+                _cancel_run_stream(r.id)
             db.delete(t)
             db.commit()
             return True
@@ -1308,11 +1358,17 @@ class MemoryNamespace:
     ) -> list[dict]:
         from app.db import models
 
+        # iter 393：scope="thread" 缺 thread_id 显式报错（同 save_memory 的校验口径）。
+        # 此前过滤器条件为 `scope == "thread" and thread_id`——thread_id 缺失时整个
+        # 分支被跳过，**不加任何 thread 过滤**，返回该用户全部记忆（含其他 thread
+        # 的会话级记忆与 user 级），与 save_memory 拒绝同一入参的口径矛盾。
+        if scope == "thread" and thread_id is None:
+            raise ValueError("scope='thread' 需提供 thread_id")
         limit = max(1, min(int(limit), 500))  # iter 363：上界防无界查询拖垮宿主
         db = self._db()
         try:
             qry = db.query(models.Memory).filter(models.Memory.user_id == user_id)
-            if scope == "thread" and thread_id:
+            if scope == "thread":
                 qry = qry.filter(models.Memory.thread_id == thread_id)
             elif scope == "user":
                 qry = qry.filter(models.Memory.thread_id.is_(None))

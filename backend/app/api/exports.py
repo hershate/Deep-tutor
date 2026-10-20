@@ -103,6 +103,14 @@ async def export_plan_endpoint(
             "插件扩展格式见 GET /api/export/formats）",
         )
 
+    # iter 393：错题导出守卫**上移到格式分发之前**。此前守卫在分发之后
+    # （插件分支 / md、pdf 分支各有一份），slides/ics 分支在守卫之前直接
+    # return——wrong_only=True 被**静默忽略**（客户端以为拿到错题子集，实为全量
+    # 产物），与字段注释「仅 anki 格式支持」及插件分支「显式拒绝而非静默忽略」
+    # 的原则自相矛盾。错题判定依赖 DB 作答记录，其余格式走 content 快照无此口径。
+    if body.wrong_only and fmt != "anki":
+        raise ApiError("bad_request", "错题导出仅支持 anki 格式")
+
     content = plan.content
     if not content and plan.content_path:
         # 溢出方案 >512KB（上界不封顶）——同步读+json.loads 移 to_thread，防阻塞事件循环
@@ -118,10 +126,6 @@ async def export_plan_endpoint(
 
     # 插件导出器优先（find_exporter 对内置格式默认 None，override=True 才接管内置）
     if entry is not None:
-        if body.wrong_only and fmt != "anki":
-            # wrong_only 是内置 anki 专属口径（依赖 DB 作答记录）；普通插件格式无此语义，
-            # 显式拒绝而非静默忽略（同 err.md A17 反静默降级原则）
-            raise ApiError("bad_request", "错题导出仅支持 anki 格式")
         return await _export_plugin(entry, plan_id, content, user.id, wrong_only=body.wrong_only)
 
     if fmt == "slides":
@@ -130,9 +134,6 @@ async def export_plan_endpoint(
         return await _export_ics(plan_id, content)
     if fmt == "anki":
         return await _export_anki(plan_id, content, db=db, plan=plan, wrong_only=body.wrong_only)
-    if body.wrong_only:
-        # iter 134：错题导出仅 anki（错题判定依赖 DB 作答记录，md/pdf 等走 content 快照无此口径）
-        raise ApiError("bad_request", "错题导出仅支持 anki 格式")
     if fmt == "pdf":
         return await _export_pdf(plan_id, plan.session_id, content)
     return await _export_md(plan_id, plan.session_id, content, fmt)
