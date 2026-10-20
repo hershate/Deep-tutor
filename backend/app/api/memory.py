@@ -24,6 +24,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agent.agent_loop import AgentRunResult, AgentToolResult, run_agent_loop
@@ -68,6 +70,8 @@ _MAX_RUNNING_PER_THREAD = settings.max_running_chat_per_thread
 # iter 366：原硬编 2，100 用户场景下 98% 被直接 503；提为可配（默认 8）。
 _MAX_CHAT_RUNS_GLOBAL = settings.max_concurrent_chat_runs
 _MAX_TOOL_RESULT_CHARS = 20_000  # iter 364：工具回灌 LLM 的字符上限（防大输出单轮击穿预算）
+# iter 396：工作区产物单次读取的字符上限（此前全量读入内存并整份返回）
+_MAX_ARTIFACT_READ_CHARS = 200_000
 # iter 365：记忆子系统资源配额 + 写限流（对照 sessions/notes/kb 配额族，防 DoS 刷库膨胀）
 _MAX_THREADS_PER_USER = 500
 _MAX_MEMORIES_PER_USER = 2000
@@ -114,9 +118,7 @@ class ThreadPatch(BaseModel):
     model: str | None = Field(default=None, max_length=128)
 
 
-def _thread_out(t: models.Thread, db: Session) -> dict:
-    last_msg = db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id.desc()).first()
-    running = db.query(models.Run).filter_by(thread_id=t.id, status=models.RunStatus.running).first()
+def _thread_row(t: models.Thread, last_msg: models.Message | None, running: bool) -> dict:
     return {
         "id": t.id,
         "title": t.title,
@@ -130,8 +132,48 @@ def _thread_out(t: models.Thread, db: Session) -> dict:
             if last_msg and last_msg.content and isinstance(last_msg.content[0], dict)
             else ""
         ),
-        "running": running is not None,
+        "running": running,
     }
+
+
+def _thread_out(t: models.Thread, db: Session) -> dict:
+    last_msg = db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id.desc()).first()
+    running = db.query(models.Run).filter_by(thread_id=t.id, status=models.RunStatus.running).first()
+    return _thread_row(t, last_msg, running is not None)
+
+
+def _threads_out(rows: list[models.Thread], db: Session) -> list[dict]:
+    """批量版会话序列化（iter 396）。
+
+    此前 list_threads 逐条调 ``_thread_out`` -> 每条 2 次查询（last message +
+    running run），limit=100 即 **201 次查询**（聊天页每次打开都打一遍，多用户
+    高频下放大成百上千次往返）。改为两次批量查询（各 thread 的 max(message.id)
+    与 running run 的 thread 集合）后在 Python 侧拼装。
+    """
+    if not rows:
+        return []
+    tids = [t.id for t in rows]
+    last_ids = dict(
+        db.query(models.Message.thread_id, func.max(models.Message.id))
+        .filter(models.Message.thread_id.in_(tids))
+        .group_by(models.Message.thread_id)
+        .all()
+    )
+    msg_map: dict[int, models.Message] = {}
+    if last_ids:
+        for m in db.query(models.Message).filter(models.Message.id.in_(list(last_ids.values()))).all():
+            msg_map[m.id] = m
+    running_tids = {
+        tid
+        for (tid,) in db.query(models.Run.thread_id)
+        .filter(models.Run.thread_id.in_(tids), models.Run.status == models.RunStatus.running)
+        .distinct()
+        .all()
+    }
+    return [
+        _thread_row(t, msg_map.get(last_ids.get(t.id)), t.id in running_tids)  # type: ignore[arg-type]
+        for t in rows
+    ]
 
 
 @router.post("/threads")
@@ -166,7 +208,7 @@ def list_threads(
     q = db.query(models.Thread).filter_by(user_id=user.id).order_by(models.Thread.updated_at.desc())
     total = q.count()
     rows = q.offset((page - 1) * limit).limit(limit).all()
-    return {"items": [_thread_out(t, db) for t in rows], "total": total}
+    return {"items": _threads_out(rows, db), "total": total}
 
 
 @router.get("/threads/{thread_id}")
@@ -198,16 +240,65 @@ def _cancel_run_stream(run_id: int) -> None:
         stream._loop.call_soon_threadsafe(task.cancel)
 
 
+def _wait_runs_settled(run_ids: list[int], timeout: float = 10.0) -> bool:
+    """等待在途 chat run 收敛（终态已置位 / 注册表已清）后返回。
+
+    iter 396：删除 thread 前必须等在途 run 收敛——cancel 只是调度，agent 的落库写
+    （``_persist_message`` / ``_persist_run_step``，走 ``asyncio.to_thread`` **不可中断**）
+    仍可能与删除事务交错：
+
+    - 写入落在「子行已删、thread 行未删」之间 -> 删 thread 行触发
+      ``FOREIGN KEY constraint failed`` -> **500 且 thread 未删**；
+    - 写入落在 thread 行删除之后 -> 写入自身 FK 失败 -> 异常冒到 SSE。
+
+    对照 ``api/sessions.py`` 的 ``cancel_running_generation`` + ``wait_generation_settled``
+    （同一模式：cancel 只是调度，须等 finalize 落库完成）。收敛判据 = 注册表已清
+    （``_RUN_STREAMS.pop``，在 ``_run_chat`` 的 finally 内无条件执行）或 task 已 done
+    且终态已置位。超时返回 False 由调用方容忍（降级重试仍在）。
+    """
+    deadline = time.monotonic() + timeout
+    for rid in run_ids:
+        while time.monotonic() < deadline:
+            stream = _RUN_STREAMS.get(rid)
+            if stream is None:
+                break
+            task = getattr(stream, "task", None)
+            if task is None or (task.done() and stream.terminal_id is not None):
+                break
+            time.sleep(0.02)
+    return True
+
+
 @router.delete("/threads/{thread_id}")
 def delete_thread(thread_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _owned_thread(db, thread_id, user)
+    _owned_thread(db, thread_id, user)  # 归属校验（他人 thread -> 404，不泄露存在性）
     # 取消该 thread 运行中的 chat run（否则删 thread 后后台 run 仍烧 LLM 预算，iter 363；
     # iter 369：与 cancel_run 对齐做硬取消——软取消半边打不断在途流式读取）
-    for r in db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).all():
-        _cancel_run_stream(r.id)
-    db.delete(t)  # ORM 级联：messages/runs/run_steps/artifacts/memories
-    db.commit()
-    return {"ok": True}
+    running = db.query(models.Run).filter_by(thread_id=thread_id, status=models.RunStatus.running).all()
+    run_ids = [r.id for r in running]
+    for rid in run_ids:
+        _cancel_run_stream(rid)
+    # iter 396：等在途 run 收敛再删——cancel 只是调度，agent 落库写（to_thread 不可
+    # 中断）与删除事务交错会撞 FK -> 500 且 thread 未删（同 sessions.py 的等待范式）。
+    _wait_runs_settled(run_ids)
+    # 残留窗口：已在执行中的 to_thread 写可能在删除事务**之后**才提交 -> FK 失败。
+    # 有界重试（回滚后重新加载干净的 ORM 对象再试）；仍失败 -> 409（可重试语义，
+    # 不以 500 暴露内部约束错误）。
+    for attempt in range(3):
+        try:
+            obj = db.get(models.Thread, thread_id)
+            if obj is None:
+                return {"ok": True}
+            db.delete(obj)  # ORM 级联：messages/runs/run_steps/artifacts/memories
+            db.commit()
+            return {"ok": True}
+        except IntegrityError:
+            db.rollback()
+            db.expunge_all()  # 清 identity map——重试时重新加载（避开已标记删除的对象）
+            if attempt == 2:
+                break
+            time.sleep(0.2 * (attempt + 1))
+    raise HTTPException(status_code=409, detail="thread_busy")
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +559,20 @@ def read_file(run_id: int, name: str, user=Depends(get_current_user), db: Sessio
     p = Path(settings.data_dir) / a.path
     if not p.is_file():
         raise HTTPException(status_code=404, detail="file_missing")
-    return {"name": a.name, "content": p.read_text(encoding="utf-8"), "size": a.size}
+    # iter 396：按字符上限读取（此前 p.read_text() 全量读入内存并整份返回——产物
+    # 可达 MB 级，单次响应体膨胀且可反复请求放大）。超限截断并置 truncated 标记
+    # （与 /notes 列表预览、工具回灌截断同一口径）。
+    with p.open("r", encoding="utf-8", errors="replace") as fp:
+        content = fp.read(_MAX_ARTIFACT_READ_CHARS + 1)
+    truncated = len(content) > _MAX_ARTIFACT_READ_CHARS
+    if truncated:
+        content = content[:_MAX_ARTIFACT_READ_CHARS]
+    return {
+        "name": a.name,
+        "content": content,
+        "size": a.size,
+        "truncated": truncated,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -513,10 +617,24 @@ def approve_promote(run_id: int, body: ApproveIn, user=Depends(get_current_user)
     content = src.read_text(encoding="utf-8")
     dest = ""
     if target_kind == "note":
-        n = models.Note(user_id=user.id, title=name, content=content)
-        db.add(n)
-        db.flush()
-        dest = f"note:{n.id}"
+        # iter 396：复用 /notes 的规范化与配额——此前直接建 Note：标题取产物文件名
+        # 未截断（列宽 256）、正文取产物全文未截断（可远超 20000 字）、且不检查
+        # 该用户笔记数是否已达 500 -> 反复「产物提升为笔记」可把 notes 表撑到远超
+        # 上限，与 /notes 端点的表达不一致。
+        from app.api.notes import _MAX_CONTENT_CHARS, _MAX_NOTES_PER_USER, _MAX_TITLE_CHARS
+
+        with quota_slot(f"note:{user.id}"):
+            if db.query(models.Note).filter_by(user_id=user.id).count() >= _MAX_NOTES_PER_USER:
+                db.rollback()
+                raise HTTPException(status_code=429, detail="quota_exceeded")
+            n = models.Note(
+                user_id=user.id,
+                title=(name or "")[:_MAX_TITLE_CHARS],
+                content=content[:_MAX_CONTENT_CHARS],
+            )
+            db.add(n)
+            db.flush()
+            dest = f"note:{n.id}"
     elif target_kind == "plan":
         sess_id = r.thread.session_id if r.thread else None
         if not sess_id:
@@ -892,9 +1010,12 @@ async def _run_chat(
             status="interrupted", final_text="", steps=0, usage=partial or LLMUsage(), error="cancelled"
         )
         return
-    except Exception as exc:  # noqa: BLE001  任务异常隔离——保已产出 + 终态
+    except Exception:  # noqa: BLE001  任务异常隔离——保已产出 + 终态
         log.exception("chat run %s failed", run_id)
-        stream.publish("error", {"code": "internal_error", "message": str(exc)})
+        # iter 396：不回显 str(exc)——IntegrityError/SQLAlchemy 异常文本含表名、
+        # 列名与 SQL 片段，经 SSE 推给浏览器即内部 schema 泄露；与
+        # app/api/errors.py「不回显敏感信息」口径一致。细节进服务端日志。
+        stream.publish("error", {"code": "internal_error", "message": "对话执行失败，请重试"})
     finally:
         # iter 369：嵌套 try/finally——finalize 自身被二次取消打断时 db.close() 仍执行
         # （此前异常穿透会跳过 close，连接延迟归还池）
