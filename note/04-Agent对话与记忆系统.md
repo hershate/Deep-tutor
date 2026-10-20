@@ -180,13 +180,17 @@ try/finally 双保险：
 - finalize 自身异常 → `_force_run_terminal`（907-925，**全新 session 强写终态**——主 session commit 失败会让 run 永远 running，每 thread 至多 1 running 的硬约束导致该会话永久 409）；
 - finally：`stream.publish("done")` + `mark_terminal` + 从 `_RUN_STREAMS` 移除（998-1001）。
 
-## 9. 实时事件流（api/events.py，214 行）
+## 9. 实时事件流（api/events.py）
 
-`GET /api/events/stream`（SSE，`events.py:164-214`）把插件事件总线转发给认证客户端（前端 EventsBridge / 外部替代前端）：
+`GET /api/events/stream`（SSE）把插件事件总线转发给认证客户端（前端 EventsBridge / 外部替代前端）：
 
-- **用户隔离**（safe-by-default）：`resolve_owner`（64-91）——payload 带 user_id 直归属；带 session_id 经 DB 即时解析归属（iter 381 移除 TTL 缓存，关死跨用户错发窗口）；`format_frame`（94-108）——归属非本用户时丢弃、不可归属的非全局事件丢弃、仅 `GLOBAL_EVENTS = {startup, shutdown}`（42）广播全员；事件名剥换行（106-107，防伪 data 行注入）；
-- 有界队列 100（`events.py:186`）+ 15s `: ping` 心跳（`events.py:44`、`153-157`）；sink 经 `call_soon_threadsafe` 跨线程入队（189-201）；断开 finally 退订（205-210）；
-- 认证用 `get_current_user_id`（解析即释放 db，流期不钉连接池槽）；Bearer JWT 提取 iat 随流，心跳周期重验吊销水位（172-184、`111-127`）。
+- **用户隔离**（safe-by-default）：`resolve_owner`——payload 带 user_id 直归属（iter 395：`type(uid) is int`，bool 不算 int，否则 `user_id=True` 会被判给 user 1）；带 session_id 经 DB 即时解析归属（iter 381 移除 TTL 缓存，关死跨用户错发窗口）；`format_frame`——归属非本用户时丢弃、不可归属的非全局事件丢弃、仅 `GLOBAL_EVENTS = {startup, shutdown}` 广播全员；事件名剥换行（防伪 data 行注入）；payload 不可 JSON 序列化时降级 `default=str`（iter 395：此前直接抛 TypeError 让整条流崩断）；
+- 有界队列 100 + 15s `: ping` 心跳；sink 经 `call_soon_threadsafe` 跨线程入队；
+- **连接数上限**（iter 395）：单用户 16 条 / 全局 256 条，超限 429——此前无上限，每条连接持 100 槽队列 + 一个 bus sink，且每次 emit 遍历全部 sink（O(连接数)）；
+- **清理兜底**（iter 395）：槽位与 sink 的释放挂在 `StreamingResponse` 的 `BackgroundTask`（Starlette 在响应结束后必跑，含客户端提前断开路径）+ 生成器 finally，幂等——客户端在响应体开始前断开时 body_iterator 从未被迭代，未启动的 async generator 的 finally 不会执行，只挂 finally 会永久泄漏；
+- **同步 DB 读移出事件循环**（iter 395）：归属解析（带 session_id 的事件）与身份重验的查库走 `asyncio.to_thread`——此前在事件循环线程内同步取连接（池耗尽时最多阻塞 30s -> 全站冻结，同 iter 364/393 的写路径失效模式）；
+- **重验不再依赖队列空闲**（iter 395）：此前只在 `queue.get()` 超时分支重验身份，事件连发时永不重验（已吊销用户的流持续收事件）；改为按单调时钟截止时间，与队列是否空闲无关；
+- 认证用 `get_current_user_id`（解析即释放 db，流期不钉连接池槽）；Bearer JWT 提取 iat 随流，按周期重验吊销水位。
 
 ## 10. Go 侧对应实现
 

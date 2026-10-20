@@ -144,6 +144,16 @@ flowchart TD
 - `POST /api/setup` 与 `POST /api/setup/dismiss`（公开端点）在**开放模式**（无人设过口令、无 AUTH_TOKEN、无 active PAT）下**仅接受本机回环请求**（403）：这两个端点是唯一的「认领管理员」入口，开放给局域网任意客户端等于允许远程抢占管理员口令或翻转全局 dismiss 状态。LAN 部署改用 `.env` 的 `ADMIN_PASSWORD` / `AUTH_TOKEN`。
 - 供应商档案 `base_url` 是**服务端出站目标**且用户可自选：默认**拦截私网/环回/链路本地/云元数据**目标（写时校验 + 调用前复检，422 / `ssrf_blocked`），确需指向本地模型服务（Ollama / LM Studio / 内网中转）时设 `ALLOW_PRIVATE_LLM_BASE_URL=1` 放行。判定规则单一事实源在 `core/urlguard.py`（与材料抓取的 SSRF 防护同源）。
 
+**iter 395：并发写面与长驻资源面的四处加固**——
+- **用户偏好原子 upsert**：`PUT /api/settings/prefs` 与 `PUT /api/settings/pricing` 此前是「先查后插」，并发首写同一格时双方都读到「无行」-> 都 INSERT -> 后者撞 `uq_user_prefs_user_key` -> `IntegrityError` 未捕获 -> **500**（实测 8 并发：prefs 4 个 500、pricing 7 个 500）。改用数据库原生 upsert（`INSERT ... ON CONFLICT DO UPDATE`，按方言分派 SQLite/PostgreSQL）单条 DML，冲突交数据库解决。
+- **计费表不得被误清空**：`PUT /api/settings/pricing` 输入非空但清洗后为空（字段名写错 / 全为负数或非有限值）-> **400 拒绝**，不再静默清空用户整张表并回退默认价（一次字段名笔误即改掉成本口径，进而影响日预算守卫的计价）。显式空对象 `{}` 仍是「清空」。
+- **事件流连接数上限**：`GET /api/events/stream` 单用户 **16** 条 / 全局 **256** 条，超限 429；槽位与 bus sink 的释放改挂 `BackgroundTask`（客户端提前断开时生成器 finally 不执行，只挂 finally 会永久泄漏）。
+- **错题族读限流**：`GET /api/quizzes/wrong-overview` 与 `/wrong-queue` 此前无限流，每次都对本用户全部作答历史跑窗口函数 -> 补 30/min；`/wrong-queue` 的 `limit` 改 `Query(ge=1, le=200)`（此前裸 int，0/负值被夹取成 1）。
+
+**iter 395：知识节点状态筛选下推 SQL**——`GET /api/knowledge?status=...` 此前在 `LIMIT` 之后于 Python 侧过滤：节点数 > limit 的重度用户按状态筛选只会看到「最新 limit 个节点」里的匹配项（结果严重偏少甚至为空），chip 计数同样失真。现 `status` 下推到 SQL（limit 之前），`stats` 改为按**全量匹配节点**分组统计。
+
+**iter 395：作答记录保留策略（用户已决）**——`quiz_attempts` 是全库增速最快的表（每次提交一行、此前永不清理）。运维每日轮按 `settings.quiz_attempt_keep_per_quiz`（默认 **10**）**每题**保留最新 N 条（分批删除，避免长时间持写锁把并发写打成 503）。**最新一条始终保留** -> 错题本判定（每题最新作答 `correct IS False`）逐字不变；受影响的只有「总作答次数 / 正确率」统计（`GET /plans/{id}/quiz/stats`）与备份体积。`0` = 保留全部历史。
+
 ## 5. 典型请求生命周期（以 POST /api/plans/generate 为例）
 
 ```mermaid
