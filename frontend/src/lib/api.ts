@@ -815,6 +815,7 @@ export const updatePricing = (pricing: Record<string, Partial<ModelPricingEntry>
 // 三类 kind：anthropic（Anthropic 回退主 Key，单活）/ bing（Bing 搜索 Key，单活）/
 // auth_token（个人访问令牌，多活——任一 active 令牌均以本人身份通过认证）。
 // api_key 只写不读：响应仅含掩码末 4 位；更新时 api_key 留空 -> 保留原值。
+// iter 394：auth_token（PAT）服务端以 sha256 摘要存储，掩码为「****（摘要）」。
 export type CredentialKind = 'anthropic' | 'bing' | 'auth_token'
 export interface CredentialProfile {
   id: number

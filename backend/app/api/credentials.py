@@ -10,7 +10,9 @@
 安全约定（同 providers.py）：
 - api_key 只写不读——任何响应不回显明文，仅返回掩码末 4 位；更新不传 api_key 则保留原值。
 - P4 按用户隔离：一切操作仅作用于当前用户的档案；跨用户访问一律 404（不泄露存在性）。
-- auth_token 类 key 最小 8 位（认证凭证，防弱口令式令牌）。
+- auth_token 类 key 最小 16 位（认证凭证，防弱口令式令牌；iter 394：8 -> 16）。
+- iter 394：auth_token（PAT）以 sha256 摘要入库（明文入库 -> 库/备份泄露即令牌泄露），
+  掩码显示「****（摘要）」；anthropic/bing 两类仍存明文（须原样发往供应商）。
 """
 
 from __future__ import annotations
@@ -24,7 +26,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
-from app.core.credentials import CREDENTIAL_KINDS, KIND_AUTH_TOKEN, SINGLE_ACTIVE_KINDS
+from app.core.credentials import (
+    CREDENTIAL_KINDS,
+    KIND_AUTH_TOKEN,
+    SINGLE_ACTIVE_KINDS,
+    hash_token,
+    is_hashed,
+)
 from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.db import models
@@ -50,7 +58,11 @@ def _mask(key: str) -> str:
 
     iter 394：长度 <8 时整体掩码——此前 len>=4 即回显末 4 位，4~7 位密钥会被
     **完整回显**（与「不回显明文」的口径矛盾；api_key 下限为 1 位）。
+    iter 394：PAT 以 sha256 摘要存储（明文不入库），无「明文末 4 位」可显——
+    统一显示「****（摘要）」，凭档案名区分（摘要前缀不可泄露，不可逆推）。
     """
+    if is_hashed(key):
+        return "****（摘要）"
     return f"...{key[-4:]}" if len(key) >= 8 else "****"
 
 
@@ -66,9 +78,21 @@ def _out(p: models.CredentialProfile) -> dict:
 
 
 def _check_key_strength(kind: str, api_key: str) -> None:
-    """auth_token 类为认证凭证，最小 8 位防弱令牌（其余类同供应商档案 min_length=1）。"""
-    if kind == KIND_AUTH_TOKEN and len(api_key) < 8:
-        raise ApiError("bad_request", "访问令牌至少 8 位（它可直接用于登录你的账号）")
+    """auth_token 类为认证凭证，最小 16 位防弱令牌（其余类同供应商档案 min_length=1）。
+
+    iter 394：8 -> 16。认证失败限流为 per-IP 30/min（iter 368）——多 IP 分布式
+    爆破下弱令牌空间（8 位自选口令常见 <10^8 有效组合）可在数日内穷举；
+    16 位随机串空间 10^16 量级，爆破不可行。存量令牌不受影响（仅新建/改写校验）。
+    """
+    if kind == KIND_AUTH_TOKEN and len(api_key) < 16:
+        raise ApiError("bad_request", "访问令牌至少 16 位（它可直接用于登录你的账号）")
+
+
+def _stored_key(kind: str, api_key: str) -> str:
+    """入库值：PAT 存 sha256 摘要（明文不入库），其余类存原值。"""
+    if kind == KIND_AUTH_TOKEN:
+        return hash_token(api_key)
+    return api_key
 
 
 class CredentialIn(BaseModel):
@@ -135,7 +159,11 @@ def create_credential(
         _check_dup_name(db, user, body.kind, body.name)
         _check_key_strength(body.kind, body.api_key)
         p = models.CredentialProfile(
-            user_id=user.id, kind=body.kind, name=body.name, api_key=body.api_key, is_active=False
+            user_id=user.id,
+            kind=body.kind,
+            name=body.name,
+            api_key=_stored_key(body.kind, body.api_key),
+            is_active=False,
         )
         if body.activate:
             _activate(db, user, p)
@@ -164,7 +192,7 @@ def update_credential(
         p.name = body.name
     if body.api_key is not None:  # 不传 -> 保留原值
         _check_key_strength(p.kind, body.api_key)
-        p.api_key = body.api_key
+        p.api_key = _stored_key(p.kind, body.api_key)
     try:
         db.commit()
     except IntegrityError:

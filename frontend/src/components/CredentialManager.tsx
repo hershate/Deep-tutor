@@ -42,9 +42,9 @@ const KIND_META: Record<CredentialKind, KindMeta> = {
   },
   auth_token: {
     label: '访问令牌（API / 浏览器扩展）',
-    hint: '个人访问令牌：启用中的令牌可用于 API / 浏览器扩展认证（以你的身份）。令牌即凭证，请用强随机串；.env AUTH_TOKEN 始终有效作回退。',
-    keyPlaceholder: '至少 8 位的强随机令牌',
-    keyHint: '至少 8 位——它可直接用于登录你的账号',
+    hint: '个人访问令牌：启用中的令牌可用于 API / 浏览器扩展认证（以你的身份）。令牌即凭证，请用强随机串；服务端以 sha256 摘要存储（不存明文），令牌丢失无法找回，请自行妥善保存；.env AUTH_TOKEN 始终有效作回退。',
+    keyPlaceholder: '至少 16 位的强随机令牌',
+    keyHint: '至少 16 位——它可直接用于登录你的账号；服务端只存摘要，丢失后无法找回',
     multi: true,
     randomable: true,
   },

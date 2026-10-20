@@ -14,6 +14,7 @@ DB 读取异常一律回退 None/空列表（同 llm.get_active_profile 模式�
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from typing import Any
 
@@ -25,6 +26,21 @@ KIND_AUTH_TOKEN = "auth_token"
 CREDENTIAL_KINDS = (KIND_ANTHROPIC, KIND_BING, KIND_AUTH_TOKEN)
 # 单活类：同时至多一个 active（activate 互斥）；auth_token 为多活（任一 active 均有效）
 SINGLE_ACTIVE_KINDS = (KIND_ANTHROPIC, KIND_BING)
+
+# iter 394：个人访问令牌（PAT）改以 sha256 摘要存储——此前明文入库，
+# 库文件泄露（备份文件、磁盘快照、目录误配）即等于全部令牌泄露。
+# 存储格式 "sha256:<hex>"；anthropic/bing 两类不变（须以明文发给供应商）。
+HASH_PREFIX = "sha256:"
+
+
+def hash_token(token: str) -> str:
+    """PAT -> 存储串（sha256 摘要，带前缀以与明文行区分）。"""
+    return HASH_PREFIX + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def is_hashed(value: str) -> bool:
+    """存储串是否为摘要形式。"""
+    return value.startswith(HASH_PREFIX)
 
 
 def _to_dict(p: Any) -> dict:
@@ -90,13 +106,60 @@ def match_auth_token_credential(db, token: str) -> dict | None:
     仅在 JWT 与 .env token 均失败后的路径调用（已认证请求零新增查询）。
     iter 368：encode 后按字节比较——compare_digest 对非 ASCII str 抛 TypeError，
     恶意 Bearer 头（多字节字符）会把 401 变 500。
+
+    iter 394：PAT 以 sha256 摘要存储（见 HASH_PREFIX）。读路径同时兼容两类行：
+    摘要行比摘要、旧明文行比明文（均按字节常量时间比较）；旧明文行由启动期
+    upgrade_plaintext_tokens 一次性升级为摘要（此处不写库——认证路径在事件循环
+    线程内，写库会触发 iter 393 的写锁冻结问题）。
     """
     if not token:
         return None
+    digest = hash_token(token).encode("utf-8")
+    raw = token.encode("utf-8")
     for cred in list_active_credentials(None, KIND_AUTH_TOKEN, db):
-        if secrets.compare_digest(token.encode(), cred["api_key"].encode()):
+        stored = cred["api_key"]
+        stored_bytes = stored.encode("utf-8")
+        if is_hashed(stored):
+            matched = secrets.compare_digest(stored_bytes, digest)
+        else:
+            matched = secrets.compare_digest(stored_bytes, raw)
+        if matched:
             return cred
     return None
+
+
+def upgrade_plaintext_tokens(db=None) -> int:
+    """把历史明文 PAT 行升级为摘要存储（iter 394），返回升级行数。
+
+    启动期一次性收敛（幂等）：只处理 kind=auth_token 且未带摘要前缀的行。
+    失败不阻断启动——旧明文行仍可认证（读路径兼容）。
+    """
+    own = db is None
+    try:
+        from app.db import models
+        from app.db.base import SessionLocal
+
+        sess = db if db is not None else SessionLocal()
+        try:
+            rows = (
+                sess.query(models.CredentialProfile)
+                .filter_by(kind=KIND_AUTH_TOKEN)
+                .all()
+            )
+            changed = 0
+            for row in rows:
+                if is_hashed(row.api_key or ""):
+                    continue
+                row.api_key = hash_token(row.api_key or "")
+                changed += 1
+            if changed:
+                sess.commit()
+            return changed
+        finally:
+            if own:
+                sess.close()
+    except Exception:  # noqa: BLE001  升级失败不影响服务（旧明文行仍可认证）
+        return 0
 
 
 def has_active_auth_token_credential(db) -> bool:

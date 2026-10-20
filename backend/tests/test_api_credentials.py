@@ -78,10 +78,13 @@ def test_create_invalid_kind_422(client, auth_headers):
 
 
 def test_auth_token_min_length(client, auth_headers):
-    """auth_token 类为认证凭证：key <8 位 -> 400；>=8 -> 201。其余类不限。"""
+    """auth_token 类为认证凭证：key <16 位 -> 400；>=16 -> 201。其余类不限。
+
+    iter 394：8 -> 16（per-IP 30/min 的失败限流挡不住多 IP 分布式爆破，
+    16 位随机串空间使爆破不可行；存量令牌不受影响）。"""
     r = client.post(BASE, json={"kind": "auth_token", "name": "弱", "api_key": "short"}, headers=auth_headers)
     assert r.status_code == 400
-    p = _create(client, auth_headers, kind="auth_token", name="强", api_key="token-abcdefgh")
+    p = _create(client, auth_headers, kind="auth_token", name="强", api_key="token-abcdefghijkl")
     assert p["kind"] == "auth_token"
     # anthropic 类短 key 不限制（同供应商档案 min_length=1）
     p2 = _create(client, auth_headers, kind="anthropic", name="短", api_key="x")
@@ -99,16 +102,17 @@ def test_create_duplicate_name_same_kind_only(client, auth_headers):
 
 def test_update_keeps_key_when_absent(client, auth_headers):
     """更新不传 api_key -> 保留原值；传则替换（auth_token 类替换须过强度校验）。改名冲突 409。"""
-    p = _create(client, auth_headers, kind="auth_token", name="令牌", api_key="token-abcdefgh")
+    p = _create(client, auth_headers, kind="auth_token", name="令牌", api_key="token-abcdefghijkl")
     r = client.put(f"{BASE}/{p['id']}", json={"name": "令牌2"}, headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert r.json()["api_key_masked"] == "...efgh"  # 原 key 保留
+    # iter 394：PAT 以 sha256 摘要存储，掩码无「明文末 4 位」可显
+    assert r.json()["api_key_masked"] == "****（摘要）"
     r = client.put(f"{BASE}/{p['id']}", json={"api_key": "short"}, headers=auth_headers)
     assert r.status_code == 400  # auth_token 强度校验
-    r = client.put(f"{BASE}/{p['id']}", json={"api_key": "token-99999999"}, headers=auth_headers)
-    assert r.json()["api_key_masked"] == "...9999"
+    r = client.put(f"{BASE}/{p['id']}", json={"api_key": "token-9999999999"}, headers=auth_headers)
+    assert r.json()["api_key_masked"] == "****（摘要）"
 
-    _create(client, auth_headers, kind="auth_token", name="另一个", api_key="token-bbbbbbbb")
+    _create(client, auth_headers, kind="auth_token", name="另一个", api_key="token-bbbbbbbbbbbb")
     r = client.put(f"{BASE}/{p['id']}", json={"name": "另一个"}, headers=auth_headers)
     assert r.status_code == 409
     assert client.put(f"{BASE}/999999", json={"name": "x"}, headers=auth_headers).status_code == 404
@@ -136,11 +140,11 @@ def test_write_rate_limit_429(client, auth_headers):
     """凭证写操作限流（iter 365）：30/min 跨类累计，第 31 次 -> 429。
 
     跨 anthropic/bing/auth_token 三类各 10 个（< 配额 20）凑满 30 次写，隔离配额检查，
-    专测限流本身。auth_token 类 key 需 >=8 位（强度校验）。"""
+    专测限流本身。auth_token 类 key 需 >=16 位（强度校验，iter 394）。"""
     kinds = ["anthropic", "bing", "auth_token"]
     for i in range(30):
         k = kinds[i % 3]
-        key = f"token-{i:08d}" if k == "auth_token" else f"{k}-rl{i:04d}"
+        key = f"token-{i:012d}" if k == "auth_token" else f"{k}-rl{i:04d}"
         r = client.post(BASE, json={"kind": k, "name": f"r{i}", "api_key": key}, headers=auth_headers)
         assert r.status_code == 201, (i, k, r.text)
     # 第 31 次写：每类 10 个未触配额（20），仅限流 429 生效
@@ -179,8 +183,8 @@ def test_activate_single_active_kinds(client, auth_headers):
     active = [x for x in rows if x["is_active"]]
     assert len(active) == 1 and active[0]["id"] == b["id"]
 
-    t1 = _create(client, auth_headers, kind="auth_token", name="T1", api_key="token-11111111")
-    t2 = _create(client, auth_headers, kind="auth_token", name="T2", api_key="token-22222222")
+    t1 = _create(client, auth_headers, kind="auth_token", name="T1", api_key="token-111111111111")
+    t2 = _create(client, auth_headers, kind="auth_token", name="T2", api_key="token-222222222222")
     client.post(f"{BASE}/{t1['id']}/activate", headers=auth_headers)
     client.post(f"{BASE}/{t2['id']}/activate", headers=auth_headers)
     rows = client.get(f"{BASE}?kind=auth_token", headers=auth_headers).json()["credentials"]
@@ -403,7 +407,7 @@ def test_settings_snapshot_key_sources(client, auth_headers, monkeypatch):
     snap = client.get("/api/settings", headers=auth_headers).json()
     assert snap["anthropic_key_source"] == "credential"
 
-    _create(client, auth_headers, kind="auth_token", name="PAT", api_key="token-snapshot", activate=True)
+    _create(client, auth_headers, kind="auth_token", name="PAT", api_key="token-snapshot-1234", activate=True)
     snap = client.get("/api/settings", headers=auth_headers).json()
     assert snap["auth_token_source"] == "credential"
 

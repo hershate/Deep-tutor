@@ -171,6 +171,17 @@ async def lifespan(app: FastAPI):
 
     run_migrations()
     init_db()
+    # iter 394：历史明文个人访问令牌升级为 sha256 摘要存储（明文入库 -> 库/备份
+    # 泄露即令牌泄露）。启动期一次性收敛（幂等）；写库走线程池，保持「DB 写不在
+    # 事件循环线程」的一致口径。失败不阻断启动（旧明文行仍可认证）。
+    from app.core.credentials import upgrade_plaintext_tokens
+
+    try:
+        _upgraded = await asyncio.to_thread(upgrade_plaintext_tokens)
+        if _upgraded:
+            log.info("已将 %d 条历史明文访问令牌升级为摘要存储", _upgraded)
+    except Exception:  # noqa: BLE001  升级失败不影响启动
+        log.warning("历史明文访问令牌升级失败（不影响启动）", exc_info=True)
     # err.md A2：进程崩溃/重启后 orchestrator_state 残留 running 会让该用户
     # 永久 409（配额检查把 stale running 计入并发）。启动时批量收敛为 interrupted，
     # 会话可通过 /generate 重新生成（_terminal_event 回放 error 终态）。

@@ -437,6 +437,92 @@ def test_setup_status_public_get_creates_no_user(client, monkeypatch):
         db.close()
 
 
+# --- P2-9：PAT 摘要存储 + 最小长度 -------------------------------------------
+
+
+def test_pat_stored_hashed_and_authenticates(client, auth_headers):
+    """iter 394：PAT 以 sha256 摘要入库（明文不入库），且仍可正常认证。"""
+    from app.core.credentials import hash_token
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    token = "pat-plaintext-must-not-be-stored-1234"
+    r = client.post(
+        "/api/credentials",
+        json={"kind": "auth_token", "name": "PAT", "api_key": token, "activate": True},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert token not in r.text
+    assert r.json()["api_key_masked"] == "****（摘要）"
+
+    db = SessionLocal()
+    try:
+        row = db.query(models.CredentialProfile).filter_by(kind="auth_token").first()
+        assert row is not None
+        assert row.api_key == hash_token(token)
+        assert token not in row.api_key
+    finally:
+        db.close()
+
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
+def test_legacy_plaintext_pat_authenticates_and_upgrades(client, auth_headers):
+    """iter 394：历史明文 PAT 行仍可认证；升级函数把它转成摘要。"""
+    from app.core.credentials import hash_token, upgrade_plaintext_tokens
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    # 确保有用户（env token 回退会懒建默认用户）
+    client.get("/api/auth/me", headers=auth_headers)
+    token = "legacy-plaintext-token-value-9876"
+    db = SessionLocal()
+    try:
+        uid = db.query(models.User.id).first()[0]
+        db.add(
+            models.CredentialProfile(
+                user_id=uid, kind="auth_token", name="旧令牌", api_key=token, is_active=True
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    # 旧明文行仍可认证（读路径兼容）
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+    assert upgrade_plaintext_tokens() == 1
+    db = SessionLocal()
+    try:
+        row = db.query(models.CredentialProfile).filter_by(kind="auth_token").first()
+        assert row.api_key == hash_token(token)
+    finally:
+        db.close()
+
+    # 升级后仍可认证（比摘要）
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
+def test_pat_min_length_16(client, auth_headers):
+    """iter 394：PAT 最小 16 位（8 -> 16）——多 IP 分布式爆破下弱令牌可被穷举。"""
+    r = client.post(
+        "/api/credentials",
+        json={"kind": "auth_token", "name": "弱", "api_key": "0123456789abcde"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400, r.text
+    r = client.post(
+        "/api/credentials",
+        json={"kind": "auth_token", "name": "强", "api_key": "0123456789abcdef"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+
 # --- P2-10：配额 check-then-act 竞态 ---------------------------------------
 
 
