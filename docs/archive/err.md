@@ -56,7 +56,7 @@
   `progress.py:72-86, models.py:264-276`。并发两个 POST /progress 同节点 → 双插；此后 `.one_or_none()` 抛 MultipleResultsFound，该节点更新端点永久 500。
   修复方向：加 UniqueConstraint + 捕获 IntegrityError 转为更新。（与 C19 同一问题）
 
-- [x] **A12. 删除会话/用户不等任务真正终止，叠加 SQLite rowid 复用，旧任务可把结果写进新会话**
+- [x] **A12. 删除会话/用户不等任务确实终止，叠加 SQLite rowid 复用，旧任务可把结果写进新会话**
   `sessions.py:51-58, users.py:134-141, plans.py:450-477`。`cancel_running_generation` 只是 `call_soon_threadsafe(task.cancel)`，调用方立即删行提交；`_finalize` 仅靠 `db.get(Session, session_id) is None` 判断是否写库 —— 若 rowid 被新会话复用，旧任务 finalize 时把旧方案写进无关的新会话。
   修复方向：finalize 校验 trace_id 匹配后才写 plan。
 

@@ -52,7 +52,7 @@
 ## 5. search_resources
 - **input**: `{ stage_topics: [[str]] }`（可选；缺省时从 upstream.design_stages 派生，err.md B21）
 - **output**: `{ resources: [{ stage_index, title, url, type, verified, note }], engine: "bing_api"|"bing_web" }`（engine 键为 iter 222 新增，只增不改）
-- **errors**: WebSearch 失败 -> 返回搜索关键词建议，不编造 URL；免 Key 网页引擎全面失败 -> `search_unavailable` + 关键词建议；`SEARCH_ENGINE=bing` 未配 key -> `no_search_key`。
+- **errors**: WebSearch 失败 -> 返回搜索关键词建议，不编造 URL；免 Key 网页引擎全部失败 -> `search_unavailable` + 关键词建议；`SEARCH_ENGINE=bing` 未配 key -> `no_search_key`。
 - **实现**: 双引擎（iter 222，`BING_API_KEY` 可选化）：`bing_api` = Bing Search API（付费，有 key 质量更高）；`bing_web` = Bing 网页版抓取（cn.bing.com，免 Key，国内可达）。`SEARCH_ENGINE=auto|bing|bing_web`（默认 auto：有 key 用 API，无 key 用网页版），决策见 `app.core.settings.effective_search_engine`；引擎注册表 dispatch（新增引擎 = 实现函数 + 注册一行）。候选均过 `verify_url`。
 - **规则**: 严格移植 study-planner Step 4 链接验证，判定如下：
 
