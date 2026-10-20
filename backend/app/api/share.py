@@ -18,7 +18,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -67,6 +67,47 @@ def _share_expired(link: ShareLink) -> bool:
     return exp is not None and datetime.utcnow() >= exp
 
 
+def _new_share_link(db: Session, plan_id: int) -> ShareLink:
+    """新建分享链接；并发创建撞唯一约束 -> 重读既有行（err.md A16 幂等语义）。"""
+    link = ShareLink(plan_id=plan_id, token=secrets.token_urlsafe(24))
+    db.add(link)
+    try:
+        db.commit()
+    except IntegrityError:
+        # err.md A16：并发创建撞唯一约束 -> 重读既有行（幂等语义不变）
+        db.rollback()
+        link = db.query(ShareLink).filter_by(plan_id=plan_id).one()
+    db.refresh(link)
+    return link
+
+
+def _rotate_expired_link(db: Session, link: ShareLink) -> ShareLink | None:
+    """过期链接 CAS 轮换 token；返回库里现存的链接行（行已被并发删掉则 None）。
+
+    iter 395：此前是「读-改-写」无条件覆盖——并发双击/多标签页时两方都读到同一条
+    过期行，A 写 token_A、B 写 token_B，库里只剩 token_B，A 拿到的链接立刻 404。
+    改为条件更新 WHERE id=? AND token=<轮换前的旧 token>：只有一个赢家，输家重读
+    该行并返回库里现存的 token（两方拿到同一个可用链接，后到者不会拿到已失效值）。
+    """
+    link_id = link.id
+    # 条件更新：WHERE 带旧 token —— 只有「读到的仍是旧 token」的一方能改成功
+    (
+        db.query(ShareLink)
+        .filter(ShareLink.id == link_id, ShareLink.token == link.token)
+        .update(
+            {"token": secrets.token_urlsafe(24), "created_at": datetime.utcnow()},
+            synchronize_session=False,  # ORM 快照不跟随本会话改写，改为下面显式重读
+        )
+    )
+    db.commit()
+    # 无论本方是否改成功，一律重读：库里现存的 token 才是唯一有效的那个
+    current = db.query(ShareLink).filter_by(id=link_id).first()
+    if current is None:
+        return None  # 并发撤销：行已删（调用方按「无链接」重建）
+    db.refresh(current)  # 条件更新只改库内值 -> 显式重读当前 token/created_at
+    return current
+
+
 @router.post("/{plan_id}/share", status_code=201)
 def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     if not limiter.check(f"share_write:{user.id}", 30):
@@ -74,24 +115,16 @@ def create_share(plan_id: int, db: Session = Depends(get_db), user: User = Depen
     plan = get_owned_plan(db, plan_id, user)  # 他人方案 404
     link = db.query(ShareLink).filter_by(plan_id=plan.id).first()
     if link is None:
-        link = ShareLink(plan_id=plan.id, token=secrets.token_urlsafe(24))
-        db.add(link)
-        try:
-            db.commit()
-        except IntegrityError:
-            # err.md A16：并发创建撞唯一约束 -> 重读既有行（幂等语义不变）
-            db.rollback()
-            link = db.query(ShareLink).filter_by(plan_id=plan.id).one()
-        db.refresh(link)
+        link = _new_share_link(db, plan.id)
     elif _share_expired(link):
         # iter 373 R16：既有链接已过期时沿用会原样返回一条公开 404 的死链——
         # 前端「分享」按钮触发的正是本路径（get_share 过期即 shared=false）。
         # 轮换 token 并重置 created_at（90 天重新计时）：旧 token 即使已被
         # 复制到别处也继续保持失效，属主拿到的是可用的新链接。
-        link.token = secrets.token_urlsafe(24)
-        link.created_at = datetime.utcnow()
-        db.commit()
-        db.refresh(link)
+        # iter 395：轮换走 CAS 条件更新（见 _rotate_expired_link）——并发双击时
+        # 两方不再互相覆盖 token（否则先到者拿到的链接立刻 404）。
+        rotated = _rotate_expired_link(db, link)
+        link = rotated if rotated is not None else _new_share_link(db, plan.id)  # 并发撤销 -> 重建
     return {
         "token": link.token,
         "path": f"/shared/{link.token}",
@@ -130,20 +163,38 @@ def get_share(plan_id: int, db: Session = Depends(get_db), user: User = Depends(
 
 
 # 公开读限流（防 token 探测/抓取滥用；192bit token 本身不可枚举，此为纵深防御）
-_SHARED_READ_RATE_PER_MIN = 30
+# iter 395：改为双桶——(a) 按链接 token 分桶，保护单个链接不被刷；(b) 按 IP 分桶，
+# 作粗粒度滥用护栏。此前只有 IP 桶：经 nginx/反代时 request.client.host 是代理 IP
+# -> 全站访问者共用一个桶，30 次/分钟即全站分享页 429（误伤正常用户），而真正的
+# 单 IP 探测防护反而失效。token 来自路径参数、不可枚举，按 token 分桶不会互相误伤。
+_SHARED_READ_LINK_RATE_PER_MIN = 30  # 单个分享链接
+_SHARED_READ_IP_RATE_PER_MIN = 600  # 单 IP（反代后同 IP 多用户共享，阈值放宽）
+# 管理面列表读限流（iter 395：/shares 此前无限流）
+_SHARES_LIST_RATE_PER_MIN = 30
 
 
 @manage_router.get("")
-def list_shares(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+def list_shares(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
     """当前用户全部分享链接（新→旧）——安全审计面：逐方案创建/撤销之外，
     「我到底分享出去了哪些」需要全局视图。iter 373 起逐条带 expired 标记
-    （过期链接不再可公开访问，但行仍在——前端标注后可撤销清理）。"""
+    （过期链接不再可公开访问，但行仍在——前端标注后可撤销清理）。
+
+    iter 395：补 limit（默认 100、上限 500）与读限流——此前 .all() 无上限全量返回
+    该用户全部链接，一次请求即可把整张分享表拖进响应体，且无限流可被反复触发。
+    """
+    if not limiter.check(f"shares_list:{user.id}", _SHARES_LIST_RATE_PER_MIN):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     rows = (
         db.query(ShareLink, Plan)
         .join(Plan, ShareLink.plan_id == Plan.id)  # INNER JOIN：方案已删的孤儿链接自动不可见
         .join(models.Session, Plan.session_id == models.Session.id)
         .filter(models.Session.user_id == user.id)
         .order_by(ShareLink.created_at.desc(), ShareLink.id.desc())  # 同秒并列按 id 保底确定序
+        .limit(limit)
         .all()
     )
     return {
@@ -212,7 +263,11 @@ def _sanitize_shared_content(content: dict) -> dict:
 @public_router.get("/{token}")
 def read_shared(token: str, request: Request, db: Session = Depends(get_db)) -> dict:
     ip = request.client.host if request.client else "unknown"
-    if not limiter.check(f"shared_read:{ip}", _SHARED_READ_RATE_PER_MIN):
+    # iter 395：双桶限流——先按链接 token（保护单个链接不被刷，不同链接互不误伤），
+    # 再按 IP（粗粒度滥用护栏，阈值放宽以容纳反代后同 IP 的多用户）。
+    if not limiter.check(f"shared_read_link:{token}", _SHARED_READ_LINK_RATE_PER_MIN):
+        raise ApiError("rate_limited", "访问过于频繁，请稍后再试", status=429)
+    if not limiter.check(f"shared_read_ip:{ip}", _SHARED_READ_IP_RATE_PER_MIN):
         raise ApiError("rate_limited", "访问过于频繁，请稍后再试", status=429)
     link = db.query(ShareLink).filter_by(token=token).first()
     if link is None or _share_expired(link):
@@ -223,7 +278,11 @@ def read_shared(token: str, request: Request, db: Session = Depends(get_db)) -> 
         raise ApiError("not_found", "方案已删除")
     content = _sanitize_shared_content(_load_content(plan))
     return {
-        "title": content.get("title") or content.get("topic") or "学习方案",
+        # iter 395：主题在 content.intent.topic（plan_assembly.PLAN_SECTIONS 无顶层
+        # title/topic），此前读 content.get("title")/content.get("topic") 恒为空 ->
+        # 分享页标题恒为「学习方案」。统一走 _plan_topic（与 plans.py 列表/详情同口径），
+        # content.get("topic") 兜底早期仅存顶层 topic 的方案。
+        "title": _plan_topic(plan) or content.get("topic") or "学习方案",
         "created_at": plan.created_at.isoformat() if plan.created_at else "",
         "content": content,
     }

@@ -51,13 +51,17 @@ export default function SharedPlan() {
     )
 
   const stages = data.content.stages ?? []
+  // iter 395：配套资源在顶层 content.resources（search_resources 产出）；stage 级
+  // resources 是死代码（design_stages schema 无此字段）——此前渲染的是它，故资源从不显示。
+  const resources = data.content.resources ?? []
   const quizCount = data.content.quizzes?.length ?? 0
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <header className="mb-6 animate-fade-in-up border-b pb-4 dark:border-slate-700">
         <div className="text-xs text-slate-500 dark:text-slate-400">Deep-tutor 分享的学习方案（只读）</div>
+        {/* iter 395：标题取后端给的方案主题（data.title = intent.topic）——此前另读
+         *  content.topic（方案内容无此顶层键）-> 页面只显示恒定的「学习方案」。 */}
         <h1 className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">{data.title}</h1>
-        {data.content.topic && <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">主题：{data.content.topic}</div>}
       </header>
 
       {stages.map((st, i) => (
@@ -91,26 +95,34 @@ export default function SharedPlan() {
               ))}
             </div>
           )}
-          {st.resources && st.resources.length > 0 && (
-            <ul className="mt-2 space-y-1 text-sm">
-              {st.resources.map((r, i) => (
-                <li key={i} className="text-slate-600 dark:text-slate-300">
-                  <span aria-hidden="true">{r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'}</span>
-                  <span className="sr-only">{r.verified === 'ok' ? '已验证：' : r.verified === 'invalid' ? '无效：' : '不确定：'}</span>{' '}
-                  {isHttpUrl(r.url) ? (
-                    <a href={r.url} target="_blank" rel="noreferrer" className="break-all text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
-                      {r.title || r.url}
-                    </a>
-                  ) : (
-                    r.title || r.url
-                  )}
-                  {r.type && <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（{r.type}）</span>}
-                </li>
-              ))}
-            </ul>
-          )}
         </section>
       ))}
+
+      {resources.length > 0 && (
+        <section
+          aria-label="配套资源"
+          className="mb-4 animate-fade-in-up rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800"
+        >
+          <h2 className="font-semibold text-slate-800 dark:text-slate-100">配套资源（{resources.length}）</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {resources.map((r, i) => (
+              <li key={i} className="text-slate-600 dark:text-slate-300">
+                <span aria-hidden="true">{r.verified === 'ok' ? '✅' : r.verified === 'invalid' ? '❌' : '⚠️'}</span>
+                <span className="sr-only">{r.verified === 'ok' ? '已验证：' : r.verified === 'invalid' ? '无效：' : '不确定：'}</span>{' '}
+                {/* 非 http(s) 的 url 不渲染成可点击链接（后端已裁剪 url，前端再校验一次） */}
+                {isHttpUrl(r.url) ? (
+                  <a href={r.url} target="_blank" rel="noreferrer" className="break-all text-blue-600 underline-offset-2 transition-colors hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                    {r.title || r.url}
+                  </a>
+                ) : (
+                  r.title || r.url
+                )}
+                {r.type && <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">（{r.type}）</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {quizCount > 0 && <div className="text-sm text-slate-500 dark:text-slate-400">📝 配套测验题 {quizCount} 道（仅方案所有者可用）</div>}
       <footer className="mt-8 text-center text-xs text-slate-500 dark:text-slate-400">由 Deep-tutor 生成并分享</footer>

@@ -1223,18 +1223,20 @@ export interface ShareStatus {
   expired?: boolean
 }
 export interface SharedPlanData {
+  /** 分享页标题（iter 395：后端统一取方案主题 intent.topic，不再是恒定的「学习方案」） */
   title: string
   created_at: string
   content: {
-    topic?: string
     stages?: Array<{
       index: number
       name: string
       goal?: string
       milestone?: string
       topics?: Array<{ name: string; must_learn?: boolean }>
-      resources?: Array<{ title?: string; url?: string; type?: string; verified?: string }>
     }>
+    /** iter 395：顶层配套资源（search_resources 产出）——此前前端只渲染 stage 级
+     *  resources（design_stages schema 无此字段，是死代码），致配套资源从不显示 */
+    resources?: Array<{ title?: string; url?: string; type?: string; verified?: string; note?: string; stage_index?: number }>
     quizzes?: Array<{ question?: string }>
   }
 }
