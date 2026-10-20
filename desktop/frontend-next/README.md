@@ -7,6 +7,8 @@ reviewed: 2026-09-22
 
 # Reasonix Studio frontend
 
+> **本仓状态（2026-10-20）**：本文档描述上游 Studio 前端，是阶段④ **Deep-tutor 统一前端**（旧 SPA 19 页产品能力迁入 + 中英双语）的基座。本地化与品牌化属阶段① M1.2 / M1.4，均未完成。修改披露见根 [`NOTICE`](../../NOTICE)。
+
 ## Tests
 
 `pnpm test` runs one worker per test file on the threads pool. Threads rather

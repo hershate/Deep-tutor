@@ -57,6 +57,8 @@
 
 **根级配置文件** `.gitattributes`、`.gitignore` 合并自上游，移除已删除目录的失效规则（`benchmarks/**/*.sh`、`/npm/.stage/`、`benchmarks/context-maintenance-e2e/run/`）并修正一处注释。
 
+**状态声明添加**：在 `desktop/README.md`、`desktop/frontend-next/README.md` 顶部各加一段本仓状态说明（上游产品名属上游语境、本地化与品牌化属阶段① M1.2 / M1.4），文字为新增，文档原有内容未改。
+
 **纯搬运性质**：路径重定位（见吸收范围表）、`git add -f` 补纳上游 `.gitignore` 挡住的 3 个基准夹具 png（commit `7b40d7a`）。
 
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
