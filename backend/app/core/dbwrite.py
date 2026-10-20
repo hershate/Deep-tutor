@@ -82,6 +82,16 @@ async def flush_async(db: Session) -> None:
     await _run_db(db.flush)
 
 
+async def run_db_write(fn: Callable[..., Any], *args: Any) -> Any:
+    """在写线程池执行同步 DB 写（公开入口）。
+
+    供需要「检查 + 写」原子化的调用方使用（如配额守卫）：检查与写入必须在
+    **同一线程内、不跨 await** 地完成——否则并发请求可同时通过检查，实际写入数
+    按并发数突破配额（iter 394）。
+    """
+    return await _run_db(fn, *args)
+
+
 def shutdown_pool(wait: bool = False) -> None:
     """应用关停时回收写线程池（lifespan 收尾调用）。"""
     global _pool

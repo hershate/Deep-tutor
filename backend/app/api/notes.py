@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core.dbwrite import commit_async
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
@@ -99,12 +100,15 @@ def list_notes(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def create_note(body: NoteIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     _check_notes_write(user)
     title, content = _normalize(body)
-    if db.query(models.Note).filter_by(user_id=user.id).count() >= _MAX_NOTES_PER_USER:
-        raise ApiError("quota_exceeded", f"笔记数已达上限 {_MAX_NOTES_PER_USER} 条，请先删除不再需要的笔记")
-    note = models.Note(user_id=user.id, title=title, content=content)
-    db.add(note)
-    db.commit()
-    db.refresh(note)
+    # iter 394：配额判定是「先查后写」——并发创建可同时通过「未达上限」检查，
+    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥）。
+    with quota_slot(f"note:{user.id}"):
+        if db.query(models.Note).filter_by(user_id=user.id).count() >= _MAX_NOTES_PER_USER:
+            raise ApiError("quota_exceeded", f"笔记数已达上限 {_MAX_NOTES_PER_USER} 条，请先删除不再使用的笔记")
+        note = models.Note(user_id=user.id, title=title, content=content)
+        db.add(note)
+        db.commit()
+        db.refresh(note)
     return _out(note)
 
 

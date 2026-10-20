@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
 from app.api.errors import ApiError
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
@@ -160,34 +161,42 @@ def create_provider(
     body: ProviderIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     _check_provider_write(user)
-    if (
-        db.query(models.LlmProviderProfile).filter_by(user_id=user.id).count()
-        >= _MAX_PROVIDERS_PER_USER
-    ):
-        raise ApiError(
-            "quota_exceeded", f"供应商档案数量已达上限（{_MAX_PROVIDERS_PER_USER}），请先删除不再使用的档案"
+    # iter 394：配额判定是「先查后写」——并发创建可同时通过「<50 上限」检查，
+    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥）。
+    with quota_slot(f"provider:{user.id}"):
+        if (
+            db.query(models.LlmProviderProfile).filter_by(user_id=user.id).count()
+            >= _MAX_PROVIDERS_PER_USER
+        ):
+            raise ApiError(
+                "quota_exceeded",
+                f"供应商档案数量已达上限（{_MAX_PROVIDERS_PER_USER}），请先删除不再使用的档案",
+            )
+        dup = (
+            db.query(models.LlmProviderProfile)
+            .filter_by(user_id=user.id, name=body.name)
+            .first()
         )
-    dup = db.query(models.LlmProviderProfile).filter_by(user_id=user.id, name=body.name).first()
-    if dup is not None:
-        raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409)
-    p = models.LlmProviderProfile(
-        user_id=user.id,
-        name=body.name,
-        base_url=body.base_url,
-        api_key=body.api_key,
-        model=body.model,
-        kind=body.kind or None,  # iter 313：'' -> NULL（视作 anthropic）
-        is_active=False,
-    )
-    db.add(p)
-    try:
-        db.commit()
-    except IntegrityError:
-        # err.md A16：并发创建撞 uq_provider_user_name -> 409（而非 500）
-        db.rollback()
-        raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409) from None
-    db.refresh(p)
-    return _out(p)
+        if dup is not None:
+            raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409)
+        p = models.LlmProviderProfile(
+            user_id=user.id,
+            name=body.name,
+            base_url=body.base_url,
+            api_key=body.api_key,
+            model=body.model,
+            kind=body.kind or None,  # iter 313：'' -> NULL（视作 anthropic）
+            is_active=False,
+        )
+        db.add(p)
+        try:
+            db.commit()
+        except IntegrityError:
+            # err.md A16：并发创建撞 uq_provider_user_name -> 409（而非 500）
+            db.rollback()
+            raise ApiError("conflict", f"供应商名称已存在: {body.name}", status=409) from None
+        db.refresh(p)
+        return _out(p)
 
 
 @router.put("/{profile_id}")

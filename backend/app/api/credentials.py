@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
 from app.core.credentials import CREDENTIAL_KINDS, KIND_AUTH_TOKEN, SINGLE_ACTIVE_KINDS
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
@@ -118,31 +119,35 @@ def create_credential(
     body: CredentialIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     _check_write_rate(user)
-    count = (
-        db.query(models.CredentialProfile)
-        .filter_by(user_id=user.id, kind=body.kind)
-        .count()
-    )
-    if count >= _MAX_PER_KIND:
-        raise ApiError(
-            "quota_exceeded", f"每用户每类凭证档案上限 {_MAX_PER_KIND} 个", status=429
+    # iter 394：配额判定是「先查后写」——计数与插入之间若无互斥，25 个并发创建请求
+    # 可同时通过「<20 上限」检查并写入 25 行（每类上限 20 被并发绕过）。
+    # 单进程部署下进程内互斥即可（app/core/quota.py，分段锁，无界增长避免）。
+    with quota_slot(f"credential:{user.id}:{body.kind}"):
+        count = (
+            db.query(models.CredentialProfile)
+            .filter_by(user_id=user.id, kind=body.kind)
+            .count()
         )
-    _check_dup_name(db, user, body.kind, body.name)
-    _check_key_strength(body.kind, body.api_key)
-    p = models.CredentialProfile(
-        user_id=user.id, kind=body.kind, name=body.name, api_key=body.api_key, is_active=False
-    )
-    if body.activate:
-        _activate(db, user, p)
-    db.add(p)
-    try:
-        db.commit()
-    except IntegrityError:
-        # 并发创建撞 uq_credential_user_kind_name -> 409（同 err.md A16 模式）
-        db.rollback()
-        raise ApiError("conflict", f"同类凭证名称已存在: {body.name}", status=409) from None
-    db.refresh(p)
-    return _out(p)
+        if count >= _MAX_PER_KIND:
+            raise ApiError(
+                "quota_exceeded", f"每用户每类凭证档案上限 {_MAX_PER_KIND} 个", status=429
+            )
+        _check_dup_name(db, user, body.kind, body.name)
+        _check_key_strength(body.kind, body.api_key)
+        p = models.CredentialProfile(
+            user_id=user.id, kind=body.kind, name=body.name, api_key=body.api_key, is_active=False
+        )
+        if body.activate:
+            _activate(db, user, p)
+        db.add(p)
+        try:
+            db.commit()
+        except IntegrityError:
+            # 并发创建撞 uq_credential_user_kind_name -> 409（同 err.md A16 模式）
+            db.rollback()
+            raise ApiError("conflict", f"同类凭证名称已存在: {body.name}", status=409) from None
+        db.refresh(p)
+        return _out(p)
 
 
 @router.put("/{credential_id}")

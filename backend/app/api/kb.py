@@ -46,8 +46,9 @@ from app.api.materials import (
 from app.api.plans import _safe_download_name
 from app.api.sessions import _CREATE_RATE_PER_MIN, _MAX_SESSIONS_PER_USER
 from app.core.ratelimit import limiter
+from app.core.quota import guarded_commit_async, quota_slot
 from app.core.locks import drop_lock
-from app.core.dbwrite import commit_async, flush_async
+from app.core.dbwrite import commit_async
 from app.core.settings import settings
 from app.core.storage import (
     _kb_root,
@@ -216,23 +217,26 @@ def add_text_document_sync(db: Session, user_id: int, title: str, text: str) -> 
     existing = _dedup_lookup(db, user_id, content_hash)
     if existing is not None:
         return existing  # 同内容去重（防重生成累积）
-    try:
-        _check_kb_quota(db, user_id)
-    except ApiError:
-        return None  # quota 超限不阻塞生成
-    doc = models.KbDocument(
-        user_id=user_id,
-        title=(title or "").strip()[:256] or content.split("\n", 1)[0][:40],
-        kind=models.MaterialKind.text,
-        ext="txt",
-        source=content[:200],
-        parsed_chars=0,
-        meta={"source_type": "text", "auto_sunk": True},  # 溯源标记
-        content_hash=content_hash,
-    )
-    db.add(doc)
-    db.flush()
-    return _persist_parsed(db, user_id, doc, content)
+    # iter 394：配额检查 + 插入 + 落盘 + 提交同锁（app/core/quota.py）——
+    # 未提交的 INSERT 其他连接不可见，只锁检查防不住并发突破配额。
+    with quota_slot(f"kb:{user_id}"):
+        try:
+            _check_kb_quota(db, user_id)
+        except ApiError:
+            return None  # quota 超限不阻塞生成
+        doc = models.KbDocument(
+            user_id=user_id,
+            title=(title or "").strip()[:256] or content.split("\n", 1)[0][:40],
+            kind=models.MaterialKind.text,
+            ext="txt",
+            source=content[:200],
+            parsed_chars=0,
+            meta={"source_type": "text", "auto_sunk": True},  # 溯源标记
+            content_hash=content_hash,
+        )
+        db.add(doc)
+        db.flush()
+        return _persist_parsed(db, user_id, doc, content)
 
 
 # --- 创建（静态段先于 {document_id} 声明） ---
@@ -295,9 +299,16 @@ async def upload_document(
         content_hash=content_hash,
         status="pending",  # 暂存待确认：计配额、可确认/删除
     )
-    db.add(doc)
     try:
-        await commit_async(db)
+        # iter 394：配额检查 + 插入 + 提交同锁同线程（app/core/quota.py）——
+        # 并发上传可同时通过「未达上限」检查（未提交的 INSERT 其他连接不可见，
+        # 计数看不到），实际文档数按并发数突破每用户 200 篇上限。
+        await guarded_commit_async(
+            db,
+            doc,
+            lambda d: _check_kb_quota(d, user.id),
+            f"kb:{user.id}",
+        )
     except Exception:
         db.rollback()
         path.unlink(missing_ok=True)  # 防孤儿原件（err.md A15）
@@ -448,9 +459,27 @@ async def create_text_document(
         meta=out.data.get("meta", {}),
         content_hash=content_hash,
     )
-    db.add(doc)
-    await flush_async(db)
-    return _doc_out(await _persist_parsed_async(db, user.id, doc, text))
+    # iter 394：配额检查 + 插入 + 落盘 + 提交同锁同线程（app/core/quota.py）
+    written: list = []
+
+    def _after_flush(_db, obj) -> None:
+        path = write_kb_parsed_text(user.id, obj.id, text)
+        written.append(path)
+        _apply_parsed(obj, path, text)
+
+    try:
+        await guarded_commit_async(
+            db,
+            doc,
+            lambda d: _check_kb_quota(d, user.id),
+            f"kb:{user.id}",
+            after_flush=_after_flush,
+        )
+    except Exception:
+        await asyncio.to_thread(_rollback_and_clean, db, written[0] if written else None)
+        raise
+    db.refresh(doc)
+    return _doc_out(doc)
 
 
 class KbUrlIn(BaseModel):
@@ -496,9 +525,27 @@ async def create_url_document(
         meta=out.data.get("meta", {}),
         content_hash=content_hash,
     )
-    db.add(doc)
-    await flush_async(db)
-    return _doc_out(await _persist_parsed_async(db, user.id, doc, text))
+    # iter 394：配额检查 + 插入 + 落盘 + 提交同锁同线程（app/core/quota.py）
+    written: list = []
+
+    def _after_flush(_db, obj) -> None:
+        path = write_kb_parsed_text(user.id, obj.id, text)
+        written.append(path)
+        _apply_parsed(obj, path, text)
+
+    try:
+        await guarded_commit_async(
+            db,
+            doc,
+            lambda d: _check_kb_quota(d, user.id),
+            f"kb:{user.id}",
+            after_flush=_after_flush,
+        )
+    except Exception:
+        await asyncio.to_thread(_rollback_and_clean, db, written[0] if written else None)
+        raise
+    db.refresh(doc)
+    return _doc_out(doc)
 
 
 # --- 列表 / 详情 / 重命名 / 删除 ---

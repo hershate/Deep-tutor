@@ -36,6 +36,7 @@ from app.api.sse_utils import HEARTBEAT_SECONDS, KEEPALIVE_FRAME, SSE_HEADERS, f
 from app.core.concurrency import llm_task_slot
 from app.core.credentials import resolve_bing_api_key
 from app.core.dbwrite import commit_async
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.core.settings import settings
 from app.db import models
@@ -138,17 +139,20 @@ def create_thread(body: ThreadIn, user=Depends(get_current_user), db: Session = 
     if not limiter.check(f"thread_write:{user.id}", 30):
         raise HTTPException(status_code=429, detail="rate_limited")
     # iter 365：threads 配额（防 DoS 刷库；同 sessions/notes 配额族）
-    if db.query(models.Thread).filter_by(user_id=user.id).count() >= _MAX_THREADS_PER_USER:
-        raise HTTPException(status_code=429, detail="quota_exceeded")
-    # session_id 须属当前用户——防 Thread→Plan 提升路径向他人会话注入 plan（跨用户隔离）
-    if body.session_id is not None:
-        get_owned_session(db, body.session_id, user)
-    t = models.Thread(
-        user_id=user.id, title=body.title, kind=body.kind or "chat", session_id=body.session_id, model=body.model
-    )
-    db.add(t)
-    db.commit()
-    db.refresh(t)
+    # iter 394：配额判定「先查后写」-> 进程内互斥（app/core/quota.py），
+    # 否则并发创建可同时通过「未达上限」检查、实际写入数按并发数突破。
+    with quota_slot(f"thread:{user.id}"):
+        if db.query(models.Thread).filter_by(user_id=user.id).count() >= _MAX_THREADS_PER_USER:
+            raise HTTPException(status_code=429, detail="quota_exceeded")
+        # session_id 须属当前用户——防 Thread→Plan 提升路径向他人会话注入 plan（跨用户隔离）
+        if body.session_id is not None:
+            get_owned_session(db, body.session_id, user)
+        t = models.Thread(
+            user_id=user.id, title=body.title, kind=body.kind or "chat", session_id=body.session_id, model=body.model
+        )
+        db.add(t)
+        db.commit()
+        db.refresh(t)
     return _thread_out(t, db)
 
 
@@ -283,12 +287,14 @@ def add_thread_memory(thread_id: int, body: MemoryIn, user=Depends(get_current_u
     _owned_thread(db, thread_id, user)
     if not limiter.check(f"memory_write:{user.id}", 60):
         raise HTTPException(status_code=429, detail="rate_limited")
-    if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
-        raise HTTPException(status_code=429, detail="quota_exceeded")
-    m = models.Memory(user_id=user.id, thread_id=thread_id, scope="thread", kind=body.kind, content=body.content)
-    db.add(m)
-    db.commit()
-    db.refresh(m)
+    # iter 394：配额判定「先查后写」-> 进程内互斥（app/core/quota.py）
+    with quota_slot(f"memory:{user.id}"):
+        if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
+            raise HTTPException(status_code=429, detail="quota_exceeded")
+        m = models.Memory(user_id=user.id, thread_id=thread_id, scope="thread", kind=body.kind, content=body.content)
+        db.add(m)
+        db.commit()
+        db.refresh(m)
     return _mem_out(m)
 
 
@@ -321,12 +327,14 @@ def list_user_memory(user=Depends(get_current_user), db: Session = Depends(get_d
 def add_user_memory(body: MemoryIn, user=Depends(get_current_user), db: Session = Depends(get_db)):
     if not limiter.check(f"memory_write:{user.id}", 60):
         raise HTTPException(status_code=429, detail="rate_limited")
-    if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
-        raise HTTPException(status_code=429, detail="quota_exceeded")
-    m = models.Memory(user_id=user.id, thread_id=None, scope="user", kind=body.kind, content=body.content)
-    db.add(m)
-    db.commit()
-    db.refresh(m)
+    # iter 394：配额判定「先查后写」-> 进程内互斥（app/core/quota.py）
+    with quota_slot(f"memory:{user.id}"):
+        if db.query(models.Memory).filter_by(user_id=user.id).count() >= _MAX_MEMORIES_PER_USER:
+            raise HTTPException(status_code=429, detail="quota_exceeded")
+        m = models.Memory(user_id=user.id, thread_id=None, scope="user", kind=body.kind, content=body.content)
+        db.add(m)
+        db.commit()
+        db.refresh(m)
     return _mem_out(m)
 
 

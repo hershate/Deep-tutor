@@ -28,9 +28,10 @@ from app.agent import BudgetTracker
 from app.agent.context import ExecContext, Timeouts
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
+from app.core.quota import guarded_commit_async
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
-from app.core.dbwrite import commit_async, flush_async
+from app.core.dbwrite import commit_async
 from app.core.settings import settings
 from app.core.storage import (
     delete_session_files,
@@ -206,21 +207,30 @@ async def _store(
         meta=meta,
         content_hash=content_hash,
     )
-    db.add(material)
-    # iter 393：flush 触发的 INSERT 才是真正获取 SQLite 写锁的点——留在事件循环
-    # 线程内，写锁被占时会阻塞至 busy_timeout（10s）冻结全服务（含 SSE 心跳）
-    await flush_async(db)
-    parsed_path = None
+    # iter 394：配额检查 + 插入 + 落盘 + 提交在**同一写线程、同一锁内**完成
+    # （app/core/quota.py）——计数必须建立在**已提交**的可见状态上：pysqlite 传统
+    # 事务模式下未提交的 INSERT 其他连接看不到，只锁「检查」或只锁到 flush 都不足以
+    # 防并发突破配额。落盘/提交同在写线程内，事件循环不被占用（iter 393 口径）。
+    written: list = []
+
+    def _after_flush(_db, obj) -> None:
+        path = write_parsed_text(session_id, obj.id, text)
+        written.append(path)
+        obj.parsed_text_path = str(path)
+
     try:
-        # iter 393：解析文本落盘（最大 500k 字 ≈1.5MB）移出事件循环
-        parsed_path = await asyncio.to_thread(write_parsed_text, session_id, material.id, text)
-        material.parsed_text_path = str(parsed_path)
-        await commit_async(db)
+        await guarded_commit_async(
+            db,
+            material,
+            lambda d: _check_material_quota(d, session_id),
+            f"material:{session_id}",
+            after_flush=_after_flush,
+        )
     except Exception:
         db.rollback()
-        # iter 248：commit 失败（磁盘满/库锁）清理已落盘解析文本防孤儿（同 kb _persist_parsed）
-        if parsed_path is not None:
-            parsed_path.unlink(missing_ok=True)
+        # iter 248：提交失败（磁盘满/库锁）清理已落盘解析文本防孤儿（同 kb _persist_parsed）
+        for path in written:
+            path.unlink(missing_ok=True)
         raise
     db.refresh(material)
     return MaterialOut(material_id=material.id, kind=kind, meta=meta)
@@ -327,8 +337,15 @@ async def upload_material(
         content_hash=content_hash,
         status="pending",
     )
-    db.add(material)
-    await commit_async(db)
+    # iter 394：配额检查 + 插入 + 提交同锁同线程（app/core/quota.py）——
+    # 并发上传可同时通过「未达上限」检查（未提交的 INSERT 其他连接不可见，
+    # 计数看不到），实际资料数按并发数突破每会话 20 条上限。
+    await guarded_commit_async(
+        db,
+        material,
+        lambda d: _check_material_quota(d, session_id),
+        f"material:{session_id}",
+    )
     db.refresh(material)
     try:
         # iter 248：大文件写盘移出事件循环（50MB 同步 write 阻塞数百毫秒，同 kb）

@@ -24,6 +24,7 @@ from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.api.deps import get_current_user, get_db, get_owned_plan, require_auth
 from app.api.errors import ApiError
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.db import models
 from app.db.models import User
@@ -586,24 +587,27 @@ def add_learning_log(
     if body.date is not None and body.date < dt_date.today() - _td(days=365):
         raise ApiError("invalid_date", "打卡日期不能早于一年前")
     get_owned_plan(db, body.plan_id, user)  # P4 隔离：他人方案 404
-    total_logs = (
-        db.query(func.count(models.LearningLog.id))
-        .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
-        .join(models.Session, models.Plan.session_id == models.Session.id)
-        .filter(models.Session.user_id == user.id)
-        .scalar()
-    )
-    if (total_logs or 0) >= _MAX_LOGS_PER_USER:
-        raise ApiError("quota_exceeded", f"打卡记录已达上限 {_MAX_LOGS_PER_USER} 条", status=429)
-    row = models.LearningLog(
-        plan_id=body.plan_id,
-        date=body.date or dt_date.today(),
-        minutes=body.minutes,
-        note=body.note,
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+    # iter 394：配额判定是「先查后写」——并发打卡可同时通过「<10000 上限」检查，
+    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥）。
+    with quota_slot(f"learning_log:{user.id}"):
+        total_logs = (
+            db.query(func.count(models.LearningLog.id))
+            .join(models.Plan, models.LearningLog.plan_id == models.Plan.id)
+            .join(models.Session, models.Plan.session_id == models.Session.id)
+            .filter(models.Session.user_id == user.id)
+            .scalar()
+        )
+        if (total_logs or 0) >= _MAX_LOGS_PER_USER:
+            raise ApiError("quota_exceeded", f"打卡记录已达上限 {_MAX_LOGS_PER_USER} 条", status=429)
+        row = models.LearningLog(
+            plan_id=body.plan_id,
+            date=body.date or dt_date.today(),
+            minutes=body.minutes,
+            note=body.note,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
     # 后端插件事件（API.md §8.5）：学习打卡（监听器异常隔离，不影响响应）
     from app.plugins import bus as plugin_bus
 

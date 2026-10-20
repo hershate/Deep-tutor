@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
 from app.api.plans import _STREAMS, _clarify_questions_from_state, _plan_topic, cancel_running_generation
+from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.core.storage import delete_material_files, delete_session_files
 from app.db import models
@@ -50,16 +51,20 @@ def create_session(
 ) -> SessionOut:
     if not limiter.check(f"sess_create:{user.id}", _CREATE_RATE_PER_MIN):
         raise ApiError("rate_limited", f"创建会话限每分钟 {_CREATE_RATE_PER_MIN} 次，请稍后再试")
-    count = db.query(models.Session).filter_by(user_id=user.id).count()
-    if count >= _MAX_SESSIONS_PER_USER:
-        raise ApiError(
-            "quota_exceeded",
-            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
-        )
-    sess = models.Session(user_id=user.id, title=body.title)
-    db.add(sess)
-    db.commit()
-    db.refresh(sess)
+    # iter 394：配额判定是「先查后写」——并发创建可同时通过「未达上限」检查，
+    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥；
+    # 键与 materials/kb 的会话数配额同命名空间 -> 跨端点互斥）。
+    with quota_slot(f"session_quota:{user.id}"):
+        count = db.query(models.Session).filter_by(user_id=user.id).count()
+        if count >= _MAX_SESSIONS_PER_USER:
+            raise ApiError(
+                "quota_exceeded",
+                f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
+            )
+        sess = models.Session(user_id=user.id, title=body.title)
+        db.add(sess)
+        db.commit()
+        db.refresh(sess)
     return SessionOut(session_id=sess.id, title=sess.title)
 
 
