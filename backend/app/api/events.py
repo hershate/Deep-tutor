@@ -28,6 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.api.deps import get_current_user_id, require_auth
 from app.api.errors import ApiError
@@ -109,12 +110,15 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
       见上方注释的窗口论证）；
     - 都无 -> None（调用方按 GLOBAL_EVENTS 决定广播或丢弃）。
     db 为 None 时开短生命周期会话查询（事件流路径用）。
+
+    iter 395：``bool`` 不算 int（``isinstance(True, int)`` 为真 -> ``user_id=True``
+    会被判给 user 1，白拿他人事件）。
     """
     uid = payload.get("user_id")
-    if isinstance(uid, int) and uid > 0:
+    if type(uid) is int and uid > 0:
         return uid
     sid = payload.get("session_id")
-    if isinstance(sid, int) and sid > 0:
+    if type(sid) is int and sid > 0:
         own: Session | None = None
         if db is None:
             from app.db.base import SessionLocal
@@ -131,13 +135,26 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
     return None
 
 
-def format_frame(event: str, payload: dict[str, Any], user_id: int, db: Session | None = None) -> str | None:
+def format_frame(
+    event: str,
+    payload: dict[str, Any],
+    user_id: int,
+    db: Session | None = None,
+    owner: int | None = None,
+) -> str | None:
     """决定是否向 user_id 转发该事件，返回 SSE 帧 str（转发）或 None（过滤/丢弃）。
 
     pure 决策 + 归属解析：归属本用户 -> 转；归属他人 -> 丢；无归属且全局 -> 转；
     无归属且非全局 -> 丢（safe-by-default）。
+
+    owner：已解析的归属（iter 395：事件流在**线程池**里解析归属后传入，避免同步
+    DB 读占住事件循环）；None -> 本函数内解析（同步调用方/单测口径）。
+
+    iter 395：payload 不可 JSON 序列化时（插件塞 datetime/bytes/自定义对象）不再
+    让整条流崩断——降级为 ``default=str`` 序列化；仍失败则丢帧并记日志。
     """
-    owner = resolve_owner(payload, db)
+    if owner is None:
+        owner = resolve_owner(payload, db)
     if owner is not None:
         if owner != user_id:
             return None  # P4 隔离：他人的事件不转发
@@ -145,7 +162,29 @@ def format_frame(event: str, payload: dict[str, Any], user_id: int, db: Session 
         return None  # 不可归属的非全局事件：丢弃（防泄露）
     # iter 365 C9：event 名剥换行——插件自定义事件名含 \n 会注入额外 SSE 行（伪 data: 行）
     safe_event = (event or "").replace("\r", "").replace("\n", "")
-    return f"event: {safe_event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    try:
+        data = json.dumps(payload, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):  # noqa: PERF203  极端 payload（循环引用等）
+        log.warning("事件 payload 不可序列化，丢弃该帧: %s", safe_event)
+        return None
+    return f"event: {safe_event}\ndata: {data}\n\n"
+
+
+async def _resolve_owner_async(payload: dict[str, Any]) -> int | None:
+    """归属解析的**非阻塞**版（iter 395）。
+
+    事件流是 async 生成器：同步 DB 读（SessionLocal + db.get）会占住事件循环
+    线程——连接池耗尽时 ``pool.connect()`` 最多阻塞 30s -> 全站冻结（与 iter
+    364/393 记录的写路径同型失效，但发生在读路径）。故带 session_id 的事件把
+    查库放进线程池；带 user_id 的事件零 DB 零开销。
+    """
+    uid = payload.get("user_id")
+    if type(uid) is int and uid > 0:
+        return uid
+    sid = payload.get("session_id")
+    if type(sid) is int and sid > 0:
+        return await asyncio.to_thread(resolve_owner, {"session_id": sid})
+    return None
 
 
 def _user_still_valid(user_id: int, token_iat: int | None) -> bool:
@@ -187,16 +226,35 @@ async def events_generator(
     （管理员删用户 / 改密更新 tokens_valid_after）已建立的流靠心跳保活**永续**接收
     该用户全部实时事件。重验失败即 return 断流（客户端按既有退避重连，重新走完整
     认证链 -> 401）。单测用 reauth=False 跳过（无真实用户行）。
+
+    iter 395 两处修正：
+    1. **重验不再依赖队列空闲**：此前只在 ``queue.get()`` 超时（15s 无事件）分支
+       重验；事件持续不断时（如生成中 progress_updated 连发）永远走不到该分支 ->
+       已吊销用户的流持续收事件。重验改为**按单调时钟的截止时间**，与队列是否空闲
+       无关。
+    2. **同步 DB 读移出事件循环**：归属解析（带 session_id 的事件）与身份重验的
+       查库均放线程池（``asyncio.to_thread``），避免连接池耗尽时冻结全站。
     """
+    import time
+
+    next_reauth = time.monotonic() + heartbeat_s
     while True:
+        item: tuple[str, dict[str, Any]] | None = None
         try:
-            event, payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
+            item = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
         except asyncio.TimeoutError:
-            if reauth and not _user_still_valid(user_id, token_iat):
+            item = None
+        now = time.monotonic()
+        if reauth and now >= next_reauth:
+            next_reauth = now + heartbeat_s
+            if not await asyncio.to_thread(_user_still_valid, user_id, token_iat):
                 return
+        if item is None:
             yield ": ping\n\n"  # SSE 注释行=心跳，不产生客户端事件，仅保活
             continue
-        frame = format_frame(event, payload, user_id)  # db=None：按需开短会话解析 session_id
+        event, payload = item
+        owner = await _resolve_owner_async(payload)
+        frame = format_frame(event, payload, user_id, owner=owner)
         if frame is not None:
             yield frame
 
@@ -248,13 +306,34 @@ async def event_stream(
         _release_stream_slot(user_id)
         raise
 
+    released = False
+
+    def _cleanup() -> None:
+        """幂等清理：退订 sink + 归还槽位（多次调用安全）。"""
+        nonlocal released
+        off()
+        if not released:
+            released = True
+            _release_stream_slot(user_id)
+
     async def stream():
         try:
             async for frame in events_generator(queue, user_id, token_iat=token_iat):
                 yield frame
         finally:
-            off()  # 退订 sink（客户端断开/取消时）
-            _release_stream_slot(user_id)
+            _cleanup()
+
+    # iter 395：BackgroundTask 兜底——客户端在**响应体开始前**断开时
+    # body_iterator 从未被迭代，未启动的 async generator 的 finally 不会执行
+    # （Python 语义）-> 槽位与 bus sink 永久泄漏（单用户可把全站 SSE 打满）。
+    # Starlette 在响应结束后必跑 background（含提前断开路径），故清理不能只挂在
+    # 生成器的 finally 上；_cleanup 幂等，两处都调用安全。
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+        background=BackgroundTask(_cleanup),
+    )
 
     # iter 367（批次四）：补 SSE_HEADERS（no-cache/keep-alive/禁 nginx 缓冲）——其余
     # SSE 端点（plans/memory）均已带，漏在此处时反代环境下事件流会被缓冲至超时
