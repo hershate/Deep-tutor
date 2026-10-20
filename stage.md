@@ -38,7 +38,37 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
-**iter 392（2026-10-21，v1 Python 后端长稳审查与修复轮，✅ 代码完成 / 测试进行中）**：用户指令「继续进行详细的检查，直到逻辑闭合，代码安全、稳定可长期运行；确保长时间高负载、多用户高频率使用下的稳定性；检查并修复所有逻辑错误；严格检查任何导致数据操作问题的 BUG；确保稳定性与代码安全性（需暴露为网络服务）；禁止随意停止，持续进行」。本轮**先审 v1 Python 后端**（当前可运行、即将以网络服务暴露的多用户服务），Go Reasonix 内核次之（阶段① M1.2 即将改名、M2 将新建 `internal/web` 承载多用户层）。
+**iter 393（2026-10-21，v1 Python 后端事件循环与网络暴露面硬化轮，✅ 完成）**：承接 iter 392 的用户指令（长时间高负载、多用户高频率使用下的稳定性；暴露为网络服务时的代码安全性；持续进行）。本轮仍在 v1 Python 后端面（当前可运行、即将以网络服务暴露的多用户服务）。
+
+- **审查方法**：① 新写 AST 扫描器枚举「async 函数体内的同步 DB 写 / 阻塞文件 IO / subprocess」全量候选（临时工具，不入库），逐条读原文核实调用链；② 一个 explore 子 agent 并行审计 `api/exports.py`、`api/usage.py`、`plugins/api.py` 三个未审模块；③ 沿用 iter 392 口径——**先写实证探针复核再决定是否修复**（本轮新增坐实 2 条、复核后确认为「不需修」若干条）。
+
+- **本轮修复（5 个 commit）**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `501620d` | async 端点内的同步 DB 写与文件 IO 移出事件循环 | 新增 `app/core/dbwrite.py`（`commit_async`/`flush_async`，专用写线程池 + `copy_context`）；materials/kb/notes/plans/memory 的 flush/commit 与解析文本落盘、会话目录递归删除全部移出事件循环；kb `_persist_parsed` 拆同步版/async 版；启动期 stale 收敛提交移出；关停回收写线程池 |
+  | `9a8ff55` | 备份端点请求体无上限 → 有界 + 全局在途请求体预算 | 备份导入/预检不再豁免 body 上限（按路径 256MB+余量，解析前 413）；新增全局在途体预算 1GB（超限 503 + Retry-After，请求结束归还）；测试夹具每用例归零 |
+  | `e80e56a` | 导出 `wrong_only` 显式拒绝 + 插件面一致性与 LLM 背压补齐 | `wrong_only` 守卫上移到格式分发之前（slides/ics 不再静默忽略）；插件 `delete_thread` 先取消在途 run；新增 `concurrency.plugin_llm_task_slot`（独立预算 + 有界等待，规避与宿主信号量嵌套死锁）；`recall_memories` 的 thread scope 契约对齐 `save_memory`；插件配置存储落盘失败回滚内存 |
+  | `73fbbfc` | iter393 回归 21 条 | 事件循环可调度性（端点级 + helper 级）、写/落盘不在事件循环线程、body 上限三态、`wrong_only` 两态、插件面三态 |
+  | （本条） | 进度记录 | 本条目 |
+
+- **被实证坐实的两条（本轮核心）**：
+  1. **写锁争用把整个事件循环冻结 11.0s**——探针 `dt_probe_busy4.py`：另开连接 `BEGIN IMMEDIATE` 持写锁后，SQLAlchemy 连接的 `db.commit()`（deferred BEGIN + INSERT）与裸 sqlite3 autocommit INSERT **均等待 11.0s** 才报 "database is locked"（`busy_timeout=10000ms` 确认生效，`PRAGMA busy_timeout` 读回 10000）。此前只移 commit 无效——**争用点在 flush/commit 触发的 DML 获取 WAL 写锁**，故 flush 与 commit 都需移出。修复前实测：持锁 0.8s 期间事件循环心跳仅 **2** 次（冻结）；修复后约 **40** 次（`git stash` 回到修复前代码复验，确认测试能捕获回归）。
+  2. **未认证请求可把任意大的体写进系统临时目录**——探针 `dt_probe_backup_body.py`：未带 Authorization 的 64MB multipart POST `/api/backup/import`，响应 401，但 multipart **已落盘 64.0MB**。成因：FastAPI 先 `body = await request.form()`（`fastapi/routing.py:423`）再 `solve_dependencies` 跑鉴权（`:474`），而 Starlette 1.3 的 multipart 对**文件 part 无大小上限**（`max_part_size` 只管非文件字段），叠加 iter 371 对备份端点的**完全豁免**。修复后探针 `dt_probe_backup_body2.py`：**413 + 落盘峰值 0.00MB**。
+
+- **实测基线（本轮）**：全量套件 **1520 passed / 1 skipped**（363.92s，含 iter393 新增 21 条）；唯一 skip 为 `marker_single` 未安装（环境项，非回归）。`ruff check app/ tests/` 全通过；`go build ./...` 退出码 0（Go 侧未改动）。
+
+- **本轮发现但未修（后续 iter 候选，含不修理由）**：
+  - 插件面 `api.llm.stream` 未包 LLM 背压槽——它是 provider 级 async generator，按 `app/core/concurrency.py` 既定约定槽只可包「跑完即返回的普通协程」（消费方提前退出未 `aclose` 会漏槽到 GC）；插件代码为运维方可信代码，风险等级低于宿主路径。
+  - `api/usage.py` 的 `func.date(created_at, 'localtime')` 为 SQLite 专属函数（`db/base.py` 声明可切 Postgres）；窗口起点用「当前」UTC 偏移（跨 DST 日偏差 1 小时）；`created_at` 晚于今日的行因无上界会被 SQL 聚合但不进 `items`（图表不显示）。均为展示层偏差，不影响金额守恒。
+  - 插件配额（500 thread / 2000 memory）为 check-then-act，并发下可略微越限（速率限制 30/min 约束了放大倍数；无 DB 级约束，改动需迁移）。
+  - 插件 `api.llm.complete` 的 `get_provider` 仅捕获 `RuntimeError`（宿主端点捕获 `Exception`）——DB 异常会外泄为 500 而非 `no_llm_provider`；此处 500 语义更准确，故不改。
+  - `api/deps.py` 的 `get_default_user` / `core/security.py` 的 `get_or_create_open_admin` 的一次性引导写仍在事件循环内（仅首请求/首次无管理员时触发，彼时库内无争用）。
+  - 承接 iter 392 候选：`_STREAMS` 终态 300s 保留窗口内存足迹（F10）、LLM 信号量在无运行 loop 时被替换（F12）。
+
+- **下一步**：① 继续 v1 Python 后端未审面（`api/progress.py`、`api/credentials.py`、`api/providers.py`、`api/setup.py`、`api/search.py`）——重点看配额 check-then-act、文件写路径与「表达与实现是否一致」；② 复查 iter 393 三处新引入机制的边界：写线程池在写锁风暴下的排队与连接池占用、body 预算在 chunked 路径的计入口径、插件 LLM 独立预算与宿主预算的叠加上限；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
+**iter 392（2026-10-21，v1 Python 后端长稳审查与修复轮，✅ 完成）**：用户指令「继续进行详细的检查，直到逻辑闭合，代码安全、稳定可长期运行；确保长时间高负载、多用户高频率使用下的稳定性；检查并修复所有逻辑错误；严格检查任何导致数据操作问题的 BUG；确保稳定性与代码安全性（需暴露为网络服务）；禁止随意停止，持续进行」。本轮**先审 v1 Python 后端**（当前可运行、即将以网络服务暴露的多用户服务），Go Reasonix 内核次之（阶段① M1.2 即将改名、M2 将新建 `internal/web` 承载多用户层）。
 
 - **审查方法**：两个 explore 子 agent 并行审计（备份/恢复数据操作、并发与配额），主会话对每条发现先写**实证探针**复核再决定是否修复——推翻 2 条静态假设（见下「被实证推翻的假设」），避免修不存在的问题。
 
