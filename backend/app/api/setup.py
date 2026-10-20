@@ -11,6 +11,10 @@
 - body 字段全可选 + pydantic extra=ignore -> 后续新增配置项不破坏旧客户端。
 - 权限判定收敛为 _setup_caller 依赖（开放模式 -> 当前管理员；否则需 admin JWT），
   未来「管理员重配置」类端点可直接复用。
+- iter 394：开放模式（无人设过口令）下 POST /setup 与 /setup/dismiss **仅回环
+  客户端可调用**——这两个端点是唯一的「认领管理员」入口，开放给任意可达客户端
+  等于允许远程抢占管理员口令/翻转全局 dismiss 状态。LAN 部署改用 .env 的
+  ADMIN_PASSWORD / AUTH_TOKEN（.env.example 有模板）。
 - 密码设置到调用者本人账号（开放模式即懒创建的 admin），并吊销其旧 JWT
   （tokens_valid_after，err.md A9 模式）；响应带新 JWT，前端立即登录无感切换。
 - API Key 以固定名档案 upsert 并激活（供应商档案体系，iter 50-53）；
@@ -46,13 +50,50 @@ _DEFAULT_PROFILE_NAME = "默认"
 _SETUP_WRITE_PER_MIN = 10
 
 
+def _is_loopback_client(request: Request | None) -> bool:
+    """客户端是否为回环地址（127.0.0.0/8 / ::1 / ::ffff:127.x）。
+
+    只看**直连对端**（request.client.host），不信任 X-Forwarded-For——该头可被
+    客户端伪造，用它判定会把「可伪造的头」变成绕过回环限制的通路。
+    经反向代理部署时直连对端是代理地址（非回环）-> 开放模式下 setup 端点
+    不可达（须在 .env 配 ADMIN_PASSWORD / AUTH_TOKEN 后走认证路径）。
+    """
+    if request is None or request.client is None:
+        return False
+    host = (request.client.host or "").strip().lower()
+    if not host:
+        return False
+    if host in {"localhost", "::1", "0:0:0:0:0:0:0:1"}:
+        return True
+    if host.startswith("::ffff:"):  # IPv4-mapped IPv6
+        host = host[len("::ffff:") :]
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _setup_caller(
     db: Annotated[Session, Depends(get_db)],
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
     x_auth_token: Annotated[str | None, Header(alias="X-Auth-Token")] = None,
 ) -> User:
     """设置操作调用者：resolve_user 已覆盖开放模式（返回懒创建 admin）；
-    未认证 -> 401；非管理员 -> 403。"""
+    未认证 -> 401；非管理员 -> 403。
+
+    iter 394：开放模式下本端点组是**唯一的「认领管理员」入口**——未认证方可抢先
+    写 password_hash（并吊销 admin 的 JWT/PAT）或翻转全局 dismiss 状态。开放模式
+    按定义「无人设过口令」，此时只允许**回环客户端**调用（LAN 部署须用 .env 的
+    ADMIN_PASSWORD / AUTH_TOKEN，或经 SSH 隧道访问本机）。
+    判定置于 resolve_user 之前：避免远程未认证调用触发「懒创建 admin」的写副作用。
+    """
+    from app.core.security import passwordless_open
+
+    if passwordless_open(db) and not _is_loopback_client(request):
+        raise ApiError("forbidden", "开放模式下首次设置仅允许本机（回环地址）访问", status=403)
     user = resolve_user(db, authorization, x_auth_token)
     if user is None:
         raise ApiError("unauthorized", "未认证", status=401)

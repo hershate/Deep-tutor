@@ -97,7 +97,20 @@ def client():
     from app.main import app
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    # iter 394：client 地址设为回环（真实场景：浏览器与后端同机）——开放模式的
+    # /setup 端点仅回环可调用（iter 394）。TestClient 默认 "testclient" 非回环，
+    # 会让开放模式用例误判为「远程调用」。
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
+        yield c
+
+
+@pytest.fixture
+def remote_client():
+    """非回环客户端（模拟局域网访问）——iter 394：开放模式 setup 端点仅回环可调用。"""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app, client=("10.0.0.5", 50000)) as c:
         yield c
 
 
