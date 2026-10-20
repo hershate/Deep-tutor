@@ -48,6 +48,10 @@ def latest_attempts_by_quiz(db: Session, base) -> dict[int, tuple[int, bool | No
 
 # 提交限流（err.md A23：此前可无限刷提交记录，quiz_attempts 行无限增长）
 _SUBMIT_RATE_PER_MIN = 60
+# 错题族读限流（iter 395）：两端点每次都要对**本用户全部**作答历史跑窗口函数
+# （latest_attempts_by_quiz 按 quiz_id 分组取首）——历史越久越慢，且此前无限流，
+# 单客户端可连发打满 DB CPU。30/min 远宽于前端翻页/复习页轮询。
+_WRONG_READ_RATE_PER_MIN = 30
 # 作答内容大小上限（防配合 body 上限写入数十 MB JSON 造成 DB 膨胀；choice 仅几字节，
 # fill/short 人工作答 1 万字符绰绰有余）
 _MAX_ANSWER_CHARS = 10_000
@@ -119,6 +123,8 @@ def wrong_overview(db: Session = Depends(get_db), user: User = Depends(get_curre
     """
     from app.api.plans import _load_plan_content
 
+    if not limiter.check(f"wrong_read:{user.id}", _WRONG_READ_RATE_PER_MIN):
+        raise ApiError("rate_limited", "请求过于频繁，请稍后再试", status=429)
     latest = latest_attempts_by_quiz(
         db,
         db.query(models.QuizAttempt)
@@ -167,6 +173,8 @@ def wrong_queue(
     """
     from app.api.plans import _load_plan_content
 
+    if not limiter.check(f"wrong_read:{user.id}", _WRONG_READ_RATE_PER_MIN):
+        raise ApiError("rate_limited", "请求过于频繁，请稍后再试", status=429)
     latest = latest_attempts_by_quiz(
         db,
         db.query(models.QuizAttempt)
