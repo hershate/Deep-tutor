@@ -176,13 +176,28 @@ def test_clean_model_pricing_guards():
 
 
 def test_pricing_nan_rejected_via_api(client: TestClient, auth_headers):
+    """NaN 单价拒入且**不动**用户已有计费表。
+
+    iter 395 行为变更：此前「输入非空但清洗后为空」走的是「删除整张表」分支
+    （返回 200 + 空表）——一次字段名笔误即静默清空用户全部计价配置并回退默认价，
+    且与端点 docstring（「空对象 -> 删除；否则清洗后 upsert」）矛盾。现改为
+    **400 拒绝**并列出无效条目；显式空对象 {} 仍是「清空」。
+    """
+    ok = client.put(
+        "/api/settings/pricing",
+        json={"pricing": {"good-model": {"input_per_mtok": 2.0}}},
+        headers=auth_headers,
+    )
+    assert ok.status_code == 200, ok.text
     r = client.put(
         "/api/settings/pricing",
         json={"pricing": {"bad-model": {"input_per_mtok": "nan"}}},
         headers=auth_headers,
     )
-    assert r.status_code == 200
-    assert r.json()["table"] == {}
+    assert r.status_code == 400, r.text
+    cur = client.get("/api/settings/pricing", headers=auth_headers)
+    assert cur.status_code == 200, cur.text
+    assert "good-model" in cur.json()["table"], cur.json()["table"]
 
 
 def test_setup_short_password_422(client: TestClient, monkeypatch):
