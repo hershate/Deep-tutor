@@ -316,7 +316,7 @@ make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 | M4 学习闭环全页 | 未开始 |
 | M5 管理页 + 事件流 + 旧 SPA 19 页回归 | 未开始 |
 
-Go 侧学习域实现位于 `internal/runtime/tutor/`（R-Tutor 移植，约 60 个 Go 文件），8 步流水线与 v1 同构；存储当前为 state root 下的 JSON 文件树，阶段① M2/M3 改为 SQL。
+Go 侧学习域实现位于 `internal/runtime/tutor/`（R-Tutor 移植，67 个 Go 文件），8 步流水线与 v1 同构；存储当前为 state root 下的 JSON 文件树，阶段① M2/M3 改为 SQL。
 
 ---
 

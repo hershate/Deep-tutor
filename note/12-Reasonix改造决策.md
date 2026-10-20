@@ -6,7 +6,7 @@
 
 ## 一、改造蓝本关键事实（来自 REF 调研）
 
-1. **REF 里的代码不是 Reasonix 原版，而是 R-Tutor**——Reasonix studio 分支 + `internal/runtime/tutor` 包（约 60 文件）。该包 doc.go 明确写明 "Domain semantics are ported from Deep-tutor"，是 Deep-tutor 领域功能移植到 Reasonix 内核的**完整先例**：
+1. **REF 里的代码不是 Reasonix 原版，而是 R-Tutor**——Reasonix studio 分支 + `internal/runtime/tutor` 包（67 个 `.go` 文件）。该包 doc.go 明确写明 "Domain semantics are ported from Deep-tutor"，是 Deep-tutor 领域功能移植到 Reasonix 内核的**完整先例**：
    - 数据模型逐条镜像：Material 三段制（pending→confirmed→parsed）、Intent、KnowledgeMap、Stage 3–6 契约（ValidateStages 强制）、五维 ValidationReport、OrchestratorStatus 状态机（idle/running/paused_clarify/done/error/interrupted）。
    - 8 步流水线同构：`parse_material → understand_intent → build_knowledge_map → design_stages → {search_resources ∥ schedule_plan} → validate_plan → export_plan`，反馈循环 ≤2 轮、regenerate 配额默认 2。
    - SSE 事件词表与 Deep-tutor 完全一致：tool_start/tool_end/unit_start/unit_done/plan_chunk/doc/warn/clarify_needed/budget_exceeded/error/done。
