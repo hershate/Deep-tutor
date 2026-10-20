@@ -13,8 +13,9 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.api.deps import get_current_user, get_db, require_auth
 from app.api.errors import ApiError
@@ -52,34 +53,61 @@ def list_knowledge(
     - q：节点名**或本人笔记内容**子串过滤（iter 148 扩展笔记内容；大小写不敏感由 SQLite LIKE 语义保证）
     - status：not_started（含无进度行）/ learning / done
     - 截断：limit 防重度用户一次拉爆（前端提示总数）
+
+    iter 395：**status 过滤下推到 SQL**（此前在 LIMIT 之后于 Python 侧过滤——
+    节点数 > limit 的用户按状态筛选只会看到「最新 limit 个节点」里的匹配项，结果
+    严重偏少甚至为空，chip 计数同样失真）。stats 改为按**全量匹配节点**统计
+    （此前统计的是 LIMIT 窗口内的批次）。total 语义不变（= 本页返回条数）。
     """
     from app.api.plans import _load_plan_content
 
     if not limiter.check(f"knowledge_list:{user.id}", _KNOWLEDGE_LIST_PER_MIN):
         raise ApiError("rate_limited", "请求过于频繁，请稍后再试", status=429)
-    query = (
-        db.query(models.KnowledgeNode)
-        .join(models.Plan, models.KnowledgeNode.plan_id == models.Plan.id)
-        .join(models.Session, models.Plan.session_id == models.Session.id)
-        .filter(models.Session.user_id == user.id)
-    )
-    if plan_id is not None:
-        query = query.filter(models.KnowledgeNode.plan_id == plan_id)
-    if q and q.strip():
-        qs = q.strip()
-        # iter 148：名或笔记内容匹配。outerjoin 不复制行——uq_node_notes_user_node 保证每节点至多一条
-        query = query.outerjoin(
-            models.NodeNote,
-            and_(
-                models.NodeNote.node_id == models.KnowledgeNode.id,
-                models.NodeNote.user_id == user.id,
-            ),
-        ).filter(
-            or_(
-                models.KnowledgeNode.name.contains(qs),
-                models.NodeNote.content.contains(qs),
-            )
+
+    def _base_query():
+        """用户可见节点的基础查询（q / plan_id 过滤；不含 status 与 limit）。"""
+        query = (
+            db.query(models.KnowledgeNode)
+            .join(models.Plan, models.KnowledgeNode.plan_id == models.Plan.id)
+            .join(models.Session, models.Plan.session_id == models.Session.id)
+            .filter(models.Session.user_id == user.id)
         )
+        if plan_id is not None:
+            query = query.filter(models.KnowledgeNode.plan_id == plan_id)
+        if q and q.strip():
+            qs = q.strip()
+            # iter 148：名或笔记内容匹配。outerjoin 不复制行——uq_node_notes_user_node 保证每节点至多一条
+            query = query.outerjoin(
+                models.NodeNote,
+                and_(
+                    models.NodeNote.node_id == models.KnowledgeNode.id,
+                    models.NodeNote.user_id == user.id,
+                ),
+            ).filter(
+                or_(
+                    models.KnowledgeNode.name.contains(qs),
+                    models.NodeNote.content.contains(qs),
+                )
+            )
+        return query
+
+    # 进度行与节点的关联（Progress 对 (plan_id, node_id) 唯一 -> 不产生行放大）
+    progress_join = and_(
+        models.Progress.plan_id == models.KnowledgeNode.plan_id,
+        models.Progress.node_id == models.KnowledgeNode.id,
+    )
+    query = _base_query().outerjoin(models.Progress, progress_join)
+    if status in _VALID_STATUS:
+        if status == "not_started":
+            # 「未开始」= 无进度行 或 进度行状态为 not_started（同 Python 侧口径）
+            query = query.filter(
+                or_(
+                    models.Progress.id.is_(None),
+                    models.Progress.status == models.ProgressStatus.not_started,
+                )
+            )
+        else:
+            query = query.filter(models.Progress.status == status)
     nodes = (
         query.order_by(models.KnowledgeNode.plan_id.desc(), models.KnowledgeNode.id)
         .limit(limit)
@@ -123,11 +151,9 @@ def list_knowledge(
         }
 
     items = []
-    stats = {"not_started": 0, "learning": 0, "done": 0}
     for n in nodes:
         p = progress_map.get((n.plan_id, n.id))
         st = p.status.value if p else "not_started"
-        stats[st] += 1
         items.append(
             {
                 "node_id": n.id,
@@ -143,8 +169,19 @@ def list_knowledge(
             }
         )
 
-    if status in _VALID_STATUS:
-        items = [i for i in items if i["status"] == status]
+    # iter 395：状态统计改由 SQL 按**全量匹配节点**分组计数（此前统计的是 LIMIT
+    # 窗口内的批次——重度用户的 chip 计数与真实值不符）。无进度行归入 not_started。
+    stats = {"not_started": 0, "learning": 0, "done": 0}
+    for st, cnt in (
+        _base_query()
+        .outerjoin(models.Progress, progress_join)
+        .with_entities(models.Progress.status, func.count(models.KnowledgeNode.id))
+        .group_by(models.Progress.status)
+        .all()
+    ):
+        key = st.value if st is not None else "not_started"
+        if key in stats:
+            stats[key] = int(cnt)
 
     return {"items": items, "total": len(items), "stats": stats}
 
@@ -374,5 +411,10 @@ def put_node_note(
     else:
         note.content = content
         db.commit()
-    db.refresh(note)
+    # iter 395：提交后行可能已被并发删方案/会话的级联删掉 -> 访问过期 ORM 实例
+    # 抛 ObjectDeletedError -> 500（同 iter 394 progress 同型修法）。
+    try:
+        db.refresh(note)
+    except ObjectDeletedError:
+        return {"node_id": node_id, "content": content, "updated_at": None}
     return _note_out(note, node_id)
