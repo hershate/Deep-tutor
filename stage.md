@@ -38,6 +38,20 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R46（2026-10-20，SSE 口径复核与第一方文档代词清扫轮，✅ 完成）**：承接 iter R45——R45 收口表数与方案族，本轮处理两项遗留项：tutor 面 SSE 通道数口径、以及第一方文档的人称代词残留。
+
+- **SSE 通道数复核（口径统一为「产品面 3 条」）**：全仓 Go 非测试代码中设置 `text/event-stream` 响应头的位置共 **4 处**，均在 `internal/frontend/serve`——`eventstream.go:276`（`GET /events` 控制器事件流）、`tutor.go:573`（`/tutor/...` 生成流）、`tutor_data.go:177`（`/tutor/plans/{pid}/materials` SSE 分支）、`browser_host.go:195`（`GET /browser-host/stream`，仅在 `opts.BrowserHost != nil` 时注册，`browser_host.go:180-183`，属 browser-host 窗口侧中继，不计入产品面）。其余命中项为客户端侧（`internal/ext/plugin/transport_http.go:150`、`transport_sse.go:111,126` 的 MCP SSE 传输；`internal/model/anthropic/anthropic.go:311`、`internal/model/openai/chat_headers.go:19` 的上游 LLM Accept 头）。据此修正 `note/10` §4.1 标题为「Go 侧产品面三条 SSE 通道」并补写出点全表、§5 对照表「3 条 SSE」→「产品面 3 条 SSE + browser-host 窗口中继 1 条（条件注册）」、`stage.md` 实测基线行同改；§4.3 原仅列 v1 三条通道，**漏 v1 材料流**，补 `POST /api/plans/{id}/materials`（`Accept: text/event-stream`，客户端 `frontend/src/lib/api.ts:319-345`，Go 侧 `tutor_data.go:155-210`），标题改为「与 v1 SSE 通道的对应（v1 四类 / Go 侧三条产品面）」。
+
+- **第一方文档代词清扫（19 处）**：`README.md` 5（75/220/254/336/338）、`AGENTS.md` 3（7/8/9，「读它」→「读该文件」）、`NOTICE` 3（3/114）、`note/12` 2（29「复用它」→「复用 tutor.Service」；84「遵守其 MIT 协议」→「遵守 MIT 协议」）、`plan/reasonix/00` 1（91）、`plan/reasonix/01` 4（96/105/126/130）、`plan/reasonix/03` 1（8）。均为等义改写，不改决策实质与语义。
+
+- **v1 资产侧文档与 skill 文案（6 处）**：`docs/archive/README.md` 17、`plugins/README.md` 61、`skills/deep-tutor-intent/SKILL.md` 33、`skills/deep-tutor-knowledge-map/SKILL.md` 44、`skills/deep-tutor-quiz/SKILL.md` 19、`skills/deep-tutor-resources/SKILL.md` 40（「进阶阶段配深入资料」→「配进阶资料」）。连同上一条合计 **25 处**（第一方活跃文档 19 + 资产侧 6）。
+
+- **清扫边界（登记，不改）**：`docs/kernel/**`（上游原文，差异由 `NOTICE` 披露）、`docs/archive/plan-v1/**` 与 `chat.md`、`err.md`（历史归档，改写会失真）、`stage.md` Python 时代日志（append-only 进度史）、`API.md`（v1 冻结契约：正文为面向插件作者的第二人称语气，示例含 `system="你是温和的学习助教"`、`"拖我到处放"` 等**字面量字符串**，改写会变更示例语义；R45 已按「只改措辞不改语义」修正其「全面 CRUD」→「完整 CRUD」）、`skills/**` 与 `plugin-examples/**` 中的示例样本文本。代码内联 prompt（`backend/app/tools/build_knowledge_map.py:40` 等）与 Go 移植版 `internal/runtime/tutor/skills/*.md` 属功能性 prompt 文本，随 skills/ 文档既有差异保留（R45 起同例：skills/ 已改而代码内联串未同步）。
+
+- **门禁**：全仓 Markdown 死链复扫 **0**；`文件:行号` 引用 **1 415 处**越界 **0**；第一方活跃文档（`README.md`、`AGENTS.md`、`NOTICE`、`note/00–12`、`plan/**`、`docs/archive/README.md`、`plugins/README.md`、`skills/deep-tutor-*`）**叙述性正文**人称代词复扫 **0**，修辞词复扫 **0**（「显著」按技术义「位置显著」保留）。保留项（属功能性文本，不计违规）：`skills/deep-tutor-intent/SKILL.md` 44/49/58 的澄清问句与输入示例、`skills/deep-tutor-quiz/SKILL.md` 64 的题目示例、`stage.md` 用户原话引用与 Python 时代日志、`API.md` 契约示例字面量、`docs/kernel/**` 上游原文、`docs/archive/plan-v1/**` 与 `chat.md`、`err.md` 历史归档。本轮零代码变更，`go build ./...` / `go vet ./...` 与 Python 1461 passed / 1 skipped 基线沿用 R45 结果。
+
+- **下一步**：同 iter R45——M1 剩余项（多实例 spike M1.3 → 模块重命名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
 **iter R45（2026-10-20，表数校准与方案族复核轮，✅ 完成）**：承接 iter R44——R44 核验了笔记侧清单，本轮把核验推进到**方案族与决策文本**，逐份扫描 `plan/reasonix/` 六份与 note/12 决策正文，修正 6 处过时引用。
 
 - **表数校准（26 → 29）**：v1 schema 实测 **29 张 ORM 表**（`Base.metadata.tables`）。note/12 依据段与决策 #13 / #31 / #46 中的「26 表」是 2026-10-12 笔记快照时点值；决策实质（领域数据全 SQL、表结构自由设计、内核自身会话/记忆保留文件态）不变，故**不改决策正文**，在 note/12 修订记录新增「v1 表数校准（26 → 29）」条登记口径，并注明 `plan/reasonix/02` 的目标表清单为 25 行（依 #46 自由设计，与 v1 表数不一一对应）。
