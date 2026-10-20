@@ -38,6 +38,45 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 394（2026-10-21，v1 Python 后端配额竞态与网络暴露面收紧轮，✅ 完成）**：承接 iter 392/393 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393「下一步」列出的首批未审面：`api/progress.py`、`api/credentials.py`、`api/providers.py`、`api/setup.py`。
+
+- **审查方法**：一个 explore 子 agent 并行审计四模块，主会话逐条读原文复核并写实证探针；沿用 iter 392/393 口径——**先坐实再修**，修复后验证「回归可捕获性」（移除配额锁后并发用例 rc=1，确认测试真能捕获回归而非空断言）。
+
+- **本轮修复（11 个 commit）**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `cea9c25` | progress 行删除竞态与 CAS 谓词 | 主键先取快照（行被并发删后访问过期 ORM 实例触发 `ObjectDeletedError`，实测复现 500）；CAS 谓词补 `status`（原只比 mastery，「status 变、mastery 不变」的并发更新不被察觉——乐观锁只锁半行；**当前最终状态不变**，mastery 是 `compute_mastery` 唯一依赖量，属完整性加固）；同 `(plan_id, sid)` 重复节点改取 id 最小一条（原 `.one_or_none()` 抛 `MultipleResultsFound` -> 500） |
+  | `b189456` | providers 语义与计量 | `ProviderUpdate` 复用创建用 `_normalize_kind`（None→""）致显式 `kind:null` 命中判据 `if body.kind is not None` -> 静默重置协议；拆出 `_normalize_kind_update`（None→None）；掩码阈值 4→8（4~7 位密钥此前被完整回显）；连通性测试补日预算守卫（402，调用前判定）+ `api_usage` 计量 + `llm_task_slot` 背压（此前三者皆无：预算对真实计费调用失明、用量页不显示、可绕开信号量） |
+  | `c26445c` | iter394 回归 9 条 | 连通性测试计量/预算/背压、kind 语义、掩码、progress CAS 三态 |
+  | `74cab13` | 配额「先查后写」竞态闭合 | 新增 `app/core/quota.py`（`quota_slot` 分段线程锁 64 条 + `guarded_insert_async`/`guarded_commit_async`）；落地 8 个写入面（sessions/credentials/providers/notes/threads×2/学习日志/materials×2/kb×4）；**守卫必须含提交**（pysqlite 传统事务模式下未提交的 INSERT 其他连接不可见，只锁检查防不住） |
+  | `d30109b` | `/setup/status` 按用户解析 | `llm_configured` 此前按实例级判断（甲配了 key，乙看到「已配置」）；`deps.resolve_user` 新增 `create_missing=False`（公开 GET 不建用户） |
+  | `d3201de` | iter394 回归补充 | setup/status 按用户解析 + 配额并发护栏 |
+  | `02fc9ca` | PAT 摘要存储 + 最小长度 8→16 | 明文入库 -> 库/备份泄露即令牌泄露；`sha256:` 摘要存储、读路径兼容旧明文行（双格式比较）、启动期一次性升级（**不在认证路径惰性升级**：认证在事件循环线程内，写库会触发 iter 393 的写锁冻结）；per-IP 30/min 失败限流挡不住多 IP 分布式爆破 -> 最小长度 16 |
+  | `e03c491` | 开放模式 setup 端点仅回环可调用 | **决策一**（用户已决）：`_is_loopback_client` 只认直连对端 `request.client.host`，不信任 `X-Forwarded-For`（该头可伪造）；判定前置到 `resolve_user` 之前（避免远程调用触发「懒创建 admin」写副作用）；非回环 -> 403 |
+  | `227369f` | 供应商 base_url SSRF 守卫 | **决策二**（用户已决）：新增 `app/core/urlguard.py`（私网/环回/链路本地/云元数据判定的**单一事实源**，verify_url.py 旧规则迁入、旧名保留以兼容既有测试与 monkeypatch）；写时校验 422 + 调用前复检（`test_provider` 全量、`get_provider` 仅字面量不触网）；存量档案调用期 RuntimeError + 启动期点名告警（日志剔除 URL userinfo）；开关 `ALLOW_PRIVATE_LLM_BASE_URL=1` 放行 |
+  | `2ebbe1a` | iter394 决策落地回归 | 新增 4 条（存量私网档案调用期拒绝 / 开关放行 / 启动告警不误报公网 / 日志脱敏）；修正 iter393 `test_material_commit_failure_cleans_parsed_text`——材料落库改走 `guarded_commit_async` 后原 monkeypatch 已失效，**该回归曾静默失去护栏**，改为包装真实守卫函数、仅让 commit 阶段失败，覆盖「已落盘 -> 提交失败 -> 清理」全链 |
+  | `2965629` | 配置与文档同步 | `.env.example`（新增 `ALLOW_PRIVATE_LLM_BASE_URL=0` + 开放模式 setup 回环说明）、`scripts/start.sh`/`start.ps1` 注释、`note/01` 规模订正、`note/06`（PAT 摘要契约 / 配额竞态闭合 / 两项暴露面收紧）、`note/08`（quota.py 与 urlguard.py 条目） |
+  | （本条） | 进度记录 | 本条目 |
+
+- **两项产品级决策（用户问卷确认，超时自动采纳推荐项）**：① 开放模式下 `POST /api/setup` 与 `POST /api/setup/dismiss` **仅回环客户端**可调用；② 供应商 `base_url` **默认拦截私网/环回/元数据**，`ALLOW_PRIVATE_LLM_BASE_URL=1` 放行。两项均已落地且有回归覆盖；若后续改口，调整面各仅一处（`setup.py::_setup_caller` / `settings.allow_private_llm_base_url`）。
+
+- **被实证坐实的三条**：
+  1. **配额 check-then-act 竞态**：25 个并发创建凭证请求 -> 实际写入 **25** 行（上限 20）。根因不止于「检查与写入之间无锁」：pysqlite 传统事务模式下**未提交的 INSERT 对其他连接不可见**，故只锁「检查」或只锁到 flush 都防不住——守卫必须含提交（实测：加锁后恰好 20 个 201 + 5 个 429）。
+  2. **progress 行在并发窗口被级联删除 -> 500**：主键快照缺失，访问已删行的过期 ORM 实例触发 `ObjectDeletedError`（实测复现于 `progress.py:100`）。
+  3. **开放模式 `/api/setup` 是「认领管理员」入口**：口令由调用方自填，局域网任意未认证客户端可抢先写入管理员口令（等于接管账号）；`/api/setup/dismiss` 可翻转全局 dismiss 状态。
+
+- **实测基线（本轮）**：全量套件 **1544 passed / 1 skipped**（387.14s，含 iter394 新增 24 条）；唯一 skip 为 `marker_single` 未安装（环境项，非回归）。`ruff check app/ tests/` 全通过；`go build ./...` 退出码 0（Go 侧未改动）。
+
+- **本轮发现但未修（后续 iter 候选，含不修理由）**：
+  - **DNS rebinding（TOCTOU）**：出站校验与实际连接是两次独立 DNS 解析，TTL=0 的二次应答理论上可绕过；彻底修法需传输层 IP 钉扎（httpx 无 resolver 钩子，HTTPS SNI 下需自研 HTTP 栈），与本地优先威胁模型不成比例——与材料抓取路径同口径，iter 242 已评估接受。
+  - **反向代理部署下开放模式 setup 不可达**：判定只认直连对端（不信任可伪造的 `X-Forwarded-For`），经代理时直连对端非回环 -> 开放模式 setup 403（须在 `.env` 配 `ADMIN_PASSWORD`/`AUTH_TOKEN` 走认证路径）。属既定取舍，已在 `.env.example` 与 `scripts/start.*` 说明。
+  - **单进程部署前提**：配额守卫为进程内互斥（`scripts/start.*` 明确不加 `--workers`）；跨进程部署需 DB 级约束，当前不支持。
+  - **CAS 谓词补 status 的实际影响**：当前最终状态不变（mastery 是 `compute_mastery` 唯一依赖量），属完整性加固，不宣称行为变化。
+  - 承接 iter 393 候选：`_STREAMS` 终态 300s 保留窗口内存足迹（F10）、LLM 信号量在无运行 loop 时被替换（F12）、`api/deps.py` 与 `core/security.py` 的一次性引导写仍在事件循环内（仅首请求触发）。
+
+- **下一步**：① 继续 v1 Python 后端未审面——`api/knowledge.py`（332 行，含 `node_notes` 写路径与知识手册导出）、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`；重点看「表达与实现是否一致」、导出/文件写路径与配额面；② 复查 iter 394 新引入机制的边界：`urlguard` 的 DNS 缓存（TTL 5min）与写时校验的交互、`quota_slot` 分段锁的碰撞率、PAT 摘要升级的幂等性与并发启动；③ 回到 Reasonix 阶段①（模块改名 M1.2 → 品牌化与 `DEEPTUTOR.md` M1.4 → 门禁基线重建与 CI M1.5 → `bin/deep-tutor.exe` 冒烟 M1.6）。
+
 **iter 393（2026-10-21，v1 Python 后端事件循环与网络暴露面硬化轮，✅ 完成）**：承接 iter 392 的用户指令（长时间高负载、多用户高频率使用下的稳定性；暴露为网络服务时的代码安全性；持续进行）。本轮仍在 v1 Python 后端面（当前可运行、即将以网络服务暴露的多用户服务）。
 
 - **审查方法**：① 新写 AST 扫描器枚举「async 函数体内的同步 DB 写 / 阻塞文件 IO / subprocess」全量候选（临时工具，不入库），逐条读原文核实调用链；② 一个 explore 子 agent 并行审计 `api/exports.py`、`api/usage.py`、`plugins/api.py` 三个未审模块；③ 沿用 iter 392 口径——**先写实证探针复核再决定是否修复**（本轮新增坐实 2 条、复核后确认为「不需修」若干条）。
