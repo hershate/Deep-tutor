@@ -1,6 +1,6 @@
 """用户数据备份导出/导入（iter 93，用户需求：导出能再导入回去方便备份）。
 
-导出（build_export）：当前用户全部学习资产打包为单个自包含 JSON——
+导出（write_export）：当前用户全部学习资产打包为单个自包含 JSON——
 会话 / 资料（解析文本内联）/ 方案（content 内联，含溢出文件回读）/ 知识节点树 /
 进度 / 打卡 / 测验（含作答记录）/ 自学材料（md 内联，拆分子文件自动串联）/
 用户偏好 KV（iter 177：日预算等覆盖项）。
@@ -35,11 +35,12 @@ memories/kb_documents 五类表及 kb 原件文件不在备份内——恢复后
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import math
-import os
 import shutil
+import tempfile
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -51,6 +52,7 @@ from app.core.settings import settings
 from app.core.storage import (
     atomic_write_bytes,
     data_root,
+    replace_with_retry,
     kb_original_path,
     kb_parsed_text_path,
     parsed_text_path,
@@ -213,185 +215,387 @@ def _load_plan_content(plan: models.Plan) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_export(db: DbSession, user: models.User) -> dict:
-    """组装当前用户的完整备份 dict（不落盘，由端点序列化为下载响应）。"""
-    sessions_out: list[dict] = []
-    sessions = db.query(models.Session).filter_by(user_id=user.id).order_by(models.Session.id).all()
-    for sess in sessions:
-        materials_out = [
+# ---------------------------------------------------------------------------
+# 导出（iter 396 B2：流式写出）
+# ---------------------------------------------------------------------------
+
+# base64 分块编码的块大小：须为 3 的倍数，否则块间拼接会在中间产生填充位
+# （末块除外），内联的 base64 将不可解码。
+_B64_CHUNK = 3 * 1024 * 1024
+
+# 原件读入内存缓冲的上限：超出即溢出到临时文件（内存峰值恒定）
+_SPOOL_MAX_BYTES = 8 * 1024 * 1024
+
+# 导出 JSON 的紧凑分隔符（json.dump 默认带空格，导出文件体积会因此膨胀约 10%；
+# JSON 语义不变）
+_JSON_SEP = (",", ":")
+
+
+def _jdump(obj: Any, fp: Any) -> None:
+    """写一个 JSON 值（紧凑、ensure_ascii=False）。"""
+    json.dump(obj, fp, ensure_ascii=False, separators=_JSON_SEP)
+
+
+class _JsonObjWriter:
+    """JSON 对象的流式写出器（统一处理键之间的逗号与数组分隔）。
+
+    手写分隔符极易出错（首键多一个逗号即产出非法 JSON），此处收口。
+    """
+
+    def __init__(self, fp: Any) -> None:
+        self._fp = fp
+        self._first = True
+        fp.write("{")
+
+    def raw(self, text: str) -> None:
+        """原样写入（仅供对象内部结构使用）。"""
+        self._fp.write(text)
+
+    def key(self, key: str) -> None:
+        """开始写一个键（自动补逗号）。"""
+        if not self._first:
+            self._fp.write(",")
+        self._first = False
+        self._fp.write(json.dumps(key, ensure_ascii=False))
+        self._fp.write(":")
+
+    def value(self, obj: Any) -> None:
+        """写键对应的值。"""
+        _jdump(obj, self._fp)
+
+    def kv(self, key: str, obj: Any) -> None:
+        """写一个键值对。"""
+        self.key(key)
+        self.value(obj)
+
+    def arr(self, key: str, items: Any) -> None:
+        """写一个数组键（逐项写出——传入生成器即为流式）。"""
+        self.key(key)
+        self._fp.write("[")
+        first = True
+        for it in items:
+            if not first:
+                self._fp.write(",")
+            first = False
+            _jdump(it, self._fp)
+        self._fp.write("]")
+
+    def close(self) -> None:
+        """收尾（闭合对象）。"""
+        self._fp.write("}")
+
+
+def _ids_of(db: DbSession, model: Any, user_id: int) -> list[int]:
+    """按 id 升序取该用户的行 id 列表（只取 id，不把整表载入内存）。"""
+    return [
+        row[0]
+        for row in db.query(model.id).filter_by(user_id=user_id).order_by(model.id).all()
+    ]
+
+
+def _iter_rows(db: DbSession, model: Any, ids: list[int]) -> Any:
+    """按 id 逐行取对象；每行处理完即从 identity map 摘除。
+
+    SQLAlchemy 的 identity map 会把已加载的对象留到会话结束——整表导出时
+    identity map 与待写出的数据叠加，峰值内存并不比「先组装成 dict」低多少。
+    逐行取 + 逐行摘除把驻留量压到单行量级。
+    """
+    for oid in ids:
+        obj = db.get(model, oid)
+        if obj is not None:
+            yield obj
+        db.expunge_all()
+
+
+def write_export(db: DbSession, user: models.User, fp: Any) -> dict:
+    """把当前用户的完整备份**流式**写入 fp（JSON 文本）；返回统计信息。
+
+    iter 396 B2：此前 build_export 先把整份数据集组装成 dict（Python 对象形态
+    约为 JSON 体积的 3~5 倍），再 json.dump 落盘——重度用户单次导出的内存峰值
+    可达数 GB，恰在最需要备份的时刻最可能 OOM。现改为逐项写出：峰值内存降到
+    「单个会话 / 单篇文档」量级。
+
+    语义不变：同样完整导出，不截断、不拒绝；原件内联的字节预算与跳过声明保持
+    原口径（超限的原件仍记入 truncated_originals）。
+    """
+    uid = user.id
+    username = user.username or ""
+    display_name = user.name
+    budget = {"inlined": 0, "truncated": 0}
+
+    session_ids = _ids_of(db, models.Session, uid)
+    thread_ids = _ids_of(db, models.Thread, uid)
+    note_ids = _ids_of(db, models.Note, uid)
+    memory_ids = _ids_of(db, models.Memory, uid)
+    kb_ids = _ids_of(db, models.KbDocument, uid)
+    # thread 关联以下标表达（导入侧按下标重映射新 id）
+    thread_id_to_idx = {tid: i for i, tid in enumerate(thread_ids)}
+
+    w = _JsonObjWriter(fp)
+    w.kv("format", FORMAT)
+    w.kv("version", VERSION)
+    # 与全库 UTC 约定一致（其余时间戳均 func.now()/UTC；本地时间仅用于人类可读导出标题/文件名）
+    w.kv("exported_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    w.kv("user", {"username": username, "name": display_name})
+
+    # 供应商档案（api_key 绝不导出——模块 docstring 凭证边界）
+    w.kv(
+        "provider_profiles",
+        [
             {
-                "kind": m.kind.value,
-                "source": m.source,
-                # 材料三段制状态（pending/confirmed/parsed）必须随备份走：此前导出
-                # 丢弃该字段，导入侧按列默认落 "parsed"——未确认的上传件被还原成
-                # "已解析"，确认动作不可达，且 parsed 却无解析文本。
-                "status": m.status,
-                "parsed_text": _read_text(m.parsed_text_path),
-                "parsed_chars": m.parsed_chars,
+                "name": p.name,
+                "base_url": p.base_url,
+                "model": p.model,
+                "kind": p.kind or "anthropic",  # iter 313 协议（导出供导入往返）
+                "is_active": bool(p.is_active),
+            }
+            for p in db.query(models.LlmProviderProfile).filter_by(user_id=uid).all()
+        ],
+    )
+
+    # 用户偏好 KV（iter 177：日预算等覆盖项随备份走）
+    w.kv(
+        "prefs",
+        {r.key: r.value for r in db.query(models.UserPref).filter_by(user_id=uid).all()},
+    )
+
+    # 独立自由笔记（iter 227）：顶层 notes 键，v1 兼容（旧备份无该键不还原）
+    w.arr(
+        "notes",
+        (
+            {"title": n.title, "content": n.content, "updated_at": _iso(n.updated_at)}
+            for n in _iter_rows(db, models.Note, note_ids)
+        ),
+    )
+
+    # 会话（资料解析文本内联；方案含溢出文件回读）
+    w.arr(
+        "sessions",
+        (_export_session(db, s, uid) for s in _iter_rows(db, models.Session, session_ids)),
+    )
+
+    # threads/messages/runs 内部以下标互关联（导入侧按下标重映射新 id）；
+    # thread.session_id（plan-gen overlay 桥接）不导出——会话经追加式还原得到
+    # 新 id，跨族重映射引入序耦合，且该链接仅是导航便利，缺省 None 不影响数据本体。
+    w.arr(
+        "threads",
+        (_export_thread(db, t) for t in _iter_rows(db, models.Thread, thread_ids)),
+    )
+
+    w.arr(
+        "memories",
+        (
+            {
+                "scope": m.scope,
+                "kind": m.kind,
+                "content": m.content,
                 "meta": m.meta or {},
-                "content_hash": m.content_hash,
                 "created_at": _iso(m.created_at),
+                "updated_at": _iso(m.updated_at),
+                # thread 关联以下标表达（scope=user 恒 None）
+                "thread_idx": thread_id_to_idx.get(m.thread_id),
             }
-            for m in sess.materials
-        ]
-        plans_out = [_export_plan(db, p, user.id) for p in sess.plans]
-        sessions_out.append(
-            {
-                "title": sess.title,
-                "created_at": _iso(sess.created_at),
-                "materials": materials_out,
-                "plans": plans_out,
-            }
-        )
+            for m in _iter_rows(db, models.Memory, memory_ids)
+        ),
+    )
 
-    profiles_out = [
-        {  # api_key 绝不导出（模块 docstring 凭证边界）
-            "name": p.name,
-            "base_url": p.base_url,
-            "model": p.model,
-            "kind": p.kind or "anthropic",  # iter 313 协议（导出供导入往返）
-            "is_active": bool(p.is_active),
-        }
-        for p in db.query(models.LlmProviderProfile).filter_by(user_id=user.id).all()
-    ]
+    # 知识库文档（原件 base64 分块流出，见 _w_original_b64）
+    w.key("kb_documents")
+    fp.write("[")
+    first = True
+    for d in _iter_rows(db, models.KbDocument, kb_ids):
+        if not first:
+            fp.write(",")
+        first = False
+        _write_kb_doc(w, d, budget)
+    fp.write("]")
 
-    prefs_out = {  # 用户偏好 KV（iter 177）：日预算等覆盖项随备份走
-        r.key: r.value for r in db.query(models.UserPref).filter_by(user_id=user.id).all()
-    }
-
-    notes_out = [  # 独立自由笔记（iter 227）：顶层 notes 键，v1 兼容（旧备份无该键不还原）
-        {"title": n.title, "content": n.content, "updated_at": _iso(n.updated_at)}
-        for n in db.query(models.Note).filter_by(user_id=user.id).order_by(models.Note.id).all()
-    ]
-
-    # --- iter 369 R6（version 2）：threads/messages/runs + memories + kb_documents ---
-    # threads 与 messages/runs 内部以列表下标互关联（导入侧按下标重映射新 id）；
-    # thread.session_id（plan-gen overlay 桥接）不导出——会话经追加式还原得到新 id，
-    # 跨族重映射引入序耦合，且该链接仅是导航便利，缺省 None 不影响数据本体。
-    user_threads = db.query(models.Thread).filter_by(user_id=user.id).order_by(models.Thread.id).all()
-    thread_id_to_idx = {t.id: i for i, t in enumerate(user_threads)}
-    threads_out: list[dict] = []
-    for t in user_threads:
-        thread_runs = db.query(models.Run).filter_by(thread_id=t.id).order_by(models.Run.id).all()
-        run_id_to_idx = {r.id: i for i, r in enumerate(thread_runs)}
-        runs_out = [
-            {
-                "kind": r.kind.value,
-                # 非终态（running/awaiting_approval）收敛为 interrupted——恢复的 run
-                # 无工作区/事件流可续，保留原态会让前端显示「运行中」但永远等不到事件
-                "status": r.status.value
-                if r.status.value in ("done", "error", "interrupted", "cancelled")
-                else "interrupted",
-                "step_count": r.step_count,
-                "budget_used": r.budget_used,
-                "trace_id": r.trace_id,
-                "error": r.error or {},
-                "started_at": _iso(r.started_at),
-                "ended_at": _iso(r.ended_at),
-            }
-            for r in thread_runs
-        ]
-        messages_out = [
-            {
-                "role": m.role.value,
-                "content": m.content if isinstance(m.content, list) else [],
-                "tokens_in": m.tokens_in,
-                "tokens_out": m.tokens_out,
-                "model": m.model,
-                # 关联 run 以下标表达（导入侧先建 runs 再按下标回填 run_id）
-                "run_idx": run_id_to_idx.get(m.run_id),
-                "created_at": _iso(m.created_at),
-            }
-            for m in db.query(models.Message).filter_by(thread_id=t.id).order_by(models.Message.id).all()
-        ]
-        threads_out.append(
-            {
-                "title": t.title,
-                "kind": t.kind,
-                "model": t.model,
-                "created_at": _iso(t.created_at),
-                "updated_at": _iso(t.updated_at),
-                "runs": runs_out,
-                "messages": messages_out,
-            }
-        )
-
-    memories_out = [
-        {
-            "scope": m.scope,
-            "kind": m.kind,
-            "content": m.content,
-            "meta": m.meta or {},
-            "created_at": _iso(m.created_at),
-            "updated_at": _iso(m.updated_at),
-            # thread 关联以下标表达（scope=user 恒 None）
-            "thread_idx": thread_id_to_idx.get(m.thread_id),
-        }
-        for m in db.query(models.Memory).filter_by(user_id=user.id).order_by(models.Memory.id).all()
-    ]
-
-    kb_docs_out: list[dict] = []
-    inlined_bytes = 0
-    truncated_originals = 0
-    for d in db.query(models.KbDocument).filter_by(user_id=user.id).order_by(models.KbDocument.id).all():
-        original_b64: str | None = None
-        if d.original_path:
-            try:
-                raw = Path(d.original_path).read_bytes()
-            except OSError:
-                log.warning("备份导出：kb 原件读取失败 %s", d.original_path)
-                raw = None
-            if raw is not None:
-                if len(raw) > _KB_ORIGINAL_MAX_BYTES:
-                    log.warning(
-                        "备份导出：kb 原件超 %dMB 上限跳过内联 %s",
-                        _KB_ORIGINAL_MAX_BYTES // 1024 // 1024,
-                        d.original_path,
-                    )
-                    truncated_originals += 1
-                elif inlined_bytes + len(raw) > _MAX_EXPORT_BYTES:
-                    # 导出总字节预算用尽：跳过剩余原件（显式计数，界面可提示）
-                    truncated_originals += 1
-                else:
-                    inlined_bytes += len(raw)
-                    original_b64 = base64.b64encode(raw).decode("ascii")
-        kb_docs_out.append(
-            {
-                "title": d.title,
-                "kind": d.kind.value,
-                "ext": d.ext,
-                "source": d.source,
-                "parsed_text": _read_text(d.parsed_text_path),
-                "parsed_chars": d.parsed_chars,
-                "meta": d.meta or {},
-                "content_hash": d.content_hash,
-                "status": d.status,
-                "created_at": _iso(d.created_at),
-                "updated_at": _iso(d.updated_at),
-                "original_b64": original_b64,
-            }
-        )
+    # 覆盖面披露：未纳入备份的表显式列出（导入/预检同样回传）——
+    # 此前既不导出也不声明，"导出全部学习数据"的表述与实现不符
+    w.kv("not_backed_up", list(_NOT_BACKED_UP))
+    # 导出因预算被跳过的 kb 原件数（0 表示完整内联）
+    w.kv("truncated_originals", budget["truncated"])
+    w.close()
 
     return {
-        "format": FORMAT,
-        "version": VERSION,
-        "exported_at": datetime.now(timezone.utc).isoformat(
-            timespec="seconds"
-        ),  # 与全库 UTC 约定一致（其余时间戳均 func.now()/UTC；本地时间仅用于人类可读导出标题/文件名）
-        "user": {"username": user.username or "", "name": user.name},
-        "provider_profiles": profiles_out,
-        "prefs": prefs_out,
-        "notes": notes_out,
-        "sessions": sessions_out,
-        "threads": threads_out,
-        "memories": memories_out,
-        "kb_documents": kb_docs_out,
-        # 覆盖面披露：未纳入备份的表显式列出（导入/预检同样回传）——
-        # 此前既不导出也不声明，"导出全部学习数据"的表述与实现不符
-        "not_backed_up": list(_NOT_BACKED_UP),
-        # 导出因预算被跳过的 kb 原件数（0 表示完整内联）
-        "truncated_originals": truncated_originals,
+        "sessions": len(session_ids),
+        "threads": len(thread_ids),
+        "notes": len(note_ids),
+        "memories": len(memory_ids),
+        "kb_documents": len(kb_ids),
+        "truncated_originals": budget["truncated"],
     }
+
+
+def build_export(db: DbSession, user: models.User) -> dict:
+    """把导出组装为 dict（兼容入口）。
+
+    iter 396 B2：主实现已改为流式写出（write_export）。本函数保留给既有调用方
+    （单测 / 脚本），走同一条代码路径——先流式写进内存缓冲再解析，故不享流式的
+    低峰值优势，仅用于结构校验与兼容。
+    """
+    buf = io.StringIO()
+    write_export(db, user, buf)
+    return json.loads(buf.getvalue())
+
+
+def _export_session(db: DbSession, sess: models.Session, user_id: int) -> dict:
+    """单个会话的导出条目（资料解析文本内联，方案含溢出文件回读）。"""
+    materials_out = [
+        {
+            "kind": m.kind.value,
+            "source": m.source,
+            # 材料三段制状态（pending/confirmed/parsed）必须随备份走：此前导出
+            # 丢弃该字段，导入侧按列默认落 "parsed"——未确认的上传件被还原成
+            # "已解析"，确认动作不可达，且 parsed 却无解析文本。
+            "status": m.status,
+            "parsed_text": _read_text(m.parsed_text_path),
+            "parsed_chars": m.parsed_chars,
+            "meta": m.meta or {},
+            "content_hash": m.content_hash,
+            "created_at": _iso(m.created_at),
+        }
+        for m in sess.materials
+    ]
+    plans_out = [_export_plan(db, p, user_id) for p in sess.plans]
+    return {
+        "title": sess.title,
+        "created_at": _iso(sess.created_at),
+        "materials": materials_out,
+        "plans": plans_out,
+    }
+
+
+def _export_thread(db: DbSession, t: models.Thread) -> dict:
+    """单个对话会话（thread）的导出条目（runs/messages 以 payload 下标互关联）。"""
+    thread_runs = db.query(models.Run).filter_by(thread_id=t.id).order_by(models.Run.id).all()
+    run_id_to_idx = {r.id: i for i, r in enumerate(thread_runs)}
+    runs_out = [
+        {
+            "kind": r.kind.value,
+            # 非终态（running/awaiting_approval）收敛为 interrupted——恢复的 run
+            # 无工作区/事件流可续，保留原态会让前端显示「运行中」但永远等不到事件
+            "status": r.status.value
+            if r.status.value in ("done", "error", "interrupted", "cancelled")
+            else "interrupted",
+            "step_count": r.step_count,
+            "budget_used": r.budget_used,
+            "trace_id": r.trace_id,
+            "error": r.error or {},
+            "started_at": _iso(r.started_at),
+            "ended_at": _iso(r.ended_at),
+        }
+        for r in thread_runs
+    ]
+    messages_out = [
+        {
+            "role": m.role.value,
+            "content": m.content if isinstance(m.content, list) else [],
+            "tokens_in": m.tokens_in,
+            "tokens_out": m.tokens_out,
+            "model": m.model,
+            # 关联 run 以下标表达（导入侧先建 runs 再按下标回填 run_id）
+            "run_idx": run_id_to_idx.get(m.run_id),
+            "created_at": _iso(m.created_at),
+        }
+        for m in db.query(models.Message)
+        .filter_by(thread_id=t.id)
+        .order_by(models.Message.id)
+        .all()
+    ]
+    return {
+        "title": t.title,
+        "kind": t.kind,
+        "model": t.model,
+        "created_at": _iso(t.created_at),
+        "updated_at": _iso(t.updated_at),
+        "runs": runs_out,
+        "messages": messages_out,
+    }
+
+
+def _write_kb_doc(w: _JsonObjWriter, d: models.KbDocument, budget: dict) -> None:
+    """写一个知识库文档条目（原件 base64 分块流出，不整份驻留内存）。"""
+    w.raw("{")
+    w.raw('"title":')
+    w.value(d.title)
+    w.raw(',"kind":')
+    w.value(d.kind.value)
+    w.raw(',"ext":')
+    w.value(d.ext)
+    w.raw(',"source":')
+    w.value(d.source)
+    w.raw(',"parsed_text":')
+    w.value(_read_text(d.parsed_text_path))
+    w.raw(',"parsed_chars":')
+    w.value(d.parsed_chars)
+    w.raw(',"meta":')
+    w.value(d.meta or {})
+    w.raw(',"content_hash":')
+    w.value(d.content_hash)
+    w.raw(',"status":')
+    w.value(d.status)
+    w.raw(',"created_at":')
+    w.value(_iso(d.created_at))
+    w.raw(',"updated_at":')
+    w.value(_iso(d.updated_at))
+    w.raw(',"original_b64":')
+    _w_original_b64(w, d, budget)
+    w.raw("}")
+
+
+def _w_original_b64(w: _JsonObjWriter, d: models.KbDocument, budget: dict) -> None:
+    """原件 base64：分块编码并写出（峰值内存 = 一个块，而非整份原件）。
+
+    先把原件**分块读进内存缓冲**（超出 8MB 溢出到临时文件），完整读成功后才
+    写进导出——中途读失败若直接写进导出，会留下**截断的 base64**，导入侧会据此
+    还原出损坏的原件（静默数据损坏），比"该原件没被备份"更糟。
+    """
+    if not d.original_path:
+        w.raw("null")
+        return
+    try:
+        size = Path(d.original_path).stat().st_size
+    except OSError:
+        log.warning("备份导出：kb 原件读取失败 %s", d.original_path)
+        w.raw("null")
+        return
+    if size > _KB_ORIGINAL_MAX_BYTES:
+        log.warning(
+            "备份导出：kb 原件超 %dMB 上限跳过内联 %s",
+            _KB_ORIGINAL_MAX_BYTES // 1024 // 1024,
+            d.original_path,
+        )
+        budget["truncated"] += 1
+        w.raw("null")
+        return
+    if budget["inlined"] + size > _MAX_EXPORT_BYTES:
+        # 导出总字节预算用尽：跳过剩余原件（显式计数，界面可提示）
+        budget["truncated"] += 1
+        w.raw("null")
+        return
+    budget["inlined"] += size
+    try:
+        with tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX_BYTES) as spool:
+            with open(d.original_path, "rb") as fh:
+                while True:
+                    chunk = fh.read(_B64_CHUNK)
+                    if not chunk:
+                        break
+                    spool.write(chunk)
+            spool.seek(0)
+            w.raw('"')
+            while True:
+                chunk = spool.read(_B64_CHUNK)
+                if not chunk:
+                    break
+                w.raw(base64.b64encode(chunk).decode("ascii"))
+            w.raw('"')
+    except OSError:
+        log.warning("备份导出：kb 原件读取失败 %s", d.original_path)
+        w.raw("null")
+        budget["inlined"] -= size  # 读失败未内联，预算归还
+        budget["truncated"] += 1
 
 
 def _export_plan(db: DbSession, plan: models.Plan, user_id: int) -> dict:
@@ -882,7 +1086,8 @@ class _StagedFiles:
         if not all(p.exists() for p in staged):
             return False
         for src, dst in zip(staged, finals):
-            os.replace(src, dst)
+            # 带 Windows 瞬时占用重试（杀软/索引器锁目标文件 -> PermissionError）
+            replace_with_retry(src, dst)
             if created_files is not None:
                 created_files.append(str(dst))
         return True

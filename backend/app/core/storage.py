@@ -194,6 +194,15 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
     _atomic_write_bytes(path, content)
 
 
+def replace_with_retry(src: str | Path, dst: str | Path) -> None:
+    """公开的 os.replace（带 Windows 瞬时占用重试）——备份还原的改名用（iter 396 B1）。
+
+    杀软/索引器瞬时锁住目标文件会让 os.replace 抛 PermissionError（Linux 无此
+    问题，rename 原子且不要求目标可打开）；沿用 _replace_with_retry 的指数退避。
+    """
+    _replace_with_retry(str(src), str(dst))
+
+
 def save_upload(session_id: int | str, material_id: int, content: bytes, ext: str) -> Path:
     """保存上传原件（用 material_id 命名，非原始文件名，R20）。"""
     safe = _safe_ext(ext)

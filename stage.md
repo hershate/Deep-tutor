@@ -83,7 +83,12 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **反直觉实测（`dt_probe_rename_bench.py`）**：并发 `os.replace` 在 NTFS 上**远慢于串行**（1252 次改名：1 线程 0.52s / 2 线程 1.67s / 4 线程 7.32s / 8 线程 8.31s——8 线程比串行慢 16 倍，元数据锁/过滤驱动争抢）-> 改名**保持串行**；并发只用于「新建 + 写内容」的预暂存阶段（实测并行有效）。
   - **回归**：新增 `tests/test_iter396_backup_b1_staging.py` 9 条（内容落盘全部早于首条 INSERT / 暂存同卷 / 改名后内容正确 / >500 行 .pN 拆分 / 回退直写不丢数据 / 失败导入补偿删除已改名文件 / 暂存目录不残留）。全量 **1613 passed / 1 skipped**。
 
-- **B2 备份导出：改流式写出**：🚧 待落地（`core/backup.write_export` 逐项写出 + 知识库原件分块 base64）。
+- **B2 备份导出：改流式写出（本条 commit）**：`_MAX_EXPORT_BYTES`(256MB) 只约束 kb 原件内联，notes/messages/plans.content 等大字段不计入预算——重度用户单次导出可把 worker 撑爆。用户定夺：**流式写出**（峰值内存降到单个会话量级；**语义不变、不截断、不拒绝**）。
+  - **实现**：`core/backup.write_export` 逐项写出（会话 / 对话 / 笔记 / 记忆 / 知识库文档逐个处理，处理完即 `expunge`——避免 SQLAlchemy identity map 累积整份数据集）；知识库原件**分块 base64**（块大小须为 3 的倍数，否则块间拼接会在中间产生填充位 -> 解码字节错位）；原件先分块读入内存缓冲（超 8MB 溢出到临时文件），**完整读成功后才写进导出**——中途读失败若直接写入会留下截断 base64，导入侧将还原出**损坏**原件（静默数据损坏），比「该原件没被备份」更糟。`build_export` 保留为兼容入口（同源实现，走内存缓冲）。
+  - **实测（探针 `dt_probe_b2_mem.py`，A/B 对照：旧实现从 `git show HEAD` 载入独立模块）**：数据规模 40 会话 × 5 资料 × 50 万字 + 2 × 8MB 原件（导出 JSON 308.4MB）→ **峰值内存 232.9MB → 19.2MB（-92%）**，导出文件体积一致（308.4MB），且两份输出**逐键语义完全一致**（仅 `exported_at` 因导出时刻不同而不同）。
+  - **探针抓到的真漏项**：首版流式实现漏写知识库文档的 `created_at` / `updated_at`（A/B 逐键比对暴露）——已修复并固化为回归断言。
+  - **回归**：新增 `tests/test_iter396_backup_b2_streaming.py` 6 条（顶层键完整 / 知识库文档字段完整 / 两条路径语义一致 / 原件分块 base64 跨块边界精确还原 / 峰值内存与数据集规模解耦的自校准对照）。全量 **1619 passed / 1 skipped**（1620 收集）。
+  - **配套健壮性**：改名改走 `storage.replace_with_retry`（Windows 杀软/索引器瞬时锁目标文件会让裸 `os.replace` 抛 PermissionError，一次瞬时锁原本会让整次导入失败）；导出端点在流式导出前先取好 `user.id`（导出逐项 `expunge` 后 user 已 detached）。
 
 **iter 395（2026-10-21，v1 Python 后端未审面续审与并发/暴露面加固轮，✅ 完成）**：承接 iter 392~394 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 393/394「下一步」列出的未审面：`api/knowledge.py`、`api/settings.py`、`api/events.py`、`api/share.py`、`api/quizzes.py`（+ `api/search.py` 复核）。
 

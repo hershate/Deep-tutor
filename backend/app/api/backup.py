@@ -76,20 +76,32 @@ def export_backup(
     dumps str + encode bytes 三份全量驻留（重度用户单次导出 3 倍内存峰值，恰在
     最需要备份的时刻最可能 OOM）；json.dump 增量写盘后峰值仅剩 dict 一份，
     发送完毕后台删临时文件。
+
+    iter 396 B2：进一步改**流式写出**（core.backup.write_export）——此前 dict
+    本身已含整份数据集（Python 对象形态约为 JSON 体积的 3~5 倍），峰值内存仍
+    随数据量线性增长；现逐项写出，峰值降到「单个会话 / 单篇文档」量级。
     """
     _check_rate(user, "export", _EXPORT_RATE_PER_MIN)
-    payload = backup_core.build_export(db, user)
+    # iter 396 B2：流式导出逐项 expunge，user 导出后已 detached——先取好标量
+    user_id = user.id
     fd, tmp = tempfile.mkstemp(suffix=".json", prefix="dt-backup-")
     os.close(fd)
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
+            stats = backup_core.write_export(db, user, f)
         size = os.path.getsize(tmp)
     except BaseException:
         os.unlink(tmp)
         raise
     filename = f"deep-tutor-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
-    log.info("备份导出：user=%s sessions=%d 大小=%.1fKB", user.id, len(payload["sessions"]), size / 1024)
+    log.info(
+        "备份导出：user=%s sessions=%d threads=%d kb=%d 大小=%.1fKB",
+        user_id,
+        stats["sessions"],
+        stats["threads"],
+        stats["kb_documents"],
+        size / 1024,
+    )
     return FileResponse(
         tmp,
         media_type="application/json; charset=utf-8",
