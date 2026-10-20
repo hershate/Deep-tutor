@@ -355,7 +355,8 @@ def test_finalize_cancelled_publishes_error(client, auth_headers):
             await task
         except asyncio.CancelledError:
             pass
-        plans_mod._finalize(sid, stream, task)
+        # iter 392：finalize 的持久化在 worker 线程、终态投递回事件循环线程 -> 收口为协程
+        await plans_mod._finalize_async(sid, stream, task)
         return stream
 
     stream = asyncio.run(scenario())
@@ -401,7 +402,8 @@ def test_finalize_deleted_session_skips_db_no_fk_violation(client, auth_headers)
             await task
         except asyncio.CancelledError:
             pass
-        plans_mod._finalize(sid, stream, task)
+        # iter 392：finalize 的持久化在 worker 线程、终态投递回事件循环线程 -> 收口为协程
+        await plans_mod._finalize_async(sid, stream, task)
         return stream
 
     stream = asyncio.run(scenario())
@@ -786,7 +788,8 @@ def test_finalize_persist_failure_falls_back_to_error_state(client, auth_headers
         task = asyncio.create_task(ok())
         stream.task = task
         await task
-        plans_mod._finalize(sid, stream, task)
+        # iter 392：finalize 的持久化在 worker 线程、终态投递回事件循环线程 -> 收口为协程
+        await plans_mod._finalize_async(sid, stream, task)
         return stream
 
     stream = asyncio.run(scenario())
