@@ -38,6 +38,18 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter R45（2026-10-20，表数校准与方案族复核轮，✅ 完成）**：承接 iter R44——R44 核验了笔记侧清单，本轮把核验推进到**方案族与决策文本**，逐份扫描 `plan/reasonix/` 六份与 note/12 决策正文，修正 6 处过时引用。
+
+- **表数校准（26 → 29）**：v1 schema 实测 **29 张 ORM 表**（`Base.metadata.tables`）。note/12 依据段与决策 #13 / #31 / #46 中的「26 表」是 2026-10-12 笔记快照时点值；决策实质（领域数据全 SQL、表结构自由设计、内核自身会话/记忆保留文件态）不变，故**不改决策正文**，在 note/12 修订记录新增「v1 表数校准（26 → 29）」条登记口径，并注明 `plan/reasonix/02` 的目标表清单为 25 行（依 #46 自由设计，与 v1 表数不一一对应）。
+
+- **方案族复核**（R42 只更新了 00·01·05，本轮补齐 02·03·04）：`plan/reasonix/02` 语义基准「note/02（26 表）」→ **「29 张表」**；`plan/reasonix/00` 架构图「领域 26 表等价物」→ **「v1 领域表全集（29 张）语义等价物」**、R6 风险项同改；`plan/reasonix/04` §四 表头「全局态（REF 现状）」→ **「上游基线；吸收后为 `internal/` 同构实现」**，spike 方法的检索源由 `REF/` 改为在树内核代码（`internal/assembly/boot.Build`）——`REF/` 仅为本地对照副本，不入 git。
+
+- **stage.md 自身校准**：R41 条目中的「SQLite 26 表」→「**29 表**」、`internal/runtime/tutor`「~60 文件」→「**67 文件**」。
+
+- **门禁**：本轮零代码变更；全仓死链与行号引用越界复扫均为 0。
+
+- **下一步**：同 iter R42——M1 剩余项（多实例 spike → 模块重命名 → 品牌化与 `DEEPTUTOR.md` → 门禁基线重建与 CI → `bin/deep-tutor.exe` 冒烟）。
+
 **iter R44（2026-10-20，语义清单核验轮，✅ 完成）**：承接 iter R43——R43 统一了数字口径，本轮把核验从「数字与行号」推进到**清单实体本身**（表名 / 端点 / 命名空间 / 工具 / 版本），逐项与代码或实跑导出比对，修正 2 处结构表述。
 
 - **端点清单**：note/06 §3 的 26 个模块计数与实跑 OpenAPI 逐前缀比对**全部一致**（`plans` 15+3、`memory` 3+13+7=23、`kb` 16、`progress` 11 等），合计 **145 operations / 119 paths**；`api/__init__.py:10-36` 注册区间与 `api_router = APIRouter(prefix="/api")`（第 10 行）一致。
@@ -94,9 +106,9 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 - **通读范围（15 份 note 全文 + 方案 + 代码抽查）**：note/00-INDEX（笔记目录与顶层架构速览）、01 架构总览、02 数据模型、03 生成流水线、04 Agent 对话与记忆系统、05 LLM 供应商与成本计量、06 API 全览、07 插件系统、08 核心基础设施、09 工具契约清单、10 前端架构、11 周边与工程化、12 改造决策（61 项宪法）、graft/STAGE（上游嫁接一手档案）；方案侧 plan/README + plan/reasonix/00·05 索引与四阶段任务分解；代码侧抽查 internal/runtime/tutor（pipeline/tools/service/store 等 60 文件）、internal/frontend/serve（tutor_* 系列）、cmd/、go.mod、Makefile、.github/workflows。
 
-- **项目本质（两副身）**：**v1 = Python 全栈学习助手**（FastAPI + React SPA + SQLite 26 表 + 9 插件 + 端口 41173，单机单进程）。核心是「双执行模型」：`agent/orchestrator.py` 确定性 8 工具流水线（parse_material→understand_intent→build_knowledge_map→design_stages→{search_resources ∥ schedule_plan}→validate_plan→export_plan，反馈 ≤2 轮）产出学习方案；`agent/agent_loop.py` 原生 tool_use 迭代循环（≤25 步）承担 AI 对话。两者共享工具注册表与 ExecContext，但状态机/持久化/SSE 独立。贯穿性设计主线为**成本意识**（每次 LLM 调用即时落 api_usage，三层预算防线：会话/日/重生成次数）与**多用户隔离**（跨用户一律 404 防枚举）。**v2 = Reasonix 内核改造**（Go，模块名 `reasonix`），目标形态是「Reasonix 内核 + 多用户 SQL 域 + /api 兼容层」，四阶段递进，Python 侧保留至阶段① M5 验收后停用、阶段④删除。
+- **项目本质（两副身）**：**v1 = Python 全栈学习助手**（FastAPI + React SPA + SQLite 29 表 + 9 插件 + 端口 41173，单机单进程）。核心是「双执行模型」：`agent/orchestrator.py` 确定性 8 工具流水线（parse_material→understand_intent→build_knowledge_map→design_stages→{search_resources ∥ schedule_plan}→validate_plan→export_plan，反馈 ≤2 轮）产出学习方案；`agent/agent_loop.py` 原生 tool_use 迭代循环（≤25 步）承担 AI 对话。两者共享工具注册表与 ExecContext，但状态机/持久化/SSE 独立。贯穿性设计主线为**成本意识**（每次 LLM 调用即时落 api_usage，三层预算防线：会话/日/重生成次数）与**多用户隔离**（跨用户一律 404 防枚举）。**v2 = Reasonix 内核改造**（Go，模块名 `reasonix`），目标形态是「Reasonix 内核 + 多用户 SQL 域 + /api 兼容层」，四阶段递进，Python 侧保留至阶段① M5 验收后停用、阶段④删除。
 
-- **对账结论（笔记 vs 代码现状）**：① note/01–11 是 **2026-10-12 时点分析快照**，与代码一致（16 流水线/领域工具 + 12 Agent 工具、26 表、15 插件命名空间、19 页 SPA 均在位），但**只描述 Python v1**，不含 Go 侧——AGENTS.md 已明确 note/01–11 定位为「领域语义基准」而非现状图。② Go 侧 `internal/runtime/tutor`（R-Tutor 移植，~60 文件）**已逐条镜像 v1 语义**：pipeline.go 的 8 步/并行段/反馈目标/≤2 轮与 tools.go 的 `pipeline`/`parallelGroups`/`feedbackTargets` 与 note/03 完全同构（抽查 byte 级一致），store.go 为 JSON 文件态（阶段① M3.1 待 SQL 化）。③ **阶段①进度实测**：M1.1 吸收 ✅（8289 文件）；M1.2 模块改名 ❌（go.mod 仍 `module reasonix`，全仓 8629 处 `reasonix/` import 未改）；M1.3 多实例 spike ❌；M1.4 品牌化/DEEPTUTOR.md ❌（**根目录无 DEEPTUTOR.md**，而 AGENTS.md「内核引入后遵守 DEEPTUTOR.md 工程规约」已指向该文件——门禁规约实体待建）；M1.5 门禁基线+CI ❌（Makefile 仍为上游版，`build` 产 `bin/reasonix`；ci.yml 仍为上游单 Go job，Python v1 门禁另在历史 CI 中）；M1.6 `bin/deep-tutor.exe` ❌（cmd/ 下仍是 reasonix / reasonix-studio-host 等，无 cmd/deep-tutor）。④ **/api 兼容层尚不存在**：internal/frontend/serve 只挂 `/tutor/*`（tutor.go / tutor_data / tutor_export / tutor_kb / tutor_share / tutor_backup），全仓无 `/api` shim 路由 ⇒ 旧 SPA（frontend/src/pages 19 页在位）当前**无法**对接 Go 服务，M3.5 是 ①②阶段旧 SPA 回归的前置闸。⑤ 新前端已在库：desktop/frontend-next（1101 个 ts/tsx）——阶段④前端主体随吸收就绪，剩余是 19 页产品能力迁移 + 双语（#5/#8）。
+- **对账结论（笔记 vs 代码现状）**：① note/01–11 是 **2026-10-12 时点分析快照**，与代码一致（16 流水线/领域工具 + 12 Agent 工具、29 表、15 插件命名空间、19 页 SPA 均在位），但**只描述 Python v1**，不含 Go 侧——AGENTS.md 已明确 note/01–11 定位为「领域语义基准」而非现状图。② Go 侧 `internal/runtime/tutor`（R-Tutor 移植，67 文件）**已逐条镜像 v1 语义**：pipeline.go 的 8 步/并行段/反馈目标/≤2 轮与 tools.go 的 `pipeline`/`parallelGroups`/`feedbackTargets` 与 note/03 完全同构（抽查 byte 级一致），store.go 为 JSON 文件态（阶段① M3.1 待 SQL 化）。③ **阶段①进度实测**：M1.1 吸收 ✅（8289 文件）；M1.2 模块改名 ❌（go.mod 仍 `module reasonix`，全仓 8629 处 `reasonix/` import 未改）；M1.3 多实例 spike ❌；M1.4 品牌化/DEEPTUTOR.md ❌（**根目录无 DEEPTUTOR.md**，而 AGENTS.md「内核引入后遵守 DEEPTUTOR.md 工程规约」已指向该文件——门禁规约实体待建）；M1.5 门禁基线+CI ❌（Makefile 仍为上游版，`build` 产 `bin/reasonix`；ci.yml 仍为上游单 Go job，Python v1 门禁另在历史 CI 中）；M1.6 `bin/deep-tutor.exe` ❌（cmd/ 下仍是 reasonix / reasonix-studio-host 等，无 cmd/deep-tutor）。④ **/api 兼容层尚不存在**：internal/frontend/serve 只挂 `/tutor/*`（tutor.go / tutor_data / tutor_export / tutor_kb / tutor_share / tutor_backup），全仓无 `/api` shim 路由 ⇒ 旧 SPA（frontend/src/pages 19 页在位）当前**无法**对接 Go 服务，M3.5 是 ①②阶段旧 SPA 回归的前置闸。⑤ 新前端已在库：desktop/frontend-next（1101 个 ts/tsx）——阶段④前端主体随吸收就绪，剩余是 19 页产品能力迁移 + 双语（#5/#8）。
 
 - **门禁**：本轮零代码变更，工作区干净；未跑测试（无变更即无回归面）。仅做只读核查（Get-ChildItem/Select-String/读文件），未触碰 data/ 与 REF/。
 
