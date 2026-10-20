@@ -691,6 +691,27 @@ def wait_generation_settled(session_id: int, timeout: float = 15.0) -> bool:
     return False
 
 
+async def wait_generation_settled_async(session_id: int, timeout: float = 15.0) -> bool:
+    """iter 396：``wait_generation_settled`` 的异步版——**不占用任何工作线程**。
+
+    DELETE /sessions 此前是同步端点，等生成收敛（最多 15s）期间独占一个 anyio
+    工作线程；并发删除 N 个会话即可占满线程池（默认 40 槽），其余同步端点排队
+    （含登录）。异步版以 ``await asyncio.sleep`` 轮询，事件循环零阻塞。
+
+    判据与同步版一致（task.done() 且终态已置位，或流已从注册表消失）。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        stream = _STREAMS.get(session_id)
+        if stream is None:
+            return True
+        task = stream.task
+        if task is None or (task.done() and stream.terminal_id is not None):
+            return True
+        await asyncio.sleep(0.02)
+    return False
+
+
 def wait_generations_settled(session_ids: list[int], timeout: float = 15.0) -> bool:
     """批量等待多个会话收敛——**总**超时（一份预算覆盖全部会话）。
 

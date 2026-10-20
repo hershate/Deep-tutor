@@ -11,6 +11,8 @@ DELETE /api/sessions/{id}/materials/{mid}  删除单个源资料（iter 104 增�
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -20,12 +22,21 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_owned_session, require_auth
 from app.api.errors import ApiError
-from app.api.plans import _STREAMS, _clarify_questions_from_state, _plan_topic, cancel_running_generation
+from app.api.plans import (
+    _STREAMS,
+    _clarify_questions_from_state,
+    _plan_topic,
+    cancel_running_generation,
+    wait_generation_settled_async,
+)
+from app.core.dbwrite import run_db_write
 from app.core.quota import quota_slot
 from app.core.ratelimit import limiter
 from app.core.storage import delete_material_files, delete_session_files
 from app.db import models
 from app.db.models import User
+
+log = logging.getLogger("deep_tutor.api.sessions")
 
 router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(require_auth)])
 
@@ -69,34 +80,55 @@ def create_session(
 
 
 @router.delete("/{session_id}")
-def delete_session(
+async def delete_session(
     session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    sess = get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404（不泄露存在性）
-    # iter 248：会话内任一资料解析进行中（窗口最长 900s）禁止整删——删除会让在途
-    # 解析结果错绑（rowid 复用）/ 写出孤儿解析文件并重建已删会话目录（同 kb 语义）
+    """删除会话（级联 DB + 文件目录）。
+
+    iter 396 改造为 async 端点：此前为同步端点，等在途生成收敛（最多 15s）期间
+    **独占一个 anyio 工作线程**——并发删除 N 个会话即可占满线程池（默认 40 槽），
+    其余同步端点（含登录）排队。现在三段式：
+
+    - 准备（写线程）：归属校验 + 资料解析锁检查 + 取消在途生成；
+    - 等待（事件循环内异步轮询）：**不占线程**（``wait_generation_settled_async``）；
+    - 删除（写线程）：删行 + 提交（写锁争用等 busy_timeout 不会冻结事件循环，
+      iter 393 口径）；文件目录清理另走线程池。
+    """
     from app.api.materials import _PARSE_LOCKS
 
-    mat_ids = [m.id for m in db.query(models.Material.id).filter_by(session_id=sess.id)]
-    if any(
-        (lock := _PARSE_LOCKS.get(mid)) is not None and lock.locked() for mid in mat_ids
-    ):
+    def _prepare() -> str | None:
+        """准备阶段（写线程内）：返回错误码；None 表示可继续删除。"""
+        sess = get_owned_session(db, session_id, user)  # P4 隔离：他人会话 404（不泄露存在性）
+        # iter 248：会话内任一资料解析进行中（窗口最长 900s）禁止整删——删除会让在途
+        # 解析结果错绑（rowid 复用）/ 写出孤儿解析文件并重建已删会话目录（同 kb 语义）
+        mat_ids = [m.id for m in db.query(models.Material.id).filter_by(session_id=sess.id)]
+        if any(
+            (lock := _PARSE_LOCKS.get(mid)) is not None and lock.locked() for mid in mat_ids
+        ):
+            return "conflict"
+        # running 态：先 cancel 编排器任务再删（plan/10 §十一），防僵尸任务 _finalize 撞 FK
+        cancel_running_generation(session_id)
+        return None
+
+    err = await run_db_write(_prepare)
+    if err == "conflict":
         raise ApiError("conflict", "会话内有资料正在解析中，请解析完成后再删除会话", status=409)
-    # running 态：先 cancel 编排器任务再删（plan/10 §十一），防僵尸任务 _finalize 撞 FK
-    cancel_running_generation(session_id)
     # iter 380：等任务收敛（_finalize 落账完成）再删——cancel 只是调度，finalize 与
     # 本端点删除事务并发交错时 tool_calls 批量写撞已删行整批回滚（在途计费丢失，
     # 只剩降级兜底）。取消传播毫秒级，15s 超时容忍（兜底仍在）。
-    from app.api.plans import wait_generation_settled
+    await wait_generation_settled_async(session_id)
 
-    wait_generation_settled(session_id)
-    # 级联：DB 行（relationship cascade=all,delete-orphan）+ 文件目录
-    db.delete(sess)
-    db.commit()
+    def _delete() -> None:
+        sess = get_owned_session(db, session_id, user)
+        db.delete(sess)
+        db.commit()
+
+    await run_db_write(_delete)
     try:
-        delete_session_files(session_id)
+        await asyncio.to_thread(delete_session_files, session_id)
     except Exception:  # noqa: BLE001  文件清理失败不阻塞 DB 已删
-        pass
+        # iter 396：此前静默吞掉（Windows 文件占用导致的残留目录运维无从发现）
+        log.warning("会话目录清理失败 session=%s", session_id, exc_info=True)
     return {"ok": True}
 
 
