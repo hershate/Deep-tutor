@@ -72,7 +72,7 @@
 - 个人性质项目，无服务等级保证。代码经 2026-07-18 全项目自审（87 项，修复记录见 [`docs/archive/err.md`](./docs/archive/err.md)），未发现的问题仍然可能存在，重要数据须自行备份。
 - 界面信息密度较高，键盘快捷键（`?` 查看全表）可缓解初次上手成本。
 - 文档以中文为主，无完整英文文档。
-- 资源检索依赖 Bing 搜索、生成能力依赖第三方模型，其可用性、速率限制与内容政策直接影响本工具。
+- 资源检索依赖 Bing 搜索、生成能力依赖第三方模型；第三方模型的可用性、速率限制与内容政策直接影响本工具。
 
 ### 2.5 已知小项
 
@@ -217,7 +217,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 
 ## 6. 浏览器扩展
 
-[`extension/`](./extension/) 为 Manifest V3 扩展：网页选中文本或整页链接一键剪藏为会话资料（`POST /api/materials/clip`），供 Web 端直接生成方案。装载与配置见其 [README](./extension/README.md)。
+[`extension/`](./extension/) 为 Manifest V3 扩展：网页选中文本或整页链接一键剪藏为会话资料（`POST /api/materials/clip`），供 Web 端直接生成方案。装载与配置见 [README](./extension/README.md)。
 
 ---
 
@@ -251,7 +251,7 @@ Deep-tutor/
 ├── sdk/             # Go SDK
 ├── benchmark/       # 上游 Go 基准测试包
 ├── desktop/         # Electron 宿主 + frontend-next 统一前端（阶段④前端基座）
-├── docs/kernel/     # 内核工程文档（上游原样吸收，溯源与已移除资产说明见其 README；upstream/ = 与本仓根冲突的上游原件存档）
+├── docs/kernel/     # 内核工程文档（上游原样吸收，溯源与已移除资产说明见 docs/kernel/README.md；upstream/ = 与本仓根冲突的上游原件存档）
 ├── scripts/reasonix/# 上游工具脚本
 ├── go.mod 等        # 根级构建基座（Makefile/golangci/goreleaser/.githooks 等）
 ├── ── Python v1（当前可用实现，41173 端口；阶段④退役）──
@@ -333,7 +333,7 @@ Go 侧学习域实现位于 `internal/runtime/tutor/`（R-Tutor 移植，67 个 
 
 ## 11. 开源许可
 
-- 内核与桌面端吸收自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），遵循其 **MIT License**（全文见 [`LICENSE-REASONIX`](./LICENSE-REASONIX)）。上游维护者 Huahui Yu 与全体贡献者。
+- 内核与桌面端吸收自 **[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)**（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），遵循 **MIT License**（全文见 [`LICENSE-REASONIX`](./LICENSE-REASONIX)）。上游维护者 Huahui Yu 与全体贡献者。
 - 引用与修改披露见 [`NOTICE`](./NOTICE)：吸收范围与路径映射、已移除的上游资产、随内核携带的第三方许可（Inter / Noto Sans SC / IBM Plex Mono 字体 OFL、cua-driver LICENSE）。
-- 内核文档整体位于 [`docs/kernel/`](./docs/kernel/)，溯源与资产处置说明见其 [README](./docs/kernel/README.md)。
+- 内核文档整体位于 [`docs/kernel/`](./docs/kernel/)，溯源与资产处置说明见 [README](./docs/kernel/README.md)。
 - 本仓自有代码沿用根目录 [`LICENSE`](./LICENSE)。

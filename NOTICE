@@ -1,6 +1,6 @@
 # NOTICE — 第三方作品引用与许可声明
 
-> 本文件依据 MIT License 的署名要求与本仓库的引用决策（note/12 决策 #30/#42）建立，是 Deep-tutor 对其 incorporated 的第三方作品的**权威声明**。分发本仓库或其构建产物时，本文件与对应 LICENSE 必须一并保留。
+> 本文件依据 MIT License 的署名要求与本仓库的引用决策（note/12 决策 #30/#42）建立，是 Deep-tutor 对所引入第三方作品的**权威声明**。分发本仓库或构建产物时，本文件与对应 LICENSE 必须一并保留。
 
 ## 一、Reasonix（DeepSeek-Reasonix）
 
@@ -111,7 +111,7 @@
 | Inter 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/Inter-OFL.txt` |
 | Noto Sans SC 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/NotoSansSC-OFL.txt` |
 | IBM Plex Mono 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/IBMPlexMono-OFL.txt` |
-| CUA Driver | 见其许可文件 | `desktop/electron/assets/cua-driver-LICENSE.txt` |
+| CUA Driver | 见许可文件 | `desktop/electron/assets/cua-driver-LICENSE.txt` |
 
 Go/npm 依赖按各自模块许可证分发，清单见 `go.sum` 与 `desktop/frontend-next/package.json`。
 
