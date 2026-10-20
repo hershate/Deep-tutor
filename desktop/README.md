@@ -27,7 +27,7 @@ all answer the same routes.
 The renderer never learns which shell it is in: anything a page cannot do it
 asks `HostPort` (`frontend-next/src/port/host.ts`) for, and the main process
 answers over IPC that carries OS capability only. The boundaries this runs on
-are written down in [`docs/STUDIO_SHELL_BOUNDARIES.md`](../docs/STUDIO_SHELL_BOUNDARIES.md).
+are written down in [`docs/STUDIO_SHELL_BOUNDARIES.md`](../docs/kernel/STUDIO_SHELL_BOUNDARIES.md).
 
 ## Layout
 

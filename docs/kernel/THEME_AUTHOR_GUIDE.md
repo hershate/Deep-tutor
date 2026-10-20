@@ -82,9 +82,9 @@ Each scheme is a map under `tokens.light` or `tokens.dark`. Both schemes must
 contain at least one valid token, or the pack will not load. Omitted tokens
 retain Studio defaults or derive from another declared surface.
 
-The authoritative vocabulary is the kernel's [`Tokens` map](../internal/ext/theme/tokens.go), with value validation in `validToken`, `isColour`, `isLength` and `isFontStack` in that same file. Use those definitions when choosing token names and values; this guide does not maintain a second token table.
+The authoritative vocabulary is the kernel's [`Tokens` map](../../internal/ext/theme/tokens.go), with value validation in `validToken`, `isColour`, `isLength` and `isFontStack` in that same file. Use those definitions when choosing token names and values; this guide does not maintain a second token table.
 
-The frontend maps the vocabulary to CSS variables in [`theme.ts`](../desktop/frontend-next/src/ui/theme.ts). The kernel's [`TestThemeTokenVocabularyMatchesTheFrontend`](../internal/ext/theme/tokens_test.go) checks that both sides agree.
+The frontend maps the vocabulary to CSS variables in [`theme.ts`](../../desktop/frontend-next/src/ui/theme.ts). The kernel's [`TestThemeTokenVocabularyMatchesTheFrontend`](../../internal/ext/theme/tokens_test.go) checks that both sides agree.
 
 `accent` paints filled controls; `accentFg` is text on that fill. Optional
 `accentInk` paints accent-coloured text on ordinary surfaces and tinted washes.

@@ -51,9 +51,9 @@
 > [!IMPORTANT]
 > **Community · 加入社区** — bilingual Discord for setup help (`#help` / `#求助`), workflow showcases, and feature ideas. → **<https://discord.gg/XF78rEME2D>**
 >
-> QQ group **DeepSeek-Reasonix官方群** (`1093562660`) → **<https://qm.qq.com/q/i59b0z2R8s>** ([QR code](./docs/assets/qq-group.svg))
+> QQ group **DeepSeek-Reasonix官方群** (`1093562660`) → **<https://qm.qq.com/q/i59b0z2R8s>** ([QR code](../assets/qq-group.svg))
 
-> Douyin: **做游戏的小鱼** (Douyin ID `22703872788`) · [QR code](./docs/assets/douyin.png)
+> Douyin: **做游戏的小鱼** (Douyin ID `22703872788`) · [QR code](../assets/douyin.png)
 
 <br/>
 
@@ -73,7 +73,7 @@ You pick the model: a DeepSeek preset is built in, any OpenAI-compatible service
 
 ## What you get
 
-- **Study Tutor.** Turn material and a goal into a staged study plan: scheduled units, quizzes with a spaced-review wrong-answer deck, notes, a searchable knowledge base, and exports to Markdown, calendar, Anki and HTML slides. It is the surface every window opens on. See the [Tutor guide](./docs/TUTOR.md).
+- **Study Tutor.** Turn material and a goal into a staged study plan: scheduled units, quizzes with a spaced-review wrong-answer deck, notes, a searchable knowledge base, and exports to Markdown, calendar, Anki and HTML slides. It is the surface every window opens on. See the [Tutor guide](../TUTOR.md).
 - **Read, edit, run.** The chat page is the full agent: it reads code, edits files and runs tests and commands, all inside your project folder.
 - **Permission levels.** Have it ask every time, or let everyday actions run on their own; your forbid rules always hold. To see the approach first, use plan mode: it starts work only once you approve.
 - **Rewind.** A file is saved before it changes, so you can rewind by conversation turn without touching your git history. Only files its edit tools changed are covered, not what a shell command did.
@@ -116,9 +116,9 @@ Reasonix ships on two lines. See the [version roadmap announcement](https://gith
 Valuable fixes, tests and behaviour from 1.x are reviewed one by one and ported
 or reimplemented on 2.x where they fit the new architecture.
 
-- [Moving from 1.x to 2.x](./docs/MIGRATING.md): what the two lines share, and
+- [Moving from 1.x to 2.x](../MIGRATING.md): what the two lines share, and
   how to run both on one machine without losing sessions.
-- [2.x roadmap](./docs/ROADMAP.md): what 2.x still has to deliver, how it ships,
+- [2.x roadmap](../ROADMAP.md): what 2.x still has to deliver, how it ships,
   and the decisions still open.
 
 ## Features
@@ -217,7 +217,7 @@ Studio additionally requires **Node 24+ and pnpm 10**
 make studio
 ```
 
-See the [Studio build guide](desktop/README.md#prerequisites) for platform
+See the [Studio build guide](../../../desktop/README.md#prerequisites) for platform
 webview dependencies and Linux build tags.
 
 ## Quick start
@@ -238,28 +238,28 @@ reasonix run "implement the TODOs in main.go"
 In an interactive session, run `/init` when you want Reasonix to create project
 instructions.
 
-For advanced CLI usage and configuration, see the **[CLI reference](./docs/CLI.md)**,
-**[Guide](./docs/GUIDE.md)**, and
-**[configuration paths](./docs/CONFIG_PATHS.md)**.
+For advanced CLI usage and configuration, see the **[CLI reference](../CLI.md)**,
+**[Guide](../GUIDE.md)**, and
+**[configuration paths](../CONFIG_PATHS.md)**.
 
 ## Documentation
 
-- **Getting started:** [Guide](./docs/GUIDE.md) · [CLI reference](./docs/CLI.md) ·
-  [Configuration paths](./docs/CONFIG_PATHS.md) · [ACP editor integration](./docs/ACP.md)
-- **Features & troubleshooting:** [Tutor](./docs/TUTOR.md) ·
-  [Subagent profiles](./docs/SUBAGENT_PROFILES.md) ·
-  [Context Engine v2](./docs/SESSION_MEMORY_RETRIEVAL.md) ·
-  [Capability diagnostics](./docs/CAPABILITY_DIAGNOSTICS.md) ·
-  [Recovery and updates](./docs/RECOVERY.md) ·
-  [Checkpoints & rewind](./docs/CHECKPOINTS.md)
-- **Engineering & migration:** [Spec](./docs/SPEC.md) ·
-  [Task contracts & pause policy](./docs/TASK_CONTRACT.md) ·
-  [Tool contract](./docs/TOOL_CONTRACT.md) · [Moving from 1.x to 2.x](./docs/MIGRATING.md) ·
-  [2.x roadmap](./docs/ROADMAP.md)
-- **Extension development:** [Skills](./docs/SKILLS.md) · [Extensions](./docs/EXTENSIONS.md) ·
-  [Plugin packages and Manifest v1](./docs/PLUGIN_PACKAGES.md) ·
-  [Extension Protocol](./docs/EXTENSION_PROTOCOL.md) ·
-  [Go SDK and starter](./sdk/go/README.md)
+- **Getting started:** [Guide](../GUIDE.md) · [CLI reference](../CLI.md) ·
+  [Configuration paths](../CONFIG_PATHS.md) · [ACP editor integration](../ACP.md)
+- **Features & troubleshooting:** [Tutor](../TUTOR.md) ·
+  [Subagent profiles](../SUBAGENT_PROFILES.md) ·
+  [Context Engine v2](../SESSION_MEMORY_RETRIEVAL.md) ·
+  [Capability diagnostics](../CAPABILITY_DIAGNOSTICS.md) ·
+  [Recovery and updates](../RECOVERY.md) ·
+  [Checkpoints & rewind](../CHECKPOINTS.md)
+- **Engineering & migration:** [Spec](../SPEC.md) ·
+  [Task contracts & pause policy](../TASK_CONTRACT.md) ·
+  [Tool contract](../TOOL_CONTRACT.md) · [Moving from 1.x to 2.x](../MIGRATING.md) ·
+  [2.x roadmap](../ROADMAP.md)
+- **Extension development:** [Skills](../SKILLS.md) · [Extensions](../EXTENSIONS.md) ·
+  [Plugin packages and Manifest v1](../PLUGIN_PACKAGES.md) ·
+  [Extension Protocol](../EXTENSION_PROTOCOL.md) ·
+  [Go SDK and starter](../../../sdk/go/README.md)
 
 ## Star History
 

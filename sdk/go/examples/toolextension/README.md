@@ -110,6 +110,6 @@ Run `/reload` while idle, or start a new session, after changing activation or
 removing the package. Uninstalling a linked package preserves this source
 directory.
 
-See [Plugin Packages](../../../../docs/PLUGIN_PACKAGES.md#manifest-v2-extensions)
-for manifest and trust rules, and [Extensions](../../../../docs/EXTENSIONS.md#runtime-reload)
+See [Plugin Packages](../../../../docs/kernel/PLUGIN_PACKAGES.md#manifest-v2-extensions)
+for manifest and trust rules, and [Extensions](../../../../docs/kernel/EXTENSIONS.md#runtime-reload)
 for reload behavior.

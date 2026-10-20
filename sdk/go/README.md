@@ -95,7 +95,7 @@ go vet ./...
 
 The [fake host](fakehost_test.go) shows the handshake and host callbacks for
 in-process tests. A custom subprocess host follows the native host's
-[lifecycle](../../docs/EXTENSION_PROTOCOL.md):
+[lifecycle](../../docs/kernel/EXTENSION_PROTOCOL.md):
 
 1. Await the `extension/initialize` response, then send
    `extension/initialized`.
@@ -153,7 +153,7 @@ constructors, enum helpers) lives in `types_ext.go`.
 
 ## Protocol reference
 
-- Method/DTO contract: [`docs/EXTENSION_PROTOCOL.generated.md`](../../docs/EXTENSION_PROTOCOL.generated.md)
+- Method/DTO contract: [`docs/EXTENSION_PROTOCOL.generated.md`](../../docs/kernel/EXTENSION_PROTOCOL.generated.md)
 - Canonical JSON schema: [`internal/ext/extension/protocol/schema.generated.json`](../../internal/ext/extension/protocol/schema.generated.json)
 - Transport: strict JSON-RPC 2.0 over NDJSON (one object per line), integer
   request ids, object params, 8 MiB frames.

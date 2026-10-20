@@ -12,27 +12,19 @@ and code extensions behind one installable unit.
 
 For a copyable local package and the community review path, see the
 [community author guide](MARKET_AUTHOR_GUIDE.md).
-The [multi-file skill example](../examples/release-note-kit/README.md) shows
-how a plugin keeps a required reference file with its skill.
-For an issue-to-PR-draft exercise with a deliberately failing local fixture,
-see the [repository workflow example](../examples/issue-fix-kit/README.md).
-For a packaged read-only subagent, local inputs and lifecycle verification,
-see the [repository orientation example](../examples/repo-map-kit/README.md).
-For a frontend task with a brief, sample data, and browser acceptance steps,
-see the [local interface example](../examples/frontend-page-kit/README.md).
 
-The [API documentation example](../examples/api-notes-kit/README.md) adds local
-OpenAPI inputs, a reference checker, and a source-linked guide format.
-
-The [stdio MCP example](../examples/mcp-line-counter-kit/README.md) bundles a
-local Go server with build, connection, tool-call, and lifecycle checks.
+The upstream example kits that accompanied this document — multi-file skill,
+issue-to-PR-draft, packaged read-only subagent, front-end task, API
+documentation, stdio MCP, compatible command, session-start context and native
+prompt — are not part of this repository. The worked examples that remain are
+the Go extension packages under
+[`sdk/go/examples/`](../../sdk/go/examples/): starter extension, tool
+extension, provider extension and full sidecar. The Deep-tutor domain adds its
+own front-end plugin examples under `plugin-examples/` and its prompt assets
+under `skills/`.
 
 The [Studio theme author guide](THEME_AUTHOR_GUIDE.md) uses a copyable pure-theme
 package, the current token vocabulary, and Appearance activation and cleanup.
-
-The [compatible command example](../examples/command-notes-kit/README.md) shows
-a copied Claude- or Codex-format package, qualified command names, argument
-substitution, and the disable, re-enable and removal checks.
 
 ## CLI Mode
 
@@ -371,9 +363,9 @@ earlier conversation messages keep context that was already sent.
 Plugin hook execution is explicit:
 
 - A hook with `contextFile` reads that package-relative file directly; it
-  does not run a command. The [session-start context example](../examples/review-context-kit/README.md)
-  includes a complete package, copy/link instructions, and provider-boundary
-  verification of first-turn delivery and session rotation.
+  does not run a command. The upstream session-start context package
+  (copy/link instructions, provider-boundary verification of first-turn
+  delivery and session rotation) is not part of this repository.
 - When `args` is present, including `"args": []`, the hook uses **exec form**.
   `command` is the executable and every argument is passed literally, without
   shell parsing or interpolation.
@@ -477,9 +469,9 @@ New resource types:
     with the plugin;
   - any other file listed under `themes` is ignored.
 
-The [native prompt example](../examples/work-note-kit/README.md) shows a
-template-only package, nested names, argument substitution, and the
-install/update/disable/remove lifecycle without a compiler or sidecar.
+The upstream native prompt package (template-only package, nested names,
+argument substitution, and the install/update/disable/remove lifecycle without
+a compiler or sidecar) is not part of this repository.
 
 The `runtime` block declares a code extension — a sidecar process Reasonix
 launches and talks to over the Extension Protocol (JSON-RPC 2.0 over stdio;

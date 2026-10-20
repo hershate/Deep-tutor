@@ -25,7 +25,7 @@ go test ./...              # runs the full test suite
 |-----------|---------|
 | `cmd/reasonix` | CLI entry point |
 | `internal/runtime/agent` | Agent loop, session, coordinator |
-| `internal/runtime/tutor` | Study tutor: plans, quizzes, review, notes, knowledge base ([docs/TUTOR.md](docs/TUTOR.md)) |
+| `internal/runtime/tutor` | Study tutor: plans, quizzes, review, notes, knowledge base ([docs/TUTOR.md](../TUTOR.md)) |
 | `internal/frontend/cli` | TUI, subcommands, setup wizard |
 | `internal/session/control` | Transport-agnostic controller |
 | `internal/contract/config` | TOML configuration loading |

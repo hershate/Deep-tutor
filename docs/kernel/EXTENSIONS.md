@@ -123,7 +123,7 @@ go test ./internal/ext/extension/... -run '^$' -bench 'Extension|Dispatch' -benc
 ## Developing an extension
 
 Start with the complete
-[`starterextension`](../sdk/go/examples/starterextension/README.md) package.
+[`starterextension`](../../sdk/go/examples/starterextension/README.md) package.
 It keeps the manifest, Sidecar source, cross-platform build commands, linked
 installation, and first observable intercept in one directory. The normal
 development loop is:
@@ -131,7 +131,7 @@ development loop is:
 1. Add `apiVersion: "reasonix.io/plugin/v2"` to `reasonix-plugin.json` and
    declare `contributes` and (optionally) `runtime` — see
    [Plugin Packages](./PLUGIN_PACKAGES.md#manifest-v2-extensions).
-2. Implement the Sidecar. The [Go SDK](../sdk/go/README.md) (standard library
+2. Implement the Sidecar. The [Go SDK](../../sdk/go/README.md) (standard library
    only) handles transport, handshake, sequencing, content references, and
    shutdown; the [wire contract](./EXTENSION_PROTOCOL.md) and
    [generated method index](./EXTENSION_PROTOCOL.generated.md) are the

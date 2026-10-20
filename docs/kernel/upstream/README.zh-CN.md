@@ -51,9 +51,9 @@
 > [!IMPORTANT]
 > **加入社区 · Community** — 双语 Discord，提供安装答疑（`#help` / `#求助`）、工作流展示与功能想法。→ **<https://discord.gg/XF78rEME2D>**
 >
-> QQ 群 **DeepSeek-Reasonix官方群**（群号 `1093562660`）→ **<https://qm.qq.com/q/i59b0z2R8s>**（[二维码](./docs/assets/qq-group.svg)）
+> QQ 群 **DeepSeek-Reasonix官方群**（群号 `1093562660`）→ **<https://qm.qq.com/q/i59b0z2R8s>**（[二维码](../assets/qq-group.svg)）
 
-> 抖音：**做游戏的小鱼**（抖音号 `22703872788`）· [二维码](./docs/assets/douyin.png)
+> 抖音：**做游戏的小鱼**（抖音号 `22703872788`）· [二维码](../assets/douyin.png)
 
 ## ❤️赞助商
 
@@ -71,7 +71,7 @@ Reasonix 是一个开源自学工具。程序跑在你的电脑上；AI 模型�
 
 ## 你能得到什么
 
-- **学习导师**：把资料和学习目标变成分阶段的学习方案——排期单元、测验与错题间隔复习、笔记、可搜索的知识库，并可导出 Markdown、日历、Anki 牌组和 HTML 幻灯片；它是所有窗口打开时的首页。见[学习导师文档](./docs/TUTOR.md)。
+- **学习导师**：把资料和学习目标变成分阶段的学习方案——排期单元、测验与错题间隔复习、笔记、可搜索的知识库，并可导出 Markdown、日历、Anki 牌组和 HTML 幻灯片；它是所有窗口打开时的首页。见[学习导师文档](../TUTOR.md)。
 - **读、改、跑**：聊天页是完整 Agent——读你的项目、改文件、跑测试和命令，都在你选的项目文件夹里。
 - **权限分档**：每次都问你，或让日常操作自动放行；你设的禁止规则始终有效。想先看方案，就开计划模式，批准后它才动手。
 - **可回退**：改文件前先存快照，按对话轮次回退，不碰 git 历史。只覆盖编辑工具改的文件，命令行命令造成的改动不在内。
@@ -111,9 +111,9 @@ Reasonix 分为两条版本线，调整的原因见[版本路线公告](https://
 
 1.x 中有价值的修复、测试和行为会逐项 review，适合新架构的会迁移或重新实现到 2.x。
 
-- [从 1.x 迁移到 2.x](./docs/MIGRATING.md)（英文）：两条线共用哪些数据，以及如何在同一台
+- [从 1.x 迁移到 2.x](../MIGRATING.md)（英文）：两条线共用哪些数据，以及如何在同一台
   机器上同时使用而不丢会话。
-- [2.x 路线图](./docs/ROADMAP.md)（英文）：2.x 还要交付什么、如何发布、哪些决定尚未做出。
+- [2.x 路线图](../ROADMAP.md)（英文）：2.x 还要交付什么、如何发布、哪些决定尚未做出。
 
 ## 特性
 
@@ -200,7 +200,7 @@ Studio 的前端还需要 **Node 24+ 与 pnpm 10**（`npm install -g pnpm@10`）
 make studio
 ```
 
-各平台的 webview 依赖和 Linux 构建标签见 [Studio 构建指南](desktop/README.md#prerequisites)。
+各平台的 webview 依赖和 Linux 构建标签见 [Studio 构建指南](../../../desktop/README.md#prerequisites)。
 
 ## 快速开始
 
@@ -218,30 +218,30 @@ reasonix run "把 main.go 里的 TODO 实现掉"
 
 需要项目指令时，可在交互式会话中运行 `/init`。
 
-CLI 进阶用法和详细配置见 **[CLI 命令参考](./docs/CLI.zh-CN.md)**、
-**[指南](./docs/GUIDE.zh-CN.md)** 和
-**[配置路径](./docs/CONFIG_PATHS.md)**。
+CLI 进阶用法和详细配置见 **[CLI 命令参考](../CLI.zh-CN.md)**、
+**[指南](../GUIDE.zh-CN.md)** 和
+**[配置路径](../CONFIG_PATHS.md)**。
 
 ## 文档
 
-- **开始使用：** [指南](./docs/GUIDE.zh-CN.md) ·
-  [CLI 命令参考](./docs/CLI.zh-CN.md) · [配置路径](./docs/CONFIG_PATHS.md) ·
-  [ACP 编辑器接入](./docs/ACP.md)
-- **功能与排障：** [学习导师](./docs/TUTOR.md) ·
-  [子智能体 Profile](./docs/SUBAGENT_PROFILES.md) ·
-  [Context Engine v2](./docs/SESSION_MEMORY_RETRIEVAL.md) ·
-  [能力诊断](./docs/CAPABILITY_DIAGNOSTICS.md) ·
-  [恢复与安全模式](./docs/RECOVERY.md) ·
-  [Checkpoints 与 rewind](./docs/CHECKPOINTS.md)
-- **工程与迁移：** [规格](./docs/SPEC.md) ·
-  [任务合约与暂停策略](./docs/TASK_CONTRACT.md) ·
-  [工具合约](./docs/TOOL_CONTRACT.md) ·
-  [从 1.x 迁移到 2.x](./docs/MIGRATING.md) ·
-  [2.x 路线图](./docs/ROADMAP.md)
-- **扩展开发：** [扩展概览](./docs/EXTENSIONS.md) ·
-  [插件包与 Manifest v1](./docs/PLUGIN_PACKAGES.md) ·
-  [Extension Protocol](./docs/EXTENSION_PROTOCOL.md) ·
-  [Go SDK 与 starter](./sdk/go/README.md)
+- **开始使用：** [指南](../GUIDE.zh-CN.md) ·
+  [CLI 命令参考](../CLI.zh-CN.md) · [配置路径](../CONFIG_PATHS.md) ·
+  [ACP 编辑器接入](../ACP.md)
+- **功能与排障：** [学习导师](../TUTOR.md) ·
+  [子智能体 Profile](../SUBAGENT_PROFILES.md) ·
+  [Context Engine v2](../SESSION_MEMORY_RETRIEVAL.md) ·
+  [能力诊断](../CAPABILITY_DIAGNOSTICS.md) ·
+  [恢复与安全模式](../RECOVERY.md) ·
+  [Checkpoints 与 rewind](../CHECKPOINTS.md)
+- **工程与迁移：** [规格](../SPEC.md) ·
+  [任务合约与暂停策略](../TASK_CONTRACT.md) ·
+  [工具合约](../TOOL_CONTRACT.md) ·
+  [从 1.x 迁移到 2.x](../MIGRATING.md) ·
+  [2.x 路线图](../ROADMAP.md)
+- **扩展开发：** [扩展概览](../EXTENSIONS.md) ·
+  [插件包与 Manifest v1](../PLUGIN_PACKAGES.md) ·
+  [Extension Protocol](../EXTENSION_PROTOCOL.md) ·
+  [Go SDK 与 starter](../../../sdk/go/README.md)
 
 ## Star 趋势
 

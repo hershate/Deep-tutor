@@ -101,7 +101,9 @@ Steer payloads retain structured content for the model and separate display text
 
 The ask-based measurement counters exclude nonblocking publications and clicks. No improvement in user turns has been measured.
 
-The [fixed-task evaluation protocol](../../benchmarks/intelligent-ui/README.md) defines paired tasks, outcome checks and content-free observer records. Collection remains outstanding; TUI work remains deferred.
+The fixed-task evaluation protocol (paired tasks, outcome checks and content-free
+observer records) is defined in the upstream `benchmarks/intelligent-ui` tree,
+which is not part of this repository. Collection remains outstanding; TUI work remains deferred.
 
 ## A2UI renderer integration
 

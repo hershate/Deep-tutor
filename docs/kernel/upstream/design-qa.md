@@ -22,15 +22,15 @@ names are not real user data. Screenshots use 1:1 density.
 
 | Palette | Light, 1280 × 720 | Dark, 1280 × 720 |
 | --- | --- | --- |
-| Default baseline | [Light](docs/design/theme-palettes/default-light-wide.jpg) | [Dark](docs/design/theme-palettes/default-dark-wide.jpg) |
-| Clear Blue | [Light](docs/design/theme-palettes/clear-blue-light-wide.jpg) | [Dark](docs/design/theme-palettes/clear-blue-dark-wide.jpg) |
-| Tea Green | [Light](docs/design/theme-palettes/tea-green-light-wide.jpg) | [Dark](docs/design/theme-palettes/tea-green-dark-wide.jpg) |
+| Default baseline | [Light](../design/theme-palettes/default-light-wide.jpg) | [Dark](../design/theme-palettes/default-dark-wide.jpg) |
+| Clear Blue | [Light](../design/theme-palettes/clear-blue-light-wide.jpg) | [Dark](../design/theme-palettes/clear-blue-dark-wide.jpg) |
+| Tea Green | [Light](../design/theme-palettes/tea-green-light-wide.jpg) | [Dark](../design/theme-palettes/tea-green-dark-wide.jpg) |
 
 | Palette | Light, 390 × 844 | Dark, 390 × 844 |
 | --- | --- | --- |
-| Default baseline | [Light](docs/design/theme-palettes/default-light-phone.jpg) | [Dark](docs/design/theme-palettes/default-dark-phone.jpg) |
-| Clear Blue | [Light](docs/design/theme-palettes/clear-blue-light-phone.jpg) | [Dark](docs/design/theme-palettes/clear-blue-dark-phone.jpg) |
-| Tea Green | [Light](docs/design/theme-palettes/tea-green-light-phone.jpg) | [Dark](docs/design/theme-palettes/tea-green-dark-phone.jpg) |
+| Default baseline | [Light](../design/theme-palettes/default-light-phone.jpg) | [Dark](../design/theme-palettes/default-dark-phone.jpg) |
+| Clear Blue | [Light](../design/theme-palettes/clear-blue-light-phone.jpg) | [Dark](../design/theme-palettes/clear-blue-dark-phone.jpg) |
+| Tea Green | [Light](../design/theme-palettes/tea-green-light-phone.jpg) | [Dark](../design/theme-palettes/tea-green-dark-phone.jpg) |
 
 ## Visual comparison
 

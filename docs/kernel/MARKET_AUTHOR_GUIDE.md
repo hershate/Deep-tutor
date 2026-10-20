@@ -80,7 +80,7 @@ In Studio, use **Settings → Extensions → Installed → Runtime** to reload a
 
 For a copied package, install a new fixed source or use the existing update action. [Plugin Packages](PLUGIN_PACKAGES.md) describes the manifest, update, disable, export, and removal paths.
 
-A code extension needs a Manifest v2 `runtime` block and a sidecar. Start from the [runnable Go example](../sdk/go/examples/starterextension/README.md) and preview its **FULL TRUST** block.
+A code extension needs a Manifest v2 `runtime` block and a sidecar. Start from the [runnable Go example](../../sdk/go/examples/starterextension/README.md) and preview its **FULL TRUST** block.
 
 Follow [Extensions](EXTENSIONS.md) for build, reload, and protocol checks. SDK tags are published only with a corresponding product release; use a matching checkout until the tag you need exists.
 
