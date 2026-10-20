@@ -8,7 +8,7 @@
 | 分支 | `refactor/reasonix` |
 | v1 证据 | `backend/app/agent/agent_loop.py`（561 行）、`backend/app/api/memory.py`（1001 行）、`backend/app/agent/workspace.py`（233 行）、`backend/app/tools/agent_tools.py`（559 行）、`backend/app/api/events.py`（214 行）、`backend/app/api/sse_utils.py`（41 行）、`backend/app/db/models.py`（879 行） |
 | v2 证据 | `internal/runtime/tutor/`（67 个 .go）、`internal/frontend/serve/tutor.go`（601 行）、`internal/session/control/controller.go`（1254 行）、`internal/session/control/memory.go`（332 行）、`internal/runtime/agent/run_loop.go` |
-| v1 规模 | `backend/app/api/*.py` 28 文件 / 24 路由模块；OpenAPI 119 paths / 145 operations；ORM 29 表；alembic 26 迁移；`backend/tests` 177 文件 / 1458 test 函数（pytest 收集 1461）；`backend/app` 22 614 行；`frontend/src` 19 190 行；plugins 9 实例；skills 8 目录；端口 41173 |
+| v1 规模 | `backend/app/api/*.py` 28 文件 / 24 路由模块；OpenAPI 119 paths / 145 operations；ORM 29 表；alembic 26 迁移；`backend/tests` 177 文件 / 1458 test 函数（pytest 收集 1462）；`backend/app` 22 614 行；`frontend/src` 19 190 行；plugins 9 实例；skills 8 目录；端口 41173 |
 | v2 规模 | 根 `go.mod`：`module reasonix` / `go 1.26.0`；`/tutor/*` 路由集中在 `internal/frontend/serve/tutor*.go`，**无 `/api` 兼容层** |
 
 ## 0. 与 Orchestrator 的关系

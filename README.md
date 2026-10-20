@@ -255,7 +255,7 @@ Deep-tutor/
 ├── scripts/reasonix/# 上游工具脚本
 ├── go.mod 等        # 根级构建基座（Makefile/golangci/goreleaser/.githooks 等）
 ├── ── Python v1（当前可用实现，41173 端口；阶段④退役）──
-├── backend/         # FastAPI 后端（app / alembic / tests，1461 个 pytest 用例）
+├── backend/         # FastAPI 后端（app / alembic / tests，1462 个 pytest 用例）
 ├── frontend/        # Vite + React 前端（19 页，阶段①②作 shim 回归工具）
 ├── extension/       # 浏览器扩展（MV3 网页剪藏，阶段④重构）
 ├── plugins/         # 后端插件目录（9 个实例：8 个 .py + 1 个 .disabled）
@@ -282,7 +282,7 @@ Deep-tutor/
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest        # 1461 个用例
+.venv/Scripts/python -m pytest        # 1462 个用例
 .venv/Scripts/python -m ruff check .  # lint（E4/E7/E9/F，行宽 120）
 cd ../frontend && npm run build       # tsc 类型检查 + vite 构建
 ```
