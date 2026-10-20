@@ -14,4 +14,4 @@
 - [stage.md](../../stage.md) — 进度跟踪活文件（现行仅 Reasonix 改造期 iter R 系列记录；Python 时代 2026-07 的路线图与 iter 1–365 日志已于 2026-10-17 清理，git 历史完整可溯）
 - [note/](../../note/) — 项目分析笔记（01–11，语义基准）+ 改造决策档案（12）
 - [plan/](../../plan/) — Reasonix 改造方案（含执行状态表）
-- [docs/kernel/](../kernel/) — 上游 Reasonix 内核工程文档（原样吸收，溯源与资产处置说明见其 README）
+- [docs/kernel/](../kernel/) — 上游 Reasonix 内核工程文档（原样吸收，溯源与资产处置说明见 [README](../kernel/README.md)）

@@ -30,7 +30,7 @@ version: 1.0.0
    - `goal`：学习目标（如「能独立做项目」「应付考试」「转行」）。
    - `daily_minutes`：每日可投入分钟数（整数）。
    - `deadline`：截止日期（ISO 8601 日期；无则 null，不触发澄清）。
-3. **结合 answers（若存在）**：若输入含 `answers`，结合其补全缺失维度，此时尽量给出明确字段而非再次澄清。
+3. **结合 answers（若存在）**：若输入含 `answers`，据已给答案补全缺失维度，此时尽量给出明确字段而非再次澄清。
 4. **判定澄清**：四维度（topic / level / goal / daily_minutes）任一缺失或过于模糊 -> `needs_clarify=true`，
    `clarify_questions` 给针对缺失维度的追问（基础 / 目标 / 时长），每条一句、具体可答；全部明确 -> `needs_clarify=false`，`clarify_questions` 为空数组。
 5. **输出**：仅返回符合 schema 的 JSON 对象（不要 markdown 代码块、不要解释）。
