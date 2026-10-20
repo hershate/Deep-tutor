@@ -50,6 +50,10 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 - **本轮修正**：note/09 §1 标题「流水线 8 工具」→ **「流水线 8 工具 + verify_url」**（该节实含 9 个小节，`verify_url` 独立注册且不在 PIPELINE）；note/06 的 `APIRouter` 实例数补注「**不含根 `api_router`**」（实测 27 处 `APIRouter(`，扣除 `api/__init__.py:10` 后为 26）。
 
+- **常量与策略核验**（对照代码常量）：`CODE_STATUS` 26 个业务码与 note/06 §2 列举逐项一致（`errors.py:48-75`）；`_STATUS_TO_CODE` 14 项（`errors.py:124-139`）一致；5 个异常处理器注册于 `main.py:295-300` 一致；`_MAX_BODY_BYTES = max_upload_bytes + 5MB`（`main.py:27`，检查点 220/234）、`max_upload_mb` 默认 50（`settings.py:77`）、备份 256MB（`backup.py:34`）、kb 原件 32MB（`backup.py:50`）一致；`SlidingWindowLimiter` 60s 窗口 + key 上限 100 000（`ratelimit.py:18,27`）一致；原子写三函数（`storage.py:96-118`）一致；SQLite PRAGMA（WAL / synchronous=NORMAL / foreign_keys=ON / busy_timeout 默认 10 000ms，`base.py:41-58`）一致；导入配额 sessions 200 / materials 20 / plans 50 / notes 500（`backup.py:505-506`）一致；预算默认 会话 1.0 / 日 10.0（`settings.py:122-123`）与重生成上限 `plan.version > max_regenerations` → 429（`plans.py:622`）一致；工作区 scratch → committed → promoted 三段与 `workspace.py` 一致；`faster-whisper` 为可选运行时依赖（不在 `requirements.txt`，走 `dependency_missing` 降级），README 表述准确。
+
+- **风格清扫（第一方文档）**：`API.md` §十一「全面 CRUD」→ **「完整 CRUD」**（冻结契约仅改措辞不改语义）；`skills/deep-tutor-resources/SKILL.md` 两处「真正」→ **「确实」**（语义等价）；`docs/archive/README.md` 的 err.md 条目「87 项」→ **91 项（89 已修复 + 2 不修 `[−]`）**（实测 `[x]` 89 + `[-]` 2 = 91，8 批次修复记录；note/11 原表述正确）。第一方文档（`API.md`、`plugins/`、`skills/`、`extension/`、`plugin-examples/`、`docs/archive/`、`.reasonix/commands/`）的人称代词与修辞词复扫命中 0。
+
 - **门禁**：本轮零代码变更；全仓死链与行号引用越界复扫均为 0。
 
 - **下一步**：同 iter R42——M1 剩余项（多实例 spike → 模块重命名 → 品牌化与 `DEEPTUTOR.md` → 门禁基线重建与 CI → `bin/deep-tutor.exe` 冒烟）。
