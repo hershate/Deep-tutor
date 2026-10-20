@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_daily_budget, get_db, require_auth
@@ -19,6 +20,36 @@ from app.db.models import User
 from app.llm.pricing import PRICING_FIELDS, default_pricing_table
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_auth)])
+
+
+def _upsert_pref(db: Session, user_id: int, key: str, value: str | None) -> None:
+    """用户偏好原子 upsert（iter 395）：写/覆盖一格；value=None -> 删除该格。
+
+    原实现是「先查后插」（查 UserPref -> 无行则 add+commit）：并发首写同一格时
+    双方都读到「无行」-> 都 INSERT -> 后者撞 uq_user_prefs_user_key ->
+    IntegrityError 未捕获 -> **500**（实测：8 个并发 PUT /api/settings/prefs 有
+    4 个 500；pricing 7/8 500——见 stage.md iter 395）。
+
+    改用 SQLite 原生 upsert（INSERT ... ON CONFLICT DO UPDATE）：单条 DML，冲突
+    交由数据库解决 -> 不再 500。写入语义不变（后写覆盖先写）。
+    updated_at 显式推进（ORM 的 onupdate 只作用于 ORM 级 UPDATE，不作用于 Core
+    upsert）——计费表的乐观并发基线（expected_updated_at）依赖它。
+    """
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    if value is None:
+        db.execute(
+            delete(models.UserPref).where(
+                models.UserPref.user_id == user_id, models.UserPref.key == key
+            )
+        )
+        return
+    stmt = sqlite_insert(models.UserPref).values(user_id=user_id, key=key, value=value)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[models.UserPref.user_id, models.UserPref.key],
+        set_={"value": stmt.excluded.value, "updated_at": func.now()},
+    )
+    db.execute(stmt)
 
 
 class PrefsIn(BaseModel):
@@ -119,23 +150,25 @@ def update_prefs(
     为数值 -> upsert 覆盖行。未传的键不动（避免改 A 误清 B）。幂等：重复 PUT 同值一致。
     """
     unset = body.model_dump(exclude_unset=True)
+    from app.core.ratelimit import limiter
     from app.llm import get_active_max_tokens  # 局部导入避循环（同 get_settings）
 
-    def _upsert(key: str, value: object) -> None:
-        row = db.query(models.UserPref).filter_by(user_id=user.id, key=key).one_or_none()
-        if value is None:
-            if row is not None:
-                db.delete(row)
-        else:
-            if row is None:
-                row = models.UserPref(user_id=user.id, key=key)
-                db.add(row)
-            row.value = repr(value)
-
+    if not limiter.check(f"prefs_write:{user.id}", 30):
+        raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
     if "daily_budget_usd" in unset:
-        _upsert("daily_budget_usd", body.daily_budget_usd)
+        _upsert_pref(
+            db,
+            user.id,
+            "daily_budget_usd",
+            None if body.daily_budget_usd is None else repr(body.daily_budget_usd),
+        )
     if "llm_max_tokens" in unset:
-        _upsert("llm_max_tokens", body.llm_max_tokens)
+        _upsert_pref(
+            db,
+            user.id,
+            "llm_max_tokens",
+            None if body.llm_max_tokens is None else repr(body.llm_max_tokens),
+        )
     db.commit()
     max_tok_override = get_active_max_tokens(user.id)
     has_budget_override = (
@@ -260,18 +293,19 @@ def update_pricing_settings(
         if cur != body.expected_updated_at:
             raise ApiError("conflict", "计费表已在其他窗口被修改，请刷新后重试", status=409)
     if not cleaned:
-        if row is not None:
-            db.delete(row)
-            db.commit()
+        _upsert_pref(db, user.id, MODEL_PRICING_PREF_KEY, None)
+        db.commit()
         new_ts = None
     else:
-        if row is None:
-            row = models.UserPref(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
-            db.add(row)
-        row.value = json.dumps(cleaned, ensure_ascii=False)
+        # iter 395：原子 upsert（并发首写不再撞唯一约束 -> 500）
+        _upsert_pref(db, user.id, MODEL_PRICING_PREF_KEY, json.dumps(cleaned, ensure_ascii=False))
         db.commit()
-        db.refresh(row)
-        new_ts = row.updated_at.isoformat() if row.updated_at else None
+        ts = (
+            db.query(models.UserPref.updated_at)
+            .filter_by(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
+            .scalar()
+        )
+        new_ts = ts.isoformat() if ts is not None else None
     return {
         "defaults": default_pricing_table(),
         "table": load_model_pricing(db, user.id),
