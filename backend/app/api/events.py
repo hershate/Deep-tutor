@@ -135,12 +135,17 @@ def resolve_owner(payload: dict[str, Any], db: Session | None = None) -> int | N
     return None
 
 
+# 「归属未解析」哨兵：与 owner=None（解析结果为「无归属」）区分——否则调用方传入
+# owner=None 时会被误判为未解析，退回同步查库（事件循环线程内）。
+_OWNER_UNRESOLVED: Any = object()
+
+
 def format_frame(
     event: str,
     payload: dict[str, Any],
     user_id: int,
     db: Session | None = None,
-    owner: int | None = None,
+    owner: int | None | Any = _OWNER_UNRESOLVED,
 ) -> str | None:
     """决定是否向 user_id 转发该事件，返回 SSE 帧 str（转发）或 None（过滤/丢弃）。
 
@@ -148,12 +153,12 @@ def format_frame(
     无归属且非全局 -> 丢（safe-by-default）。
 
     owner：已解析的归属（iter 395：事件流在**线程池**里解析归属后传入，避免同步
-    DB 读占住事件循环）；None -> 本函数内解析（同步调用方/单测口径）。
+    DB 读占住事件循环）；不传 -> 本函数内解析（同步调用方/单测口径）。
 
     iter 395：payload 不可 JSON 序列化时（插件塞 datetime/bytes/自定义对象）不再
     让整条流崩断——降级为 ``default=str`` 序列化；仍失败则丢帧并记日志。
     """
-    if owner is None:
+    if owner is _OWNER_UNRESOLVED:
         owner = resolve_owner(payload, db)
     if owner is not None:
         if owner != user_id:
@@ -237,15 +242,19 @@ async def events_generator(
     """
     import time
 
+    # 重验时机：**队列空闲（超时）即重验**，或**事件连发时按单调时钟截止时间**
+    # 到期重验——两者取其一。旧实现只在超时分支重验，事件持续不断时永远走不到
+    # 该分支 -> 已吊销用户的流持续收事件（iter 395）。
     next_reauth = time.monotonic() + heartbeat_s
     while True:
         item: tuple[str, dict[str, Any]] | None = None
+        idle = False
         try:
             item = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
         except asyncio.TimeoutError:
-            item = None
+            idle = True
         now = time.monotonic()
-        if reauth and now >= next_reauth:
+        if reauth and (idle or now >= next_reauth):
             next_reauth = now + heartbeat_s
             if not await asyncio.to_thread(_user_still_valid, user_id, token_iat):
                 return
