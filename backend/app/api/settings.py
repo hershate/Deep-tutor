@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_daily_budget, get_db, require_auth
@@ -30,13 +31,14 @@ def _upsert_pref(db: Session, user_id: int, key: str, value: str | None) -> None
     IntegrityError 未捕获 -> **500**（实测：8 个并发 PUT /api/settings/prefs 有
     4 个 500；pricing 7/8 500——见 stage.md iter 395）。
 
-    改用 SQLite 原生 upsert（INSERT ... ON CONFLICT DO UPDATE）：单条 DML，冲突
+    改用数据库原生 upsert（INSERT ... ON CONFLICT DO UPDATE）：单条 DML，冲突
     交由数据库解决 -> 不再 500。写入语义不变（后写覆盖先写）。
     updated_at 显式推进（ORM 的 onupdate 只作用于 ORM 级 UPDATE，不作用于 Core
     upsert）——计费表的乐观并发基线（expected_updated_at）依赖它。
-    """
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+    方言分派：SQLite / PostgreSQL 各自有 insert().on_conflict_do_update；其余
+    方言回退到可移植的「UPDATE -> 未命中则 INSERT（撞约束则回滚重读再 UPDATE）」。
+    """
     if value is None:
         db.execute(
             delete(models.UserPref).where(
@@ -44,12 +46,39 @@ def _upsert_pref(db: Session, user_id: int, key: str, value: str | None) -> None
             )
         )
         return
-    stmt = sqlite_insert(models.UserPref).values(user_id=user_id, key=key, value=value)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[models.UserPref.user_id, models.UserPref.key],
-        set_={"value": stmt.excluded.value, "updated_at": func.now()},
+
+    from app.db.base import engine
+
+    dialect = engine.dialect.name
+    if dialect in ("sqlite", "postgresql"):
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as dialect_insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert as dialect_insert
+        stmt = dialect_insert(models.UserPref).values(user_id=user_id, key=key, value=value)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[models.UserPref.user_id, models.UserPref.key],
+            set_={"value": stmt.excluded.value, "updated_at": func.now()},
+        )
+        db.execute(stmt)
+        return
+
+    # 通用方言回退：先 UPDATE，未命中再 INSERT（撞唯一约束 -> 回滚重读再 UPDATE）
+    affected = (
+        db.query(models.UserPref)
+        .filter(models.UserPref.user_id == user_id, models.UserPref.key == key)
+        .update({"value": value, "updated_at": func.now()}, synchronize_session=False)
     )
-    db.execute(stmt)
+    if affected:
+        return
+    try:
+        db.add(models.UserPref(user_id=user_id, key=key, value=value))
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        db.query(models.UserPref).filter(
+            models.UserPref.user_id == user_id, models.UserPref.key == key
+        ).update({"value": value, "updated_at": func.now()}, synchronize_session=False)
 
 
 class PrefsIn(BaseModel):
@@ -191,17 +220,30 @@ _VALID_PRICING_FIELDS = PRICING_FIELDS  # (input/output/cache_read/cache_write)_
 
 
 def _clean_model_pricing(table: dict) -> dict:
+    """清洗模型计费表输入（兼容入口）：只返回清洗结果，丢弃明细见 _clean_model_pricing_detail。"""
+    return _clean_model_pricing_detail(table)[0]
+
+
+def _clean_model_pricing_detail(table: dict) -> tuple[dict, list[str]]:
     """清洗模型计费表输入：模型名非空 + 仅保留已知 4 数值字段（非负、有限）。
 
+    返回 (清洗结果, 被丢弃的模型名列表)。
     条目缺失的字段补 0（计费表条目须 4 字段齐全，避免 resolve 时静默缺省）。
     iter 368：条目数 ≤200、模型名 ≤128 字符（防无界 JSON 落 UserPref）；
     NaN/inf 经 JSON 解析可达且 `num < 0` 判不出，须 isfinite 显式拒。
+
+    iter 395：
+    - 显式空条目（``{"model": {}}``）-> 视为「四项单价全 0」的显式声明，保留；
+    - 条目有键但**没有一项合法**（字段名写错 / 全为负数或非有限）-> 丢弃并记名。
+      此前这类条目被静默丢弃，若全部条目都被丢弃，接口会走「清空整张表」分支，
+      用户一次字段名笔误即丢掉全部计价配置（且回退默认价 -> 成本口径突变）。
     """
     import math
 
     cleaned: dict = {}
+    dropped: list[str] = []
     if not isinstance(table, dict):
-        return cleaned
+        return cleaned, dropped
     for model, fields in table.items():
         if not isinstance(model, str) or not model.strip() or not isinstance(fields, dict):
             continue
@@ -219,11 +261,16 @@ def _clean_model_pricing(table: dict) -> dict:
                 if num < 0:
                     continue  # 单价非负
                 entry[key] = num
-        if entry:
-            for key in _VALID_PRICING_FIELDS:
-                entry.setdefault(key, 0.0)  # 缺失字段补 0
-            cleaned[model.strip()] = entry
-    return cleaned
+        if not entry:
+            if not fields:
+                entry = {k: 0.0 for k in _VALID_PRICING_FIELDS}  # 显式全 0
+            else:
+                dropped.append(model.strip()[:64])
+                continue
+        for key in _VALID_PRICING_FIELDS:
+            entry.setdefault(key, 0.0)  # 缺失字段补 0
+        cleaned[model.strip()] = entry
+    return cleaned, dropped
 
 
 class ModelPricingIn(BaseModel):
@@ -272,6 +319,9 @@ def update_pricing_settings(
 
     pricing 空对象 -> 删除该用户计费表行（回退默认）；否则清洗后 upsert model_pricing JSON。
     幂等：重复 PUT 同值结果一致。仅非空模型名与已知 4 字段（非负）被保留，缺失字段补 0。
+
+    iter 395：清洗后为空但**输入非空**（字段名写错 / 全为非法值）-> 400 拒绝，
+    不再静默清空用户整张计费表（此前一次笔误即丢掉全部计价配置并回退默认价）。
     """
     import json
 
@@ -281,7 +331,15 @@ def update_pricing_settings(
 
     if not limiter.check(f"pricing_write:{user.id}", 30):
         raise ApiError("rate_limited", "操作过于频繁，请稍后再试", status=429)
-    cleaned = _clean_model_pricing(body.pricing)
+    cleaned, dropped = _clean_model_pricing_detail(body.pricing)
+    if body.pricing and not cleaned:
+        raise ApiError(
+            "bad_request",
+            "计费表内容无效，未做修改（单价须为非负有限数，字段名限 "
+            f"{'/'.join(_VALID_PRICING_FIELDS)}）"
+            + (f"；无效条目：{', '.join(dropped[:10])}" if dropped else ""),
+            status=400,
+        )
     row = (
         db.query(models.UserPref)
         .filter_by(user_id=user.id, key=MODEL_PRICING_PREF_KEY)
