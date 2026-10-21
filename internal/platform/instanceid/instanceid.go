@@ -25,7 +25,7 @@ func Current() string { return For(config.ReasonixHomeDir()) }
 // For names the instance that owns one data home, canonicalized rather than
 // taken as spelled: an installed build, a portable one and a canary all write
 // the same sessions and have to find each other, and a home reached through a
-// link is the one it points at. A different REASONIX_HOME is a different
+// link is the one it points at. A different DEEPTUTOR_HOME is a different
 // instance, which is what makes a second home the way to run two.
 func For(home string) string {
 	root := strings.TrimSpace(home)

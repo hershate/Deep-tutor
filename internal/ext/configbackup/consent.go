@@ -88,7 +88,11 @@ var deniedKeyNames = []string{
 	"GIT_SSH_COMMAND", "GIT_CONFIG_GLOBAL", "BASH_ENV", "ENV",
 }
 
-var deniedKeyPrefixes = []string{"REASONIX_", "LD_", "DYLD_", "GIT_"}
+// deniedKeyPrefixes are the namespaces a snapshot never carries. The
+// product's own two spellings are both here: a snapshot that carried either
+// would hand a restored install a home, a token or a path the machine never
+// agreed to.
+var deniedKeyPrefixes = []string{"DEEPTUTOR_", "REASONIX_", "LD_", "DYLD_", "GIT_"}
 
 func deniedKey(key string) bool {
 	if config.IsPrivateCredentialSlot(strings.TrimSpace(key)) {

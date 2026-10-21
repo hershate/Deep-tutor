@@ -157,7 +157,7 @@ python3 tools/trajectory/lease_cost.py session.wire.jsonl --json
 ```
 
 Sessions are kept per project, so the root to hand it is usually
-`~/.reasonix` (or `$REASONIX_STATE_HOME`), not `~/.reasonix/sessions` — that
+`~/.reasonix` (or `$DEEPTUTOR_STATE_HOME`), not `~/.reasonix/sessions` — that
 last one holds only the sessions opened outside a project.
 
 Standard library only. Tests: `python3 -m unittest discover -s tools/trajectory

@@ -21,7 +21,14 @@ import (
 // PluginRootEnvVar is the variable a runtime command may use to address
 // files inside its own installed package. It expands at launch time, never
 // through a shell.
-const PluginRootEnvVar = "${REASONIX_PLUGIN_ROOT}"
+//
+// PluginRootEnvVarCurrent is the same variable under the product's current
+// name. Both expand: a manifest is written by a plugin author, and the
+// plugin that exists today wrote the first one.
+const (
+	PluginRootEnvVar        = "${REASONIX_PLUGIN_ROOT}"
+	PluginRootEnvVarCurrent = "${DEEPTUTOR_PLUGIN_ROOT}"
+)
 
 // RuntimeSpec declares a plugin-owned runtime process (Manifest v2). The
 // command is exec form only: Reasonix never runs it through a shell, so
@@ -649,11 +656,14 @@ func globThemePattern(root, pattern string) ([]string, error) {
 }
 
 // ExpandRuntimeCommand substitutes the ${REASONIX_PLUGIN_ROOT} prefix with
-// the package root. Launch-time expansion lives with the runtime supervisor
-// (a later stage); this exists so diagnostics can resolve the on-disk path.
+// the package root, under either spelling of the variable. Launch-time
+// expansion lives with the runtime supervisor (a later stage); this exists so
+// diagnostics can resolve the on-disk path.
 func ExpandRuntimeCommand(command, root string) string {
-	if rest, ok := strings.CutPrefix(command, PluginRootEnvVar); ok {
-		return filepath.Join(root, filepath.FromSlash(rest))
+	for _, prefix := range [...]string{PluginRootEnvVarCurrent, PluginRootEnvVar} {
+		if rest, ok := strings.CutPrefix(command, prefix); ok {
+			return filepath.Join(root, filepath.FromSlash(rest))
+		}
 	}
 	return command
 }

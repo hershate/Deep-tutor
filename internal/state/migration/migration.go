@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/state/sessionstore"
@@ -97,7 +98,9 @@ func RunLegacyRescue(sink event.Sink) Result {
 	}
 	result := Result{}
 	if config.IsolatedHomeDir() != "" {
-		emit(event.LevelInfo, "migration rescue: REASONIX_HOME is set; implicit legacy migration is skipped")
+		// The variable that is actually set, not the one this build prefers:
+		// the reader has to be able to unset the one their machine carries.
+		emit(event.LevelInfo, "migration rescue: "+envvar.Name("DEEPTUTOR_HOME")+" is set; implicit legacy migration is skipped")
 		emit(event.LevelInfo, result.Summary())
 		return result
 	}

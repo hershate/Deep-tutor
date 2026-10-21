@@ -12,18 +12,24 @@ location.
 | Linux | `~/.reasonix` |
 | Windows | `%APPDATA%\reasonix` |
 
-Set `REASONIX_HOME` to override Deep-tutor home for tests, CI, or portable
+Set `DEEPTUTOR_HOME` to override Deep-tutor home for tests, CI, or portable
 installations. Normal users should not need it.
 
-When `REASONIX_HOME` is set, the runtime is fully self-contained: all
+Every environment variable this product reads has two spellings: the current
+`DEEPTUTOR_*` name and the `REASONIX_*` name it carried before the rename.
+The current one wins when both are set; the old one is the fallback, so a
+machine that set `REASONIX_HOME` before the rename keeps the home it had and
+does not find its data on the system volume again.
+
+When `DEEPTUTOR_HOME` is set, the runtime is fully self-contained: all
 configuration, state, cache, and data live under that directory tree. Legacy
 migration, OS-home convention directory scanning, and all other fallback paths
 are skipped so no data leaks in from a system-wide production install.
 
-Advanced test and portable setups may set `REASONIX_STATE_HOME` to move runtime
+Advanced test and portable setups may set `DEEPTUTOR_STATE_HOME` to move runtime
 state such as sessions, archives, and memory. It does not move global config or
-provider credentials: those remain under `REASONIX_HOME`. If an older build wrote
-provider keys to `REASONIX_STATE_HOME/.env`, Deep-tutor imports those keys
+provider credentials: those remain under `DEEPTUTOR_HOME`. If an older build wrote
+provider keys to `DEEPTUTOR_STATE_HOME/.env`, Deep-tutor imports those keys
 non-destructively when `<Deep-tutor home>/.env` is missing them.
 
 ## What Lives There
@@ -47,7 +53,7 @@ non-destructively when `<Deep-tutor home>/.env` is missing them.
 | Disposable task catalog | `<cache root>/task-catalog/v1.sqlite` |
 
 `<state root>` defaults to `<Deep-tutor home>`. It only differs when
-`REASONIX_STATE_HOME` is set.
+`DEEPTUTOR_STATE_HOME` is set.
 
 Session JSONL, event logs, metadata sidecars, and `desktop-projects.json` are
 the authoritative session data, and listing or opening a conversation reads
@@ -230,14 +236,14 @@ the new global `.env` is missing a key. Project `.env` files are still read as
 workspace-scoped, non-provider expansion sources for `${VAR}` references in
 MCP/plugin env, headers, URLs, commands, and args; those values are not written
 into the process environment, and Deep-tutor control variables such as
-`REASONIX_HOME`, `REASONIX_STATE_HOME`, and `XDG_CONFIG_HOME` are ignored there.
+`DEEPTUTOR_HOME`, `DEEPTUTOR_STATE_HOME`, and `XDG_CONFIG_HOME` are ignored there.
 
 Caches remain in the OS cache directory, for example
 `~/Library/Caches/reasonix` on macOS, `$XDG_CACHE_HOME/reasonix` or
 `~/.cache/reasonix` on Linux, and `%LOCALAPPDATA%\reasonix\cache` on Windows.
-Set `REASONIX_CACHE_HOME` to override the cache root. When `REASONIX_HOME` is
-set, the cache is placed under `$REASONIX_HOME/cache` (unless
-`REASONIX_CACHE_HOME` is also set, which takes precedence).
+Set `DEEPTUTOR_CACHE_HOME` to override the cache root. When `DEEPTUTOR_HOME` is
+set, the cache is placed under `$DEEPTUTOR_HOME/cache` (unless
+`DEEPTUTOR_CACHE_HOME` is also set, which takes precedence).
 
 ## Config Priority
 

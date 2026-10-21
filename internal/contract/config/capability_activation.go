@@ -66,7 +66,7 @@ type ActivationOverride struct {
 	Identity string `json:"identity,omitempty"`
 }
 
-// ActivationFile is the on-disk shape of $REASONIX_HOME/capability-activation.json.
+// ActivationFile is the on-disk shape of $DEEPTUTOR_HOME/capability-activation.json.
 type ActivationFile struct {
 	Version   int                  `json:"version"`
 	Overrides []ActivationOverride `json:"overrides"`

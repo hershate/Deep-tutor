@@ -67,7 +67,7 @@ For the desktop and CLI usage of visible reasoning language, see
 
 ```toml
 default_model = "deepseek-flash"   # executor; set [agent].planner_model to add a planner
-# language    = "zh"               # ui language; empty = auto-detect from $LANG / $REASONIX_LANG
+# language    = "zh"               # ui language; empty = auto-detect from $LANG / $DEEPTUTOR_LANG
 
 [ui]
 # shortcut_layout = "desktop"      # classic|desktop; compatibility setting
@@ -215,7 +215,7 @@ silent and the prompt is not shown again. If the preference cannot be saved,
 nothing is uploaded.
 
 Reporting is always disabled in CI, development builds, and when
-`DO_NOT_TRACK` is set or `REASONIX_TELEMETRY=0`. Under `auto`, redirected/piped
+`DO_NOT_TRACK` is set or `DEEPTUTOR_TELEMETRY=0`. Under `auto`, redirected/piped
 or otherwise non-interactive sessions do not report. When no choice has been
 saved yet, these ineligible sessions neither prompt nor report. Network failures
 after consent are silent and never change stdout, stderr, or the process exit
@@ -942,7 +942,7 @@ Chat and transcript shortcuts:
 | Transcript text selection | Copies transcript text | Releasing an in-app drag writes through the verified native clipboard path in a local session (`pbcopy` on macOS, the available Wayland/X11 tool on Linux, or the Windows clipboard). SSH falls back to OSC 52 and labels the fallback instead of claiming native success. `Ctrl+C`/`Super+C`/`Meta+C` or right-clicking the active selection copies it again. |
 | Composer text selection | Selects, copies, or replaces draft text | Releasing an in-app drag copies the selection through the same verified clipboard path as transcript text. Typing or pasting replaces the selection; arrow keys collapse it. |
 | Right-click with no active selection | Pastes clipboard text locally | In a local session with in-app mouse capture on, Deep-tutor reads text only and routes it through the normal bracketed-paste handling. Over SSH, use the terminal paste shortcut because the remote process cannot read the local clipboard; `/mouse` restores the terminal's native right-click menu. Right-click with an active selection still copies that selection. |
-| `/mouse` | Toggles in-app mouse capture | Off hands the mouse back to your terminal, restoring its native click-drag selection and right-click context menu, at the cost of in-app drag-select, the transcript scrollbar, and wheel-scroll. Set `REASONIX_DISABLE_MOUSE=1` to start every session with it off. Remote (SSH) sessions start with capture off so native selection works out of the box; `REASONIX_DISABLE_MOUSE=0` forces capture on everywhere. |
+| `/mouse` | Toggles in-app mouse capture | Off hands the mouse back to your terminal, restoring its native click-drag selection and right-click context menu, at the cost of in-app drag-select, the transcript scrollbar, and wheel-scroll. Set `DEEPTUTOR_DISABLE_MOUSE=1` to start every session with it off. Remote (SSH) sessions start with capture off so native selection works out of the box; `DEEPTUTOR_DISABLE_MOUSE=0` forces capture on everywhere. |
 | `Ctrl+C` | Copies, cancels, clears, or quits | Copies an active transcript or composer selection first. Otherwise it cancels a running turn, clears non-empty input, or quits on a second empty-composer press. A second press while a cancelled turn is still stopping quits too. |
 | `Ctrl+D` | Quits the TUI | Immediate quit on an empty idle composer. |
 | `Ctrl+Z` | Suspends the TUI to the shell | macOS and Linux; resume it with `fg`. Windows has no job control, so the key does nothing there. |
@@ -968,7 +968,7 @@ Mode and display shortcuts:
 | `[ui].commandmode = "vi"` | Opts the composer into a vi command mode | User/global only; a project `reasonix.toml` cannot set it, so a cloned repo never rebinds the user's keys. `Esc` enters command mode, a running turn or not; only `Ctrl+C` interrupts. `Ctrl+C` with a non-empty prompt clears it and leaves shell mode, in vi mode and out; in vi mode it first saves the trimmed draft to the prompt history, so `Up` recalls it. Unset or `""` keeps the default, where `Esc` stops a running turn. The footer names the current input mode, `NORMAL` in command mode and `INSERT` otherwise. |
 | `auto_submit = true` | Commits a multi-question ask once its last question is answered | Top-level config; user/global only, so a project `reasonix.toml` cannot set it; default `false`. The ask card drops its Submit tab: answering a question moves on to the next unanswered one, answering the last with nothing left unanswered commits the batch at once, and a skipped question pulls the panel back to it. Unset keeps the Submit tab and its explicit `Enter`. |
 | `/preset [balanced|delivery]` | Shows or switches the current session's execution setting (执行设定) | `/work-mode` and `/profile` are compatibility aliases (`economy` → `light`). Switching updates the execution setting in place without rebuilding the controller; blocked while a turn, approval, or background job is active. |
-| `/theme [auto|light|dark|style]` | Shows or switches the CLI theme | Bare `/theme` lists background modes and named accent palettes. The choice is saved to the user config; `REASONIX_THEME` and `REASONIX_THEME_STYLE` can override it for one run. |
+| `/theme [auto|light|dark|style]` | Shows or switches the CLI theme | Bare `/theme` lists background modes and named accent palettes. The choice is saved to the user config; `DEEPTUTOR_THEME` and `DEEPTUTOR_THEME_STYLE` can override it for one run. |
 | `Ctrl+O` | Toggles verbose reasoning display | Also available through `/verbose`. |
 | `Ctrl+B` | Expands or collapses long shell output | Long shell-output hint lines can also be clicked in the transcript; text selection is handled in-app while the full-screen TUI has mouse reporting enabled. |
 | `/goal <objective>`, `/goal status`, `/goal pause`, `/goal resume`, `/goal clear` | Starts, checks, pauses, resumes, or clears Goal | A Goal is unbounded unless `[agent].goal_token_budget` is set. |
@@ -1216,11 +1216,11 @@ Deep-tutor is an MCP client. A `[[plugins]]` entry's `type` selects the transpor
 of the file); `sse` connects to servers that still use the legacy persistent
 GET + announced POST endpoint transport.
 
-`${REASONIX_WORKSPACE_ROOT}` (or `${CLAUDE_PROJECT_DIR}`) expands to the current
+`${DEEPTUTOR_WORKSPACE_ROOT}` (or `${CLAUDE_PROJECT_DIR}`) expands to the current
 workspace's absolute path, so one global entry can name the project:
 
 ```toml
-headers = { IJ_MCP_SERVER_PROJECT_PATH = "${REASONIX_WORKSPACE_ROOT}" }
+headers = { IJ_MCP_SERVER_PROJECT_PATH = "${DEEPTUTOR_WORKSPACE_ROOT}" }
 ```
 
 For a remote HTTP server without a static `Authorization` header, an

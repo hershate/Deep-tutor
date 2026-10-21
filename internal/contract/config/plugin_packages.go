@@ -201,12 +201,21 @@ func pluginPackageEnv(installed InstalledPackage, workspaceRoot string, env map[
 	if out == nil {
 		out = map[string]string{}
 	}
+	// Both spellings of every variable this product owns. The plugin and hook
+	// contract is with programs that were written against one of them, so
+	// removing the Reasonix one would take the plugin root away from every
+	// plugin and hook that exists, and adding only the Deep-tutor one would
+	// leave the ones written against the other with nothing to read.
+	out["DEEPTUTOR_PLUGIN_ROOT"] = root
+	out["DEEPTUTOR_PLUGIN_NAME"] = installed.Name
+	out["DEEPTUTOR_WORKSPACE_ROOT"] = workspaceRoot
 	out["REASONIX_PLUGIN_ROOT"] = root
 	out["REASONIX_PLUGIN_NAME"] = installed.Name
 	out["CLAUDE_PLUGIN_ROOT"] = root
 	out["CLAUDE_PROJECT_DIR"] = workspaceRoot
 	out["REASONIX_WORKSPACE_ROOT"] = workspaceRoot
 	if installed.Version != "" {
+		out["DEEPTUTOR_PLUGIN_VERSION"] = installed.Version
 		out["REASONIX_PLUGIN_VERSION"] = installed.Version
 	}
 	return out
@@ -291,6 +300,9 @@ func pluginPackageEntriesEqual(a, b PluginEntry) bool {
 	a.Env = cloneStringMap(a.Env)
 	b.Env = cloneStringMap(b.Env)
 	for _, env := range []map[string]string{a.Env, b.Env} {
+		delete(env, "DEEPTUTOR_PLUGIN_ROOT")
+		delete(env, "DEEPTUTOR_PLUGIN_NAME")
+		delete(env, "DEEPTUTOR_PLUGIN_VERSION")
 		delete(env, "REASONIX_PLUGIN_ROOT")
 		delete(env, "REASONIX_PLUGIN_NAME")
 		delete(env, "REASONIX_PLUGIN_VERSION")

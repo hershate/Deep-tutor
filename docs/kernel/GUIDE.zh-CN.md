@@ -75,7 +75,7 @@ Deep-tutor 全局 `<Deep-tutor home>/.env`。项目 `.env`、home `.env`、继�
 
 ```toml
 default_model = "deepseek-flash"   # 执行器；设 [agent].planner_model 可加规划器
-# language    = "zh"               # 界面语言；为空则按 $LANG / $REASONIX_LANG 自动检测
+# language    = "zh"               # 界面语言；为空则按 $LANG / $DEEPTUTOR_LANG 自动检测
 
 [ui]
 # shortcut_layout = "desktop"      # classic|desktop；兼容旧配置
@@ -209,7 +209,7 @@ telemetry 请求之前只询问一次。提示为 `[Y/n]`：直接回车、输�
 后续上报保持静默。如果偏好设置保存失败，则不会上传任何内容。
 
 在 CI、开发构建中始终关闭；设置 `DO_NOT_TRACK` 或
-`REASONIX_TELEMETRY=0` 也会关闭。`auto` 模式下，重定向、pipe 或其他非交互会话
+`DEEPTUTOR_TELEMETRY=0` 也会关闭。`auto` 模式下，重定向、pipe 或其他非交互会话
 不会上报。尚未保存选择时，这些不符合条件的会话既不会提示，也不会上报。授权后的
 网络失败完全静默，不会改变 stdout、stderr 或进程退出码；未发送计数只会保存在有
 数量和时效上限的本地队列中，等待后续启动重试。
@@ -745,7 +745,7 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 | transcript 文本选择 | 复制 transcript 文本 | 应用内拖选松开后，本地会话通过可验证的系统剪贴板路径写入（macOS `pbcopy`、Linux 可用的 Wayland/X11 工具、Windows 系统剪贴板）；SSH 才回退到 OSC 52，并明确标记为回退而不是宣称原生复制成功。`Ctrl+C`/`Super+C`/`Meta+C` 或右键当前选区可再次复制。 |
 | 输入框文本选择 | 选中、复制或替换草稿文本 | 应用内拖选松开后，会通过与 transcript 相同的可验证剪贴板路径复制；输入或粘贴会替换选区，方向键会收起选区。 |
 | 没有活动选区时右键 | 在本地会话粘贴剪贴板文本 | 本地会话开启鼠标接管时，Deep-tutor 只读取文本并交给正常的 bracketed-paste 处理。SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键；`/mouse` 可恢复终端原生右键菜单。存在活动选区时，右键仍优先复制该选区。 |
-| `/mouse` | 切换应用内鼠标接管 | 关闭后由终端处理原生拖选和右键菜单，但会失去应用内选区、滚动条和滚轮。可用 `REASONIX_DISABLE_MOUSE=1` 让每次会话默认关闭。远程（SSH）会话默认关闭，开箱即可原生选择；`REASONIX_DISABLE_MOUSE=0` 强制在任何环境下接管。 |
+| `/mouse` | 切换应用内鼠标接管 | 关闭后由终端处理原生拖选和右键菜单，但会失去应用内选区、滚动条和滚轮。可用 `DEEPTUTOR_DISABLE_MOUSE=1` 让每次会话默认关闭。远程（SSH）会话默认关闭，开箱即可原生选择；`DEEPTUTOR_DISABLE_MOUSE=0` 强制在任何环境下接管。 |
 | `Ctrl+C` | 复制、取消、清空或退出 | 有 transcript 或输入框活动选区时优先复制；否则取消运行中的 turn、清空非空输入，或在空输入下连按两次退出；已取消的 turn 仍在停止时再按一次也会退出。 |
 | `Ctrl+D` | 退出 TUI | 空输入且空闲时立即退出。 |
 | `Ctrl+Z` | 把 TUI 挂起到 shell | 仅 macOS 和 Linux，用 `fg` 恢复。Windows 没有作业控制，按下无效果。 |
@@ -765,7 +765,7 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 | `[ui].commandmode = "vi"` | 让输入框进入 vi 命令模式 | 仅限用户全局配置；项目 `reasonix.toml` 无法设置，克隆的仓库因此不会改写用户的按键。无论回合是否在运行，`Esc` 都进入命令模式；只有 `Ctrl+C` 会中断。`Ctrl+C` 在提示符非空时会清空输入框并退出 shell 模式，vi 模式与默认模式一致；vi 模式下会先把去掉首尾空白的草稿存入提示历史，可用 `Up` 召回。未设置或 `""` 保持默认，即 `Esc` 中止正在运行的回合。页脚会显示当前的输入模式：命令模式为 `NORMAL`，否则为 `INSERT`。 |
 | `auto_submit = true` | 最后一题作答后直接提交多题问询 | 顶层配置；仅限用户全局，项目 `reasonix.toml` 无法设置；默认 `false`。问询卡片会隐藏 Submit 标签页：作答一题后跳到下一道未作答的问题；作答最后一题且再无未作答时立即提交整批；若有问题被跳过则跳回该题。未设置时保留 Submit 标签页及其显式 `Enter`。 |
 | `/preset [light|balanced|delivery]` | 查看或切换当前会话的执行设定 | `/work-mode` 与 `/profile` 是兼容别名（`economy` → `light`）。切换就地更新执行设定、不重建 Controller；有回合、审批或后台任务时会拒绝。 |
-| `/theme [auto|light|dark|style]` | 查看或切换 CLI 主题 | 不带参数会列出背景模式和命名配色。选择会保存到用户配置；单次运行可用 `REASONIX_THEME` 和 `REASONIX_THEME_STYLE` 覆盖。 |
+| `/theme [auto|light|dark|style]` | 查看或切换 CLI 主题 | 不带参数会列出背景模式和命名配色。选择会保存到用户配置；单次运行可用 `DEEPTUTOR_THEME` 和 `DEEPTUTOR_THEME_STYLE` 覆盖。 |
 | `Ctrl+O` | 切换详细 reasoning 显示 | 也可通过 `/verbose` 使用。 |
 | `Ctrl+B` | 展开或收起较长 shell 输出 | 较长 shell 输出的提示行也可点击；全屏 TUI 开启鼠标接管时，文本选区由应用内处理。 |
 | `/goal <目标>`、`/goal status`、`/goal pause`、`/goal resume`、`/goal clear` | 启动、查看、暂停、恢复或清除 Goal | Goal 默认持续执行；只有用户显式预算会按数字暂停。 |
@@ -955,11 +955,11 @@ Deep-tutor 是一个 MCP 客户端。`[[plugins]]` 的 `type` 选择传输：`st
 `headers`（`${VAR}` / `${VAR:-default}` 从环境展开，密钥不入文件）。
 `sse` 则兼容仍使用持久 GET 与 server 公布 POST endpoint 的旧版远程 server。
 
-`${REASONIX_WORKSPACE_ROOT}`（或 `${CLAUDE_PROJECT_DIR}`）展开为当前工作区的绝对路径，
+`${DEEPTUTOR_WORKSPACE_ROOT}`（或 `${CLAUDE_PROJECT_DIR}`）展开为当前工作区的绝对路径，
 一条全局配置即可指明项目：
 
 ```toml
-headers = { IJ_MCP_SERVER_PROJECT_PATH = "${REASONIX_WORKSPACE_ROOT}" }
+headers = { IJ_MCP_SERVER_PROJECT_PATH = "${DEEPTUTOR_WORKSPACE_ROOT}" }
 ```
 
 远程 HTTP server 未配置静态 `Authorization` header 时，认证要求（HTTP 401 且带 `Bearer` 质询）会被识别为需要登录。

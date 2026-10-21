@@ -1,8 +1,9 @@
 package i18n
 
 import (
-	"os"
 	"strings"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 // DetectLanguage installs the catalogue for an explicit setting or locale.
@@ -22,10 +23,14 @@ func DetectLanguage(override string) string {
 var osLanguage = detectOSLanguage
 
 func envCandidates() []string {
-	keys := []string{"REASONIX_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "REASONIX_SYSTEM_LANG"}
+	// The current spelling of the product's own variables, with the Reasonix
+	// spelling they carried before the rename as the fallback. The order
+	// between the two is the order the variables had: an explicit language
+	// outranks the machine's, and the machine's outranks the shell's.
+	keys := []string{"DEEPTUTOR_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "DEEPTUTOR_SYSTEM_LANG"}
 	out := make([]string, 0, len(keys)+1)
 	for _, k := range keys {
-		out = append(out, os.Getenv(k))
+		out = append(out, envvar.Get(k))
 	}
 	// Last, so an explicit variable still wins: it is what someone set on
 	// purpose, and this is only what the machine was installed as.

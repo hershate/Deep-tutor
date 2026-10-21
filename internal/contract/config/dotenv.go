@@ -61,7 +61,11 @@ func isProjectDotEnvControlKey(key string) bool {
 		return true
 	}
 	upper := strings.ToUpper(key)
-	if strings.HasPrefix(upper, "REASONIX_") {
+	// Both spellings of the product's own namespace: a project .env must not
+	// set either of them, because a project file that moved the home out from
+	// under the runtime would be a project file deciding where the runtime
+	// keeps its state.
+	if strings.HasPrefix(upper, "DEEPTUTOR_") || strings.HasPrefix(upper, "REASONIX_") {
 		return true
 	}
 	switch upper {

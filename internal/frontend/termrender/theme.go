@@ -10,6 +10,8 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 type Color struct {
@@ -126,7 +128,7 @@ func ConfigureTheme(mode string) {
 }
 
 func configureThemeWithStyle(mode, style string) {
-	if env := strings.TrimSpace(os.Getenv("REASONIX_THEME")); env != "" {
+	if env := strings.TrimSpace(envvar.Get("DEEPTUTOR_THEME")); env != "" {
 		if st, ok := cliThemeStyleByName(env); ok {
 			mode = st.mode
 			style = st.name
@@ -134,7 +136,7 @@ func configureThemeWithStyle(mode, style string) {
 			mode = env
 		}
 	}
-	if env := strings.TrimSpace(os.Getenv("REASONIX_THEME_STYLE")); env != "" {
+	if env := strings.TrimSpace(envvar.Get("DEEPTUTOR_THEME_STYLE")); env != "" {
 		style = env
 	}
 	activeTheme = resolveCLIThemeWithStyle(mode, style)

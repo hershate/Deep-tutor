@@ -158,7 +158,7 @@ interface (`call` / `notify` / `close`) abstracts that, so the MCP-level logic
     cannot leak.
 - `${VAR}` / `${VAR:-default}` are expanded in `command`, `args`, `env`, `url`,
   and `headers` so secrets come from the environment, not the config file.
-- `${REASONIX_WORKSPACE_ROOT}` and `${CLAUDE_PROJECT_DIR}` expand, in those
+- `${DEEPTUTOR_WORKSPACE_ROOT}` and `${CLAUDE_PROJECT_DIR}` expand, in those
   fields only, to the server's absolute workspace path and outrank an
   environment or `.env` variable of the same name.
 - Lifecycle: `initialize` → `notifications/initialized` → `tools/list`;
@@ -1090,7 +1090,7 @@ without importing provider keys or Deep-tutor control variables.
 
 ```toml
 default_model = "deepseek"   # provider name (→ its default model) or "provider/model"
-# language    = "zh"                # ui language tag; empty = auto-detect from $LANG / $REASONIX_LANG
+# language    = "zh"                # ui language tag; empty = auto-detect from $LANG / $DEEPTUTOR_LANG
 
 [ui]
 # shortcut_layout = "desktop"       # classic|desktop; compatibility setting

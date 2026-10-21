@@ -28,10 +28,16 @@ const (
 )
 
 // pluginEnvVarPrefix is the well-known environment block every sidecar sees.
+//
+// Both spellings of each name: the product was renamed, and a sidecar written
+// against the Reasonix one is a sidecar that exists.
 const (
-	envPluginRoot    = "REASONIX_PLUGIN_ROOT"
-	envPluginName    = "REASONIX_PLUGIN_NAME"
-	envPluginVersion = "REASONIX_PLUGIN_VERSION"
+	envPluginRoot           = "REASONIX_PLUGIN_ROOT"
+	envPluginName           = "REASONIX_PLUGIN_NAME"
+	envPluginVersion        = "REASONIX_PLUGIN_VERSION"
+	envPluginRootCurrent    = "DEEPTUTOR_PLUGIN_ROOT"
+	envPluginNameCurrent    = "DEEPTUTOR_PLUGIN_NAME"
+	envPluginVersionCurrent = "DEEPTUTOR_PLUGIN_VERSION"
 )
 
 // shellExecutables are interpreter names a runtime command may not resolve
@@ -174,6 +180,9 @@ func runtimeEnv(rt *pluginpkg.RuntimeSpec, pkg pluginpkg.Package, installed plug
 		version = strings.TrimSpace(pkg.Manifest.Version)
 	}
 	env = append(env,
+		envPluginRootCurrent+"="+pkg.Root,
+		envPluginNameCurrent+"="+installed.Name,
+		envPluginVersionCurrent+"="+version,
 		envPluginRoot+"="+pkg.Root,
 		envPluginName+"="+installed.Name,
 		envPluginVersion+"="+version,

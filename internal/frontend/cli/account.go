@@ -11,6 +11,8 @@ import (
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/platform/account"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 // An account is for the parts of Reasonix that are inherently networked — the
@@ -28,7 +30,7 @@ func accountClient(version string) (*account.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return account.New(os.Getenv("REASONIX_ACCOUNTS_URL"), "reasonix-cli/"+version, httpClient), nil
+	return account.New(envvar.Get("DEEPTUTOR_ACCOUNTS_URL"), "reasonix-cli/"+version, httpClient), nil
 }
 
 // accountCommand is the one dispatch seam for the account verbs, so the CLI's

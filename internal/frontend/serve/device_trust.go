@@ -25,7 +25,7 @@ type persistedDevice struct {
 }
 
 // deviceTrustPath is where this machine keeps the devices it has paired. It
-// rides the Reasonix state directory, so REASONIX_HOME isolation holds and a
+// rides the Reasonix state directory, so DEEPTUTOR_HOME isolation holds and a
 // test instance never adopts the real one's devices.
 func deviceTrustPath() string {
 	home := strings.TrimSpace(config.ReasonixHomeDir())

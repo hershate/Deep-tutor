@@ -303,6 +303,19 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 
 **同样按「机器认的」保留的还有**（散落各处，逐点复核后确认）：安装布局里的二进制名（`reasonix-cli` / `reasonix-desktop` / `reasonix-update-helper` / `reasonix-launcher`）、更新回滚节点后缀 `reasonix-failed` 与备份后缀 `.reasonix-update-backup`、tmux owner 选项 `@reasonix-owner`、机器会话 ID 与旧事实 ID 的**哈希域分隔符**（`reasonix-machine-session-v1` / `reasonix-memory-v2`）、上游发布渠道的资产名与包内可执行名（`reasonix-<os>-<arch>` / `reasonix` / `reasonix.exe`）、上游 npm 包名（`reasonix`、`@reasonix/cli-*`）与 brew cask 名 `reasonix`。凡「以名字做匹配」的代码点（受管安装检测、MCP 粘贴命令解析、计划路由标记、远端内核探测与进程匹配、更新事务白名单、handoff 暂存目录名）**两种拼写都认**，只认新名会让旧安装失去能力，只认旧名会让新构建失效。
 
+**第三轮：环境变量改名（2026-10-22，M1.4f）**：产品读了哪些变量，是它的一部分；变量跟着产品名一起改，**但旧名必须继续有效**——改名前设过变量的机器（包括正是为了把数据留在非系统盘而设的那些）不能因此找不到自己的 home。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/base/envvar/`（本仓新增） | 改名变量的统一解析：`Get`（新名优先、旧名兜底）、`Lookup`（区分未设与设为空）、`Name`（报出**实际生效**的那个拼写，供「哪个变量钉住了这个位置」这类界面用） |
+| `internal/contract/config/paths.go`、`storage_roots.go`、`credentials.go`、`expand.go`、`dotenv.go` | home / state / cache / 凭据存储方式 / 工作区根 / 代理密码的展开，均走 `envvar`；`RootPinnedBy` 报出生效中的那个拼写 |
+| `internal/base/i18n/detect.go` | 语言检测的候选变量表改用新名（`envvar.Get` 自带旧名回落，候选顺序不变） |
+| `internal/frontend/{termrender,tui,cli,serve,doctor}/*`、`internal/platform/{telemetry,feedback}/*`、`internal/runtime/outputstyle/*`、`cmd/reasonix-studio-host/main.go` | 主题、鼠标接管、遥测开关、账号与远端地址、反馈地址、home 隔离判定的读取点改用 `envvar` |
+| `internal/contract/config/plugin_packages.go`、`internal/ext/hook/env_contract.go`、`internal/ext/extension/sidecar/process.go`、`internal/ext/pluginpkg/manifest_v1.go` | **注入**给插件 / 钩子 / 边车的变量两种拼写都注入（`REASONIX_PLUGIN_ROOT` 与 `DEEPTUTOR_PLUGIN_ROOT` 等），因为另一端是已经写好的程序；清单里的 `${REASONIX_PLUGIN_ROOT}` 与 `${DEEPTUTOR_PLUGIN_ROOT}` 都展开；钩子的变量引用检查同时认两个前缀 |
+| `internal/ext/configbackup/consent.go` | 备份拒绝携带的变量前缀加上 `DEEPTUTOR_`（两种拼写都不带走） |
+| `internal/base/testenv/home.go` | 测试隔离的 home 同时清掉两种拼写 |
+| 用户可见文案与手册（`internal/base/i18n/messages_*.go`、配置模板注释、`docs/kernel/**`、`DEEPTUTOR.md`、`AGENTS.md`、`note/08-核心基础设施.md`） | 变量名改为当前拼写；`docs/kernel/CONFIG_PATHS.md` 另有一段说明「两种拼写都有效、当前名优先」 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

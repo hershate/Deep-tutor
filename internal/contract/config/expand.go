@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 // varRef matches ${VAR} and ${VAR:-default}: a shell-style reference with an
@@ -44,8 +46,11 @@ func expandVarsWithLookup(s string, lookup envLookup) string {
 
 func scopedEnvLookup(scoped map[string]string) envLookup {
 	return func(name string) (string, bool) {
-		if v, ok := os.LookupEnv(name); ok {
-			return v, v != ""
+		// envvar.Lookup answers a renamed variable under both spellings, so a
+		// configuration written against the Reasonix name still expands after
+		// the rename.
+		if v, ok := envvar.Lookup(name); ok && v != "" {
+			return v, true
 		}
 		if v, ok := scoped[name]; ok && v != "" {
 			return v, true
@@ -64,7 +69,11 @@ func (c *Config) expandVars(s string) string {
 // workspaceRootVars name the workspace a server runs for. The host owns their
 // value, so it outranks a process variable of the same name: a hook's child
 // process inherits its parent session's CLAUDE_PROJECT_DIR.
-var workspaceRootVars = []string{"REASONIX_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR"}
+//
+// Both spellings of the product's own variable are here: the current one and
+// the Reasonix one it carried before the rename. A plugin written against
+// either finds the workspace it was promised.
+var workspaceRootVars = []string{"DEEPTUTOR_WORKSPACE_ROOT", "REASONIX_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR"}
 
 // WorkspaceRootValue is the form of root a plugin entry sees for the workspace
 // variables: absolute and cleaned, symlinks left as the workspace was opened.

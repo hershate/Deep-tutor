@@ -14,6 +14,8 @@ import (
 
 	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 	"deep-tutor/internal/base/frontmatter"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 // OutputStyle is one selectable persona. Body is appended to the system prompt
@@ -62,10 +64,10 @@ var builtins = []OutputStyle{
 
 // Dirs returns the output-style search directories in load order (later wins),
 // mirroring command/skill discovery: home convention dirs, then project ones.
-// Home convention dirs are skipped when REASONIX_HOME is set (isolated runtime).
+// Home convention dirs are skipped when DEEPTUTOR_HOME is set (isolated runtime).
 func Dirs() []string {
 	var dirs []string
-	if os.Getenv("REASONIX_HOME") == "" {
+	if envvar.Get("DEEPTUTOR_HOME") == "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			for _, v := range slices.Backward(conventionDirs) {
 				dirs = append(dirs, filepath.Join(home, v, "output-styles"))

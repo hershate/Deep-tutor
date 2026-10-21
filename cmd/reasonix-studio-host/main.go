@@ -49,6 +49,8 @@ import (
 	_ "deep-tutor/internal/model/anthropic"
 	_ "deep-tutor/internal/model/openai"
 	_ "deep-tutor/internal/model/responses"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 var version = "dev"
@@ -469,8 +471,8 @@ func startCloudRemote(ctx context.Context, cfg *config.Config, logs io.Writer, t
 	dialer := *websocket.DefaultDialer
 	dialer.Proxy = nil
 	dialer.NetDialContext = stream.DialContext
-	client := account.New(os.Getenv("REASONIX_ACCOUNTS_URL"), "reasonix-studio/"+version, httpClient)
-	host := remotecloud.New(client, &dialer, os.Getenv("REASONIX_REMOTE_URL"), version, tasks)
+	client := account.New(envvar.Get("DEEPTUTOR_ACCOUNTS_URL"), "reasonix-studio/"+version, httpClient)
+	host := remotecloud.New(client, &dialer, envvar.Get("DEEPTUTOR_REMOTE_URL"), version, tasks)
 	if registrar, ok := tasks.(interface{ SetCloudControllerDisconnect(func(string) error) }); ok {
 		registrar.SetCloudControllerDisconnect(host.DisconnectController)
 	}

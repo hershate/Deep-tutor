@@ -447,6 +447,11 @@ var pluginRootTokens = [...]struct {
 	{value: "${CLAUDE_PLUGIN_ROOT}"},
 	{value: "$CLAUDE_PLUGIN_ROOT", needsBoundary: true},
 	{value: "%CLAUDE_PLUGIN_ROOT%"},
+	// Both spellings of the product's own variable: a hook written against
+	// either one addresses the same installed package.
+	{value: "${DEEPTUTOR_PLUGIN_ROOT}"},
+	{value: "$DEEPTUTOR_PLUGIN_ROOT", needsBoundary: true},
+	{value: "%DEEPTUTOR_PLUGIN_ROOT%"},
 	{value: "${REASONIX_PLUGIN_ROOT}"},
 	{value: "$REASONIX_PLUGIN_ROOT", needsBoundary: true},
 	{value: "%REASONIX_PLUGIN_ROOT%"},

@@ -8,9 +8,9 @@ import (
 // renderUISection writes the [ui] table, the CLI's presentation-only settings.
 func renderUISection(b *strings.Builder, c *Config, scope RenderScope) {
 	b.WriteString("[ui]\n")
-	fmt.Fprintf(b, "theme = %q   # auto|dark|light; CLI colors only; REASONIX_THEME can override per run\n", c.UITheme())
+	fmt.Fprintf(b, "theme = %q   # auto|dark|light; CLI colors only; DEEPTUTOR_THEME can override per run\n", c.UITheme())
 	if style := c.UIThemeStyle(); style != "" {
-		fmt.Fprintf(b, "theme_style = %q   # CLI accent palette; REASONIX_THEME_STYLE can override per run\n", style)
+		fmt.Fprintf(b, "theme_style = %q   # CLI accent palette; DEEPTUTOR_THEME_STYLE can override per run\n", style)
 	} else {
 		b.WriteString("# theme_style = \"graphite\"   # graphite|aurora|slate|carbon|nocturne|amber and legacy aliases\n")
 	}

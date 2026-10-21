@@ -172,8 +172,8 @@ func TestHomeIsolationWarningDetectsMismatch(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected HOME mismatch warning")
 	}
-	if !strings.Contains(got, "REASONIX_HOME") {
-		t.Fatalf("warning = %q, want REASONIX_HOME guidance", got)
+	if !strings.Contains(got, "DEEPTUTOR_HOME") {
+		t.Fatalf("warning = %q, want DEEPTUTOR_HOME guidance", got)
 	}
 	// Shareable output must not embed either absolute home path.
 	if strings.Contains(got, serviceHome) || strings.Contains(got, acct.HomeDir) {

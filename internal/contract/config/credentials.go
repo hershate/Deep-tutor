@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/base/fileutil"
 	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
@@ -134,7 +135,7 @@ func normalizeCredentialsStore(mode string) string {
 }
 
 func (r Roots) credentialsStoreMode() string {
-	if mode := strings.TrimSpace(os.Getenv("REASONIX_CREDENTIALS_STORE")); mode != "" {
+	if mode := strings.TrimSpace(envvar.Get("DEEPTUTOR_CREDENTIALS_STORE")); mode != "" {
 		return normalizeCredentialsStore(mode)
 	}
 	var partial struct {
@@ -531,7 +532,11 @@ func ResolveCredentialForRoot(root, key string) CredentialResolution {
 	if key == "" {
 		return res
 	}
-	value := os.Getenv(key)
+	// A credential's name is also the variable that can supply it, so a
+	// credential the product names itself is overridable under either
+	// spelling: the key stays what it is stored under, and the variable
+	// follows the product's current name.
+	value := envvar.Get(envvar.CurrentName(key))
 	if value == "" {
 		return res
 	}

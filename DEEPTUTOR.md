@@ -212,7 +212,7 @@ otherwise the block the model already has goes on reading as current.
 - Standing instructions are hierarchical: committed/shared `REASONIX.md`,
   `AGENTS.md`, and `CLAUDE.md`; personal `*.local.md` variants; matching files in
   ancestor directories; and user-global files under the memory state root
-  (`REASONIX_STATE_HOME`, otherwise `REASONIX_HOME`, otherwise `~/.reasonix` on
+  (`DEEPTUTOR_STATE_HOME`, otherwise `DEEPTUTOR_HOME`, otherwise `~/.reasonix` on
   macOS/Linux or `%APPDATA%\reasonix` on Windows). All distinct supported files
   in a directory load; `AGENTS.md` is not merely a fallback.
 - `@path` on its own line imports another file's contents.
@@ -520,11 +520,19 @@ disagree.
 
 The absorbed code keeps its copyright headers, its licence and its product
 name where the name is part of a protocol, a path or an environment
-variable: the workspace directory `.reasonix/`, the `REASONIX_*` environment
-variables, the ACP vendor method `_reasonix.io/`, the runtime configuration
-file `reasonix/config.toml`, and the git branch prefix `reasonix/delivery-*`.
-Renaming them mechanically would change what other programs can find, so each
-one is renamed on purpose, with the migration that goes with it.
+variable: the workspace directory `.reasonix/`, the ACP vendor method
+`_reasonix.io/`, the runtime configuration file `reasonix/config.toml`, and
+the git branch prefix `reasonix/delivery-*`. Renaming them mechanically would
+change what other programs can find, so each one is renamed on purpose, with
+the migration that goes with it.
+
+The environment variables are the case that has been migrated. Each one has
+two spellings — `DEEPTUTOR_HOME` and the `REASONIX_HOME` it carried before the
+rename — and the product reads the current one first and falls back to the
+old one. `internal/base/envvar` is where that rule lives; a new variable goes
+through it rather than through `os.Getenv`. The variables the product
+**injects** into a plugin or a hook are set under both spellings, because the
+program on the other end was written against one of them.
 
 ### Where the name is a contract, not a label
 

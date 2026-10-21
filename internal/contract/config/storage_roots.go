@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 // RootID names one storage root. The set is closed: every directory the runtime
@@ -43,7 +45,7 @@ type storageRoot struct {
 	relocatable bool
 	// fallback answers when nothing overrides, against the binding being
 	// resolved, so a stated home carries its derived roots along as
-	// REASONIX_HOME does. Acyclic: home resolves without reading a root.
+	// DEEPTUTOR_HOME does. Acyclic: home resolves without reading a root.
 	fallback func(Roots) string
 	// owns names what this root may claim inside a directory it shares — state
 	// falls back to home, so on Windows they are one folder and a move of one
@@ -64,11 +66,11 @@ var (
 func storageRootTable() []storageRoot {
 	rootsOnce.Do(func() {
 		rootsTable = []storageRoot{
-			{id: RootHome, env: "REASONIX_HOME", relocatable: false, fallback: Roots.defaultHomeDir},
-			{id: RootState, env: "REASONIX_STATE_HOME", relocatable: true,
+			{id: RootHome, env: "DEEPTUTOR_HOME", relocatable: false, fallback: Roots.defaultHomeDir},
+			{id: RootState, env: "DEEPTUTOR_STATE_HOME", relocatable: true,
 				owns:     StateRootEntries,
 				fallback: Roots.defaultStateDir},
-			{id: RootCache, env: "REASONIX_CACHE_HOME", relocatable: true, fallback: Roots.defaultCacheDir},
+			{id: RootCache, env: "DEEPTUTOR_CACHE_HOME", relocatable: true, fallback: Roots.defaultCacheDir},
 			{id: RootWorktrees, env: "", relocatable: true, fallback: Roots.defaultWorktreeDir},
 			{id: RootLocks, env: "", relocatable: false, fallback: Roots.defaultLocksDir,
 				owns: []string{"workspace-leases", "repair-mutation-locks"}},
@@ -79,7 +81,7 @@ func storageRootTable() []storageRoot {
 
 // Roots is the storage binding one call resolves against; the zero value is
 // what the environment says, which every package-level path function still
-// resolves. A stated home outranks REASONIX_HOME: the environment is how a
+// resolves. A stated home outranks DEEPTUTOR_HOME: the environment is how a
 // host works out which home to use, and once it has, it says so — the same
 // process may serve a second session that says something else.
 type Roots struct {
@@ -122,13 +124,13 @@ func (r Roots) pinnedRootDir(root storageRoot) string {
 }
 
 // pinnedHomeDir is the home only insofar as something deliberate holds it
-// there — stated, or named by REASONIX_HOME. A caller that must tell an
+// there — stated, or named by DEEPTUTOR_HOME. A caller that must tell an
 // isolated runtime from a default one reads this, never the resolved home.
 func (r Roots) pinnedHomeDir() string {
 	if r.home != "" {
 		return r.home
 	}
-	return cleanEnvDir("REASONIX_HOME")
+	return cleanEnvDir("DEEPTUTOR_HOME")
 }
 
 // processRoots is the binding every package-level path function resolves
@@ -218,7 +220,7 @@ func RootPinnedBy(id RootID) string {
 	if cleanEnvDir(root.env) == "" {
 		return ""
 	}
-	return root.env
+	return envvar.Name(root.env)
 }
 
 // RootDir resolves one root's absolute directory, "" when it cannot be resolved
@@ -249,7 +251,7 @@ func joinRoot(base, sub string, more ...func() string) string {
 	return filepath.Join(base, sub)
 }
 
-// defaultHomeDir is where configuration lands when REASONIX_HOME is unset:
+// defaultHomeDir is where configuration lands when DEEPTUTOR_HOME is unset:
 // the roaming profile on Windows, a dotfile directory elsewhere.
 func (Roots) defaultHomeDir() string {
 	if runtimeGOOS == "windows" {
@@ -325,7 +327,7 @@ func (r Roots) defaultWorktreeDir() string {
 // deliberate relocation consult this rather than the resolved value, which
 // cannot tell a chosen location from a default one.
 func (r Roots) pinnedStateDir() string {
-	if dir := cleanEnvDir("REASONIX_STATE_HOME"); dir != "" {
+	if dir := cleanEnvDir("DEEPTUTOR_STATE_HOME"); dir != "" {
 		return dir
 	}
 	return r.pinnedHomeDir()

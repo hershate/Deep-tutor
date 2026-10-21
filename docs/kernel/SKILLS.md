@@ -24,7 +24,7 @@ earlier scope wins: project, then custom, then global, then built-in.
 | --- | --- |
 | Project | `<repo>/.reasonix/skills`, `<repo>/.agents/skills`, `<repo>/.agent/skills`, `<repo>/.claude/skills` |
 | Custom | every entry in `[skills] paths` |
-| Global | `<Deep-tutor home>/skills` (`~/.reasonix` on macOS/Linux, `%APPDATA%\reasonix` on Windows, or `$REASONIX_HOME`), `~/.reasonix/skills`, `~/.agents/skills`, `~/.agent/skills`, `~/.claude/skills` |
+| Global | `<Deep-tutor home>/skills` (`~/.reasonix` on macOS/Linux, `%APPDATA%\reasonix` on Windows, or `$DEEPTUTOR_HOME`), `~/.reasonix/skills`, `~/.agents/skills`, `~/.agent/skills`, `~/.claude/skills` |
 | Built-in | shipped with Deep-tutor (`explore`, `research`, `review`, `security-review`, …) |
 
 Symlinked skill folders are followed. Under `.claude` roots a flat `<name>.md`

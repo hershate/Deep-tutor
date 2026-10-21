@@ -38,6 +38,7 @@ var leaves = []string{
 	"internal/ext/extensioncontract",
 	"internal/base/filelock",
 	"internal/base/fileref",
+	"internal/base/envvar",
 	"internal/base/fileutil",
 	"internal/base/fileutil/encoding",
 	"internal/base/frontmatter",

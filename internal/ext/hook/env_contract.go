@@ -17,7 +17,16 @@ import (
 // reasonixEnvPrefix is the namespace Reasonix defines. A reference inside it
 // resolves against this contract; anything outside belongs to the user's own
 // environment and is none of our business.
+//
+// The product was renamed, and the namespace went with it: the contract now
+// has two spellings, and a hook written against either resolves against the
+// set it is actually given.
 const reasonixEnvPrefix = "REASONIX_"
+
+// deepTutorEnvPrefix is the namespace the renamed product defines. It is the
+// current one; the Reasonix one is still honoured because hooks written
+// against it exist.
+const deepTutorEnvPrefix = "DEEPTUTOR_"
 
 // PayloadDelivery names how a hook receives its event, for diagnostics that
 // have to tell a user where to read it instead.
@@ -26,16 +35,26 @@ const PayloadDelivery = "the event payload arrives as one line of JSON on stdin"
 // pluginHookEnv is the environment Reasonix injects into a plugin hook. It is
 // the only definition of that set, so the reference check below cannot drift
 // from what a hook is actually handed.
+//
+// Every variable is set under both spellings. A hook that reads
+// $DEEPTUTOR_PLUGIN_ROOT and one that reads $REASONIX_PLUGIN_ROOT are the
+// same hook to the user, and a contract that answered only one of them would
+// make the other silently expand to nothing.
 func pluginHookEnv(pluginRoot, pluginName, pluginVersion, reasonixHomeDir, projectRoot string) map[string]string {
 	env := map[string]string{
-		"REASONIX_PLUGIN_ROOT":    pluginRoot,
-		"REASONIX_PLUGIN_NAME":    pluginName,
-		"REASONIX_HOME":           reasonixHomeDir,
-		"REASONIX_WORKSPACE_ROOT": projectRoot,
-		"CLAUDE_PROJECT_DIR":      projectRoot,
-		"CLAUDE_PLUGIN_ROOT":      pluginRoot,
+		"DEEPTUTOR_PLUGIN_ROOT":    pluginRoot,
+		"DEEPTUTOR_PLUGIN_NAME":    pluginName,
+		"DEEPTUTOR_HOME":           reasonixHomeDir,
+		"DEEPTUTOR_WORKSPACE_ROOT": projectRoot,
+		"REASONIX_PLUGIN_ROOT":     pluginRoot,
+		"REASONIX_PLUGIN_NAME":     pluginName,
+		"REASONIX_HOME":            reasonixHomeDir,
+		"REASONIX_WORKSPACE_ROOT":  projectRoot,
+		"CLAUDE_PROJECT_DIR":       projectRoot,
+		"CLAUDE_PLUGIN_ROOT":       pluginRoot,
 	}
 	if pluginVersion != "" {
+		env["DEEPTUTOR_PLUGIN_VERSION"] = pluginVersion
 		env["REASONIX_PLUGIN_VERSION"] = pluginVersion
 	}
 	return env
@@ -83,7 +102,7 @@ func reasonixVarRefs(command string) map[string]struct{} {
 		if !ok || exp.Param == nil {
 			return true
 		}
-		if name := exp.Param.Value; strings.HasPrefix(name, reasonixEnvPrefix) {
+		if name := exp.Param.Value; strings.HasPrefix(name, reasonixEnvPrefix) || strings.HasPrefix(name, deepTutorEnvPrefix) {
 			refs[name] = struct{}{}
 		}
 		return true

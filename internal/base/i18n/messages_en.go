@@ -458,7 +458,7 @@ var English = Messages{
 	ArgEffortMax:         "maximum reasoning",
 	ArgEffortForcedOn:    "Thinking stays on and is billed; this model cannot turn it off",
 	ArgThemeCurrent:      "current",
-	ArgLanguageAuto:      "auto-detect from REASONIX_LANG / locale",
+	ArgLanguageAuto:      "auto-detect from DEEPTUTOR_LANG / locale",
 	ArgLanguageEn:        "English",
 	ArgLanguageZh:        "中文",
 

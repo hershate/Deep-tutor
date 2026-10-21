@@ -239,9 +239,9 @@ func redactSessionBundlePath(path string) string {
 		if rootErr == nil && pathErr == nil {
 			if rel, err := filepath.Rel(absRoot, absPath); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 				if rel == "." {
-					return "<REASONIX_HOME>"
+					return "<DEEPTUTOR_HOME>"
 				}
-				return filepath.ToSlash(filepath.Join("<REASONIX_HOME>", rel))
+				return filepath.ToSlash(filepath.Join("<DEEPTUTOR_HOME>", rel))
 			}
 		}
 	}
@@ -260,9 +260,9 @@ func redactSessionBundleText(text string) string {
 		return text
 	}
 	if root := strings.TrimSpace(config.MemoryUserDir()); root != "" {
-		text = replacePathPrefix(text, root, "<REASONIX_HOME>")
+		text = replacePathPrefix(text, root, "<DEEPTUTOR_HOME>")
 		if absRoot, err := filepath.Abs(root); err == nil {
-			text = replacePathPrefix(text, absRoot, "<REASONIX_HOME>")
+			text = replacePathPrefix(text, absRoot, "<DEEPTUTOR_HOME>")
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {

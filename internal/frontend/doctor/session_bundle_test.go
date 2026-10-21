@@ -93,8 +93,8 @@ func TestWriteSessionBundleIncludesRecoveryChain(t *testing.T) {
 	if manifest.Version != "test-version" {
 		t.Fatalf("manifest version = %q", manifest.Version)
 	}
-	if !strings.Contains(manifest.RequestedRef, "<REASONIX_HOME>") {
-		t.Fatalf("requested ref = %q, want redacted REASONIX_HOME path", manifest.RequestedRef)
+	if !strings.Contains(manifest.RequestedRef, "<DEEPTUTOR_HOME>") {
+		t.Fatalf("requested ref = %q, want redacted DEEPTUTOR_HOME path", manifest.RequestedRef)
 	}
 	if len(manifest.Sessions) != 2 {
 		t.Fatalf("manifest sessions = %+v, want recovery plus parent", manifest.Sessions)

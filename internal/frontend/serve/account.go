@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/platform/account"
@@ -32,7 +32,7 @@ func (s *Server) accountClient() (*account.Client, error) {
 	return account.New(accountsBaseURL(), "deep-tutor-serve", httpClient), nil
 }
 
-func accountsBaseURL() string { return strings.TrimSpace(os.Getenv("REASONIX_ACCOUNTS_URL")) }
+func accountsBaseURL() string { return strings.TrimSpace(envvar.Get("DEEPTUTOR_ACCOUNTS_URL")) }
 
 // account reports who is signed in. Signed out is a normal answer, not an
 // error, and an unreachable identity service is reported as itself so the UI

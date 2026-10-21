@@ -12,7 +12,7 @@ import (
 // ~/.reasonix/remote/. Only name derivation lives here (this package is the
 // path authority and does no I/O); reads and writes happen over SFTP in
 // internal/platform/remote. Local-side absolute paths (managed known_hosts) are
-// derived in internal/contract/config/paths.go, which owns REASONIX_HOME resolution.
+// derived in internal/contract/config/paths.go, which owns DEEPTUTOR_HOME resolution.
 
 // RemoteDirName is the directory under the remote ~/.reasonix that holds all
 // remote-module state, and under the local Reasonix home that holds the

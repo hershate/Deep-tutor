@@ -406,7 +406,7 @@ Native Deep-tutor extensions use the exact v2 `apiVersion`:
     "themes": ["themes/*/theme.json"]
   },
   "runtime": {
-    "command": "${REASONIX_PLUGIN_ROOT}/bin/example",
+    "command": "${DEEPTUTOR_PLUGIN_ROOT}/bin/example",
     "args": [],
     "env": {},
     "required": true,
@@ -479,7 +479,7 @@ see `docs/kernel/EXTENSION_PROTOCOL.generated.md` for the method index and
 `sdk/go/README.md` for the Go SDK):
 
 - `command`/`args`/`env` are **exec form only** — the command is the
-  executable (never shell-interpreted); `${REASONIX_PLUGIN_ROOT}` expands to
+  executable (never shell-interpreted); `${DEEPTUTOR_PLUGIN_ROOT}` expands to
   the installed plugin root.
 - `intercepts` lists the events the extension wants to intercept (for example
   `input.receive`, `tool.before`, `permission.decision`); `replaces` declares
@@ -643,7 +643,7 @@ declarations and do not apply these fallbacks:
   plugin's commit/push checks read; other tools' responses pass through as
   the raw result. Imported hooks receive Claude-compatible snake_case stdin
   payloads, including `hook_event_name`. Before process launch, the host
-  expands `${CLAUDE_PLUGIN_ROOT}` and `${REASONIX_PLUGIN_ROOT}` (plus their
+  expands `${CLAUDE_PLUGIN_ROOT}` and `${DEEPTUTOR_PLUGIN_ROOT}` (plus their
   unbraced `$NAME` and Windows `%NAME%` spellings), so plugin-relative paths
   do not depend on the target shell's environment-variable syntax. On Windows,
   shell-form hooks without an explicit shell use the same Git Bash-first,
@@ -688,11 +688,11 @@ run third-party install scripts.
 
 Plugin hooks receive these environment variables:
 
-- `REASONIX_PLUGIN_ROOT`
-- `REASONIX_PLUGIN_NAME`
-- `REASONIX_PLUGIN_VERSION`
-- `REASONIX_HOME`
-- `REASONIX_WORKSPACE_ROOT`
+- `DEEPTUTOR_PLUGIN_ROOT`
+- `DEEPTUTOR_PLUGIN_NAME`
+- `DEEPTUTOR_PLUGIN_VERSION`
+- `DEEPTUTOR_HOME`
+- `DEEPTUTOR_WORKSPACE_ROOT`
 - `CLAUDE_PROJECT_DIR`
 - `CLAUDE_PLUGIN_ROOT`
 

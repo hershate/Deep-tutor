@@ -447,7 +447,7 @@ var ChineseTraditional = Messages{
 	ArgEffortMax:         "最高推理",
 	ArgEffortForcedOn:    "思考仍開啟並計費，該模型無法關閉思考",
 	ArgThemeCurrent:      "當前",
-	ArgLanguageAuto:      "從 REASONIX_LANG / 系統 locale 自動偵測",
+	ArgLanguageAuto:      "從 DEEPTUTOR_LANG / 系統 locale 自動偵測",
 	ArgLanguageEn:        "English",
 	ArgLanguageZh:        "中文",
 

@@ -2,7 +2,6 @@ package feedback
 
 import (
 	"context"
-	"deep-tutor/internal/safety/redirectguard"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,19 +9,20 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/platform/crashreport"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 const (
 	defaultBase  = "https://crash.reasonix.io"
-	baseEnv      = "REASONIX_FEEDBACK_URL"
+	baseEnv      = "DEEPTUTOR_FEEDBACK_URL"
 	snippetRunes = 80
 )
 
@@ -53,7 +53,7 @@ func New(cfg Config) (*Service, error) {
 	if base != "" && !safeBase(base) {
 		return nil, fmt.Errorf("feedback: base URL %q must be https (plain http only on loopback)", base)
 	}
-	if env := strings.TrimRight(strings.TrimSpace(os.Getenv(baseEnv)), "/"); base == "" && safeBase(env) {
+	if env := strings.TrimRight(strings.TrimSpace(envvar.Get(baseEnv)), "/"); base == "" && safeBase(env) {
 		base = env
 	}
 	if base == "" {

@@ -21,7 +21,7 @@ type persistedShareState struct {
 }
 
 // shareStatePath rides the Reasonix state directory beside the device trust
-// file, so REASONIX_HOME isolation holds and a test instance never reopens the
+// file, so DEEPTUTOR_HOME isolation holds and a test instance never reopens the
 // real one's share.
 func shareStatePath() string {
 	home := strings.TrimSpace(config.ReasonixHomeDir())

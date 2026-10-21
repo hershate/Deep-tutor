@@ -2339,7 +2339,7 @@ func rollbackPendingUpdateMatchingLocked(
 		expectedStateID, expectedStates = pendingUpdateBoundPreview(tx)
 	}
 	// Share release-unit target locks with other repair mutations so two
-	// REASONIX_HOME profiles cannot quarantine or restore the same binaries
+	// DEEPTUTOR_HOME profiles cannot quarantine or restore the same binaries
 	// through different pending-update locks.
 	unlockTargets, lockErr := lockRepairMutations(pendingUpdateTargetPaths(tx)...)
 	if lockErr != nil {

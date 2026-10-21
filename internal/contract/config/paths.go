@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 var (
@@ -147,8 +149,12 @@ func (r Roots) legacyOSSupportDir() string {
 
 func (r Roots) userCacheDir() string { return r.Dir(RootCache) }
 
+// cleanEnvDir reads a directory the environment names. The name is the
+// current Deep-tutor spelling; the Reasonix spelling it carried before the
+// rename is the fallback, so a machine that set the old one keeps the home
+// it had.
 func cleanEnvDir(name string) string {
-	return expandDirValue(os.Getenv(name))
+	return expandDirValue(envvar.Get(name))
 }
 
 // expandDirValue turns a directory someone wrote — in the environment or in
@@ -192,18 +198,18 @@ func samePath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-// IsolatedHomeDir returns the REASONIX_HOME directory when it has been
+// IsolatedHomeDir returns the DEEPTUTOR_HOME directory when it has been
 // explicitly set via the environment variable. A non-empty return signals a
 // self-contained runtime that must not fall back to legacy OS-default data
 // paths or import data from the system-wide production install.
 func IsolatedHomeDir() string { return processRoots().pinnedHomeDir() }
 
-// IsolatedStateDir returns the state root when REASONIX_STATE_HOME explicitly
+// IsolatedStateDir returns the state root when DEEPTUTOR_STATE_HOME explicitly
 // set it. That root owns sessions, archive, stats and projects, so a run that
 // redirected it asked for its own copies of exactly what the legacy importers
 // copy in — and importing the production install's would defeat the redirect.
 func IsolatedStateDir() string {
-	return cleanEnvDir("REASONIX_STATE_HOME")
+	return cleanEnvDir("DEEPTUTOR_STATE_HOME")
 }
 
 // userConfigDisplayPath is userConfigPath collapsed to a ~-relative form for
@@ -223,7 +229,7 @@ func (r Roots) userConfigDisplayPath() string {
 }
 
 // UserConfigPath is the user-global config.toml. It lives under Reasonix home:
-// REASONIX_HOME/config.toml, then ~/.reasonix/config.toml on Unix-like systems,
+// DEEPTUTOR_HOME/config.toml, then ~/.reasonix/config.toml on Unix-like systems,
 // or %AppData%/reasonix/config.toml on Windows. If %AppData% is unavailable on
 // Windows, it falls back to %USERPROFILE%/AppData/Roaming/reasonix/config.toml.
 // "" when the user config dir can't be resolved.
@@ -293,14 +299,14 @@ func appendUniquePath(paths []string, path string) []string {
 }
 
 // ReasonixHomeDir is the current Reasonix home directory. It honors
-// REASONIX_HOME, then uses ~/.reasonix on macOS/Linux or %APPDATA%/reasonix on
+// DEEPTUTOR_HOME, then uses ~/.reasonix on macOS/Linux or %APPDATA%/reasonix on
 // Windows, with a %USERPROFILE%/AppData/Roaming fallback when %APPDATA% is
 // unavailable.
 func ReasonixHomeDir() string { return processRoots().Home() }
 
 // RemoteStateDir is local state for the remote-SSH module (the managed
 // known_hosts file, cached host metadata): <Reasonix home>/remote. Routed
-// through the home resolver so REASONIX_HOME isolation holds.
+// through the home resolver so DEEPTUTOR_HOME isolation holds.
 func RemoteStateDir() string { return processRoots().RemoteStateDir() }
 
 // ScheduleDir is where the scheduled-runs store lives: machine-wide, under the
@@ -337,7 +343,7 @@ func RemoteKnownHostsPath() string {
 // MissingReasoningWarnStateDir is the shared directory for the rate-limited
 // missing tool-call thinking recovery gate (#7059): <Reasonix home>/state. The
 // legacy name preserves callers and the existing state-file contract. Routed
-// through the home resolver so REASONIX_HOME isolation holds.
+// through the home resolver so DEEPTUTOR_HOME isolation holds.
 func MissingReasoningWarnStateDir() string { return processRoots().MissingReasoningWarnStateDir() }
 
 // MissingReasoningWarnStateDir is the recovery gate's state directory under

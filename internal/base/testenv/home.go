@@ -39,6 +39,12 @@ func IsolateUserState() (func(), error) {
 		"LocalAppData":    filepath.Join(home, "AppData", "Local"),
 	}
 	unset := []string{
+		// Both spellings: the test home is only isolated if neither the
+		// current name nor the one a machine carried before the rename
+		// points somewhere else.
+		"DEEPTUTOR_HOME",
+		"DEEPTUTOR_STATE_HOME",
+		"DEEPTUTOR_CACHE_HOME",
 		"REASONIX_HOME",
 		"REASONIX_STATE_HOME",
 		"REASONIX_CACHE_HOME",

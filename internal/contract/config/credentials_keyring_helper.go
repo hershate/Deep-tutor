@@ -27,7 +27,7 @@ type legacyKeyringOutcome struct {
 
 // lookupLegacyKeyringBatch probes keys under a single shared deadline in-process.
 // There is no external helper entrypoint: secrets never leave the process via
-// stdout or a caller-controlled REASONIX_HOME dump path.
+// stdout or a caller-controlled DEEPTUTOR_HOME dump path.
 func lookupLegacyKeyringBatch(keys []string, budget time.Duration) map[string]legacyKeyringOutcome {
 	out := make(map[string]legacyKeyringOutcome, len(keys))
 	if len(keys) == 0 {

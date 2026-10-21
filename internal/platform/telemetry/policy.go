@@ -5,6 +5,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"deep-tutor/internal/base/envvar"
 )
 
 var releaseVersionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)?$`)
@@ -41,7 +43,7 @@ func envOptOut() bool {
 	if strings.TrimSpace(os.Getenv("DO_NOT_TRACK")) != "" {
 		return true
 	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("REASONIX_TELEMETRY"))) {
+	switch strings.ToLower(strings.TrimSpace(envvar.Get("DEEPTUTOR_TELEMETRY"))) {
 	case "0", "false", "off", "no":
 		return true
 	default:

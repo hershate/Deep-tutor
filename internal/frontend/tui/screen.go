@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/base/i18n"
 	"deep-tutor/internal/frontend/termrender"
 )
@@ -637,9 +637,9 @@ func (m *model) flashText() string {
 // toggleMouse gives the mouse back to the terminal, or takes it again.
 // mouseCaptureOffByDefault hands the mouse to the terminal over SSH, where the
 // native selection reaches the user's clipboard and capture cannot. 1.x's
-// REASONIX_DISABLE_MOUSE decides instead when set: 0 captures, anything else not.
+// DEEPTUTOR_DISABLE_MOUSE decides instead when set: 0 captures, anything else not.
 func mouseCaptureOffByDefault() bool {
-	if v := strings.TrimSpace(os.Getenv("REASONIX_DISABLE_MOUSE")); v != "" {
+	if v := strings.TrimSpace(envvar.Get("DEEPTUTOR_DISABLE_MOUSE")); v != "" {
 		return v != "0"
 	}
 	return termrender.RemoteClipboardSession()

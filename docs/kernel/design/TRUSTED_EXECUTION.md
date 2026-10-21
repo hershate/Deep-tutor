@@ -61,7 +61,7 @@ Out of scope: UI, detection of semantic cheating inside a green test (review's j
 
 | ID | Rule |
 | --- | --- |
-| T1 | THS lives under the state root (`REASONIX_STATE_HOME`), never inside the workspace. |
+| T1 | THS lives under the state root (`DEEPTUTOR_STATE_HOME`), never inside the workspace. |
 | T2 | THS records are content-addressed and chained by parent digest. A chain rewrite is detectable relative to a previously trusted head digest. Hash chaining alone is not an authority boundary. |
 | T3 | The trusted head (§3.8) is authoritative only when it is anchored inside a boundary the model cannot write. That property is the host's `IntegrityLevel`. |
 | T4 | `host_protected`: the sandbox excludes THS and its head from every write root (macOS, Linux). `tamper_evident_only`: nothing the host enforces stops a process from rewriting THS and its head (Windows today). |
