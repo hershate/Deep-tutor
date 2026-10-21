@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 const (
@@ -52,7 +53,7 @@ type Manager struct {
 	sealed bool
 	gen    *generation
 	// root is the OS temporary parent used for lazy creation and stale
-	// cleanup. Empty means os.TempDir() at the moment of use.
+	// cleanup. Empty means the project scratch area at the moment of use.
 	root string
 	// now is injectable for tests.
 	now func() time.Time
@@ -326,7 +327,13 @@ func (m *Manager) tempRoot() string {
 	if m != nil && m.root != "" {
 		return m.root
 	}
-	return os.TempDir()
+	// The scratch area is created here rather than at the first use: the
+	// stale sweep reads it before any generation exists, and a missing
+	// directory is a warning there and a failure at the creation.
+	if root, err := scratchroot.Ensure(); err == nil {
+		return root
+	}
+	return scratchroot.Base()
 }
 
 func defaultMkDir(parent string) (string, error) {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 const (
@@ -31,11 +32,14 @@ type Dir struct {
 	err     error
 }
 
-// Create makes a directory named prefix* under the OS temp directory and
+// Create makes a directory named prefix* under the project scratch area and
 // claims it. The first Create for a prefix in this process also sweeps
 // directories of that prefix whose owners are gone.
 func Create(prefix string) (*Dir, error) {
-	root := os.TempDir()
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		return nil, err
+	}
 	SweepOnce(root, prefix)
 	dir, err := os.MkdirTemp(root, prefix)
 	if err != nil {

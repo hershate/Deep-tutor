@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // TestingM is the subset of testing.M needed by RunWithIsolatedUserState.
@@ -22,13 +24,9 @@ type savedEnvironment struct {
 // any of these variables for a focused scenario after this process-level guard
 // is installed.
 func IsolateUserState() (func(), error) {
-	originalHome, _ := os.UserHomeDir()
-	home, err := os.MkdirTemp(originalHome, ".reasonix-test-home-*")
-	if err != nil && originalHome != "" {
-		home, err = os.MkdirTemp("", "reasonix-test-home-*")
-	}
+	home, err := isolatedHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("create isolated test home: %w", err)
+		return nil, err
 	}
 
 	set := map[string]string{
@@ -65,7 +63,7 @@ func IsolateUserState() (func(), error) {
 	}
 	fail := func(cause error) (func(), error) {
 		restore()
-		_ = os.RemoveAll(home)
+		_ = removeTree(home, removeAttempts)
 		return nil, cause
 	}
 
@@ -86,9 +84,29 @@ func IsolateUserState() (func(), error) {
 	return func() {
 		once.Do(func() {
 			restore()
-			_ = os.RemoveAll(home)
+			_ = removeTree(home, removeAttempts)
 		})
 	}, nil
+}
+
+// isolatedHomeDir creates the disposable home the isolated state lives in.
+//
+// It sits under the project scratch area rather than under the caller's home
+// for two reasons. The caller's home is the one directory a test must never
+// leave anything behind in, and a removal that lost to a file handle used to
+// leave a directory there for every run. The scratch area is disposable by
+// contract, so a directory that survives a run there is visible to a sweep
+// instead of accumulating silently in the user's profile.
+func isolatedHomeDir() (string, error) {
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		return "", fmt.Errorf("create isolated test home: %w", err)
+	}
+	home, err := os.MkdirTemp(root, ".reasonix-test-home-*")
+	if err != nil {
+		return "", fmt.Errorf("create isolated test home: %w", err)
+	}
+	return home, nil
 }
 
 // RunWithIsolatedUserState runs a package test binary behind the user-state

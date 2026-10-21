@@ -228,7 +228,7 @@ func (c *Config) VetExtraRoot(primary, dir string, existing []string) (string, e
 			return refuse(RootProtected)
 		}
 	}
-	held := append(c.writeRootsBeforeExtras(primary), os.TempDir())
+	held := append(c.writeRootsBeforeExtras(primary), tempRoots()...)
 	held = append(held, hostwrite.Dirs()...)
 	for _, w := range held {
 		if wk := rootKey(w); keyWithin(key, wk) || keyWithin(wk, key) {

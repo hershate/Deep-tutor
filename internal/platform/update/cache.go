@@ -12,6 +12,7 @@ import (
 	"deep-tutor/internal/base/fileutil"
 	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // Artifact kinds. Which one the cache holds is part of its identity: a .deb and
@@ -81,7 +82,7 @@ func defaultCacheDir() (string, error) {
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {
-		base = os.TempDir()
+		base = scratchroot.Base()
 	}
 	return filepath.Join(base, "Reasonix", "updates"), nil
 }

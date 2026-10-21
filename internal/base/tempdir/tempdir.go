@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // The windows observed in practice close in milliseconds. The bound is what
@@ -29,9 +31,18 @@ const (
 
 // New returns a directory removed when the test ends, failing the test if it
 // does not become removable.
+//
+// The directory is created under the project scratch area rather than the
+// operating system's temporary directory: a test run writes trees, and the
+// system volume is the smallest one on the machine.
 func New(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "reasonix-test-*")
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		t.Fatalf("tempdir.New: %v", err)
+		return ""
+	}
+	dir, err := os.MkdirTemp(root, "reasonix-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}

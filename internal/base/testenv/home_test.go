@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"deep-tutor/internal/base/scratchroot"
 )
 
 func TestIsolateUserStateRedirectsAndRestoresCallerEnvironment(t *testing.T) {
@@ -34,8 +36,15 @@ func TestIsolateUserStateRedirectsAndRestoresCallerEnvironment(t *testing.T) {
 	if isolateHome == "" || isolateHome == callerHome {
 		t.Fatalf("HOME = %q, want a disposable home distinct from caller %q", isolateHome, callerHome)
 	}
-	if rel, err := filepath.Rel(callerHome, isolateHome); err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		t.Fatalf("isolated home %q is not contained by caller home %q", isolateHome, callerHome)
+	scratchRoot := scratchroot.Base()
+	if rel, err := filepath.Rel(scratchRoot, isolateHome); err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		t.Fatalf("isolated home %q is not contained by the scratch root %q", isolateHome, scratchRoot)
+	}
+	// The caller's home is the one directory a test must leave nothing
+	// behind in: a removal that lost to a file handle used to leave a
+	// directory there for every run.
+	if rel, err := filepath.Rel(callerHome, isolateHome); err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		t.Fatalf("isolated home %q is inside the caller's home %q", isolateHome, callerHome)
 	}
 	wantIsolatedEnvironment := map[string]string{
 		"HOME":            isolateHome,

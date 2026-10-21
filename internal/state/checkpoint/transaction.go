@@ -13,6 +13,7 @@ import (
 	"time"
 
 	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // InjectFail is a test seam. When set, CommitRewind fails at the named phase
@@ -1094,7 +1095,7 @@ func (s *Store) persistTransaction(tx *TransactionManifest) error {
 
 func (s *Store) txDir() string {
 	if s.dir == "" {
-		return filepath.Join(os.TempDir(), "reasonix-ckpt-tx")
+		return scratchroot.Path("reasonix-ckpt-tx")
 	}
 	return filepath.Join(s.dir, "transactions")
 }

@@ -17,6 +17,7 @@ import (
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/bestof"
 	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // candidateApproval is the session's approval posture, read when a best_of_n
@@ -83,7 +84,11 @@ func candidateRunner(parent Options, sink event.Sink, approval *candidateApprova
 // forwards reaches the parent session. A run that stopped without proving its
 // work is not an error: its readiness reason comes back as unverified.
 func runUnattended(ctx context.Context, parent Options, sink event.Sink, mode, root, prompt, model string) (answer, unverified string, err error) {
-	sessDir, err := os.MkdirTemp("", "reasonix-candidate-")
+	scratch, err := scratchroot.Ensure()
+	if err != nil {
+		return "", "", err
+	}
+	sessDir, err := os.MkdirTemp(scratch, "reasonix-candidate-")
 	if err != nil {
 		return "", "", err
 	}

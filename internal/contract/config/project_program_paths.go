@@ -54,7 +54,8 @@ func inRoots(path string, roots []string) bool {
 func hostWritableDirs() []string { return hostwrite.Dirs() }
 
 func (c *Config) writableRoots(ws string) []string {
-	roots := append([]string{ws, os.TempDir()}, hostWritableDirs()...)
+	roots := append([]string{ws}, tempRoots()...)
+	roots = append(roots, hostWritableDirs()...)
 	for _, dir := range c.Sandbox.AllowWrite {
 		if dir = ExpandVars(dir); dir != "" {
 			roots = append(roots, dir)

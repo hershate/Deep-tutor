@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
+import sys
 from pathlib import Path
 
-_TEST_DATA = os.path.join(tempfile.gettempdir(), "dt_api_data")
-_TEST_PLUGINS = os.path.join(tempfile.gettempdir(), "dt_api_plugins")
+# 允许从任意 cwd 运行（pytest 只把 tests/ 自身加入 sys.path，app 包需显式定位）。
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
+from app.core.scratchroot import root  # noqa: E402
+
+# 测试产物落在项目的可丢弃根目录下，不写系统卷（与 Go 侧 scratchroot 同规则）。
+_TEST_ROOT = os.path.join(root(), "v1")
+_TEST_DATA = os.path.join(_TEST_ROOT, "dt_api_data")
+_TEST_PLUGINS = os.path.join(_TEST_ROOT, "dt_api_plugins")
+os.makedirs(_TEST_ROOT, exist_ok=True)
 # 强制赋值而非 setdefault：测试固件硬编码 Bearer test-token（见 auth_headers），
 # 外部环境（如 CI 的 AUTH_TOKEN=ci-token）若经 setdefault 渗入会导致全量 401。
 os.environ["AUTH_TOKEN"] = "test-token"
-os.environ.setdefault("DB_PATH", os.path.join(tempfile.gettempdir(), "dt_api_test.db"))
+os.environ.setdefault("DB_PATH", os.path.join(_TEST_ROOT, "dt_api_test.db"))
 os.environ.setdefault("DATA_DIR", _TEST_DATA)
-os.environ.setdefault("SKILLS_DIR", os.path.join(tempfile.gettempdir(), "dt_api_skills"))
+os.environ.setdefault("SKILLS_DIR", os.path.join(_TEST_ROOT, "dt_api_skills"))
 os.environ.setdefault("PLUGINS_DIR", _TEST_PLUGINS)
 
 import pytest  # noqa: E402

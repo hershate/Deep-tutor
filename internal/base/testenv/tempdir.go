@@ -3,6 +3,8 @@ package testenv
 import (
 	"os"
 	"time"
+
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // TB is the subset of *testing.T that TempDir needs, declared here so this
@@ -24,9 +26,18 @@ const (
 // file's directory entry until its last handle closes, so removing the
 // directory fails as non-empty when every file is already gone. Measured at ~2%
 // of session saves, always inside 10ms; one that never frees is logged, not fatal.
+//
+// The directory is created under the project scratch area rather than the
+// operating system's temporary directory, so a test run does not fill the
+// system volume with trees it intends to delete.
 func TempDir(t TB) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "reasonix-test-*")
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		t.Fatalf("testenv.TempDir: %v", err)
+		return ""
+	}
+	dir, err := os.MkdirTemp(root, "reasonix-test-*")
 	if err != nil {
 		t.Fatalf("testenv.TempDir: %v", err)
 		return ""

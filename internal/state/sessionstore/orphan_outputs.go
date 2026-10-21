@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"deep-tutor/internal/state/store"
+	"deep-tutor/internal/base/scratchroot"
 	"time"
 )
 
@@ -96,5 +97,5 @@ func sweepScratchOutputs() error {
 // transcript nor an archive. Nothing there has an owner to be collected with,
 // so reconcileOrphanOutputs ages it out instead.
 func ScratchOutputsDir() string {
-	return filepath.Join(os.TempDir(), "reasonix-outputs")
+	return scratchroot.Path("reasonix-outputs")
 }

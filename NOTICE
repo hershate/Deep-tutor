@@ -197,6 +197,36 @@
 | `internal/ext/plugin/transport_reconnect.go` | 新增 `transportIsNil`（按 `reflect.Kind` 识别接口内的 nil 指针）；`restart` 的清理条件、`dialOne` 的成功条件、`close` 的活动连接条件改用该判定；`dialOne` 另加「dial 报成功但无 transport」的显式拒绝 |
 | `internal/ext/plugin/transport_typednil_test.go` | 本仓新增：typed nil 的 5 条回归（工厂返回 nil 接口、三种 transport 的 nil 接收者 close、restart 不 panic、dialOne 拒绝空 transport、`transportIsNil` 双向判定） |
 
+**代码级修改（2026-10-21，可丢弃产物落盘位置收敛到项目所在卷）**：可重建的产物（测试临时目录、测试库、会话私有临时目录、作业 scratch 树、孤立输出、检查点事务目录、更新缓存、插件/快照/候选临时目录）原先落在操作系统临时目录（本机为系统卷 C 盘），现统一落在项目 scratch 目录（`$DEEPTUTOR_SCRATCH_DIR`，缺省为项目所在卷的 `TEMP\deeptutor`）。系统卷小、由操作系统按自己的节奏回收，且住着机器上其他租户。
+
+Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录 → 系统临时目录」。重定向优先，因为用 `TMPDIR` 做隔离的夹具必须继续隔离。
+
+| 文件 | 修改 |
+|---|---|
+| `internal/base/scratchroot/{scratchroot.go,scratchroot_test.go,scratchroot_windows_test.go}` | 本仓新增：落盘位置解析（`Base`/`Ensure`/`Path`）、可写性探测、`redirectedSystemTemp` 判定 |
+| `internal/base/testenv/home.go` | 隔离用的临时 home 由「调用者 home 目录」改到 scratch 目录；清理由单次 `os.RemoveAll` 改为可重试删除（原先在 Windows 文件锁下静默失败，每次 Go 测试在用户 profile 留一个目录） |
+| `internal/base/testenv/remove.go` | 本仓新增：可重试树删除（12 次 / 递增退避），供 testenv 内部共用 |
+| `internal/base/testenv/tempdir.go` | `TempDir` 改在 scratch 目录下创建 |
+| `internal/base/testenv/home_test.go` | 断言由「隔离 home 位于调用者 home 之内」改为「位于 scratch 目录之内，且不在调用者 home 之内」 |
+| `internal/base/tempdir/tempdir.go` | `New` 改在 scratch 目录下创建 |
+| `internal/base/scratch/scratch.go` | `Create` 的根目录由 `os.TempDir()` 改为 scratch 目录 |
+| `internal/state/sessiontemp/manager.go` | 会话私有临时目录的根由 `os.TempDir()` 改为 scratch 目录（创建前先建目录，避免陈旧清扫读到不存在的根） |
+| `internal/contract/config/temp_roots.go` | 本仓新增：`tempRoots()` 列出「系统临时目录 + 项目 scratch 目录」两组可写根 |
+| `internal/contract/config/project_program_paths.go` | 可写根由 `[ws, os.TempDir()]` 改为 `[ws] + tempRoots()` |
+| `internal/contract/config/project_programs.go` | 同上 |
+| `internal/contract/config/workspace_roots.go` | 额外工作区根的「不可重叠」集合由 `os.TempDir()` 改为 `tempRoots()` |
+| `internal/platform/worktree/candidate.go` | 快照临时目录改在 scratch 目录下创建 |
+| `internal/state/sessionstore/orphan_outputs.go` | 孤立输出目录由 `os.TempDir()/reasonix-outputs` 改为 scratch 目录 |
+| `internal/state/checkpoint/transaction.go` | 检查点事务目录同上 |
+| `internal/platform/update/cache.go` | 用户缓存目录不可用时的回退由 `os.TempDir()` 改为 scratch 目录 |
+| `internal/platform/gitcmd/gitcmd.go` | 游离 git 命令的空目录改在 scratch 目录下创建 |
+| `internal/assembly/boot/bestof.go` | 候选运行目录同上 |
+| `internal/frontend/doctor/session_bundle.go` | 诊断包路径同上 |
+
+**未改的落盘点（有意保留）**：锁根（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）按上游约定必须让同一 OS 用户的各实例收敛到同一处，改成可随环境变化会让互斥失效；其内容为 0 字节锁文件。
+
+**Python v1 侧**（本仓自有代码，不在上表）：`backend/app/core/scratchroot.py` 新增（与 Go 侧同规则），`backend/app/core/settings.py` 在模块导入期把 `tempfile.tempdir` 指向 scratch 目录，`backend/tests/conftest.py` 的测试库/数据/技能/插件目录改到 `<scratch>\v1`。
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

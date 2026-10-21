@@ -12,10 +12,17 @@ from pathlib import Path
 from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core import scratchroot
+
 # 相对路径锚定点：仓库根（backend/app/core/settings.py -> 上三级）。
 # err.md C7：相对路径此前依赖启动 cwd（非仓库根启动会读不到 .env、在错误位置
 # 新建空库，表现为「数据丢失」）；统一锚定后任意 cwd 行为一致。
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# 可丢弃产物（临时导出件、临时目录）落盘位置偏离系统卷：系统卷小、回收
+# 节奏不由本项目控制，且住着机器上其他租户。必须在任何 tempfile 使用之前
+# 生效，故在模块导入期设置。
+scratchroot.configure_tempdir()
 
 
 def _anchor(p: str) -> str:

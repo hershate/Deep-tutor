@@ -109,7 +109,7 @@ func workspaceFilesNamed(ws, base string, words []string) []string {
 		path := word
 		if !filepath.IsAbs(path) {
 			path = base + string(filepath.Separator) + word
-		} else if !strings.Contains(word, "..") && !inRoots(path, append([]string{ws, os.TempDir()}, hostWritableDirs()...)) {
+		} else if !strings.Contains(word, "..") && !inRoots(path, append(append([]string{ws}, tempRoots()...), hostWritableDirs()...)) {
 			continue
 		}
 		info, err := os.Stat(path)

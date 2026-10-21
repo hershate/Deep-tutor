@@ -14,6 +14,7 @@ import (
 
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/state/store"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 const sessionBundleSchemaVersion = 1
@@ -430,7 +431,11 @@ func defaultSessionBundlePath(branch string) string {
 	if branch == "" {
 		branch = "session"
 	}
-	return filepath.Join(os.TempDir(), "reasonix-session-"+branch+"-diag.zip")
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(root, "reasonix-session-"+branch+"-diag.zip")
 }
 
 func safeBundleName(name string) string {

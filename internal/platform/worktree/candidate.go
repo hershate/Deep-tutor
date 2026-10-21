@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/base/scratchroot"
 )
 
 // ErrWorkspaceMoved is an Apply refused because the source workspace no longer
@@ -200,7 +201,11 @@ func workingTree(ctx context.Context, repo gitcmd.Repo) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("locate Git index: %w", err)
 	}
-	dir, err := os.MkdirTemp("", "reasonix-snapshot-")
+	root, err := scratchroot.Ensure()
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp(root, "reasonix-snapshot-")
 	if err != nil {
 		return "", err
 	}
