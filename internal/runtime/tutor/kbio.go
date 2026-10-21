@@ -2,6 +2,7 @@ package tutor
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,19 @@ import (
 
 // kbio.go — KB bulk exits: the ZIP export (index manifest + originals/ +
 // parsed/) and one-click plan generation from library documents.
+
+// KbExportMaxBytes caps one knowledge-base export. The export packs every
+// selected document's original and parsed text; the library holds hundreds
+// of originals of tens of megabytes each, so an unbounded export writes a
+// GB-scale archive into the system temp directory. The cap counts the
+// source bytes — the archive itself is compressed, so the budget is an upper
+// bound on both the disk and the work.
+//
+// A var so the test can lower it instead of writing 256MB of fixtures.
+var KbExportMaxBytes int64 = 256 << 20
+
+// ErrKbExportTooLarge is an export whose selection exceeds the cap.
+var ErrKbExportTooLarge = errors.New("tutor: kb export exceeds its size cap")
 
 // KbExportZip writes the selected documents to a temp file and returns its
 // path; the serve layer streams it and removes it. A spooled temp file, not
@@ -39,6 +53,26 @@ func (s *Service) KbExportZip(ids []string) (string, int, error) {
 	}
 	if len(selected) == 0 {
 		return "", 0, ErrKbExportEmpty
+	}
+	// The size is settled before any temp file exists: a refused export
+	// must not have written a GB into the system temp directory first.
+	var total int64
+	for i := range selected {
+		d := &selected[i]
+		if d.HasOriginal {
+			if info, err := os.Stat(s.store.kbOriginalPath(d)); err == nil {
+				total += info.Size()
+			}
+		}
+		if d.Status == "parsed" {
+			if info, err := os.Stat(s.store.kbParsedPath(d.ID)); err == nil {
+				total += info.Size()
+			}
+		}
+		if total > KbExportMaxBytes {
+			return "", 0, fmt.Errorf("%w: the selection is over %d MB; export fewer documents with the ids parameter",
+				ErrKbExportTooLarge, KbExportMaxBytes>>20)
+		}
 	}
 
 	tmp, err := os.CreateTemp("", "kb-export-*.zip")

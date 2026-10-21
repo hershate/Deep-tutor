@@ -10,12 +10,26 @@ import (
 	"time"
 )
 
+// ShareDefaultTTL is how long a share link lives unless its owner pins it
+// open. A link that never expires is a link that cannot be forgotten: the
+// owner's only remedy is to revoke it, and a leaked link is public by
+// definition.
+const ShareDefaultTTL = 7 * 24 * time.Hour
+
 // Share is one read-only share link over a plan, keyed by an unguessable
 // token. It is the file-canonical form of Deep Tutor's ShareLink row.
 type Share struct {
 	Token     string    `json:"token"`
 	PlanID    string    `json:"plan_id"`
 	CreatedAt time.Time `json:"created_at"`
+	// ExpiresAt is when the link stops answering. Nil means the owner
+	// pinned it open on purpose.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// expired reports whether the link's term is over at now.
+func (sh *Share) expired(now time.Time) bool {
+	return sh.ExpiresAt != nil && !now.Before(*sh.ExpiresAt)
 }
 
 // ShareEntry is the management-list row: a share plus the plan it points at.
@@ -61,9 +75,12 @@ type SharedQuiz struct {
 // metadata (model, tokens, cost) stays private: the share is learning
 // content, not a usage report.
 type SharedPlan struct {
-	Title     string        `json:"title"`
-	Topic     string        `json:"topic"`
-	CreatedAt time.Time     `json:"created_at"`
+	Title     string    `json:"title"`
+	Topic     string    `json:"topic"`
+	CreatedAt time.Time `json:"created_at"`
+	// ExpiresAt is when the link stops answering; nil for a link the
+	// owner pinned open.
+	ExpiresAt *time.Time    `json:"expires_at,omitempty"`
 	Intent    Intent        `json:"intent"`
 	Knowledge KnowledgeMap  `json:"knowledge_map"`
 	Stages    []SharedStage `json:"stages"`
@@ -167,6 +184,8 @@ func (s *Store) deleteSharesForPlan(planID string) error {
 
 // SharePlan creates the plan's share link, or returns the existing one:
 // repeated calls are idempotent, matching Deep Tutor's create-or-return.
+// A new link runs for ShareDefaultTTL; the owner can pin it open with
+// ShareMakePermanent.
 func (s *Service) SharePlan(planID string) (*Share, error) {
 	if _, err := s.store.Plan(planID); err != nil {
 		return nil, err
@@ -174,9 +193,39 @@ func (s *Service) SharePlan(planID string) (*Share, error) {
 	if sh, err := s.store.shareByPlanID(planID); err != nil {
 		return nil, err
 	} else if sh != nil {
-		return sh, nil
+		if !sh.expired(s.opt.now()) {
+			return sh, nil
+		}
+		// The old link's term is over: it is removed and a fresh one is
+		// minted, so creating a share never hands back a dead link.
+		if err := s.store.deleteShare(sh.Token); err != nil {
+			return nil, err
+		}
 	}
-	sh := &Share{Token: newShareToken(), PlanID: planID, CreatedAt: s.opt.now()}
+	now := s.opt.now()
+	expires := now.Add(ShareDefaultTTL)
+	sh := &Share{Token: newShareToken(), PlanID: planID, CreatedAt: now, ExpiresAt: &expires}
+	if err := s.store.saveShare(sh); err != nil {
+		return nil, err
+	}
+	return sh, nil
+}
+
+// ShareMakePermanent pins the plan's share link open: the link stops
+// expiring and stays answerable until it is revoked. It is the owner's
+// explicit choice, not the default.
+func (s *Service) ShareMakePermanent(planID string) (*Share, error) {
+	if _, err := s.store.Plan(planID); err != nil {
+		return nil, err
+	}
+	sh, err := s.store.shareByPlanID(planID)
+	if err != nil {
+		return nil, err
+	}
+	if sh == nil {
+		return nil, ErrNotFound
+	}
+	sh.ExpiresAt = nil
 	if err := s.store.saveShare(sh); err != nil {
 		return nil, err
 	}
@@ -184,11 +233,23 @@ func (s *Service) SharePlan(planID string) (*Share, error) {
 }
 
 // ShareStatus reports the plan's share, nil when the plan is not shared.
+// An expired share is not a share: it is removed and reported as none.
 func (s *Service) ShareStatus(planID string) (*Share, error) {
 	if _, err := s.store.Plan(planID); err != nil {
 		return nil, err
 	}
-	return s.store.shareByPlanID(planID)
+	sh, err := s.store.shareByPlanID(planID)
+	if err != nil {
+		return nil, err
+	}
+	if sh == nil {
+		return nil, nil
+	}
+	if sh.expired(s.opt.now()) {
+		_ = s.store.deleteShare(sh.Token)
+		return nil, nil
+	}
+	return sh, nil
 }
 
 // ShareRevoke removes the plan's share link if one exists; revoking an
@@ -209,14 +270,21 @@ func (s *Service) ShareRevoke(planID string) error {
 
 // ShareList answers every live share with its plan's title, newest first.
 // A share whose plan is gone is deleted on sight rather than listed: the
-// link would only ever answer "plan deleted".
+// link would only ever answer "plan deleted". An expired share is deleted
+// the same way — its term is over, so listing it would advertise a link
+// that no longer answers.
 func (s *Service) ShareList() ([]ShareEntry, error) {
 	all, err := s.store.shares()
 	if err != nil {
 		return nil, err
 	}
+	now := s.opt.now()
 	out := make([]ShareEntry, 0, len(all))
 	for i := range all {
+		if all[i].expired(now) {
+			_ = s.store.deleteShare(all[i].Token)
+			continue
+		}
 		plan, err := s.store.Plan(all[i].PlanID)
 		if err != nil {
 			_ = s.store.deleteShare(all[i].Token)
@@ -251,8 +319,8 @@ func sharedStage(st Stage) SharedStage {
 }
 
 // SharedPlanView resolves a share token to the public, sanitized projection
-// of its plan. Unknown and revoked tokens answer ErrNotFound; a token whose
-// plan disappeared has its share removed and answers the same.
+// of its plan. Unknown, revoked and expired tokens answer ErrNotFound; a
+// token whose plan disappeared has its share removed and answers the same.
 func (s *Service) SharedPlanView(token string) (*SharedPlan, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -262,6 +330,12 @@ func (s *Service) SharedPlanView(token string) (*SharedPlan, error) {
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	if sh.expired(s.opt.now()) {
+		// The term is over: the link stops answering and is removed, so a
+		// leaked one cannot be told apart from one that never existed.
+		_ = s.store.deleteShare(sh.Token)
+		return nil, ErrNotFound
+	}
 	plan, err := s.store.Plan(sh.PlanID)
 	if err != nil {
 		_ = s.store.deleteShare(sh.Token)
@@ -269,7 +343,8 @@ func (s *Service) SharedPlanView(token string) (*SharedPlan, error) {
 	}
 	out := &SharedPlan{
 		Title: plan.Title, Topic: plan.Topic, CreatedAt: plan.CreatedAt,
-		Intent: plan.Intent, Knowledge: plan.Knowledge, Schedule: plan.Schedule,
+		ExpiresAt: sh.ExpiresAt,
+		Intent:    plan.Intent, Knowledge: plan.Knowledge, Schedule: plan.Schedule,
 	}
 	for _, st := range plan.Stages {
 		out.Stages = append(out.Stages, sharedStage(st))

@@ -31,9 +31,9 @@ const BackupMaxBytes = backupMaxBytes
 // Restore-side quotas mirror Deep Tutor's iter-246 caps and this store's live
 // limits: an import must not amplify resource use past what the app allows.
 const (
-	backupMaxSessions            = 200
-	backupMaxMaterialsPerSession = 20
-	backupMaxPlansPerSession     = 50
+	backupMaxSessions            = 500
+	backupMaxMaterialsPerSession = 50
+	backupMaxPlansPerSession     = 100
 	backupMaxNodesPerPlan        = 100
 	backupMaxQuizzesPerPlan      = 200
 	backupMaxAttemptsPerQuiz     = 100

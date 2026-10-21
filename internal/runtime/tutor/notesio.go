@@ -17,7 +17,7 @@ import (
 
 // Note quota and size ceilings, mirroring Deep-tutor's note limits.
 const (
-	noteQuota            = 500
+	noteQuota            = 2000
 	noteTitleMax         = 256
 	noteBodyMax          = 20000
 	noteImportEntryMax   = 100000 // raw bytes per imported entry

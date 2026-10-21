@@ -16,6 +16,7 @@ func (s *Server) registerTutorShareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tutor/plans/{id}/share", s.tutorShareCreate)
 	mux.HandleFunc("GET /tutor/plans/{id}/share", s.tutorShareStatus)
 	mux.HandleFunc("DELETE /tutor/plans/{id}/share", s.tutorShareRevoke)
+	mux.HandleFunc("POST /tutor/plans/{id}/share/permanent", s.tutorShareMakePermanent)
 	mux.HandleFunc("GET /tutor/shares", s.tutorShares)
 	mux.HandleFunc("GET /tutor/shared/{token}", s.tutorSharedPlan)
 }
@@ -66,6 +67,20 @@ func (s *Server) tutorShareRevoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) tutorShareMakePermanent(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorService()
+	if svc == nil {
+		tutorUnsupported(w)
+		return
+	}
+	sh, err := svc.ShareMakePermanent(r.PathValue("id"))
+	if err != nil {
+		tutorRefuse(w, err)
+		return
+	}
+	writeJSON(w, shareResponse(sh))
+}
+
 func (s *Server) tutorShares(w http.ResponseWriter, r *http.Request) {
 	svc := s.tutorService()
 	if svc == nil {
@@ -109,6 +124,8 @@ func shareResponse(sh *tutor.Share) map[string]any {
 		"token":      sh.Token,
 		"path":       "/tutor/shared/" + sh.Token,
 		"created_at": sh.CreatedAt,
+		// expires_at is null for a link the owner pinned open.
+		"expires_at": sh.ExpiresAt,
 	}
 }
 
@@ -147,7 +164,7 @@ h1{font-size:1.5rem;margin:0 0 .5rem}h2{font-size:1.15rem;margin:2rem 0 .75rem}h
 table{border-collapse:collapse;width:100%}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;text-align:left;font-size:.9rem}
 </style></head><body>
 <header><h1>{{.Title}}</h1>
-<div class="meta">{{.Topic}}{{if .Intent.Level}} · {{.Intent.Level}}{{end}}{{if .Intent.DailyMinutes}} · 每天 {{.Intent.DailyMinutes}} 分钟{{end}}{{if .Intent.Deadline}} · 截止 {{.Intent.Deadline}}{{end}} · 分享于 {{.SharedAt}}</div></header>
+<div class="meta">{{.Topic}}{{if .Intent.Level}} · {{.Intent.Level}}{{end}}{{if .Intent.DailyMinutes}} · 每天 {{.Intent.DailyMinutes}} 分钟{{end}}{{if .Intent.Deadline}} · 截止 {{.Intent.Deadline}}{{end}} · 分享于 {{.SharedAt}}{{if .ExpiresAt}} · 有效期至 {{.ExpiresAt}}{{else}} · 长期有效{{end}}</div></header>
 {{if .Intent.Goal}}<h2>学习目标</h2><p>{{.Intent.Goal}}</p>{{end}}
 {{if .Knowledge.Nodes}}<h2>知识地图</h2><ul class="topics">{{range .Knowledge.Nodes}}<li>{{.Name}}<span class="meta">（难度 {{.Difficulty}}{{if .MustLearn}} · 必学{{end}}）</span></li>{{end}}</ul>{{end}}
 <h2>学习阶段</h2>
@@ -165,8 +182,16 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #d0d7de;padding
 func renderSharedPlan(w http.ResponseWriter, view *tutor.SharedPlan) {
 	data := struct {
 		*tutor.SharedPlan
-		SharedAt string
-	}{SharedPlan: view, SharedAt: view.CreatedAt.Format("2006-01-02")}
+		SharedAt  string
+		ExpiresAt string
+	}{
+		SharedPlan: view,
+		SharedAt:   view.CreatedAt.Format("2006-01-02"),
+		ExpiresAt:  "",
+	}
+	if view.ExpiresAt != nil {
+		data.ExpiresAt = view.ExpiresAt.Format("2006-01-02")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = sharedPage.Execute(w, data)
 }

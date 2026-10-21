@@ -21,7 +21,7 @@ import (
 // (text/url straight to parsed) with dedup, quota, and content search.
 
 // KbMaxDocs caps the library, Deep-tutor's per-user quota.
-const KbMaxDocs = 200
+const KbMaxDocs = 500
 
 // parsedScanMaxDocs bounds content search: the newest N parsed documents are
 // scanned; older ones stay title-searchable only. No index is built — the

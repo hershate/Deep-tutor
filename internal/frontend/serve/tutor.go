@@ -205,6 +205,8 @@ func tutorRefuse(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusBadRequest, "tutor.kb_no_docs", "the knowledge base has no usable documents yet", nil)
 	case errors.Is(err, tutor.ErrKbExportEmpty):
 		refuse(w, http.StatusBadRequest, "tutor.kb_export_empty", "the export selected no documents (empty library or filter)", nil)
+	case errors.Is(err, tutor.ErrKbExportTooLarge):
+		refuse(w, http.StatusRequestEntityTooLarge, "tutor.kb_export_too_large", "the selection is over the export size cap; export fewer documents with the ids parameter", nil)
 	case errors.Is(err, tutor.ErrUpstreamTimeout):
 		refuse(w, http.StatusGatewayTimeout, "tutor.upstream_timeout", "llm response timed out, retry shortly", nil)
 	case errors.Is(err, tutor.ErrBadGateway):

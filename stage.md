@@ -203,6 +203,11 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **转产品裁决**：T5 分享令牌有效期、T13 列表分页默认值（涉及对外契约形状）。
   - **回归**：新增 `internal/runtime/tutor/b13_guards_test.go`（6 条：并发同内容上传只留一行、并发不同内容上传不破文档上限、并发材料上传不破每会话上限、被拒材料不留孤儿原件、未知节点不建行、超长 node_id 被拒）与 `internal/runtime/tutor/pdf_budget_test.go`（3 条：解压预算按流去重计费、页树深度超限被拒、页数超限被拒）。另统一测试用 store 构造入口（`openTestStore`）并加长 Windows「目录非空」清理重试（该 flake 源于原子写的 rename 与杀软句柄竞争，非代码回归）。
   - **门禁**：`go build ./internal/...` 通过；`go vet ./internal/runtime/tutor/ ./internal/frontend/serve/` 通过；`go test ./internal/runtime/tutor/ -count=1` **连跑 3 次全绿**（34.5s / 35.0s / 34.9s）；`go test ./internal/frontend/serve/ -count=1` **全量通过**（414.5s，含 `TestEveryRefusalCodeIsTranslated` 拒绝码一一对应门禁）。
+- **iter 397-B14（用户四项裁决落地之一：配额取值 / 知识库导出上限 / 分享链接期限，✅ 完成）**：2026-10-21 用户经问卷定夺四项 Go 侧产品取舍，本批落地其中三项（第四项「引入 user 维度」见 B15）。
+  - **配额放宽（取值由用户定）**：会话 200 -> **500**、笔记 500 -> **2000**、每会话材料 20 -> **50**、每会话方案 50 -> **100**、知识库文档 200 -> **500**。口径说明：tutor store 是**本地单用户空间**，这些上限的作用是约束「失控增长」而非分配多租户资源池，故取值高于 v1 的多用户配额。**还原侧上限同步放宽**（`backupMaxSessions` / `backupMaxMaterialsPerSession` / `backupMaxPlansPerSession`）——两侧口径必须一致，否则「导出 -> 导入」往返会静默丢数据。
+  - **知识库导出总量上限（此前无上限）**：`KbExportZip` 此前无任何体积上限——库里有几百篇原件（每篇上限 50MB），一次全量导出可写出 GB 级 zip 落进**系统临时目录**（磁盘写满风险）。修法：新增 `KbExportMaxBytes = 256MB`（与备份导出的内联预算同口径）+ `ErrKbExportTooLarge`；体积**在建临时文件之前**按源字节结算（原件 + 解析文本），超限即拒 413 `tutor.kb_export_too_large`，文案提示用 `ids` 参数分批导出。
+  - **分享链接期限（此前永久有效、无法撤销）**：新增 `Share.ExpiresAt` 与 `ShareDefaultTTL = 7 天`。① 新建链接默认 7 天；② 访问时校验，过期即失效**并删除该分享**（泄露的链接与从未存在不可区分）；③ 过期链接不再由创建接口原样返回（改发新链接），管理列表也不再列出；④ 新增 `ShareMakePermanent` 与 `POST /tutor/plans/{id}/share/permanent` 作为**显式**的「设为永久」；⑤ 分享响应与公开页携带到期时间（`expires_at`，永久态为 null），公开页显示「有效期至 X」/「长期有效」。
+  - **回归**：新增 `internal/runtime/tutor/b14_policy_test.go`（6 条：默认期限到期即失效且被删除、永久态长期有效、过期后创建接口发新链接、导出超限被拒且未建临时文件、上限取值被钉住、导出上限不低于可用下限）与 `internal/frontend/serve/tutor_share_term_test.go`（1 条：响应带到期时间、设为永久后为 null）。
 - **iter 397 文档收尾（✅ 完成）**：把 iter 396~397 的代码事实回写进领域笔记与契约文档，**逐条以实测为准**（不采信旧笔记里的数字）。
   - **规模计数全面重算**（此前 8 处过期）：OpenAPI **120 paths / 146 operations**（旧记 119/145）；pytest **188 个 `test_*.py`**、**收集 1736 用例**、`def test_` **1729** 个（旧记 177/178 个文件、1458/1462/1620 用例）；`backend/app` **31,311 行**（旧记 26,583）、`backend/tests` **201 个 .py / 45,055 行**、`frontend/src` **20,569 行**（.ts/.tsx 口径）。核对方式：`pytest --collect-only -q` 实测 1736、`create_app().openapi()` 实测 120/146、目录枚举逐文件累加行数。
   - **`AGENTS.md`**：仓库状态速览的测试计数改为「188 个 `test_*.py`（pytest 收集 1736 用例，iter 397-B9 实测 1734 passed / 2 skipped）」。
@@ -210,6 +215,7 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **`note/06-API全览.md`**：§4 横切守卫矩阵补入 **iter 397 的八项**（启动期开放模式告警 / 开放模式信任面回环守卫 / `.env` token 映射到管理员 / 用户列表分页 + 读限流 / 自重置口令返新 token / 删用户清工作区 / 登录限流桶收敛 / 审批链路与模型贯通）；§6.2 的 Go 侧差距表按 B10/B13 实况改写（资源配额从「无」改为「笔记 500 / 会话 200 / 每会话材料 20 / 每会话方案 50 / KB 200，计数与写入同临界区」；body 限额从「逐端点」改为「`tutorPathGuard` 通用中间件」；错误信封补 27 个哨兵分支与「内部错误不再回显原文」）。
   - **`API.md` §五 REST 代理**：补三条对插件作者有约束的勘误——开放模式下**信任面建立类端点仅限回环**（含具体端点清单）、`GET /api/users` 现分页（`limit` 默认 100 / 上限 500 / `offset`，插件遍历全部用户须按 `total` 分页）、自重置口令**返回新 token**（重置他人不返）。
   - **已核实无需改**：`note/06` 的「唯一认领管理员入口已被 E1 证伪」条目与 `API.md` §11.2/§11.3/§11.5 的审批端点、SSE 重放窗口勘误，B9 提交时已写入且与代码一致。
+- **iter 397-B15（Go 侧 tutor 引入 user 维度，🚧 进行中）**：用户定夺「引入 user 维度：store 按用户分目录，鉴权后按用户过滤」。落点遵循 `plan/reasonix/04` 的分层铁律（**`internal/web` 之外任何内核包不出现 user 概念**，用户差异全部体现在装配参数——路径 root）：tutor 包**保持用户无感知**（它只认识一个 root），由 serve 层按请求解析出**状态空间（space）**并据此选 root 与 Service。
 
 
 - **下一步**：① **B13：Go 侧 KB/材料与剩余项**（K3 KB 配额 TOCTOU、K5/K6 去重进锁、K8 KB 命名统一与 `data/kb` 孤儿清理、K9 PDF 页数/解压预算、K10 progress nodeID 校验、K11 解析并发槽与 whisper 单例、K12 删会话与在途 finalize 竞态、K15 吞错、T5 分享令牌有效期、T13 分页、T15 解析失败吞错、T16 panic 恢复、T17 CSRF 覆盖范围）；② **产品裁决问卷**（Go 侧 tutor 用户归属模型等 6 项）；③ **文档收尾**（`note/08` staging 助手与 `read_unit_content_guarded`、`note/01` 与 `AGENTS.md` 测试计数、`API.md` 开放模式回环限制/用户列表分页/自重置口令返 token/审批端点与重放窗口、`note/06`「唯一认领管理员入口」表述已被 E1 证伪）；④ 回到 Reasonix 阶段① M1 余项。

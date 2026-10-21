@@ -89,6 +89,15 @@
 | `internal/runtime/tutor/pdftext.go` | 内容流解码失败不再静默吞掉：逐页统计失败流数并写日志；全部页面无文本时给出「内容流解码失败」的明确错误，而非笼统的「文本层为空」 |
 | `internal/frontend/serve/tutor.go`（第二批） | 补齐配额与坏输入的拒绝映射：`tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota`（429）、`tutor.bad_log_input` / `tutor.bad_progress_input`（400）——此前笔记/会话配额未映射，落入 default 分支被当成内部错误报 500 |
 | `desktop/frontend-next/src/i18n/kernel.ts`（第二批） | 新增 `tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota` / `tutor.bad_log_input` / `tutor.bad_progress_input` 五条文案 |
+| `internal/runtime/tutor/quota.go`（第三批，用户定夺的配额取值） | 上限放宽为「会话 500 / 每会话材料 50 / 每会话方案 100」（原 200/20/50）——tutor store 是本地单用户空间，上限的作用是约束失控增长而非多租户资源池 |
+| `internal/runtime/tutor/notesio.go`（第三批） | 笔记上限 500 -> 2000 |
+| `internal/runtime/tutor/kb.go`（第三批） | 知识库文档上限 200 -> 500 |
+| `internal/runtime/tutor/backup.go`（第三批） | 还原侧上限随在线上限同步（会话 500 / 每会话材料 50 / 每会话方案 100）——两侧口径必须一致，否则「导出->导入」往返会静默丢数据 |
+| `internal/runtime/tutor/kbio.go`（第三批） | 新增 `KbExportMaxBytes`（256MB）与 `ErrKbExportTooLarge`：知识库导出在**建临时文件之前**先按源字节结算体积，超限即拒（此前无总量上限，200 篇 × 50MB 原件可写出 GB 级 zip 落进系统临时目录） |
+| `internal/runtime/tutor/share.go`（第三批，用户定夺的分享期限） | 分享链接新增 `ExpiresAt`（默认 7 天，`ShareDefaultTTL`）：访问时校验，过期即失效并删除该分享；`ShareMakePermanent` 为「显式设为永久」；过期链接不再由创建接口原样返回（改发新链接），管理列表也不再列出 |
+| `internal/frontend/serve/tutor_share.go`（第三批） | 新增 `POST /tutor/plans/{id}/share/permanent`；分享响应与公开页携带到期时间（`expires_at`，永久态为 null） |
+| `internal/frontend/serve/tutor.go`（第三批） | `tutor.kb_export_too_large` 拒绝映射（413，提示用 ids 参数分批导出） |
+| `desktop/frontend-next/src/i18n/kernel.ts`（第三批） | 新增 `tutor.kb_export_too_large` 文案 |
 
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 

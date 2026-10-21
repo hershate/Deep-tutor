@@ -20,10 +20,15 @@ import (
 // The store's live caps. The import path used to carry its own copy of a few
 // of them, which is how the two drifted apart: the caps were enforced where
 // the backup restored a document and nowhere else.
+//
+// The values are the user's call (2026-10-21): the tutor store is a local
+// single-user space, so the caps bound runaway growth rather than a
+// multi-tenant resource pool — they sit well above what an ordinary study
+// session produces.
 const (
-	maxSessions            = 200
-	maxMaterialsPerSession = 20
-	maxPlansPerSession     = 50
+	maxSessions            = 500
+	maxMaterialsPerSession = 50
+	maxPlansPerSession     = 100
 	// A check-in's own bounds: the ledger keeps every entry in one file, so
 	// an unbounded note or minutes would make it unreadable.
 	maxLogMinutes   = 1440
