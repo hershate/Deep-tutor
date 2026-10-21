@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -122,7 +123,7 @@ func (t *reconnectingTransport) close() {
 	active, dialing := t.active, t.dialing
 	t.active = nil
 	t.mu.Unlock()
-	if active != nil {
+	if !transportIsNil(active) {
 		active.close()
 	}
 	if dialing == nil {
@@ -205,6 +206,26 @@ func (t *reconnectingTransport) renew(ctx context.Context, stale transport) (tra
 // handshaken, for a caller that opens the session itself. The old child is shut
 // down first, so a server that holds a port or a file lock never meets its own
 // predecessor, and the dial is bounded by ctx as well as the startup budget.
+// transportIsNil reports whether a transport is absent.
+//
+// A transport interface that carries a nil pointer is not itself nil, so a
+// plain `!= nil` check lets it through and the first method call on it
+// faults. A dial that failed can hand back exactly that: the constructors
+// return a typed nil next to their error, and the error alone does not stop
+// the caller from closing what it was given.
+func transportIsNil(t transport) bool {
+	if t == nil {
+		return true
+	}
+	v := reflect.ValueOf(t)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.UnsafePointer:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 func (t *reconnectingTransport) restart(ctx context.Context) error {
 	for {
 		t.mu.Lock()
@@ -251,7 +272,7 @@ func (t *reconnectingTransport) restart(ctx context.Context) error {
 	}
 	t.mu.Unlock()
 	close(done)
-	if err != nil && next != nil {
+	if err != nil && !transportIsNil(next) {
 		next.close()
 	}
 	return err
@@ -270,6 +291,9 @@ func (t *reconnectingTransport) dialOne() (transport, error) {
 	next, err := t.dial(t.lifeCtx, callCtx)
 	if err != nil {
 		return nil, err
+	}
+	if transportIsNil(next) {
+		return nil, errors.New("mcp dial reported success without a transport")
 	}
 	if err := t.handshake(callCtx, next); err != nil {
 		next.close()

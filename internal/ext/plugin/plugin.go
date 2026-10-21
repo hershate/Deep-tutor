@@ -1284,14 +1284,31 @@ func (s Spec) ServerAuthorized() bool {
 
 // newTransport builds the transport for a spec's declared type. Empty / unknown
 // defaults to stdio.
+//
+// Every branch returns an explicit nil interface rather than the typed nil the
+// constructors hand back: a transport interface holding a nil *stdioTransport
+// is not itself nil, so every `!= nil` check downstream would pass it on and
+// the first method call on it would fault.
 func newTransport(ctx context.Context, s Spec) (transport, error) {
 	switch strings.ToLower(strings.TrimSpace(s.Type)) {
 	case "", "stdio":
-		return newStdioTransport(ctx, s)
+		t, err := newStdioTransport(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return t, nil
 	case "http", "streamable-http", "streamable_http":
-		return newHTTPTransport(s)
+		t, err := newHTTPTransport(s)
+		if err != nil {
+			return nil, err
+		}
+		return t, nil
 	case "sse":
-		return newSSETransport(ctx, s)
+		t, err := newSSETransport(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return t, nil
 	default:
 		return nil, fmt.Errorf("unknown transport type %q (want stdio|http|sse)", s.Type)
 	}

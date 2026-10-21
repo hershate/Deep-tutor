@@ -633,7 +633,14 @@ func waitFinishedWithinBudget(wait func(), budget time.Duration) bool {
 // process tree if needed (a launcher's surviving grandchild can otherwise keep
 // inherited pipes open). Both paths are budgeted so one wedged server can never
 // stall a boot or turn teardown.
+//
+// A nil receiver is a no-op: a transport that failed to build can still reach
+// this through an interface, and faulting in a teardown path takes the whole
+// process with it.
 func (t *stdioTransport) close() {
+	if t == nil {
+		return
+	}
 	if t.releaseSlot != nil {
 		t.releaseSlot() // idempotent; frees the bounded CodeGraph instance slot
 	}

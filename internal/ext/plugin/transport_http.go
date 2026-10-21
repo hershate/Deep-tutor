@@ -174,7 +174,14 @@ func (t *httpTransport) notify(ctx context.Context, method string, params any) e
 // close ends the server's session too, when there is one. Best effort: a
 // server that does not allow DELETE answers 405, and the session then expires
 // on its own.
+//
+// A nil receiver is a no-op: a transport that failed to build can still reach
+// this through an interface, and faulting in a teardown path takes the whole
+// process with it.
 func (t *httpTransport) close() {
+	if t == nil {
+		return
+	}
 	if sid := t.sessionID(); sid != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), cancelNotifyLimit)
 		if req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, nil); err == nil {

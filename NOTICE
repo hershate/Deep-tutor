@@ -184,6 +184,19 @@
 
 **不改的形态**（属 M1.4 品牌化范围，机械改名会连带改协议标识与产品语义）：产品名 `Reasonix`、工作区目录 `.reasonix/`、ACP vendor method `_reasonix.io/`、git 分支 `reasonix/delivery-*`、HTTP User-Agent `Reasonix/`、上游仓库地址 `github.com/esengine/DeepSeek-Reasonix`、运行时配置名 `reasonix/config.toml`。`sdk/go` 仍是独立 module `github.com/esengine/DeepSeek-Reasonix/sdk/go`。
 
+**代码级修改（2026-10-21，MCP transport 启动失败导致进程崩溃修复）**：`internal/ext/plugin` 属 Reasonix host checks 清单中的 sensitive 路径，本项修改经 review + security_review 后合入。
+
+缺陷：`newTransport` 以 `return newStdioTransport(ctx, s)` 的形式把构造器的 `(*stdioTransport)(nil)` 直接装入 `transport` 接口。接口值非 nil，故 `reconnectingTransport.restart` 中 `next != nil` 判空失效，对该值调用 `close()` 即空指针解引用。触发路径：MCP stdio 服务器启动失败（命令缺失、可执行文件解析失败、沙箱拒绝）→ `Client.redial` → `restart` → **panic 终止整个进程**。长时间运行的服务中，任一插件启动失败即可打挂主进程。
+
+| 文件 | 修改 |
+|---|---|
+| `internal/ext/plugin/plugin.go` | `newTransport` 三个分支改为显式返回 `nil, err`，不再把构造器的 typed nil 装入接口 |
+| `internal/ext/plugin/transport_stdio.go` | `(*stdioTransport).close()` 增加 nil 接收者早退 |
+| `internal/ext/plugin/transport_http.go` | `(*httpTransport).close()` 增加 nil 接收者早退 |
+| `internal/ext/plugin/transport_sse.go` | `(*sseTransport).close()` 增加 nil 接收者早退 |
+| `internal/ext/plugin/transport_reconnect.go` | 新增 `transportIsNil`（按 `reflect.Kind` 识别接口内的 nil 指针）；`restart` 的清理条件、`dialOne` 的成功条件、`close` 的活动连接条件改用该判定；`dialOne` 另加「dial 报成功但无 transport」的显式拒绝 |
+| `internal/ext/plugin/transport_typednil_test.go` | 本仓新增：typed nil 的 5 条回归（工厂返回 nil 接口、三种 transport 的 nil 接收者 close、restart 不 panic、dialOne 拒绝空 transport、`transportIsNil` 双向判定） |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

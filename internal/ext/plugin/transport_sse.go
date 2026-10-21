@@ -396,7 +396,13 @@ func (t *sseTransport) failPending(err error) {
 	t.mu.Unlock()
 }
 
+// close is a no-op on a nil receiver: a transport that failed to build can
+// still reach this through an interface, and faulting in a teardown path
+// takes the whole process with it.
 func (t *sseTransport) close() {
+	if t == nil {
+		return
+	}
 	t.closeOnce.Do(func() {
 		t.cancel()
 		t.client.CloseIdleConnections()
