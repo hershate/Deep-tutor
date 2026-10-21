@@ -22,7 +22,7 @@ func TestTrustApprovesWhatTheWorkspaceNamesOnlyWhenAsked(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".reasonix", "settings.json"), []byte(`{"hooks":{"Stop":[{"command":"echo stop"}]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rg := filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "reasonix-test", "rg")
+	rg := filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "deep-tutor-test", "rg")
 	if err := os.WriteFile(filepath.Join(root, "reasonix.toml"), []byte("[tools.search]\nrg_path = '"+rg+"'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

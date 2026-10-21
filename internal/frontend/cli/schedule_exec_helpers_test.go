@@ -234,7 +234,7 @@ api_key_env = "SCHED_FAKE_KEY"
 
 var fakeModelRef = schedule.Model{Provider: "fake", Model: "fake-model"}
 
-// child starts `reasonix schedule exec` as a separate process the way the
+// child starts `deep-tutor schedule exec` as a separate process the way the
 // supervisor does, but leaves the stdin pipe to the test.
 func (w *execWorld) child() *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "schedule", "exec", w.run.TriggerID)

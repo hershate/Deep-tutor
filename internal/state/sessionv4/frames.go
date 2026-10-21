@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	codec          = "reasonix.session.linear/v4"
+	codec          = "deep-tutor.session.linear/v4"
 	schemaVersion  = 4
 	maxFrameBytes  = 8 << 20
 	frameHeaderLen = 12

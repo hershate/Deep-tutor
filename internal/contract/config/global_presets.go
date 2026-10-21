@@ -22,7 +22,7 @@ var (
 func openRouterAttributionHeaders() map[string]string {
 	return map[string]string{
 		"HTTP-Referer":            "https://reasonix.io",
-		"X-OpenRouter-Title":      "Reasonix",
+		"X-OpenRouter-Title":      "Deep-tutor",
 		"X-OpenRouter-Categories": "cli-agent",
 	}
 }

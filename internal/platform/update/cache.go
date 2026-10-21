@@ -84,7 +84,7 @@ func defaultCacheDir() (string, error) {
 	if err != nil {
 		base = scratchroot.Base()
 	}
-	return filepath.Join(base, "Reasonix", "updates"), nil
+	return filepath.Join(base, "Deep-tutor", "updates"), nil
 }
 
 // record is the metadata file. It stays separate from Cached because it carries
@@ -241,5 +241,5 @@ func artifactName(asset Asset, version string) string {
 		}
 	}
 	clean := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-").Replace(version)
-	return "Reasonix-" + clean + "-" + CurrentPlatform() + ".update"
+	return "Deep-tutor-" + clean + "-" + CurrentPlatform() + ".update"
 }

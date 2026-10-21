@@ -60,12 +60,12 @@ func (m configMigrations) report(sink event.Sink, cfg *config.Config) {
 	reportRetiredKey(sink, m.redactToolOutput, m.redactToolOutputErr,
 		"Deprecated redact_tool_output setting was removed.",
 		"Deprecated redact_tool_output setting was ignored.",
-		"[secrets].redact_tool_output no longer has any effect: ordinary model/tool content and local session/job artifacts now preserve their original text. Explicit diagnostics and reasonix doctor redact-sessions still redact credential values.",
+		"[secrets].redact_tool_output no longer has any effect: ordinary model/tool content and local session/job artifacts now preserve their original text. Explicit diagnostics and deep-tutor doctor redact-sessions still redact credential values.",
 		" The old key could not be removed: ")
 	reportRetiredKey(sink, m.memoryCompiler, m.memoryCompilerErr,
 		"Deprecated memory_compiler setting was removed.",
 		"Deprecated memory_compiler setting was ignored.",
-		"The Memory v5 execution compiler has been removed from Reasonix: [agent].memory_compiler no longer has any effect, user turns are never replaced by compiled execution contracts, and no compiler state is written. Old transcripts containing compiled turns still display normally.",
+		"The Memory v5 execution compiler has been removed from Deep-tutor: [agent].memory_compiler no longer has any effect, user turns are never replaced by compiled execution contracts, and no compiler state is written. Old transcripts containing compiled turns still display normally.",
 		" The old key could not be removed: ")
 	reportRetiredKey(sink, m.multiThreshold, m.multiThresholdErr,
 		"上下文维护已简化为单一自动压缩阈值。",
@@ -78,7 +78,7 @@ func (m configMigrations) reportStepLimits(sink event.Sink, cfg *config.Config) 
 	if m.stepLimits || cfg.IgnoredLegacyAgentStepLimits() {
 		level := event.LevelInfo
 		text := "Deprecated agent step limits were removed."
-		detail := "[agent].max_steps and planner_max_steps are no longer used; Reasonix now manages interactive progress automatically. " +
+		detail := "[agent].max_steps and planner_max_steps are no longer used; Deep-tutor now manages interactive progress automatically. " +
 			"Use the CLI --max-steps flag for a one-off run."
 		if m.stepLimitsErr != nil {
 			level = event.LevelWarn

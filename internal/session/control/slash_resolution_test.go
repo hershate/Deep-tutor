@@ -63,7 +63,7 @@ func TestResolvedBuiltinDocsSlashNameMatchesRuntimeOwner(t *testing.T) {
 				t.Fatalf("short built-in = %v, owner=%v", got, tt.owner)
 			}
 			if !IsBuiltinDocsSlash(ReasonixDocsSlashName, tt.commands, tt.skills) {
-				t.Fatal("preferred qualified Reasonix docs name should resolve to the built-in when unoccupied")
+				t.Fatal("preferred qualified Deep-tutor docs name should resolve to the built-in when unoccupied")
 			}
 		})
 	}
@@ -73,13 +73,13 @@ func TestQualifiedBuiltinDocsSlashPreservesExistingQualifiedCommands(t *testing.
 	commands := []command.Command{
 		{Name: DocsSlashName},
 		{Name: ReasonixDocsSlashName},
-		{Name: "reasonix:builtin:docs"},
+		{Name: "deep-tutor:builtin:docs"},
 	}
-	want := "reasonix:builtin:docs:2"
+	want := "deep-tutor:builtin:docs:2"
 	if got := ResolvedBuiltinSlashName(DocsSlashName, commands, nil); got != want {
 		t.Fatalf("resolved built-in name = %q, want %q", got, want)
 	}
-	for _, existing := range []string{DocsSlashName, ReasonixDocsSlashName, "reasonix:builtin:docs"} {
+	for _, existing := range []string{DocsSlashName, ReasonixDocsSlashName, "deep-tutor:builtin:docs"} {
 		if IsBuiltinDocsSlash(existing, commands, nil) {
 			t.Fatalf("existing command %q was displaced by the built-in", existing)
 		}

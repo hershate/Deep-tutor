@@ -70,8 +70,8 @@ var (
 	reArrow    = regexp.MustCompile(`[↑↓←→]`)
 	// Localizable filler inside a backtick span is normalized away before
 	// comparison so translations may localize examples:
-	//   `reasonix run "your task"`   vs   `reasonix run "你的任務"`
-	//   `reasonix remote add <name>` vs   `reasonix remote add <名稱>`
+	//   `deep-tutor run "your task"`   vs   `deep-tutor run "你的任務"`
+	//   `deep-tutor remote add <name>` vs   `deep-tutor remote add <名稱>`
 	reSpanQuoted = regexp.MustCompile(`"[^"]*"`)
 	reSpanAngle  = regexp.MustCompile(`<[^>]*>`)
 )

@@ -11,17 +11,17 @@ import (
 	"deep-tutor/internal/session/control"
 )
 
-// sessionLeaseResumeRefusal is the startup-time refusal for `reasonix
-// [--resume|--continue]` and `reasonix run --resume/--continue`: it names the
+// sessionLeaseResumeRefusal is the startup-time refusal for `deep-tutor
+// [--resume|--continue]` and `deep-tutor run --resume/--continue`: it names the
 // holder and offers the two ways out (close the holder, or continue in a
 // duplicated session via --copy).
 func sessionLeaseResumeRefusal(err error, takeover bool) string {
 	if takeover {
 		return control.SessionInUseMessage(err) +
-			"; --takeover cannot take a session from another Reasonix process: close it, or rerun with --copy to continue in a duplicated session"
+			"; --takeover cannot take a session from another Deep-tutor process: close it, or rerun with --copy to continue in a duplicated session"
 	}
 	return control.SessionInUseMessage(err) +
-		"; close the other Reasonix window or process, or rerun with --copy to continue in a duplicated session"
+		"; close the other Deep-tutor window or process, or rerun with --copy to continue in a duplicated session"
 }
 
 // cliSessionRecoveredHandler moves the single-session CLI lease during the

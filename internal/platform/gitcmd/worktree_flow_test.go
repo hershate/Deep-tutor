@@ -20,8 +20,8 @@ func TestNoCheckoutThenResetSeesConditionalInclude(t *testing.T) {
 		{"gitdir detached", "gitdir:**/worktrees/**", func(dst string) []string {
 			return []string{"worktree", "add", "--no-checkout", "--detach", dst, "HEAD"}
 		}},
-		{"onbranch -b", "onbranch:reasonix/**", func(dst string) []string {
-			return []string{"worktree", "add", "--no-checkout", "-b", "reasonix/delivery-x", dst, "HEAD"}
+		{"onbranch -b", "onbranch:deep-tutor/**", func(dst string) []string {
+			return []string{"worktree", "add", "--no-checkout", "-b", "deep-tutor/delivery-x", dst, "HEAD"}
 		}},
 		{"worktree-scope include", "gitdir:**/worktrees/**", nil},
 	} {

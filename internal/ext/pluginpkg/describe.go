@@ -30,7 +30,7 @@ func InstalledListText(reasonixHome string) (string, error) {
 		return "", err
 	}
 	if len(st.Plugins) == 0 {
-		return "plugins: none installed\ninstall: reasonix plugin install <source> --yes\nStudio: Settings -> Extension -> Installed -> Plugin packages -> Add", nil
+		return "plugins: none installed\ninstall: deep-tutor plugin install <source> --yes\nStudio: Settings -> Extension -> Installed -> Plugin packages -> Add", nil
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "plugins (%d):\n", len(st.Plugins))
@@ -172,7 +172,7 @@ func RuntimeTrustText(rt *RuntimeSpec) string {
 	if len(rt.Capabilities) > 0 {
 		fmt.Fprintf(&b, "  capabilities: %s\n", strings.Join(rt.Capabilities, ", "))
 	}
-	b.WriteString("  risk: the runtime process runs inside Reasonix — it can read the full session and environment, bypass permissions, and operate this machine directly.\n")
+	b.WriteString("  risk: the runtime process runs inside Deep-tutor — it can read the full session and environment, bypass permissions, and operate this machine directly.\n")
 	return b.String()
 }
 

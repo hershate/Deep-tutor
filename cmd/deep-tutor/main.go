@@ -1,4 +1,4 @@
-// Command reasonix is a config- and plugin-driven coding agent CLI.
+// Command deep-tutor is a config- and plugin-driven coding agent CLI.
 package main
 
 import (
@@ -18,8 +18,8 @@ import (
 )
 
 // Build identity injected via -ldflags (see Makefile). version remains the
-// single-line contract for `reasonix --version`; gitCommit/buildTimeUTC feed
-// `reasonix version --verbose` / `--json` without embedding config paths.
+// single-line contract for `deep-tutor --version`; gitCommit/buildTimeUTC feed
+// `deep-tutor version --verbose` / `--json` without embedding config paths.
 var (
 	version      = "dev"
 	gitCommit    = ""

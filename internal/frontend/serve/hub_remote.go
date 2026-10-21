@@ -18,7 +18,7 @@ import (
 	"deep-tutor/internal/contract/config"
 )
 
-// RemoteEndpoint is a `reasonix serve` on another machine, already reachable at
+// RemoteEndpoint is a `deep-tutor serve` on another machine, already reachable at
 // a local address — the near end of an SSH forward. The hub takes the endpoint
 // and not the connection: what makes a pane remote is where its HTTP goes, so
 // SSH stays above this file and these panes stay testable over httptest.

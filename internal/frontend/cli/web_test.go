@@ -26,7 +26,7 @@ func TestRunDispatchesWebCommand(t *testing.T) {
 		return 29
 	}
 	if code := Run([]string{"web", "--addr", "127.0.0.1:0"}, "test-version"); code != 29 {
-		t.Fatalf("reasonix web exit code = %d, want 29", code)
+		t.Fatalf("deep-tutor web exit code = %d, want 29", code)
 	}
 	// The version is what telemetry.Enabled checks for a release build, so a
 	// command that never receives it reports nothing and no test would notice.
@@ -34,7 +34,7 @@ func TestRunDispatchesWebCommand(t *testing.T) {
 		t.Fatalf("version reaching the web command = %q, want %q", gotVersion, "test-version")
 	}
 	if strings.Join(got, " ") != "--addr 127.0.0.1:0" {
-		t.Fatalf("reasonix web args = %q", got)
+		t.Fatalf("deep-tutor web args = %q", got)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestHelpListsWebCommand(t *testing.T) {
 			t.Fatalf("help rc = %d, want 0", rc)
 		}
 	})
-	if !strings.Contains(out, "reasonix web") {
+	if !strings.Contains(out, "deep-tutor web") {
 		t.Fatalf("help output missing web command:\n%s", out)
 	}
 }
@@ -142,7 +142,7 @@ func TestRunWebHelpDoesNotOpenBrowser(t *testing.T) {
 	previous := openBrowserURL
 	t.Cleanup(func() { openBrowserURL = previous })
 	openBrowserURL = func(string) error {
-		t.Fatal("reasonix web --help must not open a browser")
+		t.Fatal("deep-tutor web --help must not open a browser")
 		return nil
 	}
 	if code := runWeb([]string{"--help"}, "v1.20.0"); code != 0 {

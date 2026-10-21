@@ -34,7 +34,7 @@ func migrationRescueHome(t *testing.T) string {
 func isolateMigrationHome(t *testing.T) string {
 	t.Helper()
 	home := migrationRescueHome(t)
-	t.Setenv("REASONIX_HOME", filepath.Join(home, "new-reasonix"))
+	t.Setenv("REASONIX_HOME", filepath.Join(home, "new-deep-tutor"))
 	t.Setenv("REASONIX_STATE_HOME", "")
 	return home
 }
@@ -196,7 +196,7 @@ func TestRunLegacyRescueSkipsImplicitSourcesWhenIsolated(t *testing.T) {
 
 func TestRunLegacyRescueCommandImportsFromExplicitInstallDir(t *testing.T) {
 	home := isolateMigrationHome(t)
-	installRoot := filepath.Join(home, "Custom Reasonix")
+	installRoot := filepath.Join(home, "Custom Deep-tutor")
 	legacySessions := filepath.Join(installRoot, "sessions")
 	if err := os.MkdirAll(legacySessions, 0o755); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestMigrateLegacySessionSourcesSkipsCurrentProjectTree(t *testing.T) {
 	t.Setenv("REASONIX_HOME", "")
 	t.Setenv("REASONIX_STATE_HOME", "")
 	if !samePath(config.MemoryUserDir(), filepath.Join(home, ".reasonix")) {
-		t.Skip("current Reasonix home is not ~/.reasonix on this platform")
+		t.Skip("current Deep-tutor home is not ~/.reasonix on this platform")
 	}
 
 	projectSessions := filepath.Join(config.MemoryUserDir(), "projects", "current-project", "sessions")

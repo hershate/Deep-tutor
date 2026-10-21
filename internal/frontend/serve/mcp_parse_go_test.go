@@ -20,14 +20,14 @@ func TestMCPParseGoNameUsesRunPackage(t *testing.T) {
 		input string
 		name  string
 	}{
-		{"go run example.com/tools/reasonix-server@latest --stdio", "reasonix-server"},
-		{"go run -tags=integration example.com/tools/reasonix-server@v1.2.3 --stdio", "reasonix-server"},
-		{"go run -tags integration example.com/tools/reasonix-server@v1.2.3 --stdio", "reasonix-server"},
-		{"go -C workspace run ./cmd/reasonix-server client-mode", "reasonix-server"},
-		{"/usr/local/go/bin/go run ./cmd/reasonix-server client-mode", "reasonix-server"},
+		{"go run example.com/tools/deep-tutor-server@latest --stdio", "deep-tutor-server"},
+		{"go run -tags=integration example.com/tools/deep-tutor-server@v1.2.3 --stdio", "deep-tutor-server"},
+		{"go run -tags integration example.com/tools/deep-tutor-server@v1.2.3 --stdio", "deep-tutor-server"},
+		{"go -C workspace run ./cmd/deep-tutor-server client-mode", "deep-tutor-server"},
+		{"/usr/local/go/bin/go run ./cmd/deep-tutor-server client-mode", "deep-tutor-server"},
 		{"go run -tags integration", "mcp-server"},
-		{"go test ./cmd/reasonix-server", "mcp-server"},
-		{"reasonix mcp add manual -- go run ./cmd/reasonix-server", "manual"},
+		{"go test ./cmd/deep-tutor-server", "mcp-server"},
+		{"deep-tutor mcp add manual -- go run ./cmd/deep-tutor-server", "manual"},
 	} {
 		resp := postJSON(t, srv.URL+"/mcp/parse", map[string]string{"input": tc.input})
 		var got struct {
@@ -40,7 +40,7 @@ func TestMCPParseGoNameUsesRunPackage(t *testing.T) {
 			t.Fatalf("preview %q: status=%d body=%+v err=%v", tc.input, resp.StatusCode, got, err)
 		}
 		entry := got.Servers[0]
-		command := strings.TrimPrefix(tc.input, "reasonix mcp add manual -- ")
+		command := strings.TrimPrefix(tc.input, "deep-tutor mcp add manual -- ")
 		if entry.Name != tc.name || entry.Transport != "stdio" || entry.Command+" "+strings.Join(entry.Args, " ") != command {
 			t.Errorf("preview %q = %+v, want name %q and original argv", tc.input, entry, tc.name)
 		}

@@ -53,7 +53,7 @@ func (s *stubAttacher) Probe(context.Context, string) (RemoteProbe, error) {
 	return RemoteProbe{OS: "linux", Arch: "amd64", Home: "/home/t", Kernel: "/usr/bin/reasonix", Version: "2.9.0", Ready: true}, nil
 }
 
-// remoteKernel stands in for a `reasonix serve` on another machine. It records
+// remoteKernel stands in for a `deep-tutor serve` on another machine. It records
 // what the proxy presented so the tests can assert on the far side.
 type remoteKernel struct {
 	*httptest.Server
@@ -495,7 +495,7 @@ func TestRemoteHostsJoinTheBookWithLiveLinkState(t *testing.T) {
 	home := testenv.TempDir(t)
 	t.Setenv("REASONIX_HOME", home)
 	// Remote hosts are user-global, so the book lives in the home config, never
-	// in a project file — the same rule `reasonix remote add` writes under.
+	// in a project file — the same rule `deep-tutor remote add` writes under.
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(`
 [[remote.hosts]]
 name = "gpu-box"

@@ -23,7 +23,7 @@ api_key_env = "CUSTOM_KEY"
 
 [[plugins]]
 name = "missing-command"
-command = "reasonix-command-that-does-not-exist"
+command = "deep-tutor-command-that-does-not-exist"
 
 [permissions]
 allow = ["bash"]

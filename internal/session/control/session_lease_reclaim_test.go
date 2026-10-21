@@ -105,7 +105,7 @@ func TestRebindToTheHeldPathIsANoOp(t *testing.T) {
 	}
 }
 
-// "Another Reasonix process (pid <ours>)" reads as a second window to close,
+// "Another Deep-tutor process (pid <ours>)" reads as a second window to close,
 // which is what made the report unactionable.
 func TestSessionInUseMessageDoesNotCallThisProcessAnother(t *testing.T) {
 	held := &sessionstore.SessionLeaseError{
@@ -113,11 +113,11 @@ func TestSessionInUseMessageDoesNotCallThisProcessAnother(t *testing.T) {
 		Info: &sessionstore.SessionLeaseInfo{PID: os.Getpid(), WriterID: sessionstore.SessionWriterID()},
 	}
 	msg := SessionInUseMessage(held)
-	if strings.Contains(msg, "another Reasonix process") {
+	if strings.Contains(msg, "another Deep-tutor process") {
 		t.Fatalf("SessionInUseMessage = %q, want it not to blame a separate process", msg)
 	}
-	if !strings.Contains(msg, "this Reasonix") {
-		t.Fatalf("SessionInUseMessage = %q, want it to say the holder is this Reasonix", msg)
+	if !strings.Contains(msg, "this Deep-tutor") {
+		t.Fatalf("SessionInUseMessage = %q, want it to say the holder is this Deep-tutor", msg)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestSessionInUseMessageStillNamesAForeignHolder(t *testing.T) {
 		Info: &sessionstore.SessionLeaseInfo{PID: os.Getpid() + 1, Hostname: "DESKTOP-X"},
 	}
 	msg := SessionInUseMessage(held)
-	if !strings.Contains(msg, "another Reasonix process") || !strings.Contains(msg, "DESKTOP-X") {
+	if !strings.Contains(msg, "another Deep-tutor process") || !strings.Contains(msg, "DESKTOP-X") {
 		t.Fatalf("SessionInUseMessage = %q, want the foreign holder named", msg)
 	}
 }

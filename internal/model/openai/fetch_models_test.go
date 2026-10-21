@@ -44,7 +44,7 @@ func TestFetchModels(t *testing.T) {
 
 func TestFetchModelsSendsCustomHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("HTTP-Referer") != "https://app.example" || r.Header.Get("X-Title") != "Reasonix" {
+		if r.Header.Get("HTTP-Referer") != "https://app.example" || r.Header.Get("X-Title") != "Deep-tutor" {
 			http.Error(w, `{"error":"missing headers"}`, http.StatusForbidden)
 			return
 		}
@@ -56,7 +56,7 @@ func TestFetchModelsSendsCustomHeaders(t *testing.T) {
 
 	models, err := FetchModels(context.Background(), srv.URL, "key", map[string]string{
 		"HTTP-Referer": "https://app.example",
-		"X-Title":      "Reasonix",
+		"X-Title":      "Deep-tutor",
 	})
 	if err != nil {
 		t.Fatalf("FetchModels: %v", err)

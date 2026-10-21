@@ -182,8 +182,8 @@ func TestAdoptMergesIntoADirectoryTheNewRootAlreadyHas(t *testing.T) {
 func TestAdoptBringsAcrossLooseFilesWithoutOverwriting(t *testing.T) {
 	home, state := relocated(t)
 	put(t, filepath.Join(home, "AGENTS.md"), "standing rules")
-	put(t, filepath.Join(home, "REASONIX.md"), "old reasonix")
-	put(t, filepath.Join(state, "REASONIX.md"), "new reasonix")
+	put(t, filepath.Join(home, "REASONIX.md"), "old deep-tutor")
+	put(t, filepath.Join(state, "REASONIX.md"), "new deep-tutor")
 	put(t, filepath.Join(home, "machine-id.key"), "key")
 	put(t, filepath.Join(home, "schedules", "a.json"), "{}")
 	put(t, filepath.Join(state, "schedules", "b.json"), "{}")
@@ -192,7 +192,7 @@ func TestAdoptBringsAcrossLooseFilesWithoutOverwriting(t *testing.T) {
 	if got := read(t, filepath.Join(state, "AGENTS.md")); got != "standing rules" {
 		t.Errorf("AGENTS.md = %q", got)
 	}
-	if got := read(t, filepath.Join(state, "REASONIX.md")); got != "new reasonix" {
+	if got := read(t, filepath.Join(state, "REASONIX.md")); got != "new deep-tutor" {
 		t.Errorf("REASONIX.md was overwritten: %q", got)
 	}
 	if !exists(filepath.Join(home, "REASONIX.md")) {

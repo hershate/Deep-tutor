@@ -45,7 +45,7 @@ func (c *Controller) continueForeignSession(path string) (string, error) {
 		Kind:  event.Notice,
 		Level: event.LevelInfo,
 		Code:  event.NoticeCodeSessionContinuedFrom1x,
-		Text:  "this conversation was saved by Reasonix 1.x, which 2.x reads but does not write; it continues in a new 2.x session, and 1.x still has the original",
+		Text:  "this conversation was saved by Deep-tutor 1.x, which 2.x reads but does not write; it continues in a new 2.x session, and 1.x still has the original",
 	})
 	return newPath, nil
 }

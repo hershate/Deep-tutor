@@ -1239,7 +1239,7 @@ func TestSubmitQualifiedReasonixDocsPreservesExistingCommandAndUsesNextFallback(
 		}),
 	})
 
-	c.Submit("/reasonix:docs existing workflow")
+	c.Submit("/deep-tutor:docs existing workflow")
 	waitForTurnDone(t, events)
 	if len(runner.inputs) != 1 {
 		t.Fatalf("qualified custom command model turns = %d, inputs=%q", len(runner.inputs), runner.inputs)
@@ -1249,7 +1249,7 @@ func TestSubmitQualifiedReasonixDocsPreservesExistingCommandAndUsesNextFallback(
 	}
 	waitIdle(t, c)
 
-	c.Submit("/reasonix:builtin:docs REASONIX_HOME configuration paths")
+	c.Submit("/deep-tutor:builtin:docs REASONIX_HOME configuration paths")
 	waitForTurnDone(t, events)
 	if len(runner.inputs) != 2 {
 		t.Fatalf("generated docs fallback model turns = %d, inputs=%q", len(runner.inputs), runner.inputs)

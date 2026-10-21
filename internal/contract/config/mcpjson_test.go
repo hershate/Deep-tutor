@@ -220,7 +220,7 @@ func TestMCPJSONUpdateRemovesRetiredApprovalFieldsAndPreservesUnknownFields(t *t
 		t.Fatal("unknown-only tool entry was removed")
 	}
 	if _, ok := tools["remove_keep"]["approval_mode"]; ok {
-		t.Fatal("removed Reasonix approval mode survived")
+		t.Fatal("removed Deep-tutor approval mode survived")
 	}
 	if _, ok := tools["remove_keep"]["enabled"]; !ok {
 		t.Fatal("removing approval mode removed external fields")
@@ -514,7 +514,7 @@ command = "global-mcp"
 	if err := os.WriteFile(filepath.Join(root, "reasonix.toml"), []byte(`
 [[plugins]]
 name = "shared"
-command = "project-reasonix-mcp"
+command = "project-deep-tutor-mcp"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +523,7 @@ command = "project-reasonix-mcp"
 		t.Fatal(err)
 	}
 	entry, ok = pluginEntryByName(cfg.Plugins, "shared")
-	if !ok || entry.Command != "project-reasonix-mcp" || entry.Source != MCPSourceProjectConfig {
+	if !ok || entry.Command != "project-deep-tutor-mcp" || entry.Source != MCPSourceProjectConfig {
 		t.Fatalf("reasonix.toml + .mcp.json + global effective entry = %+v, want project reasonix.toml", entry)
 	}
 }
@@ -594,7 +594,7 @@ command = "global-mcp"
 	if err := os.WriteFile(projectPath, []byte(`
 [[plugins]]
 name = "shared"
-command = "project-reasonix-mcp"
+command = "project-deep-tutor-mcp"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

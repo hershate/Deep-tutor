@@ -22,7 +22,7 @@ func TestFolderRefusalIsPerCall(t *testing.T) {
 		wantCode string
 		wantText string
 	}{
-		{"plain write", permission.New("ask", nil, nil, nil), "write_file", write, permission.RefusalUntrustedFolder, "reasonix trust --dir '/work/it'\\''s'"},
+		{"plain write", permission.New("ask", nil, nil, nil), "write_file", write, permission.RefusalUntrustedFolder, "deep-tutor trust --dir '/work/it'\\''s'"},
 		{"ask rule", permission.New("ask", nil, []string{"write_file"}, nil), "write_file", write, permission.RefusalUnattended, "no interactive approver"},
 		{"write scope escape", permission.New("ask", nil, nil, nil), "extend_write_paths", json.RawMessage(`{"path":"/x"}`), permission.RefusalUnattended, "no interactive approver"},
 		{"high risk install plan", permission.New("ask", nil, nil, nil), "install_source", json.RawMessage(`{"planId":"high:abc","apply":true}`), permission.RefusalUnattended, "no interactive approver"},

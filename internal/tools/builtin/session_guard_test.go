@@ -44,7 +44,7 @@ func TestSessionDataGuardDeniesSessionStores(t *testing.T) {
 	} {
 		if err := g.Check(target); err == nil {
 			t.Errorf("Check(%q) = nil, want session-data denial", target)
-		} else if !strings.Contains(err.Error(), "Reasonix's own session/state data") {
+		} else if !strings.Contains(err.Error(), "Deep-tutor's own session/state data") {
 			t.Errorf("Check(%q) error %q does not name session/state data", target, err)
 		}
 	}
@@ -328,7 +328,7 @@ func TestBashAppendsSessionDataHint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bash: %v", err)
 	}
-	if !strings.Contains(out, "WARNING: this command referenced Reasonix's own session/state data") {
+	if !strings.Contains(out, "WARNING: this command referenced Deep-tutor's own session/state data") {
 		t.Fatalf("bash output missing session-data warning:\n%s", out)
 	}
 	// An ordinary command stays clean.

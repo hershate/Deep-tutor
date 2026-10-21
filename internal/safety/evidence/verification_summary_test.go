@@ -43,13 +43,13 @@ func TestGoBuildAlwaysCountsAsMutation(t *testing.T) {
 		"go build -coverpkg ./... ./cmd/reasonix",
 		"go build -pkgdir ./... ./cmd/reasonix",
 		"go build -pkgdir=./... ./cmd/reasonix",
-		"go build -o reasonix ./...",
-		"go build -o=reasonix ./...",
+		"go build -o deep-tutor ./...",
+		"go build -o=deep-tutor ./...",
 		"go build -mod=mod ./...",
 		"go build -n ./...",
 		"go build -work ./...",
 		"go build -future-flag ./...",
-		"go build ./... -o reasonix",
+		"go build ./... -o deep-tutor",
 	} {
 		if IsDeliveryVerificationCommand(command) {
 			t.Errorf("%q must not count as non-mutating verification", command)

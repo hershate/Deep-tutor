@@ -403,7 +403,7 @@ func TestPermissionMetaOnlyTrustsForegroundStaticBash(t *testing.T) {
 			})
 			reasonix, ok := meta["reasonix.io"].(map[string]any)
 			if !ok {
-				t.Fatalf("reasonix metadata = %#v", meta)
+				t.Fatalf("deep-tutor metadata = %#v", meta)
 			}
 			argv, present := reasonix["argv"]
 			if len(tc.wantArgv) == 0 {
@@ -643,7 +643,7 @@ func TestApprovalOptionsFreshDynamicToolOnlyAllowOnceOrReject(t *testing.T) {
 }
 
 func TestDynamicBashApprovalOptionsUseExactSessionLiteral(t *testing.T) {
-	const command = "git status $(touch /tmp/reasonix-dynamic-approval)"
+	const command = "git status $(touch /tmp/deep-tutor-dynamic-approval)"
 	options := approvalOptions("bash", command, false)
 	if len(options) != 3 || options[1].Kind != OptAllowAlways {
 		t.Fatalf("dynamic Bash options = %+v, want ordinary options with session grant", options)

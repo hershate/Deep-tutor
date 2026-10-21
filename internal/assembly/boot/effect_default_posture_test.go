@@ -58,7 +58,7 @@ type postureRun struct {
 	results map[string]event.Tool
 }
 
-// buildPostureRun assembles a headless session the way `reasonix run` does:
+// buildPostureRun assembles a headless session the way `deep-tutor run` does:
 // built failing closed, then moved to the posture it settles on.
 func buildPostureRun(t *testing.T, userConfig string, calls ...provider.ToolCall) *postureRun {
 	t.Helper()

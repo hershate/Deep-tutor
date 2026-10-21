@@ -58,7 +58,7 @@ func (o *onDemandMCPConnect) Execute(ctx context.Context, _ json.RawMessage) (st
 	}
 	defer unlock()
 	if !plugin.MCPRuntimeSpecMatches(spec, o.spec) {
-		return "", fmt.Errorf("MCP server %q runtime identity changed after resolution; retry so Reasonix can bind the current configuration", o.server)
+		return "", fmt.Errorf("MCP server %q runtime identity changed after resolution; retry so Deep-tutor can bind the current configuration", o.server)
 	}
 	if _, err := o.proxy.ensureServerToolsForSpec(ctx, o.server, spec); err != nil {
 		if o.proxy.ledger != nil {

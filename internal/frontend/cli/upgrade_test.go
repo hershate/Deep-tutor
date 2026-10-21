@@ -92,14 +92,14 @@ func TestUpgradeSuccessMessageIncludesCurrentAndLatestVersions(t *testing.T) {
 }
 
 func TestExtractFromTarGz(t *testing.T) {
-	// Build a .tar.gz in memory containing a "reasonix" entry.
+	// Build a .tar.gz in memory containing a "deep-tutor" entry.
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
 	body := []byte("fake binary content")
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "reasonix",
+		Name: "deep-tutor",
 		Mode: 0o755,
 		Size: int64(len(body)),
 	}); err != nil {
@@ -115,7 +115,7 @@ func TestExtractFromTarGz(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := extractFromTarGz(buf.Bytes(), "reasonix")
+	got, err := extractFromTarGz(buf.Bytes(), "deep-tutor")
 	if err != nil {
 		t.Fatalf("extractFromTarGz: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestExtractFromTarGz_Nested(t *testing.T) {
 
 	body := []byte("nested binary")
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "reasonix-linux-amd64/reasonix",
+		Name: "deep-tutor-linux-amd64/deep-tutor",
 		Mode: 0o755,
 		Size: int64(len(body)),
 	}); err != nil {
@@ -148,7 +148,7 @@ func TestExtractFromTarGz_Nested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := extractFromTarGz(buf.Bytes(), "reasonix")
+	got, err := extractFromTarGz(buf.Bytes(), "deep-tutor")
 	if err != nil {
 		t.Fatalf("extractFromTarGz: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestExtractFromTarGz_NotFound(t *testing.T) {
 	tw.Close()
 	gw.Close()
 
-	_, err := extractFromTarGz(buf.Bytes(), "reasonix")
+	_, err := extractFromTarGz(buf.Bytes(), "deep-tutor")
 	if err == nil {
 		t.Error("expected error for missing binary")
 	}
@@ -262,7 +262,7 @@ func TestPickCLIRelease(t *testing.T) {
 	}
 
 	insecure := completeCLIRelease("v1.7.0", false)
-	insecure.Assets[0].BrowserDownloadURL = "http://example.invalid/reasonix.tar.gz"
+	insecure.Assets[0].BrowserDownloadURL = "http://example.invalid/deep-tutor.tar.gz"
 	if got := pick([]ghRelease{insecure, completeCLIRelease("v1.6.0", false)}, cliReleaseStable); got != "v1.6.0" {
 		t.Errorf("release with insecure asset URL: got %q, want v1.6.0", got)
 	}
@@ -507,7 +507,7 @@ func TestFetchCLIReleasePointer(t *testing.T) {
 	incomplete := completeCLIRelease("v1.18.0", false)
 	incomplete.Assets = incomplete.Assets[:len(incomplete.Assets)-1]
 	insecure := completeCLIRelease("v1.18.0", false)
-	insecure.Assets[0].BrowserDownloadURL = "http://example.invalid/reasonix.tar.gz"
+	insecure.Assets[0].BrowserDownloadURL = "http://example.invalid/deep-tutor.tar.gz"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Accept") != "application/json" || r.Header.Get("User-Agent") != "reasonix-cli" {
@@ -620,7 +620,7 @@ func TestFetchBytesSizedRequiresExactReleaseAssetLength(t *testing.T) {
 
 func npmLayout(t *testing.T, pkgName string) string {
 	t.Helper()
-	pkg := filepath.Join(t.TempDir(), "node_modules", "@reasonix", "cli-win32-x64")
+	pkg := filepath.Join(t.TempDir(), "node_modules", filepath.FromSlash(pkgName))
 	if err := os.MkdirAll(filepath.Join(pkg, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -628,25 +628,25 @@ func npmLayout(t *testing.T, pkgName string) string {
 	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	exe := filepath.Join(pkg, "bin", "reasonix.exe")
+	exe := filepath.Join(pkg, "bin", "deep-tutor.exe")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return exe
 }
 
-func brewLayout(t *testing.T) (exe, link string) {
+func brewLayout(t *testing.T, cask string) (exe, link string) {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "Caskroom", "reasonix", "2.31.0")
+	dir := filepath.Join(root, "Caskroom", cask, "2.31.0")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	exe = filepath.Join(dir, "reasonix")
+	exe = filepath.Join(dir, cask)
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link = filepath.Join(root, "bin", "reasonix")
+	link = filepath.Join(root, "bin", cask)
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -664,26 +664,34 @@ func useExecutable(t *testing.T, exe string) {
 }
 
 func TestCheckSelfReplaceableNamesTheOwningManager(t *testing.T) {
-	brewExe, brewLink := brewLayout(t)
+	brewExe, brewLink := brewLayout(t, "reasonix")
+	newBrewExe, newBrewLink := brewLayout(t, "deep-tutor")
 	for _, c := range []struct{ name, exe, command string }{
-		{"npm", npmLayout(t, "@reasonix/cli-win32-x64"), "npm install -g reasonix@latest"},
+		{"npm", npmLayout(t, "@deep-tutor/cli-win32-x64"), "npm install -g deep-tutor@latest"},
+		{"npm upstream", npmLayout(t, "@reasonix/cli-win32-x64"), "npm install -g reasonix@latest"},
 		{"brew via symlink", brewLink, "brew upgrade --cask reasonix"},
 		{"brew direct", brewExe, "brew upgrade --cask reasonix"},
+		{"brew renamed via symlink", newBrewLink, "brew upgrade --cask deep-tutor"},
+		{"brew renamed direct", newBrewExe, "brew upgrade --cask deep-tutor"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			useExecutable(t, c.exe)
 			var managed *managedInstallError
-			if !errors.As(checkSelfReplaceable(), &managed) || managed.command != c.command {
-				t.Fatalf("want managed install with %q, got %+v", c.command, managed)
+			if !errors.As(checkSelfReplaceable(), &managed) {
+				t.Fatalf("want a managed install, got none")
+			}
+			if managed.command != c.command {
+				t.Fatalf("want managed install with %q, got %q", c.command, managed.command)
 			}
 		})
 	}
 }
 
 func TestApplyCLIReleaseRefusesManagedInstallsWithoutTouchingThem(t *testing.T) {
-	brewExe, _ := brewLayout(t)
+	brewExe, _ := brewLayout(t, "reasonix")
 	for _, c := range []struct{ name, exe, command string }{
-		{"npm", npmLayout(t, "@reasonix/cli-win32-x64"), "npm install -g reasonix@latest"},
+		{"npm", npmLayout(t, "@deep-tutor/cli-win32-x64"), "npm install -g deep-tutor@latest"},
+		{"npm upstream", npmLayout(t, "@reasonix/cli-win32-x64"), "npm install -g reasonix@latest"},
 		{"brew", brewExe, "brew upgrade --cask reasonix"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

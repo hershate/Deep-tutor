@@ -267,7 +267,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !r.URL.IsAbs() {
-		http.Error(w, "reasonix egress proxy: absolute URL required", http.StatusBadRequest)
+		http.Error(w, "deep-tutor egress proxy: absolute URL required", http.StatusBadRequest)
 		return
 	}
 	p.serveForward(w, r, token)
@@ -308,7 +308,7 @@ func (p *Proxy) admit(ctx context.Context, token, host, port string, upstream *u
 func (p *Proxy) refuse(w http.ResponseWriter, token, host string, reason Reason) {
 	p.record(token, host, reason)
 	w.Header().Set("X-Proxy-Error", string(reason))
-	http.Error(w, fmt.Sprintf("reasonix sandbox: egress to %s refused (%s)", host, reason), http.StatusForbidden)
+	http.Error(w, fmt.Sprintf("deep-tutor sandbox: egress to %s refused (%s)", host, reason), http.StatusForbidden)
 }
 
 func (p *Proxy) upstreamFor(target *url.URL) (*url.URL, error) {

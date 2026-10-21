@@ -244,7 +244,7 @@ func TestReadOnlyExecutionDoesNotStartUnauthorizedUnconnectedMCP(t *testing.T) {
 	host := plugin.NewHost()
 	defer host.Close()
 	proxy := usecap.NewUseCapabilityTool(context.Background(), host, []plugin.Spec{{
-		Name: "lazy", Type: "stdio", Command: "reasonix-test-definitely-missing-binary",
+		Name: "lazy", Type: "stdio", Command: "deep-tutor-test-definitely-missing-binary",
 	}}, tool.NewRegistry(), capability.NewLedger(), nil, nil)
 	reg := tool.NewRegistry()
 	reg.Add(proxy)
@@ -830,7 +830,7 @@ func TestReviewReportRejectsNonContentEvidence(t *testing.T) {
 func TestUseCapabilityServerConnectHonorsPermissionInPlanMode(t *testing.T) {
 	host := plugin.NewHost()
 	defer host.Close()
-	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "reasonix-test-definitely-missing-binary", Authorized: true}}
+	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "deep-tutor-test-definitely-missing-binary", Authorized: true}}
 	reg := tool.NewRegistry()
 	uc := usecap.NewUseCapabilityTool(context.Background(), host, specs, reg, capability.NewLedger(), nil, nil)
 	reg.Add(uc)
@@ -867,7 +867,7 @@ func TestUseCapabilityServerConnectHonorsPermissionInPlanMode(t *testing.T) {
 func TestOnDemandModelNameMatchesPluginCanonicalName(t *testing.T) {
 	host := plugin.NewHost()
 	defer host.Close()
-	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "reasonix-test-definitely-missing-binary"}}
+	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "deep-tutor-test-definitely-missing-binary"}}
 	tl := usecap.NewUseCapabilityTool(context.Background(), host, specs, tool.NewRegistry(), capability.NewLedger(), nil, nil)
 	for _, raw := range []string{"@model/tool", "search/issues", "with space", "plain_ok"} {
 		resolved, err := tl.ResolveCall(context.Background(),
@@ -963,7 +963,7 @@ func TestRunSubAgentRequiresReviewReport(t *testing.T) {
 func TestUseCapabilityInspectDoesNotStartServer(t *testing.T) {
 	host := plugin.NewHost()
 	defer host.Close()
-	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "reasonix-test-definitely-missing-binary"}}
+	specs := []plugin.Spec{{Name: "lazy", Type: "stdio", Command: "deep-tutor-test-definitely-missing-binary"}}
 	tl := usecap.NewUseCapabilityTool(context.Background(), host, specs, tool.NewRegistry(), capability.NewLedger(), nil, func() capability.Catalog {
 		return capability.Catalog{Entries: []capability.Entry{{
 			ID: "mcp-server:lazy", Kind: capability.KindMCPServer, Name: "lazy", Source: "lazy", Status: capability.StatusConfigured,

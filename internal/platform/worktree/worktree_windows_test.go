@@ -31,8 +31,8 @@ func TestCreateChecksOutLongRepositoryPathOnWindows(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-c", "core.longpaths=true", "-C", repo}, args...)...)
 		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Reasonix Test", "GIT_AUTHOR_EMAIL=reasonix@example.invalid",
-			"GIT_COMMITTER_NAME=Reasonix Test", "GIT_COMMITTER_EMAIL=reasonix@example.invalid")
+			"GIT_AUTHOR_NAME=Deep-tutor Test", "GIT_AUTHOR_EMAIL=deep-tutor@example.invalid",
+			"GIT_COMMITTER_NAME=Deep-tutor Test", "GIT_COMMITTER_EMAIL=deep-tutor@example.invalid")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}

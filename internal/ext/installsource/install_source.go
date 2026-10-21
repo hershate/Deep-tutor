@@ -141,7 +141,7 @@ func (*Tool) Name() string   { return "install_source" }
 func (*Tool) ReadOnly() bool { return false }
 
 func (*Tool) Description() string {
-	return "Plan, install, or uninstall a Reasonix skill, MCP server, or plugin package from a URL, local file/folder, .mcp.json, executable, or package name. Two-phase: with apply=false (default) returns a deterministic plan with per-action risk level and a planId; with apply=true, passing back that planId, it copies/registers skills, connects/persists MCP servers, or installs plugin packages. An apply without the planId of a plan you have read installs nothing and returns the plan instead. op='uninstall' removes a previously installed skill, MCP server, or plugin package by name."
+	return "Plan, install, or uninstall a Deep-tutor skill, MCP server, or plugin package from a URL, local file/folder, .mcp.json, executable, or package name. Two-phase: with apply=false (default) returns a deterministic plan with per-action risk level and a planId; with apply=true, passing back that planId, it copies/registers skills, connects/persists MCP servers, or installs plugin packages. An apply without the planId of a plan you have read installs nothing and returns the plan instead. op='uninstall' removes a previously installed skill, MCP server, or plugin package by name."
 }
 
 func (*Tool) Schema() json.RawMessage {
@@ -238,7 +238,7 @@ func (t *Tool) execute(ctx context.Context, raw json.RawMessage, res *Result) (o
 			Mode:     req.Mode,
 			PlanID:   planID,
 			Warnings: warnings,
-			Next:     "No installable Reasonix skill, MCP server, or plugin package was detected. Ask the user for a direct SKILL.md, skill root, .mcp.json, plugin manifest, MCP endpoint, or package name.",
+			Next:     "No installable Deep-tutor skill, MCP server, or plugin package was detected. Ask the user for a direct SKILL.md, skill root, .mcp.json, plugin manifest, MCP endpoint, or package name.",
 		}
 		return marshalJSON(out), nil
 	}

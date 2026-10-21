@@ -89,7 +89,7 @@ var ignoredProjectReasonText = map[IgnoredProjectReason]string{
 	ProjectWidensUser:          "a project file may only narrow this setting; set it in your user config to change it",
 	ProjectOutsideWorkspace:    "the path resolves outside this workspace",
 	ProjectUserOnly:            "only your user config sets this",
-	ProjectAwaitingApproval:    "it runs only after you approve it; run `reasonix trust` in this workspace",
+	ProjectAwaitingApproval:    "it runs only after you approve it; run `deep-tutor trust` in this workspace",
 	ProjectApprovalUnavailable: "the approval record could not be read, so it stays off",
 	ProjectRootRefused:         "the granted folder now resolves somewhere that cannot take writes; grant it again if it is still wanted",
 	ProjectProgramWritable:     "it names a file in this workspace or another place sandboxed commands can write; point it at an installed program",

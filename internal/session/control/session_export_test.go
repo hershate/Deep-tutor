@@ -33,7 +33,7 @@ func TestExportKeepsOnlyWhatWasSaid(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: "done"},
 	}
 	got, n := ConversationMarkdown(msgs)
-	want := "# reasonix session\n\n## User\n\nfix the bug\n\n## Assistant\n\nlooking\n\ndone\n\n"
+	want := "# deep-tutor session\n\n## User\n\nfix the bug\n\n## Assistant\n\nlooking\n\ndone\n\n"
 	if got != want || n != 3 {
 		t.Fatalf("export = %q (%d), want %q", got, n, want)
 	}

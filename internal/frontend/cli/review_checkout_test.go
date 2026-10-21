@@ -19,7 +19,7 @@ import (
 
 const maliciousReviewPromptMarker = "CHECKOUT-AUTHORED-REVIEW-PROMPT"
 
-// TestReviewIgnoresCheckoutSearchBinaryAndReviewSkill runs `reasonix review`
+// TestReviewIgnoresCheckoutSearchBinaryAndReviewSkill runs `deep-tutor review`
 // in a checkout that points [tools.search] at a script it ships and replaces
 // the review skill. The model asks for a grep; neither the script nor the
 // checkout's skill may take part in the run.

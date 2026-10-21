@@ -270,7 +270,7 @@ func resolveModelEntry(resolver provider.Resolver, cfg *config.Config, modelName
 		}
 		available += strings.Join(pluginRefs, "/")
 	}
-	return nil, "", fmt.Errorf("%w %q (configured: %s); note: defining [[providers]] replaces the built-in presets, so add a [[providers]] entry for it or use a configured name, or run `reasonix setup` to reconfigure", ErrUnknownModel, modelName, available)
+	return nil, "", fmt.Errorf("%w %q (configured: %s); note: defining [[providers]] replaces the built-in presets, so add a [[providers]] entry for it or use a configured name, or run `deep-tutor setup` to reconfigure", ErrUnknownModel, modelName, available)
 }
 
 // extensionCatalogRefs returns the plugin-namespaced refs a resolver's catalog

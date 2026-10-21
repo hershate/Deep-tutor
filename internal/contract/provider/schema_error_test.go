@@ -22,7 +22,7 @@ func TestAnnotateToolSchemaErrorNamesMCPSource(t *testing.T) {
 	if !errors.As(got, &apiErr) {
 		t.Fatalf("AnnotateToolSchemaError() = %T, want *APIError", got)
 	}
-	for _, want := range []string{`Reasonix tool "mcp__filesystem__search"`, `MCP server "filesystem"`, `tool "search"`} {
+	for _, want := range []string{`Deep-tutor tool "mcp__filesystem__search"`, `MCP server "filesystem"`, `tool "search"`} {
 		if !strings.Contains(apiErr.ToolContext, want) {
 			t.Errorf("ToolContext = %q, want %q", apiErr.ToolContext, want)
 		}

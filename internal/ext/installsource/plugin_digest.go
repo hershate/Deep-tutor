@@ -13,7 +13,7 @@ import (
 )
 
 func snapshotPlugin(pkg pluginpkg.Package) (pluginpkg.Package, string, func(), error) {
-	root, err := os.MkdirTemp("", "reasonix-plugin-preview-*")
+	root, err := os.MkdirTemp("", "deep-tutor-plugin-preview-*")
 	if err != nil {
 		return pkg, "", nil, err
 	}

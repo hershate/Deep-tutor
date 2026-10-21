@@ -56,7 +56,7 @@ func TestRemoteListsConfiguredHosts(t *testing.T) {
 	seedUserConfig(t, "[[remote.hosts]]\nname = \"box\"\nhost = \"10.0.0.7\"\nuser = \"dev\"\nport = 2200\n")
 	c.Submit("/remote")
 	n := lastNotice(t, take())
-	if !strings.Contains(n, "box  dev@10.0.0.7:2200") || !strings.Contains(n, "reasonix remote connect") {
+	if !strings.Contains(n, "box  dev@10.0.0.7:2200") || !strings.Contains(n, "deep-tutor remote connect") {
 		t.Fatalf("notice = %q", n)
 	}
 }

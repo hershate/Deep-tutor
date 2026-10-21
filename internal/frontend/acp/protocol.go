@@ -533,7 +533,7 @@ type SessionReloadExtensionsResult struct {
 
 // sessionReloadExtensionsMethod follows ACP v1's reserved vendor-extension
 // namespace, like sessionSteerMethod: only the "_<vendor>/" prefix is reserved
-// for vendor methods, so the bare "reasonix/session/reloadExtensions" form
+// for vendor methods, so the bare "deep-tutor/session/reloadExtensions" form
 // could collide with a future official ACP method and must not be used.
 const sessionReloadExtensionsMethod = "_reasonix.io/session/reloadExtensions"
 

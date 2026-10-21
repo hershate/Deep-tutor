@@ -63,7 +63,7 @@ func refusalForkTools(t *testing.T) []provider.ToolSchema {
 	return out
 }
 
-const refusalForkSystem = "You are Reasonix, a coding agent working in a user's repository. Work autonomously and use tools to make progress. Report the turn's disposition with update_goal when a goal turn is running."
+const refusalForkSystem = "You are Deep-tutor, a coding agent working in a user's repository. Work autonomously and use tools to make progress. Report the turn's disposition with update_goal when a goal turn is running."
 
 // refusalForkRequest is the one transcript all arms share: a small task the
 // model has finished, its update_goal call, and the host's refusal of it. Only

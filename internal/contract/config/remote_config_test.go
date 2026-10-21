@@ -267,7 +267,7 @@ func TestRemoteHostWorkspacesAreOneDefaultFirstList(t *testing.T) {
 }
 
 // A save is where the two fields are made to agree: whatever list came in, the
-// head of it is the default a bare `reasonix remote connect` uses.
+// head of it is the default a bare `deep-tutor remote connect` uses.
 func TestUpsertRemoteHostMakesTheHeadOfTheListTheDefault(t *testing.T) {
 	cfg := Default()
 	err := cfg.UpsertRemoteHost(RemoteHostEntry{

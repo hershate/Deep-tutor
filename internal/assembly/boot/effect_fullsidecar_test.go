@@ -175,7 +175,7 @@ model = "x"
 			t.Fatal("turn never reached the recording provider")
 		}
 		prompt := systemText(reqs[0])
-		if strings.Contains(prompt, "You are Reasonix running under the fullsidecar demo strategy.") != enabled || !strings.Contains(prompt, "FULLSIDECAR BASE") {
+		if strings.Contains(prompt, "You are Deep-tutor running under the fullsidecar demo strategy.") != enabled || !strings.Contains(prompt, "FULLSIDECAR BASE") {
 			t.Fatalf("enabled=%t, provider system prompt = %q", enabled, prompt)
 		}
 		var declared bool
@@ -221,7 +221,7 @@ model = "x"
 					t.Fatalf("SDK provider text = %+v", chunks[:2])
 				}
 				call := chunks[2].ToolCall
-				if call == nil || call.ID != "call-1" || call.Name != "lookup" || call.Arguments != `{"query":"reasonix"}` {
+				if call == nil || call.ID != "call-1" || call.Name != "lookup" || call.Arguments != `{"query":"deep-tutor"}` {
 					t.Fatalf("SDK provider tool call = %+v", call)
 				}
 				usage := chunks[3].Usage

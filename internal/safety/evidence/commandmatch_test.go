@@ -19,7 +19,7 @@ func TestCommandMatches(t *testing.T) {
 		{"quoted pipe is not a segment separator", `printf "%s\n" "a | b"`,
 			`printf '%s\n' 'a | b'`, true},
 		{"pipe tail dropped", "go test ./internal/contract/tool/... -count=1 -timeout 60s",
-			"cd /f/Reasonix && go test ./internal/contract/tool/... -count=1 -timeout 60s 2>&1 | tail -10", true},
+			"cd /f/Deep-tutor && go test ./internal/contract/tool/... -count=1 -timeout 60s 2>&1 | tail -10", true},
 		{"whitespace collapse", "go  test   ./...", "go test ./...", true},
 		{"different command rejected", "go test ./...", "go vet ./...", false},
 		{"extra cited token rejected", "go test ./a/... ./b/...", "go test ./a/...", false},

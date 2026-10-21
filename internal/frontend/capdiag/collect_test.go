@@ -43,7 +43,7 @@ func TestCollectStaticNoNetworkSideEffects(t *testing.T) {
 [[plugins]]
 name = "broken"
 type = "stdio"
-command = "definitely-not-a-real-binary-xyzzy-reasonix"
+command = "definitely-not-a-real-binary-xyzzy-deep-tutor"
 auto_start = false
 `)
 
@@ -144,7 +144,7 @@ func TestCollectUsesExactReasonixHomeForGlobalHooks(t *testing.T) {
 	for _, source := range report.Hooks.Sources {
 		if source.Scope == "global" {
 			if source.Status != "ok" || source.HookCount != 1 {
-				t.Fatalf("global hook source = %+v, want exact Reasonix home settings", source)
+				t.Fatalf("global hook source = %+v, want exact Deep-tutor home settings", source)
 			}
 			if source.Path != "<reasonix-home>/settings.json" && source.Path != "<reasonix-home>\\settings.json" {
 				// displayPath uses ToSlash

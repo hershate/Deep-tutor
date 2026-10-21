@@ -222,7 +222,7 @@ func noProviderStart(c *Config) (string, bool, bool) {
 func kindError(e *ProviderEntry, model string) error {
 	switch e.Kind {
 	case UnconfiguredKind:
-		return fmt.Errorf("%w; run `reasonix setup` to add one", provider.ErrNoProvider)
+		return fmt.Errorf("%w; run `deep-tutor setup` to add one", provider.ErrNoProvider)
 	case "":
 		return fmt.Errorf("provider %q: kind is required", model)
 	}

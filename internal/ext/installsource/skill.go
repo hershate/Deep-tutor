@@ -135,7 +135,7 @@ func (a action) copySource(source string) (string, error) {
 func (t *Tool) skillInstallRoot(scope string) (string, error) {
 	if scope == "global" {
 		if t.reasonixHome == "" {
-			return "", newErr(ErrSourceUnreadable, "global skill install requires a Reasonix home directory")
+			return "", newErr(ErrSourceUnreadable, "global skill install requires a Deep-tutor home directory")
 		}
 		return filepath.Join(t.reasonixHome, skill.SkillsDirname), nil
 	}

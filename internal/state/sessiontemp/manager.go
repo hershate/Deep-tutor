@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	dirPrefix     = "reasonix-session-tmp-"
+	dirPrefix     = "deep-tutor-session-tmp-"
 	ownerLockName = ".owner.lock"
 	staleAge      = 24 * time.Hour
 )

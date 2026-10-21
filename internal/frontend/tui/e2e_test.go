@@ -122,7 +122,7 @@ model = "x"
 	if _, err := hub.Adopt(serve.New(ctrl, bc, config.ServeConfig{}), bc); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
-	return &tui.Client{HTTP: hub.InProcessClient(), Base: "http://reasonix.local/rt/r1"}
+	return &tui.Client{HTTP: hub.InProcessClient(), Base: "http://deep-tutor.local/rt/r1"}
 }
 
 // One turn through the real kernel, as the TUI sees it: the answer streams, the

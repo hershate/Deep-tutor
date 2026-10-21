@@ -286,7 +286,7 @@ func TestEditProviderLeavesCompatibilityFieldsAloneWhenUnsent(t *testing.T) {
 	defer srv.Close()
 
 	first := postProvider(t, srv.URL, "/providers/edit",
-		`{"name":"existing","models":["model-a"],"default":"model-a","contextWindow":64000,"headers":{"X-Title":"Reasonix"}}`)
+		`{"name":"existing","models":["model-a"],"default":"model-a","contextWindow":64000,"headers":{"X-Title":"Deep-tutor"}}`)
 	first.Body.Close()
 	second := postProvider(t, srv.URL, "/providers/edit", `{"name":"existing","models":["model-a"],"default":"model-a"}`)
 	second.Body.Close()
@@ -296,7 +296,7 @@ func TestEditProviderLeavesCompatibilityFieldsAloneWhenUnsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, _ := cfg.Provider("existing")
-	if entry.ContextWindow != 64000 || entry.Headers["X-Title"] != "Reasonix" {
+	if entry.ContextWindow != 64000 || entry.Headers["X-Title"] != "Deep-tutor" {
 		t.Fatalf("an unsent field was cleared: window=%d headers=%v", entry.ContextWindow, entry.Headers)
 	}
 }

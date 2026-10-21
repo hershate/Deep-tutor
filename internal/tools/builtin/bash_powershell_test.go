@@ -38,12 +38,12 @@ func TestBashPowerShellRunsNativeCommand(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("powershell e2e is windows-only")
 	}
-	out, err := runPS(t, "Write-Output reasonix-ok")
+	out, err := runPS(t, "Write-Output deep-tutor-ok")
 	if err != nil {
 		t.Fatalf("powershell command failed: %v (out=%q)", err, out)
 	}
-	if !strings.Contains(out, "reasonix-ok") {
-		t.Fatalf("output = %q, want it to contain reasonix-ok", out)
+	if !strings.Contains(out, "deep-tutor-ok") {
+		t.Fatalf("output = %q, want it to contain deep-tutor-ok", out)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestBashPowerShellExecuteDetailedContract(t *testing.T) {
 func assertPowerShellDetailedContract(t *testing.T, psPath string) {
 	t.Helper()
 	// Chinese directory name — native Windows CI must keep path + UTF-8 intact.
-	work := filepath.Join(testenv.TempDir(t), "中文目录-reasonix")
+	work := filepath.Join(testenv.TempDir(t), "中文目录-deep-tutor")
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		t.Fatal(err)
 	}

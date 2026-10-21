@@ -86,13 +86,13 @@ func TestRunInUntrustedFolderSaysWhyNothingWasDone(t *testing.T) {
 	if code != runExitUntrustedFolder || r.wrote() {
 		t.Fatalf("exit %d, wrote %v: a plain run exits %d and the policy keeps the write out\n%s", code, r.wrote(), runExitUntrustedFolder, stderr)
 	}
-	for _, want := range []string{"refused 1 tool call(s): write_file", "permission.untrusted_folder", "reasonix trust --dir '"} {
+	for _, want := range []string{"refused 1 tool call(s): write_file", "permission.untrusted_folder", "deep-tutor trust --dir '"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, stderr)
 		}
 	}
 	saw := r.modelSaw()
-	for _, want := range []string{"no trust decision", "reasonix trust --dir '"} {
+	for _, want := range []string{"no trust decision", "deep-tutor trust --dir '"} {
 		if !strings.Contains(saw, want) {
 			t.Fatalf("the model was told %q, want %q", saw, want)
 		}
@@ -116,7 +116,7 @@ func TestRunInUntrustedFolderSaysWhyNothingWasDone(t *testing.T) {
 		t.Fatalf("the result must say why it is unverified: %+v", result)
 	}
 	d := result.Denials[0]
-	if d.ToolName != "write_file" || d.Code != "permission.untrusted_folder" || !strings.Contains(d.Remedy, "reasonix trust --dir '") {
+	if d.ToolName != "write_file" || d.Code != "permission.untrusted_folder" || !strings.Contains(d.Remedy, "deep-tutor trust --dir '") {
 		t.Fatalf("denial = %+v", d)
 	}
 

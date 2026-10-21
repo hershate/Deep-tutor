@@ -369,7 +369,7 @@ func TestRootHelpListsSubagentCommand(t *testing.T) {
 			t.Fatalf("help rc = %d", rc)
 		}
 	})
-	if !strings.Contains(out, "reasonix subagent <list|create|edit|delete|try|run>") {
+	if !strings.Contains(out, "deep-tutor subagent <list|create|edit|delete|try|run>") {
 		t.Fatalf("help output missing subagent command:\n%s", out)
 	}
 }

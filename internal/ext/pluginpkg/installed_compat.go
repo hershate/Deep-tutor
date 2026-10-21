@@ -17,7 +17,7 @@ func migratedWarning(name string) string {
 }
 
 func migrateRemediation(name string) string {
-	return fmt.Sprintf("reasonix plugin migrate %s --to-v2", textutil.ShownIdentity(name))
+	return fmt.Sprintf("deep-tutor plugin migrate %s --to-v2", textutil.ShownIdentity(name))
 }
 
 // incompatibleWarning writes the whole sentence first and shows the error as a

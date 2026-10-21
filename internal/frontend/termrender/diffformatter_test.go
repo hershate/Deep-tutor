@@ -77,7 +77,7 @@ func TestRenderDiffExternalBoundsAChildHoldingStdout(t *testing.T) {
 }
 
 func TestRenderDiffExternalFallsBackOnError(t *testing.T) {
-	if _, ok := renderDiffExternal([]string{"reasonix-no-such-command-xyz"}, "diff", 80); ok {
+	if _, ok := renderDiffExternal([]string{"deep-tutor-no-such-command-xyz"}, "diff", 80); ok {
 		t.Fatal("expected ok=false for a missing command")
 	}
 	if _, ok := renderDiffExternal(nil, "diff", 80); ok {
@@ -296,7 +296,7 @@ func TestDiffBlockFallsBackWithoutFormatter(t *testing.T) {
 // renderer.
 func TestDiffBlockFallsBackWhenFormatterFails(t *testing.T) {
 	defer setDiffFormatter(nil)
-	setDiffFormatter([]string{"reasonix-no-such-command-xyz"})
+	setDiffFormatter([]string{"deep-tutor-no-such-command-xyz"})
 
 	d := event.FileDiff{Diff: "--- a/x.go\n+++ b/x.go\n@@ -1 +1 @@\n-old\n+new\n", Added: 1, Removed: 1}
 	body := strings.Join(DiffBlock("edit_file", `{"path":"x.go"}`, d, 80, 40)[1:], "\n")
@@ -349,7 +349,7 @@ func TestFormatDiffCachedMemoisesByContentAndWidth(t *testing.T) {
 		t.Fatalf("formatDiffCached = %q, %v", got, ok)
 	}
 	// A command that cannot run: a cache hit must not consult it.
-	activeDiffFormatter = []string{"reasonix-no-such-command-xyz"}
+	activeDiffFormatter = []string{"deep-tutor-no-such-command-xyz"}
 	if got, ok := formatDiffCached("body", 80); !ok || got != "body" {
 		t.Fatalf("cache miss re-ran the formatter: %q, %v", got, ok)
 	}

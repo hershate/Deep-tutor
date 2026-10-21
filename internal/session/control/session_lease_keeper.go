@@ -11,7 +11,7 @@ import (
 )
 
 // SessionLeaseKeeper owns at most one session lease on behalf of a frontend
-// that binds session files for writing (the CLI chat/run commands, `reasonix
+// that binds session files for writing (the CLI chat/run commands, `deep-tutor
 // serve`, one ACP session). Desktop tabs keep their own per-tab lease
 // management; this keeper is the equivalent for the single-session surfaces:
 // it follows the active session path across resumes, forks, and fresh-session
@@ -258,7 +258,7 @@ func (k *SessionLeaseKeeper) releaseLocked() {
 
 // SessionLeaseCloseHint is the universal way out of a lease refusal, appended
 // by surfaces that have no copy escape hatch (in-TUI switches, serve, ACP).
-const SessionLeaseCloseHint = "close the other Reasonix window or process first"
+const SessionLeaseCloseHint = "close the other Deep-tutor window or process first"
 
 // SessionInUseMessage renders a lease-acquisition failure as the shared
 // operator-facing "who is holding this" line used by the CLI, serve, and ACP.
@@ -266,7 +266,7 @@ const SessionLeaseCloseHint = "close the other Reasonix window or process first"
 // generic line otherwise. The session file path is deliberately omitted — the
 // caller already knows which session it asked for.
 func SessionInUseMessage(err error) string {
-	const fallback = "this session is in use by another Reasonix window or process"
+	const fallback = "this session is in use by another Deep-tutor window or process"
 	var leaseErr *sessionstore.SessionLeaseError
 	if !errors.As(err, &leaseErr) || leaseErr == nil || leaseErr.Info == nil || leaseErr.Info.PID <= 0 {
 		return fallback
@@ -277,13 +277,13 @@ func SessionInUseMessage(err error) string {
 	// second window that does not exist; the holder is this Reasonix, on
 	// another session binding.
 	if info.PID == os.Getpid() {
-		b.WriteString("this session is already open elsewhere in this Reasonix")
+		b.WriteString("this session is already open elsewhere in this Deep-tutor")
 		if !info.AcquiredAt.IsZero() {
 			b.WriteString(" (since " + info.AcquiredAt.Local().Format("15:04") + ")")
 		}
 		return b.String()
 	}
-	fmt.Fprintf(&b, "this session is in use by another Reasonix process (pid %d", info.PID)
+	fmt.Fprintf(&b, "this session is in use by another Deep-tutor process (pid %d", info.PID)
 	if host := strings.TrimSpace(info.Hostname); host != "" {
 		b.WriteString(" on " + host)
 	}

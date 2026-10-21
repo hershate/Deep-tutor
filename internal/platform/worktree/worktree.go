@@ -71,10 +71,10 @@ func Create(ctx context.Context, repo gitcmd.Repo, managedRoot string) (Result, 
 	}
 	managedRoot = strings.TrimSpace(managedRoot)
 	if managedRoot == "" {
-		return Result{}, errors.New("Reasonix worktree storage is unavailable")
+		return Result{}, errors.New("Deep-tutor worktree storage is unavailable")
 	}
 	if err := os.MkdirAll(managedRoot, 0o700); err != nil {
-		return Result{}, fmt.Errorf("create Reasonix worktree storage: %w", err)
+		return Result{}, fmt.Errorf("create Deep-tutor worktree storage: %w", err)
 	}
 
 	repoSum := sha256.Sum256([]byte(info.repo.CommonDir))
@@ -89,7 +89,7 @@ func Create(ctx context.Context, repo gitcmd.Repo, managedRoot string) (Result, 
 		if randomErr != nil {
 			return Result{}, randomErr
 		}
-		branch := fmt.Sprintf("reasonix/delivery-%s-%s", time.Now().Format("20060102-150405"), id)
+		branch := fmt.Sprintf("deep-tutor/delivery-%s-%s", time.Now().Format("20060102-150405"), id)
 		worktreeRoot := filepath.Join(managedRoot, repoKey, id, repoBase)
 		if _, statErr := os.Stat(worktreeRoot); statErr == nil {
 			continue

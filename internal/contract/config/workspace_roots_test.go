@@ -215,7 +215,7 @@ func TestExtraRootsAreWriteRootsButNotGuardExemptions(t *testing.T) {
 		t.Fatal("a granted root is not a write root")
 	}
 	if slices.Contains(loaded.AllowWriteRoots(), real) {
-		t.Fatal("a granted root became a raw-access exemption, which would lift the guard on Reasonix's own state")
+		t.Fatal("a granted root became a raw-access exemption, which would lift the guard on Deep-tutor's own state")
 	}
 }
 

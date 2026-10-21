@@ -20,7 +20,7 @@ func TestResolveModelForCLIMissingKeyNamesCredentialFile(t *testing.T) {
 		t.Fatal("expected an error for a model whose key is only in the shell environment")
 	}
 	msg := err.Error()
-	for _, want := range []string{`model "deepseek-flash"`, keyEnv + "=<key>", cfg.Roots().UserCredentialsPath(), "reasonix setup"} {
+	for _, want := range []string{`model "deepseek-flash"`, keyEnv + "=<key>", cfg.Roots().UserCredentialsPath(), "deep-tutor setup"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error %q does not mention %q", msg, want)
 		}

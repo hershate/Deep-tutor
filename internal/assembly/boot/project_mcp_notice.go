@@ -32,7 +32,7 @@ func reportProjectMCPAwaitingApproval(sink event.Sink, cfg *config.Config, root 
 		report(sink, event.Event{
 			Level: event.LevelWarn,
 			Code:  code,
-			Text: fmt.Sprintf("MCP server %q %s; run `reasonix mcp enable %s` to approve the command shown.",
+			Text: fmt.Sprintf("MCP server %q %s; run `deep-tutor mcp enable %s` to approve the command shown.",
 				mcpsetup.DisplayName(entry.Name), why, mcpsetup.DisplayName(entry.Name)),
 			Detail: "command: " + mcpsetup.LaunchLine(entry),
 		})

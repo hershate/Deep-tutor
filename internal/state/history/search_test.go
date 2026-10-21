@@ -19,7 +19,7 @@ func TestSearchRanksSavedSessionHistory(t *testing.T) {
 
 	writeSession(t, filepath.Join(sessionDir, "first.jsonl"), []provider.Message{
 		{Role: provider.RoleUser, Content: "We need a cache-first implementation."},
-		{Role: provider.RoleAssistant, Content: "Decision: keep the prefix stable and avoid CGO SQLite for Reasonix history retrieval."},
+		{Role: provider.RoleAssistant, Content: "Decision: keep the prefix stable and avoid CGO SQLite for Deep-tutor history retrieval."},
 	})
 	writeSession(t, filepath.Join(sessionDir, "second.jsonl"), []provider.Message{
 		{Role: provider.RoleUser, Content: "Talk about dashboard colors."},

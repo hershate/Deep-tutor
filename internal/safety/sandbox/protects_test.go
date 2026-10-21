@@ -8,7 +8,7 @@ import (
 )
 
 func TestWriteProtectsNeedsEnforcement(t *testing.T) {
-	outside := filepath.Join(string(filepath.Separator), "reasonix-ths-probe-does-not-exist", "trusted")
+	outside := filepath.Join(string(filepath.Separator), "deep-tutor-ths-probe-does-not-exist", "trusted")
 	if WriteProtects(Spec{Mode: "off"}, outside) {
 		t.Fatal("an unenforced spec protects nothing")
 	}
@@ -18,7 +18,7 @@ func TestWriteProtectsNeedsEnforcement(t *testing.T) {
 }
 
 func TestOutsideAll(t *testing.T) {
-	outside := filepath.Join(string(filepath.Separator), "reasonix-ths-probe-does-not-exist", "trusted")
+	outside := filepath.Join(string(filepath.Separator), "deep-tutor-ths-probe-does-not-exist", "trusted")
 	ws := t.TempDir()
 	cases := []struct {
 		name string

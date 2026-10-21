@@ -53,18 +53,18 @@ func TestChatAndCodeAreTheTerminalUI(t *testing.T) {
 		var code int
 		stdout, stderr := captureCLIOutput(t, func() { code = Run([]string{verb, "--help"}, "test") })
 		if code != 0 {
-			t.Fatalf("reasonix %s --help exited %d, want 0 as in 1.x\nstdout:\n%s\nstderr:\n%s", verb, code, stdout, stderr)
+			t.Fatalf("deep-tutor %s --help exited %d, want 0 as in 1.x\nstdout:\n%s\nstderr:\n%s", verb, code, stdout, stderr)
 		}
 		if strings.Contains(stdout+stderr, "unknown command") {
-			t.Fatalf("reasonix %s is still an unknown command:\n%s%s", verb, stdout, stderr)
+			t.Fatalf("deep-tutor %s is still an unknown command:\n%s%s", verb, stdout, stderr)
 		}
 		if !strings.Contains(stdout+stderr, "--permission-mode") {
-			t.Fatalf("reasonix %s --help did not print the session flags:\n%s%s", verb, stdout, stderr)
+			t.Fatalf("deep-tutor %s --help did not print the session flags:\n%s%s", verb, stdout, stderr)
 		}
 	}
 }
 
-// 1.x accepts --preset ahead of everything, so `reasonix --preset X -p task`
+// 1.x accepts --preset ahead of everything, so `deep-tutor --preset X -p task`
 // is a print-mode run with that preset.
 func TestLeadingPresetRoutesPrintModeLike1x(t *testing.T) {
 	cmd, args := normalizeCommand([]string{"--preset", "delivery", "-p", "hello"})
@@ -77,7 +77,7 @@ func TestLeadingPresetRoutesPrintModeLike1x(t *testing.T) {
 		code = Run([]string{"--preset", "balanced", "-p", "hello"}, "test")
 	})
 	if code != 0 || !strings.Contains(stdout, "done") {
-		t.Fatalf("reasonix --preset balanced -p hello exited %d, want 0 with the answer\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+		t.Fatalf("deep-tutor --preset balanced -p hello exited %d, want 0 with the answer\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestRunAcceptsTakeover(t *testing.T) {
 		code = Run([]string{"run", "--takeover", "hello"}, "test")
 	})
 	if code != 0 || !strings.Contains(stdout, "done") {
-		t.Fatalf("reasonix run --takeover hello exited %d, want 0 with the answer\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+		t.Fatalf("deep-tutor run --takeover hello exited %d, want 0 with the answer\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestTakeoverRefusalNamesWhyAndTheWayOut(t *testing.T) {
 	}
 }
 
-// 1.x's `reasonix sessions reindex|diagnose|cleanup` exit 0 and keep their
+// 1.x's `deep-tutor sessions reindex|diagnose|cleanup` exit 0 and keep their
 // JSON keys; cleanup is a dry run until --apply, which moves only a recovery
 // branch another session fully covers.
 func TestSessionsMaintenanceVerbsMatch1x(t *testing.T) {
@@ -122,7 +122,7 @@ func TestSessionsMaintenanceVerbsMatch1x(t *testing.T) {
 		var code int
 		stdout, stderr := captureCLIOutput(t, func() { code = Run(append([]string{"sessions"}, args...), "test") })
 		if code != 0 {
-			t.Fatalf("reasonix sessions %s exited %d, want 0\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), code, stdout, stderr)
+			t.Fatalf("deep-tutor sessions %s exited %d, want 0\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), code, stdout, stderr)
 		}
 		return code, stdout
 	}

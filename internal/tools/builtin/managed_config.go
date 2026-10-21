@@ -59,7 +59,7 @@ func (m ManagedConfigPaths) Match(target string) bool {
 func (m ManagedConfigPaths) approve(ctx context.Context, target string) error {
 	approver, ok := tool.ConfigWriteApproverFrom(ctx)
 	if !ok {
-		return fmt.Errorf("path %q is a Reasonix-managed config file outside the writable roots; writing it requires interactive user approval, which this session cannot provide. "+
+		return fmt.Errorf("path %q is a Deep-tutor-managed config file outside the writable roots; writing it requires interactive user approval, which this session cannot provide. "+
 			"Ask the user to retry in an interactive session, or to add the directory to [sandbox] allow_write in reasonix.toml", target)
 	}
 	req := tool.ConfigWriteRequest{Path: target}
@@ -72,7 +72,7 @@ func (m ManagedConfigPaths) approve(ctx context.Context, target string) error {
 	}
 	if !allow {
 		if strings.TrimSpace(reason) == "" {
-			reason = "the user declined this Reasonix config write — do not retry it; ask how they would like to proceed."
+			reason = "the user declined this Deep-tutor config write — do not retry it; ask how they would like to proceed."
 		}
 		return errors.New(reason)
 	}

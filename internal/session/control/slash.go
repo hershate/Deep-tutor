@@ -736,7 +736,7 @@ func (c *Controller) pendingMCPText() string {
 			b.WriteString("MCP servers awaiting your approval:\n")
 		}
 		name := mcpsetup.DisplayName(p.Name)
-		fmt.Fprintf(&b, "  %s [%s]: %s\n    command: %s\n    approve: reasonix mcp enable %s\n", name, p.Reason, p.Reason.Text(), p.Launch, name)
+		fmt.Fprintf(&b, "  %s [%s]: %s\n    command: %s\n    approve: deep-tutor mcp enable %s\n", name, p.Reason, p.Reason.Text(), p.Launch, name)
 	}
 	return b.String()
 }

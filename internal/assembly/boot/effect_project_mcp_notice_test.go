@@ -51,7 +51,7 @@ func TestEffectHeldProjectMCPServersAreReportedAtBuild(t *testing.T) {
 		if len(got) != 1 || got[0].Code != code || got[0].Level != event.LevelWarn {
 			t.Fatalf("held-server notices = %+v, want one %s warning", got, code)
 		}
-		if !strings.Contains(got[0].Text, `"docs-helper"`) || !strings.Contains(got[0].Text, "reasonix mcp enable docs-helper") ||
+		if !strings.Contains(got[0].Text, `"docs-helper"`) || !strings.Contains(got[0].Text, "deep-tutor mcp enable docs-helper") ||
 			!strings.Contains(got[0].Detail, "phase1") && !strings.Contains(got[0].Detail, "phase2") {
 			t.Fatalf("notice does not name the server, the command and how to approve: %+v", got[0])
 		}

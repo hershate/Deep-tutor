@@ -16,7 +16,7 @@ import (
 
 // treeHandoffArg makes a copied host binary the process that swaps a staged
 // tree in once the application has exited. Every host's main checks it first.
-const treeHandoffArg = "--reasonix-tree-handoff"
+const treeHandoffArg = "--deep-tutor-tree-handoff"
 
 // ErrStagedTreeChanged is a staged file that no longer hashes to what the
 // release says it is, found at the last moment before it would be installed.

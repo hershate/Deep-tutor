@@ -593,7 +593,7 @@ func DesktopProviderAccessDeclared(path string) (bool, error) {
 	return declarations.DesktopProviderAccessDeclared, err
 }
 
-// LoadForEdit returns a config to seed the `reasonix setup` wizard when reconfiguring:
+// LoadForEdit returns a config to seed the `deep-tutor setup` wizard when reconfiguring:
 // the built-in defaults with the file at path (if present) decoded on top, so a
 // reconfigure preserves the user's existing providers and agent settings instead
 // of resetting to defaults. Reasonix's global .env is loaded so api_key_env

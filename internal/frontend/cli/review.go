@@ -44,7 +44,7 @@ func reviewCommand(args []string) int {
 	// falls through a keyless default to the next configured provider
 	// (issue #6996), so a user whose default_model no longer has a key
 	// (e.g. they migrated providers) does not have to add --model to
-	// every `reasonix review` invocation.
+	// every `deep-tutor review` invocation.
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error: failed to load config:", err)
@@ -138,7 +138,7 @@ func buildReviewSubagentRegistry(reviewSk skill.Skill, cfg *config.Config, root 
 	// mirroring boot's addBuiltins: readers/search bound to the configured
 	// forbid-read roots, bash to the OS sandbox spec plus the session-data
 	// guard. The zero-value tools registered at init honor none of the user's
-	// [sandbox] config, so `reasonix review` previously read forbid_read
+	// [sandbox] config, so `deep-tutor review` previously read forbid_read
 	// paths a normal session would refuse.
 	writeRoots := cfg.WriteRootsForRoot(root)
 	forbidReadRoots := boot.RuntimeForbidReadRoots(cfg, root)
@@ -166,7 +166,7 @@ func buildReviewSubagentRegistry(reviewSk skill.Skill, cfg *config.Config, root 
 	if reviewSk.ReadOnly {
 		// The built-in review skill declares read-only; enforce it here exactly
 		// like the in-session runner does (writer tools stripped, bash under the
-		// permission-classified read-only policy) so `reasonix review` is not a
+		// permission-classified read-only policy) so `deep-tutor review` is not a
 		// writable backdoor.
 		return agent.ReadOnlySubagentToolRegistry(parentReg, reviewSk.AllowedTools), checkTargetAccess
 	}

@@ -15,7 +15,7 @@ import (
 // signedAt is a manifest whose asset is served at primary with fallback as
 // its second address, signed as the release server signs it.
 func signedAt(rs *releaseServer, body []byte, primary, fallback string) *Manifest {
-	name := "Reasonix-" + CurrentPlatform() + ".tar.gz"
+	name := "Deep-tutor-" + CurrentPlatform() + ".tar.gz"
 	good := rs.URL + "/v2.0.0/" + name
 	return &Manifest{Version: "v2.0.0", Platforms: map[string]Asset{CurrentPlatform(): {
 		URL: primary, Sig: good + ".minisig", Fallback: fallback, FallbackSig: good + ".minisig",

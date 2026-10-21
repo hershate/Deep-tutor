@@ -60,7 +60,7 @@ func TestFullScreenScrollsAndFollowsTheTail(t *testing.T) {
 		t.Fatalf("ctrl+end did not return to the tail:\n%s", v)
 	}
 	press(m, "ctrl+home")
-	if v := m.View().Content; !strings.Contains(v, "reasonix") && !strings.Contains(v, "row 00") {
+	if v := m.View().Content; !strings.Contains(v, "deep-tutor") && !strings.Contains(v, "row 00") {
 		t.Fatalf("ctrl+home did not reach the top:\n%s", v)
 	}
 }

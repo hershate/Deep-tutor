@@ -186,7 +186,7 @@ func TestRobotsPermits(t *testing.T) {
 Disallow: /private/
 Disallow:
 
-User-agent: Reasonix-Tutor
+User-agent: Deep-tutor-Tutor
 Disallow: /tutor-only/`
 	if !robotsPermits([]byte(body), "/learn/page") {
 		t.Error("plain path should be permitted")

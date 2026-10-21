@@ -26,7 +26,7 @@ func explainError(err error) error {
 		return &provider.ContinuationRecoveryError{Err: explainError(recoveryErr.Err)}
 	}
 	if provider.IsStreamInterrupted(err) {
-		return fmt.Errorf("model stream interrupted after recovery attempts: %s. The partial response was kept; retry or ask Reasonix to continue", err.Error())
+		return fmt.Errorf("model stream interrupted after recovery attempts: %s. The partial response was kept; retry or ask Deep-tutor to continue", err.Error())
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
@@ -37,7 +37,7 @@ func explainError(err error) error {
 		return fmt.Errorf(msg, dnsErr.Name)
 	}
 	if neterr.IsConnReset(err) {
-		return fmt.Errorf("model stream disconnected before completion after retry attempts: %s. Check the provider/proxy connection, then retry or ask Reasonix to continue", err.Error())
+		return fmt.Errorf("model stream disconnected before completion after retry attempts: %s. Check the provider/proxy connection, then retry or ask Deep-tutor to continue", err.Error())
 	}
 	var apiErr *provider.APIError
 	if errors.As(err, &apiErr) {

@@ -16,8 +16,8 @@ import (
 func TestBareReasonixWithoutTerminalExitsZero(t *testing.T) {
 	var code int
 	stdout, _ := captureCLIOutput(t, func() { code = Run(nil, "test") })
-	if code != 0 || !strings.Contains(stdout, "reasonix") {
-		t.Fatalf("bare reasonix exited %d, want 0 with usage:\n%s", code, stdout)
+	if code != 0 || !strings.Contains(stdout, "deep-tutor") {
+		t.Fatalf("bare deep-tutor exited %d, want 0 with usage:\n%s", code, stdout)
 	}
 	captureCLIOutput(t, func() { code = Run([]string{"--model", "m"}, "test") })
 	if code != 2 {

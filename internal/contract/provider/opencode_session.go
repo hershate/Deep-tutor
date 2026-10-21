@@ -11,7 +11,7 @@ const openCodeSessionHeader = "x-opencode-session"
 
 // NewOpenCodeSessionID mints the routing identity one client presents to
 // OpenCode Go for as long as it lives.
-func NewOpenCodeSessionID() string { return "reasonix-" + rand.Text() }
+func NewOpenCodeSessionID() string { return "deep-tutor-" + rand.Text() }
 
 // IsOpenCodeGoEndpoint reports whether rawURL is on OpenCode Go's gateway
 // (opencode.ai/zen/go/...). Zen and relays at other hosts do not match.

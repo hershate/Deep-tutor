@@ -97,5 +97,5 @@ func sweepScratchOutputs() error {
 // transcript nor an archive. Nothing there has an owner to be collected with,
 // so reconcileOrphanOutputs ages it out instead.
 func ScratchOutputsDir() string {
-	return scratchroot.Path("reasonix-outputs")
+	return scratchroot.Path("deep-tutor-outputs")
 }

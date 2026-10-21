@@ -136,7 +136,7 @@ func TestDownloadManifestVerifiesWhatTheFallbackServes(t *testing.T) {
 	fastRetry(t)
 	body := []byte("the v2.0.0 build")
 	rs := serveReleases(t, release{"v2.0.0", body})
-	name := "Reasonix-" + CurrentPlatform() + ".tar.gz"
+	name := "Deep-tutor-" + CurrentPlatform() + ".tar.gz"
 	good := rs.URL + "/v2.0.0/" + name
 	m := &Manifest{Version: "v2.0.0", Platforms: map[string]Asset{CurrentPlatform(): {
 		URL: rs.URL + "/gone/" + name, Sig: rs.URL + "/gone/" + name + ".minisig",

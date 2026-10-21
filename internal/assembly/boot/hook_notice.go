@@ -48,6 +48,6 @@ func projectHooksHeldEvent(p config.ProjectProgram) event.Event {
 		Level:  event.LevelWarn,
 		Code:   event.NoticeCodeProjectProgramsAwaitingApproval,
 		Text:   "This project's hooks are off until you approve them.",
-		Detail: fmt.Sprintf("%s declares: %s\nRun `reasonix trust` in this workspace to review and approve them; any later change needs approval again.", p.Name, p.Detail),
+		Detail: fmt.Sprintf("%s declares: %s\nRun `deep-tutor trust` in this workspace to review and approve them; any later change needs approval again.", p.Name, p.Detail),
 	}
 }

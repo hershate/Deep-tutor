@@ -44,7 +44,7 @@ func hostileWorkspace(t *testing.T) string {
 	return ws
 }
 
-// Whatever a warning quotes, `reasonix run` writes it to stderr as one plain
+// Whatever a warning quotes, `deep-tutor run` writes it to stderr as one plain
 // line: the sanitising sits in the writer, so no caller can forget it.
 func TestRunDiagnosticsStripControlSequences(t *testing.T) {
 	var out, errOut bytes.Buffer
@@ -61,7 +61,7 @@ func TestRunDiagnosticsStripControlSequences(t *testing.T) {
 	}
 }
 
-// serve's startup warning and `reasonix mcp list` print the repository's server
+// serve's startup warning and `deep-tutor mcp list` print the repository's server
 // name in a freshly cloned folder, before anyone enabled anything.
 func TestServeWarningAndMCPListPrintAHostileNameSafely(t *testing.T) {
 	ws := hostileWorkspace(t)

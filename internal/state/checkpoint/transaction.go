@@ -1095,7 +1095,7 @@ func (s *Store) persistTransaction(tx *TransactionManifest) error {
 
 func (s *Store) txDir() string {
 	if s.dir == "" {
-		return scratchroot.Path("reasonix-ckpt-tx")
+		return scratchroot.Path("deep-tutor-ckpt-tx")
 	}
 	return filepath.Join(s.dir, "transactions")
 }

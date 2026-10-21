@@ -100,7 +100,7 @@ func TestBuildApkgRoundTrip(t *testing.T) {
 	if err := db.QueryRow(`SELECT decks FROM col`).Scan(&decks); err != nil {
 		t.Fatalf("read decks: %v", err)
 	}
-	if !strings.Contains(decks, "Reasonix Tutor::Go 并发") || strings.Contains(decks, "错题") {
+	if !strings.Contains(decks, "Deep-tutor Tutor::Go 并发") || strings.Contains(decks, "错题") {
 		t.Fatalf("deck registry wrong: %s", decks)
 	}
 	var noteCount, cardCount int

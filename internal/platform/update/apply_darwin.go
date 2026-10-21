@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	macUpdateHandoffArg = "--reasonix-mac-update-handoff"
+	macUpdateHandoffArg = "--deep-tutor-mac-update-handoff"
 	macHandoffReadyFD   = 3
 	macHandoffProceedFD = 4
 	macHandoffReadyWait = 5 * time.Second
@@ -75,7 +75,7 @@ func applyMac(zipPath, targetVersion, current string, mac MacLine, app Applicati
 	if err != nil {
 		return err
 	}
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		return err
 	}
@@ -271,7 +271,7 @@ type macUpdateHandoffConfig struct {
 }
 
 func parseMacUpdateHandoffArgs(args []string) (macUpdateHandoffConfig, error) {
-	fs := flag.NewFlagSet("reasonix-mac-update-handoff", flag.ContinueOnError)
+	fs := flag.NewFlagSet("deep-tutor-mac-update-handoff", flag.ContinueOnError)
 	var cfg macUpdateHandoffConfig
 	fs.StringVar(&cfg.ToVersion, "to-version", "", "pending update target version")
 	fs.StringVar(&cfg.CreatedAt, "created-at", "", "pending update creation timestamp")

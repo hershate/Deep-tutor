@@ -153,7 +153,7 @@ func TestSplitSlugRefusesPathTricks(t *testing.T) {
 			t.Errorf("SplitSlug(%q) accepted", s)
 		}
 	}
-	if h, n, err := SplitSlug("1374665203/reasonix-computer-use"); err != nil || h != "1374665203" || n != "reasonix-computer-use" {
+	if h, n, err := SplitSlug("1374665203/deep-tutor-computer-use"); err != nil || h != "1374665203" || n != "deep-tutor-computer-use" {
 		t.Errorf("real slug refused: %v", err)
 	}
 }

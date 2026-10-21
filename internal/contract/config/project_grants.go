@@ -70,7 +70,7 @@ func (s *ProjectGrantStore) Grant(root string) (ProjectGrant, error) {
 func (s *ProjectGrantStore) Update(root string, edit func(ProjectGrant) (ProjectGrant, error)) error {
 	ws := workspaceid.PathFingerprint(root)
 	if s.path == "" || ws == "" {
-		return fmt.Errorf("%w: no Reasonix home or workspace", ErrProjectGrantsUnavailable)
+		return fmt.Errorf("%w: no Deep-tutor home or workspace", ErrProjectGrantsUnavailable)
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("%w: %w", ErrProjectGrantsUnavailable, err)

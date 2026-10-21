@@ -334,7 +334,7 @@ func (t *Tool) pluginPackageAction(req request, pkg pluginpkg.Package, source st
 	skills, commands, hooks, mcp := pkg.CapabilityCounts()
 	agents := pkg.Inventory().Agents
 	if pkg.ManifestKind != "reasonix" && skills+commands+hooks+mcp+len(agents) == 0 {
-		return action{}, newErr(ErrNoCompatibleCapabilities, "plugin %q has no Reasonix-compatible capabilities; skipped: %v", name, pkg.Compatibility.Skipped)
+		return action{}, newErr(ErrNoCompatibleCapabilities, "plugin %q has no Deep-tutor-compatible capabilities; skipped: %v", name, pkg.Compatibility.Skipped)
 	}
 	agentNames := make([]string, 0, len(agents))
 	for _, agent := range agents {
@@ -374,7 +374,7 @@ func (t *Tool) pluginPackageAction(req request, pkg pluginpkg.Package, source st
 	}
 	if hooks > 0 {
 		a.RiskLevel = RiskHigh
-		a.RiskReasons = append(a.RiskReasons, "registers shell hooks that execute during Reasonix sessions")
+		a.RiskReasons = append(a.RiskReasons, "registers shell hooks that execute during Deep-tutor sessions")
 	}
 	if mcp > 0 {
 		a.RiskLevel = RiskHigh
@@ -382,7 +382,7 @@ func (t *Tool) pluginPackageAction(req request, pkg pluginpkg.Package, source st
 	}
 	if a.Runtime != nil {
 		a.RiskLevel = RiskHigh
-		a.RiskReasons = append(a.RiskReasons, "FULL TRUST: declares a runtime process that runs inside Reasonix — it can read the full session and environment, bypass permissions, and operate this machine directly. Command: "+hostLiteral(pluginpkg.RuntimeCommandLine(pkg.Manifest.Runtime)))
+		a.RiskReasons = append(a.RiskReasons, "FULL TRUST: declares a runtime process that runs inside Deep-tutor — it can read the full session and environment, bypass permissions, and operate this machine directly. Command: "+hostLiteral(pluginpkg.RuntimeCommandLine(pkg.Manifest.Runtime)))
 	}
 	slices.Sort(a.Skills)
 	slices.Sort(a.Agents)
@@ -415,7 +415,7 @@ func modeForPlugin(mode string) string {
 
 func (t *Tool) applyInstallPluginPackage(ctx context.Context, req request, act *action) error {
 	if t.reasonixHome == "" {
-		return newErr(ErrSourceUnreadable, "plugin install requires a Reasonix home directory")
+		return newErr(ErrSourceUnreadable, "plugin install requires a Deep-tutor home directory")
 	}
 	if !pluginpkg.IsValidName(act.Name) {
 		return newErr(ErrInvalidManifest, "invalid plugin name %q", act.Name)
@@ -470,7 +470,7 @@ func (t *Tool) applyInstallPluginPackage(ctx context.Context, req request, act *
 	if pkg.ManifestKind != "reasonix" {
 		skills, commands, hooks, mcp := pkg.CapabilityCounts()
 		if skills+commands+hooks+mcp+pkg.AgentCount() == 0 {
-			return newErr(ErrInvalidManifest, "plugin %q no longer has any Reasonix-compatible capabilities", act.Name)
+			return newErr(ErrInvalidManifest, "plugin %q no longer has any Deep-tutor-compatible capabilities", act.Name)
 		}
 	}
 	act.Warnings = append(act.Warnings, warnings...)
@@ -541,7 +541,7 @@ func (t *Tool) preparePluginSource(ctx context.Context, source, mode string) (st
 		if !ok {
 			return "", "", func() {}, newErr(ErrUnsupportedKind, "plugin URL %q is not a GitHub repository", source)
 		}
-		tmp, err := os.MkdirTemp("", "reasonix-plugin-*")
+		tmp, err := os.MkdirTemp("", "deep-tutor-plugin-*")
 		if err != nil {
 			return "", "", func() {}, err
 		}

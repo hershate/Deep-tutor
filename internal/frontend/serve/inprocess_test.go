@@ -65,9 +65,9 @@ func TestInProcessClientStreamsEventsAndRunsTheUsersShell(t *testing.T) {
 	c := h.InProcessClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	events := frames(ctx, t, c, "http://reasonix.local/rt/r1/events")
+	events := frames(ctx, t, c, "http://deep-tutor.local/rt/r1/events")
 
-	resp := clientPostJSON(t, c, "http://reasonix.local/rt/r1/submit", `{"input":"!echo in-process-shell"}`)
+	resp := clientPostJSON(t, c, "http://deep-tutor.local/rt/r1/submit", `{"input":"!echo in-process-shell"}`)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("in-process shell submit = %d, want 202", resp.StatusCode)
@@ -107,7 +107,7 @@ func TestShellOverTheNetworkStaysRefused(t *testing.T) {
 func TestInProcessStreamEndsWithItsCaller(t *testing.T) {
 	h, _, _ := adoptedPane(t, control.ToolApprovalAsk)
 	ctx, cancel := context.WithCancel(context.Background())
-	events := frames(ctx, t, h.InProcessClient(), "http://reasonix.local/rt/r1/events")
+	events := frames(ctx, t, h.InProcessClient(), "http://deep-tutor.local/rt/r1/events")
 	cancel()
 	select {
 	case _, open := <-events:

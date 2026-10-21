@@ -24,7 +24,7 @@ func TestBashMergesLoginShellPath(t *testing.T) {
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
-	probe := filepath.Join(bin, "reasonix-path-probe")
+	probe := filepath.Join(bin, "deep-tutor-path-probe")
 	if err := os.WriteFile(probe, []byte("#!/bin/sh\nprintf 'shell-path-ok\\n'\n"), 0o755); err != nil {
 		t.Fatalf("write probe: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestBashMergesLoginShellPath(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
 
 	b := bash{shell: sandbox.Shell{Kind: sandbox.ShellBash, Path: "/bin/sh"}}
-	args, _ := json.Marshal(map[string]string{"command": "reasonix-path-probe"})
+	args, _ := json.Marshal(map[string]string{"command": "deep-tutor-path-probe"})
 
 	out, err := b.Execute(context.Background(), args)
 	if err != nil {

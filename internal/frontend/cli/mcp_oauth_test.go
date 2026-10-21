@@ -26,7 +26,7 @@ func TestMCPAuthCLIUsesReasonixPrivateState(t *testing.T) {
 			t.Fatalf("authorization spec = %+v", spec)
 		}
 		if spec.StateDir == "" || strings.HasPrefix(filepath.Clean(spec.StateDir), filepath.Clean(workspace)+string(filepath.Separator)) {
-			t.Fatalf("OAuth state dir must be private Reasonix state, got %q", spec.StateDir)
+			t.Fatalf("OAuth state dir must be private Deep-tutor state, got %q", spec.StateDir)
 		}
 		if spec.OAuthHTTPClient == nil || openURL == nil {
 			t.Fatal("authorization requires the proxy-aware client and browser opener")

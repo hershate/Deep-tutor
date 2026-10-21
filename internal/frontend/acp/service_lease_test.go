@@ -49,7 +49,7 @@ func TestSessionLoadRefusedWhenLeaseHeld(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatalf("session/load of a held session succeeded, want protocol error")
 	}
-	if !strings.Contains(resp.Error.Message, "already open elsewhere in this Reasonix") {
+	if !strings.Contains(resp.Error.Message, "already open elsewhere in this Deep-tutor") {
 		t.Fatalf("session/load error = %q, want holder wording", resp.Error.Message)
 	}
 	if strings.Contains(resp.Error.Message, path) {

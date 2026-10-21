@@ -471,7 +471,7 @@ func PrepareFileUpdate(fromVersion, toVersion, targetPath string, siblingPaths .
 	}
 	root := config.MemoryUserDir()
 	if root == "" {
-		return nil, fmt.Errorf("prepare update: Reasonix state directory is unavailable")
+		return nil, fmt.Errorf("prepare update: Deep-tutor state directory is unavailable")
 	}
 	unlock, err := acquirePendingUpdateLock()
 	if err != nil {

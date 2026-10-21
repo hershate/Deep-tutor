@@ -82,14 +82,14 @@ func Diagnose(ctx context.Context, opts DiagnoseOptions) (DiagnosticReport, erro
 	for _, check := range configReport.Checks {
 		if check.Exists && !check.Valid {
 			valid = false
-			report.add("error", "config.invalid_toml", check.Scope, "Configuration cannot be parsed: "+check.Error, "Run reasonix doctor repair; add --project only for a project config.")
+			report.add("error", "config.invalid_toml", check.Scope, "Configuration cannot be parsed: "+check.Error, "Run deep-tutor doctor repair; add --project only for a project config.")
 		}
 	}
 	checkSensitiveFileMode(&report, config.UserConfigPath(), "global config")
 	checkSensitiveFileMode(&report, config.UserCredentialsPath(), "credential file")
-	checkDirectoryMode(&report, config.ReasonixHomeDir(), "Reasonix home")
+	checkDirectoryMode(&report, config.ReasonixHomeDir(), "Deep-tutor home")
 	if config.MemoryUserDir() != config.ReasonixHomeDir() {
-		checkDirectoryMode(&report, config.MemoryUserDir(), "Reasonix state directory")
+		checkDirectoryMode(&report, config.MemoryUserDir(), "Deep-tutor state directory")
 	}
 	checkDirectoryMode(&report, root, "project root")
 	checkDerivedJSON(&report)
@@ -100,7 +100,7 @@ func Diagnose(ctx context.Context, opts DiagnoseOptions) (DiagnosticReport, erro
 	// `tier` lines on disk, so use the variant that never writes config files.
 	cfg, err := config.LoadForRootReadOnly(root)
 	if err != nil {
-		report.add("error", "config.load_failed", "runtime", err.Error(), "Run reasonix doctor repair, then inspect the reported global or project configuration.")
+		report.add("error", "config.load_failed", "runtime", err.Error(), "Run deep-tutor doctor repair, then inspect the reported global or project configuration.")
 		return report, nil
 	}
 	validateProviders(&report, cfg)
@@ -146,7 +146,7 @@ func validateProviders(report *DiagnosticReport, cfg *config.Config) {
 		}
 		seen[entry.Name] = true
 		if entry.Kind != "openai" && entry.Kind != "anthropic" {
-			report.add("error", "provider.unsupported_kind", scope, fmt.Sprintf("Provider kind %q is not registered by packaged Reasonix builds.", entry.Kind), "Use openai or anthropic compatibility.")
+			report.add("error", "provider.unsupported_kind", scope, fmt.Sprintf("Provider kind %q is not registered by packaged Deep-tutor builds.", entry.Kind), "Use openai or anthropic compatibility.")
 		}
 		if len(entry.ModelList()) == 0 {
 			report.add("error", "provider.no_models", scope, "Provider has no configured model.", "Set model or models.")
@@ -162,7 +162,7 @@ func validateProviders(report *DiagnosticReport, cfg *config.Config) {
 		if entry.APIKeyEnv != "" && !config.IsValidCredentialKey(entry.APIKeyEnv) {
 			report.add("error", "provider.invalid_key_name", scope, "api_key_env is not a valid environment variable name.", "Use letters, numbers, and underscores.")
 		} else if entry.RequiresAPIKey() && entry.APIKey() == "" {
-			report.add("warning", "provider.missing_key", scope, "The configured API key is missing from the global Reasonix credential file.", "Add the key in Settings or <Reasonix home>/.env.")
+			report.add("warning", "provider.missing_key", scope, "The configured API key is missing from the global Deep-tutor credential file.", "Add the key in Settings or <Deep-tutor home>/.env.")
 		}
 	}
 	if strings.TrimSpace(cfg.DefaultModel) == "" {
@@ -265,7 +265,7 @@ func checkSensitiveFileMode(report *DiagnosticReport, path, label string) {
 
 func checkDirectoryMode(report *DiagnosticReport, path, label string) {
 	if path == "" {
-		report.add("warning", "directory.unavailable", label, label+" path is unavailable.", "Restore the user home or Reasonix path environment configuration.")
+		report.add("warning", "directory.unavailable", label, label+" path is unavailable.", "Restore the user home or Deep-tutor path environment configuration.")
 		return
 	}
 	st, err := os.Stat(path)
@@ -292,7 +292,7 @@ func checkDerivedJSON(report *DiagnosticReport) {
 			continue
 		}
 		if !json.Valid(b) {
-			report.add("warning", "derived.invalid_json", "derived:"+name, fmt.Sprintf("Derived desktop state %s is malformed.", filepath.Base(path)), "Run reasonix doctor repair, or delete the broken derived file after backing it up.")
+			report.add("warning", "derived.invalid_json", "derived:"+name, fmt.Sprintf("Derived desktop state %s is malformed.", filepath.Base(path)), "Run deep-tutor doctor repair, or delete the broken derived file after backing it up.")
 		}
 	}
 }
@@ -335,7 +335,7 @@ func probeProviderNetwork(ctx context.Context, report *DiagnosticReport, cfg *co
 				_ = resp.Body.Close()
 				switch {
 				case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-					report.add("error", "network.authentication_failed", "provider:"+entry.Name, fmt.Sprintf("Provider rejected credentials with HTTP %d.", resp.StatusCode), "Update the provider credential in Reasonix Settings.")
+					report.add("error", "network.authentication_failed", "provider:"+entry.Name, fmt.Sprintf("Provider rejected credentials with HTTP %d.", resp.StatusCode), "Update the provider credential in Deep-tutor Settings.")
 				case resp.StatusCode >= 200 && resp.StatusCode < 300:
 					report.add("info", "network.ok", "provider:"+entry.Name, "Provider endpoint and credentials are reachable.", "")
 				default:

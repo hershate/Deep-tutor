@@ -73,7 +73,7 @@ func TestCreateDoesNotRunConditionallyIncludedDrivers(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	repo := testenv.TempDir(t)
-	marker := plantConditionalDriver(t, repo, "onbranch:reasonix/**")
+	marker := plantConditionalDriver(t, repo, "onbranch:deep-tutor/**")
 	result, err := Create(context.Background(), opened(t, repo), testenv.TempDir(t))
 	if err != nil {
 		t.Fatalf("Create: %v", err)

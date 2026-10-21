@@ -14,7 +14,7 @@ import (
 // after the project merge so a cloned repo's reasonix.toml can never inject
 // hosts, jump chains, or forwards.
 type RemoteConfig struct {
-	// ImportSSHConfig surfaces ~/.ssh/config aliases in `reasonix remote import`.
+	// ImportSSHConfig surfaces ~/.ssh/config aliases in `deep-tutor remote import`.
 	ImportSSHConfig bool              `toml:"import_ssh_config"`
 	Hosts           []RemoteHostEntry `toml:"hosts"`
 }

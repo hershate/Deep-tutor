@@ -9,7 +9,7 @@ import (
 	"deep-tutor/internal/contract/config"
 )
 
-// BillingReport is the structured output of `reasonix doctor billing`.
+// BillingReport is the structured output of `deep-tutor doctor billing`.
 type BillingReport struct {
 	DisplayCurrencyPref string                `json:"display_currency_pref"`
 	DisplayCurrency     string                `json:"display_currency"`
@@ -119,7 +119,7 @@ func officialKindForBilling(p *config.ProviderEntry) string {
 // RenderBillingText formats a human-readable billing doctor report.
 func RenderBillingText(r BillingReport) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "reasonix doctor billing\n")
+	fmt.Fprintf(&b, "deep-tutor doctor billing\n")
 	fmt.Fprintf(&b, "  display preference: %s\n", r.DisplayCurrencyPref)
 	fmt.Fprintf(&b, "  display resolved:   %s\n", r.DisplayCurrency)
 	fmt.Fprintf(&b, "  fx source:          %s\n", r.FX.Source)

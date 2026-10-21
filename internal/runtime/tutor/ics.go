@@ -81,7 +81,7 @@ func BuildICS(plan *Plan, now time.Time) (text string, events, skipped int, err 
 		"VERSION:2.0",
 		"PRODID:-//Reasonix//Tutor Study Schedule//CN",
 		"CALSCALE:GREGORIAN",
-		"X-WR-CALNAME:" + icsEscape("Reasonix Tutor："+title),
+		"X-WR-CALNAME:" + icsEscape("Deep-tutor Tutor："+title),
 	}
 	for i, day := range plan.Schedule {
 		parsed, perr := time.ParseInLocation("2006-01-02", strings.TrimSpace(day.Date), time.Local)
@@ -111,7 +111,7 @@ func BuildICS(plan *Plan, now time.Time) (text string, events, skipped int, err 
 		}
 		event := []string{
 			"BEGIN:VEVENT",
-			fmt.Sprintf("UID:dt-%s-%d-%s@reasonix", plan.ID, i, parsed.Format("2006-01-02")),
+			fmt.Sprintf("UID:dt-%s-%d-%s@deep-tutor", plan.ID, i, parsed.Format("2006-01-02")),
 			"DTSTAMP:" + dtstamp,
 			"DTSTART;VALUE=DATE:" + parsed.Format("20060102"),
 			"SUMMARY:" + icsEscape(summary),

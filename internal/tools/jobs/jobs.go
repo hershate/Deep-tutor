@@ -231,7 +231,7 @@ func NewManager(sink event.Sink, opts ...Option) *Manager {
 		sink = event.Discard
 	}
 	root, cancel := context.WithCancel(context.Background())
-	scratchDir, _ := scratch.Create("reasonix-jobs-")
+	scratchDir, _ := scratch.Create("deep-tutor-jobs-")
 	m := &Manager{
 		sink:          sink,
 		root:          root,

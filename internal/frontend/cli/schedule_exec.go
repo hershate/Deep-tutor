@@ -35,7 +35,7 @@ const (
 
 func scheduleExec(args []string) int {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		fmt.Fprintln(os.Stderr, "usage: reasonix schedule exec <trigger-id>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor schedule exec <trigger-id>")
 		return execExitUsage
 	}
 	if !schedrun.SupervisorPipe(os.Stdin) {

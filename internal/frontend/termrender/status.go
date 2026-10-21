@@ -26,7 +26,7 @@ func StatusSequence(state ProgramState, kind BlockedKind) string {
 	if kind != BlockedNone {
 		body += ":kind=" + string(kind)
 	}
-	return "\x1b]7501;" + body + ":app=reasonix\x1b\\"
+	return "\x1b]7501;" + body + ":app=deep-tutor\x1b\\"
 }
 
 // StatusClear removes the record, for a program that is exiting.

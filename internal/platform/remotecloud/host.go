@@ -124,7 +124,7 @@ func New(client *account.Client, dialer *websocket.Dialer, relayURL, version str
 	name, _ := os.Hostname()
 	name = strings.TrimSpace(name)
 	if name == "" {
-		name = "Reasonix Studio"
+		name = "Deep-tutor Studio"
 	}
 	if len(name) > 80 {
 		name = name[:80]

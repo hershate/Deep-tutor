@@ -8,7 +8,7 @@ import (
 
 // 1.x prints setup usage for -h/--help (exit 0) and refuses any other dashed
 // argument (exit 2); none of them may become the path the config is written to.
-// The ACP registry advertises `reasonix setup` as the login method.
+// The ACP registry advertises `deep-tutor setup` as the login method.
 func TestSetupHelpAndUnknownFlagsMatch1x(t *testing.T) {
 	cases := []struct {
 		arg      string
@@ -28,10 +28,10 @@ func TestSetupHelpAndUnknownFlagsMatch1x(t *testing.T) {
 				code = Run([]string{"setup", tc.arg}, "test")
 			})
 			if code != tc.wantCode {
-				t.Fatalf("reasonix setup %s exited %d, want %d\nstdout:\n%s\nstderr:\n%s", tc.arg, code, tc.wantCode, stdout, stderr)
+				t.Fatalf("deep-tutor setup %s exited %d, want %d\nstdout:\n%s\nstderr:\n%s", tc.arg, code, tc.wantCode, stdout, stderr)
 			}
 			out := map[string]string{"stdout": stdout, "stderr": stderr}[tc.stream]
-			if !strings.Contains(out, "usage: reasonix setup [--local|-l] [path]") {
+			if !strings.Contains(out, "usage: deep-tutor setup [--local|-l] [path]") {
 				t.Fatalf("usage missing from %s:\n%s", tc.stream, out)
 			}
 			if strings.Contains(stdout+stderr, "Wrote") {

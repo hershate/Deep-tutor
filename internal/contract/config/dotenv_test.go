@@ -48,7 +48,7 @@ func TestLoadDotEnvDoesNotImportProjectOrHomeEnv(t *testing.T) {
 	}
 }
 
-// TestLoadDotEnvReadsGlobalCredentials proves `reasonix setup`'s target — the
+// TestLoadDotEnvReadsGlobalCredentials proves `deep-tutor setup`'s target — the
 // reasonix-owned credentials file under Reasonix home — is loaded from any
 // working directory and wins over a project ./.env on a shared key.
 func TestLoadDotEnvReadsGlobalCredentials(t *testing.T) {
@@ -505,7 +505,7 @@ func TestCredentialResolverCachesGlobalFirstLookups(t *testing.T) {
 		if got != key {
 			t.Fatalf("stored credential lookup key = %q, want %q", got, key)
 		}
-		return "from_credentials", CredentialSource{Kind: CredentialSourceCredentials, Label: "Reasonix credentials"}, true
+		return "from_credentials", CredentialSource{Kind: CredentialSourceCredentials, Label: "Deep-tutor credentials"}, true
 	})
 
 	resolver := NewCredentialResolverForRoot(project)
@@ -564,7 +564,7 @@ func TestResolveCredentialSourceShowsCredentialsShadowingProjectEnv(t *testing.T
 
 	got := ResolveCredentialForRoot(cwd, key)
 	if !got.Set || got.Source.Kind != CredentialSourceCredentials {
-		t.Fatalf("source = %+v set=%v, want Reasonix credentials", got.Source, got.Set)
+		t.Fatalf("source = %+v set=%v, want Deep-tutor credentials", got.Source, got.Set)
 	}
 	foundProjectShadow := false
 	for _, source := range got.Shadowed {
@@ -653,7 +653,7 @@ func TestResolveCredentialSourceShowsCredentialsBeforeHomeEnv(t *testing.T) {
 
 	got := ResolveCredentialForRoot(cwd, key)
 	if !got.Set || got.Source.Kind != CredentialSourceCredentials {
-		t.Fatalf("source = %+v set=%v, want Reasonix credentials", got.Source, got.Set)
+		t.Fatalf("source = %+v set=%v, want Deep-tutor credentials", got.Source, got.Set)
 	}
 	if got.Value != "from_credentials" {
 		t.Fatalf("value = %q, want credentials value", got.Value)

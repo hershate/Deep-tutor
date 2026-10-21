@@ -1,7 +1,7 @@
 // Package providerbroker keeps a remote session's model credentials on the
 // machine the user configured them on, and off the host the agent runs on.
 //
-// A `reasonix serve` bootstrapped over SSH resolves providers from its own
+// A `deep-tutor serve` bootstrapped over SSH resolves providers from its own
 // config, so every remote host needs the API key configured a second time and
 // needs egress to the model endpoint. A broker inverts that: the local machine
 // serves a Server on a loopback listener, an -R forward publishes it on the

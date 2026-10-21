@@ -29,9 +29,9 @@ func AnnotateToolSchemaError(err error, tools []ToolSchema) error {
 	}
 
 	tool := tools[index]
-	context := fmt.Sprintf("Provider tool %d maps to Reasonix tool %q.", index, tool.Name)
+	context := fmt.Sprintf("Provider tool %d maps to Deep-tutor tool %q.", index, tool.Name)
 	if server, rawName, ok := splitMCPToolName(tool.Name); ok {
-		context = fmt.Sprintf("Provider tool %d maps to Reasonix tool %q (MCP server %q, tool %q).", index, tool.Name, server, rawName)
+		context = fmt.Sprintf("Provider tool %d maps to Deep-tutor tool %q (MCP server %q, tool %q).", index, tool.Name, server, rawName)
 	}
 	annotated := *apiErr
 	annotated.ToolContext = context

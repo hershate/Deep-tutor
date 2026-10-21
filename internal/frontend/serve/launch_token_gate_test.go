@@ -144,7 +144,7 @@ func TestAuthDisabledWildcardBindAdmitsOnlyInterfaceAddresses(t *testing.T) {
 func TestUnpairedDeviceLoadsTheManifestAndItsIcons(t *testing.T) {
 	page := fstest.MapFS{
 		"index.html":                  {Data: []byte("<title>studio</title>")},
-		"manifest.webmanifest":        {Data: []byte(`{"name":"Reasonix Studio"}`)},
+		"manifest.webmanifest":        {Data: []byte(`{"name":"Deep-tutor Studio"}`)},
 		"icons/icon-192.png":          {Data: []byte("png")},
 		"icons/icon-maskable-512.png": {Data: []byte("png")},
 	}

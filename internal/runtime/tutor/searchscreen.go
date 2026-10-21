@@ -14,7 +14,7 @@ import (
 // carries has passed one LLM judgment of whether it teaches the stage's
 // topic at the learner's level. Failures drop candidates — 宁缺勿滥.
 
-const screenPrompt = `你是 Reasonix Tutor 的「资源内容适配性筛选」工具。候选资源已通过可达性校验（HTTP 200），你的任务：判定每个候选与对应学习阶段主题、学习者水平的**内容强相关性**与适配性。
+const screenPrompt = `你是 Deep-tutor Tutor 的「资源内容适配性筛选」工具。候选资源已通过可达性校验（HTTP 200），你的任务：判定每个候选与对应学习阶段主题、学习者水平的**内容强相关性**与适配性。
 
 输入（user message JSON）：{"topic":"学习主题","level":"学习者水平","stages":["阶段名",...],"candidates":[{"stage_index":0,"title":"...","url":"...","snippet":"正文摘要（可能为空）"}]}
 
@@ -32,7 +32,7 @@ const screenPrompt = `你是 Reasonix Tutor 的「资源内容适配性筛选」
 
 仅返回符合上述格式的 JSON 数组。`
 
-const unitScreenPrompt = `你是 Reasonix Tutor 的「自学单元补充资料筛选」工具。候选已通过可达性校验（HTTP 200）。判定每个候选与自学单元主题的**内容强相关性**。
+const unitScreenPrompt = `你是 Deep-tutor Tutor 的「自学单元补充资料筛选」工具。候选已通过可达性校验（HTTP 200）。判定每个候选与自学单元主题的**内容强相关性**。
 
 输入（user message JSON）：{"topic":"单元主题（知识点/单元标题）","candidates":[{"title":"...","url":"...","snippet":"正文摘要（可能为空）"}]}
 

@@ -76,7 +76,7 @@ func loadCCSwitchMCPFromRoot(root string) ([]PluginEntry, error) {
 			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("cc-switch import: no Reasonix-enabled MCP servers found in %s", root)
+	return nil, fmt.Errorf("cc-switch import: no Deep-tutor-enabled MCP servers found in %s", root)
 }
 
 func ImportCCSwitchMCPEntries(entries []PluginEntry) (total, added, updated int, err error) {

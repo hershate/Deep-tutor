@@ -43,7 +43,7 @@ func TestBuildICS(t *testing.T) {
 		"DTSTART;VALUE=DATE:20261015",
 		"SUMMARY:[Go 入门] 阶段1 基础",
 		"DESCRIPTION:阶段：基础\\n· 读第一章\\n· 跑示例\\n预计时长：45 分钟",
-		"UID:dt-p1-0-2026-10-15@reasonix",
+		"UID:dt-p1-0-2026-10-15@deep-tutor",
 		"END:VCALENDAR",
 	} {
 		if !strings.Contains(flat, want) {

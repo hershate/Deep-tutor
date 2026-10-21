@@ -22,7 +22,7 @@ type Messages struct {
 	// welcome / status screen
 	WelcomeTitleFmt string // first-run box title — %s = product name (styled)
 	NoConfigYet     string // first-run cue under the welcome box
-	// `reasonix init` — points to the in-session /init skill + setup
+	// `deep-tutor init` — points to the in-session /init skill + setup
 	InitHint string
 
 	// desktop shell — native panels it opens on its own, outside the webview
@@ -657,11 +657,11 @@ type Messages struct {
 	RemotePassphrasePromptFmt string // "passphrase for %s:"
 	RemotePasswordPromptFmt   string // "password for %s:"
 	RemoteBootstrapStepFmt    string // "remote serve: %s %s"
-	RemoteNoHostsHint         string // "no remote hosts configured; add one with `reasonix remote add`"
+	RemoteNoHostsHint         string // "no remote hosts configured; add one with `deep-tutor remote add`"
 
 	// top-level / runAgent
 	UnknownCommandFmt         string // "unknown command %q"
-	UsageRunHint              string // "usage: reasonix run [--model NAME] <task>"
+	UsageRunHint              string // "usage: deep-tutor run [--model NAME] <task>"
 	ErrorPrefix               string // "error:" — prefix for fatal-error output
 	ReconfigureOnUnknownModel string // shown when the configured model no longer resolves and setup is re-run
 	WriteConfigErr            string // "write config:" — prefix for write failure
@@ -728,7 +728,7 @@ type Messages struct {
 	UpgradeSuccessFmt          string // "Updated %s → %s"
 	UpgradeManagedFmt          string // package-manager-owned install: %s is the command to run
 
-	// `reasonix report` — local CLI crash review and explicit upload
+	// `deep-tutor report` — local CLI crash review and explicit upload
 	ReportNoPending           string
 	ReportHeaderFmt           string
 	ReportCapturedFmt         string

@@ -21,7 +21,7 @@ func TestDefaultSystemPromptStaysLean(t *testing.T) {
 			t.Fatalf("default system prompt duplicates %q workflow guidance: %q", duplicate, DefaultSystemPrompt)
 		}
 	}
-	for _, want := range []string{"Reasonix", "available tools", "focused", "concise"} {
+	for _, want := range []string{"Deep-tutor", "available tools", "focused", "concise"} {
 		if !strings.Contains(DefaultSystemPrompt, want) {
 			t.Fatalf("default system prompt missing %q: %q", want, DefaultSystemPrompt)
 		}
@@ -121,7 +121,7 @@ func TestResolveSystemPromptProjectCannotReadReasonixHome(t *testing.T) {
 		t.Fatalf("error = %v, want missing prompt classification", err)
 	}
 	if strings.Contains(err.Error(), filepath.Join(home, ".env")) || strings.Contains(got, secret) {
-		t.Fatalf("project prompt resolution probed Reasonix credentials: got=%q err=%v", got, err)
+		t.Fatalf("project prompt resolution probed Deep-tutor credentials: got=%q err=%v", got, err)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestMergeFileSnapshotKeepsProjectPromptSourceAtomic(t *testing.T) {
 		t.Fatalf("ResolveSystemPromptForRoot = %q, %v; want project-scoped missing error", got, err)
 	}
 	if strings.Contains(got, secret) || strings.Contains(err.Error(), filepath.Join(home, ".env")) {
-		t.Fatalf("project prompt resolution probed Reasonix credentials: got=%q err=%v", got, err)
+		t.Fatalf("project prompt resolution probed Deep-tutor credentials: got=%q err=%v", got, err)
 	}
 }
 

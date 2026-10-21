@@ -71,7 +71,7 @@ func UntrustedFolderRemedy(root string, declined bool) string {
 	if !strings.ContainsAny(root, "\r\n\x00") {
 		dir = "'" + strings.ReplaceAll(root, "'", `'\''`) + "'"
 	}
-	remedy := fmt.Sprintf("review and trust it with `reasonix trust --dir %s` (add --yes only after reading what it lists), or pass --permission-mode auto for this run only", dir)
+	remedy := fmt.Sprintf("review and trust it with `deep-tutor trust --dir %s` (add --yes only after reading what it lists), or pass --permission-mode auto for this run only", dir)
 	if declined {
 		return "if the person has changed their mind, " + remedy
 	}

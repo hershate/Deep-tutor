@@ -70,7 +70,7 @@ func TestMCPPreviewSeparatesDisplayFromInstallValues(t *testing.T) {
 		"node -HAuthorization:Basicfixturesecret",
 		`{"mcpServers":{"neutral":{"url":"https://host/mcp","env":{"ORDINARY":"https://host/mcp Authorization: Basic fixturesecret"}}}}`,
 		`{"mcpServers":{"neutral":{"command":"node --header 'Authorization: Bearer fixturesecret'"}}}`,
-		"reasonix mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'",
+		"deep-tutor mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'",
 	} {
 		body, _ := json.Marshal(map[string]string{"input": input})
 		w := httptest.NewRecorder()

@@ -42,7 +42,7 @@ func TestKeepErrorsTextFallbackUnchanged(t *testing.T) {
 		"error prefix":      {"error: file not found", true},
 		"blocked prefix":    {"blocked: permission denied", true},
 		"mentions failure":  {"all tests pass; the earlier FAIL is fixed", false},
-		"ordinary output":   {"ok  reasonix/config\t0.2s", false},
+		"ordinary output":   {"ok  deep-tutor/config\t0.2s", false},
 		"uppercase prefix":  {"Error: broken", true},
 		"prefix mid-string": {"note: error: not at the start", false},
 	}

@@ -204,7 +204,7 @@ func (s *ProjectProgramStore) Revoke(root string) error {
 
 func (s *ProjectProgramStore) load() (programApprovalFile, error) {
 	if s == nil || s.path == "" {
-		return programApprovalFile{}, fmt.Errorf("%w: no Reasonix home", ErrProjectProgramsUnavailable)
+		return programApprovalFile{}, fmt.Errorf("%w: no Deep-tutor home", ErrProjectProgramsUnavailable)
 	}
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
@@ -222,7 +222,7 @@ func (s *ProjectProgramStore) load() (programApprovalFile, error) {
 
 func (s *ProjectProgramStore) update(mutate func(*programApprovalFile)) error {
 	if s == nil || s.path == "" {
-		return fmt.Errorf("%w: no Reasonix home", ErrProjectProgramsUnavailable)
+		return fmt.Errorf("%w: no Deep-tutor home", ErrProjectProgramsUnavailable)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

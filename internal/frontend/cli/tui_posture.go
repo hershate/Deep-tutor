@@ -64,12 +64,12 @@ cache such as ~/.cargo/bin or ~/go/bin runs later outside the sandbox. Network a
 follows [sandbox] network; deny rules still apply.`
 
 // askWorkspaceTrust records the answer either way: a folder declined once is
-// not asked about again, and `reasonix trust` changes it later.
+// not asked about again, and `deep-tutor trust` changes it later.
 func askWorkspaceTrust(ctrl postureHost, in *bufio.Scanner, out io.Writer) {
-	fmt.Fprintf(out, "In a trusted folder, edits and shell commands run without asking, here and in `reasonix run`:\n%s\n", ctrl.WorkspaceRoot())
+	fmt.Fprintf(out, "In a trusted folder, edits and shell commands run without asking, here and in `deep-tutor run`:\n%s\n", ctrl.WorkspaceRoot())
 	fmt.Fprintln(out, trustScope)
 	trust := config.WorkspaceTrustDeclined
-	if strings.EqualFold(ask(in, out, "Trust this folder? (`reasonix trust --revoke` undoes it)", "y/N"), "y") {
+	if strings.EqualFold(ask(in, out, "Trust this folder? (`deep-tutor trust --revoke` undoes it)", "y/N"), "y") {
 		trust = config.WorkspaceTrusted
 	}
 	if err := ctrl.SetWorkspaceTrust(trust); err != nil {

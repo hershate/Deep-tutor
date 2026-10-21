@@ -2,7 +2,7 @@ package cli
 
 import "github.com/spf13/pflag"
 
-// runFlags is what `reasonix run` accepts. It is built apart from runAgent so
+// runFlags is what `deep-tutor run` accepts. It is built apart from runAgent so
 // the flags written before the verb can be checked against it.
 type runFlags struct {
 	fs                                *pflag.FlagSet
@@ -37,8 +37,8 @@ func newRunFlags() *runFlags {
 	f.dir = fs.String("dir", "", "change to this directory first (project root); config, sandbox and file tools resolve from here")
 	f.cont = registerContinueFlag(fs)
 	f.resume = fs.String("resume", "", "resume by session file path, session ID, or machine session ID (takes precedence over --continue)")
-	f.takeover = fs.Bool("takeover", false, "with --resume/--continue: accepted for 1.x command lines; a session another Reasonix process holds is still refused")
-	f.copySession = fs.Bool("copy", false, "with --resume/--continue: duplicate the session and continue in the copy (escape hatch when the original is held by another Reasonix process)")
+	f.takeover = fs.Bool("takeover", false, "with --resume/--continue: accepted for 1.x command lines; a session another Deep-tutor process holds is still refused")
+	f.copySession = fs.Bool("copy", false, "with --resume/--continue: duplicate the session and continue in the copy (escape hatch when the original is held by another Deep-tutor process)")
 	f.effort = fs.String("effort", "", "session reasoning effort override")
 	f.permissionMode = fs.String("permission-mode", "", "permission mode: read-only | manual | ask | auto | acceptEdits | dontAsk | bypassPermissions (default: auto where the OS sandbox confines writes and the folder is trusted, otherwise ask)")
 	f.autoApprove, f.yolo = registerRunApprovalFlags(fs)

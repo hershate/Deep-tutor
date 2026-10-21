@@ -1,4 +1,4 @@
-// Package bootstrap starts and manages a detached `reasonix serve` process on
+// Package bootstrap starts and manages a detached `deep-tutor serve` process on
 // a remote host over an established SSH connection. It detects the remote
 // OS/arch, locates or installs reasonix, launches serve bound to a random
 // loopback port with a file-based token (never in argv), and records the
@@ -216,7 +216,7 @@ func launchServe(ctx context.Context, conn Conn, target remoteOS, fs *sftpfs.FS,
 	}
 	if pid <= 0 || !pidIsServe(ctx, conn, target, pid, paths) {
 		cleanupFailedLaunch(conn, target, fs, paths, pid)
-		return Result{}, fmt.Errorf("%w: the launched process is not a reasonix serve", ErrServeDidNotStart)
+		return Result{}, fmt.Errorf("%w: the launched process is not a deep-tutor serve", ErrServeDidNotStart)
 	}
 
 	st := ServeState{

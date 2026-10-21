@@ -1,5 +1,5 @@
 // Package usagereport is the per-session token record the host writes beside a
-// session and `reasonix doctor` reads back. It is one declaration because the
+// session and `deep-tutor doctor` reads back. It is one declaration because the
 // writer and the reader are different layers that meet only over this JSON: a
 // field renamed on one side and not the other reads as zero forever.
 package usagereport

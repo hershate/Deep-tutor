@@ -68,7 +68,7 @@ func proseAfterCheckWorkspace(t *testing.T, declared, hook bool) (home, dir stri
 	writeFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, dir, "README.md", "A neutral readme.\n")
 	if declared {
-		writeFile(t, dir, "AGENTS.md", "## Reasonix host checks\n\n- verify: git diff --check\n")
+		writeFile(t, dir, "AGENTS.md", "## Deep-tutor host checks\n\n- verify: git diff --check\n")
 	}
 	trackFixture(t, dir)
 	approveWorkspace(t, dir)

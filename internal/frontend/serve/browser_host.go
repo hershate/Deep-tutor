@@ -66,7 +66,7 @@ func (h *BrowserHost) Dial(_ context.Context, profile string) (browser.Endpoint,
 
 func browserPartition(profile string) string {
 	sum := sha256.Sum256([]byte(profile))
-	return "reasonix-browser-" + hex.EncodeToString(sum[:8])
+	return "deep-tutor-browser-" + hex.EncodeToString(sum[:8])
 }
 
 // attach makes s the window's stream, ending every connection the previous one

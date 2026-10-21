@@ -24,7 +24,7 @@ import (
 
 // tuiBase is the route prefix of the one runtime a terminal session drives.
 // The host name is never resolved: the in-process transport answers it.
-const tuiBase = "http://reasonix.local/rt/r1"
+const tuiBase = "http://deep-tutor.local/rt/r1"
 
 // runTUI starts the terminal UI on a kernel in this process. The UI reaches
 // the kernel through the same routes Studio uses, over a transport that opens
@@ -36,7 +36,7 @@ func runTUI(args []string, version string) int {
 		return code
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, "reasonix tui needs an interactive terminal; use `reasonix run` for scripts")
+		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, "deep-tutor tui needs an interactive terminal; use `deep-tutor run` for scripts")
 		return 2
 	}
 	profile, err := f.runtimeProfile()

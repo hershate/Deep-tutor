@@ -994,7 +994,7 @@ data: {"type":"message_stop"}
 		Extra: map[string]any{
 			"auth_header": true,
 			"headers": map[string]string{
-				"User-Agent":        "Reasonix",
+				"User-Agent":        "Deep-tutor",
 				"Authorization":     "Bearer wrong",
 				"x-api-key":         "wrong",
 				"anthropic-version": "bad",
@@ -1026,8 +1026,8 @@ data: {"type":"message_stop"}
 	if gotVersion != anthropicVersion {
 		t.Fatalf("anthropic-version = %q, want %q", gotVersion, anthropicVersion)
 	}
-	if gotUserAgent != "Reasonix" {
-		t.Fatalf("User-Agent = %q, want Reasonix", gotUserAgent)
+	if gotUserAgent != "Deep-tutor" {
+		t.Fatalf("User-Agent = %q, want Deep-tutor", gotUserAgent)
 	}
 	if usage == nil || usage.RequestCount != 1 {
 		t.Fatalf("usage request count = %+v, want 1", usage)

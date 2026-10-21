@@ -142,7 +142,7 @@ func Collect(opts Options) Report {
 	}
 	cwd, _ := os.Getwd()
 	sourcePath := config.SourcePath()
-	// Settings UIs and `reasonix config` edit the user-level config, but a
+	// Settings UIs and `deep-tutor config` edit the user-level config, but a
 	// project reasonix.toml outranks it. Users who toggle the sandbox off in
 	// Settings while the project file pins [sandbox] read the no-op as "bash is
 	// broken" (#5961, #6046) — surface the layering explicitly.
@@ -238,7 +238,7 @@ func Collect(opts Options) Report {
 
 func RenderText(r Report) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "reasonix %s doctor\n", r.Version)
+	fmt.Fprintf(&b, "deep-tutor %s doctor\n", r.Version)
 	fmt.Fprintf(&b, "  system       %s/%s\n", r.OS, r.Arch)
 	if r.CWD != "" {
 		fmt.Fprintf(&b, "  cwd          %s\n", r.CWD)
@@ -464,7 +464,7 @@ func homeIsolationWarning() string {
 	// Do not embed either absolute path: when HOME is overridden, redactHome
 	// cannot mask the account home, and shareable doctor output must stay free
 	// of machine-local identity.
-	return "process HOME differs from the OS account home; keep the real account HOME for services and isolate Reasonix with REASONIX_HOME"
+	return "process HOME differs from the OS account home; keep the real account HOME for services and isolate Deep-tutor with REASONIX_HOME"
 }
 
 func samePathFold(a, b string) bool {

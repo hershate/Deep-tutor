@@ -221,7 +221,7 @@ func TestProjectBrowserAndLayaWaitForApproval(t *testing.T) {
 }
 
 // approveWorkspacePrograms approves what root's files name, as a person running
-// `reasonix trust` there would, and returns the config loaded afterwards.
+// `deep-tutor trust` there would, and returns the config loaded afterwards.
 func approveWorkspacePrograms(t *testing.T, root string) *Config {
 	t.Helper()
 	cfg, err := LoadForRoot(root)
@@ -250,7 +250,7 @@ func TestProjectCannotTurnOnTheLocalLayaRuntime(t *testing.T) {
 // installedPath is where an installed program could live: outside the
 // workspace and outside anywhere the bash jail lets commands write.
 func installedPath(name string) string {
-	return filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "reasonix-test", name)
+	return filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "deep-tutor-test", name)
 }
 
 func TestProjectProgramInATemporaryDirectoryIsRefused(t *testing.T) {

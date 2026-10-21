@@ -147,7 +147,7 @@ func routeClosed(name string, rep Report, opts Options, goos, goarch string) err
 	case InstallUpload:
 		switch {
 		case opts.LocalBinary == "":
-			return fmt.Errorf("%w: no local Reasonix CLI to upload", ErrPlatformMismatch)
+			return fmt.Errorf("%w: no local Deep-tutor CLI to upload", ErrPlatformMismatch)
 		case opts.LocalGOOS != goos || opts.LocalGOARCH != goarch:
 			return fmt.Errorf("%w: local is %s/%s, remote is %s/%s",
 				ErrPlatformMismatch, opts.LocalGOOS, opts.LocalGOARCH, goos, goarch)

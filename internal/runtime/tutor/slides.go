@@ -280,7 +280,7 @@ func verifySlideSpec(spec *SlideSpec) error {
 	return nil
 }
 
-const planSlidesPrompt = `你是 Reasonix 导师的「幻灯片规约生成」工具。任务：从学习方案（user message 的 JSON）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
+const planSlidesPrompt = `你是 Deep-tutor 导师的「幻灯片规约生成」工具。任务：从学习方案（user message 的 JSON）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
 
 输入：user message 的 JSON 学习方案，含 intent{topic,level,goal,daily_minutes}、stages[{index,name,goal,topics[{name}],milestone,resources[{title,url}]}]、schedule[{date,tasks}]、validation_report。
 
@@ -299,7 +299,7 @@ const planSlidesPrompt = `你是 Reasonix 导师的「幻灯片规约生成」�
 
 仅返回符合 schema 的 JSON 对象。`
 
-const unitSlidesPrompt = `你是 Reasonix 导师的「自学单元幻灯片规约生成」工具。任务：从单个自学单元的标题与 Markdown 正文（user message 的 JSON：title / content_md）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
+const unitSlidesPrompt = `你是 Deep-tutor 导师的「自学单元幻灯片规约生成」工具。任务：从单个自学单元的标题与 Markdown 正文（user message 的 JSON：title / content_md）生成 PPT 风格幻灯片规约（SlideSpec JSON），供渲染为自包含 HTML 幻灯片。非交互，直接输出规约。
 
 content_md 通常含 ### 概述 / ### 核心概念 / ### 实践练习 / ### 检查理解 / ### 总结 / ### 扩展阅读 等小节。
 

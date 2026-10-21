@@ -84,7 +84,7 @@ func TestClearRestartsTheScreenUnderTheBanner(t *testing.T) {
 	if strings.Contains(v.Content, "row 39") {
 		t.Fatalf("the transcript was not cleared:\n%s", v.Content)
 	}
-	if !strings.Contains(v.Content, "reasonix") {
+	if !strings.Contains(v.Content, "deep-tutor") {
 		t.Fatalf("the screen did not restart under the banner:\n%s", v.Content)
 	}
 }

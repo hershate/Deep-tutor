@@ -336,7 +336,7 @@ func (m *model) send(steer bool) tea.Cmd {
 		if version == "" {
 			version = "dev"
 		}
-		m.tr.AddNotice("info", "reasonix "+version)
+		m.tr.AddNotice("info", "deep-tutor "+version)
 		return m.commit()
 	case name == "/tutor":
 		m.composer.Reset()

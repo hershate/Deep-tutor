@@ -324,7 +324,7 @@ func writeToolPins(path string, digests map[string]string) error {
 // server name is never embedded: it could carry terminal or shell syntax.
 func trustCommand(name string) string {
 	if config.IsValidMCPServerName(name) {
-		return "`reasonix mcp trust " + name + "`"
+		return "`deep-tutor mcp trust " + name + "`"
 	}
-	return "`reasonix mcp trust` with this server's name"
+	return "`deep-tutor mcp trust` with this server's name"
 }

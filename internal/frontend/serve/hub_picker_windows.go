@@ -12,7 +12,7 @@ import (
 const windowsFolderPicker = `[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = [System.Windows.Forms.FolderBrowserDialog]::new()
-$dialog.Description = '选择 Reasonix Studio 工作区'
+$dialog.Description = '选择 Deep-tutor Studio 工作区'
 $dialog.ShowNewFolderButton = $true
 if ($args.Count -gt 0 -and (Test-Path -LiteralPath $args[0] -PathType Container)) { $dialog.SelectedPath = $args[0] }
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }

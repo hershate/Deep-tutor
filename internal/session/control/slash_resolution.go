@@ -10,7 +10,7 @@ import (
 
 const (
 	DocsSlashName         = "docs"
-	ReasonixDocsSlashName = "reasonix:docs"
+	ReasonixDocsSlashName = "deep-tutor:docs"
 )
 
 // SlashCommandOwner identifies the runtime owner of a short slash name. Custom
@@ -61,14 +61,14 @@ func ResolvedBuiltinSlashName(name string, commands []command.Command, skills []
 // a user already owns that spelling too.
 func QualifiedBuiltinSlashName(name string, commands []command.Command, skills []skill.Skill) string {
 	name = strings.TrimPrefix(strings.TrimSpace(name), "/")
-	candidates := []string{"reasonix:" + name, "reasonix:builtin:" + name}
+	candidates := []string{"deep-tutor:" + name, "deep-tutor:builtin:" + name}
 	for _, candidate := range candidates {
 		if ResolveSlashCommandOwner(candidate, commands, skills) == SlashOwnerBuiltin {
 			return candidate
 		}
 	}
 	for suffix := 2; ; suffix++ {
-		candidate := fmt.Sprintf("reasonix:builtin:%s:%d", name, suffix)
+		candidate := fmt.Sprintf("deep-tutor:builtin:%s:%d", name, suffix)
 		if ResolveSlashCommandOwner(candidate, commands, skills) == SlashOwnerBuiltin {
 			return candidate
 		}

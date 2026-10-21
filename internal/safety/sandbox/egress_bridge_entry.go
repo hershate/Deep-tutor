@@ -26,7 +26,7 @@ func init() {
 	portText, socket, _ := strings.Cut(v, " ")
 	port, err := strconv.Atoi(portText)
 	if err != nil || socket == "" || len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "reasonix sandbox: malformed egress bridge request")
+		fmt.Fprintln(os.Stderr, "deep-tutor sandbox: malformed egress bridge request")
 		os.Exit(126)
 	}
 	os.Exit(runEgressBridge(port, socket, os.Args[1:]))

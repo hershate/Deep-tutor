@@ -185,7 +185,7 @@ func TestSessionInUseMessageNamesHolder(t *testing.T) {
 		},
 	}
 	msg := SessionInUseMessage(err)
-	if !strings.Contains(msg, "another Reasonix process") {
+	if !strings.Contains(msg, "another Deep-tutor process") {
 		t.Fatalf("message %q missing holder wording", msg)
 	}
 	if !strings.Contains(msg, "pid "+strconv.Itoa(otherPID)) || !strings.Contains(msg, "on devbox") {
@@ -209,7 +209,7 @@ func TestSessionInUseMessageFallsBackWithoutInfo(t *testing.T) {
 		"zero pid":   &sessionstore.SessionLeaseError{Info: &sessionstore.SessionLeaseInfo{PID: 0}},
 	} {
 		msg := SessionInUseMessage(err)
-		if msg != "this session is in use by another Reasonix window or process" {
+		if msg != "this session is in use by another Deep-tutor window or process" {
 			t.Fatalf("%s: message = %q, want generic fallback", name, msg)
 		}
 		if strings.Contains(msg, "pid "+strconv.Itoa(os.Getpid())) {

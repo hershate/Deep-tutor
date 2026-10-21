@@ -27,7 +27,7 @@ func TestCUAAbortAcknowledgmentRequiresAnOwnedStop(t *testing.T) {
 	if err := abortEmbedded("relative"); CodeOf(err) != CodeUnavailable {
 		t.Fatal(err)
 	}
-	if err := abortEmbedded("/missing/reasonix-abort.sock"); err == nil {
+	if err := abortEmbedded("/missing/deep-tutor-abort.sock"); err == nil {
 		t.Fatal("missing endpoint accepted")
 	}
 }

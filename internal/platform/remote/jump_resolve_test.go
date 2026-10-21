@@ -61,7 +61,7 @@ func TestResolveJumpHostsUsesConfiguredAliasesAndSSHConfig(t *testing.T) {
 	}
 	assertBastionHop(t, home, hops[0])
 	if got := hops[1]; got.PasswordEnv != "SECOND_PASSWORD" || len(got.ProxyJump) != 0 {
-		t.Fatalf("Reasonix jump credentials/nested-chain handling wrong: %+v", got)
+		t.Fatalf("Deep-tutor jump credentials/nested-chain handling wrong: %+v", got)
 	}
 }
 

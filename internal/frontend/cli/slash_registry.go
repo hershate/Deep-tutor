@@ -61,7 +61,7 @@ func builtinSlashSpecs() []builtinSlashSpec {
 		{name: "/help", insert: "/help", hint: i18n.M.CmdHelp, showInHelp: true},
 		{name: "/web", insert: "/web", hint: i18n.M.CmdWeb, showInHelp: true},
 		{name: "/tutor", insert: "/tutor", hint: i18n.M.CmdTutor, showInHelp: true},
-		{name: "/docs", aliases: []string{"/reasonix:docs"}, insert: "/docs ", hint: i18n.M.CmdDocs, showInHelp: true},
+		{name: "/docs", aliases: []string{"/deep-tutor:docs"}, insert: "/docs ", hint: i18n.M.CmdDocs, showInHelp: true},
 		{name: "/memory", insert: "/memory ", hint: i18n.M.CmdMemory, showInHelp: true},
 		{name: "/migrate", aliases: []string{"/migration"}, insert: "/migrate", hint: i18n.M.CmdMigrate, showInHelp: true},
 		{name: "/goal", insert: "/goal ", hint: i18n.M.CmdGoal, descend: true},

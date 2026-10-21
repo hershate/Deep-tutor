@@ -21,7 +21,7 @@ import (
 func runEgressBridge(port int, socket string, argv []string) int {
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "reasonix sandbox: egress bridge: %v\n", err)
+		fmt.Fprintf(os.Stderr, "deep-tutor sandbox: egress bridge: %v\n", err)
 		return 126
 	}
 	defer ln.Close()
@@ -33,7 +33,7 @@ func runEgressBridge(port int, socket string, argv []string) int {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer signal.Stop(sigs)
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "reasonix sandbox: %v\n", err)
+		fmt.Fprintf(os.Stderr, "deep-tutor sandbox: %v\n", err)
 		return 127
 	}
 	go func() {

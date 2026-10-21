@@ -409,7 +409,7 @@ func registerOAuthClient(ctx context.Context, client *http.Client, metadata auth
 	}
 	method := chooseTokenEndpointAuthMethod(metadata.TokenEndpointAuthMethodsSupported)
 	body, err := json.Marshal(map[string]any{
-		"client_name": "Reasonix",
+		"client_name": "Deep-tutor",
 		// A desktop client with a loopback redirect is a native application;
 		// saying so keeps an OpenID provider from refusing that redirect.
 		"application_type":           "native",
@@ -555,10 +555,10 @@ func oauthCallbackHandler(expect oauthCallbackExpect, result chan<- oauthCallbac
 			callback.Code = query.Get("code")
 		}
 		if callback.Err != nil {
-			http.Error(w, "Reasonix could not complete MCP authorization. You can close this window.", http.StatusBadRequest)
+			http.Error(w, "Deep-tutor could not complete MCP authorization. You can close this window.", http.StatusBadRequest)
 		} else {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = io.WriteString(w, "<!doctype html><title>Reasonix MCP authorized</title><p>Authorization completed. You can close this window and return to Reasonix.</p>")
+			_, _ = io.WriteString(w, "<!doctype html><title>Deep-tutor MCP authorized</title><p>Authorization completed. You can close this window and return to Deep-tutor.</p>")
 		}
 		select {
 		case result <- callback:

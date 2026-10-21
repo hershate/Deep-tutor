@@ -36,7 +36,7 @@ const (
 	apkgModelID      int64 = 2026101401
 	apkgDeckIDBase   int64 = 2026101400
 	apkgWrongDeckGap int64 = 100_000_000
-	apkgModelName          = "Reasonix Tutor 知识点卡片"
+	apkgModelName          = "Deep-tutor Tutor 知识点卡片"
 	apkgModelCSS           = ".card{font-family:sans-serif;font-size:18px;line-height:1.6}" +
 		".front b{color:#2563eb}.back{color:#334155}.opts{margin-top:8px}" +
 		".exp{margin-top:8px;color:#64748b;font-size:15px}"
@@ -150,7 +150,7 @@ func apkgDeckName(plan *Plan, wrongOnly bool) string {
 	if title == "" {
 		title = "学习计划"
 	}
-	name := "Reasonix Tutor::" + title
+	name := "Deep-tutor Tutor::" + title
 	if wrongOnly {
 		name += "·错题"
 	}
@@ -480,7 +480,7 @@ func BuildApkg(plan *Plan, quizzes []Quiz, attempts []QuizAttempt, wrongOnly boo
 	if len(cards) == 0 {
 		return nil, 0, ErrNoQuizzes
 	}
-	tmp, err := os.CreateTemp("", "reasonix-apkg-*.anki2")
+	tmp, err := os.CreateTemp("", "deep-tutor-apkg-*.anki2")
 	if err != nil {
 		return nil, 0, err
 	}

@@ -253,10 +253,10 @@ func ReconcileCachedToolSafety(server, rawName string, cached CachedToolSafety, 
 		return live, nil
 	}
 	if cached.ReadOnly && !live.ReadOnly {
-		return live, fmt.Errorf("MCP server %q no longer marks tool %q as read-only; the current call was blocked before execution — retry so Reasonix can apply the current Plan/read-only safety boundary", server, rawName)
+		return live, fmt.Errorf("MCP server %q no longer marks tool %q as read-only; the current call was blocked before execution — retry so Deep-tutor can apply the current Plan/read-only safety boundary", server, rawName)
 	}
 	if !cached.Destructive && live.Destructive {
-		return live, fmt.Errorf("MCP server %q now marks tool %q as destructive; retry so Reasonix can apply the current Plan/read-only safety boundary before execution", server, rawName)
+		return live, fmt.Errorf("MCP server %q now marks tool %q as destructive; retry so Deep-tutor can apply the current Plan/read-only safety boundary before execution", server, rawName)
 	}
 	return live, nil
 }

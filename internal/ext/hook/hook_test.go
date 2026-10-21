@@ -283,13 +283,13 @@ func TestNormalizeCommandRepairsOnlyPowerShellFileEscapedQuotes(t *testing.T) {
 		},
 		{
 			name:    "pwsh file path with spaces",
-			command: `pwsh.exe -NoProfile -NonInteractive -File \"C:\Program Files\Reasonix Hooks\archive attachments.ps1\"`,
-			want:    `pwsh.exe -NoProfile -NonInteractive -File "C:\Program Files\Reasonix Hooks\archive attachments.ps1"`,
+			command: `pwsh.exe -NoProfile -NonInteractive -File \"C:\Program Files\Deep-tutor Hooks\archive attachments.ps1\"`,
+			want:    `pwsh.exe -NoProfile -NonInteractive -File "C:\Program Files\Deep-tutor Hooks\archive attachments.ps1"`,
 		},
 		{
 			name:    "doubly escaped copied quotes",
-			command: `pwsh -File \\\"C:\Program Files\Reasonix Hooks\archive attachments.ps1\\\" \"arg with spaces\"`,
-			want:    `pwsh -File "C:\Program Files\Reasonix Hooks\archive attachments.ps1" "arg with spaces"`,
+			command: `pwsh -File \\\"C:\Program Files\Deep-tutor Hooks\archive attachments.ps1\\\" \"arg with spaces\"`,
+			want:    `pwsh -File "C:\Program Files\Deep-tutor Hooks\archive attachments.ps1" "arg with spaces"`,
 		},
 		{
 			name:    "powershell executable path copied with escaped quotes",
@@ -298,8 +298,8 @@ func TestNormalizeCommandRepairsOnlyPowerShellFileEscapedQuotes(t *testing.T) {
 		},
 		{
 			name:    "well formed file command stays unchanged",
-			command: `powershell -NoProfile -File "C:\Program Files\Reasonix Hooks\archive attachments.ps1"`,
-			want:    `powershell -NoProfile -File "C:\Program Files\Reasonix Hooks\archive attachments.ps1"`,
+			command: `powershell -NoProfile -File "C:\Program Files\Deep-tutor Hooks\archive attachments.ps1"`,
+			want:    `powershell -NoProfile -File "C:\Program Files\Deep-tutor Hooks\archive attachments.ps1"`,
 		},
 		{
 			name:    "command mode may intentionally contain escaped quotes",
@@ -348,8 +348,8 @@ func TestNormalizeCommandRepairsOnlyPowerShellFileEscapedQuotes(t *testing.T) {
 
 func TestLoadNormalizesPowerShellFileEscapedQuotes(t *testing.T) {
 	home := testenv.TempDir(t)
-	bad := `powershell -File \"C:\Program Files\Reasonix Hooks\archive attachments.ps1\"`
-	want := `powershell -File "C:\Program Files\Reasonix Hooks\archive attachments.ps1"`
+	bad := `powershell -File \"C:\Program Files\Deep-tutor Hooks\archive attachments.ps1\"`
+	want := `powershell -File "C:\Program Files\Deep-tutor Hooks\archive attachments.ps1"`
 	writeSettings(t, home, hookSettingsWithCommand(t, SessionStart, bad))
 
 	hooks := Load(LoadOptions{HomeDir: home})
@@ -362,7 +362,7 @@ func TestLoadNormalizesPowerShellFileEscapedQuotes(t *testing.T) {
 }
 
 func TestRepairablePowerShellFileArgs(t *testing.T) {
-	command := `powershell -NoProfile -NonInteractive -File \"C:\Program Files\Reasonix Hooks\archive attachments.ps1\" -Mode \"startup\"`
+	command := `powershell -NoProfile -NonInteractive -File \"C:\Program Files\Deep-tutor Hooks\archive attachments.ps1\" -Mode \"startup\"`
 	name, args, ok := repairablePowerShellFileArgs(command)
 	if !ok {
 		t.Fatalf("repairablePowerShellFileArgs(%q) ok = false, want true", command)
@@ -370,7 +370,7 @@ func TestRepairablePowerShellFileArgs(t *testing.T) {
 	if name != "powershell" {
 		t.Fatalf("name = %q, want powershell", name)
 	}
-	wantArgs := []string{"-NoProfile", "-NonInteractive", "-File", `C:\Program Files\Reasonix Hooks\archive attachments.ps1`, "-Mode", "startup"}
+	wantArgs := []string{"-NoProfile", "-NonInteractive", "-File", `C:\Program Files\Deep-tutor Hooks\archive attachments.ps1`, "-Mode", "startup"}
 	if strings.Join(args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("args = %#v, want %#v", args, wantArgs)
 	}
@@ -1057,11 +1057,11 @@ func TestReasonixHomeOverridesGlobalHookPaths(t *testing.T) {
 	writeSettings(t, home, `{"hooks":{"PostToolUse":[{"command":"echo old"}]}}`)
 
 	if got := GlobalSettingsPath(""); got != filepath.Join(reasonixHome, SettingsFilename) {
-		t.Fatalf("GlobalSettingsPath = %q, want Reasonix home", got)
+		t.Fatalf("GlobalSettingsPath = %q, want Deep-tutor home", got)
 	}
 	hooks := Load(LoadOptions{})
 	if len(hooks) != 1 || hooks[0].Command != "echo rx" {
-		t.Fatalf("Load hooks = %+v, want Reasonix home hook only", hooks)
+		t.Fatalf("Load hooks = %+v, want Deep-tutor home hook only", hooks)
 	}
 }
 
@@ -1078,7 +1078,7 @@ func TestLoadOptionsReasonixHomeDirUsesExactGlobalHookPath(t *testing.T) {
 
 	hooks := Load(LoadOptions{HomeDir: home, ReasonixHomeDir: reasonixHome})
 	if len(hooks) != 1 || hooks[0].Command != "echo exact" || hooks[0].Source != settingsPath {
-		t.Fatalf("Load hooks = %+v, want exact Reasonix home hook", hooks)
+		t.Fatalf("Load hooks = %+v, want exact Deep-tutor home hook", hooks)
 	}
 }
 
@@ -1162,16 +1162,16 @@ func TestMatchesToolTranslatesClaudeToolNames(t *testing.T) {
 		return ResolvedHook{HookConfig: HookConfig{Match: match, PayloadFormat: "claude"}, Event: PreToolUse}
 	}
 	if !matchesTool(claude("Bash"), "bash") {
-		t.Error(`Claude matcher "Bash" should match Reasonix tool "bash"`)
+		t.Error(`Claude matcher "Bash" should match Deep-tutor tool "bash"`)
 	}
 	if !matchesTool(claude("Write|Edit"), "write_file") {
-		t.Error(`Claude matcher "Write|Edit" should match Reasonix tool "write_file"`)
+		t.Error(`Claude matcher "Write|Edit" should match Deep-tutor tool "write_file"`)
 	}
 	if !matchesTool(claude("Write|Edit"), "edit_file") {
-		t.Error(`Claude matcher "Write|Edit" should match Reasonix tool "edit_file"`)
+		t.Error(`Claude matcher "Write|Edit" should match Deep-tutor tool "edit_file"`)
 	}
 	if matchesTool(claude("Bash"), "write_file") {
-		t.Error(`Claude matcher "Bash" must not match Reasonix tool "write_file"`)
+		t.Error(`Claude matcher "Bash" must not match Deep-tutor tool "write_file"`)
 	}
 	// A native (non-Claude) hook's matcher stays in Reasonix's own vocabulary.
 	native := ResolvedHook{HookConfig: HookConfig{Match: "bash"}, Event: PreToolUse}
@@ -1181,21 +1181,21 @@ func TestMatchesToolTranslatesClaudeToolNames(t *testing.T) {
 	// The subagent tool was renamed "Task" -> "Agent" by Claude; a matcher
 	// using either name must still fire against Reasonix's "task" tool.
 	if !matchesTool(claude("Agent"), "task") {
-		t.Error(`Claude matcher "Agent" (current name) should match Reasonix tool "task"`)
+		t.Error(`Claude matcher "Agent" (current name) should match Deep-tutor tool "task"`)
 	}
 	if !matchesTool(claude("Task"), "task") {
-		t.Error(`Claude matcher "Task" (legacy alias) should still match Reasonix tool "task"`)
+		t.Error(`Claude matcher "Task" (legacy alias) should still match Deep-tutor tool "task"`)
 	}
 	if !matchesTool(claude("AskUserQuestion"), "ask") {
-		t.Error(`Claude matcher "AskUserQuestion" should match Reasonix tool "ask"`)
+		t.Error(`Claude matcher "AskUserQuestion" should match Deep-tutor tool "ask"`)
 	}
 	for _, name := range []string{"bash_output", "wait"} {
 		if !matchesTool(claude("TaskOutput"), name) || !matchesTool(claude("BashOutput"), name) {
-			t.Errorf(`current "TaskOutput" and legacy "BashOutput" matchers should match Reasonix tool %q`, name)
+			t.Errorf(`current "TaskOutput" and legacy "BashOutput" matchers should match Deep-tutor tool %q`, name)
 		}
 	}
 	if !matchesTool(claude("TaskStop"), "kill_shell") || !matchesTool(claude("KillShell"), "kill_shell") {
-		t.Error(`current "TaskStop" and legacy "KillShell" matchers should match Reasonix tool "kill_shell"`)
+		t.Error(`current "TaskStop" and legacy "KillShell" matchers should match Deep-tutor tool "kill_shell"`)
 	}
 }
 
@@ -1230,11 +1230,11 @@ func TestClaudeFacingToolNameUsesCurrentNames(t *testing.T) {
 		}
 		claude := ResolvedHook{HookConfig: HookConfig{Match: "Agent", PayloadFormat: "claude"}, Event: PreToolUse}
 		if !matchesTool(claude, name) {
-			t.Errorf(`Claude matcher "Agent" should match Reasonix tool %q`, name)
+			t.Errorf(`Claude matcher "Agent" should match Deep-tutor tool %q`, name)
 		}
 		legacy := ResolvedHook{HookConfig: HookConfig{Match: "Task", PayloadFormat: "claude"}, Event: PreToolUse}
 		if !matchesTool(legacy, name) {
-			t.Errorf(`legacy Claude matcher "Task" should still match Reasonix tool %q`, name)
+			t.Errorf(`legacy Claude matcher "Task" should still match Deep-tutor tool %q`, name)
 		}
 	}
 }
@@ -1654,7 +1654,7 @@ func TestRunClaudePayloadAndDirectArgs(t *testing.T) {
 		t.Fatalf("Claude payload = %#v", payload)
 	}
 	if payload["tool_name"] != "Bash" {
-		t.Fatalf("Claude payload tool_name = %v, want the Claude vocabulary name Bash for Reasonix tool bash", payload["tool_name"])
+		t.Fatalf("Claude payload tool_name = %v, want the Claude vocabulary name Bash for Deep-tutor tool bash", payload["tool_name"])
 	}
 	response, ok := payload["tool_response"].(map[string]any)
 	if !ok || response["stdout"] != "remote: denied" || response["stderr"] != "exit 1" || response["interrupted"] != false {
@@ -1682,7 +1682,7 @@ func TestRunClaudeWriteFileGuardFiresAndSeesFilePath(t *testing.T) {
 		ToolArgs: json.RawMessage(`{"path":"secrets/.env","content":"KEY=1"}`),
 	}, hooks, func(_ context.Context, in SpawnInput) SpawnResult { input = in; return SpawnResult{ExitCode: 0} })
 	if input.Command == "" {
-		t.Fatal(`matcher "Write" did not fire for Reasonix tool "write_file"`)
+		t.Fatal(`matcher "Write" did not fire for Deep-tutor tool "write_file"`)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(input.Stdin), &payload); err != nil {
@@ -1696,7 +1696,7 @@ func TestRunClaudeWriteFileGuardFiresAndSeesFilePath(t *testing.T) {
 		t.Fatalf(`tool_input.file_path = %v, want absolute %q (a prefix-matching guard must see the path the tool accesses)`, toolInput["file_path"], want)
 	}
 	if _, hasPath := toolInput["path"]; hasPath {
-		t.Fatalf("tool_input still has Reasonix's \"path\" key: %#v", toolInput)
+		t.Fatalf("tool_input still has Deep-tutor's \"path\" key: %#v", toolInput)
 	}
 }
 
@@ -1714,7 +1714,7 @@ func TestRunClaudeAgentGuardFiresAndSeesRequiredFields(t *testing.T) {
 		ToolArgs: json.RawMessage(`{"task":"audit the auth changes"}`),
 	}, hooks, func(_ context.Context, in SpawnInput) SpawnResult { input = in; return SpawnResult{ExitCode: 0} })
 	if input.Command == "" {
-		t.Fatal(`matcher "Agent" did not fire for Reasonix tool "security_review"`)
+		t.Fatal(`matcher "Agent" did not fire for Deep-tutor tool "security_review"`)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(input.Stdin), &payload); err != nil {

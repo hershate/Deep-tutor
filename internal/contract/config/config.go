@@ -1368,7 +1368,7 @@ func (c *Config) EnabledPlugins(workspace string, activation *ActivationStore) [
 }
 
 // DefaultSystemPrompt is used when config provides none.
-const DefaultSystemPrompt = `You are Reasonix, a coding agent.
+const DefaultSystemPrompt = `You are Deep-tutor, a coding agent.
 Use the available tools when they help you complete the user's request.
 Keep changes focused and responses concise.`
 
@@ -1410,7 +1410,7 @@ func Default() *Config {
 			WriteLease:             "strict",
 			HostVerification:       "on",
 		},
-		// Mode "ask" with no rules keeps `reasonix run` autonomous (no TTY → ask
+		// Mode "ask" with no rules keeps `deep-tutor run` autonomous (no TTY → ask
 		// resolves to allow) while `reasonix` prompts before writers. Users add
 		// deny/allow rules to harden or quiet specific tools.
 		Permissions: PermissionsConfig{Mode: "ask"},
@@ -1707,7 +1707,7 @@ func (c *Config) Validate(model string) error {
 		return fmt.Errorf("provider %q: api_key_env %q is invalid; use letters, numbers, and underscores, not a model name", model, e.APIKeyEnv)
 	}
 	if e.RequiresAPIKey() && e.APIKey() == "" {
-		return fmt.Errorf("provider %q: no stored key for %s in %s; run 'reasonix setup'", model, e.APIKeyEnv, e.roots.credentialsLocationForError())
+		return fmt.Errorf("provider %q: no stored key for %s in %s; run 'deep-tutor setup'", model, e.APIKeyEnv, e.roots.credentialsLocationForError())
 	}
 	return nil
 }

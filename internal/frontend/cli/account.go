@@ -61,7 +61,7 @@ func loginCommand(args []string, version string) int {
 	if token := account.Token(); token != "" {
 		if user, err := client.Me(ctx, token); err == nil {
 			fmt.Printf("Already signed in as %s <%s>.\n", user.Label(), user.Email)
-			fmt.Println("Run `reasonix logout` first to sign in as someone else.")
+			fmt.Println("Run `deep-tutor logout` first to sign in as someone else.")
 			return 0
 		}
 	}
@@ -106,7 +106,7 @@ func whoamiCommand(args []string, version string) int {
 	}
 	token := account.Token()
 	if token == "" {
-		fmt.Fprintln(os.Stderr, "Not signed in. Run `reasonix login` — only needed for the forum and crash follow-ups.")
+		fmt.Fprintln(os.Stderr, "Not signed in. Run `deep-tutor login` — only needed for the forum and crash follow-ups.")
 		return 1
 	}
 	client, err := accountClient(version)
@@ -119,7 +119,7 @@ func whoamiCommand(args []string, version string) int {
 		// A dead identity service must not look like a signed-out account:
 		// the user would "fix" it by signing in again, which also fails.
 		if errors.Is(err, account.ErrUnauthorized) {
-			fmt.Fprintln(os.Stderr, "Your session has expired. Run `reasonix login` again.")
+			fmt.Fprintln(os.Stderr, "Your session has expired. Run `deep-tutor login` again.")
 			return 1
 		}
 		fmt.Fprintln(os.Stderr, "whoami: cannot reach the identity service:", err)

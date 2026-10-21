@@ -109,7 +109,7 @@ func TestACrossVolumeCopyIsRenamedIntoPlaceWhole(t *testing.T) {
 	if len(landed) != 2 || !strings.Contains(strings.Join(landed, ","), "app.exe=new app") {
 		t.Fatalf("renamed into place: %q, want both files whole", landed)
 	}
-	if left, _ := filepath.Glob(filepath.Join(h.InstallDir, "*reasonix-part-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(h.InstallDir, "*deep-tutor-part-*")); len(left) != 0 {
 		t.Fatalf("temporary copies left behind: %v", left)
 	}
 }

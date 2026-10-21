@@ -54,7 +54,7 @@ func TakeSnapshot(ctx context.Context, repo gitcmd.Repo) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	commit, stderr, err := runGitEnv(ctx, info.repo, snapshotIdentity, "commit-tree", tree, "-p", info.head, "-m", "reasonix candidate base")
+	commit, stderr, err := runGitEnv(ctx, info.repo, snapshotIdentity, "commit-tree", tree, "-p", info.head, "-m", "deep-tutor candidate base")
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("record workspace snapshot: %w%s", err, stderrSuffix(stderr))
 	}
@@ -205,7 +205,7 @@ func workingTree(ctx context.Context, repo gitcmd.Repo) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir, err := os.MkdirTemp(root, "reasonix-snapshot-")
+	dir, err := os.MkdirTemp(root, "deep-tutor-snapshot-")
 	if err != nil {
 		return "", err
 	}
@@ -247,8 +247,8 @@ func treeChanges(ctx context.Context, repo gitcmd.Repo, from, to string) ([]Chan
 // snapshotIdentity signs the snapshot commit, which no person authored and no
 // ref ever points at; without it a machine with no git identity cannot take one.
 var snapshotIdentity = []string{
-	"GIT_AUTHOR_NAME=Reasonix", "GIT_AUTHOR_EMAIL=reasonix@localhost",
-	"GIT_COMMITTER_NAME=Reasonix", "GIT_COMMITTER_EMAIL=reasonix@localhost",
+	"GIT_AUTHOR_NAME=Deep-tutor", "GIT_AUTHOR_EMAIL=deep-tutor@localhost",
+	"GIT_COMMITTER_NAME=Deep-tutor", "GIT_COMMITTER_EMAIL=deep-tutor@localhost",
 }
 
 func runGitEnv(parent context.Context, repo gitcmd.Repo, env []string, args ...string) (string, string, error) {

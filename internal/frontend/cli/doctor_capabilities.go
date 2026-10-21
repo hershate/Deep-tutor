@@ -22,7 +22,7 @@ func doctorCapabilitiesCommand(args []string) int {
 		return code
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix doctor capabilities [--root PATH] [--json] [--live] [--timeout 5s]")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor doctor capabilities [--root PATH] [--json] [--live] [--timeout 5s]")
 		return 2
 	}
 

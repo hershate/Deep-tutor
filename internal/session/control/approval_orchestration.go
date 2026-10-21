@@ -229,7 +229,7 @@ func (c *Controller) newHeadlessGate(mode string, folder *folderRefusal) *freshH
 }
 
 // ApplyHeadlessApprovalMode configures the executor gate for a non-interactive
-// (`reasonix run`) session from an explicit --permission-mode. Unlike
+// (`deep-tutor run`) session from an explicit --permission-mode. Unlike
 // EnableInteractiveApproval it installs no blocking approver, asker, or
 // fresh-approval prompt: there is no key loop to answer them, and the default
 // infinite approval timeout would wedge the run forever on an Ask rule, the
@@ -698,7 +698,7 @@ func (c *Controller) applyDefaultPosture(onlyIfDefaulted bool) {
 }
 
 // ErrUntrustableFolder refuses trust for a folder TrustableFolder leaves out.
-var ErrUntrustableFolder = errors.New("a filesystem root, a folder holding a home directory, or Reasonix's own directories are not trusted as a whole")
+var ErrUntrustableFolder = errors.New("a filesystem root, a folder holding a home directory, or Deep-tutor's own directories are not trusted as a whole")
 
 // DecideWorkspaceTrust records the person's answer about this workspace. A
 // session still on its default posture follows the answer at once; a posture

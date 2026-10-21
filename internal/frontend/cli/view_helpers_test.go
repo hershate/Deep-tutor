@@ -165,7 +165,7 @@ func TestRenderHelpDocsShowsOnlyRuntimeWinner(t *testing.T) {
 	if !strings.Contains(got, "custom docs") || strings.Contains(got, "docs skill") {
 		t.Fatalf("help did not preserve the runtime-winning custom command:\n%s", got)
 	}
-	if !strings.Contains(got, "/reasonix:docs") {
+	if !strings.Contains(got, "/deep-tutor:docs") {
 		t.Fatalf("help did not preserve the qualified built-in docs fallback:\n%s", got)
 	}
 }
@@ -182,7 +182,7 @@ func TestRenderHelpDocsUsesQualifiedFallbackForHiddenAlias(t *testing.T) {
 	if strings.Contains(got, "\n  /docs ") {
 		t.Fatalf("help exposed a misleading hidden /docs alias:\n%s", got)
 	}
-	for _, want := range []string{"/reasonix:docs", "/manuals:docs"} {
+	for _, want := range []string{"/deep-tutor:docs", "/manuals:docs"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help missing %q:\n%s", want, got)
 		}

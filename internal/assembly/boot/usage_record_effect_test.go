@@ -46,7 +46,7 @@ func (p *usageReportingProvider) Stream(context.Context, provider.Request) (<-ch
 
 // TestEffectSessionRecordsItsColdStart is the boundary for the accounting a
 // report is built from: a real session must leave a record beside itself, and
-// `reasonix doctor` must read the opening request out of it. Nothing produced
+// `deep-tutor doctor` must read the opening request out of it. Nothing produced
 // this file after the desktop that used to write it was retired, so every
 // report said usage was unavailable.
 func TestEffectSessionRecordsItsColdStart(t *testing.T) {

@@ -34,7 +34,7 @@ func TestRealYYDSAnthropicPromptCache(t *testing.T) {
 
 	// Over Opus's 1024-token minimum cacheable prefix, and stable across both
 	// calls the way a session's system prompt is.
-	system := strings.Repeat("You are a meticulous Go reviewer for Reasonix. "+
+	system := strings.Repeat("You are a meticulous Go reviewer for Deep-tutor. "+
 		"State invariants exactly and never speculate. ", 90)
 	base := []provider.Message{
 		{Role: provider.RoleSystem, Content: system},

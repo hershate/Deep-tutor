@@ -60,7 +60,7 @@ func TestConnectRefusesAProjectServerThatChangedSinceItWasEnabled(t *testing.T) 
 		if !errors.Is(err, ErrMCPApprovalOwed) || !errors.As(err, &owed) || owed.Reason != MCPApprovalChanged {
 			t.Fatalf("%s = %v, want the typed approval-owed refusal", name, err)
 		}
-		if !strings.Contains(err.Error(), server.URL) || !strings.Contains(err.Error(), "reasonix mcp enable project-docs") {
+		if !strings.Contains(err.Error(), server.URL) || !strings.Contains(err.Error(), "deep-tutor mcp enable project-docs") {
 			t.Fatalf("%s refusal does not show the command and how to approve it: %v", name, err)
 		}
 	}
@@ -80,7 +80,7 @@ func TestConnectRefusesAProjectServerThatChangedSinceItWasEnabled(t *testing.T) 
 		t.Fatalf("health reason = %q, want %q", reason, MCPApprovalChanged)
 	}
 	list := ctrl.mcpListText()
-	for _, want := range []string{"project-docs", string(MCPApprovalChanged), server.URL, "reasonix mcp enable project-docs"} {
+	for _, want := range []string{"project-docs", string(MCPApprovalChanged), server.URL, "deep-tutor mcp enable project-docs"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("/mcp lacks %q:\n%s", want, list)
 		}

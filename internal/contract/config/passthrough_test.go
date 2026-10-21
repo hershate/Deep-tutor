@@ -37,7 +37,7 @@ session_mappings = [{ remote_id = "ou_123", session_id = "topic:1" }]
 
 [[bot.routes]]
 chat_id = "oc_group"
-workspace_root = "/tmp/reasonix-route"
+workspace_root = "/tmp/deep-tutor-route"
 `
 
 func TestBotTableSurvivesAFullRewrite(t *testing.T) {

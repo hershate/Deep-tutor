@@ -292,7 +292,7 @@ func confine(roots []string, target string) error {
 	// backslash and names a file that does not exist as written.
 	return tool.Refusal{Code: CodeWriteOutsideScope, Message: fmt.Sprintf(
 		"write refused: `%s` is outside the workspace write scope; file tools may write only under %s. "+
-			"This scope is enforced by Reasonix's file tools on every platform: it is not an OS sandbox, and it does not depend on whether shell commands are sandboxed. "+
+			"This scope is enforced by Deep-tutor's file tools on every platform: it is not an OS sandbox, and it does not depend on whether shell commands are sandboxed. "+
 			"Write inside those directories, or ask the user to add the target's directory to the extra writable directories "+
 			"(Settings > Sandbox > Also writable, stored as allow_write under [sandbox] in reasonix.toml) or to move workspace_root",
 		target, strings.Join(roots, ", "))}

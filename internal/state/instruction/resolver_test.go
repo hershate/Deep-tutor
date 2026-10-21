@@ -48,7 +48,7 @@ func TestResolveDuplicateReplacementPreservesPrecedenceOrder(t *testing.T) {
 
 func TestResolveKeepsDistinctConventionFilesInDeterministicOrder(t *testing.T) {
 	root := testenv.TempDir(t)
-	mustWriteInstruction(t, filepath.Join(root, "REASONIX.md"), "Reasonix rule")
+	mustWriteInstruction(t, filepath.Join(root, "REASONIX.md"), "Deep-tutor rule")
 	mustWriteInstruction(t, filepath.Join(root, "AGENTS.md"), "Portable rule")
 	mustWriteInstruction(t, filepath.Join(root, "CLAUDE.md"), "Claude-compatible rule")
 

@@ -35,7 +35,7 @@ func TestRunDispatchesDoctor(t *testing.T) {
 			t.Fatalf("Run doctor rc = %d, want 0", rc)
 		}
 	})
-	if !strings.Contains(out, "reasonix dispatch-version doctor") {
+	if !strings.Contains(out, "deep-tutor dispatch-version doctor") {
 		t.Fatalf("doctor output missing header:\n%s", out)
 	}
 }

@@ -18,7 +18,7 @@ import (
 	"deep-tutor/internal/ext/mcpsetup"
 )
 
-// mcp.go is the `reasonix mcp` subcommand (config-only; takes effect next
+// mcp.go is the `deep-tutor mcp` subcommand (config-only; takes effect next
 // session) plus the in-chat /mcp verbs (which hot-connect via the controller).
 // The grammar itself lives in internal/ext/mcpsetup, shared with the frontends that
 // take the same server description as a pasted block.
@@ -156,7 +156,7 @@ func mcpInstallCLI(args []string) int {
 
 func mcpInstallWithClient(args []string, client *mcpregistry.Client) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp install <registry-name> [--as <local-name>]")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp install <registry-name> [--as <local-name>]")
 		return 2
 	}
 	registryName := strings.TrimSpace(args[0])
@@ -213,7 +213,7 @@ func mcpInstallWithClient(args []string, client *mcpregistry.Client) int {
 		return 1
 	}
 	if installResult.State == "action_required" {
-		fmt.Printf("installed MCP Registry server %q as %q — authentication required; finish authentication and run `reasonix mcp retry %s`\n", entry.Name, pluginEntry.Name, pluginEntry.Name)
+		fmt.Printf("installed MCP Registry server %q as %q — authentication required; finish authentication and run `deep-tutor mcp retry %s`\n", entry.Name, pluginEntry.Name, pluginEntry.Name)
 		return 0
 	}
 	fmt.Printf("installed MCP Registry server %q as %q — ready with %d tools\n", entry.Name, pluginEntry.Name, installResult.ToolCount)
@@ -226,7 +226,7 @@ func mcpEnableCLI(args []string, enabled bool) int {
 		if !enabled {
 			action = "disable"
 		}
-		fmt.Fprintf(os.Stderr, "usage: reasonix mcp %s <name> [--global]\n", action)
+		fmt.Fprintf(os.Stderr, "usage: deep-tutor mcp %s <name> [--global]\n", action)
 		return 2
 	}
 	name := strings.TrimSpace(args[0])
@@ -261,7 +261,7 @@ func mcpEnableCLI(args []string, enabled bool) int {
 	if enabled {
 		fmt.Printf("enabled MCP server %q %s — tools restore from cache; process starts on first call\n", name, where)
 		if config.RepositoryDeclared(entry) {
-			fmt.Printf("  approved launch: %s\n  any change to it, or to a workspace file it names, needs `reasonix mcp enable %s` again\n", mcpsetup.LaunchLine(entry), mcpsetup.DisplayName(name))
+			fmt.Printf("  approved launch: %s\n  any change to it, or to a workspace file it names, needs `deep-tutor mcp enable %s` again\n", mcpsetup.LaunchLine(entry), mcpsetup.DisplayName(name))
 		}
 	} else {
 		fmt.Printf("disabled MCP server %q %s — tools removed from the catalog; authorization retained\n", name, where)
@@ -271,7 +271,7 @@ func mcpEnableCLI(args []string, enabled bool) int {
 
 func mcpRetryCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp retry <name>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp retry <name>")
 		return 2
 	}
 	// Standalone CLI cannot talk to a live Host; enabling is the durable
@@ -281,7 +281,7 @@ func mcpRetryCLI(args []string) int {
 
 func mcpUpdateCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp update <name>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp update <name>")
 		return 2
 	}
 	name := strings.TrimSpace(args[0])
@@ -340,9 +340,9 @@ func mcpList() int {
 		}
 		switch {
 		case store.ServerChanged(p, root):
-			auto += fmt.Sprintf(" [changed_since_enabled: approve with `reasonix mcp enable %s`]", mcpsetup.DisplayName(p.Name))
+			auto += fmt.Sprintf(" [changed_since_enabled: approve with `deep-tutor mcp enable %s`]", mcpsetup.DisplayName(p.Name))
 		case config.RepositoryDeclared(p) && store.AwaitingDecision(p, root):
-			auto += fmt.Sprintf(" [awaiting_user_decision: approve with `reasonix mcp enable %s`]", mcpsetup.DisplayName(p.Name))
+			auto += fmt.Sprintf(" [awaiting_user_decision: approve with `deep-tutor mcp enable %s`]", mcpsetup.DisplayName(p.Name))
 		}
 		if typ == "stdio" {
 			line := strings.TrimSpace(secrets.RedactConfigValue("", p.Command) + " " + strings.Join(secrets.RedactArgs(p.Args), " "))
@@ -360,7 +360,7 @@ func mcpList() int {
 
 func mcpGetCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp get <name>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp get <name>")
 		return 2
 	}
 	name := args[0]
@@ -463,7 +463,7 @@ func persistCLIInstalledMCP(workspace string, entry config.PluginEntry) error {
 
 func mcpRemoveCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp remove <name>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp remove <name>")
 		return 2
 	}
 	name := args[0]
@@ -499,24 +499,24 @@ func mcpUsage() {
 	fmt.Println(`Manage MCP servers (global installs use config.toml; project entries stay in project config).
 
 Usage:
-  reasonix mcp list
-  reasonix mcp get <name>
-  reasonix mcp install <registry-name> [--as <name>]
-  reasonix mcp add -- <command> [args...]            stdio argv (no shell)
-  reasonix mcp add <name> -- <command> [args...]
-  reasonix mcp add <name> <command> [args...]        legacy stdio form
-  reasonix mcp add https://example.com/mcp           remote HTTP
-  reasonix mcp add <name> --http <url> [--header K=V]
-  reasonix mcp add <name> --sse  <url>
-  reasonix mcp enable <name>
-  reasonix mcp disable <name>
-  reasonix mcp retry <name>
-  reasonix mcp trust <name> [--digest <hex>]    accept tool definitions held back as changed
-  reasonix mcp auth <name>                          remote OAuth (opens browser)
-  reasonix mcp update <name>
-  reasonix mcp browse [query] [--limit N] [--json]
-  reasonix mcp import
-  reasonix mcp remove <name>
+  deep-tutor mcp list
+  deep-tutor mcp get <name>
+  deep-tutor mcp install <registry-name> [--as <name>]
+  deep-tutor mcp add -- <command> [args...]            stdio argv (no shell)
+  deep-tutor mcp add <name> -- <command> [args...]
+  deep-tutor mcp add <name> <command> [args...]        legacy stdio form
+  deep-tutor mcp add https://example.com/mcp           remote HTTP
+  deep-tutor mcp add <name> --http <url> [--header K=V]
+  deep-tutor mcp add <name> --sse  <url>
+  deep-tutor mcp enable <name>
+  deep-tutor mcp disable <name>
+  deep-tutor mcp retry <name>
+  deep-tutor mcp trust <name> [--digest <hex>]    accept tool definitions held back as changed
+  deep-tutor mcp auth <name>                          remote OAuth (opens browser)
+  deep-tutor mcp update <name>
+  deep-tutor mcp browse [query] [--limit N] [--json]
+  deep-tutor mcp import
+  deep-tutor mcp remove <name>
 
 Flags for add:
   --http <url> | --sse <url>   remote transport (omit for a stdio command)
@@ -524,14 +524,14 @@ Flags for add:
   --header K=V                 set an HTTP header (repeatable, remote)
 
 Examples:
-  reasonix mcp add fs npx -y @modelcontextprotocol/server-filesystem .
-  reasonix mcp add stripe --http https://mcp.stripe.com --header "Authorization=Bearer $STRIPE_KEY"
+  deep-tutor mcp add fs npx -y @modelcontextprotocol/server-filesystem .
+  deep-tutor mcp add stripe --http https://mcp.stripe.com --header "Authorization=Bearer $STRIPE_KEY"
 
 CLI config changes take effect on the next session. Inside a running chat, use
 /mcp add to save and connect a server immediately. Installing a server is also
 its launch authorization; there is no separate trust step. Remote OAuth, when
-requested by the server, is completed with reasonix mcp auth <name> and stored
-in Reasonix-private MCP state.
+requested by the server, is completed with deep-tutor mcp auth <name> and stored
+in Deep-tutor-private MCP state.
 
 Servers declared by project reasonix.toml or .mcp.json are trusted configuration
 and need no separate launch confirmation. Project entries override same-name

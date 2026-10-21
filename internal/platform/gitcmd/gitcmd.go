@@ -183,7 +183,7 @@ func Detached(cmd *exec.Cmd) (cleanup func(), err error) {
 	if err != nil {
 		return func() {}, err
 	}
-	dir, err := os.MkdirTemp(root, "reasonix-git-")
+	dir, err := os.MkdirTemp(root, "deep-tutor-git-")
 	if err != nil {
 		return func() {}, err
 	}

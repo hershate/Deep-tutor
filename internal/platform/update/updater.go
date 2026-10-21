@@ -66,7 +66,7 @@ func New(opts Options) *Updater {
 // UserAgent is how Studio names its update traffic to the release edge: the
 // string already proven for artifact downloads, shared by every read of it.
 func UserAgent(version string) string {
-	return fmt.Sprintf("Reasonix-Studio/%s (%s/%s)", version, runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("Deep-tutor-Studio/%s (%s/%s)", version, runtime.GOOS, runtime.GOARCH)
 }
 
 // releaseHosts is where Studio's own artifacts are published: the catalog and

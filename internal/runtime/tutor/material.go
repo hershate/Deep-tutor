@@ -120,7 +120,7 @@ func fetchURLMaterial(ctx context.Context, rawURL string) (*ParsedMaterial, erro
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "reasonix-tutor/1.0")
+	req.Header.Set("User-Agent", "deep-tutor-tutor/1.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

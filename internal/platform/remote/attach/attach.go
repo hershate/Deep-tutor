@@ -1,5 +1,5 @@
 // Package attach turns a configured SSH host into a reachable kernel: it dials
-// the connection, makes sure a `reasonix serve` is running for a workspace on
+// the connection, makes sure a `deep-tutor serve` is running for a workspace on
 // the other side, and forwards it to a local address a frontend can call.
 //
 // One connection carries every workspace opened on that host, and one forward

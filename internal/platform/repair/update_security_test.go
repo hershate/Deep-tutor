@@ -293,7 +293,7 @@ func TestPendingUpdateAcceptsMissingReleaseSibling(t *testing.T) {
 		BackupSHA256:  "deadbeef",
 		Files: []UpdateTransactionFile{
 			{TargetPath: target, BackupPath: backup, SHA256: "deadbeef"},
-			{TargetPath: filepath.Join(dir, "Reasonix.exe"), MissingBefore: true},
+			{TargetPath: filepath.Join(dir, "Deep-tutor.exe"), MissingBefore: true},
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -322,7 +322,7 @@ func TestPendingUpdateAcceptsWindowsReleaseUnit(t *testing.T) {
 		"reasonix-launcher.exe",
 		"reasonix-update-helper.exe",
 		"reasonix-cli.exe",
-		"Reasonix.exe",
+		"Deep-tutor.exe",
 	}
 	paths := make([]string, 0, len(names))
 	for _, name := range names {
@@ -427,9 +427,9 @@ func TestPendingUpdateRejectsPortableAliasAsPrimaryTarget(t *testing.T) {
 	home := testenv.TempDir(t)
 	t.Setenv("REASONIX_HOME", home)
 	dir := testenv.TempDir(t)
-	target := filepath.Join(dir, "Reasonix.exe")
+	target := filepath.Join(dir, "Deep-tutor.exe")
 	guard := filepath.Join(dir, "reasonix-guard.exe")
-	backup := filepath.Join(home, "repair", "updates", "Reasonix.exe.previous")
+	backup := filepath.Join(home, "repair", "updates", "Deep-tutor.exe.previous")
 	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestPendingUpdateRejectsPortableAliasAsPrimaryTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := ReadPendingUpdate(); err == nil ||
-		!strings.Contains(err.Error(), "not a Reasonix executable") {
+		!strings.Contains(err.Error(), "not a Deep-tutor executable") {
 		t.Fatalf("portable alias was accepted as primary target: %v", err)
 	}
 }

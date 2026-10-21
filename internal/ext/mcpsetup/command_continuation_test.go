@@ -11,16 +11,16 @@ func TestParseContinuedSetupCommands(t *testing.T) {
 		input  string
 		single string
 	}{
-		{"package", "npx -y \\\n  @reasonix/fixture-server@1.2.3 \\\n  --mode read", "npx -y @reasonix/fixture-server@1.2.3 --mode read"},
-		{"terminal prompt", "$ npx \\\n  -y @reasonix/fixture-server@1.2.3", "npx -y @reasonix/fixture-server@1.2.3"},
-		{"executable", "np\\\nx -y @reasonix/fixture-server", "npx -y @reasonix/fixture-server"},
-		{"package word", "npx -y @reasonix/fixture-\\\nserver", "npx -y @reasonix/fixture-server"},
+		{"package", "npx -y \\\n  @deep-tutor/fixture-server@1.2.3 \\\n  --mode read", "npx -y @deep-tutor/fixture-server@1.2.3 --mode read"},
+		{"terminal prompt", "$ npx \\\n  -y @deep-tutor/fixture-server@1.2.3", "npx -y @deep-tutor/fixture-server@1.2.3"},
+		{"executable", "np\\\nx -y @deep-tutor/fixture-server", "npx -y @deep-tutor/fixture-server"},
+		{"package word", "npx -y @deep-tutor/fixture-\\\nserver", "npx -y @deep-tutor/fixture-server"},
 		{"python module", "python3 -m \\\n  reasonix_probe", "python3 -m reasonix_probe"},
 		{"uv command", "uvx \\\n  demo-server", "uvx demo-server"},
-		{"copied CLI command", "reasonix mcp add docs \\\n  --http https://mcp.example.test/endpoint \\\n  --header 'X-Label=two words'", "reasonix mcp add docs --http https://mcp.example.test/endpoint --header 'X-Label=two words'"},
-		{"quoted value", "reasonix mcp add docs --http https://mcp.example.test/endpoint --header \"X-Label=word\\\nwrap\"", "reasonix mcp add docs --http https://mcp.example.test/endpoint --header X-Label=wordwrap"},
+		{"copied CLI command", "deep-tutor mcp add docs \\\n  --http https://mcp.example.test/endpoint \\\n  --header 'X-Label=two words'", "deep-tutor mcp add docs --http https://mcp.example.test/endpoint --header 'X-Label=two words'"},
+		{"quoted value", "deep-tutor mcp add docs --http https://mcp.example.test/endpoint --header \"X-Label=word\\\nwrap\"", "deep-tutor mcp add docs --http https://mcp.example.test/endpoint --header X-Label=wordwrap"},
 		{"bare endpoint", "https://mcp.example.test/endpoint \\\n  --header 'X-Label=two words'", "https://mcp.example.test/endpoint --header 'X-Label=two words'"},
-		{"leading continuation", "\\\nnpx -y @reasonix/fixture-server", "npx -y @reasonix/fixture-server"},
+		{"leading continuation", "\\\nnpx -y @deep-tutor/fixture-server", "npx -y @deep-tutor/fixture-server"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := Parse(tc.single)

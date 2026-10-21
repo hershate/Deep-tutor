@@ -13,15 +13,15 @@ func TestParseCopiedMCPAddUsesCLISyntax(t *testing.T) {
 		input string
 		want  config.PluginEntry
 	}{
-		{`reasonix mcp add -- npx -y chrome-devtools-mcp@latest`, config.PluginEntry{Name: "chrome-devtools-mcp", Command: "npx", Args: []string{"-y", "chrome-devtools-mcp@latest"}}},
-		{`$ reasonix mcp add docs -- npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}}},
-		{`> reasonix mcp add docs npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}}},
-		{`% reasonix mcp add docs --env "DOCS_TOKEN=${DOCS_TOKEN}" npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}, Env: map[string]string{"DOCS_TOKEN": "${DOCS_TOKEN}"}}},
-		{`reasonix mcp add https://mcp.example.test/endpoint`, config.PluginEntry{Name: "mcp", Type: "http", URL: "https://mcp.example.test/endpoint"}},
-		{`reasonix mcp add docs --http https://mcp.example.test/endpoint --header "Authorization=Bearer fixture-token"`, config.PluginEntry{Name: "docs", Type: "http", URL: "https://mcp.example.test/endpoint", Headers: map[string]string{"Authorization": "Bearer fixture-token"}}},
-		{`reasonix mcp add docs --sse=https://mcp.example.test/sse`, config.PluginEntry{Name: "docs", Type: "sse", URL: "https://mcp.example.test/sse"}},
+		{`deep-tutor mcp add -- npx -y chrome-devtools-mcp@latest`, config.PluginEntry{Name: "chrome-devtools-mcp", Command: "npx", Args: []string{"-y", "chrome-devtools-mcp@latest"}}},
+		{`$ deep-tutor mcp add docs -- npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}}},
+		{`> deep-tutor mcp add docs npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}}},
+		{`% deep-tutor mcp add docs --env "DOCS_TOKEN=${DOCS_TOKEN}" npx -y docs-mcp`, config.PluginEntry{Name: "docs", Command: "npx", Args: []string{"-y", "docs-mcp"}, Env: map[string]string{"DOCS_TOKEN": "${DOCS_TOKEN}"}}},
+		{`deep-tutor mcp add https://mcp.example.test/endpoint`, config.PluginEntry{Name: "mcp", Type: "http", URL: "https://mcp.example.test/endpoint"}},
+		{`deep-tutor mcp add docs --http https://mcp.example.test/endpoint --header "Authorization=Bearer fixture-token"`, config.PluginEntry{Name: "docs", Type: "http", URL: "https://mcp.example.test/endpoint", Headers: map[string]string{"Authorization": "Bearer fixture-token"}}},
+		{`deep-tutor mcp add docs --sse=https://mcp.example.test/sse`, config.PluginEntry{Name: "docs", Type: "sse", URL: "https://mcp.example.test/sse"}},
 		{`npx -y docs-mcp`, config.PluginEntry{Name: "docs-mcp", Command: "npx", Args: []string{"-y", "docs-mcp"}}},
-		{`reasonix --stdio`, config.PluginEntry{Name: "reasonix", Command: "reasonix", Args: []string{"--stdio"}}},
+		{`deep-tutor --stdio`, config.PluginEntry{Name: "deep-tutor", Command: "deep-tutor", Args: []string{"--stdio"}}},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
 			draft, err := Parse(tc.input)
@@ -46,8 +46,8 @@ func TestParseCopiedMCPAddUsesCLISyntax(t *testing.T) {
 
 func TestParseCopiedMCPAddRejectsIncompleteArguments(t *testing.T) {
 	for _, input := range []string{
-		"reasonix mcp add", "reasonix mcp add --", "reasonix mcp add docs",
-		"reasonix mcp add docs --http", "reasonix mcp add docs --unknown value",
+		"deep-tutor mcp add", "deep-tutor mcp add --", "deep-tutor mcp add docs",
+		"deep-tutor mcp add docs --http", "deep-tutor mcp add docs --unknown value",
 	} {
 		t.Run(input, func(t *testing.T) {
 			if _, err := Parse(input); err == nil {
@@ -58,7 +58,8 @@ func TestParseCopiedMCPAddRejectsIncompleteArguments(t *testing.T) {
 }
 
 func TestParseCopiedMCPAddRecognizesLaunchers(t *testing.T) {
-	for _, launcher := range []string{"reasonix", "reasonix.exe", "REASONIX.EXE", filepath.Join(".", "bin", "reasonix"), filepath.Join("My Apps", "reasonix.exe")} {
+	for _, launcher := range []string{"reasonix", "reasonix.exe", "REASONIX.EXE", filepath.Join(".", "bin", "reasonix"), filepath.Join("My Apps", "reasonix.exe"),
+		"deep-tutor", "deep-tutor.exe", "DEEPTUTOR.EXE", filepath.Join(".", "bin", "deep-tutor"), filepath.Join("My Apps", "deep-tutor.exe")} {
 		t.Run(launcher, func(t *testing.T) {
 			prefix := `"` + launcher + `" mcp add `
 			want := config.PluginEntry{Name: "docs", Command: "node", Args: []string{"docs_server.js", "--mode", "fixture"}, Env: map[string]string{"MODE": "fixture"}}
@@ -85,8 +86,8 @@ func TestParseCopiedMCPAddRecognizesLaunchers(t *testing.T) {
 			}
 		})
 	}
-	draft, err := Parse(`reasonix-helper.exe mcp add -- node docs_server.js`)
-	if err != nil || len(draft.Entries) != 1 || draft.Entries[0].Command != "reasonix-helper.exe" || !reflect.DeepEqual(draft.Entries[0].Args, []string{"mcp", "add", "--", "node", "docs_server.js"}) {
+	draft, err := Parse(`deep-tutor-helper.exe mcp add -- node docs_server.js`)
+	if err != nil || len(draft.Entries) != 1 || draft.Entries[0].Command != "deep-tutor-helper.exe" || !reflect.DeepEqual(draft.Entries[0].Args, []string{"mcp", "add", "--", "node", "docs_server.js"}) {
 		t.Fatalf("other executable entries=%+v, err=%v", draft.Entries, err)
 	}
 }

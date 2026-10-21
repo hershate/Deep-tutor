@@ -29,7 +29,7 @@ func TestRevisionDerivedNameExcludesOpaqueCarrierValues(t *testing.T) {
 }
 
 func TestRevisionParseErrorMasksHeader(t *testing.T) {
-	_, err := Parse("reasonix mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'")
+	_, err := Parse("deep-tutor mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'")
 	if err == nil || strings.Contains(err.Error(), "fixturesecret") {
 		t.Fatalf("parse error leaked: %v", err)
 	}

@@ -25,9 +25,9 @@ type brokerFlags struct {
 func registerBrokerFlags(fs *flag.FlagSet) brokerFlags {
 	return brokerFlags{
 		addr: fs.String("provider-broker", "",
-			"resolve providers from the machine that bootstrapped this serve, over this loopback base URL (set by `reasonix remote`)"),
+			"resolve providers from the machine that bootstrapped this serve, over this loopback base URL (set by `deep-tutor remote`)"),
 		file: fs.String("provider-broker-file", "",
-			"read the provider broker's loopback address and token (two lines) from this file on every request, so the broker can move without a restart (set by `reasonix remote`)"),
+			"read the provider broker's loopback address and token (two lines) from this file on every request, so the broker can move without a restart (set by `deep-tutor remote`)"),
 		tokenFile: fs.String("provider-broker-token-file", "",
 			"read the provider broker's pre-shared token from this file (keeps the secret out of argv)"),
 	}

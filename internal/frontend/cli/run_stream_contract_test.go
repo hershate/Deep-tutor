@@ -18,7 +18,7 @@ import (
 	"deep-tutor/internal/contract/eventwire"
 )
 
-// testdata/v1-run holds `reasonix run` v1.39.5 output for one tool call and an
+// testdata/v1-run holds `deep-tutor run` v1.39.5 output for one tool call and an
 // answer. A run here keeps its lifecycle order, per-line envelope, and kind set.
 
 var runLifecycleKinds = []string{"turn_status", "turn_started", "user_message", "tool_started", "tool_result", "turn_done"}

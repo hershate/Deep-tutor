@@ -53,14 +53,14 @@ func pluginCommand(args []string) int {
 
 func pluginUsage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  reasonix plugin install <source> [--yes] [--dry-run] [--link] [--replace]
-  reasonix plugin list
-  reasonix plugin show <name>
-  reasonix plugin enable <name>
-  reasonix plugin disable <name>
-  reasonix plugin remove <name> --yes
-  reasonix plugin doctor <name>
-  reasonix plugin migrate <name> --to-v2`)
+  deep-tutor plugin install <source> [--yes] [--dry-run] [--link] [--replace]
+  deep-tutor plugin list
+  deep-tutor plugin show <name>
+  deep-tutor plugin enable <name>
+  deep-tutor plugin disable <name>
+  deep-tutor plugin remove <name> --yes
+  deep-tutor plugin doctor <name>
+  deep-tutor plugin migrate <name> --to-v2`)
 }
 
 func pluginInstallCommand(args []string) int {
@@ -424,7 +424,7 @@ func pluginDoctorCommand(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "invalid:", err)
 		if errors.Is(err, pluginpkg.ErrMissingAPIVersion) {
-			fmt.Fprintf(os.Stderr, "remediation: reasonix plugin migrate %s --to-v2\n", args[0])
+			fmt.Fprintf(os.Stderr, "remediation: deep-tutor plugin migrate %s --to-v2\n", args[0])
 		}
 		return 1
 	}

@@ -214,7 +214,7 @@ func appendClaudeHookMap(rel string, raw claudeHookDocument, manifest *Manifest)
 					}
 				}
 				if ifExpr := strings.TrimSpace(item.If); ifExpr != "" {
-					reason := fmt.Sprintf("%s hook %q has a conditional \"if\": %q that Reasonix does not evaluate — it runs unconditionally instead of only for the matching case", event, command, ifExpr)
+					reason := fmt.Sprintf("%s hook %q has a conditional \"if\": %q that Deep-tutor does not evaluate — it runs unconditionally instead of only for the matching case", event, command, ifExpr)
 					warnings = append(warnings, rel+": "+reason)
 					issues = append(issues, CompatibilityIssue{Capability: "hooks", Path: rel, Reason: reason})
 				}
@@ -223,17 +223,17 @@ func appendClaudeHookMap(rel string, raw claudeHookDocument, manifest *Manifest)
 					if item.Async {
 						mode = "async, but without a wake-on-exit-2 callback"
 					}
-					reason := fmt.Sprintf("%s hook %q uses \"asyncRewake\", which Reasonix does not support — it runs %s instead", event, command, mode)
+					reason := fmt.Sprintf("%s hook %q uses \"asyncRewake\", which Deep-tutor does not support — it runs %s instead", event, command, mode)
 					warnings = append(warnings, rel+": "+reason)
 					issues = append(issues, CompatibilityIssue{Capability: "hooks", Path: rel, Reason: reason})
 				}
 				if claudeStopBlockingEvents[event] {
-					reason := fmt.Sprintf("%s hook %q cannot block the turn the way Claude's contract does — Reasonix's %s hook is observation-only and never forces the loop to continue", event, command, event)
+					reason := fmt.Sprintf("%s hook %q cannot block the turn the way Claude's contract does — Deep-tutor's %s hook is observation-only and never forces the loop to continue", event, command, event)
 					warnings = append(warnings, rel+": "+reason)
 					issues = append(issues, CompatibilityIssue{Capability: "hooks", Path: rel, Reason: reason})
 				}
 				if claudeToolScopedHookEvents[event] && claudeMatcherNeverFires(match) {
-					reason := fmt.Sprintf("%s hook %q matcher %q names a Claude tool Reasonix has no equivalent for, so it will never fire", event, command, match)
+					reason := fmt.Sprintf("%s hook %q matcher %q names a Claude tool Deep-tutor has no equivalent for, so it will never fire", event, command, match)
 					warnings = append(warnings, rel+": "+reason)
 					issues = append(issues, CompatibilityIssue{Capability: "hooks", Path: rel, Reason: reason})
 				}
@@ -268,9 +268,9 @@ func appendClaudeHookMap(rel string, raw claudeHookDocument, manifest *Manifest)
 		hit    bool
 		reason string
 	}{
-		{gapWebFetch, `a tool-scoped hook matcher includes Claude WebFetch, but Reasonix web_fetch cannot supply Claude's required "prompt" input; such hooks receive only "url" for that tool`},
-		{gapNotebook, "a tool-scoped hook matcher includes Claude NotebookEdit, but Reasonix notebook_edit may target a cell by cell_number, which cannot be converted to Claude's opaque cell_id; such hooks receive cell_number as an extra field for those calls"},
-		{gapTaskOutput, "a tool-scoped hook matcher includes Claude TaskOutput, but Reasonix wait may cover multiple or all background jobs in one call, which cannot be represented by Claude's single task_id; such hooks receive job_ids as an extra field for those calls"},
+		{gapWebFetch, `a tool-scoped hook matcher includes Claude WebFetch, but Deep-tutor web_fetch cannot supply Claude's required "prompt" input; such hooks receive only "url" for that tool`},
+		{gapNotebook, "a tool-scoped hook matcher includes Claude NotebookEdit, but Deep-tutor notebook_edit may target a cell by cell_number, which cannot be converted to Claude's opaque cell_id; such hooks receive cell_number as an extra field for those calls"},
+		{gapTaskOutput, "a tool-scoped hook matcher includes Claude TaskOutput, but Deep-tutor wait may cover multiple or all background jobs in one call, which cannot be represented by Claude's single task_id; such hooks receive job_ids as an extra field for those calls"},
 	} {
 		if !gap.hit {
 			continue
@@ -290,12 +290,12 @@ func claudeModulesGap(raw json.RawMessage) (string, bool) {
 		if len(list) == 0 {
 			return "", false
 		}
-		return fmt.Sprintf("the package declares %d Claude Code module(s) that Reasonix cannot load, so they will never run", len(list)), true
+		return fmt.Sprintf("the package declares %d Claude Code module(s) that Deep-tutor cannot load, so they will never run", len(list)), true
 	}
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", false
 	}
-	return "the package declares a Claude Code \"modules\" entry that is not a list; Reasonix cannot load modules, so they will never run", true
+	return "the package declares a Claude Code \"modules\" entry that is not a list; Deep-tutor cannot load modules, so they will never run", true
 }
 
 func appendUniqueHook(hooks []Hook, candidate Hook) []Hook {

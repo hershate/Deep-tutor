@@ -29,7 +29,7 @@ func (s *Server) accountClient() (*account.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return account.New(accountsBaseURL(), "reasonix-serve", httpClient), nil
+	return account.New(accountsBaseURL(), "deep-tutor-serve", httpClient), nil
 }
 
 func accountsBaseURL() string { return strings.TrimSpace(os.Getenv("REASONIX_ACCOUNTS_URL")) }

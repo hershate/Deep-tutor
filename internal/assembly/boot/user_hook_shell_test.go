@@ -21,7 +21,7 @@ func TestUserHookRunnerIgnoresCheckoutShell(t *testing.T) {
 	checkout := t.TempDir()
 	// An installed-looking path: one where sandboxed commands write is refused
 	// before it could reach the merged config this test starts from.
-	evil := filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "reasonix-test", "evil-bash")
+	evil := filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "opt", "deep-tutor-test", "evil-bash")
 	project := "[tools.shell]\nprefer = \"bash\"\npath = " + tomlString(evil) + "\n"
 	if err := os.WriteFile(filepath.Join(checkout, "reasonix.toml"), []byte(project), 0o644); err != nil {
 		t.Fatal(err)

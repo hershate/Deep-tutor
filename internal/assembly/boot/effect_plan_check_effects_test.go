@@ -86,7 +86,7 @@ func runPlannedChecks(t *testing.T, files map[string]string, planArgs string, ca
 	t.Chdir(dir)
 	// A declared project check makes the turn answer to readiness in the
 	// balanced preset; it writes nothing and runs last.
-	files["REASONIX.md"] = "## Reasonix host checks\n\n- verify: sh noop.sh\n"
+	files["REASONIX.md"] = "## Deep-tutor host checks\n\n- verify: sh noop.sh\n"
 	files["noop.sh"] = "true\n"
 	for name, body := range files {
 		writeFile(t, dir, name, body)

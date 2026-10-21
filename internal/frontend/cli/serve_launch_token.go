@@ -18,7 +18,7 @@ import (
 // multiplexer's scrollback.
 func writeLaunchTokenFile(dir, token string) (string, error) {
 	if strings.TrimSpace(dir) == "" {
-		return "", errors.New("cannot store the launch token: Reasonix home is empty")
+		return "", errors.New("cannot store the launch token: Deep-tutor home is empty")
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err

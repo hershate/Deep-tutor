@@ -18,7 +18,7 @@ func TestGrepSandboxUnavailableRootDoesNotSearchHome(t *testing.T) {
 	if err != nil {
 		t.Skip("ripgrep not installed")
 	}
-	fixture, err := os.MkdirTemp("/tmp", "reasonix-grep-scope-")
+	fixture, err := os.MkdirTemp("/tmp", "deep-tutor-grep-scope-")
 	if err != nil {
 		t.Fatal(err)
 	}

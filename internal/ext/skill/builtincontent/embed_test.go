@@ -21,7 +21,7 @@ func TestLoadReasonixGuide(t *testing.T) {
 	if sk.RunAs != "inline" {
 		t.Fatalf("runAs = %q, want inline", sk.RunAs)
 	}
-	if !strings.Contains(sk.Body, "reasonix doctor capabilities") {
+	if !strings.Contains(sk.Body, "deep-tutor doctor capabilities") {
 		t.Fatal("body should recommend doctor capabilities")
 	}
 	if strings.Contains(strings.ToLower(sk.Frontmatter["auto-use"]), "require") {

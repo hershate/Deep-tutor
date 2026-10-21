@@ -51,7 +51,7 @@ func TestARewriteReadsTheDraftAndRecentTurnsAndBillsItsOwnSource(t *testing.T) {
 		t.Fatalf("out = %q, want the fence taken off", out)
 	}
 	user := prov.got[1].Content
-	for _, want := range []string{"<workspace>reasonix</workspace>", "[assistant] 问题在 auth/session.go", "<draft>\n修一下那个bug\n</draft>"} {
+	for _, want := range []string{"<workspace>deep-tutor</workspace>", "[assistant] 问题在 auth/session.go", "<draft>\n修一下那个bug\n</draft>"} {
 		if !strings.Contains(user, want) {
 			t.Errorf("evidence lacks %q:\n%s", want, user)
 		}

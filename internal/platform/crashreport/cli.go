@@ -106,7 +106,7 @@ func CapturePanic(home, version string, recovered any, stack []byte) error {
 
 func capturePanic(home, version, source, host string, recovered any, stack []byte) error {
 	if strings.TrimSpace(home) == "" {
-		return errors.New("crash report: empty Reasonix home")
+		return errors.New("crash report: empty Deep-tutor home")
 	}
 	cleanStack := sanitizeStack(string(stack))
 	summary := fmt.Sprintf("Unhandled %s panic.", host)

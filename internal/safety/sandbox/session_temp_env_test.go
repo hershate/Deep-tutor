@@ -19,7 +19,7 @@ func TestSessionTempEnvLinuxSandboxedPointsAtVirtualTmp(t *testing.T) {
 }
 
 func TestSessionTempEnvHostPrivate(t *testing.T) {
-	dir := "/tmp/reasonix-session-tmp-test"
+	dir := "/tmp/deep-tutor-session-tmp-test"
 	env := SessionTempEnv(dir, false)
 	if len(env) != 3 {
 		t.Fatalf("env count = %d, want 3", len(env))

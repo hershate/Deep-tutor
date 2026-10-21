@@ -219,7 +219,7 @@ type MCPApprovalOwedError struct {
 
 func (e *MCPApprovalOwedError) Error() string {
 	name := mcpsetup.DisplayName(e.Name)
-	return fmt.Sprintf("MCP server %q: %s; run `reasonix mcp enable %s` (or switch it on in Settings) to approve: %s",
+	return fmt.Sprintf("MCP server %q: %s; run `deep-tutor mcp enable %s` (or switch it on in Settings) to approve: %s",
 		name, e.Reason.Text(), name, e.Launch)
 }
 

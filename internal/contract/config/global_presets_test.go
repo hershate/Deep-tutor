@@ -39,7 +39,7 @@ func TestOpenRouterPresetAttributesTrafficToReasonix(t *testing.T) {
 	if !ok {
 		t.Fatal("openrouter provider missing after upsert")
 	}
-	if entry.Headers["HTTP-Referer"] != "https://reasonix.io" || entry.Headers["X-OpenRouter-Title"] != "Reasonix" {
+	if entry.Headers["HTTP-Referer"] != "https://reasonix.io" || entry.Headers["X-OpenRouter-Title"] != "Deep-tutor" {
 		t.Fatalf("attribution headers = %v", entry.Headers)
 	}
 	if entry.DefaultModel() != "deepseek/deepseek-v4-flash" {

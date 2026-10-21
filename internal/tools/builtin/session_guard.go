@@ -58,13 +58,13 @@ func (g SessionDataGuard) Check(target string) error {
 		return nil // can't resolve -> let the caller's normal error path handle it
 	}
 	if g.deniesSecurity(abs) {
-		return fmt.Errorf("path %q is a Reasonix security boundary file (%s holds the global hooks; hooks execute arbitrary shell commands on every future session). Agents may not modify it. "+
+		return fmt.Errorf("path %q is a Deep-tutor security boundary file (%s holds the global hooks; hooks execute arbitrary shell commands on every future session). Agents may not modify it. "+
 			"Ask the user to edit it themselves, or to add the directory to [sandbox] allow_write in reasonix.toml if raw access is truly intended",
 			target, g.stateRoot)
 	}
 	if g.deniesTrusted(abs) {
 		return tool.Refusal{Code: CodeTrustedStateWrite, Message: fmt.Sprintf(
-			"write refused: `%s` is inside Reasonix's trusted host state (%s). The host alone records evidence and contracts there, so agents may not modify it; report the underlying problem instead",
+			"write refused: `%s` is inside Deep-tutor's trusted host state (%s). The host alone records evidence and contracts there, so agents may not modify it; report the underlying problem instead",
 			target, filepath.Join(g.stateRoot, TrustedStateDir))}
 	}
 	if g.deniesSchedule(abs) {
@@ -75,7 +75,7 @@ func (g SessionDataGuard) Check(target string) error {
 	if !g.denies(abs) {
 		return nil
 	}
-	return fmt.Errorf("path %q is inside Reasonix's own session/state data (%s); the app is the only writer of these files, and edits from a chat race its saves — that surfaces as repeated save-conflict copies. "+
+	return fmt.Errorf("path %q is inside Deep-tutor's own session/state data (%s); the app is the only writer of these files, and edits from a chat race its saves — that surfaces as repeated save-conflict copies. "+
 		"Do not modify session or runtime-state files directly; report the underlying problem instead. If raw access is truly intended, add the directory to [sandbox] allow_write in reasonix.toml",
 		target, g.stateRoot)
 }
@@ -245,7 +245,7 @@ func (g SessionDataGuard) CommandHint(workDir, command string) string {
 	if g.stateRoot == "" || command == "" {
 		return ""
 	}
-	warn := fmt.Sprintf("WARNING: this command referenced Reasonix's own session/state data under %s. "+
+	warn := fmt.Sprintf("WARNING: this command referenced Deep-tutor's own session/state data under %s. "+
 		"This is a notice, not a refusal: the command was not blocked, and an empty result above means it matched nothing. "+
 		"To read a spilled tool output (<session>.outputs/), use read_file (offset/limit) or grep rather than shell text tools. "+
 		"The app is actively saving those files; external modifications conflict with its saves and are preserved as conflict copies, so an edit can look like it \"did not take\". "+

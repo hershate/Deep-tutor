@@ -136,7 +136,7 @@ type UnitSpec struct {
 
 // unitPrompt is Deep-tutor's generate_unit_content inline prompt; the model
 // sees the plan slice plus this unit's nodes and order.
-const unitPrompt = `你是 Reasonix Tutor 的「自学单元内容生成」工具。任务：为学习方案中的一个阶段生成单个自学单元的内容（UnitContentSpec JSON）。非交互，直接输出规约。
+const unitPrompt = `你是 Deep-tutor Tutor 的「自学单元内容生成」工具。任务：为学习方案中的一个阶段生成单个自学单元的内容（UnitContentSpec JSON）。非交互，直接输出规约。
 
 输入（user message JSON）：{"plan":"学习方案切片（intent/stages/resources）","unit_nodes":"本单元要覆盖的知识点","stage":"本单元所属阶段","order":"第 n/N 个单元"}
 

@@ -143,7 +143,7 @@ func hitRate(u *provider.Usage) int {
 	return u.CacheHitTokens * 100 / denom
 }
 
-const systemPrompt = "You are reasonix, a coding agent. Be concise and follow project conventions. " +
+const systemPrompt = "You are deep-tutor, a coding agent. Be concise and follow project conventions. " +
 	"This system prompt is the cacheable head of every request and must never change between turns."
 
 // longReasoning stands in for a deepseek-reasoner chain-of-thought that the agent

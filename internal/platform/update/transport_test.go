@@ -25,7 +25,7 @@ func fastRetry(t *testing.T) {
 // tp is a Transport with the attempt bound the desktop ships, so a stalled
 // primary route cannot hold the whole budget.
 func tp(client, fallback *http.Client) Transport {
-	return Transport{Client: client, Fallback: fallback, UserAgent: "Reasonix-Updater/test", AttemptTimeout: 5 * time.Second}
+	return Transport{Client: client, Fallback: fallback, UserAgent: "Deep-tutor-Updater/test", AttemptTimeout: 5 * time.Second}
 }
 
 func TestDownloadRecoversFromMidStreamReset(t *testing.T) {

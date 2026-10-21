@@ -24,17 +24,17 @@ func TestMCPParsePreviewsContinuedSetupCommands(t *testing.T) {
 	}{
 		{
 			name:  "README launch command",
-			input: "$ npx -y \\\n  @reasonix/fixture-server@1.2.3 \\\n  --mode read",
+			input: "$ npx -y \\\n  @deep-tutor/fixture-server@1.2.3 \\\n  --mode read",
 			server: draftServer{
 				Name: "fixture-server", Transport: "stdio", Command: "npx",
-				Args:           []string{"-y", "@reasonix/fixture-server@1.2.3", "--mode", "read"},
-				DisplayCommand: "npx", DisplayArgs: []string{"-y", "@reasonix/fixture-server@1.2.3", "--mode", "read"},
+				Args:           []string{"-y", "@deep-tutor/fixture-server@1.2.3", "--mode", "read"},
+				DisplayCommand: "npx", DisplayArgs: []string{"-y", "@deep-tutor/fixture-server@1.2.3", "--mode", "read"},
 			},
-			risk: draftRisk{Server: "fixture-server", Kind: "shell", Field: "command", Detail: "npx -y @reasonix/fixture-server@1.2.3 --mode read"},
+			risk: draftRisk{Server: "fixture-server", Kind: "shell", Field: "command", Detail: "npx -y @deep-tutor/fixture-server@1.2.3 --mode read"},
 		},
 		{
 			name:  "copied CLI endpoint",
-			input: "reasonix mcp add docs \\\n  --http https://mcp.example.test/endpoint \\\n  --header \"X-Label=word\\\nwrap\"",
+			input: "deep-tutor mcp add docs \\\n  --http https://mcp.example.test/endpoint \\\n  --header \"X-Label=word\\\nwrap\"",
 			server: draftServer{
 				Name: "docs", Transport: "http", URL: "https://mcp.example.test/endpoint",
 				Headers:    map[string]string{"X-Label": "wordwrap"},

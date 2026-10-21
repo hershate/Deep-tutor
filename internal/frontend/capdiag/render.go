@@ -9,7 +9,7 @@ import (
 // RenderText formats a human-readable report: Summary → Issues → subsystems.
 func RenderText(r Report) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "reasonix doctor capabilities\n")
+	fmt.Fprintf(&b, "deep-tutor doctor capabilities\n")
 	fmt.Fprintf(&b, "root: %s  live: %v  schema: %d\n\n", r.Root, r.Live, r.SchemaVersion)
 
 	fmt.Fprintf(&b, "Summary\n")

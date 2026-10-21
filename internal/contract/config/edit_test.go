@@ -1830,7 +1830,7 @@ func TestMigrateLegacyMemoryCompilerKeepsMultilineSystemPrompt(t *testing.T) {
 	}
 	original := `[agent]
 system_prompt = """
-You are Reasonix. Historical config example:
+You are Deep-tutor. Historical config example:
 memory_compiler = { enabled = true, verbosity = "compact" }
 Keep answers short.
 """

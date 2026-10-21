@@ -28,7 +28,7 @@ func TestReviewGapCommitTreeHonoursRepoGpgSign(t *testing.T) {
 	p := f.payloadExit()
 	f.appendConfig("config", "[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = "+p+"\n")
 	tree := strings.TrimSpace(f.plain("rev-parse", "HEAD^{tree}"))
-	_, _ = f.run("-c", "user.name=Reasonix", "-c", "user.email=r@local", "commit-tree", tree, "-p", "HEAD", "-m", "x")
+	_, _ = f.run("-c", "user.name=Deep-tutor", "-c", "user.email=r@local", "commit-tree", tree, "-p", "HEAD", "-m", "x")
 	f.assertNotExecuted()
 }
 
@@ -44,7 +44,7 @@ func TestReviewGapMergeHonoursRepoVerifySignatures(t *testing.T) {
 	f.plain("checkout", "--quiet", "main")
 	p := f.payloadExit()
 	f.appendConfig("config", "[merge]\n\tverifySignatures = true\n[gpg]\n\tprogram = "+p+"\n")
-	_, _ = f.run("-c", "user.name=Reasonix", "-c", "user.email=r@local", "merge", "--no-ff", "--no-commit", "--no-verify", "side")
+	_, _ = f.run("-c", "user.name=Deep-tutor", "-c", "user.email=r@local", "merge", "--no-ff", "--no-commit", "--no-verify", "side")
 	f.assertNotExecuted()
 }
 

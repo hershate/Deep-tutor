@@ -52,7 +52,7 @@ type Options struct {
 
 // New returns the capability a hub serves updates through, and nil where
 // nothing owns the application. That nil is the gate: a kernel with no owner
-// registers no update routes at all, so `reasonix serve` does not acquire the
+// registers no update routes at all, so `deep-tutor serve` does not acquire the
 // power to replace a desktop application by sharing an engine with one. The
 // return type is an interface so the nil survives the assignment.
 func New(opts Options) Capability {

@@ -7,19 +7,19 @@ var English = Messages{
 	NoConfigYet:     "No configuration found yet — let's set it up.",
 
 	PickWorkspaceTitle: "Choose a working folder — or make a new one here",
-	TrayOpen:           "Open Reasonix Studio",
+	TrayOpen:           "Open Deep-tutor Studio",
 	TrayCloseToTray:    "Keep running when the window is closed",
-	TrayQuit:           "Quit Reasonix",
+	TrayQuit:           "Quit Deep-tutor",
 	TrayIdle:           "Nothing running",
 	TrayWorking:        "%d running",
 	TrayAttention:      "%d waiting for you",
 	TrayJobs:           "%d background jobs",
-	InitHint:           "Project memory (AGENTS.md) is generated in-session: run `reasonix`, then `/init` — the model analyzes the codebase and writes it. For configuration, use `reasonix setup`.",
+	InitHint:           "Project memory (AGENTS.md) is generated in-session: run `deep-tutor`, then `/init` — the model analyzes the codebase and writes it. For configuration, use `deep-tutor setup`.",
 
 	ChatTip:                 "Context is kept across turns. Type 'exit' or Ctrl-D to quit.",
 	TurnCancelled:           "cancelled — back to prompt",
 	InterruptedRecovery:     "This turn was interrupted. Partial output is kept for reference; only completed tool pairs and a bounded recovery summary enter the next model turn. Inspect the workspace before continuing or reverting changes.",
-	RecoveryPaused:          "Automatic retries paused. Reasonix stopped repeated attempts and kept completed work. Send “Continue” to start a fresh attempt, or add instructions to change direction.",
+	RecoveryPaused:          "Automatic retries paused. Deep-tutor stopped repeated attempts and kept completed work. Send “Continue” to start a fresh attempt, or add instructions to change direction.",
 	ReceiptVerified:         "nothing left unverified",
 	ReceiptGapsHeader:       "not verified:",
 	ReceiptRisksHeader:      "declared risks:",
@@ -73,7 +73,7 @@ var English = Messages{
 		"unreviewed_change":         "changed, never looked at again",
 		"declared_unverified":       "declared unverified",
 	},
-	NoSessionToResume:             "no saved session to resume — start a new one with `reasonix`",
+	NoSessionToResume:             "no saved session to resume — start a new one with `deep-tutor`",
 	NoSessionToResumeStartingNew:  "no saved session to resume — starting a new session",
 	ResumeRequiresTTY:             "--resume needs an interactive terminal; pass --continue for the most recent session",
 	PickSessionLabel:              "Resume which session?",
@@ -221,10 +221,10 @@ var English = Messages{
 	SandboxEscapeRuntimeReason:      "The OS sandbox could not start this command. Run it unconfined one time? This bypasses OS isolation for this command only.",
 	SandboxEscapeDeclined:           "the user declined to run this command without the OS sandbox - do not retry it unconfined; ask how they would like to proceed.",
 	EgressApprovalReasonFmt:         "A bash command wants to reach %s, which is not in [sandbox] allowed_domains. Allow it?",
-	ApprovalToolLabelConfigWrite:    "Reasonix config write",
-	ConfigWriteSubjectPrefix:        "write Reasonix config: ",
-	ConfigWriteReason:               "This write targets a Reasonix-managed configuration file outside the workspace. It can change providers, sandbox rules, permissions, and MCP servers for future sessions, so it needs your explicit approval.",
-	ConfigWriteDeclined:             "the user declined this Reasonix config write - do not retry it; ask how they would like to proceed.",
+	ApprovalToolLabelConfigWrite:    "Deep-tutor config write",
+	ConfigWriteSubjectPrefix:        "write Deep-tutor config: ",
+	ConfigWriteReason:               "This write targets a Deep-tutor-managed configuration file outside the workspace. It can change providers, sandbox rules, permissions, and MCP servers for future sessions, so it needs your explicit approval.",
+	ConfigWriteDeclined:             "the user declined this Deep-tutor config write - do not retry it; ask how they would like to proceed.",
 	ConfigWriteApprovalChoices:      "1. Allow once\n2. Allow for this session\n3. Deny\nChoose [1/2/3] (y/a/n also work)",
 	PermissionSavedFmt:              "permission saved to %s: %s",
 	PermissionAlreadyAllowedFmt:     "permission already covered in %s: %s",
@@ -428,7 +428,7 @@ var English = Messages{
 	CmdHelp:              "list commands",
 	CmdWeb:               "continue this session in the Web UI",
 	CmdTutor:             "open the study tutor's graphical surface",
-	CmdTutorHint:         "the study tutor is graphical: open Study Tutor from the Studio rail or command palette, or run reasonix web and open it in the browser (append #tutor to the address)",
+	CmdTutorHint:         "the study tutor is graphical: open Study Tutor from the Studio rail or command palette, or run deep-tutor web and open it in the browser (append #tutor to the address)",
 	CmdTodo:              "dismiss the task list",
 	CmdQuit:              "exit the session",
 	CmdCopy:              "pick a response to copy to clipboard",
@@ -436,7 +436,7 @@ var English = Messages{
 	CmdQueue:             "inspect and manage the follow-up queue",
 	CmdSteer:             "send guidance into the running turn",
 	CmdTakeover:          "resume a session by index or path",
-	TakeoverNoSteal:      "session resumed; a session another Reasonix process holds is not taken over — close that process first",
+	TakeoverNoSteal:      "session resumed; a session another Deep-tutor process holds is not taken over — close that process first",
 	SlashCopyDone:        "copied response to clipboard",
 	SlashCopyEmpty:       "no assistant response to copy",
 	SlashCopyListHeader:  "pick a response to copy:",
@@ -475,7 +475,7 @@ var English = Messages{
 	ListSkillsHeaderFmt: "skills (%d)",
 	ListSkillsNone:      "skills: none defined — invoke a built-in like /init, or author one with install_skill",
 	ListHooksHeaderFmt:  "hooks (%d active)",
-	ListHooksNone:       "hooks: none active — configure in .reasonix/settings.json (project) or <Reasonix home>/settings.json (global)",
+	ListHooksNone:       "hooks: none active — configure in .reasonix/settings.json (project) or <Deep-tutor home>/settings.json (global)",
 	ListMcpHeader:       "mcp servers",
 	ListMcpNone:         "mcp: no servers connected — add one in reasonix.toml ([[plugins]]) or a project .mcp.json",
 
@@ -522,7 +522,7 @@ var English = Messages{
 	WorkModeUsage:                "usage: /preset balanced|delivery",
 	PresetCurrentFmt:             "preset: %s (%s)",
 	PresetSetFmt:                 "preset: %s — in effect from your next message",
-	RemoteConnectHint:            "  run `reasonix remote connect <name>` in a terminal to open the remote workspace",
+	RemoteConnectHint:            "  run `deep-tutor remote connect <name>` in a terminal to open the remote workspace",
 	WorkModeSwitchUnavailable:    "execution setting switching is unavailable in this session",
 	WorkModeSwitchBusy:           "finish or cancel active work before switching execution settings",
 	WorkModeAlreadyOnFmt:         "execution setting is already %s",
@@ -550,7 +550,7 @@ var English = Messages{
 	SetupComplete:            "Setup complete.",
 	SetupCancelled:           "setup cancelled.",
 	TryHintFmt:               "Try: %s",
-	NextHint:                 "Next: set your API key (run `reasonix setup` or export DEEPSEEK_API_KEY=...), then run `reasonix run \"your task\"`.",
+	NextHint:                 "Next: set your API key (run `deep-tutor setup` or export DEEPSEEK_API_KEY=...), then run `deep-tutor run \"your task\"`.",
 	ConfirmReconfigureFmt:    "%s already exists. Reconfigure and overwrite?",
 	NotOverwritingFmt:        "%s already exists; not overwriting",
 	SetupManagerTitle:        "Provider configuration",
@@ -645,18 +645,18 @@ var English = Messages{
 	RemotePassphrasePromptFmt: "passphrase for %s:",
 	RemotePasswordPromptFmt:   "password for %s:",
 	RemoteBootstrapStepFmt:    "remote serve: %s %s",
-	RemoteNoHostsHint:         "no remote hosts configured; add one with `reasonix remote add <name> [user@]host`",
+	RemoteNoHostsHint:         "no remote hosts configured; add one with `deep-tutor remote add <name> [user@]host`",
 
 	UnknownCommandFmt:         "unknown command %q",
-	UsageRunHint:              "usage: reasonix -p [--model NAME] <task>",
+	UsageRunHint:              "usage: deep-tutor -p [--model NAME] <task>",
 	ErrorPrefix:               "error:",
 	ReconfigureOnUnknownModel: "Configured model is no longer available — re-running setup.",
 	WriteConfigErr:            "write config:",
 	WriteEnvErr:               "write .env:",
 
 	ProviderErrBadRequest:          "The model service rejected this request (HTTP 400). The reason it gave follows when it sent one. You can try a new session or another model. If it keeps happening, report it together with that reason.",
-	ProviderErrAuth:                "Authentication failed (HTTP 401): your API key is missing or unset. Add it to .env or run `reasonix setup`.",
-	ProviderErrAuthRejected:        "Authentication failed (HTTP 401): the server rejected your API key. It may be wrong or expired, or the provider hit a transient auth/quota issue — retried with backoff and still failed. Try again shortly, or check the key in .env / run `reasonix setup`.",
+	ProviderErrAuth:                "Authentication failed (HTTP 401): your API key is missing or unset. Add it to .env or run `deep-tutor setup`.",
+	ProviderErrAuthRejected:        "Authentication failed (HTTP 401): the server rejected your API key. It may be wrong or expired, or the provider hit a transient auth/quota issue — retried with backoff and still failed. Try again shortly, or check the key in .env / run `deep-tutor setup`.",
 	ProviderErrDNSNotFound:         "Cannot resolve the model service domain name %s: the DNS lookup found no such host, so no connection was made and nothing was retried. Check the network, DNS and proxy settings, and the provider base URL.",
 	ProviderErrDNSTemporary:        "Cannot resolve the model service domain name %s: the DNS lookup failed temporarily (resolver unreachable or timed out), so no connection was made. Check the network, DNS and proxy settings, then retry.",
 	ProviderErrInsufficientBalance: "Insufficient balance (HTTP 402): your account is out of credit. Top up your account, then retry.",
@@ -717,7 +717,7 @@ var English = Messages{
 	ReportNoPending:           "No pending CLI crash reports.",
 	ReportHeaderFmt:           "CLI crash report %s",
 	ReportCapturedFmt:         "Captured: %s",
-	ReportPreviewOnlyFmt:      "Preview only. Run `reasonix report send %s` to send this report.",
+	ReportPreviewOnlyFmt:      "Preview only. Run `deep-tutor report send %s` to send this report.",
 	ReportSendPrompt:          "Send this sanitized report to crash.reasonix.io?",
 	ReportKept:                "Report kept locally.",
 	ReportDeletedFmt:          "Deleted CLI crash report %s.",
@@ -726,66 +726,66 @@ var English = Messages{
 	ReportUploadFailedFmt:     "report upload failed; the local report was kept: %v",
 	ReportSentDeleteFailedFmt: "report was sent but the local copy could not be deleted: %v",
 	ReportUsageBody: `Usage:
-  reasonix report                 preview the newest local report and confirm sending
-  reasonix report list            list local CLI crash reports
-  reasonix report show [ID]       preview a report (newest when ID is omitted)
-  reasonix report send [ID]       send a reviewed report and delete it after success
-  reasonix report delete [ID]     delete a local report without sending`,
+  deep-tutor report                 preview the newest local report and confirm sending
+  deep-tutor report list            list local CLI crash reports
+  deep-tutor report show [ID]       preview a report (newest when ID is omitted)
+  deep-tutor report send [ID]       send a reviewed report and delete it after success
+  deep-tutor report delete [ID]     delete a local report without sending`,
 
-	CLITelemetryConsentNotice:           "Reasonix can send anonymous, content-free CLI usage statistics to crash.reasonix.io: a random install ID, version, OS, and fixed quality buckets. It never sends prompts, answers, code, paths, model or tool content, or environment variables. You can disable this later with `reasonix config telemetry off`.",
+	CLITelemetryConsentNotice:           "Deep-tutor can send anonymous, content-free CLI usage statistics to crash.reasonix.io: a random install ID, version, OS, and fixed quality buckets. It never sends prompts, answers, code, paths, model or tool content, or environment variables. You can disable this later with `deep-tutor config telemetry off`.",
 	CLITelemetryConsentPrompt:           "Allow anonymous CLI usage statistics?",
 	CLITelemetryConsentInvalid:          "Please answer y or n.",
 	CLITelemetryConsentSaveFailedFmt:    "CLI telemetry remains disabled because the preference could not be saved: %v",
 	CLITelemetryConsentCleanupFailedFmt: "CLI telemetry is disabled, but pending statistics could not be deleted: %v",
 
-	StandaloneConsoleHint: "This is the Reasonix command-line tool; run it from a terminal such as PowerShell.\nFor the desktop app, install Reasonix Studio (ReasonixStudio-windows-amd64-installer.exe):\n  https://github.com/esengine/DeepSeek-Reasonix/releases?q=studio-v&expanded=true\n\nPress Enter to close this window.\n",
-	UsageBody: `reasonix — a config- and plugin-driven coding agent (multi-model)
+	StandaloneConsoleHint: "This is the Deep-tutor command-line tool; run it from a terminal such as PowerShell.\nFor the desktop app, install Deep-tutor Studio (ReasonixStudio-windows-amd64-installer.exe):\n  https://github.com/esengine/DeepSeek-Reasonix/releases?q=studio-v&expanded=true\n\nPress Enter to close this window.\n",
+	UsageBody: `deep-tutor — a config- and plugin-driven coding agent (multi-model)
 
 Usage:
-  reasonix [--model NAME] [-c|--continue] [-r|--resume [QUERY]] [--permission-mode MODE] [--effort LEVEL] [--add-dir PATH]   interactive session (the terminal UI, same as reasonix tui)
-  reasonix -p|--print [--model NAME] [--output-format text|json|stream-json] [--allowed-tools RULES] [--add-dir PATH] <task>
-  reasonix run [--model NAME] [--max-steps N] [-c|--continue] [--resume PATH] [--copy] [--output-format FORMAT] <task>
-  reasonix run --events-jsonl [--model NAME] <task>      emit redacted structured events as JSONL
-  reasonix review [--base BRANCH] [--commit SHA] [--model NAME]  AI-powered code review on local diffs
-  reasonix web [--model NAME] [--addr HOST:PORT] [--no-open]  start the local Web UI and open it in the default browser
-  reasonix serve [--model NAME] [--addr HOST:PORT] [--auth none|token|password] [--token STR] [--password STR] [--hash-password]  serve over HTTP+SSE (with optional auth)
-  reasonix acp [--model NAME]                           serve Agent Client Protocol over stdio (also: reasonix --acp)
-  reasonix setup [path]                                 interactive config wizard; writes reasonix.toml (+ .env)
-  reasonix config reasoning-language [auto|zh|en]        configure visible reasoning language
-  reasonix config compact-ratio [--local] [PERCENT]       configure automatic compaction threshold
-  reasonix config telemetry [auto|on|off]                configure content-free CLI usage metrics
-  reasonix report [list|show|send|delete] [ID]           review and explicitly send local CLI crash reports
-  reasonix mcp <add|remove|list|import>                 manage MCP servers in reasonix.toml
-  reasonix login | whoami | logout                      sign in to reasonix.io (forum and crash follow-ups only)
-  reasonix subagent <list|create|edit|delete|try|run>   manage and run isolated subagent profiles
-  reasonix init                                         show how to generate project memory (AGENTS.md)
-  reasonix doctor [--json]                              print redacted local diagnostics
-  reasonix doctor session <branch-id> [--zip] [--out PATH]  export a session conflict diagnostic zip
-  reasonix session list --json [--dir PATH]             list redacted sessions for machine clients
-  reasonix session show|status <machine-session-id> --json [--dir PATH]  query one redacted session
-  reasonix session recovery [<machine-session-id>] --json [--dir PATH]  query redacted recovery state
-  reasonix hook list|status --json [--dir PATH]         inspect redacted hook state
-  reasonix trust [--dir PATH] [--yes|--revoke]          review and approve programs this project runs
-  reasonix task list|show|status|events|stop|cancel|monitor|tmux --json [--dir PATH]
+  deep-tutor [--model NAME] [-c|--continue] [-r|--resume [QUERY]] [--permission-mode MODE] [--effort LEVEL] [--add-dir PATH]   interactive session (the terminal UI, same as deep-tutor tui)
+  deep-tutor -p|--print [--model NAME] [--output-format text|json|stream-json] [--allowed-tools RULES] [--add-dir PATH] <task>
+  deep-tutor run [--model NAME] [--max-steps N] [-c|--continue] [--resume PATH] [--copy] [--output-format FORMAT] <task>
+  deep-tutor run --events-jsonl [--model NAME] <task>      emit redacted structured events as JSONL
+  deep-tutor review [--base BRANCH] [--commit SHA] [--model NAME]  AI-powered code review on local diffs
+  deep-tutor web [--model NAME] [--addr HOST:PORT] [--no-open]  start the local Web UI and open it in the default browser
+  deep-tutor serve [--model NAME] [--addr HOST:PORT] [--auth none|token|password] [--token STR] [--password STR] [--hash-password]  serve over HTTP+SSE (with optional auth)
+  deep-tutor acp [--model NAME]                           serve Agent Client Protocol over stdio (also: deep-tutor --acp)
+  deep-tutor setup [path]                                 interactive config wizard; writes reasonix.toml (+ .env)
+  deep-tutor config reasoning-language [auto|zh|en]        configure visible reasoning language
+  deep-tutor config compact-ratio [--local] [PERCENT]       configure automatic compaction threshold
+  deep-tutor config telemetry [auto|on|off]                configure content-free CLI usage metrics
+  deep-tutor report [list|show|send|delete] [ID]           review and explicitly send local CLI crash reports
+  deep-tutor mcp <add|remove|list|import>                 manage MCP servers in reasonix.toml
+  deep-tutor login | whoami | logout                      sign in to reasonix.io (forum and crash follow-ups only)
+  deep-tutor subagent <list|create|edit|delete|try|run>   manage and run isolated subagent profiles
+  deep-tutor init                                         show how to generate project memory (AGENTS.md)
+  deep-tutor doctor [--json]                              print redacted local diagnostics
+  deep-tutor doctor session <branch-id> [--zip] [--out PATH]  export a session conflict diagnostic zip
+  deep-tutor session list --json [--dir PATH]             list redacted sessions for machine clients
+  deep-tutor session show|status <machine-session-id> --json [--dir PATH]  query one redacted session
+  deep-tutor session recovery [<machine-session-id>] --json [--dir PATH]  query redacted recovery state
+  deep-tutor hook list|status --json [--dir PATH]         inspect redacted hook state
+  deep-tutor trust [--dir PATH] [--yes|--revoke]          review and approve programs this project runs
+  deep-tutor task list|show|status|events|stop|cancel|monitor|tmux --json [--dir PATH]
                                                          inspect or control redacted tasks
-  reasonix upgrade [--check] [--force]                   update to the latest official release (also: reasonix update)
-  reasonix completion bash|zsh|fish                     print a shell completion script to stdout
-  reasonix version [--verbose|--json]                   print version (single line) or build metadata
-  reasonix --version | -v                               single-line version (script-safe)
-  reasonix help
+  deep-tutor upgrade [--check] [--force]                   update to the latest official release (also: deep-tutor update)
+  deep-tutor completion bash|zsh|fish                     print a shell completion script to stdout
+  deep-tutor version [--verbose|--json]                   print version (single line) or build metadata
+  deep-tutor --version | -v                               single-line version (script-safe)
+  deep-tutor help
 
 Examples:
-  reasonix web
-  reasonix run "implement the TODOs in main.go"
-  reasonix run --model mimo-pro "add unit tests for this function"
-  reasonix -p "summarize this repository" --output-format json
-  reasonix subagent run review "review the current changes"
-  echo "explain this code" | reasonix run
+  deep-tutor web
+  deep-tutor run "implement the TODOs in main.go"
+  deep-tutor run --model mimo-pro "add unit tests for this function"
+  deep-tutor -p "summarize this repository" --output-format json
+  deep-tutor subagent run review "review the current changes"
+  echo "explain this code" | deep-tutor run
 
 Configuration:
-  Resolution: flag > ./reasonix.toml > <Reasonix home>/config.toml > built-in defaults
+  Resolution: flag > ./reasonix.toml > <Deep-tutor home>/config.toml > built-in defaults
   Secrets come from the environment via api_key_env (e.g. DEEPSEEK_API_KEY).
-  Run 'reasonix setup' to scaffold a config; see docs/SPEC.md.
+  Run 'deep-tutor setup' to scaffold a config; see docs/SPEC.md.
 `,
 
 	Feedback: feedbackEnglish,

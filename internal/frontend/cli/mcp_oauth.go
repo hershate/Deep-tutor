@@ -18,7 +18,7 @@ var mcpAuthorizeForCLI = plugin.AuthorizeHTTPMCP
 
 func mcpAuthCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp auth <name>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp auth <name>")
 		return 2
 	}
 	name, workspace := strings.TrimSpace(args[0]), mcpCLIWorkspaceRoot()
@@ -62,7 +62,7 @@ func mcpAuthCLI(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Printf("authorized MCP server %q — run `reasonix mcp retry %s` or reconnect it in the current session\n", name, name)
+	fmt.Printf("authorized MCP server %q — run `deep-tutor mcp retry %s` or reconnect it in the current session\n", name, name)
 	return 0
 }
 

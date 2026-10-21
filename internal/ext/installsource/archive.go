@@ -29,7 +29,7 @@ func unpackPluginZip(path string) (string, func(), error) {
 	}
 	defer zr.Close()
 
-	dir, err := os.MkdirTemp("", "reasonix-plugin-zip-*")
+	dir, err := os.MkdirTemp("", "deep-tutor-plugin-zip-*")
 	if err != nil {
 		return "", func() {}, err
 	}

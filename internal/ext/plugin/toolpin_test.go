@@ -219,7 +219,7 @@ func TestPinFileRefusesAnythingButAFullHexKey(t *testing.T) {
 }
 
 func TestTrustCommandEmbedsOnlyValidServerNames(t *testing.T) {
-	if got := trustCommand("good-name_1"); got != "`reasonix mcp trust good-name_1`" {
+	if got := trustCommand("good-name_1"); got != "`deep-tutor mcp trust good-name_1`" {
 		t.Fatalf("got %q", got)
 	}
 	for _, name := range []string{"a\x1b[31mred", "a\nb", "a\u202eb", "it's", "a b", "a;rm -rf", "a\x00b", ""} {

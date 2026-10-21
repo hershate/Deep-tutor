@@ -198,7 +198,7 @@ const walSizeLimit = 4 << 20
 func open(ctx context.Context, opts OpenOptions, mode Mode) (*sql.DB, error) {
 	var dsn string
 	if mode == ModeMemory {
-		dsn = fmt.Sprintf("file:reasonix-%s-%d?mode=memory&cache=shared", url.PathEscape(opts.MemoryName), opts.Now().UnixNano())
+		dsn = fmt.Sprintf("file:deep-tutor-%s-%d?mode=memory&cache=shared", url.PathEscape(opts.MemoryName), opts.Now().UnixNano())
 	} else {
 		dsn = diskFileDSN(opts.Path)
 	}

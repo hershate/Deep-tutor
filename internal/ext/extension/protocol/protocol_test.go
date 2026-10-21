@@ -24,7 +24,7 @@ func TestCompareProtocolVersion(t *testing.T) {
 		version string
 		reason  ErrorReason
 	}{
-		{"wrong id", "reasonix.extension.v1", "2", ErrUnsupportedVersion},
+		{"wrong id", "deep-tutor.extension.v1", "2", ErrUnsupportedVersion},
 		{"empty id", "", "2", ErrUnsupportedVersion},
 		{"wrong major", ProtocolID, "1", ErrUnsupportedVersion},
 		{"zero major", ProtocolID, "0", ErrUnsupportedVersion},

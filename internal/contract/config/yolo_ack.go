@@ -33,7 +33,7 @@ func YoloAcknowledged(home string) bool {
 // AcknowledgeYolo records that confirmation.
 func AcknowledgeYolo(home string) error {
 	if strings.TrimSpace(home) == "" {
-		return errors.New("no Reasonix home to record the YOLO confirmation in")
+		return errors.New("no Deep-tutor home to record the YOLO confirmation in")
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err

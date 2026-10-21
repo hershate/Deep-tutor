@@ -28,7 +28,7 @@ var validDesktopExternalOpenerID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63
 // edit.go is the programmatic mutation surface a settings UI drives: change the
 // default model, add/remove a provider, set the planner, edit permission rules,
 // add/remove an MCP server — each validated, then persisted with SaveTo. It is
-// separate from the `reasonix setup` wizard (cli) so a GUI can apply one setting at a
+// separate from the `deep-tutor setup` wizard (cli) so a GUI can apply one setting at a
 // time without replaying the whole interactive flow. Every mutator works on the
 // in-memory *Config; nothing writes to disk until SaveTo/Save is called, so a UI
 // can stage several changes and commit once. Mutations round-trip through
@@ -367,7 +367,7 @@ func (c *Config) SetCLIUpdateChannel(channel string) error {
 	case "", "stable", "preview", "canary", "beta", "next":
 		c.CLI.UpdateChannel = ""
 	default:
-		return fmt.Errorf("CLI update channel %q is unsupported; Reasonix now uses the official release channel", channel)
+		return fmt.Errorf("CLI update channel %q is unsupported; Deep-tutor now uses the official release channel", channel)
 	}
 	return nil
 }
@@ -1371,7 +1371,7 @@ func SaveMinimalProjectReasoningLanguage(path, lang string) (string, error) {
 	if err := cfg.SetReasoningLanguage(lang); err != nil {
 		return "", err
 	}
-	body := fmt.Sprintf(`# Reasonix project configuration.
+	body := fmt.Sprintf(`# Deep-tutor project configuration.
 # Project-local overrides are merged over the user config.
 
 [agent]
@@ -1387,7 +1387,7 @@ func SaveMinimalProjectCompactRatio(path string, ratio float64) (float64, error)
 	if err := cfg.SetCompactRatio(ratio); err != nil {
 		return 0, err
 	}
-	body := fmt.Sprintf(`# Reasonix project configuration.
+	body := fmt.Sprintf(`# Deep-tutor project configuration.
 # Project-local overrides are merged over the user config.
 
 [agent]

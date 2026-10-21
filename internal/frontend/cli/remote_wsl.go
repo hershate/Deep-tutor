@@ -13,7 +13,7 @@ import (
 
 func remoteWSLCLI(args []string) int {
 	if len(args) == 0 || (args[0] != "list" && args[0] != "test") || (args[0] == "list" && len(args) != 1) || (args[0] == "test" && len(args) != 2) {
-		fmt.Fprintln(os.Stderr, "usage: reasonix remote wsl list | reasonix remote wsl test <distribution>")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor remote wsl list | deep-tutor remote wsl test <distribution>")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)

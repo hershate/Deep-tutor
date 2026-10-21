@@ -28,7 +28,7 @@ func HandoffTask(s string) string {
 	return s
 }
 
-const ExecutorHandoffMarker = "Reasonix executor handoff"
+const ExecutorHandoffMarker = "Deep-tutor executor handoff"
 
 // DeliveryRuntimeMarker is the retired delivery contract block. Nothing
 // appends it any more; it survives byte-exact so a session recorded before

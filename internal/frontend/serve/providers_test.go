@@ -117,7 +117,7 @@ func TestSaveProviderWritesConfigAndKeepsTheKeyOutOfIt(t *testing.T) {
 		"apiKey":"sk-secret-value","models":["kimi-k2","kimi-k2-turbo"],
 		"default":"kimi-k2","authHeader":false,"noProxy":false,"effort":"","vision":[],
 		"contextWindow":262144,"maxOutputTokens":32768,
-		"reasoningProtocol":"none","headers":{"X-Title":"Reasonix"},
+		"reasoningProtocol":"none","headers":{"X-Title":"Deep-tutor"},
 		"extraBody":{"temperature":0.7}
 	}`)
 	defer resp.Body.Close()
@@ -157,7 +157,7 @@ func TestSaveProviderWritesConfigAndKeepsTheKeyOutOfIt(t *testing.T) {
 			if cfg.Providers[i].ContextWindow != 262144 || cfg.Providers[i].MaxOutputTokens != 32768 {
 				t.Fatalf("token limits = (%d, %d), want (262144, 32768)", cfg.Providers[i].ContextWindow, cfg.Providers[i].MaxOutputTokens)
 			}
-			if cfg.Providers[i].ReasoningProtocol != "none" || cfg.Providers[i].Headers["X-Title"] != "Reasonix" {
+			if cfg.Providers[i].ReasoningProtocol != "none" || cfg.Providers[i].Headers["X-Title"] != "Deep-tutor" {
 				t.Fatalf("advanced compatibility fields were not persisted: %#v", cfg.Providers[i])
 			}
 			if got, ok := cfg.Providers[i].ExtraBody["temperature"].(float64); !ok || got != 0.7 {

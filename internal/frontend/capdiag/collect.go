@@ -368,7 +368,7 @@ func collectPlugins(reasonixHome string, disp func(string) string) (PluginPackag
 			Severity: "error", Code: "plugin.state_read_failed", Subsystem: "plugins",
 			Source:      rep.StatePath,
 			Message:     "failed to read plugin-packages state",
-			Remediation: "Ensure Reasonix home is readable or reinstall packages",
+			Remediation: "Ensure Deep-tutor home is readable or reinstall packages",
 			SettingsTab: "plugins",
 		})
 		return rep, issues

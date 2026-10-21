@@ -43,7 +43,7 @@ var (
 	// A serve is already running for this workspace and resolves providers
 	// differently than this connect wants — over a broker, or on its own
 	// credentials. Replacing it would end whatever another window or a
-	// `reasonix remote serve start` is doing on it, so the connect stops here.
+	// `deep-tutor remote serve start` is doing on it, so the connect stops here.
 	ErrServeProviderMismatch = errors.New("bootstrap: a serve already running for this workspace resolves providers differently; match its provider setting or stop it first")
 
 	// A serve holds this workspace's port and pid files but cannot be driven

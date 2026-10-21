@@ -8,7 +8,7 @@ import (
 
 func TestBuildInfoSingleLine(t *testing.T) {
 	info := BuildInfo{Version: "v1.2.3"}
-	if got, want := info.singleLine(), "reasonix v1.2.3"; got != want {
+	if got, want := info.singleLine(), "deep-tutor v1.2.3"; got != want {
 		t.Fatalf("singleLine = %q, want %q", got, want)
 	}
 }
@@ -21,7 +21,7 @@ func TestBuildInfoVerboseOmitsConfigAndCST(t *testing.T) {
 		BuildTarget:  "darwin/arm64",
 	}
 	text := info.verboseText()
-	if !strings.Contains(text, "reasonix v9.9.9") {
+	if !strings.Contains(text, "deep-tutor v9.9.9") {
 		t.Fatalf("verbose missing version line:\n%s", text)
 	}
 	if !strings.Contains(text, "git_commit: abcdef012345") {
@@ -72,7 +72,7 @@ func TestVersionCommandFlags(t *testing.T) {
 			t.Fatalf("code = %d", code)
 		}
 	})
-	if strings.TrimSpace(out) != "reasonix v2.0.0" {
+	if strings.TrimSpace(out) != "deep-tutor v2.0.0" {
 		t.Fatalf("--version line = %q", out)
 	}
 

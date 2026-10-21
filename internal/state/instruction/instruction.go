@@ -35,7 +35,7 @@ func FromContext(ctx context.Context) []VerifyCheck {
 // exported because the host quotes it back when its own classifier cannot
 // recognise what a project runs, and a name told to the model in one place and
 // parsed in another drifts.
-const HostChecksHeading = "Reasonix host checks"
+const HostChecksHeading = "Deep-tutor host checks"
 
 // ExtractHostChecks reads only the HostChecksHeading section. Ordinary project
 // instructions remain guidance and do not become hard gates.

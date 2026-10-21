@@ -176,7 +176,7 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #d0d7de;padding
 {{range .Schedule}}<tr><td>{{.Date}}</td><td>{{range .Tasks}}{{.}}；{{end}}</td><td>{{.EstMinutes}} 分钟</td></tr>{{end}}</table>{{end}}
 {{if .Quizzes}}<h2>练习（答案不随分享提供）</h2>{{range .Quizzes}}<div class="quiz"><div>{{.Question}}</div>
 {{if .Options}}<ol type="A">{{range .Options}}<li>{{.}}</li>{{end}}</ol>{{end}}</div>{{end}}{{end}}
-<footer>由 Reasonix 分享的只读学习方案 · 链接可随时被分享者撤销</footer>
+<footer>由 Deep-tutor 分享的只读学习方案 · 链接可随时被分享者撤销</footer>
 </body></html>`))
 
 func renderSharedPlan(w http.ResponseWriter, view *tutor.SharedPlan) {

@@ -71,7 +71,7 @@ type kbAnswerSpec struct {
 	UsedDocIDs []string `json:"used_doc_ids"`
 }
 
-const kbAnswerPrompt = `你是 Reasonix 的「知识库问答」工具。任务：仅依据用户知识库中给定的文档内容，回答用户问题。非交互，直接输出规约。
+const kbAnswerPrompt = `你是 Deep-tutor 的「知识库问答」工具。任务：仅依据用户知识库中给定的文档内容，回答用户问题。非交互，直接输出规约。
 
 输入：user message 的 args.question（用户问题）与 args.documents（参考文档列表：[{"doc_id":文档id,"title":"标题","text":"解析文本"}]，text 尾部可能带「…[已截断]」标注表示原文未完）。
 

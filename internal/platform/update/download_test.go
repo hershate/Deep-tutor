@@ -55,7 +55,7 @@ func serveReleases(t *testing.T, releases ...release) *releaseServer {
 
 	idx := Index{SchemaVersion: 1}
 	for _, rel := range releases {
-		name := "Reasonix-" + CurrentPlatform() + ".tar.gz"
+		name := "Deep-tutor-" + CurrentPlatform() + ".tar.gz"
 		base := rs.URL + "/" + rel.version + "/"
 		idx.Versions = append(idx.Versions, IndexEntry{
 			Version:  rel.version,

@@ -150,7 +150,7 @@ func TestConcurrentCaptureKeepsQueueBounded(t *testing.T) {
 		go func(value int) {
 			defer wg.Done()
 			<-start
-			if err := CapturePanic(home, "v1.20.0", value, []byte("reasonix.run()\n\t/home/alice/main.go:12")); err != nil {
+			if err := CapturePanic(home, "v1.20.0", value, []byte("deep-tutor.run()\n\t/home/alice/main.go:12")); err != nil {
 				t.Errorf("CapturePanic: %v", err)
 			}
 		}(i)
@@ -176,7 +176,7 @@ func TestCapturePanicPrunesOnlyCurrentReportFormat(t *testing.T) {
 	}
 
 	for i := range maxReports + 1 {
-		if err := CapturePanic(home, "v1.20.0", i, []byte("reasonix.run()\n\t/home/alice/main.go:12")); err != nil {
+		if err := CapturePanic(home, "v1.20.0", i, []byte("deep-tutor.run()\n\t/home/alice/main.go:12")); err != nil {
 			t.Fatal(err)
 		}
 	}

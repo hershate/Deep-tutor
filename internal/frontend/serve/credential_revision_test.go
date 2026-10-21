@@ -16,7 +16,7 @@ import (
 )
 
 func TestRevisionParseRefusalMasksCredentials(t *testing.T) {
-	body, _ := json.Marshal(map[string]string{"input": "reasonix mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'"})
+	body, _ := json.Marshal(map[string]string{"input": "deep-tutor mcp add neutral --http https://host/mcp --header 'Authorization: Bearer fixturesecret'"})
 	w := httptest.NewRecorder()
 	(&Server{}).mcpParse(w, httptest.NewRequest(http.MethodPost, "/mcp/parse", strings.NewReader(string(body))))
 	if w.Code != 400 || strings.Contains(w.Body.String(), "fixturesecret") {

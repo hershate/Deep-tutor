@@ -1242,7 +1242,7 @@ func subagentRefFromHistory(t *testing.T, msgs []provider.Message) string {
 }
 
 // TestBuildHeadlessRunRunsTaskSubagentWithoutSessionPath reproduces headless
-// `reasonix run`: a controller built via Build with NO SetSessionPath (exactly
+// `deep-tutor run`: a controller built via Build with NO SetSessionPath (exactly
 // what internal/frontend/cli.runAgent does) must still be able to run a `task` sub-agent.
 // Before the ephemeral fallback this failed with "parent session is required".
 func TestBuildHeadlessRunRunsTaskSubagentWithoutSessionPath(t *testing.T) {
@@ -1486,7 +1486,7 @@ func TestRecoveryHeadlessModeUsesExplicitFrontendCapability(t *testing.T) {
 		t.Fatal("a bounded bot approval timeout must not make recovery headless")
 	}
 	if !recoveryHeadlessMode(Options{HeadlessApprovalMode: control.ToolApprovalAuto}) {
-		t.Fatal("reasonix run Auto mode must fail closed instead of waiting for a card")
+		t.Fatal("deep-tutor run Auto mode must fail closed instead of waiting for a card")
 	}
 	if !recoveryHeadlessMode(Options{HeadlessApprovalMode: control.ToolApprovalAsk}) {
 		t.Fatal("all explicit headless permission modes must use the non-waiting recovery path")
@@ -2507,7 +2507,7 @@ model = "x"
 
 [[plugins]]
 name = "mockmcp"
-command = "reasonix-missing-mockmcp"
+command = "deep-tutor-missing-mockmcp"
 `)
 	approveWorkspace(t, dir)
 	writeFile(t, dir, ".reasonix/skills/projskill.md", "---\ndescription: a project skill\n---\nplaybook")
@@ -3497,7 +3497,7 @@ func TestRememberDynamicBashLiteralIsNotCoveredByBroadRule(t *testing.T) {
 	workspace := robustTempDir(t)
 	seedProjectGrant(t, workspace, "Bash(git*)")
 
-	const literal = "Bash=git status $(touch /tmp/reasonix-dynamic-approval)"
+	const literal = "Bash=git status $(touch /tmp/deep-tutor-dynamic-approval)"
 	res := rememberPermissionRule(config.Roots{}, workspace, literal)
 	if !res.Saved || res.CoveredBy != "" || res.Err != nil {
 		t.Fatalf("remember dynamic literal = %+v, want newly saved rule", res)
@@ -3998,7 +3998,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "legacy-eager"
-command = "reasonix-missing-legacy-eager-mcp"
+command = "deep-tutor-missing-legacy-eager-mcp"
 tier = "eager"
 `)
 	approveWorkspace(t, dir)
@@ -4046,7 +4046,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "legacy-lazy"
-command = "reasonix-missing-legacy-lazy-mcp"
+command = "deep-tutor-missing-legacy-lazy-mcp"
 tier = "lazy"
 `)
 	approveWorkspace(t, dir)

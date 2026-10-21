@@ -170,7 +170,7 @@ func runServeFrontend(ctrl *control.Controller, srv serveHost, cfg config.ServeC
 }
 
 func reportServeFrontend(ctrl *control.Controller, srv serveHost, cfg config.ServeConfig, address string, opts serveFrontendOptions) {
-	fmt.Printf("reasonix %s — %s on http://%s\n", opts.command, ctrl.Label(), address)
+	fmt.Printf("deep-tutor %s — %s on http://%s\n", opts.command, ctrl.Label(), address)
 	origin := "http://" + address
 	if public := strings.TrimRight(strings.TrimSpace(opts.publicURL), "/"); public != "" {
 		origin = public
@@ -488,7 +488,7 @@ func warnHeldProjectServers(w io.Writer, ctrl *control.Controller) {
 	}
 	for _, p := range ctrl.PendingMCPApprovals() {
 		name := mcpsetup.DisplayName(p.Name)
-		fmt.Fprintf(w, "warning: MCP server %q: %s; run `reasonix mcp enable %s` to approve the command shown. command: %s\n",
+		fmt.Fprintf(w, "warning: MCP server %q: %s; run `deep-tutor mcp enable %s` to approve the command shown. command: %s\n",
 			name, p.Reason.Text(), name, p.Launch)
 	}
 }

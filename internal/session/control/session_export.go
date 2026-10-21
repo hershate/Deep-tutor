@@ -63,7 +63,7 @@ func (c *Controller) ExportConversation() (path string, messages int, err error)
 // person's behalf. n counts the messages written.
 func ConversationMarkdown(msgs []provider.Message) (doc string, n int) {
 	var b strings.Builder
-	b.WriteString("# reasonix session\n\n")
+	b.WriteString("# deep-tutor session\n\n")
 	var last provider.Role
 	for _, msg := range msgs {
 		var content string

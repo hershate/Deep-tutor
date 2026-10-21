@@ -25,7 +25,7 @@ const (
 	verifyPrefixCap  = 16 << 10
 	verifyMinBody    = 512
 	robotsTimeout    = 5 * time.Second
-	verifyUserAgent  = "Reasonix-Tutor/1.0 (learning-plan verifier)"
+	verifyUserAgent  = "Deep-tutor-Tutor/1.0 (learning-plan verifier)"
 	snippetMaxRunes  = 400
 	verifyCacheOK    = 24 * time.Hour
 	verifyCacheErr   = time.Hour

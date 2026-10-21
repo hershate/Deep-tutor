@@ -56,17 +56,17 @@ func runTrust(args []string, in *bufio.Scanner, out io.Writer, interactive bool)
 	trust, _ := grants.Trust(root)
 	canTrust := control.TrustableFolder(root)
 	if !canTrust {
-		fmt.Fprintf(out, "%s is a filesystem root, holds a home directory, or holds Reasonix's own files; it is not trusted as a whole.\n", root)
+		fmt.Fprintf(out, "%s is a filesystem root, holds a home directory, or holds Deep-tutor's own files; it is not trusted as a whole.\n", root)
 	}
 	if len(pending) == 0 && (trust == config.WorkspaceTrusted || !canTrust) {
 		fmt.Fprintf(out, "Nothing in %s is waiting for approval.\n", root)
 		return 0
 	}
 	if trust != config.WorkspaceTrusted && canTrust {
-		fmt.Fprintf(out, "Trusting %s lets edits and shell commands in it run without asking, in the terminal UI and in `reasonix run`.\n%s\n", root, trustScope)
+		fmt.Fprintf(out, "Trusting %s lets edits and shell commands in it run without asking, in the terminal UI and in `deep-tutor run`.\n%s\n", root, trustScope)
 	}
 	if len(pending) > 0 {
-		fmt.Fprintf(out, "%s names programs Reasonix would run on your machine:\n", root)
+		fmt.Fprintf(out, "%s names programs Deep-tutor would run on your machine:\n", root)
 		for _, p := range pending {
 			fmt.Fprintf(out, "  [%s] %s\n      %s\n      declaration: %s\n", p.Kind, p.Name, p.Detail, p.Declaration)
 			for _, f := range p.Files {
@@ -76,7 +76,7 @@ func runTrust(args []string, in *bufio.Scanner, out io.Writer, interactive bool)
 	}
 	if !opts.yes {
 		if !interactive {
-			fmt.Fprintln(out, "Nothing approved. Review the above, then run `reasonix trust --yes` here to approve.")
+			fmt.Fprintln(out, "Nothing approved. Review the above, then run `deep-tutor trust --yes` here to approve.")
 			return 1
 		}
 		if answer := ask(in, out, "Trust this folder and approve what it names, as it is now?", "y/N"); !strings.EqualFold(strings.TrimSpace(answer), "y") {
@@ -126,11 +126,11 @@ func parseTrustOptions(args []string) (trustOptions, error) {
 		case strings.HasPrefix(arg, "--dir="):
 			opts.dir = strings.TrimPrefix(arg, "--dir=")
 		default:
-			return opts, fmt.Errorf("usage: reasonix trust [--dir PATH] [--yes|--revoke] (unknown argument %q)", arg)
+			return opts, fmt.Errorf("usage: deep-tutor trust [--dir PATH] [--yes|--revoke] (unknown argument %q)", arg)
 		}
 	}
 	if opts.yes && opts.revoke {
-		return opts, fmt.Errorf("usage: reasonix trust [--dir PATH] [--yes|--revoke] (choose one)")
+		return opts, fmt.Errorf("usage: deep-tutor trust [--dir PATH] [--yes|--revoke] (choose one)")
 	}
 	return opts, nil
 }

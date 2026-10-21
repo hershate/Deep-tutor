@@ -14,13 +14,13 @@ import (
 	"deep-tutor/internal/state/sessionstore"
 )
 
-// sessionsMaintenanceVerbs are 1.x's `reasonix sessions` verbs. Sessions are
+// sessionsMaintenanceVerbs are 1.x's `deep-tutor sessions` verbs. Sessions are
 // listed straight from their directories, so reindex has no catalog to rebuild
 // and reports the directory count; diagnose and cleanup act on the recovery
 // branches a lease conflict leaves behind.
 var sessionsMaintenanceVerbs = map[string]bool{"reindex": true, "diagnose": true, "cleanup": true}
 
-const sessionsMaintenanceUsage = "usage: reasonix sessions <reindex|diagnose|cleanup> [--dir PATH] [--json]"
+const sessionsMaintenanceUsage = "usage: deep-tutor sessions <reindex|diagnose|cleanup> [--dir PATH] [--json]"
 
 type sessionsIndexStatus struct {
 	State    string `json:"state"`

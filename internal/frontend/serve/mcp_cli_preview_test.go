@@ -25,7 +25,7 @@ func TestMCPParsePreviewsCopiedCLIEndpoint(t *testing.T) {
 	t.Cleanup(ctrl.Close)
 	srv := httptest.NewServer(operatorHandler(New(ctrl, NewBroadcaster(), config.ServeConfig{})))
 	t.Cleanup(srv.Close)
-	input := `% reasonix mcp add docs --http https://mcp.example.test/endpoint --header "Authorization=Bearer fixture-token"`
+	input := `% deep-tutor mcp add docs --http https://mcp.example.test/endpoint --header "Authorization=Bearer fixture-token"`
 	resp, err := http.Post(srv.URL+"/mcp/parse", "application/json", strings.NewReader(`{"input":`+mustJSON(t, input)+`}`))
 	if err != nil {
 		t.Fatal(err)

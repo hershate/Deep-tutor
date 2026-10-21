@@ -68,17 +68,17 @@ func TestCLICompletionListsRootAndNestedCommands(t *testing.T) {
 	root := cliCompletionRootSpec()
 	values := func(cliCompletionValueKind) []string { return nil }
 
-	got := cliCompletionCandidatesWithValues(root, 1, []string{"reasonix", "co"}, values)
+	got := cliCompletionCandidatesWithValues(root, 1, []string{"deep-tutor", "co"}, values)
 	if want := []string{"config", "completion"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("root completion = %v, want %v", got, want)
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "mcp", "b"}, values)
+	got = cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "mcp", "b"}, values)
 	if want := []string{"browse"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("mcp subcommand completion = %v, want %v", got, want)
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "remote", "serve", "st"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "remote", "serve", "st"}, values)
 	// "st" prefix matches start, stop, and status (registry order).
 	if want := []string{"start", "stop", "status"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("remote serve completion = %v, want %v", got, want)
@@ -89,21 +89,21 @@ func TestCLICompletionListsCommandFlags(t *testing.T) {
 	root := cliCompletionRootSpec()
 	values := func(cliCompletionValueKind) []string { return nil }
 
-	got := cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "run", "--m"}, values)
+	got := cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "run", "--m"}, values)
 	for _, want := range []string{"--model", "--max-steps", "--metrics"} {
 		if !containsCompletionValue(got, want) {
 			t.Errorf("run flag completion missing %q: %v", want, got)
 		}
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 1, []string{"reasonix", "--d"}, values)
+	got = cliCompletionCandidatesWithValues(root, 1, []string{"deep-tutor", "--d"}, values)
 	for _, want := range []string{"--dir", "--dangerously-skip-permissions"} {
 		if !containsCompletionValue(got, want) {
 			t.Errorf("root flag completion missing %q: %v", want, got)
 		}
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "mcp", "add", "--h"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "mcp", "add", "--h"}, values)
 	for _, want := range []string{"--http", "--header", "--help"} {
 		if !containsCompletionValue(got, want) {
 			t.Errorf("mcp add flag completion missing %q: %v", want, got)
@@ -124,17 +124,17 @@ func TestCLICompletionUsesConfiguredModelsAndSessionIDs(t *testing.T) {
 		}
 	}
 
-	got := cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "run", "--model", "deep"}, values)
+	got := cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "run", "--model", "deep"}, values)
 	if want := []string{"deepseek/deepseek-chat"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("model completion = %v, want %v", got, want)
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 1, []string{"reasonix", "--model=mi"}, values)
+	got = cliCompletionCandidatesWithValues(root, 1, []string{"deep-tutor", "--model=mi"}, values)
 	if want := []string{"--model=mimo/mimo-v2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("inline model completion = %v, want %v", got, want)
 	}
 
-	got = cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "--resume", "b"}, values)
+	got = cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "--resume", "b"}, values)
 	if want := []string{"beta-session"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("session completion = %v, want %v", got, want)
 	}
@@ -149,10 +149,10 @@ func TestCompletionCommandPrintsShellScripts(t *testing.T) {
 					t.Fatalf("completion %s exit code = %d", shell, code)
 				}
 			})
-			if !strings.Contains(out, "reasonix completion __complete") {
+			if !strings.Contains(out, "deep-tutor completion __complete") {
 				t.Fatalf("completion %s script does not route to the shared registry:\n%s", shell, out)
 			}
-			if shell == "fish" && strings.Contains(out, "complete -c reasonix -f ") {
+			if shell == "fish" && strings.Contains(out, "complete -c deep-tutor -f ") {
 				t.Fatal("fish completion must not use -f so path flags can fall back to files")
 			}
 		})
@@ -163,21 +163,21 @@ func TestCLICompletionTaskNestedAndRunAblate(t *testing.T) {
 	root := cliCompletionRootSpec()
 	values := func(cliCompletionValueKind) []string { return nil }
 
-	got := cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "task", "st"}, values)
+	got := cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "task", "st"}, values)
 	for _, want := range []string{"status", "stop"} {
 		if !containsCompletionValue(got, want) {
 			t.Fatalf("task prefix st missing %q: %v", want, got)
 		}
 	}
-	got = cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "task", "mon"}, values)
+	got = cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "task", "mon"}, values)
 	if !containsCompletionValue(got, "monitor") {
 		t.Fatalf("task monitor missing: %v", got)
 	}
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "monitor", "st"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "monitor", "st"}, values)
 	if !containsCompletionValue(got, "status") || !containsCompletionValue(got, "stop") {
 		t.Fatalf("task monitor st = %v", got)
 	}
-	got = cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "run", "--a"}, values)
+	got = cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "run", "--a"}, values)
 	if !containsCompletionValue(got, "--ablate") {
 		t.Fatalf("run --a missing --ablate: %v", got)
 	}
@@ -192,12 +192,12 @@ func TestCLICompletionOptionalResumeThenFlag(t *testing.T) {
 		return nil
 	}
 	// Interactive root --resume [QUERY] is optional: after --resume, --m offers --model.
-	got := cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "--resume", "--m"}, values)
+	got := cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "--resume", "--m"}, values)
 	if !containsCompletionValue(got, "--model") {
 		t.Fatalf("optional --resume then --m = %v, want --model", got)
 	}
 	// Inline optional --resume=QUERY still completes sessions.
-	got = cliCompletionCandidatesWithValues(root, 1, []string{"reasonix", "--resume=a"}, values)
+	got = cliCompletionCandidatesWithValues(root, 1, []string{"deep-tutor", "--resume=a"}, values)
 	if !containsCompletionValue(got, "--resume=alpha-session") {
 		t.Fatalf("inline optional --resume= = %v, want --resume=alpha-session", got)
 	}
@@ -212,7 +212,7 @@ func TestCLICompletionRunServeResumeRequiresValue(t *testing.T) {
 		return nil
 	}
 	// run --resume is required: completing after --resume must offer sessions, not --model.
-	got := cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "run", "--resume", "--m"}, values)
+	got := cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "run", "--resume", "--m"}, values)
 	if containsCompletionValue(got, "--model") {
 		t.Fatalf("run --resume must not treat next flag as free: %v", got)
 	}
@@ -221,13 +221,13 @@ func TestCLICompletionRunServeResumeRequiresValue(t *testing.T) {
 		t.Fatalf("run --resume --m = %v, want empty (no session starts with --m)", got)
 	}
 	// Separated form with prefix "b" completes sessions.
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "run", "--resume", "b"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "run", "--resume", "b"}, values)
 	if want := []string{"beta-session"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run --resume b = %v, want %v", got, want)
 	}
 	// serve --resume is a required file path: empty candidates for shell path fallback,
 	// never dynamic session branch IDs that fail open/loadResumableSession.
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "serve", "--resume", "a"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "serve", "--resume", "a"}, values)
 	if len(got) != 0 {
 		t.Fatalf("serve --resume path value = %v, want empty for file fallback", got)
 	}
@@ -235,7 +235,7 @@ func TestCLICompletionRunServeResumeRequiresValue(t *testing.T) {
 		t.Fatalf("serve --resume must not complete session IDs: %v", got)
 	}
 	// Inline required session form (run only).
-	got = cliCompletionCandidatesWithValues(root, 2, []string{"reasonix", "run", "--resume=b"}, values)
+	got = cliCompletionCandidatesWithValues(root, 2, []string{"deep-tutor", "run", "--resume=b"}, values)
 	if want := []string{"--resume=beta-session"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run --resume=b = %v, want %v", got, want)
 	}
@@ -246,17 +246,17 @@ func TestCLICompletionTaskPerOperationFlags(t *testing.T) {
 	values := func(cliCompletionValueKind) []string { return nil }
 
 	// status must not advertise machine-only --project-root.
-	got := cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "status", "--p"}, values)
+	got := cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "status", "--p"}, values)
 	if containsCompletionValue(got, "--project-root") {
 		t.Fatalf("task status must not offer --project-root: %v", got)
 	}
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "status", "--j"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "status", "--j"}, values)
 	if !containsCompletionValue(got, "--json") {
 		t.Fatalf("task status missing --json: %v", got)
 	}
 
 	// events has --jsonl/--after/--follow.
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "events", "--"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "events", "--"}, values)
 	for _, want := range []string{"--json", "--jsonl", "--after", "--follow", "--dir"} {
 		if !containsCompletionValue(got, want) {
 			t.Fatalf("task events missing %q: %v", want, got)
@@ -267,7 +267,7 @@ func TestCLICompletionTaskPerOperationFlags(t *testing.T) {
 	}
 
 	// stop has control flags.
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "stop", "--"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "stop", "--"}, values)
 	for _, want := range []string{"--expected-version", "--reason", "--idempotency-key", "--json", "--dir"} {
 		if !containsCompletionValue(got, want) {
 			t.Fatalf("task stop missing %q: %v", want, got)
@@ -275,13 +275,13 @@ func TestCLICompletionTaskPerOperationFlags(t *testing.T) {
 	}
 
 	// machine list still has --project-root.
-	got = cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "task", "list", "--p"}, values)
+	got = cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "task", "list", "--p"}, values)
 	if !containsCompletionValue(got, "--project-root") {
 		t.Fatalf("task list missing --project-root: %v", got)
 	}
 
 	// tmux attach has --session.
-	got = cliCompletionCandidatesWithValues(root, 4, []string{"reasonix", "task", "tmux", "attach", "--s"}, values)
+	got = cliCompletionCandidatesWithValues(root, 4, []string{"deep-tutor", "task", "tmux", "attach", "--s"}, values)
 	if !containsCompletionValue(got, "--session") {
 		t.Fatalf("task tmux attach missing --session: %v", got)
 	}
@@ -290,7 +290,7 @@ func TestCLICompletionTaskPerOperationFlags(t *testing.T) {
 func TestCLICompletionPathFlagReturnsEmptyForShellFallback(t *testing.T) {
 	root := cliCompletionRootSpec()
 	values := func(cliCompletionValueKind) []string { return []string{"should-not-appear"} }
-	got := cliCompletionCandidatesWithValues(root, 3, []string{"reasonix", "run", "--dir", "do"}, values)
+	got := cliCompletionCandidatesWithValues(root, 3, []string{"deep-tutor", "run", "--dir", "do"}, values)
 	if len(got) != 0 {
 		t.Fatalf("path flag value candidates = %v, want empty for shell file fallback", got)
 	}

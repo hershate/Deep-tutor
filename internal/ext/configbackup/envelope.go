@@ -128,7 +128,7 @@ func parseHeader(envelope []byte) (envelopeHeader, int, error) {
 	var h envelopeHeader
 	fixed := len(envelopeMagic) + 3
 	if len(envelope) < fixed || !bytes.Equal(envelope[:len(envelopeMagic)], envelopeMagic) {
-		return h, 0, fmt.Errorf("%w: not a Reasonix backup", ErrMalformed)
+		return h, 0, fmt.Errorf("%w: not a Deep-tutor backup", ErrMalformed)
 	}
 	if envelope[len(envelopeMagic)] != envelopeVersion {
 		return h, 0, ErrUnsupportedFormat

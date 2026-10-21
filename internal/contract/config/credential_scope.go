@@ -39,6 +39,6 @@ func (r Roots) loadCredentialStoreForScope(root string, withProject bool) {
 		return
 	}
 	if p := r.UserCredentialsPath(); p != "" {
-		loadDotEnvFileAs(p, CredentialSource{Kind: CredentialSourceCredentials, Path: p, Label: "Reasonix credentials (.env)"})
+		loadDotEnvFileAs(p, CredentialSource{Kind: CredentialSourceCredentials, Path: p, Label: "Deep-tutor credentials (.env)"})
 	}
 }

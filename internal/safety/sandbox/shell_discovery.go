@@ -81,7 +81,7 @@ func resolveWithin(search *bashSearch, build func() shellHost, memo *sync.Map, p
 			fmt.Fprintf(w, "warning: [tools.shell] interpreter discovery did not finish within %s; using %q, which was proven earlier in this run\n", limit, proven)
 		} else {
 			sh = Shell{Kind: ShellBash, Path: "bash"}
-			fmt.Fprintf(w, "warning: [tools.shell] interpreter discovery did not finish within %s; falling back to %q, which may fail to start. Restarting Reasonix usually recovers\n", limit, "bash")
+			fmt.Fprintf(w, "warning: [tools.shell] interpreter discovery did not finish within %s; falling back to %q, which may fail to start. Restarting Deep-tutor usually recovers\n", limit, "bash")
 		}
 	}
 	if warn != nil {

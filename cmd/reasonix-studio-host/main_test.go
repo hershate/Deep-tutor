@@ -231,7 +231,7 @@ func TestHostMintsAFreshCredentialPerLaunch(t *testing.T) {
 }
 
 // Studio's boundary is not the user's serve policy. A configuration that turns
-// authentication off for `reasonix serve` does not turn it off here.
+// authentication off for `deep-tutor serve` does not turn it off here.
 func TestHostRequiresItsCredentialUnderAuthModeNone(t *testing.T) {
 	b, got, _ := startHost(t, config.ServeConfig{AuthMode: "none"})
 
@@ -248,7 +248,7 @@ func TestHostRequiresItsCredentialUnderAuthModeNone(t *testing.T) {
 	}
 }
 
-// A token the user configured for `reasonix serve` is not this launch's
+// A token the user configured for `deep-tutor serve` is not this launch's
 // credential, and it does not become one by being in the config file.
 func TestHostDoesNotAdoptTheConfiguredServeToken(t *testing.T) {
 	const configured = "a-token-the-user-put-in-their-config"

@@ -72,7 +72,7 @@ api_key_env = "` + setupKeyEnv + `"
 	}
 	hub.EnableProviderSetupInProcess()
 
-	c := &tui.Client{HTTP: hub.InProcessClient(), Base: "http://reasonix.local/rt/r1"}
+	c := &tui.Client{HTTP: hub.InProcessClient(), Base: "http://deep-tutor.local/rt/r1"}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

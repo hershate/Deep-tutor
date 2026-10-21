@@ -176,7 +176,7 @@ func normalizeGoldenRoot(prompt string, roots ...string) string {
 }
 
 func TestNormalizeGoldenRootReplacesQuotedWindowsPath(t *testing.T) {
-	root := `C:\Users\RUNNER~1\AppData\Local\Temp\reasonix-test-123`
+	root := `C:\Users\RUNNER~1\AppData\Local\Temp\deep-tutor-test-123`
 	prompt := "Current workspace: " + strconv.Quote(root)
 	if got, want := normalizeGoldenRoot(prompt, root), `Current workspace: "<ROOT>"`; got != want {
 		t.Fatalf("normalizeGoldenRoot = %q, want %q", got, want)
@@ -184,8 +184,8 @@ func TestNormalizeGoldenRootReplacesQuotedWindowsPath(t *testing.T) {
 }
 
 func TestNormalizeGoldenRootReplacesEveryAlias(t *testing.T) {
-	prompt := "long=/tmp/reasonix-long short=/tmp/reasonix-short"
-	got := normalizeGoldenRoot(prompt, "/tmp/reasonix-long", "/tmp/reasonix-short")
+	prompt := "long=/tmp/deep-tutor-long short=/tmp/deep-tutor-short"
+	got := normalizeGoldenRoot(prompt, "/tmp/deep-tutor-long", "/tmp/deep-tutor-short")
 	if got != "long=<ROOT> short=<ROOT>" {
 		t.Fatalf("normalizeGoldenRoot = %q", got)
 	}

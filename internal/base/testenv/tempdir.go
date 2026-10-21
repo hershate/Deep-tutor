@@ -37,7 +37,7 @@ func TempDir(t TB) string {
 		t.Fatalf("testenv.TempDir: %v", err)
 		return ""
 	}
-	dir, err := os.MkdirTemp(root, "reasonix-test-*")
+	dir, err := os.MkdirTemp(root, "deep-tutor-test-*")
 	if err != nil {
 		t.Fatalf("testenv.TempDir: %v", err)
 		return ""

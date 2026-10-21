@@ -86,14 +86,14 @@ func (s *Server) refreshProviderSetup(ref string) {
 	// stale "missing" snapshot paired with a newer revision.
 	unlockCredentials, lockErr := config.LockUserCredentialEdits()
 	if lockErr != nil {
-		next.Error = "Unable to inspect the remote Reasonix credentials."
+		next.Error = "Unable to inspect the remote Deep-tutor credentials."
 	} else {
 		// Keep the credential snapshot atomic without reversing the documented
 		// config -> credential lock order. Provider setup only inspects config, so
 		// it must not run on-disk migrations or acquire a config edit lock here.
 		cfg, err := config.LoadForRootReadOnly(".")
 		if err != nil {
-			next.Error = "Unable to load the remote Reasonix configuration."
+			next.Error = "Unable to load the remote Deep-tutor configuration."
 		} else if entry, ok := cfg.ResolveModel(strings.TrimSpace(ref)); ok && entry.RequiresAPIKey() && entry.APIKey() == "" && config.IsValidCredentialKey(entry.APIKeyEnv) {
 			next.Required = true
 			next.Provider = entry.Name
@@ -238,7 +238,7 @@ func (s *Server) configureProviderCredential(ctx context.Context, key string) er
 	if err := s.switchModelLocked(ctx, setup.ModelRef); err != nil {
 		s.providerSetupMu.Lock()
 		s.providerSetup.ActivationPending = true
-		s.providerSetup.Error = "The credential was saved, but the Provider could not be activated. Retry or restart Reasonix Serve."
+		s.providerSetup.Error = "The credential was saved, but the Provider could not be activated. Retry or restart Deep-tutor Serve."
 		s.providerSetupMu.Unlock()
 		return fmt.Errorf("activate remote provider: %w", err)
 	}

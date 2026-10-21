@@ -174,7 +174,7 @@ func TestResolvedHookShellPathAcceptsExecutableAndRejectsMissing(t *testing.T) {
 	if err != nil || got != "/bin/sh" {
 		t.Fatalf("resolved /bin/sh = %q, %v", got, err)
 	}
-	if _, err := resolvedHookShellPath(sandbox.Shell{Kind: sandbox.ShellBash, Path: "/definitely/missing/reasonix-hook-shell"}); err == nil {
+	if _, err := resolvedHookShellPath(sandbox.Shell{Kind: sandbox.ShellBash, Path: "/definitely/missing/deep-tutor-hook-shell"}); err == nil {
 		t.Fatal("missing absolute shell unexpectedly resolved")
 	}
 }

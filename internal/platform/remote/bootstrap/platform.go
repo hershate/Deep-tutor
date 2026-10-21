@@ -54,7 +54,7 @@ type KernelTooOldError struct {
 }
 
 func (e *KernelTooOldError) Error() string {
-	msg := fmt.Sprintf("bootstrap: remote reasonix %s is older than %s", e.Found, e.Need)
+	msg := fmt.Sprintf("bootstrap: remote deep-tutor %s is older than %s", e.Found, e.Need)
 	if e.Err != nil {
 		return msg + ": " + e.Err.Error()
 	}
@@ -74,8 +74,8 @@ func meetsMinVersion(found, min string) bool {
 	return CompareVersions(found, min) >= 0
 }
 
-// ParseVersion extracts a semver-ish string from `reasonix --version` output
-// like "reasonix v1.9.0" or "1.9.0".
+// ParseVersion extracts a semver-ish string from `deep-tutor --version` output
+// like "deep-tutor v1.9.0" or "1.9.0".
 func ParseVersion(out string) (string, error) {
 	for field := range strings.FieldsSeq(strings.TrimSpace(out)) {
 		v := strings.TrimPrefix(field, "v")

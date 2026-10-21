@@ -52,7 +52,7 @@ func TestUseCapabilityResolveCallIsSideEffectFree(t *testing.T) {
 	specs := []plugin.Spec{{
 		Name:    "lazy",
 		Type:    "stdio",
-		Command: "reasonix-test-definitely-missing-binary",
+		Command: "deep-tutor-test-definitely-missing-binary",
 	}}
 	tl := NewUseCapabilityTool(context.Background(), host, specs, tool.NewRegistry(), capability.NewLedger(), nil, nil)
 

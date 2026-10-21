@@ -52,10 +52,10 @@ func fakeMachine(t *testing.T) *machine {
 			switch {
 			case strings.Contains(cmd, "uname"):
 				return "Linux x86_64\n", "", 0
-			case strings.Contains(cmd, "command -v reasonix"):
+			case strings.Contains(cmd, "command -v deep-tutor"):
 				// LocateCommand's three lines: a path, a fresh version, and the
 				// --port-file flag the launch needs.
-				return "bin /usr/bin/reasonix\nver reasonix v9.9.0\n" + kernelFlagsYes(), "", 0
+				return "bin /usr/bin/reasonix\nver deep-tutor v9.9.0\n" + kernelFlagsYes(), "", 0
 			case strings.Contains(cmd, "nohup"):
 				// Stand in for serve coming up: publish the address of the HTTP
 				// server the forward will actually reach.

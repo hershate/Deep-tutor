@@ -59,7 +59,7 @@ func TestClaudeConfigSuppliesTheServersItsOwnDefaultScopeHolds(t *testing.T) {
 // compatibility path and must not take a name away from it.
 func TestReasonixConfigurationOutranksTheCompatibilityRead(t *testing.T) {
 	cfg := &Config{Plugins: []PluginEntry{
-		{Name: "shared", Command: "reasonix-node", Source: MCPSourceUserConfig},
+		{Name: "shared", Command: "deep-tutor-node", Source: MCPSourceUserConfig},
 	}}
 	cfg.mergeMCPJSON([]PluginEntry{
 		{Name: "shared", Command: "claude-node", Source: MCPSourceClaudeLocal},
@@ -68,8 +68,8 @@ func TestReasonixConfigurationOutranksTheCompatibilityRead(t *testing.T) {
 	if len(cfg.Plugins) != 2 {
 		t.Fatalf("got %d plugins, want the original plus the new name", len(cfg.Plugins))
 	}
-	if cfg.Plugins[0].Command != "reasonix-node" {
-		t.Fatalf("a Claude entry replaced Reasonix's own: %+v", cfg.Plugins[0])
+	if cfg.Plugins[0].Command != "deep-tutor-node" {
+		t.Fatalf("a Claude entry replaced Deep-tutor's own: %+v", cfg.Plugins[0])
 	}
 	if cfg.Plugins[1].Name != "extra" {
 		t.Fatalf("a name nothing else claimed was dropped: %+v", cfg.Plugins)

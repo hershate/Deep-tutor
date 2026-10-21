@@ -155,7 +155,7 @@ func (w webImage) fetch(ctx context.Context, raw string, limit int64) ([]byte, *
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Header.Set("User-Agent", "reasonix-web-fetch/1.0")
+	req.Header.Set("User-Agent", "deep-tutor-web-fetch/1.0")
 	resp, err := ssrfGuardedClient((webFetch{proxySpec: w.proxySpec}).proxyURLFor).Do(req)
 	if err != nil {
 		return nil, nil, err

@@ -23,12 +23,12 @@ const sessionDAGSchemaVersion = 2
 // build reads but does not write. Its transcript opens; continuing it has to
 // land somewhere else, because anything written beside that log is invisible
 // to the line that owns it.
-var ErrSessionLogForeign = errors.New("session event log is written by Reasonix 1.x")
+var ErrSessionLogForeign = errors.New("session event log is written by Deep-tutor 1.x")
 
 // ErrSessionLogUnchanged means a save found the 1.x log already holding the
 // transcript, so nothing was written — not the transcript and not its
 // sidecars, which also belong to 1.x.
-var ErrSessionLogUnchanged = errors.New("session event log written by Reasonix 1.x already holds this transcript")
+var ErrSessionLogUnchanged = errors.New("session event log written by Deep-tutor 1.x already holds this transcript")
 
 const sessionDAGMainHead = "main"
 

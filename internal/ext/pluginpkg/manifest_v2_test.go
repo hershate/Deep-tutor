@@ -17,7 +17,7 @@ func TestManifestV2RequiresProvides(t *testing.T) {
   "version": "2.0.0",
   "requires": [
     {
-      "namespace": "reasonix",
+      "namespace": "deep-tutor",
       "kind": "provider",
       "id": "deepseek/v4",
       "versionRange": ">=1.0.0",

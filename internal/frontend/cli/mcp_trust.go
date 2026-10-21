@@ -35,7 +35,7 @@ func mcpTrustCLI(args []string) int {
 		rest = append(rest, args[i])
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp trust <name> [--digest <hex>]")
+		fmt.Fprintln(os.Stderr, "usage: deep-tutor mcp trust <name> [--digest <hex>]")
 		return 2
 	}
 	name, workspace := strings.TrimSpace(rest[0]), mcpCLIWorkspaceRoot()
@@ -85,7 +85,7 @@ func mcpTrustCLI(args []string) int {
 
 func trustHeldMCPTools(spec plugin.Spec, digest string, in io.Reader, out io.Writer, interactive bool) ([]string, error) {
 	if !spec.ServerAuthorized() {
-		return nil, fmt.Errorf("MCP server %q is not approved to run yet; run `reasonix mcp enable %s` first", spec.Name, spec.Name)
+		return nil, fmt.Errorf("MCP server %q is not approved to run yet; run `deep-tutor mcp enable %s` first", spec.Name, spec.Name)
 	}
 	host := plugin.NewHost()
 	defer host.Close()

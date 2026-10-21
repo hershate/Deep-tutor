@@ -420,7 +420,7 @@ func PreviewRepairPlan(plan RepairPlan, opts ApplyPlanOptions) ([]RepairPlanPrev
 			if err != nil {
 				return nil, fmt.Errorf("action %d: no rollback-ready update: %w", i+1, err)
 			}
-			preview.Description = fmt.Sprintf("Restore Reasonix %s over probationary %s", tx.FromVersion, tx.ToVersion)
+			preview.Description = fmt.Sprintf("Restore Deep-tutor %s over probationary %s", tx.FromVersion, tx.ToVersion)
 			preview.StateID, preview.fileStates = pendingUpdateBoundPreview(tx)
 		}
 		previews = append(previews, preview)

@@ -88,7 +88,7 @@ func runUnattended(ctx context.Context, parent Options, sink event.Sink, mode, r
 	if err != nil {
 		return "", "", err
 	}
-	sessDir, err := os.MkdirTemp(scratch, "reasonix-candidate-")
+	sessDir, err := os.MkdirTemp(scratch, "deep-tutor-candidate-")
 	if err != nil {
 		return "", "", err
 	}

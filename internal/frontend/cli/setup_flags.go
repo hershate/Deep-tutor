@@ -29,9 +29,9 @@ func setupArgsVerdict(args []string, stdout, stderr io.Writer) (code int, ok boo
 }
 
 func setupUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: reasonix setup [--local|-l] [path]")
-	fmt.Fprintln(w, "Interactive configuration wizard. Writes a reasonix config and stores the")
-	fmt.Fprintln(w, "provider API key in Reasonix's credential file, never in the config itself.")
+	fmt.Fprintln(w, "usage: deep-tutor setup [--local|-l] [path]")
+	fmt.Fprintln(w, "Interactive configuration wizard. Writes a deep-tutor config and stores the")
+	fmt.Fprintln(w, "provider API key in Deep-tutor's credential file, never in the config itself.")
 	fmt.Fprintln(w, "  --local, -l   write ./reasonix.toml instead of the user-global config")
 	fmt.Fprintln(w, "  path          write the config to this path instead of the default")
 }

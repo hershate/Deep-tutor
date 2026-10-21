@@ -16,7 +16,7 @@ func renderRemoteSection(b *strings.Builder, r RemoteConfig) {
 	}
 	b.WriteString("[remote]   # SSH remote hosts; user/global only, ./reasonix.toml cannot override\n")
 	if r.ImportSSHConfig {
-		b.WriteString("import_ssh_config = true   # surface ~/.ssh/config aliases in `reasonix remote import`\n")
+		b.WriteString("import_ssh_config = true   # surface ~/.ssh/config aliases in `deep-tutor remote import`\n")
 	}
 	for _, h := range r.Hosts {
 		b.WriteString("\n[[remote.hosts]]\n")
@@ -29,13 +29,13 @@ func renderRemoteSection(b *strings.Builder, r RemoteConfig) {
 			fmt.Fprintf(b, "user = %q\n", h.User)
 		}
 		if h.IdentityFile != "" {
-			fmt.Fprintf(b, "identity_file = %q   # key file path; Reasonix never stores key material\n", h.IdentityFile)
+			fmt.Fprintf(b, "identity_file = %q   # key file path; Deep-tutor never stores key material\n", h.IdentityFile)
 		}
 		if h.PassphraseEnv != "" {
-			fmt.Fprintf(b, "passphrase_env = %q   # env var name; value lives in Reasonix's global .env\n", h.PassphraseEnv)
+			fmt.Fprintf(b, "passphrase_env = %q   # env var name; value lives in Deep-tutor's global .env\n", h.PassphraseEnv)
 		}
 		if h.PasswordEnv != "" {
-			fmt.Fprintf(b, "password_env = %q   # env var name; value lives in Reasonix's global .env\n", h.PasswordEnv)
+			fmt.Fprintf(b, "password_env = %q   # env var name; value lives in Deep-tutor's global .env\n", h.PasswordEnv)
 		}
 		if h.ProxyJump != "" {
 			fmt.Fprintf(b, "proxy_jump = %q   # OpenSSH ProxyJump chain\n", h.ProxyJump)

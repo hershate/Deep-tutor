@@ -38,7 +38,7 @@ func ComputerBound(t tool.Tool) bool {
 // question of its own rather than one any application's grant answers.
 const computerAppsSubject = "apps"
 
-var errNoComputer = &computer.Failure{Code: computer.CodeUnavailable, Detail: "computer use requires Reasonix Studio with its pinned CUA Driver"}
+var errNoComputer = &computer.Failure{Code: computer.CodeUnavailable, Detail: "computer use requires Deep-tutor Studio with its pinned CUA Driver"}
 
 type computerRead struct{ session *computer.Session }
 

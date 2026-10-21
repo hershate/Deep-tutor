@@ -91,7 +91,7 @@ func TestHubReadsTheCatalogAsStudio(t *testing.T) {
 	cap := &agentCapture{}
 	hubOver(context.Background(), Install{Version: "2.26.0"}, &http.Client{Transport: cap})
 	want := UserAgent("2.26.0")
-	if len(cap.got) != 1 || cap.got[0] != want || !strings.HasPrefix(want, "Reasonix-Studio/2.26.0 (") {
+	if len(cap.got) != 1 || cap.got[0] != want || !strings.HasPrefix(want, "Deep-tutor-Studio/2.26.0 (") {
 		t.Fatalf("catalog User-Agent = %q, want %q", cap.got, want)
 	}
 }

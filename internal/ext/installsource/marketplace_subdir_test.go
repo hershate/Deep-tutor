@@ -100,7 +100,7 @@ func TestGitHubClaudeMarketplaceGitSubdirSelectsGitRefOrSHA(t *testing.T) {
 				return strings.TrimSpace(string(out))
 			}
 			gitRun(repo, "init", "-b", "main")
-			gitRun(repo, "config", "user.name", "Reasonix fixture")
+			gitRun(repo, "config", "user.name", "Deep-tutor fixture")
 			gitRun(repo, "config", "user.email", "fixture@example.invalid")
 			writeFile(t, filepath.Join(repo, "skills", ".claude-plugin", "plugin.json"), `{"name":"ppt-master","version":"1.0.0"}`)
 			writeFile(t, filepath.Join(repo, "skills", "skills", "ppt-master", "SKILL.md"), "---\nname: ppt-master\ndescription: First\n---\nFirst version.")

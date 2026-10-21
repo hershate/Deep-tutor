@@ -18,10 +18,10 @@ const maxWait = 30 * time.Second
 // kept as one: macOS bundle ids, and Windows process file names or a Store
 // application's package family name.
 var refusedApps = map[string]string{
-	"electron":                    "Reasonix Studio itself",
+	"electron":                    "Deep-tutor Studio itself",
 	"applicationframehost.exe":    "an application broker without an unambiguous executable identity",
-	"io.reasonix.studio":          "Reasonix Studio itself",
-	"com.github.Electron":         "Reasonix Studio itself",
+	"io.reasonix.studio":          "Deep-tutor Studio itself",
+	"com.github.Electron":         "Deep-tutor Studio itself",
 	"com.apple.Terminal":          "a terminal",
 	"com.googlecode.iterm2":       "a terminal",
 	"dev.warp.Warp-Stable":        "a terminal",
@@ -36,8 +36,8 @@ var refusedApps = map[string]string{
 	"com.apple.systempreferences": "System Settings",
 	"com.apple.SecurityAgent":     "a system authorization prompt",
 
-	"reasonix studio.exe":                            "Reasonix Studio itself",
-	"electron.exe":                                   "Reasonix Studio itself",
+	"reasonix studio.exe":                            "Deep-tutor Studio itself",
+	"electron.exe":                                   "Deep-tutor Studio itself",
 	"windowsterminal.exe":                            "a terminal",
 	"microsoft.windowsterminal_8wekyb3d8bbwe":        "a terminal",
 	"microsoft.windowsterminalpreview_8wekyb3d8bbwe": "a terminal",
@@ -66,8 +66,8 @@ var refusedApps = map[string]string{
 	"wt.exe":                                      "a terminal",
 	"microsoft.powershell_8wekyb3d8bbwe":          "a terminal",
 	"microsoft.sechealthui_8wekyb3d8bbwe":         "Windows Security",
-	"reasonix studio":                             "Reasonix Studio itself",
-	"reasonix-studio":                             "Reasonix Studio itself",
+	"reasonix studio":                             "Deep-tutor Studio itself",
+	"reasonix-studio":                             "Deep-tutor Studio itself",
 	"gnome-terminal-server":                       "a terminal",
 	"gnome-terminal":                              "a terminal",
 	"x-terminal-emulator":                         "a terminal",
@@ -152,7 +152,7 @@ type observation struct {
 }
 
 func NewSession(driver *Driver) *Session {
-	return &Session{driver: driver, name: "reasonix-" + rand.Text()}
+	return &Session{driver: driver, name: "deep-tutor-" + rand.Text()}
 }
 
 func (s *Session) read(ctx context.Context, name string, args map[string]any, out any) (DriverResult, error) {

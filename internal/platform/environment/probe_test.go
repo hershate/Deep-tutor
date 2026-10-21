@@ -183,7 +183,7 @@ func TestRunProbesReportsTimeout(t *testing.T) {
 }
 
 func TestPrepareProbeCommandSetsCancellationBudget(t *testing.T) {
-	cmd := exec.Command("reasonix-test-probe")
+	cmd := exec.Command("deep-tutor-test-probe")
 	prepareProbeCommand(cmd)
 	if cmd.Cancel == nil {
 		t.Fatal("probe command must install a cancellation hook")

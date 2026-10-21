@@ -279,7 +279,7 @@ func TestManagedConfigWriteGatedOnApprover(t *testing.T) {
 	}
 
 	// Declined: the approver's reason surfaces to the model and nothing lands.
-	decline := &stubConfigWriteApprover{allow: false, reason: "the user declined this Reasonix config write"}
+	decline := &stubConfigWriteApprover{allow: false, reason: "the user declined this Deep-tutor config write"}
 	dctx := tool.WithConfigWriteApprover(context.Background(), decline)
 	declinedTarget := config.UserConfigPath()
 	if err := os.Remove(declinedTarget); err != nil && !os.IsNotExist(err) {

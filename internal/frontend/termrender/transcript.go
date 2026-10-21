@@ -25,7 +25,7 @@ func AssistantBlock(raw string, contentWidth int, hideRail bool) string {
 		rendered = raw
 	}
 	body := strings.TrimRight(rendered, "\n")
-	header := indent + Accent("◆") + " " + Bold("Reasonix")
+	header := indent + Accent("◆") + " " + Bold("Deep-tutor")
 	if body == "" {
 		return header
 	}
@@ -46,8 +46,8 @@ func indentTranscriptBlock(block, indent string) string {
 }
 
 const (
-	copyMathStartPrefix = "\x1b]1337;reasonix-copy-math="
-	copyMathEndPrefix   = "\x1b]1337;reasonix-copy-math-end="
+	copyMathStartPrefix = "\x1b]1337;deep-tutor-copy-math="
+	copyMathEndPrefix   = "\x1b]1337;deep-tutor-copy-math-end="
 	copyMathTerminator  = "\x07"
 )
 

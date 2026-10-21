@@ -207,7 +207,7 @@ func resolveSessionBundlePath(ref string) (string, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("session %q not found under Reasonix session directories", branch)
+		return "", fmt.Errorf("session %q not found under Deep-tutor session directories", branch)
 	}
 	slices.Sort(matches)
 	if len(matches) > 1 {
@@ -435,7 +435,7 @@ func defaultSessionBundlePath(branch string) string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(root, "reasonix-session-"+branch+"-diag.zip")
+	return filepath.Join(root, "deep-tutor-session-"+branch+"-diag.zip")
 }
 
 func safeBundleName(name string) string {

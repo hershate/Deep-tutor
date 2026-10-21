@@ -72,7 +72,7 @@ func TestTutorApkgExport(t *testing.T) {
 	if resp.Header.Get("X-Tutor-Cards") != "2" {
 		t.Fatalf("cards header=%q want 2", resp.Header.Get("X-Tutor-Cards"))
 	}
-	assertApkgDeck(t, []byte(body), "Reasonix Tutor::Go 并发", 2)
+	assertApkgDeck(t, []byte(body), "Deep-tutor Tutor::Go 并发", 2)
 
 	// Wrong-only: q1 answered wrong, q2 never answered.
 	wrong := false
@@ -89,7 +89,7 @@ func TestTutorApkgExport(t *testing.T) {
 	if resp.Header.Get("X-Tutor-Cards") != "1" {
 		t.Fatalf("wrong cards header=%q want 1", resp.Header.Get("X-Tutor-Cards"))
 	}
-	assertApkgDeck(t, []byte(body), "Reasonix Tutor::Go 并发·错题", 1)
+	assertApkgDeck(t, []byte(body), "Deep-tutor Tutor::Go 并发·错题", 1)
 
 	// Refusals: missing plan, no quizzes, empty wrong-book.
 	resp, body = fetch("/tutor/plans/missing/export.apkg")

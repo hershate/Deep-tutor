@@ -8,7 +8,7 @@ import (
 )
 
 // RuntimeDoctorReport is the structured runtime diagnostics document for
-// `reasonix doctor runtime` and desktop status panels.
+// `deep-tutor doctor runtime` and desktop status panels.
 type RuntimeDoctorReport struct {
 	Status                *extension.RuntimeStatus           `json:"status,omitempty"`
 	Metrics               extension.LifecycleMetricsSnapshot `json:"metrics"`

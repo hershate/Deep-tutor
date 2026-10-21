@@ -86,7 +86,7 @@ func TestPreviewActionOrdinaryPlanIsUnchanged(t *testing.T) {
 		Source: "https://github.com/acme/tool", Target: `/home/用户/.reasonix/plugins/tool`,
 		Command: "npx", Args: []string{"-y", "@acme/mcp", "--lang=中文"}, Env: map[string]string{"TOKEN": "${TOKEN}"},
 		Skills: []string{"skills/代码审查"}, Agents: []string{"reviewer"}, RiskLevel: RiskHigh,
-		RiskReasons: []string{"registers shell hooks that execute during Reasonix sessions"},
+		RiskReasons: []string{"registers shell hooks that execute during Deep-tutor sessions"},
 		Warnings:    []string{"first line\nsecond line 🚀"}, Next: "Review the plan.",
 		SkippedCapabilities: []pluginpkg.CompatibilityIssue{{Capability: "lsp", Path: "a/b", Reason: "not supported 暂不支持"}},
 		Runtime:             &RuntimePlanInfo{Command: "bin/x", Args: []string{"--serve"}, FullTrust: true},

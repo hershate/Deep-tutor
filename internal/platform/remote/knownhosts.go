@@ -254,8 +254,8 @@ func knownHostMarker(known knownhosts.KnownKey) (string, error) {
 // wildcard, hashed-host, port, and file matching and inspect KeyError.Want.
 type hostKeyLookupProbe struct{}
 
-func (hostKeyLookupProbe) Type() string    { return "reasonix-host-key-lookup-probe" }
-func (hostKeyLookupProbe) Marshal() []byte { return []byte("reasonix-host-key-lookup-probe") }
+func (hostKeyLookupProbe) Type() string    { return "deep-tutor-host-key-lookup-probe" }
+func (hostKeyLookupProbe) Marshal() []byte { return []byte("deep-tutor-host-key-lookup-probe") }
 func (hostKeyLookupProbe) Verify([]byte, *ssh.Signature) error {
 	return fmt.Errorf("host-key lookup probe cannot verify signatures")
 }

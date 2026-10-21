@@ -106,7 +106,7 @@ func TestVersionCommandShowsInstalledVersion(t *testing.T) {
 	}
 	run(m, press(m, "enter"))
 	run(m, press(m, "enter"))
-	if got := m.tr.Items[len(m.tr.Items)-1].Text; got != "reasonix v2.3.4" {
+	if got := m.tr.Items[len(m.tr.Items)-1].Text; got != "deep-tutor v2.3.4" {
 		t.Fatalf("version notice = %q", got)
 	}
 	if strings.Contains(strings.Join(k.seen(), "\n"), "POST /submit") {
@@ -118,7 +118,7 @@ func TestVersionCommandShowsDevWhenVersionMissing(t *testing.T) {
 	m, _ := testModel(t)
 	m.composer.SetValue("/version")
 	run(m, press(m, "enter"))
-	if got := m.tr.Items[len(m.tr.Items)-1].Text; got != "reasonix dev" {
+	if got := m.tr.Items[len(m.tr.Items)-1].Text; got != "deep-tutor dev" {
 		t.Fatalf("version notice = %q", got)
 	}
 }

@@ -397,7 +397,7 @@ func (r Roots) credentialsLocationForError() string {
 	if p := r.UserCredentialsPath(); p != "" {
 		return p
 	}
-	return "Reasonix's credentials file (.env under the state home)"
+	return "Deep-tutor's credentials file (.env under the state home)"
 }
 
 // ArchiveDir is where compacted conversation history is archived for
@@ -415,7 +415,7 @@ func (r Roots) ArchiveDir() string {
 }
 
 // SessionDir is where chat sessions are persisted (one .jsonl per session).
-// Used by `reasonix --continue` / `--resume` to find the recent ones. Empty
+// Used by `deep-tutor --continue` / `--resume` to find the recent ones. Empty
 // if the user state dir can't be resolved — sessions then aren't saved.
 func SessionDir() string { return processRoots().SessionDir() }
 

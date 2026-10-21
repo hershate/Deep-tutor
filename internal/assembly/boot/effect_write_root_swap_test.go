@@ -71,7 +71,7 @@ func unjailedDir(t *testing.T) string {
 	if err != nil {
 		t.Skip("no directory outside every write root")
 	}
-	dir, err := os.MkdirTemp(home, "reasonix-swap-")
+	dir, err := os.MkdirTemp(home, "deep-tutor-swap-")
 	if err != nil || jailWritable(dir) {
 		t.Skip("no directory outside every write root")
 	}

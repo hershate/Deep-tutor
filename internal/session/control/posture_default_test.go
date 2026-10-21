@@ -120,9 +120,9 @@ func TestTrustableFolderRefusesWhatHoldsHomeOrReasonixState(t *testing.T) {
 		{"home", home, false},
 		{"above home", filepath.Dir(home), false},
 		{"filesystem root", string(filepath.Separator), false},
-		{"reasonix home", rxHome, false},
-		{"inside reasonix home", filepath.Join(rxHome, "skills"), false},
-		{"holding reasonix home", filepath.Dir(rxHome), false},
+		{"deep-tutor home", rxHome, false},
+		{"inside deep-tutor home", filepath.Join(rxHome, "skills"), false},
+		{"holding deep-tutor home", filepath.Dir(rxHome), false},
 		{"link to root", linkRoot, !canLink},
 		{"link to home", linkHome, !canLink},
 	} {

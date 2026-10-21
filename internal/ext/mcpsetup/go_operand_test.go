@@ -12,22 +12,22 @@ func TestGoServerNameUsesRunPackage(t *testing.T) {
 		args    []string
 		name    string
 	}{
-		{"go", []string{"run", "example.com/tools/reasonix-server@latest", "--stdio"}, "reasonix-server"},
-		{"go", []string{"run", "example.com/tools/reasonix-server@v1.2.3"}, "reasonix-server"},
-		{"/usr/local/go/bin/go", []string{"run", "./cmd/reasonix-server", "client-mode"}, "reasonix-server"},
-		{"GO.EXE", []string{"run", "./cmd/reasonix-server"}, "reasonix-server"},
-		{"go", []string{"-C", "workspace", "run", "./cmd/reasonix-server"}, "reasonix-server"},
-		{"go", []string{"-C=workspace", "run", "./cmd/reasonix-server"}, "reasonix-server"},
-		{"go", []string{"run", "-C", "workspace", "./cmd/reasonix-server"}, "reasonix-server"},
-		{"go", []string{"run", "-race", "-trimpath", "./cmd/reasonix-server"}, "reasonix-server"},
-		{"go", []string{"run", "--", "./cmd/reasonix-server", "-tags", "client-mode"}, "reasonix-server"},
-		{"go", []string{"run", "./cmd/reasonix-server", "-exec", "client-mode"}, "reasonix-server"},
+		{"go", []string{"run", "example.com/tools/deep-tutor-server@latest", "--stdio"}, "deep-tutor-server"},
+		{"go", []string{"run", "example.com/tools/deep-tutor-server@v1.2.3"}, "deep-tutor-server"},
+		{"/usr/local/go/bin/go", []string{"run", "./cmd/deep-tutor-server", "client-mode"}, "deep-tutor-server"},
+		{"GO.EXE", []string{"run", "./cmd/deep-tutor-server"}, "deep-tutor-server"},
+		{"go", []string{"-C", "workspace", "run", "./cmd/deep-tutor-server"}, "deep-tutor-server"},
+		{"go", []string{"-C=workspace", "run", "./cmd/deep-tutor-server"}, "deep-tutor-server"},
+		{"go", []string{"run", "-C", "workspace", "./cmd/deep-tutor-server"}, "deep-tutor-server"},
+		{"go", []string{"run", "-race", "-trimpath", "./cmd/deep-tutor-server"}, "deep-tutor-server"},
+		{"go", []string{"run", "--", "./cmd/deep-tutor-server", "-tags", "client-mode"}, "deep-tutor-server"},
+		{"go", []string{"run", "./cmd/deep-tutor-server", "-exec", "client-mode"}, "deep-tutor-server"},
 		{"go", []string{"run", "./reasonix_server.go"}, "reasonix-server-go"},
 		{"go", []string{"run", "."}, "mcp-server"},
 		{"go", []string{"run"}, "mcp-server"},
 		{"go", []string{"run", "-tags"}, "mcp-server"},
 		{"go", []string{"-C", "workspace"}, "mcp-server"},
-		{"go", []string{"test", "./cmd/reasonix-server"}, "mcp-server"},
+		{"go", []string{"test", "./cmd/deep-tutor-server"}, "mcp-server"},
 		{"go", nil, "mcp-server"},
 		{"demo-server", []string{"run", "another-package"}, "demo-server"},
 	} {
@@ -58,11 +58,11 @@ func TestGoServerNameSkipsBuildFlagValues(t *testing.T) {
 		"-overlay", "-pgo", "-pkgdir", "-tags", "-toolexec", "-exec",
 	} {
 		for _, args := range [][]string{
-			{"run", flag, "build-value", "example.com/tools/reasonix-server@v1.2.3", "client-mode"},
-			{"run", flag + "=build-value", "example.com/tools/reasonix-server@v1.2.3", "client-mode"},
+			{"run", flag, "build-value", "example.com/tools/deep-tutor-server@v1.2.3", "client-mode"},
+			{"run", flag + "=build-value", "example.com/tools/deep-tutor-server@v1.2.3", "client-mode"},
 			{"run", flag, "build-value"},
 		} {
-			want := "reasonix-server"
+			want := "deep-tutor-server"
 			if len(args) == 3 && args[2] == "build-value" {
 				want = "mcp-server"
 			}
@@ -74,14 +74,14 @@ func TestGoServerNameSkipsBuildFlagValues(t *testing.T) {
 }
 
 func TestGoServerNamePreservesQuotedBuildArguments(t *testing.T) {
-	input := `go run -ldflags "-X main.mode=fixture" example.com/tools/reasonix-server@v1.2.3 --stdio`
-	want := []string{"run", "-ldflags", "-X main.mode=fixture", "example.com/tools/reasonix-server@v1.2.3", "--stdio"}
+	input := `go run -ldflags "-X main.mode=fixture" example.com/tools/deep-tutor-server@v1.2.3 --stdio`
+	want := []string{"run", "-ldflags", "-X main.mode=fixture", "example.com/tools/deep-tutor-server@v1.2.3", "--stdio"}
 	draft, err := Parse(input)
 	if err != nil || len(draft.Entries) != 1 {
 		t.Fatalf("pasted draft = %+v, err=%v", draft, err)
 	}
 	entry := draft.Entries[0]
-	if entry.Name != "reasonix-server" || entry.Command != "go" || !reflect.DeepEqual(entry.Args, want) {
+	if entry.Name != "deep-tutor-server" || entry.Command != "go" || !reflect.DeepEqual(entry.Args, want) {
 		t.Errorf("quoted entry = %+v", entry)
 	}
 	if len(draft.Risks) != 1 || draft.Risks[0].Server != entry.Name || draft.Risks[0].Kind != "shell" || draft.Risks[0].Detail != "go "+strings.Join(want, " ") {

@@ -216,7 +216,7 @@ func (c *Controller) runRefTurnSync(ctx context.Context, r refTurn) error {
 	})
 }
 
-// runReady is the body of the headless `reasonix run` turn, where the Sink
+// runReady is the body of the headless `deep-tutor run` turn, where the Sink
 // renders to stdout and the caller just needs the exit status — no TurnDone
 // event. Run admits it through runSynchronousTurn.
 func (c *Controller) runReady(ctx context.Context, input string) (err error) {
@@ -270,7 +270,7 @@ func (c *Controller) runReady(ctx context.Context, input string) (err error) {
 // returns only its final answer. It is the headless CLI counterpart to explicit
 // slash invocation: the child keeps an isolated session, while the caller owns
 // stdout rendering and exit status. readOnly selects the preview-safe runner
-// used by `reasonix subagent try`.
+// used by `deep-tutor subagent try`.
 func (c *Controller) RunSubagentProfile(ctx context.Context, name, task string, readOnly bool) (string, error) {
 	name = strings.TrimSpace(name)
 	task = strings.TrimSpace(task)

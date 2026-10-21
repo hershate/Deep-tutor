@@ -31,7 +31,7 @@ func hookPayloadVarIssue(entry hook.Entry, disp func(string) string) (Issue, boo
 	return Issue{
 		Severity: "warning", Code: "hook.undefined_payload_var", Subsystem: "hooks",
 		Name: string(entry.Event), Source: disp(entry.Source),
-		Message: "hook reads $" + strings.Join(undefined, ", $") + ", which Reasonix never sets; it expands to empty on every run",
+		Message: "hook reads $" + strings.Join(undefined, ", $") + ", which Deep-tutor never sets; it expands to empty on every run",
 		Remediation: "Read the payload instead of an environment variable — " + hook.PayloadDelivery +
 			"; a test against the empty value passes silently, so a guard written this way never blocks",
 		SettingsTab: "hooks",

@@ -356,7 +356,7 @@ func TestSabotageIgnoringTheProducerMergesTwoModels(t *testing.T) {
 }
 
 // Treating a line the user typed as transparent merges the assistant's work
-// across it, which is what makes one continuous "Reasonix worked" block out of
+// across it, which is what makes one continuous "Deep-tutor worked" block out of
 // two separated by the user's own action.
 func TestSabotageTransparentUserLineMergesAcrossIt(t *testing.T) {
 	r := workgroup.V1()

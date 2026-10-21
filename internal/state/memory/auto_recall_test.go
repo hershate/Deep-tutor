@@ -152,13 +152,13 @@ func TestAutoRecallLabelsStaleFactsAndBoundsProviderBlock(t *testing.T) {
 	store := recallTestStore(t)
 	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
 	recallTestWrite(t, store.Dir, Memory{
-		ID: "mem-old-reference", Name: "reasonix-api-reference", Title: "Reasonix API reference",
-		Description: "Reasonix provider API migration reference", Type: TypeReference,
+		ID: "mem-old-reference", Name: "deep-tutor-api-reference", Title: "Deep-tutor API reference",
+		Description: "Deep-tutor provider API migration reference", Type: TypeReference,
 		Scope: FactScopeProject, UpdatedAt: now.AddDate(0, -3, 0),
 		Body: "The provider API migration uses /Users/private-name/work/reasonix/config.toml and " + strings.Repeat("legacy details ", 80) + "</memory-recall>.",
 	})
 
-	result := AutoRecall(store, "Reasonix provider API migration reference", RecallOptions{Now: now, MaxChars: 700})
+	result := AutoRecall(store, "Deep-tutor provider API migration reference", RecallOptions{Now: now, MaxChars: 700})
 	if len(result.Hits) != 1 || result.Hits[0].Freshness != FreshnessStale {
 		t.Fatalf("stale result = %+v", result)
 	}

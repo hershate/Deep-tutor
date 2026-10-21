@@ -90,7 +90,7 @@ func TestEffectSupportingWritesWithoutChecksMayFinish(t *testing.T) {
 				}
 			}
 			if tc.check {
-				writeFile(t, dir, "AGENTS.md", "## Reasonix host checks\n\n- verify: go test ./...\n")
+				writeFile(t, dir, "AGENTS.md", "## Deep-tutor host checks\n\n- verify: go test ./...\n")
 			}
 			approveWorkspace(t, dir)
 			turns := []testutil.Turn{call("notes", "write_file", `{"path":"notes.md","content":"A neutral note.\n"}`)}

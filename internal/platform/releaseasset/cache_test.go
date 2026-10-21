@@ -36,7 +36,7 @@ func cacheServer(t *testing.T, archive []byte) (*httptest.Server, *atomic.Int32)
 
 // The point of the cache: the second machine on a platform costs no download.
 func TestCachedDownloadServesTheSecondCallFromDisk(t *testing.T) {
-	binary := []byte("reasonix-binary")
+	binary := []byte("deep-tutor-binary")
 	server, hits := cacheServer(t, testCLIArchive(t, binary))
 	dir := t.TempDir()
 
@@ -58,7 +58,7 @@ func TestCachedDownloadServesTheSecondCallFromDisk(t *testing.T) {
 // A cached file that does not match its digest is a miss, not an answer: a
 // truncated write must cost a download, never a binary that will not run.
 func TestCachedDownloadRefusesAMismatchedCopy(t *testing.T) {
-	binary := []byte("reasonix-binary")
+	binary := []byte("deep-tutor-binary")
 	server, hits := cacheServer(t, testCLIArchive(t, binary))
 	dir := t.TempDir()
 
@@ -86,7 +86,7 @@ func TestCachedDownloadRefusesAMismatchedCopy(t *testing.T) {
 // Each line and each target keeps its own entry: one cache holding "the CLI"
 // would hand a Studio kernel to a caller that asked the other line for one.
 func TestCachedDownloadKeepsLinesAndTargetsApart(t *testing.T) {
-	server, _ := cacheServer(t, testCLIArchive(t, []byte("reasonix-binary")))
+	server, _ := cacheServer(t, testCLIArchive(t, []byte("deep-tutor-binary")))
 	dir := t.TempDir()
 	if _, err := cachedDownloadFromBase(context.Background(), server.Client(), server.URL, dir,
 		StudioLine, "v2.11.0", "linux", "arm64", false); err != nil {

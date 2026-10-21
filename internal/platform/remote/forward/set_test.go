@@ -317,7 +317,7 @@ func boundRemoteAddr(t *testing.T, set *Set) string {
 }
 
 // A remote listener is torn down on every disconnect, and whatever was told
-// where to find it outlives that: a `reasonix serve` launched with the address
+// where to find it outlives that: a `deep-tutor serve` launched with the address
 // of a ":0" -R forward keeps the address for its whole life, so a reconnect
 // that moved the port would leave it calling a closed one.
 func TestEphemeralRemoteForwardKeepsItsPortAcrossReattach(t *testing.T) {
