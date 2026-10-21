@@ -38,6 +38,78 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 405（2026-10-22，M2-0a 续：配置读路径按绑定 + 方向性订正 MCP 作用域，✅ 完成）**：承接 iter 404 的「下一步」。iter 404 把「写」接上了绑定，本轮补「读」，并订正一处方向性错误。
+
+- **本轮做了什么**：
+  - **读路径按绑定**（`internal/contract/config`）：
+    - 声明来源标注（`mergeTOMLPlugins` / `mergeTOMLProviders` / `providerSourceForPath`）
+    - TOML 读取的路径解析（`decodeTOMLFile`）
+    - 凭据加载（`dotenv.go` / `load.go`）
+    - 读不出来时的恢复快照（`unparsed.go`）
+    - `desktop.provider_access` 的「用户是否声明过」（`mergeTOMLProviderAccess`）
+    - `SaveForRoot` 的落点与配置编辑锁的目标（`edit.go` / `mutate.go`）
+  - **control 包**：
+    - 生产代码的进程级路径调用点归零（原 42 处）
+    - `runtime_config.go`：运行期配置读取的统一入口——用户层随绑定，项目层仍取进程工作目录
+    - `trustable.go`：「可整目录信任」的判定两半都查（绑定只收窄可见范围，不得放大可达范围）
+    - **信任存储的 home 收敛为一个口径**（`trustHome()`）：此前「目录信任的记录」与「记住的规则」读的是**两个 home**（前者 `posture.Home`、后者进程 home），多用户下就是两个用户的文件——用户授的规则与会话看到的规则对不上。改为一处：会话的绑定说话（有 stated home 就用它），姿态的 home 兜底
+  - **测试**：
+    - `internal/contract/config/stated_home_test.go`（来源标注、凭据、provider_access 归属）
+    - `internal/session/control/stated_home_test.go`（设置读写落 stated home、两个会话互不可见、MCP 声明落全局库、信任与记住的规则同一处）
+    - `internal/assembly/boot/stated_home_test.go`（重建继承 stated home）
+      - provider 声明写在 **stated home 的 config.toml** 里，构建只有真读了那个 home 才认得这个模型
+- **识别并修掉的真实缺陷（此前不显形，换成 per-user home 就显形）**：
+  - 声明来源标注用**进程级**判定 → per-user 的 config.toml 里的 `[[plugins]]` 被记成**项目声明**：移除该服务器时按项目源找文件（找不到，删不掉）；同名 provider 的「用户层优先」也判错。
+  - 凭据按**进程级**加载 → 用户的 `api_key_env` 会拿**别人的** key 去解析。
+- **方向性订正（本轮自己发现并回退的一处）**：中途一度把 MCP 声明的写入改到 per-user home，**与 note/12 决策 #55 冲突**——MCP 服务器由管理员安装、全体用户可用，是**全局扩展资产**。已回退为进程/全局绑定，并在 `plan/reasonix/04` §四 4.6 补第 6 条把「扩展资产全局、会话设置随会话」写死。
+- **由此暴露的缺口（记为深水点 #33，W 类）**：per-user 会话读的是**该用户 home**，而全局的 MCP 清单在**全局资产库**里 → 管理员装的 MCP 服务器，per-user 会话**看不到**。§二/§三 已定方向（bootstrap 装载全局安装态的只读快照，装配层**只读投影**进每个用户），内核侧的缝已够用，**待 `internal/web/assemble` 落地时实现**。
+- **门禁**：`go build ./...` / `go vet ./...` 绿；`gofmt -l` 0；`golangci-lint`（config/control/boot/serve 四包）0 issues；`go run ./tools/repolint` clean；`desktop` 子模块 `go build`/`go vet` 绿。
+- **八包全量回归（最终代码）**：全绿。
+  - config 57.5s / control 238.7s / serve 496.8s / cli 104.0s
+  - state-storage 7.1s / ext-installsource 77.9s / platform-repair 24.4s
+  - assembly-boot 864.0s（1018 PASS / 0 FAIL）
+- **回归期间发现并修掉的自身缺陷**：
+  - 新增的 boot 测试最初写死 `Model: "test-model/test-model"`，而本仓内置 provider 只有 `deepseek` → 构建报「unknown model」
+  - 该测试改成**在 stated home 的 config.toml 里声明 provider**：既修好测试，又让它真正验证「按绑定读配置」（读进程的 home 就不认得这个模型）
+- **repolint 基线上调（需说明）**：本轮起 `doc-prose`（stage.md 等）与 `essay`/`file-size` 三个 repo 上限超出 iter 401 重建的基线。原因是 `stage.md` 按约定每轮追加、而迭代条目用长行密集中文书写（每行超 320 列即计权重），加上 K-1/K-1b 的内核改造带来的注释与代码体量增长。已按工具约定 `go run ./tools/repolint -update -allow-widen` 上调并在 `tools/repolint/baseline.json` 的 diff 里留痕；**后续 iter 的条目改用短行 + 子条目书写**，不再继续抬预算。
+- **下一步（按序）**：
+  1. **M2-0b**：K-3 `healthyConfig` 按 home 记账（`internal/assembly/boot/healthy_config.go` 的 `sync.Once` 改为按 stated home 记账；`internal/platform/repair/config.go` 的 `RecordHealthyConfig` 按 home 写快照）。
+  2. **M2-0c**：K-2 `[secrets]` 安全底线注入口（**全局底线**，不是 per-user）。
+  3. 装配层落地后处理深水点 #33（全局安装态的只读投影）。
+
+**iter 404（2026-10-22，M2-0a：K-1——控制器的用户全局读写走装配声明的存储绑定，✅ 完成）**：承接 iter 403 的「下一步」①。iter 403 的 spike 定出 4 个 K 类阻断点，本轮做掉其中 2 个（`Home` 贯通的**内核侧**与 `Controller` 加 Roots），另 2 个（`[secrets]` 安全底线注入口、`healthyConfig` 按 home）留待下一轮。
+
+- **本轮 2 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | （本次） | **K-1：控制器的用户全局读写走装配声明的存储绑定（40 改 + 4 新文件）** | 见下「K-1 做了什么」 |
+  | （本次） | **NOTICE / stage.md / AGENTS.md / plan §四 回写** | 修改披露登记 + iter 404 条目 + 阻断点现状 + §四 4.4/4.5/4.6 同步 |
+
+- **K-1 做了什么**（`plan/reasonix/04` §四 深水点 #2 + #3 的内核侧）：
+  - **能力层**：`control.Options` 增 `Roots config.Roots`、`controllerDeps` 增 `roots`、`Controller` 增 `Roots()` 访问器；`boot` 装配时把 `b.roots` 传下去（`build.go`）。**零值 = 跟随环境**，与原行为逐字一致 → 对现有 7 个装配点**零影响**。
+  - **运行期读取**：`internal/session/control` 生产代码里 **42 处进程级路径调用点归零**——用户配置（`config.UserConfigPath()`）、运行期配置读取（`config.Load()` / `config.LoadForRoot*`）、项目授权存储、命令根、插件树、用户配置路径。
+  - **配置的读/写路径整体绑定化**（`internal/contract/config`）：新增 `Roots.LoadForEdit` / `LoadForEditReadOnlyStrict` / `EditConfigFile` / `RepairUnparsedConfig` / `WritePermissionsAllow`；`renderScopeForPath`（这次写的是用户文件还是项目文件）与 `configFilePerm`（用户文件 0600、项目文件 0644）由自由函数改为 `*Config` 的方法，跟着配置自己的绑定走。**零值绑定=进程绑定，故对现有调用方逐字一致**。
+  - **新增 `runtimeConfig()`**（`internal/session/control/runtime_config.go`）：运行期配置读取的统一入口——**用户全局层取自绑定，项目层仍取自进程工作目录**。这是刻意分开的：「哪一层归哪个 home」与「项目层该取哪个目录」是两件事，混在一起会让改动难以复核（项目层那一半记为深水点 #32）。
+  - **配置编辑锁按绑定**（`internal/contract/config/mutate.go`）：新增 `Roots.LockUserConfigEdits()`——**锁必须是被写文件自己的锁**。此前只能锁进程 home 的文件；换了 home 之后会变成「写 A 的文件、锁 B 的文件」，两个写者互不排斥（丢更新）。同时把 `isUserConfigPath` 改成**按绑定**判断，新增 `Roots.StatedHome()`（调用方**指名**的 home，与解析出来的 home 不是一回事）。
+  - **重建继承绑定**（`internal/assembly/boot/reload.go`）：`Rebuild` 在 `opts.Home` 为空时继承旧控制器的 stated home——换模型是同一个会话，不是可以另择 home 的新会话。
+  - **安全相关加固**（`internal/session/control/trustable.go`，sensitive 路径 `approval_orchestration.go` 的 3 处调用随之改）：「可整目录信任」的判定改为**两半都查**——会话自己的 home 也受保护，进程 home 的既有保护**不放宽**（绑定只收窄可见范围，不得放大可达范围）。
+  - **测试**：`internal/session/control/stated_home_test.go`（设置读写落在 stated home、两个会话互不可见）、`internal/assembly/boot/stated_home_test.go`（重建继承 stated home）。
+
+- **本轮识别并修掉的两个自造缺陷（记录在案）**：改到一半才发现，改造本身会引入两处**新的配对约束**：
+  1. **锁与写不一致**：控制器改走 stated home 后，**写的是 A 的文件、锁的却是进程 home 的 B 文件**——两个写者互不排斥（丢更新）。**这不是上游缺陷，是本轮改造自己引入的**；修法是新增 `Roots.LockUserConfigEdits()`（锁住**被写文件自己**的锁）。
+  2. **「用户文件」被当「项目文件」写**：文件是用户文件还是项目文件决定它怎么写——用户文件整份重写（只改动的键），项目文件按增量写（只写与默认值不同的节）。判定若仍按进程绑定，per-user 的 `config.toml` 会被当**项目文件增量写**，**丢掉用户从未声明过的 provider 条目**（静默数据丢失）。修法是把判定与写入形态都改成跟着配置的绑定走。
+  - **教训**：「把进程级路径函数换成绑定」不是纯替换——它会牵出**锁与写配对**、**文件形态判定**这两条此前不存在的约束，只改路径不够。
+
+- **本轮识别出的产品级问题与已知限制（不擅自发明语义，登记待定）**：
+  - **激活存储的作用域只有 global 与 project，没有 user 一档**（`internal/contract/config/capability_activation.go:44-49`）。技能/MCP 的「启用/停用」落在**全局**文件里，多用户服务下 A 用户关掉某项会影响 B 用户。按 §三「扩展资产全局一套、admin 管理、多用户共享」的字面读，本轮**刻意不**把它改成 per-user（服务进程自己的 home 即全局资产库）；但「用户能否为自己单独关掉某项」要新增 user 作用域的数据模型 → **列为待用户定夺项**（记入 §四 深水点 #30）。实现过程中一度改成 per-user，复核后**回退**。
+  - **配置读写的「用户文件」判定**：本轮已**整体绑定化**（判定、读写入口、写入形态都跟着绑定走，见上）。**残留**：编辑事务的**锁目标解析**（`LockConfigFileEdits`）仍按进程绑定 → per-user 的 `config.toml` 若是指向别处的**符号链接**，锁解析会按「项目文件不得越出自己目录」拒绝（**fail-closed，不安全**）。per-user home 由服务创建、是普通文件，现实路径不受影响（§四 深水点 #31）。
+  - **运行期配置读取的「项目层」取自进程 cwd**（`config.Load()` = `LoadForRoot(".")`）：serve 会话开在 B 工作区时读到的是**服务启动目录**的项目配置，不是该工作区的 `reasonix.toml`。**已知缺陷，本轮刻意不动**（与上面「换 home」是两件事），独立评估后再改（§四 深水点 #32）。
+
+- **门禁实测（本轮）**：`go build ./...` 绿；`go vet ./...` 绿；`gofmt -l internal cmd tools sdk desktop` = **0**；`golangci-lint run`（config/control/boot/serve 四包）= **0 issues**；`desktop` 子模块 `go build`/`go vet` 绿；`go test ./internal/contract/config/ ./internal/session/control/ ./internal/frontend/serve/ ./internal/assembly/boot/ -count=1 -p 1` 见下。
+
+- **下一步（按序）**：① **M2-0b：K-3 `healthyConfig` 按 home 记账**（多用户下每用户各记一份；`repair.RecordHealthyConfig` 需按 home 写快照）；② **M2-0c：K-2 `[secrets]` 的安全底线注入口**（按 §七「沙箱配置全局一份（admin 维护）」，`[secrets]` 是全局底线而非 per-user → 内核给 `boot.Options` 一条显式注入口，由装配层从**全局**配置填入，保证所有 build 读到同一份；**不**把开关改成 per-build 状态——那要一路穿到工具层的 7 处读取点，且与「admin 一份」的模型冲突）；③ **待用户定夺**：v1 侧分享链接是否跟进 7 天期限；**CODEOWNERS 主/备维护人**；**激活存储是否新增 user 作用域**（本轮新登记，§四 #30）。
+
 **iter 403（2026-10-22，M1.3 多实例 spike：矩阵/全局态/深水点回填 `plan/reasonix/04` §四，✅ 完成）**：承接 iter 402 的「下一步」① M1.3。**M1.1–M1.6 至此全部完成。**
 
 - **本轮 2 个 commit**：
