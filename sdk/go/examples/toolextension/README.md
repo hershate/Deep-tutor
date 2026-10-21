@@ -29,15 +29,15 @@ handshake that exceeds the manifest's declarations.
 
 ## Build and install
 
-From this directory in a Reasonix source checkout, on macOS or Linux:
+From this directory in a Deep-tutor source checkout, on macOS or Linux:
 
 ```sh
 go test .
 go build -o bin/word-counter.exe .
 plugin_root="$(pwd -P)"
-reasonix plugin install "$plugin_root" --dry-run
-reasonix plugin install "$plugin_root" --link --replace --yes
-reasonix plugin doctor word-counter
+deep-tutor plugin install "$plugin_root" --dry-run
+deep-tutor plugin install "$plugin_root" --link --replace --yes
+deep-tutor plugin doctor word-counter
 ```
 
 From PowerShell on Windows:
@@ -46,9 +46,9 @@ From PowerShell on Windows:
 go test .
 go build -o bin/word-counter.exe .
 $pluginRoot = (Resolve-Path .).Path
-reasonix plugin install $pluginRoot --dry-run
-reasonix plugin install $pluginRoot --link --replace --yes
-reasonix plugin doctor word-counter
+deep-tutor plugin install $pluginRoot --dry-run
+deep-tutor plugin install $pluginRoot --link --replace --yes
+deep-tutor plugin doctor word-counter
 ```
 
 The fixed `.exe` path works on Unix and gives Windows its required suffix.
@@ -101,9 +101,9 @@ write diagnostics to stderr.
 Disable or remove the package with the existing CLI:
 
 ```sh
-reasonix plugin disable word-counter
-reasonix plugin enable word-counter
-reasonix plugin uninstall word-counter --yes
+deep-tutor plugin disable word-counter
+deep-tutor plugin enable word-counter
+deep-tutor plugin uninstall word-counter --yes
 ```
 
 Run `/reload` while idle, or start a new session, after changing activation or

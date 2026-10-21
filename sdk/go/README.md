@@ -1,10 +1,14 @@
-# Reasonix Extension SDK for Go
+# Deep-tutor Extension SDK for Go
 
-Write [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) extensions in
-Go. An extension is a small sidecar process speaking **Extension Protocol
-v2** (`reasonix.extension.v2`) over stdio: Reasonix launches it, hands it the
-initialize handshake, and then drives intercepts, event observation,
-extension-hosted provider streams, and structured UI surfaces.
+Write Deep-tutor extensions in Go. An extension is a small sidecar process
+speaking **Extension Protocol v2** (`reasonix.extension.v2`) over stdio:
+Deep-tutor launches it, hands it the initialize handshake, and then drives
+intercepts, event observation, extension-hosted provider streams, and
+structured UI surfaces.
+
+The protocol and this SDK originate in
+[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix), which is
+why the module path and the protocol identifier keep that name.
 
 The module is **standard library only** — zero dependencies.
 

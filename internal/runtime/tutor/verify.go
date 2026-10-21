@@ -42,6 +42,27 @@ var metadataHosts = map[string]bool{
 
 var loginWallRe = regexp.MustCompile(`(?i)` + loginWallKeyword)
 
+// The robots.txt groups this crawler answers to. A site declares them under
+// the product token of the User-Agent it sends, so the token has to be the
+// one that is actually sent: after the rename the sent agent is
+// "Deep-tutor-Tutor", and a group still naming the old one is honoured too —
+// a site that wrote rules down under the name it knew is obeyed rather than
+// argued with, and over-binding is the safer direction for a crawler.
+var verifyRobotAgents = []string{
+	strings.ToLower(strings.SplitN(verifyUserAgent, "/", 2)[0]),
+	"reasonix-tutor",
+}
+
+// robotAgentIsOurs reports whether a robots.txt group names this crawler.
+func robotAgentIsOurs(agent string) bool {
+	for _, mine := range verifyRobotAgents {
+		if agent == mine || strings.Contains(agent, mine) {
+			return true
+		}
+	}
+	return false
+}
+
 // verifyVerdict is one checked URL: the label a plan carries plus the body
 // prefix the screening gate reads.
 type verifyVerdict struct {
@@ -350,7 +371,7 @@ func robotsPermits(body []byte, path string) bool {
 	for _, g := range groups {
 		mine := false
 		for _, agent := range g.agents {
-			if agent == "*" || strings.Contains(agent, "reasonix") {
+			if agent == "*" || robotAgentIsOurs(agent) {
 				mine = true
 			}
 		}

@@ -1,10 +1,10 @@
-# Reasonix Studio
+# Deep-tutor Studio
 
-> **本仓状态（2026-10-20）**：本文档描述上游 Reasonix Studio 桌面端，是阶段④ **Deep-tutor Studio** 的基座。文中 "Reasonix" 产品名与 `reasonix` 命令名属上游语境，本地化（改名 `deep-tutor`）属阶段① M1.2、品牌化属 M1.4，均未完成。修改披露见根 [`NOTICE`](../NOTICE)。
+> **本仓状态（2026-10-22）**：本文档描述的桌面端，其**展示名**已是 Deep-tutor Studio（窗口标题、托盘、启动画面、安装器文案、界面文案）。**安装身份**仍叫 Reasonix Studio——`electron-builder` 的 `productName`/`artifactName`、`appId` `io.reasonix.studio`、macOS 应用包名 `Reasonix Studio.app`、Windows 注册表键 `Software\ReasonixStudio` 与开始菜单项：这些是更新器与卸载器认的路径，改了会让既有安装失去升级与卸载能力（见根 [`NOTICE`](../NOTICE) 的「刻意不改的标识」）。文档正文用展示名，涉及安装路径与命令时用真实形态。修改披露见根 [`NOTICE`](../NOTICE)。
 
-A desktop window around the Reasonix Go kernel. The window hosts a React SPA,
+A desktop window around the Deep-tutor Go kernel. The window hosts a React SPA,
 and every request the SPA makes reaches the kernel's own HTTP server
-(`internal/frontend/serve`) over loopback, so Studio, `reasonix serve` and the remote UI
+(`internal/frontend/serve`) over loopback, so Studio, `deep-tutor serve` and the remote UI
 all answer the same routes.
 
 ```

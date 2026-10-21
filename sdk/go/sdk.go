@@ -1,6 +1,6 @@
-// Package extension is the Go SDK for Reasonix extension sidecars speaking
+// Package extension is the Go SDK for Deep-tutor extension sidecars speaking
 // Extension Protocol v2 over stdio. An extension is a separate process: the
-// Reasonix host launches it, sends extension/initialize first, drives
+// Deep-tutor host launches it, sends extension/initialize first, drives
 // intercepts, events, provider streams, and UI calls, and finally asks it to
 // stop with extension/shutdown.
 //
@@ -16,8 +16,7 @@
 // should exit with code 0; the host reaps it by that exit status.
 //
 // Protocol reference: docs/kernel/EXTENSION_PROTOCOL.generated.md and
-// internal/ext/extension/protocol/schema.generated.json in the Reasonix
-// repository.
+// internal/ext/extension/protocol/schema.generated.json in this repository.
 package extension
 
 import (

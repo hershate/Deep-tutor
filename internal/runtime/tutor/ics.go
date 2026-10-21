@@ -79,7 +79,7 @@ func BuildICS(plan *Plan, now time.Time) (text string, events, skipped int, err 
 	lines := []string{
 		"BEGIN:VCALENDAR",
 		"VERSION:2.0",
-		"PRODID:-//Reasonix//Tutor Study Schedule//CN",
+		"PRODID:-//Deep-tutor//Tutor Study Schedule//CN",
 		"CALSCALE:GREGORIAN",
 		"X-WR-CALNAME:" + icsEscape("Deep-tutor Tutor："+title),
 	}

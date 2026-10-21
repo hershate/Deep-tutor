@@ -1,4 +1,4 @@
-// Command starterextension is the smallest installable Reasonix code
+// Command starterextension is the smallest installable Deep-tutor code
 // extension. It preserves and annotates the composed input so developers can
 // verify the manifest -> sidecar -> intercept path before adding capabilities.
 package main

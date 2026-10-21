@@ -19,16 +19,16 @@ accounting, or structured response formats.
 
 ## Build and install
 
-From this directory in a Reasonix source checkout, with Go 1.23+ and the
-`reasonix` CLI available, on macOS or Linux:
+From this directory in a Deep-tutor source checkout, with Go 1.23+ and the
+`deep-tutor` CLI available, on macOS or Linux:
 
 ```sh
 go test .
 go build -o bin/echo-provider.exe .
 plugin_root="$(pwd -P)"
-reasonix plugin install "$plugin_root" --dry-run
-reasonix plugin install "$plugin_root" --replace --yes
-reasonix plugin doctor echo-provider
+deep-tutor plugin install "$plugin_root" --dry-run
+deep-tutor plugin install "$plugin_root" --replace --yes
+deep-tutor plugin doctor echo-provider
 ```
 
 From PowerShell on Windows:
@@ -37,9 +37,9 @@ From PowerShell on Windows:
 go test .
 go build -o bin/echo-provider.exe .
 $pluginRoot = (Resolve-Path .).Path
-reasonix plugin install $pluginRoot --dry-run
-reasonix plugin install $pluginRoot --replace --yes
-reasonix plugin doctor echo-provider
+deep-tutor plugin install $pluginRoot --dry-run
+deep-tutor plugin install $pluginRoot --replace --yes
+deep-tutor plugin doctor echo-provider
 ```
 
 The fixed `.exe` path works on Unix and gives Windows its required suffix.
@@ -91,9 +91,9 @@ linked development install, rebuild and run `/reload` while idle. Start a new
 session or reload after changing activation:
 
 ```sh
-reasonix plugin disable echo-provider
-reasonix plugin enable echo-provider
-reasonix plugin uninstall echo-provider --yes
+deep-tutor plugin disable echo-provider
+deep-tutor plugin enable echo-provider
+deep-tutor plugin uninstall echo-provider --yes
 ```
 
 Select another model before disabling or removing the active provider. A

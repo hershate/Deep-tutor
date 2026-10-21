@@ -19,9 +19,9 @@ From `sdk/go/examples/fullsidecar` in a source checkout, on macOS or Linux:
 ```sh
 go build -o bin/full-sidecar .
 plugin_root="$(pwd -P)"
-reasonix plugin install "$plugin_root" --dry-run
-reasonix plugin install "$plugin_root" --yes
-reasonix plugin doctor full-sidecar
+deep-tutor plugin install "$plugin_root" --dry-run
+deep-tutor plugin install "$plugin_root" --yes
+deep-tutor plugin doctor full-sidecar
 ```
 
 From the same directory in PowerShell on Windows:
@@ -29,14 +29,14 @@ From the same directory in PowerShell on Windows:
 ```powershell
 go build -o bin/full-sidecar.exe .
 $pluginRoot = (Resolve-Path .).Path
-reasonix plugin install $pluginRoot --dry-run
-reasonix plugin install $pluginRoot --yes
-reasonix plugin doctor full-sidecar
+deep-tutor plugin install $pluginRoot --dry-run
+deep-tutor plugin install $pluginRoot --yes
+deep-tutor plugin doctor full-sidecar
 ```
 
 Review the dry-run's `FULL TRUST` block before installing: the sidecar executes
-outside the Reasonix sandbox and owns the `system_prompt` strategy slot. The
-commands above copy the package into Reasonix's global plugin inventory.
+outside the Deep-tutor sandbox and owns the `system_prompt` strategy slot. The
+commands above copy the package into Deep-tutor's global plugin inventory.
 
 Rebuilding the source does not update that copy; reinstall with
 `--replace --yes`, then reload. For local iteration, use
@@ -57,7 +57,7 @@ your normal configured model selected for the following checks.
    Dismissing the form cancels the demo without a greeting.
 
 3. The strategy wraps the system prompt with
-   `You are Reasonix running under the fullsidecar demo strategy.` The
+   `You are Deep-tutor running under the fullsidecar demo strategy.` The
    automated check below uses a separate recording provider to verify this
    at the provider request.
 
@@ -81,9 +81,9 @@ your normal configured model selected for the following checks.
 ## Disable, restore, and remove
 
 ```sh
-reasonix plugin disable full-sidecar
-reasonix plugin enable full-sidecar
-reasonix plugin remove full-sidecar --yes
+deep-tutor plugin disable full-sidecar
+deep-tutor plugin enable full-sidecar
+deep-tutor plugin remove full-sidecar --yes
 ```
 
 After each change, start a new session or reload while idle. Disabling or

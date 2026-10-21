@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// fakeHost is a scriptable in-memory Reasonix host speaking raw JSON-RPC
+// fakeHost is a scriptable in-memory Deep-tutor host speaking raw JSON-RPC
 // over two io.Pipes: it writes Host → Extension frames into the SDK's stdin
 // pipe and reads the SDK's stdout pipe, answering Extension → Host requests
 // with scripted handlers.

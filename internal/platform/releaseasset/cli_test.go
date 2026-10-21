@@ -93,7 +93,7 @@ func testCLIArchive(t *testing.T, binary []byte) []byte {
 // which is how a Windows remote had no install path at all.
 func TestDownloadCLIReadsTheWindowsZip(t *testing.T) {
 	binary := []byte("reasonix-windows-binary")
-	archive := testCLIZip(t, "deep-tutor.exe", binary)
+	archive := testCLIZip(t, "reasonix.exe", binary)
 	digest := sha256.Sum256(archive)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -120,7 +120,7 @@ func TestDownloadCLIReadsTheWindowsZip(t *testing.T) {
 // empty: an empty binary uploaded to a remote is a serve that never starts.
 func TestDownloadCLIRefusesAZipWithoutTheExecutable(t *testing.T) {
 	archive := testCLIZip(t, "README.txt", []byte("nothing to run here"))
-	if _, err := extractCLI(archive, "reasonix-windows-amd64.zip", "deep-tutor.exe"); err == nil {
+	if _, err := extractCLI(archive, "reasonix-windows-amd64.zip", "reasonix.exe"); err == nil {
 		t.Fatal("a zip with no executable was accepted")
 	}
 }

@@ -35,7 +35,7 @@ func TestARewriteReadsTheDraftAndRecentTurnsAndBillsItsOwnSource(t *testing.T) {
 
 	out, err := r.Refine(context.Background(), Input{
 		Draft:     "  修一下那个bug  ",
-		Workspace: "reasonix",
+		Workspace: "deep-tutor",
 		Recent: []Turn{
 			{Role: "user", Text: "oldest, dropped by the turn limit"},
 			{Role: "user", Text: "登录后一直跳回登录页"},

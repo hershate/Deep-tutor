@@ -105,7 +105,7 @@
   !ifdef APP_ARM64
     ${IfNot} ${IsNativeARM64}
       DetailPrint "This installer is for Windows on ARM64 and cannot run on this machine"
-      MessageBox MB_ICONSTOP "This Reasonix Studio installer is built for Windows on ARM64.$\r$\n$\r$\nDownload the x64 installer for this machine." /SD IDOK
+      MessageBox MB_ICONSTOP "This Deep-tutor Studio installer is built for Windows on ARM64.$\r$\n$\r$\nDownload the x64 installer for this machine." /SD IDOK
       SetErrorLevel 3
       Abort
     ${EndIf}
@@ -115,7 +115,7 @@
   ${If} $R9 == 0
     Pop $R9
     DetailPrint "Refusing to install into $INSTDIR: it already holds other files, and an update would remove the whole folder"
-    MessageBox MB_ICONSTOP "Reasonix Studio installs into a folder of its own.$\r$\n$\r$\nAn update replaces the whole install folder, so anything else kept in $INSTDIR would be deleted with it. Choose an empty folder, or the default location." /SD IDOK
+    MessageBox MB_ICONSTOP "Deep-tutor Studio installs into a folder of its own.$\r$\n$\r$\nAn update replaces the whole install folder, so anything else kept in $INSTDIR would be deleted with it. Choose an empty folder, or the default location." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}

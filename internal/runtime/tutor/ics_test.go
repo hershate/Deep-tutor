@@ -39,7 +39,7 @@ func TestBuildICS(t *testing.T) {
 	flat := unfold(text)
 	for _, want := range []string{
 		"BEGIN:VCALENDAR",
-		"PRODID:-//Reasonix//Tutor Study Schedule//CN",
+		"PRODID:-//Deep-tutor//Tutor Study Schedule//CN",
 		"DTSTART;VALUE=DATE:20261015",
 		"SUMMARY:[Go 入门] 阶段1 基础",
 		"DESCRIPTION:阶段：基础\\n· 读第一章\\n· 跑示例\\n预计时长：45 分钟",

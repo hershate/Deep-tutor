@@ -1,4 +1,4 @@
-// Command fullsidecar is the reference Reasonix extension sidecar: one small
+// Command fullsidecar is the reference Deep-tutor extension sidecar: one small
 // program that exercises every Extension Protocol v2 contribution kind —
 // input rewriting, tool interception, system-prompt strategy replacement, an
 // extension-hosted streaming provider, structured UI surfaces and prompts,
@@ -198,7 +198,7 @@ func (p *plugin) interceptSystemPrompt(_ context.Context, payload json.RawMessag
 	if err := json.Unmarshal(payload, &in); err != nil {
 		return nil, err
 	}
-	owned := "You are Reasonix running under the fullsidecar demo strategy.\n\n" +
+	owned := "You are Deep-tutor running under the fullsidecar demo strategy.\n\n" +
 		"Workspace: " + in.WorkspaceRoot + "\n\nBase prompt:\n" + in.Prompt
 	return extension.Replace(map[string]string{"prompt": owned, "workspaceRoot": in.WorkspaceRoot})
 }

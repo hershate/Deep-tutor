@@ -2,7 +2,7 @@
   "name": "reasonix-studio-electron",
   "version": "0.0.0",
   "private": true,
-  "description": "Electron shell for Reasonix Studio over the loopback host",
+  "description": "Electron shell for Deep-tutor Studio over the loopback host",
   "homepage": "https://github.com/esengine/DeepSeek-Reasonix",
   "author": "esengine <esengine@users.noreply.github.com>",
   "main": "src/main.js",

@@ -4,7 +4,7 @@ This directory is a complete, installable Extension Protocol v2 plugin. Its
 sidecar intercepts `input.receive` and appends
 ` [rewritten by starter-extension]` to each non-empty composed input.
 
-This event receives the complete input after Reasonix adds workspace, skill,
+This event receives the complete input after Deep-tutor adds workspace, skill,
 and other turn context. The example preserves that text byte for byte before
 appending its marker; a command prefix typed by the user need not be at the
 start of this payload. No special prefix is required to try the example.
@@ -20,8 +20,8 @@ From this directory on macOS or Linux:
 ```sh
 go build -o bin/starter-extension.exe .
 plugin_root="$(pwd -P)"
-reasonix plugin install "$plugin_root" --dry-run
-reasonix plugin install "$plugin_root" --link --replace --yes
+deep-tutor plugin install "$plugin_root" --dry-run
+deep-tutor plugin install "$plugin_root" --link --replace --yes
 ```
 
 From PowerShell on Windows:
@@ -29,13 +29,13 @@ From PowerShell on Windows:
 ```powershell
 go build -o bin/starter-extension.exe .
 $pluginRoot = (Resolve-Path .).Path
-reasonix plugin install $pluginRoot --dry-run
-reasonix plugin install $pluginRoot --link --replace --yes
+deep-tutor plugin install $pluginRoot --dry-run
+deep-tutor plugin install $pluginRoot --link --replace --yes
 ```
 
 Review the `FULL TRUST` block in the dry-run output before installing. The
 linked package trusts future changes in this directory and runs outside the
-Reasonix sandbox.
+Deep-tutor sandbox.
 
 Start a new session, or run `/reload` while the current session is idle. Send:
 
@@ -44,11 +44,11 @@ explain what an Extension Protocol sidecar does
 ```
 
 The model receives your request and the demonstration marker together with
-Reasonix's turn context. The marker demonstrates the input interceptor; it does
+Deep-tutor's turn context. The marker demonstrates the input interceptor; it does
 not change the cache-stable system prompt.
 
 Edit `main.go`, rebuild the binary, run `/reload`, and try again. Use
-`reasonix plugin doctor starter-extension` when the manifest or binary fails
+`deep-tutor plugin doctor starter-extension` when the manifest or binary fails
 validation.
 
 ## Verify without an API key
@@ -84,7 +84,7 @@ session to verify that the marker stops appearing. Re-enable it and start a new
 session to restore the interceptor. Remove the package when finished:
 
 ```sh
-reasonix plugin remove starter-extension --yes
+deep-tutor plugin remove starter-extension --yes
 ```
 
 Removing this linked installation leaves the example's source and built binary
@@ -93,7 +93,7 @@ in place. Delete `bin/starter-extension.exe` separately if it is no longer neede
 Remove the offline provider after the final marker check:
 
 ```sh
-reasonix plugin remove echo-provider --yes
+deep-tutor plugin remove echo-provider --yes
 ```
 
 ## Next steps

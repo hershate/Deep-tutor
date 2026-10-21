@@ -128,7 +128,7 @@ func TestParseCommandFlagsSuccessProceedsSilently(t *testing.T) {
 		code, proceed = parseCommandFlags(fs, []string{"--name", "reasonix"})
 	})
 	if code != 0 || !proceed || *name != "reasonix" {
-		t.Fatalf("parseCommandFlags success = (%d, %v, %q), want (0, true, deep-tutor)", code, proceed, *name)
+		t.Fatalf("parseCommandFlags success = (%d, %v, %q), want (0, true, \"reasonix\")", code, proceed, *name)
 	}
 	if stderr != "" {
 		t.Fatalf("successful parse wrote stderr: %q", stderr)

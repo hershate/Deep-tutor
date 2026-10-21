@@ -17,7 +17,7 @@ func openCodeGoGateway(t *testing.T, sessions *[]string) *http.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("x-opencode-session")
-		if id == "" || r.Header.Get("User-Agent") != "Deep-tutor" {
+		if id == "" || r.Header.Get("User-Agent") != "Reasonix" {
 			http.Error(w, `{"error":{"message":"Request is missing x-opencode-session and cannot be routed efficiently."}}`, http.StatusBadRequest)
 			return
 		}
