@@ -65,9 +65,13 @@ def default_spec_from_plan(plan: dict[str, Any]) -> SlideSpec:
     # 标题页
     sub_parts = []
     if intent.get("level"):
-        sub_parts.append(f"基础：{intent['level']}")
+        # iter 397（T15）：intent.level / intent.goal 是 LLM 抽取的**用户可控文本**，
+        # 与同函数其余字段一致地走 _esc——此前未转义即拼进 content_html（当前被
+        # render_slides_html 的标签/属性白名单净化兜住，属纵深防御缺口：将来若有人
+        # 直接渲染 content_html 即成 XSS）。
+        sub_parts.append(f"基础：{_esc(str(intent['level']))}")
     if intent.get("goal"):
-        sub_parts.append(f"目标：{intent['goal']}")
+        sub_parts.append(f"目标：{_esc(str(intent['goal']))}")
     if intent.get("daily_minutes"):
         sub_parts.append(f"每日：{intent['daily_minutes']} 分钟")
     subtitle = "<br>".join(sub_parts)

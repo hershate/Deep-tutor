@@ -71,6 +71,45 @@ def create_run_workspace(run_id: int) -> Path:
     return scratch_dir(run_id)
 
 
+def delete_run_workspace(thread_id: int | None, run_id: int) -> None:
+    """删 run 的工作区目录（scratch + committed）——删用户/删会话时调用。
+
+    iter 397（E7）：删用户此前只清会话目录与知识库目录，agent 工作区
+    （``data/runs/<rid>/workspace/`` 与 ``data/workspaces/<tid>/<rid>/``）残留
+    24~48 小时（等每日维护任务回收），期间文件仍在磁盘上（可能含用户材料与草稿）；
+    空的 ``data/workspaces/<tid>/`` 父目录更永不回收，长期运行持续堆积。
+
+    已审批产物安全：approve 端点是把 committed 文件**复制**进 notes/plans
+    （原文件保留），删除工作区不影响已落库内容。
+
+    路径安全：run_id/thread_id 必须是纯数字（_digit），落盘前经 is_within_root
+    包含性校验——不接受外部传入的路径。
+    """
+    root = _root()
+    rid = _digit(run_id, "run_id")
+    scratch = (root / "runs" / rid / "workspace").resolve()
+    if is_within_root(root, scratch):
+        shutil.rmtree(scratch, ignore_errors=True)
+    run_dir = (root / "runs" / rid).resolve()
+    if is_within_root(root, run_dir):
+        try:
+            if run_dir.is_dir() and not any(run_dir.iterdir()):
+                run_dir.rmdir()
+        except OSError:
+            pass
+    if thread_id is not None:
+        tid = _digit(thread_id, "thread_id")
+        committed = (root / "workspaces" / tid / rid).resolve()
+        if is_within_root(root, committed):
+            shutil.rmtree(committed, ignore_errors=True)
+        parent = committed.parent
+        try:
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            pass
+
+
 def _resolve_in(root: Path, name: str) -> Path:
     """把相对名解析到 root 内（允许多级子目录，拒 .. 与绝对路径，resolve 校验）。"""
     norm = str(name).replace("\\", "/").lstrip("/")
@@ -93,13 +132,22 @@ def _rel(root: Path, p: Path) -> str:
 
 
 def write_file(run_id: int, name: str, content: str) -> str:
-    """原子写：tmp + os.replace（防并发/崩溃半写）。覆盖已存在文件。返回相对名。"""
+    """原子写：tmp + os.replace（防并发/崩溃半写）。覆盖已存在文件。返回相对名。
+
+    iter 397（T12）：写失败时**清理 tmp**——此前 tmp 残留（磁盘满/权限不足/杀软占用
+    时抛异常），残留文件随后会被 list_files 列出、被 commit_run_workspace 当作
+    正式产物登记。同仓另两处原子写都做了清理（agent_tools / storage._atomic_write_bytes）。
+    """
     root = scratch_dir(run_id)
     target = _resolve_in(root, name)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, target)
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return _rel(root, target)
 
 

@@ -21,7 +21,7 @@ import json
 import logging
 import re
 from html import unescape
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -62,6 +62,8 @@ BING_WEB_HEADERS = {  # 模拟 Chrome，防反爬（实测可返回正常结果�
 }
 BING_WEB_TIMEOUT = 15.0  # 网页搜索应快速失败（防多查询累积逼近 parse 总超时）
 BING_WEB_MAX_BYTES = 2 * 1024 * 1024  # 响应上限：防 OOM + 收敛正则输入规模
+# iter 397（T8）：重定向逐跳复检的跳数上限（同 parse_material 的 5 跳口径）。
+_BING_WEB_MAX_HOPS = 5
 MAX_QUERY_CHARS = 150  # 查询串截断（主题来自 LLM 输出，防病态长度）
 _BING_WEB_ITEM_RE = re.compile(r'<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -189,24 +191,27 @@ async def _verify_candidates(items: list[tuple[int, dict]], session_id: str, ctx
     - R4（iter 231）：全批共享一个 make_verify_client 安全工厂构造的 client
       （连接池复用；follow_redirects=False 的 SSRF 不变量由工厂保证），用毕关闭。
     """
-    first_seen: dict[str, int] = {}  # url -> stage_level（保留首个出现阶段，dict 保序）
-    for stage_index, cand in items:
+    first_seen: dict[str, None] = {}  # url -> None（保序去重：只保留首次出现的候选）
+    for _stage_index, cand in items:
         url = cand.get("url", "")
         if not isinstance(url, str):
             # iter 245：畸形候选（上游 API 返回 url 为 list/dict）单条丢弃——
             # 此前 unhashable TypeError 延迟到此抛出，整工具失败丢失全部已得候选
             continue
         if url and url not in first_seen:
-            # err.md B19：阶段水平随 stage_index 递进（高级阶段资源不按入门水平校验）
-            first_seen[url] = stage_index + 1
+            # iter 397（T7）：阶段水平（stage_index+1）此前被逐候选传入 verify_url 的
+            # args 却**从未被读取**——verify_url 只做可达性判定（robots/登录墙/正文
+            # 前缀），内容难度适配由后续 LLM 筛选阶段承担。故此处不再传死参数，
+            # 避免「对外描述承诺难度适配、实现完全不做」的表达与实现失真。
+            first_seen[url] = None
     sem = asyncio.Semaphore(_VERIFY_CONCURRENCY)
 
-    async def _one(client: httpx.AsyncClient, url: str, stage_level: int) -> tuple[str, dict]:
+    async def _one(client: httpx.AsyncClient, url: str) -> tuple[str, dict]:
         async with sem:
             v_inp = ToolInput(
                 tool="verify_url",
                 session_id=session_id,
-                args={"url": url, "stage_level": stage_level},
+                args={"url": url},
             )
             try:
                 v_out = await verify_url(v_inp, ctx, client=client)
@@ -217,7 +222,7 @@ async def _verify_candidates(items: list[tuple[int, dict]], session_id: str, ctx
 
     shared = make_verify_client(ctx)
     try:
-        pairs = await asyncio.gather(*(_one(shared, u, lvl) for u, lvl in first_seen.items()))
+        pairs = await asyncio.gather(*(_one(shared, u) for u in first_seen))
     finally:
         await shared.aclose()
     return dict(pairs)
@@ -337,8 +342,14 @@ async def search_resources(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if screen_usage is not None:
         from app.agent.cost import build_metadata
 
+        # iter 397（T1）：补 model 与 ctx.model_pricing——此前只传 usage 与 provider，
+        # 非 Anthropic 模型的筛选成本**记 0**（build_metadata 走族默认，miss 即 0），
+        # 日预算与用量页对该模型失明。
         out.metadata = build_metadata(
-            screen_usage, provider=getattr(ctx.llm_provider, "kind", "anthropic")
+            screen_usage,
+            screen_usage.model,
+            ctx.model_pricing,
+            provider=getattr(ctx.llm_provider, "kind", "anthropic"),
         )  # iter 370 计量归属
     return out
 
@@ -514,7 +525,16 @@ async def _screen_resources(
     system = (ctx.skill_registry or {}).get("deep-tutor-resources") or SCREEN_PROMPT
     # iter 361 强制门：重试 _SCREEN_MAX_ATTEMPTS 次（瞬态失败不致零化全部候选）；耗尽仍失败 -> 全丢弃。
     # max_tokens 按候选数动态（候选多时固定 2000 会截断输出 -> JSON 不可解析 -> 全丢，实机回归根因之二）。
-    last_usage: LLMUsage | None = None
+    #
+    # iter 397（T1）：usage **累加**而非覆盖。旧写法 `last_usage = resp.usage` 每次
+    # 覆盖、异常分支再 `last_usage = None` 清零——重试中已消耗的 token 完全不落
+    # api_usage、不进会话预算；「第 1 次成功但不可解析（输出被 max_tokens 截断）+
+    # 第 2 次超时」的组合下 out.metadata 整个不赋值，用户反复触发即可绕过
+    # check_daily_budget（按 api_usage 的 cost 求和）。现与单元补料路径
+    # （_screen_unit_resources）同款 accumulate_usage 口径，失败路径也带回已计量 usage。
+    from app.agent.cost import accumulate_usage  # 延迟导入：app.tools.__init__ 与 app.agent.cost 互引
+
+    screen_usage: LLMUsage | None = None
     verdicts: dict[str, dict] | None = None
     for attempt in range(_SCREEN_MAX_ATTEMPTS):
         try:
@@ -528,16 +548,19 @@ async def _screen_resources(
                 ),
                 timeout=ctx.timeouts.llm,
             )
-            last_usage = resp.usage
+            if resp.usage is not None:
+                if screen_usage is None:
+                    screen_usage = LLMUsage(model=resp.usage.model)
+                accumulate_usage(screen_usage, resp.usage)
             verdicts = _parse_screen_verdicts(resp.content)
             if verdicts is not None:
                 break  # 成功解析，结束重试
         except Exception as exc:  # noqa: BLE001  记录并重试；耗尽后强制丢弃
             log.warning("资源内容适配筛选第 %d/%d 次失败: %s", attempt + 1, _SCREEN_MAX_ATTEMPTS, exc)
-            last_usage = None
+            # iter 397（T1）：**不清零**——已发生的消耗仍须入账（预算/用量可见）。
     if verdicts is None:
         log.warning("资源筛选重试耗尽，强制丢弃全部 %d 候选（避免引入未核验内容）", len(resources))
-        return [], last_usage, "AI 相关性筛选失败（已重试），为避免引入未经验证的内容，已过滤全部候选资源"
+        return [], screen_usage, "AI 相关性筛选失败（已重试），为避免引入未经验证的内容，已过滤全部候选资源"
 
     # 容错 URL 匹配：LLM 返回的 url 可能与候选有细微差异（尾斜杠/fragment/大小写），按规范化键匹配
     # （iter 361 实机回归根因之一：精确匹配失配 -> 候选被判「未覆盖」全丢）。
@@ -562,7 +585,7 @@ async def _screen_resources(
     if not screened and verdicts:
         # 诊断：LLM 给了判定但无一匹配候选 -> 疑似规范化仍不足/LLM 改写过大（便于排障，不静默）
         log.warning("筛选判定 %d 条但无候选匹配（候选 %d），强制门丢弃全部", len(verdicts), len(resources))
-    return screened, last_usage, None
+    return screened, screen_usage, None
 
 
 async def _bing_api_search(query: str, api_key: str, count: int = 5) -> list[dict]:
@@ -606,30 +629,54 @@ async def _bing_web_search(query: str, count: int = 5, key: str = "") -> list[di
 
     key 参数仅为统一引擎签名（免 Key 引擎不使用）。
 
-    安全：endpoint 为模块常量、query 走 params 编码（无 SSRF 面）；follow_redirects
-    容忍区域跳转，但终态 host 非 bing.com -> 抛（防重定向劫持到外站）；2MB 流式上限
-    防 OOM/病态响应。失败（非 2xx/非 HTML/无 b_results 容器疑似反爬页/重定向外站）
-    -> 抛异常由调用方按引擎失败处理；真空结果（页面正常但无结果）-> 返回 []（严格区分）。
+    安全：endpoint 为模块常量、query 走 params 编码（无 SSRF 面）；**重定向逐跳
+    复检**（iter 397 T8：此前 `follow_redirects=True` 自动跟随，只校验**终态** host
+    是否为 bing.com——中间跳由外部可控，可指向内网/云元数据端点，违反本仓
+    「重定向逐跳复检 SSRF」不变量；同仓 verify_url/parse_material 均为
+    `follow_redirects=False` + 逐跳复检）。2MB 流式上限防 OOM/病态响应。失败
+    （非 2xx/非 HTML/无 b_results 容器疑似反爬页/重定向外站）-> 抛异常由调用方
+    按引擎失败处理；真空结果（页面正常但无结果）-> 返回 []（严格区分）。
     """
     params = {"q": query, "count": count, "mkt": BING_WEB_MKT}
-    async with httpx.AsyncClient(timeout=httpx.Timeout(BING_WEB_TIMEOUT), follow_redirects=True) as client:
-        async with client.stream("GET", BING_WEB_ENDPOINT, headers=BING_WEB_HEADERS, params=params) as resp:
-            resp.raise_for_status()
-            host = urlparse(str(resp.url)).hostname or ""
-            # iter 369：endswith("bing.com") 会被 evilbing.com/notbing.com 等后缀域绕过——改精确域判定
-            if host != "bing.com" and not host.endswith(".bing.com"):
-                raise ValueError(f"重定向到非 Bing 域: {host}")
-            content_type = resp.headers.get("content-type", "")
-            if "text/html" not in content_type:
-                raise ValueError(f"非 HTML 响应: {content_type}")
-            chunks: list[bytes] = []
-            size = 0
-            async for chunk in resp.aiter_bytes():
-                size += len(chunk)
-                if size > BING_WEB_MAX_BYTES:
-                    raise ValueError(f"响应超过 {BING_WEB_MAX_BYTES} 字节上限")
-                chunks.append(chunk)
-    html_text = b"".join(chunks).decode("utf-8", errors="replace")
+    url = BING_WEB_ENDPOINT
+    html_text = ""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(BING_WEB_TIMEOUT), follow_redirects=False) as client:
+        for _hop in range(_BING_WEB_MAX_HOPS + 1):
+            async with client.stream("GET", url, headers=BING_WEB_HEADERS, params=params) as resp:
+                # status_code 缺省视为 200（测试替身不带该属性）
+                status = getattr(resp, "status_code", 200)
+                if status in (301, 302, 303, 307, 308):
+                    loc = resp.headers.get("location", "")
+                    if not loc:
+                        raise ValueError("重定向响应缺少 Location")
+                    nxt = urljoin(str(resp.url), loc)
+                    host = urlparse(nxt).hostname or ""
+                    # iter 369：endswith("bing.com") 会被 evilbing.com/notbing.com 等后缀域
+                    # 绕过——改精确域判定
+                    if host != "bing.com" and not host.endswith(".bing.com"):
+                        raise ValueError(f"重定向到非 Bing 域: {host}")
+                    url = nxt
+                    params = {}  # 跳后不再重复携带检索参数
+                    continue
+                resp.raise_for_status()
+                # 终态 host 校验（沿用 iter 369 口径，防重定向劫持到外站）
+                host = urlparse(str(resp.url)).hostname or ""
+                if host != "bing.com" and not host.endswith(".bing.com"):
+                    raise ValueError(f"重定向到非 Bing 域: {host}")
+                content_type = resp.headers.get("content-type", "")
+                if "text/html" not in content_type:
+                    raise ValueError(f"非 HTML 响应: {content_type}")
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in resp.aiter_bytes():
+                    size += len(chunk)
+                    if size > BING_WEB_MAX_BYTES:
+                        raise ValueError(f"响应超过 {BING_WEB_MAX_BYTES} 字节上限")
+                    chunks.append(chunk)
+                html_text = b"".join(chunks).decode("utf-8", errors="replace")
+                break
+        else:
+            raise ValueError(f"重定向次数超上限 {_BING_WEB_MAX_HOPS}")
     if "b_results" not in html_text or "b_captcha" in html_text:
         raise ValueError("疑似反爬/验证码页（无 b_results 结果容器）")
     return _parse_bing_web_html(html_text, count)

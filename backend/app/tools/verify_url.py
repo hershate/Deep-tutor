@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import html as _html
-import ipaddress
 import logging
 import re
-import socket
 import time
 import urllib.robotparser
 from urllib.parse import urljoin, urlparse
@@ -29,8 +27,9 @@ from app.tools.base import ToolError, ToolInput, ToolOutput
 # 云元数据端点（R19）与私网判定：单一事实源在 app/core/urlguard.py
 # （iter 394：LLM 供应商 base_url 的出站校验共用同一套规则，避免两处漂移）。
 # 旧名保留——既有测试与 monkeypatch 依赖 _is_private_ip / _METADATA_HOSTS。
-from app.core.urlguard import METADATA_HOSTS as _METADATA_HOSTS
-from app.core.urlguard import is_private_ip as _is_private_ip
+from app.core.urlguard import METADATA_HOSTS as _METADATA_HOSTS  # noqa: F401  旧名导出（既有测试从本模块导入）
+from app.core.urlguard import is_private_ip as _is_private_ip  # noqa: F401  旧名导出（既有测试从本模块导入）
+from app.core.urlguard import check_outbound_url
 
 log = logging.getLogger("deep_tutor.tools.verify")
 
@@ -303,43 +302,21 @@ def _ok_data(url: str, *, ok: bool, status: int | None, label: str) -> ToolOutpu
 
 
 def _is_safe_url(url: str) -> tuple[bool, str]:
-    """SSRF 防护：拒绝私网/环回/元数据/非 http(s)（R19）。"""
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return False, "URL 解析失败"
-    if parsed.scheme not in {"http", "https"}:
-        return False, f"非 http/https: {parsed.scheme}"
-    host = parsed.hostname or ""
-    if not host:
-        return False, "无 host"
-    if host in _METADATA_HOSTS:
-        return False, "云元数据端点"
-    # 解析主机为 IP 判断私有/环回
-    # 已知限制（iter 242 评估后接受）：校验与 httpx 连接是两次独立 DNS 解析，
-    # DNS rebinding（TTL=0，二次应答内网地址）理论上可绕过——彻底修法需传输层
-    # IP 钉扎（httpx 无 resolver 钩子，HTTPS SNI 下需自研 HTTP 栈），与本地优先
-    # 威胁模型不成比例。现有缓解：重定向逐跳重检、响应 10MB 上限、content-type 校验。
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        # 域名：解析看是否指向私网（尽力；DNS 可能多变，这里只做基本拦截）
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except OSError:
-            return True, ""  # 无法解析，放行让 httpx 决定（可达性会失败）
-        for info in infos:
-            addr = info[4][0]
-            try:
-                ip = ipaddress.ip_address(addr)
-            except ValueError:
-                continue
-            if _is_private_ip(ip):
-                return False, f"域名解析到私网 {addr}"
-        return True, ""
-    if _is_private_ip(ip):
-        return False, f"私网/环回 IP {ip}"
-    return True, ""
+    """SSRF 防护：拒绝私网/环回/元数据/非 http(s)（R19）。
+
+    iter 397（T9）：本函数此前是 `core/urlguard.py` 的**第二份独立实现**（只共用
+    常量、不共用逻辑）——而 urlguard 自称「单一事实源」，任何一侧新增规则都会
+    静默漂移。现收敛为 urlguard.check_outbound_url 的薄封装：判定语义与拒绝
+    文案逐条等价（scheme / 空 host / 云元数据 / 私网 IP / 域名解析到私网 /
+    解析失败放行），并额外获得 urlguard 的 DNS 判定缓存（同 host 5 分钟内
+    不重复 getaddrinfo，高并发下减少 DNS 压力）。
+
+    已知限制（iter 242 评估后接受）：校验与 httpx 连接是两次独立 DNS 解析，
+    DNS rebinding（TTL=0，二次应答内网地址）理论上可绕过——彻底修法需传输层
+    IP 钉扎（httpx 无 resolver 钩子，HTTPS SNI 下需自研 HTTP 栈），与本地优先
+    威胁模型不成比例。现有缓解：重定向逐跳重检、响应 10MB 上限、content-type 校验。
+    """
+    return check_outbound_url(url, resolve=True)
 
 
 def _err(code: str, message: str) -> ToolOutput:

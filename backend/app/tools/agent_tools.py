@@ -49,6 +49,12 @@ def _need_db(ctx: ExecContext, tool: str) -> ToolOutput | None:
 _MAX_MEMORIES_PER_USER = 2000
 _MAX_MEMORY_CHARS = 20000
 
+# iter 397（T5）：Agent 联网工具的出站速率上限（每用户每分钟，检索与抓取各一个桶）
+_AGENT_NET_RATE_PER_MIN = 30
+# iter 397（T5）：Agent 抓取的体积上限（回灌模型的正文最终被 2 万字符截断，
+# 默认 10MB 上限的中间态纯属浪费——单 run 25 步可白下载 250MB）
+_AGENT_FETCH_MAX_BYTES = 256 * 1024
+
 
 # ---------------------------------------------------------------------------
 # 工作区文件工具（沙箱内，原子写）
@@ -123,6 +129,17 @@ async def web_search(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     query = str(inp.args.get("query", "")).strip()
     if not query:
         return _err(tool, "empty_required", "query 必填")
+    # iter 397（T5）：Agent 联网工具此前**无任何出站速率限制**——模型可在一次 run 内
+    # 连打 25 步（MAX_AGENT_STEPS），既放大人为/注入驱动的外呼量，也让 Bing 引擎
+    # 侧把本实例判为爬虫。此处按用户限流（与材料 URL 抓取同族，键不同）。
+    from app.core.ratelimit import limiter
+
+    if not limiter.check(f"agent_search:{ctx.user_id}", _AGENT_NET_RATE_PER_MIN):
+        return _err(
+            tool,
+            "rate_limited",
+            f"检索过于频繁（{_AGENT_NET_RATE_PER_MIN}/分钟），请稍后再试",
+        )
     try:
         count = int(inp.args.get("count", 8))
     except (TypeError, ValueError):
@@ -139,15 +156,28 @@ async def web_search(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     return _ok(tool, {"results": items, "count": len(items)})
 
 
-async def web_fetch(inp: ToolInput, ctx: ExecContext) -> ToolOutput:  # noqa: ARG001
+async def web_fetch(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     tool = "web_fetch"
     url = str(inp.args.get("url", "")).strip()
     if not url:
         return _err(tool, "empty_required", "url 必填")
+    # iter 397（T5）：出站限流（此前 Agent 联网工具无任何速率限制，单 run 最多可
+    # 触发 25 次外呼；材料 URL 抓取路径有限流而 Agent 路径无限，口径不一致）。
+    from app.core.ratelimit import limiter
+
+    if not limiter.check(f"agent_fetch:{ctx.user_id}", _AGENT_NET_RATE_PER_MIN):
+        return _err(
+            tool,
+            "rate_limited",
+            f"抓取过于频繁（{_AGENT_NET_RATE_PER_MIN}/分钟），请稍后再试",
+        )
     from app.tools.parse_material import _parse_url
 
     try:
-        text, meta = await _parse_url(url)
+        # iter 397（T5）：抓取体积上限收敛到 _AGENT_FETCH_MAX_BYTES——回灌给模型的
+        # 正文最终被 _MAX_TOOL_RESULT_CHARS(2 万字符) 截断，而默认上限 10MB 的
+        # 中间态纯属浪费（单 run 最多 25 次 -> 250MB 白下载）。
+        text, meta = await _parse_url(url, max_bytes=_AGENT_FETCH_MAX_BYTES)
     except Exception as exc:  # noqa: BLE001  SSRF/超时/超大 -> error 信封（消息经服务器清洗）
         log.warning("agent web_fetch 失败 url=%s: %s", url[:80], exc)
         return _err(tool, "fetch_failed", str(exc) if "Data" not in str(exc) else "抓取失败")
@@ -183,25 +213,43 @@ async def memory_save(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     scope = str(inp.args.get("scope", "thread") or "thread")
     if scope not in ("thread", "user"):
         scope = "thread"
+    # iter 397（T13）：scope=thread 但 ctx.thread_id 缺失时，写出的行是
+    # `thread_id=NULL` + `scope="thread"`——thread 视图查不到（按 thread_id 过滤），
+    # 却出现在 user 视图（thread_id IS NULL）里，归属自相矛盾。此时明确报错。
+    if scope == "thread" and not ctx.thread_id:
+        return _err(tool, "no_db_context", "scope=thread 须在带 thread_id 的 run 内调用")
     from app.db.models import Memory
 
     def _save():
-        # 计数+插入+提交一次线程内完成（commit 移 to_thread 防写锁争用冻结事件循环）
-        if ctx.db.query(Memory).filter_by(user_id=ctx.user_id).count() >= _MAX_MEMORIES_PER_USER:
-            return None
-        m = Memory(
-            user_id=ctx.user_id,
-            thread_id=ctx.thread_id if (scope == "thread" and ctx.thread_id) else None,
-            scope=scope,
-            kind=kind,
-            content=content,
-        )
-        ctx.db.add(m)
-        ctx.db.commit()
-        ctx.db.refresh(m)
-        return m
+        # 计数+插入+提交一次线程内完成（commit 移出事件循环防写锁争用冻结事件循环）
+        #
+        # iter 397（T2）：与 REST /memories **同一把配额锁**（键 `memory:{uid}`）。
+        # 此前 Agent 路径「计数 -> 插入」无互斥：并发 run（或 Agent 与 REST 并发）
+        # 可同时通过 count 检查 -> 每用户记忆数按并发数突破 2000 条上限。
+        # 锁在**写线程内**持有（threading.Lock 不可跨 await 持有，见 quota.py 说明）。
+        from app.core.quota import quota_slot
 
-    m = await asyncio.to_thread(_save)
+        with quota_slot(f"memory:{ctx.user_id}"):
+            if ctx.db.query(Memory).filter_by(user_id=ctx.user_id).count() >= _MAX_MEMORIES_PER_USER:
+                return None
+            m = Memory(
+                user_id=ctx.user_id,
+                thread_id=ctx.thread_id if (scope == "thread" and ctx.thread_id) else None,
+                scope=scope,
+                kind=kind,
+                content=content,
+            )
+            ctx.db.add(m)
+            ctx.db.commit()
+            ctx.db.refresh(m)
+            return m
+
+    # iter 397（T4）：走**专用写线程池**（dbwrite.run_db_write）而非 asyncio 默认线程池
+    # ——SQLite 写锁等待（busy_timeout 10s）会占住默认池线程，多用户并发下把同池的
+    # 文件 IO 槽位一起饿死（dbwrite.py 的既有设计意图）。
+    from app.core.dbwrite import run_db_write
+
+    m = await run_db_write(_save)
     if m is None:
         return _err(tool, "quota_exceeded", f"记忆数达上限 {_MAX_MEMORIES_PER_USER} 条/用户（与 /memories 同口径）")
     return _ok(tool, {"id": m.id, "scope": scope})
@@ -254,7 +302,10 @@ async def memory_delete(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         ctx.db.commit()
         return True
 
-    if not await asyncio.to_thread(_delete):  # iter 369：commit 移 to_thread
+    # iter 397（T4）：走专用写线程池（写锁等待不占默认池的文件 IO 槽位）
+    from app.core.dbwrite import run_db_write
+
+    if not await run_db_write(_delete):  # iter 369：commit 移出事件循环
         return _err(tool, "not_found", "记忆不存在或无权访问")
     return _ok(tool, {"deleted": mid})
 
@@ -340,15 +391,23 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     target_kind = str(inp.args.get("target_kind", "note"))
     if not name:
         return _err(tool, "empty_required", "name 必填")
-    if target_kind not in ("plan", "material", "note"):
-        return _err(tool, "invalid_enum", "target_kind 须为 plan/material/note")
-    from app.db.models import Run, RunArtifact, RunStatus, RunStep
+    # iter 397（T3；用户 2026-10-21 裁决）：schema 向模型承诺 target_kind 可为
+    # "material"，但 approve 端点只支持 note/plan——选 material 必 400
+    # material_promote_not_supported，且事务回滚后状态复原（仍在
+    # awaiting_approval），用户反复点批准永远进不去（死胡同）。现从枚举移除
+    # material，收到时给出可执行提示（改提 note），模型可自行改口。
+    if target_kind == "material":
+        return _err(
+            tool,
+            "invalid_enum",
+            "target_kind=material 暂不支持（审批端点只落笔记/方案），请改用 target_kind=note",
+        )
+    if target_kind not in ("plan", "note"):
+        return _err(tool, "invalid_enum", "target_kind 须为 plan/note")
+    from app.db.models import RunArtifact, RunStatus, RunStep
     from app.agent.workspace import scratch_dir, committed_dir, _resolve_in, _root
     from app.core.storage import relative_to_root
 
-    run = ctx.db.get(Run, ctx.run_id)
-    if run is None:
-        return _err(tool, "not_found", "run 不存在")
     # iter 363 恢复流程：run 进行中草稿在 scratch（workspace_committed 此时为 False——仅 run
     # 结束后 _finalize_chat 调 commit_run_workspace 才置 True；旧逻辑据此判 promote 永远
     # not_committed，整个 draft→promote→approve 链路是死代码）。改为从 scratch 读指定草稿，
@@ -357,16 +416,19 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     if not src.is_file():
         return _err(tool, "not_found", f"工作区无此产物: {name}")
 
-    # iter 369：文件复制（MB 级草稿读写）+ 登记提交整段移 to_thread——此前同步执行
-    # 阻塞事件循环，多 run 并发 promote 时全局卡顿
-    def _promote() -> int:
+    # iter 369/397（T4）：**文件复制与库写入拆成两段**——
+    # ① 文件复制（MB 级草稿读写）走默认线程池，不占写线程池的 8 个槽位；
+    # ② 库写入（flush 取写锁 + commit）走**专用写线程池**（dbwrite.run_db_write），
+    #    此前整段在默认线程池里做 commit——SQLite 写锁等待（busy_timeout 10s）
+    #    会占住默认池线程，多用户并发下把同池的文件 IO 槽位一起饿死。
+    def _copy():
+        import os
+
         dst_dir = committed_dir(ctx.thread_id, ctx.run_id)
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = _resolve_in(dst_dir, name)
         dst.parent.mkdir(parents=True, exist_ok=True)
         # iter 364：原子写（tmp + os.replace），防复制中途崩溃致 dst 半写
-        import os
-
         tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
         try:
             tmp.write_bytes(src.read_bytes())
@@ -374,6 +436,16 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         finally:
             if tmp.exists():
                 tmp.unlink(missing_ok=True)
+        return dst
+
+    dst = await asyncio.to_thread(_copy)
+
+    def _register() -> int:
+        from app.db.models import Run
+
+        run = ctx.db.get(Run, ctx.run_id)
+        if run is None:
+            raise LookupError("run 不存在")
         # iter 364：同名重 promote 复用既有 RunArtifact（免重复登记）
         art = ctx.db.query(RunArtifact).filter_by(run_id=ctx.run_id, name=name).first()
         if art is None:
@@ -405,7 +477,12 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         ctx.db.commit()
         return art.id
 
-    artifact_id = await asyncio.to_thread(_promote)
+    from app.core.dbwrite import run_db_write
+
+    try:
+        artifact_id = await run_db_write(_register)
+    except LookupError:
+        return _err(tool, "not_found", "run 不存在")
     # iter 364：设 cancel_event 让 agent_loop 工具循环尽快 break（缩小 awaiting_approval 与
     # approve 的竞态窗口——原要等下一轮主循环检查，期间 approve 可致 agent 多跑 1+ 轮烧预算）
     ctx.cancel_event.set()
@@ -471,7 +548,7 @@ promote_artifact_tool = Tool(
     name="promote_artifact",
     llm=False,
     func=promote_artifact,
-    description="提议把工作区产物提升为正式方案/材料/笔记（待用户确认）",
+    description="提议把工作区产物提升为正式方案/笔记（待用户确认）",
 )
 
 AGENT_TOOLS = [
@@ -539,7 +616,11 @@ AGENT_TOOL_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "name": {"type": "string"},
-            "target_kind": {"type": "string", "enum": ["plan", "material", "note"]},
+            # iter 397（T3；用户 2026-10-21 裁决）：移除 "material"——审批端点
+            # （POST /runs/{id}/approve）只落 note/plan，选 material 必 400 且状态
+            # 回滚复原（用户反复点批准永远进不去）。从枚举移除即消除「schema 承诺
+            # -> 端点 400 -> 状态不变」死胡同；工具侧另给明确提示引导改提 note。
+            "target_kind": {"type": "string", "enum": ["plan", "note"]},
         },
         "required": ["name", "target_kind"],
     },

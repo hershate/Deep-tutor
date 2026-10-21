@@ -14,7 +14,7 @@ from typing import Any
 
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
-from app.core.storage import is_within_root
+from app.core.storage import atomic_write_text, is_within_root
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
 
@@ -40,17 +40,26 @@ async def export_plan(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     # 但本工具在注册表中，插件/未来调用点可能传入外部字符串（"../.."），纵深防御。
     sid = _safe_seg(inp.session_id or "default")
     plan_id = _safe_seg(str(args.get("plan_id", "plan")))
-    base = (Path(ctx.data_dir or "data") / "sessions" / sid / "exports").resolve()
-    root = Path(ctx.data_dir or "data").resolve()
+    # iter 397（T6）：ctx.data_dir 缺失时**不再回落到相对路径 "data"**。相对路径按
+    # 进程 CWD 解析（服务从 backend/ 启动时落到 <repo>/backend/data/…），而
+    # settings.data_dir 锚定在仓库根 —— 该目录既不被 maintenance 清理、也不被
+    # backup 收录（长期孤儿目录），且 containment 守卫因 root 同为 "data" 而恒真
+    # （形同虚设）。缺 data_dir 即明确报错，不向管辖目录之外落盘。
+    if not ctx.data_dir:
+        return _err("no_data_dir", "未配置 data_dir，拒绝落盘到管辖目录之外")
+    root = Path(ctx.data_dir).resolve()
+    base = (root / "sessions" / sid / "exports").resolve()
     # iter 392：containment 判定走 storage.is_within_root（原 str.startswith 前缀比较
     # 既非路径语义、又对 Windows 扩展长度前缀形态失配）
     if not is_within_root(root, base):
         return _err("invalid_path", "非法的会话标识")
-    # iter 371：落盘移 to_thread——溢出方案 md 可达 MB 级，同步写在事件循环上
-    # 与 exports.py 其余导出路径（render/pdf/ics/apkg 均 to_thread）口径不一致
+    # iter 371/397（T6）：落盘移 to_thread——溢出方案 md 可达 MB 级，同步写在事件
+    # 循环上与 exports.py 其余导出路径（render/pdf/ics/apkg 均 to_thread）口径
+    # 不一致；并改用**原子写**（tmp + os.replace）——此前直接 write_text，崩溃/
+    # IO 错留下半截文件（被 commit_run_workspace 当作正式产物登记）。
     def _write() -> None:
         base.mkdir(parents=True, exist_ok=True)
-        (base / f"{plan_id}.md").write_text(md, encoding="utf-8")
+        atomic_write_text(base / f"{plan_id}.md", md)
 
     await asyncio.to_thread(_write)
 

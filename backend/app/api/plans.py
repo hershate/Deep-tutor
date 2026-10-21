@@ -1305,6 +1305,11 @@ async def _run_start(
                 registry=registry,
                 llm_provider=provider,
                 skill_registry=get_skill_registry() or None,  # 空 -> None -> loop 走 inline_prompt
+                # iter 397（T6）：编排器上下文此前**未带 data_dir** —— PIPELINE 末段的
+                # export_plan 遂回落到相对路径 "data"（按进程 CWD 解析），导出文件落到
+                # 管辖目录之外（不被 maintenance 清理、不被 backup 收录）。现显式注入
+                # 仓库根锚定的 data_dir。
+                data_dir=settings.data_dir,
                 budget=budget,
                 # iter 223：凭证档案解析后的有效 Bing Key（按发起用户；空 -> 工具内回退 .env）
                 bing_api_key=resolve_bing_api_key(user_id, db=resolv_db),

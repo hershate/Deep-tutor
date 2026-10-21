@@ -71,7 +71,8 @@ def test_url_fetch_has_total_duration_budget(monkeypatch):
     """慢滴服务器可无限挂住请求 -> 必须有总时长预算。"""
     from app.tools import parse_material as pm
 
-    async def _hang(_source):
+    async def _hang(_source, _max_bytes=0):
+        # iter 397（T5）：_parse_url_inner 增 max_bytes 形参（体积上限可下调）
         await asyncio.sleep(30)
 
     monkeypatch.setattr(pm, "_parse_url_inner", _hang)

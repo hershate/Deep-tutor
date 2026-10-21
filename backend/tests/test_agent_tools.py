@@ -132,7 +132,8 @@ def test_web_fetch_mocked(monkeypatch):
     db, u, t, r = _setup()
     ctx = _ctx(db, u, t, r)
 
-    async def fake_parse(url):  # noqa: ARG001
+    async def fake_parse(url, max_bytes=0):  # noqa: ARG001
+        # iter 397（T5）：web_fetch 传入收敛后的体积上限（max_bytes）
         return ("# 标题\n正文", {"title": "页", "chars": 8, "final_url": "https://x.com/final"})
 
     monkeypatch.setattr("app.tools.parse_material._parse_url", fake_parse)

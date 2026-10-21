@@ -521,21 +521,26 @@ async def _collect_capped(aiter, max_bytes: int) -> tuple[bytes, bool]:
     return b"".join(chunks), too_large
 
 
-async def _parse_url(source: str) -> tuple[str, dict]:
+async def _parse_url(source: str, max_bytes: int = MAX_URL_BYTES) -> tuple[str, dict]:
     """URL 抓取（**总时长**受 URL_TOTAL_TIMEOUT 约束，iter 397 K4）。
 
-    字节上限（MAX_URL_BYTES）与单次读间隔上限（URL_TIMEOUT）都挡不住「慢滴」
-    服务器持续挂住连接——总时长预算是第三道闸。
+    字节上限（max_bytes，默认 MAX_URL_BYTES）与单次读间隔上限（URL_TIMEOUT）都
+    挡不住「慢滴」服务器持续挂住连接——总时长预算是第三道闸。
+
+    iter 397（T5）：max_bytes 可下调——Agent 的 web_fetch 回灌给模型的正文最终被
+    2 万字符截断，10MB 的中间态纯属浪费（单 run 25 步可白下载 250MB）。
     """
     try:
-        return await asyncio.wait_for(_parse_url_inner(source), timeout=URL_TOTAL_TIMEOUT)
+        return await asyncio.wait_for(
+            _parse_url_inner(source, max_bytes), timeout=URL_TOTAL_TIMEOUT
+        )
     except (asyncio.TimeoutError, TimeoutError):
         raise _ParseError(
             "upstream_timeout", f"URL 抓取超时（总时长上限 {int(URL_TOTAL_TIMEOUT)}s）"
         ) from None
 
 
-async def _parse_url_inner(source: str) -> tuple[str, dict]:
+async def _parse_url_inner(source: str, max_bytes: int) -> tuple[str, dict]:
     import httpx
     from urllib.parse import urljoin
 
@@ -564,7 +569,7 @@ async def _parse_url_inner(source: str) -> tuple[str, dict]:
                         current = urljoin(str(resp.url), resp.headers["location"])
                         continue
                     resp.raise_for_status()
-                    raw, too_large = await _collect_capped(resp.aiter_bytes(), MAX_URL_BYTES)
+                    raw, too_large = await _collect_capped(resp.aiter_bytes(), max_bytes)
                     if too_large:
                         raise _ParseError(
                             "payload_too_large", f"URL 正文超上限 {MAX_URL_BYTES // (1024 * 1024)}MB"

@@ -64,7 +64,13 @@ def check_schedule(data: dict[str, Any], inp: ToolInput) -> dict[str, Any]:
 
     start: _schedule_date | None = None
     try:
-        sd_raw = (((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}).get("start_date")
+        # iter 397（T11）：args.start_date **优先**——本工具的 prompt 明确承诺
+        # 「日期从 args.start_date（或 upstream.understand_intent.data.start_date）
+        # 开始」，此前实现**只读 upstream**，调用方把 start_date 放进 args 会被
+        # 静默忽略（排期仍从今天或 upstream 值开始）。现按承诺实现优先级。
+        sd_raw = inp.args.get("start_date") or (
+            ((inp.upstream or {}).get("understand_intent") or {}).get("data") or {}
+        ).get("start_date")
         if sd_raw:
             start = datetime.fromisoformat(str(sd_raw).strip()).date()
     except (ValueError, TypeError):
@@ -128,4 +134,10 @@ schedule_plan_tool = Tool(
     inline_prompt=PROMPT,
     post_process=check_schedule,
     default_data={"schedule": []},
+    # iter 397（T10）：本工具实际读取 upstream.understand_intent（start_date /
+    # daily_minutes）却**未声明** upstream_reads——「并行组同组工具互不读取对方
+    # 输出」的 import 期强制断言对它完全失效（若日后把 understand_intent 移入与
+    # schedule_plan 同组，会并发读到快照里尚不存在的数据且无启动期报错）。
+    # upstream_reads 零运行时行为变更，仅作静态断言的事实源。
+    upstream_reads=frozenset({"understand_intent"}),
 )
