@@ -34,7 +34,7 @@ from app.agent import BudgetTracker, run_tool
 from app.agent.context import ExecContext, Timeouts
 from app.agent.cost import record_metadata_usage
 from app.api.deps import check_daily_budget, get_current_user, get_db, require_auth
-from app.api.errors import ApiError
+from app.api.errors import ApiError, raise_parse_failure
 from app.api.materials import (
     _PARSE_RATE_PER_MIN,
     _TEXT_RATE_PER_MIN,
@@ -204,6 +204,28 @@ async def _persist_parsed_async(
     return doc
 
 
+_KB_TEXT_MAX_CHARS = 500_000  # 知识库文本护栏（入库前截断；与 add_text_document_sync 同口径）
+
+
+def _normalize_kb_text(text: str) -> str:
+    """知识库文本归一化（去首尾空白 + 超长截断）——**入库文本与 content_hash 的唯一口径**。
+
+    iter 397（K12）：此前两条入库路径口径不同——
+
+    - ``create_text_document``：哈希用原文 ``body.text``，入库用解析结果（== 原文），
+      且**根本没有 500k 截断**（端点 docstring 写「解析文本即原文（经 500k 截断
+      护栏）」——**承诺与实现不符**，2MB 的 text 可整份入库）；
+    - ``add_text_document_sync``（生成产物自动沉淀）：哈希用 strip+截断后的内容。
+
+    同一段文本经 API 提交与经自动沉淀入库会得到**不同的 content_hash** -> 产生
+    两篇文档（重复占配额、重复占磁盘）。现两处统一走本函数。
+    """
+    content = (text or "").strip()
+    if len(content) > _KB_TEXT_MAX_CHARS:
+        content = content[:_KB_TEXT_MAX_CHARS] + "\n…[已截断]"
+    return content
+
+
 def add_text_document_sync(db: Session, user_id: int, title: str, text: str) -> models.KbDocument | None:
     """iter 346（F8 #2）：同步文本入库 KB——供生成产物（知识图谱/自学材料）自动沉淀复用。
 
@@ -212,11 +234,9 @@ def add_text_document_sync(db: Session, user_id: int, title: str, text: str) -> 
     quota 超限返回 None 不阻塞调用方（生成流程）。meta.auto_sunk=True 标记自动沉淀（溯源，
     对齐 second brain auto-capture 带标签防垃圾，§八 L）。返回新建或复用的文档；None=空/quota。
     """
-    content = (text or "").strip()
+    content = _normalize_kb_text(text)  # iter 397（K12）：与 create_text_document 同口径
     if not content:
         return None
-    if len(content) > 500_000:  # 同 parse_material 护栏
-        content = content[:500_000] + "\n…[已截断]"
     content_hash = _hash_source(content)
     existing = _dedup_lookup(db, user_id, content_hash)
     if existing is not None:
@@ -286,6 +306,10 @@ async def upload_document(
     if existing is not None:
         return _doc_out(existing, deduped=True)
     _check_kb_quota(db, user.id)
+    # iter 397（K10）：落盘前释放读快照——此前本端点缺 rollback（同文件的
+    # create_text_document / create_url_document 与 materials._store 都有），
+    # 50MB 写盘窗口内连接持读事务，WAL 下挡 checkpoint、升级写会 BUSY_SNAPSHOT。
+    db.rollback()
 
     # 随机 id 预命名原件（R20 不用原始文件名；err.md B22 不依赖行 id）
     doc_id = _fresh_doc_id(user.id)
@@ -383,9 +407,14 @@ async def parse_document(
                 )
             except TimeoutError:
                 raise ApiError("upstream_timeout", f"解析超时（{int(Timeouts().parse)}s），请重试或换档") from None
-            if out.status == "error" and out.errors:
-                raise ApiError(out.errors[0].code, out.errors[0].message)
+            # iter 397（K16）：守卫此前为 `status == "error" and out.errors`——
+            # status 为 error 而 errors 为空时继续往下走，用**空文本**覆盖既有解析
+            # 文本并把文档标成 parsed（与「解析失败行保留状态不变」相反）。
+            raise_parse_failure(out)
             text = out.data.get("text", "")
+            if not text.strip():
+                # 空结果不落盘、不改状态：既有解析文本保持原样（换档可重试）
+                raise ApiError("parse_failed", "解析结果为空，文档状态保持不变")
             stem = Path(source_path).stem  # 解析文本与原件同名（.txt），随删除端点按行内路径清理
             # iter 393：解析文本落盘移出事件循环（同 materials parse）
             parsed_path = await asyncio.to_thread(write_kb_parsed_text, user.id, stem, text)
@@ -427,13 +456,13 @@ async def create_text_document(
     body: KbTextIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     """纯文本入库：无原件（original_path=None），解析文本即原文（经 500k 截断护栏）。"""
-    content = body.text.strip()
+    content = _normalize_kb_text(body.text)  # iter 397（K12）：去空白 + 500k 截断
     if not content:
         raise ApiError("empty_content", "文本为空")
     # iter 367（批次五）：入库限流——与 materials text 同口径（配额只限总量不限速率）
     if not limiter.check(f"kb_text:{user.id}", _TEXT_RATE_PER_MIN):
         raise ApiError("rate_limited", f"文档入库限每分钟 {_TEXT_RATE_PER_MIN} 次，请稍后再试")
-    content_hash = _hash_source(body.text)
+    content_hash = _hash_source(content)  # iter 397（K12）：哈希归一化后的文本
     existing = _dedup_lookup(db, user.id, content_hash)
     if existing is not None:
         return _doc_out(existing, deduped=True)
@@ -441,11 +470,10 @@ async def create_text_document(
     db.rollback()  # iter 368：释放读快照——解析期间不持读事务（防 BUSY_SNAPSHOT + 挡 checkpoint）
 
     out = await parse_material(
-        ToolInput(tool="parse_material", session_id=f"kb-{user.id}", args={"kind": "text", "source": body.text}),
+        ToolInput(tool="parse_material", session_id=f"kb-{user.id}", args={"kind": "text", "source": content}),
         _ctx(user.id),
     )
-    if out.status == "error" and out.errors:
-        raise ApiError(out.errors[0].code, out.errors[0].message)
+    raise_parse_failure(out)  # iter 397（K16）：errors 为空时也按失败处理
     # 解析后重查去重/配额：等待期间并发请求可能已插入同哈希行或打满配额
     existing = _dedup_lookup(db, user.id, content_hash)
     if existing is not None:
@@ -510,8 +538,7 @@ async def create_url_document(
         ToolInput(tool="parse_material", session_id=f"kb-{user.id}", args={"kind": "url", "source": url}),
         _ctx(user.id),
     )
-    if out.status == "error" and out.errors:
-        raise ApiError(out.errors[0].code, out.errors[0].message)
+    raise_parse_failure(out)  # iter 397（K16）：errors 为空时也按失败处理
     # 解析后重查去重/配额：等待期间并发请求可能已插入同哈希行或打满配额
     existing = _dedup_lookup(db, user.id, content_hash)
     if existing is not None:
@@ -725,10 +752,16 @@ def get_document_parsed(
     doc = _owned_doc_or_404(db, document_id, user)
     if not doc.parsed_text_path:
         raise ApiError("not_found", f"知识库文档 {document_id} 无解析文本")
+    # iter 397（K14）：解析文本路径同样做 containment 校验（与 get_document_raw
+    # 的 R20 防线同款）——DB 路径一旦被篡改（备份还原/运维脚本/手工改库），
+    # 缺校验即退化为任意文件读。
     try:
-        text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
-    except OSError:
-        log.warning("知识库解析文本缺失: doc=%s", document_id)
+        resolved = Path(doc.parsed_text_path).resolve()
+        if not is_within_root(_kb_root(user.id), resolved):
+            raise ValueError("路径越界")
+        text = resolved.read_text(encoding="utf-8")
+    except (ValueError, OSError):
+        log.warning("知识库解析文本缺失或越界: doc=%s", document_id)
         raise ApiError("not_found", f"知识库文档 {document_id} 的解析文本缺失") from None
     return {
         "document_id": doc.id,
@@ -829,7 +862,15 @@ def export_kb_zip(
             ):
                 if not path_str:
                     continue
-                src = Path(path_str)
+                # iter 397（K14）：打包前做 containment 校验（与 get_document_raw
+                # 同款）——库内路径被篡改时不得读出库外的文件。
+                try:
+                    src = Path(path_str).resolve()
+                    if not is_within_root(_kb_root(user.id), src):
+                        raise ValueError("路径越界")
+                except (ValueError, OSError):
+                    log.warning("知识库导出：文档 %s 路径越界 %s", doc.id, arc_dir)
+                    continue
                 if not src.is_file():
                     log.warning("知识库导出：文档 %s 文件缺失 %s", doc.id, arc_dir)
                     continue
@@ -923,9 +964,13 @@ def generate_from_documents(
                     raise ApiError("not_found", f"知识库文档 {doc.id} 尚未解析——请先在文档列表中确认并解析")
                 if not doc.parsed_text_path:
                     raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失")
+                # iter 397（K14）：containment 校验（同 get_document_raw）
                 try:
-                    text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
-                except OSError:
+                    resolved = Path(doc.parsed_text_path).resolve()
+                    if not is_within_root(_kb_root(user.id), resolved):
+                        raise ValueError("路径越界")
+                    text = resolved.read_text(encoding="utf-8")
+                except (ValueError, OSError):
                     raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失") from None
                 material = models.Material(
                     session_id=sess.id,
@@ -969,14 +1014,22 @@ class KbChatIn(BaseModel):
     document_ids: list[int] | None = Field(default=None, max_length=20)  # None -> 缺省全库最近 20 篇
 
 
-def _read_doc_text(doc: models.KbDocument) -> str:
-    """读文档解析文本；缺失/读失败 -> ""（调用方归入 omitted）。"""
+def _read_doc_text(doc: models.KbDocument, user_id: int) -> str:
+    """读文档解析文本；缺失/读失败/越界 -> ""（调用方归入 omitted）。
+
+    iter 397（K14）：加 containment 校验——user_id 用于定位本用户的 kb 根目录
+    （路径被篡改时不得读出库外的文件）。
+    """
     if not doc.parsed_text_path:
         return ""
+    # iter 397（K14）：containment 校验（同 get_document_raw）
     try:
-        return Path(doc.parsed_text_path).read_text(encoding="utf-8")
-    except OSError:
-        log.warning("知识库问答：文档 %s 解析文本缺失", doc.id)
+        resolved = Path(doc.parsed_text_path).resolve()
+        if not is_within_root(_kb_root(user_id), resolved):
+            raise ValueError("路径越界")
+        return resolved.read_text(encoding="utf-8")
+    except (ValueError, OSError):
+        log.warning("知识库问答：文档 %s 解析文本缺失或越界", doc.id)
         return ""
 
 
@@ -1024,7 +1077,7 @@ def content_search_docs(
     for doc in db.scalars(stmt).all():
         if doc.id in skip:
             continue
-        text = _read_doc_text(doc)
+        text = _read_doc_text(doc, user_id)
         if not text:
             continue
         snippet = _hit_snippet(text, qs)
@@ -1035,7 +1088,9 @@ def content_search_docs(
     return hits
 
 
-def _assemble_chat_context(docs: list[models.KbDocument]) -> tuple[list[dict], list[str]]:
+def _assemble_chat_context(
+    docs: list[models.KbDocument], user_id: int
+) -> tuple[list[dict], list[str]]:
     """组装注入上下文：单文档 ≤19.9k（带「…[已截断]」标注）、总量 ≤150k。
 
     返回 (documents payload, omitted_titles)——解析文本缺失或总量预算耗尽的篇目
@@ -1045,7 +1100,7 @@ def _assemble_chat_context(docs: list[models.KbDocument]) -> tuple[list[dict], l
     omitted: list[str] = []
     total = 0
     for doc in docs:
-        text = _read_doc_text(doc)
+        text = _read_doc_text(doc, user_id)
         if not text.strip():
             omitted.append(doc.title)
             continue
@@ -1095,15 +1150,18 @@ async def chat_with_kb(body: KbChatIn, db: Session = Depends(get_db), user: User
             .limit(_CHAT_DEFAULT_DOCS)
         ).all()
 
-    # iter 369：组装含最多 20 篇 × ~500KB 同步文件读，移 to_thread 防阻塞事件循环
-    # （docs 为已加载 ORM 对象快照 list，_read_doc_text 仅取已载属性，不触碰 Session）
-    payload, omitted = await asyncio.to_thread(_assemble_chat_context, list(docs))
-    if not payload:
-        raise ApiError("empty_content", "知识库暂无可用文档（请先上传文档）")
-
+    # iter 397（K15）：限流与日预算检查**前移到文档查询与上下文组装之前**——
+    # 此前先组装上下文（最多 20 篇 × ~500KB 同步文件读）再限流，被限流的请求
+    # 已经付了 I/O 成本（限流不保护磁盘读）。
     if not limiter.check(f"kb_chat:{user.id}", 10):
         raise ApiError("rate_limited", "问答过于频繁，请稍后再试", status=429)
     check_daily_budget(db, user.id)  # err.md A6：日预算守卫（LLM 计费端点）
+
+    # iter 369：组装含最多 20 篇 × ~500KB 同步文件读，移 to_thread 防阻塞事件循环
+    # （docs 为已加载 ORM 对象快照 list，_read_doc_text 仅取已载属性，不触碰 Session）
+    payload, omitted = await asyncio.to_thread(_assemble_chat_context, list(docs), user.id)
+    if not payload:
+        raise ApiError("empty_content", "知识库暂无可用文档（请先上传文档）")
     try:
         provider = get_provider(user.id)
     except Exception:  # noqa: BLE001  无 key/无 active 档案

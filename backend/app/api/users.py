@@ -176,12 +176,23 @@ def delete_user(
     # iter 365：取消该用户运行中的 chat run（同 delete_thread 模式）。删 user -> ORM 级联
     # 删 Thread/Run 行，但 _run_chat 后台任务仍持独立 SessionLocal 在跑——下次 persist 撞
     # 失效 FK 抛 IntegrityError 被吞，当轮 LLM 费用已发生却写不进 api_usage -> 成本黑洞。
-    from app.api.memory import _cancel_run_stream
+    from app.api.memory import _cancel_run_stream, _wait_runs_settled
 
-    for r in db.query(models.Run).filter_by(user_id=u.id, status=models.RunStatus.running).all():
+    running = db.query(models.Run).filter_by(user_id=u.id, status=models.RunStatus.running).all()
+    run_ids = [r.id for r in running]
+    for r in running:
         # iter 369：与 cancel_run 同口径硬取消（软取消打不断在途流式读取——用户行已删
         # 后 LLM 仍在跑，api_usage 插入撞 FK 费用无法落账 + 占全局 chat 槽）
         _cancel_run_stream(r.id)
+    # iter 397（E3）：**等在途 run 收敛**再删——此前只取消不等收敛，等的是方案生成
+    # （wait_generations_settled 轮询 _STREAMS[session_id]）而 chat run 在
+    # _RUN_STREAMS（按 run_id），根本不在等待范围内：
+    #   ① agent 循环随后写 api_usage -> user_id FK 违约被吞 -> 本轮 LLM 费用无法
+    #      入账（日预算系统性少计）；
+    #   ② agent 循环的 messages/run_steps 插入与删除事务交错 -> 删除事务提交失败 ->
+    #      **HTTP 500 且用户根本没被删掉**（文件清理也不会执行）。
+    # 现按 memory._wait_runs_settled（与 DELETE /threads/{id} 同一范式）等待。
+    _wait_runs_settled(run_ids)
     # 级联清理：会话（ORM 级联 plans/materials/quizzes 等 + 文件目录）-> 供应商档案/用量 -> 用户
     session_ids = [s.id for s in db.query(models.Session).filter_by(user_id=u.id).all()]
     for sid in session_ids:
@@ -199,8 +210,29 @@ def delete_user(
             db.delete(sess)
     db.query(models.LlmProviderProfile).filter_by(user_id=u.id).delete()
     db.query(models.ApiUsage).filter_by(user_id=u.id).delete()
-    db.delete(u)
-    db.commit()
+    # iter 397（E3）：删除提交加**有界重试**——在途 agent 写（to_thread 不可中断）
+    # 仍可能落在删除事务之后 -> FK 违约 -> 此前直接冒泡为 **500 且用户删不掉**
+    # （文件清理也随之跳过）。现与 DELETE /threads/{id} 同范式：回滚 -> 清
+    # identity map -> 重载干净对象重试；仍失败 -> **409**（可重试语义，不以 500
+    # 暴露内部约束错误）。
+    for attempt in range(3):
+        try:
+            target = db.get(User, user_id)
+            if target is None:
+                return {"ok": True}
+            # 批量删除随重试重做（回滚会撤销它们；ORM 级联亦可覆盖，此处显式保底）
+            db.query(models.LlmProviderProfile).filter_by(user_id=user_id).delete()
+            db.query(models.ApiUsage).filter_by(user_id=user_id).delete()
+            db.delete(target)
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+            db.expunge_all()  # 清 identity map——重试时重新加载（避开已标记删除的对象）
+            if attempt == 2:
+                log.warning("删除用户 %s 失败：在途写入未收敛", user_id, exc_info=True)
+                raise ApiError("conflict", "该用户仍有在途任务，请稍后重试", status=409) from None
+            time.sleep(0.2 * (attempt + 1))
     for sid in session_ids:  # 文件清理失败不阻塞 DB 已删
         try:
             delete_session_files(sid)

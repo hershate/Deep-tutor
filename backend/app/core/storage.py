@@ -388,6 +388,19 @@ def read_unit_content(path: str | Path) -> str:
     return text
 
 
+def read_unit_content_guarded(session_id: int | str, path: str | Path) -> str:
+    """读单元内容 + **containment 校验**（iter 397 K14）。
+
+    单元内容路径存在 DB 里（``material.content_md_path``）——DB 一旦被篡改
+    （备份还原 / 运维脚本 / 手工改库），缺校验即退化为任意文件读。与
+    ``kb.get_document_raw`` 的 R20 防线同款：resolve 后须仍在本会话目录内。
+    """
+    resolved = Path(path).resolve()
+    if not is_within_root(_session_root(session_id), resolved):
+        raise ValueError("路径越界")
+    return read_unit_content(resolved)
+
+
 def delete_unit_content(path: str | Path) -> None:
     """删单元内容文件及其全部拆分子文件。"""
     main = Path(path)

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.agent import BudgetTracker
 from app.agent.context import ExecContext, Timeouts
 from app.api.deps import check_daily_budget, get_current_user, get_db, get_owned_session, require_auth
-from app.api.errors import ApiError
+from app.api.errors import ApiError, raise_parse_failure
 from app.core.quota import guarded_commit_async
 from app.core.ratelimit import limiter
 from app.core.locks import drop_lock
@@ -37,7 +37,7 @@ from app.core.storage import (
     delete_session_files,
     originals_dir,
     promote_upload,
-    read_unit_content,
+    read_unit_content_guarded,
     stage_upload,
     write_parsed_text,
 )
@@ -212,8 +212,7 @@ async def _store(
     out = await parse_material(
         ToolInput(tool="parse_material", session_id=str(session_id), args=args), _ctx(session_id)
     )
-    if out.status == "error" and out.errors:
-        raise ApiError(out.errors[0].code, out.errors[0].message)
+    raise_parse_failure(out)  # iter 397（K16）：errors 为空时也按失败处理
     # 解析后重查：并发同哈希插入 -> 复用其行（本请求的解析结果弃用，防重复行）
     deduped = _dedup_lookup(db, session_id, content_hash)
     if deduped is not None:
@@ -466,9 +465,14 @@ async def parse_material_document(
                 )
             except TimeoutError:
                 raise ApiError("upstream_timeout", f"解析超时（{int(Timeouts().parse)}s），请重试或换档") from None
-            if out.status == "error" and out.errors:
-                raise ApiError(out.errors[0].code, out.errors[0].message)
+            # iter 397（K16）：status 为 error 而 errors 为空时此前继续往下走 ->
+            # 用**空文本**覆盖既有解析文本并把资料标成 parsed（与「解析失败行保留
+            # 状态不变」相反）。
+            raise_parse_failure(out)
             text = out.data.get("text", "")
+            if not text.strip():
+                # 空结果不落盘、不改状态：既有解析文本保持原样（换档可重试）
+                raise ApiError("parse_failed", "解析结果为空，资料状态保持不变")
             # iter 393：解析文本落盘移出事件循环（同 _store）
             parsed_path = await asyncio.to_thread(write_parsed_text, session_id, material_id, text)
             try:
@@ -545,8 +549,12 @@ def get_study_unit_content(unit_id: int, db: Session = Depends(get_db), user: Us
         mat = unit.materials[0]
         resources = mat.resources or []
         try:
-            content_md = read_unit_content(mat.content_md_path)  # 自动串联拆分子文件（plan/02 §13）
-        except OSError:
+            # iter 397（K14）：containment 校验——单元内容路径在 DB 里，路径被
+            # 篡改时不得读出库外文件（与 kb.get_document_raw 的 R20 防线同款）。
+            content_md = read_unit_content_guarded(
+                unit.plan.session_id, mat.content_md_path
+            )  # 自动串联拆分子文件（plan/02 §13）
+        except (OSError, ValueError):
             # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
             log.warning("单元内容文件缺失 unit=%s path=%s", unit.id, mat.content_md_path)
             raise ApiError("not_found", f"单元 {unit.id} 的内容文件缺失") from None
@@ -601,12 +609,14 @@ async def export_unit_slides(
     unit = _owned_unit_or_404(db, unit_id, user)
     session_id = unit.plan.session_id
 
-    # 加载单元内容（read_unit_content 自动串联拆分子文件）
+    # 加载单元内容（read_unit_content_guarded 自动串联拆分子文件 + containment 校验）
     content_md = ""
     if unit.materials:
         try:
-            content_md = await asyncio.to_thread(read_unit_content, unit.materials[0].content_md_path)
-        except OSError:
+            content_md = await asyncio.to_thread(
+                read_unit_content_guarded, session_id, unit.materials[0].content_md_path
+            )
+        except (OSError, ValueError):
             # err.md A10：不回显服务器文件系统路径（R35），路径仅进服务端日志
             log.warning("单元 PPT 导出：单元 %s 内容文件缺失 path=%s", unit.id, unit.materials[0].content_md_path)
             raise ApiError("not_found", f"单元 {unit.id} 的内容文件缺失") from None

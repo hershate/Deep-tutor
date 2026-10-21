@@ -136,13 +136,18 @@ def test_quiz_submit_cross_user_404(client):
     assert r.status_code == 404
 
 
-def test_unit_content_cross_user_404(client, tmp_path):
+def test_unit_content_cross_user_404(client):
+    from app.core.storage import materials_dir
     from app.db.base import SessionLocal
     from app.db import models
 
     a_id, _b_id, ha, hb = _two_users(client)
-    _sid, plan_id = _mk_plan_for(a_id)
-    content_file = tmp_path / "u1.md"
+    sid, plan_id = _mk_plan_for(a_id)
+    # iter 397（K14）：单元内容文件必须落在**本会话目录内**（读路径 containment 守卫：
+    # 路径在 DB 里，被篡改即任意文件读）。生产路径恒为
+    # data/sessions/<sid>/materials/unit_<id>.md —— 此处按同口径构造（原用 tmp_path，
+    # 与新不变量不符）。越界行为另由 test_iter397_contract_consistency 覆盖。
+    content_file = materials_dir(sid) / "unit_iso.md"
     content_file.write_text("# 内容", encoding="utf-8")
     db = SessionLocal()
     try:

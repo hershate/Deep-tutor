@@ -141,7 +141,8 @@ flowchart TD
 **iter 394：配额判定闭合「先查后写」竞态**——计数与插入之间若无互斥，并发请求可同时通过「未达上限」检查，实际写入数按并发数突破上限（25 个并发创建 -> 25 行，上限 20）。现经 `core/quota.py` 的 `quota_slot`（分段线程锁）与 `guarded_commit_async`（异步端点「检查 -> 入队 -> flush -> 落盘 -> 提交」同锁同线程）闭合，落地 8 个写入面（sessions / credentials / providers / notes / threads / memories / 学习日志 / materials / kb）。**必须含提交**：pysqlite 传统事务模式下未提交的 INSERT 其他连接不可见，只锁检查防不住。
 
 **iter 394：两项出站/暴露面收紧**——
-- `POST /api/setup` 与 `POST /api/setup/dismiss`（公开端点）在**开放模式**（无人设过口令、无 AUTH_TOKEN、无 active PAT）下**仅接受本机回环请求**（403）：这两个端点是唯一的「认领管理员」入口，开放给局域网任意客户端等于允许远程抢占管理员口令或翻转全局 dismiss 状态。LAN 部署改用 `.env` 的 `ADMIN_PASSWORD` / `AUTH_TOKEN`。
+- `POST /api/setup` 与 `POST /api/setup/dismiss`（公开端点）在**开放模式**（无人设过口令、无 AUTH_TOKEN、无 active PAT）下**仅接受本机回环请求**（403）：这两个端点会**新建凭据**（认领管理员口令 / 翻转全局 dismiss 状态），开放给局域网任意客户端等于允许远程抢占管理员口令或翻转全局 dismiss 状态。LAN 部署改用 `.env` 的 `ADMIN_PASSWORD` / `AUTH_TOKEN`。
+- **iter 397 修正**：iter 394 把 `POST /api/setup` 称作「**唯一**的认领管理员入口」——该前提**不成立**，本条已被证伪：`POST /api/users`（`is_admin` 直接取自请求体）、`PUT /api/users/{id}`（重置他人口令）、`POST /api/credentials`（`kind=auth_token` 的个人访问令牌）、`POST|PUT /api/providers`（`base_url` = 服务端出站目标）同样是**能在开放模式关闭后继续生效**的信任面建立入口。现统一口径为：**开放模式下「信任面建立」（认证凭据 + 出站目标）一律限回环客户端**——`api/deps.py::require_local_in_open_mode`（回环判定 `is_loopback_client` 从 `api/setup.py` 上提为共用），`users` 三个写端点 / `credentials` 的 PAT 创建·改写·启用 / `providers` 的创建·改写·启用接入。回环（本机）调用全程不受影响。判定置于 `resolve_user` 之前，避免远程未认证调用触发「懒创建 admin」的写副作用。
 - 供应商档案 `base_url` 是**服务端出站目标**且用户可自选：默认**拦截私网/环回/链路本地/云元数据**目标（写时校验 + 调用前复检，422 / `ssrf_blocked`），确需指向本地模型服务（Ollama / LM Studio / 内网中转）时设 `ALLOW_PRIVATE_LLM_BASE_URL=1` 放行。判定规则单一事实源在 `core/urlguard.py`（与材料抓取的 SSRF 防护同源）。
 
 **iter 395：并发写面与长驻资源面的四处加固**——

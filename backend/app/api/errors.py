@@ -72,7 +72,35 @@ CODE_STATUS: dict[str, int] = {
     "server_busy": 503,
     "bad_gateway": 502,
     "internal_error": 500,
+    # iter 397（K9）：解析管线的三个错误码此前**未登记** -> ApiError 落到默认 400。
+    # 此处显式登记为 **400**，即保持既有 HTTP 语义**完全不变**（note/11：v1 契约冻结，
+    # 只改勘误不改语义——把 dependency_missing 升为 503 / parse_failed、degraded 升为
+    # 422 属契约变更，需先改 API.md 与前端分支，另行裁决；tests/test_api.py 的
+    # test_upload_image_png_passes_validation 即钉住 dependency_missing -> 400）。
+    "degraded": 400,  # 解析降级（marker_single 失败 / URL 抓取异常）
+    "parse_failed": 400,  # 解析失败（格式损坏/加密/内容为空）
+    "dependency_missing": 400,  # 依赖缺失（tesseract / pypdf / faster-whisper 未安装）
 }
+
+
+def raise_parse_failure(out: object, *, default_code: str = "parse_failed") -> None:
+    """解析类工具输出为失败时抛 ApiError（iter 397 K16）。
+
+    守卫此前写成 ``out.status == "error" and out.errors``：status 为 error 而
+    errors 为空（``ToolOutput.errors`` 默认空列表）时**继续往下走** ->
+    ``out.data.get("text", "")`` 得空串 -> **用空文本覆盖既有解析文本**并把文档
+    标成 ``parsed``（``parsed_chars=0``）——与端点承诺「解析失败行保留状态不变
+    （用户可换档重试），不删文档」正相反：失败时反而把好数据清了。
+
+    本助手：status 非 error -> 放行（"ok"/"repaired" 均非失败）；error -> 抛
+    ApiError（errors 为空时用 default_code，保证响应总有可识别错误码）。
+    """
+    if getattr(out, "status", "ok") != "error":
+        return
+    errors = getattr(out, "errors", None) or []
+    if errors:
+        raise ApiError(errors[0].code, errors[0].message)
+    raise ApiError(default_code, "解析失败")
 
 
 def _error_body(code: str, message: str, details: dict[str, Any] | None = None) -> dict:

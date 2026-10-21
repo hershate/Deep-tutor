@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent import BudgetTracker, run_tool
@@ -53,7 +53,9 @@ class ExportIn(BaseModel):
     # err.md A17：未知格式此前静默走 md 分支（客户端拿到与请求不符的产物）
     # iter 307：Literal -> str——插件可经 api.exporters 注册新格式（Literal 会在
     # pydantic 层 422 拦截插件格式）；未知格式改由端点显式 unsupported_format 拒绝
-    format: str = "md"
+    # iter 397（E10）：补长度上限——此前无上限，几十 MB 的 format 串会被原样回显
+    # 进 400 错误信息（请求体上限 55MB，放大面）。
+    format: str = Field(default="md", max_length=64)
     wrong_only: bool = False  # iter 134：仅导出错题（最近作答判错的题），仅 anki 格式支持
 
 
