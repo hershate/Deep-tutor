@@ -424,18 +424,128 @@ def expire_stale_approvals() -> int:
         db.close()
 
 
+def cleanup_orphan_kb_files(data_dir: str | None = None) -> int:
+    """清理孤儿知识库文件（DB 已无对应行的原件/解析文本）。返回删除数量。
+
+    删除文档的顺序是「先删行提交，再尽力清文件」（api/kb.py delete_document）：
+    进程在两者之间被杀、或 Windows 文件锁让 unlink 失败（只记 WARNING），文件就
+    永远留在磁盘上——原件可达 50MB，而 data/kb 目录此前**没有任何清扫**（运维只扫
+    data/sessions/ 与 data/runs/），孤儿文件无上限地长。
+
+    判据
+    ----
+    1. **引用判据**：文件的「尾部结构键」不在任何 kb_documents 行的
+       original_path / parsed_text_path 里。用尾部键而非绝对路径比对——DB 里的
+       路径来自 ``storage._kb_root``（``Path.resolve()``，可能带 ``\\\\?\\`` 前缀
+       或 junction 解析后的形态），而扫描出来的是 ``settings.data_dir`` 下的原始
+       形态，两者**字符串形态不一致**（同一文件两种写法）——按绝对路径比对会把
+       **仍被引用的文件误判为孤儿删掉**（不可逆数据丢失）。尾部键
+       ``<user_id>/<originals|parsed>/<文件名>`` 与根路径形态无关。
+    2. **冷却窗**：mtime 在冷却窗内的文件当轮不删——KB 上传是「先落盘后建行」，
+       50MB 写入窗口内文件没有行；备份还原同理（先落文件后单事务提交行，
+       快照+重查都在提交前看，行必不存在）。
+    """
+    import time
+
+    from app.core.settings import settings
+    from app.core.storage import strip_ext_prefix
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    root = Path(data_dir or settings.data_dir) / "kb"
+    if not root.is_dir():
+        return 0
+
+    def _tail_key(p: Path | str) -> str | None:
+        """取路径尾部结构键 ``<user_id>/<originals|parsed>/<文件名>``。
+
+        形态与根路径无关（junction / ``\\\\?\\`` 前缀 / 相对 vs 绝对都不影响）。
+        不是 kb 目录布局内的路径 -> None（不参与比对）。
+        """
+        parts = Path(strip_ext_prefix(str(p))).parts
+        if len(parts) < 3:
+            return None
+        sub = parts[-2]
+        if sub not in ("originals", "parsed"):
+            return None
+        return f"{parts[-3]}/{sub}/{parts[-1]}"
+
+    def _alive_keys(db) -> set[str]:
+        """当前被 kb_documents 行引用的尾部键集合。"""
+        alive: set[str] = set()
+        for row in db.query(
+            models.KbDocument.original_path, models.KbDocument.parsed_text_path
+        ).all():
+            for p in row:
+                if not p:
+                    continue
+                key = _tail_key(p)
+                if key is not None:
+                    alive.add(key)
+        return alive
+
+    db = SessionLocal()
+    removed = 0
+    try:
+        alive = _alive_keys(db)
+        cutoff = time.time() - _grace_seconds()
+        # 第一遍：只收集候选，不删除。
+        candidates: list[Path] = []
+        for user_dir in root.iterdir():
+            if not user_dir.is_dir():
+                continue
+            for sub in ("originals", "parsed"):
+                d = user_dir / sub
+                if not d.is_dir():
+                    continue
+                for f in d.iterdir():
+                    if not f.is_file():
+                        continue
+                    try:
+                        if f.stat().st_mtime > cutoff:
+                            continue  # 冷却窗内：可能正在上传
+                    except OSError:
+                        continue  # stat 失败（并发删除/权限）：宁可不删
+                    key = _tail_key(f)
+                    if key is None or key in alive:
+                        continue
+                    candidates.append(f)
+        if not candidates:
+            return 0
+        # 第二遍：删除前重查引用集（iter 367 同款——快照与删除之间存在
+        # 「文件已落盘、行未提交」的窗口，重查把误删窗口从「整轮扫描」
+        # 缩到「一次查询往返」）。
+        alive = _alive_keys(db)
+        for f in candidates:
+            key = _tail_key(f)
+            if key is None or key in alive:
+                continue
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                log.warning("孤儿知识库文件删除失败（下轮重试）: %s", f)
+                continue
+            removed += 1
+            log.info("清理孤儿知识库文件: %s", f)
+    finally:
+        db.close()
+    return removed
+
+
 def run_maintenance() -> dict:
     """执行一轮运维（审批超时收敛 + checkpoint + 清孤儿 + 用量裁剪 + 作答裁剪 + 门控 VACUUM），返回统计。"""
     # 收敛排在清孤儿之前：超时提议的产物随后可被孤儿清理（状态已非 awaiting_approval）
     expired = expire_stale_approvals()
     removed = cleanup_orphan_session_dirs()
     removed += cleanup_orphan_run_dirs()
+    removed_files = cleanup_orphan_kb_files()
     pruned = prune_api_usage()
     pruned_attempts = prune_quiz_attempts()
     checkpoint_db()
     vacuum_db()
     return {
         "orphan_dirs_removed": removed,
+        "orphan_kb_files_removed": removed_files,
         "api_usage_pruned": pruned,
         "quiz_attempts_pruned": pruned_attempts,
         "awaiting_approval_expired": expired,
