@@ -38,6 +38,34 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 399（2026-10-22，M1.4 品牌化 + `DEEPTUTOR.md` 建档 + 门禁修复，✅ 完成）**：承接 iter 398 的「下一步」① M1.4 品牌化与 `DEEPTUTOR.md` 建档（`DEEPTUTOR.md` 此前**不存在**）。
+
+- **本轮 8 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `40e4209` | **M1.4a：把被品牌化误改的「机器认的名字」改回真实名字** | M1.4 的判据是「这句是给人看的，还是给机器认的」。首轮改写按展示名做了全量替换，但保护词表漏掉了一批**跨版本、跨渠道的契约名**。本轮逐点复扫后回退 9 类（发布渠道产物名与解包名、远端内核名、npm 安装名、更新回滚节点后缀、两处持久化 ID 的哈希域分隔符、ACP 认证方式 ID、tmux owner 选项、`app.setName`、macOS bundle 快路径），并把 4 处「以名字做匹配」的代码点改成**两种拼写都认**（远端内核探测与进程匹配、受管安装检测、MCP 粘贴命令解析、计划路由标记）。**其中 4 处是真实缺陷**：① `app.setName` 决定 Electron 的 `userData` 与单实例锁路径，改了会孤立既有桌面端 profile（设置、凭据、会话历史），且同一安装的两次启动会落到两个 profile、两个锁；② 远端内核文件名恒为 `reasonix`（来自上游发布渠道），改名后进程匹配 `*deep-tutor*serve*` 失配 → `StopCommand`/`ServeAliveCommand` 判不出「是自己的进程」→ **远端 serve 每次连接都被当成死的而重启、进程堆积**；③ `legacyMemoryID` 的哈希域分隔符改名 → 同一旧事实换个构建就换一个 ID，已持久化的引用全部失配；④ 机器会话 ID 的 HMAC 域分隔符改名 → 已发放给用户的 `session_<hex>` 恢复 ID 全部无法再解析（`run --resume` 报「no session matches」）。另修 `upgrade.go` 的「找不到本平台二进制」提示指向不存在的文件。**新增 3 组回归**（远端内核名的探测/匹配/npm 不变式、旧事实 ID 与机器会话 ID 的跨构建金标准） |
+  | `607cfb1` | **M1.4b：Go 内核与工具链的用户可见文案改写** | 358 个文件。按「保护词表先占位、再统一替换、最后还原」三步执行，保护词表覆盖 60 余项标识（上游实体、协议标识、数据路径、安装身份、环境变量、User-Agent）与「裸字面量 `reasonix` 一律视为标识符」的全局规则 |
+  | `601f400` | **M1.4c：桌面端与前端的展示名改写** | 59 个文件。`desktop/frontend-next/src/i18n/en*.ts` 的英文目录（**中文原文即 key**）与调用点成对改写，改后逐条校验：目录 3933 key / 调用点 2976 处，**「只改了一半」的断裂 0 处** |
+  | `0718bcd` | **M1.4d：文档品牌化与 `DEEPTUTOR.md` 建档** | 新增根规约 `DEEPTUTOR.md`（由上游 `docs/kernel/upstream/REASONIX.md` 转换：保留工程章节、删上游协作流程章节、新增本仓规约、sensitive 清单追加 `internal/web/{auth,session,shim}/**`），并新增一节「**Where the name is a contract, not a label**」（区分展示名与契约名的判据 + 已占用的契约清单 + 「凡以名字做匹配处两种拼写都认」的通则）。`docs/kernel/**` 36 个文件改写；`upstream/**` 与 `STUDIO_RELEASE.md` 未改；`EXTENSION_PROTOCOL.generated.md` 用生成器重生成（顺带修正陈旧 hash `085c014b…` → `31bfbac3…`） |
+  | `bf65fb5` | **M1.4e：修正构建与门禁配置** | `.goreleaser.yaml` 原文指向 M1.2 已删的 `./cmd/reasonix`（**实际已无法构建**）→ 改为 `./cmd/deep-tutor`，移除指向上游 Homebrew tap 的 cask 段；`tools/repolint/frontendtypes.go` 的 `modulePath` 漏改（M1.2 遗留）→ **前端类型一致性检查查找不到任何前端包、恒为失败**，一个静默空转的门禁；`tools/covergate/main.go` 的 sensitive 清单候选加 `DEEPTUTOR.md`；`Makefile` 产物改 `bin/deep-tutor$(GOEXE)` |
+  | `4c22dbe` | **NOTICE：登记 M1.4 修改披露** | 改写规则与保护词表说明、文件级修改表、首轮 12 项与第二轮 12 项「行为不一致」表、扩充「刻意不改的标识」清单与「同样按机器认的保留」清单 |
+  | `fa49eb6` | **修复 M1.2 改名遗留的 import 排序问题（gofmt 门禁红）** | M1.2（`fd05bf6`）批量改写 8445 处 import 路径时**没有重排 import 块**，路径前缀变了字典序位置也变了 → **全仓 415 个 Go 文件不再是 gofmt 规范格式**，`make lint` 整体红。`gofmt -w` 机械重排（414 个文件，507 增 503 删，无逻辑改动）；`gofmt -l internal cmd tools sdk desktop` 修正前 415 → 修正后 **0** |
+  | （本次） | **stage.md 回写** | 本条 |
+
+- **M1.4 的边界与判据**：只改**字符串字面量里的展示名**（产品名、CLI 命令名、界面文案、提示/日志文本），**不动**标识符、路径、协议与数据契约。判据一句话：「**这句话是给人看的，还是给机器认的**」。展示名（托盘提示、窗口标题、错误文案、版本行）改；机器认的名字（发布资产名、安装布局名、哈希域分隔符、协议 ID、写进第三方内容的标记、Electron profile 名）不改，或者改成两种拼写都认。
+
+- **`scripts/reasonix/**` 整体保持上游形态**：这是上游发布流水线（`update-acknowledgments.mjs` 写上游仓库 README 的 `<!-- reasonix-top-contributors:start -->` 标记、`feedback-sync.mjs` 的 `<!-- reasonix-feedback: -->` 标记写进 GitHub issue 正文并靠它做幂等与回复匹配、`finalize-npm-official-release.mjs` 的包名是上游实际发布的 npm 包、`brew-cask-guard` 依赖上游 tap 的 `Casks/reasonix.rb` 与 SHA256SUMS 中的 `reasonix-*` 资产名）。改名后标记找不到 → 重复发布/重复段落；npm 包名不存在 → 发布收尾失败；校验和名对不上 → cask 更新失败。按 plan 阶段④ P4.5 重写发布流水线时再定。
+
+- **门禁实测（本轮）**：`go build ./...` 全绿；`go vet ./...` 全绿；`gofmt -l internal cmd tools sdk desktop` **0**（修正前 415）；受影响包测试全通过（`frontend/cli` 110.9s、`frontend/acp`、`platform/remote/bootstrap`、`platform/repair`、`platform/update`、`platform/installlayout`、`platform/releaseasset`、`runtime/taskmonitor`、`session/control`、`ext/mcpsetup`、`contract/config`、`frontend/tui`、`tools/productdocs`、`state/memory`、`cmd/reasonix-studio-host`）；`desktop/electron` `node --test test/unit.mjs` → **134 pass / 0 fail / 5 skip**；`internal/frontend/serve` 一次 `TempDir RemoveAll cleanup: 目录非空`（AGENTS.md 已登记的 Windows 文件锁抖动），单独复跑通过。**repolint 仍红**（既存：基线未按本仓树重建，M1.5 处理）；本轮 doc-prose 违规增量实测 **+0**（改动前 +4）。
+
+- **未解决 / 遗留**：
+  - `desktop/frontend-next` 本机无 `node_modules` → 无法跑 tsc/vitest，其品牌改动**未经类型与交互测试验证**（以 i18n 目录↔调用点连通性校验替代）。
+  - Go 侧仍无多用户身份源（内核 auth gate 只有单一操作者），身份源落在阶段① M2/M3 的 `internal/web/auth`（尚不存在）。**Go 侧 tutor 面仍是单用户本地空间，不得作为多用户服务对外承诺。**
+  - Go 侧 `KbParse` 缺全局解析并发闸（仅 per-doc 锁）——与 K11 同型，但 Go 侧解析为纯本地文本抽取、CPU 成本低一个量级，且仍是单用户本地空间，登记为低优先级待身份源落地后再评估。
+
+- **下一步（按序）**：① **M1.4f 环境变量改名**：`REASONIX_*` → `DEEPTUTOR_*`（新名优先 + 旧名兜底），并同步用户级 `REASONIX_HOME=F:\Deeptutor\reasonix` 的迁移（否则回落到 `%APPDATA%\reasonix`）；② **M1.5 门禁基线重建 + CI Go job**（`make check -update` 收紧并 commit 基线，`tools/repolint/baseline.json` 仍是上游基线、含 23 条已删文件记录；CI 需含 Windows 根模块 `go test` 步骤，否则 `internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 必失败）；③ **M1.6**（`make build` 产出 `bin/deep-tutor.exe`，serve 可启动空壳）；④ **M1.3 多实例 spike**（矩阵回填 `plan/reasonix/04` §四）。
+
 **iter 398（2026-10-21，M1.2 模块改名 + 内核崩溃修复 + 落盘位置收敛到 F 盘 + 配置锁回收，✅ 完成）**：承接 iter 397 的「下一步」，并落实用户新增要求「**所有缓存/环境优先使用 F 盘已有的位置；此前若在 C 盘部署请全部清理或迁移到 F 盘对应已存在位置（只允许操作本项目自己部署的部分）**」。
 
 - **本轮 4 个 commit**：

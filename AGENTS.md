@@ -18,12 +18,12 @@
 - **内核引入后**（M1 起）：工程规约见根 [`DEEPTUTOR.md`](./DEEPTUTOR.md)（M1.4 已建档，2026-10-21），**Go 侧改动以 `DEEPTUTOR.md` 为准**；门禁命令见 `Makefile`。
   - 该文件由上游 `docs/kernel/upstream/REASONIX.md` 转换而来：保留缓存稳定、上下文投影、信任域、沙箱维度、错误身份、注释规范等工程章节，删除上游协作流程章节（PR hygiene），新增本仓规约（决策引用 note/12、stage.md 进度要求、v1 契约冻结、分层铁律、落盘位置约定）。
 
-## 仓库状态速览（2026-10-21）
+## 仓库状态速览（2026-10-22）
 
 - **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 146 operations / 120 paths、29 张 ORM 表、26 个 alembic 迁移、**188 个 `test_*.py` 测试文件（pytest 收集 1736 用例，iter 398 实测 1746 passed / 2 skipped）**；前端 19 页 SPA。
-- **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1.2 模块改名已完成（2026-10-21，commit `fd05bf6`）**：根模块 `module deep-tutor`、`desktop` 子模块 `module deep-tutor/desktop`（`replace deep-tutor => ../`）、`cmd/deep-tutor`。**M1 余项未完成**（M1.3 多实例 spike；M1.4 品牌化与 `DEEPTUTOR.md` 建档；M1.5 门禁基线重建 + CI；M1.6 `bin/deep-tutor.exe` 冒烟），见 `plan/reasonix/05` 与 `stage.md`。
+- **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1.2 模块改名已完成（2026-10-21，commit `fd05bf6`）**：根模块 `module deep-tutor`、`desktop` 子模块 `module deep-tutor/desktop`（`replace deep-tutor => ../`）、`cmd/deep-tutor`。**M1.4 品牌化与 `DEEPTUTOR.md` 建档已完成（2026-10-22，commits `40e4209`~`4c22dbe`）**：用户可见的展示名改为 Deep-tutor / Deep-tutor Studio，**机器认的名字（发布资产名、安装布局名、协议 ID、哈希域分隔符、Electron profile 名）一律不改或两种拼写都认**——判据见 `DEEPTUTOR.md` 的「Where the name is a contract, not a label」。**M1 余项未完成**（M1.3 多实例 spike；M1.4f 环境变量改名；M1.5 门禁基线重建 + CI；M1.6 `bin/deep-tutor.exe` 冒烟），见 `plan/reasonix/05` 与 `stage.md`。
 - **落盘位置（本项目自己的产物，2026-10-21 起）**：可丢弃产物统一落在 **F 盘**。Go 侧 `internal/base/scratchroot` 与 Python 侧 `backend/app/core/scratchroot.py` 同规则：调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录（本机 `F:\TEMP\deeptutor`）→ 系统临时目录。内核 home/state/cache 由用户级 `REASONIX_HOME=F:\Deeptutor\reasonix` 定位。**有意保留在 C 盘的锁根**（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）：必须让同一 OS 用户的各实例收敛到同一处，改动会让互斥失效。
-- **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。`go test ./...` 在本机固定失败的用例如下，均为环境或工作树依赖，**非代码回归**（2026-10-20 逐包串行复跑核实；2026-10-21 iter 398 全量复跑结论一致，另新增一批负载/时序敏感项）：
+- **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。**`gofmt` 已全绿**（iter 399 修掉 M1.2 改名遗留的 import 排序问题：全仓 415 个文件 → 0，`commit fa49eb6`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。`go test ./...` 在本机固定失败的用例如下，均为环境或工作树依赖，**非代码回归**（2026-10-20 逐包串行复跑核实；2026-10-21 iter 398 全量复跑结论一致，另新增一批负载/时序敏感项）：
 
 | 包 / 用例 | 失败条件 |
 |---|---|
