@@ -316,6 +316,29 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/base/testenv/home.go` | 测试隔离的 home 同时清掉两种拼写 |
 | 用户可见文案与手册（`internal/base/i18n/messages_*.go`、配置模板注释、`docs/kernel/**`、`DEEPTUTOR.md`、`AGENTS.md`、`note/08-核心基础设施.md`） | 变量名改为当前拼写；`docs/kernel/CONFIG_PATHS.md` 另有一段说明「两种拼写都有效、当前名优先」 |
 
+| `internal/runtime/tutor/verify.go`（robots 分组匹配） | robots.txt 的分组匹配改为按**实际发出的 UA 产品名**匹配（`robotAgentIsOurs()`），并同时认改名前的 `reasonix-tutor`；此前硬编码 `strings.Contains(agent, "reasonix")`，而请求带的是 `Deep-tutor-Tutor/1.0` → 站点为该 UA 声明的 `Disallow:` **读不到**，抓取器会去取被禁路径（真实行为缺陷，M1.4g） |
+| `internal/runtime/tutor/ics.go` | 日历 PRODID 由 `Reasonix` 改为 `Deep-tutor`，与 v1 侧 `backend/app/tools/build_ics.py` 对齐（两实现此前分叉） |
+| `sdk/go/**`（README.md、`sdk.go`、`fakehost_test.go`、4 个示例的 `main.go`/README、示例 `reasonix-plugin.json` 的 description） | 展示名改写（示例系统提示词 `You are Reasonix…` → `You are Deep-tutor…`、工具调用参数 `{"query":"reasonix"}` → `{"query":"deep-tutor"}`）；**模块路径与协议 ID 保持原名**，并在 README 说明理由 |
+| `desktop/README.md`、`desktop/electron/package.json`、`desktop/electron/assets/installer.nsh` | 展示文案改写；**安装身份不动**（electron-builder 的 productName `Reasonix Studio`、artifactName `ReasonixStudio-*`、`io.reasonix.studio.*` profile 目录名、Windows 卸载注册表键、macOS 应用包名与包内可执行名、`app.setName`） |
+| `internal/tools/builtin/{builtin_test.go,preview_test.go}`、`internal/runtime/promptrefine/refine_test.go` | 夹具输入与期望对齐（替换文本的输入仍是旧名、期望已是新名） |
+| `internal/model/openai/opencode_session_test.go` | **回退**测试到 `Reasonix`：User-Agent 是机器认标识，本仓规范 UA 仍是 `Reasonix/<version>` |
+| `internal/platform/releaseasset/cli_test.go` | **回退**夹具到 `reasonix.exe`：上游发布渠道的资产名不可改 |
+| `internal/frontend/cli/flag_parse_test.go` | 断言消息与断言本身相反，改消息 |
+| `cmd/reasonix-plugin-example/main.go` | 示例的展示文案改写（命令名本身不动） |
+| `tools/repolint/universe.go`（本仓新增）、`tools/repolint/{source.go,css.go,buildartifact.go,processinput.go,layers.go}` | 扫描域改为 **git 可见的树**（tracked + untracked-not-ignored），此前遍历工作树全集 → 本机的 `REF/` 副本让基线漂移；另新增 `processInputSeams` 解析缝豁免、`internal/base/scratchroot` 归入 leaves |
+| `tools/repolint/baseline.json` | 按本仓树重建基线（2173 findings / 524 files） |
+| `internal/base/envvar/doc.go`、`internal/base/scratchroot/doc.go`（本仓新增）、`internal/frontend/serve/tutor.go` | 包文档归位到 `doc.go`、注释收到限额内（repolint 门禁） |
+| `internal/runtime/agent/spawn_boundary_test.go` | 子代理构造点枚举改用 `git ls-files --cached --others --exclude-standard`（此前遍历工作树全部 `.go`、未过滤 `REF/` 副本） |
+| `internal/runtime/agent/cachehit_e2e_test.go` | 缓存守卫的三个环境变量改走 `internal/base/envvar`（`DEEPTUTOR_*` 优先 / `REASONIX_*` 兜底） |
+| `internal/safety/sandbox/shell_windir_windows.go`、`shell_windir_other.go`、`sandbox_test.go` | `systemWindowsDir` 由 `func` 改为包级 `var` 接缝，WSL 启动器的识别逻辑改由临时夹具证明——**生产行为不变**，测试不再依赖本机是否装 WSL（sensitive 路径） |
+| `internal/runtime/tutor/{quota_test.go,backup.go,tutor.go}` | golangci-lint v2.12.2 的 9 处告警（intrange / `max` / `slices.Contains`）；`backup.go` 改用 `max` 但**保留上限收敛的诊断 `add()`** |
+| `desktop/frontend-next/src/i18n/en_kernel.ts` | 补 9 条 refusal 文案的英文条目（本仓 iter397 只在 `kernel.ts` 加了中文，英文窗口会退回中文） |
+| `desktop/frontend-next/src/actions.ts` | 注册表新增 4 条：`provider.remove-cancel`、`tutor.confirm-no`、`tutor.confirm-yes`、`tutor.confirm-focus`；此前 `tutor.confirm-no/yes` 被渲染却未登记（普查 Seal E 红，普查以非零码退出） |
+| `desktop/frontend-next/src/ui/ProviderDetail.tsx` | 确认条上的「取消」按钮补 `data-action="provider.remove-cancel"`（此前是无名的输入，令未命名输入数超出上限） |
+| `desktop/frontend-next/src/ui/tutor/Confirm.tsx` | 遮罩层补 `data-action-click` / `data-action-keydown`（同一元素两个 handler 须分别声明） |
+| `desktop/frontend-next/src/ui/Providers.remove.interaction.test.tsx`、`Providers.leave-guard.interaction.test.tsx` | 两份过期规格改到与实现一致：删除服务先走确认条，测试点确认条上的第二个「删除」（这两份规格与本仓吸收的实现相矛盾——确认条是 R-Tutor 变体新增的，加的时候漏改了它们） |
+| `desktop/frontend-next/src/ui/addplugin-i18n.interaction.test.tsx` | 断言的展示名跟实现走（Reasonix → Deep-tutor） |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

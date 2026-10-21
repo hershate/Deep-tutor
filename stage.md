@@ -38,6 +38,50 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 401（2026-10-22，M1.4g 品牌化收口 + M1.5 门禁基线重建与 CI 重建 + 前端门禁收口，✅ 完成）**：承接 iter 400 的「下一步」① M1.5。iter 400 之后另有 9 个 commit 落在本条之下（品牌化半改收口 → repolint 扫描域 → 自有代码过门禁 → 门禁去本机依赖 → 基线重建 → golangci 修复 → 前端门禁收口 → CI 重建）。
+
+- **本轮 11 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `85979f4` | **M1.4g：修品牌化「半改」导致的实现与测试不一致（23 文件）** | M1.4 的判据在**成对**处才成立：测试夹具（输入）与断言、实现与用例必须一致。逐处复扫后发现 7 处半改——**1 处真实行为缺陷**：`internal/runtime/tutor/verify.go` 的 robots.txt 分组匹配仍按旧名 `strings.Contains(agent, "reasonix")`，而请求实际带 `User-Agent: Deep-tutor-Tutor/1.0` → 站点为该 UA 声明的 `Disallow:` **读不到**，抓取器会去取被禁路径；改为 `robotAgentIsOurs()` 按实际发出的 UA 产品名匹配，并同时认旧名（多绑定比漏绑定安全）。**另 6 处失败**：① `sdk/go/examples/fullsidecar/main.go`（M1.4b 只覆盖 `internal/`+`cmd/`，`sdk/go` 整个模块漏掉）：系统提示词与工具调用参数仍是旧名 → 提示词改 `You are Deep-tutor…`、工具参数 `{"query":"reasonix"}` → `{"query":"deep-tutor"}`（`b46aaed` 单独提交）；② `internal/tools/builtin/{builtin_test,preview_test}.go`：替换文本输入仍是 `reasonix`、期望已是 `deep-tutor`；③ `internal/runtime/promptrefine/refine_test.go`：`Workspace: "reasonix"` vs 期望 `deep-tutor`；④ `internal/model/openai/opencode_session_test.go`：**回退**测试到 `Reasonix`（User-Agent 是机器认标识，本仓规范 UA 仍是 `Reasonix/<version>`）；⑤ `internal/platform/releaseasset/cli_test.go`：**回退**夹具到 `reasonix.exe`（上游发布渠道名不可改）；⑥ `internal/frontend/cli/flag_parse_test.go`：断言消息与断言本身相反，改消息。其余一致性收口：`internal/runtime/tutor/ics.go` 的日历 PRODID `Reasonix` → `Deep-tutor`（v1 侧 `backend/app/tools/build_ics.py` 早已是 Deep-tutor，**两实现分叉**）；`desktop/README.md`、`desktop/electron/assets/installer.nsh`、`desktop/electron/package.json`、`cmd/reasonix-plugin-example/main.go`、`sdk/go/**`（含 4 个示例 README、示例 `reasonix-plugin.json` 的 description） |
+  | `6341b1f` | **repolint：扫描域改为「git 可见的树」** | 新增 `tools/repolint/universe.go`：`visibleFiles`（git 工作树用 `repoFiles`，非 git 目录回落遍历）、`ignoredPrefixes`/`underIgnored`、`isWorkTree`、`walkFiles`；`collect` 改用 `visibleFiles`（保留 skipDirs/点开头目录/`_generated.` 过滤，改为按路径分段判断）；`checkStrayFiles`、`rootModuleCommands` 跳过 git 忽略树。**扫描域是旧口径的子集**，故发现数只减不增：`-strict` **3306 → 2174**（其中 1118 条来自 `REF/` 副本）。**含义**：门禁从「量本机磁盘上有什么」变成「量仓里有什么」，本机副本不再让基线漂移 |
+  | `d3e10be` | **本仓自有代码过 repolint 门禁（9 文件）** | 包文档归位到 `doc.go`（新增 `internal/base/envvar/doc.go`、`internal/base/scratchroot/doc.go`）、注释收到限额内（`internal/frontend/serve/tutor.go` 头部 8 行内） |
+  | `9132d45` | **两条门禁不再取决于本机状态（4 文件）** | ① `internal/runtime/agent/spawn_boundary_test.go` 改用 `git ls-files --cached --others --exclude-standard` 枚举（此前遍历工作树全部 `.go`、未过滤 `REF/` → 本地副本被判为「未登记的子代理构造点」）；② `internal/safety/sandbox/shell_windir_{windows,other}.go`：`systemWindowsDir` 由 `func` 改为包级 `var` 接缝，`sandbox_test.go` 的 `TestIsWindowsWSLBash` 改用临时夹具（造 `System32\bash.exe`）证明识别逻辑，**不再依赖本机是否装 WSL**。**触及 sensitive 路径，生产行为不变** |
+  | `b46aaed` | **M1.4g 补漏：示例 sidecar 的工具调用参数仍是旧名（1 文件）** | `sdk/go/examples/fullsidecar/main.go` 的 `{"query":"reasonix"}` → `{"query":"deep-tutor"}` |
+  | `3a9c267` | **M1.5a：按本仓树重建 repolint 基线** | `go run ./tools/repolint -update -allow-widen` → 2173 findings / 524 files；复核 `go run ./tools/repolint` → **clean**。上限变化：收紧 `file-size` 20694→20301、`process-input` 97→87、`doc-owner` 23→0、`release-note` 661→0；抬高 `doc-prose` 2139→2551、`essay` 2682→2858、`orphan` 66→72、`complexity` 693→694、`codeowners` 0→1 |
+  | `0076e3d` | **修 golangci-lint v2.12.2 的 9 处告警，并让缓存守卫的环境变量认两种拼写** | `internal/runtime/tutor/quota_test.go` 6 处 intrange；`internal/runtime/tutor/backup.go` 改 `max` 但**保留上限收敛的诊断 add()**；`internal/runtime/tutor/tutor.go` 改 `slices.Contains`；`internal/runtime/agent/spawn_boundary_test.go` 改 `strings.SplitSeq`。另把 `internal/runtime/agent/cachehit_e2e_test.go` 的三个缓存守卫环境变量改走 `internal/base/envvar`（`DEEPTUTOR_*` 优先 / `REASONIX_*` 兜底） |
+  | `1aa3a28` | **前端门禁收口：12 处 vitest 失败全修，普查 Seal E 闭合** | 见下「前端 12 处失败的定性与修复」 |
+  | `c60b800` | **M1.5b：CI 接上 Go 内核门禁与桌面端前端门禁** | 见下「M1.5b CI 重建」 |
+  | （本次） | **stage.md / AGENTS.md / NOTICE 回写** | 本条 + AGENTS.md 门禁现状 + NOTICE 修改披露登记 |
+
+- **前端 12 处失败的定性与修复**（M1.5b 要把 `pnpm test` 接进 CI，必须先定性）：
+  - **定性方法**：在上游态 worktree（`git worktree add --detach F:\TEMP\deeptutor\upstream-fx c651c79`，node_modules 以 junction 挂入）复跑同样 5 个文件，对照本仓 HEAD 的结果。
+  - **结论**：上游态**同样红 3 文件 / 10 用例**（`actions.test.ts` ×2、`Providers.remove.interaction.test.tsx` ×7、`Providers.leave-guard.interaction.test.tsx` ×1）——**上游 CI 从不跑 `frontend-next` 的 vitest**（`docs/kernel/upstream/github/workflows/` 里只有 `pnpm build`，`pnpm test` 只用于 `workers/`），故这批红灯是随快照一起入库的上游既有债。本仓只多出 **2 处**。
+  - **本仓引入的 2 处回归（已修）**：① **i18n**：iter397 给 `src/i18n/kernel.ts` 加的 9 条 refusal 文案只有中文，英文目录 `en_kernel.ts` 缺对应条目 → 英文窗口会退回中文（`i18n.test.ts` 的「carries the wording the kernel's refusals resolve to」红）。**Go 侧 `TestEveryRefusalCodeIsTranslated` 只查 `kernel.ts` 有没有词，查不到英文目录**，故此前无人拦下 → 补 9 条英文。② `addplugin-i18n.interaction.test.tsx`：M1.4c 改了展示名（Reasonix → Deep-tutor），断言仍是旧名 → 断言跟实现走。
+  - **上游既有 10 处（已修）**：① **两份规格互相矛盾**——`Providers.remove.interaction.test.tsx`（7 处）与 `Providers.leave-guard.interaction.test.tsx`（1 处）写的是「单击删除即删」，而本仓吸收的实现（`ProviderDetail.tsx`）在标题栏「删除」下**先弹确认条**（删除会连同存储的密钥一起消失，界面无法恢复）。查上游 `esengine/DeepSeek-Reasonix@studio`：`ProviderDetail.tsx` 至今**无确认条**（单击即删），也**不存在** `ProviderDetail.remove.interaction.test.tsx`（404），而 `Providers.remove.interaction.test.tsx` 与本仓快照**逐字相同** → 确认条是 R-Tutor 变体自己加的，加的时候漏改了这两份旧规格。**决策：保留已吸收的实现**（不可撤销的密钥删除应当先问，且变体为它专门写了测试），把两份过期规格改到与实现一致（点击确认条上的第二个「删除」）；`leave-guard` 那条的标题也改准——「no question」指的是**没有离开守卫问题**，不是没有确认条。② **普查 Seal E 红**：`tutor.confirm-no/yes` 被渲染却没登记在 `src/actions.ts`；且未命名输入 **221 > 上限 218**。多出的 3 个未命名输入**正好是变体新增代码带来的**：`ProviderDetail.tsx` 确认条的「取消」按钮、`tutor/Confirm.tsx` 遮罩层的 click 与 keydown（同一元素两个 handler → 须用 `data-action-<event>` 分别声明）→ 给这 3 个输入补身份并在注册表登记 4 条（`provider.remove-cancel`、`tutor.confirm-no/yes`、`tutor.confirm-focus`），未命名输入回到 **218**，与既有上限相等，**不需要抬高上限**。
+  - **门禁实测**：`pnpm test` → **549 文件 / 4683 用例全绿**（此前 5 文件 / 12 用例红）；`pnpm census` → **exit 0**（此前 exit 1，Seal E 由 OPEN 转 held）；`pnpm census:verify` → 通过；`pnpm build` → 通过。
+
+- **M1.5b CI 重建**（`.github/workflows/ci.yml`）：保留 v1 的 `backend`（ubuntu+windows 矩阵）与 `frontend` job；新增 `go-lint`（ubuntu：gofmt / go vet / golangci-lint action `golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9` + `version: v2.12.2`（钉在 `.golangci-version`）/ repolint / desktop 子模块 vet+build+golangci）；新增 `go-test`（ubuntu+windows 矩阵：build → 根模块 `go test ./... -count=1 -p 4 -timeout 30m`（step `timeout-minutes: 75`，env `DEEPTUTOR_RELEASE_CACHE_GUARD=1`）→ desktop 子模块（`working-directory: desktop`）→ sdk 子模块（`working-directory: sdk/go`））；新增 `desktop-frontend`（ubuntu：pnpm → build → test → **census → census:verify** → Electron `node --test test/unit.mjs`）。
+  - **三处参数的理由**：① Windows 上跑的根模块 `go test` 一律 `-count=1`——开着结果缓存时 go test 会在运行前后各做一次 `filepath.EvalSymlinks`，`internal/assembly/boot` 记了约 190 万条路径，在 Windows runner 上光这一步就要几分钟且不打印任何东西（`internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 守的就是这一条形状）；② 单包 `-timeout 30m`——`internal/assembly/boot` 本机 975–1340 秒，超过 Go 默认 600 秒上限，`go test ./...` 一次性跑必然 timeout panic；③ `-p 4`——满并发时一批与负载/时序敏感的用例会假失败（逐包串行复跑全绿）。
+  - **三个模块分别测**：根模块 / `desktop` / `sdk/go`——后两个是**嵌套 module**，根目录的 `go test ./...` 看不见它们（上游就是这么漏的）。
+  - **实测**：本机 YAML 解析通过；`TestWindowsCILegsBypassTheTestResultCache` **PASS**（CI 形状满足）。
+
+- **本轮的其他决策**：
+  - **CODEOWNERS**：本仓只有一位维护者，而规则要求两个不同 owner，且有 CODEOWNERS 才会对每份文档查 owner 头（会让 50+ 份上游文档转红）→ **不编造第二个维护人**，codeowners 1 条入基线，**列为待用户定夺项**。
+  - **`doc-prose` 债入基线**：本仓根文档（`DEEPTUTOR.md`/`AGENTS.md`/`API.md`/`README.md`）与上游 `docs/kernel/**` 的长段落一律入基线（上游基线里同一份 `REASONIX.md` 就记着 90 条）——纯排版改动会掩盖真实 diff。列为后续项。
+  - **`orphan` 2 条保留**：`SetTutorSpaceResolver`/`SetTutorSpaceService` 是阶段① M2/M3 身份源（`internal/web/auth`）的缝，删了以后还要再写；接了以后基线自然收紧。
+  - **主题 author 字段保持 `Reasonix`/`Reasonix Contributors`**：主题美术是上游原创并有 provenance 声明，改了是错误署名。
+
+- **门禁实测（本轮）**：`go build ./...` 全绿；`go vet ./...` 全绿；`gofmt -l internal cmd tools sdk desktop` = **0**；`golangci-lint run --timeout=15m ./...`（根模块）→ **0 issues**，`desktop` 子模块同 → **0 issues**；`go run ./tools/repolint` → **clean**（2173 baselined findings）；`go test ./tools/repolint/` 全通过；前端 `pnpm test` / `pnpm census` / `pnpm census:verify` / `pnpm build` 全绿。
+
+- **未解决 / 遗留**：
+  - 上游既有红灯 10 处**已修**（改的是规格与注册表，未改已吸收的行为）；但**上游 CI 仍不跑前端 vitest**，故本仓 CI 里这一步是本仓新增的义务。
+  - Go 侧仍无多用户身份源（内核 auth gate 只有单一操作者），身份源落在阶段① M2/M3 的 `internal/web/auth`（尚不存在）。**Go 侧 tutor 面仍是单用户本地空间，不得作为多用户服务对外承诺。**
+  - `internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 此前登记为「环境性失败」，**本轮起不再是**（CI 已含 Windows 根模块 `go test` 且带 `-count=1`）。
+
+- **下一步（按序）**：① **M1.6**：`make build` 产出 `bin/deep-tutor.exe` 并冒烟（`version`/`--help` 已跑通，仍需 stage.md 收口，并考虑 serve 可启动空壳）；② **M1.3 多实例 spike**（矩阵回填 `plan/reasonix/04` §四）；③ **待用户定夺**：v1 侧分享链接是否跟进 7 天期限；**CODEOWNERS 主/备维护人**（基线里 codeowners 1 条待此项决定）。
+
 **iter 400（2026-10-22，M1.4f 环境变量改名，✅ 完成）**：承接 iter 399 的「下一步」① M1.4f。产品读了哪些环境变量，是它的一部分；变量跟着产品名一起改，**但旧名必须继续有效**——改名前设过变量的机器（包括正是为了把数据留在非系统盘而设的那些）不能因此找不到自己的 home。
 
 - **本轮 2 个 commit**：

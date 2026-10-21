@@ -10,7 +10,7 @@
     "css-size": 9846,
     "doc-language": 0,
     "doc-owner": 0,
-    "doc-prose": 2551,
+    "doc-prose": 2582,
     "error-text": 9,
     "essay": 2858,
     "file-size": 20301,
@@ -35,7 +35,7 @@
       "codeowners": 1
     },
     "AGENTS.md": {
-      "doc-prose": 27
+      "doc-prose": 31
     },
     "API.md": {
       "doc-prose": 50
@@ -1744,7 +1744,7 @@
       "doc-prose": 1
     },
     "stage.md": {
-      "doc-prose": 883
+      "doc-prose": 910
     },
     "tools/repolint/orphan.go": {
       "essay": 2
