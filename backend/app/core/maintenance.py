@@ -361,8 +361,73 @@ def prune_quiz_attempts(batch: int = 2000) -> int:
         db.close()
 
 
+def expire_stale_approvals() -> int:
+    """收敛超时的**待审批提议**（iter 397 A2/A17）。返回收敛数量。
+
+    ``promote_artifact`` 提议后 run 停在 ``awaiting_approval``——此前**没有任何出口**：
+    ``cancel_run`` 只受理仍在流注册表内的 run（finalize 已摘除 -> 恒 409
+    ``not_running``），也没有过期机制 -> 提议永久占位（run 行不落终态、产物目录
+    永不清理、用户也无法放弃）。现：超时（``settings.awaiting_approval_ttl_seconds``，
+    默认 24h）未处理的提议收敛为 ``cancelled``——``RunStatus.cancelled`` 此前在运行时
+    从不写入，此处是它的首个真实写入点。
+
+    判据取**提议产生时刻**（最新 approval 步骤的 created_at）而非 run 起始时刻：
+    长 run 的起始时刻远早于提议产生时刻，用它会把刚提出的提议误判为超时。
+    无 approval 步骤（数据异常）时回退 run.started_at。0 = 禁用（永不自动收敛）。
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.settings import settings
+
+    ttl = int(settings.awaiting_approval_ttl_seconds)
+    if ttl <= 0:
+        return 0
+    from app.db import models
+    from app.db.base import SessionLocal
+
+    # 列为 naive UTC（server_default=func.now()）——转 naive 再比较
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl)).replace(tzinfo=None)
+    db = SessionLocal()
+    expired = 0
+    try:
+        candidates = (
+            db.query(models.Run)
+            .filter(
+                models.Run.status == models.RunStatus.awaiting_approval,
+                models.Run.started_at < cutoff,
+            )
+            .all()
+        )
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for r in candidates:
+            step = (
+                db.query(models.RunStep)
+                .filter_by(run_id=r.id, type="approval")
+                .order_by(models.RunStep.id.desc())
+                .first()
+            )
+            ts = step.created_at if (step is not None and step.created_at is not None) else r.started_at
+            if ts is None or ts >= cutoff:
+                continue
+            r.status = models.RunStatus.cancelled
+            r.ended_at = now
+            expired += 1
+        if expired:
+            db.commit()
+            log.info("待审批提议超时收敛：%d 个 run -> cancelled", expired)
+        return expired
+    except Exception:  # noqa: BLE001 - 收敛失败不拖垮运维轮
+        db.rollback()
+        log.warning("待审批提议超时收敛失败（下轮重试）", exc_info=True)
+        return 0
+    finally:
+        db.close()
+
+
 def run_maintenance() -> dict:
-    """执行一轮运维（checkpoint + 清孤儿 + 用量裁剪 + 作答裁剪 + 门控 VACUUM），返回统计。"""
+    """执行一轮运维（审批超时收敛 + checkpoint + 清孤儿 + 用量裁剪 + 作答裁剪 + 门控 VACUUM），返回统计。"""
+    # 收敛排在清孤儿之前：超时提议的产物随后可被孤儿清理（状态已非 awaiting_approval）
+    expired = expire_stale_approvals()
     removed = cleanup_orphan_session_dirs()
     removed += cleanup_orphan_run_dirs()
     pruned = prune_api_usage()
@@ -373,6 +438,7 @@ def run_maintenance() -> dict:
         "orphan_dirs_removed": removed,
         "api_usage_pruned": pruned,
         "quiz_attempts_pruned": pruned_attempts,
+        "awaiting_approval_expired": expired,
     }
 
 

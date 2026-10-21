@@ -540,7 +540,29 @@ def delete_run(run_id: int, user=Depends(get_current_user), db: Session = Depend
 
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _owned_run(db, run_id, user)
+    r = _owned_run(db, run_id, user)
+    # iter 397（A2/A17）：受理**待审批** run——promote_artifact 提议后 run 停在
+    # awaiting_approval，而 finalize 已把该 run 的流从注册表摘除 -> 此前恒 409
+    # not_running，用户**无法放弃**该提议（提议永久占位：run 行不落终态、
+    # 产物目录永不清理）。现把待审批提议收敛为 cancelled。
+    if r.status == models.RunStatus.awaiting_approval:
+        # CAS（与 approve_promote 同一「状态抢占」语义）：并发 approve 已提交时
+        # 本请求失配退出——不得把已审批（done）的 run 改回 cancelled。
+        claimed = (
+            db.query(models.Run)
+            .filter(
+                models.Run.id == run_id,
+                models.Run.status == models.RunStatus.awaiting_approval,
+            )
+            .update(
+                {"status": models.RunStatus.cancelled, "ended_at": func.now()},
+                synchronize_session=False,
+            )
+        )
+        if claimed:
+            db.commit()
+            return {"ok": True, "status": models.RunStatus.cancelled.value}
+        db.rollback()
     if run_id in _RUN_STREAMS:
         # iter 367 双保险硬取消 + iter 369 抽出共用（delete_thread/delete_user 同口径）
         _cancel_run_stream(run_id)
@@ -769,7 +791,9 @@ async def start_run(
             stream,
             max_steps=body.max_steps or 25,
             thinking=body.thinking,
-            model_override=body.model,
+            # iter 397（A10）：生效模型 = 请求指定 > 会话默认（thread.model）——
+            # 二者此前只写进 runs.model，provider 从不采用。
+            model_override=model or None,
         )
     )
     _CHAT_RUN_TASKS.add(task)  # 持强引用防 create_task 被 GC 中途回收（iter 363）
@@ -1032,10 +1056,26 @@ async def _run_chat(
     db = SessionLocal()
     try:
         try:
-            provider = get_provider(user_id, db=db)  # iter 366：复用本会话，免再开短会话
+            # iter 397（A10）：model 覆盖贯通——客户端/会话指定的模型**真正生效**
+            # （此前 model_override 只写进 runs.model，provider 仍用档案/默认模型
+            # -> 界面「看起来可切、实际不切」）。
+            provider = get_provider(user_id, db=db, model=model_override)
         except RuntimeError:
             stream.publish("error", {"code": "no_llm_provider", "message": "未配置 LLM 供应商"})
             return
+        # iter 397（A10）：实际模型**回写 runs.model**——此前 runs.model 存的是请求里
+        # 的模型名（客户端未指定时为空），真实模型在档案/默认值里 -> run 详情、
+        # 用量页与实际调用对不上。回写失败不阻断对话（仅记录）。
+        actual_model = getattr(provider, "_model", "") or ""
+        if actual_model:
+            try:
+                run_row = db.get(models.Run, run_id)
+                if run_row is not None and run_row.model != actual_model:
+                    run_row.model = actual_model
+                    db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
+                log.warning("回写 run 实际模型失败（run_id=%s）", run_id, exc_info=True)
         # 仅 Anthropic 协议支持原生 tool_use；plugin provider 拒绝（phase 1）
         if not isinstance(provider, AnthropicProvider):
             stream.publish(

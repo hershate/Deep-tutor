@@ -1553,6 +1553,46 @@ export interface MemoryItem {
   updated_at: string | null
 }
 
+// iter 397（A2）：运行/产物/步骤 + 审批（approve）——前端此前完全没有这组调用，
+// 待审批提议对用户不可见（既不能批准也不能放弃）。
+export interface RunInfo {
+  id: number
+  thread_id: number
+  kind: string
+  status: string
+  step_count: number
+  budget_used: number
+  model: string
+  error: unknown
+  started_at: string | null
+  ended_at: string | null
+}
+
+export interface RunArtifact {
+  id: number
+  name: string
+  kind: string
+  size: number
+  promoted_to: string | null
+}
+
+export interface RunStep {
+  id: number
+  step_index: number
+  type: string
+  name: string
+  input: Record<string, unknown>
+  output: unknown
+  status: string
+  stop_reason: string | null
+  tokens_in: number
+  tokens_out: number
+  cost: number
+  model: string
+  duration_ms: number
+  created_at: string | null
+}
+
 export const listThreads = (page = 1) =>
   apiFetch<{ items: Thread[]; total: number }>(`/threads?page=${page}`)
 export const createThread = (body: { title?: string; kind?: string }) =>
@@ -1568,3 +1608,18 @@ export const listThreadMemory = (id: number) =>
   apiFetch<{ items: MemoryItem[]; total: number }>(`/threads/${id}/memory`)
 export const addThreadMemory = (id: number, body: { content: string; kind?: string }) =>
   apiFetch<MemoryItem>(`/threads/${id}/memory`, { method: 'POST', body: JSON.stringify(body) })
+
+// iter 397（A2）：运行查询与审批
+export const listThreadRuns = (id: number) => apiFetch<{ items: RunInfo[] }>(`/threads/${id}/runs`)
+export const getRun = (runId: number) => apiFetch<RunInfo>(`/runs/${runId}`)
+export const listRunArtifacts = (runId: number) => apiFetch<{ items: RunArtifact[] }>(`/runs/${runId}/files`)
+export const listRunSteps = (runId: number) => apiFetch<{ items: RunStep[] }>(`/runs/${runId}/steps`)
+/** 批准待审产物（提升为正式笔记/方案） */
+export const approveRun = (runId: number, body: { artifact_id?: number; target_kind?: string } = {}) =>
+  apiFetch<{ ok: boolean; promoted_to: string; name: string; target_kind: string }>(`/runs/${runId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+/** 放弃运行：进行中 -> 硬取消；待审批 -> 收敛为 cancelled（iter 397 A2/A17） */
+export const cancelRun = (runId: number) =>
+  apiFetch<{ ok: boolean; status?: string }>(`/runs/${runId}/cancel`, { method: 'POST' })

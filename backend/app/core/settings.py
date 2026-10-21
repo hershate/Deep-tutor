@@ -161,6 +161,13 @@ class Settings(BaseSettings):
     orphan_grace_seconds: int = Field(
         default=86_400, ge=0, description="孤儿目录 mtime 冷却窗秒数（默认 24h，窗口内不删）"
     )
+    # iter 397（A2/A17）：待审批提议（run 停在 awaiting_approval）的过期收敛秒数——
+    # 此前该状态**无任何出口**（cancel_run 只受理在流内的 run，也没有过期机制）->
+    # 提议永久占位：run 行不落终态、产物目录永不清理、用户无法放弃。超时未处理
+    # 的提议由维护轮收敛为 cancelled。0 = 禁用（永不自动收敛）。
+    awaiting_approval_ttl_seconds: int = Field(
+        default=86_400, ge=0, description="待审批提议过期秒数（默认 24h，0=禁用）"
+    )
 
     # iter 372 R15（待追认缺省）：分享链接默认有效期天数——公开只读链接此前永久有效，
     # 「遗忘的链接长期暴露」是网络服务面的已知风险；0 = 恢复永久有效。

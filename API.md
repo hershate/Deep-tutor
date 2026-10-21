@@ -1798,8 +1798,8 @@ for (;;) {
 | POST | `/api/threads/{id}/runs` | **Agent 对话 SSE**（见 §11.3） |
 | GET | `/api/threads/{id}/runs/active` | 附流到当前 running run（切回/多标签续看；404 `no_active_run`/`no_active_stream` 时前端改走拉消息） |
 | GET | `/api/threads/{id}/runs`、`/api/runs/{id}`、`/api/runs/{id}/steps` | 运行列表/详情/步骤 |
-| DELETE/POST | `/api/runs/{id}`、`/api/runs/{id}/cancel` | 删运行（非 running）/ 取消 |
-| POST | `/api/runs/{id}/approve` | 用户确认草稿提升（promote） |
+| DELETE/POST | `/api/runs/{id}`、`/api/runs/{id}/cancel` | 删运行（非 running）/ 取消。iter 397 勘误：**cancel 额外受理 `awaiting_approval`**（待审批提议）-> 收敛为 `cancelled`（此前只受理仍在流注册表内的 run，待审批恒 409 `not_running`，用户无法放弃提议） |
+| POST | `/api/runs/{id}/approve` | 用户确认草稿提升（promote）。仅 `awaiting_approval` 可批（否则 409 `not_awaiting_approval`）；`target_kind` 支持 `note`/`plan`（`material` 不再受理，见 §11.4） |
 | GET | `/api/runs/{id}/files[/{name}]` | 工作区产物列表/读 |
 | GET/POST/DELETE | `/api/threads/{id}/memory[/{mid}]`、`/api/memory[/{mid}]` | 记忆库 CRUD（thread / user 作用域）。iter 372 勘误：thread 列表返回最近 200 条 + `total` 全量计数（此前无界全量，最坏 ~40MB 单响应） |
 
@@ -1809,6 +1809,11 @@ for (;;) {
 超界 422。配额拒绝：每 thread 已有 running run -> `409 run_already_running`；全局并发满 ->
 `503 chat_run_busy`；当日预算耗尽 -> `402 budget_exceeded`。响应 `text/event-stream`（fetch+ReadableStream
 携带鉴权头，复用 [sse.ts](frontend/src/lib/sse.ts)）。事件：
+
+- **模型（iter 397 勘误）**：`model` **真正生效**——生效模型 = 请求 `model` > 会话 `thread.model` >
+  供应商档案 model > `settings.anthropic_model`，并**回写 `runs.model`**（此前只写进 `runs.model`，
+  provider 恒用档案/默认模型 -> 界面「看起来可切、实际不切」，且 `runs.model` 与实际调用模型对不上）。
+  `run_start` 事件的 `model` 为**实际**模型。
 
 ```
 event: run_start     data: { run_id, model }
@@ -1844,6 +1849,19 @@ event: done          data: { run_id, status }    # 终态
 置 `workspace_committed`) → 用户 `approve` `promote`(copy 进 plans/materials/notes)。
 崩溃恢复：startup 把 `runs.running` 收敛为 `interrupted`（弃用 resume，改新 run 续——历史在
 messages）；孤儿 scratch/无效 committed 由 maintenance 清理。
+
+**审批提议的三个出口（iter 397 勘误）**：`promote_artifact` 提议后 run 停在 `awaiting_approval`，
+此前该状态**无任何出口**（既不能批准、也不能放弃、也不会过期 -> 提议永久占位，产物目录永不清理）。
+现为三条：
+
+1. **批准**：`POST /api/runs/{id}/approve`（`target_kind`：`note`/`plan`；`material` 不再受理）->
+   产物落正式库，run -> `done`。
+2. **放弃**：`POST /api/runs/{id}/cancel` -> run -> `cancelled`（CAS 抢占，与 approve 互斥：
+   并发 approve 已提交时 cancel 失配退出，不会把已审批的 run 改回 cancelled）。
+3. **过期**：维护轮按 `settings.awaiting_approval_ttl_seconds`（默认 86400 = 24h，0 = 禁用）
+   收敛超时未处理的提议 -> `cancelled`。判据取**提议产生时刻**（最新 `approval` 步骤的
+   `created_at`）而非 run 起始时刻（长 run 的起始时刻远早于提议，用它会误杀刚提出的提议）。
+   收敛统计见维护轮返回的 `awaiting_approval_expired`。
 
 ### 11.6 插件门面 `api.memory`（= `api.threads`，v1.19.0）
 

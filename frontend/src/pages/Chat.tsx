@@ -21,6 +21,11 @@ import {
   listMessages,
   listThreads,
   listThreadMemory,
+  approveRun,
+  cancelRun,
+  listRunArtifacts,
+  listRunSteps,
+  listThreadRuns,
   type ChatMessage,
   type Thread,
   type MemoryItem,
@@ -37,6 +42,14 @@ interface Streaming {
   text: string
   thinking: string
   tools: Record<string, ToolChip>
+}
+
+// iter 397（A2）：待审批提议卡片的数据（run 停在 awaiting_approval 时的产物与目标）
+interface Approval {
+  runId: number
+  name: string
+  targetKind: string
+  artifactId?: number
 }
 
 function blocksText(content: unknown): string {
@@ -73,6 +86,10 @@ export default function Chat() {
   const [pendingUser, setPendingUser] = useState<string | null>(null) // 乐观渲染的用户消息（iter 360 BUG-5）
   const [error, setError] = useState('')
   const [showMemory, setShowMemory] = useState(false)
+  // iter 397（A2）：待审批提议（run 停在 awaiting_approval）——此前前端从不读
+  // done.status，提议对用户完全不可见：既不能批准，也不能放弃。
+  const [approval, setApproval] = useState<Approval | null>(null)
+  const [approving, setApproving] = useState(false)
 
   // 生命周期/重连控制（iter 360）
   const abortRef = useRef<AbortController | null>(null) // 当前会话的 SSE 中止器（切走/切会话即 abort）
@@ -153,6 +170,30 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, threadsQ.data])
 
+  // iter 397（A2）：切会话时恢复该会话的待审批提议（刷新页面/切走再切回后卡片
+  // 仍应存在——提议是服务端状态，不是前端一次性提示）
+  useEffect(() => {
+    if (activeId == null) {
+      setApproval(null)
+      return
+    }
+    let cancelled = false
+    listThreadRuns(activeId)
+      .then((r) => {
+        if (cancelled) return
+        const pending = r.items.find((x) => x.status === 'awaiting_approval')
+        if (pending) void loadApproval(pending.id)
+        else setApproval(null)
+      })
+      .catch(() => {
+        /* 拉取失败不打扰用户：卡片缺失只是少一个入口，提议仍可在服务端被处理 */
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId])
+
   // run done 后待 messages 刷新落定再清流式气泡 + 乐观消息（持久化消息已就位，免闪烁 BUG-6）
   useEffect(() => {
     if (doneRef.current != null && !msgsQ.isFetching && doneRef.current === activeId) {
@@ -198,6 +239,29 @@ export default function Chat() {
       /* 翻页失败静默：按钮保留，用户可重试 */
     } finally {
       setLoadingEarlier(false)
+    }
+  }
+
+  // iter 397（A2）：拉取待审批提议的详情（最新 approval 步骤 + 对应产物）
+  async function loadApproval(runId: number) {
+    try {
+      const [steps, files] = await Promise.all([listRunSteps(runId), listRunArtifacts(runId)])
+      const step = [...steps.items].reverse().find((s) => s.type === 'approval')
+      if (!step) {
+        setApproval(null)
+        return
+      }
+      const input = (step.input ?? {}) as Record<string, unknown>
+      const artifactId = typeof input.artifact_id === 'number' ? input.artifact_id : undefined
+      const art = files.items.find((a) => a.id === artifactId)
+      setApproval({
+        runId,
+        name: String(input.name ?? art?.name ?? '未命名产物'),
+        targetKind: String(input.target_kind ?? 'note'),
+        artifactId,
+      })
+    } catch {
+      setApproval(null)
     }
   }
 
@@ -248,6 +312,11 @@ export default function Chat() {
         doneRef.current = tid
         queryClient.invalidateQueries({ queryKey: ['messages', tid] })
         queryClient.invalidateQueries({ queryKey: ['threads'] })
+        // iter 397（A2）：终态 status=awaiting_approval -> 渲染待审卡片
+        // （此前 done 分支不读 status -> 提议对用户完全不可见）
+        if (d.status === 'awaiting_approval' && typeof d.run_id === 'number') {
+          void loadApproval(d.run_id)
+        }
       }
     }
   }
@@ -330,6 +399,53 @@ export default function Chat() {
     if (!text || !activeId || stream) return
     setInput('')
     await startRun(activeId, text)
+  }
+
+  // iter 397（A2）：后端错误体的 message 即 detail 串——映射为可读文案
+  function approvalErrText(e: unknown, fallback: string): string {
+    const msg = e instanceof Error ? e.message : ''
+    const map: Record<string, string> = {
+      not_awaiting_approval: '该提议已被处理或已过期',
+      artifact_not_found: '产物不存在或不属于本次运行',
+      file_missing: '产物文件已不存在',
+      quota_exceeded: '笔记数量已达上限',
+      thread_has_no_session: '该对话未绑定学习会话，无法提升为方案',
+      material_promote_not_supported: '暂不支持提升为材料',
+    }
+    return map[msg] ?? msg ?? fallback
+  }
+
+  async function doApprove() {
+    if (!approval || approving) return
+    setApproving(true)
+    try {
+      const body: { artifact_id?: number; target_kind?: string } = { target_kind: approval.targetKind }
+      if (approval.artifactId != null) body.artifact_id = approval.artifactId
+      const res = await approveRun(approval.runId, body)
+      setApproval(null)
+      toast.success(res.target_kind === 'plan' ? '已提升为方案' : '已提升为笔记')
+      if (activeId != null) queryClient.invalidateQueries({ queryKey: ['messages', activeId] })
+      queryClient.invalidateQueries({ queryKey: ['threads'] })
+    } catch (e) {
+      toast.error(approvalErrText(e, '批准失败，请重试'))
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  async function doReject() {
+    if (!approval || approving) return
+    setApproving(true)
+    try {
+      await cancelRun(approval.runId)
+      setApproval(null)
+      toast.info('已放弃该提议')
+      queryClient.invalidateQueries({ queryKey: ['threads'] })
+    } catch (e) {
+      toast.error(approvalErrText(e, '放弃失败，请重试'))
+    } finally {
+      setApproving(false)
+    }
   }
 
   function selectThread(id: number) {
@@ -492,6 +608,44 @@ export default function Chat() {
               {/* 乐观渲染的用户消息：发送即显示，done 后由消息刷新取代（iter 360 BUG-5） */}
               {pendingUser && <MessageBubble role="user" content={pendingUser} />}
               {streaming && <StreamingBubble stream={streaming} />}
+              {/* iter 397（A2）：待审批提议卡片——批准提升为笔记/方案，或放弃该提议 */}
+              {approval && (
+                <div
+                  role="status"
+                  className="mx-auto max-w-md rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950"
+                >
+                  <p className="font-medium text-amber-900 dark:text-amber-100">助手提交了一份待确认的产出</p>
+                  <p className="mt-1 break-all text-amber-800 dark:text-amber-200">{approval.name}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-amber-700 dark:text-amber-300">提升为</span>
+                    <select
+                      aria-label="提升目标"
+                      value={approval.targetKind}
+                      disabled={approving}
+                      onChange={(e) => setApproval((a) => (a ? { ...a, targetKind: e.target.value } : a))}
+                      className="rounded border border-amber-300 bg-white px-1 py-0.5 text-xs dark:border-amber-700 dark:bg-slate-800"
+                    >
+                      <option value="note">笔记</option>
+                      <option value="plan">方案</option>
+                    </select>
+                    <button
+                      onClick={() => void doApprove()}
+                      disabled={approving}
+                      className="rounded bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {approving ? '处理中…' : '批准'}
+                    </button>
+                    <button
+                      onClick={() => void doReject()}
+                      disabled={approving}
+                      className="rounded border border-amber-300 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-900"
+                    >
+                      放弃
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">超过 24 小时未处理的提议将自动过期。</p>
+                </div>
+              )}
               {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>}
               <div ref={bottomRef} />
             </div>

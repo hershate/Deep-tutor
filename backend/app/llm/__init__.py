@@ -108,7 +108,7 @@ def get_active_max_tokens(user_id: int | None = None, db=None) -> int | None:
         return None
 
 
-def get_provider(user_id: int | None = None, db=None) -> LLMProvider:
+def get_provider(user_id: int | None = None, db=None, model: str | None = None) -> LLMProvider:
     """构造 LLM Provider，三级回退（iter 50/58/223）：
 
     1. DB active LLM 供应商档案（自定义 base_url/model）；
@@ -120,7 +120,12 @@ def get_provider(user_id: int | None = None, db=None) -> LLMProvider:
     档案的 base_url/model 为空时分别回退官方端点 / settings.anthropic_model。
     三者皆无 -> 抛 RuntimeError（功能级必填，见 settings.validate_feature_keys）。
     iter 366：db 传入时复用（避免每次生成开多条短会话 churn 连接池）。
+    iter 397（A10）：``model`` 显式覆盖——客户端在请求里指定的模型**真正生效**。
+    此前 RunIn.model 只写进 ``runs.model``，provider 仍用档案/默认模型 -> 界面
+    「看起来可切、实际不切」。覆盖优先级：显式 model > 档案 model > 插件
+    default_model > settings.anthropic_model（凭证档案档与 .env 档同此优先级）。
     """
+    override = (model or "").strip()
     profile = get_active_profile(user_id, db=db)
     if profile is not None:
         # iter 394：出站目标私网防护（**字面量**判定：纯计算不触网，可在事件循环
@@ -151,24 +156,24 @@ def get_provider(user_id: int | None = None, db=None) -> LLMProvider:
                 )
             return PluginProvider(
                 entry,
-                model=profile["model"] or entry.default_model or settings.anthropic_model,
+                model=override or profile["model"] or entry.default_model or settings.anthropic_model,
                 api_key=profile["api_key"],
                 base_url=profile.get("base_url") or "",
             )
         return AnthropicProvider(
             api_key=profile["api_key"],
-            model=profile["model"] or settings.anthropic_model,
+            model=override or profile["model"] or settings.anthropic_model,
             base_url=profile["base_url"] or None,
         )
     credential = get_active_credential(user_id, KIND_ANTHROPIC, db=db)
     if credential is not None:
         return AnthropicProvider(
             api_key=credential["api_key"],
-            model=settings.anthropic_model,
+            model=override or settings.anthropic_model,
         )
     if not settings.anthropic_key_configured:
         raise RuntimeError("ANTHROPIC_API_KEY 未配置且无生效供应商/Key 档案，无法构造 LLM Provider")
     return AnthropicProvider(
         api_key=settings.anthropic_api_key,
-        model=settings.anthropic_model,
+        model=override or settings.anthropic_model,
     )
