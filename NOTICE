@@ -227,6 +227,16 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 
 **Python v1 侧**（本仓自有代码，不在上表）：`backend/app/core/scratchroot.py` 新增（与 Go 侧同规则），`backend/app/core/settings.py` 在模块导入期把 `tempfile.tempdir` 指向 scratch 目录，`backend/tests/conftest.py` 的测试库/数据/技能/插件目录改到 `<scratch>\v1`。
 
+**代码级修改（2026-10-21，配置编辑锁注册表回收机制）**：上游的锁注册表按「每个被编辑过的配置路径一个锁文件」组织，且**只增不减**——上游注释写明「删掉锁文件会破坏仍持有它的进程的互斥」。该注册表按 OS 用户收敛在 `~/.reasonix/locks/config-edits-<uid 摘要>/`，而测试夹具每轮给一个独立 home、每轮产生一个新配置路径，于是注册表无界增长：本机实测累积 **52099 个 0 字节锁文件**。
+
+新增回收：仅回收**同时**满足两个条件的文件——时间戳显示已闲置超过 24 小时、且其锁可被获取（说明无人持有）。每次进程内每个注册表只清扫一次，单次回收上限 1000 个文件、2 秒预算（积压分批排空，不在一次编辑里卡住）。另在每次成功加锁后刷新锁文件时间戳，使「在用」的锁文件不会被误判为闲置。锁根位置（收敛点）本身未改。
+
+| 文件 | 修改 |
+|---|---|
+| `internal/contract/config/config_edit_lock_sweep.go` | 本仓新增：`sweepConfigEditLocks` / `sweepConfigEditLocksOnce`（闲置且无人持有的锁文件回收）、`touchConfigEditLock`（加锁后刷新时间戳） |
+| `internal/contract/config/mutate.go` | `acquireConfigEditLockPath` 加锁成功后调用 `touchConfigEditLock` 并触发一次清扫 |
+| `internal/contract/config/config_edit_lock_sweep_test.go` | 本仓新增：3 条回归（闲置回收 / 在用与被持有的不回收 / 每进程每注册表只清扫一次） |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

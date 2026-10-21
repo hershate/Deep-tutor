@@ -229,6 +229,8 @@ func acquireConfigEditLockPath(ctx context.Context, lockPath string) (func(), er
 	if err != nil {
 		return nil, fmt.Errorf("lock config edits: %w", err)
 	}
+	touchConfigEditLock(lockPath)
+	sweepConfigEditLocks(lockDir)
 	return unlockFile, nil
 }
 
