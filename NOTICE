@@ -98,6 +98,24 @@
 | `internal/frontend/serve/tutor_share.go`（第三批） | 新增 `POST /tutor/plans/{id}/share/permanent`；分享响应与公开页携带到期时间（`expires_at`，永久态为 null） |
 | `internal/frontend/serve/tutor.go`（第三批） | `tutor.kb_export_too_large` 拒绝映射（413，提示用 ids 参数分批导出） |
 | `desktop/frontend-next/src/i18n/kernel.ts`（第三批） | 新增 `tutor.kb_export_too_large` 文案 |
+| `internal/frontend/serve/tutor_space.go` | 本仓新增：tutor 面的**状态空间（space）**解析层——一个 space 就是一个 store 根，空间之间**互不可见**（会话/方案/笔记/知识库/分享/用量全部按空间分目录）。`SetTutorSpaceResolver` 供多用户前端（`internal/web/auth`，阶段① M2/M3）按已认证主体命名空间；`SetTutorSpaceService` 允许宿主自行装配每个空间的 Service。默认空间**保持 store 原位**，既有安装无需迁移。空间键会被收敛成不可越界的目录名（带原键摘要，两个键不会归并到同一目录） |
+| `internal/frontend/serve/tutor.go`（第四批） | `tutorService()` 改为 `tutorServiceFor(r)`：按请求所属空间选 root 与 Service（79 处调用点同步）；空间注册表优先于 Server 级覆盖，覆盖优先于按 root 共享的池。**Server 级覆盖（`SetTutorService`）只对默认空间生效**——一个 Service 只对应一个 store，交给命名空间等于用默认空间的数据回答该调用方 |
+| `internal/frontend/serve/tutor_{data,kb,backup,export,share}.go`（第四批） | 79 处 `s.tutorService()` -> `s.tutorServiceFor(r)`（6 个此前忽略请求参数的处理器改收 `r`） |
+| `internal/frontend/serve/tutor_space_test.go` | 本仓新增：两个空间互不可见（写入者与读取者、以 id 越权读取均被拒）、空间键收敛的安全性与区分性、默认空间保持原位、**Server 级覆盖不外溢到命名空间** |
+| `internal/runtime/tutor/quota.go`（第五批） | 新增 `sessionKey` / `Store.LockSession`：会话的**生命周期锁**——删会话、登记运行、收尾落盘三条路径共用一把锁。文件存储没有事务，「删除」与「仍在落盘的写入」必须手工串行化，否则删除会被写回撤销（删掉的会话连同方案一起回来） |
+| `internal/runtime/tutor/service.go`（第五批） | `DeleteSession` / `finalize` / `StartGenerate` / `Clarify` / `Retry` / `Regenerate` 全部纳入会话生命周期锁；锁**一律先于服务互斥量获取**（反序即死锁） |
+| `internal/runtime/tutor/sessionlock_test.go` | 本仓新增：收尾落盘须等待会话锁（锁在持有期间不得出终态事件）、删除等待会话锁、运行登记等待会话锁、删掉的会话不会回来 |
+| `internal/base/fileutil/removeall.go` | 本仓新增：`RemoveAll`——**可重试的目录树删除**。Go 的 `os.RemoveAll` 在 Windows 上不重试：树内任一文件被杀软/索引器/未关闭的读句柄占住，删除立刻以「目录非空」失败，调用方拿到一棵删了一半的树和一个无法处理的错误。树比单文件更容易命中这个窗口，因此按 `Remove` 的同一退避策略重试（12 次 / 约 1.5 秒） |
+| `internal/base/fileutil/removeall_test.go` | 本仓新增：重试后成功、永久性错误照实上报、路径本就不存在算成功 |
+| `internal/runtime/tutor/{store,kb,materials,share,kbchat,backup,kbio}.go`（第六批） | 目录与文件的删除改走 `fileutil.RemoveAll` / `fileutil.Remove`（此前是裸 `os.RemoveAll` / `os.Remove`）——删会话、删方案、删材料、删笔记、删分享、删知识库文档都会在杀软占用时失败 |
+| `internal/runtime/tutor/{quiz,service,kb,materials,kbchat,service_materials,slides,share}.go`（第六批） | 此前被 `_ =` 吞掉的写失败改为记日志：清空旧答题记录、运行登记时的会话落盘、解析失败回写到行、用量记账、过期分享清理。此前这些失败**完全不可见**——答题记录没清掉会被算到新题上，用量没记上会让日预算少算 |
+| `internal/runtime/tutor/kbio.go`（第六批） | 知识库导出**自述缺档**：读不出的原件/解析文本不再静默跳过，改为逐条记日志并在压缩包内写入 `missing.md` 列明缺了什么。原文注释写的是「log-and-skip」，但代码里并没有 log |
+| `internal/runtime/tutor/notesio_test.go` | 笔记配额用例的批次数改为由 `noteQuota` 推导——硬编码的 540 条在配额从 500 抬到 2000 之后**不再触发配额**，该用例已经测不到任何东西 |
+| `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes` 的列表项改为**预览投影**（正文截断 300 字符，带 `truncated` 标志）——笔记上限 2000 条 × 每条 20000 字符，列表此前携带全部正文，一次响应要序列化上百 MB（每请求一次内存尖峰，在网络暴露面上是耗尽内存的杠杆）。与 v1 `GET /api/notes` 的列表语义对齐（列表给预览、详情给全文）；数组形状不变 |
+| `desktop/frontend-next/src/port/tutor.ts`（第七批） | `TutorNote` 增加可选的 `truncated` 标志 |
+| `desktop/frontend-next/src/ui/tutor/Notes.tsx`（第七批） | 打开笔记时改从详情端点取全文（此前用列表项的正文直接填编辑器——列表改为预览后，若照旧会把截断的正文存回去、丢掉其余内容） |
+| `internal/runtime/tutor/notesio.go`（第七批） | 新增 `ExportNotesZipTo(w io.Writer, …)`：导出归档写到调用方的 writer，**归档不再整包驻留内存**。`ExportNotesZip` 保留为同源实现的内存入口（兼容既有调用与测试） |
+| `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes/export.zip` 改为**落临时文件再流式回传**（`http.ServeContent`）——此前整包 zip 在堆里成型后一次性写出；笔记集可达上百 MB，v1 侧导出早已流式化（iter 396-B2），Go 侧此前未跟进 |
 
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 

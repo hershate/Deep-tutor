@@ -216,9 +216,40 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **`API.md` §五 REST 代理**：补三条对插件作者有约束的勘误——开放模式下**信任面建立类端点仅限回环**（含具体端点清单）、`GET /api/users` 现分页（`limit` 默认 100 / 上限 500 / `offset`，插件遍历全部用户须按 `total` 分页）、自重置口令**返回新 token**（重置他人不返）。
   - **已核实无需改**：`note/06` 的「唯一认领管理员入口已被 E1 证伪」条目与 `API.md` §11.2/§11.3/§11.5 的审批端点、SSE 重放窗口勘误，B9 提交时已写入且与代码一致。
 - **iter 397-B15（Go 侧 tutor 引入 user 维度，🚧 进行中）**：用户定夺「引入 user 维度：store 按用户分目录，鉴权后按用户过滤」。落点遵循 `plan/reasonix/04` 的分层铁律（**`internal/web` 之外任何内核包不出现 user 概念**，用户差异全部体现在装配参数——路径 root）：tutor 包**保持用户无感知**（它只认识一个 root），由 serve 层按请求解析出**状态空间（space）**并据此选 root 与 Service。
+  - **落点与理由**：`plan/reasonix/04` §一/§三已把多用户感知点定在 `internal/web`（`auth` 持 JWT/PAT/首管理员，`pool` 持 per-user 的 Controller/tutor.Service），且明确 per-user 状态根为 `data/users/<uid>/kernel/…`。据此**不在 tutor 包里塞 user 概念**（否则违反铁律、且与 M2/M3 的装配层重复），而是把「用户」表达为**状态空间**：一个 space = 一个 store 根 = 一整套会话/方案/笔记/知识库/分享/用量。
+  - **实现**：新增 `internal/frontend/serve/tutor_space.go`——`SetTutorSpaceResolver`（多用户前端按**已认证主体**命名空间；**明令不得取自请求头/参数**，否则等于让客户端选目录）、`SetTutorSpaceService`（宿主自行装配每个空间的 Service）、`tutorSpaceKey` / `tutorSpaceRoot` / `tutorSpaceSegment`（空间键收敛成不可越界的目录名，并带原键摘要——两个键不会归并到同一目录）。serve 层 `tutorService()` 改为 `tutorServiceFor(r)`（**79 处调用点**同步，6 个此前忽略请求参数的处理器改收 `r`），解析顺序：空间注册表 -> **Server 级覆盖（仅默认空间）** -> 按空间 root 共享的池。
+  - **复核补正（自审发现）**：首版把 Server 级覆盖 `SetTutorService` 对**所有空间**一律返回——一个 Service 只对应一个 store，把它交给命名空间等于用**默认空间的数据**回答该调用方，隔离会「名义成立、实质失效」。已改为**只对默认空间生效**；命名空间一律按自身 root 自建（或用宿主注册的 per-space Service）。这是本批唯一的逻辑补正，已加回归断言。
+  - **默认空间保持 store 原位**：默认空间直接用 `config.TutorDir()`，**既有安装的数据原地不动、无需迁移**；命名空间落在 `<root>/spaces/<segment>/`。
+  - **当前仍无多用户身份源（如实登记）**：内核自身的 auth gate 只有**单一操作者**（token 或密码），**没有**多用户身份；因此本批交付的是**隔离机制与装配缝**（可测：两个空间互不可见），而「谁是哪个用户」这一身份源按 `plan/reasonix/04` 落在阶段① M2/M3 的 `internal/web/auth`。**在本批落地后，Go 侧 tutor 面仍是单用户本地空间**——把它当作多用户服务暴露之前必须先有 `internal/web/auth`。
+  - **回归**：新增 `internal/frontend/serve/tutor_space_test.go`（**5 条**：alice 写入的数据 bob 看不见且**以 id 越权读取被拒**（404）、无空间键归默认空间、空间键收敛不可越界且不同键不归并、默认空间保持原位、**Server 级覆盖不外溢到命名空间**）。
+- **iter 397-B16（Go 侧 tutor 会话生命周期锁，🚧 进行中）**：**K12「删会话与在途 finalize 竞态」**——自审发现并坐实的**数据操作缺陷**：删掉的会话会被仍在收尾的运行**写回来**。
+  - **缺陷坐实**：tutor store 是**文件树**（无事务、无级联约束）。`Service.DeleteSession` 的注释写着「先取消在跑的运行再删文件，这样收尾器就写不回已删会话」——但**收尾器（`finalize`）的写盘发生在它自己那次「这个运行还是我的吗」检查之后**：删除若落在「检查通过」与「写盘」之间（两者之间隔着 2~4 次文件读写，Windows 上约 5~10ms），`finalize` 会把 `run.json` / `session.json` / 方案重新写进刚被删掉的目录——**用户删掉的会话连同方案一起回来**。同一类窗口还有第二条：运行登记（`occupyLocked` 写 `session.json`）与删除并发时，登记会把会话**重建**。两条窗口的根因相同：文件存储缺事务，而「删除」与「落盘」之间没有互斥。
+  - **修法**：引入**会话生命周期锁**（`internal/runtime/tutor/quota.go` 的 `sessionKey` / `Store.LockSession`，复用既有 `keyedLocks` 机制）。删会话、登记运行、收尾落盘三条路径**共用一把锁**：`DeleteSession` 持锁期间移除运行登记、取消运行、删除文件；`finalize` 持锁后复查登记，查不到即**直接返回、不写任何盘**；`StartGenerate` / `Clarify` / `Retry` / `Regenerate` **先读会话再登记**的旧序改为**先取锁再读会话**（否则删除仍可落在读与写之间）。
+  - **锁序铁律**：会话锁**一律先于服务互斥量 `s.mu`** 获取（`finalize` / `occupyLocked` 两条路径都按此序），反序即死锁——已在代码注释中写明。
+  - **顺带闭合的并发缺口**：`StartGenerate` 的「已在跑就附着」判定与登记原本**不原子**（两个并发请求可同时通过检查、双双占位、重复计费）；纳入同一把会话锁后，检查与登记成为临界区内的整体。
+  - **回归**：新增 `internal/runtime/tutor/sessionlock_test.go`（**4 条**：收尾落盘须等待会话锁（**锁在持有期间不得出终态事件**）、删除等待会话锁、运行登记等待会话锁、删掉的会话不会回来——会话/运行态/方案三者皆无残留）。**负向校验已做**：临时移除 `finalize` 的会话锁后，第一条立即失败（`the finalizer wrote while the session's lock was held: done`），确认是真回归钉子而非同义改写。
+  - **过程登记（一处测试自身缺陷，非产品缺陷）**：首版「删掉的会话不会回来」用例里，轮询的截止时间在每次迭代被重置 → **死循环 + 高频 `CreateFile` 打死文件系统**（Windows 上表现为 `CreateFile` 长时间挂起）。已改为固定截止时间 + 20ms 间隔；诊断确认**产品行为本就正确**（删除后目录不再出现、收尾不写回）。
+- **iter 397-B17（Go 侧 tutor 吞错显性化 + 可重试删除，🚧 进行中）**：回归连带坐实两件事——**B14 遗留的一条失效测试**，以及**一个真实的产品级脆弱点**。
+  - **B14 遗留（`TestImportNotesQuota` 已测不到任何东西）**：B14 把笔记配额从 500 抬到 2000，但用例仍硬编码「18 批 × 30 条 = 540 条」——540 < 2000，**配额分支不再触发**，该用例自 B14 起一直是「假绿」（断言 `QuotaFull` 为真，实际拿到 `QuotaFull:false` 却因 `result.Imported != noteQuota` 之外的原因没炸——实测是 `imported=540 / quotaFull=false` 直接失败）。已改为**由 `noteQuota` 推导批次数**，配额再变也不会再次失效。**教训登记**：配额类常量的用例不得硬编码样本量，必须由常量推导。
+  - **真实脆弱点（Windows 上删会话/删方案会直接失败）**：`os.RemoveAll` 在 Windows 上**不重试**——Go 的实现（`removeall_at.go`）遇到树内任一文件被**杀软/索引器/未关闭的读句柄**占住，立刻以「目录非空」失败，调用方拿到一棵删了一半的树和一个无法处理的错误。仓库里 `fileutil.Remove`（单文件）早就有这个退避重试，**树删除没有对等物**；tutor store 的 `DeleteSession`（删会话目录 + 方案目录）、`DeleteKbDoc`、`DeleteMaterial`、`DeleteNote`、`deleteShare`、备份临时目录清理全部是裸 `os.RemoveAll` / `os.Remove`。**这不是测试环境问题，是真实安装上会遇到的**（用户点删除 → 报「目录非空」）。
+  - **修法**：新增 `internal/base/fileutil/removeall.go` 的 `RemoveAll`——与 `Remove` 同一套退避（12 次 / 约 1.5 秒），树删不掉就重试；tutor store 的全部删除路径改走 `fileutil.RemoveAll` / `fileutil.Remove`。新增 `removeall_test.go` 3 条（重试后成功 / 永久性错误照实上报 / 路径本就不存在算成功）。
+  - **K15「吞错」显性化（20 处 `_ =`）**：逐处核对后分成两类——**清理类**（失败后主错误已返回，删不掉的只是孤儿文件）与**「成功但少做了事」类**（失败被完全吞掉，调用方与运维都看不见）。后者逐条改为 `slog.Warn`：`ClearAttempts`（旧答题记录没清掉会被算到新题上）、运行登记时的会话落盘、解析失败回写到行（材料/知识库）、用量记账三处（**没记上会让日预算少算**）、过期与孤儿分享清理。
+  - **知识库导出改为自述缺档**：`kbio.go` 读不出的原件/解析文本此前**静默跳过**（原文注释写着「log-and-skip」，但代码里并没有 log）——压缩包看起来完整，据此还原会**静默丢文件**。现改为逐条记日志，并在压缩包内写入 `missing.md` 列明缺了什么。
+  - **回归**：`internal/base/fileutil` 3 条新增；tutor 包全量回归中。
+- **iter 397-B18（Go 侧笔记列表封顶，🚧 进行中）**：**列表响应体量未设上限**——稳定性缺口。
+  - **缺口坐实**：笔记上限 2000 条、每条正文上限 20000 字符，而 `GET /tutor/notes` 的列表项**携带全部正文**——一次响应要序列化上百 MB（峰值内存约为数据量的两倍：store 解码一份 + JSON 编码一份）。在网络暴露面上这是**可被反复触发的内存耗尽杠杆**（认证通过即可打），在桌面端则是每次进笔记页都要搬一次全量。
+  - **与 v1 对齐**：v1 的 `GET /api/notes` 早已在列表里把正文截断为 **300 字符预览**并带 `truncated` 标志（`_out(n, preview=True)`），全文只走 `GET /api/notes/{id}`。**Go 侧此前没有这条**——两套实现语义不一致，且 Go 侧是更重的那一套。
+  - **修法**：Go 侧列表改为**预览投影**（`noteListItem`，正文截 300 字符 + `truncated` 标志），详情端点仍给全文；**数组形状不变**，桌面端只需在打开笔记时改从详情端点取全文。
+  - **桌面端同步改**（`desktop/frontend-next/src/ui/tutor/Notes.tsx`）：此前 `open(n)` 直接用**列表项的正文**填编辑器——列表改为预览后若照旧，保存会把**截断的正文写回去、丢掉其余内容**（一次静默的数据损坏）。改为打开时 `await port.tutorNote(n.id)` 取全文。
+  - **回归**：新增 `internal/frontend/serve/tutor_notes_preview_test.go` 2 条（长正文在列表里被截到 300 字符且 `truncated` 为真、详情仍是全文；短正文原样且不报截断）。
+- **iter 397-B19（Go 侧笔记导出流式化，🚧 进行中）**：**v1 侧 iter 396-B2 的既定取舍未跟进到 Go 侧**。
+  - **缺口坐实**：v1 的备份/笔记导出在 iter 396-B2 已按用户定夺改为**流式写出**（「峰值内存从整份数据集降到单个会话量级」），但 **Go 侧的 `GET /tutor/notes/export.zip` 仍是「整包 zip 在堆里成型 -> 一次性写出」**：2000 条笔记（每条正文上限 20000 字符）意味着上百 MB 的正文集，归档再叠一份缓冲——每个并发导出请求都按这个量级吃内存。
+  - **修法**：新增 `tutor.ExportNotesZipTo(w io.Writer, notes, now)`（同源实现，`ExportNotesZip` 保留为内存入口以兼容既有调用与测试）；serve 层改为**落临时文件再流式回传**（`http.ServeContent`，自带 Content-Length 与 Range 支持），临时文件用 `fileutil.Remove` 清理。
+  - **与 B18 的分工**：B18 封掉的是**列表响应**的每请求体量（JSON 编码缓冲，约数据量的一倍）；B19 封掉的是**导出**的每请求体量（zip 缓冲）。store 侧的常驻缓存（笔记集本身）不在本轮范围——它是数据本身，不是每请求的放大。
+- **iter 397 门禁结果（B15~B19 合并后的最终树）**：`go build ./internal/...` 通过；`go vet ./internal/runtime/tutor/ ./internal/base/fileutil/ ./internal/frontend/serve/` 通过；`go test ./internal/base/fileutil/` **ok 2.138s**；`go test ./internal/runtime/tutor/` **ok 202.515s**；`go test ./internal/frontend/serve/` **ok 445.952s**。**分批提交**（B15 `bb31bca` / B16 `a519380` / B17 `d55a534` / B18+B19 `5bd06bf` / 文档收尾本条）——每批的树按依赖顺序自洽（文件按批次切分，混合文件在对应批次以该批的状态入账）。
 
 
-- **下一步**：① **B13：Go 侧 KB/材料与剩余项**（K3 KB 配额 TOCTOU、K5/K6 去重进锁、K8 KB 命名统一与 `data/kb` 孤儿清理、K9 PDF 页数/解压预算、K10 progress nodeID 校验、K11 解析并发槽与 whisper 单例、K12 删会话与在途 finalize 竞态、K15 吞错、T5 分享令牌有效期、T13 分页、T15 解析失败吞错、T16 panic 恢复、T17 CSRF 覆盖范围）；② **产品裁决问卷**（Go 侧 tutor 用户归属模型等 6 项）；③ **文档收尾**（`note/08` staging 助手与 `read_unit_content_guarded`、`note/01` 与 `AGENTS.md` 测试计数、`API.md` 开放模式回环限制/用户列表分页/自重置口令返 token/审批端点与重放窗口、`note/06`「唯一认领管理员入口」表述已被 E1 证伪）；④ 回到 Reasonix 阶段① M1 余项。
+- **下一步**：① **B16 收尾**（会话生命周期锁的提交与门禁回归）；② **B15 收尾**（用户维度的提交与门禁回归）；③ 回到 Reasonix 阶段① M1 余项（M1.2 模块改名 / M1.3 多实例 spike / M1.4 品牌化与 `DEEPTUTOR.md` / M1.5 门禁基线重建 + CI / M1.6 `bin/deep-tutor.exe` 冒烟）；④ Go 侧未修登记项复核（T12 GET 导出副作用、T13 分页默认值、K8 KB 命名统一与孤儿清理、K11 解析并发槽与 whisper 单例、K15 吞错、K3/K5 的 Python 侧部分、v1 侧分享链接是否跟进 7 天期限——待另行裁决）。
 
 **iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，✅ 完成）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
 
