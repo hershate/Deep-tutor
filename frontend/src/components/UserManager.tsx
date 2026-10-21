@@ -2,7 +2,7 @@
 // 列表 + 新增（用户名/密码/显示名/管理员）+ 改名 + 重置密码 + 授予/撤销管理员 + 删除（级联其数据）。
 // 非管理员（403）-> 整段隐藏（env token 单用户部署无用户体系时同样隐藏）。
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ApiError,
   createUser,
@@ -11,7 +11,7 @@ import {
   updateUser,
   type AdminUser,
 } from '../lib/api'
-import { getStoredUser, updateStoredUser } from '../lib/auth'
+import { getStoredUser, setAuth, updateStoredUser } from '../lib/auth'
 import { SkeletonLines } from './Skeleton'
 
 interface CreateForm {
@@ -26,11 +26,21 @@ const EMPTY_CREATE: CreateForm = { username: '', password: '', name: '', is_admi
 export default function UserManager() {
   const qc = useQueryClient()
   const me = getStoredUser()
-  const { data, isLoading, error } = useQuery({
+  // iter 397（E8）：用户列表分页（后端 limit/offset + total）——此前一次性全量
+  // 返回，账号数大时单次响应可到 MB 级（后端亦无限流）。
+  const usersQ = useInfiniteQuery({
     queryKey: ['users'],
-    queryFn: listUsers,
+    queryFn: ({ pageParam }) => listUsers(100, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last) => {
+      const loaded = last.users.length
+      return loaded > 0 && last.offset + loaded < last.total ? last.offset + loaded : undefined
+    },
     retry: false, // 403（非管理员）立即定态，不重试
   })
+  const data = usersQ.data
+  const isLoading = usersQ.isLoading
+  const error = usersQ.error
   const [form, setForm] = useState<CreateForm>(EMPTY_CREATE)
   const [showForm, setShowForm] = useState(false)
   const [resetId, setResetId] = useState<number | null>(null) // 重置密码目标用户
@@ -41,7 +51,8 @@ export default function UserManager() {
   // 非管理员/无权限 -> 不渲染该板块（403 属预期，非故障）
   if (error instanceof ApiError && error.status === 403) return null
 
-  const users = data?.users ?? []
+  const users = data?.pages.flatMap((p) => p.users) ?? []
+  const usersTotal = data?.pages[data.pages.length - 1]?.total ?? 0
 
   async function run(action: () => Promise<unknown>, opts?: { resetCreate?: boolean }) {
     if (busy) return // 防重入：请求在途时表单 Enter 仍可触发 onSubmit
@@ -88,7 +99,19 @@ export default function UserManager() {
       setOpError('密码至少 8 位')
       return
     }
-    void run(() => updateUser(resetId, { password: resetPw }))
+    void run(async () => {
+      const res = await updateUser(resetId, { password: resetPw })
+      // iter 397（E5）：重置**自己**的口令后端会返回新 token（旧 JWT 已被吊销）——
+      // 不就地换存则下一次请求即 401，管理员被自己踢下线（且无任何解释）。
+      if (resetId === me?.id && res.token) {
+        setAuth(res.token, {
+          id: res.id,
+          username: res.username,
+          name: res.name,
+          is_admin: res.is_admin,
+        })
+      }
+    })
   }
 
   function toggleAdmin(u: AdminUser) {
@@ -315,6 +338,21 @@ export default function UserManager() {
           </li>
         ))}
       </ul>
+      {/* iter 397（E8）：分页——账号数大时后端不再全量返回；此处显式给出总数与翻页入口 */}
+      <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <span>
+          共 {usersTotal} 位用户{users.length < usersTotal ? `（已显示 ${users.length} 位）` : ''}
+        </span>
+        {usersQ.hasNextPage && (
+          <button
+            onClick={() => void usersQ.fetchNextPage()}
+            disabled={usersQ.isFetchingNextPage}
+            className="rounded border border-slate-200 px-2 py-1 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {usersQ.isFetchingNextPage ? '加载中…' : '加载更多'}
+          </button>
+        )}
+      </div>
     </section>
   )
 }

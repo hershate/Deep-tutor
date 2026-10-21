@@ -114,11 +114,22 @@ export interface UserInput {
   name?: string
   is_admin?: boolean
 }
-export const listUsers = () => apiFetch<{ users: AdminUser[] }>('/users')
+// iter 397（E8）：用户列表分页（后端加 limit/offset + total；此前一次性全量返回，
+// 账号数大时单次响应可到 MB 级）。total 供前端显示「共 N 位」与翻页判断。
+export interface UsersPage {
+  users: AdminUser[]
+  total: number
+  limit: number
+  offset: number
+}
+export const listUsers = (limit = 100, offset = 0) =>
+  apiFetch<UsersPage>(`/users?limit=${limit}&offset=${offset}`)
 export const createUser = (body: Required<Pick<UserInput, 'username' | 'password'>> & UserInput) =>
   apiFetch<AdminUser>('/users', { method: 'POST', body: JSON.stringify(body) })
+// iter 397（E5）：重置**自己**的口令时后端会返回新 token（旧 JWT 已吊销）——
+// 不换存则下一次请求即 401，管理员被自己踢下线。
 export const updateUser = (id: number, body: UserInput) =>
-  apiFetch<AdminUser>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  apiFetch<AdminUser & { token?: string }>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const deleteUser = (id: number) => apiFetch<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' })
 
 // --- sessions ---

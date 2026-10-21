@@ -2,7 +2,8 @@
 
 认证（P4 多用户，iter 57；个人访问令牌 iter 223）：
 - 首选 JWT（Authorization: Bearer <jwt>，/auth/login 签发）-> 解析为用户。
-- 兼容回退 AUTH_TOKEN（.env 配置；Bearer 或 X-Auth-Token）-> 映射为首个管理员（无则首个用户）。
+- 兼容回退 AUTH_TOKEN（.env 配置；Bearer 或 X-Auth-Token）-> 映射为首个管理员；
+  库中无管理员时把首个用户提升为管理员（iter 397 E6：否则 setup 与用户管理永久 403）。
 - 个人访问令牌（credential_profiles kind=auth_token 且 active）-> 映射为档案归属用户；
   .env AUTH_TOKEN 始终有效作回退（防切换令牌后锁死）。
 常量时间比较防时序攻击（secrets.compare_digest）。
@@ -184,17 +185,6 @@ async def require_auth(
     raise HTTPException(status_code=401, detail="invalid auth token")
 
 
-def get_default_user(db: Session) -> User:
-    """本地单用户遗留：取首个用户，无则创建默认用户。"""
-    user = db.query(User).first()
-    if user is None:
-        user = User(name="local")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
-
 def resolve_user(
     db: Session,
     authorization: str | None,
@@ -238,7 +228,16 @@ def resolve_user(
             admin = db.query(User).filter_by(is_admin=True).first()
             if admin is not None:
                 return admin
-            return get_default_user(db) if create_missing else None
+            if not create_missing:
+                return None
+            # iter 397（E6）：.env AUTH_TOKEN 是运维侧主凭据——库中无管理员时必须
+            # 映射到管理员，否则全新部署（只配 AUTH_TOKEN、未配 ADMIN_PASSWORD）
+            # 的 setup 向导与 /api/users 永久 403（「首次设置需要管理员权限」），
+            # 实例无法经 API 完成首次配置（死路）。身份解析口径不变（首个用户，
+            # 既有数据归属不变），仅提升其管理员标志。
+            from app.core.security import ensure_admin_for_env_token
+
+            return ensure_admin_for_env_token(db)
         # 个人访问令牌（iter 223）：命中 active auth_token 档案 -> 档案归属用户
         token_user = _user_by_token_credential(db, token)
         if token_user is not None:

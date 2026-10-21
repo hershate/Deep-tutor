@@ -38,9 +38,13 @@ def register(api):
 '''
 
 
-def _setup(tmp_path: Path) -> None:
-    """落库一个非管理员用户（先于 conftest 的管理员插入——auth_headers 的
-    test-token 解析为首个用户，即本用户）+ 装载一个插件供热管理端点定位。
+def _setup(tmp_path: Path) -> int:
+    """落库一个非管理员用户 + 装载一个插件供热管理端点定位。返回该用户 id。
+
+    iter 397（E6）：**「非管理员」身份不再用 `.env` token 表达**——.env
+    AUTH_TOKEN 是运维主凭据，库中无管理员时它会映射到管理员
+    （core/security.ensure_admin_for_env_token），用它充当普通用户的前提已
+    不成立。改用该普通用户的 JWT（断言一字未改）。
 
     插件 id/路由路径须全仓唯一：reset_plugins 按设计不摘已挂载路由（docstring
     明示「已挂载的路由随 app 实例存在」——conftest 隔离语义），若与他测试的
@@ -52,8 +56,11 @@ def _setup(tmp_path: Path) -> None:
 
     db = SessionLocal()
     try:
-        db.add(User(name="plain", username="plain", password_hash=hash_password("pw123456"), is_admin=False))
+        u = User(name="plain", username="plain", password_hash=hash_password("pw123456"), is_admin=False)
+        db.add(u)
         db.commit()
+        db.refresh(u)
+        uid = u.id
     finally:
         db.close()
 
@@ -62,18 +69,26 @@ def _setup(tmp_path: Path) -> None:
     from app.plugins.loader import load_plugins
 
     load_plugins(app, tmp_path)
+    return uid
 
 
-def test_plugins_list_requires_admin(client, auth_headers, tmp_path):
+def _plain_headers(user_id: int) -> dict:
+    """普通用户的 JWT（非管理员身份）。"""
+    from app.core.security import create_token
+
+    return {"Authorization": f"Bearer {create_token(user_id, 'plain')}"}
+
+
+def test_plugins_list_requires_admin(client, tmp_path):
     """GET /api/plugins（状态列表）非管理员 -> 403（Plugins.tsx 既有 403 分支的后端钉死）。"""
-    _setup(tmp_path)
-    assert client.get("/api/plugins", headers=auth_headers).status_code == 403
+    uid = _setup(tmp_path)
+    assert client.get("/api/plugins", headers=_plain_headers(uid)).status_code == 403
 
 
-def test_plugins_enable_requires_admin(client, auth_headers, tmp_path):
+def test_plugins_enable_requires_admin(client, tmp_path):
     """POST /api/plugins/{id}/enable 非管理员 -> 403（reload/disable 已有钉死，本端点补齐）。"""
-    _setup(tmp_path)
-    assert client.post("/api/plugins/amx390/enable", headers=auth_headers).status_code == 403
+    uid = _setup(tmp_path)
+    assert client.post("/api/plugins/amx390/enable", headers=_plain_headers(uid)).status_code == 403
 
 
 def test_plugin_admin_endpoints_unauthenticated_401(client, tmp_path):

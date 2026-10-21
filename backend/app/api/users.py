@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from app.core.ratelimit import limiter
 from app.api.errors import ApiError
 from app.api.plans import cancel_running_generation
 from app.core.security import hash_password
+from app.agent.workspace import delete_run_workspace
 from app.core.storage import delete_kb_files, delete_session_files
 from app.db import models
 from app.db.models import User
@@ -66,10 +67,27 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=256)  # 重置密码；None -> 不变
 
 
+# iter 397（E8）：用户列表分页上限（此前无分页、无限流 -> 一次性把整张 users 表
+# 载入内存并全量返回；账号数达数千/数万级时单次响应可到 MB 级）
+_USER_LIST_PAGE_MAX = 500
+_USER_LIST_DEFAULT = 100
+# iter 397（E8）：管理员读列表的速率上限（与写端点同族的独立桶）
+_USER_LIST_RATE_PER_MIN = 60
+
+
 @router.get("")
-def list_users(db: Session = Depends(get_db), _admin: User = Depends(require_admin)) -> dict:
-    rows = db.query(User).order_by(User.id).all()
-    return {"users": [_user_out(u) for u in rows]}
+def list_users(
+    limit: int = Query(default=_USER_LIST_DEFAULT, ge=1, le=_USER_LIST_PAGE_MAX),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    # iter 397（E8）：限流 + 分页（此前无限流、无分页）
+    if not limiter.check(f"users_read:{_admin.id}", _USER_LIST_RATE_PER_MIN):
+        raise ApiError("rate_limited", "读取过于频繁，请稍后再试", status=429)
+    total = db.query(User).count()
+    rows = db.query(User).order_by(User.id).offset(offset).limit(limit).all()
+    return {"users": [_user_out(u) for u in rows], "total": total, "limit": limit, "offset": offset}
 
 
 _OPEN_MODE_LOCAL_ONLY = "开放模式下用户管理仅允许本机（回环地址）访问"
@@ -138,7 +156,10 @@ def update_user(
         u.name = body.name.strip() or u.name
     if body.password is not None:
         u.password_hash = hash_password(body.password)
-        u.tokens_valid_after = time.time()  # err.md A9：重置密码吊销旧 JWT
+        # err.md A9：重置密码吊销旧 JWT。取整秒（与 setup.py 同口径）——iat 是
+        # int(time()) 截断值而 tva 是带小数的 float，同秒「撤销后重登录」会被
+        # 小数位误杀（deps 的 +1s 容差只覆盖 iat+1 <= tva 的边界）。
+        u.tokens_valid_after = float(int(time.time()))
         # iter 368：改密同时吊销该用户全部 active PAT——此前 PAT 不随改密失效，
         # 泄漏的令牌可在改密后无限期继续访问（JWT 有 tva 吊销、PAT 无）
         from app.core.credentials import KIND_AUTH_TOKEN
@@ -148,7 +169,17 @@ def update_user(
         ).update({"is_active": False})
     db.commit()
     db.refresh(u)
-    return _user_out(u)
+    out = _user_out(u)
+    # iter 397（E5）：管理员重置**自己**的口令时，旧 JWT 立即失效（tokens_valid_after
+    # 已更新）-> 下一次请求 401 -> 前端清本地会话并跳 /login（无任何解释）。此前
+    # 「不能操作自己」的护栏只覆盖管理员开关，未覆盖口令分支。
+    # 现按 POST /setup 的同一范式（setup.py 改密后返回新 token）返回**新 token**，
+    # 前端就地换存——不换存则下次请求仍 401。
+    if body.password is not None and u.id == admin.id:
+        from app.core.security import create_token
+
+        out["token"] = create_token(u.id, u.username or "")
+    return out
 
 
 @router.delete("/{user_id}")
@@ -180,6 +211,8 @@ def delete_user(
 
     running = db.query(models.Run).filter_by(user_id=u.id, status=models.RunStatus.running).all()
     run_ids = [r.id for r in running]
+    # iter 397（E7）：该用户的全部 run 行（供工作区文件清理用；行已随 ORM 级联删除）
+    run_ws = db.query(models.Run).filter_by(user_id=u.id).all()
     for r in running:
         # iter 369：与 cancel_run 同口径硬取消（软取消打不断在途流式读取——用户行已删
         # 后 LLM 仍在跑，api_usage 插入撞 FK 费用无法落账 + 占全局 chat 槽）
@@ -242,4 +275,13 @@ def delete_user(
         delete_kb_files(u.id)
     except Exception:  # noqa: BLE001
         log.warning("删除用户 %s 的知识库文件失败", user_id)
+    # iter 397（E7）：连同该用户的 **run 工作区**一并清理——此前只清会话目录与
+    # 知识库目录，agent 工作区（data/runs/<rid>/ 与 data/workspaces/<tid>/<rid>/）
+    # 残留 24~48 小时（等每日维护任务回收），期间文件仍在磁盘上（可能含用户材料
+    # 与草稿）；空的 data/workspaces/<tid>/ 父目录更永不回收，长期运行持续堆积。
+    try:
+        for r in run_ws:
+            delete_run_workspace(r.thread_id, r.id)
+    except Exception:  # noqa: BLE001
+        log.warning("删除用户 %s 的 run 工作区失败", user_id, exc_info=True)
     return {"ok": True}

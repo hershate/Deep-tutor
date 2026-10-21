@@ -283,23 +283,32 @@ def test_hot_management_endpoints(client, auth_headers, tmp_path):
     assert client.post("/api/plugins/nope/enable", headers=auth_headers).status_code == 404
 
 
-def test_hot_endpoints_require_admin(client, auth_headers, tmp_path):
+def test_hot_endpoints_require_admin(client, tmp_path):
     """非管理员访问热管理端点 -> 403（require_admin）。"""
     from app.db.base import SessionLocal
     from app.db.models import User
 
-    # 落库一个普通用户；auth_headers 的 test-token 解析为首个用户（非管理员）
+    # 落库一个普通用户并用其 JWT 表达「非管理员」身份。
+    # iter 397（E6）：此前借 auth_headers（.env token）充当普通用户——.env
+    # AUTH_TOKEN 是运维主凭据，库中无管理员时它映射到管理员（ensure_admin_for_env_token），
+    # 该前提已不成立；断言（非管理员 -> 403）本身不变。
     db = SessionLocal()
     try:
-        db.add(User(name="u", username="u", password_hash="", is_admin=False))
+        u = User(name="u", username="u", password_hash="", is_admin=False)
+        db.add(u)
         db.commit()
+        db.refresh(u)
+        uid = u.id
     finally:
         db.close()
+    from app.core.security import create_token
+
+    plain = {"Authorization": f"Bearer {create_token(uid, 'u')}"}
 
     _write(tmp_path, "pp.py", PUBLIC_PING)
     from app.main import app
     from app.plugins.loader import load_plugins
 
     load_plugins(app, tmp_path)
-    assert client.post("/api/plugins/pp/reload", headers=auth_headers).status_code == 403
-    assert client.post("/api/plugins/pp/disable", headers=auth_headers).status_code == 403
+    assert client.post("/api/plugins/pp/reload", headers=plain).status_code == 403
+    assert client.post("/api/plugins/pp/disable", headers=plain).status_code == 403

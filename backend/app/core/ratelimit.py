@@ -14,8 +14,13 @@ from collections import deque
 class SlidingWindowLimiter:
     """滑动窗口限流器：check(key, limit, window_s) 命中计数并返回是否放行。"""
 
-    # err.md C6：key 数量兜底上限（key 洪泛攻击下全清，防内存无界增长）
+    # err.md C6：key 数量兜底上限（key 洪泛攻击下防内存无界增长）
     _MAX_KEYS = 100_000
+    # iter 397（E13）：键长上限（防单键超长占内存）——键多由调用方归一
+    _MAX_KEY_LEN = 160
+    # iter 397（E13）：触顶时淘汰的键数（一次淘汰最老的一批，避免每来一个新键
+    # 就退化成全清）
+    _EVICT_BATCH = 4096
 
     def __init__(self) -> None:
         self._hits: dict[str, deque[float]] = {}
@@ -26,6 +31,9 @@ class SlidingWindowLimiter:
 
     def check(self, key: str, limit: int, window_s: float = 60.0) -> bool:
         now = time.monotonic()
+        # iter 397（E13）：键长封顶（防单键超长占内存）
+        if len(key) > self._MAX_KEY_LEN:
+            key = key[: self._MAX_KEY_LEN]
         with self._lock:
             q = self._hits.get(key)
             if q is not None:
@@ -39,7 +47,16 @@ class SlidingWindowLimiter:
                     return False
             if q is None:
                 if len(self._hits) >= self._MAX_KEYS:
-                    self._hits.clear()  # 兜底：异常量级时全清（限流短暂失效优于 OOM）
+                    # iter 397（E13）：原为 `self._hits.clear()`——**全清**会把进程内
+                    # 全部限流桶（登录/导出/分享/setup/认证失败）一次性清空，限流在
+                    # 攻击者选定的时刻整体失效（如登录路径用攻击者可控的用户名
+                    # 每次新增 2 个键，约 5 万次即可触发）。现改为**淘汰最老的一批**
+                    # （dict 保序 -> 最老键在头部）：只挤掉最久未用的键，存量桶
+                    # （含正常用户的）继续有效。
+                    for _ in range(self._EVICT_BATCH):
+                        if not self._hits:
+                            break
+                        self._hits.pop(next(iter(self._hits)), None)
                 q = deque()
                 self._hits[key] = q
             q.append(now)

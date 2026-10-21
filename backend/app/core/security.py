@@ -203,6 +203,57 @@ def get_or_create_open_admin(db) -> User:
     return user
 
 
+def ensure_admin_for_env_token(db) -> User:
+    """确保 .env AUTH_TOKEN 能映射到一名管理员（iter 397 E6）。
+
+    .env AUTH_TOKEN 是运维侧的主凭据。此前 deps.resolve_user 的回退路径是
+    「首个管理员（无则首个用户）」——全新部署（只配 AUTH_TOKEN、未配
+    ADMIN_PASSWORD、库为空）下**库里没有任何管理员**，回退建出的是
+    ``is_admin=False`` 的默认用户，于是：
+
+    - ``POST /setup`` -> 403「首次设置需要管理员权限」；
+    - ``GET/POST/PUT/DELETE /api/users`` -> 403 admin required；
+    - ``POST /api/auth/login`` 无任何可用凭据；
+
+    即**实例无法经 API 完成首次配置**（死路）；唯一自愈路径是重启进程时
+    ``ensure_admin_user`` 把那个 ``username=None`` 的默认用户提升为管理员——
+    但该分支要求「库中恰有一个无 username 的用户」，一旦出现第二个用户即失效。
+
+    现：``.env`` token 命中且库中无管理员时，把当前解析到的身份
+    （与旧路径同口径：首个用户——**既有数据归属不变**）提升为管理员，
+    并补登录名（口令留空：.env token 即其凭据，登录仍不可用，与
+    「ADMIN_PASSWORD 空 -> 不创建登录账号」一致）。已有管理员时行为不变。
+
+    幂等：已有管理员直接返回；重复调用不会重复建号。
+    """
+    from app.db.models import User
+
+    admin = db.query(User).filter_by(is_admin=True).first()
+    if admin is not None:
+        return admin
+    user = db.query(User).first()
+    if user is None:
+        user = User(
+            name=settings.admin_username,
+            username=settings.admin_username,
+            password_hash="",
+            is_admin=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    user.is_admin = True
+    if not user.username:
+        # 补登录名；已存在同名用户则保持 None（uq_users_username 唯一约束）
+        clash = db.query(User).filter_by(username=settings.admin_username).first()
+        if clash is None:
+            user.username = settings.admin_username
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def ensure_admin_user(db) -> None:
     """启动收敛（P4 iter 57）：确保管理员账号存在。
 
