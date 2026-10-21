@@ -65,9 +65,13 @@ func (s *service) initialize(_ context.Context, raw json.RawMessage) (any, error
 
 func reasonixSetupAuthMethod() AuthMethod {
 	return AuthMethod{
+		// The ID is a protocol identifier, not a product name: a client that
+		// pinned the one this kernel used to declare would not find the
+		// method any more. The name and description below are what a person
+		// reads, and those carry the product.
 		ID:          "reasonix-setup",
-		Name:        "Reasonix setup",
-		Description: "Configure Reasonix providers and credentials in a terminal",
+		Name:        "Deep-tutor setup",
+		Description: "Configure Deep-tutor providers and credentials in a terminal",
 		Type:        "terminal",
 		Args:        []string{"setup"},
 	}

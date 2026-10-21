@@ -1,6 +1,6 @@
 // Package releaseasset downloads and verifies immutable Reasonix CLI release
 // artifacts for a requested platform. It is used when a local Desktop or CLI
-// needs to provision the remote `reasonix serve` binary without requiring
+// needs to provision the remote `deep-tutor serve` binary without requiring
 // Node/npm on the remote machine.
 package releaseasset
 
@@ -153,6 +153,12 @@ func downloadCLIFromBase(ctx context.Context, client *http.Client, base, tag, go
 // it. Windows ships a zip and an .exe; every other platform a tar.gz — the
 // release line has always been built this way, and assuming otherwise is what
 // made a Windows remote undownloadable.
+//
+// Both names are the upstream release line's, because that is where the bytes
+// come from: this package downloads from esengine/DeepSeek-Reasonix, whose
+// archives are still published under the reasonix-* names and carry a
+// "reasonix" binary. Renaming them here would name a file the download does
+// not contain.
 func cliAsset(goos, goarch string) (asset, executable string) {
 	if goos == "windows" {
 		return fmt.Sprintf("reasonix-%s-%s.zip", goos, goarch), "reasonix.exe"
@@ -243,10 +249,10 @@ func extractCLIZip(archive []byte, executable string) ([]byte, error) {
 			continue
 		}
 		if entry.FileInfo().IsDir() || entry.UncompressedSize64 == 0 || entry.UncompressedSize64 > uint64(maxExtractedCLIBytes) {
-			return nil, errors.New("reasonix archive entry is not a bounded regular file")
+			return nil, errors.New("deep-tutor archive entry is not a bounded regular file")
 		}
 		if binary != nil {
-			return nil, errors.New("reasonix archive contains duplicate binaries")
+			return nil, errors.New("deep-tutor archive contains duplicate binaries")
 		}
 		rc, err := entry.Open()
 		if err != nil {
@@ -258,11 +264,11 @@ func extractCLIZip(archive []byte, executable string) ([]byte, error) {
 			return nil, err
 		}
 		if int64(len(binary)) > maxExtractedCLIBytes {
-			return nil, errors.New("reasonix archive entry exceeds the size limit")
+			return nil, errors.New("deep-tutor archive entry exceeds the size limit")
 		}
 	}
 	if binary == nil {
-		return nil, errors.New("reasonix archive does not contain the executable")
+		return nil, errors.New("deep-tutor archive does not contain the executable")
 	}
 	return binary, nil
 }
@@ -287,21 +293,21 @@ func extractCLITarGz(archive []byte, executable string) ([]byte, error) {
 			continue
 		}
 		if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxExtractedCLIBytes {
-			return nil, errors.New("reasonix archive entry is not a bounded regular file")
+			return nil, errors.New("deep-tutor archive entry is not a bounded regular file")
 		}
 		if binary != nil {
-			return nil, errors.New("reasonix archive contains duplicate binaries")
+			return nil, errors.New("deep-tutor archive contains duplicate binaries")
 		}
 		binary, err = io.ReadAll(io.LimitReader(tr, maxExtractedCLIBytes+1))
 		if err != nil {
 			return nil, err
 		}
 		if int64(len(binary)) != header.Size {
-			return nil, errors.New("reasonix archive entry size mismatch")
+			return nil, errors.New("deep-tutor archive entry size mismatch")
 		}
 	}
 	if len(binary) == 0 {
-		return nil, errors.New("reasonix binary not found in archive")
+		return nil, errors.New("deep-tutor binary not found in archive")
 	}
 	return binary, nil
 }

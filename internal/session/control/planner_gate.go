@@ -88,7 +88,7 @@ func DecidePlannerRoute(ctx context.Context, input string) agent.PlannerDecision
 		return plannerExecutorDecision(plannerReasonSlash)
 	}
 
-	if strings.HasPrefix(composedText, PlannerRouteMarker) {
+	if isPlannerRouteMarker(composedText) {
 		return plannerPlanDecision(agent.PlannerRoutePlanAndExecute, agent.PlannerDepthFull, plannerReasonUserPlanAndExecute)
 	}
 	// Nobody asked for a plan. The executor decides for itself whether this

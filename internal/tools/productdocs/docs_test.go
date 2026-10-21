@@ -62,16 +62,16 @@ func TestDocsCommandOverviewAndSearchUseEmbeddedCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"内置 Reasonix 文档", "version=", "revision=", "digest=sha256:", "/docs 如何配置 MCP 服务器"} {
+	for _, want := range []string{"内置 Deep-tutor 文档", "version=", "revision=", "digest=sha256:", "/docs 如何配置 MCP 服务器"} {
 		if !strings.Contains(overview, want) {
 			t.Fatalf("command overview missing %q:\n%s", want, overview)
 		}
 	}
-	qualified, err := CommandOverviewFor("en", "/reasonix:docs")
+	qualified, err := CommandOverviewFor("en", "/deep-tutor:docs")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(qualified, "Usage: /reasonix:docs <question>") || strings.Contains(qualified, "Example: /docs ") {
+	if !strings.Contains(qualified, "Usage: /deep-tutor:docs <question>") || strings.Contains(qualified, "Example: /docs ") {
 		t.Fatalf("qualified command overview used the wrong invocation:\n%s", qualified)
 	}
 
@@ -342,7 +342,11 @@ func TestDocsToolContractIsStableAndReadOnly(t *testing.T) {
 	}
 	contract := tl.Name() + "\n" + tl.Description() + "\n" + string(canonical)
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(contract)))
-	const want = "0113a592b6bcba5dd2be78c552f95ca27337534b6bb55b7b5e6fd89414f95be5"
+	// The pin moved with the M1.4 rebrand: the tool description names the
+	// product, and the product is now Deep-tutor. Nothing else in the
+	// provider-visible contract changed, and the pin still holds the rest of
+	// it steady.
+	const want = "a0a30e1c77bbecd7e91837159c5f7ca04e8b7a5418c562ad977be9aa4b05f795"
 	if got != want {
 		t.Fatalf("provider-visible docs contract changed: got %s, want %s", got, want)
 	}

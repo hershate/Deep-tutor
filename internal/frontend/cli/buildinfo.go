@@ -10,14 +10,14 @@ import (
 )
 
 // BuildInfo is the machine- and human-readable build identity for
-// `reasonix version` / `reasonix --version`. Release builds may only fill
+// `deep-tutor version` / `deep-tutor --version`. Release builds may only fill
 // Version; source and CI builds inject the rest via -ldflags so the binary is
 // traceable without shelling out to git.
 //
 // Plan contract (Integration D/E):
-//   - `reasonix --version` / `-v` stay single-line: "reasonix <version>"
-//   - `reasonix version --verbose` prints structured fields
-//   - `reasonix version --json` prints a JSON object
+//   - `deep-tutor --version` / `-v` stay single-line: "deep-tutor <version>"
+//   - `deep-tutor version --verbose` prints structured fields
+//   - `deep-tutor version --json` prints a JSON object
 //   - Fields are limited to version, commit, build time, target (and go runtime);
 //     no config paths and no fixed CST conversion.
 type BuildInfo struct {
@@ -27,7 +27,7 @@ type BuildInfo struct {
 	BuildTarget  string
 }
 
-// versionCommand handles `reasonix version [flags]`. When allowFlags is false
+// versionCommand handles `deep-tutor version [flags]`. When allowFlags is false
 // (top-level --version / -v), output is always the single-line form.
 func versionCommand(args []string, info BuildInfo, allowFlags bool) int {
 	info = info.withDefaults()
@@ -75,18 +75,18 @@ func versionCommand(args []string, info BuildInfo, allowFlags bool) int {
 
 func versionUsage(w *os.File) {
 	fmt.Fprintln(w, `Usage:
-  reasonix version
-  reasonix version --verbose
-  reasonix version --json
-  reasonix --version
-  reasonix -v
+  deep-tutor version
+  deep-tutor version --verbose
+  deep-tutor version --json
+  deep-tutor --version
+  deep-tutor -v
 
---version / -v always print a single line (reasonix <version>).
+--version / -v always print a single line (deep-tutor <version>).
 version --verbose prints build metadata; version --json prints the same as JSON.`)
 }
 
 func (b BuildInfo) singleLine() string {
-	return "reasonix " + strings.TrimSpace(b.withDefaults().Version)
+	return "deep-tutor " + strings.TrimSpace(b.withDefaults().Version)
 }
 
 func (b BuildInfo) verboseText() string {

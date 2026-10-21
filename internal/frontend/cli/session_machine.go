@@ -324,7 +324,7 @@ func machineTime(value time.Time) string {
 func loadMachineIdentityKey() ([]byte, error) {
 	root := strings.TrimSpace(config.MemoryUserDir())
 	if root == "" {
-		return nil, fmt.Errorf("machine identity: Reasonix state directory is unavailable")
+		return nil, fmt.Errorf("machine identity: Deep-tutor state directory is unavailable")
 	}
 	path := filepath.Join(root, machineIdentityKeyFile)
 	key, err := readMachineIdentityKey(path)

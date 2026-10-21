@@ -208,7 +208,7 @@ func (a *TmuxAdapter) Detach(ctx context.Context, projectDir, taskID string) Tmu
 const (
 	tmuxOwnerOption       = "@reasonix-owner"
 	tmuxOwnerTokenBytes   = 16
-	defaultTmuxNamePrefix = "reasonix-"
+	defaultTmuxNamePrefix = "deep-tutor-"
 
 	ErrTmuxUnavailable   = "tmux_unavailable"
 	ErrTmuxInvalidName   = "tmux_invalid_name"

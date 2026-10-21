@@ -77,7 +77,7 @@ func parseCLIReleaseChannel(value string) (cliReleaseChannel, error) {
 	case "", string(cliReleaseStable), "preview", "canary", "beta", "next":
 		return cliReleaseStable, nil
 	default:
-		return "", fmt.Errorf("release channel %q is unsupported; Reasonix now uses the official release", value)
+		return "", fmt.Errorf("release channel %q is unsupported; Deep-tutor now uses the official release", value)
 	}
 }
 
@@ -177,7 +177,7 @@ var persistCLIReleaseChannel = func(channel cliReleaseChannel) error {
 
 var loadCLIUpgradeConfig = config.Load
 
-// upgradeCommand handles `reasonix upgrade` (and `reasonix update`).
+// upgradeCommand handles `deep-tutor upgrade` (and `deep-tutor update`).
 func upgradeCommand(args []string, version string) int {
 	syntax, err := parseCLIUpgradeSyntax(args)
 	if err != nil {
@@ -280,7 +280,12 @@ func applyCLIRelease(c *http.Client, rel *ghRelease, cur, latest string) int {
 	}
 
 	// 5. Find the asset for the current platform.
-	base := fmt.Sprintf("reasonix-%s-%s", runtime.GOOS, runtime.GOARCH)
+	//
+	// The name reported when there is none has to be the name that was looked
+	// for: the upgrade reads the upstream release gateway, whose assets are
+	// published under the reasonix-* names. Naming this build's own name here
+	// would point the user at a file that does not exist.
+	base := cliPlatformAssetName(runtime.GOOS, runtime.GOARCH)
 	asset := findCLIPlatformAsset(rel, runtime.GOOS, runtime.GOARCH)
 	if asset == nil {
 		fmt.Fprintf(os.Stderr, "%s "+i18n.M.UpgradeNoAssetFmt+"\n", i18n.M.ErrorPrefix, base)
@@ -317,6 +322,11 @@ func applyCLIRelease(c *http.Client, rel *ghRelease, cur, latest string) int {
 	}
 
 	// 9. Extract binary from archive.
+	//
+	// The name is the one the release archive actually carries, not the name
+	// this build was renamed to: the upgrade channel is the upstream Reasonix
+	// release gateway, whose archives ship a "reasonix" binary. Looking for a
+	// different name here would fail every extraction.
 	binName := "reasonix"
 	if runtime.GOOS == "windows" {
 		binName = "reasonix.exe"
@@ -441,6 +451,9 @@ func cliPlatformAssetName(goos, goarch string) string {
 	if goos == "windows" {
 		suffix = ".zip"
 	}
+	// The name the release channel publishes under, not the name this build
+	// was renamed to: the upgrade reads esengine/DeepSeek-Reasonix releases,
+	// whose assets are still published as reasonix-<os>-<arch>.<ext>.
 	return fmt.Sprintf("reasonix-%s-%s%s", goos, goarch, suffix)
 }
 

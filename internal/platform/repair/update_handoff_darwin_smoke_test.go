@@ -51,7 +51,7 @@ func TestDarwinApplicationsOrphanBackupLifecycleSmoke(t *testing.T) {
 	app := filepath.Join(smokeRoot, "Reasonix.app")
 	executable := filepath.Join(app, "Contents", "MacOS", "Reasonix")
 	backup := app + ".reasonix-update-backup"
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}

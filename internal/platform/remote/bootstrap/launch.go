@@ -5,6 +5,28 @@ import (
 	"strings"
 )
 
+// remoteKernelNames are the binary names a remote kernel may carry.
+//
+// The remote kernel is provisioned from the upstream release channel, whose
+// archives ship a "reasonix" binary; a host that already runs this build's
+// own package carries "deep-tutor". Every place that looks the kernel up by
+// name — the PATH probe, the npm prefix probe, the process match that
+// decides whether a running serve is ours — has to accept both. A name that
+// is not recognised is a kernel this bootstrap cannot find, cannot stop and
+// cannot reuse: it would re-provision on every connect, and a serve it
+// cannot recognise is a serve it believes is somebody else's.
+var remoteKernelNames = []string{"reasonix", "deep-tutor"}
+
+// remoteKernelServeGlobs is the shell pattern list that matches a serve
+// process by the binary name it was started from.
+func remoteKernelServeGlobs() string {
+	parts := make([]string, 0, len(remoteKernelNames))
+	for _, n := range remoteKernelNames {
+		parts = append(parts, "*"+n+"*serve*")
+	}
+	return strings.Join(parts, "|")
+}
+
 // StatePaths are the absolute remote-side paths for one workspace's serve
 // state. All are under ~/.reasonix/remote.
 type StatePaths struct {
@@ -88,7 +110,7 @@ func posixBrokerArgs(spec LaunchSpec, p StatePaths) string {
 func StopCommand(pid int, p StatePaths) string {
 	return fmt.Sprintf(
 		"T=%s; P=%s; ours() { A=$(ps -p %d -o args= 2>/dev/null || ps -p %d -o command= 2>/dev/null); "+
-			"case \"$A\" in *reasonix*serve*) case \"$A\" in *\"$T\"*) case \"$A\" in *\"$P\"*) return 0;; esac;; esac;; esac; return 1; }; "+
+			"case \"$A\" in "+remoteKernelServeGlobs()+") case \"$A\" in *\"$T\"*) case \"$A\" in *\"$P\"*) return 0;; esac;; esac;; esac; return 1; }; "+
 			"ours || exit 0; kill -TERM %d 2>/dev/null; "+
 			"for i in 1 2 3 4 5; do kill -0 %d 2>/dev/null || exit 0; ours || exit 0; sleep 1; done; "+
 			"ours && kill -KILL %d 2>/dev/null; exit 0",
@@ -104,7 +126,7 @@ func ServeAliveCommand(pid int, p StatePaths) string {
 	return fmt.Sprintf(
 		"T=%s; P=%s; kill -0 %d 2>/dev/null || { echo 0; exit 0; }; "+
 			"A=$(ps -p %d -o args= 2>/dev/null || ps -p %d -o command= 2>/dev/null); "+
-			"case \"$A\" in *reasonix*serve*) case \"$A\" in *\"$T\"*) case \"$A\" in *\"$P\"*) echo 1; exit 0;; esac;; esac;; esac; echo 0",
+			"case \"$A\" in "+remoteKernelServeGlobs()+") case \"$A\" in *\"$T\"*) case \"$A\" in *\"$P\"*) echo 1; exit 0;; esac;; esac;; esac; echo 0",
 		shellQuote(p.TokenFile), shellQuote(p.PortFile), pid, pid, pid,
 	)
 }
@@ -155,6 +177,29 @@ func flagChecks(flags []string) string {
 	return b.String()
 }
 
+// remoteKernelPathProbes asks the remote's PATH for each name the kernel may
+// carry.
+func remoteKernelPathProbes() string {
+	var b strings.Builder
+	for _, n := range remoteKernelNames {
+		b.WriteString("probe \"$(command -v " + n + " 2>/dev/null)\"; ")
+	}
+	return b.String()
+}
+
+// remoteKernelNpmProbes asks the npm global bin for each name the kernel may
+// carry. npm installs outside the login PATH, so the PATH probe alone misses
+// an install that npm owns.
+func remoteKernelNpmProbes() string {
+	var b strings.Builder
+	b.WriteString("if [ -n \"$P\" ]; then ")
+	for _, n := range remoteKernelNames {
+		b.WriteString("probe \"$P/bin/" + n + "\"; ")
+	}
+	b.WriteString("fi; ")
+	return b.String()
+}
+
 // LocateCommand reports every reasonix it finds as `bin <path>`, `ver <what
 // --version said>`, and one `flag <name> yes|no` line per flag the launch will
 // pass. Every candidate, not the first path that exists: a machine can hold an
@@ -165,11 +210,11 @@ func LocateCommand(uploadedBin string, flags []string) string {
 		"probe() { [ -n \"$1\" ] && [ -x \"$1\" ] || return 0; "+
 			"echo \"bin $1\"; echo \"ver $(\"$1\" --version 2>/dev/null | head -n 1)\"; "+
 			"H=$(\"$1\" serve --help 2>&1); %s}; "+
-			"probe \"$(command -v reasonix 2>/dev/null)\"; "+
+			"%s"+
 			"probe %s; "+
 			"P=\"$(npm prefix -g 2>/dev/null)\"; "+
-			"if [ -n \"$P\" ]; then probe \"$P/bin/reasonix\"; fi; "+
+			"%s"+
 			"exit 0",
-		flagChecks(flags), shellQuote(uploadedBin),
+		flagChecks(flags), remoteKernelPathProbes(), shellQuote(uploadedBin), remoteKernelNpmProbes(),
 	)
 }

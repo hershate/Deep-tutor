@@ -56,7 +56,7 @@ func Parse(input string) (Draft, error) {
 }
 
 // parseCommandLine handles both the bare `npx -y foo` a README prints and the
-// full `reasonix mcp add` argv, so a user pasting either gets the same answer.
+// full `deep-tutor mcp add` argv, so a user pasting either gets the same answer.
 func parseCommandLine(line string) ([]config.PluginEntry, error) {
 	args := Tokenize(line)
 	if len(args) == 0 {
@@ -64,8 +64,8 @@ func parseCommandLine(line string) ([]config.PluginEntry, error) {
 	}
 	// A README's command is an argv, not a name followed by an argv. Prefixing
 	// "--" is what tells ParseArgs so, and it derives the name from the package.
-	launcher := strings.TrimSuffix(strings.ToLower(filepath.Base(args[0])), ".exe")
-	if len(args) >= 3 && launcher == "reasonix" && args[1] == "mcp" && args[2] == "add" {
+	launcher := filepath.Base(args[0])
+	if len(args) >= 3 && isCLILauncher(launcher) && args[1] == "mcp" && args[2] == "add" {
 		args = args[3:]
 	} else if args[0] != "--" && !looksLikeRemoteURL(args[0]) {
 		args = append([]string{"--"}, args...)
@@ -75,6 +75,31 @@ func parseCommandLine(line string) ([]config.PluginEntry, error) {
 		return nil, err
 	}
 	return []config.PluginEntry{entry}, nil
+}
+
+// isCLILauncher reports whether the pasted command is this CLI's own name.
+// The rename to deep-tutor is one half of the answer: a command line copied
+// from an older README, or from a colleague's machine that still runs the old
+// binary, must be understood too — so both spellings are accepted and neither
+// is a special case.
+func isCLILauncher(name string) bool {
+	switch normalizeLauncherName(name) {
+	case "deeptutor", "reasonix":
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeLauncherName folds a pasted executable name into the shape a
+// comparison can use: lower case, and without the separators a shell or a
+// package manager may have put in. DEEPTUTOR.EXE, deep-tutor and deep_tutor
+// all name the same binary, and a pasted line is written by a human, who
+// writes it the way their shell shows it.
+func normalizeLauncherName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.TrimSuffix(name, ".exe")
+	return strings.NewReplacer("-", "", "_", "").Replace(name)
 }
 
 // stripShellPrompt drops the "$ " or "> " a copied terminal line carries.

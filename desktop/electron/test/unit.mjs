@@ -1070,7 +1070,7 @@ test("a Linux package's Go binaries must be built for the architecture the packa
   assert.equal(elfArchitecture(elf64(null, 62)), "amd64");
   assert.equal(elfArchitecture(elf64(null, 183)), "arm64");
   assert.throws(() => elfArchitecture(elf64(null, 40)), /unsupported ELF machine/);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-elf-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-elf-"));
   try {
     const host = path.join(dir, "reasonix-studio-host");
     const helper = path.join(dir, "reasonix-studio-update-helper");
@@ -1344,7 +1344,7 @@ test("no secret reaches the shell or host log", () => {
     ["studio.exe", "--token=[redacted]", "--api-key", "[redacted]", "--flag", "-page", "C:\\dist"],
   );
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-log-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-log-"));
   try {
     const logs = openLogs(dir);
     const bare = "b".repeat(40);
@@ -1364,7 +1364,7 @@ test("no secret reaches the shell or host log", () => {
 
 test("a secret split across pipe chunks is still redacted", () => {
   const { openLogs } = require("../src/shelllog.js");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-log-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-log-"));
   try {
     const logs = openLogs(dir);
     logs.host.raw("mcp: using api_");
@@ -1438,7 +1438,7 @@ test("secrets named by their structure are redacted in every common spelling", (
 
 test("a log whose live file cannot be renamed still stays under its cap", () => {
   const { rotatingLog, openLogs } = require("../src/shelllog.js");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-log-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-log-"));
   try {
     const file = path.join(dir, "shell.log");
     // A non-empty directory where the first rotation lands makes the rename fail.
@@ -1461,7 +1461,7 @@ test("a log whose live file cannot be renamed still stays under its cap", () => 
 
 test("a launch that cannot start says why and where the logs are, then quits", () => {
   const { failStartup } = require("../src/shelllog.js");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-log-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-log-"));
   try {
     const { openLogs } = require("../src/shelllog.js");
     for (const [locale, title] of [["zh-CN", /无法启动/], ["en-US", /could not start/]]) {
@@ -1490,7 +1490,7 @@ test("a launch that cannot start says why and where the logs are, then quits", (
 // Loads the real main.js against a stand-in electron and reports what it did.
 function loadShell({ lock, host }) {
   const Module = require("node:module");
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "reasonix-shell-"));
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "deep-tutor-shell-"));
   const calls = [];
   let quit;
   const quitted = new Promise((resolve) => { quit = resolve; });
@@ -2310,7 +2310,7 @@ test("Windows uses a red dot overlay and removes it when all sessions are read",
   assert.equal(at(1, 8)[3], 0, "the dot stays well inside the 16px canvas");
   assert.deepEqual(at(12, 10), [255, 255, 255, 255], "a white ring separates it from the icon");
   assert.ok(at(13, 8)[3] > 0 && at(13, 8)[3] < 255, "the rim is smoothed, not jagged");
-  assert.deepEqual(calls, [["dot", "Reasonix Studio"], [null, ""]]);
+  assert.deepEqual(calls, [["dot", "Deep-tutor Studio"], [null, ""]]);
 });
 
 test("Linux clears its launcher badge without requiring Dock APIs", () => {

@@ -70,6 +70,9 @@ func MacAppBundle(exe string) (string, error) {
 }
 
 func findMacApp(root string) (string, error) {
+	// The fast path only: the bundle inside the archive is named by whatever
+	// built it, and the walk below is what actually finds it. Naming this
+	// build's own product here would be a guess about the archive's contents.
 	direct := filepath.Join(root, "Reasonix.app")
 	if _, err := os.Stat(filepath.Join(direct, "Contents", "Info.plist")); err == nil {
 		return direct, nil

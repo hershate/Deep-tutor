@@ -228,8 +228,16 @@ func outdated(found []candidate, minVersion string) string {
 	return newest
 }
 
+// npmInstallCommand installs the remote's kernel from npm.
+//
+// The package that exists: the remote's kernel comes from the upstream release
+// channel, and npm's registry is not ours to publish to. Naming a package
+// that is not published would turn every install into a 404 and push the
+// bootstrap down the download path for no reason.
+const npmInstallCommand = "npm i -g reasonix 2>&1"
+
 func installViaNPM(ctx context.Context, conn Conn, env loginEnv, target remoteOS, minVersion string, flags []string) (bin, version string, err error) {
-	res, err := conn.Exec(ctx, "npm i -g reasonix 2>&1")
+	res, err := conn.Exec(ctx, npmInstallCommand)
 	if err != nil {
 		return "", "", npmUnavailable(env, err)
 	}
@@ -257,7 +265,7 @@ func installViaNPM(ctx context.Context, conn Conn, env loginEnv, target remoteOS
 // release download instead, which carries every target the line publishes.
 func installViaUpload(ctx context.Context, conn Conn, target remoteOS, fs *sftpfs.FS, opts Options, home, goos, goarch, uploaded string, flags []string) (bin, version string, err error) {
 	if opts.LocalBinary == "" {
-		return "", "", fmt.Errorf("%w: no local Reasonix CLI to upload", ErrPlatformMismatch)
+		return "", "", fmt.Errorf("%w: no local Deep-tutor CLI to upload", ErrPlatformMismatch)
 	}
 	if opts.LocalGOOS != goos || opts.LocalGOARCH != goarch {
 		return "", "", fmt.Errorf("%w: local is %s/%s, remote is %s/%s",

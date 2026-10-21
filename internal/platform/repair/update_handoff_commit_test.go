@@ -94,7 +94,7 @@ func prepareTestPublishedAppBundleUpdate(t *testing.T) (*UpdateTransaction, exis
 
 func prepareTestNextAppBundleUpdate(t *testing.T, tx *UpdateTransaction) error {
 	t.Helper()
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -262,7 +262,7 @@ function cleanUpLegacyInstalls() {
         buttons: ["移到废纸篓", "先留着"],
         defaultId: 0,
         cancelId: 1,
-        message: "找到一个旧版本的 Reasonix Studio",
+        message: "找到一个旧版本的 Deep-tutor Studio",
         detail: `${bundle}\n\n它和当前这个共用同一份数据，所以两个图标打开的是同一个窗口。移到废纸篓不会动你的会话和设置。`,
       });
       return response === 0;
@@ -488,6 +488,11 @@ ipcMain.handle("dialog:pick-folder", async (event, startIn) => {
 // Named before any path is derived from it: userData hangs off the app name,
 // and a name that depended on how this was launched would put two launches of
 // the same install on two profiles — and so on two locks.
+//
+// The name is the one the profile was created under, not this build's product
+// name: Electron derives userData and the single-instance lock from it, so a
+// different name is a different profile — the old settings, credentials and
+// session history stay behind in a directory nothing opens any more.
 app.setName("Reasonix Studio");
 
 // Claimed before anything is created: the profile decides which launches share

@@ -107,13 +107,13 @@ func TestLoadCCSwitchLegacyConfigPrefersReasonixFlag(t *testing.T) {
 					"server": {"command": "node", "args": ["legacy.js"]},
 					"apps": {"codex": true}
 				},
-				"reasonix-off": {
-					"name": "reasonix-off",
+				"deep-tutor-off": {
+					"name": "deep-tutor-off",
 					"server": {"command": "node", "args": ["off.js"]},
 					"apps": {"codex": true, "reasonix": false}
 				},
-				"reasonix-on": {
-					"name": "reasonix-on",
+				"deep-tutor-on": {
+					"name": "deep-tutor-on",
 					"server": {"command": "node", "args": ["on.js"]},
 					"apps": {"codex": false, "reasonix": true}
 				}
@@ -127,8 +127,10 @@ func TestLoadCCSwitchLegacyConfigPrefersReasonixFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCCSwitchLegacyConfig: %v", err)
 	}
-	if len(got) != 2 || got[0].Name != "legacy" || got[1].Name != "reasonix-on" {
-		t.Fatalf("entries = %+v, want legacy fallback and explicit Reasonix enablement", got)
+	// The entries come back in the order of their keys, and the keys are the
+	// server names in the file.
+	if len(got) != 2 || got[0].Name != "deep-tutor-on" || got[1].Name != "legacy" {
+		t.Fatalf("entries = %+v, want the legacy fallback and the explicitly enabled entry", got)
 	}
 }
 
@@ -145,7 +147,7 @@ func TestLoadCCSwitchMCPDBPrefersReasonixColumn(t *testing.T) {
 		enabled_reasonix BOOLEAN NOT NULL DEFAULT 0
 	);
 	INSERT INTO mcp_servers VALUES ('codex-only', 'codex-only', '{"command":"node","args":["codex.js"]}', 1, 0);
-	INSERT INTO mcp_servers VALUES ('reasonix-only', 'reasonix-only', '{"command":"node","args":["reasonix.js"]}', 0, 1);`
+	INSERT INTO mcp_servers VALUES ('deep-tutor-only', 'deep-tutor-only', '{"command":"node","args":["deep-tutor.js"]}', 0, 1);`
 	if out, err := exec.Command("sqlite3", dbPath, setup).CombinedOutput(); err != nil {
 		t.Fatalf("create sqlite db: %v\n%s", err, out)
 	}
@@ -153,8 +155,8 @@ func TestLoadCCSwitchMCPDBPrefersReasonixColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCCSwitchMCPDB: %v", err)
 	}
-	if len(got) != 1 || got[0].Name != "reasonix-only" {
-		t.Fatalf("entries = %+v, want only explicit Reasonix enablement", got)
+	if len(got) != 1 || got[0].Name != "deep-tutor-only" {
+		t.Fatalf("entries = %+v, want only explicit Deep-tutor enablement", got)
 	}
 }
 

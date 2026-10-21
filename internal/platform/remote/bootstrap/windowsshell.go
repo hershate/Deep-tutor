@@ -18,6 +18,9 @@ import (
 // bug. Inside the script, PowerShell's single quotes follow the POSIX rule.
 type windowsShell struct{}
 
+// Executable is the name the remote's CLI carries once it is installed. It is
+// the name the release archive ships, not the name this build was renamed to:
+// the remote is provisioned from the upstream release channel.
 func (windowsShell) Executable() string { return "reasonix.exe" }
 
 // Home does not ask the shell: OpenSSH on Windows will not resolve ~, but
@@ -180,16 +183,23 @@ func (windowsShell) Locate(uploadedBin string, flags []string) string {
 		checks = append(checks, "if ([regex]::IsMatch($h, "+psQuote("-"+f+"(\\s|$)")+")) { "+
 			psQuote("flag "+f+" yes")+" } else { "+psQuote("flag "+f+" no")+" }")
 	}
-	return psCommand(strings.Join([]string{
+	parts := []string{
 		"function probe($p) { if (-not $p -or -not (Test-Path -LiteralPath $p)) { return }; " +
 			"'bin ' + $p; " +
 			"'ver ' + ((& $p --version 2>$null | Select-Object -First 1) -join ''); " +
 			"$h = (& $p serve --help 2>&1 | Out-String); " +
 			strings.Join(checks, "; ") + " }",
-		"$c = Get-Command 'reasonix.exe' -ErrorAction SilentlyContinue",
-		"if ($c) { probe $c.Source }",
-		"probe " + uploaded,
-	}, "; "))
+	}
+	// Both names the kernel may carry, not just the one this build ships: the
+	// remote may hold the upstream release's binary, and a name that is not
+	// probed is a kernel this bootstrap cannot drive.
+	for _, n := range remoteKernelNames {
+		parts = append(parts,
+			"$c = Get-Command '"+n+".exe' -ErrorAction SilentlyContinue",
+			"if ($c) { probe $c.Source }")
+	}
+	parts = append(parts, "probe "+uploaded)
+	return psCommand(strings.Join(parts, "; "))
 }
 
 // commandLineOf binds $c to a pid's command line, or nothing when it is gone.

@@ -128,6 +128,21 @@ func TestMachineSessionIDIsStableAndOpaque(t *testing.T) {
 	}
 }
 
+// The machine session ID is shown to the user, written into their scripts and
+// accepted back as `run --resume <id>`. It is a digest over a domain
+// separator, so the separator is part of the contract: change it and every ID
+// this product has already handed out stops resolving.
+//
+// The value below is a contract, not a snapshot.
+func TestMachineSessionIDKeepsItsValueAcrossBuilds(t *testing.T) {
+	raw := "20260723-120000.000000000-private-provider-model"
+	identityKey := bytes.Repeat([]byte{0x41}, machineIdentityKeyBytes)
+	const want = "session_b9d1512c4f2511b77ecd7d470e2a470b"
+	if got := machineSessionIDWithKey(raw, identityKey); got != want {
+		t.Fatalf("machine session id = %q, want %q", got, want)
+	}
+}
+
 func TestSessionMachineErrorsAreJSONAndNonZero(t *testing.T) {
 	installMachineTestIdentity(t)
 	dir := testenv.TempDir(t)

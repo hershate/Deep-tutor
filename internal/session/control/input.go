@@ -31,7 +31,21 @@ const PlanModeMarker = planmode.Marker
 // directives it replaced read "plan first-class support for windows paths" and
 // "make a plan.md file" as requests to plan. Frontends prepend it the way plan
 // mode prepends its own marker; it never reaches the model.
-const PlannerRouteMarker = "[Reasonix: plan-first]"
+const PlannerRouteMarker = "[Deep-tutor: plan-first]"
+
+// legacyPlannerRouteMarker is the marker's spelling before the rename. A
+// front end that still writes the old one — an installed Studio beside a new
+// CLI, a script that types the marker by hand — must still reach the
+// planner, so the old spelling is recognized and stripped rather than shown
+// to the user as text.
+const legacyPlannerRouteMarker = "[Reasonix: plan-first]"
+
+// isPlannerRouteMarker reports whether text opens with a planner route
+// marker, in either spelling.
+func isPlannerRouteMarker(text string) bool {
+	return strings.HasPrefix(text, PlannerRouteMarker) ||
+		strings.HasPrefix(text, legacyPlannerRouteMarker)
+}
 
 const (
 	activeGoalOpen = "<active-goal>"
@@ -72,6 +86,7 @@ func StripComposePrefixes(content string) string {
 	s := sessionstore.StripTransientUserBlocks(content)
 	s = stripComposeMarker(s, PlanModeMarker)
 	s = stripComposeMarker(s, PlannerRouteMarker)
+	s = stripComposeMarker(s, legacyPlannerRouteMarker)
 	for _, superseded := range planmode.Superseded {
 		s = stripComposeMarker(s, superseded)
 	}

@@ -33,7 +33,7 @@ func prepareTestAppBundleHandoff(t *testing.T) (*UpdateTransaction, string) {
 	repairExecutable = func() (string, error) { return exe, nil }
 	t.Cleanup(func() { repairExecutable = originalExecutable })
 
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func newExistingAppBundleBackupFixture(t *testing.T) existingAppBundleBackupFixt
 	app := filepath.Join(installRoot, "Reasonix.app")
 	exe := filepath.Join(app, "Contents", "MacOS", "Reasonix")
 	backup := app + ".reasonix-update-backup"
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +473,7 @@ func TestPrepareAppBundleUpdateHandoffRestoresBackupChangedDuringQuarantine(t *t
 
 func TestPrepareAppBundleUpdateHandoffRejectsUnboundExistingBackup(t *testing.T) {
 	fixture := newExistingAppBundleBackupFixture(t)
-	outside := filepath.Join(testenv.TempDir(t), "Reasonix")
+	outside := filepath.Join(testenv.TempDir(t), "Deep-tutor")
 	if err := os.WriteFile(outside, []byte("outside"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestPrepareAppBundleUpdateHandoffRejectsUnboundExistingBackup(t *testing.T)
 	_, err := PrepareAppBundleUpdateHandoff(
 		"v1", "v2", fixture.app, fixture.backup, fixture.stagedApp, fixture.staging, os.Getpid(),
 	)
-	if err == nil || !strings.Contains(err.Error(), "outside the current Reasonix installation") {
+	if err == nil || !strings.Contains(err.Error(), "outside the current Deep-tutor installation") {
 		t.Fatalf("prepare error = %v, want current-installation rejection", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(fixture.backup, "marker")); err != nil || string(got) != "preserve" {

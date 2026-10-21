@@ -44,10 +44,15 @@ func TestParseUname(t *testing.T) {
 
 func TestParseVersion(t *testing.T) {
 	cases := map[string]string{
-		"reasonix v1.9.0":        "1.9.0",
-		"1.9.0":                  "1.9.0",
-		"reasonix version 2.0.1": "2.0.1",
-		"v1.10.0-rc.1":           "1.10.0-rc.1",
+		// Both product names: the remote's kernel is provisioned from the
+		// upstream release channel, whose binary reports "reasonix", and a
+		// host that already runs this build's own reports "deep-tutor".
+		"reasonix v1.9.0":          "1.9.0",
+		"deep-tutor v1.9.0":        "1.9.0",
+		"1.9.0":                   "1.9.0",
+		"reasonix version 2.0.1":  "2.0.1",
+		"deep-tutor version 2.0.1": "2.0.1",
+		"v1.10.0-rc.1":            "1.10.0-rc.1",
 	}
 	for in, want := range cases {
 		got, err := ParseVersion(in)
@@ -132,9 +137,11 @@ func TestStopAndServeAliveCommands(t *testing.T) {
 		}
 	}
 	alive := ServeAliveCommand(99, paths)
-	// Must check liveness AND that the process is a reasonix serve (guards PID
-	// reuse), not just kill -0.
-	for _, want := range []string{"kill -0 99", "ps -p 99", "*reasonix*serve*", paths.TokenFile, paths.PortFile} {
+	// Must check liveness AND that the process is a kernel serve (guards PID
+	// reuse), not just kill -0. Both names the kernel may carry have to
+	// match: a serve this build started is named after this build, and one
+	// the upstream release left behind is named after that.
+	for _, want := range []string{"kill -0 99", "ps -p 99", "*reasonix*serve*", "*deep-tutor*serve*", paths.TokenFile, paths.PortFile} {
 		if !strings.Contains(alive, want) {
 			t.Errorf("ServeAliveCommand missing %q: %s", want, alive)
 		}
@@ -218,7 +225,7 @@ func longFlagsIn(cmd string) []string {
 // the first path it found reported only the one that cannot be used.
 func TestLocateCommandReportsEveryCandidateItFinds(t *testing.T) {
 	cmd := LocateCommand("/home/x/.reasonix/remote/bin/reasonix", LaunchFlags(true))
-	for _, want := range []string{"command -v reasonix", "/home/x/.reasonix/remote/bin/reasonix", "npm prefix -g"} {
+	for _, want := range []string{"command -v reasonix", "command -v deep-tutor", "/home/x/.reasonix/remote/bin/reasonix", "npm prefix -g"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("LocateCommand does not look in %q:\n%s", want, cmd)
 		}

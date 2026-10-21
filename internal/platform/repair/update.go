@@ -202,7 +202,7 @@ func PendingUpdatePath() string {
 func lockPendingUpdateStrict() (func(), error) {
 	path := PendingUpdatePath()
 	if path == "" {
-		return nil, fmt.Errorf("pending update: Reasonix state directory is unavailable")
+		return nil, fmt.Errorf("pending update: Deep-tutor state directory is unavailable")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -1158,7 +1158,7 @@ func quarantineExistingAppBundleUpdateBackup(tx *UpdateTransaction) (string, str
 
 	launcher, err := repairExecutable()
 	if err != nil {
-		return "", "", fmt.Errorf("resolve current Reasonix executable: %w", err)
+		return "", "", fmt.Errorf("resolve current Deep-tutor executable: %w", err)
 	}
 	resolvedTarget, err := filepath.EvalSymlinks(tx.TargetPath)
 	if err != nil {
@@ -1166,11 +1166,11 @@ func quarantineExistingAppBundleUpdateBackup(tx *UpdateTransaction) (string, str
 	}
 	resolvedLauncher, err := filepath.EvalSymlinks(launcher)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve current Reasonix executable: %w", err)
+		return "", "", fmt.Errorf("resolve current Deep-tutor executable: %w", err)
 	}
 	rel, err := filepath.Rel(resolvedTarget, resolvedLauncher)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("existing handoff backup is outside the current Reasonix installation")
+		return "", "", fmt.Errorf("existing handoff backup is outside the current Deep-tutor installation")
 	}
 
 	expectedTreeID, err := repairPlanTreeContentStateID(tx.BackupPath)
@@ -1329,7 +1329,7 @@ func writePendingUpdate(tx *UpdateTransaction, createOnly bool) error {
 	}
 	path := PendingUpdatePath()
 	if path == "" {
-		return fmt.Errorf("pending update: Reasonix state directory is unavailable")
+		return fmt.Errorf("pending update: Deep-tutor state directory is unavailable")
 	}
 	b, err := json.MarshalIndent(tx, "", "  ")
 	if err != nil {
@@ -1455,7 +1455,7 @@ const (
 func classifyPendingUpdate() (pendingUpdateDisposition, *UpdateTransaction, error) {
 	path := PendingUpdatePath()
 	if path == "" {
-		return pendingUpdateNone, nil, fmt.Errorf("Reasonix state directory is unavailable")
+		return pendingUpdateNone, nil, fmt.Errorf("Deep-tutor state directory is unavailable")
 	}
 	if _, err := os.Lstat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -1517,7 +1517,7 @@ func pendingUpdateSelfDescribing(tx *UpdateTransaction) bool {
 func quarantinePendingUpdate(reason string) (string, error) {
 	path := PendingUpdatePath()
 	if path == "" {
-		return "", fmt.Errorf("Reasonix state directory is unavailable")
+		return "", fmt.Errorf("Deep-tutor state directory is unavailable")
 	}
 	base := path + ".unusable-" + time.Now().UTC().Format("20060102T150405Z")
 	aside := base
@@ -2960,13 +2960,21 @@ func stageUpdateRollbackBackup(
 // allowedUpdateTargetBase whitelists the packaged binaries an update
 // transaction may name. The main executable names are only valid as the
 // primary target; Guard/launcher artifacts only as release-unit siblings.
+//
+// Both spellings of every name are listed: an install made before the rename
+// still carries the reasonix-* files, and a transaction naming one of those
+// is the update of that install, not an attack. Whitelisting only the new
+// spelling would refuse the update of every existing install; whitelisting
+// only the old one would refuse this build's own.
 func allowedUpdateTargetBase(base string, primary bool) bool {
 	switch strings.ToLower(base) {
-	case "reasonix-desktop", "reasonix-desktop.exe":
+	case "deep-tutor-desktop", "deep-tutor-desktop.exe", "reasonix-desktop", "reasonix-desktop.exe":
 		return primary
-	case "reasonix.exe":
+	case "deep-tutor.exe", "reasonix.exe":
 		return !primary
-	case "reasonix", "reasonix-guard", "reasonix-guard.exe", "reasonix-launcher.exe", "reasonix-update-helper.exe", "reasonix-cli.exe":
+	case "deep-tutor", "reasonix",
+		"deep-tutor-guard", "deep-tutor-guard.exe", "reasonix-guard", "reasonix-guard.exe",
+		"reasonix-launcher.exe", "reasonix-update-helper.exe", "reasonix-cli.exe":
 		return !primary
 	default:
 		return false
@@ -3007,7 +3015,7 @@ func validateUpdateTransactionForLauncher(tx *UpdateTransaction, launcher string
 	switch tx.TargetKind {
 	case "file":
 		if !allowedUpdateTargetBase(filepath.Base(tx.TargetPath), true) {
-			return fmt.Errorf("pending update target is not a Reasonix executable")
+			return fmt.Errorf("pending update target is not a Deep-tutor executable")
 		}
 		launcherKey := canonicalRepairPath(launcher)
 		targetKey := canonicalRepairPath(tx.TargetPath)
@@ -3171,7 +3179,14 @@ func validateAppBundleHandoffMetadata(tx *UpdateTransaction) error {
 		return fmt.Errorf("handoff staging directory is outside the system temporary directory")
 	}
 	stagingBase := strings.Split(stagingRel, string(filepath.Separator))[0]
-	if !strings.HasPrefix(stagingBase, "reasonix-mac-update-") {
+	// Both names the staging directory may carry: one written by this build
+	// and one by the build before it, whose transaction is still on disk
+	// across an upgrade. The check is a safety bound (the staging directory
+	// has to be the one the updater made, under the system temporary
+	// directory), so a name it does not recognise must not be accepted —
+	// and a name it used to write must not be rejected either.
+	if !strings.HasPrefix(stagingBase, "deep-tutor-mac-update-") &&
+		!strings.HasPrefix(stagingBase, "reasonix-mac-update-") {
 		return fmt.Errorf("handoff staging directory has an unexpected name")
 	}
 	return nil

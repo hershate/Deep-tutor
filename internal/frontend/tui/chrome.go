@@ -52,7 +52,7 @@ func banner(s Status) string {
 	if label == "" {
 		label = modelName(s.ModelRef)
 	}
-	head := termrender.Accent("◆") + " " + termrender.Bold("reasonix")
+	head := termrender.Accent("◆") + " " + termrender.Bold("deep-tutor")
 	if label != "" {
 		head += "  " + termrender.Dim("· "+label)
 	}

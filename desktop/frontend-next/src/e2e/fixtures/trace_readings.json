@@ -407,7 +407,7 @@
   "live": [
    {
     "kind": "turn_started",
-    "text": "[Reasonix: plan-first] build it",
+    "text": "[Deep-tutor: plan-first] build it",
     "authoredTurn": 1,
     "msgIndex": 1,
     "modelRef": "test-model/x"
@@ -553,7 +553,7 @@
   "replay": [
    {
     "kind": "turn_started",
-    "text": "[Reasonix: plan-first] build it",
+    "text": "[Deep-tutor: plan-first] build it",
     "authoredTurn": 1,
     "msgIndex": 1,
     "modelRef": "test-model/x"

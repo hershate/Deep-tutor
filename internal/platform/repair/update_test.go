@@ -569,7 +569,7 @@ func TestMarkUpdateHealthyRejectsAppBundleDrift(t *testing.T) {
 	t.Cleanup(func() { repairExecutable = originalExecutable })
 
 	backup := app + ".reasonix-update-backup"
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3853,7 +3853,7 @@ func TestAppBundleRollbackCleansReplacementBoundToStagingTree(t *testing.T) {
 	originalExecutable := repairExecutable
 	repairExecutable = func() (string, error) { return exe, nil }
 	t.Cleanup(func() { repairExecutable = originalExecutable })
-	staging, err := os.MkdirTemp("", "reasonix-mac-update-*")
+	staging, err := os.MkdirTemp("", "deep-tutor-mac-update-*")
 	if err != nil {
 		t.Fatal(err)
 	}

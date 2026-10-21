@@ -149,11 +149,11 @@ func CommandOverviewFor(language, commandName string) (string, error) {
 	stats := fmt.Sprintf("documents=%d sections=%d", m.Documents, m.Sections)
 	switch strings.ToLower(strings.TrimSpace(language)) {
 	case "zh", "zh-cn":
-		return fmt.Sprintf("内置 Reasonix 文档\n%s\n%s\n\n用法：%s <问题>\n示例：%s 如何配置 MCP 服务器\n\n搜索在本地完成，命中的文档片段会交给当前配置的 AI 组织答案。", identity, stats, commandName, commandName), nil
+		return fmt.Sprintf("内置 Deep-tutor 文档\n%s\n%s\n\n用法：%s <问题>\n示例：%s 如何配置 MCP 服务器\n\n搜索在本地完成，命中的文档片段会交给当前配置的 AI 组织答案。", identity, stats, commandName, commandName), nil
 	case "zh-tw":
-		return fmt.Sprintf("內建 Reasonix 文件\n%s\n%s\n\n用法：%s <問題>\n範例：%s 如何設定 MCP 伺服器\n\n搜尋在本機完成，命中的文件片段會交給目前設定的 AI 組織答案。", identity, stats, commandName, commandName), nil
+		return fmt.Sprintf("內建 Deep-tutor 文件\n%s\n%s\n\n用法：%s <問題>\n範例：%s 如何設定 MCP 伺服器\n\n搜尋在本機完成，命中的文件片段會交給目前設定的 AI 組織答案。", identity, stats, commandName, commandName), nil
 	default:
-		return fmt.Sprintf("Embedded Reasonix documentation\n%s\n%s\n\nUsage: %s <question>\nExample: %s how to configure an MCP server\n\nSearch runs locally, then the matched sections are passed to the configured AI to compose the answer.", identity, stats, commandName, commandName), nil
+		return fmt.Sprintf("Embedded Deep-tutor documentation\n%s\n%s\n\nUsage: %s <question>\nExample: %s how to configure an MCP server\n\nSearch runs locally, then the matched sections are passed to the configured AI to compose the answer.", identity, stats, commandName, commandName), nil
 	}
 }
 
@@ -228,8 +228,8 @@ func (c *catalog) identityLine() string {
 func (*docsTool) Name() string { return "docs" }
 
 func (*docsTool) Description() string {
-	return "Search and read the official documentation embedded in this exact Reasonix build. " +
-		"Use it before web search or assumptions for Reasonix setup, CLI, Desktop, configuration, permissions, MCP, memory, recovery, provider behavior, and maintainer workflows. " +
+	return "Search and read the official documentation embedded in this exact Deep-tutor build. " +
+		"Use it before web search or assumptions for Deep-tutor setup, CLI, Desktop, configuration, permissions, MCP, memory, recovery, provider behavior, and maintainer workflows. " +
 		"Search first, then read the returned section_id when the full section is needed."
 }
 
@@ -371,7 +371,7 @@ func (t *docsTool) read(sectionID, documentPath string) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("unknown section_id %q; use operation=search or read with an exact path to list section ids", sectionID)
 		}
-		return fmt.Sprintf("Embedded Reasonix documentation (%s)\nsource: %s\npath: %s\nsection_id: %s\nlocale: %s\naudience: %s\nheading: %s\n\n%s",
+		return fmt.Sprintf("Embedded Deep-tutor documentation (%s)\nsource: %s\npath: %s\nsection_id: %s\nlocale: %s\naudience: %s\nheading: %s\n\n%s",
 			t.catalog.identityLine(), section.document.sourceRange(section.startLine, section.endLine), section.document.displayPath(), section.id,
 			section.document.locale, section.document.audience, section.heading, strings.TrimSpace(section.content)), nil
 	}
@@ -396,7 +396,7 @@ func (t *docsTool) read(sectionID, documentPath string) (string, error) {
 
 func (t *docsTool) list(language, audience string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Embedded Reasonix documentation catalog (%s):\n", t.catalog.identityLine())
+	fmt.Fprintf(&b, "Embedded Deep-tutor documentation catalog (%s):\n", t.catalog.identityLine())
 	count := 0
 	for _, doc := range t.catalog.docs {
 		if language != "auto" && language != "all" && doc.locale != language {
@@ -423,7 +423,7 @@ func loadCatalog(docsFS fs.FS) (*catalog, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("reasonix-product-docs-v1\x00"))
+	_, _ = hash.Write([]byte("deep-tutor-product-docs-v1\x00"))
 	markdownParser := goldmark.DefaultParser()
 	c := &catalog{byPath: map[string]*document{}, byID: map[string]*section{}}
 	for _, entry := range entries {
@@ -712,10 +712,10 @@ func documentAudience(name string) string {
 
 func formatSearchResults(query, identity string, hits []searchHit) string {
 	if len(hits) == 0 {
-		return fmt.Sprintf("No embedded Reasonix documentation matched %q (%s). Try fewer terms, an exact command/configuration key, language=all, or audience=all.", query, identity)
+		return fmt.Sprintf("No embedded Deep-tutor documentation matched %q (%s). Try fewer terms, an exact command/configuration key, language=all, or audience=all.", query, identity)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Embedded Reasonix documentation results for %q (%s):\n", query, identity)
+	fmt.Fprintf(&b, "Embedded Deep-tutor documentation results for %q (%s):\n", query, identity)
 	for i, hit := range hits {
 		section := hit.section
 		fmt.Fprintf(&b, "\n%d. score=%.3f source=%s path=%s section_id=%s locale=%s audience=%s\n   heading: %s\n   snippet: %s\n",
