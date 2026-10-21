@@ -16,9 +16,12 @@ func openTestStore(t *testing.T) *Store {
 		t.Fatalf("OpenStore: %v", err)
 	}
 	// Windows reports "directory not empty" when a remove races a just-ended
-	// rename, and t.TempDir does not retry — clear the store ourselves first.
+	// rename — the atomic write publishes through a rename, and a scanner
+	// that still holds the file keeps the directory entry alive after the
+	// unlink. t.TempDir does not retry, so clear the store ourselves first
+	// and give the pending delete time to land.
 	t.Cleanup(func() {
-		for range 20 {
+		for range 40 {
 			if err := os.RemoveAll(root); err == nil {
 				return
 			}

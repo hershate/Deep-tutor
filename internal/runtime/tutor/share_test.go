@@ -172,10 +172,7 @@ func TestShareOrphanSelfHeals(t *testing.T) {
 
 func newShareService(t *testing.T) *Service {
 	t.Helper()
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	return NewService(store, ServiceOptions{})
 }
 

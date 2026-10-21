@@ -17,10 +17,7 @@ func repeat(s string, n int) string {
 // The notes cap has to hold when writers race: the count and the write share
 // one lock, so two writers cannot both pass the check.
 func TestSaveNoteGuardedHoldsTheQuotaUnderRace(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	// Fill the library to one below the cap.
 	for i := 0; i < noteQuota-1; i++ {
 		if err := store.SaveNoteGuarded(&Note{Title: fmt.Sprintf("n%d", i), Body: "b"}); err != nil {
@@ -67,10 +64,7 @@ func TestSaveNoteGuardedHoldsTheQuotaUnderRace(t *testing.T) {
 
 // A note is bounded on every write path, not only on the import path.
 func TestSaveNoteGuardedClampsTitleAndBody(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	note := &Note{Title: repeat("t", noteTitleMax+50), Body: repeat("b", noteBodyMax+50)}
 	if err := store.SaveNoteGuarded(note); err != nil {
 		t.Fatal(err)
@@ -85,10 +79,7 @@ func TestSaveNoteGuardedClampsTitleAndBody(t *testing.T) {
 
 // The sessions cap has to hold when writers race.
 func TestCreateSessionHoldsTheQuotaUnderRace(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	for i := 0; i < maxSessions-1; i++ {
 		if _, err := store.CreateSession("s"); err != nil {
 			t.Fatalf("fill %d: %v", i, err)
@@ -127,10 +118,7 @@ func TestCreateSessionHoldsTheQuotaUnderRace(t *testing.T) {
 // Concurrent answers must not lose one another: the attempt list is
 // read-modify-written, so the read and the write share the plan's lock.
 func TestAppendAttemptKeepsEveryConcurrentAnswer(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	plan := &Plan{ID: "p1", Version: 1, Title: "方案", CreatedAt: time.Now()}
 	if err := store.SavePlan(plan); err != nil {
 		t.Fatal(err)
@@ -163,10 +151,7 @@ func TestAppendAttemptKeepsEveryConcurrentAnswer(t *testing.T) {
 
 // The same for the learning ledger.
 func TestAddLogKeepsEveryConcurrentCheckIn(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	plan := &Plan{ID: "p1", Version: 1, Title: "方案", CreatedAt: time.Now()}
 	if err := store.SavePlan(plan); err != nil {
 		t.Fatal(err)

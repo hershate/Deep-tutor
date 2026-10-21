@@ -81,6 +81,14 @@
 | `internal/frontend/serve/tutor_kb.go` | 内部错误改走 `tutorFail`（共 7 处散落的 `writeErr` 一并收敛） |
 | `internal/runtime/tutor/verify.go` | 为 `publicOnlyClient` 增加 `CheckRedirect`：逐跳重做公网地址校验并限制跳数——此前手写的跳转循环在该客户端上从未生效（客户端自己跟完 10 跳），注释承诺的「逐跳复检」是死代码 |
 | `desktop/frontend-next/src/i18n/kernel.ts` | 新增 `tutor.backup_busy` / `tutor.bad_path` / `tutor.internal_error` 三条文案（内核前端 i18n 表须与后端拒绝码一一对应） |
+| `internal/runtime/tutor/quota.go`（第二批） | 增 `WithKbLock` / `WithMaterialsLock` / `AddMaterialGuarded` 与 `ErrMaterialQuota`：知识库的**去重检查 + 文档数检查 + 写行**、以及**材料数检查 + 写行**各自收进同一把键控锁（此前是分离的「先查后写」，并发上传可突破上限并产生同哈希重复行） |
+| `internal/runtime/tutor/kb.go` | 知识库写入改为「去重 + 配额 + 写行」同一临界区（`kbCommitRow`）；去重检查排除正在更新的文档自身（`kbDedup` 增 `exceptID`）；重复或被拒时删除已写入的原件/解析文本，不留孤儿文件 |
+| `internal/runtime/tutor/materials.go` | 材料写入走 `AddMaterialGuarded`（每会话 20 条上限此前**只有常量、无人执行**）；被拒时删除已写入的原件 |
+| `internal/runtime/tutor/progresssvc.go` | `RecordProgress` 校验节点归属：节点必须属于该方案（此前任意 id 都会建行，而总览只列方案自身的节点——写进去的行无人读、文件却无限增长）；node_id 长度上限 64（与 Python 端 `node_id: max_length=64` 同口径）；进度行数上限 500 |
+| `internal/runtime/tutor/pdf.go` | 新增解析预算：页数上限 2000、页树嵌套深度上限 64（递归遍历的栈深杠杆，超限在 Go 的 1GB 栈上限处是**不可恢复的进程级致命错误**）、**整份文档的解压字节预算** 256MB（此前只有单流上限，文档的流总和不受限）；解压预算按流对象去重计费（字体的 ToUnicode 每页解码一次，重复计费会把正常文档误杀） |
+| `internal/runtime/tutor/pdftext.go` | 内容流解码失败不再静默吞掉：逐页统计失败流数并写日志；全部页面无文本时给出「内容流解码失败」的明确错误，而非笼统的「文本层为空」 |
+| `internal/frontend/serve/tutor.go`（第二批） | 补齐配额与坏输入的拒绝映射：`tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota`（429）、`tutor.bad_log_input` / `tutor.bad_progress_input`（400）——此前笔记/会话配额未映射，落入 default 分支被当成内部错误报 500 |
+| `desktop/frontend-next/src/i18n/kernel.ts`（第二批） | 新增 `tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota` / `tutor.bad_log_input` / `tutor.bad_progress_input` 五条文案 |
 
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 

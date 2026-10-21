@@ -209,6 +209,16 @@ func tutorRefuse(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusGatewayTimeout, "tutor.upstream_timeout", "llm response timed out, retry shortly", nil)
 	case errors.Is(err, tutor.ErrBadGateway):
 		refuse(w, http.StatusBadGateway, "tutor.bad_gateway", "llm call failed, retry shortly", nil)
+	case errors.Is(err, tutor.ErrNoteQuota):
+		refuse(w, http.StatusTooManyRequests, "tutor.note_quota", "the notes library is full; delete a note first", nil)
+	case errors.Is(err, tutor.ErrSessionQuota):
+		refuse(w, http.StatusTooManyRequests, "tutor.session_quota", "the session limit is reached; delete an old session first", nil)
+	case errors.Is(err, tutor.ErrMaterialQuota):
+		refuse(w, http.StatusTooManyRequests, "tutor.material_quota", "this session already holds the maximum number of materials", nil)
+	case errors.Is(err, tutor.ErrBadLogInput):
+		refuse(w, http.StatusBadRequest, "tutor.bad_log_input", "the check-in is malformed", nil)
+	case errors.Is(err, tutor.ErrBadProgressInput):
+		refuse(w, http.StatusBadRequest, "tutor.bad_progress_input", "the progress update is malformed", nil)
 	default:
 		tutorFail(w, err)
 	}

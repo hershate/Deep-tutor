@@ -37,10 +37,7 @@ func TestSafeSegmentKeepsNamesInside(t *testing.T) {
 // The store's own path builders must not escape the store root, whatever the
 // identifier carries.
 func TestStorePathBuildersStayInsideRoot(t *testing.T) {
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openTestStore(t)
 	root := store.Root()
 	for _, id := range []string{"../../evil", `..\..\evil`, "/etc/passwd", ".."} {
 		for _, p := range []string{

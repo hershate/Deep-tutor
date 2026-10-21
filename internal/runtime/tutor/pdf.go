@@ -9,11 +9,34 @@ import (
 	"maps"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // pdf.go holds a byte-level PDF reader: a lexer for the object syntax, an
 // object table built by scanning declarations (classic xref, xref streams
 // and object streams all yield their objects), and Flate decoding.
+
+// The reader's own budgets. A PDF is attacker-supplied data that the
+// service parses on request, so the parser bounds what a document can cost
+// it: the number of pages it declares, how deep its page tree nests, and
+// how many bytes its compressed streams may inflate to in total.
+const (
+	// pdfMaxPages caps the page count. Every page is interpreted and its
+	// text kept, so a document declaring a million pages is a memory
+	// amplifier that no honest study material needs.
+	pdfMaxPages = 2000
+	// pdfMaxPageDepth caps the page tree's nesting. The walk is recursive,
+	// and a chain of nested Pages nodes is a stack-depth lever: Go grows
+	// the stack until the runtime's 1GB ceiling turns it into a fatal
+	// error that takes the whole process down.
+	pdfMaxPageDepth = 64
+	// pdfMaxInflateBytes caps the bytes a document's streams may inflate
+	// to in total. The per-stream cap (zipMaxUncompressed) bounds one
+	// stream, not the sum: a document carrying a thousand streams is the
+	// same bomb spread over a thousand entries.
+	pdfMaxInflateBytes = 256 << 20
+)
 
 // pdfObj is any PDF object value: nil, bool, int64, float64, string,
 // pdfHexString, pdfName, pdfRef, []pdfObj, pdfDict or *pdfStream.
@@ -356,6 +379,34 @@ func (l *pdfLexer) array() (pdfObj, error) {
 // pdfFile is the loaded object table.
 type pdfFile struct {
 	objs map[int]pdfObj
+	// inflateLeft is the document's remaining decompression budget, and
+	// inflated remembers which streams have already been charged. A font's
+	// ToUnicode stream is decoded once per page, so charging by decode
+	// would count one stream a thousand times; the stream pointer is the
+	// identity, so a stream is charged once.
+	inflateMu   sync.Mutex
+	inflated    map[*pdfStream]bool
+	inflateLeft atomic.Int64
+}
+
+// chargeInflate books n inflated bytes against the document's budget. The
+// first decode of a stream pays for it; later decodes of the same stream are
+// free.
+func (f *pdfFile) chargeInflate(s *pdfStream, n int) error {
+	f.inflateMu.Lock()
+	if f.inflated == nil {
+		f.inflated = map[*pdfStream]bool{}
+	}
+	seen := f.inflated[s]
+	f.inflated[s] = true
+	f.inflateMu.Unlock()
+	if seen {
+		return nil
+	}
+	if left := f.inflateLeft.Add(-int64(n)); left < 0 {
+		return fmt.Errorf("pdf: decompression budget of %d MB exceeded", pdfMaxInflateBytes>>20)
+	}
+	return nil
 }
 
 // loadPDF scans every "N G obj" declaration and expands object streams, so
@@ -368,6 +419,7 @@ func loadPDF(data []byte) (*pdfFile, error) {
 		return nil, errors.New("pdf: encrypted document")
 	}
 	f := &pdfFile{objs: map[int]pdfObj{}}
+	f.inflateLeft.Store(pdfMaxInflateBytes)
 	lex := &pdfLexer{data: data}
 	for {
 		tok := lex.next()
@@ -532,7 +584,14 @@ func decodePDFStream(f *pdfFile, s *pdfStream) ([]byte, error) {
 		return nil, fmt.Errorf("pdf: flate: %w", err)
 	}
 	defer zr.Close()
-	return io.ReadAll(io.LimitReader(zr, zipMaxUncompressed))
+	data, err := io.ReadAll(io.LimitReader(zr, zipMaxUncompressed))
+	if err != nil {
+		return nil, err
+	}
+	if err := f.chargeInflate(s, len(data)); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // catalog returns the document catalog, found by type rather than by
@@ -562,11 +621,14 @@ func (f *pdfFile) pages() ([]pdfDict, error) {
 		return nil, errors.New("pdf: catalog names no pages")
 	}
 	var out []pdfDict
-	var walk func(node pdfObj, inherited pdfDict)
-	walk = func(node pdfObj, inherited pdfDict) {
+	var walk func(node pdfObj, inherited pdfDict, depth int) error
+	walk = func(node pdfObj, inherited pdfDict, depth int) error {
+		if depth > pdfMaxPageDepth {
+			return fmt.Errorf("pdf: page tree nests deeper than %d levels", pdfMaxPageDepth)
+		}
 		d, ok := f.resolve(node).(pdfDict)
 		if !ok {
-			return
+			return nil
 		}
 		res := pdfDict{}
 		maps.Copy(res, inherited)
@@ -585,14 +647,22 @@ func (f *pdfFile) pages() ([]pdfDict, error) {
 				}
 			}
 			out = append(out, merged)
+			if len(out) > pdfMaxPages {
+				return fmt.Errorf("pdf: more than %d pages", pdfMaxPages)
+			}
 		case "Pages", "":
 			kids, _ := f.resolve(d["Kids"]).([]pdfObj)
 			for _, kid := range kids {
-				walk(kid, res)
+				if err := walk(kid, res, depth+1); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
 	}
-	walk(pagesRef, pdfDict{})
+	if err := walk(pagesRef, pdfDict{}, 0); err != nil {
+		return nil, err
+	}
 	if len(out) == 0 {
 		return nil, errors.New("pdf: page tree has no leaves")
 	}

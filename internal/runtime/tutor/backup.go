@@ -675,7 +675,7 @@ func (s *Service) restoreKb(docs []BackupKbDoc, summary map[string]any, skipped 
 			continue
 		}
 		if bd.ContentHash != "" {
-			if dup, err := s.store.kbDedup(bd.ContentHash); err != nil {
+			if dup, err := s.store.kbDedup(bd.ContentHash, ""); err != nil {
 				return err
 			} else if dup != nil {
 				continue

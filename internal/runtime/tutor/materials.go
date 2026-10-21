@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 )
@@ -31,10 +32,14 @@ func (s *Service) AddMaterialText(sessionID, name, content string) (*Material, e
 		ID: newID(), SessionID: sessionID, Kind: MaterialText, Source: name,
 		Status: "pending", Chars: len([]rune(content)), CreatedAt: s.opt.now(),
 	}
-	if _, err := s.store.WriteMaterialOriginal(sessionID, m.ID, "txt", []byte(content)); err != nil {
+	originalPath, err := s.store.WriteMaterialOriginal(sessionID, m.ID, "txt", []byte(content))
+	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveMaterial(m); err != nil {
+	// The count and the row write share one lock: the cap is per session,
+	// and concurrent uploads would otherwise all pass the check.
+	if err := s.store.AddMaterialGuarded(m); err != nil {
+		_ = os.Remove(originalPath) // orphan guard
 		return nil, err
 	}
 	return m, nil
@@ -53,7 +58,7 @@ func (s *Service) AddMaterialURL(sessionID, rawURL string) (*Material, error) {
 		ID: newID(), SessionID: sessionID, Kind: MaterialURL, Source: u.String(),
 		Status: "pending", CreatedAt: s.opt.now(),
 	}
-	if err := s.store.SaveMaterial(m); err != nil {
+	if err := s.store.AddMaterialGuarded(m); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -80,10 +85,12 @@ func (s *Service) AddMaterialFile(sessionID, filename string, data []byte) (*Mat
 		Status: "pending", CreatedAt: s.opt.now(),
 	}
 	ext := strings.TrimPrefix(path.Ext(filename), ".")
-	if _, err := s.store.WriteMaterialOriginal(sessionID, m.ID, ext, data); err != nil {
+	originalPath, err := s.store.WriteMaterialOriginal(sessionID, m.ID, ext, data)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveMaterial(m); err != nil {
+	if err := s.store.AddMaterialGuarded(m); err != nil {
+		_ = os.Remove(originalPath) // orphan guard
 		return nil, err
 	}
 	return m, nil

@@ -3,6 +3,7 @@ package tutor
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode/utf16"
 
@@ -268,7 +269,10 @@ func (f *pdfFile) pageFonts(page pdfDict) map[string]*pdfFont {
 }
 
 // pdfPageText runs one page's content streams through the text operators.
-func (f *pdfFile) pageText(page pdfDict) string {
+// A stream that cannot be decoded is counted and reported: the caller needs
+// to know that the text it gets is incomplete, because a page whose only
+// stream failed decodes to nothing and reads as an empty page.
+func (f *pdfFile) pageText(page pdfDict) (string, int) {
 	fonts := f.pageFonts(page)
 	var streams []*pdfStream
 	switch contents := f.resolve(page["Contents"]).(type) {
@@ -282,14 +286,17 @@ func (f *pdfFile) pageText(page pdfDict) string {
 		}
 	}
 	ex := &pdfTextState{fonts: fonts}
+	failed := 0
 	for _, stream := range streams {
 		body, err := decodePDFStream(f, stream)
 		if err != nil {
+			failed++
+			slog.Warn("tutor: pdf content stream failed to decode", "err", err)
 			continue
 		}
 		ex.run(body)
 	}
-	return ex.finish()
+	return ex.finish(), failed
 }
 
 // pdfTextState is the interpreter state: operand stack, current font, and
@@ -482,8 +489,11 @@ func parsePDF(data []byte) (*ParsedMaterial, error) {
 	// caching — so each page's content streams run on its own interpreter
 	// state in parallel, landing back in page order.
 	pageTexts := make([]string, len(pages))
+	failedStreams := make([]int, len(pages))
 	parallelFor(len(pages), func(i int) {
-		if text := file.pageText(pages[i]); strings.TrimSpace(text) != "" {
+		text, failed := file.pageText(pages[i])
+		failedStreams[i] = failed
+		if strings.TrimSpace(text) != "" {
 			pageTexts[i] = text
 		}
 	})
@@ -493,7 +503,19 @@ func parsePDF(data []byte) (*ParsedMaterial, error) {
 			texts = append(texts, text)
 		}
 	}
+	failed := 0
+	for _, n := range failedStreams {
+		failed += n
+	}
+	if failed > 0 {
+		// A stream that failed to decode means the text is incomplete. Say
+		// so instead of returning a silently shortened document.
+		slog.Warn("tutor: pdf content streams failed to decode", "streams", failed, "pages", len(pages))
+	}
 	if len(texts) == 0 {
+		if failed > 0 {
+			return nil, fmt.Errorf("tutor: pdf content streams failed to decode (%d streams); the text layer is unreadable", failed)
+		}
 		return nil, errors.New("tutor: pdf text layer is empty (scanned or image-only pdf?)")
 	}
 	joined := strings.Join(texts, "\n\n")

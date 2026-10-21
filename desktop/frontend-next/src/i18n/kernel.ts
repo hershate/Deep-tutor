@@ -563,6 +563,11 @@ const SAID: Record<string, string> = {
   "tutor.backup_busy": "已有备份操作正在进行，请稍后再试",
   "tutor.bad_path": "请求路径不合法",
   "tutor.internal_error": "学习功能内部出错，请稍后重试",
+  "tutor.note_quota": "笔记数已达上限，请先删除不再需要的笔记",
+  "tutor.session_quota": "学习会话数已达上限，请先删除不再需要的会话",
+  "tutor.material_quota": "该会话的资料数已达上限，请先删除部分资料",
+  "tutor.bad_log_input": "打卡记录不合法（时长需为正数）",
+  "tutor.bad_progress_input": "进度更新不合法（节点需属于该方案）",
   "tutor.bad_gateway": "模型调用失败，请稍后重试",
 };
 

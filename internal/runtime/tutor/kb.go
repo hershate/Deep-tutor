@@ -198,13 +198,17 @@ func (s *Store) ReadKbParsed(id string) (string, error) {
 }
 
 // kbDedup finds a same-hash row, any status — re-uploads reuse it instead of
-// spending quota.
-func (s *Store) kbDedup(hash string) (*KbDoc, error) {
+// spending quota. exceptID is skipped: a document that is being updated
+// carries its own hash, and it must not find itself.
+func (s *Store) kbDedup(hash, exceptID string) (*KbDoc, error) {
 	docs, err := s.KbDocs()
 	if err != nil {
 		return nil, err
 	}
 	for i := range docs {
+		if docs[i].ID == exceptID {
+			continue
+		}
 		if docs[i].ContentHash == hash {
 			return &docs[i], nil
 		}
@@ -268,6 +272,57 @@ func (s *Service) kbQuotaCheck() error {
 	return nil
 }
 
+// kbCommitRow publishes a library row under the library lock: the dedup
+// check, the document-count check and the row write share one critical
+// section.
+//
+// These were three separate steps before, so the file store's version of
+// "check then write" had a window: two concurrent uploads of the same
+// content both missed the dedup (two rows, one hash) and two concurrent
+// uploads of different content both passed the count check (the cap
+// exceeded by the number of concurrent writers) — the same defect the
+// Python backend fixed with quota_slot.
+//
+// The duplicate is reported as the existing row; the caller removes the
+// file it had already written.
+func (s *Service) kbCommitRow(doc *KbDoc, parsed *ParsedMaterial) (out *KbDoc, dup bool, err error) {
+	err = s.store.WithKbLock(func() error {
+		existing, err := s.store.kbDedup(doc.ContentHash, doc.ID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			out, dup = existing, true
+			return nil
+		}
+		if err := s.kbQuotaCheck(); err != nil {
+			return err
+		}
+		if parsed != nil {
+			applyParsedMeta(doc, parsed)
+		}
+		return s.store.SaveKbDoc(doc)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if dup {
+		return dedupedCopy(out), true, nil
+	}
+	return doc, false, nil
+}
+
+// applyParsedMeta copies a parse result onto the row.
+func applyParsedMeta(doc *KbDoc, parsed *ParsedMaterial) {
+	doc.Chars = len([]rune(parsed.Text))
+	doc.Status = "parsed"
+	doc.Error = ""
+	doc.Meta.SourceType = parsed.Meta.SourceType
+	doc.Meta.Parser = parsed.Meta.Parser
+	doc.Meta.Pages = parsed.Meta.Pages
+	doc.Meta.Truncated = strings.HasSuffix(parsed.Text, "…（超出长度上限已截断）")
+}
+
 // KbUpload stages a file: original bytes kept, row pending — parsing is the
 // user's later decision, exactly Deep-tutor's iter-225 flow.
 func (s *Service) KbUpload(filename string, data []byte) (*KbDoc, error) {
@@ -283,48 +338,51 @@ func (s *Service) KbUpload(filename string, data []byte) (*KbDoc, error) {
 	}
 	ext := strings.TrimPrefix(path.Ext(filename), ".")
 	hash := sha256Hex(data)
-	if existing, err := s.store.kbDedup(hash); err != nil {
+	// Fast path: a hash already in the library answers without writing the
+	// original. The authoritative check runs again inside the commit lock.
+	if existing, err := s.store.kbDedup(hash, ""); err != nil {
 		return nil, err
 	} else if existing != nil {
 		return dedupedCopy(existing), nil
-	}
-	if err := s.kbQuotaCheck(); err != nil {
-		return nil, err
 	}
 	doc := &KbDoc{
 		ID: newID(), Title: clampRunes(filename, 256), Kind: kbKindForExt(ext),
 		Ext: strings.ToLower(ext), Source: filename, HasOriginal: true,
 		Status: "pending", ContentHash: hash, CreatedAt: s.opt.now(),
 	}
+	// The original is written before the row: the file is keyed by the doc
+	// id, which is unique, so a refused row leaves an orphan to remove
+	// rather than a row pointing at nothing.
 	originalPath, err := s.store.WriteKbOriginal(doc.ID, ext, data)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveKbDoc(doc); err != nil {
-		_ = os.Remove(originalPath) // orphan guard
+	out, dup, err := s.kbCommitRow(doc, nil)
+	if err != nil {
+		_ = os.Remove(originalPath)
 		return nil, err
 	}
-	return doc, nil
+	if dup {
+		_ = os.Remove(originalPath)
+	}
+	return out, nil
 }
 
-// persistParsedDoc writes the parsed text then the row; a row-write failure
-// removes the fresh file so no orphan survives.
+// persistParsedDoc writes the parsed text then publishes the row; a refused
+// row (quota) or a duplicate removes the fresh file so no orphan survives.
 func (s *Service) persistParsedDoc(doc *KbDoc, parsed *ParsedMaterial) (*KbDoc, error) {
 	if err := s.store.WriteKbParsed(doc.ID, parsed.Text); err != nil {
 		return nil, err
 	}
-	doc.Chars = len([]rune(parsed.Text))
-	doc.Status = "parsed"
-	doc.Error = ""
-	doc.Meta.SourceType = parsed.Meta.SourceType
-	doc.Meta.Parser = parsed.Meta.Parser
-	doc.Meta.Pages = parsed.Meta.Pages
-	doc.Meta.Truncated = strings.HasSuffix(parsed.Text, "…（超出长度上限已截断）")
-	if err := s.store.SaveKbDoc(doc); err != nil {
+	out, dup, err := s.kbCommitRow(doc, parsed)
+	if err != nil {
 		_ = os.Remove(s.store.kbParsedPath(doc.ID))
 		return nil, err
 	}
-	return doc, nil
+	if dup {
+		_ = os.Remove(s.store.kbParsedPath(doc.ID))
+	}
+	return out, nil
 }
 
 // KbAddText files pasted text: no original, parsed immediately through the
@@ -338,11 +396,13 @@ func (s *Service) KbAddText(title, text string) (*KbDoc, error) {
 		return nil, fmt.Errorf("%w: text exceeds %d MB", ErrKbTooLarge, maxMaterialBytes>>20)
 	}
 	hash := sha256Hex([]byte(text))
-	if existing, err := s.store.kbDedup(hash); err != nil {
+	if existing, err := s.store.kbDedup(hash, ""); err != nil {
 		return nil, err
 	} else if existing != nil {
 		return dedupedCopy(existing), nil
 	}
+	// The authoritative quota check runs inside the commit lock; this one
+	// only fails the request early when the library is already full.
 	if err := s.kbQuotaCheck(); err != nil {
 		return nil, err
 	}
@@ -368,7 +428,7 @@ func (s *Service) KbAddURL(ctx context.Context, rawURL, title string) (*KbDoc, e
 		return nil, err
 	}
 	hash := sha256Hex([]byte(normalized))
-	if existing, err := s.store.kbDedup(hash); err != nil {
+	if existing, err := s.store.kbDedup(hash, ""); err != nil {
 		return nil, err
 	} else if existing != nil {
 		return dedupedCopy(existing), nil

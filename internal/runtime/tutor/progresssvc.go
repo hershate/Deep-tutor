@@ -1,8 +1,10 @@
 package tutor
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,6 +28,19 @@ type ProgressOverview struct {
 	Total      int            `json:"total"`
 }
 
+// maxProgressPerPlan caps one plan's progress rows. The rows live in a
+// single file that is rewritten whole, so an unbounded row count is an
+// unbounded file. The node check below already bounds it by the plan's
+// node count; this is the backstop for a plan whose node list grew.
+const maxProgressPerPlan = 500
+
+// maxProgressNodeID mirrors the Python backend's node_id cap
+// (ProgressUpdate.node_id: max_length=64).
+const maxProgressNodeID = 64
+
+// ErrBadProgressInput is a malformed progress update.
+var ErrBadProgressInput = errors.New("tutor: invalid progress input")
+
 // RecordProgress is Deep-tutor's POST /progress: an idempotent overwrite of
 // one node's row — mastery from the SM-2-lite formula, next review derived
 // from it.
@@ -38,6 +53,27 @@ func (s *Service) RecordProgress(planID, nodeID string, status ProgressStatus, q
 	case ProgressNotStarted, ProgressLearning, ProgressDone:
 	default:
 		return nil, ErrNotFound // the caller's status vocabulary is malformed
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return nil, ErrNotFound
+	}
+	if len([]rune(nodeID)) > maxProgressNodeID {
+		return nil, fmt.Errorf("%w: node id exceeds %d characters", ErrBadProgressInput, maxProgressNodeID)
+	}
+	// The node must belong to the plan. The row used to be created for any
+	// id: an unknown id produced a row no view ever reads (the overview
+	// lists the plan's nodes) and the file grew with every request — the
+	// same unbounded-write lever the quotas close elsewhere.
+	var name string
+	for _, n := range plan.Knowledge.Nodes {
+		if n.SID == nodeID {
+			name = n.Name
+			break
+		}
+	}
+	if name == "" {
+		return nil, fmt.Errorf("%w: node %s does not belong to the plan", ErrNotFound, nodeID)
 	}
 	today := s.opt.now()
 	var list []Progress
@@ -59,6 +95,9 @@ func (s *Service) RecordProgress(planID, nodeID string, status ProgressStatus, q
 			}
 		}
 		if row == nil {
+			if len(list) >= maxProgressPerPlan {
+				return fmt.Errorf("%w: at most %d progress rows per plan", ErrBadProgressInput, maxProgressPerPlan)
+			}
 			mastery = ComputeMastery(0, status, quizScore)
 			list = append(list, Progress{
 				NodeID: nodeID, Status: status, Mastery: mastery,
@@ -74,13 +113,6 @@ func (s *Service) RecordProgress(planID, nodeID string, status ProgressStatus, q
 		return s.store.SaveProgress(planID, list)
 	}); err != nil {
 		return nil, err
-	}
-	var name string
-	for _, n := range plan.Knowledge.Nodes {
-		if n.SID == nodeID {
-			name = n.Name
-			break
-		}
 	}
 	return map[string]any{
 		"node_id": nodeID, "name": name, "status": string(status),

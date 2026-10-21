@@ -80,16 +80,58 @@ var ErrNoteQuota = errors.New("tutor: note quota exceeded")
 // ErrSessionQuota is the sessions cap.
 var ErrSessionQuota = errors.New("tutor: session quota exceeded")
 
+// ErrMaterialQuota is the per-session materials cap.
+var ErrMaterialQuota = errors.New("tutor: material quota exceeded")
+
 // planKey is the lock key of one plan's derived files (attempts, progress,
 // logs): they are read-modify-written, so two writers would lose one of the
 // updates.
 func planKey(planID string) string { return "plan:" + planID }
+
+// materialsKey is the lock key of one session's materials: the count and the
+// row write share it, so concurrent uploads cannot both pass the check.
+func materialsKey(sessionID string) string { return "materials:" + sessionID }
+
+// kbKey is the lock key of the knowledge-base library: the dedup check, the
+// document-count check and the row write share it.
+const kbKey = "kb"
 
 // WithPlanLock runs fn while holding the plan's lock.
 func (s *Store) WithPlanLock(planID string, fn func() error) error {
 	unlock := s.quota.Lock(planKey(planID))
 	defer unlock()
 	return fn()
+}
+
+// WithKbLock runs fn while holding the library's lock.
+func (s *Store) WithKbLock(fn func() error) error {
+	unlock := s.quota.Lock(kbKey)
+	defer unlock()
+	return fn()
+}
+
+// WithMaterialsLock runs fn while holding one session's materials lock.
+func (s *Store) WithMaterialsLock(sessionID string, fn func() error) error {
+	unlock := s.quota.Lock(materialsKey(sessionID))
+	defer unlock()
+	return fn()
+}
+
+// AddMaterialGuarded adds a material under the per-session cap: the count and
+// the row write share one lock, so two concurrent uploads cannot both pass
+// the check. The cap existed as a constant but nothing enforced it — the
+// materials directory of a session grew without bound.
+func (s *Store) AddMaterialGuarded(m *Material) error {
+	unlock := s.quota.Lock(materialsKey(m.SessionID))
+	defer unlock()
+	existing, err := s.Materials(m.SessionID)
+	if err != nil {
+		return err
+	}
+	if len(existing) >= maxMaterialsPerSession {
+		return fmt.Errorf("%w: at most %d materials per session", ErrMaterialQuota, maxMaterialsPerSession)
+	}
+	return s.SaveMaterial(m)
 }
 
 // SaveNoteGuarded writes a note under the notes quota: the count and the
