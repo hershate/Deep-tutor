@@ -3,17 +3,17 @@
     "banner": 0,
     "build-artifact": 0,
     "claude-dialect": 1,
-    "codeowners": 0,
+    "codeowners": 1,
     "commented-code": 0,
-    "complexity": 693,
+    "complexity": 694,
     "css-important": 207,
     "css-size": 9846,
     "doc-language": 0,
-    "doc-owner": 23,
-    "doc-prose": 2139,
+    "doc-owner": 0,
+    "doc-prose": 2551,
     "error-text": 9,
-    "essay": 2682,
-    "file-size": 20694,
+    "essay": 2858,
+    "file-size": 20301,
     "flat-view": 0,
     "frontend-parity": 27,
     "function-size": 2579,
@@ -21,54 +21,36 @@
     "layering": 0,
     "marker": 0,
     "narrative": 0,
-    "orphan": 66,
-    "process-input": 97,
+    "orphan": 72,
+    "process-input": 87,
     "refusal-path": 0,
-    "release-note": 661,
+    "release-note": 0,
     "stray-file": 0,
     "struct-state": 31,
     "window-state": 0,
     "wire-parity": 0
   },
   "files": {
-    ".github/pull_request_template.md": {
-      "doc-prose": 1
+    ".github/CODEOWNERS": {
+      "codeowners": 1
     },
-    "CONTRIBUTING.md": {
-      "doc-owner": 1,
-      "doc-prose": 1
+    "AGENTS.md": {
+      "doc-prose": 27
     },
-    "REASONIX.md": {
-      "doc-prose": 90
+    "API.md": {
+      "doc-prose": 50
     },
-    "REF/Deep-tutor/frontend/src/lib/api.ts": {
-      "file-size": 651
+    "DEEPTUTOR.md": {
+      "doc-prose": 105
     },
-    "REF/Deep-tutor/frontend/src/lib/plugins.ts": {
-      "file-size": 634
-    },
-    "REF/Deep-tutor/frontend/src/pages/Notes.tsx": {
-      "file-size": 22
-    },
-    "REF/Deep-tutor/frontend/src/pages/PlanDetail.tsx": {
-      "file-size": 87
-    },
-    "SECURITY.md": {
-      "doc-owner": 1,
-      "doc-prose": 1
-    },
-    "cmd/e2ebench/main.go": {
-      "essay": 1
-    },
-    "cmd/e2ebench/mutation.go": {
-      "essay": 1
+    "README.md": {
+      "doc-prose": 7
     },
     "cmd/reasonix-plugin-example/main.go": {
       "essay": 19
     },
     "desktop/README.md": {
-      "doc-owner": 1,
-      "doc-prose": 2
+      "doc-prose": 5
     },
     "desktop/cmd/sign/main.go": {
       "essay": 14
@@ -77,15 +59,12 @@
       "error-text": 4
     },
     "desktop/frontend-next/perf/README.md": {
-      "doc-owner": 1,
       "doc-prose": 21
     },
     "desktop/frontend-next/src/styles/LAYOUT.md": {
-      "doc-owner": 1,
       "doc-prose": 113
     },
     "desktop/frontend-next/src/styles/TOKENS.md": {
-      "doc-owner": 1,
       "doc-prose": 16
     },
     "desktop/frontend-next/src/styles/app.css": {
@@ -99,71 +78,113 @@
     "desktop/internal/winuninstall/registry_windows.go": {
       "essay": 1
     },
-    "docs/ACP.md": {
-      "doc-owner": 1,
-      "doc-prose": 13
+    "docs/archive/chat.md": {
+      "doc-prose": 1
     },
-    "docs/BILLING.md": {
-      "doc-owner": 1,
-      "doc-prose": 2
-    },
-    "docs/CLI.md": {
-      "doc-prose": 48
-    },
-    "docs/CLI.zh-CN.md": {
-      "doc-prose": 17
-    },
-    "docs/CONFIG_PATHS.md": {
-      "doc-owner": 1,
-      "doc-prose": 30
-    },
-    "docs/DESKTOP_CRASH_DIAGNOSTICS_RUNBOOK.md": {
-      "doc-owner": 1,
-      "doc-prose": 11
-    },
-    "docs/EXTENSIONS.md": {
-      "doc-prose": 16
-    },
-    "docs/GUIDE.md": {
-      "doc-prose": 362
-    },
-    "docs/GUIDE.zh-CN.md": {
-      "doc-prose": 172
-    },
-    "docs/HISTORY_SEARCH_CATALOG.md": {
-      "doc-owner": 1,
-      "doc-prose": 8
-    },
-    "docs/PLUGIN_PACKAGES.md": {
-      "doc-prose": 102
-    },
-    "docs/REASONING_LANGUAGE.md": {
-      "doc-owner": 1,
-      "doc-prose": 3
-    },
-    "docs/REASONING_PROVIDERS.md": {
-      "doc-owner": 1,
+    "docs/archive/err.md": {
       "doc-prose": 23
     },
-    "docs/RECOVERY.md": {
-      "doc-owner": 1,
-      "doc-prose": 2
+    "docs/archive/plan-v1/01-architecture.md": {
+      "doc-prose": 4
     },
-    "docs/SPEC.md": {
-      "doc-owner": 1,
-      "doc-prose": 338
-    },
-    "docs/THEME_ASSETS.md": {
-      "doc-owner": 1,
-      "doc-prose": 2
-    },
-    "docs/THEME_PACK.md": {
-      "doc-owner": 1,
+    "docs/archive/plan-v1/02-tools.md": {
       "doc-prose": 5
     },
-    "docs/USAGE_CATALOG.md": {
-      "doc-owner": 1,
+    "docs/archive/plan-v1/07-learning-workflows.md": {
+      "doc-prose": 1
+    },
+    "docs/archive/plan-v1/08-data-exchange-format.md": {
       "doc-prose": 2
+    },
+    "docs/archive/plan-v1/09-audit.md": {
+      "doc-prose": 1
+    },
+    "docs/archive/plan-v1/10-integration.md": {
+      "doc-prose": 4
+    },
+    "docs/kernel/ACP.md": {
+      "doc-prose": 14
+    },
+    "docs/kernel/BILLING.md": {
+      "doc-prose": 2
+    },
+    "docs/kernel/CLI.md": {
+      "doc-prose": 49
+    },
+    "docs/kernel/CLI.zh-CN.md": {
+      "doc-prose": 17
+    },
+    "docs/kernel/CONFIG_PATHS.md": {
+      "doc-prose": 32
+    },
+    "docs/kernel/DESKTOP_CRASH_DIAGNOSTICS_RUNBOOK.md": {
+      "doc-prose": 11
+    },
+    "docs/kernel/DOCS_STANDARD.md": {
+      "doc-prose": 2
+    },
+    "docs/kernel/EXTENSIONS.md": {
+      "doc-prose": 16
+    },
+    "docs/kernel/GUIDE.md": {
+      "doc-prose": 363
+    },
+    "docs/kernel/GUIDE.zh-CN.md": {
+      "doc-prose": 174
+    },
+    "docs/kernel/HISTORY_SEARCH_CATALOG.md": {
+      "doc-prose": 8
+    },
+    "docs/kernel/PLUGIN_PACKAGES.md": {
+      "doc-prose": 101
+    },
+    "docs/kernel/REASONING_LANGUAGE.md": {
+      "doc-prose": 3
+    },
+    "docs/kernel/REASONING_PROVIDERS.md": {
+      "doc-prose": 23
+    },
+    "docs/kernel/RECOVERY.md": {
+      "doc-prose": 2
+    },
+    "docs/kernel/SPEC.md": {
+      "doc-prose": 338
+    },
+    "docs/kernel/THEME_ASSETS.md": {
+      "doc-prose": 2
+    },
+    "docs/kernel/THEME_PACK.md": {
+      "doc-prose": 5
+    },
+    "docs/kernel/USAGE_CATALOG.md": {
+      "doc-prose": 2
+    },
+    "docs/kernel/upstream/CONTRIBUTING.md": {
+      "doc-prose": 1
+    },
+    "docs/kernel/upstream/REASONIX.md": {
+      "doc-prose": 90
+    },
+    "docs/kernel/upstream/SECURITY.md": {
+      "doc-prose": 1
+    },
+    "docs/kernel/upstream/github/pull_request_template.md": {
+      "doc-prose": 1
+    },
+    "frontend/src/lib/api.ts": {
+      "file-size": 825
+    },
+    "frontend/src/lib/plugins.ts": {
+      "file-size": 662
+    },
+    "frontend/src/pages/Notes.tsx": {
+      "file-size": 45
+    },
+    "frontend/src/pages/PlanDetail.tsx": {
+      "file-size": 112
+    },
+    "internal/assembly/boot/agent_preset.go": {
+      "orphan": 1
     },
     "internal/assembly/boot/boot.go": {
       "essay": 15,
@@ -231,7 +252,7 @@
       "essay": 13
     },
     "internal/base/i18n/detect.go": {
-      "process-input": 1
+      "essay": 1
     },
     "internal/base/i18n/i18n.go": {
       "essay": 6
@@ -252,8 +273,14 @@
     "internal/base/shellparse/bash.go": {
       "essay": 8
     },
+    "internal/base/tempdir/tempdir.go": {
+      "essay": 1
+    },
     "internal/base/testenv/home.go": {
-      "process-input": 2
+      "essay": 2
+    },
+    "internal/base/testenv/tempdir.go": {
+      "essay": 3
     },
     "internal/contract/config/activation_mcp_identity.go": {
       "process-input": 1
@@ -276,10 +303,16 @@
       "file-size": 921,
       "process-input": 3
     },
+    "internal/contract/config/config_edit_lock_sweep.go": {
+      "essay": 12
+    },
+    "internal/contract/config/config_edit_lock_sweep_test.go": {
+      "essay": 1
+    },
     "internal/contract/config/credentials.go": {
-      "essay": 1,
-      "file-size": 44,
-      "process-input": 4
+      "essay": 2,
+      "file-size": 49,
+      "process-input": 2
     },
     "internal/contract/config/credentials_keyring_unix.go": {
       "essay": 7
@@ -291,7 +324,7 @@
       "orphan": 2
     },
     "internal/contract/config/dotenv.go": {
-      "essay": 1,
+      "essay": 2,
       "process-input": 1
     },
     "internal/contract/config/edit.go": {
@@ -307,7 +340,8 @@
       "essay": 2
     },
     "internal/contract/config/expand.go": {
-      "process-input": 2
+      "essay": 2,
+      "process-input": 1
     },
     "internal/contract/config/load.go": {
       "essay": 24,
@@ -334,13 +368,13 @@
     },
     "internal/contract/config/paths.go": {
       "essay": 10,
-      "process-input": 4
+      "process-input": 3
     },
     "internal/contract/config/plugin_entry.go": {
       "essay": 2
     },
     "internal/contract/config/plugin_packages.go": {
-      "essay": 2
+      "essay": 4
     },
     "internal/contract/config/provider_isolation_test.go": {
       "essay": 3
@@ -354,6 +388,9 @@
       "essay": 1,
       "file-size": 277,
       "function-size": 385
+    },
+    "internal/contract/config/temp_roots.go": {
+      "essay": 9
     },
     "internal/contract/config/vision.go": {
       "essay": 1,
@@ -515,12 +552,13 @@
       "essay": 6
     },
     "internal/ext/hook/env_contract.go": {
+      "essay": 5,
       "process-input": 1
     },
     "internal/ext/hook/hook.go": {
       "complexity": 15,
-      "essay": 41,
-      "file-size": 788,
+      "essay": 42,
+      "file-size": 794,
       "process-input": 2
     },
     "internal/ext/hook/hook_test.go": {
@@ -575,8 +613,8 @@
       "essay": 19
     },
     "internal/ext/plugin/plugin.go": {
-      "essay": 28,
-      "file-size": 809,
+      "essay": 30,
+      "file-size": 826,
       "orphan": 3
     },
     "internal/ext/plugin/plugin_test.go": {
@@ -592,20 +630,26 @@
       "essay": 1
     },
     "internal/ext/plugin/transport_http.go": {
-      "essay": 5
+      "essay": 7
     },
     "internal/ext/plugin/transport_http_test.go": {
       "essay": 1
     },
+    "internal/ext/plugin/transport_reconnect.go": {
+      "essay": 6
+    },
     "internal/ext/plugin/transport_stdio.go": {
-      "essay": 10,
+      "essay": 13,
       "process-input": 1
+    },
+    "internal/ext/plugin/transport_typednil_test.go": {
+      "essay": 1
     },
     "internal/ext/pluginpkg/claude_compat.go": {
       "essay": 19
     },
     "internal/ext/pluginpkg/manifest_v1.go": {
-      "essay": 7
+      "essay": 9
     },
     "internal/ext/pluginpkg/pluginpkg.go": {
       "complexity": 1,
@@ -655,6 +699,9 @@
     },
     "internal/frontend/acp/extension_models.go": {
       "essay": 2
+    },
+    "internal/frontend/acp/handshake.go": {
+      "essay": 1
     },
     "internal/frontend/acp/live_test.go": {
       "essay": 1
@@ -745,6 +792,9 @@
     "internal/frontend/cli/session_lease.go": {
       "essay": 4
     },
+    "internal/frontend/cli/session_machine_test.go": {
+      "essay": 1
+    },
     "internal/frontend/cli/setup_manager.go": {
       "essay": 2,
       "file-size": 35
@@ -753,6 +803,9 @@
       "function-size": 71
     },
     "internal/frontend/cli/upgrade.go": {
+      "essay": 8
+    },
+    "internal/frontend/cli/upgrade_install_source.go": {
       "essay": 2
     },
     "internal/frontend/doctor/report.go": {
@@ -782,6 +835,18 @@
     },
     "internal/frontend/serve/switch_recovery_test.go": {
       "essay": 2
+    },
+    "internal/frontend/serve/tutor.go": {
+      "essay": 25
+    },
+    "internal/frontend/serve/tutor_backup.go": {
+      "essay": 4
+    },
+    "internal/frontend/serve/tutor_data.go": {
+      "essay": 3
+    },
+    "internal/frontend/serve/tutor_space.go": {
+      "orphan": 2
     },
     "internal/frontend/termrender/mathnode.go": {
       "essay": 1
@@ -852,9 +917,6 @@
     "internal/platform/feedback/env.go": {
       "process-input": 1
     },
-    "internal/platform/feedback/service.go": {
-      "process-input": 1
-    },
     "internal/platform/gitcmd/gitcmd.go": {
       "process-input": 1
     },
@@ -864,6 +926,9 @@
     },
     "internal/platform/installlayout/current.go": {
       "orphan": 1
+    },
+    "internal/platform/releaseasset/cli.go": {
+      "essay": 5
     },
     "internal/platform/remote/agent_unix.go": {
       "process-input": 1
@@ -875,11 +940,20 @@
       "essay": 7,
       "process-input": 1
     },
+    "internal/platform/remote/bootstrap/bootstrap_pure_test.go": {
+      "essay": 1
+    },
     "internal/platform/remote/bootstrap/ensure_test.go": {
       "essay": 2
     },
+    "internal/platform/remote/bootstrap/install.go": {
+      "essay": 1
+    },
+    "internal/platform/remote/bootstrap/kernel_names_test.go": {
+      "essay": 5
+    },
     "internal/platform/remote/bootstrap/launch.go": {
-      "essay": 7
+      "essay": 12
     },
     "internal/platform/remote/client_test.go": {
       "essay": 1
@@ -946,8 +1020,8 @@
     },
     "internal/platform/repair/update.go": {
       "complexity": 109,
-      "essay": 43,
-      "file-size": 2490,
+      "essay": 50,
+      "file-size": 2505,
       "function-size": 308,
       "orphan": 4
     },
@@ -966,7 +1040,7 @@
       "essay": 2
     },
     "internal/platform/telemetry/policy.go": {
-      "process-input": 3
+      "process-input": 2
     },
     "internal/platform/update/apply_darwin.go": {
       "complexity": 42,
@@ -1128,7 +1202,7 @@
       "essay": 2
     },
     "internal/runtime/outputstyle/outputstyle.go": {
-      "process-input": 2
+      "process-input": 1
     },
     "internal/runtime/plancontract/project.go": {
       "orphan": 1
@@ -1172,6 +1246,48 @@
     },
     "internal/runtime/taskmonitor/tmux.go": {
       "orphan": 1
+    },
+    "internal/runtime/tutor/backup.go": {
+      "essay": 2
+    },
+    "internal/runtime/tutor/kb.go": {
+      "essay": 8
+    },
+    "internal/runtime/tutor/kbchat.go": {
+      "complexity": 1
+    },
+    "internal/runtime/tutor/kbio.go": {
+      "essay": 3
+    },
+    "internal/runtime/tutor/notesio.go": {
+      "orphan": 1
+    },
+    "internal/runtime/tutor/notesio_test.go": {
+      "essay": 1
+    },
+    "internal/runtime/tutor/pdf.go": {
+      "essay": 2
+    },
+    "internal/runtime/tutor/quiz.go": {
+      "essay": 1
+    },
+    "internal/runtime/tutor/quota.go": {
+      "essay": 19
+    },
+    "internal/runtime/tutor/service.go": {
+      "essay": 1
+    },
+    "internal/runtime/tutor/sessionlock_test.go": {
+      "essay": 8
+    },
+    "internal/runtime/tutor/store.go": {
+      "essay": 2
+    },
+    "internal/runtime/tutor/store_test.go": {
+      "essay": 2
+    },
+    "internal/runtime/tutor/verify.go": {
+      "essay": 2
     },
     "internal/runtime/usecap/usecapability.go": {
       "essay": 9,
@@ -1222,6 +1338,9 @@
       "essay": 11,
       "process-input": 2
     },
+    "internal/safety/sandbox/sandbox_test.go": {
+      "essay": 1
+    },
     "internal/safety/sandbox/seatbelt_darwin.go": {
       "essay": 3
     },
@@ -1270,6 +1389,9 @@
     },
     "internal/session/control/errmsg.go": {
       "essay": 2
+    },
+    "internal/session/control/execution.go": {
+      "orphan": 1
     },
     "internal/session/control/extension_ui.go": {
       "essay": 4,
@@ -1395,8 +1517,11 @@
     "internal/state/checkpoint/transaction.go": {
       "complexity": 16,
       "essay": 2,
-      "file-size": 648,
+      "file-size": 649,
       "function-size": 29
+    },
+    "internal/state/execgraph/rebuild.go": {
+      "orphan": 1
     },
     "internal/state/history/indexed.go": {
       "orphan": 1
@@ -1418,6 +1543,9 @@
     "internal/state/memory/store_v2.go": {
       "complexity": 10,
       "function-size": 1
+    },
+    "internal/state/memory/store_v2_legacy_id_test.go": {
+      "essay": 4
     },
     "internal/state/migration/migration.go": {
       "process-input": 2
@@ -1593,93 +1721,18 @@
     "internal/tools/jobs/jobs_security_test.go": {
       "essay": 4
     },
-    "release-notes/studio/2.0.0.md": {
-      "release-note": 29
-    },
-    "release-notes/studio/2.1.0.md": {
-      "doc-prose": 1,
-      "release-note": 25
-    },
-    "release-notes/studio/2.10.0.md": {
-      "doc-prose": 28,
-      "release-note": 46
-    },
-    "release-notes/studio/2.11.0.md": {
-      "doc-prose": 206,
-      "release-note": 75
-    },
-    "release-notes/studio/2.12.0.md": {
-      "doc-prose": 16,
-      "release-note": 35
-    },
-    "release-notes/studio/2.13.0.md": {
-      "release-note": 23
-    },
-    "release-notes/studio/2.14.0.md": {
-      "doc-prose": 28,
-      "release-note": 53
-    },
-    "release-notes/studio/2.14.1.md": {
-      "doc-prose": 16,
-      "release-note": 7
-    },
-    "release-notes/studio/2.15.0.md": {
-      "doc-prose": 110,
-      "release-note": 43
-    },
-    "release-notes/studio/2.16.0.md": {
-      "doc-prose": 107,
-      "release-note": 47
-    },
-    "release-notes/studio/2.17.0.md": {
-      "doc-prose": 43,
-      "release-note": 26
-    },
-    "release-notes/studio/2.2.0.md": {
-      "doc-prose": 1,
-      "release-note": 26
-    },
-    "release-notes/studio/2.3.0.md": {
-      "doc-prose": 2,
-      "release-note": 30
-    },
-    "release-notes/studio/2.4.0.md": {
-      "doc-prose": 1,
-      "release-note": 45
-    },
-    "release-notes/studio/2.5.0.md": {
-      "doc-prose": 10,
-      "release-note": 29
-    },
-    "release-notes/studio/2.6.0.md": {
-      "doc-prose": 8,
-      "release-note": 31
-    },
-    "release-notes/studio/2.7.0.md": {
-      "doc-prose": 44,
-      "release-note": 26
-    },
-    "release-notes/studio/2.8.0.md": {
-      "doc-prose": 58,
-      "release-note": 37
-    },
-    "release-notes/studio/2.9.0.md": {
-      "doc-prose": 32,
-      "release-note": 28
+    "note/00-INDEX.md": {
+      "doc-prose": 3
     },
     "sdk/go/README.md": {
-      "doc-owner": 1,
-      "doc-prose": 10
+      "doc-prose": 9
     },
     "sdk/go/examples/fullsidecar/main.go": {
       "essay": 25
     },
-    "sdk/go/examples/starterextension/README.md": {
-      "doc-owner": 1
-    },
     "sdk/go/sdk.go": {
-      "essay": 27,
-      "file-size": 128
+      "essay": 26,
+      "file-size": 127
     },
     "sdk/go/types_ext.go": {
       "essay": 7
@@ -1687,23 +1740,20 @@
     "sdk/go/wire.go": {
       "essay": 1
     },
+    "skills/deep-tutor-validate/SKILL.md": {
+      "doc-prose": 1
+    },
+    "stage.md": {
+      "doc-prose": 883
+    },
     "tools/repolint/orphan.go": {
       "essay": 2
     },
     "tools/trajectory/README.md": {
-      "doc-owner": 1,
       "doc-prose": 11
     },
     "tools/workgroupassay/README.md": {
-      "doc-owner": 1,
       "doc-prose": 1
-    },
-    "workers/accounts/README.md": {
-      "doc-owner": 1,
-      "doc-prose": 4
-    },
-    "workers/crash-report/src/index.ts": {
-      "file-size": 686
     }
   }
 }
