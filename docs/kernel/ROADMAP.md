@@ -5,11 +5,11 @@ status: active
 reviewed: 2026-09-25
 ---
 
-# Reasonix 2.x roadmap
+# Deep-tutor 2.x roadmap
 
 ## Purpose
 
-This page tracks what Reasonix 2.x still has to deliver, how it ships, and which decisions are still open.
+This page tracks what Deep-tutor 2.x still has to deliver, how it ships, and which decisions are still open.
 
 - Why there are two release lines: the [version roadmap announcement](https://github.com/esengine/DeepSeek-Reasonix/discussions/10748).
 - How to move between them: [Moving from 1.x to 2.x](./MIGRATING.md).
@@ -18,18 +18,18 @@ This page tracks what Reasonix 2.x still has to deliver, how it ships, and which
 
 | Line | Branch | Status | Ships |
 | --- | --- | --- | --- |
-| 2.x | `studio` | Active development | Reasonix Studio and the `reasonix` CLI, from `studio-v2.*` tags |
+| 2.x | `studio` | Active development | Deep-tutor Studio and the `deep-tutor` CLI, from `studio-v2.*` tags |
 | 1.x | `main-v2` | Maintenance / stable | The 1.x desktop app. The last 1.x CLI on npm and Homebrew is 1.39.0. |
 
 ## How 2.x ships
 
 | ID | Rule |
 | --- | --- |
-| R1 | A `studio-v2.*` tag builds Studio for macOS, Windows and Linux, and `reasonix` CLI archives for `darwin`, `linux` and `windows` on `amd64` and `arm64` (`.github/workflows/release-studio.yml`). |
+| R1 | A `studio-v2.*` tag builds Studio for macOS, Windows and Linux, and `deep-tutor` CLI archives for `darwin`, `linux` and `windows` on `amd64` and `arm64` (`.github/workflows/release-studio.yml`). |
 | R2 | Studio updates itself in place from the release it was installed from ([Studio release runbook](./STUDIO_RELEASE.md)). |
 | R3 | The same release publishes the CLI to npm and to the `esengine/reasonix` Homebrew tap. A stable version such as `2.21.0` moves npm `latest`; a candidate skips Homebrew. |
 | R4 | 1.x no longer publishes the CLI to npm, Homebrew or the CLI update pointers. |
-| R5 | The next stable `studio-v2.*` release MUST NOT be tagged until every gate in [General availability](#general-availability) is met, because R3 makes it the release that moves `npm i -g reasonix` and `brew install` from 1.x to 2.x. |
+| R5 | The next stable `studio-v2.*` release MUST NOT be tagged until every gate in [General availability](#general-availability) is met, because R3 makes it the release that moves `npm i -g deep-tutor` and `brew install` from 1.x to 2.x. |
 | R6 | Planned, not in place: stable releases follow a weekly train. Builds publish to npm `next` as they land, and one fixed day each week promotes the previous week's `next` to `latest` unless a P0 or P1 regression is open. Today every stable tag moves `latest` at once. |
 | R7 | Planned, not in place: Studio offers a `stable` and a `latest` update channel that follow the same two tags. |
 
@@ -48,7 +48,7 @@ Stable `studio-v2.*` releases are GitHub latest. The release that moves npm and 
 
 ## Terminal takeover
 
-The 2.x terminal UI (`reasonix tui`) replaces the 1.x chat screen for people who work in a terminal.
+The 2.x terminal UI (`deep-tutor tui`) replaces the 1.x chat screen for people who work in a terminal.
 
 | ID | Item | Status |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ The 2.x terminal UI (`reasonix tui`) replaces the 1.x chat screen for people who
 | T3 | Full screen by default with scrollbar, wheel, drag-select copy, `/mouse`; `--inline` for the terminal's own scrollback | Done |
 | T4 | `-r` session picker and `/resume`; system notifications; Ctrl+B for long shell output | Done |
 | T5 | Ctrl+V pastes a screenshot (Alt+V on Windows) | Done |
-| T6 | Bare `reasonix`, `reasonix -c` and `reasonix -r` start the terminal UI, as they do in 1.x, with 1.x's session options and permission-mode names | Done |
+| T6 | Bare `deep-tutor`, `deep-tutor -c` and `deep-tutor -r` start the terminal UI, as they do in 1.x, with 1.x's session options and permission-mode names | Done |
 | T7 | Windows checks by hand: IME candidate window position, Alt+V image paste | Not started |
 | T8 | Local install test of the npm package and the Homebrew cask before the switch release | Not started |
 | T9 | `README.md` and `README.zh-CN.md` name npm and Homebrew as the 2.x CLI channels in the switch release | Not started |

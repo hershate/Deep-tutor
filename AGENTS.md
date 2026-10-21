@@ -15,7 +15,8 @@
 - **分支与提交**：改造工作在 `refactor/reasonix` 分支；细粒度 commit 由 agent 自主提交（**不 push**，由用户合并 main）。
 - **提问**：出现任何产品级/方向级未明确内容，及时问用户（AskUserQuestion），不要猜。
 - **节奏**：全自动推进，但任务拆分尽可能细、每一步谨慎（小步可验证增量）。
-- **内核引入后**（M1 起）：工程规约待落 `DEEPTUTOR.md`（M1.4 交付项，**当前文件不存在**）。在此之前，Go 侧改动遵循上游 `docs/kernel/` 的既有规约与 `Makefile` 门禁命令；建档后以 `DEEPTUTOR.md` 为准。
+- **内核引入后**（M1 起）：工程规约见根 [`DEEPTUTOR.md`](./DEEPTUTOR.md)（M1.4 已建档，2026-10-21），**Go 侧改动以 `DEEPTUTOR.md` 为准**；门禁命令见 `Makefile`。
+  - 该文件由上游 `docs/kernel/upstream/REASONIX.md` 转换而来：保留缓存稳定、上下文投影、信任域、沙箱维度、错误身份、注释规范等工程章节，删除上游协作流程章节（PR hygiene），新增本仓规约（决策引用 note/12、stage.md 进度要求、v1 契约冻结、分层铁律、落盘位置约定）。
 
 ## 仓库状态速览（2026-10-21）
 
@@ -42,7 +43,7 @@
 
 ## Reasonix host checks
 
-下列路径决定运行时允许执行的行为，路径下的改动需要 `review` + `security_review` 才能结束一轮。敏感性为显式声明，不由路径名推断。同一份清单同时是覆盖率门禁（`make coverage-gate`）的对象：每条路径被锁定在既有覆盖率下限，下调需 `make coverage-gate-update -allow-drop` 并说明理由。清单原文见 [`docs/kernel/upstream/REASONIX.md`](./docs/kernel/upstream/REASONIX.md)。
+下列路径决定运行时允许执行的行为，路径下的改动需要 `review` + `security_review` 才能结束一轮。敏感性为显式声明，不由路径名推断。同一份清单同时是覆盖率门禁（`make coverage-gate`）的对象：每条路径被锁定在既有覆盖率下限，下调需 `make coverage-gate-update -allow-drop` 并说明理由。清单原文见根 [`DEEPTUTOR.md`](./DEEPTUTOR.md) 的「Deep-tutor host checks」一节（`tools/covergate` 从该文件读取）。
 
 - sensitive: internal/safety/permission/**
 - sensitive: internal/safety/sandbox/**

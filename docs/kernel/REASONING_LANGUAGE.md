@@ -39,18 +39,18 @@ it with `./reasonix.toml`.
 For shell scripts or one-off configuration:
 
 ```bash
-reasonix config reasoning-language auto
-reasonix config reasoning-language zh
-reasonix config reasoning-language en
+deep-tutor config reasoning-language auto
+deep-tutor config reasoning-language zh
+deep-tutor config reasoning-language en
 ```
 
 By default this writes the user config. To write a project-local override:
 
 ```bash
-reasonix config reasoning-language --local zh
+deep-tutor config reasoning-language --local zh
 ```
 
-Inside `reasonix`, use the slash command:
+Inside `deep-tutor`, use the slash command:
 
 ```text
 /reasoning-language auto
@@ -65,7 +65,7 @@ controller for subsequent turns. It does not rewrite the current project's
 Headless runs also use the same setting:
 
 ```bash
-reasonix run "explain this module"
+deep-tutor run "explain this module"
 ```
 
 ## Config File
@@ -90,12 +90,12 @@ argument.
 ## Cache Behavior
 
 `auto` is still cache-friendly. When the raw user prompt clearly looks Chinese,
-Reasonix adds the same small transient `<reasoning-language>` block for that
+Deep-tutor adds the same small transient `<reasoning-language>` block for that
 turn; English and ambiguous turns inject nothing and rely on the existing stable
 language policy. Injected reference context such as `@file` contents is ignored
 for this auto decision.
 
-When set to `zh` or `en`, Reasonix always adds a small transient
+When set to `zh` or `en`, Deep-tutor always adds a small transient
 `<reasoning-language>` block to the user turn. In all modes, this does not
 change:
 

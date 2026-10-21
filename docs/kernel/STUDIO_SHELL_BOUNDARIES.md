@@ -98,7 +98,7 @@ Windows and Linux.
 
 - The kernel owns application and foreground approval, exact window scope,
   private observation references, screenshot geometry and conservative effects.
-- CUA Driver owns native input and capture through initialized MCP. Reasonix
+- CUA Driver owns native input and capture through initialized MCP. Deep-tutor
   does not maintain native input shims or silently retry in foreground.
 - The host owns one Driver, passes it explicitly through runtime assembly and
   closes it after its panes drain. Each controller owns private observations;

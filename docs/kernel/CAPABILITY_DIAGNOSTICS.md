@@ -11,7 +11,7 @@ reviewed: 2026-09-29
 &nbsp;·&nbsp;
 <a href="./PLUGIN_PACKAGES.md">Plugin packages</a>
 
-Reasonix ships a read-only capability diagnostics model shared by the CLI and
+Deep-tutor ships a read-only capability diagnostics model shared by the CLI and
 desktop **Settings → Diagnostics**. It reports Skills, Commands, Hooks, plugin
 packages, MCP servers, and instruction docs (`AGENTS.md` / `REASONIX.md` /
 `CLAUDE.md`).
@@ -27,10 +27,10 @@ packages, MCP servers, and instruction docs (`AGENTS.md` / `REASONIX.md` /
 
 | Goal | What to run |
 | --- | --- |
-| Check this workspace’s skills / hooks / MCP / plugins | `reasonix doctor capabilities` |
-| Machine-readable report (CI / support) | `reasonix doctor capabilities --json` |
-| Another project root | `reasonix doctor capabilities --root /path/to/project` |
-| Probe MCP startup for real (starts third-party servers) | `reasonix doctor capabilities --live --timeout 5s` |
+| Check this workspace’s skills / hooks / MCP / plugins | `deep-tutor doctor capabilities` |
+| Machine-readable report (CI / support) | `deep-tutor doctor capabilities --json` |
+| Another project root | `deep-tutor doctor capabilities --root /path/to/project` |
+| Probe MCP startup for real (starts third-party servers) | `deep-tutor doctor capabilities --live --timeout 5s` |
 | Ask the agent to walk through config / fix guidance | `/reasonix-guide` in chat, or ask naturally |
 | GUI health view | Desktop **Settings → Diagnostics** |
 
@@ -40,9 +40,9 @@ only when you explicitly want to start automatic MCP servers.
 Related (unchanged) doctor commands:
 
 ```bash
-reasonix doctor                  # env / providers / sandbox snapshot
-reasonix doctor session <id>     # support session bundle
-reasonix doctor redact-sessions  # redact secrets in session files
+deep-tutor doctor                  # env / providers / sandbox snapshot
+deep-tutor doctor session <id>     # support session bundle
+deep-tutor doctor redact-sessions  # redact secrets in session files
 ```
 
 ## Everyday workflows
@@ -50,7 +50,7 @@ reasonix doctor redact-sessions  # redact secrets in session files
 ### 1. “Skill / command is missing or wrong”
 
 ```bash
-reasonix doctor capabilities --json | jq '.skills.entries, .commands.entries, .issues'
+deep-tutor doctor capabilities --json | jq '.skills.entries, .commands.entries, .issues'
 ```
 
 Look for:
@@ -66,11 +66,11 @@ Then open **Settings → Skills** (or fix the file under `.reasonix/skills` /
 ### 2. “Project hooks never fire”
 
 ```bash
-reasonix doctor capabilities | sed -n '/Hooks/,/Plugins/p'
+deep-tutor doctor capabilities | sed -n '/Hooks/,/Plugins/p'
 ```
 
 Project hooks load automatically from `.reasonix/settings.json`. If they do not
-fire, confirm the active workspace and restart Reasonix after saving. Matchers
+fire, confirm the active workspace and restart Deep-tutor after saving. Matchers
 are **anchored** regexes: `file` does not match `read_file`.
 
 ### 3. “MCP tools don’t show up”
@@ -78,13 +78,13 @@ are **anchored** regexes: `file` does not match `read_file`.
 1. Static first (no side effects):
 
    ```bash
-   reasonix doctor capabilities --json | jq '.mcp.servers, .issues[] | select(.subsystem=="mcp")'
+   deep-tutor doctor capabilities --json | jq '.mcp.servers, .issues[] | select(.subsystem=="mcp")'
    ```
 
 2. Only if you accept starting third-party servers:
 
    ```bash
-   reasonix doctor capabilities --live --timeout 10s --json
+   deep-tutor doctor capabilities --live --timeout 10s --json
    ```
 
 Common codes: `mcp.command_not_found`, `mcp.invalid_transport`,
@@ -113,7 +113,7 @@ My MCP server X is configured but the model never sees its tools — diagnose.
 The built-in skill is **inline** (`runAs: inline`). It tells the model to prefer:
 
 ```bash
-reasonix doctor capabilities --json
+deep-tutor doctor capabilities --json
 ```
 
 and to use `--live` only after you explicitly allow external MCP. Project or
@@ -123,7 +123,7 @@ with `[skills].disabled_skills = ["reasonix-guide"]`.
 ## CLI reference
 
 ```bash
-reasonix doctor capabilities [--root PATH] [--json] [--live] [--timeout 5s]
+deep-tutor doctor capabilities [--root PATH] [--json] [--live] [--timeout 5s]
 ```
 
 | Flag | Meaning |
@@ -155,17 +155,17 @@ Examples:
 
 ```bash
 # Human-readable, current directory
-reasonix doctor capabilities
+deep-tutor doctor capabilities
 
 # Fail CI only on hard errors
-reasonix doctor capabilities --json
+deep-tutor doctor capabilities --json
 # shell: exit code 1 if summary.errors > 0
 
 # Live probe with a longer timeout
-reasonix doctor capabilities --live --timeout 15s --json 2>live-warn.txt
+deep-tutor doctor capabilities --live --timeout 15s --json 2>live-warn.txt
 ```
 
-Existing `reasonix doctor`, `doctor session`, and `doctor redact-sessions`
+Existing `deep-tutor doctor`, `doctor session`, and `doctor redact-sessions`
 commands keep their own JSON schemas — capability fields are **not** mixed into
 those reports.
 
@@ -254,9 +254,9 @@ Prefer copying report JSON into issues or chat over pasting raw config files.
 
 | Need | Use instead |
 | --- | --- |
-| Provider keys, proxy, sandbox OS support | `reasonix doctor` |
-| Full session transcript for support | `reasonix doctor session <id>` |
-| One plugin package only | `reasonix plugin doctor <name>` |
+| Provider keys, proxy, sandbox OS support | `deep-tutor doctor` |
+| Full session transcript for support | `deep-tutor doctor session <id>` |
+| One plugin package only | `deep-tutor plugin doctor <name>` |
 | Interactive MCP list in a chat session | `/mcp` |
 
 ## Cache impact

@@ -6,7 +6,11 @@
 >
 > **改造公告（2026-10-15 起）**：项目正向 **Reasonix 内核（Go）架构改造**——单二进制多用户服务 + 四前端（Web / Deep-tutor Studio / CLI / TUI / ACP），接入 Reasonix 内核能力（工具审批、Rewind、子代理、MCP、插件包、技能、双模型）。
 > 当前可用实现仍为 **Python v0.1.x**（`backend/` + `frontend/`，端口 41173），保留至改造阶段① M5 验收后停用，阶段④删除。
-> 改造决策（61 项）见 [`note/12`](./note/12-Reasonix改造决策.md)，方案见 [`plan/reasonix/`](./plan/README.md)，进度见 [`stage.md`](./stage.md)，实施分支 `refactor/reasonix`。上游来源与引用声明见 [`NOTICE`](./NOTICE)。
+> 改造决策（61 项）见 [`note/12`](./note/12-Reasonix改造决策.md)，方案见 [`plan/reasonix/`](./plan/README.md)，进度见 [`stage.md`](./stage.md)，实施分支 `refactor/reasonix`。工程规约见 [`DEEPTUTOR.md`](./DEEPTUTOR.md)。上游来源与引用声明见 [`NOTICE`](./NOTICE)。
+
+> 内核与桌面端吸收自 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（studio 分支，2026-10 快照），遵循 MIT License。许可全文见 [`LICENSE-REASONIX`](./LICENSE-REASONIX)。
+>
+> 出处、路径映射、已移除资产与修改披露见根 [`NOTICE`](./NOTICE)。裁剪与修改清单随实施进度记入 [`stage.md`](./stage.md)，并入 [`DEEPTUTOR.md`](./DEEPTUTOR.md)。
 
 ---
 

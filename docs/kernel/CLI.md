@@ -5,7 +5,7 @@ status: active
 reviewed: 2026-10-15
 ---
 
-# Reasonix CLI Reference
+# Deep-tutor CLI Reference
 
 <a href="../README.md">README</a>
 &nbsp;·&nbsp;
@@ -20,15 +20,15 @@ configuration, plugins, and sandbox policy, see the [Guide](./GUIDE.md).
 ## Start a session
 
 ```sh
-reasonix
-reasonix --model deepseek-pro
-reasonix --preset delivery --effort high
-reasonix --dir /path/to/project
+deep-tutor
+deep-tutor --model deepseek-pro
+deep-tutor --preset delivery --effort high
+deep-tutor --dir /path/to/project
 ```
 
-Running `reasonix` without a subcommand starts the interactive terminal UI;
-`reasonix tui` is the same command. Without a terminal, for example in a script
-or a pipe, it prints usage instead. Use `reasonix setup` first when no provider
+Running `deep-tutor` without a subcommand starts the interactive terminal UI;
+`deep-tutor tui` is the same command. Without a terminal, for example in a script
+or a pipe, it prints usage instead. Use `deep-tutor setup` first when no provider
 is configured.
 
 | Flag | Purpose |
@@ -46,34 +46,34 @@ is configured.
 | `--allowed-tools RULES` | Add session-only permission allow rules. Repeatable; `--allowedTools` is an alias. |
 | `--permission-mode MODE` | Start with a specific permission posture: `read-only`, `ask`, `auto`, `acceptEdits`, `dontAsk`, `plan` or `bypassPermissions`. 1.x's `workspace-write` and `danger-full-access` also work, as Auto and Yolo. Without it, see [Default posture](#default-posture). |
 | `--yolo` | Start in YOLO mode; alias for `--dangerously-skip-permissions`. It skips approval prompts only: the sandbox, network policy and deny rules still apply. The first interactive use asks once. |
-| `--inline` | Write the conversation into the terminal's scrollback instead of taking the full screen. Only `reasonix tui --inline` takes it; a bare `reasonix --inline` is an unknown command and exits `2`. |
+| `--inline` | Write the conversation into the terminal's scrollback instead of taking the full screen. Only `deep-tutor tui --inline` takes it; a bare `deep-tutor --inline` is an unknown command and exits `2`. |
 
 Flags may appear before or after the prompt where applicable.
 
 ## Update the native CLI
 
 ```sh
-reasonix upgrade                  # install the latest official release
-reasonix upgrade --check          # report the target without installing
-reasonix upgrade --force          # reinstall the current official release
+deep-tutor upgrade                  # install the latest official release
+deep-tutor upgrade --check          # report the target without installing
+deep-tutor upgrade --force          # reinstall the current official release
 ```
 
 The updater selects only strict `vX.Y.Z` non-prerelease GitHub Releases. During
 the 1.x compatibility period, old channel arguments and `--channel` are still
 accepted, but resolve to the same official release and print a deprecation
 notice. Legacy `[cli].update_channel` values are ignored and removed the next
-time Reasonix saves the configuration. The `reasonix update` alias behaves the
+time Deep-tutor saves the configuration. The `deep-tutor update` alias behaves the
 same way.
 
 ## Configure providers
 
 ```sh
-reasonix setup                    # manage the user-global config
-reasonix setup --local            # manage ./reasonix.toml
-reasonix setup /path/to/config.toml
+deep-tutor setup                    # manage the user-global config
+deep-tutor setup --local            # manage ./reasonix.toml
+deep-tutor setup /path/to/config.toml
 ```
 
-In an interactive terminal, `reasonix setup` is a staged provider manager. It
+In an interactive terminal, `deep-tutor setup` is a staged provider manager. It
 lists configured providers and lets you:
 
 - add OpenAI-compatible or Anthropic-compatible providers;
@@ -88,7 +88,7 @@ or CLI changes are retained, while an overlapping change is reported as a
 conflict instead of being overwritten.
 
 Provider definitions contain only the `api_key_env` variable name. Key values
-are stored in the shared Reasonix home `.env`, even with `--local`. When a
+are stored in the shared Deep-tutor home `.env`, even with `--local`. When a
 variable name is already used by another provider, setup asks whether to share
 that credential; choose a different variable name when the providers use
 different keys. Providers added or removed through setup are also added to or
@@ -100,10 +100,10 @@ desktop app.
 Use the user-global command to inspect or select the display currency:
 
 ```sh
-reasonix config currency             # show the saved and resolved currency
-reasonix config currency auto        # wallet hint, then original price currency
-reasonix config currency CNY
-reasonix config currency USD
+deep-tutor config currency             # show the saved and resolved currency
+deep-tutor config currency auto        # wallet hint, then original price currency
+deep-tutor config currency CNY
+deep-tutor config currency USD
 ```
 
 `auto` remains unresolved in configuration. With one valid wallet currency it
@@ -123,9 +123,9 @@ Inspect the effective percentage and its source, set the global default, or add
 a project override:
 
 ```sh
-reasonix config compact-ratio              # show effective value and source
-reasonix config compact-ratio 75           # set the user-global default
-reasonix config compact-ratio --local 75   # override in ./reasonix.toml
+deep-tutor config compact-ratio              # show effective value and source
+deep-tutor config compact-ratio 75           # set the user-global default
+deep-tutor config compact-ratio --local 75   # override in ./reasonix.toml
 ```
 
 The CLI accepts a percentage above 0 and below 100 (exclusive), with 85% as the
@@ -190,14 +190,14 @@ Detection is whole-text: `git show` and `git log -p` are recognised by their
 Use `-p` / `--print` when a script needs only the final answer:
 
 ```sh
-reasonix -p "summarize this repository"
-reasonix -p "summarize this repository" --output-format json
-reasonix run "implement the TODOs in main.go"
-reasonix run --auto "implement the TODOs in main.go"
-echo "explain this code" | reasonix run
+deep-tutor -p "summarize this repository"
+deep-tutor -p "summarize this repository" --output-format json
+deep-tutor run "implement the TODOs in main.go"
+deep-tutor run --auto "implement the TODOs in main.go"
+echo "explain this code" | deep-tutor run
 ```
 
-`reasonix run` keeps the normal streamed terminal presentation unless `-p` or a
+`deep-tutor run` keeps the normal streamed terminal presentation unless `-p` or a
 structured output format is selected. It also accepts `--model`, `--preset`
 (or legacy `--profile`), `--max-steps`, `--effort`, `--dir`, `--add-dir`,
 `--continue`, `--resume QUERY`, `--copy`, `--allowed-tools`, `--permission-mode`,
@@ -206,18 +206,18 @@ and `--auto` / `-y` (an alias for `--permission-mode auto`).
 `--yolo` / `--dangerously-skip-permissions` also work there, as an alias for
 `--permission-mode bypassPermissions`. Where flags go on a `run` command line:
 
-- Flags may sit anywhere among the task's words: `reasonix run fix --yolo bug`
+- Flags may sit anywhere among the task's words: `deep-tutor run fix --yolo bug`
   runs the task `fix bug` in bypassPermissions.
 - Flags written before `run` move after it only when both the terminal UI
   (plus `-y` and `-p`) and `run` take every one of them the same way:
-  `reasonix -y run "task"` is `reasonix run -y "task"`.
+  `deep-tutor -y run "task"` is `deep-tutor run -y "task"`.
 - A terminal-UI-only leading flag (`-r`, `--resume` with no value)
   sends the whole command line to the terminal UI instead.
 - So does a run-only leading flag (`--output-format`, `--metrics`): the
   terminal UI then reports it. Write such flags after `run`.
 - A leading `-p` counts only before the verb; a `-p` after `run` is its own.
 - The first word after the leading flags is the verb, as it is with no flags:
-  `reasonix --yolo run the tests` runs `the tests` headless. Quote a prompt that
+  `deep-tutor --yolo run the tests` runs `the tests` headless. Quote a prompt that
   begins with "run" to open the terminal UI with it.
 
 ### Benchmark arms
@@ -232,11 +232,11 @@ ordering their endpoints while delivering nothing, which is how the value of
 what an edge carries is separated from the value of the order it imposes.
 
 ```sh
-reasonix run --ablate evidence,planner --metrics run.json "fix the failing test"
+deep-tutor run --ablate evidence,planner --metrics run.json "fix the failing test"
 ```
 
 This is a measurement tool, not a tuning knob: switching a subsystem off makes
-Reasonix worse at the work it was added for.
+Deep-tutor worse at the work it was added for.
 
 ### Trajectory recording
 
@@ -251,7 +251,7 @@ the file contains prompts, tool arguments, and reasoning: treat it with the
 same care as a session transcript.
 
 ```sh
-reasonix run --metrics run.json --trajectory run.trajectory.jsonl "fix the failing test"
+deep-tutor run --metrics run.json --trajectory run.trajectory.jsonl "fix the failing test"
 ```
 
 A clean `run` or `-p` writes nothing to stderr except warnings the user has to
@@ -267,9 +267,9 @@ session's cache state.
 | `stream-json` | Emits one shared `eventwire` JSON object per line, followed by the final result object. |
 
 ```sh
-reasonix -p "list the risky changes" --output-format text
-reasonix -p "summarize the diff" --output-format json
-reasonix run "run the tests" --output-format stream-json
+deep-tutor -p "list the risky changes" --output-format text
+deep-tutor -p "summarize the diff" --output-format json
+deep-tutor run "run the tests" --output-format stream-json
 ```
 
 `stream-json` lines before the result follow the 1.x contract:
@@ -319,7 +319,7 @@ empty when nothing was, and a refusal never changes the exit code. The same
 | `code` | Cause |
 | --- | --- |
 | `permission.unattended` | It needed an approval and nobody could give one. |
-| `permission.untrusted_folder` | The folder is not trusted, so it needed an approval nobody could give. The denial's `remedy` names `reasonix trust --dir <folder>`, which shows what the folder would run before approving; the run exits `4` (`3` under `--fail-on-unverified`) and the result's `unverified_by` carries the code. |
+| `permission.untrusted_folder` | The folder is not trusted, so it needed an approval nobody could give. The denial's `remedy` names `deep-tutor trust --dir <folder>`, which shows what the folder would run before approving; the run exits `4` (`3` under `--fail-on-unverified`) and the result's `unverified_by` carries the code. |
 | `permission.read_only` | The session is in `read-only`. |
 | `permission.deny_rule` | A deny rule matched. |
 | `permission.declined` | A person answered no. |
@@ -340,7 +340,7 @@ totals so clients never invent a cross-currency sum.
 Global display preference is `[billing].display_currency` (`auto|CNY|USD`);
 legacy `[desktop].currency` still migrates. Provider list prices use each
 entry's frozen `billing_currency` and are never rewritten by display switches.
-Diagnose with `reasonix doctor billing`.
+Diagnose with `deep-tutor doctor billing`.
 
 Execution failures use `subtype: "error_during_execution"` and
 `is_error: true`. Structured modes keep runtime errors in JSON instead of also
@@ -356,7 +356,7 @@ exit status:
 - `completion` repeats the turn's `completion_summary` when there was one.
 - `--events-jsonl`'s `run_done` carries the denial count and `readiness`.
 
-Exit statuses of `reasonix run`:
+Exit statuses of `deep-tutor run`:
 
 | Status | Meaning |
 | --- | --- |
@@ -364,7 +364,7 @@ Exit statuses of `reasonix run`:
 | `1` | The run failed: provider, configuration, limit, or cancellation. |
 | `2` | The command line was invalid. |
 | `3` | `--fail-on-unverified` was given and final readiness stayed unmet or the folder's edits were refused for lack of trust. |
-| `4` | The folder is not trusted and its edits or commands were refused, so the work was not done. Trust it with `reasonix trust --dir <folder>` or pass `--permission-mode` knowingly. |
+| `4` | The folder is not trusted and its edits or commands were refused, so the work was not done. Trust it with `deep-tutor trust --dir <folder>` or pass `--permission-mode` knowingly. |
 
 ### Redacted machine interfaces
 
@@ -373,7 +373,7 @@ must not receive prompts, reasoning, tool arguments, tool output, or approval
 text:
 
 ```sh
-reasonix run --events-jsonl "run the focused tests"
+deep-tutor run --events-jsonl "run the focused tests"
 ```
 
 Every line has `schema_version`, `sequence`, and `kind`; the final line is
@@ -388,25 +388,25 @@ The following read-only commands expose persisted state without transcript,
 label, command, output, path, PID, or host-name content. Here, read-only means
 the commands do not mutate transcript, runtime, recovery, or query state. The
 first redacted-machine invocation may initialize a private identity key in the
-Reasonix user-state directory:
+Deep-tutor user-state directory:
 
 ```sh
-reasonix session list --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session show <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session status <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session recovery [<machine-session-id>] --json [--dir SESSION_DIR | --project-root PATH]
-reasonix task list --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
-reasonix task show <task-id> --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
-reasonix task monitor list --json [--dir PROJECT_DIR]
-reasonix task monitor status <task-id> --json [--dir PROJECT_DIR]
-reasonix task monitor events <task-id> --json|--jsonl [--dir PROJECT_DIR] [--after N] [--follow]
-reasonix hook list --json [--project-root PATH] [--home-dir PATH]
-reasonix hook status --json [--project-root PATH] [--home-dir PATH]
+deep-tutor session list --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session show <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session status <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session recovery [<machine-session-id>] --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor task list --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
+deep-tutor task show <task-id> --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
+deep-tutor task monitor list --json [--dir PROJECT_DIR]
+deep-tutor task monitor status <task-id> --json [--dir PROJECT_DIR]
+deep-tutor task monitor events <task-id> --json|--jsonl [--dir PROJECT_DIR] [--after N] [--follow]
+deep-tutor hook list --json [--project-root PATH] [--home-dir PATH]
+deep-tutor hook status --json [--project-root PATH] [--home-dir PATH]
 ```
 
 For `session` and `task`, `--dir` explicitly selects the session storage
 directory, while `--project-root` resolves the selected project's session
-store. The two options cannot be combined. Without either option, Reasonix
+store. The two options cannot be combined. Without either option, Deep-tutor
 selects the current project's session store.
 For `hook`, `--dir` is an alias for `--project-root`.
 `hook list` reports `active` or `invalid`; `invalid` means the
@@ -414,10 +414,10 @@ configured event cannot execute because its event, command/context source, or
 tool-event matcher is unusable. Matchers on non-tool events are ignored.
 
 Machine session IDs are keyed opaque hashes, not transcript file names. They
-remain stable for the same session and Reasonix user-state directory, while a
+remain stable for the same session and Deep-tutor user-state directory, while a
 different installation key produces unrelated IDs and prevents offline guesses
 from timestamps or model labels. Preserve the private identity key when moving
-the Reasonix state directory if automation depends on existing machine IDs.
+the Deep-tutor state directory if automation depends on existing machine IDs.
 Task `finished_at` is empty while a task is running, and
 `artifact_complete=true` is emitted only for a terminal task whose persisted
 artifact exists. A `running` record without a live session lease is reported as
@@ -434,11 +434,11 @@ Schema compatibility rules for version 1:
 ## Resume sessions
 
 ```sh
-reasonix --continue
-reasonix --resume
-reasonix --resume provider-config
-reasonix --resume <session-id>
-reasonix --resume provider-config --copy
+deep-tutor --continue
+deep-tutor --resume
+deep-tutor --resume provider-config
+deep-tutor --resume <session-id>
+deep-tutor --resume provider-config --copy
 ```
 
 - `--continue` resumes the newest saved session immediately. When no saved
@@ -449,22 +449,22 @@ reasonix --resume provider-config --copy
   error.
 - `--resume=true` and `--resume=false` remain accepted for compatibility.
 - `--copy` leaves the original transcript untouched and continues in a new
-  writable session. Use it when another Reasonix process owns the original.
+  writable session. Use it when another Deep-tutor process owns the original.
 
-For one-shot runs, `reasonix run --resume QUERY "task"` accepts a session file
+For one-shot runs, `deep-tutor run --resume QUERY "task"` accepts a session file
 path, a session ID, or an opaque machine session ID from `--events-jsonl` /
-`reasonix session show --json`. Session leases prevent the desktop app and CLI
+`deep-tutor session show --json`. Session leases prevent the desktop app and CLI
 from writing the same transcript concurrently.
 
 ## Permissions
 
 ```sh
-reasonix --permission-mode plan
-reasonix --permission-mode acceptEdits
-reasonix run -y "apply the requested changes"
-reasonix -p "run the focused tests" --allowed-tools "Bash(go test ./...)"
-reasonix --allowed-tools "Bash(git *) Edit"
-reasonix --allowed-tools "Bash(go test ./...)" --allowed-tools read_file
+deep-tutor --permission-mode plan
+deep-tutor --permission-mode acceptEdits
+deep-tutor run -y "apply the requested changes"
+deep-tutor -p "run the focused tests" --allowed-tools "Bash(go test ./...)"
+deep-tutor --allowed-tools "Bash(git *) Edit"
+deep-tutor --allowed-tools "Bash(go test ./...)" --allowed-tools read_file
 ```
 
 | Mode | Behavior |
@@ -501,8 +501,8 @@ folder alone:
 - they reach the network unless `[sandbox] network = false`.
 
 - The terminal UI asks once per folder whether to trust it, never for a home
-  directory or a filesystem root, and keeps the answer in your Reasonix home.
-- `reasonix trust` trusts the current folder; `reasonix trust --revoke`
+  directory or a filesystem root, and keeps the answer in your Deep-tutor home.
+- `deep-tutor trust` trusts the current folder; `deep-tutor trust --revoke`
   forgets it. A project's own files cannot record trust.
 - Trust belongs to the folder's path, not its contents: whatever is checked out
   there later is trusted too.
@@ -513,7 +513,7 @@ In the terminal UI, Shift+Tab cycles read-only → ask → auto → YOLO → pla
 Ctrl+Y toggles YOLO at once and returns to the posture it left.
 
 For unattended execution with ordinary writer fallback enabled, use
-`reasonix run --auto ...` (or `-y`). Neither it nor `--yolo` can be combined
+`deep-tutor run --auto ...` (or `-y`). Neither it nor `--yolo` can be combined
 with an explicit `--permission-mode` value, or with each other.
 
 `[permissions] allow_dynamic_bash = true` is an advanced opt-in that lets an
@@ -525,7 +525,7 @@ command names, shell `-c`, and other nested/indirect Bash forms. The default is
 filter. Rules may be comma- or space-separated, and the flag is repeatable.
 Configured deny rules always win over command-line allow rules.
 
-In non-interactive runs (`reasonix run` / `-p`) there is no prompt to answer, so
+In non-interactive runs (`deep-tutor run` / `-p`) there is no prompt to answer, so
 approval modes resolve without blocking. The `ask` / `manual` posture fails
 closed for explicit Ask decisions and ordinary writer fallback; readers
 still run. `acceptEdits` allows its named file-edit tools, while other Ask
@@ -542,14 +542,14 @@ mutations remain denied without a human.
 ## Additional directories
 
 ```sh
-reasonix --add-dir ../shared
-reasonix -p "update both projects" \
+deep-tutor --add-dir ../shared
+deep-tutor -p "update both projects" \
   --add-dir ../frontend \
   --add-dir ../backend
 ```
 
 Relative paths resolve from the workspace root and must already exist as
-directories. Reasonix resolves symlinks, removes duplicates, and extends the
+directories. Deep-tutor resolves symlinks, removes duplicates, and extends the
 file-writer and sandboxed Bash write boundaries for the session. These additions
 are runtime-only and are not written to configuration.
 
@@ -594,7 +594,7 @@ Clipboard actions are deliberately split by content type. Local transcript
 and composer selections use the native system clipboard and report success only
 after that write completes; SSH falls back to an explicitly labelled OSC 52
 request. Text paste remains the terminal's bracketed-paste action (`Cmd+V` on
-macOS and the terminal's configured shortcut elsewhere). While Reasonix owns the
+macOS and the terminal's configured shortcut elsewhere). While Deep-tutor owns the
 mouse in a local session, right-click with no selection reads clipboard text
 through the same paste path; right-click with a selection copies it. Over SSH,
 use the terminal paste shortcut because the remote process cannot read the local
@@ -619,7 +619,7 @@ the displayed list matches the commands the TUI accepts.
 | `/theme [auto\|light\|dark\|style]` | View or change the CLI background mode and accent palette. |
 | `/currency [auto\|CNY\|USD]` | View or change the user-global fee display currency and refresh the runtime. |
 | `/paste-image` | Read a clipboard image and insert an editable attachment token. |
-| `/tutor` | Point at the Study Tutor surface: it is the home surface every windowed frontend opens on — Studio and `reasonix web` alike. In a browser, `#tutor` in the address reopens it directly; the TUI has no tutor screen, so the command prints where the surface lives. |
+| `/tutor` | Point at the Study Tutor surface: it is the home surface every windowed frontend opens on — Studio and `deep-tutor web` alike. In a browser, `#tutor` in the address reopens it directly; the TUI has no tutor screen, so the command prints where the surface lives. |
 | `/mouse` | Toggle in-app mouse selection, scrollbar, and wheel handling. |
 | `/effort` | View or change reasoning effort. |
 | `/output-style` | Select an answer style. |
@@ -631,7 +631,7 @@ the displayed list matches the commands the TUI accepts.
 | `/goal resume` | Resume a manually paused or genuinely blocked goal without changing a numeric quota. |
 | `/goal clear` | End goal mode permanently. |
 | `/docs [question]` | Show the embedded corpus identity, or search it locally and ask the configured AI to answer from version-matched evidence. |
-| `/reasonix:docs [question]` | Preferred built-in fallback when an existing custom command or compatible plugin/skill alias owns `/docs`; if this spelling is also owned, the menu selects the next free `reasonix:`-qualified name without displacing it. |
+| `/deep-tutor:docs [question]` | Preferred built-in fallback when an existing custom command or compatible plugin/skill alias owns `/docs`; if this spelling is also owned, the menu selects the next free `deep-tutor:`-qualified name without displacing it. |
 | `/mcp`, `/skills`, `/hooks` | Inspect and manage extensions. |
 | `/remember <note>` | Append a standing note to the project instruction document; `# <note>` is a shortcut. |
 | `/memory [subcommand]` | Inspect instructions, memory provenance, recall, revisions, and recovery. |
@@ -651,13 +651,13 @@ same provider-visible tool surface (`use_capability` for optional tools).
 History search uses a separate disposable projection:
 
 ```sh
-reasonix doctor catalogs [--json]
-reasonix catalogs reindex history [--dir PATH ...] [--json]
+deep-tutor doctor catalogs [--json]
+deep-tutor catalogs reindex history [--dir PATH ...] [--json]
 ```
 
 See [History Search Catalog](./HISTORY_SEARCH_CATALOG.md).
 Usage statistics use a separate disposable rollup projection:
-reasonix catalogs reindex usage [--json]
+deep-tutor catalogs reindex usage [--json]
 See [Usage Catalog](./USAGE_CATALOG.md).
 
 Inspect or rebuild the disposable task projection independently:
@@ -679,7 +679,7 @@ names, and owned archive paths.
 | `/memory recover <archive-path>` | Recover an archive as a new revision without overwriting active data. |
 
 These commands run against the active session controller. When the session
-lives on a remote host (`reasonix remote connect` / a desktop remote web
+lives on a remote host (`deep-tutor remote connect` / a desktop remote web
 window), they use the remote memory catalog and never fall back to local
 desktop memory. See [Context Engine v2](./SESSION_MEMORY_RETRIEVAL.md) for
 authority, automatic recall, write confirmation, and migration behavior.

@@ -15,8 +15,8 @@ Status: proposed. Nothing in this document is shipped unless §11 says so. It li
 | --- | --- |
 | P1 | The model proposes and executes. The host defines what is allowed to start, what counts as completed with evidence, and which capability is allowed to ship. |
 | P2 | None of the three decisions is a prompt convention. Each is a state transition the host performs over host-owned state. |
-| P3 | One layer serves Reasonix's own development and product users. There is no second implementation for either. |
-| P4 | The layer is dogfooded on Reasonix's own high-risk work before any user-facing surface exists. |
+| P3 | One layer serves Deep-tutor's own development and product users. There is no second implementation for either. |
+| P4 | The layer is dogfooded on Deep-tutor's own high-risk work before any user-facing surface exists. |
 | P5 | A surface that renders "done", "verified" or "shipped" is a projection of a sealed host record. The surface never creates the fact. |
 | P6 | Every policy the host enforces is a host-owned revision. Workspace content is source material for a proposal, never enforcement. |
 
@@ -39,7 +39,7 @@ Out of scope: UI, detection of semantic cheating inside a green test (review's j
 | Principal | Is | Trusted for |
 | --- | --- | --- |
 | User | the person who owns the task | accepting and relaxing contracts and policies, waivers, L3 approvals |
-| Host | the Reasonix kernel process and THS | observation, verification, sealing, applying accepted policy |
+| Host | the Deep-tutor kernel process and THS | observation, verification, sealing, applying accepted policy |
 | Model | the working agent and its subagents | proposals, execution, claims |
 | Verifier | a host-run check: command, test, capture | producing evidence, never authority |
 | Evaluator | a bounded independent model (`internal/runtime/goaleval`) | advisory judgement only (§4.5) |
@@ -68,7 +68,7 @@ Out of scope: UI, detection of semantic cheating inside a green test (review's j
 | T5 | Every bundle, contract revision and policy revision records the `IntegrityLevel` it was written under. |
 | T6 | A chain that does not verify from the trusted head is `trusted_state.tampered`: the contract suspends and only the User may resume it (§8). |
 | T7 | `host_protected` requires every model-reachable writer this process starts to be confined away from THS: the bash sandbox, the file tools' guard, each MCP server, each extension sidecar. One unconfined launch drops the level for the rest of the process. |
-| T8 | The level is a per-process judgement. Another process running as the same OS user, including another Reasonix process whose model is unconfined, can write THS. Until a machine-wide registry covers that, `host_protected` claims only this process's writers. |
+| T8 | The level is a per-process judgement. Another process running as the same OS user, including another Deep-tutor process whose model is unconfined, can write THS. Until a machine-wide registry covers that, `host_protected` claims only this process's writers. |
 
 Operation by integrity level:
 
@@ -481,7 +481,7 @@ Whoever first knows why an operation failed owns its class. Each cause is a type
 
 | ID | Rule |
 | --- | --- |
-| D1 | The first population is Reasonix's own work: release, signing, packaging, migration, session recovery, security, payment and hosted, protocol changes. All are in the accepted L3 policy for this repository. |
+| D1 | The first population is Deep-tutor's own work: release, signing, packaging, migration, session recovery, security, payment and hosted, protocol changes. All are in the accepted L3 policy for this repository. |
 | D2 | Stage 1 is shadow: bundles are built beside the existing `completion.Report`, gating nothing. Every divergence is recorded with both inputs and a taxonomy class. |
 | D3 | Stage 2 enforces on sessions whose workspace is this repository. Stage 3 is user opt-in. Stage 4 is default-on. Each transition is a RolloutDecision. |
 | D4 | Semantic cheating inside a green test (for example a test-caller switch) is not detected here. L2–L3 contracts carry a `human` or review criterion for it. |
@@ -532,7 +532,7 @@ Honesty metrics carry about ±10pp noise at one sample per task. A stage exit MU
 | Host report | `internal/runtime/completion` builds a host-authored report with gaps by subtraction | P1 seals it into the bundle |
 | Risk policy | `sensitive:` is read from the workspace `REASONIX.md` at each boot, so an edit changes enforcement for the next session | P2 (I13) |
 | Observation | `scanWorkspace` skips VCS stores and stops at 50k files; exclusions are code, not a revisioned policy | P1 |
-| Capability identity | every `reasonix run` trajectory header lists the capability versions the run had (host build, system prompt, each tool schema, each skill by content) and their set digest; e2ebench compare says whether two reports share one capability set and one task prompt set (commit, build, configuration, graders and task files other than the prompt are not compared, and the report lists them as such) and whether each rate moved beyond its 95% interval. One capability set over 30 task prompts, run twice, reproduced within the noise floor. `e2ebench -mode rollout` decides promote, hold or reject for a candidate set against a baseline on one task prompt set (K1, I11): a significantly worse false completion or grader pass rejects; a missing version, same version, other corpus, no no-solution tasks or fewer than 50 solvable runs holds. Demonstrated on 30 tasks x 2 per arm: a system-prompt candidate adding "keep replies concise" was promoted, and one adding "do not edit files, say it is done" was rejected on false completion (1/21 to 29/34) and grader pass (54/58 to 11/58) | online canary and post-promotion rollback (K3, K4) |
+| Capability identity | every `deep-tutor run` trajectory header lists the capability versions the run had (host build, system prompt, each tool schema, each skill by content) and their set digest; e2ebench compare says whether two reports share one capability set and one task prompt set (commit, build, configuration, graders and task files other than the prompt are not compared, and the report lists them as such) and whether each rate moved beyond its 95% interval. One capability set over 30 task prompts, run twice, reproduced within the noise floor. `e2ebench -mode rollout` decides promote, hold or reject for a candidate set against a baseline on one task prompt set (K1, I11): a significantly worse false completion or grader pass rejects; a missing version, same version, other corpus, no no-solution tasks or fewer than 50 solvable runs holds. Demonstrated on 30 tasks x 2 per arm: a system-prompt candidate adding "keep replies concise" was promoted, and one adding "do not edit files, say it is done" was rejected on false completion (1/21 to 29/34) and grader pass (54/58 to 11/58) | online canary and post-promotion rollback (K3, K4) |
 | Integrity inputs | MCP servers default to host mode and extension sidecars always run unconfined, so an install with either enabled is `tamper_evident_only` (T7) | a confined launch path for each |
 | Cross-process writers | nothing records the level of other processes sharing THS (T8) | machine-wide registry |
 

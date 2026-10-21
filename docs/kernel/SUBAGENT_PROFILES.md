@@ -9,7 +9,7 @@ reviewed: 2026-09-29
 
 Subagent profiles are reusable, explicitly invoked agents for focused work such
 as code review, investigation, or documentation. Each profile is a manual Skill
-with `runAs: subagent`: Reasonix starts an isolated child agent, gives it the
+with `runAs: subagent`: Deep-tutor starts an isolated child agent, gives it the
 profile prompt and task, and returns only its final answer to the parent.
 
 Profiles are shared by the desktop app, interactive CLI, and headless CLI. They
@@ -20,7 +20,7 @@ use the existing Skill file format and storage rather than a separate database.
 Create a project profile from a prompt file:
 
 ```bash
-reasonix subagent create reviewer \
+deep-tutor subagent create reviewer \
   --description "Review changes for correctness and regressions" \
   --prompt-file reviewer.md \
   --tools read_file,grep,bash \
@@ -30,17 +30,17 @@ reasonix subagent create reviewer \
 
 With a workspace, `create` defaults to project scope. Outside a workspace it defaults to global scope. Pass `--scope project` or `--scope global` to make the choice explicit.
 
-Project profiles are stored under `.reasonix/skills/<name>/SKILL.md`; global profiles are stored under the Reasonix home Skill directory described in [Configuration paths](./CONFIG_PATHS.md).
+Project profiles are stored under `.reasonix/skills/<name>/SKILL.md`; global profiles are stored under the Deep-tutor home Skill directory described in [Configuration paths](./CONFIG_PATHS.md).
 
 The prompt may come from `--prompt`, `--prompt-file PATH`,
 `--prompt-file -`, or piped stdin:
 
 ```bash
 printf '%s\n' 'Review the task and report only actionable findings.' | \
-  reasonix subagent create reviewer --description "Code reviewer"
+  deep-tutor subagent create reviewer --description "Code reviewer"
 ```
 
-Names may contain letters, digits, `_`, `-`, and `.`. Reasonix refuses a name
+Names may contain letters, digits, `_`, `-`, and `.`. Deep-tutor refuses a name
 that already belongs to another project, global, custom, or built-in Skill.
 
 ## Invoke a profile
@@ -82,39 +82,39 @@ For scripts and other headless use, choose an explicit command:
 
 ```bash
 # Preview with read-only tools.
-reasonix subagent try reviewer "review the current diff"
+deep-tutor subagent try reviewer "review the current diff"
 
 # Run with the normal permission and sandbox policy.
-reasonix subagent run reviewer "review and fix the current diff"
+deep-tutor subagent run reviewer "review and fix the current diff"
 
 # Read the task from stdin and cap tool-call rounds.
-git diff | reasonix subagent run reviewer --max-steps 20
+git diff | deep-tutor subagent run reviewer --max-steps 20
 ```
 
 Put `run`/`try` flags before the task. Both commands also accept `--model REF` and `--dir PATH`. `try` always selects the read-only runner. `run` uses the normal isolated runner; permission `deny` rules and sandbox restrictions still apply.
 
-Ordinary `reasonix run` remains a plain one-shot task entry point and does not implicitly interpret `/<profile>` syntax.
+Ordinary `deep-tutor run` remains a plain one-shot task entry point and does not implicitly interpret `/<profile>` syntax.
 
 ## Manage profiles
 
 ```text
-reasonix subagent list [--dir PATH]
-reasonix subagent create <name> --description TEXT (--prompt TEXT | --prompt-file PATH)
+deep-tutor subagent list [--dir PATH]
+deep-tutor subagent create <name> --description TEXT (--prompt TEXT | --prompt-file PATH)
   [--scope project|global] [--model REF] [--effort LEVEL]
   [--tools a,b] [--color NAME] [--dir PATH]
-reasonix subagent edit <name> [--description TEXT]
+deep-tutor subagent edit <name> [--description TEXT]
   [--prompt TEXT | --prompt-file PATH] [--model REF] [--effort LEVEL]
   [--tools a,b] [--color NAME] [--dir PATH]
-reasonix subagent delete <name> --yes [--dir PATH]
-reasonix subagent try <name> [--model REF] [--max-steps N] [--dir PATH] <task>
-reasonix subagent run <name> [--model REF] [--max-steps N] [--dir PATH] <task>
+deep-tutor subagent delete <name> --yes [--dir PATH]
+deep-tutor subagent try <name> [--model REF] [--max-steps N] [--dir PATH] <task>
+deep-tutor subagent run <name> [--model REF] [--max-steps N] [--dir PATH] <task>
 ```
 
 `edit` changes only fields supplied on the command line. Use an explicit empty
 value to clear an optional field:
 
 ```bash
-reasonix subagent edit reviewer --model= --effort= --tools= --color=
+deep-tutor subagent edit reviewer --model= --effort= --tools= --color=
 ```
 
 An omitted or empty tool list means the profile adds no tool allowlist; the
@@ -189,10 +189,10 @@ has its documented precedence.
 
 ## Desktop and troubleshooting
 
-Profiles created in desktop settings and with `reasonix subagent create` share
+Profiles created in desktop settings and with `deep-tutor subagent create` share
 the same files. Refresh or start a new session after changing profiles so an
 already-running session reloads the Skill registry.
 
-If invocation reports an unknown or disabled profile, check `reasonix subagent list`, the current `--dir`, and `skills.disabled_skills`. If editing reports that a profile is custom or rich, edit its `SKILL.md` directly instead of forcing it through the profile editor.
+If invocation reports an unknown or disabled profile, check `deep-tutor subagent list`, the current `--dir`, and `skills.disabled_skills`. If editing reports that a profile is custom or rich, edit its `SKILL.md` directly instead of forcing it through the profile editor.
 
-Unknown model references and invalid effort levels are rejected when Reasonix resolves the effective model.
+Unknown model references and invalid effort levels are rejected when Deep-tutor resolves the effective model.

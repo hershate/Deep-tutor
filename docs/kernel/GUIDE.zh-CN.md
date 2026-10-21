@@ -5,7 +5,7 @@ status: active
 reviewed: 2026-10-15
 ---
 
-# Reasonix 使用指南
+# Deep-tutor 使用指南
 
 <a href="../README.zh-CN.md">README</a>
 &nbsp;·&nbsp;
@@ -16,7 +16,7 @@ reviewed: 2026-10-15
 > 日常配置与使用。工程契约与内部实现（数据类型、registry、包结构、路线图）见
 > **[规格 SPEC.md](./SPEC.md)**。
 
-所有窗口式前端——桌面应用 Studio 与 `reasonix web`——都打开在[学习导师](./TUTOR.md)
+所有窗口式前端——桌面应用 Studio 与 `deep-tutor web`——都打开在[学习导师](./TUTOR.md)
 首页；Agent 聊天是其中的一页，从导师页头进入。本指南两侧都管：下面各节讲 Agent 侧，
 [学习导师文档](./TUTOR.md)讲学习侧。
 
@@ -46,16 +46,16 @@ reviewed: 2026-10-15
 ## 配置
 
 优先级：**flag > `./reasonix.toml` > 用户配置文件 > 内置默认值**。从
-**Reasonix v1.8.1** 开始，用户配置位于 macOS/Linux 的
+**Deep-tutor v1.8.1** 开始，用户配置位于 macOS/Linux 的
 `~/.reasonix/config.toml`，Windows 为 `%AppData%\reasonix\config.toml`；迁移和相关数据路径见
 [配置路径](./CONFIG_PATHS.md)。标注为“仅用户/全局”的字段（包括 agent 轮数上限）不会被 `./reasonix.toml` 覆盖。
 Provider 通过 `api_key_env` 命名密钥，真实密钥值保存在 CLI 与桌面端共用的
-Reasonix 全局 `<Reasonix home>/.env`。项目 `.env`、home `.env`、继承的 shell 环境变量、旧 credentials 和系统 keyring 都不再作为 provider key 的运行时 fallback；旧凭据只作为迁移来源读取。项目 `.env` 仍会作为当前 workspace 范围内的 MCP/plugin 非 provider `${VAR}` 展开来源，但不会导入 provider key 或 Reasonix 控制变量。全局 `config.toml` 和 `.env` 的完整结构见
+Deep-tutor 全局 `<Deep-tutor home>/.env`。项目 `.env`、home `.env`、继承的 shell 环境变量、旧 credentials 和系统 keyring 都不再作为 provider key 的运行时 fallback；旧凭据只作为迁移来源读取。项目 `.env` 仍会作为当前 workspace 范围内的 MCP/plugin 非 provider `${VAR}` 展开来源，但不会导入 provider key 或 Deep-tutor 控制变量。全局 `config.toml` 和 `.env` 的完整结构见
 [配置路径](./CONFIG_PATHS.md)。
 
 桌面端和 CLI 端的可见思考语言设置，见 [思考语言](./REASONING_LANGUAGE.md)。
 `SessionStart` hook 可通过 stdout 或 `hookSpecificOutput.additionalContext` 把插件/工作流 bootstrap 内容一次性注入下一轮真实用户输入上下文，而不是写入稳定 system prompt。
-插件包可通过 `hooks/session-start-codex` 或插件根目录 `CLAUDE.md` 提供该启动上下文；Claude 风格 `.claude/settings.json` command hooks 也会按同名事件映射到 Reasonix hooks。
+插件包可通过 `hooks/session-start-codex` 或插件根目录 `CLAUDE.md` 提供该启动上下文；Claude 风格 `.claude/settings.json` command hooks 也会按同名事件映射到 Deep-tutor hooks。
 
 工具 hooks（`PreToolUse`、`PostToolUse`、`PermissionRequest`）以及 `PostLLMCall` / `PreCompact` 在会话运行的每个 Agent 中都会触发，`session_id` 在 hook 触发时由父会话 id 派生：
 
@@ -65,7 +65,7 @@ Reasonix 全局 `<Reasonix home>/.env`。项目 `.env`、home `.env`、继承的
 | 规划器 | `<session>:planner` |
 | Guardian | `<session>:guardian` |
 | `task`、`read_only_task`、`parallel_tasks`、`fleet`、`run_skill`、`read_only_skill` 子 Agent | `<session>:subagent:<call>` |
-| `reasonix review` | 每次运行一个新 id |
+| `deep-tutor review` | 每次运行一个新 id |
 
 `/new` 或切换分支后，子 Agent 随父会话换到新 id。
 
@@ -155,7 +155,7 @@ allow = ["Bash(go test:*)"]                  # 从不询问
 [serve]
 # auth_mode = "token"          # token(默认)|password|none；none 下修改与审批仍需启动令牌
 # token = ""                   # 可选固定 token；token 模式为空时启动时自动生成
-# password_hash = ""           # 用 reasonix serve --hash-password --password '...' 生成
+# password_hash = ""           # 用 deep-tutor serve --hash-password --password '...' 生成
 # behind_proxy = false         # 只在可信反向代理后方设为 true
 
 [[plugins]]
@@ -179,8 +179,8 @@ bash allowlist 或信任提示。Plan 与常规模式使用相同的 Permissions
 
 ### 环境变量
 
-多数日常设置应写在 `config.toml` 或前文提到的 Reasonix 全局 `.env` 中。下面这些变量是进程级高级开关；
-需要在启动 Reasonix 之前设置。项目 `.env` 不是 Reasonix 控制变量的运行时来源。
+多数日常设置应写在 `config.toml` 或前文提到的 Deep-tutor 全局 `.env` 中。下面这些变量是进程级高级开关；
+需要在启动 Deep-tutor 之前设置。项目 `.env` 不是 Deep-tutor 控制变量的运行时来源。
 
 要让 `bash` 工具运行的每条命令都额外继承环境变量，可在 `config.toml` 里设置用户全局的
 `[tools.shell.env]` 表（例如 `BASH_ENV`）。它叠加在继承的环境之上；项目
@@ -188,7 +188,7 @@ bash allowlist 或信任提示。Plan 与常规模式使用相同的 Permissions
 
 预设值并不只作用于你显式发起的命令。`BASH_ENV` 会在**每条** bash 命令前被 source，包括宿主机
 判定为只读的命令和用作验证的命令，因此它必须无副作用，且位于工作区可写根之外——它写入的任何
-内容都可能让刚完成的验证失效。该表只作用于本地 bash 工具：远程工作区和 `reasonix review`
+内容都可能让刚完成的验证失效。该表只作用于本地 bash 工具：远程工作区和 `deep-tutor review`
 各自构建沙箱，不会带上它。
 
 ### CLI 上报统计
@@ -197,10 +197,10 @@ CLI 可以向 `https://crash.reasonix.io` 发送每日最多一次的匿名活�
 以及有界、完全不含内容的事件计数。使用以下用户全局命令配置：
 
 ```bash
-reasonix config telemetry          # 查看当前生效模式
-reasonix config telemetry auto     # 默认：仅本机交互式 TTY
-reasonix config telemetry on       # 也允许本机 headless `reasonix run`
-reasonix config telemetry off      # 关闭并删除待发送计数文件
+deep-tutor config telemetry          # 查看当前生效模式
+deep-tutor config telemetry auto     # 默认：仅本机交互式 TTY
+deep-tutor config telemetry on       # 也允许本机 headless `deep-tutor run`
+deep-tutor config telemetry off      # 关闭并删除待发送计数文件
 ```
 
 正式版 CLI 第一次在符合条件的交互式终端启动时，会先明确说明数据边界，并在任何
@@ -223,41 +223,41 @@ Provider/工具错误分类、compaction、恢复计数、每轮 token 量级区
 
 不回答就关闭提示（输入结束、Ctrl+D）不会保存任何选择，也不会上传；下次启动会再问。
 
-Reasonix 绝不会上传 prompt、回答、reasoning、工具名/参数/输出、路径、仓库/分支、
+Deep-tutor 绝不会上传 prompt、回答、reasoning、工具名/参数/输出、路径、仓库/分支、
 session ID、精确 token/费用、Provider/model 名称、base URL 或环境变量。
 
 ### CLI 崩溃报告
 
-当未处理的 Go panic 到达 CLI 入口调用栈时，Reasonix 会把脱敏报告保存在
-`<Reasonix home>/cli-crash-reports`。最多保留 10 份，文件权限仅限当前用户读取。
+当未处理的 Go panic 到达 CLI 入口调用栈时，Deep-tutor 会把脱敏报告保存在
+`<Deep-tutor home>/cli-crash-reports`。最多保留 10 份，文件权限仅限当前用户读取。
 panic 原文绝不会被序列化；绝对源码路径会变成 `<path>/<file>.go:<line>`，函数参数会被
 移除，并且在本地保存和实际发送前都会再次清理密钥、token、邮箱及长标识符。
 
 崩溃报告绝不会自动上传。使用以下命令审阅和管理：
 
 ```bash
-reasonix report                 # 预览最新报告；TTY 中询问后才发送
-reasonix report list            # 列出本地报告
-reasonix report show [ID]       # 仅预览，不发送
-reasonix report send [ID]       # 明确发送；成功后才删除本地副本
-reasonix report delete [ID]     # 不发送，直接删除
+deep-tutor report                 # 预览最新报告；TTY 中询问后才发送
+deep-tutor report list            # 列出本地报告
+deep-tutor report show [ID]       # 仅预览，不发送
+deep-tutor report send [ID]       # 明确发送；成功后才删除本地副本
+deep-tutor report delete [ID]     # 不发送，直接删除
 ```
 
-通过 pipe 或重定向运行 `reasonix report` 时只会预览，不会询问或发送。CLI telemetry
+通过 pipe 或重定向运行 `deep-tutor report` 时只会预览，不会询问或发送。CLI telemetry
 设置不会自动发送或自动删除这些
 需要单独审阅的报告。Go 无法恢复 runtime fatal throw、操作系统强制终止，以及未包装
 后台 goroutine 中的 panic，因此这些情况不会生成本地报告。
 
 ## Web 前端
 
-本机使用时，`reasonix web` 会启动浏览器 UI，并自动用默认浏览器打开。也可以在 CLI 交互会话中
-执行 `/web`：Reasonix 会保存当前会话、恢复终端，然后打开明确的
+本机使用时，`deep-tutor web` 会启动浏览器 UI，并自动用默认浏览器打开。也可以在 CLI 交互会话中
+执行 `/web`：Deep-tutor 会保存当前会话、恢复终端，然后打开明确的
 `/sessions/<id>#token=...` 深链。即使会话尚未产生第一轮消息，也会延续已预留的 Session ID，
 同时继续保持“空会话不提前写 transcript”的惰性落盘行为。
 
 ```bash
 cd your-project
-reasonix web
+deep-tutor web
 ```
 
 浏览器 UI 与桌面应用是同一套 SPA：打开即学习导师，Agent 是其中的聊天页。
@@ -267,22 +267,22 @@ reasonix web
 请改用配置种子：在用户配置里写一条 `[[providers]]` 并设 `default_model`，给服务进程带上密钥的环境变量；首次加载即跳过向导。
 
 如果想启动前台 Web 服务并打印地址、但不自动新开浏览器标签页，可使用
-`reasonix web --no-open`。底层的 `reasonix serve`
+`deep-tutor web --no-open`。底层的 `deep-tutor serve`
 默认不会打开浏览器，继续用于远程开发机、进程托管、tunnel、反向代理和需要认证分享的场景。
 
-`reasonix web` 从 `127.0.0.1:8787` 开始监听；端口占用时会依次尝试 8788、8789……，
+`deep-tutor web` 从 `127.0.0.1:8787` 开始监听；端口占用时会依次尝试 8788、8789……，
 最多递增重试 100 次。它默认启用自动生成的 Token，即使配置中的 `[serve].auth_mode`
-是 `none` 也一样。每个运行实例都会在 `<Reasonix home>/server/instances/` 下写入自己的
+是 `none` 也一样。每个运行实例都会在 `<Deep-tutor home>/server/instances/` 下写入自己的
 单写者 heartbeat 文件；正常退出时只删除自己的文件，新实例则会惰性清理已确认进程死亡的记录。
-因此多个 Web 实例可以共用同一个 Reasonix home，而不会相互覆盖登记状态。服务保持在前台运行，
+因此多个 Web 实例可以共用同一个 Deep-tutor home，而不会相互覆盖登记状态。服务保持在前台运行，
 按 Ctrl-C 停止。
 
-显式传入 `reasonix web --auth none` 可以关闭默认 Token，只应在监听地址确定可信时使用。
-`reasonix serve` 在未配置 `[serve].auth_mode` 且未传 `--auth` 时，同样默认使用每次启动新生成的 Token。
+显式传入 `deep-tutor web --auth none` 可以关闭默认 Token，只应在监听地址确定可信时使用。
+`deep-tutor serve` 在未配置 `[serve].auth_mode` 且未传 `--auth` 时，同样默认使用每次启动新生成的 Token。
 
 - `--auth none`（或 `auth_mode = "none"`）是给自行在前面加认证的部署用的显式退出，读取接口只对发往本机或监听地址的请求开放，其他 Host 返回 421 `serve.host_rejected`。
 - 所有会改变状态的请求（包括审批）仍需启动令牌：`Authorization: Bearer <token>`，或启动时打印的 `approvals:` 链接设置的 Cookie；否则返回 403 `auth.launch_token_required`。
-- serve 把令牌写进 `<Reasonix home>/remote/` 下 0600 文件，终端只打印路径，在链接后拼上 `#token=<文件内容>` 即可；带 `--token-file` 的托管启动打印该文件路径。token 模式下终端显示的手机二维码仍含令牌。
+- serve 把令牌写进 `<Deep-tutor home>/remote/` 下 0600 文件，终端只打印路径，在链接后拼上 `#token=<文件内容>` 即可；带 `--token-file` 的托管启动打印该文件路径。token 模式下终端显示的手机二维码仍含令牌。
 - 优先用 `--token-file` 而不是 `--token`：命令行参数对其他进程可见，沙盒内的进程也能看到。全局配置里明文的 `[serve].token` 在沙盒内可读，密钥请放文件。
 - macOS 和 Linux 的系统沙盒会拒绝读取该状态目录和所有令牌文件；Windows 没有 bash 沙盒，只有读文件工具会拒绝。
 - `[serve]` 只从用户配置读取，项目里的 `reasonix.toml` 不能设置它。
@@ -290,9 +290,9 @@ reasonix web
 绑定到非 loopback 地址时请显式选择认证模式：
 
 ```bash
-reasonix serve --auth token
-reasonix serve --addr 0.0.0.0:8787 --auth token
-reasonix serve --auth password --password 'temporary-password'
+deep-tutor serve --auth token
+deep-tutor serve --addr 0.0.0.0:8787 --auth token
+deep-tutor serve --auth password --password 'temporary-password'
 ```
 
 Token 模式会在终端打印带 `#token=...` 的分享链接；Web 页面会先将 fragment 换成
@@ -301,9 +301,9 @@ Referrer 和访问日志。可通过 `--token` 或 `[serve].token`
 复用固定 token。Password 模式必须在启动时传 `--password`，或在配置里保存 bcrypt hash：
 
 ```bash
-reasonix serve --hash-password --password 'strong-password'
+deep-tutor serve --hash-password --password 'strong-password'
 
-# <Reasonix home>/config.toml
+# <Deep-tutor home>/config.toml
 [serve]
 auth_mode = "password" # none|token|password
 password_hash = "$2a$12$..."
@@ -318,31 +318,31 @@ Goal、由 `todo_write` 工具驱动的实时 Todo 面板、扩展发布的 stat
 `default_model`。
 
 如果当前 Provider 尚未保存 API Key，绑定在回环地址的 Serve 仍会启动，并先显示 Provider
-配置页，而不是在浏览器连接前直接失败。通过 Serve 认证后可在该页输入 Key；Reasonix 会以受限
+配置页，而不是在浏览器连接前直接失败。通过 Serve 认证后可在该页输入 Key；Deep-tutor 会以受限
 权限写入**当前主机**的全局凭据文件，在同一进程内重建 Controller，然后进入正常 Web UI。
 凭据写入接口在非回环监听器上始终禁用。对于 SSH 远程窗口，“当前主机”指经 SSH 隧道访问的
 远端主机；Key 不会从桌面本机自动复制过去。
 
 ## 通过 ACP 接入编辑器
 
-`reasonix acp` 把 Reasonix 作为 ACP v1 stdio agent 提供给编辑器和其他 host 客户端。
+`deep-tutor acp` 把 Deep-tutor 作为 ACP v1 stdio agent 提供给编辑器和其他 host 客户端。
 独立的 **[ACP 编辑器接入](./ACP.md)** 文档集中说明启动方式、能力协商、会话生命周期、
 彼此独立的模型/工作/协作/审批控制轴、客户端文件与 terminal 能力、MCP server、权限请求，
-以及 Reasonix 的回合中引导扩展。
+以及 Deep-tutor 的回合中引导扩展。
 
 ## 远程 SSH
 
-远程模块让 Reasonix 在远端主机上运行,并通过你自己的 SSH 连接访问它 —— 即 VS Code
-Remote-SSH 式的体验。它在远端主机上引导一个常驻的 headless `reasonix serve`,把本地一个
+远程模块让 Deep-tutor 在远端主机上运行,并通过你自己的 SSH 连接访问它 —— 即 VS Code
+Remote-SSH 式的体验。它在远端主机上引导一个常驻的 headless `deep-tutor serve`,把本地一个
 回环端口转发过去,再经隧道打开现有的 serve Web 客户端。agent、工具与文件全部原生运行在远端
 主机上,保真度 100%,不经过有损的文件代理。
 
 支持 Linux、macOS 与 Windows 远端主机;Windows 主机需要 PowerShell 和 OpenSSH,无论其 `DefaultShell` 指定的是 cmd、PowerShell 还是 Git Bash。
 
 主机保存在 `config.toml` 的用户级 `[remote]` 段。与 `[secrets]` 一样,项目级
-`reasonix.toml` 无法注入或覆盖远程主机 —— 克隆的仓库永远无法左右 Reasonix 向何处发起 SSH
+`reasonix.toml` 无法注入或覆盖远程主机 —— 克隆的仓库永远无法左右 Deep-tutor 向何处发起 SSH
 连接。凭据沿用 provider 惯例:主机只记录环境变量名(`passphrase_env`、`password_env`),其值
-存放在 Reasonix 全局 `.env` 中;私钥内容本身从不存储 —— `identity_file` 只是路径。
+存放在 Deep-tutor 全局 `.env` 中;私钥内容本身从不存储 —— `identity_file` 只是路径。
 
 ```toml
 [remote]
@@ -364,12 +364,12 @@ target = "127.0.0.1:5432"
 命令行:
 
 ```bash
-reasonix remote add gpu-box dev@203.0.113.7 --workspace '~/projects/app'
-reasonix remote import --all              # 导入别名；连接时通过 ssh -G 解析 Include/Match 等规则
-reasonix remote test gpu-box              # 拨号 + 认证 + 主机密钥确认
-reasonix remote connect gpu-box --open    # 引导 serve、建隧道、打开 URL
-reasonix remote serve status gpu-box
-reasonix remote fs ls gpu-box:'~/projects/app'
+deep-tutor remote add gpu-box dev@203.0.113.7 --workspace '~/projects/app'
+deep-tutor remote import --all              # 导入别名；连接时通过 ssh -G 解析 Include/Match 等规则
+deep-tutor remote test gpu-box              # 拨号 + 认证 + 主机密钥确认
+deep-tutor remote connect gpu-box --open    # 引导 serve、建隧道、打开 URL
+deep-tutor remote serve status gpu-box
+deep-tutor remote fs ls gpu-box:'~/projects/app'
 ```
 
 启用 `use_ssh_config` 的主机会通过本机 OpenSSH `ssh -G` 获取最终有效配置，因此支持
@@ -380,7 +380,7 @@ reasonix remote fs ls gpu-box:'~/projects/app'
 以指数退避自动重连,并在重连后重新挂载转发。Ctrl-C 只断开本地一侧 —— 远端 serve 继续运行,
 下次 `connect` 会复用它。V1 无后台守护进程。
 
-主机密钥会对照你的 OpenSSH `~/.ssh/known_hosts`(只读)以及 Reasonix 托管的
+主机密钥会对照你的 OpenSSH `~/.ssh/known_hosts`(只读)以及 Deep-tutor 托管的
 `~/.reasonix/remote/known_hosts` 校验。首次见到的密钥会提示 TOFU 确认并记入托管文件;与已记录
 密钥冲突的密钥会硬失败并指明出错的行,绝不自动接受。
 
@@ -390,19 +390,19 @@ reasonix remote fs ls gpu-box:'~/projects/app'
 
 ### 内核怎么送过去
 
-远端跑的是一个 `reasonix serve`。这个二进制是静态 Go 构建 —— 不要运行时、不要 Node、不要
+远端跑的是一个 `deep-tutor serve`。这个二进制是静态 Go 构建 —— 不要运行时、不要 Node、不要
 glibc —— 所以把它放过去是一次文件传输，不是安装。`serve_install = "auto"` 按这个顺序尝试：
 
-1. **远端自己取。** Reasonix 在本机读 `SHA256SUMS`，把归档 URL 和摘要交给那台主机；主机走
+1. **远端自己取。** Deep-tutor 在本机读 `SHA256SUMS`，把归档 URL 和摘要交给那台主机；主机走
    自己的网络下载，只有摘要对得上才保留。SSH 链路上只过命令本身 —— 机房里的机器拉这个
    ~21MB 的归档，比笔记本把它推上去快得多。
 2. **上传本机二进制**，平台相同时。
 3. **本机下载再经 SFTP 推上去**，给连不上发布源的主机用。
-4. **npm**，最后。`npm i -g reasonix` 装的是同一个静态二进制，但要求那边有 Node ≥18；保留它
+4. **npm**，最后。`npm i -g deep-tutor` 装的是同一个静态二进制，但要求那边有 Node ≥18；保留它
    是因为"npm 有镜像、GitHub 被限速"的网络是真实存在的。
 
 把 `serve_install` 设成 `npm` / `upload` / `never` 可以只走其中一条。连接前用
-`reasonix remote test <名字>` 可以看到哪些路是通的，不通的会说明被什么挡住了。
+`deep-tutor remote test <名字>` 可以看到哪些路是通的，不通的会说明被什么挡住了。
 
 ### 模型凭据
 
@@ -414,7 +414,7 @@ provider broker;远端内核调用的是这个 broker 而不是模型端点,请�
 远端也看不到 provider 背后的端点、请求头和代理设置,它看到的就是你看到的那份模型列表。
 
 某台主机若要保持用它自己的 provider 配置,给它设 `provider = "remote"` —— 适用于那台机器的
-provider 就是刻意和你本机不同的场景。`reasonix remote serve start` 永远不用 broker:那条命令
+provider 就是刻意和你本机不同的场景。`deep-tutor remote serve start` 永远不用 broker:那条命令
 启动的 serve 本就要活得比命令久,而命令退出后 broker 端口就没人持有了。
 
 有两个代价值得知道。模型流量改从你自己的上行出去,而不是远端的 —— 远端带宽远好于本机时这是
@@ -423,29 +423,29 @@ provider 就是刻意和你本机不同的场景。`reasonix remote serve start`
 
 在桌面端,于 **设置 -> 远程 SSH** 管理主机,再通过状态栏徽标或主机行的 **远程浏览器** 按钮经
 SFTP 浏览与编辑文件、管理端口转发、启动/打开远程工作区。打开工作区时会创建一个类似 VS Code
-Remote SSH 的独立 Reasonix 原生窗口。主窗口持有 SSH 隧道；远程窗口是隔离的轻量外壳，不会恢复
+Remote SSH 的独立 Deep-tutor 原生窗口。主窗口持有 SSH 隧道；远程窗口是隔离的轻量外壳，不会恢复
 或抢占本地对话会话。远程窗口通过上面说的 broker 使用**本机**的 Provider，所以在一台从没配过
 API Key 的主机上打开工作区可以直接用。设了 `provider = "remote"` 的主机走旧路径：窗口会先显示
-经过认证的配置页，只把 Key 保存到远端 Reasonix 凭据文件，并在不重启远端 Serve 的情况下激活
+经过认证的配置页，只把 Key 保存到远端 Deep-tutor 凭据文件，并在不重启远端 Serve 的情况下激活
 Provider。
 短暂的 SSH 中断不会关闭远程窗口；桌面端会在后台重连、重新挂载回环转发，并让窗口重新加载已恢复的
 Serve。认证失败或主机密钥错误属于终止性故障，此时会关闭已经不可用的远程窗口。
 
 ### 远端 serve 的生命周期
 
-- 主机上的 `reasonix serve` 进程是常驻的。退出桌面或链路断开都不会终止它,下次连接会直接接入。
+- 主机上的 `deep-tutor serve` 进程是常驻的。退出桌面或链路断开都不会终止它,下次连接会直接接入。
 - pane 在这个 serve 上的会话不会比桌面活得久。每个 pane 在远端各自驱动一个 runtime;关闭 pane
   或退出桌面时,Studio 会先向远端 serve 发 `POST /runtimes/{id}/close`,再拆隧道。
 - 这次关闭会取消进行中的回合并释放会话租约,别的窗口随后就能打开这个会话。被关闭的只有该 pane
   的 runtime:serve 进程继续运行,下次连接可以接入;其他客户端开的 runtime 也不受影响,无论这个
   serve 是怎么启动的。
 - `provider = "remote"` 只决定模型凭据从哪来,不会让 pane 脱离桌面。
-- 工作区上已在运行的 serve 会被接入而不是被替换,不论它由 `reasonix remote serve start`、另一个
-  窗口还是手工执行 `reasonix serve --port-file` 启动。之后的连接不会删除它的 port 与 pid 文件,
+- 工作区上已在运行的 serve 会被接入而不是被替换,不论它由 `deep-tutor remote serve start`、另一个
+  窗口还是手工执行 `deep-tutor serve --port-file` 启动。之后的连接不会删除它的 port 与 pid 文件,
   也不会停掉它。
 - `serve start` 不使用 broker,所以 `provider = "local"` 的主机无法接入它:这次连接会失败并给出
   说明,serve 保持运行。请把该主机设为 `provider = "remote"`(此时远端需自备凭据),或用
-  `reasonix remote serve stop <host>` 停掉该 serve。
+  `deep-tutor remote serve stop <host>` 停掉该 serve。
 
 ## 自定义 OpenAI-compatible provider
 
@@ -454,11 +454,11 @@ Serve。认证失败或主机密钥错误属于终止性故障，此时会关闭
 
 常用服务优先使用 **添加模型服务 -> 推荐预设**。新建的官方 DeepSeek provider 默认使用
 Anthropic-compatible Messages 端点，并开启 provider 侧 `web_search`；两种协议都复用同一个
-`DEEPSEEK_API_KEY`。启动时，Reasonix 会自动升级仍使用官方端点、标准密钥和标准模型设置且
+`DEEPSEEK_API_KEY`。启动时，Deep-tutor 会自动升级仍使用官方端点、标准密钥和标准模型设置且
 未修改过的旧 `deepseek-flash` / `deepseek-pro` 条目。修改过的官方 Chat Completions 配置保持
 原样，设置页会提供 **升级到推荐协议** 操作。代理地址、自定义 Headers、模型列表和能力覆盖
 都不会自动迁移。已有单独命名的 `deepseek-anthropic` 条目继续兼容，但新增
-接入不再展示这个重复预设。Reasonix 还可以预填以下可编辑的自定义 provider：
+接入不再展示这个重复预设。Deep-tutor 还可以预填以下可编辑的自定义 provider：
 Kimi CN、Kimi Global、Kimi Coding Plan、MiMo API、MiMo Anthropic、MiMo Token Plan
 CN/SGP/AMS 及其 Anthropic-compatible 变体、MiniMax CN/Global API、MiniMax
 CN/Global Anthropic、GLM CN、Z.AI Global、GLM/Z.AI Coding Plan 的
@@ -471,7 +471,7 @@ OpenAI-compatible 与 Anthropic-compatible 端点、NovitaAI、GMI Cloud、Verce
 Gateway、HuggingFace Router、NVIDIA NIM、KiloCode 和 Ollama Cloud。Plan 表示
 访问/付费形态；只有服务商确实提供不同区域端点时，预设名才同时带 CN/Global。
 因此 Kimi Coding Plan 是独立 plan 端点，Kimi 直连 API 才拆成 CN 和 Global。
-预设路径通常只需要填写服务商 API Key：真实 key 会写入 Reasonix home `.env`，
+预设路径通常只需要填写服务商 API Key：真实 key 会写入 Deep-tutor home `.env`，
 `config.toml` 只保存端点、模型列表、key 环境变量名、上下文窗口、视觉模型元数据、
 中国区端点直连、MiniMax `reasoning_split`、GLM/MiniMax thinking heuristic、
 Anthropic-compatible 网关需要的 Bearer 认证、Ollama Cloud max-effort 支持，
@@ -484,20 +484,20 @@ Completions 预设中，因为真实 Anthropic
 订阅线路的 `kimi-k3`，并配置图像输入、`high`/`max` 推理强度和 1,048,576 token 上下文窗口。未修改过
 模型目录的既有 OpenCode Go 预设会自动升级；用户编辑过的模型目录保持不变。
 Kimi CN 和 Kimi Global 直连 API 预设也包含 `kimi-k3`，支持图像输入、1,048,576 token
-上下文窗口以及官方 `low`/`high`/`max` 推理强度（默认 `max`）。对官方 K3 端点，Reasonix
+上下文窗口以及官方 `low`/`high`/`max` 推理强度（默认 `max`）。对官方 K3 端点，Deep-tutor
 会在多轮请求中保留完整 assistant message，使用 `max_completion_tokens` 传递输出上限，
 并省略 K3 的固定采样参数。未修改过的旧版 Kimi 直连模型目录会自动升级且不会改变默认模型；
 自定义模型目录和端点保持不变。添加后仍然可以打开 provider 卡片，继续修改模型、请求头、
 端点或兼容设置。
 
-**API 地址** 填写服务端点。默认模式下，Reasonix 会预览并把聊天请求发送到：
+**API 地址** 填写服务端点。默认模式下，Deep-tutor 会预览并把聊天请求发送到：
 
 ```text
 <API 地址>/chat/completions
 ```
 
 如果服务商给的是完整请求 URL，例如 `https://gateway.example.com/v1/chat/completions`，
-开启 **完整 URL**。开启后 Reasonix 会直接使用该地址，不再追加 `/chat/completions`。
+开启 **完整 URL**。开启后 Deep-tutor 会直接使用该地址，不再追加 `/chat/completions`。
 输入框下方的预览就是最终请求地址。
 
 模型发现会基于 API 地址尝试 `/models`、`/v1/models` 等候选地址。如果网关要求单独的
@@ -516,19 +516,19 @@ Kimi CN 和 Kimi Global 直连 API 预设也包含 `kimi-k3`，支持图像输�
 
 | 字段 | 作用 | 什么时候改 |
 | --- | --- | --- |
-| `api_key_env` | 该 provider 使用的 API key 环境变量名。桌面端保存的真实 key 会写入 Reasonix home `.env` 的同名变量；TOML 配置里只保存变量名。 | 多个 provider 需要不同 key 时改名；服务不需要 API key 时可以留空。 |
+| `api_key_env` | 该 provider 使用的 API key 环境变量名。桌面端保存的真实 key 会写入 Deep-tutor home `.env` 的同名变量；TOML 配置里只保存变量名。 | 多个 provider 需要不同 key 时改名；服务不需要 API key 时可以留空。 |
 | `models_url` | 只用于自动发现模型列表的 URL。聊天请求仍使用上方的 API 地址或完整 URL。 | `/models` 或 `/v1/models` 不是该网关模型列表地址时填写。 |
 | 额外请求头 | 静态 HTTP header，一行一个 `Header: value`。 | OpenRouter 等网关要求 `HTTP-Referer`、`X-Title` 或类似站点来源 header 时使用。API key 仍放在上方密钥字段，不要重复写到这里。 |
-| 额外请求体 | 合并到聊天请求体顶层的 JSON 对象。 | 仅用于服务商专用开关，例如 `{"enable_thinking": true}`。`model`、`messages`、`tools`、`stream`、`thinking` 等核心字段仍由 Reasonix 控制，且不接受 `null` 值。 |
+| 额外请求体 | 合并到聊天请求体顶层的 JSON 对象。 | 仅用于服务商专用开关，例如 `{"enable_thinking": true}`。`model`、`messages`、`tools`、`stream`、`thinking` 等核心字段仍由 Deep-tutor 控制，且不接受 `null` 值。 |
 | Authorization: Bearer | 对 Anthropic-compatible provider，把已保存的 API key 用 `Authorization: Bearer <key>` 发送，而不是 `x-api-key`。 | MiniMax Global、Vercel AI Gateway 等网关文档明确要求 Bearer 认证时开启。 |
-| 模型能力模式 | 指定 Reasonix 对该 provider 使用哪种 reasoning 请求协议。 | 默认用“自动识别”。只有网关被误判，或模型文档要求特定 reasoning 格式时再切换。 |
+| 模型能力模式 | 指定 Deep-tutor 对该 provider 使用哪种 reasoning 请求协议。 | 默认用“自动识别”。只有网关被误判，或模型文档要求特定 reasoning 格式时再切换。 |
 | Thinking 覆盖 | provider 专用的 `thinking.type` 覆盖项。 | 默认用 Auto。只有后端文档明确支持 `enabled`、`disabled` 或 `adaptive` 时再手动指定；不支持的值可能让中转站拒绝请求。 |
 | 余额查询 URL | 可选的钱包余额查询接口。 | 服务商提供余额接口，且希望桌面端状态栏显示余额时填写。 |
-| 上下文窗口 | Reasonix 用于自动清理上下文的 provider 级 token 预算。`0` 表示禁用自动 compaction。 | 按该 provider 的模型上下文上限填写；所选模型规格不同时使用下方的逐模型覆盖。 |
+| 上下文窗口 | Deep-tutor 用于自动清理上下文的 provider 级 token 预算。`0` 表示禁用自动 compaction。 | 按该 provider 的模型上下文上限填写；所选模型规格不同时使用下方的逐模型覆盖。 |
 
 每个已选模型还提供一个可选的 **上下文窗口** 输入框。留空时继承 provider
 级设置；填写正整数时只覆盖该模型。这样，同一端点下的长上下文模型不会过早
-compaction，短上下文模型也不会在 Reasonix 清理前被服务端拒绝。
+compaction，短上下文模型也不会在 Deep-tutor 清理前被服务端拒绝。
 这里应填写模型文档标注的上下文窗口，而不是最大输出 token。例如 128K 通常填
 `128000`；如果服务商明确标注 `131072`，则按该精确值填写。小于 16384 时界面会
 显示非阻断警告，因为过小的窗口可能导致频繁 compaction 并降低缓存命中率。
@@ -537,7 +537,7 @@ compaction，短上下文模型也不会在 Reasonix 清理前被服务端拒绝
 
 | 选项 | 作用 |
 | --- | --- |
-| 自动识别（推荐） | Reasonix 根据模型能力元数据和端点自动选择请求格式。 |
+| 自动识别（推荐） | Deep-tutor 根据模型能力元数据和端点自动选择请求格式。 |
 | DeepSeek 思考 | 使用 DeepSeek 风格的 thinking 控制，包括 `thinking.type` 和 DeepSeek 支持的推理深度。 |
 | OpenAI reasoning | 使用标准 OpenAI-compatible 的 `reasoning_effort` 档位。 |
 | 普通聊天（不发送思考参数） | 不发送 reasoning 或 thinking 控制字段。适合会拒绝 reasoning 参数的普通文本代理。 |
@@ -546,14 +546,14 @@ Thinking 覆盖选项：
 
 | 选项 | 作用 |
 | --- | --- |
-| Auto（使用服务默认） | 不写 provider 级 `thinking` 覆盖，让 Reasonix 使用 provider/model 默认行为。 |
+| Auto（使用服务默认） | 不写 provider 级 `thinking` 覆盖，让 Deep-tutor 使用 provider/model 默认行为。 |
 | Enabled（开启） | 对兼容 provider 发送 `thinking.type = "enabled"`。 |
 | Disabled（关闭） | 对兼容 provider 发送 `thinking.type = "disabled"`。DeepSeek 风格 provider 下还会避免继续发送推理深度提示。 |
 | Adaptive（自适应） | 仅在服务文档明确支持 adaptive thinking 时使用，例如 MiniMax-M3 风格端点；语义是发送或保留 `thinking.type = "adaptive"`。 |
 
 ## Hooks
 
-Reasonix 有 hooks：在智能体循环的固定节点运行的 shell 命令，可以观察、注入上下文，
+Deep-tutor 有 hooks：在智能体循环的固定节点运行的 shell 命令，可以观察、注入上下文，
 并在两个事件上否决即将发生的动作。它与权限是两回事：`[permissions]` 规则决定一次
 工具调用是放行还是询问，hook 则运行你自己的代码。
 
@@ -571,7 +571,7 @@ Reasonix 有 hooks：在智能体循环的固定节点运行的 shell 命令，�
 | `PreCompact` | 压缩前；stdout 成为额外的摘要指引 | 否 |
 | `PostLLMCall` | 每个模型轮次后；exit 0 且 stdout 非空时替换已存储的推理文本 | 否 |
 
-Hooks 配置在 `<Reasonix home>/settings.json`（全局）或 `<root>/.reasonix/settings.json`
+Hooks 配置在 `<Deep-tutor home>/settings.json`（全局）或 `<root>/.reasonix/settings.json`
 （项目）。每个事件对应一个 hook 列表：
 
 ```json
@@ -600,7 +600,7 @@ Hooks 配置在 `<Reasonix home>/settings.json`（全局）或 `<root>/.reasonix
 - `timeout`：毫秒；`PreToolUse`、`PermissionRequest`、`UserPromptSubmit` 默认 5000，其余 30000。
 - `cwd`、`env`：工作目录与额外环境变量。
 
-文件格式错误时不加载任何 hook，也不会让 Reasonix 启动失败。
+文件格式错误时不加载任何 hook，也不会让 Deep-tutor 启动失败。
 
 **约定。**事件 payload 以一行 JSON 从 stdin 传入（`event`、`sessionId`、`cwd`，以及按
 事件而定的 `toolName`、`toolArgs`、`prompt`、`toolResult`、`error` 等）。退出码就是裁决：
@@ -638,12 +638,12 @@ deny = ["Bash(git push*)"]
 
 **作用域。**
 
-- 全局 hooks（`<Reasonix home>/settings.json`）与已安装插件包的 hooks 会生效，
+- 全局 hooks（`<Deep-tutor home>/settings.json`）与已安装插件包的 hooks 会生效，
   但只读的 observe 模式完全不加载任何 hook。
 - 项目 hooks（`<root>/.reasonix/settings.json`）只有在用户按当前内容批准后才运行
-  （`reasonix trust`）；批准前被扣下并有通知说明。改动该文件或其中命令引用的工作区脚本
+  （`deep-tutor trust`）；批准前被扣下并有通知说明。改动该文件或其中命令引用的工作区脚本
   会使批准失效。
-- `reasonix review` 从不运行项目 hooks（无论是否已批准）：被审查的 checkout 属于不可信
+- `deep-tutor review` 从不运行项目 hooks（无论是否已批准）：被审查的 checkout 属于不可信
   输入，只有全局与插件 hooks 生效。
 - 只有工具 hooks（`PreToolUse`、`PostToolUse`、`PermissionRequest`）、`PostLLMCall` 与
   `PreCompact` 会在会话运行的每个 Agent（含子 Agent）中触发，见配置一节的 `session_id` 表。
@@ -671,7 +671,7 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 
 ### 桌面端 GUI
 
-桌面端快捷键在 **设置 → 快捷键** 中管理。选择可配置的行后按下新的组合键，Reasonix 会为桌面端保存该绑定。
+桌面端快捷键在 **设置 → 快捷键** 中管理。选择可配置的行后按下新的组合键，Deep-tutor 会为桌面端保存该绑定。
 撤销、重做等标准编辑快捷键会以锁定行展示，因为 WebView 的原生文本历史依赖这些平台组合键。
 如果新组合键和已有动作冲突，会拒绝保存，避免一个快捷键触发两个动作。按 `?` 或点击 topic bar
 里的帮助按钮可打开快捷键帮助表；帮助表由同一份快捷键 registry 生成，因此会同步显示自定义后的绑定。
@@ -696,7 +696,7 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 | `Enter` | 发送当前消息 | IME 组合输入确认不会被截获。 |
 | `Shift+Enter` | 插入换行 | 输入框保持焦点。 |
 | `Shift+Tab` | 切换 Plan 开/关 | Plan 只改变“先规划”的工作流；内置 writer 仍走当前 Ask/Auto/YOLO 与 Sandbox，MCP writer/destructive 目标在整个规划阶段保持硬阻断。 |
-| macOS `Cmd+Z`，Windows/Linux `Ctrl+Z` | 撤销输入框中的最近一次编辑 | 普通键入继续由 WebView 原生历史管理；Reasonix 接管的粘贴、剪切、折叠块和结构化 token 会作为完整事务恢复。 |
+| macOS `Cmd+Z`，Windows/Linux `Ctrl+Z` | 撤销输入框中的最近一次编辑 | 普通键入继续由 WebView 原生历史管理；Deep-tutor 接管的粘贴、剪切、折叠块和结构化 token 会作为完整事务恢复。 |
 | macOS `Cmd+Shift+Z`，Windows/Linux `Ctrl+Shift+Z` | 重做输入框中的最近一次编辑 | Windows/Linux 改绑 YOLO 后也可使用 `Ctrl+Y`。 |
 | `Cmd+Y` / `Ctrl+Y`（默认） | 切换 YOLO 开/关 | 关闭 YOLO 时会尽量恢复之前的 Ask/Auto 基底；当前绑定可在 **设置 → 快捷键** 查看。 |
 | macOS `Cmd+V`，Windows/Linux `Ctrl+V` | 粘贴剪贴板内容 | 剪贴板图片会作为附件加入。拖进输入框的是**任意文件或文件夹**，按它所在的位置引用——桌面端不复制它，所以 turn 处理的就是那个文件本身；只有剪贴板和「添加图片」按钮这种拿不到路径的来源才会把字节存进工作区。 |
@@ -744,13 +744,13 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 | 空闲且输入为空时双击 `Esc` | 打开 rewind 选择器 | 和 `/rewind` 是同一个入口。 |
 | transcript 文本选择 | 复制 transcript 文本 | 应用内拖选松开后，本地会话通过可验证的系统剪贴板路径写入（macOS `pbcopy`、Linux 可用的 Wayland/X11 工具、Windows 系统剪贴板）；SSH 才回退到 OSC 52，并明确标记为回退而不是宣称原生复制成功。`Ctrl+C`/`Super+C`/`Meta+C` 或右键当前选区可再次复制。 |
 | 输入框文本选择 | 选中、复制或替换草稿文本 | 应用内拖选松开后，会通过与 transcript 相同的可验证剪贴板路径复制；输入或粘贴会替换选区，方向键会收起选区。 |
-| 没有活动选区时右键 | 在本地会话粘贴剪贴板文本 | 本地会话开启鼠标接管时，Reasonix 只读取文本并交给正常的 bracketed-paste 处理。SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键；`/mouse` 可恢复终端原生右键菜单。存在活动选区时，右键仍优先复制该选区。 |
+| 没有活动选区时右键 | 在本地会话粘贴剪贴板文本 | 本地会话开启鼠标接管时，Deep-tutor 只读取文本并交给正常的 bracketed-paste 处理。SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键；`/mouse` 可恢复终端原生右键菜单。存在活动选区时，右键仍优先复制该选区。 |
 | `/mouse` | 切换应用内鼠标接管 | 关闭后由终端处理原生拖选和右键菜单，但会失去应用内选区、滚动条和滚轮。可用 `REASONIX_DISABLE_MOUSE=1` 让每次会话默认关闭。远程（SSH）会话默认关闭，开箱即可原生选择；`REASONIX_DISABLE_MOUSE=0` 强制在任何环境下接管。 |
 | `Ctrl+C` | 复制、取消、清空或退出 | 有 transcript 或输入框活动选区时优先复制；否则取消运行中的 turn、清空非空输入，或在空输入下连按两次退出；已取消的 turn 仍在停止时再按一次也会退出。 |
 | `Ctrl+D` | 退出 TUI | 空输入且空闲时立即退出。 |
 | `Ctrl+Z` | 把 TUI 挂起到 shell | 仅 macOS 和 Linux，用 `fg` 恢复。Windows 没有作业控制，按下无效果。 |
 | `/quit` 或 `/exit` | 退出 TUI | 立即执行，运行中的 turn 也一样。直接输入 `exit`、`quit` 或 `:q` 只会作为普通消息发给模型。 |
-| 终端的文本粘贴快捷键 | 粘贴文本 | 文本保持终端原生 bracketed-paste 路径：macOS 通常是 `Cmd+V`，Linux 通常是 `Ctrl+Shift+V`，其它环境使用终端自身配置。Reasonix 只消费收到的文本粘贴事件，不会先探测图片。 |
+| 终端的文本粘贴快捷键 | 粘贴文本 | 文本保持终端原生 bracketed-paste 路径：macOS 通常是 `Cmd+V`，Linux 通常是 `Ctrl+Shift+V`，其它环境使用终端自身配置。Deep-tutor 只消费收到的文本粘贴事件，不会先探测图片。 |
 | macOS/Linux `Ctrl+V`；Windows `Alt+V` | 粘贴剪贴板图片 | 图片粘贴是独立的应用动作。读取期间底栏显示“正在粘贴图片…”，完成后在光标处插入可编辑的 `[image #N]` 标记。 |
 | `/paste-image` | 粘贴剪贴板图片 | 与图片快捷键相同的纯图片命令入口。 |
 | 以 `!` 开头的一行 | 直接运行 shell 命令 | 命令在本地执行，不经过模型。 |
@@ -803,9 +803,9 @@ CLI/TUI 文本输入可通过 `[ui].cursor_shape` 设置光标形状，支持 `u
 权限逐次调用把关：`deny` > `ask` > `allow` > 兜底。Bash 和文件修改都要审核；
 只读工具一般不需要。审核规则不是按“按钮文案”存，而是按权限规则匹配，比如
 `Bash(npm run build)`、`Bash(npm run test:*)`、`Edit(docs/**)` 这种形式。
-`reasonix` 会在 writer 调用前征求同意（普通工具为 `1` 本次 · `2` 本会话允许此范围 · `3` 总是允许此范围（保存） · `4` 拒绝；Bash 可额外选择命令前缀授权）；
+`deep-tutor` 会在 writer 调用前征求同意（普通工具为 `1` 本次 · `2` 本会话允许此范围 · `3` 总是允许此范围（保存） · `4` 拒绝；Bash 可额外选择命令前缀授权）；
 其中 Bash 默认按具体命令记，也可按安全推导出的命令前缀记（如 `Bash(go test:*)`）；文件编辑类工具的本会话授权按编辑能力记，持久授权则写入 `Edit(<path>)` 文件路径规则；
-参数/算术展开、赋值、不含嵌套执行的 heredoc、文件重定向和 glob 不能复用裸 `Bash`、前缀或 glob Allow；用户保存时写入整条 `Bash=<literal>`，但它们仍按普通 fallback 执行，因此 Auto 不会额外询问。命令/进程替换、动态命令名、`eval`、`source`、Shell `-c`、运行时内联代码和无法解析的结构默认强制人工；无头 Ask/Auto/DontAsk 会拒绝这类未精确授权的命令，YOLO 可以绕过。高级用户可设置 `[permissions] allow_dynamic_bash = true`，让 Allow fallback（包括 Auto）覆盖这类动态命令；显式 `ask` 与 `deny` 规则仍然优先。由于无头运行没有审批界面，默认 Ask 对普通 writer fallback 和显式 ask 规则也会 fail closed；无人值守自动化需要放行普通 writer 时，使用 `reasonix run --auto ...`、`-y` 或 `--permission-mode auto`。配置的 `ask` 与 `deny` 始终优先。
+参数/算术展开、赋值、不含嵌套执行的 heredoc、文件重定向和 glob 不能复用裸 `Bash`、前缀或 glob Allow；用户保存时写入整条 `Bash=<literal>`，但它们仍按普通 fallback 执行，因此 Auto 不会额外询问。命令/进程替换、动态命令名、`eval`、`source`、Shell `-c`、运行时内联代码和无法解析的结构默认强制人工；无头 Ask/Auto/DontAsk 会拒绝这类未精确授权的命令，YOLO 可以绕过。高级用户可设置 `[permissions] allow_dynamic_bash = true`，让 Allow fallback（包括 Auto）覆盖这类动态命令；显式 `ask` 与 `deny` 规则仍然优先。由于无头运行没有审批界面，默认 Ask 对普通 writer fallback 和显式 ask 规则也会 fail closed；无人值守自动化需要放行普通 writer 时，使用 `deep-tutor run --auto ...`、`-y` 或 `--permission-mode auto`。配置的 `ask` 与 `deny` 始终优先。
 
 Ask 不是只读模式：writer 获得批准后仍会执行。Permissions 决定放行或询问，Sandbox 才是强制能力边界。
 Sandbox 是授权之后的第二层边界，不能替代命令解析，也不能把无法证明静态安全的命令变成可自动授权命令。
@@ -818,7 +818,7 @@ Sandbox 是授权之后的第二层边界，不能替代命令解析，也不能
 `bash` 本身默认进 OS 沙盒（`[sandbox] bash`：macOS 使用 Seatbelt，Linux 使用 bubblewrap）：
 命令只能写这些 root（外加平台按命令提供的临时/缓存 root），
 OS 沙盒生效时也不能读取配置的 `forbid_read` roots，`[sandbox] network` 为真时才能联网。
-Reasonix 始终会从工具子进程环境中移除已保存的 provider 与 bot 凭据变量，并自动把
+Deep-tutor 始终会从工具子进程环境中移除已保存的 provider 与 bot 凭据变量，并自动把
 全局凭据 `.env` 加入运行时禁读边界；项目 `.env` 仍保持现有的 workspace 范围行为。
 
 **Git 元数据由宿主保护。**Bash 沙盒内，工作区仓库的 Git 配置和钩子保持只读，
@@ -877,13 +877,13 @@ branch、checkout、merge、rebase、stash、tag 和创建 worktree 照常工作
 
 **会话私有标准临时目录。**同一逻辑会话内的多条 Bash 命令共享一个私有临时目录，
 因此连续调用可以通过 `$TMPDIR` 交换文件（在 Linux bubblewrap 下还可以通过字面
-`/tmp`）。用户不需要设置：Reasonix 会自动为 Bash 和客户端托管的 ACP 终端注入
+`/tmp`）。用户不需要设置：Deep-tutor 会自动为 Bash 和客户端托管的 ACP 终端注入
 `TMPDIR`、`TMP`、`TEMP`。目录按需创建，不会回退到宿主公共临时目录；在 `/new`、
 `/clear`、恢复另一会话、切换分支时旋转。模型或设置热重建会保留同一目录。临时文件
 不是持久存储：跨进程 resume 不会恢复其中内容；需要长期保留的数据应写入工作区或
 用户指定路径。
 
-Reasonix 生成的脚本和项目脚本应使用标准临时目录变量，不要硬编码 `/tmp`；用户无需
+Deep-tutor 生成的脚本和项目脚本应使用标准临时目录变量，不要硬编码 `/tmp`；用户无需
 自行设置这些变量。例如：
 
 ```sh
@@ -903,8 +903,8 @@ $tmpFile = Join-Path $env:TEMP "result.json"
 MCP 等独立沙盒继续使用自己的隔离规范，不继承父会话临时目录。获得批准后绕过沙盒的
 命令仍继承私有临时变量，但在 Linux 上其字面 `/tmp` 不再由 bwrap 映射。
 
-**Windows 说明：**Reasonix 不在 Windows 上提供 OS 级 Bash 沙箱，生效模式固定为
-`off`。旧配置即使写了 `bash = "enforce"` 也会解析为 `off`，`reasonix doctor`
+**Windows 说明：**Deep-tutor 不在 Windows 上提供 OS 级 Bash 沙箱，生效模式固定为
+`off`。旧配置即使写了 `bash = "enforce"` 也会解析为 `off`，`deep-tutor doctor`
 会提示该设置被忽略，桌面设置中的选择器也为只读。Bash 命令会在不受 OS 沙箱限制的
 环境中运行；专用文件工具仍会在进程内执行 `workspace_root`、`allow_write` 和
 `forbid_read` 边界。已保存的凭据变量仍不会进入子进程环境，但获得批准的无沙箱 shell
@@ -913,12 +913,12 @@ MCP 等独立沙盒继续使用自己的隔离规范，不继承父会话临时�
 没有可用 OS 沙盒时，`bash = "enforce"` 会拒绝 bash 执行，不会无沙盒运行。
 Windows 上兼容的值始终为 `off`。
 
-反馈编码质量问题时，可运行 `reasonix doctor quality <branch-id-or-path>`（加
+反馈编码质量问题时，可运行 `deep-tutor doctor quality <branch-id-or-path>`（加
 `--json` 输出结构化结果）。命令会读取指定 session，但只输出不含内容的计数与
 Profile 分类：模型家族、运行模式、协作/审批模式、消息和工具调用数、验证与已持久化的
 compaction 摘要数，以及可用时的桌面端 token/cache telemetry。结果不会包含对话正文、
 路径、session 标识、工具参数与输出、服务端点或自定义模型名，适合粘贴到公开 Issue
-或 Discussion。它不同于 `reasonix doctor session`：后者生成的支持 zip 含完整未脱敏
+或 Discussion。它不同于 `deep-tutor doctor session`：后者生成的支持 zip 含完整未脱敏
 会话，只能在可信支持渠道分享。
 
 ## 能力诊断
@@ -928,29 +928,29 @@ compaction 摘要数，以及可用时的桌面端 token/cache telemetry。结�
 
 ```bash
 # 静态（默认）：无网络、不启动 MCP 子进程
-reasonix doctor capabilities
+deep-tutor doctor capabilities
 
 # 机器可读（stdout 仅为合法 JSON）
-reasonix doctor capabilities --json
+deep-tutor doctor capabilities --json
 
 # 指定工作区
-reasonix doctor capabilities --root /path/to/project
+deep-tutor doctor capabilities --root /path/to/project
 
 # Live MCP 探测——仅在你明确允许启动第三方服务器时使用
-reasonix doctor capabilities --live --timeout 5s
+deep-tutor doctor capabilities --live --timeout 5s
 ```
 
 | 入口 | 用法 |
 | --- | --- |
-| CLI | 见上方 `reasonix doctor capabilities` |
+| CLI | 见上方 `deep-tutor doctor capabilities` |
 | 桌面端 | **设置 → 诊断** — 刷新、复制脱敏 JSON、可选「包含当前会话运行状态」（只读活动标签 Host，**不**启动 MCP） |
 | Agent | `/reasonix-guide`（内置 inline Skill）或自然语言描述症状；优先静态 doctor JSON，再问是否 `--live` |
 
-退出码：`0` 允许 warning/info；`1` 表示存在 `error`（或 live 启动失败）；`2` 为参数错误。与 `reasonix doctor`（provider/沙箱）以及 `reasonix plugin doctor <name>`（单个插件包）相互独立。
+退出码：`0` 允许 warning/info；`1` 表示存在 `error`（或 live 启动失败）；`2` 为参数错误。与 `deep-tutor doctor`（provider/沙箱）以及 `deep-tutor plugin doctor <name>`（单个插件包）相互独立。
 
 ## 插件（MCP）
 
-Reasonix 是一个 MCP 客户端。`[[plugins]]` 的 `type` 选择传输：`stdio`（默认）启动本地子进
+Deep-tutor 是一个 MCP 客户端。`[[plugins]]` 的 `type` 选择传输：`stdio`（默认）启动本地子进
 程（`command`/`args`/`env`）；`http`（Streamable HTTP）连接远程 `url`，可带静态
 `headers`（`${VAR}` / `${VAR:-default}` 从环境展开，密钥不入文件）。
 `sse` 则兼容仍使用持久 GET 与 server 公布 POST endpoint 的旧版远程 server。
@@ -963,22 +963,22 @@ headers = { IJ_MCP_SERVER_PROJECT_PATH = "${REASONIX_WORKSPACE_ROOT}" }
 ```
 
 远程 HTTP server 未配置静态 `Authorization` header 时，认证要求（HTTP 401 且带 `Bearer` 质询）会被识别为需要登录。
-CLI 可运行 `reasonix mcp auth <name>`；Studio 暂时还没有登录入口。
-Reasonix 会执行 OAuth 元数据发现、动态客户端注册、PKCE S256 授权与
-refresh token 轮换；发现和 token 请求与 MCP 连接使用相同的 Reasonix 网络代理设置。
+CLI 可运行 `deep-tutor mcp auth <name>`；Studio 暂时还没有登录入口。
+Deep-tutor 会执行 OAuth 元数据发现、动态客户端注册、PKCE S256 授权与
+refresh token 轮换；发现和 token 请求与 MCP 连接使用相同的 Deep-tutor 网络代理设置。
 
-OAuth client 与 token 状态保存在工作区之外、该 server 私有的 Reasonix 状态目录中，文件权限
+OAuth client 与 token 状态保存在工作区之外、该 server 私有的 Deep-tutor 状态目录中，文件权限
 为 `0600`，并绑定完整的 resource URL。显式静态 `Authorization` header 始终优先。
-**清除认证** 只删除 Reasonix 本地 OAuth 状态，不会退出第三方浏览器会话。Reasonix 仅在用户
+**清除认证** 只删除 Deep-tutor 本地 OAuth 状态，不会退出第三方浏览器会话。Deep-tutor 仅在用户
 主动点击或运行登录命令后打开浏览器，不会因后台工具调用失败而自动弹出浏览器。删除 MCP server
 也会删除其本地 OAuth 状态；若删除后有同一 resource 的低优先级声明生效，则保留该状态。
 
 可在 **设置 → MCP 服务器 → 浏览市场** 打开官方 MCP Registry，也可使用
-`reasonix mcp browse [query]` 与 `reasonix mcp install <registry-name>`。Registry
+`deep-tutor mcp browse [query]` 与 `deep-tutor mcp install <registry-name>`。Registry
 只在用户显式浏览或安装时联网，不进入启动路径。需要 secret 或必填参数的条目只显示为手动配置，
 不会写入不完整配置；Registry 故障时可回退到同一查询的缓存结果。
 
-普通配置流程现在只有一步：使用桌面端的“添加并连接”、`/mcp add`，或直接让 Reasonix
+普通配置流程现在只有一步：使用桌面端的“添加并连接”、`/mcp add`，或直接让 Deep-tutor
 安装一个 package 或 URL。此类主动安装统一写入用户全局 `config.toml`，安装本身就是授权：
 server 会在当前会话连接，现在和下次启动都不会再弹出第二套信任步骤。当前项目
 `reasonix.toml` 或 `.mcp.json` 中声明的 server 保留在项目配置中，同样默认可信，不需要额外
@@ -1007,12 +1007,12 @@ destructive 或未授权目标；没有独立 Planner 的单模型 Plan 仍维�
 server、raw tool、writer 或 destructive 的第二套审批设置；显式全局 deny 规则仍然优先。
 `readOnlyHint` 与 `destructiveHint` 只作为内部事实，用于并行调度、Plan 限制、严格只读
 subagent 和缓存到实时安全分类复核，不增加用户配置。
-Reasonix 明确信任已安装 server 会如实描述这些 hint。因此，planner/只读 subagent 的过滤是
+Deep-tutor 明确信任已安装 server 会如实描述这些 hint。因此，planner/只读 subagent 的过滤是
 面向可信 server 的工作流边界，不是针对恶意 MCP server 的隔离边界；显式 deny 与进程沙箱
 仍由 host 控制。
 
 旧的 `trusted_read_only_tools`、`default_tools_approval_mode`、
-`tools.<raw>.approval_mode` 与 `approvals_reviewer` 字段在加载旧文件时会被忽略，并在 Reasonix
+`tools.<raw>.approval_mode` 与 `approvals_reviewer` 字段在加载旧文件时会被忽略，并在 Deep-tutor
 下次保存该 MCP 条目时自动移除。
 
 服务器的 **prompts** 会暴露成 `/mcp__<server>__<prompt>` 斜杠命令（命令后空格分隔参
@@ -1040,7 +1040,7 @@ headers = { Authorization = "Bearer ${STRIPE_KEY}" }
 用 `/mcp` 或桌面端 MCP 面板可刷新状态、重连服务器、查看失败原因，或在当前会话内禁用某个服务器。
 若要跨 skills / hooks / 插件包 / MCP 做只读健康检查（不改配置），见
 [能力诊断](./CAPABILITY_DIAGNOSTICS.md)
-（`reasonix doctor capabilities` 或 **设置 → 诊断**）。
+（`deep-tutor doctor capabilities` 或 **设置 → 诊断**）。
 
 交互调用方只会为冷启动短暂等待；即使等待结束，共享启动仍会在后台继续，不会被杀掉后反复重启，
 服务器上线后重试工具即可。`mcp_startup_timeout_seconds`（默认 `30`）限制从进程启动、授权、
@@ -1052,9 +1052,9 @@ RPC 调用。两者都可按服务器覆盖。
 - 精确匹配 `tools/list` 返回的原始名称，在命名空间及前缀处理之前比较；空列表保持全部工具启用。
 - 隐藏工具不会进入注册表、能力目录、`/mcp` 工具列表或工具 schema token 统计，缓存恢复时也会过滤，配置保存会保留列表。
 - 编辑后重启会话，或断开并重新连接服务器。已运行会话保留原有 schema 前缀。
-- 此设置控制 Reasonix 暴露的工具，不为服务器进程提供沙箱。
+- 此设置控制 Deep-tutor 暴露的工具，不为服务器进程提供沙箱。
 
-**已有 Claude Code 的 `.mcp.json`？** 直接放到项目根目录，Reasonix 会原样读取——其
+**已有 Claude Code 的 `.mcp.json`？** 直接放到项目根目录，Deep-tutor 会原样读取——其
 `mcpServers` 规范（`command`/`args`/`env`、`type`/`url`/`headers`、`${VAR}` 展开）
 与 `[[plugins]]` 字段一一对应。两处来源会合并加载；同名时以 `reasonix.toml` 为准。
 
@@ -1073,10 +1073,10 @@ RPC 调用。两者都可按服务器覆盖。
 
 ## 斜杠命令
 
-交互式 `reasonix` 会话里，内置命令（`/compact`、`/context`、`/new`、`/clear`、`/rewind`、`/tree`、`/branch`、`/switch`、`/todo`、`/model`、`/work-mode`、`/mcp`、`/skills`、`/hooks`、`/memory`、`/goal`、`/output-style`、`/sandbox`、`/language`、`/reasoning-language`、`/help`）在本地执行——`/help` 可列出全部。
+交互式 `deep-tutor` 会话里，内置命令（`/compact`、`/context`、`/new`、`/clear`、`/rewind`、`/tree`、`/branch`、`/switch`、`/todo`、`/model`、`/work-mode`、`/mcp`、`/skills`、`/hooks`、`/memory`、`/goal`、`/output-style`、`/sandbox`、`/language`、`/reasoning-language`、`/help`）在本地执行——`/help` 可列出全部。
 内置 **Skill**（如 `/init`、`/explore`、`/test`、`/reasonix-guide`）也会出现在斜杠菜单，
 并可通过 `run_skill` 调用（正文按需加载；只有索引行进入缓存稳定前缀）。配置或能力排障时
-用 `/reasonix-guide`，它会引导运行 `reasonix doctor capabilities`（见
+用 `/reasonix-guide`，它会引导运行 `deep-tutor doctor capabilities`（见
 [能力诊断](./CAPABILITY_DIAGNOSTICS.md)）。
 `/new` 会开启新会话，同时保存之前的 transcript 供历史记录和恢复使用；`/clear` 会二次确认，确认后丢弃当前上下文且不保存。
 `/tree` 查看已保存的对话分支，`/branch [name]` 从当前对话末端分支，`/switch <id|name>`
@@ -1091,18 +1091,18 @@ RPC 调用。两者都可按服务器覆盖。
 
 子智能体 profile 是带有 `runAs: subagent` 和 `invocation: manual` 的手动 Skill。
 它与桌面设置页共用项目级/全局 Skill 目录，因此任一端创建的 profile 在会话刷新后都会被
-另一端发现。交互式聊天里使用 `/<name> <任务>` 调用；Reasonix 会启动隔离子智能体，
+另一端发现。交互式聊天里使用 `/<name> <任务>` 调用；Deep-tutor 会启动隔离子智能体，
 父会话只保留任务和最终答案。
 
-Headless CLI 提供显式管理和运行命令，同时不改变普通 `reasonix run` 的任务语义：
+Headless CLI 提供显式管理和运行命令，同时不改变普通 `deep-tutor run` 的任务语义：
 
 ```bash
-reasonix subagent list
-reasonix subagent create reviewer --description "审查改动" --prompt-file reviewer.md --tools read_file,grep,bash
-reasonix subagent edit reviewer --effort high --model deepseek-pro
-reasonix subagent try reviewer "审查当前 diff"   # 始终只读
-reasonix subagent run reviewer "审查并修复当前 diff"
-reasonix subagent delete reviewer --yes
+deep-tutor subagent list
+deep-tutor subagent create reviewer --description "审查改动" --prompt-file reviewer.md --tools read_file,grep,bash
+deep-tutor subagent edit reviewer --effort high --model deepseek-pro
+deep-tutor subagent try reviewer "审查当前 diff"   # 始终只读
+deep-tutor subagent run reviewer "审查并修复当前 diff"
+deep-tutor subagent delete reviewer --yes
 ```
 
 workspace 可用时，`create` 默认写入项目级目录，否则默认写入全局目录；可用
@@ -1125,7 +1125,7 @@ Context Engine v2 把上下文分成两个用途不同的层：
   `scope`（`project`、`global`），以及 freshness。事实可能过时，因此永远不能覆盖
   当前请求和常驻指令。
 
-改过文件的回合在收尾前，Reasonix 会检查最后一次写入之后是否跑过检查。常见 runner 它自己认得
+改过文件的回合在收尾前，Deep-tutor 会检查最后一次写入之后是否跑过检查。常见 runner 它自己认得
 （`go test`、`pytest`、`npm test`、`make check`、`cargo test`、`tsc --noEmit` 等），
 但它**有意**分不出 `python deploy.py` 和 `python run_tests.py`。靠自有脚本驱动的项目
 无需为此做任何配置：agent 在签收这一步时说明哪条命令是检查（`complete_step` 的 evidence 用
@@ -1143,7 +1143,7 @@ Context Engine v2 把上下文分成两个用途不同的层：
 声明检查是更强的**可选**形式。在任意常驻指令文件中用这个标题声明（标题必须一字不差）：
 
 ```markdown
-## Reasonix host checks
+## Deep-tutor host checks
 
 - verify: python -m pytest tests/
 - verify: python scripts/screening.py --self-check
@@ -1156,7 +1156,7 @@ Context Engine v2 把上下文分成两个用途不同的层：
 同一个小节还用来声明"哪些路径的改动值得最严的审查"：
 
 ```markdown
-## Reasonix host checks
+## Deep-tutor host checks
 
 - sensitive: src/auth/**
 - sensitive: infra/network.tf
@@ -1166,7 +1166,7 @@ Context Engine v2 把上下文分成两个用途不同的层：
 结构判定（host 证明发生了却报不出路径的不透明写入，或一次触及十个以上路径）。敏感性只
 声明、不推断——路径的拼写分不清 `internal/auth` 和 `session_write_authority.go`。
 
-每个真实用户回合前，Reasonix 会自动召回一小组相关事实。它用原始用户消息搜索，抑制“继续”
+每个真实用户回合前，Deep-tutor 会自动召回一小组相关事实。它用原始用户消息搜索，抑制“继续”
 这类泛化请求，在等价事实中优先项目级版本，对 stale 内容降权，并最多把四条事实 / 2,400
 字符追加到本轮 user turn。这段动态后缀不会改写 cache-stable system prompt 或工具 schema。
 运行 `/memory recall` 可查看选中的 ID、score、原因、freshness、预算和 suppressed 决定。
@@ -1209,7 +1209,7 @@ Review the staged diff. Focus on $ARGUMENTS, list bugs with file:line.
 
 ## 日志与崩溃文件
 
-Studio 的日志放在窗口配置目录下，不在 Reasonix home 里：
+Studio 的日志放在窗口配置目录下，不在 Deep-tutor home 里：
 
 | 平台 | 日志目录 |
 | --- | --- |
@@ -1229,9 +1229,9 @@ Studio 的日志放在窗口配置目录下，不在 Reasonix home 里：
 
 ## 内置文档检索
 
-Reasonix 会把 `docs/` 中的 Markdown 文档随 CLI 和桌面端一起编译发布。只读 `docs` 工具
+Deep-tutor 会把 `docs/` 中的 Markdown 文档随 CLI 和桌面端一起编译发布。只读 `docs` 工具
 通过本地 BM25 检索这份与当前安装版本完全一致的离线语料，并可按命中的 `section_id` 读取
-完整章节及来源。涉及 Reasonix 配置、CLI/桌面端行为、权限、MCP、记忆、恢复、Provider 或
+完整章节及来源。涉及 Deep-tutor 配置、CLI/桌面端行为、权限、MCP、记忆、恢复、Provider 或
 维护流程的问题，Agent 应先查询这里，再考虑联网搜索或凭经验回答。
 
 普通路径不需要设置、联网、向量数据库或 embedding 服务。搜索会优先匹配提问语言，同时支持
@@ -1241,11 +1241,11 @@ Reasonix 会把 `docs/` 中的 Markdown 文档随 CLI 和桌面端一起编译�
 版本匹配的说明。
 
 直接输入 `/docs` 会在本地显示内置语料的版本、revision、digest 和使用示例，不调用模型。
-输入 `/docs <问题>`（例如 `/docs 如何配置 MCP 服务器`）时，Reasonix 会先在本地完成检索，再把
+输入 `/docs <问题>`（例如 `/docs 如何配置 MCP 服务器`）时，Deep-tutor 会先在本地完成检索，再把
 命中的文档片段交给当前配置的 AI 生成带来源的回答。这个命令路径不依赖模型是否主动
 选择 `docs` 工具；普通自然语言问题仍可由模型自动调用该工具。已有自定义命令以及兼容插件或
-Skill 别名会继续拥有 `/docs`；发生冲突时，CLI 与桌面端通常会改为通过 `/reasonix:docs` 暴露
-内置语料。如果这个限定名也已被占用，Reasonix 会选择下一个空闲的 `reasonix:` 限定后备名，
+Skill 别名会继续拥有 `/docs`；发生冲突时，CLI 与桌面端通常会改为通过 `/deep-tutor:docs` 暴露
+内置语料。如果这个限定名也已被占用，Deep-tutor 会选择下一个空闲的 `deep-tutor:` 限定后备名，
 不会覆盖原命令。远程桌面端使用主机解析后的命令目录，因此菜单显示的入口与主机实际执行目标
 保持一致。
 
@@ -1254,7 +1254,7 @@ Skill 别名会继续拥有 `/docs`；发生冲突时，CLI 与桌面端通常�
 
 ## Goal
 
-Goal 是长期目标的统一运行机制。Reasonix 会持续推进，直到完成、阻塞、暂停或被清除。
+Goal 是长期目标的统一运行机制。Deep-tutor 会持续推进，直到完成、阻塞、暂停或被清除。
 普通聊天不会隐式改变协作模式；需要长目标时，请在输入框中明确选择 Goal，或使用 `/goal` 启动。
 
 Goal 默认不设模型轮数、跨 Run turn 数、墙钟时长或数字式无进展上限。它会持续执行，直到完成、
@@ -1289,7 +1289,7 @@ evaluator 判定。旧 `.reasonix/autoresearch/<task-id>/` 目录保持只读：
 
 ## @ 引用
 
-在消息里写 `@` 引用，Reasonix 会在发送前解析成带标签的上下文块：`@path/to/file`（或
+在消息里写 `@` 引用，Deep-tutor 会在发送前解析成带标签的上下文块：`@path/to/file`（或
 `@dir`）注入本地文件内容（或目录清单），`@<server>:<uri>` 注入 MCP 资源。本地路径**只有
 真实存在**时才当作引用，普通 `@mention` 保持原文。敲 `/` 或 `@` 会弹出补全菜单——斜杠
 命令，或**逐层**的文件导航（一次只列当前一层目录、可下钻进子目录）外加 MCP 资源。
@@ -1303,7 +1303,7 @@ Studio 文件面板里，右键文件或文件夹可选择「复制路径」（�
 
 ## 双模型协同
 
-`reasonix setup` 现在统一管理 provider、模型列表、凭据、连接测试和默认模型；所有修改
+`deep-tutor setup` 现在统一管理 provider、模型列表、凭据、连接测试和默认模型；所有修改
 会暂存到“保存并退出”，并同步维护桌面端 provider access。完整用法见
 [CLI 命令参考](./CLI.zh-CN.md#配置供应商)。若要让两个模型协同（执行器 + 规划器，
 各自独立、缓存稳定的 session），向导后手动在 `reasonix.toml` 加一行即可：
@@ -1316,7 +1316,7 @@ planner_model = "deepseek-pro"   # 作为低频规划器
 Planner 会看到已加载的 `REASONIX.md` / `AGENTS.md` 记忆，并拿到一小组只读研究工具，
 因此可以先检查相关文件再把计划交给执行器。写入类和流程类工具仍只给执行器使用。
 
-Reasonix 会用确定性规则路由每一轮，不再调用额外的 classifier 模型：问答、短回复、
+Deep-tutor 会用确定性规则路由每一轮，不再调用额外的 classifier 模型：问答、短回复、
 明确的单点小改和边界清楚的纯只读动作直达 Executor；边界清楚的实现任务可生成简短的
 Light 计划；模糊、跨面、结构化、高风险、活跃 Goal 或 Delivery 的任务生成 Full 计划，
 明确的原子小改或纯只读动作除外。
@@ -1336,7 +1336,7 @@ Light 计划包含紧凑目标、最多四个有序步骤、可能触点和主�
 给出最终计划，普通 plan-and-execute 会用原始任务直接交给 Executor 继续；plan-only 与
 等待批准请求仍保持 fail-closed，并回滚不完整的 Planner 回合，避免留下无法继续的会话尾部。
 
-Reasonix 会自动管理正常执行：活跃 Todo 连续 8 个工具调用轮次没有新的完成项、唯一读取、
+Deep-tutor 会自动管理正常执行：活跃 Todo 连续 8 个工具调用轮次没有新的完成项、唯一读取、
 命令或修改时，宿主会要求执行器重新评估；Goal 到达后续阈值时会强制重新规划并继续，而不会因
 计数暂停。完全重复的操作不算进展，新的宿主可观测工作会自动续期。两级任务
 列表保持同一"唯一当前项"契约：唯一的 `in_progress` 是活跃的 level-1 子步骤，其 level-0
@@ -1435,16 +1435,16 @@ destructive MCP 目标、来自未授权 server 的 reader，以及一切会改�
 | `parallel_tasks`（只读） | 并发只读调研子会话 |
 | `fleet` 且 `read_only: true` | 可带 Profile 的并行批量（单项强制只读） |
 | `read_only_skill` | 以既有 skill 驱动的同等隔离 |
-| `reasonix review`（CLI） | 只读评审 diff 或分支 |
+| `deep-tutor review`（CLI） | 只读评审 diff 或分支 |
 | 桌面端 preview/review 子代理 | 桌面端只读分析面 |
 
-`reasonix review` 把被评审的 checkout 视为不可信输入，只运行你自己的配置：
+`deep-tutor review` 把被评审的 checkout 视为不可信输入，只运行你自己的配置：
 
-- 评审 skill 只取内置版本，或你放在 Reasonix home / 用户主目录 skill 目录下的版本。
+- 评审 skill 只取内置版本，或你放在 Deep-tutor home / 用户主目录 skill 目录下的版本。
   项目 skill 目录一律不读，`<root>/.reasonix/skills/review` 无法替换它。
 - 工具与沙盒（包括 `[tools.search]` 的 `engine` 与 `rg_path`）只取自
-  `<Reasonix home>/config.toml`，从不取自 checkout 的 `reasonix.toml`。
-- hooks 只运行你在 Reasonix home 下配置的：全局 `settings.json` 与已安装插件。
+  `<Deep-tutor home>/config.toml`，从不取自 checkout 的 `reasonix.toml`。
+- hooks 只运行你在 Deep-tutor home 下配置的：全局 `settings.json` 与已安装插件。
   checkout 里的项目 hooks（`<root>/.reasonix/settings.json`）从不运行，
   这些 hooks 使用的解释器只取自你自己的 `[tools.shell]`。
 - 评审 hooks 以 checkout 根目录为工作目录，便于检查代码，但像 `python` 这样的裸命令名
@@ -1483,7 +1483,7 @@ server 无法在这里提升权限。严格只读边界比独立 Planner 更窄�
 非 destructive MCP，而严格只读子会话必须有明确 reader hint，且根本不暴露 writer。
 
 启动会话时可以用 `--preset light|balanced|delivery` 选择执行设定，例如
-`reasonix run --preset delivery "修复并验证这个 bug"`。兼容的 `--profile
+`deep-tutor run --preset delivery "修复并验证这个 bug"`。兼容的 `--profile
 economy|balanced|delivery` 仍可用（`economy` → `light`）。三种执行设定共享同一套
 provider 可见核心工具面（直接读/bash/编辑/写入、后台 shell 生命周期工具，以及稳定的
 `use_capability` 代理）。可选工具（搜索、MCP、skills、subagents、docs、web_fetch 等）
@@ -1507,11 +1507,11 @@ provider 可见核心工具面（直接读/bash/编辑/写入、后台 shell 生
 `tokenMode`（`economy`/`full`/`delivery`）一版。
 
 交互式前端中的计划模式始终由用户显式选择：桌面端在“协作方式”中选择计划模式，CLI 用
-`Shift+Tab` 切换到 Plan。Reasonix 先生成计划，待用户批准后工作流才切换到实施；规划期间的
+`Shift+Tab` 切换到 Plan。Deep-tutor 先生成计划，待用户批准后工作流才切换到实施；规划期间的
 工具调用仍遵守当前 Permissions 与 Sandbox。旧的 `agent.auto_plan` 与
 `agent.auto_plan_classifier` 会被忽略，并在升级时从用户配置中移除。可见思考语言可通过以下方式修改：
 会话里用 `/reasoning-language auto|zh|en`，shell/脚本里用
-`reasonix config reasoning-language auto|zh|en`。只有明确想为
+`deep-tutor config reasoning-language auto|zh|en`。只有明确想为
 reasoning-language 写项目级覆盖时，才给 shell 命令加 `--local`。
 
 桌面端“工具权限”里的询问、自动和 Yolo 模式的区别与使用场景，

@@ -1,6 +1,6 @@
 # Billing, display currency, and cost quotes
 
-Reasonix keeps three facts separate:
+Deep-tutor keeps three facts separate:
 
 1. `original`: an estimate from the selected public/custom rate card in its
    pricing-table currency. It is not an invoice or a provider debit.
@@ -8,7 +8,7 @@ Reasonix keeps three facts separate:
    `official_table` estimate for the same model in the other official region.
 3. Wallet balances: the exact original-currency values returned by a provider.
 
-Reasonix has no runtime FX download, cache, refresh goroutine, or wallet
+Deep-tutor has no runtime FX download, cache, refresh goroutine, or wallet
 conversion. Old `fx`/`rateSnapshot` fields remain readable for history only;
 new quotes never generate them.
 
@@ -57,8 +57,8 @@ prefix. Automatic mode uses a single valid wallet currency only as a runtime
 hint. Multiple/unknown/error responses do not affect the cost facts.
 
 ```sh
-reasonix doctor billing
-reasonix doctor billing --json
+deep-tutor doctor billing
+deep-tutor doctor billing --json
 ```
 
 The compatible `fx` report is always `enabled=false` and has no cache. The

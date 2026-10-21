@@ -6,7 +6,7 @@
 &nbsp;·&nbsp;
 <a href="https://agentclientprotocol.com/">ACP specification</a>
 
-Reasonix implements Agent Client Protocol (ACP) v1 as an NDJSON JSON-RPC 2.0
+Deep-tutor implements Agent Client Protocol (ACP) v1 as an NDJSON JSON-RPC 2.0
 agent over standard input and output. Editors and other ACP hosts launch the
 process, open one or more workspace-scoped sessions, and receive streamed
 messages, tool activity, plans, permission requests, and configuration updates.
@@ -22,9 +22,9 @@ See [Billing](./BILLING.md).
 An ACP host should launch one of these commands:
 
 ```sh
-reasonix acp
-reasonix acp --model deepseek-pro
-reasonix acp --preset delivery
+deep-tutor acp
+deep-tutor acp --model deepseek-pro
+deep-tutor acp --preset delivery
 ```
 
 `--model` selects the startup model when the client does not override it.
@@ -32,14 +32,14 @@ reasonix acp --preset delivery
 (default `balanced`). Legacy `--profile economy|balanced|delivery` still works
 (`economy` → `light`). Both remain session-configurable after initialization.
 
-Standard output is reserved for ACP messages. Reasonix sends diagnostics to
-standard error, so hosts must not merge the two streams. Run `reasonix setup`
+Standard output is reserved for ACP messages. Deep-tutor sends diagnostics to
+standard error, so hosts must not merge the two streams. Run `deep-tutor setup`
 beforehand when no provider is configured; the initialize response also
-advertises a terminal authentication method that launches `reasonix setup`.
+advertises a terminal authentication method that launches `deep-tutor setup`.
 
 ## Initialize and negotiate capabilities
 
-Clients should call `initialize` before opening a session. Reasonix advertises
+Clients should call `initialize` before opening a session. Deep-tutor advertises
 the following capability shape (irrelevant fields omitted):
 
 ```json
@@ -74,18 +74,18 @@ the following capability shape (irrelevant fields omitted):
 ```
 
 When the client advertises `fs.readTextFile`, `fs.writeTextFile`, or
-`terminal`, Reasonix routes eligible file operations through the editor's
+`terminal`, Deep-tutor routes eligible file operations through the editor's
 unsaved buffers and eligible foreground commands through a client-owned
 terminal. Every file tool takes part — reads, edits and writes alike — so an
 edit applies to what the editor currently shows instead of to the last saved
 copy on disk. A non-UTF-8 file is not eligible: the ACP file methods are
 text-only, so it stays on the local encoding-preserving path and keeps its
 original charset. Without those client capabilities, the normal workspace
-tools run locally inside the Reasonix process.
+tools run locally inside the Deep-tutor process.
 
 ## Session lifecycle
 
-Each ACP session owns an independent Reasonix controller, workspace root, model,
+Each ACP session owns an independent Deep-tutor controller, workspace root, model,
 execution setting (agent preset), collaboration mode, approval mode, MCP set, and
 persisted transcript. State does not leak between sessions.
 
@@ -101,13 +101,13 @@ persisted transcript. State does not leak between sessions.
 | `session/delete` | Stops the session and removes its persisted ACP history. |
 
 `session/new`, `session/load`, and `session/resume` may include `mcpServers`.
-Reasonix accepts stdio, Streamable HTTP, and legacy SSE servers. ACP's official `[{"name":"...","value":"..."}]`
+Deep-tutor accepts stdio, Streamable HTTP, and legacy SSE servers. ACP's official `[{"name":"...","value":"..."}]`
 shape is supported for stdio `env` and HTTP `headers`; the older object-map
 shape remains accepted for compatibility.
 
 ## Session controls
 
-Reasonix exposes independent controls instead of combining unrelated choices in
+Deep-tutor exposes independent controls instead of combining unrelated choices in
 one mode selector:
 
 | Control | Values | Wire surface |
@@ -158,7 +158,7 @@ Audio is not advertised.
 - Data that is not base64, or an image that is not a supported image, fails
   the prompt with invalid params instead of being dropped.
 
-During a turn, Reasonix may send:
+During a turn, Deep-tutor may send:
 
 - agent message and thought chunks;
 - pending and completed tool-call updates;
@@ -168,13 +168,13 @@ During a turn, Reasonix may send:
 - `session/request_permission` requests for permission-gated tools and user
   questions.
 
-Hosts should keep the `session/prompt` request open until Reasonix returns its
+Hosts should keep the `session/prompt` request open until Deep-tutor returns its
 stop reason, while continuing to process requests and notifications in both
 directions.
 
 ## Mid-turn steering extension
 
-Reasonix exposes mid-turn guidance as an ACP v1 vendor extension. It is not a
+Deep-tutor exposes mid-turn guidance as an ACP v1 vendor extension. It is not a
 core ACP method, and it is not the still-unreleased ACP v2 `session/inject`
 proposal.
 
@@ -214,12 +214,12 @@ A persistent session returns an item id and disposition:
 {"itemId":"inbox-item-id","disposition":"steer_accepted"}
 ```
 
-Reasonix durably commits the guidance before returning. `steer_accepted` means
+Deep-tutor durably commits the guidance before returning. `steer_accepted` means
 the active turn accepted it; `queued_followup` means that admission lost a race
 or no turn was active, so the same item remains queued for a later turn. A
 pathless compatibility session may omit `itemId` and still returns
 `steer_accepted`. Applied guidance is persisted in normal history; transcript
-replay shows the original user text, not Reasonix's internal steer marker.
+replay shows the original user text, not Deep-tutor's internal steer marker.
 
 | Condition | JSON-RPC result |
 | --- | --- |
@@ -257,7 +257,7 @@ calling `setPaused` with `false`.
 
 Selecting `goal` with `session/set_mode` always drafts a **new** Goal: the next
 prompt becomes its objective and its counters start at zero. To bring back a
-Goal the session already holds, Reasonix advertises two vendor methods as keys
+Goal the session already holds, Deep-tutor advertises two vendor methods as keys
 of `agentCapabilities._meta`, each with `{"schemaVersion": 1}`:
 
 | Method | Params | Behavior |
@@ -279,7 +279,7 @@ nothing to resume, and `pause` stops it and reports the paused state.
 
 ## MCP server health extension
 
-Reasonix advertises two versioned methods in `agentCapabilities._meta`:
+Deep-tutor advertises two versioned methods in `agentCapabilities._meta`:
 `_reasonix.io/session/mcpStatus` and
 `_reasonix.io/session/mcpStatus_update`, each with `{"schemaVersion": 1}`.
 The first is a request with `{"sessionId": "…"}`. It returns a snapshot:
@@ -290,7 +290,7 @@ The first is a request with `{"sessionId": "…"}`. It returns a snapshot:
 
 The second is a notification with the same shape:
 
-- Reasonix sends an initial snapshot after `session/new`, `session/load`, or
+- Deep-tutor sends an initial snapshot after `session/new`, `session/load`, or
   `session/resume`, then another when a server starts connecting, connects,
   fails, or starts awaiting launch approval.
 - Clients can request a fresh snapshot after reattaching.
@@ -305,7 +305,7 @@ The second is a notification with the same shape:
 
 ## Runtime reload and extension surface
 
-Reasonix advertises two more extension points in
+Deep-tutor advertises two more extension points in
 `agentCapabilities._meta["reasonix.io"]`:
 
 - `sessionReloadExtensions` — the vendor method
@@ -315,7 +315,7 @@ Reasonix advertises two more extension points in
   or rebuild is active exactly one reload is queued (`{"queued": true}`) and
   runs when the session goes idle; otherwise the runtime is rebuilt and
   swapped atomically, and a failed rebuild keeps the previous runtime. After
-  a successful reload Reasonix pushes a fresh `available_commands_update`.
+  a successful reload Deep-tutor pushes a fresh `available_commands_update`.
 - `extensionSurface` — structured extension UI support. Clients that also
   advertise `reasonix.io.extensionSurface` in their initialize `_meta`
   receive structured extension surface payloads; clients without it receive
@@ -329,7 +329,7 @@ any other slash command.
 
 ## Compatibility and cache behavior
 
-| Surface | Older or non-Reasonix clients | Conclusion |
+| Surface | Older or non-Deep-tutor clients | Conclusion |
 | --- | --- | --- |
 | Existing ACP v1 methods | Their names and response shapes are unchanged. | Compatible |
 | Capability `_meta` | Unknown metadata may be ignored. | Compatible |
@@ -344,12 +344,12 @@ earlier prefix remains reusable.
 
 ## Client integration checklist
 
-1. Launch `reasonix acp` with separate stdin, stdout, and stderr streams.
+1. Launch `deep-tutor acp` with separate stdin, stdout, and stderr streams.
 2. Call `initialize` and honor both standard and `_meta` capabilities.
 3. Open sessions with absolute workspace paths and keep their ids isolated.
 4. Process agent-to-client filesystem, terminal, and permission requests while
    a prompt is running.
-5. Show steer UI only when the Reasonix capability is advertised and a prompt
+5. Show steer UI only when the Deep-tutor capability is advertised and a prompt
    is active.
 6. Branch on the steer `disposition`; both accepted steer and queued follow-up
    are durable, but only the former can affect the active turn.

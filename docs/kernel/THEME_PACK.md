@@ -1,7 +1,7 @@
-# Reasonix Theme Pack V2
+# Deep-tutor Theme Pack V2
 
 **Status:** this describes the retired Wails desktop and its `.reasonix-theme`
-archives. What Reasonix Studio reads instead:
+archives. What Deep-tutor Studio reads instead:
 
 - one directory per pack, holding a `theme.json` (`schemaVersion: 1`) and
   optional `background` and `preview` images, read by `internal/ext/theme`;
@@ -11,7 +11,7 @@ archives. What Reasonix Studio reads instead:
 For the current format, a directly installable starter, and its management
 lifecycle, use the [Studio theme author guide](THEME_AUTHOR_GUIDE.md).
 
-Native theme packs for the Reasonix desktop app. Packs are controlled skins:
+Native theme packs for the Deep-tutor desktop app. Packs are controlled skins:
 semantic color tokens, density/corner recipes, and optional local images for
 the home and task/workspace scenes. They **cannot** run CSS, JavaScript, fonts,
 remote URLs, or SVG scripts. V1 packs remain valid and use the home image in
@@ -89,7 +89,7 @@ The gallery has four groups:
 | `official-noir-gold` | Noir Gold / 黑金序曲 | carbon | Black velvet, gold spotlights, original gentleman |
 
 Previews are shown inside the app's theme library (Settings → Appearance) from
-real Reasonix builds. **Screenshots of the app must not be imported as theme
+real Deep-tutor builds. **Screenshots of the app must not be imported as theme
 backgrounds.** Asset provenance, hashes and licence ledger:
 [THEME_ASSETS.md](./THEME_ASSETS.md) · generator scripts in
 `scripts/official-theme-art/` (procedural, fixed seeds, reproducible).
@@ -208,7 +208,7 @@ Colors must **not** include `url()`, gradients, or arbitrary CSS.
 
 ## Storage
 
-| Path under Reasonix home | Purpose |
+| Path under Deep-tutor home | Purpose |
 | --- | --- |
 | `desktop-theme-state.json` | Versioned active theme pointer (not `config.toml`) |
 | `themes/<id>/` | User theme library (`theme.json` + up to two optional scene images) |
@@ -238,7 +238,7 @@ A minimal, royalty-free starter (no portrait photos):
   "schemaVersion": 1,
   "id": "paper-dawn",
   "name": "Paper Dawn",
-  "author": "Reasonix",
+  "author": "Deep-tutor",
   "description": "Template theme — solid tokens only, no background image.",
   "license": "CC0-1.0",
   "baseStyle": "graphite",

@@ -1,6 +1,6 @@
 # Reasoning controls by provider
 
-Reasonix exposes a single `/effort` knob (and the per-provider `effort` /
+Deep-tutor exposes a single `/effort` knob (and the per-provider `effort` /
 `thinking` config fields), but OpenAI-compatible backends disagree on *how*
 chain-of-thought is requested on the wire. The `openai` provider adapts the
 request shape per backend; this table is the reference for which protocol each
@@ -36,7 +36,7 @@ explicitly documents Coding Plan requests:
 | GLM-5.2 | `none`/`minimal` disable thinking; `low`/`medium` map to `high`; `xhigh` maps to `max`. |
 | GLM-5.3 / 5.3-Flash | `none`/`minimal`/`low` map to `low`; `medium`/`high` to `high`; `xhigh`/`max` to `max`. |
 
-Reasonix offers the canonical GLM-5.3 levels on both endpoint types.
+Deep-tutor offers the canonical GLM-5.3 levels on both endpoint types.
 This is verified against documentation; no authenticated endpoint call was made.
 
 For GLM-5.2, configured `none`/`minimal` wins over `EffortOverride` and keeps
@@ -50,7 +50,7 @@ GLM-5.3, so the models added to the catalog reuse it.
 
 | Provider/model | Base URL | Reasoning control | `/effort` levels | Notes |
 |----------------|----------|-------------------|------------------|-------|
-| Kimi CN/Global `kimi-k3` | `api.moonshot.cn/v1`, `api.moonshot.ai/v1` | `reasoning_effort` | `low`, `high`, `max` | Always thinks; defaults to `max`. Reasonix replays the complete assistant message, uses `max_completion_tokens`, and omits K3's fixed sampling fields. |
+| Kimi CN/Global `kimi-k3` | `api.moonshot.cn/v1`, `api.moonshot.ai/v1` | `reasoning_effort` | `low`, `high`, `max` | Always thinks; defaults to `max`. Deep-tutor replays the complete assistant message, uses `max_completion_tokens`, and omits K3's fixed sampling fields. |
 | Custom Kimi K3 gateway | Any OpenAI-compatible K3 endpoint | `reasoning_effort` | `low`, `high`, `max` | Select `reasoning_protocol = "kimi-k3"` to opt into K3's complete-message replay and request shape. |
 | OpenCode Go `kimi-k3` | `opencode.ai/zen/go/v1` | `reasoning_effort` | `high`, `max` | Relay-specific scale; defaults to `max` and keeps the relay's standard OpenAI-compatible request shape. |
 | Token Rhythm DeepSeek V4 | `tokenrhythm.studio/v1` | DeepSeek `thinking.type` + `reasoning_effort` | Model-specific DeepSeek scale | Selected through the preset's model override, independent of the gateway host. |
@@ -61,7 +61,7 @@ On the Token Rhythm endpoint, exact GLM model IDs (`glm-5`, `glm-5.1`, and
 existing configuration has no `reasoning_protocol` field. The endpoint check
 keeps unrelated mixed-model gateways backward-compatible. A `model_overrides`
 entry with explicit `reasoning_protocol = "glm"` remains available for aliases
-and custom model IDs. While GLM thinking is enabled, Reasonix retains and
+and custom model IDs. While GLM thinking is enabled, Deep-tutor retains and
 returns the original `reasoning_content` unchanged in later history, as required
 by GLM interleaved and preserved thinking.
 
@@ -83,7 +83,7 @@ auto-detected. It preserves `reasoning_content` in later assistant history,
 uses `max_completion_tokens`, and omits K3's fixed sampling fields. Do not add
 it to the curated OpenCode Go preset: that relay intentionally keeps its
 standard OpenAI-compatible request shape and its own `high`/`max` scale.
-While this protocol is selected, Reasonix always exposes K3's fixed
+While this protocol is selected, Deep-tutor always exposes K3's fixed
 `auto`/`low`/`high`/`max` effort menu with `max` as the protocol default;
 persisted `supported_efforts` metadata is retained but does not override it.
 
@@ -92,7 +92,7 @@ persisted `supported_efforts` metadata is retained but does not override it.
 The default official DeepSeek provider targets `https://api.deepseek.com/anthropic`.
 New official entries use this native Messages API path and enable provider-side
 `web_search`; existing explicit providers, including legacy
-`deepseek-anthropic` entries, keep their configured protocol. Reasonix emits
+`deepseek-anthropic` entries, keep their configured protocol. Deep-tutor emits
 `thinking.type=enabled|disabled` with `output_config.effort`, replays unsigned
 DeepSeek thinking blocks from historical tool-call turns, omits unsupported
 images, and relies on DeepSeek's automatic prefix cache instead of ignored
@@ -147,7 +147,7 @@ records carries the vetting, so it keeps the thinking mode its preset declares.
 Any other OpenAI-compatible backend falls through to the standard
 `reasoning_effort` scale (`low`\|`medium`\|`high`). A resolved provider/model
 entry may explicitly advertise a different supported scale; in that case
-Reasonix preserves those declared values instead of applying the generic
+Deep-tutor preserves those declared values instead of applying the generic
 ceiling. Curated per-model capability metadata can opt into another scale as
 shown above.
 
@@ -183,6 +183,6 @@ If a model keeps thinking when you asked it not to (or vice versa):
    `openai` kind cannot drive its thinking mode — that needs a dedicated
    provider kind.
 
-Distinguishing "provider ignores the field" from a Reasonix bug starts here:
-the request shape Reasonix emits is fixed per the table, so a mismatch between
-the table and observed behaviour is the provider's, not Reasonix's.
+Distinguishing "provider ignores the field" from a Deep-tutor bug starts here:
+the request shape Deep-tutor emits is fixed per the table, so a mismatch between
+the table and observed behaviour is the provider's, not Deep-tutor's.

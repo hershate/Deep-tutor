@@ -9,9 +9,9 @@ reviewed: 2026-09-29
 
 <a href="./GUIDE.md">Guide</a>
 
-Reasonix works best when nontrivial work is described as a **task contract**: what the work is for, what action is requested, how the result should be delivered, what boundaries must be preserved, and when the agent should pause.
+Deep-tutor works best when nontrivial work is described as a **task contract**: what the work is for, what action is requested, how the result should be delivered, what boundaries must be preserved, and when the agent should pause.
 
-Some prompt templates call the last section "Checkpoint"; Reasonix documents it as "Pause policy" to avoid confusion with Checkpoints/Rewind snapshots.
+Some prompt templates call the last section "Checkpoint"; Deep-tutor documents it as "Pause policy" to avoid confusion with Checkpoints/Rewind snapshots.
 
 This is intentionally not a larger role prompt. Strong coding agents usually do
 not need step-by-step thinking instructions. They need clear boundaries and
@@ -45,7 +45,7 @@ a scope change, or information only I can provide, keep working and report back
 after the task is complete.
 ```
 
-## How Reasonix Uses It
+## How Deep-tutor Uses It
 
 - **Normal chat** can use the template directly for one-off work.
 - **Goal mode** treats the goal as a task contract and keeps working until the

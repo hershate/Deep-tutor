@@ -5,7 +5,7 @@ status: active
 reviewed: 2026-10-15
 ---
 
-# Reasonix Guide
+# Deep-tutor Guide
 
 <a href="../README.md">README</a>
 &nbsp;·&nbsp;
@@ -16,7 +16,7 @@ reviewed: 2026-10-15
 > Day-to-day configuration and usage. For the engineering contract and internals
 > (data types, registries, package layout, roadmap), see the **[Spec](./SPEC.md)**.
 
-Every windowed frontend — the Studio desktop app and `reasonix web` alike — opens
+Every windowed frontend — the Studio desktop app and `deep-tutor web` alike — opens
 on the [Study Tutor](./TUTOR.md); the agent chat is a page within it, opened from
 the tutor header. This guide covers both: the sections below describe the agent
 side, the [tutor guide](./TUTOR.md) the study side.
@@ -47,18 +47,18 @@ side, the [tutor guide](./TUTOR.md) the study side.
 ## Configuration
 
 Resolution order: **flag > `./reasonix.toml` > the user config file >
-built-in defaults**. Starting with **Reasonix v1.8.1**, the user config lives at
+built-in defaults**. Starting with **Deep-tutor v1.8.1**, the user config lives at
 `~/.reasonix/config.toml` on macOS/Linux and
 `%AppData%\reasonix\config.toml` on Windows; see
 [Configuration paths](./CONFIG_PATHS.md) for migration and related data paths.
 Fields marked user/global only are not overridden by `./reasonix.toml`.
 Provider entries name secrets with `api_key_env`, while the secret values live in
-Reasonix's global `<Reasonix home>/.env`, shared by CLI and desktop. Project
+Deep-tutor's global `<Deep-tutor home>/.env`, shared by CLI and desktop. Project
 `.env`, home `.env`, inherited shell environment variables, legacy credentials,
 and the OS keyring are not provider-key runtime fallbacks; legacy credentials are
 only migration sources. Project `.env` still feeds workspace-scoped,
 non-provider `${VAR}` expansion for MCP/plugin settings without importing
-provider keys or Reasonix control variables. See
+provider keys or Deep-tutor control variables. See
 [Configuration paths](./CONFIG_PATHS.md) for the full `config.toml` and `.env`
 structure.
 
@@ -147,7 +147,7 @@ allow = ["Bash(go test:*)"]                  # never prompted
 [serve]
 # auth_mode = "token"          # token (default)|password|none; none still requires the launch token for changes
 # token = ""                   # optional fixed token; empty token mode generates one at startup
-# password_hash = ""           # bcrypt hash generated with reasonix serve --hash-password --password '...'
+# password_hash = ""           # bcrypt hash generated with deep-tutor serve --hash-password --password '...'
 # behind_proxy = false         # true only behind a trusted reverse proxy
 
 [[plugins]]
@@ -174,10 +174,10 @@ read-only tool registry and foreground-command classifier.
 
 ### Environment variables
 
-Most day-to-day settings belong in `config.toml` or the global Reasonix `.env`
+Most day-to-day settings belong in `config.toml` or the global Deep-tutor `.env`
 described above. The variables below are process-level advanced switches; set
-them before launching Reasonix. Project `.env` files are not a runtime source for
-Reasonix control variables.
+them before launching Deep-tutor. Project `.env` files are not a runtime source for
+Deep-tutor control variables.
 
 To hand extra variables to every command the `bash` tool runs, set the
 user-global `[tools.shell.env]` table in `config.toml` (for example
@@ -191,7 +191,7 @@ ones it runs as verification.
 
 So keep it side-effect free and outside the workspace's writable roots: anything
 it writes can invalidate what a verification just proved. The table reaches the
-local bash tool only — a remote workspace and `reasonix review` build their own
+local bash tool only — a remote workspace and `deep-tutor review` build their own
 sandbox and do not carry it.
 
 ### CLI telemetry
@@ -201,13 +201,13 @@ content-free event counters to `https://crash.reasonix.io`. Configure the
 user-global policy with:
 
 ```bash
-reasonix config telemetry          # print the effective mode
-reasonix config telemetry auto     # default: local interactive TTY only
-reasonix config telemetry on       # also allow local headless `reasonix run`
-reasonix config telemetry off      # disable and delete pending counter files
+deep-tutor config telemetry          # print the effective mode
+deep-tutor config telemetry auto     # default: local interactive TTY only
+deep-tutor config telemetry on       # also allow local headless `deep-tutor run`
+deep-tutor config telemetry off      # disable and delete pending counter files
 ```
 
-On the first eligible release-build interactive session, Reasonix explains the
+On the first eligible release-build interactive session, Deep-tutor explains the
 exact data boundary and asks once before any telemetry request. The prompt is
 `[Y/n]`: pressing Enter, `y`, or `yes` stores `auto`; `n` or `no` stores `off`
 and deletes pending counters. After the choice is saved, enabled reporting is
@@ -234,14 +234,14 @@ contention buckets, and normalized UI language.
 Closing the prompt without answering (end of input, Ctrl+D) stores nothing and
 uploads nothing; it asks again the next time.
 
-Reasonix never uploads prompts, answers, reasoning, tool names/arguments/output,
+Deep-tutor never uploads prompts, answers, reasoning, tool names/arguments/output,
 paths, repositories/branches, session IDs, exact token or cost values,
 Provider/model names, base URLs, or environment variables.
 
 ### CLI crash reports
 
 An unhandled Go panic that reaches the CLI entrypoint is saved locally as a sanitized report under
-`<Reasonix home>/cli-crash-reports`. Reasonix keeps at most 10 files with owner-only
+`<Deep-tutor home>/cli-crash-reports`. Deep-tutor keeps at most 10 files with owner-only
 permissions. The panic value is never serialized. Absolute source paths become
 `<path>/<file>.go:<line>`, function arguments are removed, and the same secret,
 token, email, and long-identifier scrubbers run both when saving and immediately
@@ -250,14 +250,14 @@ before sending.
 Crash reports are never uploaded automatically. Review and manage them with:
 
 ```bash
-reasonix report                 # preview newest; prompt before sending on a TTY
-reasonix report list            # list local reports
-reasonix report show [ID]       # preview without sending
-reasonix report send [ID]       # explicit send; delete locally only after success
-reasonix report delete [ID]     # delete without sending
+deep-tutor report                 # preview newest; prompt before sending on a TTY
+deep-tutor report list            # list local reports
+deep-tutor report show [ID]       # preview without sending
+deep-tutor report send [ID]       # explicit send; delete locally only after success
+deep-tutor report delete [ID]     # delete without sending
 ```
 
-Piped or redirected `reasonix report` calls only preview and never prompt or
+Piped or redirected `deep-tutor report` calls only preview and never prompt or
 send. The CLI telemetry setting does not auto-send or auto-delete
 these separately reviewed reports. Runtime fatal throws, operating-system kills,
 and panics in unwrapped background goroutines cannot be recovered by Go and do
@@ -265,7 +265,7 @@ not produce this local report.
 
 ## Web frontend
 
-For local use, `reasonix web` starts the browser UI and opens it in your default
+For local use, `deep-tutor web` starts the browser UI and opens it in your default
 browser. Inside an interactive CLI session, `/web` snapshots the current session,
 restores the terminal, and opens an explicit `/sessions/<id>#token=...` deep link.
 Even a never-used session keeps its reserved ID without forcing an empty
@@ -273,7 +273,7 @@ transcript onto disk, so the first Web turn continues the same session identity.
 
 ```bash
 cd your-project
-reasonix web
+deep-tutor web
 ```
 
 The browser UI is the same SPA the desktop app serves, so it opens on the Study
@@ -287,22 +287,22 @@ Seed the provider instead — a `[[providers]]` entry plus `default_model` in th
 user config, with the key's environment variable set for the server process —
 and the wizard is skipped on first load.
 
-Use `reasonix web --no-open` when you want to start the foreground Web server
+Use `deep-tutor web --no-open` when you want to start the foreground Web server
 and print its URL without opening a browser tab. The lower-level
-`reasonix serve` command starts the same engine without opening a browser by
+`deep-tutor serve` command starts the same engine without opening a browser by
 default. It remains the right entry point for remote development boxes,
 supervisors, tunnels, reverse proxies, and shareable authenticated sessions.
 
-`reasonix web` starts at `127.0.0.1:8787`, automatically tries 8788, 8789, and
+`deep-tutor web` starts at `127.0.0.1:8787`, automatically tries 8788, 8789, and
 so on when a port is busy (up to 100 retries), and defaults to a newly generated
 token even when `[serve].auth_mode` is `none`. Each live process registers a
-single-writer heartbeat file under `<Reasonix home>/server/instances/`; clean
+single-writer heartbeat file under `<Deep-tutor home>/server/instances/`; clean
 shutdown removes its own file, while later instances lazily remove records whose
 owner process is confirmed dead. Multiple Web instances can therefore share one
-Reasonix home without overwriting registry state. The process stays attached to
+Deep-tutor home without overwriting registry state. The process stays attached to
 the terminal; stop it with Ctrl-C.
 
-`reasonix serve` also defaults to a freshly generated per-launch token unless
+`deep-tutor serve` also defaults to a freshly generated per-launch token unless
 `[serve].auth_mode` or `--auth` says otherwise.
 
 - `--auth none` (or `auth_mode = "none"`) is an explicit opt-out for a Serve
@@ -312,7 +312,7 @@ the terminal; stop it with Ctrl-C.
   token: `Authorization: Bearer <token>`, or the cookie the printed
   `approvals:` link sets. Without it the answer is 403
   `auth.launch_token_required`.
-- Serve writes the token to a 0600 file under `<Reasonix home>/remote/` and
+- Serve writes the token to a 0600 file under `<Deep-tutor home>/remote/` and
   prints only its path; append `#token=<file contents>` to the printed link.
   A managed launch with `--token-file` names that file instead. The phone QR
   code a terminal shows in token mode still carries the token.
@@ -327,9 +327,9 @@ the terminal; stop it with Ctrl-C.
 Choose the mode explicitly when binding outside loopback:
 
 ```bash
-reasonix serve --auth token
-reasonix serve --addr 0.0.0.0:8787 --auth token
-reasonix serve --auth password --password 'temporary-password'
+deep-tutor serve --auth token
+deep-tutor serve --addr 0.0.0.0:8787 --auth token
+deep-tutor serve --auth password --password 'temporary-password'
 ```
 
 Token mode prints a share URL with `#token=...`; the Web page exchanges the
@@ -339,9 +339,9 @@ token out of request URLs, browser history, referrers, and access logs. Pass `--
 `--password` at startup or a stored bcrypt hash:
 
 ```bash
-reasonix serve --hash-password --password 'strong-password'
+deep-tutor serve --hash-password --password 'strong-password'
 
-# <Reasonix home>/config.toml
+# <Deep-tutor home>/config.toml
 [serve]
 auth_mode = "password" # none|token|password
 password_hash = "$2a$12$..."
@@ -359,7 +359,7 @@ user-global `default_model`.
 
 If the selected Provider has no saved API key, a loopback-bound Serve still
 starts and shows a Provider setup page instead of failing before the browser can
-connect. After authentication, enter the key there; Reasonix writes it to this
+connect. After authentication, enter the key there; Deep-tutor writes it to this
 host's global credential file with restricted permissions, rebuilds the active
 controller in the same process, and opens the normal UI. The credential-writing
 endpoint is disabled for non-loopback listeners. For a remote SSH window,
@@ -368,17 +368,17 @@ not copied from the desktop machine.
 
 ## Editor integrations over ACP
 
-`reasonix acp` exposes Reasonix as an ACP v1 stdio agent for editors and other
+`deep-tutor acp` exposes Deep-tutor as an ACP v1 stdio agent for editors and other
 host clients. The dedicated **[ACP editor integration](./ACP.md)** guide covers
 startup, capability negotiation, session lifecycle, independent model/work/
 collaboration/approval controls, client filesystem and terminal capabilities,
-MCP servers, permission requests, and the Reasonix mid-turn steering extension.
+MCP servers, permission requests, and the Deep-tutor mid-turn steering extension.
 
 ## Remote SSH
 
-The remote module runs Reasonix on a remote host and reaches it over your own
+The remote module runs Deep-tutor on a remote host and reaches it over your own
 SSH connection — VS Code Remote-SSH style. It bootstraps a persistent headless
-`reasonix serve` on the remote host, forwards a local loopback port to it, and
+`deep-tutor serve` on the remote host, forwards a local loopback port to it, and
 opens the existing serve web client through that tunnel. The agent, its tools,
 and its files all live on the remote host at full fidelity; nothing runs through
 a lossy file proxy.
@@ -388,9 +388,9 @@ PowerShell or Git Bash) its `DefaultShell` names.
 
 Hosts live in a user-global `[remote]` section of `config.toml`. Like
 `[secrets]`, a project `reasonix.toml` cannot inject or override remote hosts —
-a cloned repo can never steer where Reasonix opens SSH connections. Credentials
+a cloned repo can never steer where Deep-tutor opens SSH connections. Credentials
 follow the provider idiom: the host names an env var (`passphrase_env`,
-`password_env`) whose value lives in Reasonix's global `.env`; key material
+`password_env`) whose value lives in Deep-tutor's global `.env`; key material
 itself is never stored — `identity_file` is a path.
 
 ```toml
@@ -413,12 +413,12 @@ target = "127.0.0.1:5432"
 CLI:
 
 ```bash
-reasonix remote add gpu-box dev@203.0.113.7 --workspace '~/projects/app'
-reasonix remote import --all              # import aliases; ssh -G resolves Include/Match rules when connecting
-reasonix remote test gpu-box              # dial + auth + host-key confirmation
-reasonix remote connect gpu-box --open    # bootstrap serve, tunnel, open the URL
-reasonix remote serve status gpu-box
-reasonix remote fs ls gpu-box:'~/projects/app'
+deep-tutor remote add gpu-box dev@203.0.113.7 --workspace '~/projects/app'
+deep-tutor remote import --all              # import aliases; ssh -G resolves Include/Match rules when connecting
+deep-tutor remote test gpu-box              # dial + auth + host-key confirmation
+deep-tutor remote connect gpu-box --open    # bootstrap serve, tunnel, open the URL
+deep-tutor remote serve status gpu-box
+deep-tutor remote fs ls gpu-box:'~/projects/app'
 ```
 
 Hosts with `use_ssh_config` enabled resolve the final effective configuration
@@ -433,7 +433,7 @@ Ctrl-C disconnects the local side only — the remote serve keeps running, so th
 next `connect` reuses it. There is no background daemon in V1.
 
 Host keys are verified against your OpenSSH `~/.ssh/known_hosts` (read-only)
-plus a Reasonix-managed `~/.reasonix/remote/known_hosts`. A first-seen key
+plus a Deep-tutor-managed `~/.reasonix/remote/known_hosts`. A first-seen key
 prompts for trust-on-first-use and is recorded in the managed file; a key that
 contradicts a recorded one is a hard error that names the offending line and is
 never auto-accepted.
@@ -446,11 +446,11 @@ token, see below), and `serve-<slug>.log`.
 
 ### Getting the kernel there
 
-The remote runs a `reasonix serve`. The binary is a static Go build — no
+The remote runs a `deep-tutor serve`. The binary is a static Go build — no
 runtime, no Node, no glibc — so putting it there is a file transfer, not an
 install. `serve_install = "auto"` tries, in order:
 
-1. **The remote fetches its own release.** Reasonix reads `SHA256SUMS` here and
+1. **The remote fetches its own release.** Deep-tutor reads `SHA256SUMS` here and
    hands that host the archive URL and the digest; the host downloads over its
    own connection and keeps the archive only if it matches. Nothing but the
    command crosses the SSH link, and a machine in a datacenter pulls the ~21MB
@@ -458,18 +458,18 @@ install. `serve_install = "auto"` tries, in order:
 2. **Upload this machine's binary**, when the platforms match.
 3. **Download here and push over SFTP**, for a host with no route to the
    release.
-4. **npm**, last. `npm i -g reasonix` installs the same static binary but needs
+4. **npm**, last. `npm i -g deep-tutor` installs the same static binary but needs
    Node ≥18 over there to do it; it stays because a network that mirrors npm
    while throttling GitHub is a real one.
 
 Set `serve_install` to `npm`, `upload` or `never` to take exactly one route.
-`reasonix remote test <name>` reports which routes are open on a host before
+`deep-tutor remote test <name>` reports which routes are open on a host before
 you connect, and names what closes each one that is not.
 
 ### Model credentials
 
 A remote session resolves its models on **your** machine by default. The
-connection carries a reverse (`-R`) forward back to a provider broker Reasonix
+connection carries a reverse (`-R`) forward back to a provider broker Deep-tutor
 runs on loopback here; the remote kernel calls that instead of a model
 endpoint, and the request is issued from this machine with this machine's key.
 
@@ -481,7 +481,7 @@ provider; it sees the same catalog you do and nothing else.
 
 Set `provider = "remote"` on a host to leave it resolving providers from its
 own config instead, for a machine whose providers are deliberately not yours.
-`reasonix remote serve start` never uses a broker: that serve is meant to
+`deep-tutor remote serve start` never uses a broker: that serve is meant to
 outlive the command that started it, and a broker published from a command that
 has exited is a port nobody holds.
 
@@ -494,14 +494,14 @@ switch it to `provider = "remote"`.
 In the desktop app, manage hosts under **Settings -> Remote SSH**, then use the
 status-bar chip or the host row's **Remote explorer** button to browse and edit
 files over SFTP, manage port forwards, and start/open the remote workspace.
-Opening a workspace creates a separate native Reasonix window, similar to a
+Opening a workspace creates a separate native Deep-tutor window, similar to a
 VS Code Remote SSH window. The primary window owns the SSH tunnel; the remote
 window is an isolated, lightweight shell and does not restore or acquire local
 conversation sessions. The remote window uses **this** machine's providers
 through the broker described above, so opening a workspace on a host that has
 never held an API key just works. On a host set to `provider = "remote"` the
 old path applies: the window shows the authenticated setup page first, saves
-the key only in the remote Reasonix credential file, and activates the Provider
+the key only in the remote Deep-tutor credential file, and activates the Provider
 without restarting the remote Serve process. A transient SSH outage keeps the
 remote window open;
 the desktop reconnects in the background, re-attaches its loopback forward, and
@@ -510,7 +510,7 @@ failure is terminal and closes the unusable remote window instead.
 
 ### Lifetime of the remote serve
 
-- The `reasonix serve` process on the host is persistent. Quitting the desktop
+- The `deep-tutor serve` process on the host is persistent. Quitting the desktop
   or losing the link does not terminate it, and the next connect attaches to it.
 - A pane's session on that serve does not outlive the desktop. Each pane drives
   its own runtime there; closing the pane or quitting the desktop makes Studio
@@ -523,13 +523,13 @@ failure is terminal and closes the unusable remote window instead.
 - `provider = "remote"` decides only where model credentials come from. It does
   not detach a pane from the desktop.
 - A serve already running for the workspace is attached to, never replaced,
-  whether `reasonix remote serve start`, another window or a hand-started
-  `reasonix serve --port-file` launched it. A later connect never deletes its
+  whether `deep-tutor remote serve start`, another window or a hand-started
+  `deep-tutor serve --port-file` launched it. A later connect never deletes its
   port or pid files and never stops it.
 - `serve start` uses no broker, so a host with `provider = "local"` cannot
   attach to it. That connect fails with an explanation and leaves the serve
   running. Set the host to `provider = "remote"` (it then needs its own
-  credentials), or stop the serve with `reasonix remote serve stop <host>`.
+  credentials), or stop the serve with `deep-tutor remote serve stop <host>`.
 
 ## Custom OpenAI-compatible providers
 
@@ -540,14 +540,14 @@ the OpenAI-compatible chat API or Anthropic-compatible Messages API.
 For common providers, choose **Add model service -> Recommended preset** instead.
 New official DeepSeek entries use the Anthropic-compatible Messages endpoint by
 default and enable provider-side `web_search`; the same `DEEPSEEK_API_KEY` works
-for both protocols. On startup, Reasonix upgrades unmodified legacy
+for both protocols. On startup, Deep-tutor upgrades unmodified legacy
 `deepseek-flash` / `deepseek-pro` entries that still use the official endpoint
 and standard key/model settings. Customized official Chat Completions entries
 stay unchanged and show an **Upgrade protocol** action in Settings. Proxy
 endpoints, custom headers, model lists, and capability overrides are never
 migrated automatically. Existing
 separately named `deepseek-anthropic` entries remain compatible, but that
-redundant preset is no longer offered for new access. Reasonix can prefill editable custom-provider entries for Kimi CN,
+redundant preset is no longer offered for new access. Deep-tutor can prefill editable custom-provider entries for Kimi CN,
 Kimi Global,
 Kimi Coding Plan, MiMo API, MiMo Anthropic, MiMo Token Plan CN/SGP/AMS and their
 Anthropic-compatible variants, MiniMax CN/Global API, MiniMax CN/Global
@@ -561,7 +561,7 @@ HuggingFace Router, NVIDIA NIM, KiloCode, and Ollama Cloud. Plan names describe
 the access/payment route; they include CN/Global only when the provider exposes
 distinct regional endpoints. Kimi Coding Plan is therefore a dedicated plan
 endpoint, while Kimi direct API is split into CN and Global. The preset path
-usually needs only the provider API key: the key value is stored in Reasonix home
+usually needs only the provider API key: the key value is stored in Deep-tutor home
 `.env`, while `config.toml` stores the endpoint, model list, key
 environment-variable name, context window, vision model metadata, proxy bypass
 for China-only endpoints, MiniMax `reasoning_split`, GLM/MiniMax thinking
@@ -580,7 +580,7 @@ OpenCode Go preset installs are upgraded automatically; edited model catalogs
 are preserved. The Kimi CN and Kimi Global direct-API presets also include
 `kimi-k3` with image input, a 1,048,576-token context window, and the official
 `low`/`high`/`max` effort scale (default `max`). For the official K3 endpoints,
-Reasonix preserves complete assistant messages across turns, sends output limits
+Deep-tutor preserves complete assistant messages across turns, sends output limits
 as `max_completion_tokens`, and omits K3's fixed sampling parameters. Untouched
 legacy Kimi direct-API catalogs are upgraded automatically without changing the
 default model; custom catalogs and endpoints are preserved. After adding a
@@ -588,14 +588,14 @@ preset, open its provider card if you need to change models, headers, endpoint,
 or compatibility settings.
 
 Fill **API address** with the provider endpoint that should receive the standard
-chat path. In this mode Reasonix previews and sends chat requests to:
+chat path. In this mode Deep-tutor previews and sends chat requests to:
 
 ```text
 <API address>/chat/completions
 ```
 
 Enable **Full URL** when the service gives you a complete request URL, for
-example `https://gateway.example.com/v1/chat/completions`. Reasonix then sends
+example `https://gateway.example.com/v1/chat/completions`. Deep-tutor then sends
 chat requests directly to that URL and does not append `/chat/completions`. The
 preview under the field shows the exact request URL that will be used.
 
@@ -619,15 +619,15 @@ For Anthropic-compatible services, such as some coding-plan endpoints, choose
 
 | Field | What it controls | When to change it |
 | --- | --- | --- |
-| `api_key_env` | The environment-variable name used for this provider's API key. Desktop-saved key values are stored in Reasonix home `.env` under this name; the TOML config stores only the name. | Change it when several providers need distinct keys, or leave it blank for a service that does not require an API key. |
+| `api_key_env` | The environment-variable name used for this provider's API key. Desktop-saved key values are stored in Deep-tutor home `.env` under this name; the TOML config stores only the name. | Change it when several providers need distinct keys, or leave it blank for a service that does not require an API key. |
 | `models_url` | The URL used only for model discovery. Chat requests still use the API address or Full URL above. | Set it when `/models` or `/v1/models` is not where the gateway exposes its model list. |
 | Extra request headers | Static HTTP headers, one `Header: value` per line. | Use for gateways such as OpenRouter that require `HTTP-Referer`, `X-Title`, or similar site headers. Keep bearer/API keys in the key field instead of duplicating them here. |
-| Extra request body | A JSON object merged into the top-level chat request body. | Use only for provider-specific flags such as `{"enable_thinking": true}`. Reasonix still owns core fields such as `model`, `messages`, `tools`, `stream`, and `thinking`, and null values are rejected. |
+| Extra request body | A JSON object merged into the top-level chat request body. | Use only for provider-specific flags such as `{"enable_thinking": true}`. Deep-tutor still owns core fields such as `model`, `messages`, `tools`, `stream`, and `thinking`, and null values are rejected. |
 | Authorization: Bearer | For Anthropic-compatible providers, sends the saved API key as `Authorization: Bearer <key>` instead of `x-api-key`. | Enable it only when the gateway documents Bearer auth, such as MiniMax Global or Vercel AI Gateway. |
-| Model capability mode | Which reasoning request protocol Reasonix should use for this provider. | Keep **Auto-detect** unless the gateway is misdetected or the model docs require a specific reasoning format. |
+| Model capability mode | Which reasoning request protocol Deep-tutor should use for this provider. | Keep **Auto-detect** unless the gateway is misdetected or the model docs require a specific reasoning format. |
 | Thinking override | Provider-specific override for `thinking.type`. | Keep **Auto** unless the backend documents `enabled`, `disabled`, or `adaptive`. Unsupported values can make some OpenAI-compatible gateways reject the request. |
 | Balance URL | Optional endpoint for wallet/balance lookup. | Set it when the provider exposes a balance endpoint and you want the desktop status bar to show it. |
-| Context window | The provider-wide token budget Reasonix uses for automatic context cleanup. `0` disables automatic compaction. | Set it to the provider's model context limit; use a per-model override below when selected models differ. |
+| Context window | The provider-wide token budget Deep-tutor uses for automatic context cleanup. `0` disables automatic compaction. | Set it to the provider's model context limit; use a per-model override below when selected models differ. |
 
 Each selected model also has an optional **Context window** input. Leave it blank
 to inherit the provider-wide value, or enter a positive token count to override
@@ -642,7 +642,7 @@ Model capability mode options:
 
 | Option | Effect |
 | --- | --- |
-| Auto-detect (recommended) | Reasonix chooses the request shape from model capability metadata and endpoint detection. |
+| Auto-detect (recommended) | Deep-tutor chooses the request shape from model capability metadata and endpoint detection. |
 | DeepSeek thinking | Uses DeepSeek-style thinking control, including `thinking.type` and DeepSeek-supported reasoning depth. |
 | OpenAI reasoning | Uses the standard OpenAI-compatible `reasoning_effort` levels. |
 | Plain chat | Sends no reasoning or thinking control fields. Use this for text-only proxies that reject reasoning parameters. |
@@ -651,7 +651,7 @@ Thinking override options:
 
 | Option | Effect |
 | --- | --- |
-| Auto (provider default) | Does not write an explicit provider-level `thinking` override. Reasonix uses the provider/model default behavior. |
+| Auto (provider default) | Does not write an explicit provider-level `thinking` override. Deep-tutor uses the provider/model default behavior. |
 | Enabled | Sends `thinking.type = "enabled"` for compatible providers. |
 | Disabled | Sends `thinking.type = "disabled"` for compatible providers. On DeepSeek-style providers this also avoids sending a reasoning depth hint. |
 | Adaptive (self-adjusting) | Sends or preserves `thinking.type = "adaptive"` only for providers that document adaptive thinking, such as MiniMax-M3-style endpoints. |
@@ -669,13 +669,13 @@ api_key_env = "SPARK_API_KEY"
 extra_body  = { enable_thinking = true }
 ```
 
-`extra_body` is merged into the chat JSON request body. Reasonix keeps core
+`extra_body` is merged into the chat JSON request body. Deep-tutor keeps core
 fields such as `model`, `messages`, `tools`, `stream`, and `thinking` under its
 own control.
 
 ## Hooks
 
-Reasonix has hooks: shell commands that run at fixed points of the agent loop
+Deep-tutor has hooks: shell commands that run at fixed points of the agent loop
 and can observe, inject context, or (on two events) veto what is about to
 happen. They are separate from permissions: `[permissions]` rules decide
 whether a tool call is allowed or prompted, a hook runs your own code.
@@ -694,7 +694,7 @@ whether a tool call is allowed or prompted, a hook runs your own code.
 | `PreCompact` | before compaction; stdout becomes extra summary guidance | no |
 | `PostLLMCall` | after each model turn; non-empty stdout on exit 0 replaces the stored reasoning text | no |
 
-Hooks are configured in `<Reasonix home>/settings.json` (global) or
+Hooks are configured in `<Deep-tutor home>/settings.json` (global) or
 `<root>/.reasonix/settings.json` (project). Each event maps to a list of hooks:
 
 ```json
@@ -725,7 +725,7 @@ Fields:
   and `UserPromptSubmit`, 30000 otherwise.
 - `cwd` and `env`: working directory and extra environment.
 
-A malformed file loads no hooks and does not stop Reasonix.
+A malformed file loads no hooks and does not stop Deep-tutor.
 
 **Contract.** The event payload arrives as one line of JSON on stdin
 (`event`, `sessionId`, `cwd`, and by event `toolName`, `toolArgs`, `prompt`,
@@ -771,14 +771,14 @@ needs code (inspect arguments, consult a file, log, or react to a prompt).
 
 **Scope.**
 
-- Global hooks (`<Reasonix home>/settings.json`) and hooks from installed
+- Global hooks (`<Deep-tutor home>/settings.json`) and hooks from installed
   plugin packages apply, except in the read-only observe posture, which loads
   no hooks at all.
 - Project hooks (`<root>/.reasonix/settings.json`) run only after the user
-  approves them as they stand (`reasonix trust`); until then they are held back
+  approves them as they stand (`deep-tutor trust`); until then they are held back
   and a notice says so. Editing the file or a workspace script it names
   withdraws the approval.
-- `reasonix review` never runs project hooks, approved or not: the checkout is
+- `deep-tutor review` never runs project hooks, approved or not: the checkout is
   untrusted input, so only global and plugin hooks apply.
 - Only tool hooks (`PreToolUse`, `PostToolUse`, `PermissionRequest`),
   `PostLLMCall` and `PreCompact` fire in every agent a session runs, subagents
@@ -798,15 +798,15 @@ needs code (inspect arguments, consult a file, log, or react to a prompt).
 Desktop hooks run local commands at lifecycle events such as `SessionStart`,
 `UserPromptSubmit`, `PreToolUse`, and `PreCompact`. A successful `SessionStart`
 hook may write plain text to stdout, or return JSON with
-`hookSpecificOutput.additionalContext`; Reasonix injects that text once into the
+`hookSpecificOutput.additionalContext`; Deep-tutor injects that text once into the
 next real user turn as `<hook-context event="SessionStart">...</hook-context>`.
 This is intended for plugin or workflow bootstrap context, including
 Superpowers-style startup instructions, without baking that workflow into
-Reasonix's system prompt.
+Deep-tutor's system prompt.
 
 Plugin packages can provide this startup context through
 `hooks/session-start-codex` or a plugin-root `CLAUDE.md`. Claude-style
-`.claude/settings.json` command hooks are also mapped to matching Reasonix hook
+`.claude/settings.json` command hooks are also mapped to matching Deep-tutor hook
 events.
 
 The injected hook context is dynamic current-turn context. It does not change
@@ -823,7 +823,7 @@ and `PreCompact` fire in every agent a session runs. Each fires under a
 | Planner | `<session>:planner` |
 | Guardian | `<session>:guardian` |
 | `task`, `read_only_task`, `parallel_tasks`, `fleet`, `run_skill`, `read_only_skill` children | `<session>:subagent:<call>` |
-| `reasonix review` | a fresh id per run |
+| `deep-tutor review` | a fresh id per run |
 
 `/new` or a branch switch moves every child to the new id along with the parent.
 
@@ -857,7 +857,7 @@ setting does not change desktop or web text fields.
 ### Desktop GUI
 
 Desktop shortcuts are managed from **Settings → Shortcuts**. Pick a configurable
-row, press a new key combination, and Reasonix saves it for the desktop app.
+row, press a new key combination, and Deep-tutor saves it for the desktop app.
 Standard editing shortcuts such as Undo and Redo are shown as locked rows because
 the WebView's native text history uses those platform chords. Conflicting
 bindings are rejected so one shortcut never triggers two actions. Press `?` or
@@ -884,7 +884,7 @@ Composer shortcuts:
 | `Enter` | Sends the current message | IME composition confirmation is left alone. |
 | `Shift+Enter` | Inserts a newline | The composer keeps focus. |
 | `Shift+Tab` | Toggles Plan on/off | Plan changes the workflow instruction; built-in writers keep the active Ask/Auto/YOLO and Sandbox boundary, while MCP writer/destructive targets stay hard-blocked for the whole planning phase. |
-| `Cmd+Z` on macOS, `Ctrl+Z` on Windows/Linux | Undoes the latest composer edit | Native typing stays in the WebView history; Reasonix-managed paste, cut, folded blocks, and structured tokens are restored as complete transactions. |
+| `Cmd+Z` on macOS, `Ctrl+Z` on Windows/Linux | Undoes the latest composer edit | Native typing stays in the WebView history; Deep-tutor-managed paste, cut, folded blocks, and structured tokens are restored as complete transactions. |
 | `Cmd+Shift+Z` on macOS, `Ctrl+Shift+Z` on Windows/Linux | Redoes the latest composer edit | On Windows/Linux, `Ctrl+Y` is also accepted after the YOLO shortcut has been rebound. |
 | `Cmd+Y` / `Ctrl+Y` (default) | Toggles YOLO on/off | Turning YOLO off restores the previous Ask/Auto base when known. The current binding is shown in **Settings → Shortcuts**. |
 | `Cmd+V` on macOS, `Ctrl+V` on Windows/Linux | Pastes clipboard content | Clipboard images are attached. Dropping into the composer takes **any file or folder** and references it where it lives — the desktop app copies nothing, so the turn works on that file itself. Only sources with no path to offer, the clipboard and the add-image button, store bytes in the workspace. |
@@ -941,13 +941,13 @@ Chat and transcript shortcuts:
 | Double `Esc` on an empty idle composer | Opens the rewind picker | Same entry point as `/rewind`. |
 | Transcript text selection | Copies transcript text | Releasing an in-app drag writes through the verified native clipboard path in a local session (`pbcopy` on macOS, the available Wayland/X11 tool on Linux, or the Windows clipboard). SSH falls back to OSC 52 and labels the fallback instead of claiming native success. `Ctrl+C`/`Super+C`/`Meta+C` or right-clicking the active selection copies it again. |
 | Composer text selection | Selects, copies, or replaces draft text | Releasing an in-app drag copies the selection through the same verified clipboard path as transcript text. Typing or pasting replaces the selection; arrow keys collapse it. |
-| Right-click with no active selection | Pastes clipboard text locally | In a local session with in-app mouse capture on, Reasonix reads text only and routes it through the normal bracketed-paste handling. Over SSH, use the terminal paste shortcut because the remote process cannot read the local clipboard; `/mouse` restores the terminal's native right-click menu. Right-click with an active selection still copies that selection. |
+| Right-click with no active selection | Pastes clipboard text locally | In a local session with in-app mouse capture on, Deep-tutor reads text only and routes it through the normal bracketed-paste handling. Over SSH, use the terminal paste shortcut because the remote process cannot read the local clipboard; `/mouse` restores the terminal's native right-click menu. Right-click with an active selection still copies that selection. |
 | `/mouse` | Toggles in-app mouse capture | Off hands the mouse back to your terminal, restoring its native click-drag selection and right-click context menu, at the cost of in-app drag-select, the transcript scrollbar, and wheel-scroll. Set `REASONIX_DISABLE_MOUSE=1` to start every session with it off. Remote (SSH) sessions start with capture off so native selection works out of the box; `REASONIX_DISABLE_MOUSE=0` forces capture on everywhere. |
 | `Ctrl+C` | Copies, cancels, clears, or quits | Copies an active transcript or composer selection first. Otherwise it cancels a running turn, clears non-empty input, or quits on a second empty-composer press. A second press while a cancelled turn is still stopping quits too. |
 | `Ctrl+D` | Quits the TUI | Immediate quit on an empty idle composer. |
 | `Ctrl+Z` | Suspends the TUI to the shell | macOS and Linux; resume it with `fg`. Windows has no job control, so the key does nothing there. |
 | `/quit` or `/exit` | Quits the TUI | Runs at once, also while a turn is running. Typing a bare `exit`, `quit` or `:q` sends it to the model as a normal message. |
-| Your terminal's text-paste shortcut | Pastes text | Text stays on the terminal's bracketed-paste path (`Cmd+V` on macOS, commonly `Ctrl+Shift+V` on Linux, and the terminal's configured shortcut elsewhere). Reasonix consumes the resulting paste event and never probes for an image first. |
+| Your terminal's text-paste shortcut | Pastes text | Text stays on the terminal's bracketed-paste path (`Cmd+V` on macOS, commonly `Ctrl+Shift+V` on Linux, and the terminal's configured shortcut elsewhere). Deep-tutor consumes the resulting paste event and never probes for an image first. |
 | `Ctrl+V` on macOS/Linux; `Alt+V` on Windows | Pastes a clipboard image | Image paste is a separate application action. The footer shows `Pasting image…` while the clipboard is read, then inserts an editable `[image #N]` token at the cursor. |
 | `/paste-image` | Pastes a clipboard image | Command form of the same image-only action. |
 | A line starting with `!` | Runs a shell command directly | The command runs locally without asking the model. |
@@ -1003,7 +1003,7 @@ Permissions gate each tool call: `deny` > `ask` > `allow` > fallback. Bash and
 file mutation tools require approval by default; read-only tools generally do
 not. Approvals are stored and matched as permission rules, not button labels:
 for example `Bash(npm run build)`, `Bash(npm run test:*)`, and `Edit(docs/**)`.
-`reasonix` can grant Bash as an exact command or as a conservative command
+`deep-tutor` can grant Bash as an exact command or as a conservative command
 prefix (for example `Bash(go test:*)`), while file-editing tools share session
 edit grants and persist path-scoped rules such as `Edit(src/app.go)`.
 Parameter/arithmetic expansions, assignments, heredocs, file redirects, and globs cannot reuse a bare
@@ -1018,7 +1018,7 @@ Allow fallback, including Auto, cover that class; explicit `ask` and `deny`
 rules still take precedence.
 Because a headless run has no approval UI, the default Ask posture also fails
 closed on ordinary writer fallback and explicit ask rules. Use
-`reasonix run --auto ...`, `-y`, or `--permission-mode auto` when unattended
+`deep-tutor run --auto ...`, `-y`, or `--permission-mode auto` when unattended
 automation should allow ordinary writer fallback; configured `ask` and `deny`
 rules always remain authoritative.
 
@@ -1039,7 +1039,7 @@ Seatbelt on macOS and bubblewrap on Linux):
 commands may write only those same roots plus platform-specific command
 temp/cache roots, cannot read configured `forbid_read` roots while the OS
 sandbox is active, and reach the network only when `[sandbox] network` is set.
-Reasonix always removes saved provider and bot credential variables from tool
+Deep-tutor always removes saved provider and bot credential variables from tool
 subprocess environments and automatically adds its global credential `.env` to
 the runtime read-deny boundary. Project `.env` files keep their existing
 workspace-scoped behavior.
@@ -1118,7 +1118,7 @@ Limits:
 **Session-private temporary directory.** Within one logical chat session, Bash
 commands share a private temporary directory so consecutive calls can exchange
 files through `$TMPDIR` (and, on Linux under bubblewrap, through literal
-`/tmp`). No user setup is required: Reasonix automatically exports `TMPDIR`,
+`/tmp`). No user setup is required: Deep-tutor automatically exports `TMPDIR`,
 `TMP`, and `TEMP` for Bash and client-owned ACP terminals. The directory is
 created lazily, is never the host public temporary root, and is rotated on
 `/new`, `/clear`, resume of another session, and branch switches.
@@ -1127,7 +1127,7 @@ durable storage: resume across process restarts does not restore them, and
 scripts that need long-lived data should write into the workspace or a
 user-specified path.
 
-Reasonix-generated and project scripts should use the standard temporary
+Deep-tutor-generated and project scripts should use the standard temporary
 environment variables rather than hard-coding `/tmp`; users should not set
 these variables themselves. For example:
 
@@ -1150,9 +1150,9 @@ inherit the chat session's temporary directory. An approved sandbox-escape
 command still receives the private temp environment variables, but on Linux its
 literal `/tmp` is no longer mapped by bubblewrap.
 
-**Windows note:** Reasonix does not ship an OS-level Bash sandbox on Windows.
+**Windows note:** Deep-tutor does not ship an OS-level Bash sandbox on Windows.
 The effective mode is fixed to `off`; even an older config containing
-`bash = "enforce"` resolves to `off`, `reasonix doctor` flags the ignored value,
+`bash = "enforce"` resolves to `off`, `deep-tutor doctor` flags the ignored value,
 and the desktop selector is read-only. Bash commands therefore run unconfined,
 while the dedicated file tools still enforce `workspace_root`, `allow_write`,
 and `forbid_read` in process. Saved credential variables are still removed from
@@ -1165,14 +1165,14 @@ execution instead of running unconfined. Install the platform sandbox backend
 `[sandbox] bash = "off"` to explicitly restore the pre-1.16 unconfined shell
 behavior. On Windows the compatible value is always `off`.
 
-For coding-quality reports, run `reasonix doctor quality <branch-id-or-path>`
+For coding-quality reports, run `deep-tutor doctor quality <branch-id-or-path>`
 (add `--json` for structured output). This reads the selected session but emits
 only content-free counts and profile categories: model family, runtime profile,
 collaboration / approval modes, message and tool-call counts, verification and persisted
 compaction-summary counts, plus desktop token/cache telemetry when available.
 It omits transcript text, paths, session identifiers, tool arguments and output,
 endpoints, and custom model names, so the result is suitable for a public issue
-or Discussion. This differs from `reasonix doctor session`, whose support zip
+or Discussion. This differs from `deep-tutor doctor session`, whose support zip
 contains the complete unredacted transcript and must remain in a trusted support
 channel.
 
@@ -1185,31 +1185,31 @@ reference, JSON schema, and issue codes:
 
 ```bash
 # Static (default): no network, no MCP child processes
-reasonix doctor capabilities
+deep-tutor doctor capabilities
 
 # Machine-readable (stdout is pure JSON)
-reasonix doctor capabilities --json
+deep-tutor doctor capabilities --json
 
 # Another workspace root
-reasonix doctor capabilities --root /path/to/project
+deep-tutor doctor capabilities --root /path/to/project
 
 # Live MCP probe — only when you explicitly allow starting third-party servers
-reasonix doctor capabilities --live --timeout 5s
+deep-tutor doctor capabilities --live --timeout 5s
 ```
 
 | Surface | How |
 | --- | --- |
-| CLI | `reasonix doctor capabilities` (above) |
+| CLI | `deep-tutor doctor capabilities` (above) |
 | Desktop | **Settings → Diagnostics** — refresh, copy redacted JSON, optional “include current session runtime” (reads the active tab Host only; does **not** start MCP) |
 | Agent | `/reasonix-guide` (built-in inline skill) or ask naturally; it prefers static doctor JSON before `--live` |
 
 Exit code `0` allows warnings/info; `1` means at least one `error` (or a live
-start failure); `2` is bad flags. This is separate from `reasonix doctor`
-(providers/sandbox) and `reasonix plugin doctor <name>` (one package).
+start failure); `2` is bad flags. This is separate from `deep-tutor doctor`
+(providers/sandbox) and `deep-tutor plugin doctor <name>` (one package).
 
 ## Plugins (MCP)
 
-Reasonix is an MCP client. A `[[plugins]]` entry's `type` selects the transport:
+Deep-tutor is an MCP client. A `[[plugins]]` entry's `type` selects the transport:
 `stdio` (default) launches a local subprocess (`command`/`args`/`env`); `http`
 (Streamable HTTP) connects to a remote `url` with optional static `headers`
 (`${VAR}` / `${VAR:-default}` expanded from the environment, so tokens stay out
@@ -1225,31 +1225,31 @@ headers = { IJ_MCP_SERVER_PROJECT_PATH = "${REASONIX_WORKSPACE_ROOT}" }
 
 For a remote HTTP server without a static `Authorization` header, an
 authentication challenge (HTTP 401 with a `Bearer` challenge) is reported as
-needing sign-in. Run `reasonix mcp auth <name>` in the CLI; Studio has no
-sign-in control yet. Reasonix performs OAuth metadata discovery, dynamic
+needing sign-in. Run `deep-tutor mcp auth <name>` in the CLI; Studio has no
+sign-in control yet. Deep-tutor performs OAuth metadata discovery, dynamic
 client registration, PKCE S256 authorization, and refresh-token
-rotation. Discovery and token requests use the same Reasonix network-proxy
+rotation. Discovery and token requests use the same Deep-tutor network-proxy
 settings as the MCP connection.
 
 OAuth client and token state is kept outside the workspace in the server's
-private Reasonix state directory, written with mode `0600`, and bound to the
+private Deep-tutor state directory, written with mode `0600`, and bound to the
 full configured resource URL. An explicit static `Authorization` header always
-takes precedence. **Clear authentication** removes only Reasonix's local OAuth
-state; it does not sign out the third-party browser session. Reasonix opens the
+takes precedence. **Clear authentication** removes only Deep-tutor's local OAuth
+state; it does not sign out the third-party browser session. Deep-tutor opens the
 browser only after an explicit sign-in action, never automatically from a
 background tool-call failure. Removing the MCP server also removes its local
 OAuth state unless a lower-priority declaration for the same resource becomes
 effective.
 
 Browse the official MCP Registry from **Settings → MCP servers → Browse
-registry**, or use `reasonix mcp browse [query]` and
-`reasonix mcp install <registry-name>`. Registry access is explicit and never
+registry**, or use `deep-tutor mcp browse [query]` and
+`deep-tutor mcp install <registry-name>`. Registry access is explicit and never
 runs during startup. Entries that need secrets or required arguments are shown
 as manual setup instead of being installed with an incomplete configuration;
 query-specific cached results remain available during a registry outage.
 
 The normal setup path is intentionally one step. Use Desktop's **Add and
-connect**, `/mcp add`, or ask Reasonix to install a package or URL. These
+connect**, `/mcp add`, or ask Deep-tutor to install a package or URL. These
 explicit installs are saved to the user-global `config.toml` and are also
 authorization: the server connects in the current session, and no second trust
 step appears now or on the next startup. Servers declared by the current
@@ -1290,14 +1290,14 @@ destructive approval setting. Explicit global deny rules still win. The host
 keeps `readOnlyHint` and `destructiveHint` internally for parallel scheduling,
 Plan restrictions, strict read-only sub-agents, and cached-to-live safety
 reclassification; these hints do not add user configuration.
-Reasonix deliberately trusts an installed server to describe those hints
+Deep-tutor deliberately trusts an installed server to describe those hints
 honestly. Planner/read-only filtering is therefore a workflow boundary for
 trusted servers, not containment against a malicious MCP server; explicit deny
 rules and the process sandbox remain host-controlled boundaries.
 
 The retired `trusted_read_only_tools`, `default_tools_approval_mode`,
 `tools.<raw>.approval_mode`, and `approvals_reviewer` fields are ignored when
-loading older files and removed the next time Reasonix saves that MCP entry.
+loading older files and removed the next time Deep-tutor saves that MCP entry.
 
 A server's **prompts** surface as `/mcp__<server>__<prompt>` slash commands
 (positional args after the command); its **resources** are pulled in by writing
@@ -1327,7 +1327,7 @@ desktop MCP panel to refresh status, reconnect a server, inspect failures, or
 disable a server for the current session. For a read-only config/runtime health
 report across skills, hooks, packages, and MCP (without changing settings), see
 [Capability diagnostics](./CAPABILITY_DIAGNOSTICS.md)
-(`reasonix doctor capabilities` or **Settings → Diagnostics**).
+(`deep-tutor doctor capabilities` or **Settings → Diagnostics**).
 
 An interactive caller waits only briefly for a cold server. If that wait ends,
 the shared startup continues in the background rather than being killed and
@@ -1341,9 +1341,9 @@ Set `disabled_tools = ["write_file", "delete_file"]` in a server's `[[plugins]]`
 - Names match `tools/list` exactly, before namespacing or prefix stripping. An empty list leaves every tool enabled.
 - Hidden tools stay out of the registry, capability catalog, `/mcp` tool lists and schema token counts, including cached schemas. Config saves preserve the list.
 - Restart the session or disconnect and reconnect the server after editing it. An active session keeps its existing schema prefix.
-- This controls the tools Reasonix exposes; it does not sandbox the server process.
+- This controls the tools Deep-tutor exposes; it does not sandbox the server process.
 
-**Already have an `.mcp.json`?** Drop it in the project root and Reasonix
+**Already have an `.mcp.json`?** Drop it in the project root and Deep-tutor
 reads it as-is — the `mcpServers` spec (`command`/`args`/`env`, `type`/`url`/
 `headers`, `${VAR}` expansion) maps field-for-field onto `[[plugins]]`. Both
 sources are merged; on a name collision `reasonix.toml` wins.
@@ -1364,7 +1364,7 @@ convenient.
 
 ## Slash commands
 
-In an interactive `reasonix` session, built-in commands (`/compact`, `/context`, `/new`, `/clear`, `/rewind`,
+In an interactive `deep-tutor` session, built-in commands (`/compact`, `/context`, `/new`, `/clear`, `/rewind`,
 `/tree`, `/branch`, `/switch`, `/todo`, `/model`, `/work-mode`, `/mcp`, `/skills`, `/hooks`,
 `/memory`, `/goal`, `/output-style`, `/sandbox`, `/language`,
 `/reasoning-language`, `/help`, `/version`) run
@@ -1372,7 +1372,7 @@ locally — `/help` lists them all. Built-in **skills** such as `/init`,
 `/explore`, `/test`, and `/reasonix-guide` also appear in the slash menu and via
 `run_skill` (bodies load on demand; only the index line is cache-stable). Use
 `/reasonix-guide` when you need config or capability troubleshooting; it points
-at `reasonix doctor capabilities` (see
+at `deep-tutor doctor capabilities` (see
 [Capability diagnostics](./CAPABILITY_DIAGNOSTICS.md)). `/new` starts a new
 session while saving the previous transcript for history/resume; `/clear` asks
 for confirmation, then discards the current context without saving it. `/tree`
@@ -1391,19 +1391,19 @@ Subagent profiles are manual Skills with `runAs: subagent` and
 `invocation: manual`. They are stored in the same project/global Skill roots as
 the desktop settings page, so profiles created on either surface are immediately
 available to the other after the session refreshes. In interactive chat, invoke
-one with `/<name> <task>`; Reasonix runs an isolated child loop and keeps only
+one with `/<name> <task>`; Deep-tutor runs an isolated child loop and keeps only
 the task and final answer in the parent conversation.
 
 The headless CLI provides explicit management and execution commands without
-changing the ordinary `reasonix run` task semantics:
+changing the ordinary `deep-tutor run` task semantics:
 
 ```bash
-reasonix subagent list
-reasonix subagent create reviewer --description "Review changes" --prompt-file reviewer.md --tools read_file,grep,bash
-reasonix subagent edit reviewer --effort high --model deepseek-pro
-reasonix subagent try reviewer "review the current diff"   # always read-only
-reasonix subagent run reviewer "review and fix the current diff"
-reasonix subagent delete reviewer --yes
+deep-tutor subagent list
+deep-tutor subagent create reviewer --description "Review changes" --prompt-file reviewer.md --tools read_file,grep,bash
+deep-tutor subagent edit reviewer --effort high --model deepseek-pro
+deep-tutor subagent try reviewer "review the current diff"   # always read-only
+deep-tutor subagent run reviewer "review and fix the current diff"
+deep-tutor subagent delete reviewer --yes
 ```
 
 `create` defaults to project scope when a workspace is available and to global
@@ -1431,7 +1431,7 @@ Context Engine v2 separates two intentionally different layers:
   `global`), plus freshness metadata. Facts may be stale, so they never outrank
   the current request or standing instructions.
 
-Before a turn that changed files may finish, Reasonix asks whether a check ran
+Before a turn that changed files may finish, Deep-tutor asks whether a check ran
 after the last write. It recognises the common runners on its own — `go test`,
 `pytest`, `npm test`, `make check`, `cargo test`, `tsc --noEmit` and the like —
 but it deliberately cannot tell `python deploy.py` from `python run_tests.py`.
@@ -1455,7 +1455,7 @@ Declaring checks is the stronger, optional form. Name them in any
 standing-instruction file, under exactly this heading:
 
 ```markdown
-## Reasonix host checks
+## Deep-tutor host checks
 
 - verify: python -m pytest tests/
 - verify: python scripts/screening.py --self-check
@@ -1470,7 +1470,7 @@ never become gates.
 The same section names the paths whose changes deserve the hardest review:
 
 ```markdown
-## Reasonix host checks
+## Deep-tutor host checks
 
 - sensitive: src/auth/**
 - sensitive: infra/network.tf
@@ -1482,7 +1482,7 @@ the host cannot name a path for, or ten or more paths at once). Sensitivity is
 declared rather than inferred, because a path's spelling cannot tell
 `internal/auth` from `session_write_authority.go`.
 
-Reasonix automatically recalls a small set of relevant facts before each real
+Deep-tutor automatically recalls a small set of relevant facts before each real
 user turn. It searches the raw user message, suppresses generic requests such as
 "continue", prefers project facts over equivalent global fallbacks, down-ranks
 stale facts, and appends at most four facts / 2,400 characters to the user turn.
@@ -1537,11 +1537,11 @@ MCP prompts also appear here as `/mcp__<server>__<prompt>`.
 
 ## Embedded documentation retrieval
 
-Reasonix bundles the Markdown files from `docs/` into each CLI and Desktop
+Deep-tutor bundles the Markdown files from `docs/` into each CLI and Desktop
 build. The read-only `docs` tool searches that exact offline corpus with local
 BM25 retrieval and can read a complete matching section with source provenance.
 The agent should use the tool before web search or assumptions when a question
-concerns Reasonix configuration, CLI/Desktop behavior, permissions, MCP, memory,
+concerns Deep-tutor configuration, CLI/Desktop behavior, permissions, MCP, memory,
 recovery, providers, or maintainer workflows.
 
 No setup, network connection, vector database, or embedding service is needed.
@@ -1554,14 +1554,14 @@ an online page cannot silently replace version-matched local guidance.
 
 Use `/docs` to inspect the bundled corpus identity and usage examples without
 calling a model. Use `/docs <question>` (for example,
-`/docs how to configure an MCP server`) to make Reasonix search the corpus
+`/docs how to configure an MCP server`) to make Deep-tutor search the corpus
 locally first and then pass the matched sections to the currently configured AI
 for a sourced answer. This command path does not depend on the model deciding to call
 the `docs` tool, while ordinary natural-language questions may still use the
 tool automatically. Existing custom commands and compatible plugin or skill
 aliases keep ownership of `/docs`; when that happens, CLI and Desktop normally
-expose the built-in corpus as `/reasonix:docs` instead. If that qualified name is
-also already owned, Reasonix selects the next free `reasonix:`-qualified fallback
+expose the built-in corpus as `/deep-tutor:docs` instead. If that qualified name is
+also already owned, Deep-tutor selects the next free `deep-tutor:`-qualified fallback
 without displacing it. A remote Desktop uses the host's resolved command catalog,
 so the displayed entry always matches what that host will execute.
 
@@ -1572,7 +1572,7 @@ why the existing version-matched guidance remains correct.
 
 ## Goal
 
-Goal is the unified runtime for long-running objectives. Reasonix keeps working
+Goal is the unified runtime for long-running objectives. Deep-tutor keeps working
 until the goal is complete, blocked, paused, or cleared. Ordinary chat never
 changes collaboration mode implicitly; choose Goal in the composer or use
 `/goal` to start a long-running objective.
@@ -1626,7 +1626,7 @@ accepted for compatibility but are hidden from help and completion.
 
 ## @ references
 
-Embed `@` references in a message and Reasonix resolves them before sending, as
+Embed `@` references in a message and Deep-tutor resolves them before sending, as
 tagged context blocks: `@path/to/file` (or `@dir`) injects a local file's
 contents (or a directory listing), and `@<server>:<uri>` injects an MCP
 resource. A local path is only treated as a reference when it actually exists,
@@ -1650,7 +1650,7 @@ Copying does not open the entry or send a message.
 
 ## Two-model collaboration
 
-`reasonix setup` manages providers, model lists, credentials, connection tests,
+`deep-tutor setup` manages providers, model lists, credentials, connection tests,
 and the default model. It stages changes until Save and exit, and synchronizes
 provider access with the desktop app. See the [CLI reference](./CLI.md#configure-providers).
 Running two models together (executor + planner, separate cache-stable sessions)
@@ -1665,7 +1665,7 @@ The planner sees loaded `REASONIX.md` / `AGENTS.md` memory and a small read-only
 research tool set, so it can inspect relevant files before handing a plan to the
 executor. Writer and workflow tools remain executor-only.
 
-Reasonix routes each turn deterministically without another classifier model:
+Deep-tutor routes each turn deterministically without another classifier model:
 questions, short follow-ups, clear atomic edits, and bounded read-only actions
 go straight to the executor; bounded implementation work may receive a short
 light plan. Ambiguous, cross-surface, structured, high-risk, active-Goal, or
@@ -1696,7 +1696,7 @@ plan-and-execute work continues with the executor using the original task.
 Plan-only and approval-gated requests remain fail-closed, and the incomplete
 planner turn is rolled back instead of leaving an unusable continuation tail.
 
-Reasonix manages normal execution automatically: if an active todo produces no
+Deep-tutor manages normal execution automatically: if an active todo produces no
 new completion, unique read, command, or mutation for 8 tool-call rounds, the
 host asks the executor to reassess. In Goal mode, the later threshold forces a
 smaller step, different tool/approach, focused delegation, or a real blocker
@@ -1827,19 +1827,19 @@ the strict read-only entrances:
 | `parallel_tasks` (read-only) | Concurrent read-only research children |
 | `fleet` with `read_only: true` | Parallel profile-aware batch (forced read-only per item) |
 | `read_only_skill` | The same isolation driving an existing skill |
-| `reasonix review` (CLI) | Read-only review of a diff or branch |
+| `deep-tutor review` (CLI) | Read-only review of a diff or branch |
 | Desktop preview/review subagents | Read-only desktop analysis surfaces |
 
-`reasonix review` treats the checkout it reviews as untrusted input and runs
+`deep-tutor review` treats the checkout it reviews as untrusted input and runs
 only your own configuration:
 
-- The review skill is the built-in one, or one in your Reasonix home or
+- The review skill is the built-in one, or one in your Deep-tutor home or
   home-directory skill folders. No project skill directory is read, so a
   `<root>/.reasonix/skills/review` never replaces it.
 - Tools and their sandbox, including `[tools.search]` `engine` and `rg_path`,
-  come from `<Reasonix home>/config.toml`, never from the checkout's
+  come from `<Deep-tutor home>/config.toml`, never from the checkout's
   `reasonix.toml`.
-- Hooks are only the ones you configured under the Reasonix home: the global
+- Hooks are only the ones you configured under the Deep-tutor home: the global
   `settings.json` and installed plugins. Project hooks from the checkout
   (`<root>/.reasonix/settings.json`) never run, and the interpreter those hooks
   use comes from your own `[tools.shell]`.
@@ -1899,7 +1899,7 @@ non-destructive MCP, while a strict child requires an explicit reader hint and
 never exposes writers at all.
 
 Choose the startup execution setting with
-`--preset balanced|delivery` (for example, `reasonix run --preset
+`--preset balanced|delivery` (for example, `deep-tutor run --preset
 delivery "fix and verify this bug"`). Legacy `--profile economy|balanced|delivery`
 still works (`economy` maps to `light`). All three execution settings share the same
 provider-visible core tool surface: direct read/bash/edit/write, background-shell
@@ -1942,13 +1942,13 @@ for one compatibility version.
 
 For interactive frontends, Plan Mode is always an explicit user choice. Select
 Plan in the desktop collaboration-mode control or cycle to Plan with
-`Shift+Tab` in the CLI. Reasonix first drafts a plan, then waits for approval
+`Shift+Tab` in the CLI. Deep-tutor first drafts a plan, then waits for approval
 before the workflow switches to implementation. Tool calls made while drafting
 still use the current Permissions and Sandbox. Legacy `agent.auto_plan` and
 `agent.auto_plan_classifier` values are ignored and removed from the user config
 during upgrade. The visible reasoning language can be changed with
 `/reasoning-language auto|zh|en` in the
-session, or `reasonix config reasoning-language auto|zh|en` in a shell/script.
+session, or `deep-tutor config reasoning-language auto|zh|en` in a shell/script.
 Pass `--local`
 to the reasoning-language shell command only when you intentionally want a
 project-local override.

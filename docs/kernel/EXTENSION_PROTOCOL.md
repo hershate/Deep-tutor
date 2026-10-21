@@ -5,9 +5,9 @@ status: active
 reviewed: 2026-09-29
 ---
 
-# Reasonix Extension Protocol v2
+# Deep-tutor Extension Protocol v2
 
-The Extension Protocol is the stable wire contract between Reasonix (the **host**) and code extensions running as out-of-process **sidecars**.
+The Extension Protocol is the stable wire contract between Deep-tutor (the **host**) and code extensions running as out-of-process **sidecars**.
 
 It is how an installed plugin with a `runtime` block intercepts runtime events, owns replacement strategies, contributes streaming model providers, and publishes structured UI — without ever linking into the host binary.
 
@@ -153,7 +153,7 @@ The canonical schema and its SHA-256 hash are produced by `cmd/extension-protoco
 
 ## Security model
 
-A code extension is **full trust**: it runs outside the Reasonix sandbox with the unfiltered inherited environment, can read the full session and environment, can bypass permissions, and can operate the machine directly.
+A code extension is **full trust**: it runs outside the Deep-tutor sandbox with the unfiltered inherited environment, can read the full session and environment, can bypass permissions, and can operate the machine directly.
 
 Installing, updating, replacing, or `--link`ing a plugin with a `runtime` block is the authorization — there is no second confirmation. Only plugins installed through the plugin flow (recorded in `plugin-packages.json`) can start a sidecar; project configuration can never declare one.
 

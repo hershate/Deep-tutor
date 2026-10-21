@@ -7,7 +7,7 @@ reviewed: 2026-10-01
 
 # Skills
 
-Reasonix loads [Agent Skills](https://agentskills.io): a folder with a
+Deep-tutor loads [Agent Skills](https://agentskills.io): a folder with a
 `SKILL.md` file whose frontmatter names and describes the skill and whose body
 is the playbook. Skills written for other agents work unchanged.
 
@@ -24,14 +24,14 @@ earlier scope wins: project, then custom, then global, then built-in.
 | --- | --- |
 | Project | `<repo>/.reasonix/skills`, `<repo>/.agents/skills`, `<repo>/.agent/skills`, `<repo>/.claude/skills` |
 | Custom | every entry in `[skills] paths` |
-| Global | `<Reasonix home>/skills` (`~/.reasonix` on macOS/Linux, `%APPDATA%\reasonix` on Windows, or `$REASONIX_HOME`), `~/.reasonix/skills`, `~/.agents/skills`, `~/.agent/skills`, `~/.claude/skills` |
-| Built-in | shipped with Reasonix (`explore`, `research`, `review`, `security-review`, …) |
+| Global | `<Deep-tutor home>/skills` (`~/.reasonix` on macOS/Linux, `%APPDATA%\reasonix` on Windows, or `$REASONIX_HOME`), `~/.reasonix/skills`, `~/.agents/skills`, `~/.agent/skills`, `~/.claude/skills` |
+| Built-in | shipped with Deep-tutor (`explore`, `research`, `review`, `security-review`, …) |
 
 Symlinked skill folders are followed. Under `.claude` roots a flat `<name>.md`
 file also loads, but only when it carries skill frontmatter.
 
 Installers that target `.reasonix/skills` — for example
-`npx skills add <repo> -a reasonix` — land in a directory Reasonix already scans.
+`npx skills add <repo> -a deep-tutor` — land in a directory Deep-tutor already scans.
 
 ## How a skill runs
 
@@ -49,7 +49,7 @@ it, the catalog lists names without descriptions and points to
 `use_capability` search; if names also exceed it, whole entries are omitted
 with a count of the remaining skills, which search still reaches.
 
-Reasonix projects the catalog into user-turn context when first needed, when
+Deep-tutor projects the catalog into user-turn context when first needed, when
 its visible contents change, or after compaction. The cache-stable system
 prefix stays unchanged.
 
@@ -67,7 +67,7 @@ Each skill's body is loaded when that skill is invoked.
 
 ## Frontmatter
 
-`name` and `description` are the Agent Skills fields. Reasonix also reads:
+`name` and `description` are the Agent Skills fields. Deep-tutor also reads:
 
 | Key | Meaning |
 | --- | --- |
@@ -177,7 +177,7 @@ When the listing changes:
 - `/skills` lists every loaded skill with its scope and path.
 - `/skills disable <name>` and `/skills enable <name>` hide or restore a skill in
   this project; add `--global` to apply everywhere.
-- `reasonix doctor` reports skill health warnings, such as a missing
+- `deep-tutor doctor` reports skill health warnings, such as a missing
   description or a required capability that is not available.
 
 ```toml
@@ -225,7 +225,7 @@ Skills also arrive inside plugin packages; see [PLUGIN_PACKAGES.md](PLUGIN_PACKA
    Write the body so it explains missing setup rather than claiming a result.
 
 6. Use [capability diagnostics](CAPABILITY_DIAGNOSTICS.md) to check configuration;
-   its live probe is separate from an open session's connection. `reasonix doctor`
+   its live probe is separate from an open session's connection. `deep-tutor doctor`
    warns about missing or host-failed MCP servers for `auto-use: require` skills.
    A clean report does not prove runtime readiness.
 
@@ -250,13 +250,13 @@ git commit -m "Add shared review skill"
 ```
 
 Check that the file is tracked, including any required files in its skill
-folder. Open Reasonix in the checkout, confirm `/skills` lists `team-review`
+folder. Open Deep-tutor in the checkout, confirm `/skills` lists `team-review`
 from the project path, and invoke `/team-review inspect this change`.
 A project skill takes precedence over a personal skill with the same name.
 
 `/skills disable team-review` records a personal project switch in your
-Reasonix home; it does not edit the committed playbook. Linked worktrees of
-the same repository share that project switch within one Reasonix home.
+Deep-tutor home; it does not edit the committed playbook. Linked worktrees of
+the same repository share that project switch within one Deep-tutor home.
 Collaborators using separate homes can choose independently.
 
 Use `/skills enable team-review` to restore it. To retire the shared playbook,

@@ -32,12 +32,12 @@ description: Draft a release note from the changes the user selects.
 3. Draft a short note with links to the selected changes.
 4. Report anything that could not be verified; never invent a test result.
 SKILL
-reasonix doctor
+deep-tutor doctor
 ```
 
-Start a Reasonix session in that repository, run `/skills`, and invoke `/release-note` with a small, known set of changes. Check that the draft cites only those changes.
+Start a Deep-tutor session in that repository, run `/skills`, and invoke `/release-note` with a small, known set of changes. Check that the draft cites only those changes.
 
-`reasonix doctor` reports missing descriptions and unavailable declared capabilities; fix them before publishing. [Skills](SKILLS.md) describes scope, `requires`, and invocation.
+`deep-tutor doctor` reports missing descriptions and unavailable declared capabilities; fix them before publishing. [Skills](SKILLS.md) describes scope, `requires`, and invocation.
 
 ### 2. Package and preview it
 
@@ -55,10 +55,10 @@ cat > my-plugin/reasonix-plugin.json <<'JSON'
   "contributes": { "skills": ["skills"] }
 }
 JSON
-reasonix plugin install ./my-plugin --dry-run
-reasonix plugin install ./my-plugin --link --yes
-reasonix plugin doctor release-note-kit
-reasonix plugin show release-note-kit
+deep-tutor plugin install ./my-plugin --dry-run
+deep-tutor plugin install ./my-plugin --link --yes
+deep-tutor plugin doctor release-note-kit
+deep-tutor plugin show release-note-kit
 ```
 
 The dry run previews files and capabilities without writing them. `--link` is for local development: edits to the directory remain live source changes.
@@ -98,7 +98,7 @@ Follow [Extensions](EXTENSIONS.md) for build, reload, and protocol checks. SDK t
 2. Choose **Private** to save a package visible only to your account. Test it under **My packages**; you can submit it for review there later. A public submission enters the review queue. Neither state means the package is already recommended or installable by others.
 3. Follow the status under **My packages**. If review rejects the version, fix the source and submit a new version. Keep the tested commit and example evidence available to the reviewer.
 4. For an update, increase the package version, repeat the local preview, doctor, and real-task check, then submit the new fixed source. Users keep their installed version until they choose an update.
-5. To stop using a local linked plugin, disable it or run `reasonix plugin remove release-note-kit --yes`. Removal does not delete the external source directory.
+5. To stop using a local linked plugin, disable it or run `deep-tutor plugin remove release-note-kit --yes`. Removal does not delete the external source directory.
 
 A reviewer-recorded content digest lets users install without extra trust. An approved version without one requires an explicit **Trust and install** preview and confirmation.
 

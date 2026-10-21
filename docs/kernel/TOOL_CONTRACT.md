@@ -7,7 +7,7 @@ reviewed: 2026-09-29
 
 # Tool Contract
 
-This document records the provider-visible contract for Reasonix compile-time built-in tools. It is generated from the same canonical schema path used by the runtime registry.
+This document records the provider-visible contract for Deep-tutor compile-time built-in tools. It is generated from the same canonical schema path used by the runtime registry.
 
 | Tool | Read-only | Description |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ The test checks that every registered built-in tool has a documented name, read-
 
 ## Default Full Boot Surface
 
-In a default full-token boot, Reasonix sends the built-in tools above plus the
+In a default full-token boot, Deep-tutor sends the built-in tools above plus the
 session, memory, skill, subagent, LSP, install, and slash-command tools below:
 
 Single-model Balanced uses this exact executor tool surface.

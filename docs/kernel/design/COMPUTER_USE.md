@@ -15,7 +15,7 @@ Model changes, reloads and workspace switches retain the host driver; closing a 
 
 The canonical embedded manifest is internal/platform/computer/cua-driver.lock.json. Go, Electron readiness and artifact installation read that contract; the packaged shell receives the same file as a resource.
 
-Reasonix Studio packages the maintained Rust CUA Driver 0.34.1 on macOS, Windows and Linux.
+Deep-tutor Studio packages the maintained Rust CUA Driver 0.34.1 on macOS, Windows and Linux.
 
 The release is marked prerelease upstream; its exact artifact names and SHA-256 digests are fixed in the Electron packaging lock.
 
@@ -25,7 +25,7 @@ No self-update, perception-model installation or remote desktop service is enabl
 
 The bundled driver is MIT licensed; its notice ships with the desktop assets.
 
-Reasonix owns application authorization, forbidden applications, separately approved foreground pointer input, session ownership and trajectory projection.
+Deep-tutor owns application authorization, forbidden applications, separately approved foreground pointer input, session ownership and trajectory projection.
 
 CUA owns OS accessibility, capture, input delivery and cursor implementation.
 
@@ -77,13 +77,13 @@ Paste delegates text delivery to CUA; physical-pointer restoration is not promis
 
 Delivery and target effect are separate.
 
-CUA confirmed+value_readback maps to Reasonix confirmed; window-change-only, partial, suspected-noop and unverifiable results retain conservative effect-unverified status and the raw delivery facts.
+CUA confirmed+value_readback maps to Deep-tutor confirmed; window-change-only, partial, suspected-noop and unverifiable results retain conservative effect-unverified status and the raw delivery facts.
 
 An unverified step is recorded and the batch continues with the effect shown to the model; a partial or suspected-noop step is recorded and then stops the batch for fresh inspection.
 
 The pinned macOS set_value result uses path=ax. The adapter retains that field and maps its route to accessibility without adopting the legacy verified flag or inventing value_readback evidence.
 
-CUA does not provide the former helper's structured modal identity; Reasonix never invents that identity from a title or summary.
+CUA does not provide the former helper's structured modal identity; Deep-tutor never invents that identity from a title or summary.
 
 macOS uses an Electron-owned private embedded service.
 

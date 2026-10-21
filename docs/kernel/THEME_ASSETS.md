@@ -1,6 +1,6 @@
 # Official Theme Asset Provenance
 
-All eight official Reasonix themes ship with **original** artwork generated procedurally
+All eight official Deep-tutor themes ship with **original** artwork generated procedurally
 from scratch with the scripts in `scripts/official-theme-art/` (numpy + Pillow, fixed seeds,
 fully reproducible). The visual *direction* was inspired by the MIT-licensed
 [Codex-Dream-Skin](https://github.com/Fei-Away/Codex-Dream-Skin) concept gallery, but:
@@ -14,8 +14,8 @@ fully reproducible). The visual *direction* was inspired by the MIT-licensed
 - Backgrounds contain no windows, sidebars, cards, buttons, inputs or readable text, and are
   stripped of EXIF/author metadata.
 
-Assets are released under the MIT License as part of the Reasonix repository,
-© Reasonix Contributors. Human review: Reasonix Contributors (release PR review).
+Assets are released under the MIT License as part of the Deep-tutor repository,
+© Deep-tutor Contributors. Human review: Deep-tutor Contributors (release PR review).
 
 Generation date: 2026-07-17
 

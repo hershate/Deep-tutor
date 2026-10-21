@@ -14,13 +14,13 @@ It contributes one theme and no skills, hooks, commands, MCP servers or runtime.
 
 ## Install and try the starter
 
-From this repository's root, with the Studio `reasonix` CLI on your PATH:
+From this repository's root, with the Studio `deep-tutor` CLI on your PATH:
 
 ```bash
-reasonix plugin install ./docs/themes --dry-run
-reasonix plugin install ./docs/themes --yes
-reasonix plugin doctor paper-dawn-kit
-reasonix plugin show paper-dawn-kit
+deep-tutor plugin install ./docs/themes --dry-run
+deep-tutor plugin install ./docs/themes --yes
+deep-tutor plugin doctor paper-dawn-kit
+deep-tutor plugin show paper-dawn-kit
 ```
 
 Review the preview before installing: it should contain one plugin action with
@@ -56,7 +56,7 @@ For a live local development copy:
 
 ```bash
 cd /absolute/path/to/my-palette
-reasonix plugin install . --link --yes
+deep-tutor plugin install . --link --yes
 ```
 
 A link source must be inside the current workspace or your home directory.
@@ -68,8 +68,8 @@ and reselect the theme to reread its tokens. For a copied installation, preview
 and apply the replacement instead:
 
 ```bash
-reasonix plugin install /absolute/path/to/my-palette --replace --dry-run
-reasonix plugin install /absolute/path/to/my-palette --replace --yes
+deep-tutor plugin install /absolute/path/to/my-palette --replace --dry-run
+deep-tutor plugin install /absolute/path/to/my-palette --replace --yes
 ```
 
 Use your package's manifest name in management commands. Share an immutable
@@ -160,9 +160,9 @@ both schemes and at phone width before sharing a pack.
 ## Disable and clean up
 
 ```bash
-reasonix plugin disable paper-dawn-kit
-reasonix plugin enable paper-dawn-kit
-reasonix plugin remove paper-dawn-kit --yes
+deep-tutor plugin disable paper-dawn-kit
+deep-tutor plugin enable paper-dawn-kit
+deep-tutor plugin remove paper-dawn-kit --yes
 ```
 
 Restart Studio after external CLI changes, then reopen Appearance settings.

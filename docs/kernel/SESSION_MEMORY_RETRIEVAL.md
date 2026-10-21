@@ -7,7 +7,7 @@ reviewed: 2026-09-29
 
 # Context Engine v2: Instructions, Memory, and Retrieval
 
-Context Engine v2 gives Reasonix two durable context layers with different
+Context Engine v2 gives Deep-tutor two durable context layers with different
 authority:
 
 - **Standing instructions** define how the agent must work.
@@ -46,7 +46,7 @@ agent's background-fact `remember` tool.
 
 ## Instruction resolution
 
-Reasonix recognizes `REASONIX.md`, `AGENTS.md`, and `CLAUDE.md`, plus matching `.local.md` variants. It first loads user-global instruction files from the Reasonix home directory.
+Deep-tutor recognizes `REASONIX.md`, `AGENTS.md`, and `CLAUDE.md`, plus matching `.local.md` variants. It first loads user-global instruction files from the Deep-tutor home directory.
 
 It then walks from the workspace root to the target path; at each directory it loads the normal files followed by that directory's `.local.md` files.
 
@@ -126,7 +126,7 @@ recall match.
 
 ## Automatic recall
 
-Before each real user turn, Reasonix searches active facts using the raw user
+Before each real user turn, Deep-tutor searches active facts using the raw user
 message. Host-added provider context is not fed back into the query. The selected
 facts are appended to that user turn as a bounded, low-authority suffix; they do
 not mutate the system prompt or tool schema.
@@ -180,7 +180,7 @@ output matters.
 
 ## Safe writes and confirmation
 
-The ordinary path is zero-configuration. Reasonix may automatically create a
+The ordinary path is zero-configuration. Deep-tutor may automatically create a
 new memory only when all of these conditions hold:
 
 - the owning controller has the current project store (interactive or top-level
@@ -217,7 +217,7 @@ approval prompt.
 Updating a fact creates an immutable snapshot of the previous revision. A stale
 `expected_revision` is rejected instead of overwriting a newer edit.
 
-Restoring an old revision does not rewind storage in place. Reasonix copies the
+Restoring an old revision does not rewind storage in place. Deep-tutor copies the
 chosen content into a new, higher revision, preserving a monotonic audit trail:
 
 ```text
@@ -249,7 +249,7 @@ There is no setup toggle. It proposes:
 
 Scanning uses original user content, deduplicates against facts from both scopes and loaded instruction bodies, and never writes by itself. Every candidate shows evidence and must be explicitly accepted.
 
-Remote workspaces fail closed: Reasonix does not fall back to local sessions or local memory when the remote surface cannot provide the feature.
+Remote workspaces fail closed: Deep-tutor does not fall back to local sessions or local memory when the remote surface cannot provide the feature.
 
 ## Management surfaces
 

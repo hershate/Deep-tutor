@@ -7,11 +7,11 @@ reviewed: 2026-09-29
 
 # Tool permissions: Ask, Auto, and Yolo
 
-The Ask / Auto / Yolo control under the desktop composer sets how Reasonix handles tool permission approvals. All three modes stay visible so you can switch directly without relying on a shortcut or settings page.
+The Ask / Auto / Yolo control under the desktop composer sets how Deep-tutor handles tool permission approvals. All three modes stay visible so you can switch directly without relying on a shortcut or settings page.
 
 Tool permission is independent of collaboration mode:
 
-- **Collaboration / runtime mode** decides how Reasonix advances the task (lightweight, balanced, or delivery-first).
+- **Collaboration / runtime mode** decides how Deep-tutor advances the task (lightweight, balanced, or delivery-first).
 - **Tool permission** decides whether controlled tools wait for approval before running.
 
 ## Quick comparison
@@ -24,7 +24,7 @@ Tool permission is independent of collaboration mode:
 
 ## Ask mode
 
-Ask is the most conservative tool-permission mode. When Reasonix needs approval for a tool call, an approval card appears so you can allow once, allow for the session, always allow, or deny.
+Ask is the most conservative tool-permission mode. When Deep-tutor needs approval for a tool call, an approval card appears so you can allow once, allow for the session, always allow, or deny.
 
 Dynamic Bash never inherits a broader Bash, prefix, or glob rule. Parameter/arithmetic expansions, assignments, redirects, heredocs, and globs still follow the normal mode fallback, while nested/indirect execution requires this human approval path in interactive Ask and Auto.
 
@@ -40,7 +40,7 @@ Reusable choices save the identical complete command as `Bash=<literal>`.
 - Outside a pending CLI Plan confirmation, `Esc` stops the current task.
 - If you `Tab` to a button and press `Enter`, that focused button runs (it is not overridden by the highlight).
 
-Headless `reasonix run` has no approval card to answer. Its default Ask posture therefore fails closed for writer fallback and explicit ask rules instead of adding prompts or silently approving them.
+Headless `deep-tutor run` has no approval card to answer. Its default Ask posture therefore fails closed for writer fallback and explicit ask rules instead of adding prompts or silently approving them.
 
 Use the existing `--auto` / `-y` option when unattended automation should allow ordinary writer fallback; no additional safety setting is required.
 
@@ -102,7 +102,7 @@ requirement. It still does not bypass explicit `deny` rules or the sandbox.
   or use the current binding shown in **Settings → Shortcuts** (`Ctrl+Y` /
   `Cmd+Y` by default).
 - Select Ask or Auto directly to leave Yolo.
-- When entered via shortcut, Reasonix remembers the previous Ask/Auto baseline and restores it on the next toggle.
+- When entered via shortcut, Deep-tutor remembers the previous Ask/Auto baseline and restores it on the next toggle.
 
 ## Recursive shell deletes
 

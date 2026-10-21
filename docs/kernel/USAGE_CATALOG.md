@@ -1,6 +1,6 @@
 # Usage Catalog
 
-Reasonix stores disposable usage rollups at `<cache root>/usage-catalog/v1.sqlite`.
+Deep-tutor stores disposable usage rollups at `<cache root>/usage-catalog/v1.sqlite`.
 Daily statistics JSONL remains authoritative and byte-compatible with older
 versions. The catalog records file offsets and line hashes for cross-process
 idempotency, then derives daily source/model/provider rollups.
@@ -18,8 +18,8 @@ background index catches up. Catalog failures never block provider events,
 turn completion, controller startup, or shutdown.
 
 ```sh
-reasonix doctor catalogs [--json]
-reasonix catalogs reindex usage [--json]
+deep-tutor doctor catalogs [--json]
+deep-tutor catalogs reindex usage [--json]
 ```
 
 Diagnostics expose schema, integrity, lag, counts, and failures without model

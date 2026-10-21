@@ -1,12 +1,19 @@
-# docs/kernel/ — Reasonix 内核工程文档（上游吸收）
+# docs/kernel/ — Deep-tutor 内核工程文档（上游吸收）
 
-> **本目录内容源自 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），MIT License，Copyright (c) 2026 Reasonix Contributors。**
+> **本目录内容源自 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），MIT License，Copyright (c) 2026 Deep-tutor Contributors。**
 > 引用声明、路径映射与修改披露见仓库根目录 [`NOTICE`](../../NOTICE) 与 [`LICENSE-REASONIX`](../../LICENSE-REASONIX)。
 
 ## 阅读须知
 
 - 文档按上游 `docs/` 收录，整体从 `docs/` 迁移到 `docs/kernel/`（`internal/tools/productdocs` 的 embed 路径相应改为 `deep-tutor/docs/kernel`）。
-- 文中的 "Reasonix" 产品名、`reasonix` 命令名、上游仓库路径、社区链接（Discord / QQ / 赞助码等）均为**上游语境**。本仓的本地化工作按 note/12 决策执行：命令改名 `deep-tutor` 属阶段① M1.2，规约本地化 `DEEPTUTOR.md` 属 M1.4，两者均未完成。
+- 文中的产品名与命令名已按 M1.4 品牌化改为 "Deep-tutor" / `deep-tutor`；上游仓库路径、社区链接（Discord / QQ / 赞助码等）仍为**上游语境**。本地化工作按 note/12 决策执行：命令改名属阶段① M1.2，规约本地化 `DEEPTUTOR.md` 属 M1.4，均已完成。
+- **未随品牌化改写的部分**（刻意保留）：
+  - 上游仓库与发布渠道标识：`DeepSeek-Reasonix`、`crash.reasonix.io`、`reasonix.io`。
+  - 数据路径：`~/.reasonix/`、`.reasonix/`、`reasonix.toml`、`reasonix/config.toml`。
+  - 协议与插件清单标识：`reasonix.io/plugin/v2`、`reasonix-plugin.json`、`_reasonix.io/`。
+  - 环境变量：`REASONIX_*`（改名以"新名优先 + 旧名兜底"方式处理，见 stage.md）。
+  - 发布产物名：`reasonix-<os>-<arch>.*`，因为 `deep-tutor upgrade` 读的仍是上游发布渠道。
+- [`STUDIO_RELEASE.md`](./STUDIO_RELEASE.md) 描述的是上游发布流水线（npm / Homebrew cask / macOS 公证）。本仓的发布路径为 GitHub Releases + minisig + SHA256SUMS，该文档在发布阶段重写而非改名。
 - 与本仓根目录同名冲突的上游原件（README、AGENTS、CLAUDE、CONTRIBUTING、SECURITY、REASONIX、design-qa 等）存放在 [`upstream/`](./upstream/)，仅作存档对照，**不是本仓生效文档**；本仓生效的是根目录同名文件。
 - 上游 CI 工作流与模板存档在 [`upstream/github/`](./upstream/github/)，不在本仓生效。
 

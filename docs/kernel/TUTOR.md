@@ -14,12 +14,12 @@ plan, then keeps the studying going: scheduled units, quizzes with a
 wrong-answer deck, spaced review, notes, and a searchable knowledge base.
 
 It is the pane every window opens on, not a page beside the agent: Studio
-and `reasonix web` share one window — rail, session column, pane strip —
+and `deep-tutor web` share one window — rail, session column, pane strip —
 with the tutor pinned first. It is an HTTP namespace (`/tutor/*`) on the
 same loopback server every frontend uses; there is no separate tutor web
 application:
 
-- One SPA is the whole interface. The agent chat — Reasonix's full surface —
+- One SPA is the whole interface. The agent chat — Deep-tutor's full surface —
   is a pane in the same window: the header's chat button (聊天) opens or
   focuses a conversation, and the rail's or the palette's entry brings the
   study pane back.
@@ -83,7 +83,7 @@ Three standing rules:
 8. `POST /tutor/sessions/{id}/cancel` cancels a running generation;
    `.../retry` reruns a failed or interrupted one from its saved run state.
 
-Web search during generation is optional and rides Reasonix's unified
+Web search during generation is optional and rides Deep-tutor's unified
 scheme: the `agent.web_search_model` selection in Model preferences, its
 credentials from the shared credential store. The tutor adds SSRF-guarded
 verification and a mandatory AI relevance gate; the search spend is

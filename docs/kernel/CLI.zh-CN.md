@@ -5,7 +5,7 @@ status: active
 reviewed: 2026-10-15
 ---
 
-# Reasonix CLI 命令参考
+# Deep-tutor CLI 命令参考
 
 <a href="../README.zh-CN.md">README</a>
 &nbsp;·&nbsp;
@@ -19,14 +19,14 @@ reviewed: 2026-10-15
 ## 启动会话
 
 ```sh
-reasonix
-reasonix --model deepseek-pro
-reasonix --preset delivery --effort high
-reasonix --dir /path/to/project
+deep-tutor
+deep-tutor --model deepseek-pro
+deep-tutor --preset delivery --effort high
+deep-tutor --dir /path/to/project
 ```
 
-不带子命令运行 `reasonix` 会进入交互式终端界面。尚未配置 provider 时，先运行
-`reasonix setup`。
+不带子命令运行 `deep-tutor` 会进入交互式终端界面。尚未配置 provider 时，先运行
+`deep-tutor setup`。
 
 | 参数 | 用途 |
 | --- | --- |
@@ -49,25 +49,25 @@ reasonix --dir /path/to/project
 ## 更新原生 CLI
 
 ```sh
-reasonix upgrade                  # 安装最新正式版
-reasonix upgrade --check          # 只报告目标版本
-reasonix upgrade --force          # 重新安装当前正式版
+deep-tutor upgrade                  # 安装最新正式版
+deep-tutor upgrade --check          # 只报告目标版本
+deep-tutor upgrade --force          # 重新安装当前正式版
 ```
 
 更新器只选择严格的 `vX.Y.Z` 非 prerelease GitHub Release。1.x 兼容期内，旧渠道
 位置参数与 `--channel` 仍可使用，但都会解析到同一正式版并打印废弃提示。历史
-`[cli].update_channel` 值不再影响更新，并会在 Reasonix 下次保存配置时移除。别名
-`reasonix update` 的行为完全相同。
+`[cli].update_channel` 值不再影响更新，并会在 Deep-tutor 下次保存配置时移除。别名
+`deep-tutor update` 的行为完全相同。
 
 ## 配置供应商
 
 ```sh
-reasonix setup                    # 管理用户全局配置
-reasonix setup --local            # 管理 ./reasonix.toml
-reasonix setup /path/to/config.toml
+deep-tutor setup                    # 管理用户全局配置
+deep-tutor setup --local            # 管理 ./reasonix.toml
+deep-tutor setup /path/to/config.toml
 ```
 
-在交互式终端中，`reasonix setup` 是一个暂存式供应商管理器。它会列出已配置的
+在交互式终端中，`deep-tutor setup` 是一个暂存式供应商管理器。它会列出已配置的
 provider，并支持：
 
 - 添加 OpenAI-compatible 或 Anthropic-compatible provider；
@@ -81,7 +81,7 @@ provider，并支持：
 不会直接覆盖。
 
 Provider 定义只保存 `api_key_env` 变量名。即使使用 `--local`，Key 的真实值也始终保存
-在 CLI 与桌面端共用的 Reasonix 全局 `.env` 中。如果变量名已被其他 provider 使用，
+在 CLI 与桌面端共用的 Deep-tutor 全局 `.env` 中。如果变量名已被其他 provider 使用，
 setup 会询问是否共享该凭据；两个 provider 使用不同 Key 时，应改用不同变量名。通过
 setup 添加或删除 provider 时，也会同步维护桌面端 provider access，因此相同模型可以
 直接在桌面端使用。
@@ -91,10 +91,10 @@ setup 添加或删除 provider 时，也会同步维护桌面端 provider access
 使用用户全局货币命令查看或选择费用展示币种：
 
 ```sh
-reasonix config currency             # 显示已保存值和最终解析结果
-reasonix config currency auto        # 钱包币种优先，否则原币价表币种
-reasonix config currency CNY
-reasonix config currency USD
+deep-tutor config currency             # 显示已保存值和最终解析结果
+deep-tutor config currency auto        # 钱包币种优先，否则原币价表币种
+deep-tutor config currency CNY
+deep-tutor config currency USD
 ```
 
 `auto` 在配置中保持未解析。只有一个有效钱包币种时，它才会成为当前运行时提示；否则
@@ -110,9 +110,9 @@ CLI 使用原币或按 ISO 排序的币种桶。语言和主机 locale 不再选
 或为当前项目添加覆盖：
 
 ```sh
-reasonix config compact-ratio              # 查看生效值及来源
-reasonix config compact-ratio 75           # 设置用户全局默认值
-reasonix config compact-ratio --local 75   # 写入 ./reasonix.toml 项目覆盖
+deep-tutor config compact-ratio              # 查看生效值及来源
+deep-tutor config compact-ratio 75           # 设置用户全局默认值
+deep-tutor config compact-ratio --local 75   # 写入 ./reasonix.toml 项目覆盖
 ```
 
 可设置范围为大于 0% 且小于 100%（不含端点），内置默认值为 85%。边界由
@@ -166,14 +166,14 @@ diff 卡片，以及整段输出就是 diff 的 shell 结果（见下方
 脚本只需要最终回答时，使用 `-p` / `--print`：
 
 ```sh
-reasonix -p "总结这个仓库"
-reasonix -p "总结这个仓库" --output-format json
-reasonix run "实现 main.go 里的 TODO"
-reasonix run --auto "实现 main.go 里的 TODO"
-echo "解释这段代码" | reasonix run
+deep-tutor -p "总结这个仓库"
+deep-tutor -p "总结这个仓库" --output-format json
+deep-tutor run "实现 main.go 里的 TODO"
+deep-tutor run --auto "实现 main.go 里的 TODO"
+echo "解释这段代码" | deep-tutor run
 ```
 
-未使用 `-p` 或结构化输出格式时，`reasonix run` 保持正常的终端流式展示。它也接受
+未使用 `-p` 或结构化输出格式时，`deep-tutor run` 保持正常的终端流式展示。它接受
 `--model`、`--preset`（或兼容的 `--profile`）、`--max-steps`、`--effort`、`--dir`、
 `--add-dir`、`--continue`、`--resume QUERY`、`--copy`、`--allowed-tools` 和
 `--permission-mode`，以及作为 `--permission-mode auto` 别名的 `--auto` / `-y`。
@@ -181,13 +181,13 @@ echo "解释这段代码" | reasonix run
 `--yolo` / `--dangerously-skip-permissions` 同样可用，是 `--permission-mode bypassPermissions`
 的别名。`run` 命令行里参数的位置：
 
-- 参数可以夹在任务文字之间：`reasonix run fix --yolo bug` 以 bypassPermissions 执行任务 `fix bug`。
-- 写在 `run` 前面的参数，只有终端界面（加上 `-y`、`-p`）和 `run` 都以同样方式接受每一个时，才会移到它后面：`reasonix -y run "task"` 等同于
-  `reasonix run -y "task"`。
+- 参数可以夹在任务文字之间：`deep-tutor run fix --yolo bug` 以 bypassPermissions 执行任务 `fix bug`。
+- 写在 `run` 前面的参数，只有终端界面（加上 `-y`、`-p`）和 `run` 都以同样方式接受每一个时，才会移到它后面：`deep-tutor -y run "task"` 等同于
+  `deep-tutor run -y "task"`。
 - 其中只要有一个是终端界面专用参数（`-r`、不带值的 `--resume`），整条命令行就交给终端界面。
 - 只有 `run` 接受的前置参数（`--output-format`、`--metrics`）也一样：整条命令行交给终端界面，由它报错。这类参数请写在 `run` 后面。
 - 前置的 `-p` 只在子命令之前才算数；写在 `run` 后面的 `-p` 属于 `run` 自己。
-- 前置参数之后的第一个词就是子命令，和不带参数时一样：`reasonix --yolo run the tests` 会无界面执行
+- 前置参数之后的第一个词就是子命令，和不带参数时一样：`deep-tutor --yolo run the tests` 会无界面执行
   `the tests`。想用以 "run" 开头的提示词打开终端界面，请给它加引号。
 
 ### 基准对照组
@@ -201,10 +201,10 @@ echo "解释这段代码" | reasonix run
 每次运行都能自证跑的是哪一组。
 
 ```sh
-reasonix run --ablate evidence,planner --metrics run.json "修复失败的测试"
+deep-tutor run --ablate evidence,planner --metrics run.json "修复失败的测试"
 ```
 
-这是测量工具，不是调优开关：关掉某个子系统只会让 Reasonix 在它本来负责的工作上变差。
+这是测量工具，不是调优开关：关掉某个子系统只会让 Deep-tutor 在它本来负责的工作上变差。
 
 ### 轨迹记录
 
@@ -217,7 +217,7 @@ JSONL 记录，便于离线回放并归因时间去向（工具执行 vs. 两次
 转录一样谨慎处理。
 
 ```sh
-reasonix run --metrics run.json --trajectory run.trajectory.jsonl "修复失败的测试"
+deep-tutor run --metrics run.json --trajectory run.trajectory.jsonl "修复失败的测试"
 ```
 
 正常的 `run` 或 `-p` 只在标准错误里写需要用户处理的警告。加 `--debug` 会额外输出诊断日志，
@@ -232,9 +232,9 @@ reasonix run --metrics run.json --trajectory run.trajectory.jsonl "修复失败�
 | `stream-json` | 每行输出一个共用 `eventwire` JSON 对象，最后再输出最终结果对象。 |
 
 ```sh
-reasonix -p "列出有风险的改动" --output-format text
-reasonix -p "总结 diff" --output-format json
-reasonix run "运行测试" --output-format stream-json
+deep-tutor -p "列出有风险的改动" --output-format text
+deep-tutor -p "总结 diff" --output-format json
+deep-tutor run "运行测试" --output-format stream-json
 ```
 
 `stream-json` 在结果对象之前的各行遵循 1.x 的约定：
@@ -281,7 +281,7 @@ reasonix run "运行测试" --output-format stream-json
 | `code` | 原因 |
 | --- | --- |
 | `permission.unattended` | 需要批准，但无人可以批准。 |
-| `permission.untrusted_folder` | 因工作区文件夹没有信任决定而需要批准，且无人可以批准。该条记录带 `remedy`：`reasonix trust --dir <文件夹>`（先展示该文件夹会运行什么再批准），或为单次运行加 `--permission-mode auto`；结果里的 `unverified_by` 给出该码。 |
+| `permission.untrusted_folder` | 因工作区文件夹没有信任决定而需要批准，且无人可以批准。该条记录带 `remedy`：`deep-tutor trust --dir <文件夹>`（先展示该文件夹会运行什么再批准），或为单次运行加 `--permission-mode auto`；结果里的 `unverified_by` 给出该码。 |
 | `permission.read_only` | 会话处于 `read-only`。 |
 | `permission.deny_rule` | 命中 deny 规则。 |
 | `permission.declined` | 有人拒绝了。 |
@@ -299,7 +299,7 @@ reasonix run "运行测试" --output-format stream-json
 
 全局展示偏好为 `[billing].display_currency`（`auto|CNY|USD`）；旧
 `[desktop].currency` 仍会迁移。供应商原币价表由各条目冻结的 `billing_currency`
-决定，切换展示币种不会改写价表。可用 `reasonix doctor billing` 排查。
+决定，切换展示币种不会改写价表。可用 `deep-tutor doctor billing` 排查。
 
 执行失败时使用 `subtype: "error_during_execution"` 和 `is_error: true`。
 结构化模式会把运行时错误保留在 JSON 中，不再额外重复输出一份人类可读错误。
@@ -312,7 +312,7 @@ reasonix run "运行测试" --output-format stream-json
 - 回合有 `completion_summary` 时，`completion` 字段会复述它。
 - `--events-jsonl` 的 `run_done` 带被拒次数和 `readiness`。
 
-`reasonix run` 的退出码：
+`deep-tutor run` 的退出码：
 
 | 退出码 | 含义 |
 | --- | --- |
@@ -320,7 +320,7 @@ reasonix run "运行测试" --output-format stream-json
 | `1` | 运行失败：模型服务、配置、上限或取消。 |
 | `2` | 命令行参数无效。 |
 | `3` | 指定了 `--fail-on-unverified`，且最终就绪检查未满足，或因文件夹未被信任而编辑和命令被拒绝。 |
-| `4` | 文件夹未被信任，编辑和命令被拒绝，任务没有完成。用 `reasonix trust --dir <folder>` 信任它，或明知故犯地传 `--permission-mode`。 |
+| `4` | 文件夹未被信任，编辑和命令被拒绝，任务没有完成。用 `deep-tutor trust --dir <folder>` 信任它，或明知故犯地传 `--permission-mode`。 |
 
 ### 脱敏机器接口
 
@@ -328,7 +328,7 @@ reasonix run "运行测试" --output-format stream-json
 使用独立的事件参数：
 
 ```sh
-reasonix run --events-jsonl "运行 focused tests"
+deep-tutor run --events-jsonl "运行 focused tests"
 ```
 
 每行都包含 `schema_version`、`sequence` 和 `kind`，最后一行为
@@ -339,32 +339,32 @@ reasonix run --events-jsonl "运行 focused tests"
 
 以下只读命令可以查询持久化状态，但不会输出 transcript、label、command、output、路径、
 PID 或 hostname。这里的“只读”是指不会修改 transcript、runtime、recovery 或被查询的
-状态；首次使用脱敏机器接口时，Reasonix 可能会在用户状态目录初始化一个私有身份密钥：
+状态；首次使用脱敏机器接口时，Deep-tutor 可能会在用户状态目录初始化一个私有身份密钥：
 
 ```sh
-reasonix session list --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session show <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session status <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
-reasonix session recovery [<machine-session-id>] --json [--dir SESSION_DIR | --project-root PATH]
-reasonix task list --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
-reasonix task show <task-id> --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
-reasonix task monitor list --json [--dir PROJECT_DIR]
-reasonix task monitor status <task-id> --json [--dir PROJECT_DIR]
-reasonix task monitor events <task-id> --json|--jsonl [--dir PROJECT_DIR] [--after N] [--follow]
-reasonix hook list --json [--project-root PATH] [--home-dir PATH]
-reasonix hook status --json [--project-root PATH] [--home-dir PATH]
+deep-tutor session list --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session show <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session status <machine-session-id> --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor session recovery [<machine-session-id>] --json [--dir SESSION_DIR | --project-root PATH]
+deep-tutor task list --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
+deep-tutor task show <task-id> --json [--dir SESSION_DIR | --project-root PATH] [--session MACHINE_SESSION_ID]
+deep-tutor task monitor list --json [--dir PROJECT_DIR]
+deep-tutor task monitor status <task-id> --json [--dir PROJECT_DIR]
+deep-tutor task monitor events <task-id> --json|--jsonl [--dir PROJECT_DIR] [--after N] [--follow]
+deep-tutor hook list --json [--project-root PATH] [--home-dir PATH]
+deep-tutor hook status --json [--project-root PATH] [--home-dir PATH]
 ```
 
 对于 `session` 和 `task`，`--dir` 明确指定 session 存储目录，`--project-root`
-则解析指定项目的 session store；两者不能同时使用。都未指定时，Reasonix 选择当前
+则解析指定项目的 session store；两者不能同时使用。都未指定时，Deep-tutor 选择当前
 项目的 session store。对于 `hook`，`--dir` 是 `--project-root` 的别名。
 `hook list` 的状态值为 `active` 或 `invalid`；`invalid` 表示配置的
 event 因事件名、命令/context 来源或工具事件 matcher 无效而无法执行。非工具事件
 会忽略 matcher。
 
-机器 session ID 是带密钥的 opaque hash，不是 transcript 文件名。在同一个 Reasonix
+机器 session ID 是带密钥的 opaque hash，不是 transcript 文件名。在同一个 Deep-tutor
 用户状态目录中，同一 session 的 ID 保持稳定；不同安装密钥会生成互不关联的 ID，无法再
-根据时间戳或模型 label 离线猜测。迁移 Reasonix 状态目录时，如果自动化依赖已有 machine
+根据时间戳或模型 label 离线猜测。迁移 Deep-tutor 状态目录时，如果自动化依赖已有 machine
 ID，需要一并保留该私有身份密钥。任务仍在运行时
 `finished_at` 为空；只有任务已经结束并且持久化产物存在时，才会输出
 `artifact_complete=true`。没有 live session lease 的 `running` 记录会显示为
@@ -381,11 +381,11 @@ Schema version 1 的兼容规则：
 ## 恢复会话
 
 ```sh
-reasonix --continue
-reasonix --resume
-reasonix --resume provider-config
-reasonix --resume <session-id>
-reasonix --resume provider-config --copy
+deep-tutor --continue
+deep-tutor --resume
+deep-tutor --resume provider-config
+deep-tutor --resume <session-id>
+deep-tutor --resume provider-config --copy
 ```
 
 - `--continue` 立即恢复最新保存的会话；若不存在已保存的会话，会提示并改为开启
@@ -395,20 +395,20 @@ reasonix --resume provider-config --copy
   子串。没有匹配或匹配不唯一时会返回明确错误。
 - 为保持兼容，仍接受 `--resume=true` 和 `--resume=false`。
 - `--copy` 不修改原 transcript，而是在新的可写会话中继续。原会话已被另一个
-  Reasonix 进程占用时可以使用它。
+  Deep-tutor 进程占用时可以使用它。
 
-一次性运行可用 `reasonix run --resume QUERY "任务"`，支持 session 文件路径、
-session ID，或来自 `--events-jsonl` / `reasonix session show --json` 的不透明
+一次性运行可用 `deep-tutor run --resume QUERY "任务"`，支持 session 文件路径、
+session ID，或来自 `--events-jsonl` / `deep-tutor session show --json` 的不透明
 machine session ID。Session lease 会阻止桌面端和 CLI 同时写入同一个 transcript。
 
 ## 权限
 
 ```sh
-reasonix --permission-mode plan
-reasonix --permission-mode acceptEdits
-reasonix -p "运行指定测试" --allowed-tools "Bash(go test ./...)"
-reasonix --allowed-tools "Bash(git *) Edit"
-reasonix --allowed-tools "Bash(go test ./...)" --allowed-tools read_file
+deep-tutor --permission-mode plan
+deep-tutor --permission-mode acceptEdits
+deep-tutor -p "运行指定测试" --allowed-tools "Bash(go test ./...)"
+deep-tutor --allowed-tools "Bash(git *) Edit"
+deep-tutor --allowed-tools "Bash(go test ./...)" --allowed-tools read_file
 ```
 
 | 模式 | 行为 |
@@ -440,21 +440,21 @@ reasonix --allowed-tools "Bash(go test ./...)" --allowed-tools read_file
   `~/.cache` 等），写进 `~/.cargo/bin`、`~/go/bin` 的东西以后会在沙盒外运行；
 - 能访问网络，除非设置 `[sandbox] network = false`。
 
-- 终端界面对每个文件夹问一次是否信任（家目录和文件系统根目录从不问），答案记在你的 Reasonix 主目录。
-- `reasonix trust` 信任当前文件夹，`reasonix trust --revoke` 撤销；项目自己的文件不能写入信任记录。
+- 终端界面对每个文件夹问一次是否信任（家目录和文件系统根目录从不问），答案记在你的 Deep-tutor 主目录。
+- `deep-tutor trust` 信任当前文件夹，`deep-tutor trust --revoke` 撤销；项目自己的文件不能写入信任记录。
 - 信任跟着文件夹路径走，不看内容：以后在同一路径检出的任何东西也被信任。
 - 无头运行从不询问；`ask` 下写入被拒，并列在 `permission_denials` 中。
 
 终端界面里 Shift+Tab 按 只读 → 询问 → 自动 → YOLO → 计划 循环；
 Ctrl+Y 切换 YOLO，再按回到进入前的档位。
 
-无人值守执行需要放行普通 writer fallback 时，使用 `reasonix run --auto ...`
+无人值守执行需要放行普通 writer fallback 时，使用 `deep-tutor run --auto ...`
 （或 `-y`）。它和 `--yolo` 都不能和显式 `--permission-mode` 同时使用，两者也不能同时使用。
 
 `--allowed-tools` 是会话权限覆盖，不是 provider tool schema 过滤器。规则可以用逗号
 或空格分隔，也可重复传入参数。配置中的 deny 规则始终优先于命令行 allow 规则。
 
-在非交互运行（`reasonix run` / `-p`）下没有可应答的审批，各模式都以非阻塞方式解析。
+在非交互运行（`deep-tutor run` / `-p`）下没有可应答的审批，各模式都以非阻塞方式解析。
 `ask` / `manual` 对显式 Ask 决策和普通 writer fallback 失败关闭，只读调用仍会执行；
 `acceptEdits` 放行其列出的文件编辑工具，其他 Ask 决策失败关闭；`auto` 放行普通 writer
 fallback，但仍拒绝显式 ask 规则；`dontAsk` 拒绝未批准的 writer；`bypassPermissions`
@@ -466,13 +466,13 @@ fallback，但仍拒绝显式 ask 规则；`dontAsk` 拒绝未批准的 writer�
 ## 附加目录
 
 ```sh
-reasonix --add-dir ../shared
-reasonix -p "同时更新两个项目" \
+deep-tutor --add-dir ../shared
+deep-tutor -p "同时更新两个项目" \
   --add-dir ../frontend \
   --add-dir ../backend
 ```
 
-相对路径从 workspace 根目录解析，并且必须是已存在的目录。Reasonix 会解析符号链接、
+相对路径从 workspace 根目录解析，并且必须是已存在的目录。Deep-tutor 会解析符号链接、
 去重，并在当前会话中扩展文件写入工具和沙盒 Bash 的写入边界。这些目录只在运行时生效，
 不会写入配置。
 
@@ -509,10 +509,10 @@ reasonix -p "同时更新两个项目" \
 
 剪贴板操作按内容类型明确分开。本地 transcript 和输入框选区写入系统剪贴板，并且只有写入
 成功后才提示完成；SSH 会回退到明确标记的 OSC 52 请求。文本粘贴继续走终端的
-bracketed-paste 动作（macOS 通常为 `Cmd+V`，其它平台使用终端自身配置）。Reasonix 接管
+bracketed-paste 动作（macOS 通常为 `Cmd+V`，其它平台使用终端自身配置）。Deep-tutor 接管
 本地会话的鼠标时，没有选区的右键会读取剪贴板文本并走同一粘贴路径，有选区时右键优先复制。
 SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键；`/mouse` 可恢复终端原生右键菜单。
-图片粘贴由 Reasonix 接管：macOS/Linux 使用 `Ctrl+V`，Windows 使用 `Alt+V`，也可运行
+图片粘贴由 Deep-tutor 接管：macOS/Linux 使用 `Ctrl+V`，Windows 使用 `Alt+V`，也可运行
 `/paste-image`；附件标记准备完成前，底栏会显示“正在粘贴图片…”。
 
 ## 会话内命令
@@ -530,7 +530,7 @@ SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键�
 | `/theme [auto\|light\|dark\|style\|list]` | 打开选择器预览并切换 CLI 背景模式和强调色。 |
 | `/currency [auto\|CNY\|USD]` | 查看或切换用户全局费用展示币种，并刷新当前运行时。 |
 | `/paste-image` | 读取剪贴板图片并插入可编辑的附件标记。 |
-| `/tutor` | 指引学习导师界面：它是所有窗口式前端打开时的首页（Studio 与 `reasonix web` 一致）。浏览器地址加 `#tutor` 可直达；TUI 没有导师界面，命令只打印界面所在位置。 |
+| `/tutor` | 指引学习导师界面：它是所有窗口式前端打开时的首页（Studio 与 `deep-tutor web` 一致）。浏览器地址加 `#tutor` 可直达；TUI 没有导师界面，命令只打印界面所在位置。 |
 | `/mouse` | 切换应用内鼠标选区、滚动条和滚轮处理。 |
 | `/effort` | 查看或切换 reasoning effort。 |
 | `/output-style` | 选择回答风格。 |
@@ -538,7 +538,7 @@ SSH 下远端进程无法读取本机剪贴板，请使用终端粘贴快捷键�
 | `/sandbox` | 查看沙盒状态。 |
 | `/goal` | 启动、查看或清除长周期 Goal。 |
 | `/docs [问题]` | 显示内置语料身份，或先本地检索，再让当前配置的 AI 根据版本匹配证据回答。 |
-| `/reasonix:docs [问题]` | 当已有自定义命令或兼容插件/Skill 别名占用 `/docs` 时优先使用的内置后备入口；若这个名称也已被占用，菜单会选择下一个空闲的 `reasonix:` 限定名，不覆盖原命令。 |
+| `/deep-tutor:docs [问题]` | 当已有自定义命令或兼容插件/Skill 别名占用 `/docs` 时优先使用的内置后备入口；若这个名称也已被占用，菜单会选择下一个空闲的 `deep-tutor:` 限定名，不覆盖原命令。 |
 | `/mcp`、`/skills`、`/hooks` | 查看和管理扩展。 |
 | `/remember <note>` | 把常驻 note 追加到项目指令文档；`# <note>` 是快捷方式。 |
 | `/memory [subcommand]` | 查看指令、记忆 provenance、召回、revision 与恢复。 |
@@ -555,13 +555,13 @@ Controller；三种执行设定共享同一套 provider 可见工具面（可选
 历史搜索使用独立的可丢弃投影：
 
 ```sh
-reasonix doctor catalogs [--json]
-reasonix catalogs reindex history [--dir PATH ...] [--json]
+deep-tutor doctor catalogs [--json]
+deep-tutor catalogs reindex history [--dir PATH ...] [--json]
 ```
 
 详见 [历史搜索 Catalog](./HISTORY_SEARCH_CATALOG.md)。
 用量统计使用独立的可丢弃 rollup 投影：
-reasonix catalogs reindex usage [--json]
+deep-tutor catalogs reindex usage [--json]
 详见 [用量 Catalog](./USAGE_CATALOG.md)。
 
 ### 记忆诊断与恢复
@@ -579,7 +579,7 @@ reasonix catalogs reindex usage [--json]
 | `/memory archived` | 列出 archive facts 及其受管路径。 |
 | `/memory recover <archive-path>` | 不覆盖 active data，把 archive 恢复为新 revision。 |
 
-这些命令始终作用于当前 session controller。当会话位于远端主机上（`reasonix remote
+这些命令始终作用于当前 session controller。当会话位于远端主机上（`deep-tutor remote
 connect` 或桌面的远程网页窗口）时，它们使用远程 memory catalog，绝不回退读取桌面本机
 记忆。权限、自动召回、写入确认和迁移行为见
 [Context Engine v2](./SESSION_MEMORY_RETRIEVAL.md)。
@@ -588,8 +588,8 @@ connect` 或桌面的远程网页窗口）时，它们使用远程 memory catalo
 用量统计使用独立的可丢弃 rollup 投影：
 
 ```sh
-reasonix doctor catalogs [--json]
-reasonix catalogs reindex usage [--json]
+deep-tutor doctor catalogs [--json]
+deep-tutor catalogs reindex usage [--json]
 ```
 
 ```

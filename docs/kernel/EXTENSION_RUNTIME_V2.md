@@ -7,7 +7,7 @@ reviewed: 2026-09-29
 
 # Extension Runtime v2 (Spatiotemporal Composability)
 
-English overview of the Reasonix plugin/runtime v2 model.
+English overview of the Deep-tutor plugin/runtime v2 model.
 
 ## Protocol and manifest
 
@@ -48,9 +48,9 @@ Component states: `Inactive → Preparing → Active → Draining → Inactive` 
 ## Diagnostics
 
 ```bash
-reasonix doctor runtime
-reasonix doctor runtime --json
-reasonix plugin doctor <name>
+deep-tutor doctor runtime
+deep-tutor doctor runtime --json
+deep-tutor plugin doctor <name>
 ```
 
 Reports component status, plan, effect receipts, recoverability, lifecycle metrics, and the process-local `runtimeOwnerFallbacks` count. Product boot binds an isolated owner; a non-zero fallback count identifies compatibility code that reached the shared default owner and needs explicit wiring.
