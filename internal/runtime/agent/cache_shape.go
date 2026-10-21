@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"reasonix/internal/base/tokencount"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/tokencount"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // PrefixShape hashes the portions of the request prefix that influence

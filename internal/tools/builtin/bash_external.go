@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 var errExternalReference = errors.New("external reference is not a shell path")

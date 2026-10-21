@@ -3,7 +3,7 @@ package acp
 import (
 	"strings"
 
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/skill"
 )
 
 func skillInputHint(sk skill.Skill) string {

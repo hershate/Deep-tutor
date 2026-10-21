@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/boundedllm"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/boundedllm"
 )
 
 var (

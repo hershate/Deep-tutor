@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 // A stdio child that dies after a healthy handshake must not poison its server

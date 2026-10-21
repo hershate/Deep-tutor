@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 func TestNormalizeVersion(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 const responsesRelayConfig = `default_model = "relay/gpt-5.5"

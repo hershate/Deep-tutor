@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // defaultCustomContextWindow is the fallback for a relay whose window we cannot

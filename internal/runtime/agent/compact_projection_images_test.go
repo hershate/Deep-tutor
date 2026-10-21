@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The projection a fold stores keeps an image the host could not read back as

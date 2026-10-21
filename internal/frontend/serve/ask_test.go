@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // blockingAttacher holds a dial open and hands its context out, which is the

@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 )
 
 const leasesDirName = "leases"

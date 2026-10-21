@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/checkpoint"
 )
 
 // declareWritePaths asks a writer that can name its whole write set for it, once

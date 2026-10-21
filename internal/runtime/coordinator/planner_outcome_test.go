@@ -3,7 +3,7 @@ package coordinator
 import (
 	"testing"
 
-	"reasonix/internal/runtime/plancontract"
+	"deep-tutor/internal/runtime/plancontract"
 )
 
 func TestPlannerOutcomeReadsApprovalFromTheFieldWhenStructured(t *testing.T) {

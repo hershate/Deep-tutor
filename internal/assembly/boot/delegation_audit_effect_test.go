@@ -5,11 +5,11 @@ package boot
 // counters read "no delegation" for a run whose graph showed four members.
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 type delegationAuditSink struct {

@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // CompactionState is the session context sidecar payload.

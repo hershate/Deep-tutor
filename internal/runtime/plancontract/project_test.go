@@ -3,7 +3,7 @@ package plancontract
 import (
 	"testing"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestProjectTodosBuildsTheTwoLevelList(t *testing.T) {

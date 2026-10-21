@@ -2,11 +2,11 @@
 package eventwire
 
 import (
-	"reasonix/internal/base/externalurl"
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/pricing"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/externalurl"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/pricing"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Event is the JSON-friendly form shared by event frontends.

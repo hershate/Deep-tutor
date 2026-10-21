@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/ext/extension/rpcwire"
+	"deep-tutor/internal/ext/extension/rpcwire"
 )
 
 func TestErrorTableCoversRequiredReasons(t *testing.T) {

@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestAmbiguousWriterPathsRetainGrantTargets(t *testing.T) {

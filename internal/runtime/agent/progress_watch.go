@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // ProgressWatch says when a run has stopped producing effects the host can

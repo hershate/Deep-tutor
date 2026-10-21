@@ -14,12 +14,12 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 // chatWire is the part of a /chat/completions body the fake endpoint reads to

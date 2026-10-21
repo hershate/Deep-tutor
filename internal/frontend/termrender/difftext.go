@@ -3,7 +3,7 @@ package termrender
 import (
 	"strings"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // DiffText renders a whole unified diff — a shell result running `git diff`, say

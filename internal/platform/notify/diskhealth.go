@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/diskhealth"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/diskhealth"
 )
 
 // SendDiskLow announces a nearly full volume under the same two switches as

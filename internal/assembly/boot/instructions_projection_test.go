@@ -7,11 +7,11 @@ package boot
 import (
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func writeInstructions(t *testing.T, dir, name, body string) {

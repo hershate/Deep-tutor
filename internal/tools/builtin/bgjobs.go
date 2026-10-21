@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // bash_output / kill_shell / wait operate the background jobs registered by

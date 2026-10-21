@@ -3,19 +3,19 @@ package boot
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/platform/environment"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/delegation"
-	"reasonix/internal/runtime/usecap"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/platform/environment"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/delegation"
+	"deep-tutor/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/writeclaim"
 )
 
 // skillSubagents runs a skill inside its own sub-agent loop: an isolated turn

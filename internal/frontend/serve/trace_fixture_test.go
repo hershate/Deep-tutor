@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
 )
 
 // traceFixturePath is where the desktop's reducer parity test reads these from.

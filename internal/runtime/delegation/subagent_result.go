@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 const (

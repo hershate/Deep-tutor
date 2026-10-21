@@ -3,7 +3,7 @@ package telemetry
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func has(t *testing.T, counts map[string]int, signal, bucket string) {

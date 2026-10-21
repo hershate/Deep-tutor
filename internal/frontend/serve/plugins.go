@@ -7,15 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/ext/theme"
 )
 
 // A package's capabilities are assembled at boot, so every write here ends

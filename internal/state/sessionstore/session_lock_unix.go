@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 
 	"golang.org/x/sys/unix"
 )

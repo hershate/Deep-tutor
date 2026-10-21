@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 const DefaultBaseURL = "https://api.typesafe.ai"

@@ -2,10 +2,10 @@ package delegation
 
 import (
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestSubagentStoreCleanupStaleRunningParentProbe(t *testing.T) {

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // The decoded cap the import path enforces (Deep Tutor's 256MB); the reader

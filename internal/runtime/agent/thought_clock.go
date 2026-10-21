@@ -3,8 +3,8 @@ package agent
 import (
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // thoughtClock measures one response's thinking: from its first reasoning text

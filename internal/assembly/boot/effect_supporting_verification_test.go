@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/workspaceid"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/trustedstate"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/workspaceid"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/trustedstate"
+	"deep-tutor/internal/tools/builtin"
 )
 
 func TestEffectSupportingWritesWithoutChecksMayFinish(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestModelAliasFailedSaveDoesNotPublishAndCanRetry(t *testing.T) {

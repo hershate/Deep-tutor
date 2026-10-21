@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 func appendByte(t *testing.T, path string) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func awaitCtx(todos []evidence.TodoItem, interactive bool) context.Context {

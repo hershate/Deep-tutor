@@ -13,7 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // userConfigGen writes a random user config in the shapes people and the 1.x

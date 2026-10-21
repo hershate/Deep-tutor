@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The gauge says a session is at 70%; this says what put it there. Each class

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func reasonsFor(cfg *Config, key string) []IgnoredProjectReason {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 const codeModelModeUnsupported = "model_mode.unsupported"

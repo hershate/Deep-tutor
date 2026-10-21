@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // windowState is what the context window owns for one conversation: the

@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 type writeSourceProbeOverlay struct {

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 // The report this exists for: a Studio whose configuration came back without

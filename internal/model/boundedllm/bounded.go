@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 const (

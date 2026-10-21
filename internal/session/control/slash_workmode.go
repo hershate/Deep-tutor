@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/config"
 )
 
 // presetNotice answers /preset and its /work-mode and /profile aliases: no

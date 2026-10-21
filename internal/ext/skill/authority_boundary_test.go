@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // externalProfile is the strongest thing a third party can write in the keys

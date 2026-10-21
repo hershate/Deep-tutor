@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/command"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/command"
 )
 
 const (

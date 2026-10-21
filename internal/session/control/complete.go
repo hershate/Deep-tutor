@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/fileref"
-	"reasonix/internal/base/gitignore"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/fileref"
+	"deep-tutor/internal/base/gitignore"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // The three menus a composer can be showing. A frontend renders them

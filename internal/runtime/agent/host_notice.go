@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // maxPendingHostNotices bounds what a host that keeps changing its mind can

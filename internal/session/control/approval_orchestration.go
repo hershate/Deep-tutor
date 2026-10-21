@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // PendingPrompt reports whether the current turn is blocked waiting for a user

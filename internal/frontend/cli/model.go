@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // modelRefs returns the configured provider/model refs for slash completion.

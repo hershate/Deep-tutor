@@ -13,8 +13,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // recordingKernel answers every route with success and records what the TUI

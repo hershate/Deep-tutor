@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // A setting saved from the command line changes that key and nothing else in

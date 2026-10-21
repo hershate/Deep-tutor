@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 // sessionPage is the newest rows of one folder plus the counts of the whole.

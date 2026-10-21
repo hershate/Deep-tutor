@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // The delegation namespace. These ids are the whole discovery surface for the

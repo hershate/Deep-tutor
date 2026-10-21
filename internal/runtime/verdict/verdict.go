@@ -8,8 +8,8 @@ package verdict
 import (
 	"slices"
 
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // Verdict is one obligation's state.

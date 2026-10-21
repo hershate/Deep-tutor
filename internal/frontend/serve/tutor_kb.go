@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 func (s *Server) registerTutorKbRoutes(mux *http.ServeMux) {

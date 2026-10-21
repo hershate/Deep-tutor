@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // ErrApplyConflict is an ApplyPaths refused because a path it would write was

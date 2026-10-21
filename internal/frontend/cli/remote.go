@@ -9,10 +9,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/bootstrap"
 )
 
 // remoteCommand dispatches `reasonix remote <sub>`, mirroring mcpCommand.

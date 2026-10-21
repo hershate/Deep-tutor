@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sync/atomic"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // contextWindowProbe is what an endpoint that declares no window still tells us

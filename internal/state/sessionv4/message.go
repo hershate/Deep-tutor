@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // message is one 1.x transcript message: the fields this build shares with

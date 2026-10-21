@@ -35,9 +35,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/endpointclient"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/endpointclient"
 )
 
 // defaultStreamIdleTimeout caps how long a started SSE stream may go without any

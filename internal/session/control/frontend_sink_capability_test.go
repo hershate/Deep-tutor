@@ -1,10 +1,10 @@
 package control
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // Enabling extensions must never sever the audit channels: every capability

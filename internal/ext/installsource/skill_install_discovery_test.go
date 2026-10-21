@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 func TestApprovedSkillInstallReportsItsOwnDiscovery(t *testing.T) {

@@ -3,8 +3,8 @@ package control
 import (
 	"context"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
 )
 
 // runSynchronousTurn owns the blocking transport lifecycle. Durable steer

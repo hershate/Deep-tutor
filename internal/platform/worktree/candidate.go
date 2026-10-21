@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // ErrWorkspaceMoved is an Apply refused because the source workspace no longer

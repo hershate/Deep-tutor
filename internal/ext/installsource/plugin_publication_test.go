@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func forceSiblingPublication(t *testing.T) {

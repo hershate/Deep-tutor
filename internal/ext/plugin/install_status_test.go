@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 func TestInstallResultReadsStatusWithoutPromotingIt(t *testing.T) {

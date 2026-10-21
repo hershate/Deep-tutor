@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"time"
 )

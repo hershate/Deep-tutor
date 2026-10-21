@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
 )
 
 // shellEnvProvider asks for one bash command that prints a preset variable.

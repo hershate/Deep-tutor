@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // TestHostConcurrentAccess hammers the Host's mutable state from many goroutines:

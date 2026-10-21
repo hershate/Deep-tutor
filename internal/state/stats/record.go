@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/state/usagecatalog"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/state/usagecatalog"
 )
 
 // dayLayout names one stats file per UTC-free local day, e.g. 2026-08-02.jsonl.

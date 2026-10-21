@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // planTransitionDiff summarises a task-list rewrite by pairing steps on their

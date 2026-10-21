@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/memory"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/trajectory"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/memory"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/trajectory"
 )
 
 type recallAuditSink struct {

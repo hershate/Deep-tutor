@@ -5,16 +5,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 // TestApprovedPlanLeavesOneUserLineInHistory is the reload half of the live

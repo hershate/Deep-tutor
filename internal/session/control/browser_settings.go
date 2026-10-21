@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // BrowserToolsSettings is the built-in browser switch as the user file holds it
 // beside what this workspace will run with: a project file may set the same key,

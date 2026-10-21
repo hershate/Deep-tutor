@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // storedVersions are transcript-version values a sidecar can carry when a new

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 type idleWithJobs struct {

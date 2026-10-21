@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // maxMaterialBytes bounds one uploaded original, Deep-tutor's upload cap.

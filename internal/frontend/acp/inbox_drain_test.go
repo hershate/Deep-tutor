@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
 )
 
 type durableQueueFactory struct {

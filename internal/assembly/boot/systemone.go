@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/model/laya"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/model/laya"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // addSystemOne wires the decision tool to whichever model the decision role

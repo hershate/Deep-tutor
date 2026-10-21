@@ -3,16 +3,16 @@ package agent
 import (
 	"context"
 	"errors"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // foldableSessionOverForce builds a transcript whose bulk is assistant text, so

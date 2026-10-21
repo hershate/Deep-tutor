@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // TestDarwinApplicationsOrphanBackupLifecycleSmoke is opt-in because it probes

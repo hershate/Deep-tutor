@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/runtime/outputstyle"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/runtime/outputstyle"
+	"deep-tutor/internal/state/memory"
 )
 
 func TestRenderSkillListUsesSharedVisualLanguage(t *testing.T) {

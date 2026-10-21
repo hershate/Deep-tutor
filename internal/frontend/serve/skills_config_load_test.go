@@ -6,10 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
 )
 
 // Listing the catalog costs one configuration read however many skills it

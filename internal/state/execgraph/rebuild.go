@@ -3,8 +3,8 @@ package execgraph
 import (
 	"time"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // Child terminals, as the sub-agent store spells them. They are strings rather

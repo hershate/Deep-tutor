@@ -3,14 +3,14 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // ProfileDefinition is the delegation-facing narrowing of a stored Skill: what

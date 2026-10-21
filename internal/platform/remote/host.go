@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // ResolvedHost is a fully resolved dial target: explicit [remote] TOML fields

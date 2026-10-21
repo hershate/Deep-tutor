@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // oauthRefreshGates prevent duplicate refresh requests from transports in the

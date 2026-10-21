@@ -10,15 +10,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"testing/fstest"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/session/control"
 )
 
 func hubRuntime(t *testing.T, h *Hub, root string) *Runtime {

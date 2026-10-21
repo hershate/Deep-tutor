@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 func TestUnifiedSurfaceExposesUseCapabilityForAllRoleSettings(t *testing.T) {

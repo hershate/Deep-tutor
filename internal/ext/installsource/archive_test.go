@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // The round trip is the point: what an export produces is what an install

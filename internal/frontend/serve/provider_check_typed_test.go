@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 const typedCheckKey = "sk-typed-check-0123456789"

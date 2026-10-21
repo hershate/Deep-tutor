@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 func (p Package) mcpServerRefs() []MCPServerRef {

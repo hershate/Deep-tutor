@@ -1,4 +1,4 @@
-module reasonix/desktop
+module deep-tutor/desktop
 
 go 1.26.0
 
@@ -6,10 +6,10 @@ toolchain go1.26.9
 
 // The desktop tools are a nested module so their CGO build never touches the
 // CLI's CGO_ENABLED=0 single-static-binary guarantee. The replace lets them
-// import the same reasonix/internal/* kernel (the import path stays under
-// reasonix/, so the internal rule still permits it); the parent module's
+// import the same deep-tutor/internal/* kernel (the import path stays under
+// deep-tutor/, so the internal rule still permits it); the parent module's
 // go build/test ./... skips this directory.
-require reasonix v0.0.0
+require deep-tutor v0.0.0
 
 require (
 	aead.dev/minisign v0.3.0
@@ -32,4 +32,4 @@ require (
 	mvdan.cc/sh/v3 v3.14.1 // indirect
 )
 
-replace reasonix => ../
+replace deep-tutor => ../

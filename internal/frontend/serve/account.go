@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/account"
 )
 
 // AllowAccountAuth grants the /account routes. Off until a host asks: signing

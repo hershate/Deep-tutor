@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 type checkpointWriteTool struct {

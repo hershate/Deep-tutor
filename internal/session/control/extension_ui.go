@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension/uihub"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension/uihub"
 )
 
 // Extension UI hub wiring (Extension Protocol v2). The hub is the

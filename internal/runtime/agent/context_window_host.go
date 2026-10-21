@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/sessionstore"
 	"sync/atomic"
 )
 

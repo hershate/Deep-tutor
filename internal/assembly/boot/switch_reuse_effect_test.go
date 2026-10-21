@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A model or effort switch rebuilds the runtime while reusing the serving

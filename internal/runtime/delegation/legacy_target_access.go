@@ -1,7 +1,7 @@
 package delegation
 
 import (
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func legacyTaskTargetAccess(checks []tool.TargetAccessCheck) tool.TargetAccessCheck {

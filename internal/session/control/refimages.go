@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/model/visionimage"
 )
 
 // inputImages resolves image @-references in the turn input to data URLs so the

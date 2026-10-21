@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/contract/observe"
+	"deep-tutor/internal/contract/observe"
 )
 
 // Governor is the child's own half of the limits: it counts the run's tokens and

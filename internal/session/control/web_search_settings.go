@@ -3,7 +3,7 @@ package control
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // WebSearchModelSetting separates what the user saved from what search will

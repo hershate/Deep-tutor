@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // modelLimitsView is one model's own limits, or the ones it inherits. Zero is

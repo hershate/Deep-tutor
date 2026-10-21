@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // MCPCapabilityRuntime is the session-shared MCP substrate: Host, boot specs,

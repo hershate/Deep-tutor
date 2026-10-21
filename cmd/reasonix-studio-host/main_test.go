@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/frontend/serve"
-	"reasonix/internal/frontend/traystate"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/frontend/serve"
+	"deep-tutor/internal/frontend/traystate"
+	"deep-tutor/internal/session/control"
 )
 
 func TestMain(m *testing.M) {

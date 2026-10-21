@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func scanTree(t *testing.T, files int) string {

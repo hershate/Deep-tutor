@@ -2,11 +2,11 @@ package eventwire
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Ensures older clients still see cost/currency aliases while new clients get costQuote.

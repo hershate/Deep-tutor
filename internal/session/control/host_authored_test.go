@@ -2,15 +2,15 @@ package control
 
 import (
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 // userRows returns the user-role messages with whether the host declared each

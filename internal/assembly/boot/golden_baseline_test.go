@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // Golden baseline for the unified extension kernel / Extension Protocol v2

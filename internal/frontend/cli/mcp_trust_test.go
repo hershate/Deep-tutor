@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestMCPTrustNeedsExactlyOneConfiguredServer(t *testing.T) {

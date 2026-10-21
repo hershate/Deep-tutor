@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 type RenderScope string

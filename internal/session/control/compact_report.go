@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 var errCompactBusy = errors.New("cannot compact while a turn is running or the session is changing")

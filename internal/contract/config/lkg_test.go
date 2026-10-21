@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestLoadForRootUsesLastKnownGoodWhenUserConfigBroken(t *testing.T) {

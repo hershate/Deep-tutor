@@ -3,16 +3,16 @@ package control
 import (
 	"errors"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 func steeringTurn(t *testing.T) (*Controller, *agent.Agent, *sessionstore.Session, *inboxSteerProvider, chan event.Event) {

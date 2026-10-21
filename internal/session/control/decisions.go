@@ -3,7 +3,7 @@ package control
 import (
 	"sort"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // Decisions are projections of host-owned state, not state themselves. Acting

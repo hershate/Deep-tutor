@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/platform/browser"
 )
 
 func TestBrowserOpenOptsOutOfPlanMode(t *testing.T) {

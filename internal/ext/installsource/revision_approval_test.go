@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func revisionPlugin(t *testing.T) (*Tool, string) {

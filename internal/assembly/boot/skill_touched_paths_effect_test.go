@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func buildTouchedPathsController(t *testing.T, kind string, calls []scriptedCall) (*control.Controller, string, *scriptedCallProvider) {

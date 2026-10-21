@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/store"
 )
 
 // leaseTestPath returns a session path in "user shape" — mixed case, exactly

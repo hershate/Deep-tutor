@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/state/schedule"
 )
 
 var epoch = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginspec"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginspec"
 )
 
 // mcpTrustForCLI connects a server and records the tool definitions it holds

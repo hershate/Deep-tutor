@@ -1,7 +1,7 @@
 // subagent_handoff.go — how a delegated child closed, counted.
 package event
 
-import "reasonix/internal/base/nilutil"
+import "deep-tutor/internal/base/nilutil"
 
 // SubagentHandoffAudit is one child run's closing protocol, counted. It exists
 // to answer whether a typed handoff is submitted naturally, before anything is

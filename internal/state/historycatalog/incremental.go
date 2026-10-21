@@ -2,9 +2,9 @@ package historycatalog
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 func sourceProjectionUnchanged(queryErr error, oldContent, content, oldMeta, meta, oldDigest, digest string) bool {

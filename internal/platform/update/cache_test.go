@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/tempdir"
+	"deep-tutor/internal/base/tempdir"
 )
 
 func sha256Hex(data []byte) string {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // adoptPublished finds a live serve that published this workspace's port and

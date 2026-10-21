@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // branchAt copies the conversation up to the end of one turn into a new session

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 func conversationToolTypes(t *testing.T, searchModel string) []string {

@@ -3,7 +3,7 @@ package coordinator
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // A sink that implements only Emit answers no audit type assertion, so the

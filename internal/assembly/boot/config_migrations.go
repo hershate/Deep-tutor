@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // configMigrations is what the pre-load migrations did, held until a sink

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // summaryTruncation is errSummaryOutputTruncated plus what was spent: the

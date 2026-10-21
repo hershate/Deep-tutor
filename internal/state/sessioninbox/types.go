@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // SchemaVersion is the on-disk format version. Unknown higher versions load

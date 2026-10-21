@@ -15,8 +15,8 @@ import (
 
 	"golang.org/x/text/transform"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/tool"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/tool"
 )
 
 const (

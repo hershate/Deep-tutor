@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // summaryVerdictOf keeps the summary line and the completion receipt on one

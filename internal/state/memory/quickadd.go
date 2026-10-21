@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // quickAddHeading marks the section quick-added notes accumulate under, so

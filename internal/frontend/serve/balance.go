@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"reasonix/internal/model/billing"
+	"deep-tutor/internal/model/billing"
 )
 
 // walletBody is the wallet as a frontend lays it out. FetchedAt dates the

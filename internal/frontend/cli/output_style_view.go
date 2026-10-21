@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/runtime/outputstyle"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/runtime/outputstyle"
 )
 
 func renderOutputStyles(width int, styles []outputstyle.OutputStyle, active string) string {

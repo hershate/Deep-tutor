@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // The picker opens on the first conversation that is not the open one, what

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"slices"
 	"strings"
@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/execjournal"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/execjournal"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // A lone delegation reaches the same runner a fan-out item does and, until this

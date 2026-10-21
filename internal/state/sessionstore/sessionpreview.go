@@ -3,7 +3,7 @@ package sessionstore
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // SessionPreview returns the same preview and user-turn count used by

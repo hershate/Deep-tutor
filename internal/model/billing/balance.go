@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // A wallet read fails in ways the reader must tell apart: a rejected credential

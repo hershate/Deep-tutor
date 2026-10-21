@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 func TestTodoInventoryListsTurnTodos(t *testing.T) {

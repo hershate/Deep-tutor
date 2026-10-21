@@ -3,7 +3,7 @@ package notify
 import (
 	"sync/atomic"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Settings is what a sink reads on every event, so a window flipping the switch

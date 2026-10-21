@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/gitstatus"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitstatus"
+	"deep-tutor/internal/session/control"
 )
 
 // changes reports what the working tree currently differs by. A frontend that

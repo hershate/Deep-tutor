@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // Fingerprint is the identity of a path as observed on disk.

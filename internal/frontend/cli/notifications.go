@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/notify"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/notify"
 )
 
 var newNotificationSender = func() notify.Sender { return notify.NewPlatformSender() }

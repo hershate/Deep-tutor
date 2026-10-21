@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestGrepSandboxUnavailableRootDoesNotSearchHome(t *testing.T) {

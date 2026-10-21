@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/state/store"
 )
 
 // BranchMeta is the small sidecar record that turns flat session files into a

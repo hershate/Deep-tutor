@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // The read surface for host adjudication. Its own route rather than a field on

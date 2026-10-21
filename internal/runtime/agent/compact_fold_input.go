@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Summary input construction is internal to a summary transaction. The normal

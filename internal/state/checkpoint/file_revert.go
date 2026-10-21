@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // PrepareFileRevert prepares a single-file restore to the earliest session preimage.

@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 func surfaceServer(t *testing.T) string {

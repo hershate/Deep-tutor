@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/checkpoint"
 	"testing"
 )
 

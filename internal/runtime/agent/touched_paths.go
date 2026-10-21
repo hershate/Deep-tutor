@@ -3,9 +3,9 @@ package agent
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // PathObserver is told which files a session's completed tool calls named.

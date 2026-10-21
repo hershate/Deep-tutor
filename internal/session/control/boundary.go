@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // PermissionLists is one layer of the fine-grained gate: three ordered lists

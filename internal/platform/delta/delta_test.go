@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func noise(seed int64, n int) []byte {

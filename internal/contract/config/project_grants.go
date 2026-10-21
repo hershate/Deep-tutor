@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/workspaceid"
-	"reasonix/internal/contract/permrule"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/workspaceid"
+	"deep-tutor/internal/contract/permrule"
 )
 
 // ProjectGrant is what the user granted one workspace folder: allow rules

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // recordToolReceipts files the turn-scoped evidence for one executed call:

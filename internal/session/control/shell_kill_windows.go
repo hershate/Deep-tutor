@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 // setShellKillTree hides the child's console and makes a cancelled command kill

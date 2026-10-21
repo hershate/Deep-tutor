@@ -1,6 +1,6 @@
 package mcpsetup
 
-import "reasonix/internal/base/textutil"
+import "deep-tutor/internal/base/textutil"
 
 // DisplayName is a server name fit to print. A repository chooses the names in
 // its .mcp.json, so one may carry escape sequences or bidi controls that would

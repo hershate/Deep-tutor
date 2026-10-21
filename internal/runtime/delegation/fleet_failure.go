@@ -2,9 +2,9 @@ package delegation
 
 import (
 	"errors"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // fleetFailureClass is the identity a failed or skipped item carries out to the

@@ -2,12 +2,12 @@ package boot
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/ablation"
+	"deep-tutor/internal/contract/ablation"
 	"sort"
 	"testing"
 
-	"reasonix/internal/base/tokencount"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/tokencount"
+	"deep-tutor/internal/contract/tool"
 )
 
 // What a session is billed for before it does anything: the schemas the

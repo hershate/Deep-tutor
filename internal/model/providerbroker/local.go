@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Local is this machine's broker: a Server on a loopback listener, plus the

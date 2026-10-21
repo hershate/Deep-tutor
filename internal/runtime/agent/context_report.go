@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // ContextReport is a point-in-time view of context pressure: the declared
 // window, the thresholds derived from it, what the model currently sees, and how

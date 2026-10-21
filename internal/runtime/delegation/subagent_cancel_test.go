@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 func cancelTestRun(t *testing.T) (*SubagentStore, *SubagentRun) {

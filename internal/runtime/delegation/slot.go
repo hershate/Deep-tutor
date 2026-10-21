@@ -2,7 +2,7 @@ package delegation
 
 import (
 	"context"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 )
 
 // acquireSlot queues this run for a session concurrency/write slot and tells its

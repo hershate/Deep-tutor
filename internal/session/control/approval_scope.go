@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/tool"
+import "deep-tutor/internal/contract/tool"
 
 // approvalScope is what approving a call to name authorizes beyond the call,
 // as the tool declares it; see tool.ApprovalScoper.

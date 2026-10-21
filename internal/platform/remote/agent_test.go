@@ -11,8 +11,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 // keyringDialer serves an in-memory agent over a pipe. Where the real agent

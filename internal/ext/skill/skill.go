@@ -26,11 +26,11 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ErrInvocationUnavailable marks a profile/dependency gate that can become

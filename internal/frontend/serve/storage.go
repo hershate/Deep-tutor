@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/storage"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/storage"
 )
 
 // storageRoot is one root as the panel reads it. Sizes are the measured ones;

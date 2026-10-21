@@ -22,12 +22,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/mcplaunch"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/mcplaunch"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // protocolVersion is the MCP revision Reasonix advertises during initialize.

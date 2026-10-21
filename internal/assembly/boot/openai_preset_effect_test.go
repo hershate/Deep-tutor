@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // openAIPresetSession assembles the real stack for the curated OpenAI entry as

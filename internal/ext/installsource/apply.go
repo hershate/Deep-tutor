@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 // apply dispatches to the per-action implementation. Each branch is

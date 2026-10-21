@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // protocolMenuText names a wire for a person. A kind the translators have not

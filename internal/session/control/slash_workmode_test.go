@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // A frontend that routes raw input through Submit gets /preset, its aliases

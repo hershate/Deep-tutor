@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/goaleval"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/goaleval"
 )
 
 func TestGoalResumeCommandContinuesTheGoalAndSaysSo(t *testing.T) {

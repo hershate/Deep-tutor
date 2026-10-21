@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // reconcileSessionDir runs the directory-wide passes: sidecar reconciliation,

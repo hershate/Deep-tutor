@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/model/catalog"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/model/catalog"
 )
 
 func testAndRefreshProvider(s *providerSetupSession, p config.ProviderEntry) {

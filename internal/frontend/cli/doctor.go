@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/doctor"
-	"reasonix/internal/platform/repair"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/doctor"
+	"deep-tutor/internal/platform/repair"
 )
 
 func doctorBillingCommand(args []string) int {

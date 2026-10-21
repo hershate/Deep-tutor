@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 type jobCanceller struct {

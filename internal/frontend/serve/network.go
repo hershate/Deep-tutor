@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // network returns the proxy settings. The stored password never comes back out —

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // Keys the loader deliberately drops: retired knobs kept only so an old TOML

@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/ext/pluginpkg"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // SourceStatus describes one hooks settings file for diagnostics.

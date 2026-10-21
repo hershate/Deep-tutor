@@ -10,11 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/provider"
 )
 
 // list_sessions tool

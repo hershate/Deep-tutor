@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 type connectionEntry struct {

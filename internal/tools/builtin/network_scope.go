@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"slices"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/tool"
 )
 
 // CodeNetworkPathOutsideScope identifies a file-tool path refused because it

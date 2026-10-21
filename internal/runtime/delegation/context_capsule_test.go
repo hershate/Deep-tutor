@@ -2,13 +2,13 @@ package delegation
 
 import (
 	"encoding/json"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func capsuleForSpec(t *testing.T, spec SubagentSpec) sessionstore.ContextCapsule {

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func TestInterruptedRecoveryBlockStatesUserMessagePrecedence(t *testing.T) {

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const subagentHookProviderKind = "boot-subagent-hooks"

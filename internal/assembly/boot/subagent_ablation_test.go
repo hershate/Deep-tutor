@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
 )
 
 // The arm is only a control if it removes delegation whichever tool reaches it.

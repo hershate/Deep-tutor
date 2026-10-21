@@ -1,11 +1,11 @@
 package serve
 
 import (
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // The launch line is what the user approves, so it is redacted, carries no env

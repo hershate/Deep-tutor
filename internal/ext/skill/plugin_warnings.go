@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // PluginWarnings preserves delivery validator identities for frontend projection,

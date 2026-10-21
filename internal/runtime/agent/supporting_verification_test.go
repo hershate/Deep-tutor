@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/runtime/taskpolicy"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/runtime/taskpolicy"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 func TestProseWaiverRequiresEntireMutationDomain(t *testing.T) {

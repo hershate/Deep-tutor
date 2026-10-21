@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/skill"
 )
 
 // The criterion these guards enforce. It is repeated in every failure message

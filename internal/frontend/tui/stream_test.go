@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // scriptedEvents serves one scripted /events connection per entry, then holds

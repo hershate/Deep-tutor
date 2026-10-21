@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 const testGoalBlock = "<active-goal>\nship the parser\n\nGoal mode: pursue this goal autonomously.\n</active-goal>"

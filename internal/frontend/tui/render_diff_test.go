@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 const tuiDiff = "diff --git a/x.go b/x.go\n" +

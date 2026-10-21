@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/tokencount"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/tokencount"
+	"deep-tutor/internal/contract/tool"
 )
 
 // The largest single item in a first request — 3,995 of one measured run's

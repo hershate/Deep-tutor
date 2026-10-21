@@ -3,9 +3,9 @@ package agent
 import (
 	"testing"
 
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func ledgerWith(receipts ...evidence.Receipt) *evidence.Ledger {

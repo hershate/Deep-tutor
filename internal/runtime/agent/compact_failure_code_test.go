@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 func failureFixture(t *testing.T, prov provider.Provider) (*Agent, *recordSink) {

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/workspacelist"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/workspacelist"
 )
 
 type workspaceList = workspacelist.List

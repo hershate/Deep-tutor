@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // Boot-level fake sidecar (re-exec helper-process pattern, mirroring the

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/ext/installsource"
 )
 
 // installFailure answers an install the tool refused with the cause the tool

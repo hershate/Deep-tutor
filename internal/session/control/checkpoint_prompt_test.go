@@ -3,14 +3,14 @@ package control
 import (
 	"context"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/langpref"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/langpref"
 )
 
 // A checkpoint opens with the composed turn, so its stored prompt carries the

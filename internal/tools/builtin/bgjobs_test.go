@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // End-to-end through the actual tools: a background bash job runs under a manager

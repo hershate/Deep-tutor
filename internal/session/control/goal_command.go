@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 func (c *Controller) startGoalCommandTurn(cmd GoalCommand, display string) {

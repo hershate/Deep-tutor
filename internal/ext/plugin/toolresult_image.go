@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/model/visionimage"
 )
 
 // Tool-result images ride to vision models as base64 data URLs, so each item is

@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func contractWith(reqs []taskcontract.Requirement, checks ...taskcontract.Check) *taskcontract.Contract {

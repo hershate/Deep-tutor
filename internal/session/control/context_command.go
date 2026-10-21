@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // ContextReport renders the current context state as a one-line summary plus

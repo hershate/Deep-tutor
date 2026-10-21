@@ -1,8 +1,8 @@
 package event
 
 import (
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/hostaudit"
 )
 
 // AuditForwarder forwards every optional sink capability to Inner. Embed it in

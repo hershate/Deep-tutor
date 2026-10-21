@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestParsePlanTodos(t *testing.T) {

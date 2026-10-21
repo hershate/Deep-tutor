@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/state/memory"
 )
 
 // memoryEntry is one saved fact. Activation is the field that matters most to a

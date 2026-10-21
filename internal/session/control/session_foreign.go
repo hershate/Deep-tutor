@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // continueForeignSession gives a conversation opened from a 1.x event log a

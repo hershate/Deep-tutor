@@ -1,13 +1,13 @@
 package boot
 
 import (
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"sync"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // offPeak pins these quotes to an hour DeepSeek bills at its base rate. Without

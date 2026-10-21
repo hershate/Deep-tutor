@@ -1,6 +1,6 @@
 package openai
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // toolCallReasoning returns the reasoning_content to serialize on m, or nil when
 // the endpoint's declared protocol has no place for it.

@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // sessionRuntime is the host state one conversation owns. Its lifetime sits

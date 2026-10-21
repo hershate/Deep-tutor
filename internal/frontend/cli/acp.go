@@ -11,17 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/providerext"
-	"reasonix/internal/frontend/acp"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/session/control"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/providerext"
+	"deep-tutor/internal/frontend/acp"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // acpCommand runs Reasonix as an Agent Client Protocol agent: a stdio JSON-RPC

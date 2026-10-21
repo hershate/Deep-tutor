@@ -3,12 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // A fold's index gives an address; recall is what reads it. The budget is per

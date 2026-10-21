@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // A call queued behind a cold start waits out that start, so the queue is

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/installlayout"
+	"deep-tutor/internal/platform/installlayout"
 )
 
 // apply publishes the tarball into a new version directory and swaps the

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 const (

@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/tools/advisor"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/tools/advisor"
 )
 
 // addAdvisor offers the advise tool when advisor_model names a model. It is

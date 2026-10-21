@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/contract/pricing"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/contract/pricing"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const (

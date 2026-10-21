@@ -2,12 +2,12 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/taskpolicy"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/taskpolicy"
 )
 
 // The planner gate answers one question: did the user ask for a plan? Twelve

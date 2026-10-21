@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 func TestHookBackupVariantsRoundTrip(t *testing.T) {

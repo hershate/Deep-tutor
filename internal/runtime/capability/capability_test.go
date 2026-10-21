@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
 )
 
 // A skill is routed by the triggers its author declared, never by the host

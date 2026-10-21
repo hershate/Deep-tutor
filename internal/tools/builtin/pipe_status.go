@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // A pipeline hands the shell only its last stage's status, so `go test | tail`

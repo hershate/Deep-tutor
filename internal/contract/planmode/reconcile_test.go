@@ -3,10 +3,10 @@ package planmode_test
 import (
 	"testing"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
 
-	_ "reasonix/internal/tools/builtin"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // effectOf mirrors the agent's own derivation so this reconciliation measures

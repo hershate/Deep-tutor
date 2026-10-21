@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 type Scope string

@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // ApplyDefaultHeadlessApprovalMode is ApplyHeadlessApprovalMode for a run nobody
 // named a mode for. Where the default asks because this folder is not trusted,

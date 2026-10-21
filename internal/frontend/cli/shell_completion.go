@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"

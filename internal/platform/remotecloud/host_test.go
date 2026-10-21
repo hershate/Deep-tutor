@@ -16,7 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/platform/account"
 )
 
 type taskStub struct {

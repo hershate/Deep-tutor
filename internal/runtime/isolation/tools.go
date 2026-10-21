@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 type idArgs struct {

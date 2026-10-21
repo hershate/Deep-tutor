@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/safety/permission"
 )
 
 // writeHookedPlugin lays out a package whose hooks execute during sessions,

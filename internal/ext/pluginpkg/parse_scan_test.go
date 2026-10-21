@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/testenv"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/testenv"
 )
 
 func countSkillReads(t *testing.T) func() map[string]int {

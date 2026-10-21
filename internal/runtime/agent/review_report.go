@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // ReviewReportGrant is what the host bound one report tool to before its

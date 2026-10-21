@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 	"time"
 )
 

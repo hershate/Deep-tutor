@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
 )
 
 // The production Client interface exists so the real sidecar client drops in

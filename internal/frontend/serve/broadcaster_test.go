@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // read drains ch until want is seen or the deadline passes, the way a real SSE

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 func TestOwedChecksWaivedByTheUserLeaveAChangedTurnFree(t *testing.T) {

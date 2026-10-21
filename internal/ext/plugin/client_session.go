@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {

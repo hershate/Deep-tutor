@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // askState walks an open question panel. tab is the question in view; with

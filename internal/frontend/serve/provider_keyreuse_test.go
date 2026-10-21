@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func savedProvider(t *testing.T, name string) *config.ProviderEntry {

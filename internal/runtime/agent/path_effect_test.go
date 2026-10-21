@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/checkpoint"
 	"runtime"
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestObservationNamesWhatAnOpaqueCommandTouched(t *testing.T) {

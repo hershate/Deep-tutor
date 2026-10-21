@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // An answer given on a phone is the phone's on its receipt, and reaches the

@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // inboxEventSink observes Steer and unapplied-steer events so durable inbox
 // state tracks consumption without frontends matching on text, and names the

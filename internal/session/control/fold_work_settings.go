@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // FoldWorkSettings is whether Studio folds a turn's intermediate work under one
 // line. The user file holds it; the transcript itself is unaffected.

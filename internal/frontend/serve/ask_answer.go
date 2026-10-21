@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 // answer responds to an ask_request.

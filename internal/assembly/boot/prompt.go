@@ -3,18 +3,18 @@ package boot
 import (
 	"context"
 	"errors"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/runtime/capability"
 	"runtime"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/platform/environment"
-	"reasonix/internal/runtime/outputstyle"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/platform/environment"
+	"deep-tutor/internal/runtime/outputstyle"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
 )
 
 // promptAssembly is the cache-stable prefix a build composes once, together

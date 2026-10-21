@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/agentgraph"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/agentgraph"
 )
 
 func TestSchedulerTotalConcurrencyQueues(t *testing.T) {

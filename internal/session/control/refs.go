@@ -18,11 +18,11 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileref"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/base/fileref"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/state/instruction"
 )
 
 // maxFileRefBytes caps how much of an @-referenced file is injected into a

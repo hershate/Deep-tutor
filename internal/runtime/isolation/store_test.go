@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // opened is dir's identity as a session opening it resolves it.

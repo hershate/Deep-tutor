@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 type pathLeaseState struct {

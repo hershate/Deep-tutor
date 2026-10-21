@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/state/storage"
+	"deep-tutor/internal/state/storage"
 )
 
 const (

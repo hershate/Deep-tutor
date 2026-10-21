@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // legacyConfig is the subset of the v0.x (~/.reasonix/config.json) schema this

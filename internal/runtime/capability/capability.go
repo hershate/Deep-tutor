@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
 )
 
 type Kind string

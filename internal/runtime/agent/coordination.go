@@ -3,7 +3,7 @@ package agent
 import (
 	"errors"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The methods here are what a coordinator drives on the executor it wraps:

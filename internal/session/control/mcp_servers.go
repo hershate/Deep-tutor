@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // AddMCPServer connects an MCP server live and persists it to the user-global

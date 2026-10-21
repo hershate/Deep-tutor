@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 // Workspace builds a built-in tool set bound to a working directory, so several

@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 func (a *Agent) emitCheckpointWarning(err error) {
 	if err == nil {

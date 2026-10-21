@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 // installedPowerShells returns every real PowerShell on this host, 5.1 first.

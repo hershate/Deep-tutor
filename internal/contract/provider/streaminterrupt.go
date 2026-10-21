@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"reasonix/internal/base/neterr"
+	"deep-tutor/internal/base/neterr"
 )
 
 // Fixed stream-interrupt reasons for observability. Values are a closed enum

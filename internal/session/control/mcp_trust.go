@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // ErrMCPNothingHeld is a trust request for a server with no held definitions.

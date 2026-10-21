@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestEffectInstalledPluginMCPToolCanBeCalledAndDisabled(t *testing.T) {

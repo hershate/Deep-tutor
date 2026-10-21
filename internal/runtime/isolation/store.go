@@ -14,9 +14,9 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/worktree"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/worktree"
 )
 
 // Refusal codes an isolated run or its settlement answers with.

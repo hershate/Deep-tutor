@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // BenchmarkDiffBlockPreview prices the writer-tool preview against the shape it

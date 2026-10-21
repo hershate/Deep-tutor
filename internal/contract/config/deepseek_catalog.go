@@ -1,7 +1,7 @@
 package config
 
 import (
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 )
 

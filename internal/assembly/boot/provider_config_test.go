@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A hand-edited idle_timeout_seconds never passes UpsertProvider's validation,

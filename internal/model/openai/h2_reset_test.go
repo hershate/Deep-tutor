@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Issue #9389: a gateway resets the HTTP/2 stream after it has already streamed

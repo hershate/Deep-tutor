@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // A prompt's declared arguments ride on its completion item, in the order the

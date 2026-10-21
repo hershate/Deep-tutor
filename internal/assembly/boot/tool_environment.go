@@ -13,18 +13,18 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	"reasonix/internal/base/workspaceid"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/egress"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/observation"
-	"reasonix/internal/state/sessiontemp"
-	"reasonix/internal/state/trustedstate"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/workspaceid"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/egress"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/observation"
+	"deep-tutor/internal/state/sessiontemp"
+	"deep-tutor/internal/state/trustedstate"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // toolEnvironment is what confines the built-in tools: where they may write

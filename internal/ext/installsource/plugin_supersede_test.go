@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestRemovingAPluginReclaimsItsSupersededCopies(t *testing.T) {

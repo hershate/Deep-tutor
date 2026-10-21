@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/session/control"
 )
 
 func TestEffectCopyInstalledCommandLifecycle(t *testing.T) {

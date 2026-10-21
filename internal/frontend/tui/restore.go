@@ -1,6 +1,6 @@
 package tui
 
-import "reasonix/internal/contract/eventwire"
+import "deep-tutor/internal/contract/eventwire"
 
 // Restore replaces the transcript with the session as /history records it.
 // The record carries no error field for a call beyond toolFailed and nothing

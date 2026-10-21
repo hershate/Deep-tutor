@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestRejectedMCPCacheDiscoversWithoutPinning(t *testing.T) {

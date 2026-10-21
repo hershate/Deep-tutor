@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestInstalledPluginReportsFileContributionRootWarnings(t *testing.T) {

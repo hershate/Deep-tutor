@@ -4,7 +4,7 @@ package builtin
 
 import (
 	"os"
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 
 	"golang.org/x/sys/windows"
 )

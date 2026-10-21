@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/skill"
 )
 
 // Profile labels a runtime for diagnostics. It selects nothing: the

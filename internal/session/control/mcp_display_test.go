@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // hostileServerName is a name a repository could put in .mcp.json.

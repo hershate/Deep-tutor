@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Elicit implements tool.Elicitor through the same prompt the ask tool uses,

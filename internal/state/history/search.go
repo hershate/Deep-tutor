@@ -7,14 +7,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sort"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // Kind identifies the part of a saved message indexed for retrieval.

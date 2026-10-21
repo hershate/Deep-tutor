@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // spawnState is the lazy-spawn state machine. Transitions are:

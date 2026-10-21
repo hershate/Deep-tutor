@@ -17,8 +17,8 @@ import (
 	"go.uber.org/goleak"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 // argsJSON marshals m into the JSON form a tool expects. Tests must not build

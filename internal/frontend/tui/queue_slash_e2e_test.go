@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/frontend/tui"
+	"deep-tutor/internal/frontend/tui"
 )
 
 // The queue commands act on the controller's real inbox through the HTTP

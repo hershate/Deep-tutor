@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"reasonix/internal/runtime/promptrefine"
+	"deep-tutor/internal/runtime/promptrefine"
 )
 
 // refinePrompt answers a draft rewritten by the session's model. Only the

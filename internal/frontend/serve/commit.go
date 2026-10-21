@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
-	"reasonix/internal/platform/gitcommit"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/platform/gitcommit"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) registerGitRoutes(mux *http.ServeMux) {

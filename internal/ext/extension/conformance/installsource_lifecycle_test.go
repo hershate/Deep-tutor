@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestInstalledSDKSidecarCanRunThenBeDisabledAndRemoved(t *testing.T) {

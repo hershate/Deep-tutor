@@ -11,8 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // baselineBackend names the capability that produced a result, so a claim never

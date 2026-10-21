@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // errCancelled is returned by selectOne when the user aborts (q or Ctrl-C).

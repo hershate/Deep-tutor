@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // A persisted proof only skips re-launching `bash -c true` for an executable

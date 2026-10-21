@@ -16,7 +16,7 @@ builds:
     ldflags:
       # Inject version identity for `reasonix version --verbose/--json` (Integration D/E).
       # buildTimeUTC is the goreleaser run time (UTC), not vcs.time.
-      - -s -w -X main.version={{ .Tag }} -X main.gitCommit={{ .ShortCommit }} -X main.buildTimeUTC={{ .Date }} -X reasonix/internal/tools/productdocs.linkedVersion={{ .Tag }} -X reasonix/internal/tools/productdocs.linkedRevision={{ .Commit }}
+      - -s -w -X main.version={{ .Tag }} -X main.gitCommit={{ .ShortCommit }} -X main.buildTimeUTC={{ .Date }} -X deep-tutor/internal/tools/productdocs.linkedVersion={{ .Tag }} -X deep-tutor/internal/tools/productdocs.linkedRevision={{ .Commit }}
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
 

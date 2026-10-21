@@ -1,11 +1,11 @@
 package catalog
 
 import (
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"slices"
 	"testing"
 
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/model/openai"
 )
 
 // A relay serving Claude behind an OpenAI-shaped listing is invisible to

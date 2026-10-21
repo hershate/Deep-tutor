@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/chartspec"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/chartspec"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const (

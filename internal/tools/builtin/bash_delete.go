@@ -10,11 +10,11 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/safety/shellsafe"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/safety/shellsafe"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 const CodeDestructiveTarget = "shell.destructive_target"

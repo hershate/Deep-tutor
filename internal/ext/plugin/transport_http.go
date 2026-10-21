@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/mcpdiag"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/mcpdiag"
+	"deep-tutor/internal/contract/tool"
 )
 
 // maxHTTPBody caps how much of a JSON / SSE response body we read, so a

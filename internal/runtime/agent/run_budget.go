@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TaskBudget bounds one task on the axes its failures are reported in, and

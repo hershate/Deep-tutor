@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"reasonix/internal/base/nilutil"
+	"deep-tutor/internal/base/nilutil"
 )
 
 // EscapeRequest describes a one-shot request to rerun a shell command without

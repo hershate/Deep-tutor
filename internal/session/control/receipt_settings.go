@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // ReceiptSettings is whether the end-of-turn delivery receipt is drawn as a
 // card. The user file holds it, so Studio and the terminal answer alike.

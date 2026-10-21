@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestDescriptorFromShell(t *testing.T) {

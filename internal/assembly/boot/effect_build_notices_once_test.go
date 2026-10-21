@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 func buildNoticeFixture(t *testing.T, permissions string) (*[]event.Event, event.Sink) {

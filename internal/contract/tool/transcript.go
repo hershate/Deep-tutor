@@ -3,7 +3,7 @@ package tool
 import (
 	"context"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TranscriptReader is the conversation a tool call belongs to, offered by the

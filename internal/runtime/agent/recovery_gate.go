@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // recoveryIdentity is who this agent is to the shared gate: the labels a

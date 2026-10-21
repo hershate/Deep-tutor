@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/surface"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/surface"
 )
 
 type fakeTime struct {

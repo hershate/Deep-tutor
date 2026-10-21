@@ -3,7 +3,7 @@ package hook
 import (
 	"strings"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // NormalizeCommand repairs narrow classes of copied JSON-escaped hook commands.

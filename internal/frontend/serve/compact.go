@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 )
 
 func (s *Server) compact(w http.ResponseWriter, r *http.Request) {

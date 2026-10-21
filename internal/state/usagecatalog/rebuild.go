@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/projectiondb"
+	"deep-tutor/internal/state/projectiondb"
 )
 
 // Rebuild replaces only the disposable usage projection after replaying the

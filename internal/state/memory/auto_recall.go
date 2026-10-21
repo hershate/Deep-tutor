@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"reasonix/internal/base/retrieval"
+	"deep-tutor/internal/base/retrieval"
 )
 
 // Automatic recall's defaults. They are starting points, not ceilings: a user

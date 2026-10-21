@@ -22,10 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/rpcwire"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/rpcwire"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // examplePath is the built fullsidecar binary, shared by every test.

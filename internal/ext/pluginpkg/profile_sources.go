@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // WalkProfileSources visits bounded resident sources in declared profile roots.

@@ -2,10 +2,10 @@ package control
 
 import (
 	"encoding/json"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 type SurfaceActionRequest struct {

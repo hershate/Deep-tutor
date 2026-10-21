@@ -2,10 +2,10 @@
 package boot
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/pricing"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/pricing"
+	"deep-tutor/internal/state/stats"
 )
 
 // quotedSink wraps the frontend sink so every host consumer — stats recorder,

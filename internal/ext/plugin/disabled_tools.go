@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ToolEnabled matches the server's raw tool name, before prefix stripping.

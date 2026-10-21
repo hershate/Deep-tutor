@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 // managedOnlyPolicy points the host-key policy at an isolated managed file and

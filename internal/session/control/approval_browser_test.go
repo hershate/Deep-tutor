@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/permission"
 )
 
 // Approving a site for the session answers for loading, reading and operating

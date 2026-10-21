@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/platform/remotecloud"
+	"deep-tutor/internal/platform/remotecloud"
 )
 
 const (

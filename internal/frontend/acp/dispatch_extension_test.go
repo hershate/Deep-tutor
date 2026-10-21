@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/uihub"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/uihub"
+	"deep-tutor/internal/session/control"
 )
 
 func extStatusEvent(severity string) event.Event {

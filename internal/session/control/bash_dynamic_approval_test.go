@@ -3,17 +3,17 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/guardian"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/guardian"
+	"deep-tutor/internal/safety/permission"
 )
 
 const dynamicBashCommand = "git status $(touch /tmp/reasonix-dynamic-approval)"

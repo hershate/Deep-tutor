@@ -3,7 +3,7 @@ package cli
 import (
 	"strings"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 func renderBranchTree(tree string) string {

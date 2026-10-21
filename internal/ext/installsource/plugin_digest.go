@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func snapshotPlugin(pkg pluginpkg.Package) (pluginpkg.Package, string, func(), error) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/capability"
 )
 
 type searchableCapabilityTool struct{ name, description string }

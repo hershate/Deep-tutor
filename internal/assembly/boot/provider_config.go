@@ -7,9 +7,9 @@ import (
 	"maps"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 // ProviderBuildIdentity is the resolved identity a controller was built with.

@@ -10,10 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 const glmRelayTOML = `

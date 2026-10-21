@@ -3,11 +3,11 @@ package control
 import (
 	"fmt"
 	"log/slog"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // bindExecutorProjection rebinds the agent's projection sidecar to path.

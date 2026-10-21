@@ -11,7 +11,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func TestSplitDiffFormatter(t *testing.T) {

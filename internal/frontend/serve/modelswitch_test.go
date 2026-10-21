@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // TestControllerAccessorIsRaceSafe guards the switchModel concurrency contract:

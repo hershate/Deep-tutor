@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Compaction is a low-frequency cache-reset point: the prompt grows append-only

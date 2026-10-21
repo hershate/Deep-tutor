@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/agentgraph"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/agentgraph"
 )
 
 func TestFleetItemShapeRequiresExactlyOneOfPromptAndAdoptRef(t *testing.T) {

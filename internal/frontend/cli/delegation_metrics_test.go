@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"testing"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // The instrument must be able to say, from one run, whether delegation

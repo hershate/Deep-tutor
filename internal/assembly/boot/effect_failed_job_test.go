@@ -8,11 +8,11 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // failedJobProvider starts a background command that fails in the START turn,

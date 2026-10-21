@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // refusalArm is one arm of the fork measuring what R1 does not itself

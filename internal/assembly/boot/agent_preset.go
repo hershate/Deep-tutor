@@ -1,13 +1,13 @@
 package boot
 
 import (
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/bestof"
-	"reasonix/internal/tools/advisor"
-	"reasonix/internal/tools/builtin"
-	"reasonix/internal/tools/script"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/bestof"
+	"deep-tutor/internal/tools/advisor"
+	"deep-tutor/internal/tools/builtin"
+	"deep-tutor/internal/tools/script"
 )
 
 // Canonical Agent role-setting identifiers re-exported for frontends that

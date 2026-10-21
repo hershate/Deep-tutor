@@ -7,11 +7,11 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func copyFixtureFile(t *testing.T, src, dst string, mode os.FileMode) {

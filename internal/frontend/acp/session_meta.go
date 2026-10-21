@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/provider"
 )
 
 func (s *acpSession) saveMetaIfPresent() {

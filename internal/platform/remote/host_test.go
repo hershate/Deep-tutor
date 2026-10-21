@@ -3,7 +3,7 @@ package remote
 import (
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestParseTarget(t *testing.T) {

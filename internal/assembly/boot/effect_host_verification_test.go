@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 func TestEffectHostVerificationOffIsTheUsersChoiceOnly(t *testing.T) {

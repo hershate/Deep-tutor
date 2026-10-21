@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 type overflowingSharedWindowProvider struct {

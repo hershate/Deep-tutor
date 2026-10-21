@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 // buildExamplePlugin compiles cmd/reasonix-plugin-example into a temp binary and
@@ -25,7 +25,7 @@ func buildExamplePlugin(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	out, err := exec.Command("go", "build", "-o", bin, "reasonix/cmd/reasonix-plugin-example").CombinedOutput()
+	out, err := exec.Command("go", "build", "-o", bin, "deep-tutor/cmd/reasonix-plugin-example").CombinedOutput()
 	if err != nil {
 		t.Fatalf("build example plugin: %v\n%s", err, out)
 	}

@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/state/checkpoint"
+import "deep-tutor/internal/state/checkpoint"
 
 // AvailableUndo is a read: it neither takes the rotation gate nor scans files.
 func (c *Controller) AvailableUndo() (*checkpoint.RewindUndo, error) {

@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/state/memory"
 )
 
 // Collect builds a capability diagnostics report. It never writes config,

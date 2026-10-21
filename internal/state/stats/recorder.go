@@ -2,13 +2,13 @@ package stats
 
 import (
 	"context"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Recorder is a passthrough event.Sink that snapshots token usage (event.Usage)

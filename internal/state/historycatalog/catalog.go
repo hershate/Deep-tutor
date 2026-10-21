@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"slices"
 	"strings"
@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/state/projectiondb"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/state/projectiondb"
+	"deep-tutor/internal/state/store"
 )
 
 const defaultMissingGrace = 30 * time.Second

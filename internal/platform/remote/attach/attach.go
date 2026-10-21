@@ -16,11 +16,11 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/bootstrap"
-	"reasonix/internal/platform/remote/forward"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/forward"
 )
 
 // Broker is this machine's provider broker: the loopback address it listens on

@@ -2,7 +2,7 @@ package delegation
 
 import (
 	"context"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"testing"
 )
 

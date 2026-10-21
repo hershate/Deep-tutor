@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/runtime/usecap"
 	"testing"
 )
 

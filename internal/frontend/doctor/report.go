@@ -9,20 +9,20 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/store"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/store"
 )
 
 type Options struct {

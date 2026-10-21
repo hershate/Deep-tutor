@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension/uihub"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension/uihub"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/session/control"
 )
 
 // Extension structured-UI rendering (Extension Protocol v2). The

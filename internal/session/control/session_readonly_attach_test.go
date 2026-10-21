@@ -4,11 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 func seedTranscript(t *testing.T, path string, text string) {

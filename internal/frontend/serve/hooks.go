@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 // hookEntry is one configured rule. Blocking and issues are computed here rather

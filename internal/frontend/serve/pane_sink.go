@@ -2,8 +2,8 @@
 package serve
 
 import (
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/event"
 )
 
 // SetPaneSink records the host's decoration around bc — the sink the controller

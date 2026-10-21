@@ -1,6 +1,6 @@
 package usecap
 
-import "reasonix/internal/contract/tool"
+import "deep-tutor/internal/contract/tool"
 
 // routableRegistryTool is the registry hit a capability call may bind to. A
 // withdrawn entry is a slot held open for a tool the server dropped, not a

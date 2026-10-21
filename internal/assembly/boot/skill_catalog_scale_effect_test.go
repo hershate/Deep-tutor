@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 // skillSearchProvider plays one scripted use_capability call per model round,

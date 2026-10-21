@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // TestInterruptedExecutionBlockNamesEveryEntry: a block that says work was cut

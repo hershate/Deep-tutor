@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // legacyEvent is the subset of the v0.x typed event stream (<name>.events.jsonl)

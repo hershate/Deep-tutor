@@ -3,7 +3,7 @@ package testutil
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // SummaryReply is what a double that follows the summary contract answers: the

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 func sessionPath(t *testing.T) string {

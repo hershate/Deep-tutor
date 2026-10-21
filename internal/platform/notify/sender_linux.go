@@ -5,7 +5,7 @@ package notify
 import (
 	"os/exec"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 // PlatformSender delivers notifications through the host OS.

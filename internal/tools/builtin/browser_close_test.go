@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/platform/browser"
 )
 
 type toolClosePage struct {

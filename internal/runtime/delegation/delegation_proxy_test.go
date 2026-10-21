@@ -3,18 +3,18 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/usecap"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/writeclaim"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // A capability-proxied call must still produce the delegation receipt: the

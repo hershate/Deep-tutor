@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestLoadCachedToolsForSpecsHonorsSchemaCacheKey(t *testing.T) {

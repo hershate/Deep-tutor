@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/session/control"
 )
 
 // sessionLeaseResumeRefusal is the startup-time refusal for `reasonix

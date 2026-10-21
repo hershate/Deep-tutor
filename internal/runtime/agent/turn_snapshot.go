@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"reasonix/internal/state/observation"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/observation"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // turnSnapshot is the workspace as the turn found it, taken while the first

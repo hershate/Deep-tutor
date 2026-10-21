@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // strongAdvisorProvider records what the advising model is sent and answers

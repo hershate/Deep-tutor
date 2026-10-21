@@ -3,10 +3,10 @@ package agent
 import (
 	"encoding/json"
 	"errors"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 func (a *Agent) workspaceWritePaths(plan *toolCallPlan) []string {

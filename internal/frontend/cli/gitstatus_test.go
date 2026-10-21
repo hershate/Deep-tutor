@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 func TestParseGitNumstat(t *testing.T) {

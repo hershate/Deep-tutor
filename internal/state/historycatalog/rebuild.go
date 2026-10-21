@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/projectiondb"
+	"deep-tutor/internal/state/projectiondb"
 )
 
 // Rebuild replaces only the disposable FTS projection after indexing every

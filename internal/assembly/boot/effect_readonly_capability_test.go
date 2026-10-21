@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 const readOnlyChildTask = "find a grep tool"

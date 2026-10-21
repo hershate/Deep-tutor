@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A headless run never moves to another provider on its own: with a saved

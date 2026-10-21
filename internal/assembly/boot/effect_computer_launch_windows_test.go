@@ -3,8 +3,8 @@ package boot
 import (
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/computer"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/computer"
 	"strings"
 	"testing"
 )

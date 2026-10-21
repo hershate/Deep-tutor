@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // kbchat.go — knowledge-base问答, Deep-tutor's /kb/chat: documents injected

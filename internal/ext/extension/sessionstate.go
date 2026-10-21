@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // SessionExtensionsVersion is the on-disk version of the sidecar state file.

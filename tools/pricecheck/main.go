@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"slices"
 	"strings"
 	"time"

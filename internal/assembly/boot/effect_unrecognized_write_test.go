@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 // A command the classifier cannot read stands in for the check only while the

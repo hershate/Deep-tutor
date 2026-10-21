@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 func calledWith(k *recordingKernel, prefix string) bool {

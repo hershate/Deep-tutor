@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 )
 
 // The file tools are how a Windows session changes a file without PowerShell's

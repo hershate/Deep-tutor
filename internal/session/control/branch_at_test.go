@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func orderedTurns(t *testing.T, c *Controller) []int {

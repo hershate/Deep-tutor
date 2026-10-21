@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Index is versions.json. It deliberately carries no asset URLs or signatures —

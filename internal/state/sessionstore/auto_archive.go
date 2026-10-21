@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 var errNotInactive = errors.New("session is no longer inactive")

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/session/control"
 )
 
 // A tool that exists only where assembly adds it (system_one without a

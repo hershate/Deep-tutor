@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // A job that outlives its turn is not a reason to keep the user on a model

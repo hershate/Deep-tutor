@@ -1,7 +1,7 @@
 package control
 
 import (
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/ext/extension"
 )
 
 // RuntimePhase is the observable publish/drain phase for this controller.

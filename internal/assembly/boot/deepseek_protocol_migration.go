@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // handleConfigLoadWarnings puts the resilient loader's findings in front of

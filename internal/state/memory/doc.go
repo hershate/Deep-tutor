@@ -16,7 +16,7 @@ package memory
 import (
 	"path/filepath"
 
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/state/instruction"
 )
 
 // Scope labels where a doc source was discovered, so the assembled block can

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/installlayout"
+	"deep-tutor/internal/platform/installlayout"
 )
 
 // Layout is where this build lives on disk. The three are resolved together

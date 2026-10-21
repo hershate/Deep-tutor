@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // TestRetryIndicatorText guards the composer's retry line wording — the same

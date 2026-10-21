@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // modelPrice is list price per 1M tokens, as the provider entry declares it.

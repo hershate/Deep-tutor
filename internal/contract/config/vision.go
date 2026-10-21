@@ -2,7 +2,7 @@ package config
 
 import (
 	"net/url"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 	"slices"
 	"strings"
 )

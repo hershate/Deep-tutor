@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/providerext"
-	"reasonix/internal/ext/extension/sidecar"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/providerext"
+	"deep-tutor/internal/ext/extension/sidecar"
 )
 
 type baseResolver struct{}

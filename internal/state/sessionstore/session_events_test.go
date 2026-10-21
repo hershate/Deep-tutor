@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 func sessionWithTurns(t *testing.T, path string, turns int) *Session {

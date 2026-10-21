@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestResolvedProcessModeDefaultsToHost(t *testing.T) {

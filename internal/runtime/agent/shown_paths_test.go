@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/evidence"
 )
 
 const witnessBefore = "package tally\n\nfunc Sum(xs []int) int {\n\ttotal := 0\n\treturn total\n}\n"

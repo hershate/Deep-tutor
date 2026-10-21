@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 func workedRows(tr *Transcript, width int) []string {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/endpointclient"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/endpointclient"
 )
 
 // NetworkSettings is the proxy configuration as an editor needs it: the mode,

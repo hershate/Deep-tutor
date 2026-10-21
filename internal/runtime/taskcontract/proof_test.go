@@ -3,7 +3,7 @@ package taskcontract
 import (
 	"testing"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // A suite whose exit status the shell hid neither satisfies a declared check

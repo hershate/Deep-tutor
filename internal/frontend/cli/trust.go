@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/session/control"
 )
 
 type trustOptions struct {

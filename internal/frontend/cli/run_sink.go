@@ -7,14 +7,14 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/platform/telemetry"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/trajectory"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/platform/telemetry"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/trajectory"
 )
 
 // runSinkChain is the assembled event pipeline for one `run` invocation, with

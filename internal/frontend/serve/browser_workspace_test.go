@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A browser on a headless server cannot open a native picker, but the path API

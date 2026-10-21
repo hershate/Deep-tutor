@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // hashTestSnapshot builds a snapshot with two tools, an interceptor, and a

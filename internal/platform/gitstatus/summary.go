@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // Info is the one-line identity of a work tree: where it is, which branch it

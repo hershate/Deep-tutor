@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 type skillRawFactory struct {

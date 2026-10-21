@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/chartspec"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/chartspec"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const chartSpecJSON = `{"spec_version":1,"title":"Sales","data":{"columns":[{"name":"m","type":"string"},{"name":"v","type":"number"}],"rows":[["jan",1],["feb",3]]},"marks":[{"type":"bar","x":"m","y":["v"]}]}`

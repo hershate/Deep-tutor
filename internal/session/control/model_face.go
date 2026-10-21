@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // ModelFace is what the build resolved about the session's model: the facts a
 // status read needs without loading configuration again.

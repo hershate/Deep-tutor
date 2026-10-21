@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/pricing"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/pricing"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // The tutor service is shared per state root, not per Server: a hub drives

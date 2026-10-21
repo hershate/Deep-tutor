@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // AutoArchiveSettings is the user's [auto_archive] section with its defaults

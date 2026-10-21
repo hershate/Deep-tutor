@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"slices"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // BashToolCallUsesOpaqueInlineInterpreter reports whether a bash call runs

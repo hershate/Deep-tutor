@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 func fold(evs ...eventwire.Event) *Transcript {

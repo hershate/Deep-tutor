@@ -3,13 +3,13 @@ package control
 import (
 	"context"
 	"errors"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
 )
 
 func TestAdmitGuardedTurnRejectsDrainingGeneration(t *testing.T) {

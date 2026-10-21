@@ -10,8 +10,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 func hasModel(c *Config, model string) *ProviderEntry {

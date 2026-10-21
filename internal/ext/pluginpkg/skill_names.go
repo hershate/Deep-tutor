@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 func (p Package) skillNameWarnings() []string {

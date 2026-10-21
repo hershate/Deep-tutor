@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // CompletionReceipt is the JSON form of event.CompletionReceipt: what the host
 // verified about a turn's work, and what it could not.

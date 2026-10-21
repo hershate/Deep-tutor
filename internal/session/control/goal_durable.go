@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // goalMachineSnapshot is an in-memory rollback point for durable Goal updates.

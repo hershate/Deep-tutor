@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/runtime/schedrun"
-	"reasonix/internal/state/schedule"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/schedrun"
+	"deep-tutor/internal/state/schedule"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 var observeCeilingTools = []string{"ask", "code_index", "conclude_blocked", "glob", "grep", "ls", "read_file"}

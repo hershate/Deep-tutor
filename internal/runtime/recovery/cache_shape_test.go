@@ -3,13 +3,13 @@ package recovery_test
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/recovery"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/recovery"
 )
 
 // TestRecoveryWiringPreservesSuccessPathCacheShape pins the product rule that

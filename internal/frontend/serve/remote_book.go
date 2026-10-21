@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // The host book is user-global: a machine is reachable from every project on

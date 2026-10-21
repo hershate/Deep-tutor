@@ -3,7 +3,7 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestAddTutorPromoteGating(t *testing.T) {

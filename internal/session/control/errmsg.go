@@ -8,10 +8,10 @@ import (
 	"regexp"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/neterr"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/neterr"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/provider"
 )
 
 // explainError maps a provider HTTP failure to an actionable, localized message

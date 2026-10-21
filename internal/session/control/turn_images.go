@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // turnImages is what became of this turn's attachments: what the model gets,

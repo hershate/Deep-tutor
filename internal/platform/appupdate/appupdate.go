@@ -4,8 +4,8 @@ package appupdate
 import (
 	"context"
 
-	"reasonix/internal/platform/repair"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/repair"
+	"deep-tutor/internal/platform/update"
 )
 
 // ApplicationOwner owns the running desktop application: it can bring it to a

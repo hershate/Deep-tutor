@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
 )
 
 // admissionResult classifies what runGuarded did with a turn body.

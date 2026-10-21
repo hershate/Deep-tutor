@@ -1,9 +1,9 @@
 package notify
 
 import (
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // Message is the user-visible payload sent to the platform notifier.

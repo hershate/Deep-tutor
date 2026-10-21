@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TransientUserBlockTags names every block the host prepends to a user turn as

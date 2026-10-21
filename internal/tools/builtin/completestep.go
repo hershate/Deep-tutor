@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 func init() { tool.RegisterBuiltin(completeStep{}) }

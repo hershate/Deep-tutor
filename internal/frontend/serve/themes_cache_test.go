@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/theme"
 )
 
 func TestReimportedThemeAssetsRequireFreshReads(t *testing.T) {

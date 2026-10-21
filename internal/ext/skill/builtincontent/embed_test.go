@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/skill/builtincontent"
+	"deep-tutor/internal/ext/skill/builtincontent"
 )
 
 func TestLoadReasonixGuide(t *testing.T) {

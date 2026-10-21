@@ -3,11 +3,11 @@ package historycatalog
 import (
 	"context"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 func saveMessages(t *testing.T, path string, messages ...provider.Message) {

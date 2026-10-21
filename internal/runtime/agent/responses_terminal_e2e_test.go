@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/model/responses"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/model/responses"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func TestResponsesTerminalRejectsLostCalls(t *testing.T) {

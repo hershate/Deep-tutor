@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/capability"
 )
 
 type capabilityRecordingRunner struct {

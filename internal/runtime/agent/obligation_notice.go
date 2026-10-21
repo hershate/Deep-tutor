@@ -7,8 +7,8 @@ package agent
 import (
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // withObligationNotice is every notice a call owes the model about the host's

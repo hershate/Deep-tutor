@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 // resolverModels answers /models for a pane whose models resolve through a

@@ -3,7 +3,7 @@ package openai
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TestIsDeepSeek pins the host-matching rule for DeepSeek: the canonical

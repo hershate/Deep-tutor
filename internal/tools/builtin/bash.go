@@ -18,15 +18,15 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessiontemp"
-	"reasonix/internal/tools/jobs"
-	"reasonix/internal/tools/shellrun"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessiontemp"
+	"deep-tutor/internal/tools/jobs"
+	"deep-tutor/internal/tools/shellrun"
 )
 
 const (

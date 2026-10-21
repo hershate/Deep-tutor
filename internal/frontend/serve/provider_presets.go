@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // providerPresetView is one curated starting point as the gallery lists it:

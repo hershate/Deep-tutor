@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 
 	"github.com/spf13/pflag"
 )

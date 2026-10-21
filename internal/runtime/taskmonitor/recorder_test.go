@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/tools/jobs"
 )
 
 func newRecorderForTest(t *testing.T, projectDir string) (*TaskRecorder, *FileStore) {

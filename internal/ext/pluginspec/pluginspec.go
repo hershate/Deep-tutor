@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcplaunch"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcplaunch"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // Options carries host runtime policy into plugin specifications.

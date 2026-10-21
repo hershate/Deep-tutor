@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Gemini's function-declaration validator accepts enum only on a string

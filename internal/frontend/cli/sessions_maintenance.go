@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // sessionsMaintenanceVerbs are 1.x's `reasonix sessions` verbs. Sessions are

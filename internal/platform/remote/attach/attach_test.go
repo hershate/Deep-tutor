@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/bootstrap"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 var portFileArg = regexp.MustCompile(`--port-file '([^']*)'`)

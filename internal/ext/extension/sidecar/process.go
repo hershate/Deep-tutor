@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // Bounded-close budgets, mirrored from internal/ext/plugin's stdio transport: a

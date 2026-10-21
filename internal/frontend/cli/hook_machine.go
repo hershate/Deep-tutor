@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 type machineHook struct {

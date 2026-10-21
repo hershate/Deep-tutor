@@ -2,12 +2,12 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/skill"
 )
 
 func userHiddenController() *Controller {

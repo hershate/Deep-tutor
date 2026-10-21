@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/mcplaunch"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/mcplaunch"
 )
 
 func TestStoredNPXLauncherLockUsesExactOfflinePackage(t *testing.T) {

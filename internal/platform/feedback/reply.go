@@ -9,7 +9,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/platform/crashreport"
+	"deep-tutor/internal/platform/crashreport"
 )
 
 const maxReplies = 20

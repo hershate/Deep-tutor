@@ -3,7 +3,7 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/ext/extension"
 )
 
 func TestShouldReuseDiscoveryKinds(t *testing.T) {

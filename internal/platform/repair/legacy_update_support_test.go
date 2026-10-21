@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // RecoverFailedInstall rolls back the pending update when an update helper

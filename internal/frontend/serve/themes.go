@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/theme"
 )
 
 func (s *Server) registerThemeRoutes(mux *http.ServeMux) {

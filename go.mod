@@ -1,4 +1,4 @@
-module reasonix
+module deep-tutor
 
 go 1.26.0
 

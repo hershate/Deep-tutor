@@ -2,7 +2,7 @@ package cli
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"reflect"
 	"testing"
 )

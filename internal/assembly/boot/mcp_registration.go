@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/platform/lsp"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/platform/lsp"
 )
 
 // registerMCPTools puts every enabled server into the tool catalog and returns

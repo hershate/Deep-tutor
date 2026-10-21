@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
 )
 
 type commitDraftFailsProvider struct{}

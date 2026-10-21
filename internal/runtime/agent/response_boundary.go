@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // responseBoundary is one sampling terminal classified against the tool calls

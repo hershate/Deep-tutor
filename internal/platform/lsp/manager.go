@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // ServerSpec declares how to launch one language server. Command resolves on

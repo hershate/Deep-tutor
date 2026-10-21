@@ -3,12 +3,12 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 	"slices"
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/agentgraph"
 )
 
 // fleetPlan is the validated dependency graph for one fleet call. Dependencies

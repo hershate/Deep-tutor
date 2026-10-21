@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // The planner's session never holds executor turns, so what the executor did

@@ -40,7 +40,7 @@
 
 | 文件 | 修改 |
 |---|---|
-| `internal/tools/productdocs/{docs.go,docs_test.go}` | 2 行 import 路径 `reasonix/docs → reasonix/docs/kernel`（commit `5af3470`） |
+| `internal/tools/productdocs/{docs.go,docs_test.go}` | 2 行 import 路径 `reasonix/docs → deep-tutor/docs/kernel`（commit `5af3470`） |
 | `internal/contract/tool/contract_test.go` | `contractPath` 由 `../../../docs/TOOL_CONTRACT.md` 改为 `../../../docs/kernel/TOOL_CONTRACT.md`，另 3 处提示文本同步 |
 | `internal/assembly/boot/boot_test.go` | 读取工具合约文档的路径增加 `kernel` 层级 |
 | `internal/frontend/cli/compact_ratio_test.go` | 读取 CLI 文档的路径增加 `kernel` 层级 |
@@ -167,6 +167,22 @@
 **脚本改动**：`scripts/reasonix/official-theme-art/provenance.py` 的 `DOCS` 由 `../../docs` 改为 `../../../docs/kernel`（`scripts/` 重定位为 `scripts/reasonix/` 后原相对路径失效），输出提示文本同步。
 
 **纯搬运性质**：路径重定位（见吸收范围表）、`git add -f` 补纳上游 `.gitignore` 挡住的 3 个基准夹具 png（commit `7b40d7a`）。
+
+**代码级修改（2026-10-21，M1.2 模块与 import 路径改名）**：根模块 `module reasonix` 改为 `module deep-tutor`，桌面端子模块改为 `module deep-tutor/desktop`（以 `replace` 指向根模块）。吸收内容中的 Go import 前缀随之批量改写——`reasonix/internal/`、`reasonix/desktop/`、`reasonix/cmd/`、`reasonix/docs/`、`reasonix/tools/` 五类前缀共 8445 处，仅改 import 路径，不改任何逻辑。
+
+| 文件 | 修改 |
+|---|---|
+| 全部含上述五类 import 前缀的 `.go` 文件（3189 个） | import 前缀 `reasonix/…` → `deep-tutor/…` |
+| `cmd/reasonix/{main.go,main_test.go}` | 目录改名 `cmd/deep-tutor/`（`git mv`，文件内容仅改 import 前缀） |
+| `cmd/reasonix-studio-host/`、`cmd/reasonix-plugin-example/` | 目录名保持上游形态不变（属发布路径与插件示例标识，见 M1.4/M1.6） |
+| `reasonix.example.toml` | 改名 `deeptutor.example.toml`（`git mv`，内容未改） |
+| `tools/repolint/layers.go` | `modulePrefix` 常量 `reasonix/` → `deep-tutor/`：分层检查按 import 前缀匹配模块，不改则匹配不上、检查静默空转 |
+| `tools/covergate/main.go` | `TrimPrefix` 前缀 `reasonix/` → `deep-tutor/`：覆盖率门禁按同一前缀裁剪路径，不改则门禁失效 |
+| `.goreleaser.yaml` | ldflags 中的 `-X reasonix/internal/tools/productdocs.…` 改为 `-X deep-tutor/internal/tools/productdocs.…` |
+| `Makefile` | `build` 目标产物 `bin/reasonix$(GOEXE)` → `bin/deep-tutor$(GOEXE)`（入口 `./cmd/reasonix` → `./cmd/deep-tutor`）；`cross` 目标产物 `dist/reasonix-…` → `dist/deep-tutor-…` |
+| `.gitignore` | 新增 `/deep-tutor`、`/deep-tutor.exe`（保留 `/reasonix`、`/reasonix.exe` 以兼容既有产物） |
+
+**不改的形态**（属 M1.4 品牌化范围，机械改名会连带改协议标识与产品语义）：产品名 `Reasonix`、工作区目录 `.reasonix/`、ACP vendor method `_reasonix.io/`、git 分支 `reasonix/delivery-*`、HTTP User-Agent `Reasonix/`、上游仓库地址 `github.com/esengine/DeepSeek-Reasonix`、运行时配置名 `reasonix/config.toml`。`sdk/go` 仍是独立 module `github.com/esengine/DeepSeek-Reasonix/sdk/go`。
 
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 

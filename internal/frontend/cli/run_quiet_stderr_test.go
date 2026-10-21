@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func quietRunFixture(t *testing.T) *bytes.Buffer {

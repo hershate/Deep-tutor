@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/platform/appupdate"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/appupdate"
+	"deep-tutor/internal/platform/update"
 )
 
 // UpdateHost is the desktop application this kernel runs inside, as far as the

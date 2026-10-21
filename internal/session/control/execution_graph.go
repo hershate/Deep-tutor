@@ -1,13 +1,13 @@
 package control
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/runtime/delegation"
-	"reasonix/internal/state/execgraph"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/runtime/delegation"
+	"deep-tutor/internal/state/execgraph"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // ExecutionGraphSnapshot is the run graph as this session's durable facts

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/memory"
 )
 
 // TestMemoryWriteReflectsInSnapshot verifies that a memory write lands on disk

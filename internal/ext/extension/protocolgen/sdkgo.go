@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // The SDK types artifact (SDKTypesArtifactPath in generate.go) is produced

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // 1.x failed a request to an endpoint that refuses connections at once;

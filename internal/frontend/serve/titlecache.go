@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // Every reader reloads under the same lock: panes and the tree have separate

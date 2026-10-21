@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestPackagesForMapsGlobsOntoPackages(t *testing.T) {
@@ -52,10 +52,10 @@ func TestFromProfileAggregatesPerDeclaredPath(t *testing.T) {
 	dir := testenv.TempDir(t)
 	profile := filepath.Join(dir, "c.out")
 	body := "mode: set\n" +
-		"reasonix/internal/session/control/approval.go:1.1,2.2 4 1\n" +
-		"reasonix/internal/session/control/approval.go:3.1,4.2 4 0\n" +
-		"reasonix/internal/session/control/controller.go:1.1,2.2 100 0\n" +
-		"reasonix/internal/safety/permission/rule.go:1.1,2.2 3 1\n"
+		"deep-tutor/internal/session/control/approval.go:1.1,2.2 4 1\n" +
+		"deep-tutor/internal/session/control/approval.go:3.1,4.2 4 0\n" +
+		"deep-tutor/internal/session/control/controller.go:1.1,2.2 100 0\n" +
+		"deep-tutor/internal/safety/permission/rule.go:1.1,2.2 3 1\n"
 	if err := os.WriteFile(profile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestFromProfileAggregatesPerDeclaredPath(t *testing.T) {
 func TestMeasuredValuesAreRoundedOnce(t *testing.T) {
 	dir := testenv.TempDir(t)
 	profile := filepath.Join(dir, "c.out")
-	if err := os.WriteFile(profile, []byte("mode: set\nreasonix/internal/x/a.go:1.1,2.2 3 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(profile, []byte("mode: set\ndeep-tutor/internal/x/a.go:1.1,2.2 3 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, _, err := fromProfile(profile, []string{"internal/x/**"})
@@ -136,9 +136,9 @@ func TestUncoveredBlocksAreReportedLargestFirst(t *testing.T) {
 	dir := t.TempDir()
 	profile := filepath.Join(dir, "c.out")
 	body := "mode: set\n" +
-		"reasonix/internal/x/a.go:1.1,2.2 3 1\n" +
-		"reasonix/internal/x/a.go:4.1,5.2 2 0\n" +
-		"reasonix/internal/x/b.go:7.1,9.2 5 0\n"
+		"deep-tutor/internal/x/a.go:1.1,2.2 3 1\n" +
+		"deep-tutor/internal/x/a.go:4.1,5.2 2 0\n" +
+		"deep-tutor/internal/x/b.go:7.1,9.2 5 0\n"
 	if err := os.WriteFile(profile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

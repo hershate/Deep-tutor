@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // mixedRelay serves three vendors' models under one key: one declares its own

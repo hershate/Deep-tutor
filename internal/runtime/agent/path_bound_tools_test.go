@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/tools/builtin"
 )
 
 func TestBindWritePathsRebindsBashWriteRoots(t *testing.T) {

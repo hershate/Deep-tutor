@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 func currencyNotices(events []event.Event) []event.Event {

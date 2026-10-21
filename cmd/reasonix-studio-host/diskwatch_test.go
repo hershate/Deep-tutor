@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/diskhealth"
-	"reasonix/internal/platform/notify"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/diskhealth"
+	"deep-tutor/internal/platform/notify"
 )
 
 type sentMessages struct {

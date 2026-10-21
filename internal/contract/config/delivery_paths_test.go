@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestDeliveryWorktreeDirUsesLocalAppDataOnWindows(t *testing.T) {

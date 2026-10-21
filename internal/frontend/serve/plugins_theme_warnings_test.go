@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/theme"
 )
 
 func TestInstalledPluginReportsThemeValidationWarnings(t *testing.T) {

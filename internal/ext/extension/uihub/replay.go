@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sort"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 const maxRememberedSurfaces = 64

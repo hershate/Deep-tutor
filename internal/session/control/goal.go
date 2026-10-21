@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/goaleval"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/store"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/goaleval"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/store"
 )
 
 const (

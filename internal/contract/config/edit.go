@@ -15,12 +15,12 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/text/unicode/norm"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/mcpdiag"
-	"reasonix/internal/contract/permrule"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/mcpdiag"
+	"deep-tutor/internal/contract/permrule"
+	"deep-tutor/internal/contract/provider"
 )
 
 var validDesktopExternalOpenerID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)

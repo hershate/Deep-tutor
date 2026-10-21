@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 // A laya package in the directory the host runs from is never the one imported.

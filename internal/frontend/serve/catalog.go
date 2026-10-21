@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpsetup"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpsetup"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
 )
 
 // slashEntry is one thing the user can type after "/". Kind separates the two

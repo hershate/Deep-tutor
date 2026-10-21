@@ -8,17 +8,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 // jumpSSHConfig writes one bastion alias into a fresh home's ~/.ssh/config.

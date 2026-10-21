@@ -3,7 +3,7 @@ package account
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // TokenKey is where the session token lives in the credential store, so it

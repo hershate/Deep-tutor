@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/providerbroker"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/providerbroker"
 )
 
 // brokerFlags are what a bootstrapped serve is told about the machine holding

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 type snapshotConflictDiagnostic struct {

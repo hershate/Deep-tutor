@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // Conn is the subset of *remote.Client bootstrap needs. *remote.Client

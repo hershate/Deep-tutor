@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/tools/shellrun"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/tools/shellrun"
 )
 
 // ShellOption is one interpreter this machine actually has. Path is what the

@@ -20,13 +20,13 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
 
 	"github.com/spf13/pflag"
 	"golang.org/x/mod/semver"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 const (

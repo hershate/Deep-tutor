@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A model that cannot switch thinking off still reasons at its cheapest level,

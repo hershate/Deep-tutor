@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 // AskTool obtains what only the user can supply: a decision that is theirs, or a

@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // mockProvider replays preset chunks and records the last request it received.

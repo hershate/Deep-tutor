@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func powerShellCommandAtUnits(t *testing.T, sh sandbox.Shell, units int) string {

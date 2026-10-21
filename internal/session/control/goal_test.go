@@ -6,22 +6,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/goaleval"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/goaleval"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/store"
 
-	"reasonix/internal/base/testenv"
-	_ "reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/testenv"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // goalRegistry returns a registry carrying the update_goal builtin so scripted

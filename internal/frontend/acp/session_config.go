@@ -8,8 +8,8 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
 )
 
 // swapModeID records the mode reported to the client and returns the previous

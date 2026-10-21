@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // maxDroppedPaths bounds one drop. The body limit alone would not: each path

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 // Two folders named alike are the common case in a picker, and the whole path

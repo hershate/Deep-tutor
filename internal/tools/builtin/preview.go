@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/base/diff"
+	"deep-tutor/internal/base/diff"
 )
 
 // preview.go gives the file-writing built-ins the optional tool.Previewer

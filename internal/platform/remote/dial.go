@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"reasonix/internal/base/netclient"
+	"deep-tutor/internal/base/netclient"
 )
 
 // dialConfig carries everything a single dial (or one hop of a jump chain)

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A runtime outlives the request that built it: Studio opens a pane with one

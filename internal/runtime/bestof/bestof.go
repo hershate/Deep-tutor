@@ -14,10 +14,10 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/worktree"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/worktree"
 )
 
 // Name is the tool name the model calls.

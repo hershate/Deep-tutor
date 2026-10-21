@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/model/catalog"
+	"deep-tutor/internal/model/catalog"
 )
 
 // codeArg is where each helper carries the dotted code, so a new one is added

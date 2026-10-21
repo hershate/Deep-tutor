@@ -4,7 +4,7 @@ package notify
 
 import (
 	"os/exec"
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 	"strings"
 )
 

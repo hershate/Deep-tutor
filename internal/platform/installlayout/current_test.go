@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestDecodeCurrentAcceptsSchema1(t *testing.T) {

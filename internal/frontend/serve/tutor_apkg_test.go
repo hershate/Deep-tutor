@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // TestTutorApkgExport walks the export route end to end: a seeded plan with

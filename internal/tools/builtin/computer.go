@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/safety/permission"
 )
 
 func init() {

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/permission"
 )
 
 func fenceFixture(t *testing.T, gate Gate) (root string, writer tool.Tool, inner *recordingWriter) {

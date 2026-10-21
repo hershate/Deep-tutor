@@ -4,7 +4,7 @@ package boot
 import (
 	"fmt"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // extensionSkippedEvent is the typed notice for an optional extension whose

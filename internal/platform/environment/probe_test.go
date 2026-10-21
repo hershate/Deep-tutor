@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/testenv"
 )
 
 func runProbesWithOverrides(ctx context.Context, commands []string, overrides map[string]string) []ProbeResult {

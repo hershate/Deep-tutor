@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // networkSpellings are spelled as network paths on Windows and are absolute on

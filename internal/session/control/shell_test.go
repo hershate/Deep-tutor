@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // collectSink returns a Sink that collects events, a channel carrying TurnDone

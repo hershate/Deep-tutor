@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Search runs against the canonical transcript, never the projection: an

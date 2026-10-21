@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/testenv"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/testenv"
 )
 
 const allRetiredKeys = `default_model = "deepseek-pro"

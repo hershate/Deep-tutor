@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
 )
 
 // Draft is a parsed proposal: what would be installed, and what the user should

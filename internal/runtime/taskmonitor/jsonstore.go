@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // FileStore is a Store backed by a JSON file tree under a project-local

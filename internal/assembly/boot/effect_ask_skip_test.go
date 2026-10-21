@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 // TestEffectSkippedAskEndsTheTurnFlaggedCancelled pins the identity frontends

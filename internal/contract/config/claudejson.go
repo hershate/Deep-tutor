@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // Claude Code writes MCP servers to three places, and .mcp.json — the only one

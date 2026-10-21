@@ -6,8 +6,8 @@ package endpointclient
 import (
 	"net/http"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // New is netclient.NewHTTPClient with the redirect policy of redirectguard.StayOnOrigin.

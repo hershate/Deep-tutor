@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 var stableVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)

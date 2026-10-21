@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/rpcwire"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/rpcwire"
 )
 
 // rawSidecar drives the example binary directly over hand-written JSON-RPC

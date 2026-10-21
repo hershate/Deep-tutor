@@ -1,10 +1,10 @@
 package config
 
 import (
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestDisplayCurrencyIndependentOfListPrices(t *testing.T) {

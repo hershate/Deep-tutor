@@ -4,7 +4,7 @@ package serve
 import (
 	"net/http"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func (s *Server) registerWelcomeRoutes(mux *http.ServeMux) {

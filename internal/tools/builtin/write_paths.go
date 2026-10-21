@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"slices"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 // canonicalWriterPath is the lease and grant identity of a write target. The

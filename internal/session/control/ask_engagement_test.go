@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 func TestEngagementAndExpiryChooseOneOutcome(t *testing.T) {

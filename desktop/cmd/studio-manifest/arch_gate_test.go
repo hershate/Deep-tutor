@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // archMap is desktop/electron/arch.json: what the packager builds for, and what

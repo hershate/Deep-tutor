@@ -3,10 +3,10 @@ package control
 import (
 	"context"
 	"errors"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // BindSessionWriteAuthority issues a generation-bound write authority from

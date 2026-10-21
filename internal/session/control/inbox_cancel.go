@@ -3,8 +3,8 @@ package control
 import (
 	"encoding/json"
 	"errors"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessioninbox"
 	"strings"
 )
 

@@ -2,10 +2,10 @@ package delegation
 
 import (
 	"context"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // nestedSink is the event view a fleet or parallel_tasks item runs under: tool

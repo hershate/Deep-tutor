@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 // A plugin package owns its hooks; editing them here would be overwritten the

@@ -2,10 +2,10 @@ package evidence
 
 import (
 	"path"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"strings"
 
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // stall is the check a turn is currently stuck on: which one, how long it has

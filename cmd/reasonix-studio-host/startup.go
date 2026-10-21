@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"reasonix/internal/assembly/boot"
+	"deep-tutor/internal/assembly/boot"
 )
 
 type startupPhase string

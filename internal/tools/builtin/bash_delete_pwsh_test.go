@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestDeletePowerShellGoldenCauses(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // The user's own words are what no later step can rebuild: the workspace still

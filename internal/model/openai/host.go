@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // visionReachesModel folds the host question into the model one, so a caller

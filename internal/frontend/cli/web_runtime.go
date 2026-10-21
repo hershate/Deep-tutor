@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/store"
 )
 
 // serveConfigWithCommandDefaults authenticates serve with a per-launch token

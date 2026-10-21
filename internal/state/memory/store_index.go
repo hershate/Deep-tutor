@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // memoryFault, when non-nil, may fail one durable step. It is the single test

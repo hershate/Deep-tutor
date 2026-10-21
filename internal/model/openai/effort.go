@@ -5,7 +5,7 @@ package openai
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // configuredThinkingType reads the optional explicit `thinking` config field —

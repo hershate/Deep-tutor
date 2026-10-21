@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // "70% full" does not tell the user whether that is close to anything, so the

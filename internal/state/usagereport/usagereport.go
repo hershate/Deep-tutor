@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // Version is the schema this package writes. Readers accept older ones.

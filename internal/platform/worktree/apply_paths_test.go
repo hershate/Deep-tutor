@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // isolatedCandidate commits a.txt and b.txt, snapshots the repo, and hands back

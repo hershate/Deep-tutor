@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/hostwrite"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/hostwrite"
 )
 
 var bwrapUsability sync.Map // resolved executable path -> bool

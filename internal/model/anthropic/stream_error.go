@@ -1,6 +1,6 @@
 package anthropic
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 type streamWireError struct {
 	Type    string `json:"type"`

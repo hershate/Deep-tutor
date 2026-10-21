@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // A path is minted at the first submit and written after it. A first turn in

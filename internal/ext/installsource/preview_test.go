@@ -8,9 +8,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func hostileText(t *testing.T, s string) {

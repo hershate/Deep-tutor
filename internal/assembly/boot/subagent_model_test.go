@@ -3,16 +3,16 @@ package boot
 import (
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/delegation"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/delegation"
 )
 
 type staticResolver struct {

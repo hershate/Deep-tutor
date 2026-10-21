@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestStdioShellPATHProbeFiltersEnvWhenEnabled(t *testing.T) {

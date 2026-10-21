@@ -3,12 +3,12 @@ package serve
 import (
 	"context"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sync"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/session/control"
 )
 
 // A cold title cache cost one model round-trip per session, serialized inside

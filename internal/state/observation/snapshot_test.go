@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 func tree(t *testing.T, files map[string]string) string {

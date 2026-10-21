@@ -1,6 +1,6 @@
 package sessionstore
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // TurnWorkMs says, for each authored turn, how long its runs took, indexed by
 // the message that closed it. A run is the stretch between two user messages

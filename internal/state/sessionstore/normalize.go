@@ -1,6 +1,6 @@
 package sessionstore
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // NormalizeSession runs the persisted-history-safe repairs on a loaded
 // conversation and is the agent-side entry point for making old, partially

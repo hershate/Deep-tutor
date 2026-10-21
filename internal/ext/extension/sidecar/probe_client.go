@@ -1,7 +1,7 @@
 package sidecar
 
 import (
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // NewProbeClient is a host-test seam: non-process Client with declared

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/chartspec"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/chartspec"
+	"deep-tutor/internal/contract/tool"
 )
 
 const chartArgs = `{"spec_version":1,"title":"Sales","data":{"columns":[{"name":"m","type":"string"},{"name":"v","type":"number"}],"rows":[["jan",1],["feb",3]]},"marks":[{"type":"bar","x":"m","y":["v"]}]}`

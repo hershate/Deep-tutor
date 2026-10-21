@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // fileViewTools are the tools that read or write whole files, and so record or

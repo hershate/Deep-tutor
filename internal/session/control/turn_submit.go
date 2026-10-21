@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
 )
 
 // Submit is the one-call entry for a simple frontend: it takes raw user input

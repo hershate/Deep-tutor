@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/runtime/recovery"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/runtime/recovery"
 )
 
 func TestSessionMachineRecoveryIsContentFree(t *testing.T) {

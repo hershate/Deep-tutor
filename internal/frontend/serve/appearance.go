@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // maxWallpaperUpload bounds what a window will hold in memory to decode and

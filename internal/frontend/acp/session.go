@@ -10,13 +10,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sort"
 	"strings"
 	"time"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 // sessionLeaseBindError maps a lease-acquisition failure to the protocol

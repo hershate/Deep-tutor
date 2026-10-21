@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/releaseasset"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/releaseasset"
 )
 
 // releaseTarGz builds an archive shaped like a published one: the executable

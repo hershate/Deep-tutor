@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/pricing"
 )
 
 // ErrDisplayCurrencyInvalid is a mode that is none of auto, CNY or USD.

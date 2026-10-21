@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // KindNames returns every stable frontend event kind in event.Kind order. It is
 // the protocol-neutral source used by consumers such as the Remote schema

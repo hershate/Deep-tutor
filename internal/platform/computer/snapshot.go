@@ -8,7 +8,7 @@ import (
 	"image"
 	"strings"
 
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/model/visionimage"
 )
 
 type Snapshot struct {

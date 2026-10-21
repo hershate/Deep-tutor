@@ -1,11 +1,11 @@
 package boot
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // bindMachineTools binds the tools that reach past the workspace into this

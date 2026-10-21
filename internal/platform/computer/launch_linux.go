@@ -3,7 +3,7 @@ package computer
 import (
 	"debug/elf"
 	"path/filepath"
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 	"strings"
 	"unicode"
 )

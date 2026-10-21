@@ -7,17 +7,17 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/extension/uihub"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/extension/uihub"
+	"deep-tutor/internal/session/control"
 )
 
 // extensionStage is one build's extension generation: the sidecars started

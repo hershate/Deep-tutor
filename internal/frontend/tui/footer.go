@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/pricing"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/pricing"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const footerIndent = "  "

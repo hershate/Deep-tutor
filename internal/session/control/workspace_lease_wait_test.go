@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 type leaseRig struct {

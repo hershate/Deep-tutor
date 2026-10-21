@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/model/laya"
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/model/laya"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 // SystemOneSpec is one decision endpoint plus the local runtime. The endpoint

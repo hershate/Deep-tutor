@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // The card says what went unproven in the reader's language, keeps a kind it

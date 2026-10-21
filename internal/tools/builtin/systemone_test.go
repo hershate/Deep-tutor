@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/model/laya"
+	"deep-tutor/internal/model/laya"
 )
 
 func TestSystemOneToolReturnsCompleteDecision(t *testing.T) {

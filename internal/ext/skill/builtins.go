@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Built-in skills ship with Reasonix and back the dedicated subagent tools

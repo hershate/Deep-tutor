@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestDecorateExecutionReceiptCarriesHostObservedOutcome(t *testing.T) {

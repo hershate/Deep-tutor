@@ -9,11 +9,11 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/session/control"
 )
 
 // ObserveOptions builds an unattended, read-only run. It is a field of Options

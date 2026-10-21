@@ -27,10 +27,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/base/scratch"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/base/scratch"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 var renamePath = os.Rename

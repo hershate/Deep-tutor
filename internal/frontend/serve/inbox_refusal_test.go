@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 // Every condition the inbox store refuses reaches a frontend as an identity it

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // issuerProvider answers with one model tool call, then finishes. It also

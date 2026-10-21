@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // resolveChatURL treats an override that only repeats base_url as unset:

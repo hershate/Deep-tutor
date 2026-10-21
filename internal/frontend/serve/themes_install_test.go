@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/theme"
 )
 
 const importedPack = `{"schemaVersion":1,"id":"dusk","name":"Dusk","tokens":{

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestEffectWebSearchModelReachesProviderRequest(t *testing.T) {

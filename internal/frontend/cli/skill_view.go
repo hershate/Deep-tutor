@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const skillShowMaxLines = 80

@@ -13,10 +13,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 // fakeConn scripts exec responses and shares a real sftpfs.FS backed by an

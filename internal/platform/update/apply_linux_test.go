@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/platform/installlayout"
+	"deep-tutor/internal/platform/installlayout"
 
-	"reasonix/internal/base/tempdir"
+	"deep-tutor/internal/base/tempdir"
 )
 
 // The tarball still carries reasonix-guard for v1.18-v1.19 updaters reading the

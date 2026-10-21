@@ -3,7 +3,7 @@ package computer
 import (
 	"strings"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 // EffectClass is how far a step that reached the application is known to

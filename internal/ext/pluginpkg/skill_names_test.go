@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/skill"
 )
 
 func TestPackageSkillNamesMatchRuntime(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/tools/jobs"
 )
 
 type fakeSandboxEscapeApprover struct {

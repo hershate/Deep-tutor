@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // bareUsage answers argv with no terminal to chat in. A bare `reasonix` asked

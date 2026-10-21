@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/gitstatus"
-	"reasonix/internal/state/sessioninbox"
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitstatus"
+	"deep-tutor/internal/state/sessioninbox"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // branchFixture is a controller whose workspace is a real repository with one

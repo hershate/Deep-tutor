@@ -3,18 +3,18 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // DefaultPlannerPrompt steers the planner toward concise plans, not execution.

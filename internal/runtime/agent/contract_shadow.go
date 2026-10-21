@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // buildShadowContract replays a finished turn's receipts into a task

@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // shellConn runs the capture through a real sh with HOME confined to a temp

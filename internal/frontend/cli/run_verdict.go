@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/session/control"
 )
 
 // runExitUnverified is `run --fail-on-unverified`'s exit status when the model

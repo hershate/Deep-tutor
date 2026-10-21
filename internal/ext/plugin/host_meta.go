@@ -5,7 +5,7 @@ import (
 	"maps"
 	"strings"
 
-	"reasonix/internal/contract/planmode"
+	"deep-tutor/internal/contract/planmode"
 )
 
 // metaCwdKey is where a tool call tells a local server the workspace root. The

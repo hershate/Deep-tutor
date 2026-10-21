@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/session/control"
 )
 
 func swapBash(id, cmd string) testutil.Turn {

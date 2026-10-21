@@ -3,7 +3,7 @@ package usecap
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 	"testing"
 )
 

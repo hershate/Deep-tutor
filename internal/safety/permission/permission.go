@@ -8,11 +8,11 @@ package permission
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/contract/permrule"
+	"deep-tutor/internal/contract/permrule"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // Decision is the outcome of evaluating a tool call against a Policy.

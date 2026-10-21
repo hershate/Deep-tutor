@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,10 +13,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	_ "reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // TestTruncateToolOutputUnderCap leaves small payloads alone — the cap should

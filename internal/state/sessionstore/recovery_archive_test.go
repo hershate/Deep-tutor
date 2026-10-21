@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 func seedRecoveryArchiveLineage(t *testing.T) []string {

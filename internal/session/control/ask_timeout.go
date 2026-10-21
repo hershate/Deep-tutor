@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // AskTimeoutSettings is the user's ask-timeout setting: how long an `ask`

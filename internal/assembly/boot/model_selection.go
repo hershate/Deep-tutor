@@ -3,10 +3,10 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension/providerext"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension/providerext"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // modelSelection is the executor model this build runs and the preset it

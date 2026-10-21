@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // readAll pages a content ref through ReadHandler the way an extension would

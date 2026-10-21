@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpregistry"
-	"reasonix/internal/ext/mcpsetup"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpregistry"
+	"deep-tutor/internal/ext/mcpsetup"
 )
 
 // mcp.go is the `reasonix mcp` subcommand (config-only; takes effect next

@@ -19,8 +19,8 @@ import (
 	nethtml "golang.org/x/net/html"
 	"golang.org/x/net/proxy"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/tool"
 )
 
 func init() { tool.RegisterBuiltin(webFetch{}) }

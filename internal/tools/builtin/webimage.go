@@ -20,8 +20,8 @@ import (
 
 	_ "golang.org/x/image/webp"
 	nethtml "golang.org/x/net/html"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/tool"
 )
 
 type webImage struct {

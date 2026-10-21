@@ -3,13 +3,13 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
 )
 
 type subagentRegistryTool struct {

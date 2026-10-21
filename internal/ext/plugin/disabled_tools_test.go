@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestDisabledToolsUseExactRawNamesInLiveAndCachedTools(t *testing.T) {

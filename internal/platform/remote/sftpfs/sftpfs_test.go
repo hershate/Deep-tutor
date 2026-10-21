@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 func dialFS(t *testing.T, root string) *FS {

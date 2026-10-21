@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // A share link carries its term: the response says when it stops

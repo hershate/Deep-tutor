@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/langpref"
+	"deep-tutor/internal/runtime/langpref"
 	"strconv"
 	"strings"
 )

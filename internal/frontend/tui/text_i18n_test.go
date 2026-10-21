@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // inChinese draws with the Chinese catalogue for the rest of the test.

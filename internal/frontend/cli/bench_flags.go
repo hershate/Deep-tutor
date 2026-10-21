@@ -4,7 +4,7 @@ package cli
 import (
 	"github.com/spf13/pflag"
 
-	"reasonix/internal/contract/ablation"
+	"deep-tutor/internal/contract/ablation"
 )
 
 // registerArmFlags declares both benchmark axes together, so a frontend cannot

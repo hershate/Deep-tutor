@@ -9,13 +9,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func holdWindowsHost(t *testing.T) {

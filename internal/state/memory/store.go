@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
 )
 
 // Store is the scoped auto-memory store: project and global directories of

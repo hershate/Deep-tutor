@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/nilutil"
+	"deep-tutor/internal/base/nilutil"
 )
 
 // Role is the role of a message.

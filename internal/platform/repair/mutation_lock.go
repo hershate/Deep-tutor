@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/contract/config"
 )
 
 const repairMutationLockTimeout = 5 * time.Second

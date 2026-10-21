@@ -3,14 +3,14 @@ package control
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"unicode"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/state/memory"
 )
 
 // InvocationRequest is an explicit user-selected Skill or Subagent entity.

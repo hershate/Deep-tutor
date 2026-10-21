@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/mcplaunch"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/mcplaunch"
 )
 
 func TestActivationStoreDefaultsAndOverrides(t *testing.T) {

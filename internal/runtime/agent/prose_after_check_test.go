@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/taskpolicy"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/taskpolicy"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 // proseStep is one receipt shape a real turn produces, named for the sequence

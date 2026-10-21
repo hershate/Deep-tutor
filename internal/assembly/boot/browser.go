@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/workspaceid"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/workspaceid"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // browserPool is process-wide: controllers on one workspace share its

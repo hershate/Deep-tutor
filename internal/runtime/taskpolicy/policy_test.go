@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/agentpreset"
 )
 
 func TestDeriveVerificationFollowsPreset(t *testing.T) {

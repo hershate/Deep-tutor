@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/platform/crashreport"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/platform/crashreport"
 )
 
 const (

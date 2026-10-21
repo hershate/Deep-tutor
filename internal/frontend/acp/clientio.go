@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // requester is the slice of Conn that clientIO drives: agent → client requests.

@@ -1,7 +1,7 @@
 package extension
 
 import (
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extensioncontract"
 
 	"fmt"
 	"maps"

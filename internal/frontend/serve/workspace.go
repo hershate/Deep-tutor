@@ -10,13 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/platform/worktree"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/workspacelist"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/platform/worktree"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/workspacelist"
 )
 
 const workspaceRecentMax = workspacelist.MaxPaths

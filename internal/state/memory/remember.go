@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // rememberTool lets the model persist a durable fact to the auto-memory store.

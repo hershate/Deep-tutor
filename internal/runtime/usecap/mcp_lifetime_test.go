@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // serve builds a controller from r.Context() on a workspace switch, a model

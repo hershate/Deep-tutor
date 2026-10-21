@@ -11,7 +11,7 @@ import (
 	"testing"
 	"unicode/utf16"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // TestReadFileBOMlessUTF16LE proves a Windows-style UTF-16 source file with no

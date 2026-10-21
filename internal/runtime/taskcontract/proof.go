@@ -1,6 +1,6 @@
 package taskcontract
 
-import "reasonix/internal/safety/evidence"
+import "deep-tutor/internal/safety/evidence"
 
 // refFor classifies one receipt as the kind of proof it carries. For a
 // verification, a shell reports one status for the whole command, so the host's

@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // openingProbeSink reads the journal at the moment the graph first shows the

@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/store"
 )
 
 func TestCheckpointsReportsRewindRangeFileCount(t *testing.T) {

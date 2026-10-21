@@ -2,12 +2,12 @@ package agent
 
 import (
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The turn path answers from a memo when it can and from the canonical

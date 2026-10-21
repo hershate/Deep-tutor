@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/ext/installsource"
 )
 
 type stubOwner struct {

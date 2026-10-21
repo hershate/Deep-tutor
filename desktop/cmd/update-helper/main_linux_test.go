@@ -14,8 +14,8 @@ import (
 
 	"aead.dev/minisign"
 
-	"reasonix/internal/base/tempdir"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/tempdir"
+	"deep-tutor/internal/platform/update"
 )
 
 func TestSanitizeHelperErrorStripsPaths(t *testing.T) {

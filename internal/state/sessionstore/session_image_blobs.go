@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // Image payloads are held beside the event log, one file per distinct data URL

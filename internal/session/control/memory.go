@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/memory"
 )
 
 // memoryManager owns the session's loaded memory snapshot, the queue of pending

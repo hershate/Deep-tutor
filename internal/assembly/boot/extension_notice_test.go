@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
 )
 
 // The dispatcher the stage's hook feeds reaches the frontend sink as one typed

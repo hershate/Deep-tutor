@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
 )
 
 func TestMain(m *testing.M) { testenv.RunWithIsolatedUserState(m) }

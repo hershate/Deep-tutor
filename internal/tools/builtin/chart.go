@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"reasonix/internal/contract/chartspec"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/chartspec"
+	"deep-tutor/internal/contract/tool"
 )
 
 func init() { tool.RegisterBuiltin(renderChart{}) }

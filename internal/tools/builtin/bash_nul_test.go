@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // makeNUL writes a regular file named NUL. On Windows only the extended-length

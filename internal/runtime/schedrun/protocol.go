@@ -8,8 +8,8 @@ import (
 	"io"
 	"sync"
 
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/state/schedule"
 )
 
 // Line kinds on the child's standard output.

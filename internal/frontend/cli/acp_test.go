@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/frontend/acp"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/frontend/acp"
 
-	"reasonix/internal/base/testenv"
-	_ "reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/testenv"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 const acpTestProviderKind = "acp-test-provider"

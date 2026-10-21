@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // shellVerificationVerdict reads a verification's outcome off what the host

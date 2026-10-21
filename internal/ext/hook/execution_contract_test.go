@@ -15,7 +15,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestHookExecHelperProcess(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 type workspaceEffectiveCall struct {

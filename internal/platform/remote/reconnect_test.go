@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 func deterministicRand() *rand.Rand { return rand.New(rand.NewPCG(uint64(1), uint64(1))) }

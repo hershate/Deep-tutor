@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // validateTools holds the tools a runtime activated at initialize to the ones

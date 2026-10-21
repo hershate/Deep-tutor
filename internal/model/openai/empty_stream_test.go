@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A gateway can answer 200, hold the stream open long enough to look healthy,

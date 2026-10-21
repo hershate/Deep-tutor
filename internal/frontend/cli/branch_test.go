@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 func TestRenderBranchTreeStylesVisualWeight(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/session/control"
 )
 
 func TestMCPAuthenticationPendingInstallKeepsChosenScope(t *testing.T) {

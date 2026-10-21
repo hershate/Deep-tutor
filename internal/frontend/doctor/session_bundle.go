@@ -7,13 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/store"
 )
 
 const sessionBundleSchemaVersion = 1

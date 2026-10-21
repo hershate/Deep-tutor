@@ -3,7 +3,7 @@ package extension
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 	"sync/atomic"
 )
 

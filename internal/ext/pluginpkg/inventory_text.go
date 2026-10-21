@@ -1,6 +1,6 @@
 package pluginpkg
 
-import "reasonix/internal/base/textutil"
+import "deep-tutor/internal/base/textutil"
 
 // InventoryForDisplay is Inventory projected for a surface that shows it. The
 // plain Inventory stays the package's own text, which callers that decide or

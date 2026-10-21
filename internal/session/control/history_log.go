@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // History returns the executor's current message log (for repopulating a
 // resumed frontend's view).

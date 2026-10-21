@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 // A rule that names no tool is reported at load with its list and rule as a

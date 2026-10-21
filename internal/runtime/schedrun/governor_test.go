@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/observe"
+	"deep-tutor/internal/contract/observe"
 )
 
 func TestGovernorStopsOnceAtTheCeiling(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"maps"
 	"sort"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // RuntimeSnapshot is the frozen, effective runtime configuration produced by

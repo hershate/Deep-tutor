@@ -5,18 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/tools/builtin"
 )
 
 func reviewCommand(args []string) int {

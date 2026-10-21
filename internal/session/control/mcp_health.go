@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/ext/mcpsetup"
+import "deep-tutor/internal/ext/mcpsetup"
 
 const (
 	MCPHealthReady      = "ready"

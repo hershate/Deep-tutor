@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 // RunInboxTurn synchronously claims and executes one durable item. ACP uses

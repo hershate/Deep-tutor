@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/serve"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/serve"
 )
 
 // readServeTokenFile loads the auth=token pre-shared token from a file so the

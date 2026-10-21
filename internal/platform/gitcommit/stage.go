@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/gitstatus"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitstatus"
 )
 
 // ErrUnknownPath is a path that git does not report as changed in the

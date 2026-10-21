@@ -5,7 +5,7 @@
 
 ## 阅读须知
 
-- 文档按上游 `docs/` 收录，整体从 `docs/` 迁移到 `docs/kernel/`（`internal/tools/productdocs` 的 embed 路径相应改为 `reasonix/docs/kernel`）。
+- 文档按上游 `docs/` 收录，整体从 `docs/` 迁移到 `docs/kernel/`（`internal/tools/productdocs` 的 embed 路径相应改为 `deep-tutor/docs/kernel`）。
 - 文中的 "Reasonix" 产品名、`reasonix` 命令名、上游仓库路径、社区链接（Discord / QQ / 赞助码等）均为**上游语境**。本仓的本地化工作按 note/12 决策执行：命令改名 `deep-tutor` 属阶段① M1.2，规约本地化 `DEEPTUTOR.md` 属 M1.4，两者均未完成。
 - 与本仓根目录同名冲突的上游原件（README、AGENTS、CLAUDE、CONTRIBUTING、SECURITY、REASONIX、design-qa 等）存放在 [`upstream/`](./upstream/)，仅作存档对照，**不是本仓生效文档**；本仓生效的是根目录同名文件。
 - 上游 CI 工作流与模板存档在 [`upstream/github/`](./upstream/github/)，不在本仓生效。

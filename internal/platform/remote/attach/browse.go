@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // browseLinger keeps a connection the picker opened alive past its answer.

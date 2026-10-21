@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // Decoding the project file reuses the slice the user file decoded into, so a

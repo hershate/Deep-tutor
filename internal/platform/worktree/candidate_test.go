@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 func gitIn(t *testing.T, dir string, args ...string) string {

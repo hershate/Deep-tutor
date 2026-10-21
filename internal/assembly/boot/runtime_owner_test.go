@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/session/control"
 )
 
 func TestIndependentBuildRuntimeOwnersRemainActive(t *testing.T) {

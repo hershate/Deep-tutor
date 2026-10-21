@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/platform/browser"
 )
 
 // BrowserHost relays hosted-browser connections between the kernel and the

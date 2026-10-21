@@ -3,8 +3,8 @@ package cli
 import (
 	"testing"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
 )
 
 func graphEvent(nodes []agentgraph.Node, edges []agentgraph.Edge) event.Event {

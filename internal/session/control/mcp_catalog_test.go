@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // catalogTool is a tool that names the server it came from, which is all the

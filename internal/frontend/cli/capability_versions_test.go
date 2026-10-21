@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/state/trajectory"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/state/trajectory"
 )
 
 func digestFor(caps []trajectory.CapabilityVersion, kind, name string) string {

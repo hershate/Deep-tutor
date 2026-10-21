@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // ContextBreakdown says where the prompt's tokens went. "How full" is only
 // actionable once you know what is filling it — a memory file, a tool

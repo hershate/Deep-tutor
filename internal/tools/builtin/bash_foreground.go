@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/tools/shellrun"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/tools/shellrun"
 )
 
 // runForegroundDetailed uses the shared shellrun collector so model bash and

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // MCP concurrency policies. A server is parallel unless something says

@@ -8,18 +8,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/tools/jobs"
 )
 
 func turnOutcome(err error) string {

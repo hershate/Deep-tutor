@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // ownsWritableBaseline reports whether this session may rewrite path at the

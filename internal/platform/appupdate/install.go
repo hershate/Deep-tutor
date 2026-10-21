@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/platform/update"
 )
 
 // installTimeout bounds installing a release that is already verified.

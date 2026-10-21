@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/state/instruction"
 )
 
 func main() {
@@ -208,7 +208,7 @@ func fromProfile(profile string, globs []string) (map[string]float64, map[string
 }
 
 func parseProfileLine(line string) (file, at string, stmts, covered int, ok bool) {
-	// reasonix/internal/pkg/file.go:12.34,15.6 3 1
+	// deep-tutor/internal/pkg/file.go:12.34,15.6 3 1
 	colon := strings.LastIndex(line, ":")
 	if colon < 0 {
 		return "", "", 0, 0, false
@@ -222,7 +222,7 @@ func parseProfileLine(line string) (file, at string, stmts, covered int, ok bool
 	if err1 != nil || err2 != nil {
 		return "", "", 0, 0, false
 	}
-	file = strings.TrimPrefix(line[:colon], "reasonix/")
+	file = strings.TrimPrefix(line[:colon], "deep-tutor/")
 	return file, fields[0], stmts, covered, true
 }
 

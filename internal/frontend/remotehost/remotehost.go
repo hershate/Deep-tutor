@@ -12,15 +12,15 @@ import (
 	"net/http"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/serve"
-	"reasonix/internal/model/providerbroker"
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/attach"
-	"reasonix/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/serve"
+	"deep-tutor/internal/model/providerbroker"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/attach"
+	"deep-tutor/internal/platform/remote/bootstrap"
 )
 
 // Link gives the hub what it needs for panes on other machines: a pool that

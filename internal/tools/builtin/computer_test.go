@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/safety/permission"
 )
 
 func TestComputerToolsWithoutAHelperSayItIsUnavailable(t *testing.T) {

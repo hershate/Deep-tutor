@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // tuiFlags are the options the terminal UI takes, which are also the ones a

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // Mutation classes say how well the host knows a call changed state. The

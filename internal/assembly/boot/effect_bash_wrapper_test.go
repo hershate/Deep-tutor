@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/session/control"
 )
 
 // A rule on a program holds when a transparent wrapper or a path spelling

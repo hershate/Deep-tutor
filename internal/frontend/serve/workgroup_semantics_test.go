@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/workgroup"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/workgroup"
 )
 
 // Falsification, not measurement: each case asks whether a partition is legal

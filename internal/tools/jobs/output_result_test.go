@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // TestOutputSurfacesResultForBufferlessJob probes a task-style job: its run func

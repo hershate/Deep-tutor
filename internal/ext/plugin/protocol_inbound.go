@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // progressTransport is optional so lightweight transports used by embedders and

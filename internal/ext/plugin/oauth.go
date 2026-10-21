@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/mcpdiag"
+	"deep-tutor/internal/contract/mcpdiag"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	_ "reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/tool"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // A tool that can be out of context says what would put it back in, and says

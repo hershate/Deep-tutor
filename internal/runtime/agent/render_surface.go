@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/tool"
 )
 
 type NativeSurfacePublisher interface {

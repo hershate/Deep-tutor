@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ParallelTasksTool dispatches multiple read-only sub-agent tasks concurrently

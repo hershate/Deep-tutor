@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 const desktopRegistryPath = "desktop/workspace-state-v1.json"

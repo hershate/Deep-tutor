@@ -3,7 +3,7 @@ package openai
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestExplicitKimiK3GatewayRequestContract(t *testing.T) {

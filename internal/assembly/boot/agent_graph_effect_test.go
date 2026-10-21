@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
 )
 
 // graphEffectCall dispatches a two-item fleet with a dependency in it. Every

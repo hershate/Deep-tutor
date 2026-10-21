@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/recovery"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/recovery"
 )
 
 // ResolveRecovery applies a user decision on an Auto Guard card.

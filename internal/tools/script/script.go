@@ -20,7 +20,7 @@ import (
 
 	starjson "go.starlark.net/lib/json"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Name is the tool name the model calls.

@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/safety/sandbox"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 const (

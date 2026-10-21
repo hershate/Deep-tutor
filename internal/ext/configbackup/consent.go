@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/instruction"
 )
 
 // consentFor is recomputed at apply time against the machine as it is then;

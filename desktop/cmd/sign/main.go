@@ -33,7 +33,7 @@ import (
 
 	"aead.dev/minisign"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // platforms are the manifest keys we publish. A built artifact is matched to a key

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // stateRootFor builds a fake Reasonix state root with the two guarded session

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // FileName is where the list lives, at the top of the state root.

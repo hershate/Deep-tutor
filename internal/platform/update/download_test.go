@@ -15,7 +15,7 @@ import (
 
 	"aead.dev/minisign"
 
-	"reasonix/internal/base/tempdir"
+	"deep-tutor/internal/base/tempdir"
 )
 
 // release is one published version as the catalog and its manifest describe it.

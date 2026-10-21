@@ -18,11 +18,11 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/mcplaunch"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/mcplaunch"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 type countingToolsTransport struct {

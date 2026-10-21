@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // InjectFail is a test seam. When set, CommitRewind fails at the named phase

@@ -1,8 +1,8 @@
 package notify
 
 import (
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
 )
 
 // SendFeedbackReply announces a feedback reply under the same two switches as

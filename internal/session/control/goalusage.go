@@ -3,8 +3,8 @@ package control
 import (
 	"sync"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // goalUsageTee wraps the controller's event sink and attributes billable usage

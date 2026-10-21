@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/usecap"
 )
 
 func TestMCPAllowlistRequiresKnownIdentity(t *testing.T) {

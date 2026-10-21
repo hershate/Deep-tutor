@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/runtime/usecap"
 )
 
 // mockSpec mirrors helperSpec (lazy_test.go): the test binary re-runs itself

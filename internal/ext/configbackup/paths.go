@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 // Named roots a file item is relative to. The snapshot never carries this

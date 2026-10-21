@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	"reasonix/internal/base/sysproxy"
+	"deep-tutor/internal/base/sysproxy"
 )
 
 const (

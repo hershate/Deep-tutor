@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // approveWorkspace approves what dir's configuration names, standing in for a

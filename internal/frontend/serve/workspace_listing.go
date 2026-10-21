@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // errListingOutsideTree is a folder whose real path leaves the workspace: a

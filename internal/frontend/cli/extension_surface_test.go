@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
 )
 
 // extensionStubCtrl stubs the SessionAPI surface the extension slash dispatch

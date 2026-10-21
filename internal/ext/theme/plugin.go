@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // A pack an enabled plugin package contributes is read in place from the

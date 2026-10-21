@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // ItemKind is what a transcript row is.

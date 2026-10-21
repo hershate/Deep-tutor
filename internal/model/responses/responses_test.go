@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func collect(t *testing.T, p provider.Provider, req provider.Request) []provider.Chunk {

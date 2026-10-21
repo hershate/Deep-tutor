@@ -3,14 +3,14 @@ package doctor
 import (
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/usagereport"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/usagereport"
 )
 
 // isVerificationToolCall reports whether a persisted tool call is a shell

@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // PackageWarnings diagnoses hook declarations without consulting the enabled

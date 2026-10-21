@@ -3,14 +3,14 @@ package history
 import (
 	"context"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/historycatalog"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/historycatalog"
 )
 
 type indexedCatalogManager struct {

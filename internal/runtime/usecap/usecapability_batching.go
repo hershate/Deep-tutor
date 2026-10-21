@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // Sequential answers for whatever this call proxies rather than for the proxy.

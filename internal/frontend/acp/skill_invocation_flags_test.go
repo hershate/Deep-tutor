@@ -3,9 +3,9 @@ package acp
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
 )
 
 func TestAvailableCommandsHonourUserInvocableAndArgumentHint(t *testing.T) {

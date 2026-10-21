@@ -12,12 +12,12 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 
-	_ "reasonix/internal/model/openai"
+	_ "deep-tutor/internal/model/openai"
 )
 
 type refreshEndpoint struct {

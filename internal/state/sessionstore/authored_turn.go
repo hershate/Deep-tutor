@@ -1,7 +1,7 @@
 package sessionstore
 
 import (
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // AuthoredTurnIdentity is what a host published for the message a turn is

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestBillingSplitUpgradeV5ToV6FreezesProviderCurrency(t *testing.T) {

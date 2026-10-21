@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/ext/installsource"
 )
 
 var (

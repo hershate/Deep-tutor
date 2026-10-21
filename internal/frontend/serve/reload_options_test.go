@@ -3,10 +3,10 @@ package serve
 import (
 	"testing"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/session/control"
 )
 
 // A switch and a reload rebuild the same way but for opposite reasons. A model

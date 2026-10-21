@@ -10,8 +10,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	productcontent "reasonix/docs/kernel"
-	"reasonix/internal/contract/provider"
+	productcontent "deep-tutor/docs/kernel"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestEmbeddedCatalogLoadsDeterministically(t *testing.T) {

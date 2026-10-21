@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/platform/browser"
 )
 
 func browserHostServer(t *testing.T) (*BrowserHost, *httptest.Server) {

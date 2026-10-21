@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
 )
 
 // settlingController fires a transition while the rebuild is running, which is

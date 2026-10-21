@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/mcplaunch"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/mcplaunch"
 )
 
 // projectLaunchIdentityDigest resolves a secret-free identity before a project

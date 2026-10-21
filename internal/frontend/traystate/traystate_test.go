@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func emit(sink event.Sink, kinds ...event.Kind) {

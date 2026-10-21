@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestAClickReachesTheHandlerTheHostBound(t *testing.T) {

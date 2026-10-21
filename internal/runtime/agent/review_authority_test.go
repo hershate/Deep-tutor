@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/taskpolicy"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/taskpolicy"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // reviewLedgerWithRead is a run that has read one file and nothing else, which

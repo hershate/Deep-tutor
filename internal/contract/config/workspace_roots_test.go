@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func rootsFixture(t *testing.T) (cfg *Config, home, userHome, primary string, extraFolder func() string) {

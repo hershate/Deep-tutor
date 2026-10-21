@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 type decisionService struct {

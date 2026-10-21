@@ -2,14 +2,14 @@ package serve
 
 import (
 	"net/http"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/tool"
 )
 
 type historyToolCall struct {

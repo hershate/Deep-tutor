@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // ConfigureThemeFromConfig applies the [ui] theme, style and cursor shape from

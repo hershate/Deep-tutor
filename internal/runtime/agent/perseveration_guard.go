@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // perseverationAbort is the stream state the opt-in cut path needs to close out

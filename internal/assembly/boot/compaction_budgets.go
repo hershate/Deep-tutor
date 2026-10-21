@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // compactionBudgets carries the user's fold bounds to every agent the boot

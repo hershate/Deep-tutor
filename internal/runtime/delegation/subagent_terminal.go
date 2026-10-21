@@ -2,7 +2,7 @@ package delegation
 
 import (
 	"errors"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 )
 

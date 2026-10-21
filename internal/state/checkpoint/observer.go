@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/diff"
+	"deep-tutor/internal/base/diff"
 )
 
 // writerRegistry is shared across parent/child observers so background writer

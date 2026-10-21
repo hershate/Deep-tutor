@@ -11,9 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/platform/clipimage"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/platform/clipimage"
 )
 
 type (

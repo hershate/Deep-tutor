@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 // sessions lists saved session files from the session directory, enriched with

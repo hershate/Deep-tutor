@@ -19,7 +19,7 @@ import (
 	"strings"
 	"unicode"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 const (

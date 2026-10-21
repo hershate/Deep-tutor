@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 type projectCheckProbeSink struct {

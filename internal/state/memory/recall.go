@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/contract/tool"
 )
 
 const (

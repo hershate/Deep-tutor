@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/remote/forward"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/remote/forward"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 // tunnelTo publishes local on the test server's loopback the way an attach

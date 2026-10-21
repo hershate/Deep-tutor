@@ -3,7 +3,7 @@ package serve
 import (
 	"errors"
 	"net/http"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 func refuseSurfaceAnswer(w http.ResponseWriter, err error) {

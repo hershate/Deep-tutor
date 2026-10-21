@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/fileutil/encoding/encodingtest"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/safety/sandbox"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil/encoding/encodingtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func writeSettings(t *testing.T, dir, json string) {

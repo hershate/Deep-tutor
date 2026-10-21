@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/store"
 )
 
 // The sweep exists for spill directories every deleter skipped, so it must take

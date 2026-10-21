@@ -3,13 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // stubGate denies any call whose tool name is in deny; everything else allows.

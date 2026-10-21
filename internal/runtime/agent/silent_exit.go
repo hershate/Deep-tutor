@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // silentExitIsAnAnswer reports whether a non-zero exit reported something rather

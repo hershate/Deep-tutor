@@ -8,19 +8,19 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/memory"
 )
 
 // projectionHarness drives real turns through the real Build assembly against a

@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // setRetry copies a Retrying event's payload. RetryCause says why the failed
 // attempt is retried, RetryStatus is the HTTP status when that is the cause,

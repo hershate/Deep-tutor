@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/delta"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/delta"
+	"deep-tutor/internal/platform/update"
 )
 
 func main() {

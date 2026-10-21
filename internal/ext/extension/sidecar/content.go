@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"sync"
 
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // storeMaxEntries bounds the per-client content store; the oldest object is

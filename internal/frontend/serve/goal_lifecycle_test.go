@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 func postGoalLifecycle(t *testing.T, url string) goalLifecycleResult {

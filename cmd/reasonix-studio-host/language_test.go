@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestKernelLanguageWithShellSystemLanguage(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // thinkingOf reads the switch's two fields off the list the panel renders from.

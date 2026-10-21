@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 type bashApprovalClass uint8

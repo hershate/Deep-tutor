@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 // A conversation whose log still lives in the 1.x store is read here and never

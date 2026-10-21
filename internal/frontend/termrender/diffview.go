@@ -14,8 +14,8 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
 )
 
 const tabWidth = 4

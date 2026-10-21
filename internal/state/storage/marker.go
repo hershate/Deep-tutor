@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // markerName is written at the top of a relocated root, never inside it.

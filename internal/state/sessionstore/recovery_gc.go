@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/state/store"
 )
 
 // Recovery-branch garbage collection. Conflict recovery forks a copy of the

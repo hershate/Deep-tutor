@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // ProgressWatchSettings is the user's [progress_watch] section with its

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/checkpoint"
 )
 
 func (a *Agent) applyTargetAccess(ctx context.Context, plan *toolCallPlan) (toolOutcome, bool) {

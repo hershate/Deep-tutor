@@ -2,12 +2,12 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // A controller rebuilt for a model switch or a reload keeps the pane's event

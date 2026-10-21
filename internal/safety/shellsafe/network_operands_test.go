@@ -3,7 +3,7 @@ package shellsafe
 import (
 	"testing"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 func holdWindowsPaths(t *testing.T, on bool) {

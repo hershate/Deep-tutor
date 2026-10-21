@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // openCodeGoGateway stands in for opencode.ai: it refuses a request without a

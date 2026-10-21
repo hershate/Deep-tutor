@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
 )
 
 // persistedShareState is what a share remembers across a restart: whether the

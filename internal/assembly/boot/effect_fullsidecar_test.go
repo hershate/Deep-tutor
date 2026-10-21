@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // A cold compile on a shared Windows runner has been seen to exceed one minute.

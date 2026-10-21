@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // The handover ends this process, so whether a move landed is only knowable by

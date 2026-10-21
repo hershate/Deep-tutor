@@ -19,8 +19,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 func TestNewSSHClientPrefersRecordedHostKeyAlgorithm(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/usagecatalog"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/usagecatalog"
 )
 
 func init() {

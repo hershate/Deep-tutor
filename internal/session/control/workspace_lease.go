@@ -4,7 +4,7 @@ package control
 import (
 	"context"
 
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 // WorkspaceLeaseState reports only whether this controller owns or is waiting

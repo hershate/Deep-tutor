@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func flagStore(t *testing.T) *Store {

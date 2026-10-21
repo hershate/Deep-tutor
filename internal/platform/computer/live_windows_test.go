@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 const windowsTarget = "computer-target.exe"

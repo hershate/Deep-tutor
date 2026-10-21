@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/surfacespec"
+import "deep-tutor/internal/contract/surfacespec"
 
 // AskQuestion is one JSON-formatted structured ask question.
 type AskQuestion struct {

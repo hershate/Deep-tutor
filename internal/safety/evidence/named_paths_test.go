@@ -2,11 +2,11 @@ package evidence
 
 import (
 	"path/filepath"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestNamedPathsReadsLocationsOutOfDelegationProse(t *testing.T) {

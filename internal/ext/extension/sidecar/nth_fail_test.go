@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // TestNthRequiredFailureClosesEarlierSuccesses: Nth required fail → nil manager.

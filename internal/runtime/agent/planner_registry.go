@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ask is deliberately absent: a planner that needs a user-owned decision asks

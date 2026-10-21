@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // locate is read-only and reads code only; what makes it fast is the step cap

@@ -6,21 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/tools/jobs"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestBackgroundFleetRegistersEveryWriterUntilCompletion(t *testing.T) {

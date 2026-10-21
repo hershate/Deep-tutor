@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // SessionImport records one legacy session source that contributed sessions.

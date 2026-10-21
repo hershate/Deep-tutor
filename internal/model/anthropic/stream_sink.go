@@ -3,7 +3,7 @@ package anthropic
 import (
 	"context"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // chunkSink delivers stream chunks and remembers whether any reached the

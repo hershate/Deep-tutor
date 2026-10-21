@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // SlashEntry is one invocable slash command exposed to the model through the

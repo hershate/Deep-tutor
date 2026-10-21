@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 )
 
 const (

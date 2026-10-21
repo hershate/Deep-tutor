@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 	"strings"
 	"testing"
 

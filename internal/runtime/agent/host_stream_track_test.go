@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/ext/extension"
 )
 
 func TestTrackPublishedHostStreamUsesContextOwner(t *testing.T) {

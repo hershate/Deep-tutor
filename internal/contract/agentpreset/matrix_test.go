@@ -3,8 +3,8 @@ package agentpreset_test
 import (
 	"testing"
 
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/runtime/taskpolicy"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/runtime/taskpolicy"
 )
 
 // TestRoleSettingMatrix locks the product contract for the two role settings:

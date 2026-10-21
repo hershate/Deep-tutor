@@ -6,8 +6,8 @@ import (
 	"image"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/visionimage"
 )
 
 // A tool image answers for the moment it was taken, so a request carries only

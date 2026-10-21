@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func encGBK(t *testing.T, s string) []byte {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/safety/permission"
 )
 
 // A field the tool does not declare cannot become what the gate reads: the

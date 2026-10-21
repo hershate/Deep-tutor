@@ -9,13 +9,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 type replacingIdentityTool struct {

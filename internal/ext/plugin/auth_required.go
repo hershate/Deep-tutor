@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/mcpdiag"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/mcpdiag"
 )
 
 // ErrAuthenticationRequired is the identity of a remote MCP server that

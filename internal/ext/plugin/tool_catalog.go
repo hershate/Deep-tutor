@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
 )
 
 // toolCatalog is one answered tools/list after judgement: what the model is

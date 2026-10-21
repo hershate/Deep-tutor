@@ -6,13 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // boundWriterFixture builds a workspace with an in-claim directory and an

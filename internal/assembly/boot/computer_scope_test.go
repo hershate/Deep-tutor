@@ -3,12 +3,12 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/tools/builtin"
 )
 
 func TestComputerDriverBindingIsScopedToTheAssembly(t *testing.T) {

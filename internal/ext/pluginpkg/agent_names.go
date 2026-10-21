@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 func (p Package) agentRefs() []AgentRef {

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // DefaultBaseURL is the identity provider every Reasonix service consumes.

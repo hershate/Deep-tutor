@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/base/workspaceid"
+	"deep-tutor/internal/base/workspaceid"
 	"runtime"
 	"slices"
 	"sort"
@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 const (

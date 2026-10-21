@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/frontend/capdiag"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/frontend/capdiag"
 )
 
 // TestPluginPackageV2FieldsAreReported pins the Manifest v2 additions to the

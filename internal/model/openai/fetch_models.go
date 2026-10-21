@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 type modelFetchStatusError struct {

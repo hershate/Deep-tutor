@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // Options is what a TUI session starts with.

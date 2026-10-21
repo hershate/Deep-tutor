@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/testenv"
 )
 
 func testMigrations() []Migration {

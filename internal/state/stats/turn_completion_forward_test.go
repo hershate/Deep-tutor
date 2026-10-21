@@ -3,8 +3,8 @@ package stats
 import (
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
 )
 
 type turnCompletionSpy struct {

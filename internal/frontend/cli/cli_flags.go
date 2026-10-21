@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const resumePickerSentinel = "__reasonix_resume_picker__"

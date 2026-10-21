@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const titlePrompt = `Generate a very short title (3-7 words max) for this conversation based on the user's message. Use the same language as the user's message. The title should be clear enough that the user recognizes the session in a list. Reply with ONLY the title, no quotes, no punctuation at the end.

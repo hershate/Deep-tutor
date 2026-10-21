@@ -8,17 +8,17 @@ import (
 func TestLayerOrderAllowsOnlyDownwardAndPeerImports(t *testing.T) {
 	imports := map[string][]importRef{
 		"internal/runtime/agent/a.go": {
-			{path: "reasonix/internal/contract/provider", line: 3},
-			{path: "reasonix/internal/safety/sandbox", line: 4},
-			{path: "reasonix/internal/session/control", line: 5},
+			{path: "deep-tutor/internal/contract/provider", line: 3},
+			{path: "deep-tutor/internal/safety/sandbox", line: 4},
+			{path: "deep-tutor/internal/session/control", line: 5},
 		},
 		"internal/tools/builtin/b.go": {
-			{path: "reasonix/internal/safety/sandbox", line: 3},
+			{path: "deep-tutor/internal/safety/sandbox", line: 3},
 			{path: "fmt", line: 4},
 		},
-		"internal/contract/event/e.go": {{path: "reasonix/internal/model/billing", line: 7}},
-		"internal/stray/x.go":          {{path: "reasonix/internal/base/fileutil", line: 2}},
-		"cmd/tool/main.go":             {{path: "reasonix/internal/frontend/cli", line: 2}},
+		"internal/contract/event/e.go": {{path: "deep-tutor/internal/model/billing", line: 7}},
+		"internal/stray/x.go":          {{path: "deep-tutor/internal/base/fileutil", line: 2}},
+		"cmd/tool/main.go":             {{path: "deep-tutor/internal/frontend/cli", line: 2}},
 	}
 	got := map[string]string{}
 	for _, f := range checkLayerOrder(imports) {

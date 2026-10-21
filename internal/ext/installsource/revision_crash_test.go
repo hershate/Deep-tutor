@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/ext/pluginpkg"
 	"testing"
 )
 

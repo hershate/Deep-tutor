@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // Phase is a derived view of recovery progress for compatibility snapshots.

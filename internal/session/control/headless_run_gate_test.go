@@ -3,12 +3,12 @@ package control
 import (
 	"context"
 	"errors"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // The headless Run holds the turn gate like every other turn: it waits out a

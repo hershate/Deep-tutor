@@ -3,10 +3,10 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/feedback"
 )
 
 // feedbackService is the install's report client. A build that cannot make one

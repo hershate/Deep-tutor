@@ -6,7 +6,7 @@ package capdiag
 import (
 	"time"
 
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // SchemaVersion is the JSON report version. Bump only on breaking shape changes.

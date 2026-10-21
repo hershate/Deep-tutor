@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/notify"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/notify"
 )
 
 type sentLog struct {

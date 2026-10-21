@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Manifest is a session directory's identity file.

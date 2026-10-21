@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // An installed user's model list is frozen in their config file. The vendor

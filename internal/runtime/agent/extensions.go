@@ -7,11 +7,11 @@ import (
 	"reflect"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/ext/extension/providerconv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/ext/extension/providerconv"
 )
 
 // Extension Protocol v2 agent-side wiring. The agent consults the

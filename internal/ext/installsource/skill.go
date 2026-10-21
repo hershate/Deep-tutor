@@ -13,9 +13,9 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 const (

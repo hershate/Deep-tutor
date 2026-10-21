@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 )
 
 // renderProviderEntryAnnotated writes one [[providers]] table for the annotated

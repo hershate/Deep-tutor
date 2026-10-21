@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // setWriter writes two files named by nothing in its arguments: only its

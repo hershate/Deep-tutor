@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // copyParts is the assistant text since the last thing the person said,

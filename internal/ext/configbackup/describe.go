@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
 )
 
 // maxShownContent bounds the file body a preview carries for reading.

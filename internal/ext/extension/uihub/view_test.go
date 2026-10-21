@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // A view arrives as a tree, and every string in it is shown to the user — so

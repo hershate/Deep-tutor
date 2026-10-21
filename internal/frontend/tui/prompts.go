@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const approvalSubjectRows = 8

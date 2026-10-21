@@ -1,6 +1,6 @@
 package provider
 
-import "reasonix/internal/base/secrets"
+import "deep-tutor/internal/base/secrets"
 
 // RedactMessage returns a storage-safe copy of m with textual secret surfaces
 // masked; images are opaque data URLs and stay untouched. ToolCalls and

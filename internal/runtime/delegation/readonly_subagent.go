@@ -4,9 +4,9 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // readOnlySubRegistry builds a strict child's tools, proves it can investigate

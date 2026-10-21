@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/workspaceid"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/workspaceid"
 )
 
 // A project file can name programs the host runs: hooks, language servers,

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/safety/permission"
 )
 
 func init() {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/safety/permission"
 )
 
 func bashCall(t *testing.T, command string) json.RawMessage {

@@ -2,12 +2,12 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
 )
 
 func waitForDecisions(t *testing.T, c *Controller, want int) []Decision {

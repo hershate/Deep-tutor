@@ -2,11 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A turn must never inherit the previous turn's plan: the executor-only route

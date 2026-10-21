@@ -4,7 +4,7 @@ package delegation
 
 import (
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 )
 

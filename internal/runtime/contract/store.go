@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // RecordKind names a contract revision's record in Trusted Host State.

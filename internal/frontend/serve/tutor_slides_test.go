@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // TestTutorSlidesExport walks both slide routes: the plan deck and the

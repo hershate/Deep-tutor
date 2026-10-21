@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // windowsShell speaks to Windows remotes through PowerShell. Every command is

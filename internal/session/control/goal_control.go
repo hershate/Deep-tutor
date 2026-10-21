@@ -3,8 +3,8 @@ package control
 import (
 	"fmt"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/runtime/goaleval"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/runtime/goaleval"
 )
 
 // The Controller's goal verbs: what a frontend calls to set, pause, resume and

@@ -3,12 +3,12 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // delegationTools are the dispatchers hidden from the provider schema. A model

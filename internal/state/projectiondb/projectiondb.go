@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 
 	moderncsqlite "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"

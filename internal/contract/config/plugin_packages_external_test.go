@@ -3,12 +3,12 @@ package config_test
 import (
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestLoadMergesInstalledPluginSkillRootsAndMCP(t *testing.T) {

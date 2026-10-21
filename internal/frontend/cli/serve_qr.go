@@ -11,7 +11,7 @@ import (
 
 	"rsc.io/qr"
 
-	"reasonix/internal/frontend/serve"
+	"deep-tutor/internal/frontend/serve"
 )
 
 var (

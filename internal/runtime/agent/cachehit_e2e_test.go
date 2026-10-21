@@ -9,16 +9,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/model/openai"
 )
 
 // echoTool is a trivial read-only tool used to drive a multi-step tool loop:

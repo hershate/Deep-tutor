@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
 )
 
 func TestSkillCatalogProjectsAuthorInvocationFlags(t *testing.T) {

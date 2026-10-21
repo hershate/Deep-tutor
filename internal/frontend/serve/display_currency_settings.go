@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) registerDisplayCurrencyRoutes(mux *http.ServeMux) {

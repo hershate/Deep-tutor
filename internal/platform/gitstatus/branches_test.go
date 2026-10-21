@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // branchesWithCommits is a repository with two extra locals. "next" moves the

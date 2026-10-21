@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func (s *Server) registerAskTimeoutRoutes(mux *http.ServeMux) {

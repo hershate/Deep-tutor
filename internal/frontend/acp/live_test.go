@@ -15,15 +15,15 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	_ "reasonix/internal/model/openai" // registers the "openai" provider kind
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	_ "deep-tutor/internal/model/openai" // registers the "openai" provider kind
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/session/control"
 )
 
 type liveFactory struct{ prov provider.Provider }

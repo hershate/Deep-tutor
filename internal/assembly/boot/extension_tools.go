@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // extensionToolTimeout bounds one call; a tool doing longer work should

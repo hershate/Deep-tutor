@@ -6,8 +6,8 @@ package eventwire
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 // ExtensionSurface is the JSON form of an event.ExtensionSurfacePayload.

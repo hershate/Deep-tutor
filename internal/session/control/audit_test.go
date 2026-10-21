@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
 )
 
 // ATTACK: the compatibility endpoint approves by id, so it must not be able to

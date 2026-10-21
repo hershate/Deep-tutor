@@ -9,10 +9,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Prefix is the bundle's own identifier, so a Studio launch never answers the

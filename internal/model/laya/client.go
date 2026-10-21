@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 const resultMarker = "__REASONIX_LAYA_RESULT__"

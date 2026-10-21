@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/assembly/boot"
+	"deep-tutor/internal/assembly/boot"
 )
 
 func TestStartupPhasesUseElapsedMilliseconds(t *testing.T) {

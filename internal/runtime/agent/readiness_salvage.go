@@ -2,10 +2,10 @@ package agent
 
 import (
 	"errors"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // currentFinalAssistantAnswer returns visible Content from the current turn.

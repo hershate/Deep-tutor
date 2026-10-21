@@ -12,10 +12,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/permission"
 )
 
 // browserScriptProvider plays a fixed browsing session: each round's call is

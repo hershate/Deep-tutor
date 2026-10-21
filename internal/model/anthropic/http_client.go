@@ -3,9 +3,9 @@ package anthropic
 import (
 	"net/http"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/endpointclient"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/endpointclient"
 )
 
 func newHTTPClient(cfg provider.Config) (*http.Client, error) {

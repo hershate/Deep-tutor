@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func registryPaginationItem(name string) map[string]any {

@@ -1,6 +1,6 @@
 package cli
 
-import "reasonix/internal/contract/agentgraph"
+import "deep-tutor/internal/contract/agentgraph"
 
 // FanoutMetrics prices what a run's fan-outs bought. It is folded from the run
 // graph the kernel publishes, because the timestamps carried there are the only

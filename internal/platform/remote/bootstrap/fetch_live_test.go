@@ -15,8 +15,8 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/releaseasset"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/releaseasset"
 )
 
 // fakeKernel is a stand-in for the released CLI: it answers the two questions

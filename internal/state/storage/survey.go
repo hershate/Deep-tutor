@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Root is one root as measured: where it resolved to, whether a user may move

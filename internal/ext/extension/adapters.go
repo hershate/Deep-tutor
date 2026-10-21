@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/skill"
 )
 
 // Each function here maps one already-discovered record onto one Contribution.

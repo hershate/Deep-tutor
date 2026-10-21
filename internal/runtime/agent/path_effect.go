@@ -6,14 +6,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/checkpoint"
 )
 
 // A command the host cannot decompose statically — `rm x && ls`, a project

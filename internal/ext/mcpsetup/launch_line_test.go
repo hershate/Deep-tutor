@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestLaunchLineSaysFirstWhenItDeletedCharacters(t *testing.T) {

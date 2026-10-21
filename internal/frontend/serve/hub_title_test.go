@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func titlePost(t *testing.T, h *Hub, route, path, title string) *httptest.ResponseRecorder {

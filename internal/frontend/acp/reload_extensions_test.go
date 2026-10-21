@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/session/control"
 )
 
 // reloadFactory wraps configurableFactory with the SessionRebuilder seam the

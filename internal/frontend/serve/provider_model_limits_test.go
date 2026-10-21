@@ -3,11 +3,11 @@ package serve
 import (
 	"net/http"
 	"os"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestEditProviderStoresPerModelLimitsAndClearsThem(t *testing.T) {

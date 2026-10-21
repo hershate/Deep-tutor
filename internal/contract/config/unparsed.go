@@ -12,7 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // What a surface is showing while the file on disk cannot be read.

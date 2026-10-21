@@ -14,7 +14,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 // ProjectDeclarationDigest covers everything a repository controls about one

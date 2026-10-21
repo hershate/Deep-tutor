@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/runtime/taskmonitor"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/runtime/taskmonitor"
 )
 
 const legacySensitiveSummary = `command "deploy --token secret" failed in /Users/alice/private`

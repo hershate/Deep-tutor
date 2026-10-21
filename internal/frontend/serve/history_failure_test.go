@@ -1,11 +1,11 @@
 package serve
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // A rebuilt card knows a call failed because the host said so, not because the

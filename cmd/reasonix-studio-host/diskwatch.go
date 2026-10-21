@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/diskhealth"
-	"reasonix/internal/platform/notify"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/diskhealth"
+	"deep-tutor/internal/platform/notify"
 )
 
 // diskWatchEvery is how often the volumes are looked at: a build fills a disk

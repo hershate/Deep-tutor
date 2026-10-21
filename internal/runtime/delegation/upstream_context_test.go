@@ -3,20 +3,20 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 
-	"reasonix/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/agentgraph"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"slices"
 )
 

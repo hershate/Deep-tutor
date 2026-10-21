@@ -3,10 +3,10 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"slices"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func toolIdentity(reg *tool.Registry, ctx context.Context) ([]string, string) {

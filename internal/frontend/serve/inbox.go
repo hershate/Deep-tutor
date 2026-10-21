@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 func (s *Server) registerInboxRoutes(mux *http.ServeMux) {

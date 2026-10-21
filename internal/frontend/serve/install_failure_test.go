@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/ext/installsource"
 )
 
 func TestInstallFailureNamesTheCauseTheToolKnows(t *testing.T) {

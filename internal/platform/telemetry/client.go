@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
 )
 
 var endpoint = "https://crash.reasonix.io/v1"

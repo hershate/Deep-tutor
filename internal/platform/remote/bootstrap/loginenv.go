@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/remote"
+	"deep-tutor/internal/platform/remote"
 )
 
 // EnvOutcome says what asking the account's own shell for its environment

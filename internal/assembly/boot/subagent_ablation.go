@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
 )
 
 // gateSubagentArm refuses skills that would spawn a child while the subagent

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 	"strings"
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 type scriptedCall struct{ name, args string }

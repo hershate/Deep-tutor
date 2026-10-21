@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // ContextMaintenanceSnapshot is a read-only view of the current provider-bound

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/permission"
 )
 
 // fakeComputerHelperEnv makes the test binary answer as the native helper: one

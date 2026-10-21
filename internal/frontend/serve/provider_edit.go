@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 // editProvider changes only the fields this panel owns and leaves the rest of

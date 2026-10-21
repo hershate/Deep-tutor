@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 func TestServeSwitchEffortNoopsSameLevelBeforeBuild(t *testing.T) {

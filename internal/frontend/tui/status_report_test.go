@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 func TestStatusIsReportedOnlyWhenItChanges(t *testing.T) {

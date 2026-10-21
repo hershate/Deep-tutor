@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestHostSessionMCPFailureIsVisible(t *testing.T) {

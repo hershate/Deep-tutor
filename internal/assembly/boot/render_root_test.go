@@ -3,8 +3,8 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/browser"
 )
 
 // A look is owed only where one can be taken: a browser to open the page in and

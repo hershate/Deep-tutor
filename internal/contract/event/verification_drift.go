@@ -2,7 +2,7 @@
 // one this process loaded.
 package event
 
-import "reasonix/internal/base/nilutil"
+import "deep-tutor/internal/base/nilutil"
 
 // VerificationContractDrift is one comparison between the contract a resumed
 // Goal was frozen under and the declaration the current process read. It

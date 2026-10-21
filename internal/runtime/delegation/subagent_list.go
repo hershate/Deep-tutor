@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // maxListedSubagents bounds one listing. A conversation that spawned hundreds

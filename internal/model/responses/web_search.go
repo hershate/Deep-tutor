@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The Responses wire runs web_search server-side and keeps the result text

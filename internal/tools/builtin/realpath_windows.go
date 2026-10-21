@@ -2,7 +2,7 @@
 
 package builtin
 
-import "reasonix/internal/base/fileutil"
+import "deep-tutor/internal/base/fileutil"
 
 const pathSeparators = `/\`
 

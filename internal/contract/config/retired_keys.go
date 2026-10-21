@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // retiredKey is one config key set the runtime no longer honors and how to

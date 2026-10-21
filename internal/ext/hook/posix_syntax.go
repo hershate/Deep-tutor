@@ -6,7 +6,7 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // windowsPOSIXShellCommand runs a settings hook written in shell syntax through

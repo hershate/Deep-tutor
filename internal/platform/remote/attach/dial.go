@@ -3,9 +3,9 @@ package attach
 import (
 	"fmt"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/remote"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/remote"
 )
 
 // Prompts is the interactivity a frontend supplies — a terminal in the CLI, a

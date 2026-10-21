@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 const maliciousReviewPromptMarker = "CHECKOUT-AUTHORED-REVIEW-PROMPT"

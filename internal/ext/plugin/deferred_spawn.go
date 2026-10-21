@@ -6,7 +6,7 @@ package plugin
 import (
 	"context"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // registerDeferredCancel records a background connect so Close can reach it, and

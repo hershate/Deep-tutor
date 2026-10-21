@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 func (t *Tool) marketplaceGitSubdir(ctx context.Context, source claudeMarketplaceURLSource) (root, sourceURL, commit string, cleanup func(), err error) {

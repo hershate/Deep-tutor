@@ -2,10 +2,10 @@ package config
 
 import (
 	"fmt"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // DeepSeek's rates live in billing's history, which publishes the current

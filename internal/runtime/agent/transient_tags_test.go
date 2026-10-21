@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Every tag the host prepends must strip cleanly, whatever else precedes it.

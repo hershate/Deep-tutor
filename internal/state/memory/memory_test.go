@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/fileutil/encoding/encodingtest"
-	"reasonix/internal/base/testenv"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil/encoding/encodingtest"
+	"deep-tutor/internal/base/testenv"
 )
 
 // TestComposeEmptyIsIdentity is the cache-first invariant: with no memory at

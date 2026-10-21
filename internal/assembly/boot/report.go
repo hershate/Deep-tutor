@@ -1,6 +1,6 @@
 package boot
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // report is how assembly speaks: which model was chosen, which server failed to
 // start, which migration ran — none of it part of the conversation the runtime

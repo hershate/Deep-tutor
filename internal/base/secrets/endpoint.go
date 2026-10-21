@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 const EndpointRedacted = "<redacted>"

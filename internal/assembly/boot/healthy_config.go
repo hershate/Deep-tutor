@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/platform/repair"
+	"deep-tutor/internal/platform/repair"
 )
 
 // A successful assembly proves this user config usable. The retired Wails

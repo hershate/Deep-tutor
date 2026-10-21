@@ -65,7 +65,7 @@ func targetAccessWiring(file *ast.File, local bool) (int, []token.Pos) {
 	aliases := map[string]bool{}
 	for _, imp := range file.Imports {
 		path, err := strconv.Unquote(imp.Path.Value)
-		if err == nil && path == "reasonix/internal/runtime/agent" {
+		if err == nil && path == "deep-tutor/internal/runtime/agent" {
 			name := "agent"
 			if imp.Name != nil {
 				name = imp.Name.Name
@@ -124,11 +124,11 @@ func TestTargetAccessWiringDetectsMissingChecks(t *testing.T) {
 		local        bool
 		missing      int
 	}{
-		{"wired", `package p; import "reasonix/internal/runtime/agent"; var opts = agent.Options{CheckTargetAccess: check}`, false, 0},
-		{"missing", `package p; import "reasonix/internal/runtime/agent"; var opts = agent.Options{}`, false, 1},
-		{"nil", `package p; import "reasonix/internal/runtime/agent"; var opts = agent.Options{CheckTargetAccess: nil}`, false, 1},
-		{"alias", `package p; import runtimeagent "reasonix/internal/runtime/agent"; var opts = runtimeagent.Options{}`, false, 1},
-		{"zero", `package p; import "reasonix/internal/runtime/agent"; var opts agent.Options`, false, 1},
+		{"wired", `package p; import "deep-tutor/internal/runtime/agent"; var opts = agent.Options{CheckTargetAccess: check}`, false, 0},
+		{"missing", `package p; import "deep-tutor/internal/runtime/agent"; var opts = agent.Options{}`, false, 1},
+		{"nil", `package p; import "deep-tutor/internal/runtime/agent"; var opts = agent.Options{CheckTargetAccess: nil}`, false, 1},
+		{"alias", `package p; import runtimeagent "deep-tutor/internal/runtime/agent"; var opts = runtimeagent.Options{}`, false, 1},
+		{"zero", `package p; import "deep-tutor/internal/runtime/agent"; var opts agent.Options`, false, 1},
 		{"local", `package agent; var opts = Options{}`, true, 1},
 		{"other", `package p; import "other/agent"; var opts = agent.Options{}`, false, 0},
 	} {

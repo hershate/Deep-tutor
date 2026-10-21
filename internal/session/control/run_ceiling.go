@@ -3,8 +3,8 @@ package control
 import (
 	"context"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // bindTurnScope binds a Goal turn's spend budget and its usage recorder, the

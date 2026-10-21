@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // walkReference is the sequential walk the parallel one stands in for, kept

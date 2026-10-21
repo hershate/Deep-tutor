@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
 )
 
 // The two-phase rule only binds the model if the model is told about it, and

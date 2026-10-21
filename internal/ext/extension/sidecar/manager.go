@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 const (

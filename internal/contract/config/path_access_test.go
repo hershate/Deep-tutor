@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // refuseCanonicalizingUnder makes every path below mount fail to canonicalize

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 // fakeBackupService stands in for the accounts service's /me/backups routes and

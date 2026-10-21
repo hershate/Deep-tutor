@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"testing"
 )
 

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // resumedWithOwedReview is an agent a restart handed a checkpoint owing both

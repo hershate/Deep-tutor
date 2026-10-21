@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // partialClone returns a blob-filtered clone of a three-commit repository, so

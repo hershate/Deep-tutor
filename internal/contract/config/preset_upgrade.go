@@ -5,7 +5,7 @@ package config
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // shippedPreset is a shape this project once shipped. An entry matching one is

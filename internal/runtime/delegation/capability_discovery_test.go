@@ -1,7 +1,7 @@
 package delegation
 
 import (
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 	"testing"
 )

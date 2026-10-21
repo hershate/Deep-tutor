@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/billing"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/billing"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // ContextMaintenanceSnapshot exposes current composition and the last durable

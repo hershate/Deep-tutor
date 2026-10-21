@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/permission"
 )
 
 func TestPromptTurnReportsUsageUpdate(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
 )
 
 // statuslineTimeout bounds the footer's wait on a user script between turns.

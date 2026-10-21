@@ -21,7 +21,7 @@ import (
 	"strings"
 	"syscall"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // Stable exit codes observed by the desktop installer.

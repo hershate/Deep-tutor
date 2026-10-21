@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/runtime/schedrun"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/runtime/schedrun"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/schedule"
 )
 
 // Exit statuses of the child. A run that reached a result exits 0 whatever the

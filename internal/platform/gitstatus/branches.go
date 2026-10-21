@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // Branch is one local branch of the work tree's repository, as a branch menu

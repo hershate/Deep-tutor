@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/permission"
 )
 
 // approvalManager owns the approval/ask prompt bookkeeping and the runtime

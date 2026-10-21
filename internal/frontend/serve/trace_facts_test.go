@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // TurnTraceFacts is what a partition would be computed FROM. It holds no

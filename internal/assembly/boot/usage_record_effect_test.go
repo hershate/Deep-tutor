@@ -2,14 +2,14 @@ package boot
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/frontend/doctor"
-	"reasonix/internal/state/usagereport"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/frontend/doctor"
+	"deep-tutor/internal/state/usagereport"
 )
 
 // usageReportingProvider answers every round with a cache split, so a test can

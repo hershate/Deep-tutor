@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/observation"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/observation"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 func storeBytes(t *testing.T, root string) int64 {

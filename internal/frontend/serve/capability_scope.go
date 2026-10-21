@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func scopeView(ctl control.SessionAPI) control.CapabilityScope { return ctl.CapabilityScope() }

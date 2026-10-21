@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 func TestWorkspaceWaitContractDoesNotClaimTheWorkspaceIsFree(t *testing.T) {

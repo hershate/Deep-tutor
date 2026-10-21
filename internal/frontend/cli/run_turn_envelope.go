@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // Headless machine streams keep 1.x's line contract (per-line envelope plus

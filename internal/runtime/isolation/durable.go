@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/platform/worktree"
+	"deep-tutor/internal/platform/worktree"
 )
 
 // entryFile sits beside a pending result's worktree. It names the result and

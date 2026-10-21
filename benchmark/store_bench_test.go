@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // store_bench_test.go measures the read and write paths a Studio session

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/planmode"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/planmode"
 )
 
 // A call the planning phase refuses reaches the model with the command, the

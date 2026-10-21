@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestTurnWorkMs(t *testing.T) {

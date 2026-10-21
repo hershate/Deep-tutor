@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 
 	"golang.org/x/sys/windows"
 )

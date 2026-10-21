@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/browser"
 )
 
 // A model switch rebuilds the runtime; the agent's browser, and the tabs it has

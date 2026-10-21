@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/netclient"
+	"deep-tutor/internal/base/netclient"
 )
 
 func TestBlockedFetchIP(t *testing.T) {

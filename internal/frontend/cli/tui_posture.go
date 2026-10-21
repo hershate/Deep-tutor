@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 // errYoloNotConfirmed is the person answering no to the one-time YOLO notice.

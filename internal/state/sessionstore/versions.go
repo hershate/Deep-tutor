@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // SessionVersion is a conversation as it stood before a rewind replaced part of

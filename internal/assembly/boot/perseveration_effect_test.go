@@ -14,11 +14,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/session/control"
 )
 
 // perseverationKindSeq keeps each build's registered provider kind unique: two

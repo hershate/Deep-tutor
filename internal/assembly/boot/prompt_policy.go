@@ -1,6 +1,6 @@
 package boot
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // corePolicies is every block appended to the base prompt at boot, in order.
 // One list so a policy cannot be added to the prefix without the tests that

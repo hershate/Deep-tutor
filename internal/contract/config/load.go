@@ -7,15 +7,15 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/provider"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Load builds the configuration: defaults, then user config, then project

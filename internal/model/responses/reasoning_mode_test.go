@@ -3,7 +3,7 @@ package responses
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func reasoningOf(t *testing.T, cfg Config, mode string) map[string]any {

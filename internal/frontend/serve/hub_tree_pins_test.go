@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func TestSyncPinsOnlyTouchesSessionsTheKernelLists(t *testing.T) {

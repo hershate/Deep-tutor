@@ -6,8 +6,8 @@ package control
 import (
 	"slices"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // observeVerificationContractDrift compares the contract a resumed Goal was

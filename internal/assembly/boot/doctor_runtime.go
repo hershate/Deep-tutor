@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/ext/extension"
 )
 
 // RuntimeDoctorReport is the structured runtime diagnostics document for

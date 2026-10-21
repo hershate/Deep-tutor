@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/historycatalog"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/historycatalog"
 )
 
 type historyTool struct {

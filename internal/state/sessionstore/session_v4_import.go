@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/state/sessionv4"
+	"deep-tutor/internal/state/sessionv4"
 )
 
 // ImportSource records that a session was brought over from a store this

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 func TestEffectYoloURLInteractionWaitsForHumanThroughBuild(t *testing.T) {

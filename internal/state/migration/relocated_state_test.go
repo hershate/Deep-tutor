@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/workspacelist"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/workspacelist"
 )
 
 func seed(t *testing.T, dir, name, file string) {

@@ -3,7 +3,7 @@ package usecap
 import (
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // resolveDisabled turns a configuration-disabled MCP target into the same typed

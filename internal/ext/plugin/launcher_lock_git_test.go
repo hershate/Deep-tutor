@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // Resolving a git launcher names its repository by URL, so the configuration

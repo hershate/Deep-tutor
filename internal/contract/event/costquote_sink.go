@@ -1,12 +1,12 @@
 package event
 
 import (
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // QuoteContext supplies an explicit display request for the CostQuote

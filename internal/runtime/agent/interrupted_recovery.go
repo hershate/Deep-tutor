@@ -3,11 +3,11 @@ package agent
 import (
 	"fmt"
 	"html"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 const interruptedRecoveryTag = "interrupted-turn-recovery"

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
 )
 
 // writeLaunchTokenFile leaves the token an auth-disabled serve's changes need

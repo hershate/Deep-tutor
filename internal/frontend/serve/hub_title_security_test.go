@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestTitleRoutesRejectUnownedPaths(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 const toolListChangedMethod = "notifications/tools/list_changed"

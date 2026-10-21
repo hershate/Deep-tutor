@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // Verifier kinds.

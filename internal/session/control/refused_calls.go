@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/permission"
 )
 
 const refusedCallArgsLimit = 160

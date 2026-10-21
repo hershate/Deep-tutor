@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"slices"
 	"strings"
 	"testing"

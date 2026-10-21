@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // contextView is the gauge and what fills it. Named rather than anonymous

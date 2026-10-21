@@ -3,12 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/capability"
 )
 
 type namedSchemaTool struct {

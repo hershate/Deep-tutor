@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
 )
 
 // graphErrBudget bounds the failure text a node carries. A graph is drawn, not

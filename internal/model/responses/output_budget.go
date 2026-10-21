@@ -1,6 +1,6 @@
 package responses
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // OutputBudget reports the default total output budget sent by this client.
 func (c *client) OutputBudget() int { return c.maxOutputTokens }

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/traystate"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/traystate"
+	"deep-tutor/internal/session/control"
 )
 
 // stubTray stands in for the window. TrayFold counts its own calls into the

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/base/textutil"
 )
 
 func TestPreviewResponseNeverHidesHighRisk(t *testing.T) {

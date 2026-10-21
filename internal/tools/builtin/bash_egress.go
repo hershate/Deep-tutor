@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/safety/egress"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/egress"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // routeEgress names a confined launch to the egress proxy and points its

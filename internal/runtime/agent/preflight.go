@@ -3,11 +3,11 @@ package agent
 import (
 	"errors"
 	"log/slog"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // ErrCompactionRequired is returned when the prompt exceeds the provider limit

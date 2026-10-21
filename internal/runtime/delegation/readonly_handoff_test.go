@@ -1,10 +1,10 @@
 package delegation
 
 import (
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // The protocol tool is not a capability. Attaching it before the "can this

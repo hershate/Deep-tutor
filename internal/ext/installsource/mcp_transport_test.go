@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestRemoteMCPTransportUsesEndpointPath(t *testing.T) {

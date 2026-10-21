@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/platform/browser"
 )
 
 // browserOpen opens a page in the session's browser. The window's own tabs and

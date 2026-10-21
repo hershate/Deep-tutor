@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // stdioReplyQueueBound caps buffered server-request replies. The queue only

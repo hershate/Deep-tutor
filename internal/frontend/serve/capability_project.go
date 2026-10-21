@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
 )
 
 // Only the session pointed at a folder knows whether its servers came up, so a

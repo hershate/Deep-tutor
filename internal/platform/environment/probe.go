@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/shellparse"
 )
 
 const ProbeTimeout = 2 * time.Second

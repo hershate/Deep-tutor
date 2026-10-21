@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // ErrNotFound is the identity for a missing tutor resource; HTTP layers map

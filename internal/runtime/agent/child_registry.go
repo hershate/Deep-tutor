@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // read_skill is deliberately not listed: it renders playbook text inline and

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/permission"
 )
 
 // A headless run whose writes were refused still ends in success; the result

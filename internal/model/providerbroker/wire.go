@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The wire surface, versioned as one: a Client and a Server that disagree

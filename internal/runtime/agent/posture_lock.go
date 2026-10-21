@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/dispatch"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/dispatch"
 )
 
 // CodePostureToolNotAllowed identifies a call refused because the run's

@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/workspaceid"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/workspaceid"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 // CapabilityScope names the project a capability listing belongs to. A shell

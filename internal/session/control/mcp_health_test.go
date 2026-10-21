@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestConfiguredMCPStatusPreservesCallableStandby(t *testing.T) {

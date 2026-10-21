@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // readFileEncoded reads a file and decodes its encoding to UTF-8.

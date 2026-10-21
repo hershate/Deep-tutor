@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // endpointFacts are what requests to this endpoint have established, each

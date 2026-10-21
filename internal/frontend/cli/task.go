@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/runtime/taskmonitor"
+	"deep-tutor/internal/runtime/taskmonitor"
 )
 
 // taskStore is the taskmonitor.Store used by the task CLI commands.

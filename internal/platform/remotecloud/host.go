@@ -21,8 +21,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/account"
 )
 
 const DefaultRelayURL = "wss://remote.reasonix.io"

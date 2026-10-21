@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/safety/permission"
 )
 
 // mcpFastPathBlock is what still applies to an authorized MCP server, which

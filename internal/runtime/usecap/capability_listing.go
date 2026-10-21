@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // listServerInfo is one configured MCP server entry returned by action=list.

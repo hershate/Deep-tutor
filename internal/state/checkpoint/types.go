@@ -3,7 +3,7 @@ package checkpoint
 import (
 	"time"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // Schema versions for on-disk checkpoint JSON.

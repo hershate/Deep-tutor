@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // The static tables will never know every tool, and each one that falls through

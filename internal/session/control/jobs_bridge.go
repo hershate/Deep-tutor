@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/runtime/taskmonitor"
-	"reasonix/internal/state/sessioninbox"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/runtime/taskmonitor"
+	"deep-tutor/internal/state/sessioninbox"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // hostContinuationSource labels inbox items the runtime authored for itself.

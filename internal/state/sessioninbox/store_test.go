@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/store"
 )
 
 func TestEnqueueSnapshotAndRead(t *testing.T) {

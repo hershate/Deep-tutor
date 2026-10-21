@@ -3,17 +3,17 @@ package agent
 import (
 	"sync/atomic"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/memory"
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/memory"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // agentServices are the collaborators an Agent talks to, separated from the

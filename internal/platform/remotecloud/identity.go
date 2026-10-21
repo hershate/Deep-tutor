@@ -8,7 +8,7 @@ import (
 	"errors"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 const identityCredentialKey = "REASONIX_REMOTE_DEVICE_IDENTITY"

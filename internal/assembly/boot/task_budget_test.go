@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Every axis ships off, so an unconfigured agent must reach the runtime with

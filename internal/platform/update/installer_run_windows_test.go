@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"reasonix/internal/base/tempdir"
+	"deep-tutor/internal/base/tempdir"
 )
 
 func TestRunInstallerStartErrorIsActionableAndPathSafe(t *testing.T) {

@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
 )
 
 // resolveCLISessionDir is the session dir for a CLI invocation with no --dir.

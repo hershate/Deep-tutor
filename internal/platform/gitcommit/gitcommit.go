@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 var (

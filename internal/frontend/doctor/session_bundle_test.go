@@ -7,14 +7,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/store"
 )
 
 func TestWriteSessionBundleIncludesRecoveryChain(t *testing.T) {

@@ -3,7 +3,7 @@ package memory
 import (
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // The index and the direct store scan must be indistinguishable: same hits,

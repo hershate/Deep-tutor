@@ -5,7 +5,7 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // OperativeCommand returns command with its leading environment assignments

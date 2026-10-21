@@ -3,7 +3,7 @@ package shellsafe
 import (
 	"strings"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 func UnwrapDeleteCommand(name string, args []string) (string, []string, bool) {

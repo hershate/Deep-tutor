@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestResponsesRelayClosedNoArguments(t *testing.T) {

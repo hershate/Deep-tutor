@@ -3,7 +3,7 @@
 // usage events report.
 package control
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // SystemPrompt returns the base system prompt sessions are seeded with. With
 // ToolSchemas it is what the cache hashes cover, so a recorder that persists

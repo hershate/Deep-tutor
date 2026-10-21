@@ -4,18 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // fakeProgressClock drives the merger's pacing deterministically: tests advance

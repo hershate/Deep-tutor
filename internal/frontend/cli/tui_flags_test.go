@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func parsedTUIFlags(t *testing.T, args ...string) *tuiFlags {

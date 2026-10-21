@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessioninbox"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessioninbox"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 func TestInboxSnapshotRecoversUnownedInFlightItem(t *testing.T) {

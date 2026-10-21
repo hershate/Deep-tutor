@@ -3,7 +3,7 @@ package appupdate
 import (
 	"errors"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // Why a move did not happen, as the dotted code a panel explains. The step that

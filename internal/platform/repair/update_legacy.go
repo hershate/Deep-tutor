@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/installlayout"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/installlayout"
 )
 
 var supersededUpdateBeforeArchive = func(string) {}

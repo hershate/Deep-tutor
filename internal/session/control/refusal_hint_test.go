@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/anthropic"
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/anthropic"
+	"deep-tutor/internal/model/openai"
 )
 
 // A request that left assistant reasoning out is a fact about the request, not a

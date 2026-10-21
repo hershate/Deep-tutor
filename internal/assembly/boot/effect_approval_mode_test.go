@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
 )
 
 // A default approval mode this build does not know opens the window in Ask and

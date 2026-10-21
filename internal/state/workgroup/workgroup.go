@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // Call is one tool invocation as an atom. See doc.go for the three lifecycles

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 // ConfineBash returns the bash built-in bound to an OS-sandbox spec, overriding

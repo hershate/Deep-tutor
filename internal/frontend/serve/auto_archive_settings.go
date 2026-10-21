@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 // pinsSynced records that some window has told this process which

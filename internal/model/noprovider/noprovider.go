@@ -6,8 +6,8 @@ package noprovider
 import (
 	"context"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 func init() {

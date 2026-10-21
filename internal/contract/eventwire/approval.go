@@ -3,7 +3,7 @@ package eventwire
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // Approval is the JSON form of an event.Approval.

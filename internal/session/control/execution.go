@@ -2,11 +2,11 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/runtime/delegation"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/runtime/delegation"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // beginTurn marks the turn and hands back a context carrying its identity, so

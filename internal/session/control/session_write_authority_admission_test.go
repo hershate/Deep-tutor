@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 func TestStaleWriteAuthorityBlocksAsyncAdmission(t *testing.T) {

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/feedback"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/feedback"
+	"deep-tutor/internal/session/control"
 )
 
 type feedbackStub struct {

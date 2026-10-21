@@ -2,7 +2,7 @@
 
 package repair
 
-import "reasonix/internal/base/fileutil"
+import "deep-tutor/internal/base/fileutil"
 
 func renameRepairNodeNoReplace(oldPath, newPath string) error {
 	return fileutil.RenameNoReplace(oldPath, newPath)

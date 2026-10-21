@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // PluginWarnings validates declared theme manifests without consulting the

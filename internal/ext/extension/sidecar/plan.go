@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // PluginComponentID returns the dependency-graph component ID for an installed

@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/store"
 )
 
 // checkpointManager owns the snapshot-based rewind bookkeeping: the per-session

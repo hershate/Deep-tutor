@@ -13,8 +13,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote/sshtest"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote/sshtest"
 )
 
 func TestClientFallsBackFromEmptyAgentToIdentityFile(t *testing.T) {

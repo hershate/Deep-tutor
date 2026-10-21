@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
 )
 
 func TestEffectWideWorkspaceSnapshotResourceBound(t *testing.T) {
@@ -85,7 +85,7 @@ func walkGoroutines() int {
 	}
 	count := 0
 	for g := range strings.SplitSeq(string(buf), "\n\n") {
-		if strings.Contains(g, "reasonix/internal/state/observation.") || strings.Contains(g, "reasonix/internal/runtime/agent.scanWorkspaceTo") {
+		if strings.Contains(g, "deep-tutor/internal/state/observation.") || strings.Contains(g, "deep-tutor/internal/runtime/agent.scanWorkspaceTo") {
 			count++
 		}
 	}

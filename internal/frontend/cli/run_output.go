@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 type runOutputFormat string

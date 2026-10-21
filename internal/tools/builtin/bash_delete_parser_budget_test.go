@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 type fakeParser struct {

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 )
 
 func TestCloseHandingOffJobsKeepsJobsAndDefersCleanupUntilTheyFinish(t *testing.T) {

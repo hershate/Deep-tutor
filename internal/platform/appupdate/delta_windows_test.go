@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/update"
 )
 
 // readOnlyLikeProgramFiles gives dir the access an all-users install directory

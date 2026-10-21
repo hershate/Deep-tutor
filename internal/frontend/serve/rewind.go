@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/checkpoint"
 )
 
 // A rewind is two calls when the plan needs consent: POST /rewind refuses a

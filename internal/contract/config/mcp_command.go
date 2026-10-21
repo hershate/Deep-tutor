@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // NormalizePluginCommandLine repairs the common MCP copy/paste mistake where a

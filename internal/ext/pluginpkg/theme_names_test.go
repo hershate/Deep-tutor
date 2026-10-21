@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestThemeInventoryNamesDirectoryPacksAndStandaloneFiles(t *testing.T) {

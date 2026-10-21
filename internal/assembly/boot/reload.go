@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/session/control"
 )
 
 // Rebuild builds a replacement runtime for old, migrating session state.

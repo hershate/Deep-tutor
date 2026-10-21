@@ -3,8 +3,8 @@ package control
 import (
 	"testing"
 
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/skill"
 )
 
 func TestResolvedBuiltinDocsSlashNameMatchesRuntimeOwner(t *testing.T) {

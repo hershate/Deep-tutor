@@ -4,10 +4,10 @@ package control
 import (
 	"errors"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/usecap"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/usecap"
+	"deep-tutor/internal/safety/permission"
 )
 
 // PermissionVocabulary is every tool name a rule can be matched against now:

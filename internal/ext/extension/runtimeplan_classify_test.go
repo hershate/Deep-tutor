@@ -3,7 +3,7 @@ package extension
 import (
 	"testing"
 
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 func TestClassifySubgraphNone(t *testing.T) {

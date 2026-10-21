@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 var sweepSessionDir = control.ReconcileCleanupPending

@@ -1,6 +1,6 @@
 package event
 
-import "reasonix/internal/base/nilutil"
+import "deep-tutor/internal/base/nilutil"
 
 // WorkspaceMutation is a host-only resource invalidation produced immediately
 // after one concrete writer finishes. It is separate from ToolResult ordering

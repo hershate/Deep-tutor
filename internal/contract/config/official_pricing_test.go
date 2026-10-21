@@ -1,11 +1,11 @@
 package config
 
 import (
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Every rate this project has shipped as a default must still be recognised,

@@ -4,14 +4,14 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/delegation"
-	"reasonix/internal/runtime/langpref"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/delegation"
+	"deep-tutor/internal/runtime/langpref"
 )
 
 // delegationInputs is what a sub-agent inherits from the executor: its model,

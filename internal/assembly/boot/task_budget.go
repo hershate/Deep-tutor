@@ -3,8 +3,8 @@ package boot
 import (
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // taskBudgetFromConfig maps the configured spend gates onto the agent budget.

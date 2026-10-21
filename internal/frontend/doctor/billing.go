@@ -2,11 +2,11 @@ package doctor
 
 import (
 	"fmt"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // BillingReport is the structured output of `reasonix doctor billing`.

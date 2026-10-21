@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // collectTools runs fn and returns the tool frames it emitted, in order.

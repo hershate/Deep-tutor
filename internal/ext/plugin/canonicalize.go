@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"sort"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // sortToolsByName returns a new slice of tools sorted alphabetically by Name().

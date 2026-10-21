@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // ErrSharePortInUse is a configured share port another process already holds.

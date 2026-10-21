@@ -3,18 +3,18 @@ package agent
 import (
 	"context"
 	"errors"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 // scriptedProvider replays a distinct chunk set per Stream call, so a multi-turn

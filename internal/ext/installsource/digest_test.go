@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 const pinnedCommit = "0123456789abcdef0123456789abcdef01234567"

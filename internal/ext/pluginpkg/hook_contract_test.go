@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestHookJSONExecutionFormPresenceMatrix(t *testing.T) {

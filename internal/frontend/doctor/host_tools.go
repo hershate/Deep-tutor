@@ -1,8 +1,8 @@
 package doctor
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/usecap"
 )
 
 // hostToolContracts are the tools every assembled registry carries, read from

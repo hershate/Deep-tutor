@@ -3,18 +3,18 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/coordinator"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/coordinator"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // TestAutoApproveToolsStillRequiresExplicitPlanApproval proves that YOLO/full

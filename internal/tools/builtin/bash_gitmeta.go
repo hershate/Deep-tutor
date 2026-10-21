@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 // refuseLinkedGitMetadata stops a confined launch the sandbox cannot make safe

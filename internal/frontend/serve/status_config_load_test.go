@@ -4,7 +4,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestStatusDoesNotLoadConfiguration(t *testing.T) {

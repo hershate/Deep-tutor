@@ -3,14 +3,14 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestSubagentResultToolContractIsStableAndReadOnly(t *testing.T) {

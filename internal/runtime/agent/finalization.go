@@ -3,8 +3,8 @@ package agent
 import (
 	"fmt"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // landCause is why a turn was told to finalize. kind selects the pause the Run

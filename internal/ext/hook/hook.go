@@ -28,12 +28,12 @@ import (
 	"time"
 	"unicode/utf16"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/safety/sandbox"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // Event is a point in the agent loop a hook can fire at.

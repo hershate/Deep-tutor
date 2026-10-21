@@ -3,16 +3,16 @@ package delegation
 import (
 	"context"
 	"encoding/json"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 func saveListedChild(t *testing.T, store *SubagentStore, spec SubagentSpec, save func(*SubagentStore, *SubagentRun) error) string {

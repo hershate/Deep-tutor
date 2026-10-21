@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // RiskLevel classifies how dangerous an action is. The install-capability skill

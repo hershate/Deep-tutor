@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/bootstrap"
 )
 
 // Probe reads what a first connect to host would depend on. Like Browse it

@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/providerbroker"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/providerbroker"
 )
 
 func brokerFlagsFor(t *testing.T, args ...string) brokerFlags {

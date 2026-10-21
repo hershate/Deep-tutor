@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"reasonix/internal/safety/endpointclient"
+	"deep-tutor/internal/safety/endpointclient"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 // checkDecisionProvider verifies an entry whose protocol answers decisions. Such

@@ -23,11 +23,11 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
 )
 
 // UIHandler is the sidecar package's Extension → Host UI call surface,

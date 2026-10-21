@@ -1,13 +1,13 @@
 package event
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/base/nilutil"
+	"deep-tutor/internal/base/nilutil"
 )
 
 // coalesceMaxBytes bounds a merged delta so one event never carries an

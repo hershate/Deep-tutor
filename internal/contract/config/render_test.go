@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func isolateUserConfigHome(t *testing.T) string {

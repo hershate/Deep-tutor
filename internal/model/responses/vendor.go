@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // vendorCapabilities describes how a Responses-compatible endpoint deviates

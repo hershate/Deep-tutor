@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestRuntimeForbidReadRootsCoverServeLaunchTokens(t *testing.T) {

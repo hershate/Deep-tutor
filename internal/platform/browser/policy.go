@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // checkURL decides whether a page may be loaded. http and https go anywhere

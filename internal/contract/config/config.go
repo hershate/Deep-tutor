@@ -15,8 +15,8 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Config is Reasonix's runtime configuration.

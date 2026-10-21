@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // promoteArtifactName is the tool's registry identity, kept from Deep Tutor so

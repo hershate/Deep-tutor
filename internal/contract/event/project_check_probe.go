@@ -1,7 +1,7 @@
 // project_check_probe.go — the two project-check derivations, compared.
 package event
 
-import "reasonix/internal/base/nilutil"
+import "deep-tutor/internal/base/nilutil"
 
 // Divergence classes. Each names the one explanation that accounts for a
 // disagreement, in the order they are tried: an earlier class rules out the

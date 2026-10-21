@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 // Deleting a queued line has two answers a frontend has to tell apart: it is

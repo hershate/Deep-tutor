@@ -10,7 +10,7 @@ import (
 	"unicode/utf16"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // Detect

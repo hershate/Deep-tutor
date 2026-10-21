@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
 )
 
 const updateTransactionVersion = 1

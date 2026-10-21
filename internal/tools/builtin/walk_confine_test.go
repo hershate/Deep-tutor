@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A walk's shortcut must never answer differently from confineRead: every

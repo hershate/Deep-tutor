@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/tools/builtin"
 )
 
 const (

@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/isolation"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/isolation"
+	"deep-tutor/internal/session/control"
 )
 
 // isolationPosture is the session's approval posture, read each time an

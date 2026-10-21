@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestRevisionParseRefusalMasksCredentials(t *testing.T) {

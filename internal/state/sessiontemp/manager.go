@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 )
 
 const (

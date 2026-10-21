@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/model/providerbroker"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/bootstrap"
-	"reasonix/internal/platform/remote/forward"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/model/providerbroker"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/forward"
 )
 
 // publishBroker publishes this process's provider broker on the host's

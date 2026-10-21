@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"net"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
 )
 
 type Options struct {

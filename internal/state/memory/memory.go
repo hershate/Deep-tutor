@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/state/instruction"
 )
 
 // Set is everything memory loaded for one session: the hierarchical docs and a

@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/tools/shellrun"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/tools/shellrun"
 )
 
 // CodeMCPToolDisabled identifies a call refused by an explicit disabled_tools

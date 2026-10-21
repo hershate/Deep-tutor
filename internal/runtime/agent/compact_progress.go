@@ -12,8 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 const (

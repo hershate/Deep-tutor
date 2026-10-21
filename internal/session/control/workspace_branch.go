@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/workspacelease"
 
-	"reasonix/internal/platform/gitstatus"
+	"deep-tutor/internal/platform/gitstatus"
 )
 
 var (

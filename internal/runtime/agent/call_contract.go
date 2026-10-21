@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/runtime/usecap"
 	"strings"
 	"unicode/utf8"
 )

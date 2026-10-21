@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func TestDefaultApprovalModeNeedsConfinementAndTrust(t *testing.T) {

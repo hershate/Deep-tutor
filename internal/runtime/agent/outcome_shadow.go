@@ -2,10 +2,10 @@ package agent
 
 import (
 	"fmt"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // stallNoticeAge is when a check that will not move becomes worth saying out

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -27,7 +27,7 @@ func TestCapturePanicWritesBoundedSanitizedReport(t *testing.T) {
 	secret := "private prompt contents"
 	apiKey := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
 	stack := "goroutine 7 [running]:\n" +
-		"reasonix/internal/runtime/agent.run(" + secret + ")\n" +
+		"deep-tutor/internal/runtime/agent.run(" + secret + ")\n" +
 		"\t/Users/alice/private-project/internal/runtime/agent/run.go:42 +0x123\n" +
 		"Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234567890\n" +
 		"api_key=" + apiKey
@@ -43,10 +43,10 @@ func TestCapturePanicWritesBoundedSanitizedReport(t *testing.T) {
 	if report.Kind != "crash" || report.Source != "cli.go" || report.Label != "panic" || report.SchemaVersion != 2 {
 		t.Fatalf("report metadata = %+v", report)
 	}
-	if !strings.Contains(report.Stack, "reasonix/internal/runtime/agent.run(...)") || !strings.Contains(report.Stack, "<path>/run.go:42") {
+	if !strings.Contains(report.Stack, "deep-tutor/internal/runtime/agent.run(...)") || !strings.Contains(report.Stack, "<path>/run.go:42") {
 		t.Fatalf("sanitized stack = %q", report.Stack)
 	}
-	if report.TopFrame != "reasonix/internal/runtime/agent.run <path>/run.go:42" {
+	if report.TopFrame != "deep-tutor/internal/runtime/agent.run <path>/run.go:42" {
 		t.Fatalf("top frame = %q", report.TopFrame)
 	}
 	preview, err := Preview(report)

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/memory"
 )
 
 func TestResolveRefsInjectsOnlyNewNestedInstructionsOnce(t *testing.T) {

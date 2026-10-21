@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // ErrRewindCoverageConfirmationRequired is returned by the compatibility

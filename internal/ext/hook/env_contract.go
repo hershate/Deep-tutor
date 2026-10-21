@@ -11,7 +11,7 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // reasonixEnvPrefix is the namespace Reasonix defines. A reference inside it

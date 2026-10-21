@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/installsource"
 )
 
 const marketplaceSource = "https://github.com/acme/market/tree/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

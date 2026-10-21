@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/platform/feedback"
 )
 
 const feedbackCommandTimeout = 90 * time.Second

@@ -3,8 +3,8 @@ package boot
 import (
 	"slices"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // addTutorPromote registers promote_artifact when both a tutor store

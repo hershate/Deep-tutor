@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/frontend/serve"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/frontend/serve"
 )
 
 // launchWorkspace is the folder the first pane opens. The working directory

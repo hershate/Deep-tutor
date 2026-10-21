@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // compactionProgress is how compaction is faring in this session: whether a

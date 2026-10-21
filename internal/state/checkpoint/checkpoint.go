@@ -26,9 +26,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/fileutil"
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/fileutil"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // FileSnap is one file's state at the moment it was first touched in a turn.

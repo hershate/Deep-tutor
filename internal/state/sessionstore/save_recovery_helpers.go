@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // writeRecoveryBranchAtPath persists one bounded recovery lane. collision is

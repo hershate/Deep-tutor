@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 const storeMark = "SCHEDULE-STORE-BODY"

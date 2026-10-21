@@ -11,11 +11,11 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/gitstatus"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitstatus"
+	"deep-tutor/internal/session/control"
 )
 
 // The panel behind this endpoint used to infer pending changes from tool events,

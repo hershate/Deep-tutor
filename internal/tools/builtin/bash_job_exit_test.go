@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/tools/jobs"
 )
 
 func TestJobExitTypesAProcessExitCode(t *testing.T) {

@@ -3,9 +3,9 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginspec"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginspec"
 )
 
 // mcpSpecPlan is what a build resolves about MCP servers before any process is

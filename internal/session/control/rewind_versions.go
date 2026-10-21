@@ -3,8 +3,8 @@ package control
 import (
 	"log/slog"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // keepSupersededVersion saves the conversation a rewind is about to cut, so the

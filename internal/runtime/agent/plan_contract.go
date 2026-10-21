@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // SetPlanContract records the approved plan this turn executes, or clears it

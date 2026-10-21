@@ -1,6 +1,6 @@
 package evidence
 
-import "reasonix/internal/contract/hostaudit"
+import "deep-tutor/internal/contract/hostaudit"
 
 // ClassifyEvidenceOrigin scores one run against the text its parent wrote.
 // Discovery is judged against named files only: a child sent to a directory

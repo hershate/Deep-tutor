@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 func TestRebuildReusesSessionTempManager(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/feedback"
 )
 
 func TestEffectFeedbackSubmitRecoversFromTransientResponse(t *testing.T) {

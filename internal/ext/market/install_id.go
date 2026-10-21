@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 var installIDShape = regexp.MustCompile(`^[0-9a-f]{32}$`)

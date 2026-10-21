@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // samplingRequest is a once-prepared, frozen provider request for one model

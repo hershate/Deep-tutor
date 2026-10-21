@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/serve"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/serve"
 )
 
 func TestAssembledTrayLanguage(t *testing.T) {

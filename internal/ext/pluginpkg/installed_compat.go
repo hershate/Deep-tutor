@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 func migratedWarning(name string) string {

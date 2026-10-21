@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // renameProvider sets the display name of every entry the panel shows as one

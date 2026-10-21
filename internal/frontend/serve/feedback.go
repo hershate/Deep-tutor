@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/platform/feedback"
 )
 
 // uploadCeiling bounds one submit body: the image cap in base64 plus the text.

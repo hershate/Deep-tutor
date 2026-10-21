@@ -9,7 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // storageSection is the [storage] table: root id to directory. A map rather

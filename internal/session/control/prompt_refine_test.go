@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // What a draft can refer to is what the person and the model said; tool

@@ -4,7 +4,7 @@ import (
 	"maps"
 	"slices"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 // Redact replaces a value whose key or content looks like a credential. It is

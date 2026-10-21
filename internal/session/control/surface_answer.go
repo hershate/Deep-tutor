@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 func (a *approvalManager) resolveAskAnswer(id string, answers []event.AskAnswer) (pendingAsk, error) {

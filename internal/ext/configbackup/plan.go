@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Item status against this machine.

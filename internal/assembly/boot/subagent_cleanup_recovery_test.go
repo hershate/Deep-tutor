@@ -3,11 +3,11 @@ package boot
 import (
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/delegation"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/delegation"
 )
 
 func prepareRunningSubagent(t *testing.T, sessionDir string) string {

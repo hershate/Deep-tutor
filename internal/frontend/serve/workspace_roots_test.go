@@ -6,15 +6,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func TestWorkspaceRootsRoutesAddRebuildAndRemove(t *testing.T) {

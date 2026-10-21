@@ -3,7 +3,7 @@ package delegation
 import (
 	"testing"
 
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/writeclaim"
 )
 
 func TestWhichWriterChildObservesTheWorkspace(t *testing.T) {

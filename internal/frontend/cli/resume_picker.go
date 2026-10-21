@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 
 	"github.com/charmbracelet/x/ansi"
 )

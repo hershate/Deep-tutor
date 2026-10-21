@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/runtime/capability"
 )
 
 type capabilitySearchHit struct {

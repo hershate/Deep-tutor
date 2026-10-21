@@ -2,7 +2,7 @@ package installsource
 
 import (
 	"errors"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 	"testing"
 )
 

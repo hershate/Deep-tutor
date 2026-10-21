@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // Host payload DTOs: one struct per intercept point. These are the host-side

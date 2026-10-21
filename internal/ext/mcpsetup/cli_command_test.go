@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestParseCopiedMCPAddUsesCLISyntax(t *testing.T) {

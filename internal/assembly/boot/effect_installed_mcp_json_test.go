@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/installsource"
 )
 
 func TestEffectInstalledStandaloneMCPJSONToolCanBeCalled(t *testing.T) {

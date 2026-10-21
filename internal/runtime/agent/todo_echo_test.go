@@ -2,15 +2,15 @@ package agent
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent/testutil"
 
-	_ "reasonix/internal/tools/builtin"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // planCards counts the todo_write cards a frontend would draw for this run,

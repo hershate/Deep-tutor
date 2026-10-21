@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // MCPTool is one tool a server offers.

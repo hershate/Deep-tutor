@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 )
 
 // userEditMu serializes in-process read-modify-write cycles. The public lock

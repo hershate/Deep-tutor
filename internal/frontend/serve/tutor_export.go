@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 func (s *Server) tutorPlanExport(w http.ResponseWriter, r *http.Request) {

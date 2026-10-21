@@ -23,7 +23,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 //go:embed login.html

@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // modelEffortView is one model's effort vocabulary and its default.

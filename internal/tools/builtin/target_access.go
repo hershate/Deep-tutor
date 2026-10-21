@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"syscall"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/tool"
 )
 
 // CodeReadForbidden identifies a target denied by the workspace read policy.

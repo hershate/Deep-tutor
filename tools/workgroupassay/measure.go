@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/workgroup"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/workgroup"
 )
 
 // assay is the five numbers the protocol asks for plus the two breakdowns that

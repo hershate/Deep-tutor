@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestSessionListingBackfillDoesNotOverwriteNewerCounts(t *testing.T) {

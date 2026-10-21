@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 // resolveTriage builds the model that answers host classifications the static

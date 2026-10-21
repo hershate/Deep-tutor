@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/schedrun"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/schedrun"
+	"deep-tutor/internal/state/schedule"
 )
 
 const (

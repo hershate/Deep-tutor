@@ -8,15 +8,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // RedactSessionsOptions controls historical session-log redaction.

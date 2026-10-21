@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // Client is the subset of sidecar.Client the dispatcher needs, abstracted for

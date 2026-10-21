@@ -7,9 +7,9 @@ import (
 	"maps"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 // Activator binds live resources (MCP sidecars, watchers) to a freshly

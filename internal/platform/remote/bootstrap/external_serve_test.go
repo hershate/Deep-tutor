@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
 )
 
 type published struct {

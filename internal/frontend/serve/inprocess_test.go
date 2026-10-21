@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func clientPostJSON(t *testing.T, c *http.Client, url, body string) *http.Response {

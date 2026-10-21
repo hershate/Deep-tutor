@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/boundedllm"
-	"reasonix/internal/platform/worktree"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/boundedllm"
+	"deep-tutor/internal/platform/worktree"
 )
 
 // JudgeSpec is the model that compares finished attempts.

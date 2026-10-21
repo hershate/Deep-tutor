@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 // SessionRemovalGuard holds a session's save lock and lease lock for the

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 func deleteInterpreter(call shellparse.DeleteCall, sh sandbox.Shell) (string, sandbox.Shell, bool) {

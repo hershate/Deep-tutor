@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // RemoteEndpoint is a `reasonix serve` on another machine, already reachable at

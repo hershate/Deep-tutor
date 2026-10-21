@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 // ollamaLike answers the way a local Ollama does: chat lives only under /v1,

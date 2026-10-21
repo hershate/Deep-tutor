@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // ErrDisplayCurrencyRetired refuses a save from a replaced or closed controller.

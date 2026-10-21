@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
 )
 
 type capabilitySink struct {

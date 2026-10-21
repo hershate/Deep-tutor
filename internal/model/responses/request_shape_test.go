@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 const gatewayBody = `{"error":{"message":"Invalid JSON data: input: data did not match any variant of untagged enum ResponseInput at line 1 column 827355","code":"json_parse_error"}}`

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // mcpManager owns the session's live tool/plugin surface: the MCP plugin Host

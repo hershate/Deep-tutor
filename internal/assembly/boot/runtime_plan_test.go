@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 func TestAttachPlanAndStatusObservesActualPrefixHash(t *testing.T) {

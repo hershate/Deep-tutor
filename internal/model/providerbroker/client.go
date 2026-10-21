@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // catalogTTL bounds how stale a remote session's model list may be. The list

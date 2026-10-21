@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 type redirectTransport struct{ target *url.URL }

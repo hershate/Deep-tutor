@@ -15,9 +15,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/ext/mcplaunch"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/ext/mcplaunch"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 type launcherLocator struct {

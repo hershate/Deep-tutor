@@ -1,7 +1,7 @@
 package event
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"reflect"
 	"testing"
 	"time"

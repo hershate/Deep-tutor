@@ -3,9 +3,9 @@ package boot
 import (
 	"fmt"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/mcpsetup"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/mcpsetup"
 )
 
 // reportProjectMCPAwaitingApproval says, once per build, which project servers

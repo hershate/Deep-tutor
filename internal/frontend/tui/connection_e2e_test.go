@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/frontend/serve"
-	"reasonix/internal/frontend/tui"
-	"reasonix/internal/state/history"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/frontend/serve"
+	"deep-tutor/internal/frontend/tui"
+	"deep-tutor/internal/state/history"
 )
 
 const setupKeyEnv = "REASONIX_TUI_SETUP_E2E_KEY"

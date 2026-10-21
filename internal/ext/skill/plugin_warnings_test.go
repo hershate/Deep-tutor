@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/pluginpkg"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestPluginWarningsUseProfileDeliveryRules(t *testing.T) {

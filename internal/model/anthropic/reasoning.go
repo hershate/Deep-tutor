@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/model/openai"
 )
 
 // reasoningProtocolAnthropic is the config-declared name for Anthropic's own

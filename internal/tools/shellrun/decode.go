@@ -1,7 +1,7 @@
 package shellrun
 
 import (
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // decodeShellOutput reads a child's bytes as text. A Windows console tool

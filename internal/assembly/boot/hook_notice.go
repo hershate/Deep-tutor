@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/hook"
 )
 
 // hookNoticeEvent maps what a hook did onto the notice contract: a stable code

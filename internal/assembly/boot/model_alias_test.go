@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestModelAliasDoesNotChangeBuildIdentityOrWireModel(t *testing.T) {

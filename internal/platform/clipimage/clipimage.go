@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
 )
 
 // ErrNoImage means the clipboard holds nothing this package can read as an

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/skill"
 )
 
 func TestReasonixGuideBuiltinRegistered(t *testing.T) {

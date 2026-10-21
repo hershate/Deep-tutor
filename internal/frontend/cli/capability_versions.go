@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/state/trajectory"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/state/trajectory"
 )
 
 // capabilityVersions lists what a run could use, by content: the host build

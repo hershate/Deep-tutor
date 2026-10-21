@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/usagereport"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/usagereport"
 )
 
 // usageTally accumulates the session's billed tokens off the event stream. It

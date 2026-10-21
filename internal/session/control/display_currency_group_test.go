@@ -3,13 +3,13 @@ package control
 import (
 	"errors"
 	"os"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 	"reflect"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestDisplayCurrencyGroupRebindsFullSinksAndReplacement(t *testing.T) {

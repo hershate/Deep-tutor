@@ -17,14 +17,14 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/attach"
-	"reasonix/internal/platform/remote/bootstrap"
-	"reasonix/internal/platform/remote/forward"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/attach"
+	"deep-tutor/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/forward"
 )
 
 func newFlagSet(name string) *flag.FlagSet {

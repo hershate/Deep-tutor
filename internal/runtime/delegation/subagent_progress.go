@@ -2,13 +2,13 @@ package delegation
 
 import (
 	"context"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"slices"
 	"sync"
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // Sub-agent progress previews. A tracker per child run converts the child's

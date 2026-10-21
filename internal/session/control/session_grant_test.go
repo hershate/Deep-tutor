@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/safety/permission"
 )
 
 // A grant given on a prompt lives in memory and in nothing else, so a person

@@ -1,7 +1,7 @@
 // notice_meta.go — a warning notice as the message chunk ACP clients receive.
 package acp
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // warningUpdate is an agent_message_chunk that also names the notice it carries.
 type warningUpdate struct {

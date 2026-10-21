@@ -2,11 +2,11 @@ package agent
 
 import (
 	"encoding/json"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/plancontract"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/plancontract"
 )
 
 func scopedAgent(t *testing.T, plan *plancontract.Plan) *Agent {

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // deltas lists each platform's chunked update under deltaDir, laid out by

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // rangeServer serves body honouring Range, and lets a test decide per request

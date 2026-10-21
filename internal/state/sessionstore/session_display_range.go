@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // LoadSessionDisplayMessageRange decodes a bounded range through the display

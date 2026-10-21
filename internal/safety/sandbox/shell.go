@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
 )
 
 // psUTF8Prologue makes captured output UTF-8 rather than the console code page

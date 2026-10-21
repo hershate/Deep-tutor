@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // A key is external mutable state: an exhausted one gets replaced while the

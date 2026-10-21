@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // viActive reports whether the composer uses the vi command mode, enabled by

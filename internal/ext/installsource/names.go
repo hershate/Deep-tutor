@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // packageNameRe is a permissive character filter for npm name segments. It is

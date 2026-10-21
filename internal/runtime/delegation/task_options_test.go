@@ -1,14 +1,14 @@
 package delegation
 
 import (
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"reflect"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestNewTaskToolWithOptionsMatchesPositional(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // ResolveSystemPrompt returns the system prompt, reading system_prompt_file if set.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Session holds the conversation history for one task. The run loop (one turn at

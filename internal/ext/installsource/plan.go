@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode"
 
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/skill"
 )
 
 var githubAPIBaseURL = "https://api.github.com"

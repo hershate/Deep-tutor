@@ -1,7 +1,7 @@
 package delegation
 
 import (
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 )
 

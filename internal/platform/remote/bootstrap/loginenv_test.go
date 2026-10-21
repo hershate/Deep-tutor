@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 const testNonce = "n0nce"

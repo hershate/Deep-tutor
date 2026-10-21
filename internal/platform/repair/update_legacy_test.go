@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/installlayout"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/installlayout"
 )
 
 type supersededUpdateFixture struct {

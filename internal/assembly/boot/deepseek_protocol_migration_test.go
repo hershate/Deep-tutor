@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surface"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surface"
 )
 
 func TestBuildScopesMalformedConfigDeepSeekMigrationWarningToNonDesktopFrontends(t *testing.T) {

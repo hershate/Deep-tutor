@@ -3,8 +3,8 @@ package builtin
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/browser"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/browser"
 )
 
 func (webFetch) Provenance(args json.RawMessage) tool.Provenance {

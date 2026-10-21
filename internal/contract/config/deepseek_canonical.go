@@ -4,7 +4,7 @@ package config
 import (
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // canonicalizeOfficialDeepSeekSource folds deepseek-flash and deepseek-pro into

@@ -3,7 +3,7 @@ package openai
 import (
 	"net/http"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // setChatHeaders stamps the headers every streamed chat POST carries.

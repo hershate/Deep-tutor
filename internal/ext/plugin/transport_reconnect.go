@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // errTransportGone marks a connection that ended before the request was

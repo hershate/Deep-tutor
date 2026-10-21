@@ -3,7 +3,7 @@ package eventwire
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func TestURLAskWireDeclaresPersistencePolicyAndNormalizedTarget(t *testing.T) {

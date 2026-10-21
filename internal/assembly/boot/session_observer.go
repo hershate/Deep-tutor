@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/state/history"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/history"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 func newObservedSession(systemPrompt string) *sessionstore.Session {

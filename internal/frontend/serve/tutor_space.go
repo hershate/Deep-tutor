@@ -32,7 +32,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // tutorDefaultSpace is the space a request belongs to when no resolver is

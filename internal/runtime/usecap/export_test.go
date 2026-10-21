@@ -3,8 +3,8 @@ package usecap
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/capability"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/capability"
 )
 
 // These expose the proxy's own judgements to the external tests in this

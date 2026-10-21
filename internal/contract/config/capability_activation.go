@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/workspaceid"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/workspaceid"
 )
 
 // Install authorizes a capability; this file only records what is currently on

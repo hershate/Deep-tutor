@@ -1,6 +1,6 @@
 package event
 
-import "reasonix/internal/base/tokencount"
+import "deep-tutor/internal/base/tokencount"
 
 // ContextTokens estimates what this call left in the prompt — arguments plus
 // the result the model reads back, which every later turn pays for again. A

@@ -16,7 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // userConfigBody is what a save writes to the user config at resolved: the

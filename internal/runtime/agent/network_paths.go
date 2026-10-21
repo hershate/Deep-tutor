@@ -3,8 +3,8 @@ package agent
 import (
 	"fmt"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // networkScopeRoots are the roots the host-side path bookkeeping (snapshots,

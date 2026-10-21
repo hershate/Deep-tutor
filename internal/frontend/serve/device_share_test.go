@@ -12,7 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestPairingCodePairsOnce(t *testing.T) {

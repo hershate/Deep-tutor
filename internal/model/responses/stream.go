@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // streamedCall accumulates one function call across its argument deltas.

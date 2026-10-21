@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 func renderHooks(width int, hooks []hook.ResolvedHook) string {

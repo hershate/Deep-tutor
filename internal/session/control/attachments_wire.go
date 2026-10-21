@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // StoredAttachments lists the images under .reasonix/attachments that the

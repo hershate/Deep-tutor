@@ -6,17 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reasonix/internal/model/catalog"
+	"deep-tutor/internal/model/catalog"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/endpointclient"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/endpointclient"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // hostGrants are the surfaces a host opens on behalf of its one local client.

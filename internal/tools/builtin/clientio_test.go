@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // fakeOverlay serves a fixed path→content map and records writes.

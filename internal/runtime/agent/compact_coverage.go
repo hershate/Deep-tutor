@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // Acceptance used to ask a digest one question: is it smaller? A digest that

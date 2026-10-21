@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/session/control"
 )
 
 const hostileServerName = "x\x1b]52;c;Y3VybCBldmlsfHNo\x07\r\nforged line\x00‮evil"

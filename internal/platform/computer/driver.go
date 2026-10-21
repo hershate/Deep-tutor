@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 // Driver owns one private CUA MCP process. A lost request is never replayed.

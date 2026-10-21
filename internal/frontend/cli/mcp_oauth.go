@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/mcpdiag"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginspec"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/mcpdiag"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginspec"
 )
 
 var mcpAuthorizeForCLI = plugin.AuthorizeHTTPMCP

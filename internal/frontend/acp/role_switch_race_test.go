@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func TestACPBeginRefusesWhileStateChangeIsInFlight(t *testing.T) {

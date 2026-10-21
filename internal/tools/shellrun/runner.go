@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/contract/tool"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/contract/tool"
 )
 
 // DefaultWaitDelay mirrors the bash tool's child-process wait grace.

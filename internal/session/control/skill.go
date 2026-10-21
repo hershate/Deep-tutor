@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 // skillSet owns the session's discovered skills: the enabled subset surfaced to

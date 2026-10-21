@@ -11,16 +11,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reasonix/internal/model/catalog"
+	"deep-tutor/internal/model/catalog"
 	"runtime"
 	"slices"
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/endpointclient"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/endpointclient"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 type DiagnosticFinding struct {

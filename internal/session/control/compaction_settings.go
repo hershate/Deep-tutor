@@ -3,7 +3,7 @@ package control
 import (
 	"fmt"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // CompactionSettings is what the two configured bounds are and which of them

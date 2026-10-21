@@ -3,12 +3,12 @@ package cli
 import (
 	"io"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"sort"
 	"strings"
 	"time"
 
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/tools/jobs"
 )
 
 type machineTask struct {

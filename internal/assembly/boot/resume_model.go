@@ -3,8 +3,8 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // ModelForResume names the model a resumed session should run on: an explicit

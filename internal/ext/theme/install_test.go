@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func zipOf(t *testing.T, files map[string]string) []byte {

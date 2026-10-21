@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
 )
 
 // docState tracks what we last sent the server for a document, so ensureSynced

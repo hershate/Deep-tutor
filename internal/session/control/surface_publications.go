@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 type liveSurfacePublications struct {

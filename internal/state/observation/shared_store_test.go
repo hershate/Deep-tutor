@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 func TestTwoObserversShareStateDirectory(t *testing.T) {

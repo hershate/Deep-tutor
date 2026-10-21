@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskmonitor"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskmonitor"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func writeTestFile(t *testing.T, path, body string) {

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 const (

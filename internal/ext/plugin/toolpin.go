@@ -15,11 +15,11 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 const toolPinsVersion = 1

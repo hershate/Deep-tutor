@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // Store keeps snapshot tree nodes. trustedstate.Store satisfies it. Nodes are

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // autoRouteOrder is the order auto tries a machine in, and the only place that

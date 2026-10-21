@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/tool"
+import "deep-tutor/internal/contract/tool"
 
 // contextUsage memoises the projected prompt size. The estimate walks every
 // visible message, and status gauges redraw far more often than the view moves,

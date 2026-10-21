@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 const codePageLine = "FIND: 参数格式不正确\r\n"

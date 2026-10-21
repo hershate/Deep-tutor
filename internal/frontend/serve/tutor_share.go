@@ -4,7 +4,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 // The plan-share surface: an owner track (create/revoke/status/list) and a

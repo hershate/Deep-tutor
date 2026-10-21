@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // capabilityGateState is one user turn's gate memory, scoped to the same turn

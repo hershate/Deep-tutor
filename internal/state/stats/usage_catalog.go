@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/usagecatalog"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/usagecatalog"
 )
 
 type usageManager struct {

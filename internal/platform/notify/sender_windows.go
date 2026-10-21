@@ -7,7 +7,7 @@ import (
 
 	"git.sr.ht/~jackmordaunt/go-toast/v2"
 
-	"reasonix/internal/platform/appidentity"
+	"deep-tutor/internal/platform/appidentity"
 )
 
 // PlatformSender delivers notifications through the Windows Toast API.

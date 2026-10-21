@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	textdiff "reasonix/internal/base/diff"
-	"reasonix/internal/contract/config"
+	textdiff "deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/config"
 )
 
 const RepairPlanSchemaVersion = 1

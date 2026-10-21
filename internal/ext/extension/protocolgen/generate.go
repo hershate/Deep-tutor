@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 const (

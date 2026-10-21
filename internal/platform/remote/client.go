@@ -12,9 +12,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/platform/remote/forward"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/platform/remote/forward"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // Options configures a Client. Host, Auth, and HostKeys are required; the rest

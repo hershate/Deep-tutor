@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestDeclarativePackageInstallLifecycle(t *testing.T) {

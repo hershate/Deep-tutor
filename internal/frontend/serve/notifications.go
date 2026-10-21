@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/notify"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/notify"
 )
 
 // NotifyPrefs is what a window can be asked about the desktop notifications it

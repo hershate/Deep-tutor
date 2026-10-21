@@ -17,11 +17,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
-	provideropenai "reasonix/internal/model/openai"
-	"reasonix/internal/safety/endpointclient"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
+	provideropenai "deep-tutor/internal/model/openai"
+	"deep-tutor/internal/safety/endpointclient"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 const (

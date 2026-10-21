@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 var (

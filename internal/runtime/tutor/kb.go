@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // kb.go — the knowledge base, Deep-tutor's /kb surface: a document

@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestUnknownPersistedBudgetClassFallsBackToGoalClassification(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginspec"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginspec"
 )
 
 func lookPath(cmd string) (string, error) {

@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // usageAnchor ties one provider-reported prompt size to the visible view that
 // request carried. promptTokens stays zero until the usage arrives, so a request

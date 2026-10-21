@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // captureRewrittenCriteria files what a criterion said before this edit. It runs

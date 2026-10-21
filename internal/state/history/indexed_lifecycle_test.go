@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/historycatalog"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/historycatalog"
 )
 
 func TestIndexedCatalogManagerCloseFencesOpenAndAllowsRestart(t *testing.T) {

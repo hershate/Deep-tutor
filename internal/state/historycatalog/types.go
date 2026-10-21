@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/projectiondb"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/projectiondb"
 )
 
 const (

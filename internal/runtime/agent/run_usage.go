@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // estimateFailedAttemptUsage fills Estimated usage when a body attempt ends

@@ -13,11 +13,11 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/memory"
 )
 
 // denyPermissionApprover answers for a session nobody is watching: a headless

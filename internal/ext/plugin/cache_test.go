@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/mcplaunch"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/mcplaunch"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // redirectCache points config.CacheDir() at a fresh temp dir for the duration

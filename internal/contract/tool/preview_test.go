@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/base/diff"
+	"deep-tutor/internal/base/diff"
 )
 
 type fakeWriter struct {

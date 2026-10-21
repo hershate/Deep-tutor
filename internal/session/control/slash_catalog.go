@@ -3,13 +3,13 @@ package control
 import (
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/skill"
 )
 
 // SubmitSlashCommands is the built-in surface a frontend gets for free by

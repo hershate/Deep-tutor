@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func init() { tool.RegisterBuiltin(codeIndex{}) }

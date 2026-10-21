@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 )
 
 func TestClassifyRunCompletionNamesTheFailureClass(t *testing.T) {

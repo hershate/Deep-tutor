@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/platform/feedback"
 )
 
 const feedbackTimeLayout = "2006-01-02 15:04"

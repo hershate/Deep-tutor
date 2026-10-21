@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/state/sessionv4/v4fixture"
+	"deep-tutor/internal/state/sessionv4/v4fixture"
 )
 
 func roles(t Transcript) string {

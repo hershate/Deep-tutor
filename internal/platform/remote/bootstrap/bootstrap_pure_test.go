@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 func TestParseUname(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 func TestResolveShellWithNoticeReportsFallback(t *testing.T) {

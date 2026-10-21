@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 func TestHookRuntimeIssueIsActionableAndScoped(t *testing.T) {

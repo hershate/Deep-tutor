@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"time"
 )
 

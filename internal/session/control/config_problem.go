@@ -4,7 +4,7 @@ package control
 import (
 	"errors"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // ConfigProblem is what a settings surface shows in place of a save it cannot

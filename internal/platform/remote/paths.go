@@ -1,6 +1,6 @@
 package remote
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // defaultManagedKnownHosts is the Reasonix-managed known_hosts path. It is a
 // thin indirection over config so tests can leave HostKeyPolicy.ManagedPath

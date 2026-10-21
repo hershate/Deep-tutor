@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 // sessionEventLogProbe classifies whatever sits at the session's event-log

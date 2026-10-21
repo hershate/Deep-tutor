@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 // maxCompleteLine caps the line a client may ask about. The composer sends one

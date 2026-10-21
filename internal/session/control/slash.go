@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpsetup"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/state/migration"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpsetup"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/state/migration"
 )
 
 // SlashItem is one slash-completion suggestion. Insert is the token text placed

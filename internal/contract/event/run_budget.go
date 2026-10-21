@@ -1,6 +1,6 @@
 package event
 
-import "reasonix/internal/base/nilutil"
+import "deep-tutor/internal/base/nilutil"
 
 // RunBudgetTotals is one scope's accumulated spend: counts and money, never
 // content. Priced is false when no price table covered it, so a reader can

@@ -9,8 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // Schema 2 is the event log Reasonix 1.x writes from 1.38.2: an append-only

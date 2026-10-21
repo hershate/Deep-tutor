@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestFetchTextSizeBoundary(t *testing.T) {

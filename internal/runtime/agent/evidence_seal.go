@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/runtime/verdict"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/observation"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/runtime/verdict"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/observation"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // EvidenceSeal is where the root agent seals each turn's shadow evidence

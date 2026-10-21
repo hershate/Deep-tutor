@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	"reasonix/internal/base/frontmatter"
+	"deep-tutor/internal/base/frontmatter"
 )
 
 //go:embed reasonix-guide/SKILL.md

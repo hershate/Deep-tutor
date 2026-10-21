@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // versionsOf lists the versions kept for the controller's session.

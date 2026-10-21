@@ -1,6 +1,6 @@
 package observe
 
-import "reasonix/internal/contract/tool"
+import "deep-tutor/internal/contract/tool"
 
 // Admits reports whether a tool may be held by a run under this posture: it
 // says it is read-only and it declares a reach that only reads files or hands

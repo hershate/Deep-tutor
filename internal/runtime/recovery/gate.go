@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // ModeProvider reports the current tool-approval mode (ask|auto|yolo).

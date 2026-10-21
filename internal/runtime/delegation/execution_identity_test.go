@@ -1,7 +1,7 @@
 package delegation
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 )
 

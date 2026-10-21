@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/platform/wsl"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/platform/wsl"
 )
 
 func remoteWSLCLI(args []string) int {

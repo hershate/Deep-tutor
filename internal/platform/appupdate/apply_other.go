@@ -5,7 +5,7 @@ package appupdate
 import (
 	"context"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // applyDownloaded stages the release into the versioned layout and swaps. The

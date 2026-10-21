@@ -6,7 +6,7 @@ package plugin
 import (
 	"fmt"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // SetStatusSink installs where connection-state changes are announced. The Host

@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TextSink renders a turn's event stream to ANSI text on an io.Writer. It is

@@ -4,8 +4,8 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/skill"
 )
 
 // skillAssembly is the discovered skill surface for one build: the policy-gated

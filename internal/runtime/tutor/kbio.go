@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // kbio.go — KB bulk exits: the ZIP export (index manifest + originals/ +

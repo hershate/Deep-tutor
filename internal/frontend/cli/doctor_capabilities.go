@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/frontend/capdiag"
+	"deep-tutor/internal/frontend/capdiag"
 )
 
 func doctorCapabilitiesCommand(args []string) int {

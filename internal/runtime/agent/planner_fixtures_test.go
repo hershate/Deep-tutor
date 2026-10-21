@@ -4,7 +4,7 @@ import (
 	"context"
 	"slices"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // mockProvider replays preset chunks and records the last request it received.

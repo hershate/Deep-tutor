@@ -3,7 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // reportedStatus is the last record the terminal was sent.

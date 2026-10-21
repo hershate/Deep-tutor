@@ -2,14 +2,14 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent"
 )
 
 func TestIsNonTurnHTTPInput(t *testing.T) {

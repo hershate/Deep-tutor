@@ -3,7 +3,7 @@ package control
 import (
 	"context"
 
-	"reasonix/internal/platform/feedback"
+	"deep-tutor/internal/platform/feedback"
 )
 
 // Feedback covers sending the maintainers a report and following what becomes

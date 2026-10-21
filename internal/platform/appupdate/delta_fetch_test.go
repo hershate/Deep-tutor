@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/delta"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/delta"
+	"deep-tutor/internal/platform/update"
 )
 
 func fastBackoff(t *testing.T) {

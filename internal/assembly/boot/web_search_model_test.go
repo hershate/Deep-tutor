@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
 )
 
 // NewWebSearchModel is the one construction both the registry's web_search

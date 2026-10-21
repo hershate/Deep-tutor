@@ -1,10 +1,10 @@
 package coordinator
 
 import (
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // rollbackPlannerTurn restores the snapshot unless compaction rewrote it.

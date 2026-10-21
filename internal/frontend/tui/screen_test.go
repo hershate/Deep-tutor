@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 func fillTranscript(m *model, n int) {

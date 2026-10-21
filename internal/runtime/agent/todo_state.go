@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // SeedTodoState initializes the canonical task list from a host-generated

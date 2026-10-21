@@ -3,14 +3,14 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // A digest carries what the fold changed and what failed; everything else

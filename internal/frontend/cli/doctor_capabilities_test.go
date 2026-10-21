@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/frontend/capdiag"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/frontend/capdiag"
 )
 
 func TestDoctorCapabilitiesStaticJSON(t *testing.T) {

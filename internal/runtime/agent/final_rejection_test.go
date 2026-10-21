@@ -1,14 +1,14 @@
 package agent
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/contract"
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/contract"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func rejectionAgent(t *testing.T, plan *plancontract.Plan) *Agent {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 func TestSteerIntoAPausedQueueAnswersHeldNotRefused(t *testing.T) {

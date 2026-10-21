@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/remote"
+	"deep-tutor/internal/platform/remote"
 )
 
 func TestEnsureServeKeepsAnAdoptedServeWhenItsTokenIsUnavailable(t *testing.T) {

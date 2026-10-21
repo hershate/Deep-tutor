@@ -13,9 +13,9 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
 )
 
 func init() { tool.RegisterBuiltin(globTool{}) }

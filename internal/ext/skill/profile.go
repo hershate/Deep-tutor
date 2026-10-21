@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
 )
 
 var reservedSubagentSlashNames = map[string]bool{

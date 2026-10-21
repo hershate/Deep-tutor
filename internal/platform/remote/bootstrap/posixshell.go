@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // posixShell speaks to Linux and macOS remotes. The commands themselves stay

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
 )
 
 type capturedSink struct {

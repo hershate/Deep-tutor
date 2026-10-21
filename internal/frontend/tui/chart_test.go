@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const tuiSpec = `{"spec_version":1,"title":"Sales","data":{"columns":[{"name":"month","type":"string"},{"name":"revenue","type":"number"}],"rows":[["Jan",10],["Feb",null],["Mar",1234.5]]},"marks":[{"type":"bar","x":"month","y":["revenue"]}]}`

@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
 )
 
 // Phase is where a move got to. The order is the guarantee: everything before

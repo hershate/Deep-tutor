@@ -11,9 +11,9 @@ import (
 	"slices"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
-	"reasonix/internal/contract/config"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
+	"deep-tutor/internal/contract/config"
 )
 
 const (

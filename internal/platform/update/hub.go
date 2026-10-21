@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
 )
 
 // StudioCatalog is Studio's own rollback catalog, published by

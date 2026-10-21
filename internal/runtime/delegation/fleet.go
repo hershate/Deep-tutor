@@ -7,17 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/tools/jobs"
 )
 
 const (

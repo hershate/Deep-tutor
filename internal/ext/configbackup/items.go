@@ -10,10 +10,10 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // The payload of each kind. Config-owned kinds carry TOML under the config

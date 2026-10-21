@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/session/control"
 )
 
 func branchAtCode(t *testing.T, rec *httptest.ResponseRecorder) string {

@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // applyShellShapeGates holds the deterministic command-shape contract: shapes a

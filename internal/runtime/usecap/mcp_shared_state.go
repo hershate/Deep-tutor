@@ -3,7 +3,7 @@ package usecap
 import (
 	"strings"
 
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // The live-connection view every frontend on one session observes. It is

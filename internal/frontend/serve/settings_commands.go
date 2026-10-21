@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
 )
 
 // interceptSlash answers the typed verbs that rebuild the runtime, which only

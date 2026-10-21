@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"os"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/state/store"
 )
 
 // PathFor returns the recovery state sidecar for a main session path.

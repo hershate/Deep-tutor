@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"strings"
 
-	"reasonix/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/releaseasset"
 )
 
 // FetchCommand builds the `sh -c` script that has the remote download its own

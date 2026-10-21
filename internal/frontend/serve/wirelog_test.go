@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/store"
 )
 
 // Reconnecting rebuilds the trajectory pane from this log, so every frame the

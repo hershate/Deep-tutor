@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/runtime/isolation"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/runtime/isolation"
 )
 
 func schemaOffersIsolation(t *testing.T, tt *TaskTool) bool {

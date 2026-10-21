@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/provider"
+import "deep-tutor/internal/contract/provider"
 
 // splittable reports whether a turn's calls can be told apart by id. Without
 // distinct ids a result cannot be matched to its call, so the turn stays whole.

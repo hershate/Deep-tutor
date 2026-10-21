@@ -3,11 +3,11 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/execjournal"
 )
 
 type turnIdentityContextKey struct{}

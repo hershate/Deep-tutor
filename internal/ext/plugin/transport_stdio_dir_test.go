@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/mcplaunch"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/mcplaunch"
 )
 
 // TestNewStdioTransportDirExplicit verifies that explicit Spec.Dir takes

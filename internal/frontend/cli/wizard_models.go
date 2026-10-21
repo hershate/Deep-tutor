@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/model/catalog"
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/model/catalog"
+	"deep-tutor/internal/model/openai"
 )
 
 // fetchOrFallback lists the entry's live models, and on any failure — no

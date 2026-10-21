@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ErrFileChangedSinceSeen marks a write_file refused because the file no longer

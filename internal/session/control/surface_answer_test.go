@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/safety/permission"
 )
 
 func TestSurfaceAnswerRefusalKeepsPendingPrompt(t *testing.T) {

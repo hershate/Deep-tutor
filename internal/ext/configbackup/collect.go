@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/state/instruction"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/state/instruction"
 )
 
 // maxFileBytes bounds one skill or memory file. A backup is configuration,

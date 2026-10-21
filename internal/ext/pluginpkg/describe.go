@@ -3,7 +3,7 @@ package pluginpkg
 import (
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 	"slices"
 	"strings"
 )

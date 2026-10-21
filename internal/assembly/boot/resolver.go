@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/providerext"
-	"reasonix/internal/ext/extension/sidecar"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/providerext"
+	"deep-tutor/internal/ext/extension/sidecar"
 )
 
 // LocalProviderResolver preserves the historical config-backed provider path.

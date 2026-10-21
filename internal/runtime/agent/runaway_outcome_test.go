@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 type scriptedTool struct {

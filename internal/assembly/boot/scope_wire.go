@@ -3,10 +3,10 @@ package boot
 import (
 	"context"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/platform/lsp"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/platform/lsp"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 // wireRuntimeScopeCleanup folds MCP host / LSP / session-temp inventory into

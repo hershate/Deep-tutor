@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // TestRemoveAndUnlockDeletesViaDispositionNotFallback pins the Windows delete

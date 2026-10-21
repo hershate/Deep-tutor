@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/state/memory"
 )
 
 const memoryCommandUsage = "usage: /memory [recall|subjects|pin <id-or-name>|unpin <id-or-name>|verify <id-or-name>|revisions <id-or-name>|restore <id-or-name> <revision>|archived|recover <archive-path>|instructions]"

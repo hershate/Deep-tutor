@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/runtime/tutor"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/runtime/tutor"
 )
 
 func (s *Server) registerTutorDataRoutes(mux *http.ServeMux) {

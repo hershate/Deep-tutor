@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"reasonix/internal/base/externalurl"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/externalurl"
+	"deep-tutor/internal/contract/tool"
 )
 
 func elicitURL(ctx context.Context, e tool.Elicitor, server string, params json.RawMessage) (map[string]any, error) {

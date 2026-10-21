@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"strings"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/store"
 )
 
 // Oversize tool output goes to a file; the context keeps a pointer. A head+tail

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/ext/market"
+	"deep-tutor/internal/ext/market"
 )
 
 type fakeRegistry struct {

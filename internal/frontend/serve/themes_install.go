@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/ext/theme"
 )
 
 // A pack is a manifest and two images of at most 8 MiB each, carried as

@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/state/schedule"
 )
 
 const (

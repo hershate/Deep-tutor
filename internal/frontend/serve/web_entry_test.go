@@ -7,8 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 func TestServeIndexPageAndSessionDeepLink(t *testing.T) {

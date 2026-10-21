@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"sync"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Turn describes one expected Stream call: the text, optional reasoning,

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/tools/productdocs"
+	"deep-tutor/internal/tools/productdocs"
 )
 
 // docsManifestCommand is an intentionally undocumented release/diagnostic

@@ -4,10 +4,10 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	_ "reasonix/internal/model/anthropic"
-	_ "reasonix/internal/model/openai"
-	_ "reasonix/internal/model/responses"
+	"deep-tutor/internal/contract/provider"
+	_ "deep-tutor/internal/model/anthropic"
+	_ "deep-tutor/internal/model/openai"
+	_ "deep-tutor/internal/model/responses"
 )
 
 // The catalog is what every frontend offers and the registry is what the kernel

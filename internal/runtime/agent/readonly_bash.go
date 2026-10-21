@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/permission"
 )
 
 type readOnlyBash struct {

@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
 )
 
 func (a *Agent) previewForApproval(ctx context.Context, plan *toolCallPlan) {

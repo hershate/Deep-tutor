@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // The shape a real config lands in: an OpenAI "deepseek" entry the user added,

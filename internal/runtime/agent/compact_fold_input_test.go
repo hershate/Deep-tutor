@@ -3,13 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // countingProvider records every summarizer call so tests can assert that a

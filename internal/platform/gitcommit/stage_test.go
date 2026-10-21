@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/gitstatus"
+	"deep-tutor/internal/platform/gitstatus"
 )
 
 func statusOf(t *testing.T, dir string) map[string]gitstatus.Change {

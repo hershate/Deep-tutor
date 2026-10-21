@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 type unsupportedMarketplaceObject struct {

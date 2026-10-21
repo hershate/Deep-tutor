@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"reasonix/internal/platform/repair"
+	"deep-tutor/internal/platform/repair"
 
-	"reasonix/internal/base/tempdir"
+	"deep-tutor/internal/base/tempdir"
 )
 
 // duplicateMacHandoffFD gives the in-process helper the same exclusive FD

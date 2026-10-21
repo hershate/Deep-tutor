@@ -3,7 +3,7 @@ package serve
 import (
 	"errors"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) publishController(previous control.SessionAPI, next *control.Controller) error {

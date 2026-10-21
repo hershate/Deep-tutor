@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 
-	"reasonix/internal/state/sessionv4"
+	"deep-tutor/internal/state/sessionv4"
 )
 
 // SkipReason is the typed class of a session an import could not bring over.

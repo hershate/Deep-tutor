@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // codeNoInstall answers a version route on a kernel nothing declared an install

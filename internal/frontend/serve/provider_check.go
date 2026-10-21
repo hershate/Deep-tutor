@@ -8,19 +8,19 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"reasonix/internal/model/catalog"
+	"deep-tutor/internal/model/catalog"
 	"regexp"
 	"strings"
 	"time"
 	"unicode"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/redirectguard"
-	"reasonix/internal/safety/typesafe"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/typesafe"
 )
 
 // providerCheck is what re-probing a saved provider found. Kind is the protocol

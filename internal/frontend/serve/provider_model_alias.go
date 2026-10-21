@@ -3,7 +3,7 @@ package serve
 import (
 	"errors"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func applyModelAliases(entry *config.ProviderEntry, sent *map[string]string) *editRefusal {

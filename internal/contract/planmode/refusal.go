@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 // Why is what the caller's own classifier established about a call it could not

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
 )
 
 // Refusal is one reason a move cannot proceed. Code is stable for the caller to

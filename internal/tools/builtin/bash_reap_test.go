@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // TestReapTreeKillsGroupStragglers covers #3702: a foreground command that

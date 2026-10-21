@@ -11,10 +11,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/platform/gitcommit"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/platform/gitcommit"
+	"deep-tutor/internal/session/control"
 )
 
 type commitEffectProvider struct {

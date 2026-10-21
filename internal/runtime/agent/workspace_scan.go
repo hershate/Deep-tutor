@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // scanReaders bounds live walk workers, including directory and metadata reads.

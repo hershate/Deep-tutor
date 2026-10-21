@@ -3,7 +3,7 @@ package event
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestEnsureCostQuoteDoesNotUseRuntimeFX(t *testing.T) {

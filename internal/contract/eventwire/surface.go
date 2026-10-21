@@ -2,8 +2,8 @@ package eventwire
 
 import (
 	"encoding/json"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/surfacespec"
 	"strings"
 )
 

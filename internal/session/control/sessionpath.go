@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // EnsureSessionPath pins a fresh auto-save file for this controller when none is

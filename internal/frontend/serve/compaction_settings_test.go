@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 func conflictCodeOf(t *testing.T, resp *http.Response) string {

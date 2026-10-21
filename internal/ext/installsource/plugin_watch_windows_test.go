@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func holdPluginDirectoryWatch(t *testing.T, dir string) {

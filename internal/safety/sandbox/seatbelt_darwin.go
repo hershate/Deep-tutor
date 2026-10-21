@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/hostwrite"
+	"deep-tutor/internal/base/hostwrite"
 )
 
 // Command returns the argv to run `command` through sh, wrapped in sandbox-exec

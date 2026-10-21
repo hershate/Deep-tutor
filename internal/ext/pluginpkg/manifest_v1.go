@@ -1,8 +1,8 @@
 package pluginpkg
 
 import (
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/ext/extensioncontract"
 	"regexp"
 
 	"bytes"

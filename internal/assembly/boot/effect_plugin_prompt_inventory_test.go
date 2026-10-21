@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/runtime/agent/testutil"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/runtime/agent/testutil"
 )
 
 func TestEffectDisplayedPluginPromptInvocationReachesProvider(t *testing.T) {

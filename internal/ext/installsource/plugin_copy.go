@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // siblingPublication is true where a directory held open by another process

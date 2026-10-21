@@ -3,7 +3,7 @@ package usagecatalog
 import (
 	"strings"
 
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 )
 
 // costViews are the currencies a cost is tallied in: "" is each row's billed

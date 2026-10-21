@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/ext/configbackup"
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/ext/configbackup"
+	"deep-tutor/internal/platform/account"
 )
 
 // One planner per process: the machine being restored is one machine, however

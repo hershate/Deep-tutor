@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 func TestWithSubagentSessionTempIsIndependent(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // A steered name missing from the provider schema cannot be called, so the whole

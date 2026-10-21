@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestExplainError(t *testing.T) {

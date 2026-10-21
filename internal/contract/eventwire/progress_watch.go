@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // ProgressWatch is the JSON form of event.ProgressWatch.
 type ProgressWatch struct {

@@ -2,16 +2,16 @@ package agent
 
 import (
 	"context"
-	"reasonix/internal/runtime/langpref"
+	"deep-tutor/internal/runtime/langpref"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // toolCallContext assembles the context one tool call runs under: the host

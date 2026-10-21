@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // MarkSessionViewed records that the person has seen the open session. The

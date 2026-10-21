@@ -5,16 +5,16 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/contract"
-	"reasonix/internal/runtime/goaleval"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/contract"
+	"deep-tutor/internal/runtime/goaleval"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // A goal accepts its contract in the process that starts it. The revision's

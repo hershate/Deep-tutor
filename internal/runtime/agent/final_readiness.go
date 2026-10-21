@@ -3,17 +3,17 @@ package agent
 import (
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"slices"
 	"strconv"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/runtime/taskpolicy"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/instruction"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/runtime/taskpolicy"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/instruction"
 )
 
 // Final readiness: whether a turn has earned the right to stop. It reads the

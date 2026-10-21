@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 const providerSetupMaxBody = 20 << 10

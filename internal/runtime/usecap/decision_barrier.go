@@ -2,7 +2,7 @@ package usecap
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 	"strings"
 )
 

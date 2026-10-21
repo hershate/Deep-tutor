@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 // ManifestAPIVersionV2 is the only native plugin manifest apiVersion Reasonix

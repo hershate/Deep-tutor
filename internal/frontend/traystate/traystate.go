@@ -8,7 +8,7 @@ package traystate
 import (
 	"sync"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // Mood is the one thing an icon says at a glance, ranked by what a person has

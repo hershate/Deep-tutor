@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/netclient"
+	"deep-tutor/internal/base/netclient"
 )
 
 func startCONNECTProxy(t *testing.T) string {

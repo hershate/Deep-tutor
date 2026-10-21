@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	_ "reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // updateContract rewrites the document instead of failing, for the round that

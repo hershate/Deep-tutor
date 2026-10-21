@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/memory"
 )
 
 // prefixProject builds a session in its own project and returns the system

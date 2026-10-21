@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/theme"
 )
 
 type themeInstallAction struct {

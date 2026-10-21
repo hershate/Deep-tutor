@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func TestDefaultSpawnerRunsQuotedPluginBatchHook(t *testing.T) {

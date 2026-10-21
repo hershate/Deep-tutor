@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 )
 

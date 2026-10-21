@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // TestLoadFollowsSymlinks verifies command discovery follows symlinked

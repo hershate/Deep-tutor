@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/installsource"
 )
 
 func TestMain(m *testing.M) {

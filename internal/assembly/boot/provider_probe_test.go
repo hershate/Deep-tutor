@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestProbeProviderConnectionUsesRequestLocalCredentialAndNoTools(t *testing.T) {

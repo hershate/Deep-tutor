@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/state/execjournal"
 )
 
 var base = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

@@ -1,9 +1,9 @@
 package boot
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
 )
 
 // memoryAssembly is the memory surface for one build: the live set the remember

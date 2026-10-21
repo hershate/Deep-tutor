@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/base/hostwrite"
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/hostwrite"
+	"deep-tutor/internal/base/secrets"
 )
 
 // WorkspaceRootRefusal says why a folder cannot be an extra workspace root.

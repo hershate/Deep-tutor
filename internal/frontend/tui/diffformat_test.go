@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // diffFormatHarness installs a stdin→stdout formatter (cat) and a re-render

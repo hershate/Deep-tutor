@@ -10,8 +10,8 @@ import (
 
 	"github.com/yuin/goldmark/ast"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // renderCodeRail draws a plain fenced code block on the code rail — the lossless

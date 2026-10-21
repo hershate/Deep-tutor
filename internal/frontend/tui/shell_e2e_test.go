@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/frontend/tui"
+	"deep-tutor/internal/frontend/tui"
 )
 
 // A `!` command typed here runs on this machine and stays here: the output is

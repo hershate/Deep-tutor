@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // screenText is what the full-screen transcript holds, as plain text.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // errCommandLineTooLong marks a launch the OS would refuse because the

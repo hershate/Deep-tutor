@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 // ComponentID is the stable identity of one lifecycle component (initially one

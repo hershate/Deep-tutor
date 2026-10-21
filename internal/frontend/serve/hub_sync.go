@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 func (h *Hub) treeChanged() {

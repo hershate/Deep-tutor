@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/usecap"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/usecap"
 	"testing"
 )
 

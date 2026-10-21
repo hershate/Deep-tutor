@@ -11,16 +11,16 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/store"
 )
 
 // SubagentSpec describes the current invocation identity.

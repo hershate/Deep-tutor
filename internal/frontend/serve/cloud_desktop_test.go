@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remotecloud"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remotecloud"
 )
 
 func TestCloudDesktopServesTheDeviceSafeStudioSurface(t *testing.T) {

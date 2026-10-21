@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func scanProfileSources(root *os.Root, dir string, depth int, seen *[]os.FileInfo, visit func(path, stem string, body []byte, depth int) bool) {

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 // A hook that cannot be evaluated is unknown, not passed. On a gating event

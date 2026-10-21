@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/platform/delta"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/platform/delta"
+	"deep-tutor/internal/platform/update"
 )
 
 const (

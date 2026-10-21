@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // lockProbeController wraps a real controller but intercepts the two blocking

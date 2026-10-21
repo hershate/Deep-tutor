@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 const maxAgentSourceBytes = 1 << 20

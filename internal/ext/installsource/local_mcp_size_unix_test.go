@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A path that is not a regular file would pass a size check made first.

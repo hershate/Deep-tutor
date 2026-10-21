@@ -2,19 +2,19 @@
 package agent
 
 import (
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/checkpoint"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/checkpoint"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 	"strings"
 )
 

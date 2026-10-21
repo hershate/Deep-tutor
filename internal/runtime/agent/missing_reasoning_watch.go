@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // missingReasoningWatch is this conversation's live view of one incident. Only

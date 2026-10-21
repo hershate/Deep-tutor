@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // readBounded reads one local manifest in a single pass capped at

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // Round trips through the wire DTOs must preserve every provider-visible

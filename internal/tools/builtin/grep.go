@@ -17,13 +17,13 @@ import (
 
 	"golang.org/x/text/transform"
 
-	"reasonix/internal/base/fileutil"
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/proc"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/fileutil"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/proc"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 const (

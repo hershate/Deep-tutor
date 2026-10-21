@@ -8,8 +8,8 @@ import (
 	"net"
 	"net/http"
 
-	"reasonix/internal/model/openai"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/model/openai"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // ProbeReason names why probing failed. Each one sends the user to a different

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // ManagedConfigPaths is the set of Reasonix-owned configuration FILES a file

@@ -4,7 +4,7 @@ package serve
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // keyEnvForNewSource decides which credential slot a new source writes. A blank

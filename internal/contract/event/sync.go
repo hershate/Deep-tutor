@@ -1,10 +1,10 @@
 package event
 
 import (
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"sync"
 
-	"reasonix/internal/base/nilutil"
+	"deep-tutor/internal/base/nilutil"
 )
 
 // Sync wraps a Sink so concurrent Emit calls are serialized. The base Sink

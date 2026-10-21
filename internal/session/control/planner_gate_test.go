@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 )
 
 func warrantsPlanner(t *testing.T, input string) bool {

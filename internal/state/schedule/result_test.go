@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/observe"
+	"deep-tutor/internal/contract/observe"
 )
 
 func claimedRun(t *testing.T) (*Store, *fakeClock, string, Run) {

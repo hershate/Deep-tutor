@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/plugin"
 )
 
 func TestWorkbenchReferenceTokenSpelling(t *testing.T) {

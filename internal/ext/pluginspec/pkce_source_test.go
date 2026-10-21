@@ -3,7 +3,7 @@ package pluginspec
 import (
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // Only a config the user keeps in their own home may relax the PKCE check. A

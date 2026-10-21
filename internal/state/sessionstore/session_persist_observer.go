@@ -3,7 +3,7 @@ package sessionstore
 import (
 	"os"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 // SessionPersistEvent is emitted only after the authoritative transcript,

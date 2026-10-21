@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/delegation"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/delegation"
 )
 
 // addDelegationTools registers every tool that spawns or reads a sub-agent.

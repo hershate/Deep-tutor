@@ -2,12 +2,12 @@ package serve
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // Broadcaster is the event.Sink the controller emits to in server mode: one

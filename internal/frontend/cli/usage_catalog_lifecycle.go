@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/history"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/history"
+	"deep-tutor/internal/state/stats"
 )
 
 // Process-level projections, closed at the process boundary rather than with a

@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
 
-	_ "reasonix/internal/model/responses"
+	_ "deep-tutor/internal/model/responses"
 )
 
 // captureReasoningRequest serves one streamed turn and records the request body.

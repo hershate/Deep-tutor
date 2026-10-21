@@ -7,9 +7,9 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/market"
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/market"
+	"deep-tutor/internal/platform/account"
 )
 
 // marketPublisher is swapped by tests; production always talks to the fixed host.

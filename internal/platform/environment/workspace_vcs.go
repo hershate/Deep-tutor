@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // WorkspaceVCS names the version control the workspace is under, or "" for

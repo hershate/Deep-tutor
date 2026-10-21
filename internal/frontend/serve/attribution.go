@@ -3,8 +3,8 @@ package serve
 import (
 	"net/http"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
 )
 
 // submitAs runs a submitted line as the one who sent it: a paired device's

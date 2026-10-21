@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/outputstyle"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/outputstyle"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // settingsNotice answers the settings verbs a terminal user types as bare

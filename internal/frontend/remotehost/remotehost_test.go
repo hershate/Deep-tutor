@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/platform/remote/bootstrap"
+	"deep-tutor/internal/platform/remote/bootstrap"
 )
 
 func TestServeOccupancyFailuresCarryTheirOwnCode(t *testing.T) {

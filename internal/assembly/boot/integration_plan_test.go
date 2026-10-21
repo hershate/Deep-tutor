@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 func TestDoctorRuntimeReport(t *testing.T) {

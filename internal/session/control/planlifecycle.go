@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/planmode"
+import "deep-tutor/internal/contract/planmode"
 
 // Where the controller reads and moves the plan lifecycle, and the one place
 // that projects it back into the legacy on/off flag the wire still carries.

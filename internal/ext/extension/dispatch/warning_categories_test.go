@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 func TestWarningCategoriesDoNotSuppressEachOther(t *testing.T) {

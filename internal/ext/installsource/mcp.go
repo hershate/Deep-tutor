@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
 )
 
 // maxMCPJSONServers caps the servers one .mcp.json may declare, as

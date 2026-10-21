@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/safety/permission"
 )
 
 // The folder is blamed only for a call trusting it would let through: an ask

@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 func unconfinedProbeSpec(t *testing.T, mode MCPProcessMode) Spec {

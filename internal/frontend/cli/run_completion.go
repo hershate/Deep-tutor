@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // reportRunFailure states why a run ended without a result. Text output — which

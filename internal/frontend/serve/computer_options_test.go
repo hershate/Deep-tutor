@@ -3,10 +3,10 @@ package serve
 import (
 	"testing"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/computer"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/computer"
+	"deep-tutor/internal/session/control"
 )
 
 func TestComputerDriverSurvivesRuntimeRebuildsWithoutAmbientAuthority(t *testing.T) {

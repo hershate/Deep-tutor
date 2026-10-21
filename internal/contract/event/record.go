@@ -1,8 +1,8 @@
 package event
 
 import (
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/hostaudit"
 )
 
 // Forwarding a turn's audit signals to sinks that opt into them. Each is a

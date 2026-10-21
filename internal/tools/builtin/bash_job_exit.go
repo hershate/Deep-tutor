@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"syscall"
 
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // jobExit types a background command's failure at the point that knows how the

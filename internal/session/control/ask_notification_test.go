@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/hook"
 )
 
 // A question blocks the run on the user exactly like an approval prompt, so it

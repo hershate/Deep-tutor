@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // sameFarPath reports whether two spellings name one directory. A temp dir is

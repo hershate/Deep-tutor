@@ -3,7 +3,7 @@ package builtin
 import (
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // pathWriters are the built-ins whose contract is writing the paths their own

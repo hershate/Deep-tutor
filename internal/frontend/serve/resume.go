@@ -14,12 +14,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/store"
 )
 
 // resume loads a previous session from a JSONL file.

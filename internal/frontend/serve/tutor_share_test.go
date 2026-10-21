@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/runtime/tutor"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/runtime/tutor"
+	"deep-tutor/internal/session/control"
 )
 
 func newShareTestServer(t *testing.T) (*httptest.Server, *tutor.Store) {

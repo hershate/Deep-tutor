@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // Change is one path git reports as differing from HEAD. Status is the

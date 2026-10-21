@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/crashreport"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/crashreport"
 )
 
 func isolateCLIReports(t *testing.T) string {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/skill"
 )
 
 const (

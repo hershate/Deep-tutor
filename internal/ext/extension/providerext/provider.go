@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/extension/providerconv"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/providerconv"
 )
 
 // Provider is the host-side handle for one extension-hosted provider ref.

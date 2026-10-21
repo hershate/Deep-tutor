@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/market"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/market"
 )
 
 func (s *Server) marketOwnPlan(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 func (c *Controller) NativeSurfaces() bool {

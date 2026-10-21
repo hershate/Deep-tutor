@@ -3,8 +3,8 @@ package historycatalog
 import (
 	"strings"
 
-	"reasonix/internal/base/retrieval"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/retrieval"
+	"deep-tutor/internal/contract/provider"
 )
 
 type indexedDocument struct {

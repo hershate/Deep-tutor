@@ -1,6 +1,6 @@
 package control
 
-import "reasonix/internal/contract/config"
+import "deep-tutor/internal/contract/config"
 
 // ChangedFilesSettings is whether Studio draws the changed-files count as a
 // pill above the composer. The user file holds it; the change list itself is

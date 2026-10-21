@@ -3,8 +3,8 @@ package pluginpkg
 import (
 	"errors"
 	"os"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
 	"testing"
 )
 

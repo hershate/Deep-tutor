@@ -3,7 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/runtime/agent"
 	"strings"
 )
 

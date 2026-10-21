@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func submitCompleteSubtask(t *testing.T, led *evidence.Ledger, args string) string {

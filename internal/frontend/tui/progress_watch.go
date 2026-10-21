@@ -3,8 +3,8 @@ package tui
 import (
 	"fmt"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // foldProgressWatch says a stall once, when it starts. The kernel reports it

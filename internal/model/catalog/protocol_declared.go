@@ -3,11 +3,11 @@
 package catalog
 
 import (
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"slices"
 	"strings"
 
-	"reasonix/internal/model/openai"
+	"deep-tutor/internal/model/openai"
 )
 
 // ProtocolsDeclaredBy reads the wires a model listing names for itself. A relay

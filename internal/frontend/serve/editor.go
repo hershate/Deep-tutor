@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/editor"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/editor"
 )
 
 // AllowLocalDesktop grants the routes that act on the kernel machine's desktop:

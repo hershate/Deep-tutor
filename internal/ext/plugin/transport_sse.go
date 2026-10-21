@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
 )
 
 // sseTransport implements MCP's legacy HTTP+SSE transport. The client keeps a

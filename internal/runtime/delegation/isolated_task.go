@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/isolation"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/isolation"
 )
 
 // isolationMode is the one value task's isolation argument takes.

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/filelock"
+	"deep-tutor/internal/base/filelock"
 )
 
 const activationLockName = ".reasonix-activate.lock"

@@ -8,13 +8,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"reflect"
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // SchemaVersion identifies the record layout; bump on breaking changes.

@@ -9,11 +9,11 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/tools/builtin"
 )
 
 type uncertainBoundWriter struct {

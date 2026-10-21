@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/extension/providerext"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/extension/providerext"
 )
 
 // resolveModelForCLI picks the chat model a CLI subcommand should boot on. A

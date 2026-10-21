@@ -3,7 +3,7 @@ package extension
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestWithLiveContributionsPreservesCacheHash(t *testing.T) {

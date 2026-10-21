@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
 )
 
 const legacyBackupFixture = "---\r\ndescription:    old file\r\nunknown_key: [keep, this]\r\nname: legacy-fact\r\nmetadata:\r\n  type: project\r\n  scope: project\r\n---\r\n\r\nlegacy body  \r\n"

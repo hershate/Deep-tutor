@@ -7,7 +7,7 @@ package memory
 import (
 	"strings"
 
-	"reasonix/internal/base/retrieval"
+	"deep-tutor/internal/base/retrieval"
 )
 
 // RecallIndex is the prebuilt retrieval state for one immutable Set snapshot.

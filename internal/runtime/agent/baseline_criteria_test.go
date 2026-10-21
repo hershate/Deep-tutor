@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/evidence"
 )
 
 const (

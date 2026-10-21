@@ -3,7 +3,7 @@ package extension
 import (
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func src(scope Scope, pluginID, origin string) ContributionSource {

@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/session/control"
 )
 
 type desktopRun struct {

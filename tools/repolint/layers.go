@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const modulePrefix = "reasonix/"
+const modulePrefix = "deep-tutor/"
 
 // Transport-agnostic control.Controller sits behind every frontend; nothing
 // below it may reach up. See REASONIX.md.

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpregistry"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpregistry"
+	"deep-tutor/internal/session/control"
 )
 
 func TestMCPParseKeepsRegistryPyPIPackageIdentity(t *testing.T) {

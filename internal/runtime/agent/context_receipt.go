@@ -5,11 +5,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 func (a *contextWindow) contextMaintenanceInputHash(visible []provider.Message) string {

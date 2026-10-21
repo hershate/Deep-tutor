@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/contract"
-	"reasonix/internal/runtime/verdict"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/contract"
+	"deep-tutor/internal/runtime/verdict"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // planCriterionGaps answers unproven plan criteria from the sealed verdict, not

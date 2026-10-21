@@ -50,7 +50,7 @@ because the updater it carries has to stay in the kernel's language.
 `desktop/` is its own Go module (`module reasonix/desktop`, `replace reasonix =>
 ../`). The parent module's `go build / vet / test ./...` skip this directory
 while the import path stays under `reasonix/`, so it can still import the
-`reasonix/internal/*` kernel. The module is CGO-free, so no platform carries
+`deep-tutor/internal/*` kernel. The module is CGO-free, so no platform carries
 build dependencies of its own.
 
 ## Prerequisites

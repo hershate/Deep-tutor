@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/model/visionimage"
 )
 
 // MaxImageAttachmentBytes caps a picture attachment; the desktop checks the same number before reading one.

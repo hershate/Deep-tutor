@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 // nulWatch notices a regular file named NUL that a Git Bash command created in

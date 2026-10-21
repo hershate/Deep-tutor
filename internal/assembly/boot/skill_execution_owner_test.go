@@ -3,20 +3,20 @@ package boot
 import (
 	"context"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/delegation"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/state/execjournal"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/delegation"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/execjournal"
 )
 
 // A subagent skill is one delegated execution, so what it leaves behind is what

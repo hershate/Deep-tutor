@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 	"strconv"
 	"sync"
 	"time"

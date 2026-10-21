@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/sessionv4/v4fixture"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionv4/v4fixture"
 )
 
 const legacyMessageLog = `{"role":"user","content":"hello from v0.x"}

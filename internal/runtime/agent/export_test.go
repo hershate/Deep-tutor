@@ -3,10 +3,10 @@ package agent
 import (
 	"encoding/json"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 // These expose the agent's own judgements to the external tests in this

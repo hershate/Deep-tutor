@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/frontmatter"
+	"deep-tutor/internal/base/frontmatter"
 )
 
 const (

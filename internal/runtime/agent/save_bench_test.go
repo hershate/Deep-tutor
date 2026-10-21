@@ -3,11 +3,11 @@ package agent
 import (
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // One more turn onto an already-saved session of n messages: the shape every

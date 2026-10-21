@@ -3,10 +3,10 @@ package mcpsetup
 import (
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/contract/config"
 )
 
 // LaunchLine is what starting e runs or contacts, for a person deciding on it:

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	controlPkgPath = "reasonix/internal/session/control"
+	controlPkgPath = "deep-tutor/internal/session/control"
 	controllerName = "Controller"
 	modulePath     = "reasonix"
 )

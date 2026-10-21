@@ -7,8 +7,8 @@ import (
 	"io"
 	"testing"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
 )
 
 func metaOf(t *testing.T, params any) map[string]any {

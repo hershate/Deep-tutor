@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestGlobalEffortDefaultIsResolvedForTheModelThatRuns(t *testing.T) {

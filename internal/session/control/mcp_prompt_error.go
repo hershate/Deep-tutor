@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 // ErrMCPPromptFetch marks a prompt the user invoked whose text could not be

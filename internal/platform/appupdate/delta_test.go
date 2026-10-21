@@ -11,9 +11,9 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/delta"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/delta"
+	"deep-tutor/internal/platform/update"
 )
 
 // A delta that cannot be proven is not applied: the install is left alone, no

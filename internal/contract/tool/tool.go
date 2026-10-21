@@ -14,8 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/contract/provider"
 )
 
 // Tool is a capability the model can invoke.

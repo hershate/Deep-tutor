@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 func TestEffectSurfacePublicationCanBeRecoveredThroughController(t *testing.T) {

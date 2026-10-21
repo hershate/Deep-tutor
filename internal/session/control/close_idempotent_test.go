@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/hook"
 )
 
 // TestCloseIsIdempotent guards the desktop tab-lifecycle contract: rebind,

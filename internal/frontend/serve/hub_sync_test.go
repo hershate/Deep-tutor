@@ -10,17 +10,17 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remotecloud"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remotecloud"
 )
 
 type treeReplay struct {

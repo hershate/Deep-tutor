@@ -9,7 +9,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 type dotEnvFile struct {

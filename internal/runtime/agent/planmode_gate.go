@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/permission"
 )
 
 // The planning phase's admission decisions. planmode owns the rule; this is

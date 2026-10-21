@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/secrets"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/secrets"
 )
 
 const ccSwitchDir = ".cc-switch"

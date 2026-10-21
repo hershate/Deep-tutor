@@ -3,8 +3,8 @@ package cli
 import (
 	"time"
 
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/memory"
 )
 
 func renderMemory(width int, set *memory.Set) string {

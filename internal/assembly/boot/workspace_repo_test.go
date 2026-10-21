@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // A session resolves its workspace's repository when it opens; a rebuild of

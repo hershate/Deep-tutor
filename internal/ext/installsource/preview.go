@@ -3,8 +3,8 @@ package installsource
 import (
 	"slices"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // Every string and list a plan shows the user passes through the projection

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/extension/protocol"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 func TestSDKNilToolsDoNotExceedManifest(t *testing.T) {

@@ -2,7 +2,7 @@ package serve
 
 import (
 	"net/http/httptest"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"testing"
 )
 

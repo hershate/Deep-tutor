@@ -2,8 +2,8 @@
 package agent
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // toolFacts reads a resolved tool's own contracts. Callers holding the tool use

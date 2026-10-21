@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/base/textutil"
+	"deep-tutor/internal/base/textutil"
 )
 
 // IndexMaxChars caps the skills listing so a large catalog cannot dominate the

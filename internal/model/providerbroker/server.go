@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // ErrNoToken refuses a Server built without one. An unauthenticated broker on

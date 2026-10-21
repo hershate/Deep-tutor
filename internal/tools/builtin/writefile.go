@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/base/fileutil"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 func init() { tool.RegisterBuiltin(writeFile{}) }

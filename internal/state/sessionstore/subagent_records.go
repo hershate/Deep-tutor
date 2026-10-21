@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 type SubagentStatus string

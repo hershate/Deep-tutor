@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/sessionv4/v4fixture"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/sessionv4/v4fixture"
 )
 
 const v4TestID = "0123456789abcdef0123456789abcdef"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestBuildAppendsWorkPracticePolicyToCustomSystemPrompt(t *testing.T) {

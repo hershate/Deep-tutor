@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	_ "reasonix/internal/model/openai"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	_ "deep-tutor/internal/model/openai"
+	"deep-tutor/internal/state/stats"
 )
 
 // The date-range endpoint must survive the real boot path, not only the direct

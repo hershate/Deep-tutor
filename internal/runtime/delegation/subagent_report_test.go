@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
 )
 
 type fakeWriteFileTool struct{}

@@ -2,10 +2,10 @@ package control
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // SessionDestroyHandle separates cancelled-job waiting from ending the destroy

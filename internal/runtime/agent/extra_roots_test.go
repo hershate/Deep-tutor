@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestAGrantedRootIsTheWorkspaceForWhatOwesVerification(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"reasonix/internal/base/secrets"
+	"deep-tutor/internal/base/secrets"
 )
 
 var errOAuthTokenResponse = errors.New("MCP OAuth token response rejected")

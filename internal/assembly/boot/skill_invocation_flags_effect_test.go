@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 	"strings"
 	"testing"
 	"time"

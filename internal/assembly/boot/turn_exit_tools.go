@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
 )
 
 // addTurnExitTools registers the three ways a turn ends on the model's terms: a

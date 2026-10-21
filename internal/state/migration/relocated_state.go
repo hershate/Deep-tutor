@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/workspacelist"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/workspacelist"
 )
 
 const adoptedSuffix = workspacelist.AdoptedSuffix

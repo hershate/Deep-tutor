@@ -9,14 +9,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
 )
 
 // Command is a custom slash command loaded from a .md file.

@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/traystate"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/traystate"
 )
 
 // TrayPrefs is what a window can be asked about its own status icon. Icon is

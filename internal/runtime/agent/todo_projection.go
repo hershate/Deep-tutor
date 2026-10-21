@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // todoIdentityNote renders the ids a sign-off must cite. It states whose list

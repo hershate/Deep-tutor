@@ -2,7 +2,7 @@ package evidence
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/hostaudit"
 	"testing"
 )
 

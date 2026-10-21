@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 // Content-ref externalization for the intercept and event calls. The wire

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) surfaceActionState(w http.ResponseWriter, r *http.Request) {

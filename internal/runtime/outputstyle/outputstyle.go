@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/frontmatter"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/frontmatter"
 )
 
 // OutputStyle is one selectable persona. Body is appended to the system prompt

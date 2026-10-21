@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 )
 
 type workspaceActivity struct {

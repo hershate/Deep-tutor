@@ -18,11 +18,11 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // MCPConnectResult is what the ConnectMCP callback returns. Disconnect is

@@ -3,7 +3,7 @@ package delegation
 import (
 	"testing"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestIntersectToolLists(t *testing.T) {

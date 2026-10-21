@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/testenv"
 )
 
 // withFault installs the package seam for one test. It is process-wide, so

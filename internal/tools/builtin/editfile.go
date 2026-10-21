@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 func init() { tool.RegisterBuiltin(editFile{}) }

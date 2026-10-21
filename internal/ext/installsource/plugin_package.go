@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 const (

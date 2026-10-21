@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TestRealOpenCodeGoDeepSeekResponsesWebSearch exercises Reasonix's stateless

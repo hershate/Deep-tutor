@@ -5,11 +5,11 @@ import (
 	"io"
 	"net/http"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/pluginspec"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/pluginspec"
 )
 
 // addInstallSourceTool registers install_source, which installs an MCP server

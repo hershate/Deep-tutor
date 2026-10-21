@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	fileencoding "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/store"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/store"
 )
 
 // jobTimes is the job's timeline in epoch milliseconds. activity is what stall

@@ -4,7 +4,7 @@ package cli
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 )
 
 // costAudit is the run's quotes with the price book lifted out of them. Every

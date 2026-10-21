@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/tools/websearch"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/tools/websearch"
 )
 
 // searchscreen.go is the mandatory relevance gate: every citation a plan

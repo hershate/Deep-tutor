@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const surfaceSpecJSON = `{"spec_version":1,"title":"Settings","body":[{"kind":"field","key":"count","label":"Count","field":{"type":"number","required":true,"min":1,"max":5}},{"kind":"choice_card","key":"mode","label":"Mode","field":{"type":"choice","options":[{"value":"fast","label":"Fast","preview":"Short run"},{"value":"full","label":"Full"}]}}]}`

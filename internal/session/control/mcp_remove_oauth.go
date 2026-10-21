@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/mcpdiag"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/mcpdiag"
+	"deep-tutor/internal/ext/plugin"
 )
 
 type removedMCPState struct {

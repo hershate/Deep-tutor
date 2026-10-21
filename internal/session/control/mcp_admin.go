@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpsetup"
-	"reasonix/internal/ext/plugin"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpsetup"
+	"deep-tutor/internal/ext/plugin"
 )
 
 // MCPScope is how far an installed server reaches. User follows the person

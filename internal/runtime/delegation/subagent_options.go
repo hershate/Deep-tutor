@@ -3,11 +3,11 @@ package delegation
 import (
 	"context"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/state/checkpoint"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/state/checkpoint"
 )
 
 // subagentOptions is the single construction point for the run options every

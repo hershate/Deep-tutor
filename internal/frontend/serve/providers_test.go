@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/history"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/history"
+	"deep-tutor/internal/state/stats"
 )
 
 // newProviderEditServer is a server with one configured provider, its config

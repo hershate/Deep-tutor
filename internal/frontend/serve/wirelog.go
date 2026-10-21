@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/state/store"
 )
 
 // The trajectory pane is built from wire frames, so the frames are what gets

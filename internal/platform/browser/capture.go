@@ -10,7 +10,7 @@ import (
 	"image/jpeg"
 	"strings"
 
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/model/visionimage"
 )
 
 // Screenshot captures what a tab's viewport shows, sized for a vision model.

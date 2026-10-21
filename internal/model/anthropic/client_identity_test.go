@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestMessagesIdentifyReasonix(t *testing.T) {

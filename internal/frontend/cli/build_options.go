@@ -4,14 +4,14 @@ import (
 	"context"
 	"io"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessiontemp"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessiontemp"
 )
 
 type cliBuildOverrides struct {

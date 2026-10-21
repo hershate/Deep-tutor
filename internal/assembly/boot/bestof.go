@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/bestof"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/bestof"
+	"deep-tutor/internal/session/control"
 )
 
 // candidateApproval is the session's approval posture, read when a best_of_n

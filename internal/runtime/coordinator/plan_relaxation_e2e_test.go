@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 const planWithCheck = `{"objective":"fix the parser","steps":[{"id":"p1","title":"fix it",

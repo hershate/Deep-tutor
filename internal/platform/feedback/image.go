@@ -12,7 +12,7 @@ import (
 
 	xdraw "golang.org/x/image/draw"
 
-	"reasonix/internal/model/visionimage"
+	"deep-tutor/internal/model/visionimage"
 )
 
 const (

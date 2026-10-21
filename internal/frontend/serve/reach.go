@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // codeDeviceHostOnly refuses a paired device a capability that belongs to the

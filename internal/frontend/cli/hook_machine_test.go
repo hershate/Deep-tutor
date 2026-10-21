@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/hook"
 )
 
 func TestHookMachineListRedactsCommandsAndEnablesProjectHooks(t *testing.T) {

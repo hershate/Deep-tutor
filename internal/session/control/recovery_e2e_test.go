@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/recovery"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/recovery"
+	"deep-tutor/internal/safety/permission"
 )
 
 // End-to-end: scripted provider fails verification, runs read-only diagnosis,

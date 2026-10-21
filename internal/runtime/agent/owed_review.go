@@ -3,7 +3,7 @@ package agent
 import (
 	"slices"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // unmetReviewKinds lists the structured reviews that have not covered paths

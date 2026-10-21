@@ -3,11 +3,11 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/ext/extension/sidecar"
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/ext/extension/sidecar"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 // RuntimeReload is previous-generation state for incremental sidecar adoption

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TodoItem mirrors the todo_write item shape the host needs for step matching.

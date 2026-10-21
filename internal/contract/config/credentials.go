@@ -14,8 +14,8 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"reasonix/internal/base/fileutil"
-	fileencoding "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 )
 
 const (

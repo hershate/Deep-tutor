@@ -5,7 +5,7 @@ package sessionstore
 import (
 	"log/slog"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // resolveReplayedMessages answers a replay that applied at least one record.

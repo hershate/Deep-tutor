@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // readsLanguageFromConfig says whether the command may read configuration for

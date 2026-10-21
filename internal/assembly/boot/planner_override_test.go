@@ -3,8 +3,8 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestPlannerOffHasHighestPrecedence(t *testing.T) {

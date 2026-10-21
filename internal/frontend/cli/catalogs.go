@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/state/projectiondb"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/state/projectiondb"
 )
 
 type catalogInspection struct {

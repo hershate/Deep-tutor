@@ -3,7 +3,7 @@ package sidecar
 import (
 	"testing"
 
-	"reasonix/internal/ext/extension"
+	"deep-tutor/internal/ext/extension"
 )
 
 func TestPluginComponentIDRoundTrip(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/platform/releaseasset"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // remoteOS is everything this package has to say to a machine that is not this

@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/externalurl"
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/externalurl"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 func urlAskEvent() eventwire.Event {

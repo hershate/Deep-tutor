@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/skill"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/skill"
 )
 
 // The listing is delivered once, on a user turn. A fold can summarise that turn

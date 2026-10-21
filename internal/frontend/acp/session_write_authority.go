@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // bindACPWriteAuthority issues a generation-bound write authority when ctrl is

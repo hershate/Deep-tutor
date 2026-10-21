@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 // BenchmarkExtensionKernelStartup measures the immutable snapshot assembly

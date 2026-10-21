@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // TestStreamRetriesThenSucceeds drives the real retry path end-to-end: the

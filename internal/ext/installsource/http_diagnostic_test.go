@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/tool"
 )
 
 func TestManifestFetchKeepsSafeDiagnosticFactsAndIdentity(t *testing.T) {

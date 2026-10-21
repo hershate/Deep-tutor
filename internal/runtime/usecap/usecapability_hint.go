@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 // misplacedArgumentHint reports that a required top-level field was supplied one

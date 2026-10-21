@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestInstalledPluginListsThemeNamesMatchingPackAddresses(t *testing.T) {

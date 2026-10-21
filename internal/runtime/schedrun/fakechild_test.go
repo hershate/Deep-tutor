@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/filelock"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/state/schedule"
+	"deep-tutor/internal/base/filelock"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/state/schedule"
 )
 
 const fakeEnv = "SCHEDRUN_FAKE_CHILD"

@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/contract/tool"
+	"deep-tutor/internal/contract/tool"
 )
 
 const (

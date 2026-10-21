@@ -2,7 +2,7 @@ package langpref
 
 import (
 	"context"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"unicode"
 )

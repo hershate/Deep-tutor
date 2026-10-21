@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/platform/releaseasset"
+	"deep-tutor/internal/platform/releaseasset"
 )
 
 // Routes the auto strategy takes that are not serve_install values — nobody

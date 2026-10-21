@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/market"
-	"reasonix/internal/platform/account"
-	"reasonix/internal/platform/telemetry"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/market"
+	"deep-tutor/internal/platform/account"
+	"deep-tutor/internal/platform/telemetry"
 )
 
 // Swapped by tests; production always talks to the fixed registry host.

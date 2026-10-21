@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // settings.json is shared with unrelated configuration. A hooks editor that

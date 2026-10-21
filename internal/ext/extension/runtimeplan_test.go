@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/ext/extensioncontract"
+	"deep-tutor/internal/ext/extensioncontract"
 )
 
 func TestRuntimePlanNoOp(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // An extension asks for a place and the frontend offers a default; this is the

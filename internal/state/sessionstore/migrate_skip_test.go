@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"testing"
 
-	"reasonix/internal/state/sessionv4"
+	"deep-tutor/internal/state/sessionv4"
 )
 
 func TestClassifySkipReadsTheSentinelNotTheSentence(t *testing.T) {

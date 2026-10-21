@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/state/sessionstore"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 )
 
 func (h *Hub) titleRequest(w http.ResponseWriter, r *http.Request) (string, *string, bool) {

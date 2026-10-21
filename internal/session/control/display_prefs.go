@@ -1,8 +1,8 @@
 package control
 
 import (
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 )
 
 // displayPrefs is what a session shows, as opposed to what it does. Grouping

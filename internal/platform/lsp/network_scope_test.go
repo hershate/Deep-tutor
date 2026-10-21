@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 func TestNetworkPathFileIsRefusedBeforeTheServerSyncs(t *testing.T) {

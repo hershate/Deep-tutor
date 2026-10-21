@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) browserClose(w http.ResponseWriter, r *http.Request) {

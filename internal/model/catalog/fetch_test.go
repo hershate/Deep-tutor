@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 	"testing"
 )
 

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/ext/market"
+	"deep-tutor/internal/ext/market"
 )
 
 var ownRequest = map[string]any{"slug": "me/kit", "version": "1.0.0", "planId": "low:sha256:x"}

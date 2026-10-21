@@ -5,8 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 
-	"reasonix/internal/platform/gitcommit"
-	"reasonix/internal/runtime/commitmsg"
+	"deep-tutor/internal/platform/gitcommit"
+	"deep-tutor/internal/runtime/commitmsg"
 )
 
 // CommitDrafter proposes a commit message for a staged change set.

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // TestEffectProxiedDelegationArrivesNamed pins the identity at its final

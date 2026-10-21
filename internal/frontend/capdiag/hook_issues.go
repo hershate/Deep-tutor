@@ -4,7 +4,7 @@ package capdiag
 import (
 	"strings"
 
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/ext/hook"
 )
 
 func hookRuntimeIssue(entry hook.Entry, err error, disp func(string) string) (Issue, bool) {

@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/session/control"
 )
 
 const (

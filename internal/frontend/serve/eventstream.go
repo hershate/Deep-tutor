@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/event"
 )
 
 // SSEWatermarkInterval is how often a transport restates the last numbered

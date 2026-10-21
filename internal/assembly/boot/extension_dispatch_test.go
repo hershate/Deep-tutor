@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
 )
 
 // Dispatch wiring tests: the boot builds the dispatcher, runs the

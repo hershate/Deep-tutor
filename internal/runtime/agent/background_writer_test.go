@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/tools/jobs"
 )
 
 func startBlockedJob(t *testing.T, m *jobs.Manager, session string) (release func()) {

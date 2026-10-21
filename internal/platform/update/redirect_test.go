@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // The mechanism is held by internal/safety/redirectguard. What this holds is the

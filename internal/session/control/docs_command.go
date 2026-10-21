@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/tools/productdocs"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/tools/productdocs"
 )
 
 // DocsCommandOverviewFor keeps local help aligned with the invocation selected

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"unicode/utf16"
 
-	"reasonix/internal/platform/remote"
-	"reasonix/internal/platform/remote/sftpfs"
+	"deep-tutor/internal/platform/remote"
+	"deep-tutor/internal/platform/remote/sftpfs"
 )
 
 // decodePS reads back what cmd would have handed PowerShell, so a test can

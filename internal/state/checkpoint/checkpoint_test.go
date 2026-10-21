@@ -10,10 +10,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/diff"
-	fileenc "reasonix/internal/base/fileutil/encoding"
-	"reasonix/internal/base/fileutil/encoding/encodingtest"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/diff"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil/encoding/encodingtest"
+	"deep-tutor/internal/base/testenv"
 )
 
 func write(t *testing.T, p, s string) {

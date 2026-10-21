@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // Commit is one commit of the history graph. Parents name the commits it

@@ -3,9 +3,9 @@ package cli
 import (
 	"io"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/telemetry"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/telemetry"
 )
 
 // startTUITelemetry runs the documented first-run consent on the plain terminal,

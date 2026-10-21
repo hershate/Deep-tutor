@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"reasonix/internal/assembly/boot"
+	"deep-tutor/internal/assembly/boot"
 )
 
 func doctorRuntimeCommand(args []string) int {

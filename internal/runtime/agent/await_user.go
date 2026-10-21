@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // AwaitUserTool declares that an open task list cannot advance without the

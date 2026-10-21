@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strings"
 
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 const (

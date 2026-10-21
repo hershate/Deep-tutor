@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/hook"
 )
 
 const reviewHookProviderKind = "cli-review-hook-test"

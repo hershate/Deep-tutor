@@ -3,7 +3,7 @@ package pluginpkg
 import (
 	"slices"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // The package store is where configuration learns what enabled packages add,

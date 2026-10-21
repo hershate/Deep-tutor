@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // Update is what the stream hands the view: frames in order, or word that the

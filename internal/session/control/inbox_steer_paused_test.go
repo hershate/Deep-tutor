@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 // A queue held by an earlier stop takes a mid-turn message as a queued

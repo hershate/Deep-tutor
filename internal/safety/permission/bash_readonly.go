@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // BashCommandIsReadOnly reports whether a bash tool call is a known foreground

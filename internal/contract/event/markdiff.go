@@ -1,6 +1,6 @@
 package event
 
-import "reasonix/internal/base/diff"
+import "deep-tutor/internal/base/diff"
 
 // MarkEmbeddedDiffs wraps sink so a finished shell tool result whose whole
 // output is a unified diff carries OutputDiff; a frontend then renders it as a

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"os"
 
-	"reasonix/internal/base/fileutil"
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	"deep-tutor/internal/base/fileutil"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 func existingWriteSource(path string) (bool, error) {

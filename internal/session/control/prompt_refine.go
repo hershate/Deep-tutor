@@ -4,8 +4,8 @@ import (
 	"context"
 	"path/filepath"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/promptrefine"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/promptrefine"
 )
 
 // RefinePrompt rewrites a draft into a clearer request with the session's own

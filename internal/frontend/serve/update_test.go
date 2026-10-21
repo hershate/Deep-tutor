@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/appupdate"
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/appupdate"
+	"deep-tutor/internal/platform/update"
 )
 
 type stubUpdateHost struct {

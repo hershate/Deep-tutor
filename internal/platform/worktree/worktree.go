@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 const (

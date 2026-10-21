@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // producerSink names the model that produced each frame an agent emits. A
 // two-model turn puts two producers on one stream, and the only other way to

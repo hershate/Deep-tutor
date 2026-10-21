@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/base/i18n"
+	"deep-tutor/internal/base/i18n"
 )
 
 // mostRecentSession returns the chronologically newest saved session for

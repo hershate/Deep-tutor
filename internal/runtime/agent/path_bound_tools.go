@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // pathBoundWriter wraps a built-in write tool so each Execute stays inside a

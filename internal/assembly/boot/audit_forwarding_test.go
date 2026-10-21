@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/notify"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/stats"
-	"reasonix/internal/state/trajectory"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/notify"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/stats"
+	"deep-tutor/internal/state/trajectory"
 )
 
 // A wrapper that forwards one audit but forgets another drops its data

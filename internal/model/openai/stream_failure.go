@@ -8,8 +8,8 @@ import (
 	"io"
 	"time"
 
-	"reasonix/internal/base/neterr"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/neterr"
+	"deep-tutor/internal/contract/provider"
 )
 
 // errEmptyStream: a stream that ended cleanly having carried nothing at all —

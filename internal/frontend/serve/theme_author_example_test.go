@@ -8,11 +8,11 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/installsource"
-	"reasonix/internal/ext/pluginpkg"
-	"reasonix/internal/ext/theme"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/installsource"
+	"deep-tutor/internal/ext/pluginpkg"
+	"deep-tutor/internal/ext/theme"
 )
 
 func TestStudioThemeAuthorExampleLifecycle(t *testing.T) {

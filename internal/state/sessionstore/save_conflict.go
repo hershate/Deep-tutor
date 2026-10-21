@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 type SessionSnapshotConflictKind string

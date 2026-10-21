@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sync"
 
-	"reasonix/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/agentgraph"
 )
 
 // SubagentSlotStatus is the queue lifecycle shown for background task/fleet

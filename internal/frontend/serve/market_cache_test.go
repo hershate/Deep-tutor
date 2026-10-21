@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/market"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/market"
 )
 
 type hostRewrite struct {

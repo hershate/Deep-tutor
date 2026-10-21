@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/runtime/taskcontract"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/runtime/taskcontract"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func contractPlan() plancontract.Plan {

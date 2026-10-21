@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // checkRuns answers where "passed after the latest change" is measured from

@@ -1,6 +1,6 @@
 package eventwire
 
-import "reasonix/internal/contract/event"
+import "deep-tutor/internal/contract/event"
 
 // Attachment is the JSON form of a stored image a message references.
 type Attachment struct {

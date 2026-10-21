@@ -4,8 +4,8 @@ import (
 	"golang.org/x/sys/windows"
 	"net/http"
 	"path/filepath"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 	"testing"
 )
 

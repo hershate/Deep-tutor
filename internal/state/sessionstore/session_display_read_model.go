@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/state/store"
 )
 
 // ErrSessionDisplayReadModelDamaged means the authoritative event log has a

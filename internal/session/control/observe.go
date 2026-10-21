@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/observe"
-	"reasonix/internal/safety/permission"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/observe"
+	"deep-tutor/internal/safety/permission"
 )
 
 // ErrObservePosture is what a controller built under the read-only posture

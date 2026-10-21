@@ -1,6 +1,6 @@
 package permission
 
-import "reasonix/internal/base/shellparse"
+import "deep-tutor/internal/base/shellparse"
 
 // DecomposeBashCommand splits a compound bash command line into its
 // simple-command segments so each segment can be matched against the rule

@@ -3,12 +3,12 @@ package stats
 import (
 	"context"
 	"maps"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"sort"
 	"strings"
 	"time"
 
-	"reasonix/internal/state/usagecatalog"
+	"deep-tutor/internal/state/usagecatalog"
 )
 
 // DailyTokens is one day's token usage and turn count in a trend series.

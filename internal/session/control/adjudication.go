@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/state/store"
 )
 
 // A barrier is a historical fact: this turn stopped and waited on a person.

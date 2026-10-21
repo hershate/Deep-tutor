@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/gitignore"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/gitignore"
 )
 
 // ignoreFrame is the cumulative ignore state at a directory: every applicable

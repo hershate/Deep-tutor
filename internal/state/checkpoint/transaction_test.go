@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/diff"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/diff"
+	"deep-tutor/internal/base/testenv"
 )
 
 type recordingConversationApplier struct {

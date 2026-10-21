@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"reasonix/internal/ext/installsource"
+	"deep-tutor/internal/ext/installsource"
 )
 
 const maxOwnedBody = 512 << 10

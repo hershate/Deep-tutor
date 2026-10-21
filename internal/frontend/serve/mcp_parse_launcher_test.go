@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/mcpsetup"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/mcpsetup"
+	"deep-tutor/internal/session/control"
 )
 
 func TestMCPParseLauncherOptionsKeepProposedNames(t *testing.T) {

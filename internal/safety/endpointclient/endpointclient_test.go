@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 func TestNewRefusesARedirectOffTheConfiguredOrigin(t *testing.T) {

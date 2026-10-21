@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/http"
 
-	"reasonix/internal/platform/gitcmd"
-	"reasonix/internal/platform/gitstatus"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/platform/gitcmd"
+	"deep-tutor/internal/platform/gitstatus"
+	"deep-tutor/internal/session/control"
 )
 
 type workspaceBranchesView struct {

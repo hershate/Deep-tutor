@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
 )
 
 // persistedDevice is one paired device as it survives a restart. The digest is

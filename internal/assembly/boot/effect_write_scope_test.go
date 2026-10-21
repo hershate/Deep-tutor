@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/session/control"
-	"reasonix/internal/tools/builtin"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/tools/builtin"
 )
 
 // writeScopeProvider asks for one write_file outside the workspace, then stops.

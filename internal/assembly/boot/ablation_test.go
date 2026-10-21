@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
 )
 
 func builtToolNames(t *testing.T, set ablation.Set) map[string]bool {

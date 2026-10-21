@@ -4,10 +4,10 @@ package boot
 import (
 	"fmt"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/session/control"
 )
 
 // withWindowPosture hands back the controller in the posture its config names,

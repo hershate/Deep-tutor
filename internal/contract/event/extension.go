@@ -5,7 +5,7 @@
 // event is emitted.
 package event
 
-import "reasonix/internal/contract/surfacespec"
+import "deep-tutor/internal/contract/surfacespec"
 
 // Surface kinds carried by ExtensionSurfacePayload.Kind, mirroring the
 // protocol's own. "request" is reserved: a blocking prompt currently routes

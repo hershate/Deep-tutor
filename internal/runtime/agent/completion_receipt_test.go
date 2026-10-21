@@ -3,9 +3,9 @@ package agent
 import (
 	"testing"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/safety/evidence"
 )
 
 func TestReceiptCarriesWhatProseDoesNot(t *testing.T) {

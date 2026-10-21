@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/runtime/contract"
-	"reasonix/internal/runtime/plancontract"
-	"reasonix/internal/runtime/verdict"
-	"reasonix/internal/safety/evidence"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/runtime/contract"
+	"deep-tutor/internal/runtime/plancontract"
+	"deep-tutor/internal/runtime/verdict"
+	"deep-tutor/internal/safety/evidence"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // contractState is what the bundle records about the task's contract. Criteria

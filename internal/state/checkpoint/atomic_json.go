@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // writeJSONAtomic marshals v and publishes it via AtomicWriteFileStrict.

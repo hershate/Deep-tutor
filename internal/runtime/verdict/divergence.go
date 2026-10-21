@@ -3,8 +3,8 @@ package verdict
 import (
 	"slices"
 
-	"reasonix/internal/runtime/completion"
-	"reasonix/internal/runtime/taskcontract"
+	"deep-tutor/internal/runtime/completion"
+	"deep-tutor/internal/runtime/taskcontract"
 )
 
 // Divergence says how the host-evidence outcome differs from the completion

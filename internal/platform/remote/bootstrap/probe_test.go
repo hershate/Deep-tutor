@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/platform/remote"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/platform/remote"
 )
 
 // answers is one machine's replies, keyed by what the probe looks for.

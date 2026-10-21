@@ -5,7 +5,7 @@ import (
 	"path"
 	"time"
 
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/state/store"
 )
 
 // ServeState is the JSON record a bootstrapped serve leaves on the remote host

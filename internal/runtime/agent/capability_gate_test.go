@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/runtime/taskpolicy"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/runtime/taskpolicy"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // Every production turn freezes a TaskPolicy before the first request, so the

@@ -5,7 +5,7 @@ package appupdate
 import (
 	"context"
 
-	"reasonix/internal/platform/update"
+	"deep-tutor/internal/platform/update"
 )
 
 // applyDownloaded runs the next installer. Windows cannot replace a running

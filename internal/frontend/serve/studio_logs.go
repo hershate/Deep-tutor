@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/platform/crashreport"
+	"deep-tutor/internal/platform/crashreport"
 )
 
 // codeNoLogs answers the logs route on a kernel whose shell stated no logs

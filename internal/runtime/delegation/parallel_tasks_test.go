@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/runtime/writeclaim"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/state/workspacelease"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/state/workspacelease"
 )
 
 func TestParallelTasksToolIsReadOnly(t *testing.T) {

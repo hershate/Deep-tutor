@@ -15,8 +15,8 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/provider"
 )
 
 // prefaceAfterBodyServer behaves like an HTTP/2 edge that withholds its SETTINGS

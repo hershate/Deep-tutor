@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/hook"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/hook"
 )
 
 var (

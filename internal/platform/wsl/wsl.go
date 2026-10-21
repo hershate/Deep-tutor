@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"reasonix/internal/base/proc"
+	"deep-tutor/internal/base/proc"
 )
 
 var (

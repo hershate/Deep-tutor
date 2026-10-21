@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/model/visionimage"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/model/visionimage"
+	"deep-tutor/internal/session/control"
 )
 
 // Bytes ride into a turn as path references, exactly as the CLI's do. This is

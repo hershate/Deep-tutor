@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/contract/pricing"
 )
 
 // The footer's spend says which side of the vendor's peak window it was billed

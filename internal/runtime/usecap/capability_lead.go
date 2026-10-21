@@ -3,7 +3,7 @@ package usecap
 import (
 	"strings"
 
-	fileenc "reasonix/internal/base/fileutil/encoding"
+	fileenc "deep-tutor/internal/base/fileutil/encoding"
 )
 
 // capabilityLeadBytes bounds one catalog row's description. Full descriptions

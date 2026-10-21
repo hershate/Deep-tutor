@@ -3,8 +3,8 @@ package agent
 import (
 	"fmt"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // userTurnRetention is what one fold could and could not hold verbatim. A

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"reasonix/internal/ext/extension/rpcwire"
+	"deep-tutor/internal/ext/extension/rpcwire"
 )
 
 // DomainErrorCode is the JSON-RPC code every extension domain error uses on

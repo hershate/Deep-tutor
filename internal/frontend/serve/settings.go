@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/contract/agentpreset"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/agentpreset"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) preset(w http.ResponseWriter, r *http.Request) {

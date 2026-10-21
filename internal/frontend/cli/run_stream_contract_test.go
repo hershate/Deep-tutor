@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/eventwire"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/eventwire"
 )
 
 // testdata/v1-run holds `reasonix run` v1.39.5 output for one tool call and an

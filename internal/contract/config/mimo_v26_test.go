@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 var mimoPresetIDs = []string{

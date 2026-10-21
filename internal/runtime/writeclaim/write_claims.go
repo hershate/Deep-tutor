@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
+	"deep-tutor/internal/base/fileutil"
 )
 
 // DefaultMaxSubagentConcurrency is the session-wide sub-agent concurrency

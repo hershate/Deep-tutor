@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestStoreV2StableIDSurvivesRenameAndRevisionIncrements(t *testing.T) {

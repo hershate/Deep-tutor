@@ -17,9 +17,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
 )
 
 // Each refusal is a different next step: a malformed version is the caller's,

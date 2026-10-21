@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/event"
 )
 
 // askNotificationPromptRunes caps the prompt a Notification hook forwards. The

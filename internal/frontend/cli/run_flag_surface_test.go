@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 // A session flag keeps its meaning on either side of the run verb: flags

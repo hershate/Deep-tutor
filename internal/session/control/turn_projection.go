@@ -5,10 +5,10 @@ import (
 	"errors"
 	"strings"
 
-	"reasonix/internal/contract/ablation"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/langpref"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/contract/ablation"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/langpref"
+	"deep-tutor/internal/state/memory"
 )
 
 // turnBlock is one host-owned block on a user turn: the transient tag it is

@@ -3,7 +3,7 @@ package evidence
 import (
 	"strings"
 
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // CommandMatches reports whether a cited verification command is proven by a

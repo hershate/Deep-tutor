@@ -1,6 +1,6 @@
 package sessionstore
 
-import "reasonix/internal/state/store"
+import "deep-tutor/internal/state/store"
 
 // sessionSidecarMoves pairs what a renamed session carries from oldPath to
 // newPath, in order. Blobs go before the event log that names them, so a

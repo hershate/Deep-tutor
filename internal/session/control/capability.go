@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/capability"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/capability"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 type invokedSkillsKey struct{}

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
 )
 
 // ParseArgs reads the argv forms `mcp add` accepts:

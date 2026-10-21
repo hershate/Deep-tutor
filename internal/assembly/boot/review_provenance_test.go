@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // Evidence that moves a durable decision has to be attributable to the run that

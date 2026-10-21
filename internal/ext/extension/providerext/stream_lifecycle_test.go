@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/ext/extension/protocol"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/ext/extension/protocol"
 )
 
 func TestFinishedStreamUnregistersDrainCancel(t *testing.T) {

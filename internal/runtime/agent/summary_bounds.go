@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 // SummaryIdleTimeout is how long a summary request may produce nothing before it

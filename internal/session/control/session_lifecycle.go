@@ -5,17 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/extension/dispatch"
-	"reasonix/internal/platform/browser"
-	"reasonix/internal/runtime/guardian"
-	"reasonix/internal/state/sessiontemp"
-	"reasonix/internal/state/workspacelease"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/extension/dispatch"
+	"deep-tutor/internal/platform/browser"
+	"deep-tutor/internal/runtime/guardian"
+	"deep-tutor/internal/state/sessiontemp"
+	"deep-tutor/internal/state/workspacelease"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // SetOnSessionRecovered installs the ownership handoff invoked before the

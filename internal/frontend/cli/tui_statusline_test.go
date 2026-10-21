@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 func TestStatuslineRunnerIsNilWithoutACommand(t *testing.T) {

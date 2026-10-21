@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/safety/redirectguard"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/safety/redirectguard"
 )
 
 // ProgressFunc reports bytes received against the total, for a progress bar.

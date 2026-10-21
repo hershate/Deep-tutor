@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"testing"
 )

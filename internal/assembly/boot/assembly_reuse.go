@@ -3,17 +3,17 @@ package boot
 import (
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/ext/command"
-	"reasonix/internal/ext/extension"
-	"reasonix/internal/ext/hook"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
-	"reasonix/internal/state/migration"
-	"reasonix/internal/state/storage"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/ext/command"
+	"deep-tutor/internal/ext/extension"
+	"deep-tutor/internal/ext/hook"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
+	"deep-tutor/internal/state/migration"
+	"deep-tutor/internal/state/storage"
 )
 
 // ReusedAssembly holds rediscovery-free inputs for narrow/no-op rebuilds.

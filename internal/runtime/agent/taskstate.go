@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"reasonix/internal/runtime/contract"
+	"deep-tutor/internal/runtime/contract"
 	"sync/atomic"
 
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // taskRuntime is the host state shared by every Agent.Run continuing one

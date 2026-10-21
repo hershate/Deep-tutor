@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/state/stats"
 )
 
 // A historical month or arbitrary range is a query, not a fixed window: the

@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // The packs that ship: manifest, background, and preview for each.

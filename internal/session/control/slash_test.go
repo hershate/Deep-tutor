@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/state/instruction"
-	"reasonix/internal/state/memory"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/state/instruction"
+	"deep-tutor/internal/state/memory"
 )
 
 func labelsOf(items []SlashItem) []string {

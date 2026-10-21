@@ -3,8 +3,8 @@ package control
 import (
 	"encoding/json"
 	"log/slog"
-	"reasonix/internal/contract/surfacespec"
-	"reasonix/internal/state/sessioninbox"
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/state/sessioninbox"
 )
 
 func surfaceActionKey(action surfacespec.Action) string {

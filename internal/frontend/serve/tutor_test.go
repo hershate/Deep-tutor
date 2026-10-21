@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/runtime/tutor"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/runtime/tutor"
+	"deep-tutor/internal/session/control"
 )
 
 // tutorFakeLLM answers the pipeline's five JSON tools with fixed payloads.

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 )
 
 // What the provider produced on its own side, rather than through the tool loop:

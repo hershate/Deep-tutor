@@ -8,7 +8,7 @@ import (
 	"path"
 	"strings"
 
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/session/control"
 )
 
 // promptText turns a prompt's blocks into the text of one turn. Bytes a block

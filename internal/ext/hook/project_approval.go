@@ -7,8 +7,8 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/contract/config"
 )
 
 // IssueAwaitingApproval marks a project hook held back until the user approves

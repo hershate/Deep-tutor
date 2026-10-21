@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
 
-	_ "reasonix/internal/model/openai"
-	_ "reasonix/internal/tools/builtin"
+	_ "deep-tutor/internal/model/openai"
+	_ "deep-tutor/internal/tools/builtin"
 )
 
 // TestBuildUnknownModelErrorIsActionable: a default_model that doesn't resolve

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/runtime/agent/testutil"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessioninbox"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/runtime/agent/testutil"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessioninbox"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 const queuedGuidance = "queued-guidance-marker"

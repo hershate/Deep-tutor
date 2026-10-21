@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"reasonix/internal/safety/permission"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/safety/permission"
+	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) registerBoundaryRoutes(mux *http.ServeMux) {

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/textutil"
-	"reasonix/internal/ext/plugin"
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/base/textutil"
+	"deep-tutor/internal/ext/plugin"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 const mcpMaxItemsPerSection = 6

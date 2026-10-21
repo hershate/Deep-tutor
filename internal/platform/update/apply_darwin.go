@@ -18,7 +18,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"reasonix/internal/platform/repair"
+	"deep-tutor/internal/platform/repair"
 )
 
 const (

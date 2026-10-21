@@ -13,12 +13,12 @@ package event
 
 import (
 	"encoding/json"
-	"reasonix/internal/contract/hostaudit"
-	"reasonix/internal/contract/pricing"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/contract/pricing"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/provider"
-	"reasonix/internal/contract/surfacespec"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/provider"
+	"deep-tutor/internal/contract/surfacespec"
 )
 
 // Kind tags an Event. Read the field(s) documented for that kind.

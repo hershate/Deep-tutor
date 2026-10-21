@@ -1,6 +1,6 @@
 package agent
 
-import "reasonix/internal/contract/tool"
+import "deep-tutor/internal/contract/tool"
 
 // ContextBudget reports the room left before the next automatic fold, measured
 // with the estimate the compaction thresholds themselves compare against so

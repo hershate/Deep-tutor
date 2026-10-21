@@ -9,8 +9,8 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 // A checkout's hooks run on the first event of the first session, so they wait

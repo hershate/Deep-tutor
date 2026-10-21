@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"reasonix/internal/contract/config"
+	"deep-tutor/internal/contract/config"
 )
 
 // The page's own files answer for themselves and every other path is the

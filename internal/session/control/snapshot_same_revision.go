@@ -3,7 +3,7 @@ package control
 import (
 	"errors"
 	"log/slog"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // persistSessionSnapshot writes path with snapshot semantics, escalating to an

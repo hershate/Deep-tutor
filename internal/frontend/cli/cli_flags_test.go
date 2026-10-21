@@ -4,15 +4,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestSplitAllowedToolRules(t *testing.T) {

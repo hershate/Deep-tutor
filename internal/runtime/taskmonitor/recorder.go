@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/tools/jobs"
 )
 
 // TaskRecorder bridges jobs.Manager lifecycle events into the Task Store. It

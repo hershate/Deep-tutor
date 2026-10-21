@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/event"
 )
 
 // completionEventVersion is the identity's schema suffix. A reader that stores

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/skill"
-	"reasonix/internal/safety/evidence"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/skill"
+	"deep-tutor/internal/safety/evidence"
 )
 
 // Delivering a report and being believed by it are separate permissions. This

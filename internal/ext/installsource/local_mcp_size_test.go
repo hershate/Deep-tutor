@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 const mcpHead = `{"mcpServers":{"counter":{"url":"https://example.com/mcp"}}}`

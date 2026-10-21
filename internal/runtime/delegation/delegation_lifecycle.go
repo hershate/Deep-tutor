@@ -4,14 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"reasonix/internal/runtime/agent"
-	"reasonix/internal/runtime/writeclaim"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"strconv"
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/contract/agentgraph"
-	"reasonix/internal/contract/event"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/contract/event"
 )
 
 // delegationLifecycle is one lone delegation's record and its picture, kept as

@@ -7,16 +7,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/event"
-	"reasonix/internal/platform/worktree"
-	"reasonix/internal/state/migration"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/platform/worktree"
+	"deep-tutor/internal/state/migration"
+	"deep-tutor/internal/state/store"
 )
 
 // maxRecoveryLineageWalk bounds the parent walk that groups recovery copies.

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/state/trustedstate"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/state/trustedstate"
 )
 
 // Policy decides what a snapshot observes. It is host-owned: its revision and

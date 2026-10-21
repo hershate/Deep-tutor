@@ -10,7 +10,7 @@ import (
 	"github.com/rivo/uniseg"
 	"golang.org/x/text/width"
 
-	"reasonix/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/termrender"
 )
 
 // glyphFit swaps each rune the console cannot draw at the width the layout

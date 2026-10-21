@@ -12,14 +12,14 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/base/i18n"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/contract/surface"
-	"reasonix/internal/frontend/serve"
-	"reasonix/internal/frontend/termrender"
-	"reasonix/internal/frontend/tui"
-	"reasonix/internal/session/control"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/base/i18n"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/contract/surface"
+	"deep-tutor/internal/frontend/serve"
+	"deep-tutor/internal/frontend/termrender"
+	"deep-tutor/internal/frontend/tui"
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // tuiBase is the route prefix of the one runtime a terminal session drives.

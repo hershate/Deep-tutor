@@ -3,9 +3,9 @@ package installsource
 import (
 	"encoding/json"
 
-	"reasonix/internal/base/secrets"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/ext/pluginpkg"
+	"deep-tutor/internal/base/secrets"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/ext/pluginpkg"
 )
 
 // request mirrors the public schema. Fields stay exported because Execute

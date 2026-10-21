@@ -6,8 +6,8 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"reasonix/internal/base/fileutil"
-	"reasonix/internal/base/shellparse"
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/base/shellparse"
 )
 
 // dynamicPart stands for a word part whose value the host cannot know: a

@@ -4,7 +4,7 @@ import "testing"
 
 const flatViewSource = `package p
 
-import "reasonix/internal/base/frontmatter"
+import "deep-tutor/internal/base/frontmatter"
 
 func a(s string) map[string]string {
 	fm, _ := frontmatter.SplitLegacy(s)
@@ -42,7 +42,7 @@ func TestFlatViewLeavesDeclaredReadersAndStructuredAccessAlone(t *testing.T) {
 	}
 	structured := `package p
 
-import "reasonix/internal/base/frontmatter"
+import "deep-tutor/internal/base/frontmatter"
 
 func c(s string) bool {
 	doc, _ := frontmatter.Parse(s)

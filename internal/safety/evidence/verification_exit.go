@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"reasonix/internal/base/shellparse"
-	"reasonix/internal/safety/shellsafe"
+	"deep-tutor/internal/base/shellparse"
+	"deep-tutor/internal/safety/shellsafe"
 )
 
 // PipeStatusCanDecideVerification reports whether per-stage exit statuses could

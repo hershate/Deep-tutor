@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"strings"
 
-	"reasonix/internal/base/netclient"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/platform/account"
+	"deep-tutor/internal/base/netclient"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/platform/account"
 )
 
 // An account is for the parts of Reasonix that are inherently networked — the

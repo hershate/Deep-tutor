@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/state/historycatalog"
+	"deep-tutor/internal/state/historycatalog"
 )
 
 func (m *indexedCatalogManager) rebuildShared(ctx context.Context, roots []historycatalog.Root) error {

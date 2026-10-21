@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/base/testenv"
-	"reasonix/internal/ext/market"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/market"
 )
 
 type fakePublisher struct {

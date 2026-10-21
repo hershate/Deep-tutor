@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/contract/provider"
 )
 
 func TestTerminalCallsRejectUnsafeCompletion(t *testing.T) {

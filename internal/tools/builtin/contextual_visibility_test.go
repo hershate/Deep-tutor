@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/contract/planmode"
-	"reasonix/internal/contract/tool"
-	"reasonix/internal/tools/jobs"
+	"deep-tutor/internal/contract/planmode"
+	"deep-tutor/internal/contract/tool"
+	"deep-tutor/internal/tools/jobs"
 )
 
 type visibilityRecorder struct{}

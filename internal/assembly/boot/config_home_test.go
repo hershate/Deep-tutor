@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 
-	"reasonix/internal/state/history"
-	"reasonix/internal/state/historycatalog"
-	"reasonix/internal/state/stats"
+	"deep-tutor/internal/state/history"
+	"deep-tutor/internal/state/historycatalog"
+	"deep-tutor/internal/state/stats"
 )
 
 // isolateConfigHome redirects user config and cache paths to a per-test temp

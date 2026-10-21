@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestEffectiveWebSearchDefaultsOnlySupportedOfficialDeepSeekAPIs(t *testing.T) {

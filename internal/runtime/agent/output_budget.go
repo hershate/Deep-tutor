@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"reasonix/internal/base/nilutil"
-	"reasonix/internal/contract/provider"
+	"deep-tutor/internal/base/nilutil"
+	"deep-tutor/internal/contract/provider"
 )
 
 const outputBudgetReserve = 8 * 1024

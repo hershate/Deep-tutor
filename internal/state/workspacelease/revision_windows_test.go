@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
-	"reasonix/internal/base/testenv"
+	"deep-tutor/internal/base/testenv"
 )
 
 func TestWindowsMissingAliasFilesystemEffectsSerialize(t *testing.T) {

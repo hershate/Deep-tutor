@@ -3,7 +3,7 @@ package builtin
 import (
 	"strings"
 
-	"reasonix/internal/safety/sandbox"
+	"deep-tutor/internal/safety/sandbox"
 )
 
 var writeRootDropReason = map[string]string{

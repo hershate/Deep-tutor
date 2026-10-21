@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/contract/event"
-	"reasonix/internal/contract/eventwire"
-	"reasonix/internal/state/store"
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/eventwire"
+	"deep-tutor/internal/state/store"
 )
 
 // Persist identity only: plugin values and form defaults never enter the log.

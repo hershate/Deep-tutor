@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/assembly/boot"
-	"reasonix/internal/contract/config"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/assembly/boot"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/session/control"
 )
 
 // switchModelRequested is the user-facing model switch. A request that already

@@ -9,9 +9,9 @@ import (
 	"slices"
 	"testing"
 
-	"reasonix/internal/contract/config"
-	"reasonix/internal/safety/sandbox"
-	"reasonix/internal/session/control"
+	"deep-tutor/internal/contract/config"
+	"deep-tutor/internal/safety/sandbox"
+	"deep-tutor/internal/session/control"
 )
 
 func readJSON[T any](t *testing.T, base, path string) T {

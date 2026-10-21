@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
-	"reasonix/internal/state/sessionstore"
+	"deep-tutor/internal/state/sessionstore"
 	"time"
 )
 
