@@ -326,7 +326,7 @@ func (p *fakeProvider) Stream(ctx context.Context, req extension.StreamRequest) 
 			extension.TextChunk("fake-hello "),
 			extension.TextChunk("fake-world"),
 			{Type: extension.ChunkToolCall, ToolCall: &extension.ProviderToolCall{
-				ID: "call-1", Name: "lookup", Arguments: `{"query":"reasonix"}`,
+				ID: "call-1", Name: "lookup", Arguments: `{"query":"deep-tutor"}`,
 			}},
 			extension.UsageChunk(extension.ProviderUsage{
 				PromptTokens: 5, CompletionTokens: 7, TotalTokens: 12,
