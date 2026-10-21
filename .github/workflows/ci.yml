@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     # err.md E4：Windows 矩阵（项目主开发/部署平台为 Windows，路径/换行差异需覆盖）
@@ -57,3 +64,137 @@ jobs:
         run: npm ci
       - name: Type check + build
         run: npm run build
+
+  # ── Go 内核门禁（阶段① M1.5：门禁从 Makefile 搬入 CI）──────────────
+  #
+  # 三个模块各测各的：根模块（deep-tutor）、desktop（deep-tutor/desktop）、
+  # sdk/go（github.com/esengine/DeepSeek-Reasonix/sdk/go）。后两个是嵌套
+  # module，根目录的 `go test ./...` 看不见它们——上游就是这么漏的。
+  go-lint:
+    name: go lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # .gitattributes 把 *.go 定为 eol=lf，所以 Windows 检出的也是 LF，
+      # gofmt 的判断与平台无关——这一条可以在任何一台上跑。
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l internal cmd tools sdk desktop)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      # 版本钉在 .golangci-version（v2.12.2），与 Makefile 同一个来源；
+      # 本地版本不符时 make lint 只警告，CI 必须用钉住的版本。
+      - name: golangci-lint (root module)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+      # repolint 是本仓的规约门禁（gofmt/vet/golangci 表达不了的那部分）。
+      # 它的扫描域是 git 可见的树，所以在本机与在 CI 上量的是同一棵树。
+      - name: repolint
+        run: go run ./tools/repolint
+      - name: desktop module (vet + build)
+        working-directory: desktop
+        run: |
+          go vet ./...
+          go build ./...
+      - name: golangci-lint (desktop module)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12.2
+          working-directory: desktop
+          args: --timeout=5m
+
+  go-test:
+    name: go test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Linux 侧的沙箱后端要 bubblewrap。装不上时不能红整个 job：
+      # 后端不可用的用例会按 fail-closed 走，缺后端是已知状态。
+      - name: Install Linux sandbox backend
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap || echo "::warning::bubblewrap is unavailable; the sandbox backend tests will run fail-closed"
+      - name: build
+        run: go build ./...
+      # 每一条在 Windows 上跑的根模块 `go test` 都带 -count=1：
+      # 开着结果缓存时，go test 会把测试二进制在模块外碰过的每个路径记录下来，
+      # 运行前后各做一次 filepath.EvalSymlinks；internal/assembly/boot 记了
+      # 约 190 万条，在 Windows runner 上光这一步就要几分钟且什么都不打印。
+      # internal/base/testenv 的 TestWindowsCILegsBypassTheTestResultCache
+      # 就是守这一条形状的。
+      #
+      # 单包超时 30m：internal/assembly/boot 在本机要 975–1340 秒（16–22 分），
+      # 超过 Go 默认的 600 秒上限，`go test ./...` 一次性跑必然 timeout panic。
+      # -p 4 把并发压在 runner 的核数上：本机满并发跑时，一批与负载/时序敏感的
+      # 用例会假失败（逐包串行复跑全绿）。
+      - name: test (root module)
+        timeout-minutes: 75
+        env:
+          # 跑提示词缓存前缀稳定性守卫（TestCacheHit*）：那里的回归会悄悄
+          # 把本项目赖以成立的缓存命中率打下去。
+          DEEPTUTOR_RELEASE_CACHE_GUARD: "1"
+        run: go test ./... -count=1 -p 4 -timeout 30m
+      - name: test (desktop module)
+        working-directory: desktop
+        timeout-minutes: 20
+        run: go test ./... -count=1 -p 4 -timeout 10m
+      - name: test (sdk module)
+        working-directory: sdk/go
+        timeout-minutes: 20
+        run: go test ./... -count=1 -p 4 -timeout 10m
+
+  # 桌面端前端与 Electron 外壳。前端这一段在 M1.4 的品牌化改写里没有被
+  # 验证过（本机没有 node_modules，tsc/vitest 跑不起来），所以这里把它接上。
+  desktop-frontend:
+    name: desktop frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop/frontend-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: desktop/frontend-next/pnpm-lock.yaml
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Type check + build
+        run: pnpm build
+      - name: Tests
+        run: pnpm test
+      # 普查门禁：Studio 声明了哪些「人能做的动作」，与它实际渲染出来的
+      # 动作必须一一对应（Seal E）。Seal 失守时普查以非零码退出，CI 就红。
+      # 上游 CI 从不跑这一段，所以这套门禁在本仓第一次接上。
+      - name: UI census (action universe)
+        run: pnpm census
+      - name: UI census (golden fixtures)
+        run: pnpm census:verify
+      # Electron 外壳的单元测试只用 node 内建模块，不需要装依赖。
+      - name: Electron shell tests
+        working-directory: desktop/electron
+        run: node --test test/unit.mjs
