@@ -38,6 +38,23 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 400（2026-10-22，M1.4f 环境变量改名，✅ 完成）**：承接 iter 399 的「下一步」① M1.4f。产品读了哪些环境变量，是它的一部分；变量跟着产品名一起改，**但旧名必须继续有效**——改名前设过变量的机器（包括正是为了把数据留在非系统盘而设的那些）不能因此找不到自己的 home。
+
+- **本轮 2 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | （本次） | **M1.4f：环境变量改名（`REASONIX_*` → `DEEPTUTOR_*`，新名优先 + 旧名兜底）** | 新增 `internal/base/envvar`（纯标准库）：`Get`（当前拼写优先、改名前的拼写兜底）、`Lookup`（区分「未设」与「设为空」）、`Name`（报出**实际生效**的那个拼写，供「哪个变量钉住了这个位置」这类界面用——报另一个会让用户去改一个没人读的变量）、`CurrentName`（凭据名兼作环境变量覆盖时用）。**顺序不是随意的**：当前名优先，反过来会让陈旧的值压过用户故意设的新值；旧名兜底，反过来会把配置从每一台设过它的机器上收走。读取点改走 envvar：home / state / cache 三个存储根、凭据存储方式、工作区根与 `${...}` 展开、语言检测、主题与配色、鼠标接管、遥测开关、账号与远端地址、反馈地址、home 隔离判定、凭据的环境变量覆盖（`REASONIX_ACCOUNT_TOKEN` 的**存储键不变**，覆盖变量认新名）。**注入**给插件 / 钩子 / 边车的变量两种拼写都注入（另一端是已经写好的程序，取掉一个就等于让它读不到自己的包根）；插件清单里 `${REASONIX_PLUGIN_ROOT}` 与 `${DEEPTUTOR_PLUGIN_ROOT}` 都展开；钩子的变量引用检查同时认两个前缀。备份拒绝携带的变量前缀加上 `DEEPTUTOR_`；项目 `.env` 不得设置两种拼写中的任何一个；测试隔离的 home 同时清掉两种拼写。用户可见文案与手册里的变量名改为当前拼写，`docs/kernel/CONFIG_PATHS.md` 另有一段说明「两种拼写都有效、当前名优先」。**本机用户级迁移**：已设 `DEEPTUTOR_HOME=F:\Deeptutor\reasonix` 并**保留** `REASONIX_HOME` 同值（旧构建仍能找到 F 盘 home）——不改用户级变量的话，改名后的构建会回落到 `%APPDATA%\reasonix`，数据回到 C 盘。新增回归 6 组（两种拼写解析 home/state/cache、当前名优先、`RootPinnedBy` 报出生效拼写、项目 `.env` 不得设置、账号 token 两种拼写可覆盖） |
+  | （本次） | **stage.md / AGENTS.md 回写** | 本条 + AGENTS.md 的「环境变量（两种拼写都认）」条目与 AV 占用绕法 |
+
+- **本轮新增的运维事实**：
+  - **AV 占用 `go-build` 临时 exe**：本机实时扫描会拦下**新写出**的测试二进制（`open …\go-build…\xxx.test.exe: Access is denied`），**与改动内容无关**（回退到 HEAD 同样被拦、仅改注释同样被拦）。绕法：`go test -c -o F:\TEMP\deeptutor\tb\<name>.test.exe ./<pkg>/` 构建到 F 盘，再 `cd` 到包目录直接运行该二进制（测试要用相对路径读仓库内文件）。已记入 `AGENTS.md`。
+  - `internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 仍是**已登记的环境性失败**（要求 CI 工作流含 Windows 上的根模块 `go test` 步骤 → M1.5 待办）。
+
+- **门禁实测（本轮）**：`go build ./...` 全绿；`go vet ./...` 全绿；`gofmt -l internal cmd tools sdk desktop` **0**；受影响包测试全通过（`base/envvar`、`base/i18n`、`contract/config`、`ext/hook`、`ext/pluginpkg`、`ext/configbackup`、`ext/extension/sidecar`、`frontend/termrender`、`frontend/tui`、`frontend/doctor`、`platform/telemetry`、`platform/feedback`、`platform/account`、`runtime/outputstyle`、`state/migration`、`state/storage`、`tools/productdocs`、`cmd/deep-tutor`、`cmd/reasonix-studio-host`）。`internal/platform/feedback` 一次 `TempDir RemoveAll cleanup: 目录非空`（AGENTS.md 已登记的 Windows 文件锁抖动），复跑通过。
+
+- **下一步（按序）**：① **M1.5 门禁基线重建 + CI Go job**（`make check -update` 收紧并 commit 基线，`tools/repolint/baseline.json` 仍是上游基线、含 23 条已删文件记录；CI 需含 Windows 根模块 `go test` 步骤，否则 `internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 必失败；Go 门禁需分批 + 超时上限，因为 `internal/assembly/boot` 单包本机 974–1340 秒）；② **M1.6**（`make build` 产出 `bin/deep-tutor.exe`，serve 可启动空壳）；③ **M1.3 多实例 spike**（矩阵回填 `plan/reasonix/04` §四）。
+
 **iter 399（2026-10-22，M1.4 品牌化 + `DEEPTUTOR.md` 建档 + 门禁修复，✅ 完成）**：承接 iter 398 的「下一步」① M1.4 品牌化与 `DEEPTUTOR.md` 建档（`DEEPTUTOR.md` 此前**不存在**）。
 
 - **本轮 8 个 commit**：
