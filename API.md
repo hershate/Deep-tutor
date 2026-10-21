@@ -643,6 +643,9 @@ const due = await DeepTutor.api.get('/progress/review/due')
 
 - `path` 以 `/` 开头，相对 `/api` 前缀。
 - 失败抛出 `ApiError`（含 HTTP 状态码）；401 时若为过期的 JWT 会话，前端会自动跳转登录页（与自身请求行为一致）。
+- **开放本机模式下的额外限制（iter 397 勘误）**：开放模式（无 `AUTH_TOKEN` / 无人设口令 / 无 active PAT）下后端**完全免认证**——任何能连到本端口的客户端都拥有全部数据的读写权。为堵住「远程建立长期后门」，**信任面建立类端点**在开放模式下**仅接受本机回环请求**（非回环 → 403）：`POST /api/users`、`PUT /api/users/{id}`、`POST /api/credentials`、`PUT /api/credentials/{id}`、`POST /api/credentials/{id}/activate`、`POST /api/providers`、`PUT /api/providers/{id}`、`POST /api/providers/{id}/activate`，以及公开的 `POST /api/setup` / `POST /api/setup/dismiss`。**本机（回环）调用全程不受影响**，故插件在服务端侧调用这些端点不受此限制。判定置于身份解析之前，远程未认证调用不会触发「懒创建 admin」的写副作用。
+- **用户列表分页（iter 397 勘误）**：`GET /api/users` 现返回 `{users, total, limit, offset}`——此前**无分页、无读限流**（每次返回全量用户行，且可被反复调用）。`limit` 默认 **100**、范围 1-500，`offset` ≥ 0；读限流 60/min（写限流 20/min 不变）。插件如需遍历全部用户，须按 `total` 分页取。
+- **自重置口令返新 token（iter 397 勘误）**：`PUT /api/users/{id}` 管理员重置**自己**的口令时，旧 JWT 立即失效，而响应此前**不含新 token**（本人当场被登出）。现按 `POST /api/setup` 的同一范式在响应里返回 `token` 字段；重置**他人**口令**不返** token。
 - 后端 REST 端点全集见 [docs/archive/plan-v1/03-api-frontend.md](docs/archive/plan-v1/03-api-frontend.md) §一
   （REST 端点为内部契约，可能随版本演进；插件应做好兼容；v2 端点设计见 plan/reasonix/03）。
 

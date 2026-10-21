@@ -1,11 +1,11 @@
-# 06 · API 全览（24 路由模块 / 145 operations / 119 paths）
+# 06 · API 全览（24 路由模块 / 146 operations / 120 paths）
 
 > 证据基线（2026-10-20 复核，与代码一致）：
 >
-> - **OpenAPI 实测导出**：`PYTHONPATH=backend AUTH_TOKEN=<探针值> python -c "from app.main import create_app; app=create_app(); spec=app.openapi()"` → **119 paths / 145 operations**，全部带 `/api` 前缀。
+> - **OpenAPI 实测导出**：`PYTHONPATH=backend AUTH_TOKEN=<探针值> python -c "from app.main import create_app; app=create_app(); spec=app.openapi()"` → **120 paths / 146 operations**，全部带 `/api` 前缀。
 > - **路由模块**：`backend/app/api/` 共 28 个文件 = `__init__.py` + `deps.py` + `errors.py` + `sse_utils.py` + **24 个路由模块**；`share.py` 贡献 3 个 router（`router` / `manage_router` / `public_router`），全库合计 26 个 `APIRouter` 实例。
 > - **ORM 29 表**（`backend/app/db/models.py`）；**alembic 26 个迁移**（`backend/alembic/versions/`）。
-> - **测试与体量**：`backend/tests/` 177 个文件；`backend/app` 26 583 行；`frontend/src` 20 469 行（`.ts`/`.tsx` 20 250 + `.css` 219；总行数口径，`[System.IO.File]::ReadAllLines` 逐文件累加）。
+> - **测试与体量**：`backend/tests/` 201 个文件（188 个 `test_*.py`）；`backend/app` 31 311 行；`frontend/src` 20 788 行（`.ts`/`.tsx` 20 569 + `.css` 219；总行数口径，`[System.IO.File]::ReadAllLines` 逐文件累加）。
 > - **资产**：`plugins/` 9 个插件文件（8 个 `.py` 可加载 + 1 个 `.disabled` 停用，见 `backend/app/plugins/loader.py:107-115`）；`skills/` 8 个目录；v1 监听端口 41173。
 > - **Go 侧**：`go.mod` = `module reasonix` / `go 1.26.0`；`/tutor/*` 路由集中于 `internal/frontend/serve/tutor*.go`；**无 `/api` 兼容层**（阶段① M3.5 待建）。
 
@@ -84,7 +84,7 @@ flowchart TD
 | plugins | /plugins | require_admin | 4 | GET / · POST /{plugin_id}/reload · POST /{plugin_id}/disable · POST /{plugin_id}/enable |
 | events | /events | require_auth | 1 | GET /stream（SSE） |
 | tools | /tools | require_auth | 1 | GET /tools |
-| **合计** | | | **145** | **119 paths** |
+| **合计** | | | **145** | **120 paths** |
 
 补充说明：
 
@@ -166,6 +166,16 @@ flowchart TD
 - **会话删除端点不再独占工作线程**：`DELETE /api/sessions/{id}` 此前是同步端点，等在途生成收敛（最多 15s）期间独占一个 anyio 工作线程，并发删除可占满线程池（默认 40 槽）使全站同步端点（含登录）排队。现为 async 三段式：准备（写线程）-> 异步等待（`wait_generation_settled_async`，**不占线程**）-> 删除（写线程）+ 文件清理（线程池）；文件清理失败此前被 `except: pass` 静默吞掉，现记 warning。
 - **备份覆盖面披露**（B8）：后端早已计算「未纳入备份的表」（审计流水 / 用量台账 / 分享链接 / 凭证档案等）与「因体积上限跳过的 kb 原件数」并随 export/preview/import 回传，UI 一律不显示 -> 「导出全部学习数据」的表述与实现不符。现新增 `GET /api/backup/coverage`（同一事实源），设置页折叠展示未备份清单。
 
+**iter 397：暴露面与认证面的八处加固**——
+- **启动期开放模式告警**（B1）：开放模式（无 `AUTH_TOKEN` / 无人设口令 / 无 active PAT）下后端**完全免认证**——任何能连到本端口的客户端都拥有全部数据的读写权（含用户管理与数据导出）。此前该状态**只有前端横幅**提示，无浏览器的服务端部署看不到任何信号；启动期只对**弱** token / 弱 JWT 密钥告警，**比弱 token 更严重的「完全没有认证」反而静默**。现新增 `core/security.open_mode_notice(db)`（可测助手）+ 启动期（`init_db` 之后）记 WARNING。
+- **开放模式的信任面回环守卫**（B1/B2）：见上方「iter 397 修正」条——`api/deps.py::require_local_in_open_mode` 覆盖 `users` 三个写端点 / `credentials` 的 PAT 创建·改写·启用 / `providers` 的创建·改写·启用。实测修复前远程 `POST /api/users` 返回 **201 + 完整用户体**。
+- **`.env` token 映射到管理员**（B7，E6）：仅配 `AUTH_TOKEN`、未配 `ADMIN_PASSWORD` 的全新部署**库里没有任何管理员**，`.env` token 的回退路径建的是 `is_admin=False` 的默认用户 -> `POST /setup` 403、users 全 403、登录无任何可用凭据 -> **实例无法经 API 完成首次配置**（死路）。现 `core/security.ensure_admin_for_env_token(db)`：`.env` token 命中且库中无管理员时，把当前解析到的身份（与旧路径同口径：**首个用户**，**既有数据归属不变**）提升为管理员并补登录名（口令留空，`.env` token 即其凭据）。
+- **用户列表分页 + 限流**（B7）：`GET /api/users` 此前**无分页、无读限流**——每次返回全量用户行（用户数线性增长即线性响应），且可被反复调用。现返回 `{users, total, limit, offset}`，`limit` 默认 **100**、上限 **500**（`ge=1`），`offset` `ge=0`；读限流 `users_read:{admin}` **60/min**（此前只有写限流 `users_write:{admin}` 20/min）。
+- **自重置口令返新 token**（B7，E5）：管理员重置**自己**的口令时旧 JWT 立即失效（`tokens_valid_after`），但**响应里没有新 token**——本人当场被登出。现按 `POST /setup` 的同一范式返回 `token`（`create_token`）；重置**他人**口令**不返**（避免把别人的会话发出去）。
+- **删用户清工作区**（B7）：`DELETE /api/users/{id}` 此前只删库行，**该用户的 run 工作区目录遗留**（含工作区文件与可能含 prompt 的产物）。现随删随清（含空父目录回收）。
+- **登录限流桶收敛**（B7，E13）：登录失败此前分散在多个桶（`login:{ip}:{username}` / `login:acct:{username}` / `login:ip:{ip}`），攻击者轮换用户名即可把每桶计数打散。现统一为**账号桶 + IP 桶双计**，且限流器**只计失败**（口令正确放行），键用**摘要**（明文不落键）。
+- **审批链路与模型贯通**（B9，用户定夺）：`awaiting_approval` 此前**无任何出口**（既不能批准、也不能放弃、也不会过期 -> 提议永久占位，产物目录永不清理）。现三条出口：**批准** `POST /api/runs/{id}/approve`（`target_kind`：`note`/`plan`；`material` 从 schema enum 移除）/ **放弃** `POST /api/runs/{id}/cancel`（CAS 抢占，与 approve 互斥）/ **过期** 维护轮按 `settings.awaiting_approval_ttl_seconds`（默认 86400 = 24h，0 = 禁用）收敛超时提议 -> `cancelled`（判据取**提议产生时刻**而非 run 起始时刻）。另 `app/llm/__init__.py::get_provider` 增显式 `model` 覆盖（请求 model > 档案 model > 插件 default_model > `settings.anthropic_model`），并把**实际模型回写** `runs.model`（消除「看起来可切、实际不切」与 `runs.model` / `api_usage.model` 不一致）。
+
 ## 5. 典型请求生命周期（以 POST /api/plans/generate 为例）
 
 ```mermaid
@@ -212,13 +222,13 @@ flowchart LR
 | 方案 / 测验 / 进度 / 笔记 / 检索 / 用量 / kb / 分享 / 备份 | 已覆盖（路径前缀 `/tutor` + 资源名改写） |
 | 导出格式 | 拆为按扩展名的独立端点：`export.md` / `.ics` / `.pdf` / `.apkg` / `.html`（slides），另有单元级 `units/{uid}/export.html`（tutor_data.go:26-31）；v1 为 `GET /api/export/formats` + `POST /api/export/{plan_id}` 二元结构 |
 | **auth / login / me / setup / users / providers / credentials / preferences / memory(threads,runs) / events / tools / plugins** | **未覆盖**：Go 侧无对应 /tutor 端点 |
-| 配额与限流 | 仅保留重生成上限（`ErrRegenQuota` → 429 `tutor.regen_quota`，`internal/runtime/tutor/service.go:343-344`）、日预算（`ErrBudgetExceeded` → 402 `tutor.budget_exceeded`，service.go:68-78，阈值取 `TUTOR_DAILY_BUDGET` 环境变量，缺省 **10**，见 `internal/frontend/serve/tutor.go:118-128`）、单会话占用（`ErrBusy` → 409 `tutor.busy`，tutor.go:169-170）；**无 per-IP 限流、无 per-user 资源配额** |
-| body 限额 | v1 为**通用中间件**（`main.py:210-246`，覆盖全部路由，55MB + chunked 限量读）；Go 侧**无通用 body 中间件**，改为逐端点 `MaxBytesReader` / `LimitReader`：tutor_data.go:169（1MB）· tutor_data.go:652（8MB）· tutor_kb.go:54（70MB）· tutor_kb.go:82（10MB）· tutor_kb.go:209（1MB）· tutor_backup.go:72（360MB） |
-| 统一错误信封 | **形态不同**：Go 侧为 `refuse(w, status, code, message, nil)` 的扁平 `{code, message}` 结构（`internal/frontend/serve/tutor.go:165-214` 共 21 个哨兵错误分支），非 v1 的 `{"error": {code, message, details}}` 嵌套信封 |
+| 配额与限流 | 重生成上限（`ErrRegenQuota` → 429 `tutor.regen_quota`，`internal/runtime/tutor/service.go:343-344`）、日预算（`ErrBudgetExceeded` → 402 `tutor.budget_exceeded`，service.go:68-78，阈值取 `TUTOR_DAILY_BUDGET` 环境变量，缺省 **10**，见 `internal/frontend/serve/tutor.go:118-128`）、单会话占用（`ErrBusy` → 409 `tutor.busy`，tutor.go:169-170）。**iter 397-B10/B13 补齐资源配额**（此前 Go 侧**完全无资源配额**，文件存储替代数据库后「计数型配额」无人执行）：笔记 500 / 会话 200 / 每会话材料 20 / 每会话方案 50 / 知识库文档 200（`internal/runtime/tutor/quota.go`），**计数与写入同临界区**（键控锁，镜像 v1 的 `quota_slot`）；对应 429 `tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota` / `tutor.kb_quota`。**仍无 per-IP 限流**（v1 的 `limiter` 未移植） |
+| body 限额 | v1 为**通用中间件**（`main.py:210-246`，覆盖全部路由，55MB + chunked 限量读）；Go 侧**iter 397-B10 补通用 body 中间件**——`tutorPathGuard` 对 `/tutor/` 前缀统一套 `http.MaxBytesReader`（默认 1MB；备份 360MB、notes/import 8MB、材料与 KB 上传 80MB、KB url 10MB，见 `internal/frontend/serve/tutor.go` 的 `tutorBodyCap`），逐端点 `MaxBytesReader` / `LimitReader` 仍在其上叠加 |
+| 统一错误信封 | **形态不同**：Go 侧为 `refuse(w, status, code, message, nil)` 的扁平 `{code, message}` 结构（`internal/frontend/serve/tutor.go` 的 `tutorRefuse`，iter 397-B13 后共 **27** 个哨兵错误分支 / 33 个拒绝码），非 v1 的 `{"error": {code, message, details}}` 嵌套信封。**iter 397-B10 起内部错误不再回显原文**（`tutorFail`：只进 `slog`，对外统一 500 `tutor.internal_error`） |
 
 ### 6.3 shim 缺位事实
 
-- **无 `/api` 兼容层**：Go 侧只暴露 `/tutor/*`（78 端点）+ 内核自身路由（`routes.go:12-111`），旧 SPA 依赖的 `/api/*`（145 operations）**在 Go 服务上全部 404**。阶段① **M3.5 待建** shim 映射层（设计见 `plan/reasonix/03-API设计与shim映射.md`）。
+- **无 `/api` 兼容层**：Go 侧只暴露 `/tutor/*`（78 端点）+ 内核自身路由（`routes.go:12-111`），旧 SPA 依赖的 `/api/*`（146 operations）**在 Go 服务上全部 404**。阶段① **M3.5 待建** shim 映射层（设计见 `plan/reasonix/03-API设计与shim映射.md`）。
 - **鉴权未落地到 tutor 面**：`/tutor/*` 走通用中间件链 `logMiddleware(auth.middleware(auth.hostGuard(csrfGuard(auth.mutationGate(routes())))))`（`internal/frontend/serve/serve.go:398`）；该链中 CSRF 守卫只要求 POST 带 `application/json`（serve.go:409-419），`mutationGate` 在无鉴权模式下要求 launch token（`internal/frontend/serve/launch_token.go:57-63`），**无 v1 式的用户级 JWT / 多用户归属隔离**——v1 的 `require_auth` 四级链、`get_owned_*` 归属守卫在 Go 侧不存在。
 - **上传形态不同**：Go 侧材料上传收 JSON `{filename, content_base64}`（tutor.go:361-389），非 multipart 表单。
 - **备份体量**：`/tutor/backup/import` 读包上限 `backupReaderCap = 360 << 20`（tutor_backup.go:18、72），解码后阈值对齐 v1 的 256MB。

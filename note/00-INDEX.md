@@ -47,12 +47,12 @@
 
 | 区域 | 规模 |
 |---|---|
-| `backend/app` | 94 个 `.py`，26 583 行 |
-| `backend/tests` | 177 个 `.py`，37 338 行，1458 个 test 函数（pytest 收集 1462 用例） |
+| `backend/app` | 94 个 `.py`，31 311 行 |
+| `backend/tests` | 201 个 `.py`（188 个 `test_*.py`），45,055 行，1729 个 test 函数（pytest 收集 1736 用例） |
 | `backend/alembic/versions` | 26 个迁移 |
-| `backend/app/api` | 28 个 `.py`（24 个路由模块 + `deps.py`/`errors.py`/`sse_utils.py`/`__init__.py`）；OpenAPI 119 paths / 145 operations |
+| `backend/app/api` | 28 个 `.py`（24 个路由模块 + `deps.py`/`errors.py`/`sse_utils.py`/`__init__.py`）；OpenAPI 120 paths / 146 operations |
 | `backend/app/db/models.py` | 29 张 ORM 表 |
-| `frontend/src` | 73 个 `.ts`/`.tsx`（另 1 个 `.css` 219 行），20 250 行；19 页 + 38 组件 |
+| `frontend/src` | 73 个 `.ts`/`.tsx`（另 1 个 `.css` 219 行），20 569 行；19 页 + 38 组件 |
 | `plugins/` | 8 个 `.py` + 1 个 `.disabled`（891 行，不含 README） |
 | `extension/` | 7 个代码文件（343 行）+ README（27 行） |
 | `skills/` | 8 个目录，19 个文件 |
@@ -105,5 +105,5 @@ flowchart TB
 2. **成本计量贯穿全链**：每次 LLM 调用即时落 `api_usage`，三级计费解析（用户计费表 → Anthropic 族默认 → 记 0 并告警），会话预算 + 日预算 + 重生成次数三重守卫。Go 侧改为 Reasonix 官方费率表（append-only + superseded）权威。
 3. **记忆系统仿 OpenAI Assistants**：Thread/Message/Run/RunStep/RunArtifact/Memory 六表，append-only 消息历史，按需召回记忆（工具显式召回，不自动注入），工作区 scratch→committed→promoted 三段生命周期 + 用户审批。
 4. **插件体系是完整的二次开发框架**：单文件 Python 插件经 `register(api)` 获得 15 个命名空间，失败自动回滚、支持热重载、事件总线与 SSE 事件流打通前端。v2 以 Reasonix 插件包 / Extension Protocol v2 / MCP / skill 承接。
-5. **工程质量密度高**：177 个测试文件（1462 个 pytest 用例）、26 个 alembic 迁移、统一错误信封、SSRF/zip bomb/XSS/路径穿越防护、原子写、有界队列背压。Go 侧门禁工具（repolint/covergate/pricecheck）随内核吸收入库，但基线尚未按本仓树重建，且未接入 CI。
+5. **工程质量密度高**：188 个测试文件（1736 个 pytest 用例）、26 个 alembic 迁移、统一错误信封、SSRF/zip bomb/XSS/路径穿越防护、原子写、有界队列背压。Go 侧门禁工具（repolint/covergate/pricecheck）随内核吸收入库，但基线尚未按本仓树重建，且未接入 CI。
 6. **内核吸收已完成**：R-Tutor studio 快照 8289 文件入库，`internal/runtime/tutor` 的 8 步流水线与 v1 同构；存储当前为 JSON 文件态，阶段① M2/M3 改为 SQL 并补 `/api` 兼容层。

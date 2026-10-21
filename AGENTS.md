@@ -19,7 +19,7 @@
 
 ## 仓库状态速览（2026-10-21）
 
-- **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 146 operations / 120 paths、29 张 ORM 表、26 个 alembic 迁移、191 个测试文件（pytest 收集 1620 用例，iter 396-B 实测 1619 passed / 1 skipped）；前端 19 页 SPA。
+- **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 146 operations / 120 paths、29 张 ORM 表、26 个 alembic 迁移、**188 个 `test_*.py` 测试文件（pytest 收集 1736 用例，iter 397-B9 实测 1734 passed / 2 skipped）**；前端 19 页 SPA。
 - **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1 余项全部未完成**（M1.2 模块改名 `reasonix`→`deep-tutor`；M1.3 多实例 spike；M1.4 品牌化与 `DEEPTUTOR.md` 建档；M1.5 门禁基线重建 + CI；M1.6 `bin/deep-tutor.exe` 冒烟），见 `plan/reasonix/05` 与 `stage.md`。
 - **门禁现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），**未纳入任何 Go 门禁**。Go 门禁命令在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。`tools/repolint` 基线尚未按本仓树重建（现存 2429 行报告，含上游 `REF/` 副本扫描与本仓根文件），M1.5 处理。`go test ./...` 在本机固定失败的用例如下，均为环境或工作树依赖，**非代码回归**（2026-10-20 逐包串行复跑核实）：
 
