@@ -22,7 +22,14 @@ type dotEnvFile struct {
 // workspace .env values returned by loadDotEnvForRoot are ignored here because
 // loadDotEnv has no Config to carry a workspace-scoped expansion environment.
 func loadDotEnv() {
-	processRoots().loadDotEnvForRoot(".")
+	processRoots().loadDotEnv()
+}
+
+// loadDotEnv loads this binding's global .env for provider credentials. The
+// workspace .env values returned by loadDotEnvForRoot are ignored here because
+// loadDotEnv has no Config to carry a workspace-scoped expansion environment.
+func (r Roots) loadDotEnv() {
+	r.loadDotEnvForRoot(".")
 }
 
 // loadDotEnvForRoot returns workspace .env values for scoped plugin/MCP/proxy

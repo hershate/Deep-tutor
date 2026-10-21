@@ -125,6 +125,11 @@ type controllerDeps struct {
 	// discovery, and the guard root for checkpoint restore writes. Frontends read
 	// it through WorkspaceRoot().
 	workspaceRoot string
+	// roots is the storage binding every user-global path this controller reads
+	// or writes resolves against. The zero value follows the environment, which
+	// is what a single-user host wants; a host that assembles several users
+	// states one home per user so a session's settings are that user's alone.
+	roots config.Roots
 	// workspaceRepo is workspaceRoot's git identity, resolved before any turn ran.
 	workspaceRepo gitcmd.Repo
 	posture       PostureEvidence
@@ -161,6 +166,7 @@ func newControllerDeps(opts Options, sink event.Sink, usageTee *goalUsageTee, ru
 		modelModes:             opts.ModelModes,
 		modelFace:              faceOfEntry(opts.ModelEntry),
 		sessionDir:             opts.SessionDir,
+		roots:                  opts.Roots,
 		date:                   newDateAnchor(opts.Clock),
 		skills:                 newSkillSet(opts.Skills, opts.AllSkills, opts.SkillStore, opts.AllSkillStore, opts.DisableImplicitSkillInvocation, opts.WorkspaceRoot),
 		skillRunner:            opts.SkillRunner,

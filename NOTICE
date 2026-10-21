@@ -340,6 +340,36 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `desktop/frontend-next/src/ui/addplugin-i18n.interaction.test.tsx` | 断言的展示名跟实现走（Reasonix → Deep-tutor） |
 | `Makefile` | **Windows 上取值与 shell 探测修复**：`$(wildcard C:/Program Files/Git/bin/sh.exe)` 因路径含空格恒空 → `SHELL` 落到不存在的 `/bin/sh` → mingw 版 make 的 `$(shell ...)` 走的是 POSIX 语义下的 Windows 程序（`date` 是交互式的 Windows `date`、`sed` 的单引号不认、`cat` 不是命令）→ **`BUILD_TIME_UTC` 变成带空格的英文句子，`-X` 的值被拆开，`make build` 链接失败**。修法：shell 探测改用 glob（8.3 短名优先，使 make 的 SHELL 指向真实存在的 shell，POSIX recipe 在 Windows 上随之可用）、`git describe`/`git rev-parse` 去掉管道与重定向（前缀用 `$(patsubst)`、空值用 `$(if)`）、时间戳显式点名 POSIX shell 并回落 PowerShell（形状固定 `YYYY-MM-DDTHH:MM:SSZ`，须为一个词）、`cat` 改 `$(file <.golangci-version)`（make 3.81 回落 `cat`）、`lint-install` 删掉冗余的 `CGO_ENABLED=0` 内联 POSIX 赋值（顶层已 export）。**stderr 一律不重定向**：空设备没有两边都认的拼法，重定向落到的其实是文件。Linux/macOS 上行为不变 |
 
+**第四轮：多用户存储绑定贯通（2026-10-22，M1.3 spike 的 K-1）**：一个进程服务多个用户时，每个用户的**用户全局**读写必须落在**自己的** home 下。此前控制器的运行期读取一律走进程级路径函数（`config.UserConfigPath()` 等 16 个），即使用户装配层已经声明了 home 也读不到自己的设置。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/session/control/`（35 文件） | `control.Options` 增 `Roots config.Roots`（**零值=跟随环境**，与原行为一致，故对现有调用方零影响）、`Controller` 增 `Roots()` 访问器；控制器的**用户全局**读写（用户配置、项目授权、命令根、插件树、用户配置读取路径）改走该绑定——**生产代码的进程级路径调用点归零** |
+| `internal/session/control/runtime_config.go`（本仓新增） | 运行期配置读取的统一入口：用户全局层取自绑定，**项目层仍取自进程工作目录**——「哪一层归哪个 home」是两件事，混在一起会让这次改动难以复核 |
+| `internal/session/control/trustable.go`（本仓新增） | 「可整目录信任」的判定改为**两半都查**：会话自己的 home 也受保护，进程 home 的既有保护不放宽（sensitive 路径 `approval_orchestration.go` 的三处调用随之改用该判定） |
+| `internal/contract/config/mutate.go` | 新增 `Roots.LockUserConfigEdits()`：配置编辑锁必须锁**被写文件自己**的锁。此前只能锁进程 home 的文件，换了 home 之后会变成「写 A 的文件、锁 B 的文件」，两个写者互不排斥（丢更新） |
+| `internal/contract/config/edit.go`、`paths.go` | `isUserConfigPath` 改为**按绑定**判断（文件归哪个 home，它的规则就跟到哪个 home）；新增 `Roots.StatedHome()`——调用方**指名**的 home，与解析出来的 home 不是一回事 |
+| `internal/contract/config/{load.go,edit.go,mutate.go,unparsed.go,path_access.go,project_edit_provenance.go,preserve.go,config.go}` | **配置的读/写路径整体绑定化**：新增 `Roots.LoadForEdit` / `LoadForEditReadOnlyStrict` / `EditConfigFile` / `RepairUnparsedConfig` / `WritePermissionsAllow`；`renderScopeForPath` 与 `configFilePerm` 由自由函数改为 `*Config` 的方法，跟着配置自己的绑定走。**为什么必须做**：文件是「用户文件」还是「项目文件」决定它怎么写——用户文件整份重写（只改动的键），项目文件按增量写（只写与默认值不同的节）。判定若仍按进程，per-user 的 config.toml 会被当**项目文件**增量写，**丢掉用户从未在项目里声明过的 provider 条目**。零值绑定=进程绑定，故对现有调用方零影响 |
+| `internal/assembly/boot/build.go`、`reload.go` | 装配时把 `b.roots` 传给控制器；`Rebuild` 让**替换件继承被替换件的 stated home**——换模型是同一个会话，不是可以另择 home 的新会话 |
+| `internal/frontend/serve/capability_project.go` | 能力面板按绑定读用户配置；serve 层尚无自己的用户，暂用零绑定（即进程行为，与原状一致） |
+
+**刻意保持全局的（不随 per-user home 走）**：**激活存储**（技能/MCP 的启用态）——它的作用域只有 global 与 project 两种，没有 user 一档；按 `plan/reasonix/04` §三，扩展资产是「全局一套（admin 管理），多用户共享」，故仍读进程 home（服务进程自己的 home 即全局资产库）。MCP 声明的安装/删除（`InstallUserPluginForRoot` 等）同理，属全局扩展资产面。**由此留下的产品级问题**（用户能否为自己单独关掉某个 MCP 服务器/技能）记入 `plan/reasonix/04` §四，待用户定夺。
+
+**第五轮：配置读路径的来源判定与凭据加载也按绑定（2026-10-22，M2-0a 的 K-1 续做）**：第四轮把「写」的部分接上了绑定，但「读」的一侧还留着按进程判定的地方——它们在单用户下看不出差别，换成 per-user home 后就会读错文件。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/contract/config/load.go` | **声明来源标注按绑定**（`mergeTOMLPlugins` / `mergeTOMLProviders` / `providerSourceForPath`）：此前一律用进程级的 `isUserConfigPath` 判定「这是用户文件还是项目文件」，于是 per-user 的 config.toml 里的 `[[plugins]]` 被记成**项目声明**。后果有二：移除该服务器时按项目源去找文件（找不到，删不掉）；同名 provider 的「用户层优先」也判错。**为什么必须做**：来源决定声明可以在哪个文件里被改，也决定它算全局还是本地 |
+| `internal/contract/config/decode.go` | TOML 的读取按绑定解析路径：用户文件允许是指向别处的链接，项目文件不得越出自己的目录——这条规则跟文件属于哪个 home 走。此前 stat 走绑定、decode 走进程，两者可能解析到不同结果 |
+| `internal/contract/config/load.go` | `desktop.provider_access` 的「用户是否声明过」按绑定判定：未声明的用户清单意为「全部允许」，项目清单不得把它收窄 |
+| `internal/contract/config/dotenv.go`、`load.go` | **凭据按绑定加载**：编辑态读配置时带入的 `.env` 是该 home 的，不是进程的。凭据是用户自己的，串了就是拿别人的 key 去解析自己的 `api_key_env` |
+| `internal/contract/config/unparsed.go` | 配置读不出来时的恢复读该 home 的「最后一次可用」快照，而不是进程的 |
+| `internal/contract/config/edit.go`、`mutate.go` | `SaveForRoot` 的落点、配置编辑锁的目标，都按绑定解析 |
+| `internal/session/control/trustable.go`、`boundary.go`、`workspace_roots.go`、`approval_orchestration.go` | **目录信任的存储位置收敛为一个口径**（`trustHome()`）：此前「信任记录」读 `posture.Home`、「记住的规则」读进程 home，同一份记录的两个视图读的是**两个 home**——多用户下就是两个用户的文件，用户授的规则与会话看到的规则对不上。改为一处：会话的存储绑定说话，姿态的 home 兜底（sensitive 路径 `approval_orchestration.go` 的 2 处随之改） |
+| `internal/contract/config/stated_home_test.go`、`internal/session/control/stated_home_test.go` | 本仓新增：来源标注、凭据加载、provider_access 归属、信任与记住的规则同一处的回归 |
+
+**MCP 声明仍然落在全局资产库**（note/12 决策 #55：MCP 服务器由管理员安装，全体用户可用，普通用户不可自装）。因此控制器的 MCP 安装/删除走**进程绑定**，不随会话的 per-user home 走；会话自身的设置（超时、语言、显示偏好）才随绑定走。**由此留下的装配层任务**：per-user 会话要看到全局的 MCP 清单，装配层须把全局安装态**只读投影**进每个用户（`plan/reasonix/04` §二/§三），内核侧的读路径已按绑定就绪（`c.roots.LoadForRoot` 读的是该 home，投影进去即可见）。
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

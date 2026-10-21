@@ -58,6 +58,12 @@ type ArgData struct {
 	PluginNames     []string
 	MemoryRefs      []string
 	MemoryArchives  []string
+	// Roots is the storage binding the data was assembled under. The
+	// completion logic reads the user configuration through it, so a session
+	// that states a home completes against that home's providers. The zero
+	// value follows the environment, which is what the controller-free TUI
+	// path gets.
+	Roots config.Roots
 }
 
 // SlashArgItems completes the arguments of a management slash command
@@ -264,7 +270,7 @@ func currentEffortEntry(d ArgData) *config.ProviderEntry {
 	if strings.TrimSpace(d.CurrentModel) == "" {
 		return nil
 	}
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(d.Roots)
 	if err != nil {
 		return nil
 	}
@@ -556,7 +562,7 @@ func (c *Controller) pluginsNotice(fields []string) {
 	}
 	switch sub {
 	case "", "list", "ls":
-		text, err := pluginpkg.InstalledListText(config.ReasonixHomeDir())
+		text, err := pluginpkg.InstalledListText(c.roots.Home())
 		if err != nil {
 			c.notice("plugins: " + err.Error())
 		} else {
@@ -567,7 +573,7 @@ func (c *Controller) pluginsNotice(fields []string) {
 			c.notice("usage: /plugins show <name>")
 			return
 		}
-		text, err := pluginpkg.InstalledShowText(config.ReasonixHomeDir(), fields[2])
+		text, err := pluginpkg.InstalledShowText(c.roots.Home(), fields[2])
 		if err != nil {
 			c.notice("plugins: " + err.Error())
 		} else {
@@ -579,7 +585,7 @@ func (c *Controller) pluginsNotice(fields []string) {
 }
 
 func (c *Controller) modelListText() string {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		return "model: " + err.Error()
 	}
@@ -599,7 +605,7 @@ func (c *Controller) modelListText() string {
 }
 
 func (c *Controller) providerListText() string {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		return "provider: " + err.Error()
 	}
@@ -629,7 +635,7 @@ func (c *Controller) providerListText() string {
 }
 
 func (c *Controller) providerSwitchText(name string) string {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		return "provider: " + err.Error()
 	}

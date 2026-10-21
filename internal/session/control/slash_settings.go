@@ -45,7 +45,7 @@ func (c *Controller) settingsNotice(fields []string, trimmed string) bool {
 }
 
 func (c *Controller) effortStatusText() string {
-	cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot())
+	cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot())
 	if err != nil {
 		return fmt.Sprintf(i18n.M.EffortReadErrorFmt, err.Error())
 	}
@@ -95,7 +95,7 @@ func (c *Controller) renameNotice(title string) {
 }
 
 func (c *Controller) sandboxStatusText() string {
-	cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot())
+	cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot())
 	if err != nil {
 		return "sandbox: config not loaded"
 	}
@@ -128,7 +128,7 @@ func (c *Controller) outputStylesText() string {
 		return i18n.M.OutputStyleNone
 	}
 	active := ""
-	if cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
+	if cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
 		active = cfg.Agent.OutputStyle
 	}
 	var b strings.Builder
@@ -151,7 +151,7 @@ func (c *Controller) outputStylesText() string {
 func (c *Controller) reasoningLanguageNotice(fields []string) {
 	const usage = "usage: /reasoning-language auto|zh|en"
 	if len(fields) < 2 {
-		cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot())
+		cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot())
 		if err != nil {
 			c.notice("reasoning-language: " + err.Error())
 			return
@@ -172,13 +172,13 @@ func (c *Controller) reasoningLanguageNotice(fields []string) {
 		c.notice(fmt.Sprintf("reasoning-language: reasoning_language %q: must be auto|zh|en", fields[1]))
 		return
 	}
-	path := config.UserConfigPath()
+	path := c.roots.UserConfigPath()
 	if path == "" {
 		c.notice("reasoning-language: cannot resolve config path")
 		return
 	}
 	var saved string
-	err := config.EditConfigFile(path, func(cfg *config.Config) error {
+	err := c.roots.EditConfigFile(path, func(cfg *config.Config) error {
 		if err := cfg.SetReasoningLanguage(mode); err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func (c *Controller) reasoningLanguageNotice(fields []string) {
 
 func (c *Controller) languageNotice(fields []string) {
 	if len(fields) < 2 {
-		cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot())
+		cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot())
 		if err != nil {
 			c.notice("language: " + err.Error())
 			return
@@ -212,13 +212,13 @@ func (c *Controller) languageNotice(fields []string) {
 		c.notice("usage: /language auto|en|zh")
 		return
 	}
-	if err := saveLanguage(lang); err != nil {
+	if err := saveLanguage(c.roots, lang); err != nil {
 		c.notice("language: " + err.Error())
 		return
 	}
 	c.SetResponseLanguage(lang)
 	c.notice(fmt.Sprintf(i18n.M.LanguageChangedFmt, languageDisplay(lang), i18n.DetectLanguage(lang)))
-	if cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil && cfg.Language != lang {
+	if cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil && cfg.Language != lang {
 		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Code: event.NoticeCodeLanguageOverridden,
 			Text: "this project's config sets language = " + languageDisplay(cfg.Language) + ", which overrides your choice in new sessions", Detail: cfg.Language})
 	}
@@ -226,12 +226,12 @@ func (c *Controller) languageNotice(fields []string) {
 
 // saveLanguage stores the choice in the user config: a language is a personal
 // preference and must not land in a project file that is committed and shared.
-func saveLanguage(lang string) error {
-	path := config.UserConfigPath()
+func saveLanguage(roots config.Roots, lang string) error {
+	path := roots.UserConfigPath()
 	if path == "" {
 		return fmt.Errorf("cannot resolve config path")
 	}
-	return config.EditConfigFile(path, func(cfg *config.Config) error { return cfg.SetLanguage(lang) })
+	return roots.EditConfigFile(path, func(cfg *config.Config) error { return cfg.SetLanguage(lang) })
 }
 
 func normalizeLanguageArg(s string) (string, bool) {
@@ -312,7 +312,7 @@ func describeCurrencies(current, resolved string) string {
 
 func (c *Controller) currencyNotice(fields []string) {
 	if len(fields) < 2 {
-		cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot())
+		cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot())
 		if err != nil {
 			c.notice("currency: " + err.Error())
 			return

@@ -2,8 +2,6 @@ package control
 
 import (
 	"fmt"
-
-	"deep-tutor/internal/contract/config"
 )
 
 // CompactionSettings is what the two configured bounds are and which of them
@@ -28,8 +26,8 @@ type CompactionSettings struct {
 
 // CompactionSettings reports the fold bounds for this session.
 func (c *Controller) CompactionSettings() CompactionSettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	out := CompactionSettings{
 		SoftLimitTokens:  cfg.Agent.ContextSoftLimitTokens,
 		DefaultSoftLimit: 0,
@@ -48,10 +46,10 @@ func (c *Controller) CompactionSettings() CompactionSettings {
 // alike, so a live session keeps the boundary it was built with until it is
 // replaced.
 func (c *Controller) SaveCompactionSettings(softLimitTokens int) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	if err := cfg.SetContextSoftLimitTokens(softLimitTokens); err != nil {
 		return fmt.Errorf("context soft limit: %w", err)
 	}

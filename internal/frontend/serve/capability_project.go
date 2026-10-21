@@ -27,7 +27,7 @@ func mcpProjectState(st control.MCPServerState) string {
 }
 
 func (s *Server) mcpForProject(w http.ResponseWriter, root string) {
-	view := control.InspectProject(root)
+	view := control.InspectProject(config.Roots{}, root)
 	out := make([]mcpEntry, 0, len(view.Servers))
 	for _, st := range view.Servers {
 		state := mcpProjectState(st)
@@ -40,7 +40,7 @@ func (s *Server) mcpForProject(w http.ResponseWriter, root string) {
 }
 
 func (s *Server) skillsForProject(w http.ResponseWriter, root string) {
-	view := control.InspectProject(root)
+	view := control.InspectProject(config.Roots{}, root)
 	entries := make([]skillEntry, 0, len(view.Skills))
 	for _, row := range view.Skills {
 		switchScope := ""
@@ -98,7 +98,7 @@ func (s *Server) switchForProject(root, kind, name string, scope config.Activati
 }
 
 func projectServerEntry(root, name string) (config.PluginEntry, bool) {
-	for _, st := range control.InspectProject(root).Servers {
+	for _, st := range control.InspectProject(config.Roots{}, root).Servers {
 		if st.Entry.Name == name {
 			return st.Entry, true
 		}

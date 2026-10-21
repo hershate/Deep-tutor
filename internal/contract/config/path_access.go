@@ -104,8 +104,31 @@ func resolveConfigReadPath(path string) (string, error) {
 	return resolveConfigAccessPath(path, isUserConfigPath(path))
 }
 
+// resolveConfigReadPath is the binding's read-path resolution. Which rules the
+// file follows — a user config may be a link to anywhere, a project config may
+// not leave its directory — depends on which home it belongs to, so the
+// binding has to be part of the question.
+func (r Roots) resolveConfigReadPath(path string) (string, error) {
+	return resolveConfigAccessPath(path, r.isUserConfigPath(path))
+}
+
 func statConfigPath(path string) (resolved string, exists bool, err error) {
 	resolved, err = resolveConfigReadPath(path)
+	if err != nil {
+		return "", false, err
+	}
+	if _, err = os.Stat(resolved); err != nil {
+		if os.IsNotExist(err) {
+			return resolved, false, nil
+		}
+		return "", false, err
+	}
+	return resolved, true, nil
+}
+
+// statConfigPath is the binding's read-path probe.
+func (r Roots) statConfigPath(path string) (resolved string, exists bool, err error) {
+	resolved, err = r.resolveConfigReadPath(path)
 	if err != nil {
 		return "", false, err
 	}

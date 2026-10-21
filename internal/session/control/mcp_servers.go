@@ -20,7 +20,7 @@ func (c *Controller) AddMCPServer(e config.PluginEntry) (int, error) {
 	// provenance it will receive when the saved user config is loaded next time,
 	// so /mcp add is add-and-use in the current session too.
 	e.Source = config.MCPSourceUserConfig
-	if effective, loadErr := config.LoadForRootReadOnly(c.workspaceRoot); loadErr != nil {
+	if effective, loadErr := c.roots.LoadForRootReadOnly(c.workspaceRoot); loadErr != nil {
 		return 0, loadErr
 	} else {
 		for _, configured := range effective.Plugins {
@@ -102,7 +102,7 @@ func (c *Controller) syncCapabilityRuntimeFromConfig(name string, enabledOverrid
 		return
 	}
 	name = strings.TrimSpace(name)
-	cfg, err := config.LoadForRoot(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRoot(c.workspaceRoot)
 	if err != nil {
 		// The caller revokes first. A config read failure must not re-enable a
 		// potentially stale spec or shared-Host client.
@@ -132,7 +132,7 @@ func (c *Controller) ImportMCPEntries(entries []config.PluginEntry) (total, adde
 	if err != nil {
 		return 0, 0, 0, 0, 0, 0, err
 	}
-	effectiveCfg, loadErr := config.LoadForRoot(c.workspaceRoot)
+	effectiveCfg, loadErr := c.roots.LoadForRoot(c.workspaceRoot)
 	if loadErr != nil {
 		return 0, 0, 0, 0, 0, 0, loadErr
 	}
@@ -167,7 +167,7 @@ func (c *Controller) ImportMCPEntries(entries []config.PluginEntry) (total, adde
 }
 
 func (c *Controller) ConfiguredMCPNames() []string {
-	cfg, err := config.LoadForRootReadOnly(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRootReadOnly(c.workspaceRoot)
 	if err != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (c *Controller) ConfiguredMCPNames() []string {
 }
 
 func (c *Controller) DisconnectedMCPNames() []string {
-	cfg, err := config.LoadForRootReadOnly(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRootReadOnly(c.workspaceRoot)
 	if err != nil {
 		return nil
 	}
@@ -208,7 +208,7 @@ func (c *Controller) ConnectConfiguredMCPServer(name string) (int, error) {
 }
 
 func (c *Controller) configuredMCPServer(name string) (config.PluginEntry, error) {
-	cfg, err := config.LoadForRoot(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRoot(c.workspaceRoot)
 	if err != nil {
 		return config.PluginEntry{}, err
 	}
@@ -224,7 +224,7 @@ func (c *Controller) configuredMCPServer(name string) (config.PluginEntry, error
 // A persistence failure must not produce a false-successful session-only removal.
 // MCPs contributed by installed plugin packages cannot be removed independently.
 func (c *Controller) RemoveMCPServer(name string) (disconnected bool, err error) {
-	cfg, lerr := config.LoadForRoot(c.workspaceRoot)
+	cfg, lerr := c.roots.LoadForRoot(c.workspaceRoot)
 	if lerr != nil {
 		return false, lerr
 	}
@@ -239,7 +239,7 @@ func (c *Controller) RemoveMCPServer(name string) (disconnected bool, err error)
 		return false, fmt.Errorf("no removable MCP server named %q", name)
 	}
 	_ = config.DefaultActivationStore().ClearServerEverywhere(entry, c.workspaceRoot)
-	removedState := reconcileRemovedMCPState(c.workspaceRoot, name)
+	removedState := reconcileRemovedMCPState(c.roots, c.workspaceRoot, name)
 	if c.capabilityRuntime != nil {
 		// Revoke before touching the shared Host so an overlapping resolver cannot
 		// reuse a sibling tab's still-connected client.

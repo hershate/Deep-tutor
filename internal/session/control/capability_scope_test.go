@@ -64,7 +64,7 @@ func TestInspectProjectReadsAnotherFolderWithoutRepointing(t *testing.T) {
 	mustWriteFile(t, filepath.Join(other, ".mcp.json"),
 		`{"mcpServers":{"codegraph":{"command":"codegraph","args":["serve"]}}}`)
 
-	before := InspectProject(other)
+	before := InspectProject(config.Roots{}, other)
 	if len(before.Servers) != 1 || before.Servers[0].Entry.Name != "codegraph" {
 		t.Fatalf("servers = %+v, want the folder's own declaration", before.Servers)
 	}
@@ -78,13 +78,13 @@ func TestInspectProjectReadsAnotherFolderWithoutRepointing(t *testing.T) {
 	if err := store.SetServerEnabled(before.Servers[0].Entry, other, config.ActivationProject, true); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if approved := InspectProject(other); !approved.Servers[0].Enabled || approved.Servers[0].Pending {
+	if approved := InspectProject(config.Roots{}, other); !approved.Servers[0].Enabled || approved.Servers[0].Pending {
 		t.Fatalf("after approval = %+v, want on and settled", approved.Servers[0])
 	}
 	if err := store.SetServerEnabled(before.Servers[0].Entry, other, config.ActivationProject, false); err != nil {
 		t.Fatalf("SetServerEnabled: %v", err)
 	}
-	after := InspectProject(other)
+	after := InspectProject(config.Roots{}, other)
 	if after.Servers[0].Enabled || !after.Servers[0].LocalOverride {
 		t.Fatalf("after switching off: %+v, want off and marked as this project's own", after.Servers[0])
 	}

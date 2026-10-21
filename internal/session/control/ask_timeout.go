@@ -29,8 +29,8 @@ type AskTimeoutSettings struct {
 }
 
 func (c *Controller) AskTimeoutSettings() AskTimeoutSettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	out := AskTimeoutSettings{
 		Seconds:        cfg.Agent.AskTimeoutSeconds.Seconds,
 		DefaultSeconds: config.DefaultAskTimeoutSeconds,
@@ -47,10 +47,10 @@ func (c *Controller) AskTimeoutSettings() AskTimeoutSettings {
 // SaveAskTimeoutSettings persists the timeout. Each ask reads it as it begins
 // to wait, so a question already open keeps the wait it started with.
 func (c *Controller) SaveAskTimeoutSettings(seconds int) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	if err := cfg.SetAskTimeoutSeconds(seconds); err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (c *Controller) askWaitContext(ctx context.Context, origin *event.AskOrigin
 	if origin != nil {
 		return waitCtx, waitCtx, cancel
 	}
-	after, err := config.LoadForEdit(config.UserConfigPath()).AskTimeoutChecked()
+	after, err := c.roots.LoadForEdit(c.roots.UserConfigPath()).AskTimeoutChecked()
 	if err != nil {
 		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Code: event.NoticeCodeAskTimeoutInvalid,
 			Text:   "ask_timeout_seconds in the user config is not valid, so questions wait as long as it takes until it is fixed",

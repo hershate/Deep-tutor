@@ -93,6 +93,9 @@ func ImportCCSwitchMCP() (total, added, updated int, err error) {
 	return importMCPEntries(entries)
 }
 
+// importMCPEntries writes into the global asset library's user-global config:
+// MCP servers are global admin-managed assets (note/12 #55), so an import
+// belongs where everybody can use it, not in one user's home.
 func importMCPEntries(entries []PluginEntry) (total, added, updated int, err error) {
 	path := UserConfigPath()
 	if strings.TrimSpace(path) == "" {

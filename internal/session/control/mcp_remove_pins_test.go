@@ -23,7 +23,7 @@ func TestRemovingAnMCPServerForgetsItsApprovedToolDefinitions(t *testing.T) {
 	if err := os.WriteFile(record, []byte(`{"version":1,"tools":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if state := reconcileRemovedMCPState(workspace, "gone"); state.cleanupErr != nil {
+	if state := reconcileRemovedMCPState(config.Roots{}, workspace, "gone"); state.cleanupErr != nil {
 		t.Fatal(state.cleanupErr)
 	}
 	if _, err := os.Stat(record); !os.IsNotExist(err) {

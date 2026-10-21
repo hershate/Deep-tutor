@@ -18,8 +18,8 @@ type AutoArchiveSettings struct {
 }
 
 func (c *Controller) AutoArchiveSettings() AutoArchiveSettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	return AutoArchiveSettings{
 		Enabled:     cfg.AutoArchive.Enabled,
 		Days:        cfg.AutoArchiveDays(),
@@ -31,10 +31,10 @@ func (c *Controller) AutoArchiveSettings() AutoArchiveSettings {
 // SaveAutoArchiveSettings persists the section. The sweep reads it afresh on
 // every pass, so no rebuild is needed.
 func (c *Controller) SaveAutoArchiveSettings(in AutoArchiveSettings) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	if err := cfg.SetAutoArchive(config.AutoArchiveConfig{Enabled: in.Enabled, Days: in.Days}); err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func (c *Controller) SaveAutoArchiveSettings(in AutoArchiveSettings) error {
 // the store skips anything pinned, leased by a live run, or mid-turn.
 func (c *Controller) ArchiveInactiveSessions() int {
 	dir := c.SessionDir()
-	idle := config.LoadForEdit(config.UserConfigPath()).AutoArchiveAfter()
+	idle := c.roots.LoadForEdit(c.roots.UserConfigPath()).AutoArchiveAfter()
 	if dir == "" || idle <= 0 {
 		return 0
 	}

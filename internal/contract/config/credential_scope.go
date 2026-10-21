@@ -10,7 +10,7 @@ func (r Roots) credentialEnvNamesForRoot(root string) []string {
 // leaves out the ones only the workspace names.
 func (r Roots) credentialEnvNamesForScope(root string, withProject bool) []string {
 	root = resolveRoot(root)
-	cfg := Default()
+	cfg := r.defaultConfig()
 
 	projectTOML := ProjectConfigPath(root)
 	var tomlSources []string
@@ -22,7 +22,7 @@ func (r Roots) credentialEnvNamesForScope(root string, withProject bool) []strin
 		_ = mergeFile(cfg, projectTOML)
 		tomlSources = append(tomlSources, projectTOML)
 	}
-	if providers, _, _, ok, err := mergeTOMLProviders(tomlSources); err == nil && ok {
+	if providers, _, _, ok, err := r.mergeTOMLProviders(tomlSources); err == nil && ok {
 		cfg.Providers = providers
 	}
 

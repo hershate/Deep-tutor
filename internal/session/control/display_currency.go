@@ -21,8 +21,8 @@ type DisplayCurrencySettings struct {
 }
 
 func (c *Controller) DisplayCurrencySettings() DisplayCurrencySettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	return DisplayCurrencySettings{Mode: currencyDisplay(cfg.DisplayCurrencyPref()), Path: path}
 }
 
@@ -47,12 +47,12 @@ func (c *Controller) SaveDisplayCurrency(mode string) error {
 	if closed {
 		return ErrDisplayCurrencyRetired
 	}
-	path := config.UserConfigPath()
+	path := c.roots.UserConfigPath()
 	if path == "" {
 		return errors.New("cannot resolve user config path")
 	}
 	var resolved string
-	err = config.EditConfigFile(path, func(cfg *config.Config) error {
+	err = c.roots.EditConfigFile(path, func(cfg *config.Config) error {
 		if err := cfg.SetDisplayCurrency(pref); err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ func (c *Controller) SaveDisplayCurrency(mode string) error {
 // quotes and every frontend move together; nothing is written to the config.
 func (c *Controller) AdoptWalletCurrency(code string) {
 	code = pricing.NormalizeCurrency(code)
-	if code == "" || config.LoadForEdit(config.UserConfigPath()).DisplayCurrencyPref() != "" {
+	if code == "" || c.roots.LoadForEdit(c.roots.UserConfigPath()).DisplayCurrencyPref() != "" {
 		return
 	}
 	c.mu.Lock()

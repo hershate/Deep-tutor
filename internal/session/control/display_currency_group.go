@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/contract/event"
 )
 
@@ -32,7 +31,7 @@ func (g *DisplayCurrencyGroup) Bind(previous, next *Controller, display func(str
 	if next == nil {
 		return errors.New("display currency controller is unavailable")
 	}
-	cfg, err := config.LoadForEditReadOnlyStrict(config.UserConfigPath())
+	cfg, err := next.roots.LoadForEditReadOnlyStrict(next.roots.UserConfigPath())
 	next.mu.Lock()
 	if next.gate.closed {
 		next.mu.Unlock()

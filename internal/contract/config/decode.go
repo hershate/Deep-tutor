@@ -9,7 +9,16 @@ import (
 )
 
 func decodeTOMLFile(path string, v any) (toml.MetaData, error) {
-	resolved, err := resolveConfigReadPath(path)
+	return processRoots().decodeTOMLFile(path, v)
+}
+
+// decodeTOMLFile is the binding's read of one TOML file. Which rules the path
+// follows — a user config may be a link to anywhere, a project config may not
+// leave its directory — depends on the home the file belongs to, so the
+// binding has to be part of the question. A user config that is a link must
+// decode the same way here as it stats.
+func (r Roots) decodeTOMLFile(path string, v any) (toml.MetaData, error) {
+	resolved, err := r.resolveConfigReadPath(path)
 	if err != nil {
 		return toml.MetaData{}, err
 	}

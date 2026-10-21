@@ -1,7 +1,5 @@
 package control
 
-import "deep-tutor/internal/contract/config"
-
 // FoldWorkSettings is whether Studio folds a turn's intermediate work under one
 // line. The user file holds it; the transcript itself is unaffected.
 type FoldWorkSettings struct {
@@ -10,16 +8,16 @@ type FoldWorkSettings struct {
 }
 
 func (c *Controller) FoldWorkSettings() FoldWorkSettings {
-	path := config.UserConfigPath()
-	return FoldWorkSettings{Fold: config.LoadForEdit(path).UI.FoldTurnWork, Path: path}
+	path := c.roots.UserConfigPath()
+	return FoldWorkSettings{Fold: c.roots.LoadForEdit(path).UI.FoldTurnWork, Path: path}
 }
 
 // SaveFoldWorkSettings needs no rebuild: only the drawing depends on it.
 func (c *Controller) SaveFoldWorkSettings(fold bool) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	cfg.UI.FoldTurnWork = fold
 	return cfg.SaveTo(path)
 }

@@ -100,6 +100,11 @@ func (c *Controller) confineMCPToThisProject(e config.PluginEntry, scope MCPScop
 // the declaration back if activation fails: a server present in config but
 // missing from the activation store resolves by auto_start, which is not what
 // the user just chose.
+//
+// The declaration goes to the global asset library, not to the session's own
+// home: MCP servers are global admin-managed assets (note/12 #55), installed
+// once by the admin and usable by everybody. The session's own settings are a
+// different matter and do follow the session's binding.
 func (c *Controller) persistMCPServer(e config.PluginEntry) error {
 	var err error
 	if e.Source == config.MCPSourceUserConfig {
@@ -165,7 +170,7 @@ type MCPServerState struct {
 // activation state, in config order. One config read and one activation read
 // answer the whole list, which the per-name accessors cannot do.
 func (c *Controller) ConfiguredMCPServers() []MCPServerState {
-	cfg, err := config.LoadForRootReadOnly(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRootReadOnly(c.workspaceRoot)
 	if err != nil {
 		return nil
 	}

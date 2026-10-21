@@ -114,7 +114,7 @@ func (c *Controller) withVisionRouting(ctx context.Context) context.Context {
 	if len(agent.SubagentImageCandidates(ctx)) == 0 {
 		return ctx
 	}
-	cfg, err := loadConfigForRoot(c.workspaceRoot)
+	cfg, err := loadConfigForRoot(c.roots, c.workspaceRoot)
 	if err != nil || cfg == nil || strings.TrimSpace(cfg.Agent.VisionModel) == "" {
 		return ctx
 	}
@@ -182,7 +182,7 @@ func (c *Controller) imageRoutingNote(n int) string {
 
 // visionModelRef is the model configured to read what this one cannot.
 func (c *Controller) visionModelRef() string {
-	cfg, err := config.LoadForRoot(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRoot(c.workspaceRoot)
 	if err != nil || cfg == nil {
 		return ""
 	}
@@ -251,7 +251,7 @@ func (c *Controller) imagesNotReadableNotice(unreadable int) string {
 
 // firstVisionModelRef is a configured model that could have read it.
 func (c *Controller) firstVisionModelRef() string {
-	cfg, err := config.LoadForRoot(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRoot(c.workspaceRoot)
 	if err != nil || cfg == nil {
 		return ""
 	}

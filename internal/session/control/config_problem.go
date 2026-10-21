@@ -24,14 +24,14 @@ type ConfigProblem struct {
 // ConfigProblem reports the user config file this session could not read, or
 // nil when it read it.
 func (c *Controller) ConfigProblem() *ConfigProblem {
-	return ConfigProblemOf(config.LoadForEdit(config.UserConfigPath()).Unparsed())
+	return ConfigProblemOf(c.roots.LoadForEdit(c.roots.UserConfigPath()).Unparsed())
 }
 
 // RepairConfigFile rewrites the unreadable user config and reports where the
 // original was kept. The caller rebuilds: the runtime is still assembled from
 // whatever it booted with.
 func (c *Controller) RepairConfigFile() (string, error) {
-	return config.RepairUnparsedConfig(config.UserConfigPath())
+	return c.roots.RepairUnparsedConfig(c.roots.UserConfigPath())
 }
 
 // ConfigProblemFromError finds the identity inside a save failure, so the panel

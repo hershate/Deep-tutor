@@ -15,9 +15,9 @@ type removedMCPState struct {
 	cleanupErr    error
 }
 
-func reconcileRemovedMCPState(workspace, name string) removedMCPState {
+func reconcileRemovedMCPState(roots config.Roots, workspace, name string) removedMCPState {
 	state := removedMCPState{}
-	nextCfg, err := config.LoadForRoot(workspace)
+	nextCfg, err := roots.LoadForRoot(workspace)
 	if err != nil {
 		state.cleanupErr = fmt.Errorf("reload MCP configuration after removing %q: %w", name, err)
 		return state
@@ -32,7 +32,7 @@ func reconcileRemovedMCPState(workspace, name string) removedMCPState {
 	if state.fallbackFound {
 		remainingResource = mcpdiag.HTTPMCPOAuthResource(state.fallback.Type, state.fallback.URL, mcpdiag.HasAuthConfig(state.fallback.Headers, state.fallback.Env, state.fallback.URL))
 	}
-	spec := plugin.Spec{Name: name, StateDir: plugin.MCPStateDir(config.ReasonixHomeDir(), workspace, name)}
+	spec := plugin.Spec{Name: name, StateDir: plugin.MCPStateDir(roots.Home(), workspace, name)}
 	if _, err := plugin.ReconcileHTTPMCPOAuthAfterRemoval(spec, remainingResource); err != nil {
 		state.cleanupErr = fmt.Errorf("reconcile OAuth state after removing MCP server %q: %w", name, err)
 	}

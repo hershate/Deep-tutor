@@ -70,10 +70,11 @@ func (c *Controller) CompletionData(lang string) CompletionData {
 			DisabledSkills:  c.DisabledSkills(),
 			ConfiguredMCP:   c.ConfiguredMCPNames(),
 			DisconnectedMCP: c.DisconnectedMCPNames(),
-			ModelRefs:       configuredModelRefs(),
+			ModelRefs:       configuredModelRefs(c.roots),
 			CurrentModel:    c.ModelRef(),
-			ProviderNames:   configuredProviderNames(),
-			PluginNames:     installedPluginNames(),
+			ProviderNames:   configuredProviderNames(c.roots),
+			PluginNames:     installedPluginNames(c.roots),
+			Roots:           c.roots,
 		},
 		Names:         c.completionNames(commands, skills, m),
 		WorkspaceRoot: c.WorkspaceRoot(),
@@ -189,8 +190,8 @@ func sourcedHint(plugin, description string) string {
 	return "plugin " + plugin + " · " + description
 }
 
-func configuredModelRefs() []string {
-	cfg, err := config.Load()
+func configuredModelRefs(roots config.Roots) []string {
+	cfg, err := runtimeConfig(roots)
 	if err != nil {
 		return nil
 	}
@@ -207,8 +208,8 @@ func configuredModelRefs() []string {
 	return out
 }
 
-func configuredProviderNames() []string {
-	cfg, err := config.Load()
+func configuredProviderNames(roots config.Roots) []string {
+	cfg, err := runtimeConfig(roots)
 	if err != nil {
 		return nil
 	}
@@ -222,8 +223,8 @@ func configuredProviderNames() []string {
 	return out
 }
 
-func installedPluginNames() []string {
-	names, err := pluginpkg.InstalledNames(config.ReasonixHomeDir())
+func installedPluginNames(roots config.Roots) []string {
+	names, err := pluginpkg.InstalledNames(roots.Home())
 	if err != nil {
 		return nil
 	}

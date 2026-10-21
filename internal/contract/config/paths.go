@@ -53,6 +53,13 @@ func (r Roots) UserConfigLoadPath() string { return r.userConfigLoadPath() }
 // Home is the Reasonix home this binding resolves to.
 func (r Roots) Home() string { return r.Dir(RootHome) }
 
+// StatedHome is the home the caller named, empty when it named none. A
+// replacement runtime inherits it rather than re-reading the environment, so a
+// rebuild cannot drift onto another home because the environment moved under
+// it. The resolved home is not the same thing: it is where the environment
+// points, which the caller never asked for by name.
+func (r Roots) StatedHome() string { return r.home }
+
 func (r Roots) userConfigLoadPath() string {
 	primary := r.userConfigPath()
 	if primary == "" {

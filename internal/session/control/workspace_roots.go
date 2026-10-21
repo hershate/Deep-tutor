@@ -37,7 +37,7 @@ func (c *Controller) WorkspaceRoots() (WorkspaceRoots, error) {
 	if out.Primary == "" {
 		return out, nil
 	}
-	grant, err := config.NewProjectGrantStore(config.Roots{}.Home()).Grant(out.Primary)
+	grant, err := config.NewProjectGrantStore(c.trustHome()).Grant(out.Primary)
 	if err != nil {
 		return out, err
 	}
@@ -57,7 +57,7 @@ func (c *Controller) AddWorkspaceRoot(dir string) (string, error) {
 	if primary == "" {
 		return "", fmt.Errorf("%w: no workspace is open", config.ErrProjectGrantsUnavailable)
 	}
-	cfg, err := config.LoadForRootReadOnly(primary)
+	cfg, err := c.roots.LoadForRootReadOnly(primary)
 	if err != nil {
 		return "", err
 	}
@@ -65,7 +65,7 @@ func (c *Controller) AddWorkspaceRoot(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = config.NewProjectGrantStore(config.Roots{}.Home()).Update(primary, func(g config.ProjectGrant) (config.ProjectGrant, error) {
+	err = config.NewProjectGrantStore(c.trustHome()).Update(primary, func(g config.ProjectGrant) (config.ProjectGrant, error) {
 		if !slices.Contains(g.AllowWrite, resolved) {
 			g.AllowWrite = append(g.AllowWrite, resolved)
 		}
@@ -82,7 +82,7 @@ func (c *Controller) RemoveWorkspaceRoot(dir string) error {
 		return fmt.Errorf("%w: workspace and folder are required", config.ErrProjectGrantsUnavailable)
 	}
 	resolved := resolvedOrSelf(dir)
-	return config.NewProjectGrantStore(config.Roots{}.Home()).Update(primary, func(g config.ProjectGrant) (config.ProjectGrant, error) {
+	return config.NewProjectGrantStore(c.trustHome()).Update(primary, func(g config.ProjectGrant) (config.ProjectGrant, error) {
 		g.AllowWrite = slices.DeleteFunc(g.AllowWrite, func(saved string) bool { return samePath(saved, dir) || samePath(saved, resolved) })
 		return g, nil
 	})

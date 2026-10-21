@@ -663,7 +663,7 @@ func DefaultApprovalMode(writesConfined bool, trust config.WorkspaceTrust) strin
 // DefaultApprovalMode reads the trust record now, so a folder trusted after
 // this controller was built counts.
 func (c *Controller) DefaultApprovalMode() string {
-	if !TrustableFolder(c.WorkspaceRoot()) {
+	if !c.trustableFolder(c.WorkspaceRoot()) {
 		return ToolApprovalAsk
 	}
 	return DefaultApprovalMode(c.posture.WritesConfined, c.WorkspaceTrust())
@@ -682,7 +682,7 @@ func TrustableFolder(root string) bool {
 // WorkspaceTrust is the person's recorded decision about this workspace; an
 // unreadable record is undecided, which costs a prompt and grants nothing.
 func (c *Controller) WorkspaceTrust() config.WorkspaceTrust {
-	trust, _ := config.NewProjectGrantStore(c.posture.Home).Trust(c.WorkspaceRoot())
+	trust, _ := config.NewProjectGrantStore(c.trustHome()).Trust(c.WorkspaceRoot())
 	return trust
 }
 
@@ -704,7 +704,7 @@ var ErrUntrustableFolder = errors.New("a filesystem root, a folder holding a hom
 // session still on its default posture follows the answer at once; a posture
 // somebody named is theirs and stays.
 func (c *Controller) DecideWorkspaceTrust(trust config.WorkspaceTrust) error {
-	if trust == config.WorkspaceTrusted && !TrustableFolder(c.WorkspaceRoot()) {
+	if trust == config.WorkspaceTrusted && !c.trustableFolder(c.WorkspaceRoot()) {
 		return ErrUntrustableFolder
 	}
 	if err := c.SetWorkspaceTrust(trust); err != nil {
@@ -729,7 +729,7 @@ func (c *Controller) Posture() PostureReport {
 		Defaulted:      c.approval.defaulted(),
 		WritesConfined: c.posture.WritesConfined,
 		Trust:          c.WorkspaceTrust(),
-		Trustable:      TrustableFolder(c.WorkspaceRoot()),
+		Trustable:      c.trustableFolder(c.WorkspaceRoot()),
 	}
 }
 
@@ -739,5 +739,5 @@ func (c *Controller) WritesConfined() bool { return c.posture.WritesConfined }
 // SetWorkspaceTrust records the person's decision about this workspace under
 // the same home DefaultApprovalMode reads it from.
 func (c *Controller) SetWorkspaceTrust(trust config.WorkspaceTrust) error {
-	return config.NewProjectGrantStore(c.posture.Home).SetTrust(c.WorkspaceRoot(), trust)
+	return config.NewProjectGrantStore(c.trustHome()).SetTrust(c.WorkspaceRoot(), trust)
 }

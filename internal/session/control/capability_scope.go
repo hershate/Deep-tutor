@@ -33,7 +33,9 @@ type CapabilityScope struct {
 	Current   bool `json:"current,omitempty"`
 }
 
-// DescribeScope resolves one workspace root's capability identity.
+// DescribeScope resolves one workspace root's capability identity. The
+// activation store it counts overrides in is a global asset — the admin's
+// switches, shared by every user — so it is not the caller's binding.
 func DescribeScope(root string) CapabilityScope {
 	info := workspaceid.Describe(root)
 	scope := CapabilityScope{
@@ -60,10 +62,10 @@ func (c *Controller) CapabilityScope() CapabilityScope {
 // DescribeScopes resolves every root a picker may offer, dropping duplicates
 // and folders that resolve to one repository — nine worktrees are one project,
 // and listing them nine times is the crowding this collapses.
-func DescribeScopes(roots []string, current string) []CapabilityScope {
-	out := make([]CapabilityScope, 0, len(roots)+1)
+func DescribeScopes(workspaceRoots []string, current string) []CapabilityScope {
+	out := make([]CapabilityScope, 0, len(workspaceRoots)+1)
 	seen := map[string]bool{}
-	for _, root := range append([]string{current}, roots...) {
+	for _, root := range append([]string{current}, workspaceRoots...) {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
@@ -151,9 +153,9 @@ type ProjectCapabilities struct {
 
 // InspectProject reads one project's capabilities without repointing anything,
 // so the settings surface can manage a folder the session is not sitting in.
-func InspectProject(root string) ProjectCapabilities {
+func InspectProject(roots config.Roots, root string) ProjectCapabilities {
 	out := ProjectCapabilities{Scope: DescribeScope(root)}
-	cfg, err := config.LoadForRootReadOnly(root)
+	cfg, err := roots.LoadForRootReadOnly(root)
 	if err != nil {
 		return out
 	}

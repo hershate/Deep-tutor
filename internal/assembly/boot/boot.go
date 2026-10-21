@@ -85,7 +85,7 @@ func rememberPermissionRule(roots config.Roots, workspaceRoot, rule string) cont
 	}
 	defer unlock()
 
-	edit, err := config.LoadForEditReadOnlyStrict(path)
+	edit, err := roots.LoadForEditReadOnlyStrict(path)
 	if err != nil {
 		slog.Warn("load config for permission rule", "path", path, "err", err)
 		result.Err = err
@@ -101,7 +101,7 @@ func rememberPermissionRule(roots config.Roots, workspaceRoot, rule string) cont
 		result.Err = err
 		return result
 	}
-	if err := config.WritePermissionsAllow(path, edit.Permissions.Allow); err != nil {
+	if err := roots.WritePermissionsAllow(path, edit.Permissions.Allow); err != nil {
 		slog.Warn("save config after permission rule", "err", err)
 		result.Err = err
 		return result

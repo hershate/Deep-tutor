@@ -44,7 +44,7 @@ func (c *Config) userConfigBody(logicalPath, resolved string) (string, bool, err
 		if loaded, err := loadUserConfigBytes(logicalPath, patched); err == nil && (sameUserRender(loaded, fullLoaded) ||
 			fullErr != nil && RenderTOMLForScope(loaded, RenderScopeUser) == full) {
 			if lossy {
-				keepPriorUserConfig(logicalPath, resolved, raw, "config: saved in place without entries it could not carry")
+				c.keepPriorUserConfig(logicalPath, resolved, raw, "config: saved in place without entries it could not carry")
 			}
 			return patched, false, nil
 		}
@@ -52,13 +52,13 @@ func (c *Config) userConfigBody(logicalPath, resolved string) (string, bool, err
 	if fullErr != nil {
 		return "", false, renderLoadError(resolved, fullErr)
 	}
-	keepPriorUserConfig(logicalPath, resolved, raw, "config: saved by full rewrite")
+	c.keepPriorUserConfig(logicalPath, resolved, raw, "config: saved by full rewrite")
 	return full, false, nil
 }
 
-func keepPriorUserConfig(logicalPath, resolved string, raw []byte, msg string) {
+func (c *Config) keepPriorUserConfig(logicalPath, resolved string, raw []byte, msg string) {
 	backup := resolved + ".rewrite-" + time.Now().Format("20060102-150405")
-	if err := os.WriteFile(backup, raw, configFilePerm(logicalPath)); err != nil {
+	if err := os.WriteFile(backup, raw, c.configFilePerm(logicalPath)); err != nil {
 		slog.Warn("config: back up the prior user config", "path", resolved, "err", err)
 	}
 	slog.Warn(msg, "path", resolved, "backup", backup)

@@ -7,7 +7,7 @@ package config
 func (r Roots) UserShell() ShellConfig {
 	cfg := r.defaultConfig()
 	if uc := r.userConfigLoadPath(); uc != "" {
-		if _, err := decodeTOMLFile(uc, cfg); err != nil {
+		if _, err := r.decodeTOMLFile(uc, cfg); err != nil {
 			return ShellConfig{}
 		}
 	}

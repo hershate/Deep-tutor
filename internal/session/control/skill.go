@@ -239,7 +239,7 @@ func (c *Controller) SkillEnabled(name string) bool {
 // hand-written config keeps working even though the switch no longer writes it.
 func (c *Controller) SkillActivation() func(string) bool {
 	declared := func(string) bool { return true }
-	if cfg, err := config.Load(); err == nil {
+	if cfg, err := runtimeConfig(c.roots); err == nil {
 		declared = func(name string) bool { return !cfg.IsSkillDisabled(name) }
 	}
 	resolver, err := config.DefaultActivationStore().SkillResolverFor(c.workspaceRoot)

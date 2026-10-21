@@ -749,6 +749,14 @@ func (c *Config) ClearPluginAuthentication(name string) (PluginEntry, bool, erro
 	return PluginEntry{}, false, fmt.Errorf("clear plugin authentication: no plugin %q", name)
 }
 
+// pluginTOMLSourcePathForRoot searches the project's own TOML and the global
+// asset library's user-global candidates for the file that owns a plugin
+// declaration.
+//
+// The user-global candidates are the process's, not a session's: MCP servers
+// are global admin-managed assets (note/12 #55), so their declarations live in
+// the asset library and every user may use them. A per-user copy would make an
+// admin's server visible to the user who installed it and to nobody else.
 func pluginTOMLSourcePathForRoot(root, name string) string {
 	projectTOML := ProjectConfigPath(resolveRoot(root))
 	paths := append([]string{projectTOML}, processRoots().userConfigCandidatePaths()...)
@@ -770,6 +778,9 @@ func pluginTOMLSourcePathForRoot(root, name string) string {
 // Runtime configuration is merged by name, so callers must use provenance
 // instead of saving the merged Config back to whichever file happens to have
 // the highest priority.
+//
+// The user-global file here is the global asset library's, for the reason
+// pluginTOMLSourcePathForRoot gives.
 func MCPConfigPathForEntry(root string, entry PluginEntry) string {
 	resolvedRoot := resolveRoot(root)
 	projectTOML := ProjectConfigPath(resolvedRoot)
@@ -852,6 +863,10 @@ func UpsertPluginInSourceForRoot(root string, entry PluginEntry) (string, error)
 // global declaration stay locked through conflict detection, save, activation,
 // and any rollback, so a failed activation write cannot remove or overwrite a
 // concurrent config update.
+//
+// The global declaration it writes is the asset library's user-global config:
+// MCP servers are global admin-managed assets (note/12 #55), installed once by
+// the admin and usable by everybody.
 func InstallUserPluginForRoot(root string, entry PluginEntry, forceEnable bool) (string, error) {
 	entry.Source = MCPSourceUserConfig
 	unlock, err := LockConfigFilesEdits(mcpConfigSourcePathsForRoot(root)...)
@@ -979,6 +994,10 @@ func RemovePluginFromEffectiveSourceForRoot(root, name string) (PluginEntry, boo
 // all of them before loading, otherwise another process can add a higher-priority
 // declaration after the load and turn a "remove effective" action into a removal
 // of a now-shadowed source.
+//
+// The user-global candidates are the asset library's: the set a session may
+// read is the set it may write, or one installer's removal could reach
+// another installer's file.
 func mcpConfigSourcePathsForRoot(root string) []string {
 	resolvedRoot := resolveRoot(root)
 	projectTOML := ProjectConfigPath(resolvedRoot)
@@ -1043,6 +1062,9 @@ func applyConfigSourceEdits(edits []configSourceEdit) error {
 	return nil
 }
 
+// planLegacyMCPDisable rewrites the retired v0.x JSON config. That file is
+// inherently the user's own — it is where their MCP list lived before TOML —
+// so it is resolved as a user-owned path.
 func planLegacyMCPDisable(path, name string) (configSourceEdit, bool, error) {
 	if strings.TrimSpace(path) == "" {
 		return configSourceEdit{}, false, nil
@@ -1182,7 +1204,7 @@ func (c *Config) SaveTo(path string) error {
 	if c.editLoadErr != nil {
 		return fmt.Errorf("save config loaded from %q: %w", path, c.editLoadErr)
 	}
-	scope := renderScopeForPath(path)
+	scope := c.renderScopeForPath(path)
 	if scope == RenderScopeUser {
 		if err := currentUserConfigEditLockError(); err != nil {
 			return fmt.Errorf("save user config: %w", err)
@@ -1196,9 +1218,9 @@ func (c *Config) SaveTo(path string) error {
 		return c.saveProjectIncrementalResolved(path, resolved)
 	}
 	if scope == RenderScopeUser {
-		return c.writeUserConfig(path, resolved, func(body string) error { return writeConfigFileResolved(resolved, body, configFilePerm(path)) })
+		return c.writeUserConfig(path, resolved, func(body string) error { return writeConfigFileResolved(resolved, body, c.configFilePerm(path)) })
 	}
-	return writeConfigFileResolved(resolved, RenderTOMLForScope(c, scope), configFilePerm(path))
+	return writeConfigFileResolved(resolved, RenderTOMLForScope(c, scope), c.configFilePerm(path))
 }
 
 func (c *Config) SaveToScope(path string, scope RenderScope) error {
@@ -1211,7 +1233,7 @@ func (c *Config) SaveToScope(path string, scope RenderScope) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("save: empty config path")
 	}
-	userConfig := scope == RenderScopeUser || (scope == RenderScopeFull && isUserConfigPath(path))
+	userConfig := scope == RenderScopeUser || (scope == RenderScopeFull && c.roots.isUserConfigPath(path))
 	if userConfig {
 		if err := currentUserConfigEditLockError(); err != nil {
 			return fmt.Errorf("save user config: %w", err)
@@ -1222,9 +1244,9 @@ func (c *Config) SaveToScope(path string, scope RenderScope) error {
 		return err
 	}
 	if scope == RenderScopeUser {
-		return c.writeUserConfig(path, resolved, func(body string) error { return writeConfigFileResolved(resolved, body, configFilePerm(path)) })
+		return c.writeUserConfig(path, resolved, func(body string) error { return writeConfigFileResolved(resolved, body, c.configFilePerm(path)) })
 	}
-	return writeConfigFileResolved(resolved, RenderTOMLForScope(c, scope), configFilePerm(path))
+	return writeConfigFileResolved(resolved, RenderTOMLForScope(c, scope), c.configFilePerm(path))
 }
 
 func (c *Config) saveProjectIncrementalResolved(logicalPath, resolvedPath string) error {
@@ -1240,7 +1262,7 @@ func (c *Config) saveProjectIncrementalResolved(logicalPath, resolvedPath string
 	isNew := body == ""
 
 	if isNew {
-		return writeConfigFileResolved(resolvedPath, RenderTOMLForScope(c, RenderScopeProject), configFilePerm(logicalPath))
+		return writeConfigFileResolved(resolvedPath, RenderTOMLForScope(c, RenderScopeProject), c.configFilePerm(logicalPath))
 	}
 
 	delta := RenderTOMLProjectDelta(c)
@@ -1278,7 +1300,7 @@ func (c *Config) saveProjectIncrementalResolved(logicalPath, resolvedPath string
 	if writeProviderAccess {
 		body = upsertTOMLSectionKey(body, "desktop", "provider_access", "provider_access = "+renderStringArray(c.Desktop.ProviderAccess))
 	}
-	return writeConfigFileResolved(resolvedPath, body, configFilePerm(logicalPath))
+	return writeConfigFileResolved(resolvedPath, body, c.configFilePerm(logicalPath))
 }
 
 func shouldRemoveIneffectiveProjectSandboxBash(body string, c *Config) bool {
@@ -1377,7 +1399,7 @@ func SaveMinimalProjectReasoningLanguage(path, lang string) (string, error) {
 [agent]
 reasoning_language = %q
 `, cfg.ReasoningLanguage())
-	return cfg.ReasoningLanguage(), writeConfigFile(path, body)
+	return cfg.ReasoningLanguage(), cfg.writeConfigFile(path, body)
 }
 
 // SaveMinimalProjectCompactRatio writes a new project config that only
@@ -1393,14 +1415,14 @@ func SaveMinimalProjectCompactRatio(path string, ratio float64) (float64, error)
 [agent]
 compact_ratio = %s
 `, formatFloat(cfg.Agent.CompactRatio))
-	return cfg.Agent.CompactRatio, writeConfigFile(path, body)
+	return cfg.Agent.CompactRatio, cfg.writeConfigFile(path, body)
 }
 
-func writeConfigFile(path, body string) error {
+func (c *Config) writeConfigFile(path, body string) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("save: empty config path")
 	}
-	return atomicWriteToConfigFile(path, body, configFilePerm(path))
+	return atomicWriteToConfigFile(path, body, c.configFilePerm(path))
 }
 
 func writeConfigFileResolved(path, body string, perm os.FileMode) error {
@@ -1424,8 +1446,16 @@ func atomicWriteToConfigFile(path, body string, perm os.FileMode) error {
 	return nil
 }
 
-func configFilePerm(path string) os.FileMode {
-	if isUserConfigPath(path) {
+// configFilePerm is the permission a config file is written with. A user
+// config holds credentials and stays readable only by its owner.
+func (c *Config) configFilePerm(path string) os.FileMode {
+	return c.roots.configFilePerm(path)
+}
+
+// configFilePerm is the binding's answer to the same question: the file that
+// holds a home's credentials is that home's alone.
+func (r Roots) configFilePerm(path string) os.FileMode {
+	if r.isUserConfigPath(path) {
 		return 0o600
 	}
 	return 0o644
@@ -1436,11 +1466,17 @@ func configFilePerm(path string) os.FileMode {
 // unchanged. Callers must validate and lock the latest file across their full
 // read-modify-write transaction before calling this function.
 func WritePermissionsAllow(path string, allow []string) error {
+	return processRoots().WritePermissionsAllow(path, allow)
+}
+
+// WritePermissionsAllow is the binding's write: the file is resolved and
+// permissioned as the kind of file it is in this binding.
+func (r Roots) WritePermissionsAllow(path string, allow []string) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("write permissions: empty config path")
 	}
 
-	resolved, exists, err := statConfigPath(path)
+	resolved, exists, err := r.statConfigPath(path)
 	if err != nil {
 		return err
 	}
@@ -1468,7 +1504,7 @@ func WritePermissionsAllow(path string, allow []string) error {
 	if !slices.Equal(candidate.Permissions.Allow, allow) {
 		return fmt.Errorf("write permissions: validate updated allow: got %v, want %v", candidate.Permissions.Allow, allow)
 	}
-	return writeConfigFileResolved(resolved, body, configFilePerm(path))
+	return writeConfigFileResolved(resolved, body, r.configFilePerm(path))
 }
 
 // replaceTOMLSection replaces the content of a named TOML section (including
@@ -1969,19 +2005,32 @@ func tomlBodyHasSection(body, sectionName string) bool {
 	return false
 }
 
-func renderScopeForPath(path string) RenderScope {
-	if isUserConfigPath(path) {
+// renderScopeForPath decides whether a path is this config's user file or a
+// project file. It follows the config's own binding: a host that stated a
+// home edits that home's user config, and a user config is written as a whole
+// user file — never as a project's incremental slice, which would drop the
+// entries the project never declared.
+func (c *Config) renderScopeForPath(path string) RenderScope {
+	if c.roots.isUserConfigPath(path) {
 		return RenderScopeUser
 	}
 	return RenderScopeProject
 }
 
 func isUserConfigPath(path string) bool {
+	return processRoots().isUserConfigPath(path)
+}
+
+// isUserConfigPath reports whether path is one of this binding's current or
+// legacy user-global config locations. A host that states a home asks this
+// binding, not the process: the file it writes is that home's, and the file's
+// own rules have to follow it there.
+func (r Roots) isUserConfigPath(path string) bool {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return false
 	}
-	for _, uc := range processRoots().userConfigCandidatePaths() {
+	for _, uc := range r.userConfigCandidatePaths() {
 		uc = strings.TrimSpace(uc)
 		if uc == "" {
 			continue
@@ -2025,10 +2074,10 @@ func (c *Config) SaveForRoot(root string) error {
 	root = resolveRoot(root)
 	projectTOML := ProjectConfigPath(root)
 	if _, err := os.Stat(projectTOML); err == nil {
-		projectCfg := LoadForEditWithoutCredentials(projectTOML)
+		projectCfg := c.roots.LoadForEditWithoutCredentials(projectTOML)
 		return projectCfg.SaveTo(projectTOML)
 	}
-	if uc := processRoots().userConfigPath(); uc != "" {
+	if uc := c.roots.userConfigPath(); uc != "" {
 		if err := os.MkdirAll(filepath.Dir(uc), 0o755); err != nil {
 			return err
 		}

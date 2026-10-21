@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"deep-tutor/internal/base/i18n"
-	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/safety/sandbox"
@@ -44,7 +43,7 @@ type ShellSettings struct {
 // beside it.
 func (c *Controller) ShellSettings() ShellSettings {
 	prefer, path := "auto", ""
-	if cfg, err := config.Load(); err == nil {
+	if cfg, err := runtimeConfig(c.roots); err == nil {
 		if p := strings.TrimSpace(cfg.Tools.Shell.Prefer); p != "" {
 			prefer = strings.ToLower(p)
 		}
@@ -113,13 +112,13 @@ func (c *Controller) SaveShellSettings(prefer, path string) error {
 	if err := sandbox.VerifyShell(prefer, path); err != nil {
 		return fmt.Errorf("这个 shell 用不了：%w", err)
 	}
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	cfg := config.LoadForEdit(config.UserConfigPath())
+	cfg := c.roots.LoadForEdit(c.roots.UserConfigPath())
 	if err := cfg.SetShell(prefer, path); err != nil {
 		return err
 	}
-	return cfg.SaveTo(config.UserConfigPath())
+	return cfg.SaveTo(c.roots.UserConfigPath())
 }
 
 func shellOption(sh sandbox.Shell) ShellOption {

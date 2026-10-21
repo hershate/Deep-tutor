@@ -34,7 +34,7 @@ type NetworkSettings struct {
 
 // NetworkSettings reads the current proxy configuration.
 func (c *Controller) NetworkSettings() NetworkSettings {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		return NetworkSettings{Mode: netclient.ModeAuto, Effective: "读不到配置"}
 	}
@@ -59,9 +59,9 @@ func (c *Controller) NetworkSettings() NetworkSettings {
 // afterwards, far from the screen that set it. An empty password keeps whatever
 // is stored, since the editor is never handed the current one.
 func (c *Controller) SaveNetworkSettings(in NetworkSettings, password string, clearPassword bool) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	cfg := config.LoadForEdit(config.UserConfigPath())
+	cfg := c.roots.LoadForEdit(c.roots.UserConfigPath())
 	cfg.Network.ProxyMode = netclient.NormalizeMode(in.Mode)
 	cfg.Network.ProxyURL = strings.TrimSpace(in.URL)
 	cfg.Network.NoProxy = strings.TrimSpace(in.NoProxy)
@@ -78,7 +78,7 @@ func (c *Controller) SaveNetworkSettings(in NetworkSettings, password string, cl
 	if err := netclient.Validate(cfg.NetworkProxySpec()); err != nil {
 		return fmt.Errorf("这个代理设置用不了：%w", err)
 	}
-	return cfg.SaveTo(config.UserConfigPath())
+	return cfg.SaveTo(c.roots.UserConfigPath())
 }
 
 // NetworkProbe is one diagnosed step. The auth step is here rather than in
@@ -90,7 +90,7 @@ type NetworkProbe = netclient.Probe
 // provider. Each step names the layer it tested, so a failure points at what to
 // change instead of at "the network".
 func (c *Controller) DiagnoseNetwork(ctx context.Context) []NetworkProbe {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		return []NetworkProbe{{Step: "proxy", Detail: "读不到配置：" + err.Error()}}
 	}

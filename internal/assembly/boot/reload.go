@@ -75,6 +75,13 @@ func rebuildWithPrevious(ctx context.Context, old *control.Controller, previous 
 	if opts.WorkspaceRepo.Dir == "" {
 		opts.WorkspaceRepo = old.WorkspaceRepo()
 	}
+	// The replacement inherits the binding of the controller it replaces. A
+	// rebuild is the same session with a different model or extension set; it
+	// is not a new session that may pick another home, and letting it re-read
+	// the environment would move the user's settings out from under them.
+	if opts.Home == "" {
+		opts.Home = old.Roots().StatedHome()
+	}
 
 	home := opts.roots().Home()
 	// fromGraph must be the PREVIOUS generation's graph when available.

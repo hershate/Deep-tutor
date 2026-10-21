@@ -9,7 +9,7 @@ func (c *Controller) ApplyDefaultHeadlessApprovalMode() string {
 	mode := c.DefaultApprovalMode()
 	var folder *folderRefusal
 	if trust := c.WorkspaceTrust(); mode == ToolApprovalAsk && c.posture.WritesConfined &&
-		TrustableFolder(c.WorkspaceRoot()) && trust != config.WorkspaceTrusted {
+		c.trustableFolder(c.WorkspaceRoot()) && trust != config.WorkspaceTrusted {
 		folder = &folderRefusal{root: c.WorkspaceRoot(), declined: trust == config.WorkspaceTrustDeclined}
 	}
 	c.applyHeadless(mode, folder)

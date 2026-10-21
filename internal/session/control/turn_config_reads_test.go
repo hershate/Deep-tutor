@@ -15,9 +15,9 @@ func countConfigReads(t *testing.T) *int {
 	t.Helper()
 	reads := 0
 	prev := loadConfigForRoot
-	loadConfigForRoot = func(root string) (*config.Config, error) {
+	loadConfigForRoot = func(roots config.Roots, root string) (*config.Config, error) {
 		reads++
-		return prev(root)
+		return prev(roots, root)
 	}
 	t.Cleanup(func() { loadConfigForRoot = prev })
 	return &reads

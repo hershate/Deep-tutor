@@ -142,7 +142,7 @@ func (r Roots) credentialsStoreMode() string {
 		CredentialsStore string `toml:"credentials_store"`
 	}
 	if path := r.userConfigLoadPath(); path != "" {
-		_, _ = decodeTOMLFile(path, &partial)
+		_, _ = r.decodeTOMLFile(path, &partial)
 	}
 	return normalizeCredentialsStore(partial.CredentialsStore)
 }

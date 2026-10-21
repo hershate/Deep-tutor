@@ -152,20 +152,20 @@ func (r Roots) loadForRoot(root string, migrateOnDisk, withProject bool) (*Confi
 	// only the last file's. Re-merge by name across all sources (later wins) so a
 	// project reasonix.toml doesn't drop the global config's MCP servers.
 	// mergeTOMLPlugins only reads files; it does not run on-disk migrations.
-	plugins, err := mergeTOMLPlugins(tomlSources)
+	plugins, err := r.mergeTOMLPlugins(tomlSources)
 	if err != nil {
 		cfg.addLoadWarning(fmt.Sprintf("plugin configuration could not be merged (%v); continuing without those entries", err))
 	} else {
 		cfg.Plugins = plugins
 	}
-	if providers, providerSources, shadowedProjectProviders, ok, err := mergeTOMLProviders(tomlSources); err != nil {
+	if providers, providerSources, shadowedProjectProviders, ok, err := r.mergeTOMLProviders(tomlSources); err != nil {
 		cfg.addLoadWarning(fmt.Sprintf("provider configuration could not be merged (%v); keeping providers already loaded", err))
 	} else if ok {
 		cfg.Providers = providers
 		cfg.providerSources = providerSources
 		cfg.shadowedProjectProviders = shadowedProjectProviders
 	}
-	if access, ok, err := mergeTOMLProviderAccess(tomlSources); err != nil {
+	if access, ok, err := r.mergeTOMLProviderAccess(tomlSources); err != nil {
 		cfg.addLoadWarning(fmt.Sprintf("provider access configuration could not be merged (%v)", err))
 	} else if ok {
 		cfg.Desktop.ProviderAccess = access
@@ -398,11 +398,16 @@ func normalizeLegacyEffort(c *Config) {
 }
 
 // mergeTOMLPlugins merges [[plugins]] across TOML sources by name (later source wins).
-func mergeTOMLPlugins(paths []string) ([]PluginEntry, error) {
+// mergeTOMLPlugins is the binding's merge. Which file a declaration came from
+// is what decides where it may be edited: a user-global declaration belongs to
+// the home that holds it, and a project declaration to its own project. The
+// judgement follows the binding, or a user's own server would be recorded as
+// the project's and removed from the wrong file.
+func (r Roots) mergeTOMLPlugins(paths []string) ([]PluginEntry, error) {
 	var merged []PluginEntry
 	index := map[string]int{}
 	for _, path := range paths {
-		_, exists, err := statConfigPath(path)
+		_, exists, err := r.statConfigPath(path)
 		if err != nil {
 			return nil, fmt.Errorf("config %s: %w", path, err)
 		}
@@ -410,12 +415,12 @@ func mergeTOMLPlugins(paths []string) ([]PluginEntry, error) {
 			continue
 		}
 		var f Config
-		if _, err := decodeTOMLFile(path, &f); err != nil {
+		if _, err := r.decodeTOMLFile(path, &f); err != nil {
 			return nil, fmt.Errorf("config %s: %w", path, err)
 		}
 		for _, p := range f.Plugins {
 			p, _ = NormalizePluginCommandLine(p)
-			if isUserConfigPath(path) {
+			if r.isUserConfigPath(path) {
 				p.Source = MCPSourceUserConfig
 			} else {
 				p.Source = MCPSourceProjectConfig
@@ -437,14 +442,17 @@ func mergeTOMLPlugins(paths []string) ([]PluginEntry, error) {
 // only fill names the global config does not define. Keep official legacy aliases
 // distinct here: they can carry different default models and effort capabilities,
 // and the later desktop normalization layer handles canonical Settings access.
-func mergeTOMLProviders(paths []string) ([]ProviderEntry, map[string]providerSourceScope, []ProviderEntry, bool, error) {
+// mergeTOMLProviders is the binding's provider merge. A provider declared in
+// the user-global file wins over the same name in a project, and which file a
+// provider came from decides that — so the judgement follows the binding.
+func (r Roots) mergeTOMLProviders(paths []string) ([]ProviderEntry, map[string]providerSourceScope, []ProviderEntry, bool, error) {
 	var merged []ProviderEntry
 	var shadowedProject []ProviderEntry
 	index := map[string]int{}
 	sources := map[string]providerSourceScope{}
 	saw := false
 	for _, path := range paths {
-		_, exists, err := statConfigPath(path)
+		_, exists, err := r.statConfigPath(path)
 		if err != nil {
 			return nil, nil, nil, false, fmt.Errorf("config %s: %w", path, err)
 		}
@@ -452,7 +460,7 @@ func mergeTOMLProviders(paths []string) ([]ProviderEntry, map[string]providerSou
 			continue
 		}
 		var f Config
-		if _, err := decodeTOMLFile(path, &f); err != nil {
+		if _, err := r.decodeTOMLFile(path, &f); err != nil {
 			return nil, nil, nil, false, fmt.Errorf("config %s: %w", path, err)
 		}
 		markPersistedDeepSeekOfficialPricing(&f)
@@ -460,7 +468,7 @@ func mergeTOMLProviders(paths []string) ([]ProviderEntry, map[string]providerSou
 			continue
 		}
 		saw = true
-		source := providerSourceForPath(path)
+		source := r.providerSourceForPath(path)
 		for _, p := range f.Providers {
 			normalizeProviderEffortFields(&p)
 			key := providerMergeKey(p)
@@ -483,8 +491,10 @@ func mergeTOMLProviders(paths []string) ([]ProviderEntry, map[string]providerSou
 	return merged, sources, shadowedProject, saw, nil
 }
 
-func providerSourceForPath(path string) providerSourceScope {
-	if isUserConfigPath(path) {
+// providerSourceForPath is the binding's answer to which layer a file belongs
+// to, and therefore which layer wins when two files declare the same name.
+func (r Roots) providerSourceForPath(path string) providerSourceScope {
+	if r.isUserConfigPath(path) {
 		return providerSourceUser
 	}
 	return providerSourceProject
@@ -498,12 +508,19 @@ func providerMergeKey(p ProviderEntry) string {
 // project desktop settings do not hide account-level providers from the desktop
 // model switcher.
 func mergeTOMLProviderAccess(paths []string) ([]string, bool, error) {
+	return processRoots().mergeTOMLProviderAccess(paths)
+}
+
+// mergeTOMLProviderAccess is the binding's merge of desktop.provider_access.
+// Whether the user declared the list decides whether a project-only list may
+// narrow it, and "the user" is the home the file belongs to.
+func (r Roots) mergeTOMLProviderAccess(paths []string) ([]string, bool, error) {
 	var merged []string
 	seen := map[string]bool{}
 	saw := false
 	userDeclared := false
 	for _, path := range paths {
-		_, exists, err := statConfigPath(path)
+		_, exists, err := r.statConfigPath(path)
 		if err != nil {
 			return nil, false, fmt.Errorf("config %s: %w", path, err)
 		}
@@ -511,7 +528,7 @@ func mergeTOMLProviderAccess(paths []string) ([]string, bool, error) {
 			continue
 		}
 		var f Config
-		meta, err := decodeTOMLFile(path, &f)
+		meta, err := r.decodeTOMLFile(path, &f)
 		if err != nil {
 			return nil, false, fmt.Errorf("config %s: %w", path, err)
 		}
@@ -525,7 +542,7 @@ func mergeTOMLProviderAccess(paths []string) ([]string, bool, error) {
 			merged = []string{}
 		}
 		saw = true
-		if isUserConfigPath(path) {
+		if r.isUserConfigPath(path) {
 			userDeclared = true
 		}
 		for _, name := range f.Desktop.ProviderAccess {
@@ -599,14 +616,30 @@ func DesktopProviderAccessDeclared(path string) (bool, error) {
 // of resetting to defaults. Reasonix's global .env is loaded so api_key_env
 // resolution works while the wizard decides which keys are still missing.
 func LoadForEdit(path string) *Config {
-	return loadForEdit(path, true, false)
+	return processRoots().LoadForEdit(path)
+}
+
+// LoadForEdit returns a config to seed the `deep-tutor setup` wizard when
+// reconfiguring, bound to this binding's home: the file at path (if present)
+// decoded on top of the defaults, and the config it returns still knows which
+// home it came from — so a save writes the user file, not a project file.
+func (r Roots) LoadForEdit(path string) *Config {
+	return r.loadForEdit(path, true, false)
 }
 
 // LoadForEditReadOnlyStrict is the error-returning commit-time variant. It must
 // not fall back to defaults when another writer leaves malformed TOML, because
 // saving that fallback would overwrite the user's recoverable file.
 func LoadForEditReadOnlyStrict(path string) (*Config, error) {
-	return loadForEditStrict(path, true, false)
+	return processRoots().LoadForEditReadOnlyStrict(path)
+}
+
+// LoadForEditReadOnlyStrict is the error-returning commit-time variant, bound
+// to this binding's home. It must not fall back to defaults when another
+// writer leaves malformed TOML, because saving that fallback would overwrite
+// the user's recoverable file.
+func (r Roots) LoadForEditReadOnlyStrict(path string) (*Config, error) {
+	return r.loadForEditStrict(path, true, false)
 }
 
 // ValidateFile parses one TOML config in isolation without loading credentials,
@@ -641,26 +674,46 @@ func ValidateBytes(data []byte) error {
 }
 
 func loadForEdit(path string, loadCredentials, persistMigrations bool) *Config {
-	cfg, err := loadForEditStrict(path, loadCredentials, persistMigrations)
+	return processRoots().loadForEdit(path, loadCredentials, persistMigrations)
+}
+
+// loadForEdit is the binding's edit-load: it recovers to defaults when the
+// file cannot be read, and the config it returns carries the binding so the
+// save that follows writes the file as the user file it is.
+func (r Roots) loadForEdit(path string, loadCredentials, persistMigrations bool) *Config {
+	cfg, err := r.loadForEditStrict(path, loadCredentials, persistMigrations)
 	if err == nil {
 		return cfg
 	}
 	slog.Warn("config: load for edit failed, recovering", "path", path, "err", err)
 	if loadCredentials {
-		loadDotEnvForEditPath(path)
+		r.loadDotEnvForEditPath(path)
 	}
-	return recoveredForEdit(path, err)
+	return r.recoveredForEdit(path, err)
 }
 
 func LoadForEditWithoutCredentials(path string) *Config {
 	return loadForEdit(path, false, false)
 }
 
+// LoadForEditWithoutCredentials loads a config for editing without pulling
+// credentials into the process environment, bound to this binding's home.
+func (r Roots) LoadForEditWithoutCredentials(path string) *Config {
+	return r.loadForEdit(path, false, false)
+}
+
 func loadForEditStrict(path string, loadCredentials, persistMigrations bool) (*Config, error) {
+	return processRoots().loadForEditStrict(path, loadCredentials, persistMigrations)
+}
+
+// loadForEditStrict is the binding's strict edit-load. It must not fall back
+// to defaults when another writer leaves malformed TOML, because saving that
+// fallback would overwrite the user's recoverable file.
+func (r Roots) loadForEditStrict(path string, loadCredentials, persistMigrations bool) (*Config, error) {
 	if loadCredentials {
-		loadDotEnvForEditPath(path)
+		r.loadDotEnvForEditPath(path)
 	}
-	cfg := Default()
+	cfg := r.defaultConfig()
 	meta, err := mergeFileSnapshot(cfg, path)
 	if err != nil {
 		return nil, err
@@ -682,7 +735,7 @@ func loadForEditStrict(path string, loadCredentials, persistMigrations bool) (*C
 // transient provenance, saving an unrelated project setting would mistake an
 // intentional `false`/empty override for a stale delta and remove it.
 func markExplicitDefaultProjectSkillKeys(c *Config, path string, meta toml.MetaData) {
-	if c == nil || isUserConfigPath(path) {
+	if c == nil || c.roots.isUserConfigPath(path) {
 		return
 	}
 	for _, key := range projectSkillKeys {
@@ -756,13 +809,21 @@ func normalizeRetiredAutoPlan(c *Config) bool {
 	return changed
 }
 
-func loadDotEnvForEditPath(path string) {
+// loadDotEnvForEditPath loads the credentials an edit-load needs. A user
+// config takes the binding's global credentials; a project config takes the
+// project file's expansion values and the binding's credential store.
+//
+// The binding decides both: which file counts as the user config and whose
+// credentials are loaded. A session that states a home must load that home's
+// credentials, or its provider keys resolve to nothing — and it must not load
+// the process's, which belong to a different user.
+func (r Roots) loadDotEnvForEditPath(path string) {
 	path = strings.TrimSpace(path)
-	if path == "" || isUserConfigPath(path) {
-		loadDotEnv()
+	if path == "" || r.isUserConfigPath(path) {
+		r.loadDotEnv()
 		return
 	}
-	processRoots().loadDotEnvForRoot(filepath.Dir(path))
+	r.loadDotEnvForRoot(filepath.Dir(path))
 }
 
 // mergeFile decodes a TOML file onto cfg if it exists. An absent file is not an error.
@@ -780,7 +841,7 @@ func mergeFileSnapshot(cfg *Config, path string) (toml.MetaData, error) {
 }
 
 func mergeFileSnapshotWithRead(cfg *Config, path string, readFile func(string) ([]byte, error)) (toml.MetaData, error) {
-	resolved, exists, err := statConfigPath(path)
+	resolved, exists, err := cfg.roots.statConfigPath(path)
 	if err != nil {
 		return toml.MetaData{}, err
 	}

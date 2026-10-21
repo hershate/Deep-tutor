@@ -6,7 +6,6 @@ import (
 
 	"deep-tutor/internal/base/i18n"
 	"deep-tutor/internal/contract/agentpreset"
-	"deep-tutor/internal/contract/config"
 )
 
 // presetNotice answers /preset and its /work-mode and /profile aliases: no
@@ -30,7 +29,7 @@ func (c *Controller) presetNotice(fields []string) {
 // remoteNotice lists the SSH hosts this machine's config declares. Connecting
 // to one opens a workspace on that host, which a running session cannot do.
 func (c *Controller) remoteNotice() {
-	cfg, err := config.Load()
+	cfg, err := runtimeConfig(c.roots)
 	if err != nil {
 		c.notice("remote: " + err.Error())
 		return

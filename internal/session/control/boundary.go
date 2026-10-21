@@ -88,16 +88,16 @@ type SandboxSettings struct {
 // PermissionRules reads the user layer this editor writes, and reports the
 // effective merge beside it when a project file outranks it.
 func (c *Controller) PermissionRules() PermissionRules {
-	path := config.UserConfigPath()
+	path := c.roots.UserConfigPath()
 	out := PermissionRules{
-		PermissionLists: listsFrom(config.LoadForEdit(path)),
+		PermissionLists: listsFrom(c.roots.LoadForEdit(path)),
 		Path:            path,
-		ShadowedBy:      shadowingConfig(path, c.WorkspaceRoot()),
+		ShadowedBy:      shadowingConfig(c.roots, path, c.WorkspaceRoot()),
 		Granted:         c.approval.sessionGrants(),
 	}
 	out.Dormant = DormantRules(c.PermissionVocabulary(), out.PermissionLists)
 	if root := c.WorkspaceRoot(); root != "" {
-		store := config.NewProjectGrantStore(config.Roots{}.Home())
+		store := config.NewProjectGrantStore(c.trustHome())
 		out.RememberedPath = store.Path()
 		if grant, err := store.Grant(root); err != nil {
 			if errors.Is(err, config.ErrProjectGrantsUnavailable) {
@@ -110,7 +110,7 @@ func (c *Controller) PermissionRules() PermissionRules {
 	if out.ShadowedBy == "" {
 		return out
 	}
-	if cfg, err := config.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
+	if cfg, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
 		if merged := listsFrom(cfg); !sameLists(merged, out.PermissionLists) {
 			out.Effective = &merged
 		}
@@ -136,7 +136,7 @@ func (c *Controller) RevokeRememberedProjectRule(rule string) error {
 	if root == "" || strings.TrimSpace(rule) == "" {
 		return fmt.Errorf("%w: workspace and rule are required", config.ErrProjectGrantsUnavailable)
 	}
-	store := config.NewProjectGrantStore(config.Roots{}.Home())
+	store := config.NewProjectGrantStore(c.trustHome())
 	if err := store.Update(root, func(grant config.ProjectGrant) (config.ProjectGrant, error) {
 		grant.Allow = slices.DeleteFunc(grant.Allow, func(saved string) bool { return saved == rule })
 		return grant, nil
@@ -151,10 +151,10 @@ func (c *Controller) RevokeRememberedProjectRule(rule string) error {
 // rule with the parser the gate itself uses, so a typo is refused on the screen
 // that made it rather than silently never matching anything.
 func (c *Controller) SavePermissionRules(in PermissionLists) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	if err := cfg.SetPermissionMode(in.Mode); err != nil {
 		return err
 	}
@@ -191,8 +191,8 @@ var ErrSandboxUnavailable = errors.New("bash sandbox requested but unavailable o
 
 // SandboxSettings reads the configured jail beside what it expands to here.
 func (c *Controller) SandboxSettings() SandboxSettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	out := SandboxSettings{
 		Bash:                strings.TrimSpace(cfg.Sandbox.Bash),
 		Network:             cfg.Sandbox.Network,
@@ -202,13 +202,13 @@ func (c *Controller) SandboxSettings() SandboxSettings {
 		Available:           sandbox.Available(),
 		Platform:            runtime.GOOS,
 		Path:                path,
-		ShadowedBy:          shadowingConfig(path, c.WorkspaceRoot()),
+		ShadowedBy:          shadowingConfig(c.roots, path, c.WorkspaceRoot()),
 	}
 	if !out.Available {
 		out.Why, out.WhyCode = sandbox.UnavailableMessage(), sandbox.UnavailableCode()
 	}
 	effective := cfg
-	if merged, err := config.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
+	if merged, err := c.roots.LoadForRootReadOnly(c.WorkspaceRoot()); err == nil {
 		effective = merged
 	}
 	out.EffectiveWriteRoots = effective.WriteRootsForRoot(c.WorkspaceRoot())
@@ -226,10 +226,10 @@ func (c *Controller) SaveSandboxSettings(in SandboxSettings) error {
 	default:
 		return fmt.Errorf("sandbox bash %q: must be enforce|off", in.Bash)
 	}
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	// Only asking for the jail is refused where there is none. A file already
 	// holding enforce, which the rendered template writes, keeps saving its
 	// other fields; bash itself stays refused at run time either way.
@@ -278,8 +278,8 @@ func sameLists(a, b PermissionLists) bool {
 
 // shadowingConfig names the project file that outranks writePath, or "" when
 // the file being edited is the one in force.
-func shadowingConfig(writePath, root string) string {
-	effective := config.SourcePathForRoot(root)
+func shadowingConfig(roots config.Roots, writePath, root string) string {
+	effective := roots.SourcePathForRoot(root)
 	if effective == "" || samePath(effective, writePath) {
 		return ""
 	}

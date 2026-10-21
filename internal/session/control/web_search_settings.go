@@ -17,11 +17,11 @@ type WebSearchModelSetting struct {
 }
 
 func (c *Controller) WebSearchModel() (WebSearchModelSetting, error) {
-	user, err := config.LoadForEditReadOnlyStrict(config.UserConfigPath())
+	user, err := c.roots.LoadForEditReadOnlyStrict(c.roots.UserConfigPath())
 	if err != nil {
 		return WebSearchModelSetting{}, err
 	}
-	merged, err := config.LoadForRoot(c.WorkspaceRoot())
+	merged, err := c.roots.LoadForRoot(c.WorkspaceRoot())
 	if err != nil {
 		return WebSearchModelSetting{}, err
 	}
@@ -38,7 +38,7 @@ func (c *Controller) SaveWebSearchModel(ref string) error {
 	if c.Running() {
 		return ErrTurnRunning
 	}
-	return config.EditConfigFile(config.UserConfigPath(), func(edit *config.Config) error {
+	return c.roots.EditConfigFile(c.roots.UserConfigPath(), func(edit *config.Config) error {
 		return edit.SetWebSearchModel(ref)
 	})
 }

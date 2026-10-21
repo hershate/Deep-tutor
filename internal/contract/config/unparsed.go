@@ -58,10 +58,13 @@ func (e *UnparsedFile) Repairable() bool { return e != nil && e.Repair != "" }
 // had the surface showing built-in values while the user's settings sat unread
 // on disk. The save guard is unchanged - the error it carries still refuses
 // every write, because the file a write would replace is one nothing read.
-func recoveredForEdit(path string, err error) *Config {
-	cfg := Default()
+// recoveredForEdit is the binding's recovery. Whether the unreadable file was
+// a user config — and whose last-known-good snapshot stands in for it — are
+// questions about the binding, not about the process.
+func (r Roots) recoveredForEdit(path string, err error) *Config {
+	cfg := r.defaultConfig()
 	recovered := RecoveredDefaults
-	if isUserConfigPath(path) && processRoots().loadLastKnownGoodUserConfig(cfg) == nil {
+	if r.isUserConfigPath(path) && r.loadLastKnownGoodUserConfig(cfg) == nil {
 		recovered = RecoveredSnapshot
 	}
 	normalizeConfigForEdit(cfg)
@@ -185,12 +188,18 @@ func escapeDoubled(text string, err error) (string, bool) {
 // copying the original beside it. It refuses unless the result loads: a repair
 // that leaves the file unusable is a second problem, not a fix.
 func RepairUnparsedConfig(path string) (backup string, err error) {
-	if isUserConfigPath(path) {
+	return processRoots().RepairUnparsedConfig(path)
+}
+
+// RepairUnparsedConfig is the binding's repair: the file it repairs is
+// resolved, permissioned and locked as the kind of file it is in this binding.
+func (r Roots) RepairUnparsedConfig(path string) (backup string, err error) {
+	if r.isUserConfigPath(path) {
 		if lockErr := currentUserConfigEditLockError(); lockErr != nil {
 			return "", fmt.Errorf("repair user config: %w", lockErr)
 		}
 	}
-	text, raw, err := readConfigText(path)
+	text, raw, err := r.readConfigText(path)
 	if err != nil {
 		return "", fmt.Errorf("repair config %s: %w", path, err)
 	}
@@ -201,11 +210,11 @@ func RepairUnparsedConfig(path string) (backup string, err error) {
 	if err := ValidateBytes([]byte(repaired)); err != nil {
 		return "", fmt.Errorf("repair config %s: %w", path, err)
 	}
-	resolved, err := resolveConfigAccessPath(path, isUserConfigPath(path))
+	resolved, err := resolveConfigAccessPath(path, r.isUserConfigPath(path))
 	if err != nil {
 		return "", err
 	}
-	perm := configFilePerm(path)
+	perm := r.configFilePerm(path)
 	backup = resolved + ".broken-" + time.Now().Format("20060102-150405")
 	if err := os.WriteFile(backup, raw, perm); err != nil {
 		return "", fmt.Errorf("back up %s: %w", path, err)
@@ -217,7 +226,11 @@ func RepairUnparsedConfig(path string) (backup string, err error) {
 }
 
 func readConfigText(path string) (text string, raw []byte, err error) {
-	resolved, exists, err := statConfigPath(path)
+	return processRoots().readConfigText(path)
+}
+
+func (r Roots) readConfigText(path string) (text string, raw []byte, err error) {
+	resolved, exists, err := r.statConfigPath(path)
 	if err != nil {
 		return "", nil, err
 	}

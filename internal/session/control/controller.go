@@ -312,12 +312,21 @@ type Options struct {
 	SystemPrompt        string
 	SessionDir          string
 	SessionPath         string
-	Host                *plugin.Host
-	Commands            []command.Command
-	Skills              []skill.Skill
-	AllSkills           []skill.Skill
-	SkillStore          *skill.Store
-	AllSkillStore       *skill.Store
+	// Roots is the storage binding this controller resolves every user-global
+	// path against — the settings it reads and writes, the plugin tree it lists,
+	// the config a project file shadows. The zero value follows the environment,
+	// which is what a single-user host wants; a host that assembles one runtime
+	// per user states that user's home so the settings this session reads and
+	// writes are that user's alone.
+	Roots     config.Roots
+	Host      *plugin.Host
+	Commands  []command.Command
+	Skills    []skill.Skill
+	AllSkills []skill.Skill
+	// SkillStore is the authoritative skill store; AllSkillStore is the full
+	// set the store holds, including the ones this session has not enabled.
+	SkillStore    *skill.Store
+	AllSkillStore *skill.Store
 	// Clock is the host's wall clock for the date the model is told; nil means
 	// the model is told none.
 	Clock func() time.Time
@@ -917,7 +926,7 @@ func (c *Controller) cacheColdAfter() time.Duration {
 	// 查询路径只读：LoadForRootReadOnly 不触发配置迁移写盘（评审 #7168
 	// 第 4 点）；失败时保守回退 24h（DeepSeek/未知 vendor 默认），避免
 	// 把 cache TTL 过期误当成历史改写信号（resume 只记录 warm/cold/unknown）。
-	cfg, err := config.LoadForRootReadOnly(c.workspaceRoot)
+	cfg, err := c.roots.LoadForRootReadOnly(c.workspaceRoot)
 	if err != nil {
 		return 24 * time.Hour
 	}
@@ -1069,7 +1078,7 @@ func (c *Controller) ReloadCommands(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
-	cmds, loadErr := command.LoadRoots(config.CommandRootsForRoot(c.workspaceRoot)...)
+	cmds, loadErr := command.LoadRoots(c.roots.CommandRootsForRoot(c.workspaceRoot)...)
 	var cmdSkills []skill.Skill
 	if !c.skills.noImplicitInvocation {
 		cmdSkills = skill.ModelInvocable(c.SlashSkills())
@@ -1148,12 +1157,21 @@ func (c *Controller) ModelRef() string { return c.modelRef }
 // Empty means no scoping is in effect.
 func (c *Controller) WorkspaceRoot() string { return c.workspaceRoot }
 
-// loadConfigForRoot is the turn-time config read; tests count it.
-var loadConfigForRoot = config.LoadForRoot
+// Roots returns the storage binding this controller was built with: the home
+// its user-global paths resolve against. A replacement runtime inherits it so a
+// rebuild cannot land the session on another home.
+func (c *Controller) Roots() config.Roots { return c.roots }
+
+// loadConfigForRoot is the turn-time config read; tests count it. The binding
+// travels with it: the user-global layer of a turn comes from the home the
+// session was assembled under, not from the process that happens to host it.
+var loadConfigForRoot = func(roots config.Roots, root string) (*config.Config, error) {
+	return roots.LoadForRoot(root)
+}
 
 func (c *Controller) imageInputEnabled() bool {
 	ref := c.modelRef
-	cfg, err := loadConfigForRoot(c.workspaceRoot)
+	cfg, err := loadConfigForRoot(c.roots, c.workspaceRoot)
 	if err == nil && ref == "" {
 		ref = cfg.DefaultModel
 	}

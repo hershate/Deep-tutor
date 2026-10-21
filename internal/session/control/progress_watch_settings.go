@@ -27,8 +27,8 @@ func ProgressWatchFromConfig(cfg *config.Config) agent.ProgressWatch {
 }
 
 func (c *Controller) ProgressWatchSettings() ProgressWatchSettings {
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	return ProgressWatchSettings{
 		Pause:                cfg.ProgressWatch.Pause,
 		Rounds:               cfg.ProgressWatchRounds(),
@@ -43,10 +43,10 @@ func (c *Controller) ProgressWatchSettings() ProgressWatchSettings {
 // executor, which reads it at each round boundary — no rebuild, so a turn that
 // is stalling right now is the one the change applies to.
 func (c *Controller) SaveProgressWatchSettings(in ProgressWatchSettings) error {
-	unlock := config.LockUserConfigEdits()
+	unlock := c.roots.LockUserConfigEdits()
 	defer unlock()
-	path := config.UserConfigPath()
-	cfg := config.LoadForEdit(path)
+	path := c.roots.UserConfigPath()
+	cfg := c.roots.LoadForEdit(path)
 	if err := cfg.SetProgressWatch(config.ProgressWatchConfig{
 		Pause: in.Pause, Rounds: in.Rounds, TokenMultiple: in.TokenMultiple,
 		// The settings screen does not edit the retry budget; carry the stored

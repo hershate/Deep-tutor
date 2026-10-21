@@ -48,9 +48,18 @@ type configEditTarget struct {
 // returns the unlock. Hold it across the full LoadForEdit→mutate→SaveTo
 // cycle; do not hold it across controller rebuilds or other slow non-config
 // work, and never call another LockUserConfigEdits taker while holding it.
-func LockUserConfigEdits() func() {
+func LockUserConfigEdits() func() { return processRoots().LockUserConfigEdits() }
+
+// LockUserConfigEdits is the binding's user-config edit lock. The lock is that
+// file's lock: a host that states a home writes that home's config, and a lock
+// on another file leaves two writers free to overwrite one another's snapshot.
+//
+// The lock is best effort in the same way the process-level one is — a file
+// lock that cannot be taken is remembered and the edit proceeds — so the
+// failure still reaches the reader that reports it.
+func (r Roots) LockUserConfigEdits() func() {
 	userEditMu.Lock()
-	target, err := resolveConfigEditTarget(UserConfigPath())
+	target, err := resolveConfigEditTargetFor(r, r.UserConfigPath())
 	var unlockFile func()
 	if err == nil {
 		unlockFile, err = acquireConfigEditLockPathWithTimeout(target.lockPath, userConfigEditLockTimeout)
@@ -82,6 +91,13 @@ func LockConfigFileEdits(path string) (func(), error) {
 	return lockConfigFilesEdits(path)
 }
 
+// LockConfigFileEdits is the binding's lock on one config file. The lock target
+// is resolved under the binding, so a user config is locked as the file it is
+// in this binding and a project config may not leave its own directory.
+func (r Roots) LockConfigFileEdits(path string) (func(), error) {
+	return r.lockConfigFilesEdits(path)
+}
+
 // LockConfigFilesEdits locks multiple config sources as one transaction.
 // Aliases that resolve to the same final file share one advisory lock, and
 // every logical path stays pinned to the resolved target until unlock.
@@ -89,24 +105,41 @@ func LockConfigFilesEdits(paths ...string) (func(), error) {
 	return lockConfigFilesEdits(paths...)
 }
 
+// LockConfigFilesEdits is the binding's lock on several config sources, taken
+// as one transaction against the binding's own file kinds.
+func (r Roots) LockConfigFilesEdits(paths ...string) (func(), error) {
+	return r.lockConfigFilesEdits(paths...)
+}
+
 // EditConfigFile runs a strict read-modify-write transaction for one TOML
 // config. Malformed input is returned to the caller and is never replaced with
 // defaults. The callback must only mutate cfg; keep slow runtime work outside
 // the transaction.
 func EditConfigFile(path string, edit func(*Config) error) error {
-	return editConfigFile(path, true, edit)
+	return processRoots().EditConfigFile(path, edit)
+}
+
+// EditConfigFile is the binding's transaction: the config it loads carries
+// the binding, so the save writes the file as the kind of file it is in this
+// binding — a user file whole, not a project's incremental slice.
+func (r Roots) EditConfigFile(path string, edit func(*Config) error) error {
+	return r.editConfigFile(path, true, edit)
 }
 
 func editConfigFile(path string, loadCredentials bool, edit func(*Config) error) error {
+	return processRoots().editConfigFile(path, loadCredentials, edit)
+}
+
+func (r Roots) editConfigFile(path string, loadCredentials bool, edit func(*Config) error) error {
 	if edit == nil {
 		return fmt.Errorf("edit config: nil callback")
 	}
-	unlock, err := LockConfigFileEdits(path)
+	unlock, err := r.LockConfigFileEdits(path)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	cfg, err := loadForEditStrict(path, loadCredentials, false)
+	cfg, err := r.loadForEditStrict(path, loadCredentials, false)
 	if err != nil {
 		return err
 	}
@@ -120,6 +153,17 @@ func editConfigFile(path string, loadCredentials bool, edit func(*Config) error)
 // distinct path-derived file lock in a stable order. Stable ordering prevents
 // two Reasonix processes editing overlapping config-source sets from deadlocking.
 func lockConfigFilesEdits(paths ...string) (func(), error) {
+	return processRoots().lockConfigFilesEdits(paths...)
+}
+
+// lockConfigFilesEdits acquires one in-process transaction lock plus every
+// distinct path-derived file lock in a stable order. Stable ordering prevents
+// two Reasonix processes editing overlapping config-source sets from deadlocking.
+//
+// The targets are resolved under the binding: which rules a file follows — a
+// user config may be a link to anywhere, a project config may not leave its
+// directory — depends on the home the file belongs to.
+func (r Roots) lockConfigFilesEdits(paths ...string) (func(), error) {
 	userEditMu.Lock()
 	targets := make([]configEditTarget, 0, len(paths))
 	seenLogical := make(map[string]struct{}, len(paths))
@@ -127,7 +171,7 @@ func lockConfigFilesEdits(paths ...string) (func(), error) {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
-		target, err := resolveConfigEditTarget(path)
+		target, err := resolveConfigEditTargetFor(r, path)
 		if err != nil {
 			userEditMu.Unlock()
 			return nil, err
@@ -243,11 +287,19 @@ func configFileEditLockPath(path string) (string, error) {
 }
 
 func resolveConfigEditTarget(path string) (configEditTarget, error) {
+	return resolveConfigEditTargetFor(processRoots(), path)
+}
+
+// resolveConfigEditTargetFor resolves the edit target of path under a binding.
+// Which rules the file follows — a user config may be a link to anywhere, a
+// project config may not leave its directory — depends on which home the file
+// belongs to, so the binding has to be part of the question.
+func resolveConfigEditTargetFor(roots Roots, path string) (configEditTarget, error) {
 	logicalKey, err := configEditPathKey(path)
 	if err != nil {
 		return configEditTarget{}, err
 	}
-	userOwned := isUserConfigPath(path) || samePath(path, legacyConfigPath()) || samePath(path, UserCredentialsPath())
+	userOwned := roots.isUserConfigPath(path) || samePath(path, roots.legacyConfigPath()) || samePath(path, roots.UserCredentialsPath())
 	resolved, err := resolveConfigAccessPathUnpinned(path, userOwned)
 	if err != nil {
 		return configEditTarget{}, fmt.Errorf("lock config edits: %w", err)
