@@ -2,6 +2,7 @@ package repair
 
 import (
 	"context"
+	"deep-tutor/internal/model/catalog"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"deep-tutor/internal/model/catalog"
 	"runtime"
 	"slices"
 	"strings"

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"os"
 	"deep-tutor/internal/contract/pricing"
+	"os"
 	"strings"
 	"testing"
 )

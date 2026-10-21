@@ -7,10 +7,10 @@ package sessiontool
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/base/textutil"

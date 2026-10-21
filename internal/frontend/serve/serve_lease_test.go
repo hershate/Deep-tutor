@@ -1,13 +1,13 @@
 package serve
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync"
 	"sync/atomic"

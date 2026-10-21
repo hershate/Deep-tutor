@@ -1,8 +1,8 @@
 package config
 
 import (
-	"net/url"
 	"deep-tutor/internal/contract/provider"
+	"net/url"
 	"slices"
 	"strings"
 )

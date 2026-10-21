@@ -3,10 +3,10 @@ package delegation
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/runtime/agent"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/runtime/agent"
 	"strings"
 	"sync"
 

@@ -12,12 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"deep-tutor/internal/base/scratchroot"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/bestof"
 	"deep-tutor/internal/session/control"
-	"deep-tutor/internal/base/scratchroot"
 )
 
 // candidateApproval is the session's approval posture, read when a best_of_n

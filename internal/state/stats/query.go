@@ -2,8 +2,8 @@ package stats
 
 import (
 	"context"
-	"maps"
 	"deep-tutor/internal/contract/pricing"
+	"maps"
 	"sort"
 	"strings"
 	"time"

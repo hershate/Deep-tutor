@@ -9,8 +9,8 @@ import (
 	"testing"
 	"unicode/utf16"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
 	"deep-tutor/internal/base/testenv"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // Detect

@@ -1,9 +1,9 @@
 package pluginpkg
 
 import (
+	"deep-tutor/internal/base/textutil"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/base/textutil"
 	"slices"
 	"strings"
 )

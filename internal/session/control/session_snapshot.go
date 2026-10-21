@@ -2,12 +2,12 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync/atomic"
 	"time"

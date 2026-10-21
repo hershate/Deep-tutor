@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync/atomic"
 	"testing"

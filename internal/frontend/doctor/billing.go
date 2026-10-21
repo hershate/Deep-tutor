@@ -1,8 +1,8 @@
 package doctor
 
 import (
-	"fmt"
 	"deep-tutor/internal/contract/pricing"
+	"fmt"
 	"strings"
 	"time"
 

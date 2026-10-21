@@ -24,9 +24,9 @@ import (
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/config"
 
+	"deep-tutor/internal/safety/redirectguard"
 	"github.com/spf13/pflag"
 	"golang.org/x/mod/semver"
-	"deep-tutor/internal/safety/redirectguard"
 )
 
 const (

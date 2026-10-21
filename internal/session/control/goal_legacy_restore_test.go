@@ -1,10 +1,10 @@
 package control
 
 import (
+	"deep-tutor/internal/safety/evidence"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/safety/evidence"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

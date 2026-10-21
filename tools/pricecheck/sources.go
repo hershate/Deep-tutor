@@ -2,8 +2,8 @@
 package main
 
 import (
-	"fmt"
 	"deep-tutor/internal/contract/pricing"
+	"fmt"
 	"strconv"
 	"strings"
 )

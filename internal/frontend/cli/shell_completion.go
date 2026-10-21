@@ -1,9 +1,9 @@
 package cli
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"

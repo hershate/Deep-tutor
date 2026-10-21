@@ -2,9 +2,9 @@ package delegation
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

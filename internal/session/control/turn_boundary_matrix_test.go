@@ -2,9 +2,9 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

@@ -1,8 +1,8 @@
 package delegation
 
 import (
-	"errors"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
 	"time"
 )
 

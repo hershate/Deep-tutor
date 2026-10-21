@@ -2,9 +2,9 @@ package installsource
 
 import (
 	"context"
+	"deep-tutor/internal/base/testenv"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/base/testenv"
 	"testing"
 )
 

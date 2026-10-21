@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"context"
+	"deep-tutor/internal/safety/redirectguard"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"deep-tutor/internal/safety/redirectguard"
 	"strings"
 	"sync"
 	"time"

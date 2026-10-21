@@ -1,8 +1,8 @@
 package boot
 
 import (
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"time"
 
 	"deep-tutor/internal/contract/config"

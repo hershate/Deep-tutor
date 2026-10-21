@@ -3,10 +3,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/base64"
 	"image"
 	"image/png"
-	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"testing"

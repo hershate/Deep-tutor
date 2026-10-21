@@ -1,9 +1,9 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"log/slog"
-	"deep-tutor/internal/state/sessionstore"
 )
 
 // persistSessionSnapshot writes path with snapshot semantics, escalating to an

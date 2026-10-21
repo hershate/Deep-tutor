@@ -2,9 +2,9 @@ package boot
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/contract/provider"

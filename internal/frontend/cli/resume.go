@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"strings"
 
 	"deep-tutor/internal/base/i18n"

@@ -2,8 +2,8 @@ package usecap
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/tool"
+	"encoding/json"
 	"testing"
 )
 

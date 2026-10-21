@@ -2,11 +2,11 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"time"
 

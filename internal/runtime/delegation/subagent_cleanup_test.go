@@ -1,10 +1,10 @@
 package delegation
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

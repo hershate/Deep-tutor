@@ -1,9 +1,9 @@
 package cli
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"io"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"sort"
 	"strings"
 	"time"

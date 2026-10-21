@@ -6,12 +6,12 @@ package boot
 
 import (
 	"context"
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/runtime/agent/testutil"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/base/testenv"
-	"deep-tutor/internal/runtime/agent/testutil"
 	"reflect"
 	"strings"
 	"sync"

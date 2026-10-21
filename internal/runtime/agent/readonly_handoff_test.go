@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/contract/tool"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/contract/tool"
 	"strings"
 	"testing"
 

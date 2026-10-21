@@ -1,10 +1,6 @@
 package serve
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/provider"
@@ -13,6 +9,10 @@ import (
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/session/control"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )

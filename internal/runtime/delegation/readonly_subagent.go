@@ -3,8 +3,8 @@ package delegation
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/runtime/agent"
+	"fmt"
 
 	"deep-tutor/internal/contract/tool"
 )

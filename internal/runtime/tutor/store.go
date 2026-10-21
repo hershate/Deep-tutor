@@ -105,12 +105,16 @@ func safeSegment(name string) string {
 	return name
 }
 
-func (s *Store) sessionDir(id string) string { return filepath.Join(s.root, "sessions", safeSegment(id)) }
-func (s *Store) planDir(id string) string    { return filepath.Join(s.root, "plans", safeSegment(id)) }
-func (s *Store) notesDir() string            { return filepath.Join(s.root, "notes") }
+func (s *Store) sessionDir(id string) string {
+	return filepath.Join(s.root, "sessions", safeSegment(id))
+}
+func (s *Store) planDir(id string) string { return filepath.Join(s.root, "plans", safeSegment(id)) }
+func (s *Store) notesDir() string         { return filepath.Join(s.root, "notes") }
 
 // notePath is the one place a note's file name is built.
-func (s *Store) notePath(id string) string { return filepath.Join(s.notesDir(), safeSegment(id)+".json") }
+func (s *Store) notePath(id string) string {
+	return filepath.Join(s.notesDir(), safeSegment(id)+".json")
+}
 
 func (s *Store) writeJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")

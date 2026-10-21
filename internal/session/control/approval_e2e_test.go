@@ -2,8 +2,8 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"

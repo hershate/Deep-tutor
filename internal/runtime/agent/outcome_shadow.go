@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"fmt"
 	"deep-tutor/internal/contract/hostaudit"
+	"fmt"
 
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/safety/evidence"

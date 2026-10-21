@@ -2,11 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"sync"
 )
 

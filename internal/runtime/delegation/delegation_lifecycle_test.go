@@ -2,12 +2,12 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/writeclaim"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"

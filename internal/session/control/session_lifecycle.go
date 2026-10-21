@@ -2,10 +2,10 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/contract/event"

@@ -1,10 +1,10 @@
 package control
 
 import (
-	"errors"
-	"os"
 	"deep-tutor/internal/base/testenv"
 	"deep-tutor/internal/contract/config"
+	"errors"
+	"os"
 	"reflect"
 	"testing"
 

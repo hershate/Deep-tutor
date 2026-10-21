@@ -1,9 +1,9 @@
 package eventwire
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/base/secrets"
 	"deep-tutor/internal/contract/surfacespec"
+	"encoding/json"
 	"strings"
 	"testing"
 )

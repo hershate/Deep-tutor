@@ -1,10 +1,10 @@
 package boot
 
 import (
-	"fmt"
-	"path/filepath"
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"testing"
 

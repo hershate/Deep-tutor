@@ -2,9 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"

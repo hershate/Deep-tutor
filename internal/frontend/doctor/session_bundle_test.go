@@ -2,12 +2,12 @@ package doctor
 
 import (
 	"archive/zip"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"testing"

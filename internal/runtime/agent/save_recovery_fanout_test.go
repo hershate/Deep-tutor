@@ -1,12 +1,12 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
+	"deep-tutor/internal/state/store"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
-	"deep-tutor/internal/state/store"
 	"slices"
 	"strings"
 	"testing"

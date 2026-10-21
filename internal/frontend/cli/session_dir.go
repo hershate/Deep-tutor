@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"fmt"
-	"os"
 	"deep-tutor/internal/assembly/boot"
 	"deep-tutor/internal/contract/config"
+	"fmt"
+	"os"
 )
 
 // resolveCLISessionDir is the session dir for a CLI invocation with no --dir.

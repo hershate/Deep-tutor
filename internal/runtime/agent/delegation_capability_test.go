@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/runtime/capability"
 	"deep-tutor/internal/runtime/usecap"
+	"encoding/json"
 	"testing"
 )
 

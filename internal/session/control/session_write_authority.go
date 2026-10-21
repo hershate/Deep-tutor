@@ -2,8 +2,8 @@ package control
 
 import (
 	"context"
-	"errors"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
 	"time"
 
 	"deep-tutor/internal/contract/event"

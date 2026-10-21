@@ -1,12 +1,12 @@
 package serve
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

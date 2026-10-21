@@ -3,9 +3,9 @@ package catalog
 
 import (
 	"context"
+	"deep-tutor/internal/contract/config"
 	"fmt"
 	"net/http"
-	"deep-tutor/internal/contract/config"
 	"strings"
 )
 

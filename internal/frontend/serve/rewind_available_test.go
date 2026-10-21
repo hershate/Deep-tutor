@@ -1,11 +1,11 @@
 package serve
 
 import (
+	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/checkpoint"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"deep-tutor/internal/session/control"
-	"deep-tutor/internal/state/checkpoint"
 	"testing"
 )
 

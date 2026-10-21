@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/planmode"
 	"deep-tutor/internal/contract/provider"
@@ -12,6 +11,7 @@ import (
 	"deep-tutor/internal/runtime/delegation"
 	"deep-tutor/internal/runtime/usecap"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"testing"
 )
 

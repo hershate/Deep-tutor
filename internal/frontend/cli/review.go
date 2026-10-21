@@ -2,10 +2,10 @@ package cli
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"flag"
 	"fmt"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/assembly/boot"

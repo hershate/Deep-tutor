@@ -1,10 +1,10 @@
 package boot
 
 import (
-	"os"
-	"path/filepath"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/platform/computer"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )

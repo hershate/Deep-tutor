@@ -1,12 +1,12 @@
 package agent
 
 import (
+	"deep-tutor/internal/runtime/writeclaim"
+	"deep-tutor/internal/state/checkpoint"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/runtime/writeclaim"
-	"deep-tutor/internal/state/checkpoint"
 	"runtime"
 	"slices"
 	"testing"

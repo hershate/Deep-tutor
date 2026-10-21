@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"slices"
 	"strings"

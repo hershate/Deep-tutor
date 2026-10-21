@@ -7,9 +7,9 @@ package instanceid
 
 import (
 	"crypto/sha256"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/hex"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/contract/config"

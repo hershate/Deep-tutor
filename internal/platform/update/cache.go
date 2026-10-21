@@ -11,8 +11,8 @@ import (
 
 	"deep-tutor/internal/base/fileutil"
 	fileencoding "deep-tutor/internal/base/fileutil/encoding"
-	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/base/scratchroot"
+	"deep-tutor/internal/contract/config"
 )
 
 // Artifact kinds. Which one the cache holds is part of its identity: a .deb and

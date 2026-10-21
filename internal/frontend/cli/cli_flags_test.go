@@ -1,18 +1,18 @@
 package cli
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/spf13/pflag"
 	"deep-tutor/internal/base/i18n"
 	"deep-tutor/internal/base/testenv"
 	"deep-tutor/internal/contract/provider"
+	"github.com/spf13/pflag"
 )
 
 func TestSplitAllowedToolRules(t *testing.T) {

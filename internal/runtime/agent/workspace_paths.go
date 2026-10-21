@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"encoding/json"
-	"errors"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/runtime/writeclaim"
 	"deep-tutor/internal/state/workspacelease"
+	"encoding/json"
+	"errors"
 )
 
 func (a *Agent) workspaceWritePaths(plan *toolCallPlan) []string {

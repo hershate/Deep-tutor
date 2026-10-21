@@ -2,11 +2,11 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"reflect"
 	"strings"
 	"sync/atomic"

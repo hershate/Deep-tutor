@@ -2,8 +2,8 @@ package boot
 
 import (
 	"context"
-	"path/filepath"
 	"deep-tutor/internal/state/sessionstore"
+	"path/filepath"
 	"strings"
 	"testing"
 

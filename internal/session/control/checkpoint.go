@@ -2,9 +2,9 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"strconv"
 	"strings"
 	"sync"

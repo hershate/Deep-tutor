@@ -2,10 +2,10 @@ package agent
 
 import (
 	"crypto/sha256"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"deep-tutor/internal/state/sessionstore"
 	"time"
 
 	"deep-tutor/internal/contract/event"

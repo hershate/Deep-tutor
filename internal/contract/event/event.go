@@ -12,9 +12,9 @@
 package event
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/contract/hostaudit"
 	"deep-tutor/internal/contract/pricing"
+	"encoding/json"
 
 	"deep-tutor/internal/contract/agentgraph"
 	"deep-tutor/internal/contract/provider"

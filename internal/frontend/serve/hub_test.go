@@ -3,6 +3,7 @@ package serve
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"testing/fstest"
 

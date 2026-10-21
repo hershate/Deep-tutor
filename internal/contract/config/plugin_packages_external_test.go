@@ -1,9 +1,9 @@
 package config_test
 
 import (
+	"deep-tutor/internal/contract/config"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/config"
 	"slices"
 	"testing"
 

@@ -1,11 +1,11 @@
 package agent
 
 import (
+	"deep-tutor/internal/runtime/usecap"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"deep-tutor/internal/runtime/usecap"
 	"strings"
 	"unicode/utf8"
 )

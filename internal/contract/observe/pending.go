@@ -2,9 +2,9 @@ package observe
 
 import (
 	"crypto/sha256"
+	"deep-tutor/internal/base/textutil"
 	"encoding/hex"
 	"errors"
-	"deep-tutor/internal/base/textutil"
 	"strconv"
 	"sync"
 	"time"

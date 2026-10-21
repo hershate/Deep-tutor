@@ -2,13 +2,13 @@ package cli
 
 import (
 	"context"
+	"deep-tutor/internal/base/textutil"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"deep-tutor/internal/base/textutil"
 	"strings"
 
 	"deep-tutor/internal/contract/config"

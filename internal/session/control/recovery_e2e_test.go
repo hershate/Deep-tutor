@@ -2,11 +2,11 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/hostaudit"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

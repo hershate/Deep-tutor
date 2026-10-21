@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strconv"
 	"strings"

@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 
 	"github.com/charmbracelet/x/ansi"
 )

@@ -18,10 +18,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "golang.org/x/image/webp"
-	nethtml "golang.org/x/net/html"
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/tool"
+	_ "golang.org/x/image/webp"
+	nethtml "golang.org/x/net/html"
 )
 
 type webImage struct {

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"deep-tutor/internal/base/proc"
-	"deep-tutor/internal/base/secrets"
 	"deep-tutor/internal/base/scratchroot"
+	"deep-tutor/internal/base/secrets"
 )
 
 // baseConfig is the -c override set every invocation carries.

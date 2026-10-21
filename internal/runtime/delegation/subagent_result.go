@@ -3,11 +3,11 @@ package delegation
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/runtime/agent"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"unicode/utf8"

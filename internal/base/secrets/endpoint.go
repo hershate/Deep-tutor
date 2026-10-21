@@ -5,9 +5,9 @@ import (
 	"strings"
 	"unicode"
 
+	"deep-tutor/internal/base/shellparse"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
-	"deep-tutor/internal/base/shellparse"
 )
 
 const EndpointRedacted = "<redacted>"

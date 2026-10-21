@@ -2,8 +2,8 @@ package control
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"

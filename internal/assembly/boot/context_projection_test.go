@@ -6,9 +6,9 @@ package boot
 
 import (
 	"context"
+	"deep-tutor/internal/runtime/agent"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/runtime/agent"
 	"slices"
 	"strings"
 	"sync"

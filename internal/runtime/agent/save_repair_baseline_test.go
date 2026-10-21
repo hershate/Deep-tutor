@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

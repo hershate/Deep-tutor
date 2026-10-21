@@ -2,8 +2,8 @@ package computer
 
 import (
 	"debug/elf"
-	"path/filepath"
 	"deep-tutor/internal/base/shellparse"
+	"path/filepath"
 	"strings"
 	"unicode"
 )

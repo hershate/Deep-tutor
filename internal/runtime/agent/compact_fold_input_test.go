@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/runtime/agent/testutil"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"strings"
 	"testing"
 

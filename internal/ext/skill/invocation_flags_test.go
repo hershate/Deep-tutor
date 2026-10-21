@@ -2,10 +2,10 @@ package skill
 
 import (
 	"context"
+	"deep-tutor/internal/contract/config"
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"deep-tutor/internal/contract/config"
 	"strings"
 	"testing"
 

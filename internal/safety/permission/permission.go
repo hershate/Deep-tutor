@@ -7,8 +7,8 @@ package permission
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/permrule"
+	"encoding/json"
 	"strings"
 
 	"deep-tutor/internal/base/shellparse"

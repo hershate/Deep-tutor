@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"

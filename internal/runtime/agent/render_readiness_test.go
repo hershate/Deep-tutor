@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"testing"

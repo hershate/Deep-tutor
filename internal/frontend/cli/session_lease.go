@@ -1,10 +1,10 @@
 package cli
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/base/i18n"

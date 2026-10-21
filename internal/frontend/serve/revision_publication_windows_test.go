@@ -1,11 +1,11 @@
 package serve
 
 import (
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/ext/pluginpkg"
 	"golang.org/x/sys/windows"
 	"net/http"
 	"path/filepath"
-	"deep-tutor/internal/base/testenv"
-	"deep-tutor/internal/ext/pluginpkg"
 	"testing"
 )
 

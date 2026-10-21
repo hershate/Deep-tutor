@@ -9,13 +9,13 @@
 package main
 
 import (
+	"deep-tutor/internal/contract/pricing"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/pricing"
 	"slices"
 	"strings"
 	"time"

@@ -1,8 +1,8 @@
 package delegation
 
 import (
-	"errors"
 	"deep-tutor/internal/runtime/agent"
+	"errors"
 
 	"deep-tutor/internal/contract/provider"
 )

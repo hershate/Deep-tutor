@@ -1,8 +1,8 @@
 package delegation
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"

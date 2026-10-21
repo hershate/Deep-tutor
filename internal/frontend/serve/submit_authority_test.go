@@ -1,9 +1,9 @@
 package serve
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"net/http"
 	"net/http/httptest"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 

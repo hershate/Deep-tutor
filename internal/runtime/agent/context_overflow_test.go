@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"net/http"
 	"deep-tutor/internal/state/sessionstore"
+	"net/http"
 	"strings"
 	"testing"
 

@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"testing"
 
 	"deep-tutor/internal/contract/tool"

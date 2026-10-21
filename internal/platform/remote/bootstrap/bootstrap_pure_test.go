@@ -49,10 +49,10 @@ func TestParseVersion(t *testing.T) {
 		// host that already runs this build's own reports "deep-tutor".
 		"reasonix v1.9.0":          "1.9.0",
 		"deep-tutor v1.9.0":        "1.9.0",
-		"1.9.0":                   "1.9.0",
-		"reasonix version 2.0.1":  "2.0.1",
+		"1.9.0":                    "1.9.0",
+		"reasonix version 2.0.1":   "2.0.1",
 		"deep-tutor version 2.0.1": "2.0.1",
-		"v1.10.0-rc.1":            "1.10.0-rc.1",
+		"v1.10.0-rc.1":             "1.10.0-rc.1",
 	}
 	for in, want := range cases {
 		got, err := ParseVersion(in)

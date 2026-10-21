@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"strings"
 	"testing"
 	"time"

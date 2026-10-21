@@ -2,13 +2,13 @@ package delegation
 
 import (
 	"context"
+	"deep-tutor/internal/contract/agentgraph"
+	"deep-tutor/internal/runtime/agent"
+	"deep-tutor/internal/runtime/writeclaim"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/contract/agentgraph"
-	"deep-tutor/internal/runtime/agent"
-	"deep-tutor/internal/runtime/writeclaim"
 	"strings"
 	"sync/atomic"
 	"testing"

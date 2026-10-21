@@ -2,13 +2,13 @@ package doctor
 
 import (
 	"bytes"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"sort"
 	"strings"

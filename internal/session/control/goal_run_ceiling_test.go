@@ -2,9 +2,9 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"sync/atomic"
 	"testing"
 	"time"

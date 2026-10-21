@@ -2,10 +2,10 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/writeclaim"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 

@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"time"
 
 	"deep-tutor/internal/contract/provider"

@@ -4,10 +4,10 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/base/textutil"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"deep-tutor/internal/base/textutil"
 	"strings"
 
 	"deep-tutor/internal/contract/config"

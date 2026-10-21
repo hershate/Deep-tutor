@@ -2,9 +2,9 @@ package boot
 
 import (
 	"context"
+	"deep-tutor/internal/session/control"
 	"fmt"
 	"maps"
-	"deep-tutor/internal/session/control"
 	"strings"
 	"sync"
 	"testing"

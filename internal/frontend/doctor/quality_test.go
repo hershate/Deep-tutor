@@ -1,10 +1,10 @@
 package doctor
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"testing"

@@ -2,9 +2,9 @@ package guardian
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync"

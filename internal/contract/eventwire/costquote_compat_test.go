@@ -1,8 +1,8 @@
 package eventwire
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/contract/pricing"
+	"encoding/json"
 	"testing"
 
 	"deep-tutor/internal/contract/event"

@@ -2,9 +2,9 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"strings"
 	"time"
 

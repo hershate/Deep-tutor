@@ -1,9 +1,9 @@
 package doctor
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/contract/config"

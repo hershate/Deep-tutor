@@ -1,9 +1,9 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"log/slog"
-	"deep-tutor/internal/state/sessionstore"
 	"time"
 
 	"deep-tutor/internal/contract/event"

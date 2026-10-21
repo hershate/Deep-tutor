@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"deep-tutor/internal/contract/hostaudit"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"

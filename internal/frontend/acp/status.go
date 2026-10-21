@@ -2,10 +2,10 @@ package acp
 
 import (
 	"context"
+	"deep-tutor/internal/contract/pricing"
 	"encoding/json"
 	"errors"
 	"math"
-	"deep-tutor/internal/contract/pricing"
 	"runtime"
 	"slices"
 	"strings"

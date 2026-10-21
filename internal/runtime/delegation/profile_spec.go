@@ -2,9 +2,9 @@ package delegation
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/writeclaim"
+	"fmt"
 	"strings"
 
 	"deep-tutor/internal/contract/agentgraph"

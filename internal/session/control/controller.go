@@ -12,11 +12,11 @@ package control
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync"

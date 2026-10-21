@@ -2,10 +2,10 @@ package catalog
 
 import (
 	"context"
+	"deep-tutor/internal/contract/config"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"deep-tutor/internal/contract/config"
 	"testing"
 )
 

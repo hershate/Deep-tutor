@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"deep-tutor/internal/platform/gitcmd"
 	"deep-tutor/internal/base/scratchroot"
+	"deep-tutor/internal/platform/gitcmd"
 )
 
 // ErrWorkspaceMoved is an Apply refused because the source workspace no longer

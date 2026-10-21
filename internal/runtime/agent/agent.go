@@ -4,12 +4,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"deep-tutor/internal/runtime/langpref"
 	"deep-tutor/internal/runtime/usecap"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"

@@ -1,8 +1,8 @@
 package serve
 
 import (
-	"net/http/httptest"
 	"deep-tutor/internal/contract/config"
+	"net/http/httptest"
 	"testing"
 )
 

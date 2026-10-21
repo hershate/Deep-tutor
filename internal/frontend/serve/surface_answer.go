@@ -1,9 +1,9 @@
 package serve
 
 import (
+	"deep-tutor/internal/contract/surfacespec"
 	"errors"
 	"net/http"
-	"deep-tutor/internal/contract/surfacespec"
 )
 
 func refuseSurfaceAnswer(w http.ResponseWriter, err error) {

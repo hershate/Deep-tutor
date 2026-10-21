@@ -2,12 +2,12 @@ package config
 
 import (
 	"bytes"
+	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 	"fmt"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
-	fileencoding "deep-tutor/internal/base/fileutil/encoding"
 	"reflect"
 	"runtime"
 	"slices"

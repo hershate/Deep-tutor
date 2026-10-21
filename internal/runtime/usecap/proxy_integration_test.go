@@ -2,15 +2,15 @@ package usecap_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"os"
-	"path/filepath"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/capability"
 	"deep-tutor/internal/runtime/delegation"
 	"deep-tutor/internal/runtime/usecap"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )

@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/contract/hostaudit"
 	"fmt"
 	"path/filepath"
-	"deep-tutor/internal/contract/hostaudit"
 	"slices"
 	"strconv"
 	"strings"

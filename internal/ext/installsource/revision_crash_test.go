@@ -1,12 +1,12 @@
 package installsource
 
 import (
+	"deep-tutor/internal/base/fileutil"
+	"deep-tutor/internal/ext/pluginpkg"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"deep-tutor/internal/base/fileutil"
-	"deep-tutor/internal/ext/pluginpkg"
 	"testing"
 )
 

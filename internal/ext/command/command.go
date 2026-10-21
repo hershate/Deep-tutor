@@ -6,10 +6,10 @@
 package command
 
 import (
+	"deep-tutor/internal/contract/config"
 	"fmt"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/config"
 	"regexp"
 	"sort"
 	"strconv"

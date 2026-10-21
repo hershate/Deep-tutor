@@ -1,11 +1,11 @@
 package sessionstore
 
 import (
+	"deep-tutor/internal/base/scratchroot"
+	"deep-tutor/internal/state/store"
 	"errors"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/store"
-	"deep-tutor/internal/base/scratchroot"
 	"time"
 )
 

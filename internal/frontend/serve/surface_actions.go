@@ -1,12 +1,12 @@
 package serve
 
 import (
+	"deep-tutor/internal/contract/surfacespec"
+	"deep-tutor/internal/session/control"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"deep-tutor/internal/contract/surfacespec"
-	"deep-tutor/internal/session/control"
 )
 
 func (s *Server) surfaceActionState(w http.ResponseWriter, r *http.Request) {

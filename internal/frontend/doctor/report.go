@@ -3,13 +3,13 @@ package doctor
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"runtime"
 	"strings"
 	"time"

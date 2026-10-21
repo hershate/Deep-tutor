@@ -1,11 +1,11 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strconv"
 	"strings"
 	"sync"

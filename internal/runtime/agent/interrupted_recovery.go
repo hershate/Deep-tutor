@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"fmt"
 	"html"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 

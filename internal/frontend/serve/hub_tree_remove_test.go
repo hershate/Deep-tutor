@@ -3,13 +3,13 @@ package serve
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

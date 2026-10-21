@@ -1,8 +1,8 @@
 package installsource
 
 import (
-	"errors"
 	"deep-tutor/internal/ext/pluginpkg"
+	"errors"
 	"testing"
 )
 

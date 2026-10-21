@@ -1,10 +1,10 @@
 package boot
 
 import (
+	"deep-tutor/internal/session/control"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/session/control"
 	"strings"
 	"testing"
 	"time"

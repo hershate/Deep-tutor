@@ -2,8 +2,8 @@ package extension
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/contract/event"
+	"fmt"
 	"sync/atomic"
 )
 

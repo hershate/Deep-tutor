@@ -1,11 +1,11 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync"
 )

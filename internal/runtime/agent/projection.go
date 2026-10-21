@@ -2,9 +2,9 @@ package agent
 
 import (
 	"crypto/sha256"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/hex"
 	"encoding/json"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 
 	"deep-tutor/internal/contract/provider"

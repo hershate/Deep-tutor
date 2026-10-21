@@ -1,13 +1,13 @@
 package config
 
 import (
+	"deep-tutor/internal/contract/pricing"
 	"fmt"
 	"log/slog"
 	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/pricing"
 	"reflect"
 	"slices"
 	"strings"

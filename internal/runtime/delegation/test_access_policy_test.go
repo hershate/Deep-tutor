@@ -2,8 +2,8 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/tool"
+	"encoding/json"
 )
 
 func allowTestFileAccess(context.Context, tool.Tool, json.RawMessage) error { return nil }

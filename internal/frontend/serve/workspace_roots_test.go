@@ -1,13 +1,13 @@
 package serve
 
 import (
+	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/base/testenv"
-	"deep-tutor/internal/contract/config"
 	"slices"
 	"strings"
 	"sync"

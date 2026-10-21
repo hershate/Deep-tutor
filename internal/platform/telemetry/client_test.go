@@ -2,13 +2,13 @@ package telemetry
 
 import (
 	"context"
+	"deep-tutor/internal/contract/hostaudit"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/hostaudit"
 	"runtime"
 	"strings"
 	"sync"

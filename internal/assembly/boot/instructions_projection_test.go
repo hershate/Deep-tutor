@@ -5,9 +5,9 @@ package boot
 // — and an edit that changes nothing the model reads reaches it not at all.
 
 import (
+	"deep-tutor/internal/runtime/agent"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/runtime/agent"
 	"strings"
 	"testing"
 

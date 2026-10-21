@@ -1,8 +1,8 @@
 package config
 
 import (
-	"fmt"
 	"deep-tutor/internal/contract/pricing"
+	"fmt"
 	"strings"
 
 	"deep-tutor/internal/contract/provider"

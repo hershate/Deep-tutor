@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"log/slog"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"time"
 

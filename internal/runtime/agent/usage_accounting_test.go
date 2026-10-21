@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"io"
 	"net/http"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 

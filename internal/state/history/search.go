@@ -2,12 +2,12 @@ package history
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"sort"
 	"strings"
 

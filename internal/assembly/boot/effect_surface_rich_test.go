@@ -2,6 +2,7 @@ package boot
 
 import (
 	"context"
+	"deep-tutor/internal/runtime/agent"
 	"encoding/json"
 	"errors"
 	"image"
@@ -10,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/runtime/agent"
 	"slices"
 	"strings"
 	"testing"

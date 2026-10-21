@@ -6,9 +6,9 @@ package trajectory
 
 import (
 	"bufio"
+	"deep-tutor/internal/contract/hostaudit"
 	"encoding/json"
 	"os"
-	"deep-tutor/internal/contract/hostaudit"
 	"reflect"
 	"sync"
 	"time"

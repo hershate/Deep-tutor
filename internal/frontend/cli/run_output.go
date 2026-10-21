@@ -1,11 +1,11 @@
 package cli
 
 import (
+	"deep-tutor/internal/contract/pricing"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"deep-tutor/internal/contract/pricing"
 	"strings"
 	"sync"
 	"time"

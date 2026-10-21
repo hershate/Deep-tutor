@@ -3,10 +3,10 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/model/catalog"
 	"errors"
 	"fmt"
 	"net/http"
-	"deep-tutor/internal/model/catalog"
 	"regexp"
 	"slices"
 	"strings"

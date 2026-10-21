@@ -1,10 +1,10 @@
 package control
 
 import (
-	"encoding/json"
-	"log/slog"
 	"deep-tutor/internal/contract/surfacespec"
 	"deep-tutor/internal/state/sessioninbox"
+	"encoding/json"
+	"log/slog"
 )
 
 func surfaceActionKey(action surfacespec.Action) string {

@@ -3,8 +3,8 @@
 package notify
 
 import (
-	"os/exec"
 	"deep-tutor/internal/base/secrets"
+	"os/exec"
 	"strings"
 )
 

@@ -2,11 +2,11 @@ package boot
 
 import (
 	"context"
-	"encoding/json"
-	"path/filepath"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/session/control"
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"

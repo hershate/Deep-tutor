@@ -1,10 +1,10 @@
 package control
 
 import (
-	"encoding/json"
-	"errors"
 	"deep-tutor/internal/contract/surfacespec"
 	"deep-tutor/internal/state/sessioninbox"
+	"encoding/json"
+	"errors"
 	"strings"
 )
 

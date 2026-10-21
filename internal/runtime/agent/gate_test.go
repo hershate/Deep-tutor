@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
 	"strings"
 	"testing"
 

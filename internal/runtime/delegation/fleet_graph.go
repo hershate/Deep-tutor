@@ -2,8 +2,8 @@ package delegation
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/runtime/writeclaim"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"

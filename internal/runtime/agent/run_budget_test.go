@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"sync/atomic"
 	"testing"
 

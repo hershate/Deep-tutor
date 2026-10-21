@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atotto/clipboard"
 	"deep-tutor/internal/base/testenv"
+	"github.com/atotto/clipboard"
 )
 
 const windowsTarget = "computer-target.exe"

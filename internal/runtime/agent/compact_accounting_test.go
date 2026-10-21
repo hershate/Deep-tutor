@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"deep-tutor/internal/runtime/agent/testutil"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"

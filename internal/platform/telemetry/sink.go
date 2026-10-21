@@ -2,9 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"deep-tutor/internal/contract/hostaudit"
 	"errors"
 	"net"
-	"deep-tutor/internal/contract/hostaudit"
 	"regexp"
 	"runtime"
 	"slices"

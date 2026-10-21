@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BurntSushi/toml"
 	"deep-tutor/internal/base/testenv"
+	"github.com/BurntSushi/toml"
 )
 
 func isolateUserConfigHome(t *testing.T) string {

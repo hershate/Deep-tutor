@@ -1,10 +1,10 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"sync"
 	"testing"
 

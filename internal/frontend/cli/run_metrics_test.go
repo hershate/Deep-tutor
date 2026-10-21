@@ -1,10 +1,10 @@
 package cli
 
 import (
+	"deep-tutor/internal/contract/hostaudit"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/hostaudit"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"

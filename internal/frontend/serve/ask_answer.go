@@ -1,11 +1,11 @@
 package serve
 
 import (
+	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/surfacespec"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"deep-tutor/internal/contract/event"
-	"deep-tutor/internal/contract/surfacespec"
 )
 
 // answer responds to an ask_request.

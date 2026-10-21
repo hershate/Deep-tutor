@@ -2,11 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"

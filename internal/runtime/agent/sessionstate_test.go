@@ -1,10 +1,10 @@
 package agent
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 	"time"
 )

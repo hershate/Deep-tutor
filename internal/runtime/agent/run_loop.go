@@ -2,11 +2,11 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/contract/hostaudit"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
-	"deep-tutor/internal/contract/hostaudit"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"sync/atomic"

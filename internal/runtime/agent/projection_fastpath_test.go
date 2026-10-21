@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"fmt"
 	"deep-tutor/internal/state/sessionstore"
+	"fmt"
 	"runtime"
 	"slices"
 	"testing"

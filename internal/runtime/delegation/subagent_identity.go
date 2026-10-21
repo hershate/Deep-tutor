@@ -2,8 +2,8 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/runtime/agent"
+	"encoding/json"
 	"slices"
 
 	"deep-tutor/internal/contract/tool"

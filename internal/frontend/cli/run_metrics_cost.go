@@ -3,8 +3,8 @@
 package cli
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/contract/pricing"
+	"encoding/json"
 )
 
 // costAudit is the run's quotes with the price book lifted out of them. Every

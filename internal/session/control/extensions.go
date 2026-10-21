@@ -2,10 +2,10 @@ package control
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 	"deep-tutor/internal/contract/hostaudit"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
+	"log/slog"
 	"sync"
 
 	"deep-tutor/internal/contract/event"

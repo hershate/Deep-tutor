@@ -1,9 +1,9 @@
 package boot
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"testing"
 
 	"deep-tutor/internal/contract/tool"

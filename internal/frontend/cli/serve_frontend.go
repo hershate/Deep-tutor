@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"syscall"
 

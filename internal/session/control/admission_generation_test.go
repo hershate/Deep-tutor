@@ -2,8 +2,8 @@ package control
 
 import (
 	"context"
-	"errors"
 	"deep-tutor/internal/base/testenv"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"

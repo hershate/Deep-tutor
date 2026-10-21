@@ -1,9 +1,9 @@
 package config
 
 import (
+	"deep-tutor/internal/contract/provider"
 	"errors"
 	"fmt"
-	"deep-tutor/internal/contract/provider"
 	"slices"
 	"strings"
 )

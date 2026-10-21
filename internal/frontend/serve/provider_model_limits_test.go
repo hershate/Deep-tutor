@@ -1,9 +1,9 @@
 package serve
 
 import (
+	"deep-tutor/internal/session/control"
 	"net/http"
 	"os"
-	"deep-tutor/internal/session/control"
 	"strings"
 	"testing"
 

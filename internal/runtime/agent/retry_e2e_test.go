@@ -3,10 +3,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync"
 	"testing"

@@ -2,10 +2,10 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/safety/endpointclient"
 	"errors"
 	"net"
 	"net/http"
-	"deep-tutor/internal/safety/endpointclient"
 
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/config"

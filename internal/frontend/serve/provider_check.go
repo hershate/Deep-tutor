@@ -3,12 +3,12 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/model/catalog"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
-	"deep-tutor/internal/model/catalog"
 	"regexp"
 	"strings"
 	"time"

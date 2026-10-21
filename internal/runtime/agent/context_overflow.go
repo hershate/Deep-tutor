@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"net/http"
-	"deep-tutor/internal/state/sessionstore"
 	"sync/atomic"
 
 	"deep-tutor/internal/contract/provider"

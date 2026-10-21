@@ -2,9 +2,9 @@ package control
 
 import (
 	"context"
-	"errors"
 	"deep-tutor/internal/base/testenv"
 	"deep-tutor/internal/state/sessionstore"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"

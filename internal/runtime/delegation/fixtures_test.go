@@ -2,13 +2,13 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/hostaudit"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/contract/tool"
 	"deep-tutor/internal/runtime/writeclaim"
 	_ "deep-tutor/internal/tools/builtin"
+	"encoding/json"
 	"slices"
 	"sync"
 	"sync/atomic"

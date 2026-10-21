@@ -2,19 +2,19 @@ package doctor
 
 import (
 	"archive/zip"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"slices"
 	"strings"
 	"time"
 
+	"deep-tutor/internal/base/scratchroot"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/state/store"
-	"deep-tutor/internal/base/scratchroot"
 )
 
 const sessionBundleSchemaVersion = 1

@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
 	"deep-tutor/internal/contract/pricing"
+	"encoding/json"
 	"reflect"
 	"testing"
 )

@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync"
 

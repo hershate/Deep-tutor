@@ -1,11 +1,11 @@
 package telemetry
 
 import (
+	"deep-tutor/internal/contract/hostaudit"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
-	"deep-tutor/internal/contract/hostaudit"
 	"slices"
 	"strings"
 	"testing"

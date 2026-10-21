@@ -2,9 +2,9 @@ package delegation
 
 import (
 	"context"
-	"encoding/json"
 	"deep-tutor/internal/runtime/agent"
 	"deep-tutor/internal/runtime/usecap"
+	"encoding/json"
 	"strings"
 	"testing"
 

@@ -8,6 +8,7 @@ package serve
 import (
 	"context"
 	"crypto/sha256"
+	"deep-tutor/internal/state/sessionstore"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -16,7 +17,6 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"sync"
 

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
 	"deep-tutor/internal/base/testenv"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // TestReadFileStreamsLargeGB18030 proves GB18030 content far past the 256KB

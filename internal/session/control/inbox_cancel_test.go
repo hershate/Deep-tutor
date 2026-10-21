@@ -1,9 +1,9 @@
 package control
 
 import (
+	"deep-tutor/internal/state/sessionstore"
 	"errors"
 	"path/filepath"
-	"deep-tutor/internal/state/sessionstore"
 	"strings"
 	"testing"
 	"time"

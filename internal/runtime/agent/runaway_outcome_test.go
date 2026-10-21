@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"deep-tutor/internal/contract/hostaudit"
 	"deep-tutor/internal/state/sessionstore"
+	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
