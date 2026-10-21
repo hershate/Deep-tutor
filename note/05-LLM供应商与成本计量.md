@@ -136,6 +136,10 @@ flowchart TD
 - `llm_task_slot()`（72-75）：进程级 asyncio.Semaphore（`settings.max_concurrent_llm_calls` 默认 16，`settings.py:98-101`；0 = 不限 → `_NullSlot` 占位，39-49）——**每个生成任务 / 对话 run 整体包裹**（plans._orch_task、`memory._run_chat` 843），超额排队等待，防跨用户并发触发供应商速率限制风暴与内存线性膨胀。惰性创建按当前事件循环（`_loop_sem` 56-69），`reset_llm_semaphore`（93-95）供测试隔离。
 - `webhook_slot()`（78-82）：插件 webhook 出站并发上限（`settings.max_concurrent_webhook_deliveries` 默认 16，`settings.py:107-111`）。
 - `search_fetch_slot()`（85-90）：Bing 免 Key 页面抓取进程级上限（`settings.max_concurrent_search_fetches` 默认 2，`settings.py:112-116`）。
+- **`parse_slot()`（iter 397 K11，concurrency.py:96-155）**：**文档解析**的进程级上限（`settings.max_concurrent_parses` 默认 2，0 = 不限）。解析是全站最重的本地计算——marker（PDF + OCR，单次可达 600s）、faster-whisper（音视频转写，模型驻留内存）、tesseract（OCR）都吃满 CPU 与内存；并发无上界时 N 个用户的 N 份解析互相拖慢到全部超时，且每路都持有一份模型与中间产物。只包**文件/图片/音视频**路径（`tools/parse_material._parse_file_dispatch` 的内置与插件两条分支）；纯文本解析无成本、URL 抓取另有专门限流桶。
+  - **重入保护**：信号量不可重入。插件注册的解析器可经 `api.tools.call("parse_material")` 回调宿主解析（API.md §8.4 允许插件组合核心工具）——重入同一信号量时，上界为 1 即**永久挂起**（外层持槽等内层、内层等外层）；上界为 N 时，N 路重入请求即可占满全部槽位，此后**全站解析请求排队卡死**。故已持槽的**任务**再次取槽时不再排队（放行）。
+  - **判定用任务身份而非 ContextVar 深度**：ContextVar 会被子任务继承（`asyncio.gather` 拷贝父上下文），会把「父任务持槽时 gather 出来的兄弟解析」误判为重入而绕过并发上界。任务身份不继承，判定精确（跨请求/跨用户的进程级上界不受影响）。
+  - **`_ParseSlot` 上下文管理器**：`__aenter__` 先 acquire 再登记持有任务，`__aexit__` 注销并 release（异常路径同样归还，不漏槽）。
 - 另有（plans / memory 层）：生成全局 8 / 每用户 1；chat 全局 8 / 每 thread 1（`settings.py:94-97`）。
 
 ## 8. Go 侧 Provider 与成本计量
