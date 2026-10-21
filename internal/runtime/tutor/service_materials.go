@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 )
@@ -112,7 +113,9 @@ func (s *Service) GenerateMaterials(ctx context.Context, planID string, req Mate
 		}
 		kept++
 		if cost > 0 {
-			_ = s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost)
+			if err := s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost); err != nil {
+				slog.Warn("tutor: record the usage", "err", err)
+			}
 		}
 		if emit != nil {
 			emit(MaterialsEvent{Type: "unit_done", Data: map[string]any{

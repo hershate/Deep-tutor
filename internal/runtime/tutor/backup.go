@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // The whole-store backup: one self-contained JSON document holding every
@@ -322,7 +323,7 @@ func (s *Service) RestoreBackup(doc *BackupDoc) (map[string]any, error) {
 	}
 	fail := func(err error) (map[string]any, error) {
 		for _, dir := range slices.Backward(created) {
-			_ = os.RemoveAll(dir)
+			_ = fileutil.RemoveAll(dir)
 		}
 		return nil, fmt.Errorf("%w: %w", ErrImportFailed, err)
 	}

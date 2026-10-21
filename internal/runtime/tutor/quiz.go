@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -76,8 +77,13 @@ func (s *Service) GenerateQuizzes(ctx context.Context, planID string, refresh bo
 	if err := s.store.SaveQuizzes(planID, quizzes); err != nil {
 		return QuizSet{}, err
 	}
-	// Replace semantics: the old set's attempts went with it.
-	_ = s.store.ClearAttempts(planID)
+	// Replace semantics: the old set's attempts went with it. The order is
+	// deliberate — the quizzes are saved first, so a failure here leaves the
+	// old attempt history in place (a mixed set) rather than destroying it
+	// for a quiz set that was never written.
+	if err := s.store.ClearAttempts(planID); err != nil {
+		slog.Warn("tutor: the old attempts were not cleared for the new quiz set", "plan", planID, "err", err)
+	}
 	return quizSet(spec.Title, quizzes), nil
 }
 

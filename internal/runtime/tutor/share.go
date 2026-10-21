@@ -3,11 +3,14 @@ package tutor
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // ShareDefaultTTL is how long a share link lives unless its owner pins it
@@ -159,7 +162,7 @@ func (s *Store) shareByPlanID(planID string) (*Share, error) {
 }
 
 func (s *Store) deleteShare(token string) error {
-	if err := os.Remove(s.sharePath(token)); err != nil && !os.IsNotExist(err) {
+	if err := fileutil.Remove(s.sharePath(token)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -246,7 +249,9 @@ func (s *Service) ShareStatus(planID string) (*Share, error) {
 		return nil, nil
 	}
 	if sh.expired(s.opt.now()) {
-		_ = s.store.deleteShare(sh.Token)
+		if err := s.store.deleteShare(sh.Token); err != nil {
+			slog.Warn("tutor: the expired share was not removed", "token", sh.Token, "err", err)
+		}
 		return nil, nil
 	}
 	return sh, nil
@@ -282,12 +287,16 @@ func (s *Service) ShareList() ([]ShareEntry, error) {
 	out := make([]ShareEntry, 0, len(all))
 	for i := range all {
 		if all[i].expired(now) {
-			_ = s.store.deleteShare(all[i].Token)
+			if err := s.store.deleteShare(all[i].Token); err != nil {
+				slog.Warn("tutor: the expired share was not removed", "token", all[i].Token, "err", err)
+			}
 			continue
 		}
 		plan, err := s.store.Plan(all[i].PlanID)
 		if err != nil {
-			_ = s.store.deleteShare(all[i].Token)
+			if derr := s.store.deleteShare(all[i].Token); derr != nil {
+				slog.Warn("tutor: the orphaned share was not removed", "token", all[i].Token, "err", derr)
+			}
 			continue
 		}
 		out = append(out, ShareEntry{Share: all[i], Title: plan.Title, Topic: plan.Topic})
@@ -333,12 +342,16 @@ func (s *Service) SharedPlanView(token string) (*SharedPlan, error) {
 	if sh.expired(s.opt.now()) {
 		// The term is over: the link stops answering and is removed, so a
 		// leaked one cannot be told apart from one that never existed.
-		_ = s.store.deleteShare(sh.Token)
+		if err := s.store.deleteShare(sh.Token); err != nil {
+			slog.Warn("tutor: the expired share was not removed", "token", sh.Token, "err", err)
+		}
 		return nil, ErrNotFound
 	}
 	plan, err := s.store.Plan(sh.PlanID)
 	if err != nil {
-		_ = s.store.deleteShare(sh.Token)
+		if derr := s.store.deleteShare(sh.Token); derr != nil {
+			slog.Warn("tutor: the orphaned share was not removed", "token", sh.Token, "err", derr)
+		}
 		return nil, ErrNotFound
 	}
 	out := &SharedPlan{

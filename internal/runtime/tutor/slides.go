@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"maps"
 	"regexp"
 	"strings"
@@ -337,7 +338,9 @@ func (s *Service) slidesCharge(usage Usage) {
 		return
 	}
 	if cost := s.opt.Pricer(usage.Model, usage); cost > 0 {
-		_ = s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost)
+		if err := s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost); err != nil {
+			slog.Warn("tutor: record the usage", "err", err)
+		}
 	}
 }
 

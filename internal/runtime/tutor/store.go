@@ -193,7 +193,7 @@ func (s *Store) DeleteSession(id string) error {
 		return err
 	}
 	if sess.PlanID != "" {
-		if rmErr := os.RemoveAll(s.planDir(sess.PlanID)); rmErr != nil {
+		if rmErr := fileutil.RemoveAll(s.planDir(sess.PlanID)); rmErr != nil {
 			return rmErr
 		}
 		if err := s.deleteSharesForPlan(sess.PlanID); err != nil {
@@ -203,7 +203,7 @@ func (s *Store) DeleteSession(id string) error {
 			return err
 		}
 	}
-	return os.RemoveAll(s.sessionDir(id))
+	return fileutil.RemoveAll(s.sessionDir(id))
 }
 
 // Plans lists plan summaries newest-first from the stamped index, behind the
@@ -279,17 +279,23 @@ func (s *Store) Materials(sessionID string) ([]Material, error) {
 func (s *Store) DeleteMaterial(sessionID, materialID string) error {
 	base := filepath.Join(s.sessionDir(sessionID))
 	materialID = safeSegment(materialID)
-	if err := os.Remove(filepath.Join(base, "materials", materialID+".json")); err != nil {
+	row := filepath.Join(base, "materials", materialID+".json")
+	// The retrying remove treats an already-gone path as a success, so the
+	// not-found answer has to be decided before the removal.
+	if _, err := os.Stat(row); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}
 		return err
 	}
+	if err := fileutil.Remove(row); err != nil {
+		return err
+	}
 	originals, _ := filepath.Glob(filepath.Join(base, "originals", materialID+".*"))
 	for _, p := range originals {
-		_ = os.Remove(p)
+		_ = fileutil.Remove(p)
 	}
-	_ = os.Remove(filepath.Join(base, "parsed", materialID+".txt"))
+	_ = fileutil.Remove(filepath.Join(base, "parsed", materialID+".txt"))
 	return nil
 }
 
@@ -757,11 +763,14 @@ func (s *Store) SaveNote(n *Note) error {
 }
 
 func (s *Store) DeleteNote(id string) error {
-	if err := os.Remove(s.notePath(id)); err != nil {
+	path := s.notePath(id)
+	// The retrying remove treats an already-gone path as a success, so the
+	// not-found answer has to be decided before the removal.
+	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}
 		return err
 	}
-	return nil
+	return fileutil.Remove(path)
 }

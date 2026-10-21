@@ -139,7 +139,9 @@ func (s *Service) convergeStale(sess *GenSession) {
 	}
 	sess.Status = StatusInterrupted
 	sess.LastError = "进程重启，运行中断"
-	_ = s.store.SaveSession(sess)
+	if err := s.store.SaveSession(sess); err != nil {
+		slog.Warn("tutor: persist the interrupted session", "session", sess.ID, "err", err)
+	}
 }
 
 func (s *Service) Session(id string) (*LiveSession, error) {
@@ -404,7 +406,9 @@ func (s *Service) occupyLocked(sess *GenSession, rawText string, answers []strin
 	sess.CurrentTool = ""
 	sess.LastError = ""
 	sess.UpdatedAt = s.opt.now()
-	_ = s.store.SaveSession(sess)
+	if err := s.store.SaveSession(sess); err != nil {
+		slog.Warn("tutor: persist the session that starts a run", "session", sess.ID, "err", err)
+	}
 
 	in := RunInput{
 		Session:         sess,

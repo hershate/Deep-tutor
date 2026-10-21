@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // kbio.go — KB bulk exits: the ZIP export (index manifest + originals/ +
@@ -80,7 +82,7 @@ func (s *Service) KbExportZip(ids []string) (string, int, error) {
 		return "", 0, err
 	}
 	path := tmp.Name()
-	cleanup := func() { _ = os.Remove(path) }
+	cleanup := func() { _ = fileutil.Remove(path) }
 	zw := zip.NewWriter(tmp)
 	writeErr := func(err error) (string, int, error) {
 		_ = zw.Close()
@@ -92,17 +94,35 @@ func (s *Service) KbExportZip(ids []string) (string, int, error) {
 	if err := writeZipEntry(zw, "index.md", strings.NewReader(manifest)); err != nil {
 		return writeErr(err)
 	}
+	// A part that cannot be read is left out of the archive. Skipping it is
+	// tolerated — but the omission must be visible: the archive records it
+	// (missing.md) and the omission is logged. An archive that silently
+	// lacks a file is a restore that silently loses one.
+	var omitted []string
 	for i := range selected {
 		d := &selected[i]
 		stem := d.ID + "-" + kbExportStem(d)
 		if d.HasOriginal {
 			src := s.store.kbOriginalPath(d)
 			if err := writeZipFile(zw, "originals/"+stem+"."+kbOriginalExt(d), src); err != nil {
-				continue // missing original: log-and-skip, DT's tolerance
+				omitted = append(omitted, fmt.Sprintf("- 文档 %s（%s）：原件未收入，原因：%v", d.ID, d.Title, err))
+				slog.Warn("tutor: kb export omits an original", "doc", d.ID, "err", err)
+				continue
 			}
 		}
 		if d.Status == "parsed" {
-			_ = writeZipFile(zw, "parsed/"+stem+".txt", s.store.kbParsedPath(d.ID))
+			if err := writeZipFile(zw, "parsed/"+stem+".txt", s.store.kbParsedPath(d.ID)); err != nil {
+				omitted = append(omitted, fmt.Sprintf("- 文档 %s（%s）：解析文本未收入，原因：%v", d.ID, d.Title, err))
+				slog.Warn("tutor: kb export omits a parsed text", "doc", d.ID, "err", err)
+			}
+		}
+	}
+	if len(omitted) > 0 {
+		body := "# 本次导出未收入的内容\n\n" +
+			"以下内容在导出时无法读取，未收入本压缩包；据此还原会缺少它们。\n\n" +
+			strings.Join(omitted, "\n") + "\n"
+		if err := writeZipEntry(zw, "missing.md", strings.NewReader(body)); err != nil {
+			return writeErr(err)
 		}
 	}
 	if err := zw.Close(); err != nil {

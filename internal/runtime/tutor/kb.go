@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // kb.go — the knowledge base, Deep-tutor's /kb surface: a document
@@ -129,17 +132,23 @@ func (s *Store) SaveKbDoc(d *KbDoc) error {
 }
 
 func (s *Store) DeleteKbDoc(id string) error {
-	if err := os.Remove(s.kbDocPath(id)); err != nil {
+	row := s.kbDocPath(id)
+	// The retrying remove treats an already-gone path as a success, so the
+	// not-found answer has to be decided before the removal.
+	if _, err := os.Stat(row); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}
 		return err
 	}
+	if err := fileutil.Remove(row); err != nil {
+		return err
+	}
 	originals, _ := filepath.Glob(filepath.Join(s.kbDir(), "originals", safeSegment(id)+".*"))
 	for _, p := range originals {
-		_ = os.Remove(p)
+		_ = fileutil.Remove(p)
 	}
-	_ = os.Remove(filepath.Join(s.kbDir(), "parsed", safeSegment(id)+".txt"))
+	_ = fileutil.Remove(filepath.Join(s.kbDir(), "parsed", safeSegment(id)+".txt"))
 	return nil
 }
 
@@ -359,11 +368,11 @@ func (s *Service) KbUpload(filename string, data []byte) (*KbDoc, error) {
 	}
 	out, dup, err := s.kbCommitRow(doc, nil)
 	if err != nil {
-		_ = os.Remove(originalPath)
+		_ = fileutil.Remove(originalPath)
 		return nil, err
 	}
 	if dup {
-		_ = os.Remove(originalPath)
+		_ = fileutil.Remove(originalPath)
 	}
 	return out, nil
 }
@@ -376,11 +385,11 @@ func (s *Service) persistParsedDoc(doc *KbDoc, parsed *ParsedMaterial) (*KbDoc, 
 	}
 	out, dup, err := s.kbCommitRow(doc, parsed)
 	if err != nil {
-		_ = os.Remove(s.store.kbParsedPath(doc.ID))
+		_ = fileutil.Remove(s.store.kbParsedPath(doc.ID))
 		return nil, err
 	}
 	if dup {
-		_ = os.Remove(s.store.kbParsedPath(doc.ID))
+		_ = fileutil.Remove(s.store.kbParsedPath(doc.ID))
 	}
 	return out, nil
 }
@@ -520,7 +529,9 @@ func (s *Service) KbParse(ctx context.Context, id, mode string) (*KbDoc, error) 
 	parsed, err := ParseMaterial(ctx, MaterialInput{Kind: doc.Kind, Source: source, Data: data})
 	if err != nil {
 		doc.Error = err.Error()
-		_ = s.store.SaveKbDoc(doc)
+		if serr := s.store.SaveKbDoc(doc); serr != nil {
+			slog.Warn("tutor: the document's parse failure was not recorded", "doc", doc.ID, "err", serr)
+		}
 		return doc, err
 	}
 	doc.ParseMode = mode

@@ -166,8 +166,13 @@ func TestImportNotesQuota(t *testing.T) {
 	for i := range 30 {
 		batch[string(rune('a'+i))+".md"] = "# 满\n\nx"
 	}
-	files := make([]NoteImportFile, 0, 18)
-	for range 18 { // 18 × 30 = 540 candidates, quota 500
+	// The candidates must outnumber the quota, and the counts are derived
+	// from it: a hardcoded batch count stops testing the quota the moment
+	// the quota is raised (it did — 540 candidates against a 500 quota
+	// stopped tripping once the quota became 2000).
+	batches := noteQuota/30 + 1
+	files := make([]NoteImportFile, 0, batches)
+	for range batches {
 		files = append(files, NoteImportFile{Name: "batch.zip", Data: zipNoteFixture(t, batch)})
 	}
 	result, err := ImportNotes(store, files)
@@ -180,8 +185,8 @@ func TestImportNotesQuota(t *testing.T) {
 	if result.Imported != noteQuota {
 		t.Fatalf("imported = %d want %d", result.Imported, noteQuota)
 	}
-	if result.Skipped != 40 {
-		t.Fatalf("skipped = %d want 40", result.Skipped)
+	if want := batches*30 - noteQuota; result.Skipped != want {
+		t.Fatalf("skipped = %d want %d", result.Skipped, want)
 	}
 }
 

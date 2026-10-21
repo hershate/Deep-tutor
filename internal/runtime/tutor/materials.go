@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
-	"os"
 	"path"
 	"strings"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // maxMaterialBytes bounds one uploaded original, Deep-tutor's upload cap.
@@ -39,7 +41,7 @@ func (s *Service) AddMaterialText(sessionID, name, content string) (*Material, e
 	// The count and the row write share one lock: the cap is per session,
 	// and concurrent uploads would otherwise all pass the check.
 	if err := s.store.AddMaterialGuarded(m); err != nil {
-		_ = os.Remove(originalPath) // orphan guard
+		_ = fileutil.Remove(originalPath) // orphan guard
 		return nil, err
 	}
 	return m, nil
@@ -90,7 +92,7 @@ func (s *Service) AddMaterialFile(sessionID, filename string, data []byte) (*Mat
 		return nil, err
 	}
 	if err := s.store.AddMaterialGuarded(m); err != nil {
-		_ = os.Remove(originalPath) // orphan guard
+		_ = fileutil.Remove(originalPath) // orphan guard
 		return nil, err
 	}
 	return m, nil
@@ -179,7 +181,9 @@ func (s *Service) ParseMaterialFor(ctx context.Context, sessionID, materialID st
 	parsed, err := ParseMaterial(ctx, in)
 	if err != nil {
 		m.Error = err.Error()
-		_ = s.store.SaveMaterial(m)
+		if serr := s.store.SaveMaterial(m); serr != nil {
+			slog.Warn("tutor: the material's parse failure was not recorded", "material", m.ID, "err", serr)
+		}
 		return m, err
 	}
 	if err := s.store.WriteMaterialParsed(sessionID, materialID, parsed.Text); err != nil {

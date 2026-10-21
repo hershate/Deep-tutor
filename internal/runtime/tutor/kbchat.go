@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"reasonix/internal/base/fileutil"
 )
 
 // kbchat.go — knowledge-base问答, Deep-tutor's /kb/chat: documents injected
@@ -190,7 +193,9 @@ func (s *Service) KbChat(ctx context.Context, question string, docIDs []string) 
 	spec, usage, callErr := s.llmKbAnswer(chatCtx, llm, question, payload)
 	if cost := s.kbUsageCost(usage); cost > 0 {
 		// Meter even the failed path — tokens were spent either way.
-		_ = s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost)
+		if err := s.store.AddUsage(s.opt.now().Format("2006-01-02"), cost); err != nil {
+			slog.Warn("tutor: record the usage", "err", err)
+		}
 	}
 	if callErr != nil {
 		if errors.Is(callErr, ErrNoLLM) {
@@ -310,13 +315,16 @@ func (s *Store) KbChats() ([]KbChatRecord, error) {
 }
 
 func (s *Store) DeleteKbChat(id string) error {
-	if err := os.Remove(filepath.Join(s.kbChatsDir(), safeSegment(id)+".json")); err != nil {
+	path := filepath.Join(s.kbChatsDir(), safeSegment(id)+".json")
+	// The retrying remove treats an already-gone path as a success, so the
+	// not-found answer has to be decided before the removal.
+	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}
 		return err
 	}
-	return nil
+	return fileutil.Remove(path)
 }
 
 // KbChatList filters records by a question substring, newest first, with
