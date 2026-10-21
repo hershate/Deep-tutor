@@ -34,19 +34,45 @@ var (
 	tutorShared = map[string]*tutor.Service{}
 )
 
-// tutorService returns the process's tutor service, building it on first
-// use. Tests and hosts that own construction call SetTutorService instead.
-func (s *Server) tutorService() *tutor.Service {
-	s.mu.RLock()
-	svc := s.tutorSvc
-	s.mu.RUnlock()
-	if svc != nil {
-		return svc
+// tutorServiceFor returns the tutor service for the request's state space.
+// The service is shared per space, not per Server: a hub drives several
+// panes in one process and the one-run-per-session rule has to hold across
+// all of them.
+//
+// A request's space is its own store root, so a session id, a plan id or a
+// note id names something in that space alone — one caller cannot address
+// another's data by guessing an id.
+func (s *Server) tutorServiceFor(r *http.Request) *tutor.Service {
+	space := tutorDefaultSpace
+	if r != nil {
+		space = tutorSpaceKey(r)
+	}
+	// A host that assembled the service itself owns it; a registered
+	// per-space service is the host's too.
+	tutorSpaceMu.RLock()
+	registered, ok := tutorSpaceServices[space]
+	tutorSpaceMu.RUnlock()
+	if ok {
+		return registered
+	}
+	// The server-level service is one service over one store, so it can
+	// only speak for the default space. Handing it to another space would
+	// answer that caller's request out of the default space's data — the
+	// isolation would be nominal. A host that wants its own service per
+	// space registers it (SetTutorSpaceService).
+	if space == tutorDefaultSpace {
+		s.mu.RLock()
+		svc := s.tutorSvc
+		s.mu.RUnlock()
+		if svc != nil {
+			return svc
+		}
 	}
 	root := config.TutorDir()
 	if root == "" {
 		return nil
 	}
+	root = tutorSpaceRoot(root, space)
 	tutorMu.Lock()
 	defer tutorMu.Unlock()
 	if svc, ok := tutorShared[root]; ok {
@@ -56,7 +82,7 @@ func (s *Server) tutorService() *tutor.Service {
 	if err != nil {
 		return nil
 	}
-	svc = tutor.NewService(store, tutor.ServiceOptions{
+	svc := tutor.NewService(store, tutor.ServiceOptions{
 		Provider:    tutorProviderFromConfig,
 		Pricer:      tutorPricerFromConfig(),
 		Searcher:    tutorSearcherFromConfig(),
@@ -130,6 +156,11 @@ func tutorDailyBudgetFromEnv() float64 {
 
 // SetTutorService hands the server its tutor service; the desktop host or a
 // test does this when it owns construction.
+//
+// It speaks for the default space only. One service is one store, so handing
+// it to a named space would answer that caller's request out of the default
+// space's data. A host that owns a service per space registers each of them
+// with SetTutorSpaceService.
 func (s *Server) SetTutorService(svc *tutor.Service) {
 	s.mu.Lock()
 	s.tutorSvc = svc
@@ -335,7 +366,7 @@ func tutorList[T any](items []T) []T {
 }
 
 func (s *Server) tutorCreateSession(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -355,8 +386,8 @@ func (s *Server) tutorCreateSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, sess)
 }
 
-func (s *Server) tutorSessions(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorSessions(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -370,7 +401,7 @@ func (s *Server) tutorSessions(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) tutorSession(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -384,7 +415,7 @@ func (s *Server) tutorSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorDeleteSession(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -397,7 +428,7 @@ func (s *Server) tutorDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterialText(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -419,7 +450,7 @@ func (s *Server) tutorMaterialText(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterialURL(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -443,7 +474,7 @@ func (s *Server) tutorMaterialURL(w http.ResponseWriter, r *http.Request) {
 // kernel's CSRF guard admits JSON only, and attachments already established
 // base64-in-JSON as the upload shape here.
 func (s *Server) tutorMaterialUpload(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -470,7 +501,7 @@ func (s *Server) tutorMaterialUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterials(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -484,7 +515,7 @@ func (s *Server) tutorMaterials(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterialConfirm(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -504,7 +535,7 @@ func (s *Server) tutorMaterialConfirm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterialParse(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -518,7 +549,7 @@ func (s *Server) tutorMaterialParse(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorMaterialDelete(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -534,7 +565,7 @@ func (s *Server) tutorMaterialDelete(w http.ResponseWriter, r *http.Request) {
 // before the stream opens; once it opens, every outcome — including
 // cancellation and budget stops — is an SSE event.
 func (s *Server) tutorGenerate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -559,7 +590,7 @@ func (s *Server) tutorGenerate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorClarify(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -579,7 +610,7 @@ func (s *Server) tutorClarify(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorRetry(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -592,7 +623,7 @@ func (s *Server) tutorRetry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorCancel(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -605,7 +636,7 @@ func (s *Server) tutorCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorRegenerate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -635,7 +666,7 @@ func (s *Server) tutorRegenerate(w http.ResponseWriter, r *http.Request) {
 // (id/event/data), resuming from the client's last event id and ending on
 // the run's terminal event.
 func (s *Server) tutorStream(w http.ResponseWriter, r *http.Request, sessionID string) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return

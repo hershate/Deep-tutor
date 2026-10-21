@@ -64,7 +64,7 @@ func (s *Server) registerTutorDataRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) tutorPlans(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -87,7 +87,7 @@ func (s *Server) tutorPlans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorPlan(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -105,7 +105,7 @@ func (s *Server) tutorPlanDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorPlanVersions(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -134,7 +134,7 @@ func (s *Server) tutorPlanVersions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorPlanVersion(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -157,7 +157,7 @@ func (s *Server) tutorPlanVersion(w http.ResponseWriter, r *http.Request) {
 // rendered snapshot. Persisted units answer without a model unless the
 // request names a subset to regenerate.
 func (s *Server) tutorPlanMaterials(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -214,7 +214,7 @@ func (s *Server) tutorPlanMaterials(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorQuizGenerate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -234,7 +234,7 @@ func (s *Server) tutorQuizGenerate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorQuizzes(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -248,7 +248,7 @@ func (s *Server) tutorQuizzes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorQuizSubmit(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -271,7 +271,7 @@ func (s *Server) tutorQuizSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorQuizStats(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -284,8 +284,8 @@ func (s *Server) tutorQuizStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stats)
 }
 
-func (s *Server) tutorWrongOverview(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorWrongOverview(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -299,7 +299,7 @@ func (s *Server) tutorWrongOverview(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) tutorWrongQueue(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -316,7 +316,7 @@ func (s *Server) tutorWrongQueue(w http.ResponseWriter, r *http.Request) {
 // tutorQuizWrong lists one plan's wrong quizzes: latest attempt graded false,
 // payload intact for re-answering.
 func (s *Server) tutorQuizWrong(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -354,7 +354,7 @@ func (s *Server) tutorQuizWrong(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorProgressRecord(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -382,7 +382,7 @@ func (s *Server) tutorProgressRecord(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorProgressOf(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -396,7 +396,7 @@ func (s *Server) tutorProgressOf(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorReviewDue(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -406,7 +406,7 @@ func (s *Server) tutorReviewDue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorReviewQueue(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -415,8 +415,8 @@ func (s *Server) tutorReviewQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, svc.ReviewQueue(limit))
 }
 
-func (s *Server) tutorStatsSummary(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorStatsSummary(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -429,8 +429,8 @@ func (s *Server) tutorStatsSummary(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, summary)
 }
 
-func (s *Server) tutorStatsCalendar(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorStatsCalendar(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -443,8 +443,8 @@ func (s *Server) tutorStatsCalendar(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, calendar)
 }
 
-func (s *Server) tutorStatsByPlan(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorStatsByPlan(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -458,7 +458,7 @@ func (s *Server) tutorStatsByPlan(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) tutorLogs(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -472,7 +472,7 @@ func (s *Server) tutorLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorLogAdd(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -501,7 +501,7 @@ func (s *Server) tutorLogAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorLogDelete(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -518,8 +518,8 @@ func (s *Server) tutorLogDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) tutorNotes(w http.ResponseWriter, _ *http.Request) {
-	svc := s.tutorService()
+func (s *Server) tutorNotes(w http.ResponseWriter, r *http.Request) {
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -533,7 +533,7 @@ func (s *Server) tutorNotes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) tutorNoteCreate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -556,7 +556,7 @@ func (s *Server) tutorNoteCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorNote(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -570,7 +570,7 @@ func (s *Server) tutorNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorNoteSave(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -600,7 +600,7 @@ func (s *Server) tutorNoteSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorNoteDelete(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -616,7 +616,7 @@ func (s *Server) tutorNoteDelete(w http.ResponseWriter, r *http.Request) {
 // (one file per note plus index.md), Deep-tutor's iter-286 shape. An empty
 // note set refuses: exporting nothing is a dead-end click, not a file.
 func (s *Server) tutorNotesExportZip(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -642,7 +642,7 @@ func (s *Server) tutorNotesExportZip(w http.ResponseWriter, r *http.Request) {
 // tutorNotesImport takes {files:[{name, content_base64}]} — the house
 // base64-JSON upload shape — accepting .md files and .zip archives of them.
 func (s *Server) tutorNotesImport(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -681,7 +681,7 @@ func (s *Server) tutorNotesImport(w http.ResponseWriter, r *http.Request) {
 // tutorSearch answers one substring query across plans, knowledge nodes,
 // and notes — the tutor's global search (KB documents join in S6).
 func (s *Server) tutorSearch(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -698,7 +698,7 @@ func (s *Server) tutorSearch(w http.ResponseWriter, r *http.Request) {
 // tutorUsage serves the daily-budget view over the tutor cost ledger; the
 // budget echoes the same env the service guards with.
 func (s *Server) tutorUsage(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return

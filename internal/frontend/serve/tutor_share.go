@@ -22,7 +22,7 @@ func (s *Server) registerTutorShareRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) tutorShareCreate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -37,7 +37,7 @@ func (s *Server) tutorShareCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorShareStatus(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -55,7 +55,7 @@ func (s *Server) tutorShareStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorShareRevoke(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -68,7 +68,7 @@ func (s *Server) tutorShareRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorShareMakePermanent(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -82,7 +82,7 @@ func (s *Server) tutorShareMakePermanent(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) tutorShares(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -100,7 +100,7 @@ func (s *Server) tutorShares(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorSharedPlan(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return

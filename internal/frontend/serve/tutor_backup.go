@@ -43,7 +43,7 @@ func (s *Server) registerTutorBackupRoutes(mux *http.ServeMux) {
 // document is spooled to a temp file first so a huge store never sits twice
 // in memory, the knowledge-base export's discipline.
 func (s *Server) tutorBackupExport(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -124,7 +124,7 @@ func tutorBackupLock(w http.ResponseWriter) bool {
 }
 
 func (s *Server) tutorBackupPreview(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -146,7 +146,7 @@ func (s *Server) tutorBackupPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorBackupImport(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return

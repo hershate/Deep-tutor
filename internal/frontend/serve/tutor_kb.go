@@ -42,7 +42,7 @@ func (s *Server) registerTutorKbRoutes(mux *http.ServeMux) {
 // tutorKbUpload takes {filename, content_base64} — the kernel's base64-JSON
 // upload shape, same as session materials.
 func (s *Server) tutorKbUpload(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -70,7 +70,7 @@ func (s *Server) tutorKbUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocText(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -93,7 +93,7 @@ func (s *Server) tutorKbDocText(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocURL(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -115,7 +115,7 @@ func (s *Server) tutorKbDocURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocs(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -133,7 +133,7 @@ func (s *Server) tutorKbDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDoc(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -147,7 +147,7 @@ func (s *Server) tutorKbDoc(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocRename(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -169,7 +169,7 @@ func (s *Server) tutorKbDocRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocDelete(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -182,7 +182,7 @@ func (s *Server) tutorKbDocDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocConfirm(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -196,7 +196,7 @@ func (s *Server) tutorKbDocConfirm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocParse(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -239,7 +239,7 @@ var kbRawMediaTypes = map[string]string{
 // attachment with ?download=1, extension re-appended when a rename left the
 // title without one.
 func (s *Server) tutorKbDocRaw(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -272,7 +272,7 @@ func (s *Server) tutorKbDocRaw(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbDocParsed(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -288,7 +288,7 @@ func (s *Server) tutorKbDocParsed(w http.ResponseWriter, r *http.Request) {
 // tutorKbExport streams the library (or the ?ids= selection) as a ZIP; the
 // spooled temp file is removed once the copy lands.
 func (s *Server) tutorKbExport(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -328,7 +328,7 @@ func (s *Server) tutorKbExport(w http.ResponseWriter, r *http.Request) {
 // tutorKbGenerate seeds a new generation session with the documents' parsed
 // text; the frontend opens it as the ordinary generate flow.
 func (s *Server) tutorKbGenerate(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -355,7 +355,7 @@ func (s *Server) tutorKbGenerate(w http.ResponseWriter, r *http.Request) {
 
 // tutorKbChat answers one question from the library with citations.
 func (s *Server) tutorKbChat(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -378,7 +378,7 @@ func (s *Server) tutorKbChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbChats(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -394,7 +394,7 @@ func (s *Server) tutorKbChats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorKbChatDelete(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return

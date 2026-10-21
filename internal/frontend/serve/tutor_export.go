@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Server) tutorPlanExport(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -28,7 +28,7 @@ func (s *Server) tutorPlanExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tutorPlanExportICS(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -57,7 +57,7 @@ func (s *Server) tutorPlanExportICS(w http.ResponseWriter, r *http.Request) {
 // role), so the pdf request serves the markdown with the degradation
 // warning, exactly what Deep-tutor answers without weasyprint installed.
 func (s *Server) tutorPlanExportPDF(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -77,7 +77,7 @@ func (s *Server) tutorPlanExportPDF(w http.ResponseWriter, r *http.Request) {
 // ?wrong_only=1 selects the wrong-book variant — quizzes whose latest
 // attempt graded false, exported under a sibling deck.
 func (s *Server) tutorPlanExportApkg(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -116,7 +116,7 @@ func (s *Server) tutorPlanExportApkg(w http.ResponseWriter, r *http.Request) {
 // tutorPlanExportSlides renders the whole plan as a self-contained HTML
 // slide deck (LLM spec, deterministic fallback deck when no model answers).
 func (s *Server) tutorPlanExportSlides(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
@@ -137,7 +137,7 @@ func (s *Server) tutorPlanExportSlides(w http.ResponseWriter, r *http.Request) {
 
 // tutorUnitExportSlides renders one self-study unit the same way.
 func (s *Server) tutorUnitExportSlides(w http.ResponseWriter, r *http.Request) {
-	svc := s.tutorService()
+	svc := s.tutorServiceFor(r)
 	if svc == nil {
 		tutorUnsupported(w)
 		return
