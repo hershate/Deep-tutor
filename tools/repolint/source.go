@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -49,34 +49,42 @@ func (s *sourceFile) trailing(pos token.Pos) bool {
 	return strings.TrimSpace(line[:p.Column-1]) != ""
 }
 
+// collect lists the files this linter reads. The universe is the tree a
+// reviewer would see (see universe.go), not everything that happens to sit
+// under the root directory: a local source copy and a build tree are not this
+// repository, and a baseline measured over them does not reproduce on a clean
+// checkout.
 func collect(root string) ([]string, error) {
+	listed, err := visibleFiles(root)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if path == root {
-				return nil
-			}
-			if skipDirs[name] || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
+	for _, rel := range listed {
+		name := path.Base(rel)
 		if !lintable(name) || strings.Contains(name, "_generated.") {
-			return nil
+			continue
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
+		if skippedPath(rel) {
+			continue
 		}
 		out = append(out, filepath.ToSlash(rel))
-		return nil
-	})
+	}
 	slices.Sort(out)
-	return out, err
+	return out, nil
+}
+
+// skippedPath reports whether a path lies inside a tree this repository does
+// not author: a directory the walk always stepped over, or one whose name
+// starts with a dot. The rule covers directories, not the file itself.
+func skippedPath(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for _, part := range parts[:max(len(parts)-1, 0)] {
+		if skipDirs[part] || strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func parseSource(root, rel string) (*sourceFile, error) {

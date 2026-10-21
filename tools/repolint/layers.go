@@ -55,6 +55,7 @@ var leaves = []string{
 	"internal/platform/wsl",
 	"internal/base/retrieval",
 	"internal/base/scratch",
+	"internal/base/scratchroot",
 	"internal/base/shellparse",
 	"internal/state/store",
 	"internal/state/observation",

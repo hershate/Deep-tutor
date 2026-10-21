@@ -19,6 +19,17 @@ var processInputReads = map[string]bool{
 	"UserHomeDir": true, "UserConfigDir": true, "UserCacheDir": true,
 }
 
+// processInputSeams are the packages whose subject is the process itself. They
+// resolve an environment variable, a temporary directory or a home directory
+// on the kernel's behalf, so reading the process is the work rather than a
+// leak of it: the rule exists so that a build bound to another home does not
+// read this process's, and a seam is where that reading belongs.
+var processInputSeams = map[string]bool{
+	"internal/base/envvar":      true,
+	"internal/base/scratchroot": true,
+	"internal/base/testenv":     true,
+}
+
 // checkProcessInput reports each reference to a process input in the kernel,
 // assembly included; internal/frontend and the hosts are where the process is
 // read. A reference counts whether it is called or passed as a value; names are
@@ -27,6 +38,9 @@ func checkProcessInput(s *sourceFile) []Finding {
 	rel := strings.ReplaceAll(s.rel, "\\", "/")
 	pkg := path.Dir(rel)
 	if !under(pkg, "internal") || under(pkg, "internal/frontend") || strings.HasSuffix(rel, "_test.go") {
+		return nil
+	}
+	if processInputSeams[pkg] {
 		return nil
 	}
 	osName := ""

@@ -66,6 +66,7 @@ func checkCSS(root string) []Finding {
 // `<name>-e` beside the file it edited.
 func checkStrayFiles(root string) []Finding {
 	var out []Finding
+	ignored := ignoredPrefixes(root)
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -74,6 +75,14 @@ func checkStrayFiles(root string) []Finding {
 		if d.IsDir() {
 			if path != root && (skipDirs[name] || strings.HasPrefix(name, ".")) {
 				return filepath.SkipDir
+			}
+			// A tree git ignores is a local copy; a leftover inside it is
+			// nobody's to delete and nobody's to be told about.
+			if path != root {
+				rel, _ := filepath.Rel(root, path)
+				if underIgnored(rel, ignored) {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}

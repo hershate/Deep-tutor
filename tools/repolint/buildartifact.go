@@ -65,6 +65,7 @@ func rootIgnoredNames(root string) (map[string]bool, error) {
 func rootModuleCommands(root string) []rootCommand {
 	var out []rootCommand
 	seen := map[string]bool{}
+	ignored := ignoredPrefixes(root)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
@@ -74,6 +75,12 @@ func rootModuleCommands(root string) []rootCommand {
 				return nil
 			}
 			if skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			// A tree git ignores is a local copy; its commands are not this
+			// module's, and their output lands beside it, not at this root.
+			rel, relErr := filepath.Rel(root, path)
+			if relErr == nil && underIgnored(rel, ignored) {
 				return filepath.SkipDir
 			}
 			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
