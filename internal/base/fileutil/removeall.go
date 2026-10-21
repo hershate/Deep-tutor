@@ -6,15 +6,9 @@ import (
 )
 
 // RemoveAll deletes a directory tree, retrying the transient locks Remove
-// retries.
-//
-// Go's os.RemoveAll does not retry: the moment one file inside the tree
-// cannot be unlinked — a scanner, an indexer or a reader that has not closed
-// its handle yet — it stops and reports "the directory is not empty", leaving
-// the caller with a half-deleted tree and an error it cannot act on. A tree
-// holds more files than a single file does, so its window is the wider one.
-//
-// A path that is already gone is a success, not a race to re-report.
+// retries. Go's os.RemoveAll does not retry: one file inside the tree that
+// cannot be unlinked stops it and leaves a half-deleted tree behind, and a
+// path that is already gone is a success.
 func RemoveAll(path string) error {
 	var err error
 	for attempt := 0; ; attempt++ {

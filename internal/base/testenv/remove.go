@@ -17,11 +17,8 @@ const (
 // removeTree deletes a directory tree, retrying the removals that lose to a
 // handle that has not closed yet.
 //
-// Windows keeps a deleted file's directory entry until its last handle
-// closes, so a tree whose reader has not finished cannot be removed on the
-// first try and reports "the directory is not empty" for content that is
-// already gone. The removal is retried because the alternative is a
-// directory the next run cannot tell from its own.
+// Windows keeps a deleted file's directory entry until its last handle closes,
+// so a tree whose reader has not finished cannot be removed on the first try.
 func removeTree(path string, attempts int) error {
 	var err error
 	for attempt := 0; ; attempt++ {

@@ -1,27 +1,11 @@
 // tutor_space.go — the tutor surface's per-caller state space.
 //
-// The tutor store is a file tree under one root: sessions, plans, notes, the
-// knowledge base, the shares and the usage ledger all live in it. One root
-// is one space — every caller that reaches the tutor surface reads and
-// writes the same data. The kernel's own auth gate has a single operator (a
-// token or a password), so today the surface is a single-user local one, and
-// the space is the default.
+// One store root is one space: sessions, plans, notes, the knowledge base and
+// the usage ledger all live under it. The kernel's auth gate has a single
+// operator today, so the surface is a single-user local one.
 //
-// The space is the seam a multi-user front door plugs into. The plan
-// (plan/reasonix/04 §一/§三) puts the user concept in internal/web — the
-// only multi-user-aware layer — and expresses the user difference as a
-// state root. So the tutor package stays user-agnostic (a root is all it
-// knows) and this file resolves which root a request reads and writes.
-//
-// Two rules make the isolation real rather than nominal:
-//
-//   - A space's files are that space's alone. Two spaces are two store
-//     roots, so one caller's session id cannot address another's plan: the
-//     id is looked up in a store that does not hold it.
-//   - The space key is a directory name, so it is reduced to one that
-//     cannot climb out of the spaces directory, and two keys that reduce
-//     alike stay apart because the reduction carries a digest of the
-//     original.
+// The space is the seam a multi-user front door plugs into: the plan puts
+// the user concept in internal/web, so a request reads one root.
 package serve
 
 import (
@@ -51,14 +35,9 @@ var (
 
 // SetTutorSpaceResolver installs the resolver that names a request's state
 // space. A host that authenticates users (internal/web/auth, stage ① M2/M3)
-// sets it to the authenticated user's id: the space's files are then that
-// user's alone, and no other caller can read or write them.
-//
-// The key must come from an authenticated principal, never from a request
-// header or parameter — a client-chosen key is a client-chosen directory.
-// A resolver that yields an empty key falls back to the default space.
-//
-// Nil restores the default: one space for the whole process.
+// sets it to the authenticated user's id, so the space's files are that user's
+// alone. The key must come from an authenticated principal, never from a
+// request header: a client-chosen key is a client-chosen directory.
 func SetTutorSpaceResolver(fn func(*http.Request) string) {
 	tutorSpaceMu.Lock()
 	tutorSpaceResolved = fn

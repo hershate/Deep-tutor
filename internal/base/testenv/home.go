@@ -101,8 +101,7 @@ func IsolateUserState() (func(), error) {
 // for two reasons. The caller's home is the one directory a test must never
 // leave anything behind in, and a removal that lost to a file handle used to
 // leave a directory there for every run. The scratch area is disposable by
-// contract, so a directory that survives a run there is visible to a sweep
-// instead of accumulating silently in the user's profile.
+// contract, so a directory that survives a run there is visible to a sweep.
 func isolatedHomeDir() (string, error) {
 	root, err := scratchroot.Ensure()
 	if err != nil {
