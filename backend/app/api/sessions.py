@@ -51,6 +51,27 @@ class SessionCreate(BaseModel):
     title: str = Field(default="", max_length=256)
 
 
+def check_session_quota(db: Session, user_id: int) -> None:
+    """每用户会话数上限守卫（iter 397：三条建会话路径共用）。
+
+    配额键统一为 ``session_quota:{user_id}``——**所有**建会话路径
+    （POST /sessions、POST /materials/clip、POST /kb/generate）都必须在
+    **同一把锁**内完成「计数 + 插入 + 提交」，否则并发请求可同时通过
+    「未达上限」检查，实际会话数按并发数突破 200 上限（DB 行 + 会话目录
+    无界增长）。
+
+    iter 397 前：只有 POST /sessions 加锁；materials.clip 与 kb.generate 只
+    count 不加锁——sessions.py 的注释「键与 materials/kb 的会话数配额同命名
+    空间 -> 跨端点互斥」并不成立。
+    """
+    count = db.query(models.Session).filter_by(user_id=user_id).count()
+    if count >= _MAX_SESSIONS_PER_USER:
+        raise ApiError(
+            "quota_exceeded",
+            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
+        )
+
+
 class SessionOut(BaseModel):
     session_id: int
     title: str
@@ -63,15 +84,12 @@ def create_session(
     if not limiter.check(f"sess_create:{user.id}", _CREATE_RATE_PER_MIN):
         raise ApiError("rate_limited", f"创建会话限每分钟 {_CREATE_RATE_PER_MIN} 次，请稍后再试")
     # iter 394：配额判定是「先查后写」——并发创建可同时通过「未达上限」检查，
-    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥；
-    # 键与 materials/kb 的会话数配额同命名空间 -> 跨端点互斥）。
+    # 实际写入数按并发数突破（app/core/quota.py：单进程部署下进程内互斥）。
+    # iter 397：键 `session_quota:{uid}` 现由**所有**建会话路径共用
+    # （sessions / materials.clip / kb.generate）——此前只有本端点加锁，另两处
+    # 只 count 不加锁，跨端点互斥并不成立（见 check_session_quota 注释）。
     with quota_slot(f"session_quota:{user.id}"):
-        count = db.query(models.Session).filter_by(user_id=user.id).count()
-        if count >= _MAX_SESSIONS_PER_USER:
-            raise ApiError(
-                "quota_exceeded",
-                f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
-            )
+        check_session_quota(db, user.id)
         sess = models.Session(user_id=user.id, title=body.title)
         db.add(sess)
         db.commit()

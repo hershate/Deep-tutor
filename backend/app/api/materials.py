@@ -36,8 +36,9 @@ from app.core.settings import settings
 from app.core.storage import (
     delete_session_files,
     originals_dir,
+    promote_upload,
     read_unit_content,
-    save_upload,
+    stage_upload,
     write_parsed_text,
 )
 from app.db import models
@@ -47,11 +48,34 @@ from app.llm import get_provider
 from app.tools import default_registry
 from app.tools.base import ToolInput
 from app.tools.build_plan_slides import generate_unit_slides_spec, render_slides_html
-from app.tools.parse_material import parse_material, SUPPORTED_FILE_EXTS
+from app.tools.parse_material import (
+    AUDIO_EXTS,
+    IMAGE_EXTS,
+    VIDEO_EXTS,
+    parse_material,
+    SUPPORTED_FILE_EXTS,
+)
 
 log = logging.getLogger("deep_tutor.api.materials")
 
 router = APIRouter(prefix="/materials", tags=["materials"], dependencies=[Depends(require_auth)])
+
+
+def kind_for_ext(ext: str) -> models.MaterialKind:
+    """按扩展名归类（image/audio/video 各自归族，其余 file；ext 带点如 ".pdf"）。
+
+    iter 397（K13）：此前此归类只在 kb.py 内，上传建行时 kind 硬编码 "file"
+    -> 同一张图片/音视频走**会话资料**接口被归为普通文件，与走**知识库**接口
+    的归类不一致（资料列表的类型展示与下游按 kind 分流均失真）。归类函数上提
+    到 materials 共用（kb.py 复用），两处口径统一。
+    """
+    if ext in IMAGE_EXTS:
+        return models.MaterialKind.image
+    if ext in AUDIO_EXTS:
+        return models.MaterialKind.audio
+    if ext in VIDEO_EXTS:
+        return models.MaterialKind.video
+    return models.MaterialKind.file
 
 # per-material 解析互斥锁（iter 225）：同资料并发解析 -> 409；不同资料可并行
 # （事务外解析 + 短写事务，err.md B22）。锁对象只增不减，每资料一个，不做淘汰。
@@ -328,34 +352,49 @@ async def upload_material(
     _check_material_quota(db, session_id)
 
     # 建行 pending 即提交拿 id（R20 用 id 命名原件；写事务极短，err.md B22）
+    # iter 397（K3）：改为「先暂存落盘 -> 建行 -> 事务内改名」两段式（与备份还原
+    # iter 396 B1 同款）。此前是「先建行提交、再落盘」——行提交后、文件写完前
+    # 进程被杀/落盘失败即留下一条**永远没有原件**的 pending 行（用户点解析只得
+    # 400，且无任何后台路径能修）。现在行可见必然晚于文件就位；反向的短暂孤儿
+    # （文件已落、行未建）由失败路径清理，对用户不可见。
+    # ① 预暂存（事务外、无写锁）：50MB 落盘不占 SQLite 写锁（iter 396 B1 教训）
+    staged = await asyncio.to_thread(stage_upload, session_id, content, ext)
     material = models.Material(
         session_id=session_id,
-        kind="file",
+        kind=kind_for_ext(ext).value,  # iter 397（K13）：按扩展名归类（同 kb 口径）
         source=filename,
         parsed_chars=0,
         meta={},
         content_hash=content_hash,
         status="pending",
     )
-    # iter 394：配额检查 + 插入 + 提交同锁同线程（app/core/quota.py）——
-    # 并发上传可同时通过「未达上限」检查（未提交的 INSERT 其他连接不可见，
-    # 计数看不到），实际资料数按并发数突破每会话 20 条上限。
-    await guarded_commit_async(
-        db,
-        material,
-        lambda d: _check_material_quota(d, session_id),
-        f"material:{session_id}",
-    )
-    db.refresh(material)
+    promoted: list = []
+
+    def _after_flush(_db, obj) -> None:
+        # ② 改名（事务内、行 id 已知）：纯元数据操作（~ms 级），不拖长写锁
+        path = promote_upload(session_id, obj.id, staged)
+        promoted.append(path)
+
     try:
-        # iter 248：大文件写盘移出事件循环（50MB 同步 write 阻塞数百毫秒，同 kb）
-        await asyncio.to_thread(save_upload, session_id, material.id, content, ext)
+        # iter 394：配额检查 + 插入 + 提交同锁同线程（app/core/quota.py）——
+        # 并发上传可同时通过「未达上限」检查（未提交的 INSERT 其他连接不可见，
+        # 计数看不到），实际资料数按并发数突破每会话 20 条上限。
+        await guarded_commit_async(
+            db,
+            material,
+            lambda d: _check_material_quota(d, session_id),
+            f"material:{session_id}",
+            after_flush=_after_flush,
+        )
     except Exception:
-        # 原件落盘失败：删行防孤儿（err.md A15）
-        db.delete(material)
-        await commit_async(db)
+        db.rollback()
+        # 提交失败/改名失败：删暂存件（正式名若已改名也一并清），防孤儿文件
+        for p in promoted:
+            p.unlink(missing_ok=True)
+        staged.unlink(missing_ok=True)
         raise
-    return MaterialOut(material_id=material.id, kind="file", meta={}, status="pending")
+    db.refresh(material)
+    return MaterialOut(material_id=material.id, kind=kind_for_ext(ext).value, meta={}, status="pending")
 
 
 class ParseIn(BaseModel):
@@ -681,13 +720,8 @@ async def clip_material(body: ClipIn, db: Session = Depends(get_db), user: User 
     content = body.content.strip()
     title = (body.title or "").strip()
     # err.md A24：clip 同样受会话数配额约束（与 POST /sessions 一致）
-    from app.api.sessions import _MAX_SESSIONS_PER_USER
+    from app.api.sessions import check_session_quota
 
-    if db.query(models.Session).filter_by(user_id=user.id).count() >= _MAX_SESSIONS_PER_USER:
-        raise ApiError(
-            "quota_exceeded",
-            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
-        )
     if body.kind == "text":
         if not content:
             raise ApiError("empty_content", "剪藏内容为空")
@@ -700,9 +734,21 @@ async def clip_material(body: ClipIn, db: Session = Depends(get_db), user: User 
             raise ApiError("rate_limited", f"网页抓取限每分钟 {_URL_RATE_PER_MIN} 次，请稍后再试")
         title = title or content[:80]
 
+    # iter 397（K2）：会话数配额**必须与 POST /sessions 同锁**——此前本端点（及
+    # kb.generate）只 count 不加锁，与 sessions.py 的注释「键与 materials/kb 的
+    # 会话数配额同命名空间 -> 跨端点互斥」不符：并发请求可同时通过「未达上限」
+    # 检查，实际会话数按并发数突破 200 上限（DB 行 + 会话目录无界增长）。
+    # 用 guarded_commit_async 而非在 async 端点里 `with quota_slot(...)`：quota_slot
+    # 是 threading.Lock，在事件循环线程跨 await 持有会把同 stripe 的其他协程
+    # **阻塞住事件循环**（提交可等 busy_timeout 10s）；guarded_commit_async 把
+    # 「检查 + 插入 + 提交」整段放进写线程，锁在写线程内持有。
     sess = models.Session(user_id=user.id, title=title[:256])
-    db.add(sess)
-    await commit_async(db)
+    await guarded_commit_async(
+        db,
+        sess,
+        lambda d: check_session_quota(d, user.id),
+        f"session_quota:{user.id}",
+    )
     db.refresh(sess)
     try:
         if body.kind == "text":

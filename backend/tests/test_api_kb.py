@@ -302,13 +302,15 @@ def test_parse_during_other_write_not_locked(client, auth_headers, monkeypatch):
 
 
 def test_kind_classification_by_ext():
-    from app.api.kb import _kind_for_ext
+    # iter 397（K13）：归类函数上提到 app.api.materials 共用（kb 与 materials
+    # 上传两条路径此前口径不一致——materials 把 kind 硬编码为 "file"）。
+    from app.api.materials import kind_for_ext
 
-    assert _kind_for_ext(".png") is models.MaterialKind.image
-    assert _kind_for_ext(".mp3") is models.MaterialKind.audio
-    assert _kind_for_ext(".mp4") is models.MaterialKind.video
-    assert _kind_for_ext(".pdf") is models.MaterialKind.file
-    assert _kind_for_ext(".md") is models.MaterialKind.file
+    assert kind_for_ext(".png") is models.MaterialKind.image
+    assert kind_for_ext(".mp3") is models.MaterialKind.audio
+    assert kind_for_ext(".mp4") is models.MaterialKind.video
+    assert kind_for_ext(".pdf") is models.MaterialKind.file
+    assert kind_for_ext(".md") is models.MaterialKind.file
 
 
 # --- text ---

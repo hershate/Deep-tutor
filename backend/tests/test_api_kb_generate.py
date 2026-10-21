@@ -175,7 +175,9 @@ def test_generate_ids_validation_422(client, auth_headers):
 
 
 def test_generate_session_quota_429(client, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.kb._MAX_SESSIONS_PER_USER", 1)
+    # iter 397（K2）：会话数上限与配额键统一由 app.api.sessions 持有
+    # （check_session_quota + session_quota:{uid}），三条建会话路径共用。
+    monkeypatch.setattr("app.api.sessions._MAX_SESSIONS_PER_USER", 1)
     d = _mk_text_doc(client, auth_headers, "x")
     r1 = client.post(f"{BASE}/generate", json={"document_ids": [d["id"]]}, headers=auth_headers)
     assert r1.status_code == 200

@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import tempfile
+import uuid
 from functools import lru_cache
 from pathlib import Path
 
@@ -210,6 +211,58 @@ def save_upload(session_id: int | str, material_id: int, content: bytes, ext: st
     path = originals_dir(session_id) / name
     _atomic_write_bytes(path, content)
     return path
+
+
+# --- 上传原件的「先暂存、后改名」（iter 397 K3） ---
+#
+# 原件最终名必须含行 id（material_id / doc_id），而行 id 要等 INSERT 之后才有。
+# 于是只能「先建行、再落盘」——留下「DB 有行但文件缺失」的窗口：行提交后、
+# 文件写完前进程被杀/落盘失败 -> 一条永远没有原件的 pending 行（用户点解析
+# 只得到 400，且无任何后台路径能修）。
+#
+# 改为与备份还原（iter 396 B1）同款两段式：
+#   ① 预暂存（事务外、无写锁）：内容落到会话暂存目录（随机名，不依赖行 id）；
+#   ② 改名（事务内、行 id 已知）：暂存文件 rename 成正式名（纯元数据操作，~ms 级）。
+# 由此「行可见」必然晚于「文件就位」——不存在「有行无文件」的持久状态；
+# 反向的短暂孤儿（文件已落、行未建）由失败路径清理，且对用户不可见。
+
+_STAGING_DIRNAME = ".staging"
+
+
+def staging_dir(session_id: int | str) -> Path:
+    """会话级暂存目录（上传原件/解析文本的落地中转）。"""
+    d = _session_root(session_id) / _STAGING_DIRNAME
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def stage_upload(session_id: int | str, content: bytes, ext: str) -> Path:
+    """上传原件 -> 会话暂存目录（事务外落盘；行 id 未知时的中转名）。"""
+    safe = _safe_ext(ext)
+    stem = uuid.uuid4().hex
+    path = staging_dir(session_id) / (f"{stem}.{safe}" if safe else stem)
+    _atomic_write_bytes(path, content)
+    return path
+
+
+def stage_text(session_id: int | str, text: str, suffix: str = ".txt") -> Path:
+    """文本（解析文本）-> 会话暂存目录（事务外落盘）。"""
+    path = staging_dir(session_id) / f"{uuid.uuid4().hex}{suffix}"
+    _atomic_write_text(path, text)
+    return path
+
+
+def promote_staged(staged: Path, final: Path) -> Path:
+    """暂存文件 -> 正式路径（rename；纯元数据操作，~ms 级，可在事务内调用）。"""
+    final.parent.mkdir(parents=True, exist_ok=True)
+    _replace_with_retry(str(staged), str(final))
+    return final
+
+
+def promote_upload(session_id: int | str, material_id: int, staged: Path) -> Path:
+    """暂存原件 -> 正式名 originals/<material_id>.<ext>（事务内 rename）。"""
+    final = originals_dir(session_id) / f"{material_id}{staged.suffix}"
+    return promote_staged(staged, final)
 
 
 def parsed_text_path(session_id: int | str, material_id: int) -> Path:

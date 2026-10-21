@@ -42,9 +42,10 @@ from app.api.materials import (
     _hash_source,
     _read_capped,
     _validate_upload,
+    kind_for_ext,
 )
 from app.api.plans import _safe_download_name
-from app.api.sessions import _CREATE_RATE_PER_MIN, _MAX_SESSIONS_PER_USER
+from app.api.sessions import _CREATE_RATE_PER_MIN, check_session_quota
 from app.core.ratelimit import limiter
 from app.core.quota import guarded_commit_async, quota_slot
 from app.core.locks import drop_lock
@@ -67,7 +68,7 @@ from app.llm import get_provider
 from app.tools import default_registry
 from app.tools.base import ToolInput
 from app.tools.kb_answer import KbAnswerSpec
-from app.tools.parse_material import AUDIO_EXTS, IMAGE_EXTS, VIDEO_EXTS, parse_material
+from app.tools.parse_material import parse_material
 
 log = logging.getLogger("deep_tutor.api.kb")
 
@@ -87,17 +88,6 @@ _PARSE_LOCKS: dict[int, asyncio.Lock] = {}
 
 def _ctx(user_id: int) -> ExecContext:
     return ExecContext(session_id=f"kb-{user_id}", trace_id=f"kb-doc-{user_id}")
-
-
-def _kind_for_ext(ext: str) -> models.MaterialKind:
-    """按扩展名归类（IMAGE/AUDIO/VIDEO 各自归族，其余归 file；ext 带点如 ".pdf"）。"""
-    if ext in IMAGE_EXTS:
-        return models.MaterialKind.image
-    if ext in AUDIO_EXTS:
-        return models.MaterialKind.audio
-    if ext in VIDEO_EXTS:
-        return models.MaterialKind.video
-    return models.MaterialKind.file
 
 
 def _doc_out(d: models.KbDocument, *, deduped: bool = False) -> dict:
@@ -290,7 +280,7 @@ async def upload_document(
     doc = models.KbDocument(
         user_id=user.id,
         title=filename[:256],
-        kind=_kind_for_ext(ext),
+        kind=kind_for_ext(ext),
         ext=ext.lstrip("."),
         source=filename,
         original_path=str(path),
@@ -856,58 +846,59 @@ def generate_from_documents(
         if doc_id not in docs_by_id:
             raise ApiError("not_found", f"知识库文档 {doc_id} 不存在")
 
-    # 会话数配额（与 POST /sessions、materials clip 同口径）
-    if db.query(models.Session).filter_by(user_id=user.id).count() >= _MAX_SESSIONS_PER_USER:
-        raise ApiError(
-            "quota_exceeded",
-            f"会话数已达上限 {_MAX_SESSIONS_PER_USER} 个，请先删除不再需要的会话",
-        )
-
     first = docs_by_id[ordered_ids[0]]
     title = (body.title or "").strip() or f"知识库：{first.title}"
-    sess = models.Session(user_id=user.id, title=title[:256])
-    db.add(sess)
-    db.flush()
-    material_count = 0
-    try:
-        seen_hashes: set[str] = set()
-        for doc_id in ordered_ids:
-            doc = docs_by_id[doc_id]
-            # 请求内内容哈希去重（正常库内同哈希文档已被创建期去重拦截，此为双保险）
-            if doc.content_hash and doc.content_hash in seen_hashes:
-                continue
-            if doc.content_hash:
-                seen_hashes.add(doc.content_hash)
-            if doc.status != "parsed":
-                # iter 225：暂存/未解析文档无文本可注入，引导用户先完成确认+解析
-                raise ApiError("not_found", f"知识库文档 {doc.id} 尚未解析——请先在文档列表中确认并解析")
-            if not doc.parsed_text_path:
-                raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失")
-            try:
-                text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
-            except OSError:
-                raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失") from None
-            material = models.Material(
-                session_id=sess.id,
-                kind=doc.kind,
-                source=doc.source,
-                parsed_chars=len(text),
-                meta={**(doc.meta or {}), "kb_document_id": doc.id},
-                content_hash=doc.content_hash,
-            )
-            db.add(material)
-            db.flush()
-            material.parsed_text_path = str(write_parsed_text(sess.id, material.id, text))
-            material_count += 1
-        db.commit()
-    except Exception:
-        # 任一失败：回滚（会话/资料行随回滚消失）+ 清会话目录，防孤儿
-        db.rollback()
+    # iter 397（K2）：会话数配额**必须与 POST /sessions、materials clip 同锁**
+    # （quota_slot 键 session_quota:{uid}）——此前本端点只 count 不加锁，与
+    # sessions.py 的注释「键与 materials/kb 的会话数配额同命名空间 -> 跨端点互斥」
+    # 不符：并发请求可同时通过「未达上限」检查，实际会话数按并发数突破 200 上限
+    # （DB 行 + 会话目录无界增长）。
+    # 本端点是**同步**端点（跑在线程池），持 threading.Lock 不阻塞事件循环。
+    with quota_slot(f"session_quota:{user.id}"):
+        check_session_quota(db, user.id)
+        sess = models.Session(user_id=user.id, title=title[:256])
+        db.add(sess)
+        db.flush()
+        material_count = 0
         try:
-            delete_session_files(sess.id)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
+            seen_hashes: set[str] = set()
+            for doc_id in ordered_ids:
+                doc = docs_by_id[doc_id]
+                # 请求内内容哈希去重（正常库内同哈希文档已被创建期去重拦截，此为双保险）
+                if doc.content_hash and doc.content_hash in seen_hashes:
+                    continue
+                if doc.content_hash:
+                    seen_hashes.add(doc.content_hash)
+                if doc.status != "parsed":
+                    # iter 225：暂存/未解析文档无文本可注入，引导用户先完成确认+解析
+                    raise ApiError("not_found", f"知识库文档 {doc.id} 尚未解析——请先在文档列表中确认并解析")
+                if not doc.parsed_text_path:
+                    raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失")
+                try:
+                    text = Path(doc.parsed_text_path).read_text(encoding="utf-8")
+                except OSError:
+                    raise ApiError("not_found", f"知识库文档 {doc.id} 的解析文本缺失") from None
+                material = models.Material(
+                    session_id=sess.id,
+                    kind=doc.kind,
+                    source=doc.source,
+                    parsed_chars=len(text),
+                    meta={**(doc.meta or {}), "kb_document_id": doc.id},
+                    content_hash=doc.content_hash,
+                )
+                db.add(material)
+                db.flush()
+                material.parsed_text_path = str(write_parsed_text(sess.id, material.id, text))
+                material_count += 1
+            db.commit()
+        except Exception:
+            # 任一失败：回滚（会话/资料行随回滚消失）+ 清会话目录，防孤儿
+            db.rollback()
+            try:
+                delete_session_files(sess.id)
+            except Exception:  # noqa: BLE001
+                pass
+            raise
     return {
         "session_id": sess.id,
         "open_path": f"/generate/{sess.id}",
