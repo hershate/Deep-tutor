@@ -38,6 +38,39 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 402（2026-10-22，M1.6：Makefile 在 Windows 上的可用性修复 + `bin/deep-tutor.exe` 冒烟，✅ 完成）**：承接 iter 401 的「下一步」① M1.6。
+
+- **本轮 2 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | （本次） | **修 Makefile 在 Windows 上的取值与 shell 探测（`make build` 原先链接失败）** | 见下「M1.6 的根因链与修法」 |
+  | （本次） | **stage.md / AGENTS.md / NOTICE 回写** | 本条 + AGENTS.md 的 Makefile 注意事项 + NOTICE 登记 |
+
+- **M1.6 的根因链与修法**：
+  - **现象**：`make build` 在本机**链接失败**——链接器打印自己的用法后 exit 1（不是编译错误，是 ldflags 被拆成了别的参数）。
+  - **根因链（四环相扣，每一环单独看都像小问题）**：① `$(wildcard C:/Program Files/Git/bin/sh.exe)` **恒返回空**——路径里的空格让 wildcard 读不到（`$(wildcard C:/Program*/Git/bin/sh.exe)` 能读到）；② 于是 Makefile 的 `SHELL :=` 落到不存在的 `/bin/sh`，make 回落成自己的默认 shell；③ **本机的 make 是 scoop 的 mingw-winlibs 版（GNU make 的 mingw 变体），`$(shell ...)` 恒走 cmd.exe，与 makefile 里的 SHELL 无关**——于是 `date -u +%Y-%m-%dT%H:%M:%SZ` 命中的是 Windows 的 `date`（交互式，输出「The system cannot accept the date entered. Enter the new date: (yy-mm-dd)」）、`sed 's/^studio-//'` 的单引号 cmd 不认（sed 报 `unknown command: `''`）→ `VERSION` 退化成 `dev`、`cat .golangci-version` 直接不是命令；④ **`BUILD_TIME_UTC` 变成一整句带空格的英文** → `-X main.buildTimeUTC=<带空格的句子>` 把 ldflags 拆成多个参数 → 链接器只认第一个 `-X`，其余当成输入文件 → 打印用法并失败。**也就是说 M1.6 的交付物在 Windows 上原本根本产不出来**。
+  - **修法（4 处，都不改变 Linux/macOS 上的行为）**：
+    1. **shell 探测改用 glob**：`$(wildcard C:/Progra~1/Git/bin/sh.exe)` 优先（8.3 短名，无空格）、`$(wildcard C:/Program*/Git/bin/sh.exe)` 兜底 → make 的 `SHELL` 指向**真实存在**的 shell（make 会忽略一个不存在的 SHELL 路径）→ **recipe 真的走 Git Bash**：实测 `uname -s` → `MINGW32_NT-6.2`（此前 `lint-go`/`lint-cross`/`cross`/`clean` 这些 POSIX recipe 在 Windows 上一个都跑不了）。
+    2. **取值不再依赖 POSIX 语义**：`git describe` / `git rev-parse` 不带管道与重定向（tag 前缀用 `$(patsubst studio-%,%,...)` 去掉），空值用 `$(if ...)` 落到 `dev` / `unknown`；**stderr 一律不重定向**——空设备没有两边都认的拼法（`NUL` 对 POSIX shell 是普通文件名，`/dev/null` 对 cmd.exe 也是），重定向落到的其实是文件，会在仓库里留下东西（实测 `2>NUL` 在仓库根建出一个 `NUL`，它是指向空设备的 reparse point，回收站启动器**按设计拒收**（无法核验 reparse point 标签），只能留在原地并用 `.gitignore` 挡住——否则一次 `git add -A` 会把它当符号链接提交进去）。非 git 检出时 git 自己会在 stderr 上说清楚，比一个被吞掉的错误好。
+    3. **时间戳**：Windows 上显式点名 POSIX shell 取 `date -u`，取不到时回落 PowerShell（`[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') + 'Z'`）；形状固定为 `YYYY-MM-DDTHH:MM:SSZ`——**必须是一个词**，空格会把 `-X` 的值拆开（就是本次链接失败的直接原因）。
+    4. **`cat` → `$(file <.golangci-version)`**（make ≥ 4.0；macOS 仍带 3.81，回落 `cat`）；`lint-install` 里冗余的 `CGO_ENABLED=0` 内联赋值删掉（顶层已 `export CGO_ENABLED := 0`）→ 该 recipe 不再需要 POSIX 赋值语法。
+  - **顺带修掉的一个隐蔽问题**：`$(shell ...)` 里带引号的 exe 路径会让本机 make 每读一次 Makefile 就报一次 `makefile:48: pipe: Bad file descriptor`；改用 8.3 短路径后警告消失。
+
+- **冒烟（本机实测，全部通过）**：
+  - `make build` → **exit 0**，产出 `bin/deep-tutor.exe`（54,458,368 B）与 `bin/reasonix-plugin-example.exe`；ldflags 为 `version=fb88c92`、`gitCommit=fb88c9234794`、`buildTimeUTC=2026-10-21T19:16:57Z`。
+  - `bin/deep-tutor.exe version` → `deep-tutor fb88c92`（exit 0）。
+  - `bin/deep-tutor.exe --help` → 打印完整用法清单（交互式会话 / print / run / review / web / serve / acp / setup / config / report / mcp / login / subagent / init / doctor / session / hook / trust / task / upgrade）。
+  - **serve 空壳**：`deep-tutor serve --addr 127.0.0.1:41399 --auth none`（home 隔离到 `F:\TEMP\deeptutor\smoke\home`）→ **起得来**；`GET /status` → **HTTP 200** + JSON（`approvalDefault`/`cwd`/`modelRef`/`goalStatus` 等）；stdout 打印监听地址与启动令牌路径（令牌写在隔离 home 内，未落到 C 盘）；stderr 只有一条 `wallet credential rejected: status 401`（空壳无上游凭据时的降级，不是崩溃）。探测后进程已停止。
+
+- **后续会话需要注意的（本机事实）**：
+  - 本机的 make 是 mingw-winlibs 版：**`$(shell ...)` 恒走 cmd.exe**，与 makefile 里的 `SHELL` 无关——这正是取值必须写成两边都认的形状的原因；新增任何 `$(shell ...)` 都要按这个前提写。
+  - `make lint` / `make test` / `make cross` 在 Windows 上需要 Git Bash（修好后 makefile 的 SHELL 已指向它，前提是 Git 装在 `C:\Program Files\Git` 或 scoop 的 git 目录）。
+  - `make test` 是全量 Go 测试，`internal/assembly/boot` 单包 975–1340 秒，本机一次性跑必然超时；CI 里已按分批 + 超时上限执行。
+  - **仓库根目录留着一个 `NUL`**：本轮 Makefile 的中间版本用 `2>NUL` 重定向 stderr 时留下的（指向空设备的 reparse point）。**受托回收站启动器两次拒收**（`rm --` 与 `mavis-trash.cmd` 同样拒收，理由是无法核验 reparse point 标签），按规矩不绕过；已在 `.gitignore` 里挡住并写明来历。需要清掉的话用资源管理器或 Git Bash 的 `rm` 手工处理。
+
+- **下一步（按序）**：① **M1.3 多实例 spike**（矩阵回填 `plan/reasonix/04` §四）；② **待用户定夺**：v1 侧分享链接是否跟进 7 天期限；**CODEOWNERS 主/备维护人**（基线里 codeowners 1 条待此项决定）。
+
 **iter 401（2026-10-22，M1.4g 品牌化收口 + M1.5 门禁基线重建与 CI 重建 + 前端门禁收口，✅ 完成）**：承接 iter 400 的「下一步」① M1.5。iter 400 之后另有 9 个 commit 落在本条之下（品牌化半改收口 → repolint 扫描域 → 自有代码过门禁 → 门禁去本机依赖 → 基线重建 → golangci 修复 → 前端门禁收口 → CI 重建）。
 
 - **本轮 11 个 commit**：

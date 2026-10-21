@@ -135,3 +135,11 @@ scripts/reasonix/official-theme-art/__pycache__/
 /backend/tests/frontend_contract.json
 /backend/tests/contract_diff_report.txt
 /backend/tests/auth_matrix.json
+
+# iter 402 的一次误留：Makefile 曾把 stderr 重定向到 `NUL`，而本机的
+# mingw 版 make 让 `$(shell ...)` 走 POSIX shell —— 那里 `NUL` 是个普通
+# 文件名，于是仓库根目录多了一个指向空设备的 reparse point。它是 Windows
+# 的保留设备名，回收站启动器按设计拒收（无法核验 reparse point 标签），
+# 故留着并在此挡住：否则一次 `git add -A` 会把它当作符号链接提交进去。
+# Makefile 里那条重定向已删除，不会再生成。
+NUL

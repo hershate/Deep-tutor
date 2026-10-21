@@ -338,6 +338,7 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `desktop/frontend-next/src/ui/tutor/Confirm.tsx` | 遮罩层补 `data-action-click` / `data-action-keydown`（同一元素两个 handler 须分别声明） |
 | `desktop/frontend-next/src/ui/Providers.remove.interaction.test.tsx`、`Providers.leave-guard.interaction.test.tsx` | 两份过期规格改到与实现一致：删除服务先走确认条，测试点确认条上的第二个「删除」（这两份规格与本仓吸收的实现相矛盾——确认条是 R-Tutor 变体新增的，加的时候漏改了它们） |
 | `desktop/frontend-next/src/ui/addplugin-i18n.interaction.test.tsx` | 断言的展示名跟实现走（Reasonix → Deep-tutor） |
+| `Makefile` | **Windows 上取值与 shell 探测修复**：`$(wildcard C:/Program Files/Git/bin/sh.exe)` 因路径含空格恒空 → `SHELL` 落到不存在的 `/bin/sh` → mingw 版 make 的 `$(shell ...)` 走的是 POSIX 语义下的 Windows 程序（`date` 是交互式的 Windows `date`、`sed` 的单引号不认、`cat` 不是命令）→ **`BUILD_TIME_UTC` 变成带空格的英文句子，`-X` 的值被拆开，`make build` 链接失败**。修法：shell 探测改用 glob（8.3 短名优先，使 make 的 SHELL 指向真实存在的 shell，POSIX recipe 在 Windows 上随之可用）、`git describe`/`git rev-parse` 去掉管道与重定向（前缀用 `$(patsubst)`、空值用 `$(if)`）、时间戳显式点名 POSIX shell 并回落 PowerShell（形状固定 `YYYY-MM-DDTHH:MM:SSZ`，须为一个词）、`cat` 改 `$(file <.golangci-version)`（make 3.81 回落 `cat`）、`lint-install` 删掉冗余的 `CGO_ENABLED=0` 内联 POSIX 赋值（顶层已 export）。**stderr 一律不重定向**：空设备没有两边都认的拼法，重定向落到的其实是文件。Linux/macOS 上行为不变 |
 
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 

@@ -1,32 +1,78 @@
 # The recipes below are POSIX shell (pipes, for-loops, `VAR=value cmd`). On
 # Windows make would run them through cmd.exe, which understands neither, so
 # name the shell that does. Git for Windows ships one; a machine without it
-# falls back to /bin/sh, which is what Git Bash and MSYS2 provide. The
-# assignment comes first because every $(shell ...) below runs in that same
-# shell, and a Windows `date` would otherwise ask for a new date.
+# falls back to /bin/sh, which is what Git Bash and MSYS2 provide.
+#
+# The path is found with a glob rather than written out: "Program Files"
+# holds a space, and $(wildcard) cannot read a literal path with a space in
+# it — it came back empty, the fallback /bin/sh does not exist on Windows,
+# and make fell back to its own default: every recipe ran under cmd.exe.
 #
 # Not every make honours a makefile's SHELL: mingw32-make reads it from the
 # environment only, so on that one the invocation is
 # `make SHELL="C:/Program Files/Git/bin/sh.exe" build`.
 ifeq ($(OS),Windows_NT)
-SHELL := $(if $(wildcard C:/Program Files/Git/bin/sh.exe),C:/Program Files/Git/bin/sh.exe,/bin/sh)
+# The 8.3 name comes first because a path with a space in it has to be quoted,
+# and a quoted path inside $(shell ...) is what makes this make complain about
+# a pipe it could not close. The long name is the fallback for a system where
+# short names are off.
+GITBASH := $(firstword $(wildcard C:/Progra~1/Git/bin/sh.exe) $(wildcard C:/Program*/Git/bin/sh.exe))
+GITBASH_QUOTED := $(if $(findstring ,$(GITBASH)),"$(GITBASH)",$(GITBASH))
+SHELL := $(firstword $(GITBASH) /bin/sh)
 endif
+
+# `$(shell ...)` is not the shell the recipes run under: mingw32-make runs it
+# through cmd.exe whatever SHELL says. A command only a POSIX shell
+# understands answers with something else there — `date -u` asks for a new
+# date, a single-quoted sed script arrives with its quotes still on, and
+# `cat` is not a command at all. The values below are therefore read in a
+# way both understand, and the timestamp names the shell it needs.
+#
+# Nothing here redirects stderr: there is no spelling of the null device
+# every one of these shells agrees on — `NUL` is an ordinary file to a POSIX
+# shell, `/dev/null` is an ordinary file to cmd.exe — and a redirect that
+# lands on a file leaves that file behind in the repository. A checkout make
+# cannot read says so on stderr instead, which is worth saying.
 
 # Exported rather than written inline in each recipe: an inline
 # `CGO_ENABLED=0 go build` is a POSIX assignment, and cmd.exe would read the
 # whole thing as the name of a program.
 export CGO_ENABLED := 0
 
-VERSION := $(shell git describe --tags --always 2>/dev/null | sed 's/^studio-//' || echo dev)
-BUILD_TIME_UTC := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-GIT_COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+# The tag's own prefix is stripped by make rather than by a sed script: the
+# pipe and the quotes are what cmd.exe mangles. A repository make cannot read
+# leaves the value empty, and the fallback says so instead of half a
+# command.
+VERSION_RAW := $(strip $(shell git describe --tags --always))
+VERSION := $(if $(VERSION_RAW),$(patsubst studio-%,%,$(VERSION_RAW)),dev)
+GIT_COMMIT_RAW := $(strip $(shell git rev-parse --short=12 HEAD))
+GIT_COMMIT := $(if $(GIT_COMMIT_RAW),$(GIT_COMMIT_RAW),unknown)
+
+# The build's own time, in UTC and in a shape that fits in an -X value: it
+# has to be one word, because a space in it splits the flag and the linker
+# answers with its usage instead of a binary.
+ifeq ($(OS),Windows_NT)
+BUILD_TIME_UTC := $(strip $(if $(GITBASH),$(shell $(GITBASH_QUOTED) -c "date -u +%Y-%m-%dT%H:%M:%SZ"),))
+ifeq ($(BUILD_TIME_UTC),)
+BUILD_TIME_UTC := $(strip $(shell powershell -NoProfile -Command "[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') + 'Z'"))
+endif
+else
+BUILD_TIME_UTC := $(strip $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
+endif
+
 LDFLAGS := -s -w \
 	-X main.version=$(VERSION) \
 	-X main.gitCommit=$(GIT_COMMIT) \
 	-X main.buildTimeUTC=$(BUILD_TIME_UTC)
 GOEXE := $(shell go env GOEXE)
 # One pin for the Makefile and the CI lint job; see .github/workflows/ci.yml.
-GOLANGCI_VERSION := $(shell cat .golangci-version)
+# make reads the pin itself where it can: `$(file <name)` needs make 4.0 and
+# macOS still ships 3.81, where `cat` is the way in.
+ifeq ($(findstring 3.81,$(MAKE_VERSION)),)
+GOLANGCI_VERSION := $(strip $(file <.golangci-version))
+else
+GOLANGCI_VERSION := $(strip $(shell cat .golangci-version))
+endif
 
 .PHONY: build vet fmt lint lint-go lint-install lint-cross lint-update coverage-gate coverage-gate-update pricecheck check test studio-test sdk-test sdk-test-race hooks cross clean studio
 
@@ -60,9 +106,10 @@ lint-go:
 	golangci-lint run --timeout=5m ./...
 
 # CGO_ENABLED=0 keeps the install working where a stray clang on PATH shadows
-# the toolchain and breaks runtime/cgo.
+# the toolchain and breaks runtime/cgo. The export above already sets it, so
+# the recipe itself stays readable by a shell that knows no assignments.
 lint-install:
-	CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
 # repolint over what the working tree changed. It exists as a target rather than
 # a command to paste because the host recognizes `make check` as a verification

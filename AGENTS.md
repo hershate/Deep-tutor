@@ -42,6 +42,8 @@
 
 **AV 占用 `go-build` 临时 exe 的绕法**（2026-10-22 实测）：本机实时扫描会拦下**新写出**的测试二进制，报 `open …\go-build…\xxx.test.exe: Access is denied`——**与改动内容无关**（回退到 HEAD 同样会被拦，改动后构建到别处则正常）。绕法：`go test -c -o F:\TEMP\deeptutor\tb\<name>.test.exe ./<pkg>/` 构建到 F 盘，再 `cd` 到包目录直接运行该二进制（测试要用相对路径读仓库内的文件，必须在包目录下执行）。
 
+**Makefile 在 Windows 上（本机事实，iter 402 实测）**：本机的 make 是 scoop 的 mingw-winlibs 版（GNU make 的 mingw 变体）——**`$(shell ...)` 恒走 cmd.exe，与 makefile 里的 `SHELL` 无关**。此前 `$(wildcard C:/Program Files/Git/bin/sh.exe)` 因路径含空格恒空 → `SHELL` 落到不存在的 `/bin/sh` → 取值全部走 Windows 的 `date`/`sed`/`cat` → `BUILD_TIME_UTC` 变成带空格的英文句子 → `-X` 的值被拆开 → `make build` **链接失败**（链接器只打印用法）。已修：shell 探测改用 glob（8.3 短名优先）、取值改成 cmd 与 POSIX 都认的形状（`$(patsubst)`/`$(if)`/`$(file <)`）、时间戳显式点名 POSIX shell 并回落 PowerShell。**新增任何 `$(shell ...)` 都要按「cmd.exe 语义」写**；recipe 侧则是 Git Bash（makefile 的 SHELL 现已指向真实存在的 shell，`lint-go`/`lint-cross`/`cross`/`clean` 这些 POSIX recipe 在 Windows 上可用）。
+
 另：`internal/assembly/boot` 单包本机耗时 **974.9 秒**（iter 398 实测 1340 秒），超过 Go 默认 600 秒超时上限，`go test ./...` 一次性执行必然报 timeout panic（`make test` 同）；该包单独执行（`-timeout 25m`）通过，`internal/frontend/serve` 单独执行亦通过。Go 侧门禁的实际执行方式（分批 + 超时上限）属 M1.5 待定项。iter 398 全量复跑另见一批**负载/时序敏感**的失败（`internal/base/proc` `internal/frontend/tui` `internal/platform/worktree` `internal/state/sessionstore` `internal/state/workspacelease` `internal/tools/builtin` 的 bash/超时用例、两个包的 `TempDir RemoveAll cleanup` 目录非空），单独复跑可通过，判定为环境项。
 
 - **工作区外文件的删除**：只能用 `C:\Users\Z\.minimax\bin\mavis-trash.cmd -- <绝对路径>`（`rm --` 拒收工作区外目标；`Remove-Item` 与 `.NET Directory.Delete` 被硬策略拒绝）。目录内文件数过大（>5 万）时 `mavis-trash` 也会失败，改用一次性 Go 程序处理（非跟踪，放 `.git/dt_tools/`）。
