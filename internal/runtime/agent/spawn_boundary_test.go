@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +21,30 @@ var knownDirectChildRunners = map[string]string{
 	"desktop/subagents_app.go":                 "desktop profile preview",
 }
 
+// repositoryGoFiles lists the Go files this repository holds: the ones git
+// tracks, and the new ones git does not ignore. A local copy of the source
+// (REF/) is not among them — it is not part of this repository, a fork there
+// is nobody's change, and reading it made this guard fail for a tree nobody
+// edits.
+func repositoryGoFiles(t *testing.T, root string) []string {
+	t.Helper()
+	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("list repository files: %v", err)
+	}
+	var files []string
+	for _, rel := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		rel = strings.TrimSpace(rel)
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		files = append(files, filepath.Join(root, filepath.FromSlash(rel)))
+	}
+	return files
+}
+
 // A new fork must be a deliberate, reviewed choice rather than something that
 // appears because one more caller found the low-level runner convenient.
 func TestChildConstructionForksStayEnumerated(t *testing.T) {
@@ -28,36 +53,24 @@ func TestChildConstructionForksStayEnumerated(t *testing.T) {
 		t.Fatal(err)
 	}
 	var found []string
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if d != nil && d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == ".claude") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
+	for _, path := range repositoryGoFiles(t, root) {
 		body, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			// A tracked file deleted from the working tree is not a fork.
+			continue
 		}
 		text := string(body)
 		if !strings.Contains(text, "RunSubAgentWithSession(") && !strings.Contains(text, "RunReadOnlySubAgentWithSession(") {
-			return nil
+			continue
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
-			return relErr
+			t.Fatal(relErr)
 		}
 		rel = filepath.ToSlash(rel)
 		if _, known := knownDirectChildRunners[rel]; !known {
 			found = append(found, rel)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	if len(found) > 0 {
 		t.Fatalf("these files construct a sub-agent outside the unified runner: %s\n\nCompile the call into a ProfileExecSpec and run it through TaskTool.RunProfileSpec so it inherits tool scoping, depth caps, write claims, scheduler slots, and the completion contract. If a direct runner is genuinely required, add the file to knownDirectChildRunners with a reason.",

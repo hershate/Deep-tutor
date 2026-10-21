@@ -2,4 +2,7 @@
 
 package sandbox
 
-func systemWindowsDir() string { return "" }
+// systemWindowsDir is a seam, not a constant: the WSL launcher is recognised
+// by file identity against the real Windows directory, so a test that has to
+// prove the recognition needs to point at a directory of its own.
+var systemWindowsDir = func() string { return "" }

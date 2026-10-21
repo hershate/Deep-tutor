@@ -229,11 +229,26 @@ func TestIsWindowsWSLBash(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only path detection")
 	}
-	t.Setenv("SystemRoot", `C:\Windows`)
-	if !isWindowsWSLBash(`C:\Windows\System32\bash.exe`) {
+	// The launcher is recognised by file identity against the real Windows
+	// directory, so the check needs one to exist. A machine without WSL has
+	// none, and a fixture proves the recognition rather than the machine's
+	// state.
+	root := t.TempDir()
+	launcher := filepath.Join(root, "System32", "bash.exe")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcher, []byte("MZ"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := systemWindowsDir
+	systemWindowsDir = func() string { return root }
+	t.Cleanup(func() { systemWindowsDir = restore })
+
+	if !isWindowsWSLBash(launcher) {
 		t.Error("System32 bash launcher should be detected as WSL")
 	}
-	if !isWindowsWSLBash(`c:\windows\system32\BASH.EXE`) {
+	if !isWindowsWSLBash(strings.ToUpper(strings.ToLower(launcher))) {
 		t.Error("detection should be case-insensitive")
 	}
 	if isWindowsWSLBash(`C:\Program Files\Git\bin\bash.exe`) {
