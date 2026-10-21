@@ -237,6 +237,72 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/contract/config/mutate.go` | `acquireConfigEditLockPath` 加锁成功后调用 `touchConfigEditLock` 并触发一次清扫 |
 | `internal/contract/config/config_edit_lock_sweep_test.go` | 本仓新增：3 条回归（闲置回收 / 在用与被持有的不回收 / 每进程每注册表只清扫一次） |
 
+**代码级修改（2026-10-21，M1.4 品牌化与 `DEEPTUTOR.md` 建档）**：按决策 #42「保留 Deep-tutor 品牌，对 Reasonix 开发者保持尊重」，把**用户可见**的产品名与命令名改为 Deep-tutor / Deep-tutor Studio，同时保留全部上游版权头、MIT 许可文件与上游署名。
+
+**改写规则**：只改**字符串字面量**里的展示名（产品名、CLI 命令名、界面文案），**不动标识符、路径、协议与数据契约**。判据是「这句话是给人看的，还是给机器认的」：产品名与命令名改；路径段、文件名、目录名、环境变量、HTTP 头名、协议 URN、插件清单 kind、注册表键名、发布产物名、npm/brew 包名一律保持原样。改写按「保护词表先占位、再统一替换、最后还原」三步执行，保护词表覆盖 60 余项标识。
+
+新增 `DEEPTUTOR.md`（仓库根）：由上游 `docs/kernel/upstream/REASONIX.md` 转换而来——保留缓存稳定/上下文投影/记忆/供应商费率/预置档/推前 CI 模拟/导入环规则/变更纪律/信任域/沙箱维度等**工程章节**，**删除上游协作流程章节**（PR hygiene：每轮评审一次强推、保持 diff 最小、评审意见用 amend），新增本仓规约（决策引用 note/12、stage.md 进度要求、v1 契约冻结、`internal/web` 分层铁律、落盘位置约定、host checks 的审阅要求），并在 sensitive 清单中**追加** `internal/web/auth/**`、`internal/web/session/**`、`internal/web/shim/**`（阶段① M2/M3 建成服务层后生效）。
+
+| 文件 | 修改 |
+|---|---|
+| `DEEPTUTOR.md` | 本仓新增：工程规约（上游章节 + 本仓规约 + sensitive 清单） |
+| `tools/covergate/main.go` | `sensitiveGlobs` 的候选文件增加 `DEEPTUTOR.md`（清单原文所在文件；不改则覆盖率门禁读不到该清单） |
+| `tools/repolint/frontendtypes.go` | `modulePath` 由 `reasonix` 改为 `deep-tutor`（M1.2 改模块名时漏改，前端类型一致性检查因此查找不到任何前端包而恒为失败） |
+| `internal/base/i18n/messages_{zh,en,zh_tw}.go` | 用户可见文案中的产品名与命令名：`Reasonix` → `Deep-tutor`、命令名 `reasonix` → `deep-tutor`。**受保护不改**：`.reasonix/`（工作区约定目录）、`reasonix.toml`、`reasonix.io`、`DeepSeek-Reasonix`、`crash.reasonix.io`、`REASONIX_*` |
+| `internal/frontend/cli/*` | CLI 命令名、帮助/用法文本、版本行（`deep-tutor <version>`）、shell 补全根命令名、ACP agent 名 |
+| `internal/frontend/serve/*`、`internal/session/control/*` | 面向用户的文案与日志前缀 |
+| `internal/contract/config/*` | 配置模板注释与错误提示中的产品名；`DefaultSystemPrompt` 的自述（`You are Deep-tutor, a coding agent.`） |
+| `internal/platform/*`、`internal/ext/*`、`internal/safety/*`、`internal/model/*`、`internal/runtime/*`、`internal/state/*`、`internal/tools/*` | 各包内面向用户的文案与日志前缀 |
+| `internal/frontend/tui/chrome.go` | TUI 横幅的产品名 |
+| `desktop/frontend-next/src/i18n/en*.ts` | 前端英文目录中的产品名与命令名（**中文原文即 key**，目录与调用点成对改写，改后逐条校验 key 仍可解析） |
+| `desktop/frontend-next/src/**` | 组件内与 `t()` key 同源的文案 |
+| `desktop/electron/src/*`、`desktop/electron/test/unit.mjs` | 窗口标题、托盘提示、任务栏角标文本、协议 `product`、对话框标题、旧版本清理提示 |
+| `desktop/frontend-next/{index.html,perf.html,public/manifest.webmanifest}` | 页面标题与 webmanifest 的 `name`/`description` |
+| `docs/kernel/*.md`（36 个文件） | 面向用户的手册中的产品名与命令名。`docs/kernel/upstream/**`（上游原件存档）与 `docs/kernel/STUDIO_RELEASE.md`（上游发布流水线）**未改**；`EXTENSION_PROTOCOL.generated.md` 由 `cmd/extension-protocol-gen` 重新生成（顺带修正了其中与 `schema_hash.generated.go` 不一致的陈旧 hash） |
+| `scripts/reasonix/**` | **整体保持上游形态不改**：这是上游发布流水线（写上游仓库 README 的标记、向 GitHub issue 写标记、发布上游 npm 包、守卫上游 Homebrew tap），改名会让它找不到自己写下的标记、指向不存在的包名与资产名。按 plan 阶段④ P4.5 整体重写发布流水线时再定 |
+| `.goreleaser.yaml` | 产物名与入口改为 Deep-tutor（原文指向 M1.2 已删的 `./cmd/reasonix`，实际已无法构建）；移除指向上游 Homebrew tap 的 cask 段（本仓无权发布到该 tap；#50 的发布路径为 GitHub Releases + minisig + SHA256SUMS） |
+| `internal/tools/productdocs/docs_test.go` | provider 可见契约的哈希钉随工具描述里的产品名更新（描述里只有产品名变了） |
+| `AGENTS.md`、`README.md`、`Makefile` | 规约指向 `DEEPTUTOR.md`、sensitive 清单出处、上游署名段、POSIX shell 依赖说明、`CGO_ENABLED` 改用 `export` 变量 |
+
+**随改名一并修正的行为不一致**（表达与实现对不上，属本轮审查发现）：
+
+| 位置 | 问题 | 处理 |
+|---|---|---|
+| `internal/frontend/cli/upgrade.go` | 自升级从上游发布渠道解包，包内二进制名为 `reasonix`；改名后按 `deep-tutor` 查找，**每次解包都会失败** | 解包名改回上游包内实际名；`cliPlatformAssetName` 同步回上游资产名（渠道未变） |
+| `internal/platform/releaseasset/cli.go` | 远程引导的资产名与包内可执行名同因被改，下载必然 404 | 改回上游形态，并加注释说明「渠道在上游，故名不可改」 |
+| `internal/platform/remote/bootstrap/windowsshell.go` | 远端 Windows 侧可执行名与上游包内名不符 | 改回 `reasonix.exe` |
+| `internal/frontend/cli/upgrade_install_source.go` | 受管安装检测只认 npm 前缀 `@reasonix/cli-` 与 brew cask `reasonix`；改名后**用户既有安装会被当作无主可覆盖** | 两种拼写都认，并让提示语报出实际命中的包/包名 |
+| `internal/ext/mcpsetup/parse.go` | 粘贴 `deep-tutor mcp add ...` 时不再被识别为本 CLI 的命令 | `isCLILauncher` 接受两种拼写，并按小写/去分隔符归一（`DEEPTUTOR.EXE` 亦可） |
+| `internal/session/control/input.go`、`planner_gate.go` | 计划路由标记 `[Reasonix: plan-first]` 改名后，旧前端写入的标记不再触发规划 | 保留旧拼写常量并同时识别、同时剥离 |
+| `desktop/internal/winuninstall/plan.go` | Windows 卸载注册的 `DisplayName`/`Publisher`/注册表键名被改，**卸载器认不出既有安装**（不更新、也不清理旧键） | 整体回退为安装身份原值 |
+| `internal/frontend/tui/chrome.go` 及 `internal/frontend/tui/*_test.go` | TUI 横幅仍是旧名（裸字面量受保护而漏改） | 横幅改 `deep-tutor`，断言同步 |
+| `internal/platform/repair/update.go` | 更新事务白名单只列新名，既有安装的更新会被拒 | 白名单取两种拼名的并集 |
+| `internal/contract/config/ccswitch.go` 及测试 | cc-switch 导入的 `apps.reasonix` 开关是上游 wire 字段，夹具改名后开关失效 | 夹具字段名保持 `reasonix`（与 `json:"reasonix"` 一致） |
+| `internal/frontend/serve/mcp_parse_*_test.go`、`internal/ext/mcpsetup/*_operand_test.go` | 服务名由**用户自己的脚本名**派生（`reasonix_server.js` → `reasonix-server`），期望值被改后与输入不再一致 | 期望值改回派生结果（派生逻辑本身未动） |
+| `desktop/frontend-next/src/port/cloud_remote.ts` | 远程握手的子协议名 `reasonix.auth.<ticket>` 是与上游中继的 wire 约定 | 改回原值 |
+| `desktop/electron/test/unit.mjs`、`cmd/reasonix-studio-host/owner_test.go` | macOS 应用包内可执行名 `Contents/MacOS/Reasonix Studio` 是真实路径 | 改回原值 |
+
+**第二轮复核（2026-10-22，同一 commit 前）**：改写完成后按「这句是给机器认的」逐点复扫，发现首轮保护词表漏掉了一批**跨版本 / 跨渠道的契约名**，一并回退或改成两种拼写都认：
+
+| 位置 | 问题 | 处理 |
+|---|---|---|
+| `desktop/electron/src/main.js` | `app.setName` 被改成 `Deep-tutor Studio`——它决定 Electron 的 `userData` 目录与单实例锁路径，改了**既有桌面端 profile（设置、凭据、会话历史）被孤立**，且同一安装的两次启动会落到两个 profile、两个锁 | 回退为 `Reasonix Studio`，并加注释说明为何不能跟产品名一起改 |
+| `internal/platform/remote/bootstrap/launch.go`、`windowsshell.go`、`install.go` | 远端内核的文件名恒为 `target.Executable()`（`reasonix` / `reasonix.exe`，来自上游发布渠道），改名后 **PATH 探测找不到、进程匹配 `*deep-tutor*serve*` 失配** → `StopCommand`/`ServeAliveCommand` 判不出「是自己的进程」，远端 serve 每次连接都被当成死的而重启、进程堆积；`npm i -g deep-tutor` 指向不存在的包 | 探测与进程匹配**两种拼写都认**（`remoteKernelNames`）；npm 安装名回到上游实际存在的 `reasonix` |
+| `internal/platform/repair/update.go` | 更新回滚节点的后缀被改成 `deep-tutor-failed`，而清理逻辑按 `.reasonix-failed-*` 匹配 → **失败回滚留下的 bundle 永远不被回收**（3 条既有测试转红） | 后缀回到 `reasonix-failed` |
+| `internal/state/memory/store_v2.go` | `legacyMemoryID` 的哈希域分隔符被改名 → 同一条旧事实每次重建都得到**不同的 ID**，已持久化的引用全部失配 | 域分隔符回到 `reasonix-memory-v2` |
+| `internal/frontend/cli/session_machine.go` | 机器会话 ID 的 HMAC 域分隔符被改名 → 已发放给用户的 `session_<hex>` 恢复 ID **全部无法再解析**（`run --resume` 报「no session matches」） | 域分隔符回到 `reasonix-machine-session-v1` |
+| `internal/frontend/cli/upgrade.go` | 「找不到本平台二进制」的错误提示打印的是本构建的名字，而实际查找的是上游资产名 → 提示指向一个不存在的文件 | 提示改用 `cliPlatformAssetName()`，与实际查找的名字一致 |
+| `internal/platform/installlayout/legacy_support_test.go` | 启动器名只改了 POSIX 分支，Windows 分支仍是 `reasonix-launcher.exe` → 同一函数两平台两个名字 | 回到 `reasonix-launcher` |
+| `internal/runtime/taskmonitor/tmux.go` | tmux owner 选项名被改成 `@deep-tutor-owner`；tmux 会话**比应用活得久**，新版本 `show-options` 读不到旧版本写的选项 → 认不出自己创建的会话，既不复用也不回收，会话堆积 | 选项名回到 `@reasonix-owner` |
+| `internal/frontend/acp/handshake.go` | ACP 认证方式的 ID 是**协议标识符**（客户端按它调 `authenticate`），改名后固定了旧 ID 的客户端找不到该方法 | ID 回到 `reasonix-setup`；展示用的 `Name`/`Description` 仍为 Deep-tutor |
+| `internal/platform/repair/update.go` | handoff 暂存目录名只认新拼写，旧版本遗留的暂存目录被判「名字异常」 | 两种拼写都认 |
+| `internal/platform/update/application_darwin.go` | 在更新包里按本构建的名字快路径找 `.app` | 回到上游形态（快路径本就是猜测，真正的查找靠遍历） |
+| `internal/platform/repair/*_test.go`、`internal/platform/update/apply_darwin_test.go`、`cmd/reasonix-studio-host/launchroot_test.go` | macOS bundle 夹具写成 `Deep-tutor.app` / `Contents/MacOS/Deep-tutor`，而真实身份是 `Reasonix Studio.app` / `Contents/MacOS/Reasonix Studio`（`electron-builder` 的 `productName` 未改） | 夹具回到真实身份，避免后来者据此改生产代码去找不存在的目录 |
+
+**刻意不改的标识**（改动会连带改协议、路径或环境变量语义，需配套迁移，另行处理）：`app.setName("Reasonix Studio")`（决定 Electron 的 `userData` 路径，改了会孤立既有桌面端 profile）、`electron-builder` 的 `productName`/`packageName` 与 polkit 文件名（打包身份与更新器路径）、`reasonix-studio-host` 二进制名、`io.reasonix.studio.*` profile 目录名、工作区目录 `.reasonix/`、运行时配置名 `reasonix/config.toml`、环境变量 `REASONIX_*`、ACP vendor method `_reasonix.io/`、ACP 认证方式 ID `reasonix-setup`、keyring 服务名 `reasonix` 与凭据清除标记 `# reasonix-cleared`、插件清单 kind `reasonix`、HTTP 头名 `X-Reasonix-Broker-Token`、User-Agent `Reasonix/`。
+
+**同样按「机器认的」保留的还有**（散落各处，逐点复核后确认）：安装布局里的二进制名（`reasonix-cli` / `reasonix-desktop` / `reasonix-update-helper` / `reasonix-launcher`）、更新回滚节点后缀 `reasonix-failed` 与备份后缀 `.reasonix-update-backup`、tmux owner 选项 `@reasonix-owner`、机器会话 ID 与旧事实 ID 的**哈希域分隔符**（`reasonix-machine-session-v1` / `reasonix-memory-v2`）、上游发布渠道的资产名与包内可执行名（`reasonix-<os>-<arch>` / `reasonix` / `reasonix.exe`）、上游 npm 包名（`reasonix`、`@reasonix/cli-*`）与 brew cask 名 `reasonix`。凡「以名字做匹配」的代码点（受管安装检测、MCP 粘贴命令解析、计划路由标记、远端内核探测与进程匹配、更新事务白名单、handoff 暂存目录名）**两种拼写都认**，只认新名会让旧安装失去能力，只认旧名会让新构建失效。
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）
