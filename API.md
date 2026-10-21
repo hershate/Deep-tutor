@@ -1812,14 +1812,15 @@ for (;;) {
 
 ```
 event: run_start     data: { run_id, model }
-event: message_start data: { run_id, role }      # 每轮 assistant 消息开始（多步 run 每步一条）
-event: text_delta    data: { text }              # 流式逐字（DeepSeek 式）
+event: message_start data: { run_id, role, step } # 每轮 assistant 消息开始（多步 run 每步一条）
+event: text_delta    data: { text }              # 流式逐字（DeepSeek 式；按 ~50ms 窗口合并下发）
 event: thinking_delta data: { text }             # 思考过程（可折叠）
 event: tool_call     data: { id, name, step }    # 工具调用开始
 event: tool_progress data: { id, step }
 event: tool_result   data: { id, name, is_error, step }
 event: message_end   data: { step, stop_reason }
 event: error         data: { code, message }
+event: replay_truncated data: { last_event_id }  # 重放被缓冲窗口截断（见「续接」）
 event: done          data: { run_id, status }    # 终态
 ```
 
@@ -1827,6 +1828,8 @@ event: done          data: { run_id, status }    # 终态
 - **供应商**：仅 Anthropic 协议支持原生 tool_use；plugin provider 上启动 agent run 返 `unsupported_provider`。
 - **崩溃安全**：任务用独立 SessionLocal + try/finally 收口（cancel/异常仍落 run 终态 + commit 工作区 + bus 推 `run_completed`）。
 - 续接：带 `Last-Event-ID` 头重连，重放未投递事件。
+- **重放窗口（iter 397 勘误）**：重放只覆盖服务端**内存缓冲**内的最近事件（`text_delta` 等增量已按 ~50ms 窗口合并，故缓冲窗口约可回放 100 秒的流）。`Last-Event-ID` 早于缓冲起点时，服务端先发一条 `replay_truncated` 事件再继续推流——客户端应据此**改用 `GET /api/threads/{id}/messages` 拉取全量消息重建 UI**（此前文档承诺「重放未投递事件」却静默截断，客户端无从察觉）。
+- **工具白名单（iter 397 勘误）**：对话路径（`POST /api/threads/{id}/runs`）只分派**广告给模型的那一组 Agent 工具**（`workspace_*`/`web_*`/`memory_*`/`load_thread_history`/`search_messages`/`promote_artifact`）；模型若请求其它工具（如 `parse_material`/`generate_quiz`/`kb_answer`），一律返回「未知工具」。核心工具仍可经插件面 `run_tool` / `api.tools.call` 调用。
 
 ### 11.4 Agent 工具（注册入工具表，经 `run_tool` / `api.tools.call` 调用）
 

@@ -238,6 +238,11 @@ export default function Chat() {
         setPendingUser(null)
         queryClient.invalidateQueries({ queryKey: ['messages', tid] })
         queryClient.invalidateQueries({ queryKey: ['threads'] })
+      } else if (t === 'replay_truncated') {
+        // iter 397（A12）：服务端事件缓冲已滚动，本次重放不完整（早于缓冲起点的事件
+        // 永久不可回放）-> 拉全量消息重建 UI，而不是拿残缺流继续渲染
+        queryClient.invalidateQueries({ queryKey: ['messages', tid] })
+        queryClient.invalidateQueries({ queryKey: ['threads'] })
       } else if (t === 'done') {
         // 不立即清流——待 messages 刷新落定由上面的 effect 清，避免终态瞬间气泡消失闪烁
         doneRef.current = tid

@@ -483,9 +483,12 @@ async def promote_artifact(inp: ToolInput, ctx: ExecContext) -> ToolOutput:
         artifact_id = await run_db_write(_register)
     except LookupError:
         return _err(tool, "not_found", "run 不存在")
-    # iter 364：设 cancel_event 让 agent_loop 工具循环尽快 break（缩小 awaiting_approval 与
-    # approve 的竞态窗口——原要等下一轮主循环检查，期间 approve 可致 agent 多跑 1+ 轮烧预算）
-    ctx.cancel_event.set()
+    # iter 397（A3）：**不再复用 cancel_event**——审批提议与「用户取消」是两个语义：
+    # 复用后 agent_loop 下一轮先命中取消检查 -> run 记为 interrupted（而非
+    # awaiting_approval），且同批次其余工具被跳过并写成「已取消」占位。现置独立的
+    # ctx.approval_pending（agent_loop 优先检查它 -> 正常收口为 awaiting_approval，
+    # 等用户 approve）；同时仍让工具循环尽快 break（缩小与 approve 的竞态窗口）。
+    ctx.approval_pending.set()
     return _ok(
         tool,
         {

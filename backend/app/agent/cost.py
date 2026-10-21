@@ -105,7 +105,10 @@ def record_metadata_usage(db, metadata: ToolMetadata, user_id: int | None = None
     族默认）——确保 api_usage / 用量页 / 日预算（check_daily_budget 读 api_usage 求和）
     按用户配置的实际单价。
     """
-    if not (metadata.tokens_in or metadata.tokens_out):
+    # iter 397（A15）：纯缓存读取的轮次也要落账——Anthropic 完全命中提示缓存时
+    # input_tokens=0（全部计入 cache_read_input_tokens），此前整轮不写 api_usage
+    # -> 缓存读取成本在日预算（只信 api_usage 求和）与用量页中不可见。
+    if not (metadata.tokens_in or metadata.tokens_out or metadata.cache_read or metadata.cache_write):
         return
     # iter 370：metadata.provider（build_metadata 由 provider.kind 填充）优先于
     # 遗留 provider 形参——旧调用方不传参也能拿到正确归属

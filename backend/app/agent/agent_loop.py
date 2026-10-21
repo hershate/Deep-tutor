@@ -358,12 +358,21 @@ async def run_agent_loop(
 
     # 1) 持久化用户消息（会话历史 append-only）
     await _persist_message(db, thread_id, _role("user"), [{"type": "text", "text": user_message}], run_id)
-    if emit:
-        await emit("message_start", {"run_id": run_id, "role": "assistant"})
 
     for step in range(max_steps):
+        # iter 397（A16）：message_start **每步一条**——API.md §11.3 承诺「每轮
+        # assistant 消息开始（多步 run 每步一条）」，而 message_end 本就是每步一条；
+        # 此前 message_start 只在循环外发一次 -> 起止事件不对称，第三方按文档实现
+        # 的事件配对会错位（契约冻结：实现对齐文档，不改文档语义）。
+        if emit:
+            await emit("message_start", {"run_id": run_id, "role": "assistant", "step": step})
         if ctx.cancel_event.is_set():
             return AgentRunResult(status="interrupted", final_text=last_text, steps=step, usage=total_usage)
+        # iter 397（A3）：审批待确认独立判定（不再借 cancel_event 表达）——
+        # promote_artifact 提议提升后 run 已置 awaiting_approval，本轮工具结果落库
+        # 即收口：不再跑下一轮（省预算），也不误记为 interrupted。
+        if ctx.approval_pending.is_set():
+            return AgentRunResult(status="done", final_text=last_text, steps=step, usage=total_usage)
         # iter 363：promote_artifact 置 awaiting_approval 后退出循环（run 待用户 approve，
         # _finalize_chat 保持该终态；不退出则 run 继续跑与 approve 冲突）
         from app.db.models import Run as _Run, RunStatus as _RunStatus
@@ -421,7 +430,7 @@ async def run_agent_loop(
                 pass
             raise
         except Exception as exc:  # noqa: BLE001  provider 异常隔离——终止保已计量
-            log.warning("agent_loop provider error at step %d: %s", step, exc)
+            log.warning("agent_loop provider error at step %d: %s", step, exc, exc_info=True)
             # iter 365 B1：异常前 provider 已 yield 的部分 usage（message_start 的 input_tokens）
             # 须入账——否则本轮 LLM 费用已发生却写不进 api_usage/预算（成本黑洞，iter 243 同型）
             if acc.usage is not None:
@@ -435,11 +444,29 @@ async def run_agent_loop(
                 await asyncio.to_thread(record_metadata_usage, db, meta, ctx.user_id)
                 if ctx.budget is not None:
                     ctx.budget.add(meta.cost)
-            return AgentRunResult(status="error", final_text=last_text, steps=step, error=str(exc), usage=total_usage)
+            # iter 397（A9）：**异常原文不进 run.error**——SDK 异常文本含 base_url /
+            # 请求体片段 / 模型名等内部细节，而 GET /api/runs/{id} 把 run.error 原样
+            # 回显给浏览器（iter 396 只加固了 SSE 路径）。改为固定文案，细节进服务端日志
+            # （与 app/api/errors.py「不回显敏感信息」口径一致）。
+            return AgentRunResult(
+                status="error",
+                final_text=last_text,
+                steps=step,
+                error="对话执行失败，请稍后重试",
+                usage=total_usage,
+            )
 
         # 4) 每轮计量 + 预算守卫（iter 243 教训：即时计量防黑洞）
         turn_usage = acc.usage or LLMUsage()
-        if turn_usage.input_tokens or turn_usage.output_tokens:
+        # iter 397（A15）：缓存读取也要计入——Anthropic 完全命中提示缓存时
+        # input_tokens=0（全部计入 cache_read_input_tokens），此前整轮不入账
+        # -> 缓存读取成本在日预算（只信 api_usage 求和）与用量页中不可见。
+        if (
+            turn_usage.input_tokens
+            or turn_usage.output_tokens
+            or turn_usage.cache_read_input_tokens
+            or turn_usage.cache_creation_input_tokens
+        ):
             accumulate_usage(total_usage, turn_usage)
             meta = build_metadata(
                 turn_usage,
@@ -502,8 +529,10 @@ async def run_agent_loop(
         hard_exc: BaseException | None = None
         try:
             for tu in acc.tool_use_blocks():
-                if ctx.cancel_event.is_set():
-                    break  # 软取消：退出循环，下方补占位（for step 下次迭代 return interrupted）
+                # iter 397（A3）：审批待确认同样中断本批剩余工具（缩小与 approve 的
+                # 竞态窗口）——占位文案随之区分「取消」与「待审批确认」。
+                if ctx.cancel_event.is_set() or ctx.approval_pending.is_set():
+                    break  # 退出循环，下方补占位
                 tt0 = time.monotonic()
                 try:
                     res = await tool_executor(tu, ctx)
@@ -544,9 +573,12 @@ async def run_agent_loop(
         # 占位补全：未执行的 tool_use 补 tool_result（软取消 break / 硬异常 都补）——
         # 否则 assistant tool_use 与 user tool_result 数不匹配，下次 run 加载历史被 Anthropic 拒（卡死）。
         done_ids = {r["tool_use_id"] for r in results_msg}
+        # iter 397（A3）：占位文案区分「用户取消」与「审批待确认」（此前一律「已取消」，
+        # 模型与用户都会把审批提议误读为被取消）。
+        placeholder = "已取消" if ctx.cancel_event.is_set() else "待审批确认，未执行"
         for tu in acc.tool_use_blocks():
             if tu.id not in done_ids:
-                results_msg.append({"type": "tool_result", "tool_use_id": tu.id, "content": "已取消", "is_error": True})
+                results_msg.append({"type": "tool_result", "tool_use_id": tu.id, "content": placeholder, "is_error": True})
         if results_msg:
             try:
                 await _persist_message(db, thread_id, _role("user"), results_msg, run_id)

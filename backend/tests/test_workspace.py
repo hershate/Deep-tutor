@@ -87,18 +87,24 @@ def test_commit_moves_to_persistent_and_registers_artifacts(tmp_path, monkeypatc
     monkeypatch.setattr(ws.settings, "data_dir", str(tmp_path))
     ws.write_file(r.id, "plan.md", "内容")
     ws.write_file(r.id, "drafts/d.md", "草稿")
-    arts = ws.commit_run_workspace(db, r.id, t.id)
+    # iter 397（A7）：commit_run_workspace 自持会话（不再共享调用方的 db）
+    arts = ws.commit_run_workspace(r.id, t.id)
     names = {a.name for a in arts}
     assert {"plan.md", "drafts/d.md"} <= names
-    run = db.get(models.Run, r.id)
-    assert run.workspace_committed is True
-    assert run.workspace_dir.startswith("workspaces/")
+    # iter 397（A7）：搬移在**独立会话**中提交，原会话的读快照看不到 -> 断言走新会话
+    db2 = SessionLocal()
+    try:
+        run = db2.get(models.Run, r.id)
+        assert run.workspace_committed is True
+        assert run.workspace_dir.startswith("workspaces/")
+        # DB artifacts
+        rows = db2.query(models.RunArtifact).filter_by(run_id=r.id).all()
+        assert len(rows) == 2 and all(a.kind == "committed" for a in rows)
+    finally:
+        db2.close()
     # committed 区存在；scratch 内容已 move 走（list_files 会重建空目录，应为空）
     assert ws.committed_dir(t.id, r.id).is_dir()
     assert ws.list_files(r.id) == []
-    # DB artifacts
-    rows = db.query(models.RunArtifact).filter_by(run_id=r.id).all()
-    assert len(rows) == 2 and all(a.kind == "committed" for a in rows)
     db.close()
 
 
@@ -106,8 +112,13 @@ def test_promote_to_path_copies(tmp_path, monkeypatch):
     db, u, t, r = _setup_run()
     monkeypatch.setattr(ws.settings, "data_dir", str(tmp_path))
     ws.write_file(r.id, "plan.md", "提升")
-    ws.commit_run_workspace(db, r.id, t.id)
-    art = db.query(models.RunArtifact).filter_by(run_id=r.id, name="plan.md").one()
+    ws.commit_run_workspace(r.id, t.id)
+    # iter 397（A7）：搬移在独立会话提交 -> 原会话读快照看不到，改走新会话断言
+    db2 = SessionLocal()
+    try:
+        art = db2.query(models.RunArtifact).filter_by(run_id=r.id, name="plan.md").one()
+    finally:
+        db2.close()
     src = tmp_path / art.path
     dest_dir = tmp_path / "exports"
     out = ws.promote_to_path(src, dest_dir, "final-plan.md")

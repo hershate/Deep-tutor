@@ -36,6 +36,12 @@ class ExecContext:
     data_dir: str = ""
     timeouts: Timeouts = field(default_factory=Timeouts)
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # iter 397（A3）：「审批待确认」与「用户取消」是两个语义，**必须分开**——
+    # 此前 promote_artifact 复用 cancel_event 置位：agent_loop 下一轮先命中取消
+    # 检查 -> run 被记为 interrupted（而非 awaiting_approval），第 371-373 行的
+    # awaiting_approval 检查成不可达死分支，同批次其余工具被跳过并写成「已取消」
+    # 占位（用户视角：提议被当成取消）。
+    approval_pending: asyncio.Event = field(default_factory=asyncio.Event)
     db: object | None = None  # SQLAlchemy Session（step 6 接入；step 3 测试可不传）
     budget: BudgetTracker | None = None
     # iter 223：凭证档案解析后的有效 Bing Key（空 -> 工具内回退 settings.bing_api_key）；

@@ -52,7 +52,12 @@ async def run_tool(name: str, inp: ToolInput, ctx: ExecContext) -> ToolOutput:
     t0 = time.monotonic()
 
     if ctx.cancel_event.is_set():
-        return _error_output(tool, "cancelled", "取消信号已触发")
+        out = _error_output(tool, "cancelled", "取消信号已触发")
+        # iter 397（A14）：错误/超时/取消路径**也要记耗时**——此前 duration_ms 只在
+        # 成功路径赋值，错误工具落 tool_calls/run_steps 的 duration_ms 恒为 0
+        # （用量页与步骤面板的耗时统计失真）。
+        out.metadata.duration_ms = int((time.monotonic() - t0) * 1000)
+        return out
 
     try:
         if tool.llm:
@@ -61,10 +66,10 @@ async def run_tool(name: str, inp: ToolInput, ctx: ExecContext) -> ToolOutput:
             out = await _run_python_tool(tool, inp, ctx)
     except asyncio.TimeoutError:
         limit = ctx.timeouts.llm if tool.llm else ctx.timeouts.parse
-        return _error_output(tool, "upstream_timeout", f"{name} 超时（{limit}s）")
+        out = _error_output(tool, "upstream_timeout", f"{name} 超时（{limit}s）")
     except Exception as exc:  # noqa: BLE001  统一兜底，避免单工具异常炸掉编排器
         log.exception("工具 %s 执行异常", name)
-        return _error_output(tool, "tool_exception", str(exc))
+        out = _error_output(tool, "tool_exception", str(exc))
 
     out.metadata.duration_ms = int((time.monotonic() - t0) * 1000)
     return out

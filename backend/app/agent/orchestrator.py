@@ -241,10 +241,25 @@ class Orchestrator:
                     if not target or target not in PIPELINE:
                         break
                     self._emit("warn", {"code": "validation_failed", "message": f"反馈循环第 {rounds} 轮，重跑 {target}"})
-                    reran, rerun_err = await self._rerun_from(
-                        target, args_by_tool, outputs, fixes=out.data.get("fixes", []), attempt=rounds + 1
+                    reran, rerun_err, limit_hit = await self._rerun_from(
+                        target,
+                        args_by_tool,
+                        outputs,
+                        fixes=out.data.get("fixes", []),
+                        attempt=rounds + 1,
+                        used_calls=call_count,
                     )
                     call_count += reran
+                    # iter 397（A13）：反馈重跑也受 max_tool_calls 硬闸约束——此前重跑数
+                    # 是**事后**累加（call_count += reran），自身不做上限判定：反馈循环
+                    # 最多 2 轮 × 最多 7 个工具 -> 实际可发起 20+14=34 次调用（超上限 70%）。
+                    if limit_hit:
+                        errors.append(f"工具调用轮次达上限 {self.max_tool_calls}")
+                        self._emit(
+                            "warn",
+                            {"code": "max_tool_calls", "message": f"工具调用轮次达上限 {self.max_tool_calls}"},
+                        )
+                        return self._result("interrupted", outputs, self._assemble(outputs), errors)
                     if rerun_err is not None:
                         # err.md B10：重跑链路工具 error 不得被吞——此前重跑未到达
                         # validate_plan 时取到旧的 ok 输出，pipeline 以 done 交付错误方案
@@ -364,7 +379,8 @@ class Orchestrator:
         outputs: dict[str, ToolOutput],
         fixes: list[str],
         attempt: int = 2,
-    ) -> tuple[int, ToolOutput | None]:
+        used_calls: int = 0,
+    ) -> tuple[int, ToolOutput | None, bool]:
         """从 target 重跑到 validate_plan（含）；返回 (重跑工具数, 首个 error 输出或 None)。
 
         iter 229：与主循环同一分组执行——重跑区间覆盖并行段时 search/schedule 同样并发；
@@ -375,19 +391,22 @@ class Orchestrator:
             names = [n for n in group if self.registry.has(n)]
             if not names:
                 continue
+            # iter 397（A13）：重跑计入 max_tool_calls 硬闸（used_calls 为重跑前已用数）
+            if used_calls + count + len(names) > self.max_tool_calls:
+                return count, None, True  # 触上限：停止重跑（主循环按 interrupted 收口）
             outs = await self._exec_group(names, args_by_tool, outputs, fixes_for=target, fixes=fixes, attempt=attempt)
             for n, o in zip(names, outs, strict=True):
                 outputs[n] = o
             count += len(names)
             for o in outs:
                 if o.status == "error":
-                    return count, o  # err.md B10：上抛给主循环按 error 中断，不得吞掉
+                    return count, o, False  # err.md B10：上抛给主循环按 error 中断，不得吞掉
             if self.ctx.budget:
                 for o in outs:
                     self.ctx.budget.add(o.metadata.cost)
                 if self.ctx.budget.exceeded():
                     break  # 预算超限，停止重跑（主循环将返回 interrupted）
-        return count, None
+        return count, None, False
 
     def _build_input(
         self,

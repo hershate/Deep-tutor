@@ -202,6 +202,8 @@ def test_load_thread_messages_runs_off_event_loop_thread(monkeypatch):
         db = _FakeDB()
         user_id = 1
         cancel_event = threading.Event()
+        # iter 397（A3）：ExecContext 新增「审批待确认」信号（与 cancel_event 分离）
+        approval_pending = threading.Event()
         budget = None
         model_pricing = None
         thread_id = 1

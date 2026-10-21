@@ -131,6 +131,14 @@ def _rel(root: Path, p: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+# iter 397（A19）：工作区文件读写上限——模型（或提示注入）可一次写 100MB 再读回，
+# 而 read_file 全文读入内存后又被 json.dumps 复制一份 -> 单 run 可占 GB 级内存。
+# 与回灌上限（api/memory._MAX_TOOL_RESULT_CHARS 2 万字符）同口径收口。
+_MAX_WRITE_BYTES = 5 * 1024 * 1024
+_MAX_READ_BYTES = 1 * 1024 * 1024
+_MAX_LIST_ENTRIES = 500
+
+
 def write_file(run_id: int, name: str, content: str) -> str:
     """原子写：tmp + os.replace（防并发/崩溃半写）。覆盖已存在文件。返回相对名。
 
@@ -140,6 +148,10 @@ def write_file(run_id: int, name: str, content: str) -> str:
     """
     root = scratch_dir(run_id)
     target = _resolve_in(root, name)
+    size = len(content.encode("utf-8"))
+    if size > _MAX_WRITE_BYTES:
+        # iter 397（A19）：写入体积上限（超限直接拒写，不落 tmp）
+        raise ValueError(f"写入内容超过上限 {_MAX_WRITE_BYTES} 字节: {size}")
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.tmp")
     try:
@@ -156,6 +168,10 @@ def read_file(run_id: int, name: str) -> str:
     p = _resolve_in(root, name)
     if not p.is_file():
         raise FileNotFoundError(f"工作区无此文件: {name}")
+    # iter 397（A19）：读取体积上限（此前全文读入内存，随后还被 json.dumps 复制一份）
+    size = p.stat().st_size
+    if size > _MAX_READ_BYTES:
+        raise ValueError(f"文件超过读取上限 {_MAX_READ_BYTES} 字节: {size}")
     return p.read_text(encoding="utf-8")
 
 
@@ -180,6 +196,10 @@ def list_files(run_id: int) -> list[dict]:
     for p in sorted(root.rglob("*")):
         if p.is_file():
             out.append({"name": _rel(root, p), "size": p.stat().st_size})
+            # iter 397（A19）：条数上限（防超大目录拖垮 list_files 与回灌体积）
+            if len(out) >= _MAX_LIST_ENTRIES:
+                log.warning("工作区文件数超过上限 %d，list_files 截断", _MAX_LIST_ENTRIES)
+                break
     return out
 
 
@@ -208,12 +228,27 @@ def delete_file(run_id: int, name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def commit_run_workspace(db, run_id: int, thread_id: int) -> list:
+def commit_run_workspace(run_id: int, thread_id: int) -> list:
     """run 完成时把 scratch 整体 move 到持久区，置 workspace_committed + 登记 RunArtifact。
 
     返回 RunArtifact 列表。空 scratch 也会置标志（run 无文件产出）。
     mid-commit 崩溃由 maintenance.cleanup_orphan_committed_dirs 兜（committed 区无有效 run/标志）。
     """
+    from app.db.base import SessionLocal
+
+    # iter 397（A7）：**自持会话**——此前用调用方传入的 db，而调用点在
+    # ``asyncio.shield(asyncio.to_thread(...))`` 里：被取消时工作线程**继续**持有
+    # 该 db 跑 add/commit，主协程随即在事件循环线程改同一 db 的 run 行并
+    # ``commit_async(db)`` -> 同一 Session 被两个线程并发 commit（互相 rollback /
+    # 丢写 / IllegalStateChangeError）。现开独立短会话，与主流程零共享。
+    db = SessionLocal()
+    try:
+        return _commit_run_workspace_db(db, run_id, thread_id)
+    finally:
+        db.close()
+
+
+def _commit_run_workspace_db(db, run_id: int, thread_id: int) -> list:
     from app.db.models import Run, RunArtifact
 
     run = db.get(Run, run_id)

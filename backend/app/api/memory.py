@@ -263,14 +263,22 @@ def _wait_runs_settled(run_ids: list[int], timeout: float = 10.0) -> bool:
     """
     deadline = time.monotonic() + timeout
     for rid in run_ids:
+        settled = False
         while time.monotonic() < deadline:
             stream = _RUN_STREAMS.get(rid)
             if stream is None:
+                settled = True
                 break
             task = getattr(stream, "task", None)
             if task is None or (task.done() and stream.terminal_id is not None):
+                settled = True
                 break
             time.sleep(0.02)
+        if not settled:
+            # iter 397（A18）：超时**如实返回 False**——docstring 承诺「超时返回
+            # False 由调用方容忍」，实现却恒返回 True，调用方无从判断未收敛
+            # （delete_thread 只能靠后续 3 次重试与 409 兜底）。
+            return False
     return True
 
 
@@ -285,7 +293,10 @@ def delete_thread(thread_id: int, user=Depends(get_current_user), db: Session = 
         _cancel_run_stream(rid)
     # iter 396：等在途 run 收敛再删——cancel 只是调度，agent 落库写（to_thread 不可
     # 中断）与删除事务交错会撞 FK -> 500 且 thread 未删（同 sessions.py 的等待范式）。
-    _wait_runs_settled(run_ids)
+    # iter 397（A18）：未收敛 -> 直接 409 thread_busy（可重试语义），不进入必然
+    # 失败的删行流程（在途 agent 写仍可能落在删除事务之后 -> FK 违约）。
+    if not _wait_runs_settled(run_ids):
+        raise HTTPException(status_code=409, detail="thread_busy")
     # 残留窗口：已在执行中的 to_thread 写可能在删除事务**之后**才提交 -> FK 失败。
     # 有界重试（回滚后重新加载干净的 ORM 对象再试）；仍失败 -> 409（可重试语义，
     # 不以 500 暴露内部约束错误）。
@@ -823,9 +834,19 @@ class _ChatStream:
     容量内的事件（防 put_nowait 抛 QueueFull 致附流连接异常关闭）；③ 慢订阅被踢后 _relay
     在 timeout 时用 terminal_event 副本兜底投递终态（防终态被丢 -> _relay 空转挂死 + 协程/
     db 永驻）。
+
+    iter 397（A11）：**增量事件按时间窗合并下发**——逐 chunk 下发使单轮事件数轻易破千
+    （text_delta 每 token 一条、tool_progress 每个 input_json_delta 一条），而缓冲与
+    订阅队列有界 -> 发布端快于消费端时**仍在线**的慢客户端被踢出订阅，之后只收到终态
+    （流式正文与工具卡片全丢）。现：增量类事件在 ~50ms 窗口内合并（事件数与**产出
+    速率**成正比而非 token 数），缓冲与队列同步扩容。
     """
 
-    _MAX_EVENTS = 500
+    _MAX_EVENTS = 2000
+    # 订阅队列容量（与 _MAX_EVENTS 对齐：重放不丢事件）
+    _QUEUE_MAX = 2048
+    # 增量合并窗口（秒）
+    _DELTA_FLUSH_SECONDS = 0.05
 
     def __init__(self) -> None:
         self._events: list[tuple[int, str, dict]] = []
@@ -836,12 +857,42 @@ class _ChatStream:
         self.cancel_event: asyncio.Event = asyncio.Event()
         self.result: AgentRunResult | None = None
         self.task: asyncio.Task | None = None  # iter 367：cancel_run 硬取消用
+        # iter 397（A11）：待发增量（窗口内合并）
+        self._pending_delta: dict[str, dict] = {}
+        self._pending_progress: dict[str, dict] = {}
+        self._last_delta_flush = time.monotonic()
         try:
             self._loop = asyncio.get_running_loop()  # 创建于 start_run 协程内（生产路径）
         except RuntimeError:
             self._loop = None  # 测试/非 loop 上下文创建（request_cancel 兜底直接 set）
 
+    def add_delta(self, event: str, data: dict) -> None:
+        """增量事件合并下发（iter 397 A11）：text/thinking 文本累加，tool_progress 按 id 去重。"""
+        if event in ("text_delta", "thinking_delta"):
+            cur = self._pending_delta.setdefault(event, {"text": ""})
+            cur["text"] = str(cur.get("text", "")) + str(data.get("text", ""))
+        else:  # tool_progress：同一 id 在窗口内只发一次
+            self._pending_progress[str(data.get("id", ""))] = dict(data)
+        if time.monotonic() - self._last_delta_flush >= self._DELTA_FLUSH_SECONDS:
+            self.flush_delta()
+
+    def flush_delta(self) -> None:
+        """冲刷待发增量（终态/非增量事件前调用：保序 + 不丢尾巴）。"""
+        if not self._pending_delta and not self._pending_progress:
+            return
+        pending_delta, self._pending_delta = self._pending_delta, {}
+        pending_progress, self._pending_progress = self._pending_progress, {}
+        self._last_delta_flush = time.monotonic()
+        for event, data in pending_delta.items():
+            self.publish(event, data)
+        for data in pending_progress.values():
+            self.publish("tool_progress", data)
+
     def publish(self, event: str, data: dict) -> int:
+        # iter 397（A11）：非增量事件前先冲刷待发增量（保序：text 必须在
+        # message_end / tool_result / done 之前到达）
+        if event not in ("text_delta", "thinking_delta", "tool_progress"):
+            self.flush_delta()
         self._seq += 1
         eid = self._seq
         item = (eid, event, data)
@@ -869,11 +920,23 @@ class _ChatStream:
         else:
             self.cancel_event.set()  # 无 loop 绑定（如测试同步构造）兜底直接 set
 
+    def replay_truncated(self, last_event_id: int) -> bool:
+        """重放是否被缓冲窗口截断（iter 397 A12）。
+
+        端点 docstring 与 API.md 承诺「从缓冲重放全部事件重建 UI」，而缓冲是 FIFO
+        有界（_MAX_EVENTS）——单轮事件数超窗后，早于窗口的事件**永久不可回放**，
+        重连客户端重建的流缺失开头且无从察觉。现显式判定并告知客户端
+        （replay_truncated 事件），前端据此改为拉取全量消息重建。
+        """
+        if last_event_id <= 0 or not self._events:
+            return False
+        return self._events[0][0] > last_event_id + 1
+
     def subscribe(self, last_event_id: int) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=512)
+        q: asyncio.Queue = asyncio.Queue(maxsize=self._QUEUE_MAX)
         replay = [it for it in self._events if it[0] > last_event_id]
-        if len(replay) > 512:  # 超容量只放最近 512 条（防 put_nowait 抛 QueueFull）
-            replay = replay[-512:]
+        if len(replay) > self._QUEUE_MAX:  # 超容量只放最近若干条（防 put_nowait 抛 QueueFull）
+            replay = replay[-self._QUEUE_MAX :]
         for item in replay:
             q.put_nowait(item)
         self._subs.append(q)
@@ -896,10 +959,18 @@ _CHAT_RUN_TASKS: set[asyncio.Task] = set()  # 持强引用防 create_task 被 GC
 
 
 async def _chat_relay(stream: _ChatStream, last_event_id: int):
+    # iter 397（A12）：重放被缓冲窗口截断时**显式告知客户端**（此前承诺「重放全部
+    # 事件」却静默截断 -> 客户端重建的流缺开头且无从察觉）
+    truncated = stream.replay_truncated(last_event_id)
     q = stream.subscribe(last_event_id)
     last_send = time.monotonic()
     last_yielded = last_event_id
     try:
+        if truncated:
+            yield format_sse_frame(
+                "replay_truncated",
+                {"last_event_id": last_event_id, "message": "事件缓冲已滚动，请拉取全量消息重建"},
+            )
         while True:
             try:
                 eid, event, data = await asyncio.wait_for(q.get(), timeout=0.2)
@@ -995,7 +1066,13 @@ async def _run_chat(
         stream.publish("run_start", {"run_id": run_id, "model": getattr(provider, "_model", "") or ""})
 
         async def emit(event: str, data: dict) -> None:
-            stream.publish(event, data)
+            # iter 397（A11）：增量类事件走**合并下发**（节流窗口 ~50ms）——逐 chunk
+            # 下发使单轮事件数轻易破千，而缓冲/队列有界 -> 慢客户端被踢出订阅后只剩
+            # 终态（流式正文全丢）。合并后事件数与产出速率成正比。
+            if event in ("text_delta", "thinking_delta", "tool_progress"):
+                stream.add_delta(event, data)
+            else:
+                stream.publish(event, data)
 
         async with llm_task_slot():  # 全局 LLM 背压（iter 366）：超额对话 run 排队，防速率限制风暴
             result = await run_agent_loop(
@@ -1060,11 +1137,51 @@ async def _run_chat(
             _RUN_STREAMS.pop(run_id, None)
 
 
+_AGENT_TOOL_NAMES: set[str] | None = None
+
+
+def _agent_tool_whitelist() -> set[str]:
+    """Agent 对话路径可分派的工具名白名单（= 广告给模型的那一组）。
+
+    iter 397（A8）：此前只校验 ``ctx.registry.has(tu.name)``，而 registry 含**全部
+    pipeline 工具与插件工具**（default_registry 汇集）——模型（可被提示注入）可调用
+    广告之外的 parse_material / generate_quiz / kb_answer / export_plan 等（各自带
+    LLM 调用与写副作用）。现按广告集分派，非白名单一律「未知工具」。
+    """
+    global _AGENT_TOOL_NAMES
+    if _AGENT_TOOL_NAMES is None:
+        from app.tools.agent_tools import agent_tool_definitions
+
+        _AGENT_TOOL_NAMES = {t.name for t in agent_tool_definitions()}
+    return _AGENT_TOOL_NAMES
+
+
+async def _record_tool_usage(ctx: ExecContext, out) -> None:
+    """把工具产出的用量（metadata）计入 api_usage 与会话预算（iter 397 A8）。
+
+    对话路径此前把 ``out.metadata`` 整个丢弃——工具内 LLM 调用烧的 token 不进
+    api_usage，日预算（按 api_usage 的 cost 求和）对该部分**完全失明**（成本黑洞）。
+    """
+    meta = getattr(out, "metadata", None)
+    if meta is None:
+        return
+    if not (meta.tokens_in or meta.tokens_out or meta.cache_read or meta.cache_write):
+        return
+    try:
+        from app.agent.cost import record_metadata_usage
+
+        await asyncio.to_thread(record_metadata_usage, ctx.db, meta, ctx.user_id)
+    except Exception:  # noqa: BLE001  计量失败不阻断业务（与 cost.py 同口径）
+        log.warning("对话工具用量记账失败", exc_info=True)
+    if ctx.budget is not None:
+        ctx.budget.add(meta.cost)
+
+
 async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
     """把模型 tool_use 分派到注册表工具（核心+agent），ToolOutput -> AgentToolResult。"""
     from app.agent import run_tool
 
-    if ctx.registry is None or not ctx.registry.has(tu.name):
+    if ctx.registry is None or not ctx.registry.has(tu.name) or tu.name not in _agent_tool_whitelist():
         return AgentToolResult(content=f"未知工具: {tu.name}", is_error=True, meta={"name": tu.name})
     inp = ToolInput(
         tool=tu.name,
@@ -1077,12 +1194,17 @@ async def _dispatch_tool(tu, ctx: ExecContext) -> AgentToolResult:
         return AgentToolResult(content=f"工具执行异常: {exc}", is_error=True, meta={"name": tu.name})
     if out.status == "error" or out.errors:
         msg = out.errors[0].message if out.errors else "工具错误"
+        # iter 397（A8）：错误路径同样记账（工具已烧的 token 仍要入账）
+        await _record_tool_usage(ctx, out)
         return AgentToolResult(content=msg, is_error=True, meta={"name": tu.name})
     # iter 364：工具回灌尺寸上限——防 workspace_read/web_fetch 等大输出（可达 10MB+）单轮
     # 击穿 token 预算或超模型 context window 致整轮 chat run 失败。截断后标 [已截断]。
     content = json.dumps(out.data, ensure_ascii=False)
     if len(content) > _MAX_TOOL_RESULT_CHARS:
         content = content[:_MAX_TOOL_RESULT_CHARS] + "…[已截断]"
+    # iter 397（A8）：工具元数据（tokens/cost）此前被完全丢弃 -> 工具内 LLM 调用
+    # 烧的 token 不进 api_usage，日预算（只信 api_usage 求和）形同虚设。
+    await _record_tool_usage(ctx, out)
     return AgentToolResult(content=content, is_error=False, meta={"name": tu.name})
 
 
@@ -1140,7 +1262,12 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
             elif result.status == "done":
                 run.status = models.RunStatus.done
                 try:
-                    await asyncio.shield(asyncio.to_thread(commit_run_workspace, db, run_id, thread_id))
+                    # iter 397（A7）：搬移线程**自持会话**（commit_run_workspace 内部
+                    # 开独立 SessionLocal）——此前把主流程的 db 交给工作线程：被取消时
+                    # 线程继续持有该 db 跑 add/commit，而主协程随即改同一 db 的 run 行
+                    # 并 commit_async(db) -> 同一 Session 被两线程并发 commit
+                    # （互相 rollback / 丢写 / IllegalStateChangeError）。
+                    await asyncio.shield(asyncio.to_thread(commit_run_workspace, run_id, thread_id))
                 except asyncio.CancelledError:
                     # 二次取消不打断收口：搬移线程经 shield 后台完成（文件不半搬），
                     # 吞掉本轮取消信号继续落终态（其后收口路径无 await，不可再被打断）
@@ -1183,6 +1310,12 @@ async def _finalize_chat(db: Session, run_id: int, thread_id: int, stream: _Chat
         # iter 392：强制收敛同样含 DB 写，移出事件循环线程
         await asyncio.to_thread(_force_run_terminal, run_id, models.RunStatus.error)
     finally:
+        # iter 397（A1）：provider 异常时**只发 done{status:"error"}**——前端 done 分支
+        # 不看 status -> 用户看到「回答正常结束」而内容实为失败截断（失败对用户完全
+        # 不可见）。补发 error 事件（固定文案，细节进日志，与 app/api/errors.py
+        # 「不回显敏感信息」口径一致）。
+        if final_status == "error":
+            stream.publish("error", {"code": "agent_error", "message": "对话执行失败，请稍后重试"})
         eid = stream.publish("done", {"run_id": run_id, "status": final_status})
         stream.mark_terminal(eid)
         _RUN_STREAMS.pop(run_id, None)
