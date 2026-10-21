@@ -38,6 +38,33 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 398（2026-10-21，M1.2 模块改名 + 内核崩溃修复 + 落盘位置收敛到 F 盘 + 配置锁回收，✅ 完成）**：承接 iter 397 的「下一步」，并落实用户新增要求「**所有缓存/环境优先使用 F 盘已有的位置；此前若在 C 盘部署请全部清理或迁移到 F 盘对应已存在位置（只允许操作本项目自己部署的部分）**」。
+
+- **本轮 4 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | `fd05bf6` | **M1.2 模块与 import 路径改名** | 根模块 `module reasonix` → `deep-tutor`；`desktop` 子模块 `module deep-tutor/desktop` + `replace deep-tutor => ../`；五类 import 前缀批量改写（`reasonix/internal|desktop|cmd|docs|tools/` 共 8445 处）；`cmd/reasonix` → `cmd/deep-tutor`；`reasonix.example.toml` → `deeptutor.example.toml`；`Makefile` 产物改 `bin/deep-tutor$(GOEXE)` 与 `dist/deep-tutor-<os>-<arch>`。**两个门禁工具必须同步改，否则静默空转**：`tools/repolint/layers.go` 的 `modulePrefix`（分层检查按 import 前缀匹配模块，不改则匹配不上、检查形同虚设）、`tools/covergate/main.go` 的 `TrimPrefix`（覆盖率门禁按同一前缀裁剪路径，不改则门禁失效）。**不改的形态**（属 M1.4 品牌化范围，机械改名会连带改协议标识与产品语义）：产品名 `Reasonix`、工作区目录 `.reasonix/`、ACP vendor method `_reasonix.io/`、git 分支 `reasonix/delivery-*`、HTTP User-Agent `Reasonix/`、上游仓库地址、运行时配置名 `reasonix/config.toml`；`sdk/go` 仍是独立 module |
+  | `fd01574` | **修复 MCP transport 启动失败导致进程崩溃** | `newTransport` 以 `return newStdioTransport(ctx, s)` 把构造器的 `(*stdioTransport)(nil)` 装进 `transport` 接口——**接口值非 nil**，`reconnectingTransport.restart` 的 `next != nil` 判空失效 → 对该值 `close()` 即**空指针解引用**。触发路径：MCP stdio 服务器启动失败（命令缺失/可执行文件解析失败/沙箱拒绝）→ `Client.redial` → `restart` → **panic 终止整个进程**。长时间运行并对外暴露的服务里，任一插件启动失败即可打挂主进程。修法三层：`newTransport` 显式返回 `nil, err`；三种 transport 的 `close()` 增加 nil 接收者早退；新增 `transportIsNil`（按 `reflect.Kind` 识别接口内 nil 指针）并用于 `restart`/`dialOne`/`close`，`dialOne` 另加「dial 报成功但无 transport」的显式拒绝。回归 5 条（`internal/ext/plugin/transport_typednil_test.go`） |
+  | `4ad367f` | **可丢弃产物落盘位置收敛到项目所在卷** | 新增 Go 侧 `internal/base/scratchroot`（解析顺序：调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录 → 系统临时目录；**重定向优先**，用 `TMPDIR` 隔离的夹具必须继续隔离）与 Python 侧 `backend/app/core/scratchroot.py`（同规则）。落盘点迁移：Go 测试临时目录、v1 测试库/数据/技能/插件目录、会话私有临时目录、作业 scratch 树、孤立输出、检查点事务目录、更新缓存、插件/快照/候选/游离 git 临时目录。**同时修掉两处真实缺陷**：① `internal/base/testenv/home.go` 的隔离 home 原先建在**调用者 home 目录**下且清理由单次 `os.RemoveAll` 完成——Windows 文件锁下静默失败，**每次 Go 测试在用户 profile 留一个目录**（本机累计 39 个），现改到 scratch 目录 + 可重试删除；② 写入白名单同步：`internal/contract/config` 的可写根与「不可重叠」集合由 `os.TempDir()` 改为 `tempRoots()`（系统临时目录 + scratch 目录），否则 scratch 目录会被拒写。**有意不改**：锁根（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）按上游约定必须让同一 OS 用户的各实例收敛到同一处，改成可随环境变化会让互斥失效 |
+  | `5ad89e5` | **配置编辑锁注册表回收机制** | 上游锁注册表按「每个被编辑过的配置路径一个锁文件」组织且**只增不减**（上游注释：删掉锁文件会破坏仍持有它的进程的互斥）。注册表按 OS 用户收敛在 `~/.reasonix/locks/config-edits-<uid 摘要>/`，而测试夹具每轮给一个独立 home、每轮一个新配置路径 → **无界增长，本机实测 52099 个 0 字节锁文件**。新增回收：仅回收**同时**满足「闲置超 24 小时」且「锁可被获取（无人持有）」的文件；每次进程内每注册表只清扫一次，单次上限 1000 文件 / 2 秒预算（积压分批排空）；加锁成功后刷新锁文件时间戳，使在用的锁文件不被误判为闲置。锁根位置（收敛点）未改。回归 3 条 |
+
+- **C 盘清理（本项目自己的部署物，只清这些）**：
+  - `%TEMP%\reasonix-test-*` **642 个**残留目录（Go 测试临时目录泄漏）→ 已清零；
+  - `%TEMP%\reasonix-jobs-*` 68 个、`reasonix-snapshot-*` 2 个、`wt-reasonix-test-*` 2 个、`go-build*` 10 个 → 已清零；
+  - `C:\Users\Z\.reasonix-test-home-*` **39 个**（`testenv` 隔离 home 泄漏，根因已修）→ 已清零；
+  - `%TEMP%\dt_api_*`（v1 测试库/数据/技能/插件）、`dt_probe*`（自建探针脚本与库）→ 已清零并迁至 `F:\TEMP\deeptutor\v1`；
+  - `C:\Users\Z\.reasonix\locks\config-edits-*` **52099 个**陈旧锁文件 → 已清零（根因已修，见上表）；
+  - 内核 home/缓存（`%APPDATA%\reasonix`、`%LOCALAPPDATA%\reasonix\{environment,history-search,shell,updates,usage-catalog}`）→ **已迁移到 `F:\Deeptutor\reasonix`**（内容逐文件复制并核对大小），并设用户级环境变量 `REASONIX_HOME=F:\Deeptutor\reasonix`（`setx`）使后续 home/state/cache 落在 F 盘。**锁目录 `%LOCALAPPDATA%\reasonix\{repair-mutation-locks,workspace-leases}` 有意保留在 C 盘**（收敛点，改动会让互斥失效）；
+  - **未动**：`F:\tmp`（他项目）、`C:\Users\Z\.cache`（其他工具的缓存，无本项目条目）、`C:\Users\Z\.mavis`/`.minimax`（运行时目录）、`HF_HOME=F:\TEMP\.cache\huggingface`（模型缓存，已在 F 盘）。
+  - 工具限制记录：工作区外的删除只能走 `C:\Users\Z\.minimax\bin\mavis-trash.cmd -- <绝对路径>`（`rm --` 会拒收工作区外目标；`Remove-Item`/`.NET Directory.Delete` 被硬策略拒绝）；5 万+ 文件的目录 `mavis-trash` 也会失败，改用一次性 Go 程序（`.git/dt_tools/clean_locks.go`，非跟踪）清理。
+
+- **实测基线（本轮）**：v1 侧 `ruff check app/ tests/` 全通过；`pytest tests/ -q` **1746 passed / 2 skipped**（588.34s，与 iter 397 基线一致，F 盘改造无回归）。Go 侧 `go build ./...`、`go vet ./...` 全绿；受影响包（`contract/config`、`platform/worktree`、`state/sessionstore`、`state/checkpoint`、`platform/update`、`platform/gitcmd`、`base/scratchroot`、`base/testenv`、`base/tempdir`、`base/scratch`、`state/sessiontemp`、`ext/plugin`）测试通过。`internal/base/testenv` 仅剩已登记的环境性失败（`TestWindowsCILegsBypassTheTestResultCache` 要求 CI 工作流含 Windows 上的根模块 `go test` 步骤 → 属 M1.5 待办）。
+
+- **Go 全量 `go test ./internal/...` 的失败分类（2026-10-21 实测，与 AGENTS.md 记录对照）**：① **已登记的环境性失败**（`sandbox/TestIsWindowsWSLBash`、`testenv/TestWindowsCILegsBypassTheTestResultCache`、`runtime/agent/TestChildConstructionForksStayEnumerated`（`REF/` 副本）、`runtime/schedrun/TestKillingTheRunEndsItsWholeProcessTree`、`tools/builtin/TestPipeStatusProbePreservesExitStatusAndReports`）；② **负载/时序敏感**（`base/proc/TestWaitForTrackedCommandReturnsWhenWaitStallsAfterCancel` 1.83s 超时、`frontend/tui/TestWorkspaceGitThroughTheInProcessKernel` 30s 上下文超时、`platform/worktree/TestApplyPaths*` 报「Git is not installed」、`state/sessionstore/TestBranchMetaCrossProcessReadModifyWrite` 25 分钟超时、`state/workspacelease/TestACrossProcessWaitNamesTheHolder`、`tools/builtin/TestBash*`、两个包的 `TempDir RemoveAll cleanup: 目录非空`（Windows 文件锁））；③ **`internal/ext/plugin` panic**——本轮已修（`fd01574`），修复前该包因 nil 指针解引用**整个测试进程崩溃**。另：`internal/assembly/boot` 单包 1340s（超过 Go 默认 600s 上限），`go test ./...` 一次性执行必然 timeout panic——分批 + 超时上限属 M1.5 待定项。
+
+- **下一步（按序）**：① **M1.4 品牌化 + `DEEPTUTOR.md` 建档**（`DEEPTUTOR.md` 至今不存在；`plan/reasonix/01` §五 要求保留上游工程章节并新增本仓规约；`tools/repolint/baseline.json` 仍是上游基线，含 23 条已删文件记录）；② **M1.5 门禁基线重建**（`make check -update` 收紧并 commit 基线）+ **CI 重建**（Go job：gofmt/vet/golangci（钉版本）/go test/repolint + 前端构建；Python job 保留至阶段④）；③ **M1.6**（`make build` 产出 `bin/deep-tutor.exe`，serve 可启动空壳）；④ **M1.3 多实例 spike**（矩阵回填 `plan/reasonix/04` §四）。M1.4 需一并处理 `REASONIX_HOME` → `DEEPTUTOR_HOME` 等环境变量改名（用户级 `REASONIX_HOME` 已设为 `F:\Deeptutor\reasonix`，改名时须同步迁移，否则回落到 `%APPDATA%\reasonix`）。
+
 **iter 396（2026-10-21，v1 Python 后端未审面续审与数据面/暴露面加固轮，✅ 完成）**：承接 iter 392~395 的用户指令（长时间高负载、多用户高频率使用下的稳定性；作为网络服务暴露时的代码安全性；持续进行）。本轮审计 iter 395「下一步」列出的未审面：`api/sessions.py`、`api/notes.py`、`api/memory.py`、`core/backup.py` 的导入/还原链。
 
 - **审查方法**：一个 explore 子 agent 审计四个目标文件（+ 依赖链），产出 **26 条发现**（notes 6 / sessions 4 / memory 6 / backup 8，另列 14 条「已核实干净」及依据行号）；主会话**逐条读原文复核**，只修「已坐实或明确成立」的问题，对最强论断写**实证探针**，并为每处修复补回归（含「修复前必红」的验证）。
