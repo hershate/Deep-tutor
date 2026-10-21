@@ -116,6 +116,7 @@
 | `desktop/frontend-next/src/ui/tutor/Notes.tsx`（第七批） | 打开笔记时改从详情端点取全文（此前用列表项的正文直接填编辑器——列表改为预览后，若照旧会把截断的正文存回去、丢掉其余内容） |
 | `internal/runtime/tutor/notesio.go`（第七批） | 新增 `ExportNotesZipTo(w io.Writer, …)`：导出归档写到调用方的 writer，**归档不再整包驻留内存**。`ExportNotesZip` 保留为同源实现的内存入口（兼容既有调用与测试） |
 | `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes/export.zip` 改为**落临时文件再流式回传**（`http.ServeContent`）——此前整包 zip 在堆里成型后一次性写出；笔记集可达上百 MB，v1 侧导出早已流式化（iter 396-B2），Go 侧此前未跟进 |
+| `internal/frontend/serve/tutor.go`（第八批） | `tutorPathGuard` 统一给 `/tutor/` 全面的响应加 `Cache-Control: no-store`——该面全是单个用户的私密学习数据（笔记、方案、材料、知识库、分享、用量），此前只有备份导出与分享端点自带该头；中间缓存若存下笔记列表、笔记 ZIP 或知识库导出并转手给下一个读取者，即为泄露。处理器若要别的策略（SSE 的 `no-cache`）仍可自行覆盖 |
 
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 

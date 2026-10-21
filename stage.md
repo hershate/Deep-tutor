@@ -246,7 +246,12 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **缺口坐实**：v1 的备份/笔记导出在 iter 396-B2 已按用户定夺改为**流式写出**（「峰值内存从整份数据集降到单个会话量级」），但 **Go 侧的 `GET /tutor/notes/export.zip` 仍是「整包 zip 在堆里成型 -> 一次性写出」**：2000 条笔记（每条正文上限 20000 字符）意味着上百 MB 的正文集，归档再叠一份缓冲——每个并发导出请求都按这个量级吃内存。
   - **修法**：新增 `tutor.ExportNotesZipTo(w io.Writer, notes, now)`（同源实现，`ExportNotesZip` 保留为内存入口以兼容既有调用与测试）；serve 层改为**落临时文件再流式回传**（`http.ServeContent`，自带 Content-Length 与 Range 支持），临时文件用 `fileutil.Remove` 清理。
   - **与 B18 的分工**：B18 封掉的是**列表响应**的每请求体量（JSON 编码缓冲，约数据量的一倍）；B19 封掉的是**导出**的每请求体量（zip 缓冲）。store 侧的常驻缓存（笔记集本身）不在本轮范围——它是数据本身，不是每请求的放大。
-- **iter 397 门禁结果（B15~B19 合并后的最终树）**：`go build ./internal/...` 通过；`go vet ./internal/runtime/tutor/ ./internal/base/fileutil/ ./internal/frontend/serve/` 通过；`go test ./internal/base/fileutil/` **ok 2.138s**；`go test ./internal/runtime/tutor/` **ok 202.515s**；`go test ./internal/frontend/serve/` **ok 445.952s**。**分批提交**（B15 `bb31bca` / B16 `a519380` / B17 `d55a534` / B18+B19 `5bd06bf` / 文档收尾本条）——每批的树按依赖顺序自洽（文件按批次切分，混合文件在对应批次以该批的状态入账）。
+- **iter 397 门禁结果（B15~B19 合并后的最终树）**：`go build ./internal/...` 通过；`go vet ./internal/runtime/tutor/ ./internal/base/fileutil/ ./internal/frontend/serve/` 通过；`go test ./internal/base/fileutil/` **ok 2.138s**；`go test ./internal/runtime/tutor/` **ok 202.515s**；`go test ./internal/frontend/serve/` **ok 445.952s**。**分批提交**（B15 `bb31bca` / B16 `a519380` / B17 `d55a534` / B18+B19 `5bd06bf` / 文档收尾 `141f62c`）——每批的树按依赖顺序自洽（文件按批次切分，混合文件在对应批次以该批的状态入账）。
+- **iter 397-B20（Go 侧 tutor 全面禁缓存，🚧 进行中）**：**T12「GET 导出副作用」与缓存面**。
+  - **缺口坐实**：`/tutor/` 下面全是**单个用户的私密学习数据**（笔记、方案、材料、知识库、分享、用量），但此前只有**备份导出**与**分享端点**自带 `Cache-Control: no-store`；笔记列表、笔记 ZIP、知识库导出、方案导出等一律没有。中间缓存（反向代理、共享浏览器缓存）若存下这些响应并转手给下一个读取者，即为**数据泄露**——在「要暴露为网络服务」的目标下这是硬伤。
+  - **修法**：`tutorPathGuard`（守卫挂在 `routes()` 与 Hub 挂载点，覆盖整个 `/tutor/` 命名空间）统一加 `Cache-Control: no-store`。处理器若要别的策略仍可自行覆盖（SSE 的 `no-cache` 在其后设置，照旧生效）。
+  - **回归**：新增 `internal/frontend/serve/tutor_cache_test.go` 2 条（会话/笔记/方案/用量/知识库/分享六个列表端点与笔记 ZIP 导出均带 `no-store`）。
+  - **过程登记（测试自身缺陷）**：首版导出用例直接 GET 一个空笔记集——导出对空集按设计拒绝（404），断言写的是状态码 404 时读 body 报错；已改为先建一条笔记再导出。
 
 
 - **下一步**：① **B16 收尾**（会话生命周期锁的提交与门禁回归）；② **B15 收尾**（用户维度的提交与门禁回归）；③ 回到 Reasonix 阶段① M1 余项（M1.2 模块改名 / M1.3 多实例 spike / M1.4 品牌化与 `DEEPTUTOR.md` / M1.5 门禁基线重建 + CI / M1.6 `bin/deep-tutor.exe` 冒烟）；④ Go 侧未修登记项复核（T12 GET 导出副作用、T13 分页默认值、K8 KB 命名统一与孤儿清理、K11 解析并发槽与 whisper 单例、K15 吞错、K3/K5 的 Python 侧部分、v1 侧分享链接是否跟进 7 天期限——待另行裁决）。

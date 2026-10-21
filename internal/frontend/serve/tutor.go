@@ -312,6 +312,14 @@ func (s *Server) registerTutorRoutes(mux *http.ServeMux) {
 // it stores, but the body is read (and base64-decoded) before that clamp
 // runs, so an unbounded body is a memory-exhaustion lever on a service that
 // may face a network.
+//
+// The cache header is the third: everything under /tutor/ is one person's
+// private learning data — notes, plans, materials, the knowledge base, the
+// shares, the usage ledger. An intermediary that stores a note list, a
+// notes ZIP or a knowledge-base export and later hands it to the next
+// reader has leaked it. The backup export already said no-store on its own;
+// the rest of the surface did not. A handler that wants a different policy
+// (the SSE stream says no-cache) sets its own header afterwards and wins.
 func tutorPathGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/tutor/") {
@@ -324,6 +332,7 @@ func tutorPathGuard(next http.Handler) http.Handler {
 				return
 			}
 		}
+		w.Header().Set("Cache-Control", "no-store")
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, tutorBodyCap(r.URL.Path))
 		}
