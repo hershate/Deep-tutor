@@ -110,7 +110,7 @@ export function ProviderDetail({
       {confirming && (
         <div className="confirm">
           <span className="q">{t("删除 {name}？密钥与设置会一并移除。", { name: a.label })}</span>
-          <button className="act" disabled={busy !== ""} onClick={() => setConfirming(false)}>
+          <button className="act" data-action="provider.remove-cancel" disabled={busy !== ""} onClick={() => setConfirming(false)}>
             {t("取消")}
           </button>
           <button

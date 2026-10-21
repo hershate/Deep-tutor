@@ -46,6 +46,8 @@ function ConfirmAsk({ ask, onSettle }: { ask: Ask; onSettle: (ok: boolean) => vo
   return createPortal(
     <div
       className="tut-confirm-veil"
+      data-action-click="tutor.confirm-no"
+      data-action-keydown="tutor.confirm-focus"
       onClick={(ev) => {
         if (ev.target === ev.currentTarget) onSettle(false);
       }}

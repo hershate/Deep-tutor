@@ -593,6 +593,9 @@ export const ACTIONS: UIAction[] = [
   { id: "stall.mute", kind: "view", target: "none", proof: "interaction" },
   { id: "stall.dismiss", kind: "view", target: "none", proof: "interaction" },
   { id: "provider.remove", kind: "destructive", target: "entity", proof: "interaction" },
+  // The confirm strip under the header's Delete asks before the stored key
+  // goes; backing out of it touches this window and nothing else.
+  { id: "provider.remove-cancel", kind: "view", target: "entity", proof: "interaction" },
   { id: "provider.protocol", kind: "kernel-mutation", target: "entity", proof: "interaction" },
   { id: "provider.web-search", kind: "kernel-mutation", target: "entity", proof: "interaction" },
   { id: "provider.thinking", kind: "kernel-mutation", target: "entity", proof: "interaction" },
@@ -638,6 +641,12 @@ export const ACTIONS: UIAction[] = [
   { id: "tutor.retry", kind: "kernel-mutation", target: "entity", proof: "interaction" },
   { id: "tutor.clarify-answer", kind: "interaction", target: "entity", proof: "interaction" },
   { id: "tutor.clarify-submit", kind: "interaction", target: "entity", proof: "interaction" },
+  // The question the tutor asks when the page cannot use the native dialog.
+  // Answering it is the answer; dismissing the veil and moving the focus
+  // inside the dialog are the window's own business.
+  { id: "tutor.confirm-no", kind: "interaction", target: "none", proof: "interaction" },
+  { id: "tutor.confirm-yes", kind: "interaction", target: "none", proof: "interaction" },
+  { id: "tutor.confirm-focus", kind: "view", target: "none", proof: "interaction" },
   { id: "tutor.regen-scope", kind: "view", target: "entity", proof: "interaction" },
   { id: "tutor.regen-feedback", kind: "view", target: "entity", proof: "interaction" },
   { id: "tutor.regen", kind: "kernel-mutation", target: "entity", proof: "interaction" },

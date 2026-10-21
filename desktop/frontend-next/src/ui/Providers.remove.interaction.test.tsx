@@ -56,12 +56,19 @@ function harness(outcome: Outcome) {
 
 const detail = () => screen.getByRole("region");
 const rolesNote = () => screen.queryAllByRole("status").find((n) => n.classList.contains("find")) ?? null;
+// The header's Delete asks first on the sheet's confirm strip: removing a
+// source drops its stored key, and that is the one thing the sheet cannot put
+// back. The answer is the second Delete, on the strip.
 const del = () => within(detail()).getByRole("button", { name: "删除" });
+const confirmDel = () =>
+  within(screen.getByText(/密钥与设置会一并移除/).closest(".confirm") as HTMLElement)
+    .getByRole("button", { name: "删除" });
 
 it("drops a removed service from the list", async () => {
   const h = harness("ok");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await waitFor(() => expect(screen.queryAllByText("relay.example")).toHaveLength(0));
   expect(h.removed).toEqual(["relay"]);
   expect(screen.queryByRole("alert")).toBeNull();
@@ -71,6 +78,7 @@ it("says why a removal was refused next to the button that asked", async () => {
   const h = harness("refused");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   const alert = await within(detail()).findByRole("alert");
   expect(alert.textContent).toContain("正在运行");
   expect(h.failed).not.toHaveBeenCalledWith(expect.stringContaining("正在运行"));
@@ -81,6 +89,7 @@ it("clears the refusal once another service is picked", async () => {
   harness("refused");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await within(detail()).findByRole("alert");
   await userEvent.click(screen.getByText("other.example"));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
@@ -90,6 +99,7 @@ it("re-reads the kernel's state after a removal that failed once it was written"
   const h = harness("after-write-failure");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await waitFor(() => expect(screen.queryAllByText("relay.example")).toHaveLength(0));
   expect(h.disk.has("relay")).toBe(false);
   const alert = screen.getByRole("alert");
@@ -101,6 +111,7 @@ it("does not carry that failure into the detail of the service shown next", asyn
   harness("after-write-failure");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await waitFor(() => expect(screen.queryAllByText("relay.example")).toHaveLength(0));
   expect(within(detail()).queryByRole("alert")).toBeNull();
   await userEvent.click(screen.getByText("other.example"));
@@ -111,6 +122,7 @@ it("says which roles moved and which were switched off by a removal", async () =
   harness("roles-changed");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await waitFor(() => expect(rolesNote()).not.toBeNull());
   const note = rolesNote()!;
   expect(note.textContent).toContain("relay");
@@ -125,6 +137,7 @@ it("stays silent about roles when a removal changed none", async () => {
   harness("ok");
   await screen.findAllByText("relay.example");
   await userEvent.click(del());
+  await userEvent.click(confirmDel());
   await waitFor(() => expect(screen.queryAllByText("relay.example")).toHaveLength(0));
   expect(rolesNote()).toBeNull();
 });

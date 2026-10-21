@@ -39,7 +39,7 @@ describe("localized installation previews", () => {
     expect(screen.getByRole("heading", { name: "These change what is available" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "These only add files" })).toBeTruthy();
     expect(screen.getByText("Long-running process")).toBeTruthy();
-    expect(screen.getByText(/Runs inside Reasonix, can read the whole session/)).toBeTruthy();
+    expect(screen.getByText(/Runs inside Deep-tutor, can read the whole session/)).toBeTruthy();
     expect(screen.getByText("New tools")).toBeTruthy();
     expect(screen.getByText("The agent can call them; every call still goes through permission checks")).toBeTruthy();
     expect(screen.getByText("Automatic hooks")).toBeTruthy();

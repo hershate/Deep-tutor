@@ -263,11 +263,15 @@ it("picking a row out of a filtered list asks the same question", async () => {
   await waitFor(() => expect(url().value).toBe("https://svc-c.example/v1"));
 });
 
-it("deleting the open service is its own explicit act: no question, and the next service shows clean", async () => {
+it("deleting the open service is its own explicit act: no leave-guard question, and the next service shows clean", async () => {
   const h = harness();
   await open();
   await typeWin("64000");
   await userEvent.click(within(detail()).getByRole("button", { name: "删除" }));
+  // The removal asks on its own confirm strip, not on the leave guard: the
+  // pending edits go with the service, so no question is owed about them.
+  const strip = screen.getByText(/密钥与设置会一并移除/).closest(".confirm") as HTMLElement;
+  await userEvent.click(within(strip).getByRole("button", { name: "删除" }));
   await waitFor(() => expect(h.port.removeProvider).toHaveBeenCalledWith("relay"));
   expect(ask()).toBeNull();
   await waitFor(() => expect(url().value).toBe("https://other.example/v1"));
