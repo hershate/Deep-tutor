@@ -38,6 +38,48 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 403（2026-10-22，M1.3 多实例 spike：矩阵/全局态/深水点回填 `plan/reasonix/04` §四，✅ 完成）**：承接 iter 402 的「下一步」① M1.3。**M1.1–M1.6 至此全部完成。**
+
+- **本轮 2 个 commit**：
+
+  | commit | 主题 | 关键内容 |
+  |---|---|---|
+  | （本次） | **M1.3 spike 产出回填 `plan/reasonix/04` §四 + `plan/reasonix/05` M1 状态表** | 见下「M1.3 的产出」 |
+  | （本次） | **stage.md / AGENTS.md 回写** | 本条 + AGENTS.md「多用户分流的四个阻断点」 |
+
+- **M1.3 的产出**（`plan/reasonix/04` §四 由「先列已知项」改为完整 spike 结果，分 6 小节）：
+  - **4.1 spike 口径（可复算）**：检索域 = 本仓树（`REF/` 不作检索源，`desktop/` 嵌套 module 单独统计）；字段源 = `internal/assembly/boot/options.go:34-174`；装配点枚举 = **7 个生产装配点**（serve 新 pane `hub.go:338` / serve 重建 `workspace.go:261` / serve 换工作区 `workspace.go:295` / CLI `build_options.go:50` / ACP `acp.go:166` / 计划执行 `schedule_exec.go:227` / 桌面宿主 `main.go:442`）；作用域标注 P(进程)/U(用户)/T(线程)。
+  - **4.2 原表 + spike 复核**：原 8 行已知项逐行复核，**6 行成立**、1 行「成立但当前没共享」（MCP host：`SharedHost` 无人设置 → 每 build 自建 sidecar）、1 行「成立且已有缝」（tutor.Service：`tutor_space.go` 的 per-space 缝）。
+  - **4.3 `boot.Options` 字段矩阵**：全字段逐条列出 **装配来源（文件:行）+ 作用域 + 可否按用户参数化 + 处置**，分三组——**A 组缝已存在**（`Model`/`Sink`/`EffortOverride`/`PermissionAllow`/`WorkspaceRoot`/`SessionDir`/`ProviderResolver`/`SharedHost`/`ApprovalTimeout`/`HeadlessApprovalMode` 等 22 项）、**B 组内核已支持但装配层漏设**（`Home`——**M2 阻断项**）、**C 组进程级固有**（`ComputerDriver`/`Version`/`Stderr`/`StatsSource`/`RuntimeReload` 等 15 项）。另记一条**好消息**：`build.go:402`（`StateHome: b.roots.Home()`）与 `build.go:582`（`PostureEvidence.Home`）**已经尊重 stated home**，装配层设对 `Options.Home` 即自动分流。
+  - **4.4 进程级全局态清单（20 条）**：含 `config` 的 16 个进程级导出路径函数、`tool.builtins`/`conditionals`、`provider.registry`、`secrets` 的 4 个包级开关、`healthyConfigOnce`、`processHistoryCatalog`、`usageManagers`、插件缓存键、`tutorShared`、`tutorSpace*`、`pinsSynced`、serve 的 `authGate`/`Hub.wallets`/`Hub.titles`/`Hub.stance`、包级 `titleCacheMu`、`sweepsInFlight`、`RootLocks`、`RootState`/`RootCache` 的 env 钉子、`config.Load()`、`config.ProjectSessionDir`。
+  - **4.5 深水点清单与处置决定（29 条）**：分三类——**K**=必须改内核（4 条）、**W**=`internal/web` 装配层承担（19 条）、**D**=明确不改并写入例外清单（6 条）。
+  - **4.6 对 M2/M3 的硬约束（5 条）**：铁律仍成立（K 类改的是「绑定来源」不是「用户概念」，内核拿到的仍是 `Roots`/`Home` 不是 user id）；装配层必须设 `Options.Home` 且 Controller 能按同一绑定读 home；**服务进程的启动环境是契约**（`DEEPTUTOR_STATE_HOME`/`DEEPTUTOR_CACHE_HOME` 一旦存在就钉死 state/cache 根，per-user 分流失效 → `internal/web` 启动必须校验并拒绝/告警）。
+
+- **量化的关键数字（脚本可复算）**：
+  - **进程级路径函数 = 16 个**（`internal/contract/config` 中函数体走 `processRoots()` 的**导出**函数：`UserConfigPath` `ReasonixHomeDir` `SessionDir` `CacheDir` `IsolatedHomeDir` `ProjectSessionDir` `StatsDir` `RootDir` `CommandRootsForRoot` `DeliveryWorktreeDir` `ReasonixManagedConfigPaths` `CommandDirsForRoot` `ArchiveDir` `TutorDir` `SourcePathForRoot`）。
+  - **非测试调用点 = 224 处 / 111 个文件**；分布：serve 67 / cli 45 / session-control 42 / state 18 / platform 19 / ext 14 / cmd 9 / assembly 2 / 其余 4。逐函数：`UserConfigPath` **118**、`ReasonixHomeDir` **49**（两者占七成）、`SessionDir` 13、`CacheDir` 10、`IsolatedHomeDir` 7、`ProjectSessionDir` 7、`StatsDir` 5、其余各 1–4。`desktop/` 模块 **0 处**。
+  - **M2 工作量画像**：真正要改内核的是**让这 224 处走 build 的 Roots**（不是重排内核结构），优先 serve(67) 与 session-control(42) 两条热路径，先改 `UserConfigPath`/`ReasonixHomeDir`。
+
+- **本轮识别出的两个真实缺陷（不是设计取舍，是缺陷）**：
+  1. **`ApprovalTimeout` 从未被设** → 零值 = 永久等待（`options.go:122` 的注释明说「headless frontends pass a positive value so an unanswered prompt cannot wedge the session」）。多用户服务里一个不点确认的请求会**永久占住一个 Controller**。M2 装配层必须设正值（§五 取 10min）。
+  2. **`secrets` 的 4 个包级开关每次 build 被覆盖**（`internal/base/secrets/redact.go:46-53` + `internal/assembly/boot/build.go:187-190`）。其注释的前提是「`[secrets]` 不能按项目覆盖，所以包级全局安全」——**per-user 之后该前提失效**：A 用户的脱敏配置会被 B 用户的 build 覆盖。属 K 类，需内核改动（随 build 走，不落包级）。
+
+- **本轮的其他结论**：
+  - **内核已有的缝够用**，不必为多用户重排内核结构：per-build 注入面已有 `ProviderResolver` `SharedHost` `BalanceStore` `TaskStore` `Stderr` `CleanupPendingReconciler` `ApprovalTimeout` `EffortOverride` `PermissionAllow` `AdditionalDirs` `Home`；per-space 面已有 `SetTutorSpaceResolver`/`SetTutorSpaceService`；存储绑定面已有 `config.Roots`/`RootsForHome`。
+  - **`internal/web` 目录当前不存在**（本轮实测确认）→ M2/M3 落地前，Go 侧 tutor 面仍是单用户本地空间，**不得作为多用户服务对外承诺**（与 iter 401 的遗留项一致）。
+  - **`RootLocks` 故意忽略 binding 是对的**（`storage_roots.go:75` `relocatable: false`）：同一 OS 账号下的进程必须互斥，多用户服务同账号运行时锁全局是正确的——明确不改。
+  - **`internal/web` 服务层不得走任何 `os.Chdir` 路径**（CLI 的 `cli.go:282` / `schedule_exec.go:224` 改了进程 cwd；多用户下会互相污染）。CLI 本身是单用户本地工具，保留。
+  - **本轮未改任何上游代码**（只改 `plan/reasonix/04`、`plan/reasonix/05`、`AGENTS.md`、`stage.md`）→ **NOTICE 无需登记**。K 类的 4 处内核改动留到 M2 随 `internal/web` 落地一并做（#30 允许，需独立 commit + `DEEPTUTOR.md` 登记）。
+
+- **门禁实测（本轮）**：`go run ./tools/repolint` → **clean**（2189 baselined findings；§四 扩写未触发新 finding）。本轮无 Go 代码改动，`gofmt`/`vet`/`golangci-lint`/前端门禁不受影响。
+
+- **未解决 / 遗留**：
+  - **M1.3 的验收项之一「必要时独立内核修改 commit」本轮未做**——因为 K 类 4 处（`Home` 贯通 / `Controller` 加 Roots / `secrets` 随 build / `healthyConfig` 按 home）**必须与 M2 的 `internal/web` 装配层同批落地才有意义**（单独改内核而没有装配层去填值，行为不变且会引入无主的新 API）。已记入 `plan/reasonix/05` M2 的第 0 步。
+  - **仓库根 `NUL` 残留仍未清掉**（工具链拒收，需用户手工处理，见 iter 402）。
+  - **待用户定夺**：v1 侧分享链接是否跟进 7 天期限；**CODEOWNERS 主/备维护人**（基线里 codeowners 1 条待此项决定）。
+
+- **下一步（按序）**：① **M2 第 0 步：K 类内核改动**（`internal/web` 落地前的存储绑定贯通，4 处，独立 commit + `DEEPTUTOR.md` 登记）；② **M2.1 sqlc 工程化 + 迁移 runner**（02 §二）；③ **待用户定夺**：v1 侧分享链接是否跟进 7 天期限；**CODEOWNERS 主/备维护人**。
+
 **iter 402（2026-10-22，M1.6：Makefile 在 Windows 上的可用性修复 + `bin/deep-tutor.exe` 冒烟，✅ 完成）**：承接 iter 401 的「下一步」① M1.6。
 
 - **本轮 2 个 commit**：
