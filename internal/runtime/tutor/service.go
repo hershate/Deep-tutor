@@ -187,7 +187,13 @@ func (s *Service) CreateSession(title string) (*GenSession, error) {
 
 // DeleteSession cancels any live run before removing the files, so no
 // finalizer can write back into a deleted session.
+//
+// The session's lifecycle lock is what makes that true: the run
+// registration and the finalizer take it too, so neither can be halfway
+// through writing the session when the files are removed.
 func (s *Service) DeleteSession(id string) error {
+	unlock := s.store.LockSession(id)
+	defer unlock()
 	s.mu.Lock()
 	run := s.runs[id]
 	delete(s.runs, id)
@@ -219,6 +225,11 @@ func (s *Service) running(sid string) bool {
 // terminal sessions replay their terminal event (a refresh never re-bills),
 // and idle or paused_clarify sessions start fresh.
 func (s *Service) StartGenerate(sid, rawText string, tf IntentArgs) error {
+	// The session's lifecycle lock, taken before the session is read: a
+	// delete that lands while this call is registering the run would
+	// otherwise be overwritten by the registration's own write.
+	unlock := s.store.LockSession(sid)
+	defer unlock()
 	sess, err := s.store.Session(sid)
 	if err != nil {
 		return err
@@ -247,6 +258,8 @@ func (s *Service) Clarify(sid string, answers []string) error {
 	if len(answers) == 0 {
 		return ErrNotClarifiable // empty answers would re-trigger the pause
 	}
+	unlock := s.store.LockSession(sid)
+	defer unlock()
 	sess, err := s.store.Session(sid)
 	if err != nil {
 		return err
@@ -272,6 +285,8 @@ func (s *Service) Clarify(sid string, answers []string) error {
 
 // Retry reruns a failed session from its kept raw text.
 func (s *Service) Retry(sid string) error {
+	unlock := s.store.LockSession(sid)
+	defer unlock()
 	sess, err := s.store.Session(sid)
 	if err != nil {
 		return err
@@ -325,6 +340,11 @@ func (s *Service) Regenerate(planID, scope, feedback string) error {
 	if err != nil {
 		return err
 	}
+	// The session's lifecycle lock, taken before the session is read: a
+	// delete that lands while this call is registering the run would
+	// otherwise be overwritten by the registration's own write.
+	unlock := s.store.LockSession(summary.SessionID)
+	defer unlock()
 	sess, err := s.store.Session(summary.SessionID)
 	if err != nil {
 		return err
@@ -450,6 +470,12 @@ func (s *Service) runPipeline(ctx context.Context, run *sessionRun, in RunInput)
 // plan version on success, the session state machine, and the terminal event.
 func (s *Service) finalize(ctx context.Context, run *sessionRun, in RunInput, status Status, plan *Plan,
 	outputs map[string]ToolOutput, tokens int64, cost float64, runErr error) {
+
+	// The session's lifecycle lock: the delete takes it too. Without it a
+	// delete landing between the check below and the writes would be undone
+	// by the writes, and the deleted session would come back.
+	unlock := s.store.LockSession(run.sid)
+	defer unlock()
 
 	s.mu.Lock()
 	current, mine := s.runs[run.sid]

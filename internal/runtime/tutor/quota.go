@@ -101,6 +101,28 @@ func materialsKey(sessionID string) string { return "materials:" + sessionID }
 // document-count check and the row write share it.
 const kbKey = "kb"
 
+// sessionKey is the lock key of one session's lifecycle.
+//
+// The store has no transaction, so the delete of a session and the writes
+// that can still land on it have to be serialised by hand. Three paths touch
+// a session's files and must not overlap: the delete, the registration of a
+// run (which writes the session row) and the finalizer (which writes the
+// plan, the run state and the session row when the run ends). Without one
+// lock, a delete that lands between the finalizer's "is this run still mine"
+// check and its write is undone by the write: the session the person deleted
+// comes back, with a plan under it.
+//
+// The lock is per session, so it costs nothing across sessions, and it is
+// taken before the service mutex everywhere it is used — never the other way
+// round, which is what would deadlock.
+func sessionKey(sessionID string) string { return "session:" + sessionID }
+
+// LockSession takes the session's lifecycle lock and returns the function
+// that releases it.
+func (s *Store) LockSession(sessionID string) func() {
+	return s.quota.Lock(sessionKey(sessionID))
+}
+
 // WithPlanLock runs fn while holding the plan's lock.
 func (s *Store) WithPlanLock(planID string, fn func() error) error {
 	unlock := s.quota.Lock(planKey(planID))
