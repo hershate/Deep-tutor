@@ -437,10 +437,7 @@ func (s *Service) restorePlan(sess *GenSession, bp *BackupPlan, summary map[stri
 	// The version number comes from the uploaded document: an unbounded value
 	// would make the plan's version listing (and any code that counts down
 	// from it) walk millions of paths.
-	version := bp.Version
-	if version < 1 {
-		version = 1
-	}
+	version := max(bp.Version, 1)
 	if version > backupMaxPlanVersion {
 		add("方案「%s」版本号 %d 超 %d 上限，已收敛", planLabel(bp), version, backupMaxPlanVersion)
 		version = backupMaxPlanVersion

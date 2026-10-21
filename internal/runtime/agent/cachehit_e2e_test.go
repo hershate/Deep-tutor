@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"deep-tutor/internal/base/envvar"
 	"deep-tutor/internal/contract/event"
 	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/contract/tool"
@@ -378,12 +379,12 @@ func TestSetSessionResetsSessionCache(t *testing.T) {
 }
 
 func TestReleaseCacheHitGuard(t *testing.T) {
-	if os.Getenv("REASONIX_RELEASE_CACHE_GUARD") == "" {
-		t.Skip("set REASONIX_RELEASE_CACHE_GUARD=1 to run the release cache guard")
+	if envvar.Get("DEEPTUTOR_RELEASE_CACHE_GUARD") == "" {
+		t.Skip("set DEEPTUTOR_RELEASE_CACHE_GUARD=1 to run the release cache guard")
 	}
 
-	threshold := envInt("REASONIX_CACHE_GUARD_THRESHOLD", 90)
-	maxLowCases := envInt("REASONIX_CACHE_GUARD_MAX_LOW_CASES", 1)
+	threshold := envInt("DEEPTUTOR_CACHE_GUARD_THRESHOLD", 90)
+	maxLowCases := envInt("DEEPTUTOR_CACHE_GUARD_MAX_LOW_CASES", 1)
 
 	cases := []struct {
 		name string
@@ -539,7 +540,7 @@ func tailAverage(xs []int, n int) int {
 }
 
 func envInt(name string, fallback int) int {
-	raw := os.Getenv(name)
+	raw := envvar.Get(name)
 	if raw == "" {
 		return fallback
 	}

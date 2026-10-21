@@ -19,7 +19,7 @@ func repeat(s string, n int) string {
 func TestSaveNoteGuardedHoldsTheQuotaUnderRace(t *testing.T) {
 	store := openTestStore(t)
 	// Fill the library to one below the cap.
-	for i := 0; i < noteQuota-1; i++ {
+	for i := range noteQuota - 1 {
 		if err := store.SaveNoteGuarded(&Note{Title: fmt.Sprintf("n%d", i), Body: "b"}); err != nil {
 			t.Fatalf("fill %d: %v", i, err)
 		}
@@ -29,7 +29,7 @@ func TestSaveNoteGuardedHoldsTheQuotaUnderRace(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]error, writers)
 	start := make(chan struct{})
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -80,7 +80,7 @@ func TestSaveNoteGuardedClampsTitleAndBody(t *testing.T) {
 // The sessions cap has to hold when writers race.
 func TestCreateSessionHoldsTheQuotaUnderRace(t *testing.T) {
 	store := openTestStore(t)
-	for i := 0; i < maxSessions-1; i++ {
+	for i := range maxSessions - 1 {
 		if _, err := store.CreateSession("s"); err != nil {
 			t.Fatalf("fill %d: %v", i, err)
 		}
@@ -89,7 +89,7 @@ func TestCreateSessionHoldsTheQuotaUnderRace(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]error, writers)
 	start := make(chan struct{})
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -127,7 +127,7 @@ func TestAppendAttemptKeepsEveryConcurrentAnswer(t *testing.T) {
 	const writers = 16
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -160,7 +160,7 @@ func TestAddLogKeepsEveryConcurrentCheckIn(t *testing.T) {
 	const writers = 16
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

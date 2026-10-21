@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -326,11 +327,9 @@ func tutorPathGuard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		for _, seg := range strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' || c == '\\' }) {
-			if seg == ".." {
-				refuse(w, http.StatusBadRequest, "tutor.bad_path", "the path contains an invalid segment", nil)
-				return
-			}
+		if slices.Contains(strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' || c == '\\' }), "..") {
+			refuse(w, http.StatusBadRequest, "tutor.bad_path", "the path contains an invalid segment", nil)
+			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Body != nil {

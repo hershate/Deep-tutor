@@ -35,7 +35,7 @@ func repositoryGoFiles(t *testing.T, root string) []string {
 		t.Fatalf("list repository files: %v", err)
 	}
 	var files []string
-	for _, rel := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for rel := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		rel = strings.TrimSpace(rel)
 		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
 			continue
