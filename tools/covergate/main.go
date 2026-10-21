@@ -98,9 +98,12 @@ func fail(err error) {
 
 // sensitiveGlobs reads the same `sensitive:` bullets the runtime reads, so a
 // path declared once is both reviewed harder and held to its coverage.
+//
+// DEEPTUTOR.md is where this repository declares them; the other names are
+// the upstream's convention trio, which a workspace may still carry.
 func sensitiveGlobs(root string) ([]string, error) {
 	var docs []instruction.Document
-	for _, name := range []string{"REASONIX.md", "AGENTS.md", "CLAUDE.md"} {
+	for _, name := range []string{"DEEPTUTOR.md", "REASONIX.md", "AGENTS.md", "CLAUDE.md"} {
 		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			continue

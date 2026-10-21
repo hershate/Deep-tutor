@@ -1,3 +1,22 @@
+# The recipes below are POSIX shell (pipes, for-loops, `VAR=value cmd`). On
+# Windows make would run them through cmd.exe, which understands neither, so
+# name the shell that does. Git for Windows ships one; a machine without it
+# falls back to /bin/sh, which is what Git Bash and MSYS2 provide. The
+# assignment comes first because every $(shell ...) below runs in that same
+# shell, and a Windows `date` would otherwise ask for a new date.
+#
+# Not every make honours a makefile's SHELL: mingw32-make reads it from the
+# environment only, so on that one the invocation is
+# `make SHELL="C:/Program Files/Git/bin/sh.exe" build`.
+ifeq ($(OS),Windows_NT)
+SHELL := $(if $(wildcard C:/Program Files/Git/bin/sh.exe),C:/Program Files/Git/bin/sh.exe,/bin/sh)
+endif
+
+# Exported rather than written inline in each recipe: an inline
+# `CGO_ENABLED=0 go build` is a POSIX assignment, and cmd.exe would read the
+# whole thing as the name of a program.
+export CGO_ENABLED := 0
+
 VERSION := $(shell git describe --tags --always 2>/dev/null | sed 's/^studio-//' || echo dev)
 BUILD_TIME_UTC := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GIT_COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
@@ -12,8 +31,8 @@ GOLANGCI_VERSION := $(shell cat .golangci-version)
 .PHONY: build vet fmt lint lint-go lint-install lint-cross lint-update coverage-gate coverage-gate-update pricecheck check test studio-test sdk-test sdk-test-race hooks cross clean studio
 
 build:
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/deep-tutor$(GOEXE) ./cmd/deep-tutor
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-example$(GOEXE) ./cmd/reasonix-plugin-example
+	go build -ldflags "$(LDFLAGS)" -o bin/deep-tutor$(GOEXE) ./cmd/deep-tutor
+	go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-example$(GOEXE) ./cmd/reasonix-plugin-example
 
 vet:
 	go vet ./...

@@ -19,7 +19,11 @@ import (
 const (
 	controlPkgPath = "deep-tutor/internal/session/control"
 	controllerName = "Controller"
-	modulePath     = "reasonix"
+	// modulePath is the root module's import path, and the frontend packages
+	// are looked up under it. It must be the path go.mod declares: a stale one
+	// makes every lookup miss, and the parity check then reports the frontend
+	// it cannot find rather than the parity it failed to measure.
+	modulePath = "deep-tutor"
 )
 
 // One declared build target keeps the matrix off the machine that reads it:
