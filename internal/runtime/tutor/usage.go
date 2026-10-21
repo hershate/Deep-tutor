@@ -21,7 +21,7 @@ type DailyUsage struct {
 }
 
 func (s *Store) usagePath(date string) string {
-	return filepath.Join(s.root, "usage", date+".json")
+	return filepath.Join(s.root, "usage", safeSegment(date)+".json")
 }
 
 // UsageOfDay returns the day's recorded spend; an absent file is a zero day.

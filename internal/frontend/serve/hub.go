@@ -591,7 +591,7 @@ func (h *Hub) Handler() http.Handler {
 	h.registerAskRoutes(hostMux)
 	h.registerShareRoutes(hostMux)
 	hostMux.HandleFunc("GET /studio/logs", h.readStudioLogs)
-	return logMiddleware(h.auth.middleware(h.auth.hostGuard(withPage(csrfGuard(h.auth.mutationGate(h.watchTreeWrites(hostOnly(hostMux, mux)))), h.opts.Page))))
+	return logMiddleware(h.auth.middleware(h.auth.hostGuard(withPage(csrfGuard(h.auth.mutationGate(h.watchTreeWrites(hostOnly(hostMux, tutorPathGuard(mux))))), h.opts.Page))))
 }
 
 func (h *Hub) listRuntimes(w http.ResponseWriter, _ *http.Request) {

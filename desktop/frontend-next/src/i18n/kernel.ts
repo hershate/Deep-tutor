@@ -560,6 +560,9 @@ const SAID: Record<string, string> = {
   "tutor.bad_backup": "备份文件不是有效的 Reasonix 导师备份",
   "tutor.backup_too_large": "备份文件过大（上限 256MB）",
   "tutor.import_failed": "导入失败已整体回滚，数据未做改动",
+  "tutor.backup_busy": "已有备份操作正在进行，请稍后再试",
+  "tutor.bad_path": "请求路径不合法",
+  "tutor.internal_error": "学习功能内部出错，请稍后重试",
   "tutor.bad_gateway": "模型调用失败，请稍后重试",
 };
 

@@ -102,7 +102,7 @@ func (t promoteTool) Execute(ctx context.Context, args json.RawMessage) (string,
 		return fmt.Sprintf("Saved knowledge base document %q (id %s, %d chars) from workspace file %s.", doc.Title, doc.ID, doc.Chars, name), nil
 	}
 	note := &Note{Title: title, Body: content}
-	if err := store.SaveNote(note); err != nil {
+	if err := store.SaveNoteGuarded(note); err != nil {
 		return "", fmt.Errorf("promote_artifact: note: %w", err)
 	}
 	return fmt.Sprintf("Saved tutor note %q (id %s) from workspace file %s.", note.Title, note.ID, name), nil

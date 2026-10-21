@@ -109,5 +109,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /attachments", s.attachments)
 	mux.HandleFunc("POST /drop", s.drop)
 	mux.HandleFunc("POST /delete-session", s.deleteSession)
-	return mux
+	// The tutor path guard belongs to the routes themselves, not to one
+	// mounting of them: the hub mounts the same routes on its own mux.
+	return tutorPathGuard(mux)
 }

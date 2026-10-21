@@ -115,15 +115,19 @@ func (s *Server) tutorPlanVersions(w http.ResponseWriter, r *http.Request) {
 		tutorRefuse(w, err)
 		return
 	}
-	versions := make([]map[string]any, 0, plan.Version)
-	for v := plan.Version; v >= 1; v-- {
-		historical, err := svc.Store().PlanVersion(plan.ID, v)
-		if err != nil {
-			continue
-		}
+	// The versions directory is the source of truth here: the current version
+	// number is data an imported backup carries, so counting down from it
+	// would turn one request into millions of path lookups.
+	versions := make([]map[string]any, 0)
+	historical, err := svc.Store().PlanVersions(plan.ID)
+	if err != nil {
+		tutorRefuse(w, err)
+		return
+	}
+	for _, h := range historical {
 		versions = append(versions, map[string]any{
-			"version": historical.Version, "updated_at": historical.UpdatedAt,
-			"topic": historical.Topic, "total_tokens": historical.Meta.TotalTokens,
+			"version": h.Version, "updated_at": h.UpdatedAt,
+			"topic": h.Topic, "total_tokens": h.Meta.TotalTokens,
 		})
 	}
 	writeJSON(w, map[string]any{"versions": versions})
@@ -490,7 +494,7 @@ func (s *Server) tutorLogAdd(w http.ResponseWriter, r *http.Request) {
 			tutorRefuse(w, err)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err)
+		tutorFail(w, err)
 		return
 	}
 	writeJSON(w, log)
@@ -544,8 +548,8 @@ func (s *Server) tutorNoteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// SaveNote mints the id and timestamps on first write.
 	note := &tutor.Note{Title: strings.TrimSpace(body.Title), Body: body.Body}
-	if err := svc.Store().SaveNote(note); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+	if err := svc.Store().SaveNoteGuarded(note); err != nil {
+		tutorFail(w, err)
 		return
 	}
 	writeJSON(w, note)
@@ -588,8 +592,8 @@ func (s *Server) tutorNoteSave(w http.ResponseWriter, r *http.Request) {
 		note.Title = body.Title
 	}
 	note.Body = body.Body
-	if err := svc.Store().SaveNote(note); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+	if err := svc.Store().SaveNoteGuarded(note); err != nil {
+		tutorFail(w, err)
 		return
 	}
 	writeJSON(w, note)

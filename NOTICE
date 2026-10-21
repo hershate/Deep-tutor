@@ -52,6 +52,36 @@
 
 上述之外，吸收内容中的 Go 代码未作实质修改。
 
+**代码级修改（2026-10-21，iter 397 Go 侧 tutor 暴露面加固）**：对上游 `internal/runtime/tutor` 与 `internal/frontend/serve` 的备份链路作安全与数据一致性加固（与本仓 Python v1 侧同批修复对齐）：
+
+| 文件 | 修改 |
+|---|---|
+| `internal/runtime/tutor/store.go` | 新增 `safeSegment`：会话/方案/笔记/材料/知识库/分享/用量等**由外部标识符拼出的路径**统一经其收敛（含分隔符、父级引用、盘符的标识符降级为不可越界的名字），并新增 `notePath`/`kbDocPath`/`sharePath` 三个「文件名唯一构造点」 |
+| `internal/runtime/tutor/kb.go` | 知识库文档 id 与解析文本路径改用 `safeSegment`/`kbDocPath` |
+| `internal/runtime/tutor/kbchat.go` | 知识库问答记录 id 路径改用 `safeSegment` |
+| `internal/runtime/tutor/share.go` | 分享令牌路径改用 `sharePath`（经 `safeSegment`） |
+| `internal/runtime/tutor/usage.go` | 用量台账日期路径改用 `safeSegment` |
+| `internal/frontend/serve/tutor.go` | 新增 `tutorPathGuard`：对 `/tutor/` 前缀的请求拒绝含 `..` 段的路径（Go 的 ServeMux 逐段反转义，`%2e%2e%2f` 会以 `../` 到达处理器） |
+| `internal/frontend/serve/routes.go` | 路由表返回时套上 `tutorPathGuard`（守卫属路由本身，不依赖某一种挂载方式） |
+| `internal/frontend/serve/hub.go` | Hub 的 tutor 路由挂载处套上同一个守卫 |
+| `internal/runtime/tutor/store_pathsafety_test.go` | 本仓新增：`safeSegment` 与路径构造器的越界回归 |
+| `internal/frontend/serve/tutor_path_guard_test.go` | 本仓新增：路径穿越请求被拒且不触及 store 外的文件 |
+| `internal/runtime/tutor/backup.go` | 新增导出常量 `BackupMaxBytes`（解码后体积上限，供 serve 层在解码前预检）；`restoreNotes` 增 `keep` 回调并登记本次写入的笔记文件，使导入失败时的回滚**覆盖笔记**（此前回滚只登记目录与知识库文件，笔记留在库里，而响应称「nothing was changed」——表达与实现不符） |
+| `internal/frontend/serve/tutor_backup.go` | 备份预检与导入**进程内互斥**（非阻塞获取，第二个请求返 409 `tutor.backup_busy`；锁在**读取请求体之前**取，使「全进程在途的备份解析内存」有确定上界——对应 Python 侧 `_RESTORE_LOCK`）；base64 信封**解码前**按估算体积拒收超限载荷（413 `tutor.backup_too_large`），避免为超限载荷分配解码副本 |
+| `internal/runtime/tutor/backup_rollback_test.go` | 本仓新增：导入失败时笔记必须回滚、导入成功时笔记保留 |
+| `internal/frontend/serve/tutor_backup_hardening_test.go` | 本仓新增：备份操作互斥（409）、超限载荷拒收（413）、请求结束后锁释放 |
+| `internal/runtime/tutor/quota.go` | 本仓新增：文件存储替代数据库后丢失的**事务隔离与计数型配额**的补偿实现——按键互斥表 `keyedLocks`（引用计数回收）、`Store.WithPlanLock`、`Store.SaveNoteGuarded`（**计数与写入同一临界区**，镜像本仓 Python 侧 `quota_slot`）、`ErrNoteQuota`/`ErrSessionQuota`/`ErrBadLogInput`，并把会话数/笔记数/打卡时长等上限常量收敛到一处 |
+| `internal/runtime/tutor/quota_test.go` | 本仓新增：配额竞态、标题正文钳制、并发作答与并发打卡不丢更新、minutes 非正被拒 |
+| `internal/runtime/tutor/store.go`（读改写加锁） | `AppendAttempt`（作答记录）与 `AddLog`（学习打卡）的读-改-写纳入**方案级锁**——此前两个并发写入各读到同一份旧列表，后写者覆盖先写者，更新静默丢失 |
+| `internal/runtime/tutor/progresssvc.go` | `RecordProgress` 的读-改-写纳入方案级锁；`AddLog` 校验 `minutes > 0` 并对 minutes 与 note 收敛（此前 minutes 可为负或 2^62 级，note 无上限，而全部打卡条目存于同一文件） |
+| `internal/runtime/tutor/notesio.go`、`internal/runtime/tutor/promote.go` | 笔记写入改走 `SaveNoteGuarded`（此前导入路径有笔记数上限，而在线写入路径没有——同一上限两套口径） |
+| `internal/runtime/tutor/backup.go`（版本钳制） | 导入的方案版本号收敛到 `backupMaxPlanVersion=100`——版本号是导入文档携带的数据，无上限时版本列表端点会按版本号回扫出最多 2^31 次路径查找 |
+| `internal/frontend/serve/tutor.go`（错误外泄与请求体上限） | 新增 `tutorFail`：内部错误只写入 `slog`，对外统一 500 `tutor.internal_error`（此前 default 分支把含绝对路径的原始错误回显给客户端）；新增请求体上限（默认 1MB，备份 360MB、笔记导入 8MB、材料与知识库上传 80MB、URL 抓取 10MB） |
+| `internal/frontend/serve/tutor_data.go` | 版本列表端点改用按目录枚举（`Store.PlanVersions`）而非按版本号回扫；笔记写入改走 `SaveNoteGuarded`；内部错误改走 `tutorFail` |
+| `internal/frontend/serve/tutor_kb.go` | 内部错误改走 `tutorFail`（共 7 处散落的 `writeErr` 一并收敛） |
+| `internal/runtime/tutor/verify.go` | 为 `publicOnlyClient` 增加 `CheckRedirect`：逐跳重做公网地址校验并限制跳数——此前手写的跳转循环在该客户端上从未生效（客户端自己跟完 10 跳），注释承诺的「逐跳复检」是死代码 |
+| `desktop/frontend-next/src/i18n/kernel.ts` | 新增 `tutor.backup_busy` / `tutor.bad_path` / `tutor.internal_error` 三条文案（内核前端 i18n 表须与后端拒绝码一一对应） |
+
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 
 | 文件 | 修改 |

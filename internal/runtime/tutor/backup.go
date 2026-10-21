@@ -23,6 +23,11 @@ const (
 	backupMaxBytes = 256 << 20
 )
 
+// BackupMaxBytes is the decoded-size cap the import path enforces. The serve
+// layer checks the upload envelope against it before decoding, so an oversized
+// payload never costs a decoded copy in memory.
+const BackupMaxBytes = backupMaxBytes
+
 // Restore-side quotas mirror Deep Tutor's iter-246 caps and this store's live
 // limits: an import must not amplify resource use past what the app allows.
 const (
@@ -35,6 +40,9 @@ const (
 	backupMaxLogsPerPlan         = 2000
 	backupMaxUnitsPerPlan        = 100
 	backupMaxProgressPerPlan     = 500
+	// A plan version number is data an imported document carries; an
+	// unbounded one would make the version listing walk millions of paths.
+	backupMaxPlanVersion = 100
 )
 
 var (
@@ -406,7 +414,7 @@ func (s *Service) RestoreBackup(doc *BackupDoc) (map[string]any, error) {
 		}
 	}
 
-	if err := s.restoreNotes(doc.Notes, summary, &skipped); err != nil {
+	if err := s.restoreNotes(doc.Notes, summary, &skipped, keep); err != nil {
 		return fail(err)
 	}
 	if err := s.restoreKb(doc.Kb, summary, &skipped, keep); err != nil {
@@ -425,8 +433,19 @@ func (s *Service) restorePlan(sess *GenSession, bp *BackupPlan, summary map[stri
 		add("方案「%s」知识节点超 %d 上限，已截断", planLabel(bp), backupMaxNodesPerPlan)
 	}
 	planID := newID()
+	// The version number comes from the uploaded document: an unbounded value
+	// would make the plan's version listing (and any code that counts down
+	// from it) walk millions of paths.
+	version := bp.Version
+	if version < 1 {
+		version = 1
+	}
+	if version > backupMaxPlanVersion {
+		add("方案「%s」版本号 %d 超 %d 上限，已收敛", planLabel(bp), version, backupMaxPlanVersion)
+		version = backupMaxPlanVersion
+	}
 	plan := &Plan{
-		ID: planID, SessionID: sess.ID, Version: max(bp.Version, 1),
+		ID: planID, SessionID: sess.ID, Version: version,
 		Title: clampRunes(bp.Title, 256), Topic: clampRunes(bp.Topic, 256),
 		CreatedAt: s.opt.now(), UpdatedAt: s.opt.now(),
 		Intent: bp.Intent, Knowledge: bp.Knowledge, Stages: bp.Stages,
@@ -592,7 +611,7 @@ func planLabel(bp *BackupPlan) string {
 	return "未命名方案"
 }
 
-func (s *Service) restoreNotes(notes []BackupNote, summary map[string]any, skipped *[]string) error {
+func (s *Service) restoreNotes(notes []BackupNote, summary map[string]any, skipped *[]string, keep func(string)) error {
 	existing, err := s.store.Notes()
 	if err != nil {
 		return err
@@ -615,9 +634,21 @@ func (s *Service) restoreNotes(notes []BackupNote, summary map[string]any, skipp
 		if t, ok := parseBackupTime(n.CreatedAt); ok {
 			note.CreatedAt = t
 		}
-		if err := s.store.SaveNote(note); err != nil {
+		// The guarded write is the authority on the quota: the count above is
+		// a snapshot, and a concurrent write may have filled the room since.
+		if err := s.store.SaveNoteGuarded(note); err != nil {
+			if errors.Is(err, ErrNoteQuota) {
+				skippedNotes++
+				continue
+			}
 			return err
 		}
+		// The import promises "nothing was changed" when it fails: every row
+		// this run created must be on the rollback list. Notes were written
+		// straight to the store without a rollback entry, so a later step
+		// failing left them behind — a half-import the caller was told had
+		// been rolled back.
+		keep(filepath.Join(s.store.notesDir(), note.ID+".json"))
 		summary["notes"] = summary["notes"].(int) + 1
 	}
 	if skippedNotes > 0 {

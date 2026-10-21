@@ -140,7 +140,9 @@ func (c *robotsCache) put(host string, allowed bool) {
 }
 
 // verifyGuardedFetch hops through redirects manually so every target passes
-// the SSRF guard, and reads at most a body prefix.
+// the SSRF guard, and reads at most a body prefix. The client it is given
+// already vets redirects (see publicOnlyClient), so the loop below is the
+// second line of defense for a client that does not.
 func verifyGuardedFetch(ctx context.Context, client *http.Client, rawURL string, guard func(string) error) (status int, finalURL string, prefix []byte, err error) {
 	current := rawURL
 	for hop := 0; hop <= verifyMaxHops; hop++ {
@@ -254,6 +256,16 @@ func publicOnlyClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: &http.Transport{DialContext: publicOnlyDial((&net.Dialer{}).DialContext)},
+		// Every redirect target is vetted again and the hop count is capped
+		// here. Without this the client follows up to ten hops on its own:
+		// the manual hop loop in verifyGuardedFetch would never see a 3xx
+		// and the hop limit would be the transport's, not this package's.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= verifyMaxHops {
+				return errors.New("tutor: too many redirects")
+			}
+			return requirePublicURL(req.URL.String())
+		},
 	}
 }
 

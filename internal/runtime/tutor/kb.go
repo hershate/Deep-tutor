@@ -106,10 +106,15 @@ func (s *Store) KbDocs() ([]KbDoc, error) {
 
 func (s *Store) KbDoc(id string) (*KbDoc, error) {
 	var d KbDoc
-	if err := s.readJSON(filepath.Join(s.kbDocsDir(), id+".json"), &d); err != nil {
+	if err := s.readJSON(s.kbDocPath(id), &d); err != nil {
 		return nil, err
 	}
 	return &d, nil
+}
+
+// kbDocPath is the one place a knowledge-base document's file name is built.
+func (s *Store) kbDocPath(id string) string {
+	return filepath.Join(s.kbDocsDir(), safeSegment(id)+".json")
 }
 
 // SaveKbDoc mints the id and timestamps on first write.
@@ -120,21 +125,21 @@ func (s *Store) SaveKbDoc(d *KbDoc) error {
 		d.CreatedAt = now
 	}
 	d.UpdatedAt = now
-	return s.writeJSON(filepath.Join(s.kbDocsDir(), d.ID+".json"), d)
+	return s.writeJSON(s.kbDocPath(d.ID), d)
 }
 
 func (s *Store) DeleteKbDoc(id string) error {
-	if err := os.Remove(filepath.Join(s.kbDocsDir(), id+".json")); err != nil {
+	if err := os.Remove(s.kbDocPath(id)); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}
 		return err
 	}
-	originals, _ := filepath.Glob(filepath.Join(s.kbDir(), "originals", id+".*"))
+	originals, _ := filepath.Glob(filepath.Join(s.kbDir(), "originals", safeSegment(id)+".*"))
 	for _, p := range originals {
 		_ = os.Remove(p)
 	}
-	_ = os.Remove(filepath.Join(s.kbDir(), "parsed", id+".txt"))
+	_ = os.Remove(filepath.Join(s.kbDir(), "parsed", safeSegment(id)+".txt"))
 	return nil
 }
 
@@ -143,7 +148,7 @@ func (s *Store) WriteKbOriginal(id, ext string, data []byte) (string, error) {
 	if !safeExt.MatchString(ext) {
 		ext = "bin"
 	}
-	p := filepath.Join(s.kbDir(), "originals", id+"."+ext)
+	p := filepath.Join(s.kbDir(), "originals", safeSegment(id)+"."+ext)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}
@@ -159,7 +164,7 @@ func (s *Store) kbOriginalPath(d *KbDoc) string {
 	if ext == "" || !safeExt.MatchString(ext) {
 		ext = "bin"
 	}
-	return filepath.Join(s.kbDir(), "originals", d.ID+"."+ext)
+	return filepath.Join(s.kbDir(), "originals", safeSegment(d.ID)+"."+ext)
 }
 
 func (s *Store) ReadKbOriginal(d *KbDoc) ([]byte, error) {
@@ -174,11 +179,11 @@ func (s *Store) ReadKbOriginal(d *KbDoc) ([]byte, error) {
 }
 
 func (s *Store) WriteKbParsed(id, text string) error {
-	return s.writeRaw(filepath.Join(s.kbDir(), "parsed", id+".txt"), []byte(text))
+	return s.writeRaw(s.kbParsedPath(id), []byte(text))
 }
 
 func (s *Store) kbParsedPath(id string) string {
-	return filepath.Join(s.kbDir(), "parsed", id+".txt")
+	return filepath.Join(s.kbDir(), "parsed", safeSegment(id)+".txt")
 }
 
 func (s *Store) ReadKbParsed(id string) (string, error) {

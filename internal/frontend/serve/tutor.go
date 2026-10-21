@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -209,8 +210,18 @@ func tutorRefuse(w http.ResponseWriter, err error) {
 	case errors.Is(err, tutor.ErrBadGateway):
 		refuse(w, http.StatusBadGateway, "tutor.bad_gateway", "llm call failed, retry shortly", nil)
 	default:
-		writeErr(w, http.StatusInternalServerError, err)
+		tutorFail(w, err)
 	}
+}
+
+// tutorFail answers an unexpected tutor failure without echoing its text.
+// The internal errors of a file-backed store carry absolute paths (user
+// name, directory layout) and OS messages, and the tutor surface already
+// refuses to show parse errors (see badBody) — the default branch was the
+// one place that still handed the raw text to the client.
+func tutorFail(w http.ResponseWriter, err error) {
+	slog.Error("tutor: internal failure", "err", err)
+	refuse(w, http.StatusInternalServerError, "tutor.internal_error", "the tutor operation failed", nil)
 }
 
 func tutorUnsupported(w http.ResponseWriter) {
@@ -241,6 +252,64 @@ func (s *Server) registerTutorRoutes(mux *http.ServeMux) {
 	s.registerTutorKbRoutes(mux)
 	s.registerTutorShareRoutes(mux)
 	s.registerTutorBackupRoutes(mux)
+}
+
+// tutorPathGuard rejects a request path that tries to climb out of the tutor
+// namespace and bounds the body the route may read.
+//
+// Go's ServeMux unescapes every path segment before binding it to a
+// wildcard, so "%2e%2e%2f" reaches a handler as "../" — a wildcard that
+// reached the store unchecked would let a request name a file outside the
+// store root (the store's own path builders now refuse such a name too).
+// The decoded path is the one the router sees, so a segment that came in
+// percent-encoded is caught here as well; the backslash is split as well,
+// because Windows treats it as a separator.
+//
+// The body cap is the second half of the same concern: the store clamps what
+// it stores, but the body is read (and base64-decoded) before that clamp
+// runs, so an unbounded body is a memory-exhaustion lever on a service that
+// may face a network.
+func tutorPathGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/tutor/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		for _, seg := range strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' || c == '\\' }) {
+			if seg == ".." {
+				refuse(w, http.StatusBadRequest, "tutor.bad_path", "the path contains an invalid segment", nil)
+				return
+			}
+		}
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, tutorBodyCap(r.URL.Path))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// tutorDefaultBodyCap covers the small JSON resources. The families that
+// carry a file or a whole store get their own cap below.
+const tutorDefaultBodyCap = 1 << 20
+
+// tutorBodyCap is the body budget of a tutor route, by path. The upload
+// families carry a file in base64, so their cap is above the file limit the
+// store enforces; the backup envelope carries the whole store.
+func tutorBodyCap(path string) int64 {
+	switch {
+	case strings.HasPrefix(path, "/tutor/backup/"):
+		return 360 << 20
+	case path == "/tutor/notes/import":
+		return 8 << 20
+	case strings.HasSuffix(path, "/materials/upload"), strings.HasSuffix(path, "/materials/text"):
+		return 80 << 20
+	case strings.HasSuffix(path, "/kb/documents/upload"), strings.HasSuffix(path, "/kb/documents/text"):
+		return 80 << 20
+	case strings.HasSuffix(path, "/kb/documents/url"):
+		return 10 << 20
+	default:
+		return tutorDefaultBodyCap
+	}
 }
 
 // tutorList keeps the wire contract that a list is an array: the page

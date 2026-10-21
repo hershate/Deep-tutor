@@ -174,7 +174,7 @@ func (st *importState) consume(name, text string) {
 		return
 	}
 	note := &Note{Title: title, Body: body}
-	if err := st.store.SaveNote(note); err != nil {
+	if err := st.store.SaveNoteGuarded(note); err != nil {
 		st.skipped++
 		return
 	}

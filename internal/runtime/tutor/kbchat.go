@@ -279,7 +279,7 @@ func (s *Store) SaveKbChat(r *KbChatRecord) error {
 	if r.OmittedTitles == nil {
 		r.OmittedTitles = []string{}
 	}
-	return s.writeJSON(filepath.Join(s.kbChatsDir(), r.ID+".json"), r)
+	return s.writeJSON(filepath.Join(s.kbChatsDir(), safeSegment(r.ID)+".json"), r)
 }
 
 func (s *Store) KbChats() ([]KbChatRecord, error) {
@@ -310,7 +310,7 @@ func (s *Store) KbChats() ([]KbChatRecord, error) {
 }
 
 func (s *Store) DeleteKbChat(id string) error {
-	if err := os.Remove(filepath.Join(s.kbChatsDir(), id+".json")); err != nil {
+	if err := os.Remove(filepath.Join(s.kbChatsDir(), safeSegment(id)+".json")); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}

@@ -28,6 +28,9 @@ var ErrNotFound = errors.New("tutor: not found")
 type Store struct {
 	root  string
 	cache storeCache
+	// quota serialises the count-then-write pairs the file store cannot
+	// make atomic with a transaction (see quota.go).
+	quota keyedLocks
 }
 
 // GenSession is one plan-generation workspace: the uploaded materials, the
@@ -84,9 +87,30 @@ func OpenStore(root string) (*Store, error) {
 
 func (s *Store) Root() string { return s.root }
 
-func (s *Store) sessionDir(id string) string { return filepath.Join(s.root, "sessions", id) }
-func (s *Store) planDir(id string) string    { return filepath.Join(s.root, "plans", id) }
+// safeSegment keeps an identifier inside the directory it names. The HTTP
+// surface hands raw path segments to the store, and Go's ServeMux unescapes
+// every segment before binding it to a wildcard — "%2e%2e%2f" arrives as
+// "../" — so an identifier that reached filepath.Join unchecked would climb
+// out of the store root. A segment that carries a separator, a parent
+// reference or a drive letter is reduced to a name that cannot escape, so
+// every path built from an identifier stays inside its directory.
+func safeSegment(name string) string {
+	if name == "" {
+		return ""
+	}
+	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") ||
+		strings.Contains(name, ":") || name == "." {
+		return "_"
+	}
+	return name
+}
+
+func (s *Store) sessionDir(id string) string { return filepath.Join(s.root, "sessions", safeSegment(id)) }
+func (s *Store) planDir(id string) string    { return filepath.Join(s.root, "plans", safeSegment(id)) }
 func (s *Store) notesDir() string            { return filepath.Join(s.root, "notes") }
+
+// notePath is the one place a note's file name is built.
+func (s *Store) notePath(id string) string { return filepath.Join(s.notesDir(), safeSegment(id)+".json") }
 
 func (s *Store) writeJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
@@ -121,8 +145,19 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// CreateSession mints a generation session.
+// CreateSession mints a generation session. The session count is capped: the
+// cap used to live only in the backup import, so the live path could grow the
+// sessions directory without bound. The count and the write share one lock.
 func (s *Store) CreateSession(title string) (*GenSession, error) {
+	unlock := s.quota.Lock(quotaKey("session"))
+	defer unlock()
+	existing, err := s.Sessions()
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) >= maxSessions {
+		return nil, fmt.Errorf("%w: at most %d sessions", ErrSessionQuota, maxSessions)
+	}
 	now := time.Now()
 	sess := &GenSession{
 		ID:        newID(),
@@ -243,6 +278,7 @@ func (s *Store) Materials(sessionID string) ([]Material, error) {
 
 func (s *Store) DeleteMaterial(sessionID, materialID string) error {
 	base := filepath.Join(s.sessionDir(sessionID))
+	materialID = safeSegment(materialID)
 	if err := os.Remove(filepath.Join(base, "materials", materialID+".json")); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
@@ -266,7 +302,7 @@ func (s *Store) WriteMaterialOriginal(sessionID, materialID, ext string, data []
 	if !safeExt.MatchString(ext) {
 		ext = "bin"
 	}
-	path := filepath.Join(s.sessionDir(sessionID), "originals", materialID+"."+ext)
+	path := filepath.Join(s.sessionDir(sessionID), "originals", safeSegment(materialID)+"."+ext)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
@@ -437,6 +473,33 @@ func (s *Store) PlanVersion(id string, version int) (*Plan, error) {
 	return &p, nil
 }
 
+// PlanVersions lists the stored versions of a plan, newest first. It reads
+// the versions directory instead of counting down from the current version:
+// the version number is data an imported backup carries, so a scan that
+// trusts it turns one request into millions of path lookups.
+func (s *Store) PlanVersions(id string) ([]Plan, error) {
+	dir := filepath.Join(s.planDir(id), "versions")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]Plan, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		var p Plan
+		if err := s.readJSON(filepath.Join(dir, e.Name()), &p); err == nil {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
+	return out, nil
+}
+
 // reindexPlans rebuilds plans/index.json. Every plan dir is stat'ed in
 // parallel — on a filtered filesystem each stat is a syscall; a plan.json
 // whose stamp matches the previous index keeps its summary, and a save's
@@ -540,7 +603,12 @@ func (s *Store) SaveQuizzes(planID string, quizzes []Quiz) error {
 	return s.writeJSON(s.quizzesPath(planID), quizzes)
 }
 
+// AppendAttempt records one answer. The read-modify-write runs under the
+// plan's lock: without it two concurrent submissions each read the same list
+// and the second write drops the first answer.
 func (s *Store) AppendAttempt(planID string, attempt QuizAttempt) error {
+	unlock := s.quota.Lock(planKey(planID))
+	defer unlock()
 	attempts, err := s.Attempts(planID)
 	if err != nil {
 		return err
@@ -592,7 +660,11 @@ func (s *Store) Logs(planID string) ([]LearningLog, error) {
 	return logs, nil
 }
 
+// AddLog appends one learning log. The read-modify-write runs under the
+// plan's lock — two concurrent check-ins would otherwise lose one entry.
 func (s *Store) AddLog(log *LearningLog) error {
+	unlock := s.quota.Lock(planKey(log.PlanID))
+	defer unlock()
 	if log.ID == "" {
 		log.ID = newID()
 	}
@@ -668,7 +740,7 @@ func (s *Store) Notes() ([]Note, error) {
 
 func (s *Store) Note(id string) (*Note, error) {
 	var n Note
-	if err := s.readJSON(filepath.Join(s.notesDir(), id+".json"), &n); err != nil {
+	if err := s.readJSON(s.notePath(id), &n); err != nil {
 		return nil, err
 	}
 	return &n, nil
@@ -681,11 +753,11 @@ func (s *Store) SaveNote(n *Note) error {
 		n.CreatedAt = now
 	}
 	n.UpdatedAt = now
-	return s.writeJSON(filepath.Join(s.notesDir(), n.ID+".json"), n)
+	return s.writeJSON(s.notePath(n.ID), n)
 }
 
 func (s *Store) DeleteNote(id string) error {
-	if err := os.Remove(filepath.Join(s.notesDir(), id+".json")); err != nil {
+	if err := os.Remove(s.notePath(id)); err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
 		}

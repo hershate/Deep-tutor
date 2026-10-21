@@ -309,7 +309,7 @@ func (s *Server) tutorKbExport(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(path)
 	file, err := os.Open(path)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		tutorFail(w, err)
 		return
 	}
 	defer file.Close()

@@ -83,13 +83,18 @@ func newShareToken() string {
 
 func (s *Store) sharesDir() string { return filepath.Join(s.root, "shares") }
 
+// sharePath is the one place a share token's file name is built.
+func (s *Store) sharePath(token string) string {
+	return filepath.Join(s.sharesDir(), safeSegment(token)+".json")
+}
+
 func (s *Store) saveShare(sh *Share) error {
-	return s.writeJSON(filepath.Join(s.sharesDir(), sh.Token+".json"), sh)
+	return s.writeJSON(s.sharePath(sh.Token), sh)
 }
 
 func (s *Store) shareByToken(token string) (*Share, error) {
 	var sh Share
-	if err := s.readJSON(filepath.Join(s.sharesDir(), token+".json"), &sh); err != nil {
+	if err := s.readJSON(s.sharePath(token), &sh); err != nil {
 		return nil, err
 	}
 	return &sh, nil
@@ -137,7 +142,7 @@ func (s *Store) shareByPlanID(planID string) (*Share, error) {
 }
 
 func (s *Store) deleteShare(token string) error {
-	if err := os.Remove(filepath.Join(s.sharesDir(), token+".json")); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(s.sharePath(token)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil

@@ -1,6 +1,7 @@
 package tutor
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -39,33 +40,39 @@ func (s *Service) RecordProgress(planID, nodeID string, status ProgressStatus, q
 		return nil, ErrNotFound // the caller's status vocabulary is malformed
 	}
 	today := s.opt.now()
-	list, err := s.store.ProgressList(planID)
-	if err != nil {
-		return nil, err
-	}
+	var list []Progress
 	var row *Progress
-	for i := range list {
-		if list[i].NodeID == nodeID {
-			row = &list[i]
-			break
-		}
-	}
 	var mastery float64
 	nextStr := func(m float64) string { return NextReviewDate(m, today).Format("2006-01-02") }
-	if row == nil {
-		mastery = ComputeMastery(0, status, quizScore)
-		list = append(list, Progress{
-			NodeID: nodeID, Status: status, Mastery: mastery,
-			NextReview: nextStr(mastery), UpdatedAt: today,
-		})
-	} else {
-		row.Mastery = ComputeMastery(row.Mastery, status, quizScore)
-		row.Status = status
-		row.NextReview = nextStr(row.Mastery)
-		row.UpdatedAt = today
-		mastery = row.Mastery
-	}
-	if err := s.store.SaveProgress(planID, list); err != nil {
+	// The read and the write share the plan's lock: the progress file is
+	// rewritten whole, so two concurrent updates would drop one of them.
+	if err := s.store.WithPlanLock(planID, func() error {
+		var err error
+		list, err = s.store.ProgressList(planID)
+		if err != nil {
+			return err
+		}
+		for i := range list {
+			if list[i].NodeID == nodeID {
+				row = &list[i]
+				break
+			}
+		}
+		if row == nil {
+			mastery = ComputeMastery(0, status, quizScore)
+			list = append(list, Progress{
+				NodeID: nodeID, Status: status, Mastery: mastery,
+				NextReview: nextStr(mastery), UpdatedAt: today,
+			})
+		} else {
+			row.Mastery = ComputeMastery(row.Mastery, status, quizScore)
+			row.Status = status
+			row.NextReview = nextStr(row.Mastery)
+			row.UpdatedAt = today
+			mastery = row.Mastery
+		}
+		return s.store.SaveProgress(planID, list)
+	}); err != nil {
 		return nil, err
 	}
 	var name string
@@ -334,6 +341,9 @@ func (s *Service) StatsByPlan() ([]map[string]any, error) {
 }
 
 // AddLog records one study check-in; the store mints ids and timestamps.
+// The minutes and the note are bounded here: the store keeps every check-in
+// in one file, so an unbounded note (or a minutes count of 2^62) would make
+// the ledger unreadable and the totals meaningless.
 func (s *Service) AddLog(log *LearningLog) error {
 	if _, err := s.store.Plan(log.PlanID); err != nil {
 		return err
@@ -341,6 +351,13 @@ func (s *Service) AddLog(log *LearningLog) error {
 	if log.Date == "" {
 		log.Date = s.opt.now().Format("2006-01-02")
 	}
+	if log.Minutes <= 0 {
+		return fmt.Errorf("%w: minutes must be positive", ErrBadLogInput)
+	}
+	if log.Minutes > maxLogMinutes {
+		log.Minutes = maxLogMinutes
+	}
+	log.Note = clampRunes(log.Note, maxLogNoteRunes)
 	return s.store.AddLog(log)
 }
 
