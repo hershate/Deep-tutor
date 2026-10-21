@@ -32,6 +32,11 @@ log = logging.getLogger("deep_tutor.tools.parse")
 MAX_PARSED_CHARS = 500_000  # 09 §二十 上限（chars 近似）
 CHUNK_SIZE = 3000
 URL_TIMEOUT = 30.0
+# iter 397（K4）：URL 抓取的**总时长**上限——httpx.Timeout(URL_TIMEOUT) 只约束
+# 「两次读之间」的间隔，正文总量由 10MB 字节上限约束；攻击者控制的「慢滴」
+# 服务器（每 29s 吐 1 字节）可无限期挂住请求（端点侧亦无 wait_for 兜底）。
+# 故加一层**总预算**：含重定向的整段抓取超过 60s 即中止。
+URL_TOTAL_TIMEOUT = 60.0
 MARKER_TIMEOUT = 600.0  # marker --force_ocr 含 OCR，较慢，单独给长超时
 MAX_URL_BYTES = 10 * 1024 * 1024  # URL 抓取正文上限 10MB（防 OOM，09 §二十）
 OCR_TIMEOUT = 120.0  # 图片 OCR 超时（pytesseract timeout 参数，秒）
@@ -517,6 +522,20 @@ async def _collect_capped(aiter, max_bytes: int) -> tuple[bytes, bool]:
 
 
 async def _parse_url(source: str) -> tuple[str, dict]:
+    """URL 抓取（**总时长**受 URL_TOTAL_TIMEOUT 约束，iter 397 K4）。
+
+    字节上限（MAX_URL_BYTES）与单次读间隔上限（URL_TIMEOUT）都挡不住「慢滴」
+    服务器持续挂住连接——总时长预算是第三道闸。
+    """
+    try:
+        return await asyncio.wait_for(_parse_url_inner(source), timeout=URL_TOTAL_TIMEOUT)
+    except (asyncio.TimeoutError, TimeoutError):
+        raise _ParseError(
+            "upstream_timeout", f"URL 抓取超时（总时长上限 {int(URL_TOTAL_TIMEOUT)}s）"
+        ) from None
+
+
+async def _parse_url_inner(source: str) -> tuple[str, dict]:
     import httpx
     from urllib.parse import urljoin
 

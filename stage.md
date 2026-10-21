@@ -105,7 +105,13 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **有意保留（已评估、非缺陷）**：`kb.generate` 的解析文本复制（≤20 篇 × 500KB ≈ 10MB）仍在写事务内落盘——该路径**有界**（最多 20 个文件、约 100ms），且**行可见前文件已就位**（无数据一致性问题），故不引入额外的暂存/改名复杂度；与 iter 396 B1 的差别在于 B1 面对的是「最多 10 万行」的还原，量级完全不同。
   - 回归：新增 `tests/test_iter397_data_consistency.py`（5 条：三条建会话路径同锁 + 并发不破上限 + 上传后「行与文件同时在位、暂存目录无残留」+ 落盘失败不留残局 + kind 归类）。**已验证「修复前必红」**：把 clip 的配额键临时改成非共享键 -> 白盒用例立即转红。相关面回归 **106 passed**。
 
-- **下一步**：① 继续复核并落地其余子 agent 发现（kb/materials 的 K1/K4/K5~K10/K14~K16、exports/users/auth 的 E3/E5~E8/E10~E13、app/agent 的 A1~A3/A7~A19、app/tools 面报告）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
+- **iter 397-B4（资源耗尽面：导出限流/体积上限、URL 总时长、检索限流，✅ 完成）**：复核 kb/materials 报告的 K1 / K4 / K7 三条并修复。
+  - **K1（high）：`GET /api/kb/export` 无限流、无体积上限 -> 系统盘可被写满**。该端点把用户全部 KB 原件 ZIP 化落进**系统临时目录**（`SpooledTemporaryFile` 超 64MB 即滚到磁盘），200 篇 × 50MB = **10GB/次**；无速率限制 -> 反复调用即可写满系统盘，且每次全量构建占满一个 anyio 工作线程。修法：① 加限流 `export:{uid}` **12/min**（与 `exports.py` / `plans.py` / `materials.py` 三个导出端点同桶同口径——此前 kb 导出是唯一漏限的导出面）；② 加**总字节上限 500MB**：打包前先累加待打包文件的实际大小，超限直接 **413**（不落临时文件、不占工作线程），提示用 `ids` 参数分批导出。
+  - **K4（high）：服务端出站 URL 抓取无总时长上限 -> 请求可被无限挂起**。`httpx.Timeout(URL_TIMEOUT=30)` 只约束**两次读之间**的间隔，正文总量由 10MB 字节上限约束——攻击者控制的「慢滴」服务器（每 29s 吐 1 字节）可让请求无限期挂起；`kb.create_url_document` / `materials._store` 的 URL 分支**也没有**端点级 `wait_for` 兜底（`kb.parse_document` 的文件分支有）。修法：在 `app/tools/parse_material.py` 的 `_parse_url` 外层加**总时长预算** `URL_TOTAL_TIMEOUT = 60s`（含重定向的整段抓取），超时抛 `upstream_timeout`；一处收口即覆盖全部 URL 调用点。
+  - **K7（medium）：知识库内容检索无限流 -> 磁盘 I/O 放大 + 工作线程占满**。`GET /api/kb/documents?q=...` 每次把最近 **50 篇已解析文档全文读进内存**（≤25MB）再逐篇 `find`（无索引，诚实边界见 note/09），脚本循环即可打满磁盘 I/O 并占满 anyio 线程池。修法：对**带 q 的检索路径**加限流 `kb_search:{uid}` 30/min；**普通列表（无 q）是廉价 DB 查询，不限流**（避免误伤正常浏览）。
+  - 回归：新增 `tests/test_iter397_resource_limits.py`（7 条：导出限流/超限 413/正常导出不受影响、URL 总时长预算（含「挂起被中止」与「预算 > 单次读间隔」两条）、检索限流/普通列表不受影响）。相关面回归 **102 passed**。
+
+- **下一步**：① 继续复核并落地其余子 agent 发现（kb/materials 的 K5/K6/K8~K12/K14~K16、exports/users/auth 的 E3/E5~E8/E10~E13、app/agent 的 A1~A3/A7~A19、app/tools 面报告）；② 继续 Go 内核侧（`internal/`）暴露面审计；③ 回到 Reasonix 阶段① M1 余项。
 
 **iter 396-B（2026-10-21，备份导入写锁时长与导出内存峰值改造轮，✅ 完成）**：承接 iter 396 的「B1/B2 产品级取舍待用户定夺」。用户经问卷定夺：**B1 = 文件落盘移出事务**（先写暂存区、事务内只改名；**不改「一次备份能带多少数据」的承诺**）、**B2 = 导出改流式写出**（峰值内存从整份数据集降到单个会话量级；**语义不变、不截断、不拒绝**）。
 

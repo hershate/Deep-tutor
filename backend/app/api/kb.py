@@ -81,6 +81,20 @@ _MAX_KB_DOCS_PER_USER = 200
 # 但并发 N 个上传的内存叠加此前无防（多用户部署 OOM 面）
 _UPLOAD_RATE_PER_MIN = 20
 
+# iter 397（K1）：导出限流——与其余导出端点同桶同口径（exports/plans/materials
+# 均为 12/min、共用 export:{uid} 键）。
+_EXPORT_RATE_PER_MIN = 12
+# iter 397（K1）：单次知识库导出的**总字节上限**——导出把全部原件 ZIP 化落进系统
+# 临时目录（SpooledTemporaryFile 超 64MB 即滚到磁盘），200 篇 × 50MB = 10GB/次，
+# 反复调用即可写满系统盘。上限 500MB：够一次带走一个大库，又不至于把盘打满。
+_MAX_KB_EXPORT_BYTES = 500 * 1024 * 1024
+
+# iter 397（K7）：内容检索限流（次/分钟/用户）——`q` 命中时每次把最近 50 篇已解析
+# 文档**全文读进内存**（上限 50×500KB = 25MB）再逐篇 find，无索引。脚本循环即可
+# 打满磁盘 I/O 并占满 anyio 工作线程。仅对带 q 的检索路径限流（普通列表是廉价
+# DB 查询，不限流以免影响正常浏览）。
+_KB_SEARCH_RATE_PER_MIN = 30
+
 # per-doc 解析互斥锁（iter 225）：同文档并发解析 -> 409；不同文档可并行（事务外解析 +
 # 短写事务，err.md B22）。锁对象只增不减，每文档一个（~百字节），不做淘汰。
 _PARSE_LOCKS: dict[int, asyncio.Lock] = {}
@@ -560,6 +574,14 @@ def list_documents(
         kind_filter = models.MaterialKind(kind)
         stmt = stmt.where(models.KbDocument.kind == kind_filter)
     if q and q.strip():
+        # iter 397（K7）：内容检索限流——每次检索把最近 50 篇已解析文档全文读入
+        # 内存（≤25MB）再逐篇匹配，无索引；不限流则脚本循环即可打满磁盘 I/O。
+        if not limiter.check(f"kb_search:{user.id}", _KB_SEARCH_RATE_PER_MIN):
+            raise ApiError(
+                "rate_limited",
+                f"检索限每分钟 {_KB_SEARCH_RATE_PER_MIN} 次，请稍后再试",
+                status=429,
+            )
         qs = q.strip()
         title_rows = list(
             db.scalars(
@@ -760,7 +782,15 @@ def export_kb_zip(
     空库或过滤后为空 -> 404。流式：SpooledTemporaryFile(64MB) 防大库 OOM
     （相对 materials export BytesIO 范本的有依据偏离——200 文档×50MB 极端下整个 zip
     压进内存会 OOM），原件经 zf.open+copyfileobj(1MB) 流式写入。
+
+    iter 397（K1）：补**限流**与**体积上限**——此前二者皆无：单次导出把用户全部
+    KB 原件 ZIP 化落进系统临时目录（SpooledTemporaryFile 超 64MB 即滚到磁盘），
+    200 篇 × 50MB = 10GB/次；反复调用即可写满系统盘，并占满 anyio 工作线程。
+    限流键与其余导出端点共用 `export:{uid}`（12/min，同口径）。
     """
+    # iter 397（K1）：导出限流——与其余导出端点同桶同口径（exports/plans/materials）
+    if not limiter.check(f"export:{user.id}", _EXPORT_RATE_PER_MIN):
+        raise ApiError("rate_limited", f"导出限每分钟 {_EXPORT_RATE_PER_MIN} 次，请稍后再试", status=429)
     stmt = select(models.KbDocument).where(models.KbDocument.user_id == user.id)
     if ids:
         wanted = {int(p) for p in (p.strip() for p in ids.split(",")) if p.isdigit()}
@@ -768,6 +798,25 @@ def export_kb_zip(
     docs = db.scalars(stmt.order_by(models.KbDocument.id)).all()
     if not docs:
         raise ApiError("not_found", "知识库为空，无可导出文档")
+
+    # iter 397（K1）：体积上限——先累加待打包文件的实际大小，超限直接拒（不落
+    # 临时文件、不占工作线程）。可按 ids 参数分批导出。
+    total_bytes = 0
+    for doc in docs:
+        for path_str in (doc.original_path, doc.parsed_text_path):
+            if not path_str:
+                continue
+            try:
+                total_bytes += Path(path_str).stat().st_size
+            except OSError:
+                continue  # 文件缺失：跳过（下方打包时同样跳过并记日志）
+    if total_bytes > _MAX_KB_EXPORT_BYTES:
+        raise ApiError(
+            "payload_too_large",
+            f"知识库导出体积超过上限 {_MAX_KB_EXPORT_BYTES // (1024 * 1024)}MB，"
+            "请用 ids 参数分批导出",
+            status=413,
+        )
 
     spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
     with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
