@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"reasonix/internal/base/fileutil"
 	"reasonix/internal/runtime/tutor"
 )
 
@@ -306,7 +307,7 @@ func (s *Server) tutorKbExport(w http.ResponseWriter, r *http.Request) {
 		tutorRefuse(w, err)
 		return
 	}
-	defer os.Remove(path)
+	defer func() { _ = fileutil.Remove(path) }()
 	file, err := os.Open(path)
 	if err != nil {
 		tutorFail(w, err)

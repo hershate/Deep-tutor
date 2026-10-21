@@ -31,11 +31,26 @@ export function Notes({ port, onError }: Props) {
   };
   useEffect(reload, [port]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const open = (n: TutorNote | null) => {
-    setOpenId(n?.id ?? "new");
-    setTitle(n?.title ?? "");
-    setBody(n?.body ?? "");
-    setDirty(false);
+  // The list carries a preview of the body, so opening a note reads the
+  // full text from the detail endpoint. Editing the preview in place would
+  // save the truncated text over the note and lose the rest of it.
+  const open = async (n: TutorNote | null) => {
+    if (!n) {
+      setOpenId("new");
+      setTitle("");
+      setBody("");
+      setDirty(false);
+      return;
+    }
+    try {
+      const full = await port.tutorNote(n.id);
+      setOpenId(full.id);
+      setTitle(full.title);
+      setBody(full.body);
+      setDirty(false);
+    } catch (e) {
+      onError(reason(e));
+    }
   };
 
   // open(null) is the new-note editor, not a closed one, so closing is its own
@@ -130,7 +145,7 @@ export function Notes({ port, onError }: Props) {
           <header className="tut-plan-hd">
             <h3>{t("笔记")}</h3>
             <div>
-              <button type="button" data-action="tutor.note-new" onClick={() => open(null)}>{t("新建")}</button>
+              <button type="button" data-action="tutor.note-new" onClick={() => void open(null)}>{t("新建")}</button>
               {(notes?.length ?? 0) > 0 && <button type="button" data-action="tutor.note-export" onClick={() => void exportZip()}>{t("导出 ZIP")}</button>}
               <button type="button" data-action="tutor.note-import" disabled={busy} onClick={() => fileInput.current?.click()}>{t("导入")}</button>
               <input
@@ -143,7 +158,7 @@ export function Notes({ port, onError }: Props) {
           {notes?.length === 0 && <p className="tut-dim">{t("还没有笔记；支持导入 .md 文件或包含 .md 的 zip。")}</p>}
           {notes?.map((n) => (
             <div className="tut-row" key={n.id}>
-              <button type="button" className="tut-row-main" data-action="tutor.note-open" onClick={() => open(n)}>
+              <button type="button" className="tut-row-main" data-action="tutor.note-open" onClick={() => void open(n)}>
                 {n.title || t("无题")}
                 <span className="tut-dim"> · {new Date(n.updated_at).toLocaleDateString()}</span>
               </button>

@@ -66,15 +66,28 @@ func NoteMarkdown(n Note) string {
 	return "# " + title + "\n"
 }
 
-// ExportNotesZip packs every note: one .md per note (duplicate stems get the
-// id prefixed) plus an index.md manifest, Deep-tutor's portable export shape.
-// The caller passes notes already ordered newest-first.
+// ExportNotesZip packs every note into a portable .md archive held in
+// memory. A note set can be a hundred megabytes of text, so a caller that
+// exports a large one should use ExportNotesZipTo and stream the archive
+// instead of holding a second copy of it in the heap.
 func ExportNotesZip(notes []Note, now time.Time) ([]byte, error) {
-	if len(notes) == 0 {
-		return nil, ErrNotFound
-	}
 	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	if err := ExportNotesZipTo(&buf, notes, now); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// ExportNotesZipTo writes every note to w as a portable .md archive: one
+// file per note (duplicate stems get the id prefixed) plus an index.md
+// manifest, Deep-tutor's portable export shape. The caller owns the writer,
+// so the archive is never held whole — the same discipline the v1 export
+// uses (iter 396-B2).
+func ExportNotesZipTo(w io.Writer, notes []Note, now time.Time) error {
+	if len(notes) == 0 {
+		return ErrNotFound
+	}
+	zw := zip.NewWriter(w)
 	used := map[string]bool{}
 	index := []string{
 		"# 笔记导出清单", "",
@@ -92,27 +105,26 @@ func ExportNotesZip(notes []Note, now time.Time) ([]byte, error) {
 			name = n.ID + "-" + stem + ".md"
 		}
 		used[name] = true
-		w, err := zw.Create(name)
+		entry, err := zw.Create(name)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if _, err := w.Write([]byte(NoteMarkdown(n))); err != nil {
-			return nil, err
+		if _, err := entry.Write([]byte(NoteMarkdown(n))); err != nil {
+			return err
 		}
 		index = append(index, fmt.Sprintf("| %s | %s | %s |",
 			name, strings.ReplaceAll(strings.TrimSpace(n.Title), "|", "/"),
 			n.UpdatedAt.Format("2006-01-02 15:04:05")))
 	}
 	index = append(index, "")
-	if w, err := zw.Create("index.md"); err != nil {
-		return nil, err
-	} else if _, err := w.Write([]byte(strings.Join(index, "\n"))); err != nil {
-		return nil, err
+	manifest, err := zw.Create("index.md")
+	if err != nil {
+		return err
 	}
-	if err := zw.Close(); err != nil {
-		return nil, err
+	if _, err := manifest.Write([]byte(strings.Join(index, "\n"))); err != nil {
+		return err
 	}
-	return buf.Bytes(), nil
+	return zw.Close()
 }
 
 // splitMarkdownTitle pulls (title, body) from note markdown: a leading

@@ -218,6 +218,8 @@ export interface TutorNote {
   id: string;
   title: string;
   body: string;
+  /** The list carries a preview; the detail endpoint carries the full text. */
+  truncated?: boolean;
   created_at: string;
   updated_at: string;
 }

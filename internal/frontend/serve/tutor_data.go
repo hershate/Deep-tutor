@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"reasonix/internal/base/fileutil"
 	"reasonix/internal/runtime/tutor"
 )
 
@@ -518,6 +521,39 @@ func (s *Server) tutorLogDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// notePreviewRunes bounds the body a list carries.
+//
+// The note ceiling is 2000 notes of up to 20000 runes each: a list that
+// carried every body would marshal a hundred megabytes into one response —
+// a memory spike per request, and a lever for exhausting memory on a
+// network-exposed surface. The list carries a preview and the detail
+// endpoint carries the full text, exactly as Deep-tutor's v1 list does.
+const notePreviewRunes = 300
+
+// noteListItem is one note in the list: the body is a preview, and
+// truncated says whether it was cut.
+type noteListItem struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	Truncated bool      `json:"truncated"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func noteListItemOf(n tutor.Note) noteListItem {
+	body := n.Body
+	truncated := false
+	if utf8.RuneCountInString(body) > notePreviewRunes {
+		body = string([]rune(body)[:notePreviewRunes])
+		truncated = true
+	}
+	return noteListItem{
+		ID: n.ID, Title: n.Title, Body: body, Truncated: truncated,
+		CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt,
+	}
+}
+
 func (s *Server) tutorNotes(w http.ResponseWriter, r *http.Request) {
 	svc := s.tutorServiceFor(r)
 	if svc == nil {
@@ -529,7 +565,11 @@ func (s *Server) tutorNotes(w http.ResponseWriter, r *http.Request) {
 		tutorRefuse(w, err)
 		return
 	}
-	writeJSON(w, tutorList(notes))
+	out := make([]noteListItem, 0, len(notes))
+	for i := range notes {
+		out = append(out, noteListItemOf(notes[i]))
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) tutorNoteCreate(w http.ResponseWriter, r *http.Request) {
@@ -626,9 +666,24 @@ func (s *Server) tutorNotesExportZip(w http.ResponseWriter, r *http.Request) {
 		tutorRefuse(w, err)
 		return
 	}
-	blob, err := tutor.ExportNotesZip(notes, time.Now())
+	// The archive is spooled to a temp file rather than built in the heap: a
+	// note set of 2000 notes is a hundred megabytes of text, and the export
+	// must not add a second copy of it to the process. The v1 export streams
+	// for the same reason (iter 396-B2).
+	tmp, err := os.CreateTemp("", "notes-export-*.zip")
 	if err != nil {
+		tutorFail(w, err)
+		return
+	}
+	path := tmp.Name()
+	defer func() { _ = fileutil.Remove(path) }()
+	if err := tutor.ExportNotesZipTo(tmp, notes, time.Now()); err != nil {
+		_ = tmp.Close()
 		tutorRefuse(w, err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		tutorFail(w, err)
 		return
 	}
 	stamp := time.Now().Format("20060102-150405")
@@ -636,7 +691,13 @@ func (s *Server) tutorNotesExportZip(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="notes-`+stamp+`.zip"; filename*=UTF-8''%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA-`+stamp+".zip")
 	w.Header().Set("X-Tutor-Notes", strconv.Itoa(len(notes)))
-	_, _ = w.Write(blob)
+	file, err := os.Open(path)
+	if err != nil {
+		tutorFail(w, err)
+		return
+	}
+	defer file.Close()
+	http.ServeContent(w, r, "notes-"+stamp+".zip", time.Now(), file)
 }
 
 // tutorNotesImport takes {files:[{name, content_base64}]} — the house

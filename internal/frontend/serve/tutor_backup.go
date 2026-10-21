@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"reasonix/internal/base/fileutil"
 	"reasonix/internal/runtime/tutor"
 )
 
@@ -65,7 +66,7 @@ func (s *Server) tutorBackupExport(w http.ResponseWriter, r *http.Request) {
 		tutorFail(w, err)
 		return
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = fileutil.Remove(tmp.Name()) }()
 	if err := tutor.WriteBackup(tmp, doc); err != nil {
 		tmp.Close()
 		tutorFail(w, err)
