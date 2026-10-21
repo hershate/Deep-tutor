@@ -776,7 +776,7 @@ function Hero({ needsProject, onOpen, onKeep }: HeroProps) {
   return (
     <div className="hero">
       <SymbolMark />
-      <div className="t">{needsProject ? t("先打开一个项目") : t("描述任务，其余交给 Reasonix")}</div>
+      <div className="t">{needsProject ? t("先打开一个项目") : t("描述任务，其余交给 Deep-tutor")}</div>
       <div className="s">
         {needsProject
           ? t("读取代码、运行测试与修改文件均只在你选定的文件夹内进行。")

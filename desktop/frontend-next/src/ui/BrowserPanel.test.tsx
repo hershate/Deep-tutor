@@ -16,7 +16,7 @@ describe("BrowserPanel", () => {
     await user.type(address, "example.com/docs{Enter}");
 
     expect((address as HTMLInputElement).value).toBe("https://example.com/docs");
-    expect(screen.getByTitle("Reasonix 内置 Browser").getAttribute("src")).toBe("https://example.com/docs");
+    expect(screen.getByTitle("Deep-tutor 内置 Browser").getAttribute("src")).toBe("https://example.com/docs");
   });
 
   it("keeps invalid addresses in the field and explains the error", async () => {
@@ -28,7 +28,7 @@ describe("BrowserPanel", () => {
     await user.type(address, "file:///private{Enter}");
 
     expect(screen.getByRole("alert").textContent).toContain("请输入有效的 http 或 https 地址");
-    expect(screen.getByTitle("Reasonix 内置 Browser").hasAttribute("src")).toBe(false);
+    expect(screen.getByTitle("Deep-tutor 内置 Browser").hasAttribute("src")).toBe(false);
   });
 
   it.each(["D:/DevCode/aglo.html", "D:\\DevCode\\aglo.html", "\\\\nas\\share\\x.html", "/Users/me/index.html"])(
@@ -40,7 +40,7 @@ describe("BrowserPanel", () => {
       await user.clear(address);
       await user.type(address, `${path.replace(/[{[]/g, "$&$&")}{Enter}`);
       expect(screen.getByRole("alert").textContent).toContain("http 或 https");
-      expect(screen.getByTitle("Reasonix 内置 Browser").hasAttribute("src")).toBe(false);
+      expect(screen.getByTitle("Deep-tutor 内置 Browser").hasAttribute("src")).toBe(false);
     },
   );
 
@@ -50,6 +50,6 @@ describe("BrowserPanel", () => {
     const address = screen.getByRole("textbox", { name: "网页地址" });
     await user.clear(address);
     await user.type(address, "localhost:3000/x{Enter}");
-    expect(screen.getByTitle("Reasonix 内置 Browser").getAttribute("src")).toBe("http://localhost:3000/x");
+    expect(screen.getByTitle("Deep-tutor 内置 Browser").getAttribute("src")).toBe("http://localhost:3000/x");
   });
 });

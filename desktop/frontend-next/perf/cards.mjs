@@ -104,7 +104,7 @@ rc.on("pageerror", (e) => fails.push("页面异常: " + e.message));
 await rc.goto(PAGE, { waitUntil: "networkidle" });
 await rc.waitForSelector(".compose");
 await rc.evaluate(() => {
-  const command = "test -s AGENTS.md && grep -q 'reasonix' AGENTS.md && ".repeat(8) + "go test ./...";
+  const command = "test -s AGENTS.md && grep -q 'deep-tutor' AGENTS.md && ".repeat(8) + "go test ./...";
   window.__feed({ kind: "turn_started" });
   window.__feed({ kind: "text", text: "已经更新 AGENTS.md，并运行了验证命令。" });
   window.__feed({ kind: "message" });

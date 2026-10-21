@@ -25,7 +25,7 @@ export function About({ port }: { port: AgentPort }) {
       <AuthorLine port={port} />
       <Group id="community"
         title={t("社区与贡献者")}
-        hint={t("遇到问题、想交流用法或想参与进来，可以加入社区；下面是为 Reasonix 提交过代码的人。")}
+        hint={t("遇到问题、想交流用法或想参与进来，可以加入社区；下面是为 Deep-tutor 提交过代码的人。")}
       >
         <Community port={port} />
       </Group>

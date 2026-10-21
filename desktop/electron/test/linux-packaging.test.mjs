@@ -32,7 +32,7 @@ function elf(arch, dynamic = false) {
 function fixture(t, arch) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-linux-tree-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const app = path.join(root, "opt", "Reasonix Studio");
+  const app = path.join(root, "opt", "Deep-tutor Studio");
   const files = {
     shell: path.join(app, name),
     host: path.join(app, "resources/bin/reasonix-studio-host"),

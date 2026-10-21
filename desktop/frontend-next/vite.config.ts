@@ -28,7 +28,7 @@ const ROUTES = [
   "/tutor",
 ];
 
-// REASONIX_SERVE points at a running `reasonix serve`; without it the app boots
+// REASONIX_SERVE points at a running `deep-tutor serve`; without it the app boots
 // on MockPort so the UI can be developed with no Go process at all.
 export default defineConfig(({ mode }) => {
   const serve = loadEnv(mode, ".", "REASONIX").REASONIX_SERVE;

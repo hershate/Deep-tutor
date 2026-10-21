@@ -10,7 +10,7 @@
 //
 // Run it with a kernel and the dev server up, and a headless Chrome on 9333:
 //
-//   /path/to/reasonix serve -addr 127.0.0.1:8791 -auth none
+//   /path/to/deep-tutor serve -addr 127.0.0.1:8791 -auth none
 //   REASONIX_SERVE=http://127.0.0.1:8791 npx vite --port 5177 --strictPort
 //   chrome-headless-shell --remote-debugging-port=9333 --headless
 //   node tools/i18n-sweep.mjs http://localhost:5177/

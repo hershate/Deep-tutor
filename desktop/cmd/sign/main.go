@@ -126,7 +126,7 @@ func genKey(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	keyPath := filepath.Join(dir, "reasonix.key")
+	keyPath := filepath.Join(dir, "deep-tutor.key")
 	pubPath := filepath.Join(dir, "reasonix.pub")
 	if err := os.WriteFile(keyPath, enc, 0o600); err != nil {
 		return err
@@ -164,7 +164,7 @@ func signFiles(files []string) error {
 			return err
 		}
 		sig := minisign.SignWithComments(priv, data,
-			"file:"+filepath.Base(f), "Reasonix desktop release")
+			"file:"+filepath.Base(f), "Deep-tutor desktop release")
 		out := f + ".minisig"
 		if err := os.WriteFile(out, sig, 0o644); err != nil {
 			return err

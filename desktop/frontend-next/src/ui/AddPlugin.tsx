@@ -356,7 +356,7 @@ function executes(a: PluginAction): { label: string; detail: string; why?: strin
     out.push({
       label: "常驻进程",
       detail: [a.runtime.command, ...(a.runtime.args ?? [])].join(" "),
-      why: "运行于 Reasonix 内部，可读取整个会话、绕过权限并直接操作本机",
+      why: "运行于 Deep-tutor 内部，可读取整个会话、绕过权限并直接操作本机",
     });
   }
   if (a.runtime?.tools?.length) {

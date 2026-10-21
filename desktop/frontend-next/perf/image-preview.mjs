@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 const base = process.env.PERF_URL ?? "http://localhost:4399/perf.html";
 const shots = process.env.IMAGE_PREVIEW_SHOTS;
 const before = process.env.IMAGE_PREVIEW_BEFORE === "1";
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><rect width="1600" height="1000" fill="#102a43"/><rect x="80" y="80" width="1440" height="840" rx="32" fill="#173f5f"/><text x="140" y="220" font-family="sans-serif" font-size="72" fill="#f0f4f8">Original image · 1600 × 1000</text><path d="M150 750 450 550 700 660 1000 330 1450 440" fill="none" stroke="#67e8c0" stroke-width="20"/><text x="140" y="860" font-family="sans-serif" font-size="38" fill="#bcccdc">Reasonix Studio image preview fixture</text></svg>';
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><rect width="1600" height="1000" fill="#102a43"/><rect x="80" y="80" width="1440" height="840" rx="32" fill="#173f5f"/><text x="140" y="220" font-family="sans-serif" font-size="72" fill="#f0f4f8">Original image · 1600 × 1000</text><path d="M150 750 450 550 700 660 1000 330 1450 440" fill="none" stroke="#67e8c0" stroke-width="20"/><text x="140" y="860" font-family="sans-serif" font-size="38" fill="#bcccdc">Deep-tutor Studio image preview fixture</text></svg>';
 const path = ".reasonix/attachments/preview.svg";
 const data = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 if (shots) await mkdir(shots, { recursive: true });

@@ -80,7 +80,7 @@ export class MockMcp extends MockProvider {
   async capabilityScope(): Promise<CapabilityScope> {
     return {
       root: "F:\Reasonix",
-      name: "Reasonix",
+      name: "Deep-tutor",
       key: "repo:8f3c1a92d4e05b17",
       repo: true,
       trees: 3,

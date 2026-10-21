@@ -119,7 +119,7 @@ function cloudRemoteNote(status: CloudRemoteStatus | undefined): string {
     case "relay_refused":
       return t("中转服务拒绝了这台设备的连接，请稍后重试。");
     default:
-      return t("登录 Reasonix 账号后，可生成在外网也能使用的连接二维码。");
+      return t("登录 Deep-tutor 账号后，可生成在外网也能使用的连接二维码。");
   }
 }
 

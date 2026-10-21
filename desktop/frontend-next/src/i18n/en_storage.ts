@@ -3,15 +3,15 @@
 // per section and had grown past its ceiling — the grouping is the same.
 export const EN_STORAGE: Record<string, string> = {
   "找回旧版会话": "Recover older sessions",
-  "从旧版 Reasonix 导入": "Import from an older Reasonix installation",
+  "从旧版 Deep-tutor 导入": "Import from an older Deep-tutor installation",
   "选择旧版的数据文件夹。扫描只会复制会话，不会移动或删除原文件；找不到原工作区的会话会归入当前工作区。":
     "Choose the older data folder. The scan only copies sessions and never moves or deletes the originals; sessions whose workspace no longer exists are placed in the current workspace.",
   "选择旧版数据目录…": "Choose older data folder…",
   "正在扫描…": "Scanning…",
   "已找回 {n} 个会话。": "Recovered {n} sessions.",
   "没有发现尚未导入的旧会话。": "Nothing new to import.",
-  "这个文件夹里没有找到旧版会话。请选择 Reasonix 的数据文件夹（里面有 sessions、projects 或 desktop-sessions-v5）。":
-    "No older sessions were found in this folder. Pick the Reasonix data folder (the one holding sessions, projects or desktop-sessions-v5).",
+  "这个文件夹里没有找到旧版会话。请选择 Deep-tutor 的数据文件夹（里面有 sessions、projects 或 desktop-sessions-v5）。":
+    "No older sessions were found in this folder. Pick the Deep-tutor data folder (the one holding sessions, projects or desktop-sessions-v5).",
   "有 {n} 项无法读取。": "{n} items could not be read.",
   "复制路径：{name}": "Copy path: {name}",
   "有 {n} 个会话没有导入": "{n} sessions were not imported",
@@ -23,7 +23,7 @@ export const EN_STORAGE: Record<string, string> = {
   没有读取权限: "No permission to read it",
   文件已损坏: "The file is damaged",
   复制到新位置时失败: "Copying it to the new location failed",
-  "未能扫描这个文件夹。请确认它是旧版 Reasonix 的数据目录。": "This folder could not be scanned. Make sure it is an older Reasonix data folder.",
+  "未能扫描这个文件夹。请确认它是旧版 Deep-tutor 的数据目录。": "This folder could not be scanned. Make sure it is an older Deep-tutor data folder.",
   存储: "Storage",
   "数据的存储位置与占用空间。会话和索引会持续增长，配置和凭据不会，因此只有前者可以迁移。迁移在重启后生效。":
     "Where the data is written and how much space it uses. Sessions and indexes keep growing while configuration and credentials do not, so only the former can be moved. A move takes effect after a restart.",

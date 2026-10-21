@@ -73,7 +73,7 @@ class BrowserProtocol {
     const params = msg.params || {};
     switch (msg.method) {
       case "Browser.getVersion":
-        return reply({ protocolVersion: "1.3", product: "Reasonix Studio" });
+        return reply({ protocolVersion: "1.3", product: "Deep-tutor Studio" });
       case "Target.setDiscoverTargets":
       case "Browser.setDownloadBehavior":
         return reply({});

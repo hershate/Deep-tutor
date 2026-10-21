@@ -53,7 +53,7 @@ interface Props {
   port: AgentPort;
   view: TutorView;
   onGo: (view: TutorView) => void;
-  /** Leaves the tutor for the agent chat, where Reasonix's full surface lives. */
+  /** Leaves the tutor for the agent chat, where Deep-tutor's full surface lives. */
   onChat: () => void;
   /** Opens the app settings — the model the tutor generates with is set there. */
   onSettings: () => void;

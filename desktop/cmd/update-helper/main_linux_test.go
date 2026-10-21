@@ -291,8 +291,8 @@ func baseFakeDeps(p *installProbe) installDeps {
 func writeInstallInputs(t *testing.T) (pkg, sig string) {
 	t.Helper()
 	dir := tempdir.New(t)
-	pkg = filepath.Join(dir, "Reasonix.deb")
-	sig = filepath.Join(dir, "Reasonix.deb.minisig")
+	pkg = filepath.Join(dir, "Deep-tutor.deb")
+	sig = filepath.Join(dir, "Deep-tutor.deb.minisig")
 	if err := os.WriteFile(pkg, []byte("deb-payload"), 0o600); err != nil {
 		t.Fatal(err)
 	}

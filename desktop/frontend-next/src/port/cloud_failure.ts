@@ -36,7 +36,7 @@ export function failureView({ code, retryAfterS }: FailureDetail): FailureView {
       return {
         ...reconnect,
         title: t("无法连接远程服务"),
-        body: t("当前网络访问不到 Reasonix 远程服务，可能是网络受限或服务暂时中断。请切换网络后重新连接。"),
+        body: t("当前网络访问不到 Deep-tutor 远程服务，可能是网络受限或服务暂时中断。请切换网络后重新连接。"),
       };
     case "origin_rejected":
       return {

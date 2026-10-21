@@ -255,7 +255,7 @@ export function Sidebar({
       {over && !collapsed && !adder.busy && <div className="rail-drop" role="status"><StudioIcon name="folder" /><span>{t("松开以添加项目文件夹")}</span></div>}
       <div className="railscroll">
       <div className="studio-rail-head">
-        <div className="studio-brand" aria-label="Reasonix Studio">
+        <div className="studio-brand" aria-label="Deep-tutor Studio">
           <span className="studio-brand-lockup" aria-hidden="true">
             <img className="studio-brand-logo" src={logoWordmark} alt="" draggable={false} />
             <small className="studio-brand-sub">studio</small>

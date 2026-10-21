@@ -23,7 +23,7 @@ it("labels the active model with its alias while keeping the raw reference in de
 // The workspace's git answer, the way /workspace/git words it. Tests that name
 // an override get it; the rest get a plain repository on main.
 const git = (over: Partial<WorkspaceGit> = {}): WorkspaceGit =>
-  ({ repo: true, name: "reasonix", branch: "main", detached: false, added: 0, removed: 0, untracked: 0, ...over });
+  ({ repo: true, name: "deep-tutor", branch: "main", detached: false, added: 0, removed: 0, untracked: 0, ...over });
 
 const status = (over: Partial<SessionStatus> = {}) =>
   ({

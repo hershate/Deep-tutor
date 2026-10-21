@@ -12,7 +12,7 @@ function explain(reason: string): string {
     return t("无法建立安全连接。这个网站可能只支持 http，或者要求客户端证书。");
   }
   if (reason.startsWith("ERR_PROXY_") || reason.startsWith("ERR_TUNNEL_")) {
-    return t("连不上系统代理。内置浏览器使用系统的代理设置，而不是 Reasonix 设置里的网络代理。");
+    return t("连不上系统代理。内置浏览器使用系统的代理设置，而不是 Deep-tutor 设置里的网络代理。");
   }
   switch (reason) {
     case "ERR_NAME_NOT_RESOLVED":

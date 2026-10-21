@@ -484,7 +484,7 @@ export function EditConn({
                 rows={3}
                 value={heads}
                 spellCheck={false}
-                placeholder={"HTTP-Referer: https://example.com\nX-Title: Reasonix"}
+                placeholder={"HTTP-Referer: https://example.com\nX-Title: Deep-tutor"}
                 onChange={(e) => setHeads(e.target.value)}
               />
               <i className="tip">{t("每行一个「名称: 值」。中转站通常用它识别站点；密钥仍填写在上方。")}</i>

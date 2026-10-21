@@ -184,7 +184,7 @@ func TestGenManifestIgnoresUnknownNativePackages(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{
 		"Reasonix-linux-amd64.tar.gz",
-		"Reasonix-mystery.deb",
+		"Deep-tutor-mystery.deb",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte(n), 0o644); err != nil {
 			t.Fatal(err)

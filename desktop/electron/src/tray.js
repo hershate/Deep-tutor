@@ -28,7 +28,7 @@ function installTray(host, { onOpen, onQuit }, electron = require("electron")) {
     const words = state.fold?.labels ?? {};
     const shown = JSON.stringify([line, words, !!state.prefs?.closeToTray]);
     if (!force && shown === painted) return;
-    icon.setToolTip(line ? `Reasonix Studio — ${line}` : "Reasonix Studio");
+    icon.setToolTip(line ? `Deep-tutor Studio — ${line}` : "Deep-tutor Studio");
     icon.setContextMenu(
       Menu.buildFromTemplate([
         { label: words.open ?? "Open", click: onOpen },

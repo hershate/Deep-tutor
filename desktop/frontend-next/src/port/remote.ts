@@ -59,7 +59,7 @@ export const REMOTE_STEPS = ["detect", "install", "waiting_lock", "launch", "hea
 
 export const REMOTE_STEP_LABEL: Record<string, string> = {
   detect: "探测平台",
-  install: "安装 reasonix",
+  install: "安装 deep-tutor",
   waiting_lock: "等待其他连接",
   launch: "启动 serve",
   health_check: "等待就绪",

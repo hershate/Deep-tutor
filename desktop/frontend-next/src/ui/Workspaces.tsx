@@ -280,7 +280,7 @@ function WorkspacesView({ hub, tree, treeRead, runtimes, active, folded, reload,
         null,
         2,
       );
-      const clean = (session.title || exported.name || session.name).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "reasonix-session";
+      const clean = (session.title || exported.name || session.name).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "deep-tutor-session";
       const filename = `${clean}.json`;
       const saved = await host().saveText(filename, content);
       if (saved === null) download(filename, content);
@@ -607,7 +607,7 @@ function WorkspacesView({ hub, tree, treeRead, runtimes, active, folded, reload,
                           </button>
                         )}
                         {session.legacy && (
-                          <span className="sesslegacy" title={t("由 Reasonix 1.x 创建：Studio 只读打开，继续对话会另存为新会话")} aria-label={t("由 Reasonix 1.x 创建：Studio 只读打开，继续对话会另存为新会话")}>{t("旧")}</span>
+                          <span className="sesslegacy" title={t("由 Deep-tutor 1.x 创建：Studio 只读打开，继续对话会另存为新会话")} aria-label={t("由 Deep-tutor 1.x 创建：Studio 只读打开，继续对话会另存为新会话")}>{t("旧")}</span>
                         )}
                         <span className="sessquick">
                           <button

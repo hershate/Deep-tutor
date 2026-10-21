@@ -744,7 +744,7 @@ export function Settings({ hub, onError, port, networkPort, localWorkspacePort, 
           {at === "account" && (
             <Group id="account"
               title={t("账号")}
-              hint={t("Reasonix 本身不需要账号，仅在需要联网的功能中使用：社区发帖、崩溃问题跟进，以及后续的技能发布。")}
+              hint={t("Deep-tutor 本身不需要账号，仅在需要联网的功能中使用：社区发帖、崩溃问题跟进，以及后续的技能发布。")}
             >
               <Account port={port} state={acct} unread={accountUnread} reload={reloadAccount} />
             </Group>

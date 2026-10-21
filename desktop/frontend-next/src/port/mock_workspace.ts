@@ -7,7 +7,7 @@ export class MockWorkspace extends MockFeedback {
   async openFile() {}
 
   // Held in a field so a switch is visible to the next read, as the kernel's endpoints keep.
-  branchState: WorkspaceGit = { repo: true, name: "reasonix", branch: "main", detached: false, added: 2, removed: 1, untracked: 3 };
+  branchState: WorkspaceGit = { repo: true, name: "deep-tutor", branch: "main", detached: false, added: 2, removed: 1, untracked: 3 };
 
   async workspaceGit(): Promise<WorkspaceGit> {
     return { ...this.branchState };

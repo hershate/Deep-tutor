@@ -114,7 +114,7 @@ export const EN_WINDOW: Record<string, string> = {
   "在外部浏览器打开": "Open in external browser",
   "请输入有效的 http 或 https 地址": "Enter a valid http or https address",
   "不能直接打开网络共享路径。请先把文件放到本机，再输入它的本机路径。": "A network share cannot be opened directly. Copy the file to this machine and type its local path.",
-  "Reasonix 内置 Browser": "Reasonix built-in Browser",
+  "Deep-tutor 内置 Browser": "Deep-tutor built-in Browser",
   "部分网站可能禁止嵌入；此时可在外部浏览器打开。": "Some sites block embedding; open them in your external browser instead.",
   "正在打开网页…": "Opening page…",
   "收起工作台": "Collapse the workbench",

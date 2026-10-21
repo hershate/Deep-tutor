@@ -66,14 +66,14 @@ export function Welcome({ variant, children, replay, onDone }: Props) {
 
       <div className="oobe-scene">
         <div className="oobe-lockup">
-          <img className="oobe-mark" src={logoWordmark} alt="Reasonix" draggable={false} />
-          <h1 className="oobe-brand" aria-label="Reasonix Studio">studio</h1>
+          <img className="oobe-mark" src={logoWordmark} alt="Deep-tutor" draggable={false} />
+          <h1 className="oobe-brand" aria-label="Deep-tutor Studio">studio</h1>
         </div>
         <p className="oobe-sub">coding agent</p>
 
         <div className="oobe-lines" aria-live="polite">
           <div className="oobe-line l1">
-            <b>{t("欢迎使用 Reasonix。")}</b>
+            <b>{t("欢迎使用 Deep-tutor。")}</b>
           </div>
           <div className="oobe-line l2">
             <b>{t("交付一项任务，由它完整执行。")}</b>

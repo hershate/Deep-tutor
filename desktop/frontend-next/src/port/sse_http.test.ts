@@ -238,11 +238,11 @@ describe("a failed call", () => {
   // http.Error writes plain text, and parsing the body as JSON first threw the
   // only account of the failure away: users reported "/providers/edit: 500".
   it("carries a plain-text reason through", async () => {
-    answer(500, "save user config: config is locked by another Reasonix process", "text/plain");
+    answer(500, "save user config: config is locked by another Deep-tutor process", "text/plain");
     const err = (await new Probe().call("/providers/edit").catch((e) => e)) as HttpError;
     expect(err).toBeInstanceOf(HttpError);
     expect(err.status).toBe(500);
-    expect(err.message).toContain("locked by another Reasonix process");
+    expect(err.message).toContain("locked by another Deep-tutor process");
   });
 
   it("still prefers the refusal envelope when there is one", async () => {

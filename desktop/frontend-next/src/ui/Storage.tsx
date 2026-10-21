@@ -152,7 +152,7 @@ export function Storage({ port, hub, workspace, onRecovered }: { port: AgentPort
       setRecovery(result);
       onRecovered();
     } catch {
-      setRecoveryError(t("未能扫描这个文件夹。请确认它是旧版 Reasonix 的数据目录。"));
+      setRecoveryError(t("未能扫描这个文件夹。请确认它是旧版 Deep-tutor 的数据目录。"));
     } finally {
       setRecovering(false);
     }
@@ -170,7 +170,7 @@ export function Storage({ port, hub, workspace, onRecovered }: { port: AgentPort
         <h3 className="lbl">{t("找回旧版会话")}</h3>
         <div className="item">
           <div className="l">
-            <b>{t("从旧版 Reasonix 导入")}</b>
+            <b>{t("从旧版 Deep-tutor 导入")}</b>
             <span className="hint">{t("选择旧版的数据文件夹。扫描只会复制会话，不会移动或删除原文件；找不到原工作区的会话会归入当前工作区。")}</span>
             {recovery && (
               <span className="ready">
@@ -178,7 +178,7 @@ export function Storage({ port, hub, workspace, onRecovered }: { port: AgentPort
                   ? t("已找回 {n} 个会话。", { n: recovery.imported })
                   : recovery.recognised
                     ? t("没有发现尚未导入的旧会话。")
-                    : t("这个文件夹里没有找到旧版会话。请选择 Reasonix 的数据文件夹（里面有 sessions、projects 或 desktop-sessions-v5）。")}
+                    : t("这个文件夹里没有找到旧版会话。请选择 Deep-tutor 的数据文件夹（里面有 sessions、projects 或 desktop-sessions-v5）。")}
                 {recovery.warnings > 0 ? " " + t("有 {n} 项无法读取。", { n: recovery.warnings }) : null}
               </span>
             )}

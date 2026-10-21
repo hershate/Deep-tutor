@@ -65,7 +65,7 @@ describe("the study tutor surface", () => {
     fireEvent.click(screen.getByRole("button", { name: "聊天" }));
     // The conversation pane takes the window; the study pane stays mounted
     // behind it rather than being torn down for a surface swap.
-    expect(await screen.findByLabelText("Reasonix Studio")).toBeTruthy();
+    expect(await screen.findByLabelText("Deep-tutor Studio")).toBeTruthy();
     expect(await screen.findByRole("button", { name: "发送反馈" })).toBeTruthy();
     expect(document.querySelector(".pane-tutor")?.getAttribute("aria-hidden")).toBe("true");
     expect(!!document.querySelector(".panes > .pane[data-active]")).toBe(true);
@@ -84,7 +84,7 @@ describe("the study tutor surface", () => {
     // The tutor's pane takes the window back; the chat pane stays mounted
     // behind it rather than being torn down for a surface swap.
     expect(await screen.findByRole("navigation", { name: "学习导航" })).toBeTruthy();
-    expect(screen.getByLabelText("Reasonix Studio")).toBeTruthy();
+    expect(screen.getByLabelText("Deep-tutor Studio")).toBeTruthy();
   });
 
   it("carries the rail button's click to the host unchanged", () => {
@@ -106,7 +106,7 @@ describe("the study tutor surface", () => {
   it("opens the chat surface from a #chat address and clears the hash", async () => {
     window.location.hash = "#chat";
     render(<App hub={hub()} />);
-    expect(await screen.findByLabelText("Reasonix Studio")).toBeTruthy();
+    expect(await screen.findByLabelText("Deep-tutor Studio")).toBeTruthy();
     // A hand-off that names chat still leaves the study pane mounted in the
     // one window; it is simply not the pane in front.
     expect(document.querySelector(".pane-tutor")?.getAttribute("aria-hidden")).toBe("true");

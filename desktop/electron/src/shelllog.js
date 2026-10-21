@@ -179,9 +179,9 @@ function startupFailure(locale, reason, logDir, code) {
   const hint = HINTS[code]?.[zh ? 1 : 0];
   const body = hint ? `${reason}\n\n${hint}` : reason;
   if (zh) {
-    return { title: "Reasonix Studio 无法启动", detail: `${body}\n\n日志位于：\n${logDir}` };
+    return { title: "Deep-tutor Studio 无法启动", detail: `${body}\n\n日志位于：\n${logDir}` };
   }
-  return { title: "Reasonix Studio could not start", detail: `${body}\n\nLogs are in:\n${logDir}` };
+  return { title: "Deep-tutor Studio could not start", detail: `${body}\n\nLogs are in:\n${logDir}` };
 }
 
 // failStartup is the one way a launch that cannot come up ends: recorded, told

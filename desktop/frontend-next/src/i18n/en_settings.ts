@@ -91,7 +91,7 @@ export const EN_SETTINGS: Record<string, string> = {
     "This endpoint has {n} more models not in the list: {names}. Use Read available models from provider to add them.",
   "添加来源": "Add source",
   "完成标准": "Completion standard",
-  "系统根据任务风险自动决定需要的验证程度，不再要求手动选择均衡或交付。": "Reasonix chooses the needed verification level from task risk; there is no longer a Balanced or Delivery choice.",
+  "系统根据任务风险自动决定需要的验证程度，不再要求手动选择均衡或交付。": "Deep-tutor chooses the needed verification level from task risk; there is no longer a Balanced or Delivery choice.",
   "日常问答保持轻量；涉及文件修改、代码执行或明确交付物时自动增加验证与复核。": "Everyday questions stay lightweight; file changes, code execution, and explicit deliverables automatically receive more verification and review.",
   "设置没能打开": "Settings did not open",
   "重新载入": "Reload",
@@ -473,8 +473,8 @@ export const EN_SETTINGS: Record<string, string> = {
   "模型请求、MCP 远程服务和网页抓取都经由此处。配置错误通常表现为聊天无响应，建议先测试连接，测试会指出中断的环节。":
     "Model requests, remote MCP services and web fetches all go through here. A wrong setting usually shows up as a chat that simply stops responding, so test the connection first — the test names the step that fails.",
   "账号": "Account",
-  "Reasonix 本身不需要账号，仅在需要联网的功能中使用：社区发帖、崩溃问题跟进，以及后续的技能发布。":
-    "Reasonix itself needs no account. One is used only where the network is unavoidable: community posts, crash follow-ups, and later, publishing skills.",
+  "Deep-tutor 本身不需要账号，仅在需要联网的功能中使用：社区发帖、崩溃问题跟进，以及后续的技能发布。":
+    "Deep-tutor itself needs no account. One is used only where the network is unavoidable: community posts, crash follow-ups, and later, publishing skills.",
   "已登录": "Signed in",
   "未登录": "Not signed in",
   "版本": "Version",
@@ -591,7 +591,7 @@ export const EN_SETTINGS: Record<string, string> = {
   "折叠了 {n} 条消息": "Folded {n} messages",
 
   // ── 首次连接 ─────────────────────────────────────────────────────
-  "开始设置": "Set up Reasonix",
+  "开始设置": "Set up Deep-tutor",
   "连接模型服务": "Connect a model service",
   "地址、协议与凭据": "Address, protocol, and credentials",
   "确认模型与能力": "Confirm the model and its capabilities",
@@ -603,7 +603,7 @@ export const EN_SETTINGS: Record<string, string> = {
     "Local first · credentials stay in secure system storage · nothing is sent before you connect",
   "首先连接模型服务": "Connect a model service first",
   "填写地址与 key，系统会探测可用协议、模型清单与读图能力；无法自动区分的协议由你确认。":
-    "Give it an address and a key. Reasonix probes the available protocols, model catalog, and image support; you confirm protocols it cannot tell apart.",
+    "Give it an address and a key. Deep-tutor probes the available protocols, model catalog, and image support; you confirm protocols it cannot tell apart.",
   "key 保存在本机配置中，不会上传至任何第三方。模型、推理强度与执行设定均有默认值，可随时在输入框上方调整。":
     "The key goes into this machine's config and is uploaded nowhere. Model, reasoning effort and execution settings all have defaults you can change from the composer at any time.",
   "常用服务": "Common services",
@@ -795,8 +795,8 @@ export const EN_SETTINGS: Record<string, string> = {
   "自定义来源": "Custom source",
   "按服务文档填写。连接检测只帮助读取模型，不会替你决定协议。": "Use the service documentation. Connection checks can read models, but do not choose the protocol for you.",
   "接口协议": "API protocol",
-  "填写服务的基地址，不要带 /v1/systemone；Reasonix 会自己在后面追加。本地的 Ollama 之类地址不适用这个协议。":
-    "Enter the service's base address without /v1/systemone; Reasonix appends it. An address such as a local Ollama does not speak this protocol.",
+  "填写服务的基地址，不要带 /v1/systemone；Deep-tutor 会自己在后面追加。本地的 Ollama 之类地址不适用这个协议。":
+    "Enter the service's base address without /v1/systemone; Deep-tutor appends it. An address such as a local Ollama does not speak this protocol.",
   "以服务商文档为准；模型列表无法可靠判断聊天协议。": "Follow the provider documentation; a model list cannot reliably identify the chat protocol.",
   "模型限制": "Model limits",
   "作为该来源中模型的默认值": "Defaults for models from this source",
@@ -951,7 +951,7 @@ export const EN_SETTINGS: Record<string, string> = {
   "以下项目会在本机运行程序": "These run programs on this machine",
   "以下项目会改变可用能力": "These change what is available",
   "以下项目仅添加文件": "These only add files",
-  "运行于 Reasonix 内部，可读取整个会话、绕过权限并直接操作本机": "Runs inside Reasonix, can read the whole session, bypass permissions and operate this machine directly",
+  "运行于 Deep-tutor 内部，可读取整个会话、绕过权限并直接操作本机": "Runs inside Deep-tutor, can read the whole session, bypass permissions and operate this machine directly",
   "自动化钩子": "Automatic hooks",
   "在会话生命周期内自动执行": "Run automatically during the session lifecycle",
   "为 agent 提供的能力与内置工具等同": "Provides capabilities equivalent to the agent's built-in tools",
@@ -1075,7 +1075,7 @@ export const EN_SETTINGS: Record<string, string> = {
   "天": "days",
   "无法读取自动归档设置。": "Could not read the auto-archive settings.",
   "旧": "Old",
-  "由 Reasonix 1.x 创建：Studio 只读打开，继续对话会另存为新会话": "Kept by Reasonix 1.x: Studio opens it read-only; continuing it saves a new session",
+  "由 Deep-tutor 1.x 创建：Studio 只读打开，继续对话会另存为新会话": "Kept by Deep-tutor 1.x: Studio opens it read-only; continuing it saves a new session",
   "已归档": "Archived",
   "已置顶": "Pinned",
   "已自动归档 {n} 个会话，可在“已归档”中恢复。": "{n} conversations were archived automatically. You can restore them from Archived.",

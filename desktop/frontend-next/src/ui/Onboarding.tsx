@@ -173,7 +173,7 @@ export function Onboarding({ port, setup, onDone }: Props) {
     <div className="onb-stage">
       <header className="onb-brandbar" onDoubleClick={zoomOnTitleBar}>
         <span className="onb-lockup">
-          <img className="onb-wordmark" src={logoWordmark} alt="Reasonix Studio" draggable={false} />
+          <img className="onb-wordmark" src={logoWordmark} alt="Deep-tutor Studio" draggable={false} />
           <small className="onb-brandsub" aria-hidden="true">studio</small>
         </span>
         <WindowControls />

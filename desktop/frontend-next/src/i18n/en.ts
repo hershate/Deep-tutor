@@ -68,7 +68,7 @@ export const EN: Record<string, string> = {
   "查看图片 {name}": "Preview image {name}",
   "关闭图片预览": "Close image preview",
   "放大的工具截图": "The enlarged tool screenshot",
-  "描述任务，其余交给 Reasonix": "Describe the task; Reasonix takes it from there",
+  "描述任务，其余交给 Deep-tutor": "Describe the task; Deep-tutor takes it from there",
   "要求扩大可改范围": "Asking to widen what it may change",
   "这个子任务声明之外的文件": "A file outside this subtask's declared paths",
   "这个会话正在别处运行，这里只能看": "Running in another window — read-only here",
@@ -823,7 +823,7 @@ export const EN: Record<string, string> = {
   "bash 命令所作的修改没有快照": "Changes made by bash commands have no snapshot",
 
   // ── 开场 ─────────────────────────────────────────────────────────
-  "欢迎使用 Reasonix。": "Welcome to Reasonix.",
+  "欢迎使用 Deep-tutor。": "Welcome to Deep-tutor.",
   "交付一项任务，由它完整执行。": "You hand it a task, and it sees the task through.",
   "读取代码、查证、执行、验证 —— 而非仅给出一段建议。":
     "Reading code, checking facts, doing the work, verifying it — not handing you advice and stopping there.",
@@ -919,12 +919,12 @@ export const EN: Record<string, string> = {
   "用户名": "Username",
   "密码": "Password",
   "站点提示：{realm}。": "The site says: {realm}. ",
-  "用户名和密码只交给这个网页，不会保存，也不会发给 Reasonix 或模型。": "The username and password go to this page only. They are not saved, and neither Reasonix nor the model sees them.",
+  "用户名和密码只交给这个网页，不会保存，也不会发给 Deep-tutor 或模型。": "The username and password go to this page only. They are not saved, and neither Deep-tutor nor the model sees them.",
   "这个网页打不开": "This page could not be opened",
   "网页没有加载成功。": "The page did not load.",
   "这个网站的证书不受信任，常见于内网的自签名证书或公司私有证书。": "The site's certificate is not trusted. This is common for self-signed or company-issued certificates on an intranet.",
   "无法建立安全连接。这个网站可能只支持 http，或者要求客户端证书。": "A secure connection could not be made. The site may serve only http, or require a client certificate.",
-  "连不上系统代理。内置浏览器使用系统的代理设置，而不是 Reasonix 设置里的网络代理。": "The system proxy could not be reached. The built-in browser uses the operating system's proxy settings, not the network proxy in Reasonix settings.",
+  "连不上系统代理。内置浏览器使用系统的代理设置，而不是 Deep-tutor 设置里的网络代理。": "The system proxy could not be reached. The built-in browser uses the operating system's proxy settings, not the network proxy in Deep-tutor settings.",
   "找不到这个地址。内网域名需要连上公司网络或 VPN 才能解析。": "This address could not be found. Intranet names resolve only on the company network or VPN.",
   "找不到这个文件。请确认路径正确，文件没有被移动或删除。": "This file could not be found. Check the path, and that the file has not been moved or deleted.",
   "没有权限读取这个文件。": "You do not have permission to read this file.",

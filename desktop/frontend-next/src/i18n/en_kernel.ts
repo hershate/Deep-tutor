@@ -108,7 +108,7 @@ export const EN_KERNEL: Record<string, string> = {
   "这个来源里没有可安装的内容：{detail}": "There is nothing installable in this source: {detail}",
   "来源里的清单没有通过校验：{detail}": "The manifest in the source did not validate: {detail}",
   "来源与所选类型不符：{detail}": "The source does not match the chosen kind: {detail}",
-  "这个插件没有 Reasonix 能运行的能力：{detail}": "This plugin has no capability Reasonix can run: {detail}",
+  "这个插件没有 Deep-tutor 能运行的能力：{detail}": "This plugin has no capability Deep-tutor can run: {detail}",
   "来源要求先登录或授权：{detail}": "The source requires signing in or authorisation first: {detail}",
   "找不到运行它所需的命令或运行时：{detail}": "The command or runtime it needs was not found: {detail}",
   "目标已经存在：{detail}": "The target already exists: {detail}",
@@ -154,8 +154,8 @@ export const EN_KERNEL: Record<string, string> = {
   "没有可用的当前模型，无法应用文件夹更改": "There is no current model to apply the folder change on.",
   "需要一个已存在的文件夹的绝对路径": "Use the absolute path of a folder that exists.",
   "这个文件夹已经在当前工作区里": "This folder is already inside the current workspace.",
-  "这个文件夹范围太大（磁盘根目录，或包含你的主目录或 Reasonix 数据目录）": "This folder is too broad: it is a drive root or contains your home or Reasonix data folder.",
-  "这个文件夹含有或位于密钥、凭据或 Reasonix 自己的数据目录里，不能授予写入权限": "This folder holds or sits inside keys, credentials or Reasonix's own data, so it cannot be granted write access.",
+  "这个文件夹范围太大（磁盘根目录，或包含你的主目录或 Deep-tutor 数据目录）": "This folder is too broad: it is a drive root or contains your home or Deep-tutor data folder.",
+  "这个文件夹含有或位于密钥、凭据或 Deep-tutor 自己的数据目录里，不能授予写入权限": "This folder holds or sits inside keys, credentials or Deep-tutor's own data, so it cannot be granted write access.",
   "这个文件夹不属于当前用户，不能授予写入权限": "This folder is not owned by the current user, so it cannot be granted write access.",
   "这个文件夹和已有的可写位置（临时目录、工具缓存或另一个额外文件夹）重叠": "This folder overlaps a location that is already writable (temp, a tool cache or another extra folder).",
   "没有这个预设": "No curated preset has this id.",
@@ -170,8 +170,8 @@ export const EN_KERNEL: Record<string, string> = {
   "本次请求未包含阈值，未做任何修改": "The request carried no threshold, so nothing changed",
   "{host} 上的内核没有应答，连接可能断了": "The kernel on {host} is not answering — the connection may be down",
   "{host} 上的内核没有接受这次请求：{detail}": "The kernel on {host} did not accept this request: {detail}",
-  "{host} 上的 reasonix 版本过旧，无法打开面板 —— 请先将该机器上的 reasonix 升级至与本机同一代":
-    "The reasonix on {host} is too old to open a pane — upgrade that machine's reasonix to the same line as this one first",
+  "{host} 上的 deep-tutor 版本过旧，无法打开面板 —— 请先将该机器上的 deep-tutor 升级至与本机同一代":
+    "The deep-tutor on {host} is too old to open a pane — upgrade that machine's deep-tutor to the same line as this one first",
   "该内核不负责连接其他机器": "This kernel does not open panes on other machines",
   "请为该机器填写名称": "Give this machine a name",
   "请填写要连接的地址": "Say which address to dial",
@@ -293,8 +293,8 @@ export const EN_KERNEL: Record<string, string> = {
   "检查失败，没有具体原因": "The check failed and gave no reason",
   "无法连接该地址。请检查网络是否通畅，以及地址是否有误":
     "Cannot reach that address. Check the network, or whether the address has a typo",
-  "地址可以连通，但没有 System One 决策接口。请填写服务的基地址，不要带 /v1/systemone，Reasonix 会自己在后面追加":
-    "The address answers, but has no System One decision endpoint. Enter the service's base address without /v1/systemone — Reasonix appends it",
+  "地址可以连通，但没有 System One 决策接口。请填写服务的基地址，不要带 /v1/systemone，Deep-tutor 会自己在后面追加":
+    "The address answers, but has no System One decision endpoint. Enter the service's base address without /v1/systemone — Deep-tutor appends it",
   "该地址有响应，但返回的不是 System One 的决策结果。请确认这是决策协议服务的基地址":
     "The address answers, but not with a System One decision. Check that it is the decision service's base address",
   "服务拒绝了这次决策请求。请核对模型名与服务文档，具体原因见下方服务返回的内容":
@@ -460,7 +460,7 @@ export const EN_KERNEL: Record<string, string> = {
   "导出没有选中任何文档（知识库为空或都被筛掉了）": "The export selected no documents (the library is empty or everything was filtered out)",
   "文档解析失败，可换解析档位重试": "Parsing failed; retry with the other parse mode",
   "模型响应超时，请稍后重试": "The model response timed out; retry shortly",
-  "备份文件不是有效的 Reasonix 导师备份": "The file is not a valid Reasonix tutor backup",
+  "备份文件不是有效的 Deep-tutor 导师备份": "The file is not a valid Deep-tutor tutor backup",
   "备份文件过大（上限 256MB）": "The backup file is too large (256MB at most)",
   "导入失败已整体回滚，数据未做改动": "The import failed and was rolled back; nothing changed",
   "模型调用失败，请稍后重试": "The model call failed; retry shortly",

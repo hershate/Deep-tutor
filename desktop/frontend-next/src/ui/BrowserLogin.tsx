@@ -46,7 +46,7 @@ function LoginCard({ ask, onAnswer }: { ask: Ask; onAnswer: (username: string, p
         <h2 id="blogin-t">{ask.proxy ? t("代理 {host} 需要登录", { host: where }) : t("{host} 需要登录", { host: where })}</h2>
         <p className="h">
           {ask.realm ? t("站点提示：{realm}。", { realm: ask.realm }) : ""}
-          {t("用户名和密码只交给这个网页，不会保存，也不会发给 Reasonix 或模型。")}
+          {t("用户名和密码只交给这个网页，不会保存，也不会发给 Deep-tutor 或模型。")}
         </p>
         <input
           ref={first}

@@ -2,8 +2,8 @@
 const { BrowserWindow } = require("electron");
 
 const TEXT = {
-  en: ["Reasonix Studio is starting", "The first start after installing or rebooting can take a minute."],
-  zh: ["Reasonix Studio 正在启动", "安装或重启电脑后的首次启动可能需要一分钟。"],
+  en: ["Deep-tutor Studio is starting", "The first start after installing or rebooting can take a minute."],
+  zh: ["Deep-tutor Studio 正在启动", "安装或重启电脑后的首次启动可能需要一分钟。"],
 };
 
 function startingPage(locale) {
@@ -29,7 +29,7 @@ function showStarting(locale) {
     minimizable: false,
     maximizable: false,
     frame: true,
-    title: "Reasonix Studio",
+    title: "Deep-tutor Studio",
     autoHideMenuBar: true,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });

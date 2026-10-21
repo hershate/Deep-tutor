@@ -317,7 +317,7 @@ export function Remotes({ hub, onError }: Props) {
             <span>{t("安装方式")}</span>
             <select
               value={draft.serveInstall || "auto"}
-              title={t("首次连接需在该机器上安装 reasonix")}
+              title={t("首次连接需在该机器上安装 deep-tutor")}
               onChange={(ev) => setDraft((d) => (d ? { ...d, serveInstall: ev.target.value } : d))}
             >
               <option value="auto">{t("自动选择")}</option>

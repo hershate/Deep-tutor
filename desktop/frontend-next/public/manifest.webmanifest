@@ -1,7 +1,7 @@
 {
-  "name": "Reasonix Studio",
+  "name": "Deep-tutor Studio",
   "short_name": "Reasonix",
-  "description": "Control Reasonix Studio from this device",
+  "description": "Control Deep-tutor Studio from this device",
   "id": "./",
   "start_url": "./",
   "scope": "./",

@@ -83,7 +83,7 @@ describe("the two postures that must never be quiet", () => {
   });
 
   // dontAsk is stricter than ask, not looser: it refuses what it would have
-  // asked about. Hidden, it reads as "Reasonix suddenly changes nothing".
+  // asked about. Hidden, it reads as "Deep-tutor suddenly changes nothing".
   it("keeps a session that refuses rather than asks visible, and not as danger", () => {
     const s = at("balanced", "auto", "dontAsk");
     expect(s.ready && s.approval).toBe("不询问");

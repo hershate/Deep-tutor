@@ -18,7 +18,7 @@ it.each(["public", "own"] as const)("shows a blocked %s preview and retries befo
   const valid = { ...await port.planMarket({ slug: "acme/review-kit" }), slug: pkg.slug };
   const blocked: MarketPlan = {
     ok: false, status: "blocked", applied: false, slug: pkg.slug, version: pkg.latestVersion,
-    error: 'install_source: plugin has no compatible capabilities: plugin "empty-claude" has no Reasonix-compatible capabilities; skipped: []',
+    error: 'install_source: plugin has no compatible capabilities: plugin "empty-claude" has no Deep-tutor-compatible capabilities; skipped: []',
     next: "Choose a plugin that exports a supported skill, command, agent, hook, or MCP server.",
   };
   const read = vi.fn().mockResolvedValueOnce(blocked).mockResolvedValue(valid);

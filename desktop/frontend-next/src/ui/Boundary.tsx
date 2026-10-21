@@ -31,7 +31,7 @@ export class Boundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown) {
-    console.warn("[reasonix] a block fell back to its source text:", error);
+    console.warn("[deep-tutor] a block fell back to its source text:", error);
   }
 
   render() {

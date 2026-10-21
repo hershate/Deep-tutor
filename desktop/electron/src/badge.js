@@ -25,7 +25,7 @@ function setUnreadBadge(unread, win, electron = require("electron"), platform = 
       }
       image = electron.nativeImage.createFromBitmap(pixels, { width: 16, height: 16 });
     }
-    win.setOverlayIcon(image, unread ? "Reasonix Studio" : "");
+    win.setOverlayIcon(image, unread ? "Deep-tutor Studio" : "");
   } else {
     electron.app.setBadgeCount(unread ? 1 : 0);
   }

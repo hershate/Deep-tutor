@@ -253,7 +253,7 @@ export function AddProvider({
             disabled={busy || testing}
             spellCheck={false}
           />
-          {wire?.answers === "decision" && <i className="tip">{t("填写服务的基地址，不要带 /v1/systemone；Reasonix 会自己在后面追加。本地的 Ollama 之类地址不适用这个协议。")}</i>}
+          {wire?.answers === "decision" && <i className="tip">{t("填写服务的基地址，不要带 /v1/systemone；Deep-tutor 会自己在后面追加。本地的 Ollama 之类地址不适用这个协议。")}</i>}
         </label>
         <label className="grow full">
           <span>API Key{t(sibling ? "（留空就用现有那个来源的 key）" : "")}</span>
@@ -341,7 +341,7 @@ export function AddProvider({
           <label className="advanced-field">
             <span>{t("额外请求头")}</span>
             <textarea rows={3} value={heads} spellCheck={false}
-              placeholder={"HTTP-Referer: https://example.com\nX-Title: Reasonix"}
+              placeholder={"HTTP-Referer: https://example.com\nX-Title: Deep-tutor"}
               onChange={(e) => setHeads(e.target.value)} />
             <i>{t("每行一个「名称: 值」。API Key 仍填写在上方。")}</i>
           </label>

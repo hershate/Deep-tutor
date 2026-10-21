@@ -57,13 +57,13 @@ it("keeps relay-only controls optional and saves them when disclosed", async () 
   await userEvent.type(screen.getByRole("searchbox", { name: "搜索或添加模型" }), "model-x{enter}");
   await userEvent.click(screen.getByText("高级连接选项"));
   await userEvent.click(screen.getByRole("switch", { name: "发送思考控制" }));
-  await userEvent.type(screen.getByText("额外请求头").parentElement!.querySelector("textarea")!, "X-Title: Reasonix");
+  await userEvent.type(screen.getByText("额外请求头").parentElement!.querySelector("textarea")!, "X-Title: Deep-tutor");
   await userEvent.click(screen.getByRole("button", { name: "添加来源" }));
 
   await waitFor(() => expect(saveProvider).toHaveBeenCalled());
   expect(saveProvider).toHaveBeenCalledWith(expect.objectContaining({
     reasoningProtocol: "none",
-    headers: { "X-Title": "Reasonix" },
+    headers: { "X-Title": "Deep-tutor" },
   }));
 });
 

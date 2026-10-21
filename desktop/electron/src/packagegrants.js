@@ -43,20 +43,20 @@ function unpaintedWindowCause(report, locale) {
   const more = report.refused.length - SHOWN_PATHS;
   if (String(locale).toLowerCase().startsWith("zh")) {
     return {
-      title: "Reasonix Studio 无法打开窗口",
+      title: "Deep-tutor Studio 无法打开窗口",
       detail:
-        "Reasonix Studio 加载的文件上有授予某个 Windows 应用包（AppContainer）的访问项，Chromium 的沙箱进程加载这类文件时会退出。" +
+        "Deep-tutor Studio 加载的文件上有授予某个 Windows 应用包（AppContainer）的访问项，Chromium 的沙箱进程加载这类文件时会退出。" +
         "Studio 尝试移除它们，以下位置被拒绝：\n\n" + shown + (more > 0 ? `\n……另有 ${more} 处` : "") +
-        "\n\n以管理员身份运行一次 Reasonix Studio，它会自行移除这些访问项。",
+        "\n\n以管理员身份运行一次 Deep-tutor Studio，它会自行移除这些访问项。",
     };
   }
   return {
-    title: "Reasonix Studio could not open its window",
+    title: "Deep-tutor Studio could not open its window",
     detail:
-      "Files Reasonix Studio loads carry access entries granting a specific Windows app package (AppContainer), " +
+      "Files Deep-tutor Studio loads carry access entries granting a specific Windows app package (AppContainer), " +
       "and Chromium's sandboxed processes exit while loading such a file. Studio tried to remove them and was refused for:\n\n" +
       shown + (more > 0 ? `\n…and ${more} more` : "") +
-      "\n\nRun Reasonix Studio once as administrator and it will remove them itself.",
+      "\n\nRun Deep-tutor Studio once as administrator and it will remove them itself.",
   };
 }
 

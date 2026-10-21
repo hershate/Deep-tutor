@@ -35,7 +35,7 @@ export class MockExtensions extends MockMarket {
     {
       name: "review-kit", version: "1.4.0", root: "~/.reasonix/plugins/review-kit",
       description: "代码评审的技能与命令", source: "github:acme/review-kit",
-      manifestKind: "reasonix", enabled: true,
+      manifestKind: "deep-tutor", enabled: true,
       skills: [
         { name: "review", description: "按改动范围逐块评审", invocation: "/review-kit:review" },
         { name: "risk", description: "只找会出事的那几处", invocation: "/review-kit:risk" },
@@ -105,8 +105,8 @@ export class MockExtensions extends MockMarket {
           target: "~/.reasonix/plugins/mock-pack", manifestKind: "reasonix",
           skills: ["draft", "polish"], skillCount: 2, commandCount: 1, hookCount: 1,
           riskReasons: [
-            "FULL TRUST: declares a runtime process (bin/pack --serve) that runs inside Reasonix",
-            "registers shell hooks that execute during Reasonix sessions",
+            "FULL TRUST: declares a runtime process (bin/pack --serve) that runs inside Deep-tutor",
+            "registers shell hooks that execute during Deep-tutor sessions",
           ],
           runtime: {
             command: "bin/pack", args: ["--serve"], intercepts: ["input.receive"],
