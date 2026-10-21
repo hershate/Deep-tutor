@@ -12,6 +12,8 @@ import tempfile
 import types
 
 
+import pytest
+
 from app.agent.context import ExecContext
 from app.tools import parse_material as pm_mod
 from app.tools.base import ToolInput
@@ -25,6 +27,19 @@ from app.tools.parse_material import (
 )
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+@pytest.fixture(autouse=True)
+def _reset_whisper_singleton():
+    """每个用例前后丢弃 faster-whisper 模型单例（iter 397 K11）。
+
+    单例是进程级的全局缓存，跨用例残留会让后序用例复用前序用例的替身模型
+    （注入的新替身永远不生效）。模型实现类已进缓存键，但显式 reset 仍保留：
+    它同时清掉「真实模型实例」在测试会话里的驻留。
+    """
+    pm_mod.reset_whisper_model()
+    yield
+    pm_mod.reset_whisper_model()
 
 
 def _ctx() -> ExecContext:

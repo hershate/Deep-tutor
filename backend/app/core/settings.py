@@ -134,6 +134,12 @@ class Settings(BaseSettings):
         description="搜索引擎抓取（bing_web 免 Key 页面抓取）进程级并发上限：跨方案生成/单元补料共享，"
         "防多用户并发触发 Bing 反爬（验证码页）。0=不限",
     )
+    max_concurrent_parses: int = Field(
+        default=2,
+        description="文档解析（marker PDF+OCR / faster-whisper 音视频转写 / tesseract OCR）进程级并发上限："
+        "解析是全站最重的本地计算，每路都吃满 CPU 与内存（whisper 还要驻留一份模型），"
+        "并发无上界时 N 个用户的 N 份解析互相拖慢到全部超时。超额排队而非一起劣化。0=不限",
+    )
     # iter 345 记忆系统：把方案生成旁挂为 run(kind=plan_generation) 进统一 Run 模型
     # （side-channel overlay，不动 Orchestrator/SSE 既有行为；默认关闭，验证后再开）
     agent_runs_enabled: bool = Field(default=False, description="方案生成旁挂 Run 模型（默认关闭）")

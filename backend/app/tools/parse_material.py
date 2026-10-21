@@ -19,11 +19,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
+from app.core.concurrency import parse_slot
 from app.core.settings import settings
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
@@ -208,10 +211,11 @@ async def _parse_file_dispatch(source: str, parse_mode: str = "full") -> tuple[s
             raise _ParseError("unsupported_format", f"文件不存在: {source}")
         handler = entry.handler
         try:
-            if asyncio.iscoroutinefunction(handler):
-                text, meta = await handler(path, parse_mode)
-            else:
-                text, meta = await asyncio.to_thread(handler, path, parse_mode)
+            async with parse_slot():
+                if asyncio.iscoroutinefunction(handler):
+                    text, meta = await handler(path, parse_mode)
+                else:
+                    text, meta = await asyncio.to_thread(handler, path, parse_mode)
         except _ParseError:
             raise
         except Exception as exc:  # noqa: BLE001  插件解析失败 -> 明确 parse_failed
@@ -221,7 +225,8 @@ async def _parse_file_dispatch(source: str, parse_mode: str = "full") -> tuple[s
             ) from exc
         return text, (meta or {})
     # 无插件解析器 -> 内置 dispatch（行为与改动前一致）
-    return await asyncio.to_thread(_parse_file, source, parse_mode)
+    async with parse_slot():
+        return await asyncio.to_thread(_parse_file, source, parse_mode)
 
 
 def _parse_file(source: str, parse_mode: str = "full") -> tuple[str, dict]:
@@ -304,6 +309,72 @@ def _parse_image(path: Path) -> tuple[str, dict]:
 _WHISPER_COMPUTE_TYPE = "int8"  # CPU 友好（本地单用户默认无 GPU）
 _FFPROBE_TIMEOUT = 30.0
 
+# 进程内单例的 faster-whisper 模型（iter 397 K11）。
+#
+# 此前每次解析都新建 WhisperModel：模型权重要载入内存（base 档数百 MB），
+# 每次解析重载一遍——单用户连续解析反复付加载代价，多用户并发解析则是 N 份
+# 模型同时驻留（内存放大 N 倍，叠加解析并发槽仍会在槽内同时持有多份模型）。
+#
+# 缓存键 = (模型名, WhisperModel 类 identity)：
+# - 模型名变了要重建（设置改了模型档位）；
+# - 类 identity 变了也要重建——运行期依赖被替换（插件注入的替身、热补丁、
+#   测试注入的假 faster_whisper）时，旧的实例属于另一套实现，继续复用会
+#   让「注入的新实现」永远不生效（替身调用数恒为 0，实测踩过）。
+_WHISPER_MODEL: Any = None
+_WHISPER_MODEL_NAME: str | None = None
+_WHISPER_MODEL_CLS: Any = None
+_WHISPER_MODEL_LOCK = threading.Lock()
+# 转写锁：同一个模型实例不能并发转写（CTranslate2 模型非线程安全），且
+# 转写本身吃满 CPU——并发转写只会互相拖慢，串行反而更快。
+_WHISPER_TRANSCRIBE_LOCK = threading.Lock()
+
+
+def _require_whisper_class() -> Any:
+    """取 faster-whisper 的 WhisperModel 类；依赖缺失时给出可执行的提示。"""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise _ParseError(
+            "dependency_missing",
+            "音视频转写依赖 faster-whisper（pip install faster-whisper；首次使用自动下载模型）",
+        ) from exc
+    return WhisperModel
+
+
+def _whisper_model() -> Any:
+    """取进程内单例的 faster-whisper 模型（按 settings.whisper_model + 实现类缓存）。
+
+    缓存键含实现类 identity：依赖被替换（替身/热补丁）时旧实例不再复用。
+    """
+    global _WHISPER_MODEL, _WHISPER_MODEL_NAME, _WHISPER_MODEL_CLS
+    name = settings.whisper_model
+    whisper_model_cls = _require_whisper_class()
+    if (
+        _WHISPER_MODEL is not None
+        and _WHISPER_MODEL_NAME == name
+        and _WHISPER_MODEL_CLS is whisper_model_cls
+    ):
+        return _WHISPER_MODEL
+    with _WHISPER_MODEL_LOCK:
+        if (
+            _WHISPER_MODEL is None
+            or _WHISPER_MODEL_NAME != name
+            or _WHISPER_MODEL_CLS is not whisper_model_cls
+        ):
+            _WHISPER_MODEL = whisper_model_cls(name, device="cpu", compute_type=_WHISPER_COMPUTE_TYPE)
+            _WHISPER_MODEL_NAME = name
+            _WHISPER_MODEL_CLS = whisper_model_cls
+    return _WHISPER_MODEL
+
+
+def reset_whisper_model() -> None:
+    """测试隔离：丢弃缓存的模型单例。"""
+    global _WHISPER_MODEL, _WHISPER_MODEL_NAME, _WHISPER_MODEL_CLS
+    with _WHISPER_MODEL_LOCK:
+        _WHISPER_MODEL = None
+        _WHISPER_MODEL_NAME = None
+        _WHISPER_MODEL_CLS = None
+
 
 def whisper_available() -> bool:
     """音视频转写依赖是否可用（faster-whisper）。R9 启动检测用。"""
@@ -340,14 +411,8 @@ def _parse_media(path: Path) -> tuple[str, dict]:
     时长守卫：ffprobe 可得且 > settings.media_max_minutes -> 拒绝（防长时阻塞/CPU 耗尽）。
     首次使用自动下载模型（HuggingFace）；模型大小经 settings.whisper_model 配置。
     """
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise _ParseError(
-            "dependency_missing",
-            "音视频转写依赖 faster-whisper（pip install faster-whisper；首次使用自动下载模型）",
-        ) from exc
-
+    # 依赖缺失优先于时长守卫报错（与改动前的次序一致：先说装依赖，再说过长）。
+    _require_whisper_class()
     duration = _media_duration_seconds(path)
     if duration is not None and duration > settings.media_max_minutes * 60:
         raise _ParseError(
@@ -356,9 +421,12 @@ def _parse_media(path: Path) -> tuple[str, dict]:
         )
 
     source_type = "video" if path.suffix.lower() in VIDEO_EXTS else "audio"
-    model = WhisperModel(settings.whisper_model, device="cpu", compute_type=_WHISPER_COMPUTE_TYPE)
-    segments, info = model.transcribe(str(path))
-    parts = [seg.text.strip() for seg in segments if seg.text and seg.text.strip()]
+    model = _whisper_model()
+    with _WHISPER_TRANSCRIBE_LOCK:
+        # 转写结果是惰性生成器，迭代也在锁内：锁外迭代会与另一路转写并发
+        # 触碰同一个模型实例。
+        segments, info = model.transcribe(str(path))
+        parts = [seg.text.strip() for seg in segments if seg.text and seg.text.strip()]
     text = "\n".join(parts).strip()
     if not text:
         raise _ParseError("empty_content", "音视频转写未识别到语音文本")

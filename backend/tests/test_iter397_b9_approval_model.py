@@ -20,8 +20,6 @@ import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
-
 from app.db import models
 from app.db.base import SessionLocal
 

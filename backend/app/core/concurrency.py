@@ -50,6 +50,38 @@ class _NullSlot:
 
 _NULL_SLOT = _NullSlot()
 
+# 解析槽持有者（iter 397 K11）：记录**当前持槽的 asyncio 任务**，用于重入判定。
+# 用任务身份而非 ContextVar：ContextVar 会被子任务继承（asyncio.gather 创建的
+# 子任务拷贝父上下文），导致「父任务持槽时 gather 出来的兄弟解析」被误判为
+# 重入而绕过并发上界；任务身份不继承，判定精确。
+_PARSE_HOLDERS: set[Any] = set()
+
+
+class _ParseSlot:
+    """解析槽上下文管理器：acquire + 登记持有任务。"""
+
+    def __init__(self, sem: asyncio.Semaphore) -> None:
+        self._sem = sem
+        self._task: Any = None
+
+    async def __aenter__(self) -> None:
+        await self._sem.acquire()
+        try:
+            task = asyncio.current_task()
+        except RuntimeError:  # pragma: no cover - 无运行循环（同步上下文）
+            task = None
+        if task is not None:
+            self._task = task
+            _PARSE_HOLDERS.add(task)
+        return None
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        if self._task is not None:
+            _PARSE_HOLDERS.discard(self._task)
+            self._task = None
+        self._sem.release()
+        return False
+
 # 按名缓存的 (信号量, 绑定事件循环)。跨循环（测试 asyncio.run / daemon 线程新循环）
 # 自动重建，防 "Future attached to a different loop"。
 _semaphores: dict[str, tuple[asyncio.Semaphore, asyncio.AbstractEventLoop | None]] = {}
@@ -93,10 +125,49 @@ def search_fetch_slot() -> Any:
     return sem if sem is not None else _NULL_SLOT
 
 
+def parse_slot() -> Any:
+    """文档解析槽（iter 397 K11）：文件/图片/音视频解析的进程级上界。
+
+    解析是全站最重的本地计算：marker（PDF + OCR，单次可达 600s）、faster-whisper
+    （音视频转写，模型驻留内存）、tesseract（OCR）都吃满 CPU 与内存。并发无上界
+    时，N 个用户的 N 份解析互相拖慢到全部超时，且每路都持有一份模型与中间产物。
+    限流让超额者排队，而不是全部一起劣化。
+
+    只包**文件/图片/音视频**路径（``parse_material._parse_file_dispatch``）：
+    纯文本解析无成本，URL 抓取另有专门的限流桶（见 api/materials.py）。
+
+    重入保护
+    --------
+    信号量不可重入。插件注册的解析器可经 ``api.tools.call("parse_material")``
+    回调宿主解析（API.md §8.4 允许插件组合核心工具）——重入同一信号量时，
+    上界为 1 即**永久挂起**（外层持槽等内层，内层等外层）；并发上界为 N 时，
+    N 路重入请求即可占满全部槽位，此后**全站解析请求排队卡死**。
+    故已持槽的任务再次取槽时不再排队（放行），把嵌套解析的并发交由插件自控。
+    跨用户/跨请求的进程级上界不受影响：每个请求任务是独立上下文，
+    深度计数从 0 起。
+    """
+    if _parse_reentrant():
+        return _NULL_SLOT  # 重入：外层已持槽，不再排队（防自死锁）
+    sem = _loop_sem("parse", settings.max_concurrent_parses)
+    if sem is None:
+        return _NULL_SLOT
+    return _ParseSlot(sem)
+
+
+def _parse_reentrant() -> bool:
+    """当前任务是否已持有解析槽（重入判定）。"""
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:  # pragma: no cover - 无运行循环（同步上下文）
+        return False
+    return task is not None and task in _PARSE_HOLDERS
+
+
 def reset_llm_semaphore() -> None:
     """测试隔离：清空全部缓存信号量与锁（防跨事件循环残留 waiters）。"""
     _semaphores.clear()
     _locks.clear()
+    _PARSE_HOLDERS.clear()
 
 
 # ---------------------------------------------------------------------------
