@@ -543,6 +543,15 @@ that names one — and every path a session touches resolves against it.
   installed by an administrator and used by everyone: their declarations and
   their enabled state are process-wide, while a session's own settings follow
   the session's binding. The two bindings are not interchangeable.
+- **A decision that arrives over the network is bounded; one that arrives at a
+  terminal is not.** The wait for an approval is the host's to set: a browser
+  that closes takes the answer with it, and a session waiting for good holds
+  its controller for good. A person at a prompt is waited for as long as they
+  are willing.
+- **A session reads the configuration of the project it is in.** The project
+  layer resolves against the session's workspace, never the process working
+  directory: the assembly already reads that file, so a runtime read from
+  elsewhere would answer from another project's configuration.
 
 ### What stays upstream's
 

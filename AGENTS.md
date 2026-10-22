@@ -22,8 +22,25 @@
 
 - **当前可用实现**：Python v0.1.x（`backend/` + `frontend/`，端口 41173）——保留至改造阶段① M5 验收后停用，阶段④删除。实测规模：后端 28 个 `api/` 文件（24 个路由模块）、OpenAPI 146 operations / 120 paths、29 张 ORM 表、26 个 alembic 迁移、**188 个 `test_*.py` 测试文件（pytest 收集 1736 用例，iter 398 实测 1746 passed / 2 skipped）**；前端 19 页 SPA。
 - **进行中**：Reasonix 内核改造。**阶段① M1.1 吸收已完成（2026-10-17）**：R-Tutor studio 快照 8289 文件全量入库（内核 `internal/` `cmd/` `tools/` `sdk/`、桌面端 `desktop/`、上游文档 `docs/kernel/` 等），构建绿。**M1.2 模块改名已完成（2026-10-21，commit `fd05bf6`）**：根模块 `module deep-tutor`、`desktop` 子模块 `module deep-tutor/desktop`（`replace deep-tutor => ../`）、`cmd/deep-tutor`。**M1.4 品牌化与 `DEEPTUTOR.md` 建档已完成（2026-10-22，commits `40e4209`~`4c22dbe`）**：用户可见的展示名改为 Deep-tutor / Deep-tutor Studio，**机器认的名字（发布资产名、安装布局名、协议 ID、哈希域分隔符、Electron profile 名）一律不改或两种拼写都认**——判据见 `DEEPTUTOR.md` 的「Where the name is a contract, not a label」。**M1.4f 环境变量改名已完成（2026-10-22）**、**M1.4g 品牌化半改收口已完成（`85979f4`/`b46aaed`，含 robots.txt 的 UA 漏匹配真缺陷）**、**M1.5 门禁基线重建与 CI 重建已完成（`3a9c267`/`c60b800`）**、**M1.6 Makefile 修复与 `bin/deep-tutor.exe` 冒烟已完成（`ddb4070`）**、**M1.3 多实例 spike 已完成（2026-10-22，矩阵/全局态/深水点回填 `plan/reasonix/04` §四）**。**M1.1–M1.6 全部完成**，见 `plan/reasonix/05` 与 `stage.md`；**下一步进 M2（数据层与认证）**，其第 0 步是 04 §四 的 **K 类内核改动**（见下条）。
-- **多用户分流的阻断点（2026-10-22 更新，M1.3 spike 结论 + iter 404/405 已落地的部分）**：`Options.Home` **无任何生产装配点设置**（→ 装配层 `internal/web` 落地时填上）；`control.Controller` 的 **roots 字段已加**（`controllerDeps.roots` + `control.Options.Roots` + `Controller.Roots()`，`Rebuild` 让替换件继承 stated home），**control 包生产代码的进程级路径调用点已归零**（原 42 处），**余 182 处**在 serve(67)/cli(45)/state(18)/platform(19)/ext(14)/cmd(9)/assembly(2)/runtime(1)；**config 包自身的读路径（声明来源标注、TOML 读取、凭据加载、恢复快照、provider_access 归属）也已按绑定**（iter 405）；`secrets` 的 4 个包级开关每次 build 被覆盖（其「`[secrets]` 不按项目覆盖所以包级安全」的前提在 per-user 后失效）；`healthyConfig` 每进程只记一次、多用户下只有第一个用户被记录。**内核已有的缝够用**（`ProviderResolver`/`SharedHost`/`BalanceStore`/`TaskStore`/`Stderr`/`ApprovalTimeout`/`Home`/`SetTutorSpaceResolver`/`config.Roots`），要改的是**让调用点走 build 的 Roots**，而不是重排内核结构。**激活存储（技能/MCP 启用态）与 MCP 声明刻意保持全局**（作用域只有 global/project，无 user 档；§三 的「扩展资产全局一套」+ note/12 决策 #55「管理员装、全员可用」），控制器的 MCP 安装/删除走**进程绑定**、会话设置走**会话绑定**，两者不可混用；其「用户能否为自己单独关掉某项」是待用户定夺的产品级问题。**新缺口（深水点 #33，W 类）**：per-user 会话读的是该用户 home，全局 MCP 清单在全局资产库里 → 装配层须把全局安装态**只读投影**进每个用户，否则管理员装的 MCP 服务器 per-user 看不到。
+- **多用户分流的阻断点（2026-10-22 更新，M1.3 spike 结论 + iter 404/405 已落地的部分）**：
+  - `Options.Home` **无任何生产装配点设置**（→ 装配层 `internal/web` 落地时填上）
+  - `control.Controller` 的 **roots 字段已加**（`controllerDeps.roots` + `control.Options.Roots` + `Controller.Roots()`，`Rebuild` 让替换件继承 stated home）
+  - **control 包生产代码的进程级路径调用点已归零**（原 42 处），**余 182 处**在 serve(67)/cli(45)/state(18)/platform(19)/ext(14)/cmd(9)/assembly(2)/runtime(1)
+  - **config 包自身的读路径也已按绑定**（声明来源标注、TOML 读取、凭据加载、恢复快照、provider_access 归属，iter 405）
+  - `secrets` 的 4 个包级开关每次 build 被覆盖（其「`[secrets]` 不按项目覆盖所以包级安全」的前提在 per-user 后失效）
+  - `healthyConfig` 每进程只记一次、多用户下只有第一个用户被记录
+  - **内核已有的缝够用**（`ProviderResolver`/`SharedHost`/`BalanceStore`/`TaskStore`/`Stderr`/`ApprovalTimeout`/`Home`/`SetTutorSpaceResolver`/`config.Roots`），要改的是**让调用点走 build 的 Roots**，而不是重排内核结构
+  - **深水点 #21 已落地（iter 409）**：`ApprovalTimeout` 的零值是永久等待，而 `serve`/`web` 的决策经网络到达——浏览器一关答案就没了，会话永久占住一个 Controller。serve 包导出 `serve.ApprovalTimeout = 10min`（超时=拒绝，fail-closed），hub 开的面、Server 重建的面、CLI 的 serve 装配三条路都带上；**终端前端仍是零值**
+  - **深水点 #32 已落地（iter 410）**：运行期配置的项目层原先取进程 cwd → serve 会话开在 B 工作区却读服务启动目录的 `reasonix.toml`。改取会话自己的工作区根（与装配层读同一个文件），且改为只读——查询路径不改写用户配置
+  - **激活存储（技能/MCP 启用态）与 MCP 声明刻意保持全局**（作用域只有 global/project，无 user 档；§三 的「扩展资产全局一套」+ note/12 决策 #55「管理员装、全员可用」），控制器的 MCP 安装/删除走**进程绑定**、会话设置走**会话绑定**，两者不可混用；其「用户能否为自己单独关掉某项」是待用户定夺的产品级问题
+  - **新缺口（深水点 #33，W 类）**：per-user 会话读的是该用户 home，全局 MCP 清单在全局资产库里 → 装配层须把全局安装态**只读投影**进每个用户，否则管理员装的 MCP 服务器 per-user 看不到
 - **环境变量（两种拼写都认，2026-10-22）**：产品被改名后，它读的环境变量也换了名——`DEEPTUTOR_HOME` 是当前的，`REASONIX_HOME` 是改名前的。**新名优先、旧名兜底**：当前名设了就以它为准，没设才回落到旧名。解析统一走 `internal/base/envvar`（`Get` / `Lookup` / `Name`），新增变量不要直接 `os.Getenv`。**注入**给插件/钩子/边车的变量两种拼写都注入（`REASONIX_PLUGIN_ROOT` 与 `DEEPTUTOR_PLUGIN_ROOT` 等），因为另一端是已经写好的程序。本机用户级已设 `DEEPTUTOR_HOME=F:\Deeptutor\reasonix`（`REASONIX_HOME` 同时保留，旧构建仍能找到 F 盘 home）。
+- **测试隔离守卫（2026-10-22，iter 408）**：「新名优先」有代价——机器级设了 `DEEPTUTOR_HOME`，只设旧拼写 `REASONIX_HOME` 的测试**就失去隔离作用**，产品读到的仍是机器的真实 home。
+  - 实测后果：`internal/state/storage` 的测试把 `[storage] state` 指针写进了真实用户配置
+  - **规矩**：测试要碰 home/state/cache 根的包，必须在 `TestMain` 里装 `testenv.RunWithIsolatedUserState(m)`
+  - 守卫清空两种拼写的 home 变量，并把 `HOME`/`USERPROFILE`/`AppData`/`LocalAppData` 指向 F 盘 scratch 下的一次性目录
+  - **形状门禁**：`internal/base/testenv/isolation_gate_test.go` 的 `TestPackagesNamingAGuardedVariableInstallTheGuard` 检查「提到 home 根变量的包是否装了守卫」，漏装即红
+  - **子进程不能靠继承环境变量拿位置**（子进程自己的守卫会清空它）——位置走测试专有变量（`REASONIX_PERMISSION_HOME`、`REASONIX_TEST_FATAL_CHILD_HOME`），子进程里再声明一次
 - **落盘位置（本项目自己的产物，2026-10-21 起）**：可丢弃产物统一落在 **F 盘**。Go 侧 `internal/base/scratchroot` 与 Python 侧 `backend/app/core/scratchroot.py` 同规则：调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录（本机 `F:\TEMP\deeptutor`）→ 系统临时目录。内核 home/state/cache 由用户级 `DEEPTUTOR_HOME=F:\Deeptutor\reasonix` 定位（改名前的 `REASONIX_HOME` 同样有效，见上条）。**有意保留在 C 盘的锁根**（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）：必须让同一 OS 用户的各实例收敛到同一处，改动会让互斥失效。
 - **门禁现状（2026-10-22 更新）**：`.github/workflows/ci.yml` 已接上 **Go 内核门禁与桌面端前端门禁**（M1.5b，commit `c60b800`）——保留 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），新增 `go-lint`（gofmt / go vet / golangci-lint v2.12.2 / repolint / desktop 子模块）、`go-test`（ubuntu+windows 矩阵，三个模块各测各的：根模块 / `desktop` / `sdk/go`，后两个是嵌套 module）、`desktop-frontend`（pnpm build / test / **census** / census:verify + Electron `node --test`）。Go 门禁命令仍在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。
   - **Windows 上跑的根模块 `go test` 必须带 `-count=1`**：开着结果缓存时 go test 会在运行前后各做一次 `filepath.EvalSymlinks`，`internal/assembly/boot` 记了约 190 万条路径，在 Windows runner 上光这一步就要几分钟且不打印任何东西。`internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 守的就是这一条形状。
@@ -38,6 +55,7 @@
 | `internal/ext/skill/builtincontent` | 本机 AV 占用 `go-build` 临时 `.exe`，报 `Access is denied` |
 | `internal/runtime/schedrun` `TestKillingTheRunEndsItsWholeProcessTree` | Windows 子进程树取锁时序 |
 | `internal/tools/builtin` `TestPipeStatusProbePreservesExitStatusAndReports` | Windows 管道退出码探针 |
+| `internal/runtime/agent` `TestContractOwesTheCheckTheTaskBeganUnder` | `TempDir RemoveAll cleanup` 目录非空——**负载/时序敏感**（iter 409 实测：并发重活时 1/9 次失败，单独复跑与改前/改后各 4/4 全绿） |
 
 **已于 iter 401 消除的三项**：`internal/safety/sandbox` `TestIsWindowsWSLBash`（改为临时夹具，不再依赖本机是否装 WSL）、`internal/base/testenv` `TestWindowsCILegsBypassTheTestResultCache`（CI 已含 Windows 根模块 `go test` 且带 `-count=1`）、`internal/runtime/agent` `TestChildConstructionForksStayEnumerated`（改按 git 可见的树枚举 `.go`）。
 

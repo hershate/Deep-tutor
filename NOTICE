@@ -408,6 +408,24 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/base/envvar/envvar_test.go` | 两处用例补上「当前拼写为空」的前提，不再依赖运行测试的机器恰好没设 `DEEPTUTOR_HOME` |
 | `internal/base/testenv/isolation_gate_test.go` | 本仓新增：**形状门禁**——凡是提到 home 根变量的包必须装隔离守卫，否则门禁失败 |
 
+**第九轮：网络服务的决策等待有上限（2026-10-22，iter 409）**：`ApprovalTimeout` 的零值是「永久等待」——对终端是对的，对**经网络到达的决策**是缺陷：浏览器一关答案就没了，会话永远停在提示上，**一个 Controller 就此长期占住**。多用户服务里这是资源泄漏，且没有任何东西会把它解开。内核语义未改（`approvalManager.waitContext` 本来就是「>0 才设限」），改的是**装配层带不带上这个值**。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/frontend/serve/approval.go` | 本仓新增：`serve.ApprovalTimeout = 10min`（`plan/reasonix/04` §五 的取值）与 `Server.SetApprovalTimeout`。**超时的结果是拒绝**（fail-closed），与「窗口关掉」本会给出的答案一致 |
+| `internal/frontend/serve/hub.go` | `HubOptions.ApprovalTimeout` → hub 自己开的面；hub 的 boot 选项抽成 `openOptions`，使这条装配路径**可被测试断言** |
+| `internal/frontend/serve/workspace.go`、`serve.go` | 重建路径（换模型 / 换工作区 / 重载扩展）带上同一个上限——重建出来的面若又开始永久等待，就把这条修复合订了 |
+| `internal/frontend/cli/build_options.go`、`serve_frontend.go` | `cliBuildOverrides.ApprovalTimeout` 贯通到 boot 选项；`serve` / `web` 命令（`serveBuildOverrides`）设上限，**终端 TUI 仍为零值**（人在提示符前，多久都该等） |
+
+**第十轮：运行期配置的项目层取自会话的工作区（2026-10-22，iter 410）**：运行期读配置的入口此前把**项目层**取自进程 cwd——serve 会话开在 B 工作区时，读到的是**服务启动目录**的 `reasonix.toml`。而装配层读的是 `b.root` 下的同一个文件：同一个会话，两处配置来源不一致。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/session/control/runtime_config.go` | `runtimeConfig(roots, root)` 增加根参数，改用 `roots.LoadForRootReadOnly(root)`：**项目层取会话自己的工作区，不再取进程 cwd**；只读——这些是查询路径，不该改写用户配置（盘上 MCP tier 迁移仍由装配时承担） |
+| `internal/session/control/{network,shell,skill,slash,slash_catalog,slash_workmode}.go` | 8 处调用点传 `c.WorkspaceRoot()`；`configuredModelRefs` / `configuredProviderNames` 增加根参数 |
+| `internal/session/control/slash.go` | `ArgData.ConfigRoot` 带上工作区根，`currentEffortEntry` 据此解析 provider——菜单与控制器现在读同一份配置 |
+| `internal/session/control/runtime_config_root_test.go` | 本仓新增：3 个回归（控制器模型清单 / 菜单模型引用 / effort provider 解析）——改前全红，改后全绿 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

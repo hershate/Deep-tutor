@@ -38,6 +38,84 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 410（2026-10-22，深水点 #32：运行期配置的项目层取会话自己的工作区，✅ 完成）**：承接 iter 409 的「下一步」①。修掉一个**读错项目配置**的缺陷。
+
+- **缺陷**：`runtimeConfig` 的项目层取自**进程 cwd**（`roots.LoadForRoot(".")`）
+  - serve 会话开在 B 工作区时，读到的是**服务启动目录**的 `reasonix.toml`，不是 B 的
+  - 同一会话的**两处配置来源不一致**：装配层读 `b.root`（`--dir` 或 git 根），运行期读 cwd
+  - 受影响的运行期读取：网络设置、Shell 设置、技能启用、模型/供应商清单、远端主机、effort 阶梯
+  - 实测（改前）：工作区声明的 provider 在模型清单里消失，取而代之的是**进程目录**声明的那个
+- **修法**：
+  - `runtimeConfig(roots, root)` → `roots.LoadForRootReadOnly(root)`；控制器侧传 `c.WorkspaceRoot()`
+  - 项目层与装配层现在读**同一个** `reasonix.toml`（`b.root` 与 `c.WorkspaceRoot()` 同源）
+  - 同时改为**只读**：这些是查询路径，不该改写用户配置（盘上 MCP tier 迁移仍由装配时承担）
+  - 补菜单侧：`ArgData.ConfigRoot` 带上工作区根，`currentEffortEntry` 据此解析 provider
+- **影响面**：无工作区根的会话（`WorkspaceRoot` 为空）仍取进程 cwd，行为不变
+  - 既有会话的 `reasonix.toml` 生效范围**从「进程 cwd」变为「会话所在工作区」**——这正是修复的目的
+  - 桌面宿主同样受益：此前它的运行期读取取的是应用启动目录，不是窗口打开的项目
+- **验证**：3 个新回归（控制器模型清单 / 菜单模型引用 / effort provider 解析）；改前 3 例全红、改后全绿
+- **门禁**：`go build ./...`、`go vet ./...` 绿；`gofmt -l` 0；`go run ./tools/repolint` clean
+- **下一步（按序）**：
+  1. 金丝雀扫描：全量测试跑在 F 盘金丝雀 home 上，检出残余写入
+  2. **待用户定夺**：分享链接 7 天期限 / CODEOWNERS 主备 / 激活存储是否新增 user 作用域
+
+**iter 409（2026-10-22，深水点 #21：网络服务的决策等待有上限，✅ 完成）**：承接 iter 408 的「下一步」①（前半）。修掉一个**多用户服务下的资源泄漏**。
+
+- **缺陷**：`Options.ApprovalTimeout` 的零值是「永久等待」，而 **`serve` / `web` 命令的决策是经网络到达的**
+  - 浏览器一关，答案就没了 → 会话永远停在提示上 → **一个 Controller 就此长期占住**
+  - 内核注释本来就说「headless frontends pass a positive value so an unanswered prompt cannot wedge the session」
+  - 但 **7 个生产装配点没有一个设过它**（`plan/reasonix/04` §四 #21 早就记着「真实缺陷」）
+  - 失效时**没有任何东西会把它解开**：不报错、不超时、只是停在那儿
+- **修法**（内核语义未改，`approvalManager.waitContext` 本来就是「>0 才设限」）：
+  - `internal/frontend/serve/approval.go`（新）：`serve.ApprovalTimeout = 10min`（`plan/reasonix/04` §五 的取值）
+  - **超时的结果是拒绝**（fail-closed），与「窗口关掉」本会给出的答案一致
+  - `HubOptions.ApprovalTimeout` → hub 自己开的面
+  - `Server.SetApprovalTimeout` → 重建的面（换模型 / 换工作区 / 重载扩展）——重建出来的面若又开始永久等待，这条修复合订了
+  - CLI 的 `serve` / `web` 装配（`serveBuildOverrides`）→ 第一个面
+  - **终端前端的零值不变**：人在提示符前，多久都该等（TUI 明确传 0）
+  - hub 的 boot 选项抽成 `openOptions`，使这条装配路径**可被测试断言**（否则只能靠人读）
+- **刻意没改**：
+  - 桌面宿主 `cmd/reasonix-studio-host` 的 hub 不设上限——它的决策通道是**自己的窗口**，窗口关掉应用就退出，控制器随之关闭
+  - 终端 / ACP / 计划执行的零值不变（plan §四 #21 只针对 headless 服务）
+- **验证**：`internal/frontend/serve` 与 `internal/frontend/cli` 全量回归通过；新增 4 个断言（serve 3 + cli 1）
+- **门禁**：`go build ./...`、`go vet ./...` 绿；`gofmt -l` 0；`golangci-lint` 0 issues；`go run ./tools/repolint` clean
+- **下一步（按序）**：
+  1. 深水点 #32（运行期配置的项目层取进程 cwd：serve 会话开在 B 工作区却读服务启动目录的 `reasonix.toml`）
+  2. 金丝雀扫描：全量测试跑在 F 盘金丝雀 home 上，检出残余写入（找出「不命名 home 变量却仍写进 home」的包）
+  3. **待用户定夺**：分享链接 7 天期限 / CODEOWNERS 主备 / 激活存储是否新增 user 作用域
+
+**iter 408（2026-10-22，M2-0b：测试隔离守卫——测试不再写进真实用户 home，✅ 完成）**：承接 iter 407 的「下一步」①（八包全量回归）。回归暴露了一个**高危数据安全缺陷**，本轮修掉。
+
+- **先修真实损坏（本机）**：
+  - `internal/state/storage` 的测试把 `[storage] state` 指针写进了真实用户配置 `F:\Deeptutor\reasonix\config.toml`
+  - 该指针指向一个已被清理的临时目录 → **用户的 state root 指向不存在的路径**（会话/归档看起来「丢失」）
+  - 已删除该 `[storage]` 整节：15515 → 15341 字节（恰好是注入的 174 字节）
+  - `tomllib` 解析通过，21 节齐全，`deepseek` provider 与其余各节完好
+  - 另清掉同目录的 `desktop-posture-released.json`（也是测试写的标记）
+  - 该标记对应的 `default_tool_approval_mode` 本就未设置，删除后产品重建它不触碰用户配置
+- **根因**：M1.4f 改名后环境变量也换了名——`DEEPTUTOR_HOME` 是当前的，`REASONIX_HOME` 是改名前的
+  - 解析规则是「当前名优先、旧名兜底」→ 机器级设了 `DEEPTUTOR_HOME` 就压过测试设置的旧拼写
+  - 全仓 820 处 `t.Setenv("REASONIX_HOME"` 因此全部失去隔离作用
+  - 失守面：15 个包**从未装过**隔离守卫（`internal/state/storage`、`internal/state/migration`、`internal/ext/theme` 等）
+  - 另有 `internal/runtime/agent` 有 `TestMain` 但没装守卫
+- **修法**：
+  - `internal/base/testenv/home.go`：守卫的清空表提到包级 `guardedVars`，补 `WORKSPACE_ROOT`
+  - 14 个包新增 `main_test.go`（`TestMain` → `testenv.RunWithIsolatedUserState`）
+  - `cmd/deep-tutor/main_test.go`、`internal/runtime/agent/main_test.go`：已有 `TestMain` 的包补装（后者用 `goleak.Cleanup`）
+  - `cmd/deep-tutor/main_test.go`：子进程改为经 `REASONIX_TEST_FATAL_CHILD_HOME` 传递 home 并在子进程里重新声明
+  - 理由：守卫会清空子进程继承的 home（与 `internal/assembly/boot` 的 `REASONIX_PERMISSION_HOME` 同一约定）
+  - `internal/base/envvar/envvar_test.go`：两处用例补上「当前拼写为空」的前提
+  - 此前它们依赖运行测试的机器恰好没设 `DEEPTUTOR_HOME`——**本机上这两例当时是红的**
+  - `internal/base/testenv/isolation_gate_test.go`（新）：**形状门禁**——凡是提到 home 根变量的包必须装隔离守卫
+- **验证**：
+  - `internal/base/testenv` / `internal/base/envvar` / `internal/state/storage` 全绿（storage 原 19 例失败 → 0）
+  - 其余 12 个新装守卫的包全绿；`cmd/deep-tutor` 全绿；`internal/runtime/agent` 全绿（59.8s）
+- **门禁**：`go build ./...`、`go vet ./...` 绿；`gofmt -l` 0
+- **下一步（按序）**：
+  1. 深水点 #32（运行期配置的项目层取进程 cwd）与 #21（`Options.ApprovalTimeout` 全部未设 → 零值=永久等待）
+  2. 金丝雀扫描：全量测试跑在 F 盘金丝雀 home 上，检出残余写入（找出「不命名 home 变量却仍写进 home」的包）
+  3. **待用户定夺**：分享链接 7 天期限 / CODEOWNERS 主备 / 激活存储是否新增 user 作用域
+
 **iter 407（2026-10-22，M2-0c：K-2——凭据保护层由全局配置决定，✅ 完成）**：承接 iter 406 的「下一步」①。M2.0 的 K 类四项至此全部落地。
 
 - **本轮做了什么**：
