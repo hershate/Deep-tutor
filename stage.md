@@ -38,6 +38,27 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 417（2026-10-22，启动脚本真实可用：依赖无解拆栈 + 端到端实证，✅ 完成）**：目标改为「确保当前版本可用，即启动脚本真实可用」。**真跑一遍**发现启动脚本 100% 起不来——不是环境问题，是依赖文件本身无解。
+
+- **根因（已确证）**：`backend/requirements.txt` 同时要求 `Pillow>=12.3,<13.0`（iter 372 的 CVE 处置）与 `marker-pdf>=1.10,<2.0`（间接钉 `Pillow<11`）→ **pip 判为无解**（ResolutionImpossible），该文件在任何机器上都装不上。
+  - 启动脚本第 1 步就是装它 → **服务永远起不来**（实测 `scripts/start.ps1` 卡在装依赖，`/api/health` 拒绝连接）；同一冲突也让 CI 的 backend job 装不上依赖。
+  - **上游未解**：marker-pdf 1.10.2 / 2.0.0 与 surya-ocr 0.17.1~0.22.1 **全部**钉 `Pillow<11`（PyPI 元数据逐版本核过）——没有「换个版本就好」的路。
+- **pip 行为实测**（一次性 venv 探针，非推断）：① 直接要求优先于已装包的旧约束——`pip install "Pillow>=13"` 覆盖一个钉 `<11` 的已装包时**装上 13.0.0 且 exit 0**（只警告不中止）；② 反向重装那个包会把 Pillow **拽回 10.4.0**——故 OCR 栈不能每次启动都装。
+- **修法（拆栈）**：服务栈留在 `backend/requirements.txt`（**自身可解析**）；OCR/PDF 深度解析栈移到新文件 `backend/requirements-ocr.txt`（`marker-pdf==1.10.2`）。
+  - 启动脚本改三步：服务栈 → OCR 栈（**仅当 marker 未装**；装失败只告警，不阻断启动）→ **再装一次服务栈**（OCR 栈装完会把 Pillow 带回 <11，末步把它拽回安全版本）。
+  - `scripts/start.ps1`（保持 CRLF + BOM）与 `scripts/start.sh`（LF）同步。
+  - CI 的 backend job 随核心文件可解析而自动恢复；OCR 栈不在 CI 装（marker 集成测试本就 skip，CI 无需为它下 2GB 的 torch）。
+- **回归守卫（新）**：`backend/tests/test_requirements_split.py`（4 例）——服务栈不得再声明 marker/surya；OCR 文件须声明 marker；服务栈 Pillow 下限不得低于 12.3；两个启动脚本的安装顺序必须是「服务栈 → OCR 栈 → 服务栈」。
+- **新机路径实证**：全新 venv 装核心依赖 **exit 0**（Pillow 12.3.0 落位），应用起得来（OpenAPI 120 条路径）；anthropic SDK 接口面在 0.46.0 与 0.125.0 上逐项一致（`close`/`messages.create` 全参数/`APIError`）。
+- **端到端实证**：`powershell -File scripts\start.ps1` → 装依赖通过 → 迁移 head → uvicorn 起 → `/api/health` 200（db/skills/disk 全 ok）→ `/` 200（SPA）→ 插件 8/8 加载。
+- **顺带修掉的第二处真缺陷（依赖下限低于功能所需）**：`anthropic>=0.40,<1.0` 的下限**低于「扩展思考」功能所需**——SDK 自 0.47 才接受 `thinking` 参数（逐版本实测：0.46.0 拒、0.47.0 起接受）。
+  - 仓库 venv 装的是 **0.46.0**（被 marker 的 `anthropic<0.47` 钉住）→ 用户手动开「思考」时 `messages.create(thinking=...)` 直接 `TypeError`（不被 `except anthropic.APIError` 捕获）→ 用户侧 500。
+  - 改法：下限抬到 `anthropic>=0.47,<1.0`（符合本仓「下限 = 功能所需最低版本」的依赖策略）。装完 venv 落到 **0.125.0**。
+  - 实证：thinking 参数被接受；**marker 的 PDF 解析照常**（`marker_single` 转出 "Hello Marker PDF test."，exit 0）——marker 的 anthropic 依赖只服务于可选的 `--use_llm`，PDF 路径不碰它。
+- **顺带核实（本轮未改）**：本仓 `.env` 的 `ADMIN_PASSWORD` 为空、`AUTH_TOKEN` 是模板占位 `change-me-please`（占位串**不被接受**为凭证，iter 90 已修）⇒ 服务实际跑在**免登录开放模式**。
+  - 脚本按「有 .env」绑 0.0.0.0，而 README §2.1 明写「未设密码时…监听全部网卡」是 v1 面向本机/受信任局域网的已知限制——属**有文档的取舍**，未擅自改这个产品语义；收口动作是设一个访问密码。
+- **下一步**：① 服务进程 Pillow 升到 13.0.0（12.3.0 仍有 **30 条**未修公告，10.4.0 有 59 条；13.0.0 是唯一零公告版）——须先验服务图片路径与 marker 在 13.x 下的兼容；② 回到 iter416 的面板上限落地；③ 待用户定夺项见文末。
+
 **iter 416（2026-10-22，面板数量无上限：审计完成、修法已定，未落地，⏸ 下一轮执行）**：本轮只做审计与定案，**代码未改**（工作树干净，HEAD 仍是 `0811190`）。
 
 - **缺陷（已确证）**：`Hub.publish`（`internal/frontend/serve/hub.go:709-712`）对每个新 runtime 无条件 `h.runtimes[rt.ID] = rt` + `h.order = append(...)`，**hub 同时打开的面板数没有任何上限**

@@ -15,11 +15,16 @@ SQLAlchemy>=2.0,<3.0
 alembic>=1.13,<2.0
 
 # AI 编排
-anthropic>=0.40,<1.0
+anthropic>=0.47,<1.0             # 下限 0.47：SDK 自此才接受 thinking 参数——扩展思考功能
+                                  # （app/llm/anthropic_provider.py 的 _agentic_kwargs）靠它，低于 0.47
+                                  # 传 thinking 会 TypeError（不被 APIError 捕获，用户侧 500）
 pyjwt>=2.15,<3.0                   # P4 多用户 JWT 认证（iter 57）
 
 # 文档解析（P0 范围：PDF/Word/PPTX/Markdown/TXT/网页）
-marker-pdf>=1.10,<2.0             # PDF -> Markdown（marker_single CLI，--force_ocr；本地已装）
+# PDF -> Markdown（marker_single CLI，--force_ocr）**不在本文件**：marker-pdf 与 surya-ocr 都钉
+# Pillow<11，与下面为服务进程强制的 Pillow 下限互斥——两者写进同一个文件，pip 的解析器直接判为
+# 无解（ResolutionImpossible），安装必然失败；而启动脚本第一步就是装它，装不上服务永远起不来。
+# 该栈单独放在 requirements-ocr.txt（重量级、可选、装失败不阻断启动）。
 pypdf>=6.19,<7.0                   # PDF 快速提取档（iter 225 解析质量多档：纯文本抽取，无 OCR/版面）
 python-docx>=1.1,<2.0
 python-pptx>=0.6,<2.0
@@ -30,8 +35,10 @@ charset-normalizer>=3.3,<4.0      # 编码检测（R25）
 # 多模态（P3；R9：缺失时对应入口禁用 + 提示安装，不影响其余功能）
 pytesseract>=0.3.10,<1.0          # 图片 OCR（另需系统安装 tesseract-ocr 二进制）
 Pillow>=12.3,<13.0                # 图片读取（pytesseract 依赖）。iter 372：10.4.0 存在 13 个已知 CVE
-                                  # （恶意图片解码可达，网络暴露面）强制 >=12.3；marker-pdf/surya 钉 <11 属上游
-                                  # 保守约束——12.x 下导入/CLI/PIL 操作面已实证正常，pip check 警告已知悉
+                                  # （恶意图片解码可达——服务进程直接 Image.open 解码用户上传图片，见
+                                  # app/tools/parse_material.py）强制 >=12.3。OCR 栈（requirements-ocr.txt）
+                                  # 钉 <11 属上游保守约束：两栈同处一个 venv 时以本文件为准（直接要求优先，
+                                  # pip 只警告不中止），marker 的导入/CLI/PIL 操作面在 12.x 下已实证正常
 # faster-whisper>=1.0,<2.0        # 音视频转写（可选：体积大 + 首次使用下载模型；用时装）
 
 # 测试

@@ -27,6 +27,23 @@ if (-not (Test-Path $venvPy)) {
 Write-Host "==> 安装/校验后端依赖"
 & $venvPy -m pip install -q -r backend\requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+# OCR/PDF 深度解析栈（marker）：单独一个 requirements 文件——它与 Pillow 下限互斥，
+# 混装在一个文件里 pip 判为无解（见 backend\requirements-ocr.txt 的说明）。
+# 只在尚未安装时装一次：每次启动都重装它，会把 Pillow 一路拽回 <11（实测 pip 会为
+# 已装包的旧约束降级 Pillow）。装不上不阻断启动——缺 marker 时 PDF 走 pypdf 快速档，
+# full 档按 R9 报 dependency_missing 并提示安装。
+$markerBin = "backend\.venv\Scripts\marker_single.exe"
+if (-not (Test-Path $markerBin)) {
+    Write-Host "==> 安装 OCR/PDF 深度解析栈（marker；体积较大，仅首次）"
+    & $venvPy -m pip install -q -r backend\requirements-ocr.txt
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "OCR 栈安装失败（$LASTEXITCODE）——PDF 深度解析不可用，其余功能不受影响"
+    } else {
+        # OCR 栈把 Pillow 拽回了 <11；服务进程必须留在安全版本（直接要求优先，pip 只警告不中止）
+        & $venvPy -m pip install -q -r backend\requirements.txt
+        if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+    }
+}
 
 # 2. .env（iter 89 零配置开箱即用：缺失不再退出——后端以「开放本机模式」启动，
 #    首次打开浏览器进入设置向导，可在界面内完成密码/API Key 配置；不代为生成 .env，

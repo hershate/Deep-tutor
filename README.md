@@ -109,7 +109,15 @@ bash scripts/start.sh
 
 脚本依次完成：建虚拟环境 → 装依赖 → 构建前端 → 数据库迁移 → 启动服务 → 打开浏览器。重复执行跳过已完成步骤。
 
+依赖分两栈装：`backend/requirements.txt` 是服务栈（**自身可解析**）；`backend/requirements-ocr.txt` 是 OCR/PDF 深度解析栈（marker，体积大，**只在首次**装）。
+
+两者必须分开——marker 钉 `Pillow<11`，服务进程须 `Pillow>=12.3`（直接解码用户上传图片），写进同一个文件 pip 会判为无解（ResolutionImpossible），**装不上服务就起不来**。
+
+OCR 栈装不上不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。
+
 服务地址 `http://localhost:41173`，局域网内其他设备使用 `http://<本机IP>:41173`。首次访问进入设置向导（访问密码与 AI API Key 均可跳过，后续补充）；未配置 API Key 时应用可正常浏览数据，生成类功能不可用。
+
+**未设访问密码时服务以开放模式运行并监听全部网卡**（见 §2.1）：同一局域网内任意设备可免登录访问数据。设一个访问密码即可关闭开放模式（设置页或 `.env` 的 `ADMIN_PASSWORD`）；`AUTH_TOKEN` 必须是 `.env.example` 之外的真实值，模板占位串 `change-me-please` 不被接受为凭证。
 
 端口改写：PowerShell 用 `-Port 9000`，或设置 `PORT` 环境变量。默认端口取 41173 而非 8000，因 8000 常落入 Windows 系统保留端口段导致绑定失败。
 
@@ -121,6 +129,8 @@ bash scripts/start.sh
 cd backend
 python -m venv .venv && . .venv/Scripts/activate   # Linux: source .venv/bin/activate
 pip install -r requirements.txt
+# 需要 PDF 深度解析（marker）时另装（与上面的 Pillow 下限互斥，必须分开）：
+# pip install -r requirements-ocr.txt
 uvicorn app.main:app --reload   # dev 默认 :8000
 ```
 
