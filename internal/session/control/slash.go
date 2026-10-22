@@ -64,6 +64,9 @@ type ArgData struct {
 	// value follows the environment, which is what the controller-free TUI
 	// path gets.
 	Roots config.Roots
+	// ConfigRoot is the directory whose project configuration the completion
+	// logic reads. Empty means the process working directory.
+	ConfigRoot string
 }
 
 // SlashArgItems completes the arguments of a management slash command
@@ -270,7 +273,7 @@ func currentEffortEntry(d ArgData) *config.ProviderEntry {
 	if strings.TrimSpace(d.CurrentModel) == "" {
 		return nil
 	}
-	cfg, err := runtimeConfig(d.Roots)
+	cfg, err := runtimeConfig(d.Roots, d.ConfigRoot)
 	if err != nil {
 		return nil
 	}
@@ -585,7 +588,7 @@ func (c *Controller) pluginsNotice(fields []string) {
 }
 
 func (c *Controller) modelListText() string {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		return "model: " + err.Error()
 	}
@@ -605,7 +608,7 @@ func (c *Controller) modelListText() string {
 }
 
 func (c *Controller) providerListText() string {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		return "provider: " + err.Error()
 	}
@@ -635,7 +638,7 @@ func (c *Controller) providerListText() string {
 }
 
 func (c *Controller) providerSwitchText(name string) string {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		return "provider: " + err.Error()
 	}

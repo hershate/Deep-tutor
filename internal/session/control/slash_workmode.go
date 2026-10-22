@@ -29,7 +29,7 @@ func (c *Controller) presetNotice(fields []string) {
 // remoteNotice lists the SSH hosts this machine's config declares. Connecting
 // to one opens a workspace on that host, which a running session cannot do.
 func (c *Controller) remoteNotice() {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		c.notice("remote: " + err.Error())
 		return

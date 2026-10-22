@@ -43,7 +43,7 @@ type ShellSettings struct {
 // beside it.
 func (c *Controller) ShellSettings() ShellSettings {
 	prefer, path := "auto", ""
-	if cfg, err := runtimeConfig(c.roots); err == nil {
+	if cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot()); err == nil {
 		if p := strings.TrimSpace(cfg.Tools.Shell.Prefer); p != "" {
 			prefer = strings.ToLower(p)
 		}

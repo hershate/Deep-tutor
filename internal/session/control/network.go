@@ -34,7 +34,7 @@ type NetworkSettings struct {
 
 // NetworkSettings reads the current proxy configuration.
 func (c *Controller) NetworkSettings() NetworkSettings {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		return NetworkSettings{Mode: netclient.ModeAuto, Effective: "读不到配置"}
 	}
@@ -90,7 +90,7 @@ type NetworkProbe = netclient.Probe
 // provider. Each step names the layer it tested, so a failure points at what to
 // change instead of at "the network".
 func (c *Controller) DiagnoseNetwork(ctx context.Context) []NetworkProbe {
-	cfg, err := runtimeConfig(c.roots)
+	cfg, err := runtimeConfig(c.roots, c.WorkspaceRoot())
 	if err != nil {
 		return []NetworkProbe{{Step: "proxy", Detail: "读不到配置：" + err.Error()}}
 	}

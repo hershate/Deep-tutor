@@ -70,11 +70,12 @@ func (c *Controller) CompletionData(lang string) CompletionData {
 			DisabledSkills:  c.DisabledSkills(),
 			ConfiguredMCP:   c.ConfiguredMCPNames(),
 			DisconnectedMCP: c.DisconnectedMCPNames(),
-			ModelRefs:       configuredModelRefs(c.roots),
+			ModelRefs:       configuredModelRefs(c.roots, c.WorkspaceRoot()),
 			CurrentModel:    c.ModelRef(),
-			ProviderNames:   configuredProviderNames(c.roots),
+			ProviderNames:   configuredProviderNames(c.roots, c.WorkspaceRoot()),
 			PluginNames:     installedPluginNames(c.roots),
 			Roots:           c.roots,
+			ConfigRoot:      c.WorkspaceRoot(),
 		},
 		Names:         c.completionNames(commands, skills, m),
 		WorkspaceRoot: c.WorkspaceRoot(),
@@ -190,8 +191,8 @@ func sourcedHint(plugin, description string) string {
 	return "plugin " + plugin + " · " + description
 }
 
-func configuredModelRefs(roots config.Roots) []string {
-	cfg, err := runtimeConfig(roots)
+func configuredModelRefs(roots config.Roots, root string) []string {
+	cfg, err := runtimeConfig(roots, root)
 	if err != nil {
 		return nil
 	}
@@ -208,8 +209,8 @@ func configuredModelRefs(roots config.Roots) []string {
 	return out
 }
 
-func configuredProviderNames(roots config.Roots) []string {
-	cfg, err := runtimeConfig(roots)
+func configuredProviderNames(roots config.Roots, root string) []string {
+	cfg, err := runtimeConfig(roots, root)
 	if err != nil {
 		return nil
 	}
