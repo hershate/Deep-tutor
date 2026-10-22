@@ -27,6 +27,7 @@ from typing import Any
 from app.agent.context import ExecContext
 from app.agent.registry import Tool
 from app.core.concurrency import parse_slot
+from app.core.console_script import find_console_script
 from app.core.settings import settings
 from app.tools.base import ToolError, ToolInput, ToolOutput
 
@@ -450,11 +451,13 @@ def _parse_pdf(path: Path, parse_mode: str = "full") -> tuple[str, dict]:
     """
     if parse_mode == "fast":
         return _parse_pdf_fast(path)
-    marker_bin = shutil.which("marker_single")
+    # marker_single 是 **pip 装的包**提供的入口，落在当前环境的 scripts 目录里——
+    # 按 PATH 找找不到它（服务进程不是以激活 venv 的方式启动的），故走 find_console_script。
+    marker_bin = find_console_script("marker_single")
     if not marker_bin:
         raise _ParseError(
             "unsupported_format",
-            "PDF 解析依赖 marker_single（pip install marker-pdf），但未在 PATH 找到",
+            "PDF 解析依赖 marker_single（pip install marker-pdf），但未找到该入口",
         )
     stem = path.stem
     with tempfile.TemporaryDirectory(prefix="marker_") as out_dir:

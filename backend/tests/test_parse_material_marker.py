@@ -1,25 +1,27 @@
 """parse_material 的 Marker PDF 集成测试。
 
-需 marker_single 在 PATH（pip install marker-pdf）。未安装时跳过。
+需已装 marker-pdf（``pip install marker-pdf``）。未安装时跳过。
+入口按 **PATH + 当前环境的 scripts 目录** 找（iter 422）：服务进程不是以激活 venv 的
+方式启动的，只看 PATH 会漏掉自己 venv 里装的那份，于是本测试会一直「跳过」而不报错。
 较慢（~5s，含 OCR），故独立文件。
 """
 
 from __future__ import annotations
 
 import asyncio
-import shutil
 from pathlib import Path
 
 import pytest
 
 from app.agent.context import ExecContext
+from app.core.console_script import find_console_script
 from app.tools.base import ToolInput
 from app.tools.parse_material import parse_material
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.pdf"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("marker_single") is None or not FIXTURE.exists(),
+    find_console_script("marker_single") is None or not FIXTURE.exists(),
     reason="marker_single 未安装或 fixture 缺失",
 )
 

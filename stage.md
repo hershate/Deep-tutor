@@ -52,6 +52,18 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 - **顺带修掉的跨卷失败**：`internal/state/sessionv4/v4fixture` 用 `t.TempDir()`（系统盘）造会话，而 scratchroot 已改到 F 盘 → 跨卷 rename 报「不能把文件移到不同的磁盘驱动器」，serve 包的 `hub_tree_import_test` 因此红；改用 `tempdir.New(t)`（同卷）。
 - **验证**：scratchroot / testenv / canary / config 四个包全绿；serve 整包全绿；C 盘 108 个残留目录已清理。
 
+**iter 422（2026-10-23，服务进程看不见自己 venv 里的 pip 入口：full 档 PDF 解析在真实部署里根本走不通，✅ 完成）**：iter 421 复验 marker 时顺带撞见的独立缺陷——**已装好的 marker，服务进程找不到**。
+
+- **缺陷**：`parse_material._parse_pdf` 用 `shutil.which("marker_single")` 找 marker 的入口。pip 把 console script 装进**当前环境**的 scripts 目录（`<venv>\Scripts`），而按路径启动解释器（`backend\.venv\Scripts\python.exe -m uvicorn ...`）**不会**把那个目录加进 PATH——两个启动脚本都没改 PATH。
+  - 实测：`shutil.which("marker_single")` = **None**，而 `backend\.venv\Scripts\marker_single.exe` 确实存在（启动脚本亲手装的）。
+  - 后果：启动脚本花 2GB 装好 OCR 栈，用户上传 PDF 选 full 档仍拿到「PDF 解析依赖 marker_single（pip install marker-pdf），但未在 PATH 找到」——**装与不用两头都对不上**。README §5.3 承诺的「PDF 解析 marker（高质量）」在真实部署里是空的。
+- **修法**：新增 `app/core/console_script.py::find_console_script(name)`——先按 PATH 找（用户可能有意换掉 pip 装的那份），找不到再看当前环境的 scripts 目录。`parse_material` 改用它。
+  - **不在启动脚本里改 PATH**：那会改掉整个进程的环境，**子进程**（marker 拉起的 python、tesseract 等）也跟着换一套可执行文件解析结果——影响面比缺一个入口大得多。这里只在**需要时**多看一个目录。
+  - 系统级二进制（tesseract / ffprobe）**不动**：它们由系统安装，本来就该在 PATH 上。
+- **顺带把一处静默覆盖变成真覆盖**：`tests/test_parse_material_marker.py` 原先也按 PATH 找 marker，于是**一直跳过**（本机 marker 装着却从不上场）。改用同一解析器后，本机该用例**第一次真正跑起来**（29s）——这正是「Pillow 13 + marker 仍工作」的自动化守卫。
+- **守卫（新）**：`backend/tests/test_iter422_console_script.py`（5 例）：解释器旁边的入口在 PATH 没有时仍能找到；POSIX 形态同样；PATH 优先；找不到返回 None；**本机装了 marker 时解析器必须能找到它**。
+- **验证**：marker 集成测试 + 新守卫 + parse_material 媒体用例共 20 例全绿（此前 marker 那条是 skip）；后端全量 1757 passed / 1 skipped / 0 failed，覆盖率 88.70%；HTTP 端到端实测（`scripts/start.ps1` 起服务 → `/api/health` 200 → 首页 200 → 建会话 → 上传 PDF → full 档解析 29.5s → `meta.parser=marker`、落盘正文 `Hello Marker PDF test. Deep-tutor parsing.` 逐字一致）。
+
 **iter 421（2026-10-23，服务栈 Pillow 升 13.0.0：把 28 条 OSV 公告清零，✅ 完成）**：iter 417 拆依赖栈时把服务栈的 Pillow 下限钉在 12.3（当时的上限），本轮推到唯一零公告的 13.0.0。
 
 - **动机**：服务进程直接 `Image.open` 解码用户上传的图片（`app/tools/parse_material.py`），「恶意图片解码」类公告是**可达**的。iter 372 因此把下限抬到 12.3，但 12.3.0 自己仍带公告。
