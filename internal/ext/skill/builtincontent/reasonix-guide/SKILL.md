@@ -1,10 +1,10 @@
 ---
 name: reasonix-guide
-description: "Troubleshoot and configure Reasonix capabilities: Skills (project/custom/global/builtin priority, discovery dirs), Commands (override order, /dir:file naming), Hooks (11 events, automatic project loading, matchers, timeouts), MCP (reasonix.toml + .mcp.json + plugin packages, auto_start), plugin packages (native/Codex/Claude manifests), and AGENTS.md / instruction docs. Use when the user asks how to configure, debug missing skills/commands/hooks/MCP/plugins, or diagnose capability loading."
+description: "Troubleshoot and configure Deep-tutor capabilities: Skills (project/custom/global/builtin priority, discovery dirs), Commands (override order, /dir:file naming), Hooks (14 events, automatic project loading, matchers, timeouts), MCP (reasonix.toml + .mcp.json + plugin packages, auto_start), plugin packages (native/Codex/Claude manifests), and AGENTS.md / instruction docs. Use when the user asks how to configure, debug missing skills/commands/hooks/MCP/plugins, or diagnose capability loading."
 runAs: inline
 ---
 
-# Reasonix self-diagnostics guide
+# Deep-tutor self-diagnostics guide
 
 This skill is **inlined**. Prefer evidence over guessing.
 
@@ -13,13 +13,13 @@ This skill is **inlined**. Prefer evidence over guessing.
 1. Run a **static** capability report (no network, no MCP subprocesses):
 
 ```bash
-reasonix doctor capabilities --json
+deep-tutor doctor capabilities --json
 ```
 
 2. Only if the user **explicitly** allows starting third-party MCP servers (may network and pass configured env/headers), run live probe:
 
 ```bash
-reasonix doctor capabilities --live --timeout 5s --json
+deep-tutor doctor capabilities --live --timeout 5s --json
 ```
 
 3. On desktop, open **Settings → Diagnostics** for the same report model. The desktop "include current session runtime" toggle only **reads** the active tab Host (connected/failed/deferred/disabled); it does **not** start MCP.
@@ -36,7 +36,7 @@ Winner per skill name (highest first):
 
 1. **project** — `<workspace>/{.reasonix,.agents,.agent,.claude}/skills/`
 2. **custom** — `[skills].paths` (and plugin package skill roots)
-3. **global** — `<Reasonix home>/skills` and home convention dirs
+3. **global** — `<Deep-tutor home>/skills` and home convention dirs
 4. **builtin** — shipped skills (including this guide)
 
 Same name: higher scope wins; lower scopes are **shadowed**. `[skills].disabled_skills` hides a name from List/Read entirely.
@@ -47,7 +47,7 @@ Discovery conventions: `.reasonix`, `.agents`, `.agent`, `.claude` (see `config.
 
 | Entry | How |
 | --- | --- |
-| CLI | `reasonix doctor capabilities` → Skills section |
+| CLI | `deep-tutor doctor capabilities` → Skills section |
 | Desktop | Settings → Skills; Settings → Diagnostics |
 | Agent | `/skill` list, `/reasonix-guide`, `run_skill` |
 
@@ -62,7 +62,7 @@ Discovery conventions: `.reasonix`, `.agents`, `.agent`, `.claude` (see `config.
 
 ### Ordered triage
 
-1. `reasonix doctor capabilities --json` → Skills
+1. `deep-tutor doctor capabilities --json` → Skills
 2. Confirm name not in `disabled_skills`
 3. Confirm winner Path/Scope; if shadowed, inspect lower-priority roots
 4. Missing description: skill may load but index placeholder is weak — add `description:`
@@ -74,7 +74,7 @@ Discovery conventions: `.reasonix`, `.agents`, `.agent`, `.claude` (see `config.
 
 ### Priority
 
-`config.CommandDirsForRoot`: home convention commands → Reasonix home commands → project convention commands. **Later directory overrides earlier** on name clash (`command.Load`).
+`config.CommandDirsForRoot`: home convention commands → Deep-tutor home commands → project convention commands. **Later directory overrides earlier** on name clash (`command.Load`).
 
 Name from path: `git/commit.md` → `/git:commit` (slashes → `:`).
 
@@ -107,7 +107,7 @@ CLI/Desktop Diagnostics → Commands; invoke `/name` in chat.
 
 **Blocking** (exit 2 can gate the loop): `PreToolUse`, `UserPromptSubmit`. Others warn or contribute context only.
 
-Reasonix does have hooks; permissions (`[permissions]` allow/ask/deny) are a separate mechanism, and a hook is the way to run custom code before a tool call.
+Deep-tutor does have hooks; permissions (`[permissions]` allow/ask/deny) are a separate mechanism, and a hook is the way to run custom code before a tool call.
 
 ### Contract
 
@@ -125,9 +125,9 @@ To forbid a command pattern without a script, prefer `[permissions] deny = ["Bas
 
 ### Sources
 
-- Project: `<workspace>/.reasonix/settings.json` — loaded only after the user approves it as it stands (`reasonix trust`); never run by `reasonix review`
+- Project: `<workspace>/.reasonix/settings.json` — loaded only after the user approves it as it stands (`deep-tutor trust`); never run by `deep-tutor review`
 - Plugin packages: installed enabled packages
-- Global: `<Reasonix home>/settings.json` (always)
+- Global: `<Deep-tutor home>/settings.json` (always)
 
 Match field is an **anchored** regex: `file` does **not** match `read_file`; use `.*file` or `*`. Timeout is **milliseconds** (defaults 5s gating / 30s other).
 
@@ -139,7 +139,7 @@ Match field is an **anchored** regex: `file` does **not** match `read_file`; use
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Project hooks silent | Awaiting approval, wrong workspace, or restart required | Run `reasonix trust`; confirm the project path and restart Reasonix after saving |
+| Project hooks silent | Awaiting approval, wrong workspace, or restart required | Run `deep-tutor trust`; confirm the project path and restart Deep-tutor after saving |
 | Matcher never fires | Non-anchored assumption / bad regex | Fix match (`hook.invalid_matcher`) |
 | Command missing | Empty command / missing context file | Fix settings entry |
 | Malformed JSON | Invalid settings.json | Repair JSON (file yields no hooks, no crash) |
@@ -187,13 +187,13 @@ Env/header values may contain secrets — diagnostics list **keys only**.
 - Codex: `.codex-plugin/plugin.json`
 - Claude: `.claude-plugin/plugin.json` (+ limited Claude compatibility paths)
 
-State: `<Reasonix home>/plugin-packages.json`. Disabled packages do not contribute skills/hooks/MCP.
+State: `<Deep-tutor home>/plugin-packages.json`. Disabled packages do not contribute skills/hooks/MCP.
 
-Unmapped Claude-only features may appear as compatibility warnings — Reasonix does not invent support.
+Unmapped Claude-only features may appear as compatibility warnings — Deep-tutor does not invent support.
 
 ### Checks
 
-`reasonix plugin doctor <name>`, Settings → Plugins, Diagnostics → Plugins.
+`deep-tutor plugin doctor <name>`, Settings → Plugins, Diagnostics → Plugins.
 
 ### Symptom → cause → fix
 

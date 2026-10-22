@@ -349,16 +349,16 @@ W ''
 
 # ---- [8] CLI doctor -------------------------------------------
 W '----------------------------------------------------------------'
-W ' [8] reasonix CLI 诊断'
+W ' [8] CLI 诊断'
 W '----------------------------------------------------------------'
-$rx = Get-Command reasonix -ErrorAction SilentlyContinue
+$rx = Get-Command deep-tutor -ErrorAction SilentlyContinue; if (-not $rx) { $rx = Get-Command reasonix -ErrorAction SilentlyContinue }
 if ($rx) {
   W ("  CLI 路径: " + $rx.Source)
-  try { W ("  版本: " + ((& reasonix --version) -join ' ')) } catch { W '  版本读取失败' }
-  try { (& reasonix doctor --json) | Out-File -FilePath (Join-Path $out 'doctor.json') -Encoding utf8; W '  已导出 doctor.json' } catch { W '  doctor --json 失败' }
-  try { (& reasonix doctor sessions --json) | Out-File -FilePath (Join-Path $out 'doctor-sessions.json') -Encoding utf8; W '  已导出 doctor-sessions.json' } catch { W '  doctor sessions --json 失败（旧版本没有该子命令属正常）' }
+  try { W ("  版本: " + ((& $rx.Name --version) -join ' ')) } catch { W '  版本读取失败' }
+  try { (& $rx.Name doctor --json) | Out-File -FilePath (Join-Path $out 'doctor.json') -Encoding utf8; W '  已导出 doctor.json' } catch { W '  doctor --json 失败' }
+  try { (& $rx.Name doctor sessions --json) | Out-File -FilePath (Join-Path $out 'doctor-sessions.json') -Encoding utf8; W '  已导出 doctor-sessions.json' } catch { W '  doctor sessions --json 失败（旧版本没有该子命令属正常）' }
 } else {
-  W '  未在 PATH 中找到 reasonix CLI（只装了桌面版属正常）。'
+  W '  未在 PATH 中找到 deep-tutor / reasonix CLI（只装了桌面版属正常）。'
   W '  请另外告诉我们桌面端版本号（设置 / 关于 页面）。'
 }
 W ''

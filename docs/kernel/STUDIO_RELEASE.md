@@ -277,7 +277,7 @@ Studio and 1.x signing jobs and smoke tests share the concurrency group `certum-
 | `studio/versions.json` | this workflow | Studio catalog, newest first; an entry names its notes object in an optional `notes` field |
 | `studio/notes/X.Y.Z.md` | this workflow | the rendered version notes, immutable; uploaded before the catalog entry that names it |
 | `studio-vX.Y.Z/` | this workflow | artifacts, signatures, `latest.json` |
-| `cli/stable/latest.json`, `cli/preview/latest.json` | `cli-pointer` | what `reasonix upgrade` reads through `crash.reasonix.io/v1/cli/releases/<channel>/latest.json`; only ever moves to a newer version |
+| `cli/stable/latest.json`, `cli/preview/latest.json` | `cli-pointer` | what `deep-tutor upgrade` reads through `crash.reasonix.io/v1/cli/releases/<channel>/latest.json`; only ever moves to a newer version |
 | `cli/releases/vX.Y.Z/latest.json` | `cli-pointer` | immutable record of one CLI release; a rerun with different content fails |
 | `versions.json` | desktop line | never written by this workflow |
 
