@@ -38,6 +38,28 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 416（2026-10-22，面板数量无上限：审计完成、修法已定，未落地，⏸ 下一轮执行）**：本轮只做审计与定案，**代码未改**（工作树干净，HEAD 仍是 `0811190`）。
+
+- **缺陷（已确证）**：`Hub.publish`（`internal/frontend/serve/hub.go:709-712`）对每个新 runtime 无条件 `h.runtimes[rt.ID] = rt` + `h.order = append(...)`，**hub 同时打开的面板数没有任何上限**
+- **可达性**：`POST /runtimes`（`openRuntime`，hub.go:623）是网络可达路由；认证后的客户端可用不同 root 反复开面
+- **代价**：每个面板是一个完整的 `control.Controller`（常驻协程、provider 客户端与会话租约，外加每个工作区自建一套 MCP sidecar 子进程——`SharedHost` 无人设置，见 plan/reasonix/04 §四 深水点 13）
+- **旁证（表达与实现不一致）**：`desktop/frontend-next/src/port/hub.ts:273-275` 的注释称「上限由机器自己的 `[desktop] max_panes` 决定，并随响应回来」——**该功能在上游快照与本仓都不存在**（全量搜 `max_panes` / `MaxPanes` 只命中这条注释）
+- **客户端现状**：前端 `useOpenPane.ts` 自管 `WARM_PANES = 4`（隐藏面板先复用、最多留 4 个热的）→ **服务端加硬上限不会误伤桌面端**
+- **修法（已定，下一轮照此落地）**：
+  1. 新增 `internal/frontend/serve/hub_capacity.go`：`defaultMaxPanes = 16`、拒绝码 `hub.too_many_panes`、`claimPane` / `releaseClaim`
+  2. **认领制**：先占位再构建——`boot.BuildRuntime` 是最贵的一步，认证客户端并发开面时不得越过上限各建一套 controller
+  3. `Hub.Open` / `Hub.Adopt` / `Hub.OpenRemote` 三条开面路径统一「认领 → defer 归还 → 发布」；`Hub.Close` 归还计数
+  4. 上限**可配**：`[serve] max_panes`（用户全局；`userGlobals.restore` 整表保护 `[serve]`，项目配置改不动）——不把产品级数值焊死
+  5. i18n：`kernel.ts` + `en_kernel.ts` 补中文与英文对照（Go 侧 `TestEveryRefusalCodeIsTranslated` 守这个对应）
+  6. 顺带修正 `hub.ts:273-275` 的过期注释
+- **门禁（下一轮随修复补）**：超过上限的 open 被拒且**不建 controller**、认领在失败路径归还、关闭后面板额度回收
+- **本轮其余结论**：
+  - 前端全量测试**单独复跑全绿**（549 文件 / 4683 用例）→ 此前并发跑时的 3 例失败确认为负载所致，非代码回归
+  - `[serve]` 整表在 `userGlobals.restore`（`internal/contract/config/load_project.go:28,39`）里受用户全局保护 → 项目 `reasonix.toml` **改不了** `auth_mode` / `token` / `password_hash`，不存在「仓库改配置就关掉认证」的漏洞
+  - `h.titles` 每个目录只留一个瘦句柄（`titleCache` 不缓存内存，只指向 `.session-titles.json`），不构成无界增长
+  - wirelog 已有 8MB 上限与证人文件，磁盘增长有界
+- **下一步**：① 落地上面的 iter416 六条；② 继续下一路长跑审计；③ 待用户定夺项见文末（新增「面板上限默认 16，如需别的数请告知」）
+
 **iter 415（2026-10-22，文件夹选择框的并发上限，✅ 完成）**：承接 iter 414 的「下一步」③。修掉一个**可被网络触发的资源耗尽**。
 
 - **缺陷**：`/host/pick-folder` 每请求起一个 `powershell.exe`，**没有并发上限**
