@@ -9,6 +9,35 @@ import (
 	"testing"
 )
 
+func TestOnlyOneFolderPickerIsOpenAtATime(t *testing.T) {
+	old := openLocalFolderPicker
+	t.Cleanup(func() { openLocalFolderPicker = old })
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	openLocalFolderPicker = func(context.Context, string) (string, error) {
+		close(entered)
+		<-release
+		return `D:\work\project`, nil
+	}
+
+	hub := new(Hub)
+	first := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		hub.pickLocalFolderHTTP(first, httptest.NewRequest(http.MethodPost, "/host/pick-folder", nil))
+		close(done)
+	}()
+	<-entered
+
+	second := httptest.NewRecorder()
+	hub.pickLocalFolderHTTP(second, httptest.NewRequest(http.MethodPost, "/host/pick-folder", nil))
+	if second.Code != http.StatusConflict {
+		t.Fatalf("second picker = %d, want 409", second.Code)
+	}
+	close(release)
+	<-done
+}
+
 func TestPickLocalFolderHTTPReturnsChosenPath(t *testing.T) {
 	old := openLocalFolderPicker
 	t.Cleanup(func() { openLocalFolderPicker = old })

@@ -246,6 +246,7 @@ export const EN_KERNEL: Record<string, string> = {
   "这个内核不在本机，没法在系统文件管理器中显示它的文件。": "This kernel is not on this machine, so its files cannot be shown in the system file manager.",
   "这个系统没有可用的文件夹选择框，请直接填写路径。": "This system has no folder picker available; type the path instead.",
   "打不开文件夹选择框：{error}": "The folder picker could not be opened: {error}",
+  "已经有一个文件夹选择框打开了，请先处理那个。": "A folder picker is already open; deal with that one first.",
   "名称「{name}」不能用来存放密钥：密钥槽位由名称推导，而它不能以数字开头。改一个以字母开头的名称即可，密钥本身没有问题。": "The name “{name}” cannot hold a key: the credential slot is derived from it, and a slot may not start with a digit. Use a name starting with a letter — the key itself is fine.",
   "这个内核没有带界面，只提供接口": "This kernel serves no interface, only its API",
   "当前模型还没有 API key，请先在设置里添加": "The current model has no API key yet. Add one in Settings first.",

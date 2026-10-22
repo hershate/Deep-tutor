@@ -219,6 +219,7 @@ const SAID: Record<string, string> = {
   "share.device_unknown": "没有这台已配对的设备，可能已被移除。",
   "picker.unsupported": "这个系统没有可用的文件夹选择框，请直接填写路径。",
   "picker.failed": "打不开文件夹选择框：{error}",
+  "picker.busy": "已经有一个文件夹选择框打开了，请先处理那个。",
   "provider.bad_key_slot": "名称「{name}」不能用来存放密钥：密钥槽位由名称推导，而它不能以数字开头。改一个以字母开头的名称即可，密钥本身没有问题。",
   "page.not_built": "这个内核没有带界面，只提供接口",
   "provider.key_missing": "当前模型还没有 API key，请先在设置里添加",
