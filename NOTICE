@@ -393,6 +393,21 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/contract/config/config.go` | 新增 `DefaultSecretsConfig()`，内置默认只有一处来源 |
 | `internal/assembly/boot/secrets_floor_test.go`、`internal/contract/config/secrets_test.go` | 本仓新增：per-user 装配不由用户文件决定保护、全局配置双向生效、注入口优先、单用户保持原样、底线到达工具层 |
 
+**第八轮：测试隔离守卫（2026-10-22，iter 408）**：产品改名后环境变量也换了名——`DEEPTUTOR_HOME` 是当前的，`REASONIX_HOME` 是改名前的，解析规则是「当前名优先、旧名兜底」。
+
+于是在机器级设了 `DEEPTUTOR_HOME` 的机器上，只设置旧名的测试**失去隔离作用**：测试以为把 home 指到了临时目录，产品读到的却是机器的真实 home。
+
+本轮实测：`internal/state/storage` 的测试把 `[storage] state` 指针写进了真实用户的 `config.toml`，用户的 state root 因此指向一个已被删除的临时目录。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/base/testenv/home.go` | 守卫清空的环境变量表提到包级 `guardedVars`，并补上 `WORKSPACE_ROOT`（产品从环境读工作区根） |
+| `internal/base/envvar`、`internal/ext/hook`、`internal/ext/pluginpkg`、`internal/ext/theme`、`internal/frontend/acp`、`internal/frontend/capdiag`、`internal/platform/appupdate`、`internal/platform/instanceid`、`internal/platform/remote/attach`、`internal/runtime/capability`、`internal/runtime/outputstyle`、`internal/runtime/usecap`、`internal/state/migration`、`internal/state/storage` 的 `main_test.go` | 本仓新增：这些包此前**没有**装隔离守卫，于是它们的「设置 home」全部失效。守卫把 `HOME`/`USERPROFILE`/`AppData`/`LocalAppData` 指向一次性目录，并清空两种拼写的 home 变量 |
+| `cmd/deep-tutor/main_test.go`、`internal/runtime/agent/main_test.go` | 已有 `TestMain` 的包补装守卫；后者用 `goleak.Cleanup` 在退出前清理 |
+| `cmd/deep-tutor/main_test.go`（子进程约定） | 子进程不再直接继承 `REASONIX_HOME`——守卫会在子进程启动时清空它。改为经专用变量 `REASONIX_TEST_FATAL_CHILD_HOME` 传递，并在子进程里重新声明（与 `internal/assembly/boot` 的 `REASONIX_PERMISSION_HOME` 同一约定） |
+| `internal/base/envvar/envvar_test.go` | 两处用例补上「当前拼写为空」的前提，不再依赖运行测试的机器恰好没设 `DEEPTUTOR_HOME` |
+| `internal/base/testenv/isolation_gate_test.go` | 本仓新增：**形状门禁**——凡是提到 home 根变量的包必须装隔离守卫，否则门禁失败 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

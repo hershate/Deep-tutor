@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	"deep-tutor/internal/base/testenv"
 
 	"go.uber.org/goleak"
 )
@@ -15,7 +18,19 @@ func TestMain(m *testing.M) {
 	streamRetrySleep = func(ctx context.Context, _ time.Duration) bool {
 		return ctx.Err() == nil
 	}
-	goleak.VerifyTestMain(m, liveRunLeakAllowances()...)
+	// A machine that names its own home outranks a test's stated one, because
+	// the current spelling wins the lookup. The guard clears both spellings
+	// before any test runs, so what a test states is then what the code reads.
+	cleanupUserState, err := testenv.IsolateUserState()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	goleak.VerifyTestMain(m, append(liveRunLeakAllowances(),
+		goleak.Cleanup(func(exitCode int) {
+			cleanupUserState()
+			os.Exit(exitCode)
+		}))...)
 }
 
 // A live measurement opens a real HTTP/2 connection whose read loop the

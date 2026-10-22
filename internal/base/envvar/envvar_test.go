@@ -16,6 +16,9 @@ func TestGetPrefersTheCurrentSpelling(t *testing.T) {
 }
 
 func TestGetFallsBackToTheLegacySpelling(t *testing.T) {
+	// The premise is that only the legacy spelling is set, so the current one
+	// is stated empty rather than left to whatever the machine carries.
+	t.Setenv("DEEPTUTOR_HOME", "")
 	t.Setenv("REASONIX_HOME", "F:/old-home")
 	if got := Get("DEEPTUTOR_HOME"); got != "F:/old-home" {
 		t.Fatalf("Get(DEEPTUTOR_HOME) = %q, want the legacy spelling", got)
@@ -45,6 +48,7 @@ func TestGetLeavesOtherNamesAlone(t *testing.T) {
 }
 
 func TestLookupTellsUnsetFromEmpty(t *testing.T) {
+	t.Setenv("DEEPTUTOR_HOME", "")
 	if _, ok := Lookup("DEEPTUTOR_HOME"); ok {
 		t.Fatal("Lookup reported a variable that is not set")
 	}

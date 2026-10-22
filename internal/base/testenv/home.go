@@ -19,6 +19,21 @@ type savedEnvironment struct {
 	set   bool
 }
 
+// guardedVars are the variables a machine may carry that would point a test at
+// the machine's own files. Both spellings of each are listed: the current one
+// wins the lookup, so a machine carrying it decides the outcome of a test that
+// stated its own location.
+var guardedVars = []string{
+	"DEEPTUTOR_HOME",
+	"DEEPTUTOR_STATE_HOME",
+	"DEEPTUTOR_CACHE_HOME",
+	"DEEPTUTOR_WORKSPACE_ROOT",
+	"REASONIX_HOME",
+	"REASONIX_STATE_HOME",
+	"REASONIX_CACHE_HOME",
+	"REASONIX_WORKSPACE_ROOT",
+}
+
 // IsolateUserState redirects default user-scoped Reasonix paths to a disposable
 // home and clears inherited explicit path overrides. Tests may still override
 // any of these variables for a focused scenario after this process-level guard
@@ -38,17 +53,7 @@ func IsolateUserState() (func(), error) {
 		"AppData":         filepath.Join(home, "AppData", "Roaming"),
 		"LocalAppData":    filepath.Join(home, "AppData", "Local"),
 	}
-	unset := []string{
-		// Both spellings: the test home is only isolated if neither the
-		// current name nor the one a machine carried before the rename
-		// points somewhere else.
-		"DEEPTUTOR_HOME",
-		"DEEPTUTOR_STATE_HOME",
-		"DEEPTUTOR_CACHE_HOME",
-		"REASONIX_HOME",
-		"REASONIX_STATE_HOME",
-		"REASONIX_CACHE_HOME",
-	}
+	unset := guardedVars
 
 	saved := make(map[string]savedEnvironment, len(set)+len(unset))
 	remember := func(key string) {

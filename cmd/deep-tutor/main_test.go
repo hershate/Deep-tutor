@@ -11,6 +11,13 @@ import (
 	"deep-tutor/internal/platform/crashreport"
 )
 
+// A machine that names its own home outranks a test's stated one, because the
+// current spelling wins the lookup. The guard clears both spellings before any
+// test runs, so what a test states is then what the code reads.
+func TestMain(m *testing.M) {
+	testenv.RunWithIsolatedUserState(m)
+}
+
 func TestRunWithCrashCaptureRecordsAndReraises(t *testing.T) {
 	home := testenv.TempDir(t)
 	t.Setenv("REASONIX_HOME", home)
@@ -62,9 +69,13 @@ func TestRunWithCrashCapturePassesThroughExitCode(t *testing.T) {
 }
 
 const fatalChildEnv = "REASONIX_TEST_FATAL_CHILD"
+const fatalChildHomeEnv = "REASONIX_TEST_FATAL_CHILD_HOME"
 
 func TestGoroutinePanicIsReportedOnNextStart(t *testing.T) {
 	if os.Getenv(fatalChildEnv) == "1" {
+		// The guard clears the inherited home, so the child is told where to
+		// write through a variable of its own and states the home again.
+		t.Setenv("REASONIX_HOME", os.Getenv(fatalChildHomeEnv))
 		runCLI = func([]string, string) int {
 			go func() { panic("private prompt from background goroutine") }()
 			select {}
@@ -75,7 +86,7 @@ func TestGoroutinePanicIsReportedOnNextStart(t *testing.T) {
 
 	home := testenv.TempDir(t)
 	child := exec.Command(os.Args[0], "-test.run=^TestGoroutinePanicIsReportedOnNextStart$")
-	child.Env = append(os.Environ(), fatalChildEnv+"=1", "REASONIX_HOME="+home)
+	child.Env = append(os.Environ(), fatalChildEnv+"=1", fatalChildHomeEnv+"="+home)
 	output, err := child.CombinedOutput()
 	if err == nil {
 		t.Fatalf("child exited cleanly; output:\n%s", output)

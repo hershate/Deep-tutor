@@ -562,6 +562,30 @@ through it rather than through `os.Getenv`. The variables the product
 **injects** into a plugin or a hook are set under both spellings, because the
 program on the other end was written against one of them.
 
+### A test states its own location
+
+The two-spelling rule has a consequence for the test suite: the current
+spelling wins, so a machine that sets `DEEPTUTOR_HOME` decides what a test
+that set only `REASONIX_HOME` actually reads. The test believes it moved the
+home; the code follows the machine.
+
+That is how a test suite ends up writing into a real user's `config.toml` — a
+`[storage]` pointer written by a storage test left the user's state root aimed
+at a deleted temporary directory.
+
+- A package whose tests touch a home root installs the isolation guard.
+  `internal/base/testenv` clears both spellings of the home variables and
+  redirects `HOME`, `USERPROFILE` and the OS application-data directories into
+  a disposable directory under the scratch area.
+- A package that names one of those variables without the guard fails
+  `TestPackagesNamingAGuardedVariableInstallTheGuard`.
+- A test that hands a location to a **child process** cannot pass it by
+  inheriting an environment variable: the child's own guard clears it.
+- The location travels through a variable of the test's own —
+  `REASONIX_PERMISSION_HOME` in `internal/assembly/boot`,
+  `REASONIX_TEST_FATAL_CHILD_HOME` in `cmd/deep-tutor` — and the child states
+  it again for itself.
+
 ### Where the name is a contract, not a label
 
 A display name is a label: it is written for a person, and it changes when the
