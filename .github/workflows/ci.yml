@@ -147,13 +147,18 @@ jobs:
       # 超过 Go 默认的 600 秒上限，`go test ./...` 一次性跑必然 timeout panic。
       # -p 4 把并发压在 runner 的核数上：本机满并发跑时，一批与负载/时序敏感的
       # 用例会假失败（逐包串行复跑全绿）。
+      #
+      # 这一步跑在 tools/canary 下：它把整个套件指向一个一次性 home，跑完检查
+      # 那个 home 是不是还是空的。测试写进用户自己的 home 是静默的——它先毁了
+      # 机器上的 config.toml，用户下一次启动才发现。静态形状门禁抓不到这一类，
+      # 因为写文件的包并不提任何 home 变量，它只是调了一个解析 home 的路径函数。
       - name: test (root module)
         timeout-minutes: 75
         env:
           # 跑提示词缓存前缀稳定性守卫（TestCacheHit*）：那里的回归会悄悄
           # 把本项目赖以成立的缓存命中率打下去。
           DEEPTUTOR_RELEASE_CACHE_GUARD: "1"
-        run: go test ./... -count=1 -p 4 -timeout 30m
+        run: go run ./tools/canary run -- ./... -count=1 -p 4 -timeout 30m
       - name: test (desktop module)
         working-directory: desktop
         timeout-minutes: 20

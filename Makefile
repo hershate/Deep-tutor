@@ -150,8 +150,13 @@ lint-cross:
 # Every module, because a nested one is where a red test hides longest: the
 # shell's route allowlist sat broken through a release, and `go test ./...` from
 # the root cannot see it.
+#
+# The root module runs under tools/canary: the suite is pointed at a disposable
+# home and the run fails when the suite wrote into it. A test that writes into
+# the user's own home is silent, and the damage lands on the user's next start
+# rather than on this run.
 test: studio-test sdk-test
-	go test ./...
+	go run ./tools/canary run -- ./...
 
 # The shell is a nested module, so the root `test` target never reaches it.
 studio-test:
