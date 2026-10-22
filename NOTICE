@@ -118,6 +118,35 @@
 | `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes/export.zip` 改为**落临时文件再流式回传**（`http.ServeContent`）——此前整包 zip 在堆里成型后一次性写出；笔记集可达上百 MB，v1 侧导出早已流式化（iter 396-B2），Go 侧此前未跟进 |
 | `internal/frontend/serve/tutor.go`（第八批） | `tutorPathGuard` 统一给 `/tutor/` 全面的响应加 `Cache-Control: no-store`——该面全是单个用户的私密学习数据（笔记、方案、材料、知识库、分享、用量），此前只有备份导出与分享端点自带该头；中间缓存若存下笔记列表、笔记 ZIP 或知识库导出并转手给下一个读取者，即为泄露。处理器若要别的策略（SSE 的 `no-cache`）仍可自行覆盖 |
 
+**代码级修改（2026-10-22，iter 419：面板数量上限）**：
+
+| 文件 | 修改 |
+|---|---|
+| `internal/contract/config/config.go` | 新增 `[serve] max_panes`（面板数上限，默认 16）与 `ServeConfig.PaneLimit()` |
+| `internal/contract/config/serve_config.go` | 本仓新增：`ServeConfig` 整体自 `config.go` 拆出（连同 `DefaultMaxPanes` 与 `PaneLimit()`）——`config.go` 已超文件规模上限，新代码不往里加行 |
+| `internal/contract/config/project_scope.go` | `max_panes` 归入「仅用户级」——项目配置不得为本机抬高面板上限 |
+| `internal/contract/config/serve_share_port.go` | `[serve]` 渲染出 `max_panes`（可发现、可保留） |
+| `internal/contract/config/serve_max_panes_test.go` | 本仓新增：默认值、保存往返、项目配置不得钉住 |
+| `internal/frontend/serve/hub_capacity.go` | 本仓新增：面板上限的认领/归还与拒绝码 `hub.too_many_panes`（429） |
+| `internal/frontend/serve/hub.go` | `Hub.claims` 认领计数；`Open`/`Adopt` 在**建面板之前**认领名额（一个面板是一整套 runtime：控制器、provider 客户端、会话租约、它自己拉起的 MCP sidecar），发布时把认领转成面板，失败归还 |
+| `internal/frontend/serve/hub_sessions.go` | 本仓新增：`findSession` / `resolveRoot` 自 `hub.go` 拆出（代码原样迁入）——`hub.go` 已超文件规模上限 |
+| `internal/frontend/serve/hub_remote.go` | 远程开面板前先查名额（否则拒绝会在线程那侧留下一个没人关的面板）；`OpenRemote` 走同一条认领 |
+| `internal/frontend/serve/hub_capacity_test.go` | 本仓新增：超限拒绝、拒绝码带上限、关闭释放名额、失败归还名额、默认值 |
+| `desktop/frontend-next/src/i18n/kernel.ts` | 新增 `hub.too_many_panes` 文案 |
+| `desktop/frontend-next/src/i18n/en_kernel.ts` | 同上文案的中→英对照 |
+| `desktop/frontend-next/src/port/hub.ts` | 修正过期注释：上限由本机 `[serve] max_panes` 决定，且**不随 `/runtimes` 响应回来**——原注释称由不存在的 `[desktop] max_panes` 决定并随响应回来 |
+
+**代码级修改（2026-10-22，iter 420：测试隔离收口，测试产物回到项目所在卷）**：
+
+| 文件 | 修改 |
+|---|---|
+| `internal/base/scratchroot/scratchroot.go` | 「系统默认临时目录」改为**进程启动时读一次**（`defaultTempAtStart`），不再每次现读 `%LOCALAPPDATA%`——测试隔离守卫会改写该变量，原实现因此把「默认」读成了「被重定向」，整套测试的 scratch 空间落到了系统盘（C:） |
+| `internal/base/scratchroot/scratchroot.go` | `projectVolume()` 忽略**临时目录里的可执行文件**：go 工具把测试二进制暂存到临时目录再运行，按它取卷会把「项目所在卷」读成系统临时卷；改用工作目录所在卷 |
+| `internal/base/scratchroot/scratchroot_windows_test.go` | 本仓新增：暂存的二进制不决定卷的回归 |
+| `internal/base/testenv/ci_workflow_test.go` | `goTestArgs` 认得金丝雀包装（`go run ./tools/canary run -- ./...`）——CI 的根模块测试已改走金丝雀，守卫此前看不见那一步，等于没有守 |
+| `internal/base/testenv/home_test.go` | 补断言：scratch 根不得落进系统临时目录 |
+| `tools/canary/main_test.go` | 补 `TestMain` 装隔离守卫——本包测试点名了 home 变量，形状门禁要求它装守卫 |
+
 **文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
 
 | 文件 | 修改 |
