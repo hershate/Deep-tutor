@@ -38,7 +38,31 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 406（2026-10-22，M2-0b：K-3——最后一次可用配置快照按 home 记账，✅ 完成）**：承接 iter 405 的「下一步」①。
+
+- **本轮做了什么**：
+  - `internal/assembly/boot/healthy_config.go`：记账从**进程一个 `sync.Once`** 改为**按快照位置一个 once**
+    - 键 = 该 home 的 last-known-good 路径；两个 home 各记一份，同一位置的两个 home 仍共享一次
+    - 装配成功即证明该配置可用——这条信号与前端无关，所以记录留在装配层
+  - `internal/assembly/boot/runtime.go`：记录时把本次装配的存储绑定传下去
+  - `internal/platform/repair/config.go`：新增 `RecordHealthyConfigFor(roots, version)`
+    - 快照的**源文件**、**固定快照**、**不可变快照序列**都取自该绑定
+    - 原 `RecordHealthyConfig(version)` 保留为进程绑定的包装（运维 CLI 行为不变）
+  - `internal/platform/repair/snapshot.go`：新增绑定侧变体 `snapshotDirFor` / `recordConfigSnapshotFor` / `ListConfigSnapshotsFor` / `pruneConfigSnapshotsFor` / `pruneConfigSnapshotFor`；同名自由函数保留为进程绑定的包装
+  - `internal/contract/config/lkg.go`：导出 `Roots.LastKnownGoodConfigPath()`
+    - 恢复读侧上一轮已按绑定读；此前**写侧按进程写**——两侧说的不是同一个地方
+  - 测试：`internal/assembly/boot/healthy_config_test.go`（两个 home 各记一份）、`internal/platform/repair/stated_home_test.go`（快照落在该 home 下、进程 home 未被写入）
+- **修掉的真实缺陷**：
+  - 一个进程服务多个用户时，**先到的用户会吃掉那一次记账**，后到的用户永远没有快照可恢复
+  - 快照本身写到**进程 home** → 用户 B 的恢复点里装的是用户 A 的配置
+- **门禁**：`go build ./...`、`go vet ./...` 绿；`gofmt -l` 0；`golangci-lint` 0 issues；`go run ./tools/repolint` clean；repair 31.0s / config 68.2s / boot 全量（见下）全绿
+- **下一步（按序）**：
+  1. **M2-0c**：K-2 `[secrets]` 安全底线注入口（全局底线，非 per-user）
+  2. 装配层落地后处理深水点 #33（全局安装态的只读投影）
+  3. **待用户定夺**：分享链接 7 天期限 / CODEOWNERS 主备 / 激活存储是否新增 user 作用域
+
 **iter 405（2026-10-22，M2-0a 续：配置读路径按绑定 + 方向性订正 MCP 作用域，✅ 完成）**：承接 iter 404 的「下一步」。iter 404 把「写」接上了绑定，本轮补「读」，并订正一处方向性错误。
+
 
 - **本轮做了什么**：
   - **读路径按绑定**（`internal/contract/config`）：
