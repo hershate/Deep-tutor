@@ -38,6 +38,35 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 407（2026-10-22，M2-0c：K-2——凭据保护层由全局配置决定，✅ 完成）**：承接 iter 406 的「下一步」①。M2.0 的 K 类四项至此全部落地。
+
+- **本轮做了什么**：
+  - `internal/assembly/boot/options.go`：新增 `Options.GlobalSecrets *config.SecretsConfig`——**安全底线注入口**，宿主可自己声明这一进程执行的凭据保护
+  - `internal/assembly/boot/secrets_floor.go`（新）：`effectiveSecrets()` 的判定顺序
+    1. 注入口优先
+    2. 装配是 per-user（`roots.StatedHome() != ""`）→ 取**全局**配置
+    3. 单用户（无 stated home）→ 仍取本次装载的配置（**行为与改前逐字一致**）
+  - `internal/assembly/boot/build.go`：用生效值**覆盖 `cfg.Secrets`** 再 arm 包级开关
+    - 为什么要覆盖 `cfg.Secrets`：沙箱的拒绝根（`cfg.ForbiddenRootsForRoot`）读的是 `cfg.Secrets`，只改包级开关会让两处读到不同的值
+    - 只读姿态原先在 `loadConfig` 里强制两项保护为真，现移到装配处与底线**合成一处**：底线不得放宽只读姿态
+  - `internal/contract/config/secrets.go`（新）：`Roots.Secrets()` / `ProcessSecrets()`
+    - 只读**用户配置文件本身**：不取项目层、不碰凭据库、不做环境展开
+    - 读不出来时给**内置默认**而不是零值——零值会把保护关掉
+  - `internal/contract/config/config.go`：新增 `DefaultSecretsConfig()`，内置默认只有一处来源
+  - 测试：`internal/assembly/boot/secrets_floor_test.go`（5 例）、`internal/contract/config/secrets_test.go`（2 例）
+- **修掉的真实缺陷**：
+  - 上游注释的前提是「`[secrets]` 不能按项目覆盖，所以包级全局安全」——**一个进程只服务一个用户时成立；服务多个用户时失效**
+  - 后果：**最后完成的那次装配决定所有人的凭据保护**——B 用户的一次装配把 A 用户的 SSH 私钥读保护关掉了
+- **仍然成立、但需要装配层与界面记住的一条**：
+  - `[secrets]` 在多用户部署里是 **admin 全局项**：用户自己 home 里的 `[secrets]` **不生效**（否则又是「最后装配者说了算」）
+  - 因此**多用户下用户设置页不得把它展示成可改项**——展示了却不生效，就是「表达与实现不一致」。这一条随 `internal/web` 的设置页一并处理
+  - 「用户能否为自己加严」是产品级问题（无 user 档），与 §四 #30 一并待用户定夺
+- **门禁**：`go build ./...`、`go vet ./...` 绿；`gofmt -l` 0；`golangci-lint` 0 issues；`go run ./tools/repolint` clean；定向测试全绿
+- **下一步（按序）**：
+  1. 八包全量回归（K-2 + K-3 的合并验证）
+  2. 装配层落地后处理深水点 #33（全局安装态的只读投影）
+  3. **待用户定夺**：分享链接 7 天期限 / CODEOWNERS 主备 / 激活存储是否新增 user 作用域
+
 **iter 406（2026-10-22，M2-0b：K-3——最后一次可用配置快照按 home 记账，✅ 完成）**：承接 iter 405 的「下一步」①。
 
 - **本轮做了什么**：
