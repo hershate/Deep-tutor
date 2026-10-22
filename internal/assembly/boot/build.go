@@ -182,8 +182,16 @@ func (b *builder) load() error {
 	}
 	cfg := b.cfg
 	migrations.deepSeekErr = deepSeekProtocolMigrationNoticeError(handleConfigLoadWarnings(opts, cfg, b.stderr), migrations.deepSeekErr)
-	// [secrets] is user-global, so arming these package globals before any
-	// subprocess can spawn is correct for every concurrent workspace.
+	// [secrets] is user-global and the layers are process-wide, so a build
+	// serving one user of many takes them from the global configuration
+	// rather than from the home it is bound to.
+	cfg.Secrets = effectiveSecrets(opts, b.roots, cfg.Secrets)
+	if opts.Observe != nil {
+		// The read-only posture takes nothing from the workspace and weakens
+		// nothing: it protects the credential files itself.
+		cfg.Secrets.ProtectSensitiveFiles = true
+		cfg.Secrets.ProtectCredentialFiles = true
+	}
 	secrets.SetFilterSubprocessEnv(cfg.Secrets.FilterSubprocessEnv)
 	secrets.SetProtectSensitiveFiles(cfg.Secrets.ProtectSensitiveFiles)
 	secrets.SetProtectCredentialFiles(cfg.Secrets.ProtectCredentialFiles)
@@ -278,7 +286,6 @@ func (b *builder) loadConfig() (*config.Config, error) {
 		return nil, err
 	}
 	cfg.Plugins = nil
-	cfg.Secrets.ProtectSensitiveFiles, cfg.Secrets.ProtectCredentialFiles = true, true
 	return cfg, nil
 }
 

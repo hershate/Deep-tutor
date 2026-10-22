@@ -73,6 +73,10 @@ type Options struct {
 	// empty follows the environment. It binds this assembly only — a
 	// Controller's later re-reads and the history index still read the process.
 	Home string
+	// GlobalSecrets states the credential-protection settings this process
+	// enforces. The layers are process-wide: one build decides them for every
+	// build, so a host serving several users states the one set here.
+	GlobalSecrets *config.SecretsConfig
 	// Tests that compare prompt bytes must not depend on host discovery probes.
 	resolvedShell *sandbox.Shell
 	clock         func() time.Time

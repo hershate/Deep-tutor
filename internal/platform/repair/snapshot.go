@@ -450,10 +450,6 @@ func readVerifiedConfigSnapshot(snap ConfigSnapshot) ([]byte, error) {
 	return b, nil
 }
 
-func pruneConfigSnapshots(keep int) error {
-	return pruneConfigSnapshotsFor(config.Roots{}, keep)
-}
-
 func pruneConfigSnapshotsFor(roots config.Roots, keep int) error {
 	snapshots, err := ListConfigSnapshotsFor(roots)
 	if err != nil {
@@ -470,10 +466,6 @@ func pruneConfigSnapshotsFor(roots config.Roots, keep int) error {
 // configSnapshotPruneAfterMove is a test seam for an uncooperative writer that
 // recreates or changes a snapshot path after prune atomically displaces it.
 var configSnapshotPruneAfterMove = func(string, string, string) {}
-
-func pruneConfigSnapshot(snap ConfigSnapshot) error {
-	return pruneConfigSnapshotFor(config.Roots{}, snap)
-}
 
 func pruneConfigSnapshotFor(roots config.Roots, snap ConfigSnapshot) error {
 	dir := snapshotDirFor(roots)

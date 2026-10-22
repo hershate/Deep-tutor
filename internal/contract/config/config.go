@@ -1382,7 +1382,7 @@ func Default() *Config {
 		Desktop:          DesktopConfig{ConversationWidth: "standard"},
 		Billing:          BillingConfig{},
 		// Set here, not left to the zero value: an absent [secrets] still protects.
-		Secrets: SecretsConfig{ProtectCredentialFiles: true},
+		Secrets: DefaultSecretsConfig(),
 		Notifications: NotificationsConfig{
 			Enabled:         false,
 			TurnDone:        true,

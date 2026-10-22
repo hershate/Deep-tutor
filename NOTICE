@@ -381,6 +381,18 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/contract/config/lkg.go` | 导出 `Roots.LastKnownGoodConfigPath()`：恢复读侧本来就按绑定读（上一轮已改），写侧此前按进程写——两侧现在说的是同一个地方 |
 | `internal/assembly/boot/healthy_config_test.go`、`internal/platform/repair/stated_home_test.go` | 本仓新增：两个 home 各记一份；快照落在该 home 下，且进程 home 未被写入 |
 
+**第七轮：凭据保护层是进程级的，由全局配置决定（2026-10-22，M2-0c 的 K-2）**：`[secrets]` 的三个开关（`filter_subprocess_env` / `protect_sensitive_files` / `protect_credential_files`）在 `internal/base/secrets` 里是**包级状态**，工具层从那一处读。上游注释的前提是「`[secrets]` 不能按项目覆盖，所以包级全局安全」——一个进程只服务一个用户时成立；一个进程服务多个用户时失效：**最后完成的那次装配决定所有人的保护**。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/assembly/boot/options.go` | 新增 `Options.GlobalSecrets *config.SecretsConfig`：**安全底线注入口**——宿主可以自己声明这一进程执行的凭据保护 |
+| `internal/assembly/boot/secrets_floor.go` | 新增 `effectiveSecrets()`：注入口优先；否则装配是 per-user 时取**全局**配置，单用户时仍取本次装载的配置。**为什么必须做**：保护层是进程级的，一个用户的文件不得替所有用户决定它 |
+| `internal/assembly/boot/build.go` | 装配时用生效值**覆盖 `cfg.Secrets`** 再 arm 包级开关——沙箱的拒绝根（`cfg.ForbiddenRootsForRoot`）读的是 `cfg.Secrets`，只改包级开关会让两处读到不同的值 |
+| `internal/assembly/boot/build.go`（`loadConfig`） | 只读姿态原先在装载处强制两项保护为真，现移到装配处与底线合成一处：底线不得**放宽**只读姿态 |
+| `internal/contract/config/secrets.go` | 新增 `Roots.Secrets()` 与 `ProcessSecrets()`：只读**用户配置文件本身**（不取项目层、不碰凭据库、不做环境展开），读不出来时给**内置默认**而不是零值——零值会把保护关掉 |
+| `internal/contract/config/config.go` | 新增 `DefaultSecretsConfig()`，内置默认只有一处来源 |
+| `internal/assembly/boot/secrets_floor_test.go`、`internal/contract/config/secrets_test.go` | 本仓新增：per-user 装配不由用户文件决定保护、全局配置双向生效、注入口优先、单用户保持原样、底线到达工具层 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

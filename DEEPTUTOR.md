@@ -535,6 +535,10 @@ that names one — and every path a session touches resolves against it.
 - **A record belongs to the home it was taken from.** The last-known-good
   configuration snapshot is counted and written per home, so one user's
   assembly does not consume another's recovery point.
+- **The credential protections are the process's, not a user's.** The layers
+  are read from one place, so one build decides them for every build: a build
+  serving one user of many takes them from the global configuration, and a
+  host may state the floor outright.
 - **Global assets stay global.** MCP servers, skills and plugin packages are
   installed by an administrator and used by everyone: their declarations and
   their enabled state are process-wide, while a session's own settings follow
