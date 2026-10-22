@@ -426,6 +426,39 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/session/control/slash.go` | `ArgData.ConfigRoot` 带上工作区根，`currentEffortEntry` 据此解析 provider——菜单与控制器现在读同一份配置 |
 | `internal/session/control/runtime_config_root_test.go` | 本仓新增：3 个回归（控制器模型清单 / 菜单模型引用 / effort provider 解析）——改前全红，改后全绿 |
 
+**第十一轮：内置自诊断技能的品牌化漏改（2026-10-22，iter 411）**：内置技能 `reasonix-guide` 仍教用户跑 `reasonix doctor capabilities` / `reasonix trust` / `reasonix plugin doctor`——产品改名后这些命令已经叫 `deep-tutor`，模型照着旧名字跑，命令不存在，指南在第一步就失效。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/ext/skill/builtincontent/reasonix-guide/SKILL.md` | 命令名改为 `deep-tutor`；描述里的 Hooks 事件数 11 → 14（正文列的就是 14 个）；`Reasonix home` 改为 `Deep-tutor home` |
+| `internal/ext/skill/builtincontent/reasonix-guide/SKILL.md`（**刻意未改**） | 契约名一律不动：技能名 `reasonix-guide`、`reasonix.toml`、`.reasonix` 目录、`reasonix-plugin.json`、`REASONIX.md`、`docs/GUIDE.md` 都是别的程序要匹配的字符串 |
+| `docs/kernel/STUDIO_RELEASE.md` | `reasonix upgrade` → `deep-tutor upgrade`（这份 runbook 讲的是本仓自己的发布流程） |
+| `scripts/reasonix/reasonix-session-diag.bat` | CLI 探测按「两种拼写都认」处理：先找 `deep-tutor` 再找 `reasonix`，调用走解析出来的名字 |
+
+**第十二轮：测试不再写进机器的 home（金丝雀门禁）（2026-10-22，iter 412）**：金丝雀扫描（把全仓测试跑在一次性 home 上，跑完看那个目录还空不空）查出**两处测试写进用户自己的 home**——写文件的包并不提任何 home 变量，它只是调了一个解析 home 的路径函数，所以静态形状门禁抓不到这一类。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/state/history/main_test.go`、`internal/platform/remote/main_test.go` | 本仓新增：装上 `testenv` 隔离守卫（与 iter 408 的 16 个包同一形状）。前者关闭进程级 history catalog 时会在 `cache/history-search` 落下 SQLite，后者用空 `HostKeyPolicy` 握手时会在 `remote/known_hosts` 落下一个文件 |
+| `tools/canary/main.go`、`main_test.go` | 本仓新增：**动态门禁**。`canary run` 把套件指向一次性 home、跑完检查；`canary check` 只检查。子进程环境里两种拼写都**替换**而不是追加——同名变量第一条生效，追加一条等于没换 |
+| `.github/workflows/ci.yml` | `go-test` job 的根模块步骤改走 `tools/canary`（同一个 job、同一遍测试，多一道泄漏检查） |
+| `Makefile` | `make test` 的根模块步骤同样走 `tools/canary` |
+| `.gitignore` | `/canary`（`go build` 这个命令会把它落在仓库根） |
+
+**第十三轮：serve 层的长跑资源与状态一致性（2026-10-22，iter 413/414）**：一轮针对 `internal/frontend/serve` 的长跑资源审计，查出并修掉**三处泄漏**与**两处状态/实现不一致**。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/frontend/serve/wirelog.go` | 帧镜像的 goroutine 与 `unsubscribe` **循环依赖**：它等一个只有自己返回才会关闭的通道，于是永不返回，订阅也就永不释放。改为可停止（`wireLog.stop`/`done`），由 hub 退役一个面时停掉 |
+| `internal/frontend/serve/hub.go` | `Hub.Close` 与 `Adopt`/`Open` 的失败路径停掉帧镜像；一个开面失败就走的路径此前每失败一次漏一个 goroutine |
+| `internal/frontend/serve/auth.go` | 限流器的清理协程**没有停止通道**，而 `newAuthGate` 每个面都建一个 → 每开一个面漏一个 goroutine。改为惰性清理：不再起协程，窗口过期即回收，记住的地址数有上限 |
+| `internal/frontend/serve/ask.go` | 已结清的问题只增不减，且每条记着**用户输入的原文**（远端要密码时就是密码）。改为有界：只留最近若干条，重试仍在窗口内 |
+| `internal/frontend/serve/device_share.go` | 监听器异常退出后 `s.live` 不清空 → 面板仍报「共享已开」，仍发**指向死地址**的配对码。改为监听器结束时即放弃监听权；`shareListener` 留住 `net.Listener` 以便看见它真的没了 |
+| `internal/frontend/serve/market.go` | 每个请求新建一个 `http.Client`（自带连接池）且**没有超时** → 每请求留下一个 transport、它的空闲连接和它们的协程。改为按代理设置缓存一个客户端，并给请求 30s 上限 |
+| `internal/frontend/serve/wirelog.go`（`/trajectory`） | 读整份日志（上限 8MB）时**持着写者的独占锁** → 事件落盘全程被堵。改为不持锁读（日志只追加，只有尾部可能是半帧），并丢掉没有换行收尾的半帧 |
+| `internal/frontend/serve/wirelog.go`（写入） | 短写被忽略 → 日志里留下半行 JSON，其后每一行都不可解析。改为写不满就截回原长度，日志始终是「发生过的事」的前缀 |
+| `internal/frontend/serve/hub_picker.go` | 文件夹选择框**每请求起一个 `powershell.exe`**，且没有并发上限——它等人回答，进程就一直活着。改为**同一时刻只允许一个对话框**，第二个请求以 `picker.busy` 拒绝（新增文案见 `desktop/frontend-next/src/i18n/kernel.ts` 与 `en_kernel.ts`） |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

@@ -38,6 +38,69 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 415（2026-10-22，文件夹选择框的并发上限，✅ 完成）**：承接 iter 414 的「下一步」③。修掉一个**可被网络触发的资源耗尽**。
+
+- **缺陷**：`/host/pick-folder` 每请求起一个 `powershell.exe`，**没有并发上限**
+  - 选择框是**等人回答**的：进程一直活着，认证后的客户端反复调用就能堆出一堆对话框
+  - 每个 `powershell.exe` 是一份实打实的内存，而面板上除了对话框什么也看不出来
+- **修法**：**同一时刻只允许一个对话框**，第二个请求以 `picker.busy` 拒绝
+  - 新增文案：`desktop/frontend-next/src/i18n/kernel.ts` 与 `en_kernel.ts`（Go 侧 `TestEveryRefusalCodeIsTranslated` 守这个对应关系）
+- **验证**：新回归（第二个请求 409）+ 前端 i18n 两套用例全绿
+
+**iter 414（2026-10-22，serve 层的状态一致性与读路径，✅ 完成）**：承接 iter 413 的「下一步」②。修掉两处**状态与实现不一致**和一处**数据完整性**缺陷。
+
+- **分享状态（`device_share.go`）**：监听器异常退出后 `s.live` 不清空
+  - 面板仍报「共享已开」，仍发**指向死地址**的配对码——用户扫码必然失败
+  - 改法：监听器结束时即放弃监听权（`forgetListener`）；`shareListener` 留住 `net.Listener`，好看见它真的没了
+  - 验证：新回归先红后绿（改前「监听器死了仍报已开」，10s 后失败）
+- **市场客户端（`market.go`）**：每个请求新建一个 `http.Client`，且**没有超时**
+  - 客户端自带连接池 → 每请求留下一个 transport、它的空闲连接和它们的协程
+  - 改法：按代理设置缓存**一个**客户端（代理设置变了才重建），并给请求 30s 上限
+- **轨迹读路径（`wirelog.go`）**：读整份日志（上限 8MB）时**持着写者的独占锁**
+  - 事件落盘全程被堵住：一次轨迹读取能把会话的事件写入卡住数秒
+  - 改法：不持锁读（日志只追加，只有尾部可能是半帧），并丢掉没有换行收尾的半帧
+- **日志写入（`wirelog.go`）**：短写被忽略 → 日志里留下半行 JSON，其后每一行都不可解析
+  - 改法：写不满就截回原长度，日志始终是「发生过的事」的前缀
+- **门禁**：`gofmt` / `go vet` / `golangci-lint` / `repolint` 全绿；serve 477s + cli 91.5s 两包回归通过
+
+**iter 413（2026-10-22，serve 层长跑资源：三处泄漏，✅ 完成）**：一轮针对 `internal/frontend/serve` 的长跑资源审计，查出并修掉**三处会随时间累积**的泄漏。
+
+- **帧镜像的循环依赖（`wirelog.go`）**：`attachWireLog` 的 goroutine 与 `unsubscribe` 互相等待
+  - 它等的通道只有在**自己返回**时才会关闭 → 永不返回 → 订阅永不释放
+  - 后果：每开一个面漏一个 goroutine，且这个订阅一直挂在 broadcaster 上收帧
+  - 改法：镜像可停止（`wireLog.stop` / `done`），由 hub 退役一个面时停掉并等它结束
+- **限流器的清理协程（`auth.go`）**：`newRateLimit` 起的协程**没有停止通道**
+  - `newAuthGate` 每个面都建一个，而 hub 开面时又把整个 gate 换掉 → 每开一个面漏一个协程
+  - 改法：不再起协程；窗口过期即回收，记住的地址数有上限（4096），满了先清过期、再淘汰最旧
+- **已结清问题只增不减（`ask.go`）**：`past` 无上限，且每条记着**用户输入的原文**
+  - 远端要密码时那就是密码；长跑的实例会一直留着
+  - 改法：只留最近 256 条——重试在几秒内到达，记录的用途只有这一件
+- **验证**：3 个新回归（退役即释放订阅 / 限流器记住的地址有上限 / 已结清问题有上限），改前全红
+
+**iter 412（2026-10-22，测试不再写进机器的 home（金丝雀门禁），✅ 完成）**：承接金丝雀扫描。查出的两处写入者已修，并给这一类缺陷配了一道**动态门禁**。
+
+- **扫描结论**：全仓测试跑在一次性 home 上，**整个根模块只有两处**写进去
+  - `internal/state/history`：关闭进程级 history catalog 时在 `cache/history-search` 落下 SQLite
+  - `internal/platform/remote`：用空 `HostKeyPolicy` 握手时在 `remote/known_hosts` 落下一个文件
+  - 两处都在**真实用户目录**留下了东西，而测试一声不吭
+- **修法**：两个包装上 `testenv` 隔离守卫（与 iter 408 的 16 个包同一形状）
+- **门禁（`tools/canary`，本仓新增）**：静态形状门禁抓不到这一类——写文件的包**不提任何 home 变量**，它只是调了一个解析 home 的路径函数
+  - `canary run` 把套件指向一次性 home、跑完检查；`canary check` 只检查
+  - 子进程环境里两种拼写都**替换**而不是追加：同名变量第一条生效，追加一条等于没换
+  - 一次性 home 落在 scratch 目录（本机 `F:\TEMP\deeptutor`），干净的一次跑完不留东西
+- **接线**：CI 的 `go-test` job 与 `make test` 的根模块步骤都改走 `tools/canary`（同一遍测试，多一道检查）
+- **验证**：装上守卫后金丝雀目录重新为空；去掉守卫后 `canary run` 如实报出 `cache/history-search` 并以 1 退出
+
+**iter 411（2026-10-22，内置自诊断技能的品牌化漏改，✅ 完成）**：金丝雀扫描的失败项里有一条真缺陷——`embed_test.go` 断言正文含 `deep-tutor doctor capabilities`，而内置技能写的仍是 `reasonix`。
+
+- **缺陷**：内置技能 `reasonix-guide` 仍教用户跑 `reasonix doctor capabilities` / `reasonix trust` / `reasonix plugin doctor`
+  - 产品改名后这些命令已经叫 `deep-tutor`，模型照着旧名字跑，命令不存在，指南在第一步就失效
+  - 描述里写「Hooks (11 events)」，正文列的却是 14 个（`hook.go` 的事件表也是 14 个）
+- **修法**：命令名改 `deep-tutor`；事件数 11 → 14；`Reasonix home` → `Deep-tutor home`
+- **契约名一律不动**：技能名 `reasonix-guide`、`reasonix.toml`、`.reasonix` 目录、`reasonix-plugin.json`、`REASONIX.md`、`docs/GUIDE.md` 都是别的程序要匹配的字符串
+- **连带**：`docs/kernel/STUDIO_RELEASE.md` 的 `reasonix upgrade` → `deep-tutor upgrade`；诊断脚本的 CLI 探测按「两种拼写都认」处理
+- **验证**：`internal/ext/skill/builtincontent` 与 `internal/ext/skill` 两包全绿（此前 `TestLoadReasonixGuide` 就是红的）
+
 **iter 410（2026-10-22，深水点 #32：运行期配置的项目层取会话自己的工作区，✅ 完成）**：承接 iter 409 的「下一步」①。修掉一个**读错项目配置**的缺陷。
 
 - **缺陷**：`runtimeConfig` 的项目层取自**进程 cwd**（`roots.LoadForRoot(".")`）

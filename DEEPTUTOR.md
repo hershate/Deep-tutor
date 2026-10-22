@@ -595,6 +595,56 @@ at a deleted temporary directory.
   `REASONIX_TEST_FATAL_CHILD_HOME` in `cmd/deep-tutor` — and the child states
   it again for itself.
 
+### A test run leaves the user's home alone
+
+The guard above covers the packages whose tests name a home variable. It does
+not cover the package that reaches a home **through a path helper** and never
+mentions one.
+
+A test that closed the process-wide history catalog wrote a SQLite file into
+the user's cache, and a handshake with an empty host key policy wrote a file
+into the user's home. Neither test said anything.
+
+The reach is indirect, so only a run shows it. `tools/canary` points a suite at
+a disposable home, runs it, and then asks whether that home is still empty.
+
+- `go run ./tools/canary run -- ./...` is the whole check; CI's `go-test` job
+  and `make test` run the root module through it.
+- The child's environment **replaces** the location variables rather than
+  adding to them: the first entry of a name wins, so a second entry for a
+  variable the machine already carries would leave the suite reading the
+  machine's home and the canary would see nothing.
+- A dirty run lists what was written and exits non-zero. The directory is kept
+  for the evidence; a clean run leaves nothing behind.
+
+### A background worker ends with what owns it
+
+A goroutine that waits for a channel only its own return can close never
+returns. The wire log's mirror waited for a subscription to be released, and
+the release waited for the mirror — so every pane left a goroutine and a
+subscriber behind, and a hub opens panes on request.
+
+- Whatever starts a goroutine owns the way out of it, and the owner ends it.
+  A hub that retires a runtime stops what that runtime started.
+- A sweep that needs a timer is a goroutine that needs a stop. Where the work
+  can be done on the way through — a rate limiter that expires its own windows
+  as it consults them — it is, and no goroutine exists to leak.
+- A record that exists only to recognise a retry is bounded: the retry
+  follows within seconds, so the record keeps the recent ones and drops the
+  rest. What it holds is the user's own words; an unbounded one keeps a
+  password for the life of the process.
+
+### A panel says what the process is doing
+
+The share panel reported "sharing" after the listener had died, and handed out
+a pairing code for an address no phone could reach. The state a surface shows
+is a claim about the process, and it has to be withdrawn when the process stops.
+
+- A resource that can die on its own has an owner that notices. A listener
+  that ended releases the claim that was made for it.
+- A code minted from a claim — a pairing link, a token, a ticket — is minted
+  from the claim, not from the intent to hold it.
+
 ### Where the name is a contract, not a label
 
 A display name is a label: it is written for a person, and it changes when the

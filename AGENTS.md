@@ -41,10 +41,15 @@
   - 守卫清空两种拼写的 home 变量，并把 `HOME`/`USERPROFILE`/`AppData`/`LocalAppData` 指向 F 盘 scratch 下的一次性目录
   - **形状门禁**：`internal/base/testenv/isolation_gate_test.go` 的 `TestPackagesNamingAGuardedVariableInstallTheGuard` 检查「提到 home 根变量的包是否装了守卫」，漏装即红
   - **子进程不能靠继承环境变量拿位置**（子进程自己的守卫会清空它）——位置走测试专有变量（`REASONIX_PERMISSION_HOME`、`REASONIX_TEST_FATAL_CHILD_HOME`），子进程里再声明一次
+- **serve 层长跑修复（2026-10-22，iter 413/414）**：一轮针对 `internal/frontend/serve` 的长跑资源审计
+  - **三处泄漏**：帧镜像与 `unsubscribe` 循环依赖、限流器无停止通道的清理协程、已结清问题无上限（且留着用户输入的原文）
+  - **两处状态/实现不一致**：分享监听器死后仍报「已开」并发出指向死地址的配对码、市场客户端每请求新建且无超时
+  - `/trajectory` 读整份日志不再持写者独占锁
 - **落盘位置（本项目自己的产物，2026-10-21 起）**：可丢弃产物统一落在 **F 盘**。Go 侧 `internal/base/scratchroot` 与 Python 侧 `backend/app/core/scratchroot.py` 同规则：调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录（本机 `F:\TEMP\deeptutor`）→ 系统临时目录。内核 home/state/cache 由用户级 `DEEPTUTOR_HOME=F:\Deeptutor\reasonix` 定位（改名前的 `REASONIX_HOME` 同样有效，见上条）。**有意保留在 C 盘的锁根**（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）：必须让同一 OS 用户的各实例收敛到同一处，改动会让互斥失效。
 - **门禁现状（2026-10-22 更新）**：`.github/workflows/ci.yml` 已接上 **Go 内核门禁与桌面端前端门禁**（M1.5b，commit `c60b800`）——保留 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），新增 `go-lint`（gofmt / go vet / golangci-lint v2.12.2 / repolint / desktop 子模块）、`go-test`（ubuntu+windows 矩阵，三个模块各测各的：根模块 / `desktop` / `sdk/go`，后两个是嵌套 module）、`desktop-frontend`（pnpm build / test / **census** / census:verify + Electron `node --test`）。Go 门禁命令仍在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。
   - **Windows 上跑的根模块 `go test` 必须带 `-count=1`**：开着结果缓存时 go test 会在运行前后各做一次 `filepath.EvalSymlinks`，`internal/assembly/boot` 记了约 190 万条路径，在 Windows runner 上光这一步就要几分钟且不打印任何东西。`internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 守的就是这一条形状。
   - **Go 测试必须分批 + 超时上限**：单包 `-timeout 30m`（`internal/assembly/boot` 本机 975–1340 秒，超过 Go 默认 600 秒上限，一次性 `go test ./...` 必然 timeout panic）、`-p 4`（满并发时一批与负载/时序敏感的用例会假失败，逐包串行复跑全绿）。
+  - **金丝雀门禁（iter 412）**：根模块的 `go test` 走 `go run ./tools/canary run -- ./...`——套件被指向一次性 home，跑完检查那个 home 还空不空。写进用户 home 是静默的，静态形状门禁抓不到（写文件的包不提任何 home 变量，它只是调了解析 home 的路径函数）；`make test` 的根模块步骤同走此路
   - `tools/repolint` 基线**已按本仓树重建**（M1.5a，commit `3a9c267`）：2173 findings / 524 files，复核 clean。其扫描域是 **git 可见的树**（tracked + untracked-not-ignored），故本机的 `REF/` 副本不再让基线漂移。
   - `gofmt` 全绿（iter 399 修掉 M1.2 改名遗留的 import 排序问题：全仓 415 个文件 → 0，`commit fa49eb6`）；`golangci-lint run ./...`（根模块与 `desktop` 子模块）**0 issues**（iter 401）。
   - **前端门禁**：`desktop/frontend-next` 的 `pnpm test`（**549 文件 / 4683 用例全绿**）、`pnpm census`（**exit 0**；Seal E「渲染出的动作 id 必须都在 `src/actions.ts` 登记」此前是 OPEN）、`pnpm census:verify`、`pnpm build` 全绿。**上游 CI 从不跑 frontend-next 的 vitest**，这批红灯是随快照入库的上游既有债（iter 401 已修 10 处并定性）；本仓 CI 里的这一步是新增义务。
@@ -52,7 +57,7 @@
 
 | 包 / 用例 | 失败条件 |
 |---|---|
-| `internal/ext/skill/builtincontent` | 本机 AV 占用 `go-build` 临时 `.exe`，报 `Access is denied` |
+| `internal/ext/skill/builtincontent` | 此前记为「AV 占用 go-build 临时 exe」——实为**两件事**：品牌化漏改让 `TestLoadReasonixGuide` 真失败（iter 411 已修），AV 占用是另一回事（构建到 F 盘即正常） |
 | `internal/runtime/schedrun` `TestKillingTheRunEndsItsWholeProcessTree` | Windows 子进程树取锁时序 |
 | `internal/tools/builtin` `TestPipeStatusProbePreservesExitStatusAndReports` | Windows 管道退出码探针 |
 | `internal/runtime/agent` `TestContractOwesTheCheckTheTaskBeganUnder` | `TempDir RemoveAll cleanup` 目录非空——**负载/时序敏感**（iter 409 实测：并发重活时 1/9 次失败，单独复跑与改前/改后各 4/4 全绿） |
