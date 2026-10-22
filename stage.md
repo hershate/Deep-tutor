@@ -52,6 +52,19 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 - **顺带修掉的跨卷失败**：`internal/state/sessionv4/v4fixture` 用 `t.TempDir()`（系统盘）造会话，而 scratchroot 已改到 F 盘 → 跨卷 rename 报「不能把文件移到不同的磁盘驱动器」，serve 包的 `hub_tree_import_test` 因此红；改用 `tempdir.New(t)`（同卷）。
 - **验证**：scratchroot / testenv / canary / config 四个包全绿；serve 整包全绿；C 盘 108 个残留目录已清理。
 
+**iter 421（2026-10-23，服务栈 Pillow 升 13.0.0：把 28 条 OSV 公告清零，✅ 完成）**：iter 417 拆依赖栈时把服务栈的 Pillow 下限钉在 12.3（当时的上限），本轮推到唯一零公告的 13.0.0。
+
+- **动机**：服务进程直接 `Image.open` 解码用户上传的图片（`app/tools/parse_material.py`），「恶意图片解码」类公告是**可达**的。iter 372 因此把下限抬到 12.3，但 12.3.0 自己仍带公告。
+- **数字（本轮重新取，未采信旧结论）**：OSV API 实测 Pillow 10.4.0 → **60** 条、12.3.0 → **28** 条、13.0.0 → **0** 条。13.0.0（2026-10-16 发布）的发布说明逐条列出的正是这批安全修复。
+- **兼容面逐项核过**：
+  - Python：13.0.0 要求 >=3.11（CI 用 3.12、README 要求 3.11+，兼容）。
+  - 13.0.0 移除/变更的 API 与本仓、OCR 栈**无一命中**：`fromarray` 的改类型用法（surya 的 `fromarray` 不带 mode）、`Image.Image.get_child_images`、`Image._show`、`ImageCmsProfile.product_name`、`ExifTags.IFD.Makernote`。
+  - 本仓只用 `Image.open`；pytesseract 0.3.13 用 `fromarray`（不带 mode）/ `Image.new` / `getbands` / `getchannel` / `paste` / `save`——这些在 13.0.0 下逐条实测可用（本机无 tesseract 二进制，复刻其 PIL 调用面验证）。
+- **不需要给 OCR 栈单开 venv**（原待评估项）：marker/surya 钉 `Pillow<11` 是**上游保守约束**，不是运行时硬要求——实测 marker_single 在 Pillow 13.0.0 下转 PDF 成功（7.9s，markdown 产出正确）。单开 venv 要多占约 2GB，还要让 `shutil.which("marker_single")` 指向另一套解释器（iter 422 修的就是这个查找）。故维持同 venv、启动脚本「服务栈 → OCR 栈 → 服务栈」的三段式：实测把 Pillow 拽到 10.4.0 后，第三步拉回 13.0.0。
+- **改法**：`backend/requirements.txt` 的 Pillow 改 `>=13.0,<14.0`（上限 = 下一个主版本，沿用文件头的版本策略）；`requirements-ocr.txt` 与 README 同步。
+- **守卫**：`backend/tests/test_requirements_split.py` 的 Pillow 下限断言由写死字符串改为**按数值比较**（`>= (13, 0)`）——日后下限再升不必改守卫，往下降必红。
+- **验证**：后端全量 pytest 1757 passed / 1 skipped / 0 failed，覆盖率 88.70%；新 venv 装服务栈 exit 0（40.3s，自解析仍成立）；三段安装往返 Pillow 10.4.0 → 13.0.0；marker PDF 深度解析实测成功。
+
 **iter 419（2026-10-22，hub 面板数量上限落地：iter 416 审计结论的代码实现，✅ 完成）**：iter 416 只做了审计与定案，本轮把上限真正落地。
 
 - **缺陷（iter 416 已确证）**：`Hub.publish` 对每个新 runtime 无条件登记，hub 同时打开的面板数**无任何上限**；`POST /runtimes` 网络可达 → 认证后的客户端可用不同 root 反复开面。

@@ -3,7 +3,7 @@
 背景
 ----
 marker-pdf 与 surya-ocr 都钉 ``Pillow<11``（上游至今未放开：marker-pdf 2.0.0、surya-ocr
-0.22.1 仍钉 <11），而 ``backend/requirements.txt`` 为**服务进程**强制 ``Pillow>=12.3``
+0.22.1 仍钉 <11），而 ``backend/requirements.txt`` 为**服务进程**强制 ``Pillow>=13.0``
 （服务进程直接 ``Image.open`` 解码用户上传的图片，见 ``app/tools/parse_material.py``）。
 两者写进同一个依赖文件时，pip 的解析器判为无解（ResolutionImpossible）——安装必然失败，
 而启动脚本第一步就是装它：装不上，服务永远起不来（2026-10-22 实测 ``scripts/start.ps1``
@@ -66,8 +66,22 @@ def test_the_ocr_requirements_carry_the_pdf_stack() -> None:
 
 
 def test_the_service_requirements_keep_the_pillow_security_floor() -> None:
+    """服务栈的 Pillow 下限不得低于 13.0。
+
+    iter 372 定的 12.3 只是当时的最新版；OSV 实测（iter 421）：10.4.0 → 60 条公告、
+    12.3.0 → 28 条、13.0.0 → 0 条。这些公告里有「恶意图片解码可达」类（服务进程直接
+    ``Image.open`` 解码用户上传的图片），13.0.0 才是修掉这批的那一版。
+
+    这里按数值比较而不是写死字符串：日后下限再往上升不必改这个守卫，往下降则必须红。
+    """
     text = CORE_REQ.read_text(encoding="utf-8")
-    assert re.search(r"(?im)^Pillow>=12\.3", text), "服务栈的 Pillow 下限不得低于 12.3（iter 372 的 CVE 处置）"
+    match = re.search(r"(?im)^Pillow>=(\d+)\.(\d+)", text)
+    assert match, "服务栈必须声明 Pillow 的版本下限"
+    floor = (int(match.group(1)), int(match.group(2)))
+    assert floor >= (13, 0), (
+        f"服务栈的 Pillow 下限 {floor[0]}.{floor[1]} 低于 13.0——"
+        "12.3.0 仍带 28 条 OSV 公告（恶意图片解码可达），13.0.0 是零公告版"
+    )
 
 
 def test_both_startup_scripts_install_the_ocr_stack_after_the_service_stack() -> None:

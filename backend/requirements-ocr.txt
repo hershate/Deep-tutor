@@ -3,7 +3,7 @@
 # 为什么单独一个文件
 # ------------------
 # marker-pdf 与 surya-ocr 都钉 Pillow<11（上游至今未放开——marker-pdf 2.0.0、surya-ocr 0.22.1
-# 仍钉 <11），而 requirements.txt 为**服务进程**强制 Pillow>=12.3（服务进程直接 Image.open
+# 仍钉 <11），而 requirements.txt 为**服务进程**强制 Pillow>=13.0（服务进程直接 Image.open
 # 解码用户上传的图片，见 app/tools/parse_material.py）。两者写进同一个 requirements 文件时，
 # pip 的解析器判为无解（ResolutionImpossible）——安装必然失败，而启动脚本第一步就是装它：
 # 装不上，服务永远起不来。本文件让两栈各自可解析。
@@ -19,6 +19,10 @@
 # 这套栈只经 marker_single 子进程 CLI 触达（服务进程零导入；仅认证用户的 full 档 PDF 解析
 # 触发，上传 50MB 上限 + 解析限流），且 note/12 决策 v2 砍掉整个 OCR 栈（PDF 走 Go 真实现）
 # ——它的依赖冲突不值得污染服务栈的依赖文件。
+#
+# Pillow 13.0.0 下 marker 照常工作（iter 421 实测：marker_single 转 PDF 成功，markdown 产出
+# 正确）——<11 是上游的保守约束，不是运行时的硬要求。故服务栈已升到 Pillow>=13.0，两栈同处
+# 一个 venv 时由服务栈的版本胜出（这正是上面第 3 步要做的事）。
 #
 # 版本：钉 1.10.2（最后一条 1.x）。2.0.0 要求 transformers>=5.12 + surya>=0.22 + torch>=2.7，
 # 是四包大版本迁移；v1 生命周期内无回报窗（见 stage.md iter R15 的 transformers CVE 豁免）。

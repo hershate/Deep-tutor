@@ -34,11 +34,14 @@ charset-normalizer>=3.3,<4.0      # 编码检测（R25）
 
 # 多模态（P3；R9：缺失时对应入口禁用 + 提示安装，不影响其余功能）
 pytesseract>=0.3.10,<1.0          # 图片 OCR（另需系统安装 tesseract-ocr 二进制）
-Pillow>=12.3,<13.0                # 图片读取（pytesseract 依赖）。iter 372：10.4.0 存在 13 个已知 CVE
+Pillow>=13.0,<14.0                # 图片读取（pytesseract 依赖）。iter 372：10.4.0 存在 13 个已知 CVE
                                   # （恶意图片解码可达——服务进程直接 Image.open 解码用户上传图片，见
-                                  # app/tools/parse_material.py）强制 >=12.3。OCR 栈（requirements-ocr.txt）
-                                  # 钉 <11 属上游保守约束：两栈同处一个 venv 时以本文件为准（直接要求优先，
-                                  # pip 只警告不中止），marker 的导入/CLI/PIL 操作面在 12.x 下已实证正常
+                                  # app/tools/parse_material.py）强制 >=12.3。iter 421：升 13.0.0——12.3.0
+                                  # 仍有 28 条 OSV 公告（实测 10.4.0 → 60 条、12.3.0 → 28 条、13.0.0 → 0 条），
+                                  # 13.0.0 是修掉这批的那一版（它要求 Python >=3.11：CI 用 3.12、README 要求
+                                  # 3.11+，兼容）。OCR 栈（requirements-ocr.txt）钉 <11 属上游保守约束：
+                                  # 两栈同处一个 venv 时以本文件为准（直接要求优先，pip 只警告不中止），
+                                  # marker 的导入/CLI/PIL 操作面在 13.0.0 下已实证正常（PDF 深度解析成功）
 # faster-whisper>=1.0,<2.0        # 音视频转写（可选：体积大 + 首次使用下载模型；用时装）
 
 # 测试

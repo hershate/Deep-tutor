@@ -111,7 +111,7 @@ bash scripts/start.sh
 
 依赖分两栈装：`backend/requirements.txt` 是服务栈（**自身可解析**）；`backend/requirements-ocr.txt` 是 OCR/PDF 深度解析栈（marker，体积大，**只在首次**装）。
 
-两者必须分开——marker 钉 `Pillow<11`，服务进程须 `Pillow>=12.3`（直接解码用户上传图片），写进同一个文件 pip 会判为无解（ResolutionImpossible），**装不上服务就起不来**。
+两者必须分开——marker 钉 `Pillow<11`，服务进程须 `Pillow>=13.0`（直接解码用户上传图片；12.3.0 仍带 28 条 OSV 公告，13.0.0 是零公告版），写进同一个文件 pip 会判为无解（ResolutionImpossible），**装不上服务就起不来**。
 
 OCR 栈装不上不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。
 
