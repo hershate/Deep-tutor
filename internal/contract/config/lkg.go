@@ -13,6 +13,11 @@ import (
 // cannot be parsed. The original user config is never overwritten by a load.
 func LastKnownGoodConfigPath() string { return processRoots().lastKnownGoodConfigPath() }
 
+// LastKnownGoodConfigPath is this binding's fixed path of the most recent
+// verified user config snapshot. A snapshot belongs to the home whose config it
+// was taken from, so a session serving two homes must not read the other's.
+func (r Roots) LastKnownGoodConfigPath() string { return r.lastKnownGoodConfigPath() }
+
 func (r Roots) lastKnownGoodConfigPath() string {
 	root := r.MemoryUserDir()
 	if root == "" {

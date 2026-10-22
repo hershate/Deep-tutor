@@ -516,6 +516,30 @@ disagree.
   `security_review` before the round can end, and the modification has to be
   disclosed in the root [`NOTICE`](./NOTICE).
 
+### Multi-user kernel changes
+
+One process serves more than one user. The kernel still has no notion of a
+user: what it takes is a **storage binding** — `config.Roots`, or the `Home`
+that names one — and every path a session touches resolves against it.
+
+- **Binding, not identity.** A kernel package receives `Roots`/`Home`, never a
+  user id. The user difference belongs to the assembly layer.
+- **The binding travels with the session.** `control.Options.Roots` carries it,
+  and a rebuild hands the replacement the binding of the controller it replaces.
+- **A lock belongs to the file it guards.** Writing one home's configuration
+  locks that home's file; locking another home's file lets two writers race.
+- **A file's shape follows the binding.** A user file is rewritten whole, a
+  project file is written incrementally. Deciding that by the process rather
+  than the binding writes a user file in the project shape and drops the
+  entries it never declared.
+- **A record belongs to the home it was taken from.** The last-known-good
+  configuration snapshot is counted and written per home, so one user's
+  assembly does not consume another's recovery point.
+- **Global assets stay global.** MCP servers, skills and plugin packages are
+  installed by an administrator and used by everyone: their declarations and
+  their enabled state are process-wide, while a session's own settings follow
+  the session's binding. The two bindings are not interchangeable.
+
 ### What stays upstream's
 
 The absorbed code keeps its copyright headers, its licence and its product

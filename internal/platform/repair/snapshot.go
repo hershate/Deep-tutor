@@ -29,21 +29,29 @@ type ConfigSnapshot struct {
 	Version       string `json:"version,omitempty"`
 }
 
-func snapshotDir() string {
-	if root := config.MemoryUserDir(); root != "" {
+func snapshotDir() string { return snapshotDirFor(config.Roots{}) }
+
+// snapshotDirFor is the snapshot series of this binding's state root. A series
+// belongs to the home whose config it was taken from.
+func snapshotDirFor(roots config.Roots) string {
+	if root := roots.MemoryUserDir(); root != "" {
 		return filepath.Join(root, "repair", "snapshots")
 	}
 	return ""
 }
 
 func recordConfigSnapshot(source string, b []byte, version string, now time.Time) error {
-	dir := snapshotDir()
+	return recordConfigSnapshotFor(config.Roots{}, source, b, version, now)
+}
+
+func recordConfigSnapshotFor(roots config.Roots, source string, b []byte, version string, now time.Time) error {
+	dir := snapshotDirFor(roots)
 	if dir == "" {
 		return nil
 	}
 	sum := sha256.Sum256(b)
 	hash := hex.EncodeToString(sum[:])
-	existing, err := ListConfigSnapshots()
+	existing, err := ListConfigSnapshotsFor(roots)
 	if err != nil {
 		return err
 	}
@@ -80,7 +88,7 @@ func recordConfigSnapshot(source string, b []byte, version string, now time.Time
 	if err := verifyConfigSnapshotFile(path+".json", metadata); err != nil {
 		return err
 	}
-	return pruneConfigSnapshots(configSnapshotRetention)
+	return pruneConfigSnapshotsFor(roots, configSnapshotRetention)
 }
 
 func createOrVerifyConfigSnapshotFile(path string, content []byte) error {
@@ -114,7 +122,12 @@ func verifyConfigSnapshotFile(path string, expected []byte) error {
 }
 
 func ListConfigSnapshots() ([]ConfigSnapshot, error) {
-	dir := snapshotDir()
+	return ListConfigSnapshotsFor(config.Roots{})
+}
+
+// ListConfigSnapshotsFor lists this binding's snapshot series.
+func ListConfigSnapshotsFor(roots config.Roots) ([]ConfigSnapshot, error) {
+	dir := snapshotDirFor(roots)
 	if dir == "" {
 		return []ConfigSnapshot{}, nil
 	}
@@ -438,12 +451,16 @@ func readVerifiedConfigSnapshot(snap ConfigSnapshot) ([]byte, error) {
 }
 
 func pruneConfigSnapshots(keep int) error {
-	snapshots, err := ListConfigSnapshots()
+	return pruneConfigSnapshotsFor(config.Roots{}, keep)
+}
+
+func pruneConfigSnapshotsFor(roots config.Roots, keep int) error {
+	snapshots, err := ListConfigSnapshotsFor(roots)
 	if err != nil {
 		return err
 	}
 	for _, snap := range snapshots[minimum(keep, len(snapshots)):] {
-		if err := pruneConfigSnapshot(snap); err != nil {
+		if err := pruneConfigSnapshotFor(roots, snap); err != nil {
 			return err
 		}
 	}
@@ -455,7 +472,11 @@ func pruneConfigSnapshots(keep int) error {
 var configSnapshotPruneAfterMove = func(string, string, string) {}
 
 func pruneConfigSnapshot(snap ConfigSnapshot) error {
-	dir := snapshotDir()
+	return pruneConfigSnapshotFor(config.Roots{}, snap)
+}
+
+func pruneConfigSnapshotFor(roots config.Roots, snap ConfigSnapshot) error {
+	dir := snapshotDirFor(roots)
 	metaPath := snap.Path + ".json"
 	expectedMeta, err := os.ReadFile(metaPath)
 	if err != nil {

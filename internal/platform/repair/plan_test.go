@@ -12,6 +12,7 @@ import (
 
 	"deep-tutor/internal/base/fileutil"
 	"deep-tutor/internal/base/testenv"
+	"deep-tutor/internal/contract/config"
 )
 
 func repairMutationTestKey(path string) string {
@@ -620,7 +621,7 @@ func TestApplyRepairPlanRestoresCurrentConfirmedSnapshot(t *testing.T) {
 	if err := os.WriteFile(global, []byte("default_model = \"known-good\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -661,7 +662,7 @@ func TestApplyRepairPlanRejectsSnapshotMetadataDrift(t *testing.T) {
 	if err := os.WriteFile(global, []byte("default_model = \"known-good\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -872,7 +873,7 @@ func TestApplyRepairPlanPersistsMissingSnapshotTargetBeforeCreate(t *testing.T) 
 	if err := os.WriteFile(global, []byte("default_model = \"known-good\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -1253,7 +1254,7 @@ func TestUndoPreparedSnapshotCreatePreservesConcurrentReplacement(t *testing.T) 
 	if err := os.WriteFile(global, snapshot, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -1300,7 +1301,7 @@ func TestSnapshotCreateDoesNotClaimConcurrentReplacementBeforeOwnershipCheck(t *
 	if err := os.WriteFile(global, snapshot, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()

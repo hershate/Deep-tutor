@@ -254,16 +254,19 @@ type snapshotMeta struct {
 	Version       string `json:"version,omitempty"`
 }
 
-func RecordHealthyConfig(version string) error {
-	path := config.UserConfigPath()
+// RecordHealthyConfigFor records the verified config of this binding's home.
+// The snapshot belongs to the home it was taken from: one process serving two
+// users must not keep one user's config under the other's name.
+func RecordHealthyConfigFor(roots config.Roots, version string) error {
+	path := roots.UserConfigPath()
 	if path == "" {
 		return nil
 	}
-	snapshot := lastKnownGoodConfigPath()
+	snapshot := roots.LastKnownGoodConfigPath()
 	if snapshot == "" {
 		return nil
 	}
-	unlock, err := lockRepairMutations(path, snapshot, snapshot+".json", snapshotDir())
+	unlock, err := lockRepairMutations(path, snapshot, snapshot+".json", snapshotDirFor(roots))
 	if err != nil {
 		return err
 	}
@@ -288,7 +291,7 @@ func RecordHealthyConfig(version string) error {
 	// Publish the immutable, versioned recovery point first. If a later fixed
 	// last-known-good write fails, readers retain the previous fixed snapshot
 	// while the newly recorded version remains independently recoverable.
-	if err := recordConfigSnapshot(path, b, version, now); err != nil {
+	if err := recordConfigSnapshotFor(roots, path, b, version, now); err != nil {
 		return err
 	}
 	if err := fileutil.AtomicWriteFile(snapshot, b, 0o600); err != nil {

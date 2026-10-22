@@ -370,6 +370,17 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 
 **MCP 声明仍然落在全局资产库**（note/12 决策 #55：MCP 服务器由管理员安装，全体用户可用，普通用户不可自装）。因此控制器的 MCP 安装/删除走**进程绑定**，不随会话的 per-user home 走；会话自身的设置（超时、语言、显示偏好）才随绑定走。**由此留下的装配层任务**：per-user 会话要看到全局的 MCP 清单，装配层须把全局安装态**只读投影**进每个用户（`plan/reasonix/04` §二/§三），内核侧的读路径已按绑定就绪（`c.roots.LoadForRoot` 读的是该 home，投影进去即可见）。
 
+**第六轮：最后一次可用（last-known-good）配置快照按 home 记账（2026-10-22，M2-0b 的 K-3）**：配置快照是**某个 home 的配置**的快照，记账单位必须跟着 home 走。此前是**进程一次**——一个进程服务多个用户时，先到的用户会吃掉那一次，后到的用户永远没有快照可恢复。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/assembly/boot/healthy_config.go` | 记账从**进程一个 `sync.Once`** 改为**按快照位置一个 once**（键=该 home 的 last-known-good 路径）。两个 home 各记一份；同一位置的两个 home 仍共享一次。装配成功即证明该配置可用——这条信号与前端无关，所以记录留在装配层 |
+| `internal/assembly/boot/runtime.go` | 记录时把本次装配的存储绑定传下去，写的是**该 home 的**配置，不是进程的 |
+| `internal/platform/repair/config.go` | 新增 `RecordHealthyConfigFor(roots, version)`：快照的源文件、固定快照、不可变快照序列都取自该绑定。原 `RecordHealthyConfig(version)` 保留为进程绑定的包装（运维 CLI 的行为不变） |
+| `internal/platform/repair/snapshot.go` | 新增绑定侧变体 `snapshotDirFor` / `recordConfigSnapshotFor` / `ListConfigSnapshotsFor` / `pruneConfigSnapshotsFor` / `pruneConfigSnapshotFor`；同名自由函数保留为进程绑定的包装 |
+| `internal/contract/config/lkg.go` | 导出 `Roots.LastKnownGoodConfigPath()`：恢复读侧本来就按绑定读（上一轮已改），写侧此前按进程写——两侧现在说的是同一个地方 |
+| `internal/assembly/boot/healthy_config_test.go`、`internal/platform/repair/stated_home_test.go` | 本仓新增：两个 home 各记一份；快照落在该 home 下，且进程 home 未被写入 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）

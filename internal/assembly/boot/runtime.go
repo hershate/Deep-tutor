@@ -102,7 +102,7 @@ func nextRuntimeGeneration() uint64 { return runtimeGeneration.Add(1) }
 func BuildRuntime(ctx context.Context, opts Options) (*BuildResult, error) {
 	res, err := build(ctx, opts)
 	if err == nil {
-		noteHealthyConfig(opts.Version)
+		noteHealthyConfig(opts.roots(), opts.Version)
 	}
 	return res, err
 }

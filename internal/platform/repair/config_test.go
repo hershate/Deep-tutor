@@ -245,7 +245,7 @@ func TestRepairRestoresLastKnownGoodGlobalConfig(t *testing.T) {
 	if err := os.WriteFile(path, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("[broken\n"), 0o600); err != nil {
@@ -276,7 +276,7 @@ func TestConfigSnapshotsRotateAndVerifyHash(t *testing.T) {
 		if err := os.WriteFile(path, content, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := RecordHealthyConfig("v1"); err != nil {
+		if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -325,7 +325,7 @@ func TestRecordHealthyConfigRejectsTamperedDuplicateSnapshot(t *testing.T) {
 	if err := os.WriteFile(path, healthy, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -337,7 +337,7 @@ func TestRecordHealthyConfigRejectsTamperedDuplicateSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RecordHealthyConfig("v1"); err == nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err == nil {
 		t.Fatal("duplicate snapshot deduplication hid tampered content")
 	}
 	if got, err := os.ReadFile(snapshots[0].Path); err != nil || string(got) != string(tampered) {
@@ -372,7 +372,7 @@ func TestRecordHealthyConfigReadsSourceAfterMutationLock(t *testing.T) {
 	}
 	t.Cleanup(func() { repairMutationBeforeLock = originalHook })
 	done := make(chan error, 1)
-	go func() { done <- RecordHealthyConfig("v1") }()
+	go func() { done <- RecordHealthyConfigFor(config.Roots{}, "v1") }()
 	<-attempted
 	select {
 	case err := <-done:
@@ -494,7 +494,7 @@ func TestRestoreConfigSnapshotUsesTheBytesItVerified(t *testing.T) {
 	if err := os.WriteFile(dest, confirmed, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -533,7 +533,7 @@ func TestRestoreConfigSnapshotDirectRejectsTargetDriftBeforeRename(t *testing.T)
 	if err := os.WriteFile(dest, []byte("default_model = \"snapshot\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -571,7 +571,7 @@ func TestRestoreConfigSnapshotDirectRejectsDriftWhileWaitingForTransactionLock(t
 	if err := os.WriteFile(dest, []byte("default_model = \"snapshot\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -615,7 +615,7 @@ func TestRestoreConfigSnapshotPreservesConcurrentRecreate(t *testing.T) {
 	if err := os.WriteFile(dest, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -659,7 +659,7 @@ func TestRestoreConfigSnapshotCrossDeviceFallbackPreservesConcurrentRecreate(t *
 	if err := os.WriteFile(dest, []byte("default_model = \"snapshot\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -715,7 +715,7 @@ func TestRestoreConfigSnapshotDoesNotPublishWhenUndoPersistenceFails(t *testing.
 	if err := os.WriteFile(dest, snapshot, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -891,7 +891,7 @@ func TestSnapshotUndoAcrossSeparateStateHome(t *testing.T) {
 	if err := os.WriteFile(path, []byte("default_model = \"before\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -932,7 +932,7 @@ func TestRestoreConfigSnapshotPreservesSymlinkThroughUndo(t *testing.T) {
 	if err := os.Symlink(dotfiles, dest); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -988,7 +988,7 @@ func TestRestoreConfigSnapshotCrossDeviceCleanupKeepsPlainConfig(t *testing.T) {
 	if err := os.WriteFile(dest, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -1036,7 +1036,7 @@ func TestRestoreConfigSnapshotCrossDeviceCleanupRestoresSymlink(t *testing.T) {
 	if err := os.Symlink(dotfiles, dest); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
@@ -1088,7 +1088,7 @@ func TestRestoreConfigSnapshotCommitsWhenAuditLogFails(t *testing.T) {
 	if err := os.WriteFile(dest, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordHealthyConfig("v1"); err != nil {
+	if err := RecordHealthyConfigFor(config.Roots{}, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshots, err := ListConfigSnapshots()
