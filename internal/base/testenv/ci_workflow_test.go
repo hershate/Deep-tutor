@@ -64,26 +64,40 @@ func (j ciJob) rootModule(s ciStep) bool {
 }
 
 // goTestArgs returns the arguments of every `go test` the script runs, each
-// cut at the first shell operator.
+// cut at the first shell operator. The canary wrapper counts as one: `go run
+// ./tools/canary run -- ./...` runs the same suite under a disposable home,
+// and the arguments after its `--` are the suite's own — which is where
+// `-count=1` has to be.
 func goTestArgs(script string) [][]string {
 	var out [][]string
 	for line := range strings.SplitSeq(script, "\n") {
 		fields := strings.Fields(line)
 		for i := 0; i+1 < len(fields); i++ {
-			if fields[i] != "go" || fields[i+1] != "test" {
-				continue
-			}
-			var args []string
-			for _, f := range fields[i+2:] {
-				if f == "&&" || f == "||" || f == "|" || f == ";" {
-					break
+			switch {
+			case fields[i] == "go" && fields[i+1] == "test":
+				out = append(out, cutAtOperator(fields[i+2:]))
+			case fields[i] == "go" && fields[i+1] == "run" && i+4 < len(fields) &&
+				fields[i+2] == "./tools/canary" && fields[i+3] == "run":
+				rest := fields[i+4:]
+				if at := slices.Index(rest, "--"); at >= 0 {
+					out = append(out, cutAtOperator(rest[at+1:]))
 				}
-				args = append(args, f)
 			}
-			out = append(out, args)
 		}
 	}
 	return out
+}
+
+// cutAtOperator takes the arguments up to the first shell operator.
+func cutAtOperator(fields []string) []string {
+	var args []string
+	for _, f := range fields {
+		if f == "&&" || f == "||" || f == "|" || f == ";" {
+			break
+		}
+		args = append(args, f)
+	}
+	return args
 }
 
 // A root-module package list run on Windows with go test's result cache on

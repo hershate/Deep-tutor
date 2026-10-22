@@ -6,7 +6,16 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"deep-tutor/internal/base/testenv"
 )
+
+// These tests name the home variables to check that the runner replaces them,
+// so this package holds that statement against the machine it runs on: a
+// machine carrying DEEPTUTOR_HOME must not decide what they see.
+func TestMain(m *testing.M) {
+	testenv.RunWithIsolatedUserState(m)
+}
 
 func TestParseRunArgsHandsTheTestArgumentsThrough(t *testing.T) {
 	home, args, err := parseRunArgs([]string{"--home", "C:\\tmp\\h", "--", "./...", "-count=1"})

@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+
+	"deep-tutor/internal/base/tempdir"
 )
 
 const (
@@ -41,6 +43,10 @@ type Store struct {
 	Seq  uint64
 }
 
+// New lays down a store under the project scratch area rather than under the
+// operating system's temporary directory: a test that renames the store into
+// another tree has to move it within one volume, and the system volume is not
+// where the rest of the test's trees are.
 func New(t *testing.T) *Store {
 	t.Helper()
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderCRC(true))
@@ -48,7 +54,7 @@ func New(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { enc.Close() })
-	return &Store{t: t, Root: filepath.Join(t.TempDir(), "sessions-v4"), enc: enc}
+	return &Store{t: t, Root: filepath.Join(tempdir.New(t), "sessions-v4"), enc: enc}
 }
 
 // Event is one event of a batch: an inline payload, or one kept in the pool.

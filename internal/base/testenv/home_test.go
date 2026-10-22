@@ -9,6 +9,15 @@ import (
 	"deep-tutor/internal/base/scratchroot"
 )
 
+// under reports whether child sits inside parent.
+func under(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 func TestIsolateUserStateRedirectsAndRestoresCallerEnvironment(t *testing.T) {
 	callerHome := t.TempDir()
 	callerEnvironment := map[string]string{
@@ -64,6 +73,12 @@ func TestIsolateUserStateRedirectsAndRestoresCallerEnvironment(t *testing.T) {
 		if _, ok := os.LookupEnv(key); ok {
 			t.Fatalf("%s remained set inside isolated test process", key)
 		}
+	}
+	// The scratch root must not drift to the machine's system volume because
+	// this guard rewrites %LOCALAPPDATA% — the system temp lives under it, and
+	// a rewritten one used to read as "the temp was redirected".
+	if scratchRoot := scratchroot.Base(); under(os.TempDir(), scratchRoot) {
+		t.Fatalf("scratch root %q fell back into the system temp %q", scratchRoot, os.TempDir())
 	}
 
 	cleanup()

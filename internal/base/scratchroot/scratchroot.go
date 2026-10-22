@@ -25,10 +25,31 @@ var (
 	executable        = os.Executable
 	workingDir        = os.Getwd
 	systemTemp        = os.TempDir
-	systemDefaultTemp = defaultSystemTemp
+	systemDefaultTemp = func() string { return defaultTempAtStart }
 	statPath          = os.Stat
 	probeWrites       = probeWritable
 )
+
+// defaultTempAtStart is the system's default temporary directory as it was
+// when the process began. It is read once: %LOCALAPPDATA% names that default
+// on Windows, and a program may rewrite it — the test isolation guard does
+// exactly that — so a default read afresh made the scratch area follow the
+// system volume instead of the project's own drive.
+var defaultTempAtStart = readDefaultTemp()
+
+// readDefaultTemp reads the environment as it was when the process started.
+func readDefaultTemp() string {
+	if runtime.GOOS == "windows" {
+		if dir := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); dir != "" {
+			return filepath.Join(dir, "Temp")
+		}
+		if dir := strings.TrimSpace(os.Getenv("SystemRoot")); dir != "" {
+			return filepath.Join(dir, "Temp")
+		}
+		return ""
+	}
+	return filepath.Join(string(filepath.Separator), "tmp")
+}
 
 var (
 	probeMu    sync.Mutex
@@ -92,21 +113,6 @@ func redirectedSystemTemp() bool {
 	return !samePath(systemTemp(), def)
 }
 
-// defaultSystemTemp is where the operating system keeps its temporary files
-// when nothing redirects it.
-func defaultSystemTemp() string {
-	if runtime.GOOS == "windows" {
-		if dir := strings.TrimSpace(envLookup("LOCALAPPDATA")); dir != "" {
-			return filepath.Join(dir, "Temp")
-		}
-		if dir := strings.TrimSpace(envLookup("SystemRoot")); dir != "" {
-			return filepath.Join(dir, "Temp")
-		}
-		return ""
-	}
-	return filepath.Join(string(filepath.Separator), "tmp")
-}
-
 // samePath compares two paths the way the operating system does: cleaned,
 // and without regard to case where the filesystem has none.
 func samePath(a, b string) bool {
@@ -141,10 +147,13 @@ func volumeTempBase() (string, bool) {
 }
 
 // projectVolume is the volume the project runs from: the running image's
-// volume when it can be read, the working directory's otherwise.
+// volume when it can be read, the working directory's otherwise. A binary in
+// the temporary directory does not count — the go tool stages test binaries
+// there, and reading that volume put every test's scratch space on the
+// system drive.
 func projectVolume() string {
 	if exe, err := executable(); err == nil && exe != "" {
-		if v := filepath.VolumeName(exe); v != "" {
+		if v := filepath.VolumeName(exe); v != "" && !stagedInTemp(exe) {
 			return v
 		}
 	}
@@ -152,6 +161,20 @@ func projectVolume() string {
 		return filepath.VolumeName(wd)
 	}
 	return ""
+}
+
+// stagedInTemp reports whether a path is inside the temporary directory —
+// where the go tool stages a test binary to run it.
+func stagedInTemp(path string) bool {
+	temp := systemTemp()
+	if temp == "" {
+		return false
+	}
+	rel, err := filepath.Rel(temp, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // writable reports whether a directory accepts a new file. The answer is

@@ -38,6 +38,20 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 420（2026-10-22，测试产物回到项目所在卷 + 修两处门禁红灯，✅ 完成）**：跑 Go 门禁时发现测试产物落在 **C 盘**，与本仓「可丢弃产物一律落 F 盘」的规约相悖。
+
+- **现象**：serve 包的测试临时目录落在 `C:\Users\Z\AppData\Local\Temp\`（本机已积 108 个残留目录 / 24.5 MB）。
+- **根因一（`scratchroot`）**：「系统默认临时目录」每次现读 `%LOCALAPPDATA%`；而测试隔离守卫**正是改写这个变量**（把测试挡在机器的真实用户数据外）→ 守卫自己的改动被读成「临时目录被重定向」→ scratch 根跟着跑到系统盘。
+  - 改法：默认值**进程启动时读一次**（`defaultTempAtStart`）——「默认」不该由一个会被改写的变量反复定义。
+- **根因二（`scratchroot`）**：`projectVolume()` 取可执行文件所在卷，但 **go 工具把测试二进制暂存到临时目录再运行** → 「项目所在卷」被读成系统临时卷 → 该卷上的 TEMP 目录被判为「系统卷，不是移动」→ 仍然落回 C 盘。
+  - 改法：临时目录里的可执行文件不算「项目所在卷」，改用工作目录所在卷。
+  - 实测：`os.Executable()` = `C:\Users\Z\AppData\Local\Temp\go-build…\b001\scratchroot.test.exe`；改后 scratch 根 = `F:\TEMP\deeptutor`。
+- **顺带修掉的两处门禁红灯（此前 CI 就在红）**：
+  - `TestPackagesNamingAGuardedVariableInstallTheGuard` 指出 `tools/canary`（iter 412 新增）点名了 home 变量却没装隔离守卫 → 补 `TestMain`。
+  - `TestWindowsCILegsBypassTheTestResultCache` 看不见 CI 的根模块测试步骤——CI 已改走金丝雀包装（`go run ./tools/canary run -- ./...`），守卫只认 `go test` 开头 → 补上金丝雀形状的识别。
+- **顺带修掉的跨卷失败**：`internal/state/sessionv4/v4fixture` 用 `t.TempDir()`（系统盘）造会话，而 scratchroot 已改到 F 盘 → 跨卷 rename 报「不能把文件移到不同的磁盘驱动器」，serve 包的 `hub_tree_import_test` 因此红；改用 `tempdir.New(t)`（同卷）。
+- **验证**：scratchroot / testenv / canary / config 四个包全绿；serve 整包全绿；C 盘 108 个残留目录已清理。
+
 **iter 419（2026-10-22，hub 面板数量上限落地：iter 416 审计结论的代码实现，✅ 完成）**：iter 416 只做了审计与定案，本轮把上限真正落地。
 
 - **缺陷（iter 416 已确证）**：`Hub.publish` 对每个新 runtime 无条件登记，hub 同时打开的面板数**无任何上限**；`POST /runtimes` 网络可达 → 认证后的客户端可用不同 root 反复开面。

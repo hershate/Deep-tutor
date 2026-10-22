@@ -77,6 +77,27 @@ func TestAVolumeWithoutATempDirectoryFallsBack(t *testing.T) {
 	}
 }
 
+// The go tool stages the test binary in the temporary directory and runs it
+// from that copy. The volume it sits on is the machine's temporary volume and
+// not the project's: reading it as the project's put every test's scratch
+// space on the system drive.
+func TestABinaryStagedInTheTemporaryDirectoryDoesNotDecideTheVolume(t *testing.T) {
+	restoreSeams(t)
+	envLookup = func(string) string { return "" }
+	executable = func() (string, error) {
+		return filepath.Join(systemTempDir, "go-build123", "b001", "pkg.test.exe"), nil
+	}
+	workingDir = func() (string, error) { return `F:\repo\pkg`, nil }
+	notRedirected(systemTempDir)
+	statPath = volumeTemp(`F:\TEMP`, true)
+	probeWrites = func(string) bool { return true }
+
+	want := filepath.Join(`F:\TEMP`, ProjectDirName)
+	if got := resolve(); got != want {
+		t.Fatalf("resolve() = %q, want %q", got, want)
+	}
+}
+
 func TestAnUnwritableVolumeTempIsNotUsed(t *testing.T) {
 	restoreSeams(t)
 	envLookup = func(string) string { return "" }
