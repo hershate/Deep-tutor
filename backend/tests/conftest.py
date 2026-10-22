@@ -51,6 +51,9 @@ def isolate():
     from app.core.ratelimit import reset_rate_limiter
 
     reset_rate_limiter()  # 速率限制计数跨测试隔离（plan/09 §十八）
+    from app.core.urlguard import reset_cache as _reset_dns_cache
+
+    _reset_dns_cache()  # DNS 判定缓存跨测试隔离（iter 418：判定结果不得跨用例泄漏）
     from app.plugins.loader import reset_plugins
 
     reset_plugins()  # 插件台账/工具表/事件订阅跨测试隔离（API.md「后端插件 API」）
@@ -80,6 +83,31 @@ def isolate():
         shutil.rmtree(pp, ignore_errors=True)
     pp.mkdir(parents=True, exist_ok=True)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_dns(monkeypatch):
+    """iter 418：测试判定不得依赖真实 DNS。
+
+    背景：写时 SSRF 校验（app/core/urlguard.py）会解析 base_url 的域名，解析到
+    私网/保留地址即拒绝（422）。被网络拦截的域名（api.openai.com 等）在本机 DNS
+    上**间歇性**返回 sinkhole(0.0.0.0) -> 建档随机 422 ->
+    tests/test_api_providers.py 在全量跑里随机红（单跑常绿，看起来像竞态）。
+
+    这里把「域名解析」换成确定答案：所有域名解析为公网地址 -> 域名判定恒放行。
+    字面量 IP 的判定不经 DNS（host_block_reason），SSRF 拦截未被削弱；「域名
+    解析到私网」这一支由 tests/test_iter418_dns_independence.py 显式替换解析
+    结果来覆盖。
+
+    换法用 urlguard 的解析缝（_resolve）而非全局 socket.getaddrinfo：后者是
+    进程级出口，替掉它会让真实出站连接指向假地址，把「快速失败」变成「超时」。
+    """
+    from app.core import urlguard
+
+    def _public_only(host: str) -> list[tuple]:
+        return [(2, 1, 6, "", ("8.8.8.8", 0))]  # AF_INET, SOCK_STREAM, IPPROTO_TCP
+
+    monkeypatch.setattr(urlguard, "_resolve", _public_only)
 
 
 @pytest.fixture(autouse=True)

@@ -66,6 +66,19 @@ def host_block_reason(host: str) -> str | None:
     return None
 
 
+def _resolve(host: str) -> list[tuple]:
+    """域名解析（iter 418：测试隔离缝）。
+
+    判定逻辑与解析动作分离，使测试可以把解析结果换成确定答案而不必改判定
+    语义（tests/conftest.py 的 _deterministic_dns 夹具替换本函数）。真实解析
+    失败 -> 空列表（放行），语义见 resolve_block_reason。
+    """
+    try:
+        return socket.getaddrinfo(host, None)
+    except OSError:
+        return []
+
+
 def resolve_block_reason(host: str) -> str | None:
     """解析域名后判定（尽力）：解析到私网/环回 -> 返回原因；解析失败 -> None（放行）。"""
     now = time.monotonic()
@@ -73,16 +86,18 @@ def resolve_block_reason(host: str) -> str | None:
     if cached is not None and now - cached[0] < _DNS_TTL:
         return cached[1]
     reason: str | None = None
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
-        infos = []
-    for info in infos:
+    for info in _resolve(host):
         addr = info[4][0]
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
             continue
+        # iter 418：0.0.0.0 / :: 是「未指定地址」——真实成因是 DNS 拦截或黑洞
+        # （被墙的域名常被解析到此处），不是内网主机。原措辞说「私网」会把
+        # 用户引向错误方向（改 hosts / 查内网），实际该查的是 DNS 与出口。
+        if ip.is_unspecified:
+            reason = f"域名解析到无效地址 {addr}（DNS 拦截或黑洞，不是真实内网主机）"
+            break
         if is_private_ip(ip):
             reason = f"域名解析到私网 {addr}"
             break

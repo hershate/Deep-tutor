@@ -38,6 +38,23 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 418（2026-10-22，全量 pytest 唯一红项的根因：测试判定依赖真实 DNS，✅ 完成）**：iter 417 收尾时后端全量唯一失败项是 `tests/test_api_providers.py::test_provider_test_dispatches_plugin_kind`（全量跑红、单跑绿，此前被误记为「全局插件注册表竞态」）。本轮定位到真因并修掉。
+
+- **现象与定位**：3 次全量跑红 2 次；只跑该用例、或只跑前 39 个文件必绿。用 `-k` 只跑该用例时抓到 traceback：**失败点在建档那一步**（`POST /api/providers` → **422**），与 `/test`、与插件注册表无关——此前的竞态归因是错的。
+- **根因·机制**：写时 SSRF 校验（`app/api/providers.py::_validate_base_url` → `app/core/urlguard.py::check_outbound_url`）会**解析 base_url 的域名**，解析到私网/保留段即拒绝建档。
+- **根因·触发**：该用例用 `base_url="https://api.openai.com"`，而本机 DNS 对被网络拦截的域名**间歇性**返回 sinkhole `0.0.0.0`（落在私网/保留段）→ 判定「域名解析到私网」→ 建档 422。
+  - 判定性实验：把该域名的解析结果替换为 `0.0.0.0`，`POST /api/providers` 立刻返回 `422 {"code":"validation_error","details":[{"loc":["body","base_url"],"msg":"Value error, base_url 被安全策略拒绝：域名解析到私网 0.0.0.0"}]}`——与实际失败逐字吻合。
+  - 旁证：本机 DNS 对 `api.openai.com` 的 A 记录在两次采样间就换过（`199.16.158.190` → `173.234.53.168`，均属被劫持的公网段）。
+- **修法（只动测试环境，判定语义不变）**：
+  - `app/core/urlguard.py` 抽出解析缝 `_resolve(host)`（判定逻辑与解析动作分离），生产路径行为不变。
+  - `tests/conftest.py` 新增 autouse 夹具 `_deterministic_dns`：把 `_resolve` 换成固定公网答案 → 域名判定恒放行，**不再依赖真实 DNS**。
+  - 换法用 urlguard 的缝而**不是**全局 `socket.getaddrinfo`：后者是进程级出口，替掉它会让真实出站连接指向假地址，把「快速失败」变成「超时」。
+  - `isolate` 夹具补调 `urlguard.reset_cache()`——该函数 docstring 写着「测试隔离用」，但**此前无人调用**，DNS 判定缓存会跨用例泄漏。
+- **顺带勘误（措辞，非语义）**：`0.0.0.0` / `::` 是「未指定地址」，真实成因是 **DNS 拦截/黑洞**，不是内网主机。原措辞「域名解析到私网」把用户引向查内网/改 hosts，实际该查的是 DNS 与出口。
+- **拦截行为不变**：`0.0.0.0` 仍属拒绝段（它正是「请求发往本机」的 SSRF 面）；API.md 未记录该文案，响应结构与状态码均未动。
+- **回归守卫（新）**：`backend/tests/test_iter418_dns_independence.py`（6 例）——判定与真实 DNS 无关；公网 base_url 建档 201（即本轮红的那条）；域名解析到私网**仍被拒**（隔离不得削弱 SSRF）；`0.0.0.0` 的措辞；字面量私网 IP 与云元数据端点**照旧 422**。
+- **下一步**：① 回到 iter416 的面板上限落地（`hub_capacity.go` + `[serve] max_panes` + 拒绝码 i18n）；② 服务进程 Pillow 升 13.0.0（12.3.0 仍有 30 条未修公告，13.0.0 是唯一零公告版）——须先验服务图片路径与 marker 在 13.x 下的兼容；③ 待用户定夺项见文末。
+
 **iter 417（2026-10-22，启动脚本真实可用：依赖无解拆栈 + 端到端实证，✅ 完成）**：目标改为「确保当前版本可用，即启动脚本真实可用」。**真跑一遍**发现启动脚本 100% 起不来——不是环境问题，是依赖文件本身无解。
 
 - **根因（已确证）**：`backend/requirements.txt` 同时要求 `Pillow>=12.3,<13.0`（iter 372 的 CVE 处置）与 `marker-pdf>=1.10,<2.0`（间接钉 `Pillow<11`）→ **pip 判为无解**（ResolutionImpossible），该文件在任何机器上都装不上。
