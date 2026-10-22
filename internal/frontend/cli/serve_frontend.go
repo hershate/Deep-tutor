@@ -15,11 +15,13 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"deep-tutor/internal/base/i18n"
 	"deep-tutor/internal/base/secrets"
 	"deep-tutor/internal/contract/config"
 	"deep-tutor/internal/contract/event"
+	"deep-tutor/internal/contract/provider"
 	"deep-tutor/internal/contract/surface"
 	"deep-tutor/internal/ext/mcpsetup"
 	"deep-tutor/internal/frontend/serve"
@@ -395,11 +397,7 @@ func runServeWithOptions(args []string, opts serveRunOptions) int {
 	// The loopback-only provider setup surface stores the missing credential and
 	// rebuilds this controller in place before the normal web UI is exposed.
 	paneSink := reporter.Wrap(bc)
-	ctrl, err := setupProfileWithOverrides(ctx, *model, *maxSteps, false, paneSink, profile, cliBuildOverrides{
-		NativeSurfaces: true,
-		Version:        opts.version, OnSessionRecovered: cliSessionRecoveredHandler(leases),
-		ProviderResolver: providerResolver,
-	})
+	ctrl, err := setupProfileWithOverrides(ctx, *model, *maxSteps, false, paneSink, profile, serveBuildOverrides(opts.version, leases, providerResolver))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
 		return 1
@@ -427,8 +425,8 @@ func runServeWithOptions(args []string, opts serveRunOptions) int {
 
 	// A hub, so this frontend drives several sessions at once the way the studio
 	// window does. The session this command was started for is the first pane.
-	hub := serve.NewHub(serve.HubOptions{Serve: serveCfg, NativeSurfaces: true, DecorateSink: reporter.Wrap, ProviderResolver: providerResolver, Page: pageOrWarn(*page)})
-	adoptFirstPane(hub, ctrl, bc, paneSink, serveCfg, leases)
+	hub := serve.NewHub(serve.HubOptions{Serve: serveCfg, NativeSurfaces: true, DecorateSink: reporter.Wrap, ProviderResolver: providerResolver, Page: pageOrWarn(*page), ApprovalTimeout: serve.ApprovalTimeout})
+	adoptFirstPane(hub, ctrl, bc, paneSink, serveCfg, leases, serve.ApprovalTimeout)
 	return runServeFrontend(ctrl, hub, serveCfg, serveFrontendOptions{
 		command: opts.command, address: *addr,
 		portFile: *portFile, tokenFile: *tokenFile, pidFile: *pidFile,
@@ -468,13 +466,28 @@ func pageOrWarn(dir string) fs.FS {
 	return page
 }
 
+// serveBuildOverrides are the build options a networked serve starts its first
+// pane with. The decision arrives over the network, so the wait for one is
+// bounded: a browser that closes takes the answer with it, and the session
+// must not wait for good on a prompt nobody can reach.
+func serveBuildOverrides(version string, leases *control.SessionLeaseKeeper, resolver provider.Resolver) cliBuildOverrides {
+	return cliBuildOverrides{
+		NativeSurfaces:     true,
+		Version:            version,
+		OnSessionRecovered: cliSessionRecoveredHandler(leases),
+		ProviderResolver:   resolver,
+		ApprovalTimeout:    serve.ApprovalTimeout,
+	}
+}
+
 // adoptFirstPane publishes the session this command was started for as the
 // hub's first pane. paneSink is what its controller emits into: the hub
 // decorates the panes it opens itself, and this one was built before the hub
 // existed, so it hands its own decoration over or loses it on the first
-// rebuild. Already leased above, so adopting cannot be refused.
-func adoptFirstPane(hub *serve.Hub, ctrl *control.Controller, bc *serve.Broadcaster, paneSink event.Sink, serveCfg config.ServeConfig, leases *control.SessionLeaseKeeper) {
+// rebuild. Already leased, so adopting cannot be refused.
+func adoptFirstPane(hub *serve.Hub, ctrl *control.Controller, bc *serve.Broadcaster, paneSink event.Sink, serveCfg config.ServeConfig, leases *control.SessionLeaseKeeper, approvalTimeout time.Duration) {
 	srv := serve.New(ctrl, bc, serveCfg)
+	srv.SetApprovalTimeout(approvalTimeout)
 	srv.SetPaneSink(paneSink)
 	_ = srv.SetSessionLeases(leases) // same live keeper was bound above
 	_, _ = hub.Adopt(srv, bc)

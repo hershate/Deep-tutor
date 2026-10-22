@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"deep-tutor/internal/assembly/boot"
 	"deep-tutor/internal/contract/config"
@@ -40,14 +41,10 @@ var logoWordmarkSVG []byte
 // reach the Broadcaster — directly, or through the host's SetPaneSink wrapper.
 type Server struct {
 	mu sync.RWMutex // guards ctrl and paneSink, which rebuild paths swap and read
-	// bindMu serializes every entry point that changes the active session
-	// path or controller generation — /resume, /new, /fork, switchModel, and
-	// extension reload. net/http runs handlers
-	// concurrently and serve serves multiple browser tabs, so without this
-	// two interleaved rebinds can leave the controller writing one session
-	// while the lease keeper guards another (the exact split this feature
-	// exists to prevent). It also keeps switchModel's Snapshot/Build/Close
-	// off s.mu, as the narrower switchMu did before it was widened.
+	// bindMu serializes every entry point that changes the active session path
+	// or controller generation — /resume, /new, /fork, switchModel, extension
+	// reload — so two interleaved rebinds cannot leave the controller writing
+	// one session while the lease keeper guards another.
 	bindMu sync.Mutex
 	// The built page this kernel serves, or nil when it serves its API alone.
 	// The hub owns it, so the hub says; the root has to hand back its shell.
@@ -56,6 +53,8 @@ type Server struct {
 	bc       *Broadcaster
 	paneSink event.Sink // what the controller emits into; see SetPaneSink
 	currency *control.DisplayCurrencyGroup
+	// approvalTimeout bounds a decision that arrives over the network.
+	approvalTimeout time.Duration
 	// buildController builds the replacement controller during a model switch.
 	// Nil in production (switchModel falls back to boot.Build); tests inject a
 	// fake so switchModel can be exercised without real provider IO.

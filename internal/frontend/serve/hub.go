@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"deep-tutor/internal/assembly/boot"
 	"deep-tutor/internal/model/billing"
@@ -134,6 +135,9 @@ type HubOptions struct {
 	// means this kernel has no such place to report.
 	LogsDir string
 	Serve   config.ServeConfig
+	// ApprovalTimeout bounds how long a session opened through this hub waits
+	// for a decision. Zero waits for as long as the person is willing to.
+	ApprovalTimeout time.Duration
 	// Grant applies the host's capabilities (folder picking, provider edits) to
 	// each runtime, so a pane opened later can do what the first one could.
 	Grant func(*Server)
@@ -335,27 +339,12 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 	}
 	bc := NewBroadcaster()
 	paneSink := h.decorateSink(bc)
-	built, err := boot.BuildRuntime(ctx, boot.Options{
-		ComputerDriver:  h.opts.ComputerDriver,
-		Model:           strings.TrimSpace(req.Model),
-		WorkspaceRoot:   root,
-		SessionDir:      SessionDirFor(root),
-		Sink:            paneSink,
-		NativeSurfaces:  h.opts.NativeSurfaces,
-		Stderr:          os.Stderr,
-		StatsSource:     h.surface(),
-		FeedbackSurface: feedbackSurface(h.surface()),
-		BalanceStore:    h.wallets,
-		// A pane opened without a model must open even on a stale default_model.
-		OpenOnFallbackModel: true,
-
-		ProviderResolver:         h.opts.ProviderResolver,
-		CleanupPendingReconciler: BackgroundCleanupReconciler,
-	})
+	built, err := boot.BuildRuntime(ctx, h.openOptions(root, req.Model, paneSink))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", root, err)
 	}
 	srv := New(built.Controller, bc, h.opts.Serve)
+	srv.SetApprovalTimeout(h.opts.ApprovalTimeout)
 	srv.SetPaneSink(paneSink)
 	srv.AdoptRuntime(built)
 	srv.auth = h.auth
@@ -404,6 +393,30 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 		return nil, err
 	}
 	return rt, nil
+}
+
+// openOptions are the boot options a pane this hub opens is built with. The
+// pane's decisions arrive over the network, so a host that wants them bounded
+// states an ApprovalTimeout; without one the pane waits for the person.
+func (h *Hub) openOptions(root, model string, sink event.Sink) boot.Options {
+	return boot.Options{
+		ComputerDriver:  h.opts.ComputerDriver,
+		Model:           strings.TrimSpace(model),
+		WorkspaceRoot:   root,
+		SessionDir:      SessionDirFor(root),
+		Sink:            sink,
+		NativeSurfaces:  h.opts.NativeSurfaces,
+		Stderr:          os.Stderr,
+		StatsSource:     h.surface(),
+		FeedbackSurface: feedbackSurface(h.surface()),
+		BalanceStore:    h.wallets,
+		// A pane opened without a model must open even on a stale default_model.
+		OpenOnFallbackModel: true,
+
+		ProviderResolver:         h.opts.ProviderResolver,
+		CleanupPendingReconciler: BackgroundCleanupReconciler,
+		ApprovalTimeout:          h.opts.ApprovalTimeout,
+	}
 }
 
 // Close retires a runtime: the conversation is persisted, the assembly torn

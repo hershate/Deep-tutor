@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"io"
+	"time"
 
 	"deep-tutor/internal/assembly/boot"
 	"deep-tutor/internal/contract/ablation"
@@ -38,6 +39,9 @@ type cliBuildOverrides struct {
 	// ProviderResolver routes model roles through a caller-owned catalog. A
 	// bootstrapped serve sets the broker's; nil keeps the local config path.
 	ProviderResolver provider.Resolver
+	// ApprovalTimeout bounds how long a prompt waits for a decision. Zero waits
+	// forever, which is right for a terminal; a networked host sets it.
+	ApprovalTimeout time.Duration
 }
 
 func setupProfileWithOverrides(ctx context.Context, modelName string, maxStepsOverride int, requireKey bool, sink event.Sink, profile string, overrides cliBuildOverrides) (*control.Controller, error) {
@@ -71,6 +75,7 @@ func cliProfileBuildOptions(modelName string, maxStepsOverride int, requireKey b
 		SessionTemp:          overrides.SessionTemp,
 		BrowserSession:       overrides.BrowserSession,
 		ProviderResolver:     overrides.ProviderResolver,
+		ApprovalTimeout:      overrides.ApprovalTimeout,
 	}
 }
 
