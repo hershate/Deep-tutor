@@ -270,9 +270,10 @@ export class SseHub implements HubPort {
     return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
   }
 
-  // The ceiling comes back on the response rather than being hardcoded here:
-  // the machine's own [desktop] max_panes decides it, and a client guessing 8
-  // greys out the button at the wrong count.
+  // No ceiling comes back on this response: the machine's own [serve]
+  // max_panes decides it, and the refusal (hub.too_many_panes) carries the
+  // limit as a parameter — so the button greys out when the kernel says so,
+  // not at a count this file guessed.
   async runtimes() {
     const res = await fetch("/runtimes", { credentials: "same-origin" });
     if (!res.ok) throw new Error(`/runtimes: ${res.status}`);

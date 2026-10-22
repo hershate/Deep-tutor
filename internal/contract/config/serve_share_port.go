@@ -56,6 +56,11 @@ func renderServeSection(b *strings.Builder, c *Config) {
 	} else {
 		b.WriteString("# remember_paired_devices = true   # keep the phones that paired; a restart reopens the share and adopts them\n")
 	}
+	if c.Serve.MaxPanes != 0 {
+		fmt.Fprintf(b, "max_panes = %d   # how many panes this hub keeps open; unset means %d\n", c.Serve.MaxPanes, DefaultMaxPanes)
+	} else {
+		fmt.Fprintf(b, "# max_panes = 32   # how many panes this hub keeps open; unset means %d\n", DefaultMaxPanes)
+	}
 	if c.Serve.SharePort != 0 {
 		fmt.Fprintf(b, "share_port = %d   # fixed port of the phone-access LAN link; unset picks a free one each time\n\n", c.Serve.SharePort)
 		return

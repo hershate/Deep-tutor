@@ -38,6 +38,21 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 419（2026-10-22，hub 面板数量上限落地：iter 416 审计结论的代码实现，✅ 完成）**：iter 416 只做了审计与定案，本轮把上限真正落地。
+
+- **缺陷（iter 416 已确证）**：`Hub.publish` 对每个新 runtime 无条件登记，hub 同时打开的面板数**无任何上限**；`POST /runtimes` 网络可达 → 认证后的客户端可用不同 root 反复开面。
+- **代价**：一个面板是一整套 runtime（`control.Controller` 常驻协程、provider 客户端、会话租约，外加每个工作区自建一套 MCP sidecar 子进程）→ 内存/协程/子进程无界增长。
+- **上限的取值**：`[serve] max_panes`，默认 **16**（`config.DefaultMaxPanes`）——做成可配而不是焊死：面板数是产品取舍，不是工程常量。
+- **认领制（关键）**：名额在**建面板之前**认领（`reservePane`），发布时把认领转成面板（`publish` 内 `claims--`），失败归还（`giveBack` → `releaseClaim`）。
+  - 只在发布后检查上限，等于限制「剩下的」而不是「花掉的」——面板的账已经付了（runtime + sidecar）。
+  - 认领计数让并发开面各算各的：每个并发请求都看到同一份「还有位置」会同时通过。
+- **远程路径先查名额再拨号**：`openRemoteRuntime` 在让对端开面板**之前**问有没有位置；否则本地拒绝时线程那侧会留下一个没人关的面板。
+- **拒绝码**：`hub.too_many_panes`（429），参数带 `max`/`open` → 前端可据此把「新建」按钮变灰，而不是猜一个数。
+- **i18n**：`kernel.ts` 与 `en_kernel.ts` 各加一条（拒绝码与前端文案一一对应是门禁要求）。
+- **配置面**：项目 `reasonix.toml` **不得**钉住上限（`project_scope` 归入「仅用户级」）；`[serve]` 渲染出 `max_panes`，手写值保存后保留。
+- **顺手修掉的过期注释**：`desktop/frontend-next/src/port/hub.ts` 原注释称上限由 `[desktop] max_panes` 决定并随 `/runtimes` 响应回来——该配置在本仓与上游都不存在，响应里也没有上限；改为写明真实形状。
+- **守卫（新）**：`internal/frontend/serve/hub_capacity_test.go`（5 例）与 `internal/contract/config/serve_max_panes_test.go`（3 例）。
+
 **iter 418（2026-10-22，全量 pytest 唯一红项的根因：测试判定依赖真实 DNS，✅ 完成）**：iter 417 收尾时后端全量唯一失败项是 `tests/test_api_providers.py::test_provider_test_dispatches_plugin_kind`（全量跑红、单跑绿，此前被误记为「全局插件注册表竞态」）。本轮定位到真因并修掉。
 
 - **现象与定位**：3 次全量跑红 2 次；只跑该用例、或只跑前 39 个文件必绿。用 `-k` 只跑该用例时抓到 traceback：**失败点在建档那一步**（`POST /api/providers` → **422**），与 `/test`、与插件注册表无关——此前的竞态归因是错的。
@@ -83,7 +98,7 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 - **代价**：每个面板是一个完整的 `control.Controller`（常驻协程、provider 客户端与会话租约，外加每个工作区自建一套 MCP sidecar 子进程——`SharedHost` 无人设置，见 plan/reasonix/04 §四 深水点 13）
 - **旁证（表达与实现不一致）**：`desktop/frontend-next/src/port/hub.ts:273-275` 的注释称「上限由机器自己的 `[desktop] max_panes` 决定，并随响应回来」——**该功能在上游快照与本仓都不存在**（全量搜 `max_panes` / `MaxPanes` 只命中这条注释）
 - **客户端现状**：前端 `useOpenPane.ts` 自管 `WARM_PANES = 4`（隐藏面板先复用、最多留 4 个热的）→ **服务端加硬上限不会误伤桌面端**
-- **修法（已定，下一轮照此落地）**：
+- **修法（已定，iter 419 已落地；认领函数实名 `reservePane`，默认值常量落在 `config.DefaultMaxPanes`）**：
   1. 新增 `internal/frontend/serve/hub_capacity.go`：`defaultMaxPanes = 16`、拒绝码 `hub.too_many_panes`、`claimPane` / `releaseClaim`
   2. **认领制**：先占位再构建——`boot.BuildRuntime` 是最贵的一步，认证客户端并发开面时不得越过上限各建一套 controller
   3. `Hub.Open` / `Hub.Adopt` / `Hub.OpenRemote` 三条开面路径统一「认领 → defer 归还 → 发布」；`Hub.Close` 归还计数

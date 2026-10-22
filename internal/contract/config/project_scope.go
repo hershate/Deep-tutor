@@ -36,6 +36,10 @@ type heldScope struct {
 	// may not set it: a cloned repo must not be able to make a phone the person
 	// paired with stay trusted longer than they chose.
 	rememberDevices bool
+	// maxPanes is the user's [serve] max_panes. A project may not set it
+	// either: the ceiling is a fact about this machine, and a cloned repo must
+	// not raise it for whoever opens the folder.
+	maxPanes int
 }
 
 func holdUserScope(c *Config) heldScope {
@@ -61,6 +65,7 @@ func holdUserScope(c *Config) heldScope {
 		layaPython:      c.Tools.SystemOne.Laya.Python,
 		layaLocal:       c.Tools.SystemOne.Laya.Local,
 		rememberDevices: c.Serve.RememberPairedDevices,
+		maxPanes:        c.Serve.MaxPanes,
 	}
 }
 
@@ -163,6 +168,12 @@ func (h heldScope) narrow(c *Config, r Roots, root string, projectMeta toml.Meta
 		c.ignoreProject("serve.remember_paired_devices", fmt.Sprintf("%t", c.Serve.RememberPairedDevices), ProjectUserOnly)
 	}
 	c.Serve.RememberPairedDevices = h.rememberDevices
+	// The pane ceiling is a fact about this machine, not about the project: a
+	// cloned repository must not raise it for whoever opens the folder.
+	if c.Serve.MaxPanes != h.maxPanes {
+		c.ignoreProject("serve.max_panes", fmt.Sprintf("%d", c.Serve.MaxPanes), ProjectUserOnly)
+	}
+	c.Serve.MaxPanes = h.maxPanes
 	h.narrowSandbox(c, ws)
 	h.narrowPermissions(c)
 	if NormalizeToolApprovalMode(c.Desktop.DefaultToolApprovalMode) != NormalizeToolApprovalMode(h.approvalMode) {

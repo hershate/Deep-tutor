@@ -274,6 +274,7 @@ export const EN_KERNEL: Record<string, string> = {
   "该会话仍有打开的面板，请先关闭": "This session still has a pane open — close it first",
   "该路径不属于任何已知的工作区": "That path is not inside any known workspace",
   "尚未打开任何会话": "No session is open yet",
+  "打开的面板已达上限（{max} 个），请先关闭一个": "The limit of {max} open panes is reached; close one first",
   "该会话未启用记忆": "Memory is not enabled for this session",
   "尚未填写服务地址": "No endpoint address yet",
   "该 key 未被接受。请检查是否复制完整，或在服务商控制台重新生成":

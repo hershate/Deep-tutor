@@ -2,9 +2,7 @@ package serve
 
 import (
 	"context"
-	"deep-tutor/internal/state/sessionstore"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -26,6 +24,7 @@ import (
 	"deep-tutor/internal/platform/notify"
 	"deep-tutor/internal/platform/update"
 	"deep-tutor/internal/session/control"
+	"deep-tutor/internal/state/sessionstore"
 )
 
 // surface is the frontend this hub serves. Every server it adopts and every
@@ -54,6 +53,9 @@ type Hub struct {
 	runtimes map[string]*Runtime
 	order    []string
 	seq      int
+	// claims counts the panes being built: each one has reserved room against
+	// the ceiling but is not yet in order. See hub_capacity.go.
+	claims int
 
 	opts HubOptions
 	// notes answers the release-notes route; its state outlives one request. Nil reads
@@ -256,6 +258,14 @@ func (h *Hub) Adopt(srv *Server, bc *Broadcaster) (*Runtime, error) {
 	if srv == nil {
 		return nil, nil
 	}
+	// A pane is a runtime, and a runtime is what the ceiling counts. The host
+	// assembles this one already, so the reservation is cheap here — but it is
+	// still the same door every other pane comes through.
+	claim, err := h.reservePane()
+	if err != nil {
+		return nil, err
+	}
+	defer claim.giveBack()
 	srv.auth = h.auth
 	srv.surface = h.surface()
 	srv.stance = h.stance
@@ -285,6 +295,7 @@ func (h *Hub) Adopt(srv *Server, bc *Broadcaster) (*Runtime, error) {
 		srv.stopWireLog()
 		return nil, err
 	}
+	claim.published()
 	return rt, nil
 }
 
@@ -335,6 +346,14 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 	if rt := h.findSession(req.SessionPath); rt != nil {
 		return rt, nil
 	}
+	// The reservation comes before the build: a pane costs a controller, a
+	// provider client, a session lease and a set of MCP sidecars — a ceiling
+	// checked after that work limits what is left over, not what is spent.
+	claim, err := h.reservePane()
+	if err != nil {
+		return nil, err
+	}
+	defer claim.giveBack()
 	root, err := h.resolveRoot(req)
 	if err != nil {
 		return nil, err
@@ -398,6 +417,7 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 		srv.stopWireLog()
 		return nil, err
 	}
+	claim.published()
 	return rt, nil
 }
 
@@ -707,6 +727,11 @@ func (h *Hub) publish(rt *Runtime) error {
 		rt.handler = http.StripPrefix(runtimePrefix+rt.ID, rt.Server.routes())
 	}
 	h.mu.Lock()
+	// The reservation becomes the pane here: what was claimed stops being a
+	// claim and starts being an open pane.
+	if h.claims > 0 {
+		h.claims--
+	}
 	h.runtimes[rt.ID] = rt
 	h.order = append(h.order, rt.ID)
 	h.mu.Unlock()
@@ -715,60 +740,6 @@ func (h *Hub) publish(rt *Runtime) error {
 		h.opts.OnOpen(rt)
 	}
 	return nil
-}
-
-// findSession returns the runtime already driving path. Session paths reach us
-// spelled more than one way, so compare them canonically — binding a second
-// writer to one transcript is what forks a recovery branch on every save.
-func (h *Hub) findSession(path string) *Runtime {
-	path = sessionstore.CanonicalSessionPath(strings.TrimSpace(path))
-	if path == "" {
-		return nil
-	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, id := range h.order {
-		rt := h.runtimes[id]
-		// A remote transcript names a file on another machine: it cannot
-		// collide with a local one, and deduplicating it is that kernel's job.
-		if rt != nil && rt.remote == nil && sessionstore.CanonicalSessionPath(rt.Server.Controller().SessionPath()) == path {
-			return rt
-		}
-	}
-	return nil
-}
-
-// resolveRoot decides which folder a new runtime opens against: the one asked
-// for, the one that owns the session being opened, or the first runtime's.
-func (h *Hub) resolveRoot(req OpenRequest) (string, error) {
-	if root := strings.TrimSpace(req.Root); root != "" {
-		return resolveWorkspaceDir(root)
-	}
-	if path := strings.TrimSpace(req.SessionPath); path != "" {
-		if root := workspaceRootForSession(path); root != "" {
-			return root, nil
-		}
-	}
-	h.mu.RLock()
-	first := ""
-	if len(h.order) > 0 {
-		if rt := h.runtimes[h.order[0]]; rt != nil {
-			first = rt.Server.Controller().WorkspaceRoot()
-		}
-	}
-	h.mu.RUnlock()
-	if first != "" {
-		return first, nil
-	}
-	// Closing the last pane leaves nothing to infer from, and "open a session"
-	// is exactly what someone does next. Fall back to the remembered list, the
-	// same answer the window uses when it launches with no pane at all.
-	for _, dir := range LaunchWorkspaces() {
-		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			return dir, nil
-		}
-	}
-	return "", refusal(http.StatusConflict, "workspace.none", errors.New("no workspace to open in — add a folder first"), nil)
 }
 
 func (h *Hub) nextID() string {

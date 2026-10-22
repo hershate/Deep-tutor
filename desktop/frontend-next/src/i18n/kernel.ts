@@ -318,6 +318,10 @@ const SAID: Record<string, string> = {
   "session.outside_workspace": "该路径不属于任何已知的工作区",
   "settings.local_runtime_required": "请先打开一个本机会话，再读取本机设置",
   "hub.no_runtime_open": "尚未打开任何会话",
+  // 面板是有代价的：每个面板是一整套 runtime（控制器、provider 客户端、会话租约、
+  // 它自己拉起的 MCP sidecar）。上限到了就是到了——参数把上限带回来，前端据此
+  // 把「新建」按钮变灰，而不是让人试到被拒。
+  "hub.too_many_panes": "打开的面板已达上限（{max} 个），请先关闭一个",
 
   // ── 远程 ─────────────────────────────────────────────────────────
   "remote.unreachable": "{host} 上的内核没有应答，连接可能断了",

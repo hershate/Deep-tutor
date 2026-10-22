@@ -321,6 +321,13 @@ func (h *Hub) openRemoteRuntime(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Whether there is room is settled before the other machine is asked for
+	// anything: a refusal after that call would leave a pane open over there
+	// for nobody to close.
+	if err := h.checkPaneRoom(); err != nil {
+		writeErr(w, http.StatusTooManyRequests, err)
+		return
+	}
 	ep, release, err := h.opts.Remote.Attach(operationContext(r), req.Host, req.Workspace)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
@@ -357,12 +364,21 @@ func (h *Hub) OpenRemote(ep RemoteEndpoint, release func()) (*Runtime, error) {
 	if err := ep.validate(); err != nil {
 		return nil, err
 	}
+	claim, err := h.reservePane()
+	if err != nil {
+		return nil, err
+	}
 	rt := &Runtime{
 		ID:     h.nextID(),
 		Root:   ep.Workspace,
 		remote: &remoteBinding{ep: ep, release: release},
 	}
-	return rt, h.publish(rt)
+	if err := h.publish(rt); err != nil {
+		claim.giveBack()
+		return nil, err
+	}
+	claim.published()
+	return rt, nil
 }
 
 // Remote reports the endpoint a proxied pane is bound to, so a host that has
