@@ -108,7 +108,7 @@ func New(ctrl control.SessionAPI, bc *Broadcaster, serveCfg config.ServeConfig) 
 		ctrl:   ctrl,
 		bc:     bc,
 		titles: newTitleCache(ctrl.SessionDir()),
-		wire:   &wireLog{},
+		wire:   newWireLog(),
 		fill:   newTitleFiller(),
 		auth:   newAuthGate(serveCfg),
 	}

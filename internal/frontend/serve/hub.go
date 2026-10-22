@@ -273,6 +273,7 @@ func (h *Hub) Adopt(srv *Server, bc *Broadcaster) (*Runtime, error) {
 	}
 	leases, err := h.ownSession(srv)
 	if err != nil {
+		srv.stopWireLog()
 		return nil, err
 	}
 	rt := &Runtime{ID: h.nextID(), Root: srv.Controller().WorkspaceRoot(), Server: srv, Events: bc, leases: leases}
@@ -281,6 +282,7 @@ func (h *Hub) Adopt(srv *Server, bc *Broadcaster) (*Runtime, error) {
 			_ = srv.SetSessionLeases(nil)
 			leases.Release()
 		}
+		srv.stopWireLog()
 		return nil, err
 	}
 	return rt, nil
@@ -366,18 +368,21 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 	if err := srv.SetSessionLeases(leases); err != nil {
 		built.Controller.Close()
 		leases.Release()
+		srv.stopWireLog()
 		return nil, err
 	}
 	if path := strings.TrimSpace(req.SessionPath); path != "" {
 		if status, err := srv.resumeInto(path); err != nil {
 			built.Controller.Close()
 			leases.Release()
+			srv.stopWireLog()
 			return nil, keepRefusalStatus(status, err)
 		}
 	}
 	if err := addRememberedWorkspace(ctx, root); err != nil {
 		built.Controller.Close()
 		leases.Release()
+		srv.stopWireLog()
 		return nil, err
 	}
 	rt := &Runtime{ID: h.nextID(), Root: root, Server: srv, Events: bc, leases: leases}
@@ -390,6 +395,7 @@ func (h *Hub) Open(ctx context.Context, req OpenRequest) (*Runtime, error) {
 		}
 		built.Controller.Close()
 		leases.Release()
+		srv.stopWireLog()
 		return nil, err
 	}
 	return rt, nil
@@ -453,6 +459,9 @@ func (h *Hub) Close(id string) error {
 		}
 		return nil
 	}
+	// The pane's mirror of frames into the session log stops with the pane. A
+	// subscription nobody releases keeps the broadcaster's queue alive.
+	rt.Server.stopWireLog()
 	if err := rt.Server.Controller().Snapshot(); err != nil {
 		slog.Warn("serve: snapshot before closing runtime", "id", id, "err", err)
 	}

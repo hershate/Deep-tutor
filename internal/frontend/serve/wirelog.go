@@ -128,6 +128,17 @@ type wireLog struct {
 	witnessed string
 	// The log a refused surface frame has been recorded against.
 	surfaceWitnessed string
+	// stop ends the goroutine that mirrors frames into the log, and done
+	// reports that it has ended. The mirror waits on a channel that only closes
+	// when it returns, so without a way out it never returns.
+	stop chan struct{}
+	done chan struct{}
+	once sync.Once
+}
+
+// newWireLog returns a log whose mirror can be stopped.
+func newWireLog() *wireLog {
+	return &wireLog{stop: make(chan struct{}), done: make(chan struct{})}
 }
 
 // attachWireLog mirrors qualifying broadcast frames to the current session's
@@ -136,13 +147,36 @@ type wireLog struct {
 func (s *Server) attachWireLog() {
 	ch, unsubscribe := s.bc.Subscribe()
 	go func() {
+		defer close(s.wire.done)
 		defer unsubscribe()
-		for frame := range ch {
-			// The session is read per frame, not cached: /resume and /new swap it
-			// underneath and the next row belongs to the new one.
-			s.wire.write(s.recordedSession(), frame.Data)
+		for {
+			select {
+			case frame, ok := <-ch:
+				if !ok {
+					return
+				}
+				// The session is read per frame, not cached: /resume and /new swap
+				// it underneath and the next row belongs to the new one.
+				s.wire.write(s.recordedSession(), frame.Data)
+			case <-s.wire.stop:
+				return
+			}
 		}
 	}()
+}
+
+// stopWireLog ends the mirror and releases its subscription. The hub calls it
+// when it retires a pane: a subscription nobody releases keeps the
+// broadcaster's queue alive for as long as the process runs, and a pane opened
+// and closed often leaves one behind every time.
+func (s *Server) stopWireLog() {
+	if s.wire == nil {
+		return
+	}
+	s.wire.once.Do(func() {
+		close(s.wire.stop)
+		<-s.wire.done
+	})
 }
 
 // recordedSession is the session whose frames are being recorded, and empty
@@ -190,14 +224,31 @@ func (w *wireLog) write(sessionPath string, frame []byte) {
 		return
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return
+	}
 	// A runaway turn must not fill the disk; drop rather than truncate, so what
 	// is on disk stays a prefix of what happened. The prefix is only honest if
 	// it says so, which is what the witness is for.
-	if st, err := f.Stat(); err == nil && st.Size() > wireLogMaxBytes {
+	if info.Size() > wireLogMaxBytes {
 		w.witness(sessionPath, surface)
 		return
 	}
-	_, _ = f.Write(append(frame, '\n'))
+	// The frame is shared with every other subscriber of the broadcaster, so
+	// the newline goes into a copy: appending to it would write into a buffer
+	// another subscriber holds, and two mirrors would race on the same byte.
+	line := make([]byte, 0, len(frame)+1)
+	line = append(line, frame...)
+	line = append(line, '\n')
+	n, err := f.Write(line)
+	if err != nil || n != len(line) {
+		// A frame that did not land whole leaves a line in the log that is not
+		// a frame, and the line after it is unreadable too. Cut it back to
+		// what was whole: the log stays a prefix of what happened.
+		_ = f.Truncate(info.Size())
+		return
+	}
 }
 
 // witness records that the cap refused a frame. Written on the refusal and not
@@ -258,10 +309,11 @@ func (s *Server) trajectory(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, trajectoryView{Availability: trajectoryNotRecorded, Events: []json.RawMessage{}})
 		return
 	}
-	s.wire.mu.Lock()
+	// Read without the writer's lock: the log is append-only, so a read sees a
+	// prefix of it, and holding the lock would stall every event the session
+	// produces for as long as the read takes.
 	data, err := os.ReadFile(store.SessionWireLog(sessionPath))
 	witnessed, witnessErr := truncationWitnessed(store.SessionWireLogMeta(sessionPath))
-	s.wire.mu.Unlock()
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		refuse(w, http.StatusInternalServerError, codeTrajectoryUnreadable, err.Error(), nil)
 		return
@@ -277,11 +329,26 @@ func (s *Server) trajectory(w http.ResponseWriter, _ *http.Request) {
 	if witnessed {
 		view.Availability = trajectoryTruncated
 	}
-	for line := range strings.SplitSeq(strings.TrimRight(string(data), "\n"), "\n") {
+	for line := range strings.SplitSeq(wholeWireLogLines(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		view.Events = append(view.Events, json.RawMessage(line))
 	}
 	writeJSON(w, view)
+}
+
+// wholeWireLogLines returns the log's frames, dropping a tail that has no
+// newline after it. The log is appended to, so only the last line can be
+// half-written — a frame that was being written when the read happened. It is
+// not a frame yet, and handing it to a client as one would break its parse.
+func wholeWireLogLines(data []byte) string {
+	body := string(data)
+	if body == "" || strings.HasSuffix(body, "\n") {
+		return body
+	}
+	if i := strings.LastIndexByte(body, '\n'); i >= 0 {
+		return body[:i+1]
+	}
+	return ""
 }

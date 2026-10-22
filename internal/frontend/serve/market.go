@@ -9,8 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"deep-tutor/internal/base/netclient"
 	"deep-tutor/internal/contract/config"
@@ -54,18 +57,53 @@ type marketDetailView struct {
 	Cache     *market.CacheNote `json:"cache,omitempty"`
 }
 
+// marketHTTPClient holds the one client the registry is reached through. It is
+// rebuilt when the proxy setting changes, which is the only thing the client
+// is built from.
+var marketHTTPClient = struct {
+	mu     sync.Mutex
+	spec   netclient.ProxySpec
+	client *http.Client
+	set    bool
+}{}
+
+// marketTimeout bounds one registry request. Without it a registry that
+// accepts the connection and then says nothing holds the request open for as
+// long as it likes.
+const marketTimeout = 30 * time.Second
+
 // marketHTTP is the user's proxy-aware client: a machine that needs a proxy to
-// reach the registry needs it to fetch what the registry points at too.
+// reach the registry needs it to fetch what the registry points at too. One
+// client serves every request: a pool per request leaves the sockets it opened
+// behind — a transport, its idle connections and their goroutines, each one,
+// until the registry lets them go.
 func marketHTTP() *http.Client {
 	spec := netclient.ProxySpec{Mode: netclient.ModeAuto}
 	if cfg, err := config.Load(); err == nil && cfg != nil {
 		spec = cfg.NetworkProxySpec()
 	}
+	marketHTTPClient.mu.Lock()
+	defer marketHTTPClient.mu.Unlock()
+	if marketHTTPClient.set && sameProxySpec(marketHTTPClient.spec, spec) {
+		return marketHTTPClient.client
+	}
 	hc, err := netclient.NewHTTPClient(spec, netclient.TransportOptions{})
 	if err != nil {
-		return &http.Client{}
+		return &http.Client{Timeout: marketTimeout}
 	}
+	hc.Timeout = marketTimeout
+	if marketHTTPClient.client != nil {
+		marketHTTPClient.client.CloseIdleConnections()
+	}
+	marketHTTPClient.spec, marketHTTPClient.client, marketHTTPClient.set = spec, hc, true
 	return hc
+}
+
+// sameProxySpec reports whether two settings would build the same client.
+func sameProxySpec(a, b netclient.ProxySpec) bool {
+	return a.Mode == b.Mode && a.URL == b.URL && a.NoProxy == b.NoProxy && a.Type == b.Type &&
+		a.Server == b.Server && a.Port == b.Port && a.Username == b.Username &&
+		a.Password == b.Password && slices.Equal(a.DirectHosts, b.DirectHosts)
 }
 
 func (s *Server) marketClient() market.Registry { return marketRegistry(marketHTTP()) }

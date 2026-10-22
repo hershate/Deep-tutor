@@ -77,29 +77,15 @@ type rateWindow struct {
 const (
 	rateLimitMax = 5
 	rateLimitWin = time.Minute
+	// rateLimitTracked bounds how many addresses are remembered at once. A
+	// window lives a minute, so an address still held was seen inside it; the
+	// bound is what keeps a flood of addresses from becoming memory the
+	// process cannot give back.
+	rateLimitTracked = 4096
 )
 
 func newRateLimit() *rateLimit {
-	rl := &rateLimit{attempts: make(map[string]*rateWindow)}
-	go rl.cleanupLoop()
-	return rl
-}
-
-// cleanupLoop periodically purges expired rate-limit windows so the map does not
-// grow without bound over the lifetime of a long-running server.
-func (rl *rateLimit) cleanupLoop() {
-	ticker := time.NewTicker(2 * rateLimitWin)
-	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for ip, w := range rl.attempts {
-			if now.Sub(w.start) > rateLimitWin {
-				delete(rl.attempts, ip)
-			}
-		}
-		rl.mu.Unlock()
-	}
+	return &rateLimit{attempts: make(map[string]*rateWindow)}
 }
 
 // allow reports whether the IP is allowed to attempt login. It also cleans up
@@ -109,12 +95,47 @@ func (rl *rateLimit) allow(ip string) bool {
 	defer rl.mu.Unlock()
 	now := time.Now()
 	w, ok := rl.attempts[ip]
-	if !ok || now.Sub(w.start) > rateLimitWin {
+	if !ok {
+		// A new address needs a slot. Windows that have aged out are free; the
+		// oldest remaining one goes when none has, so the map stays bounded
+		// without a sweep goroutine the server would have to stop.
+		if len(rl.attempts) >= rateLimitTracked {
+			rl.purgeLocked(now)
+		}
+		if len(rl.attempts) >= rateLimitTracked {
+			rl.evictOldestLocked()
+		}
+		rl.attempts[ip] = &rateWindow{count: 1, start: now}
+		return true
+	}
+	if now.Sub(w.start) > rateLimitWin {
 		rl.attempts[ip] = &rateWindow{count: 1, start: now}
 		return true
 	}
 	w.count++
 	return w.count <= rateLimitMax
+}
+
+// purgeLocked drops the windows that have aged out of the minute they cover.
+func (rl *rateLimit) purgeLocked(now time.Time) {
+	for ip, w := range rl.attempts {
+		if now.Sub(w.start) > rateLimitWin {
+			delete(rl.attempts, ip)
+		}
+	}
+}
+
+// evictOldestLocked frees one slot for an address the map has no room for.
+func (rl *rateLimit) evictOldestLocked() {
+	oldest, at := time.Time{}, ""
+	for ip, w := range rl.attempts {
+		if at == "" || w.start.Before(oldest) {
+			oldest, at = w.start, ip
+		}
+	}
+	if at != "" {
+		delete(rl.attempts, at)
+	}
 }
 
 // authGate is the authentication middleware and its runtime state.

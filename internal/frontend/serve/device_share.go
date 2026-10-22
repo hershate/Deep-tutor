@@ -72,6 +72,9 @@ type shareListener struct {
 	origin string
 	stop   context.CancelFunc
 	done   chan struct{}
+	// ln is the bound listener. It is kept so a share that lost it can be seen
+	// to have lost it, rather than only by the address it used to answer on.
+	ln net.Listener
 }
 
 // ShareAddress is one address a share can listen on.
@@ -198,7 +201,7 @@ func (s *DeviceShare) Open(ip string) (ShareStatus, error) {
 	}
 	origin := "http://" + ln.Addr().String()
 	ctx, stop := context.WithCancel(context.Background())
-	live := &shareListener{origin: origin, stop: stop, done: make(chan struct{})}
+	live := &shareListener{origin: origin, stop: stop, done: make(chan struct{}), ln: ln}
 	gate := NewDeviceGate(handler, DeviceGateOptions{Registry: s.registry, Origin: origin, Page: s.page, Machine: machineName()})
 	s.mu.Lock()
 	s.live = live
@@ -211,8 +214,25 @@ func (s *DeviceShare) Open(ip string) (ShareStatus, error) {
 		if err := runGracefulListener(ctx, ln, gate); err != nil {
 			slog.Warn("serve: device share stopped", "origin", origin, "err", err)
 		}
+		s.forgetListener(live)
 	}()
 	return s.Status(), nil
+}
+
+// forgetListener gives up the share's claim to be listening when its listener
+// ended on its own. A share that reports itself open while nothing is
+// listening hands out a pairing code for an address no phone can reach, and
+// the panel says the opposite of what is true.
+func (s *DeviceShare) forgetListener(live *shareListener) {
+	s.mu.Lock()
+	current := s.live == live
+	if current {
+		s.live = nil
+	}
+	s.mu.Unlock()
+	if current {
+		s.recordState(false, "")
+	}
 }
 
 // Reopen reopens the share where it last listened. When that address is gone —

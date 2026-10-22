@@ -88,7 +88,17 @@ type AskBroker struct {
 	mu   sync.Mutex
 	open map[string]*live
 	past map[string]settled
+	// order lists the settled questions oldest first, so the oldest can be
+	// dropped when the record reaches its bound.
+	order []string
 }
+
+// askPastTracked bounds how many settled questions are remembered. The record
+// exists so a retry can be told from a second opinion, and a retry follows
+// within seconds; a launch that settled thousands of questions would otherwise
+// keep every answer — a secret, where one was asked for — in memory for as
+// long as the process ran.
+const askPastTracked = 256
 
 func NewAskBroker(notify func(Ask)) *AskBroker {
 	return &AskBroker{epoch: newAskID("epoch"), notify: notify, open: map[string]*live{}, past: map[string]settled{}}
@@ -146,7 +156,21 @@ func (b *AskBroker) cancel(id string) {
 		return
 	}
 	delete(b.open, id)
-	b.past[id] = settled{cancelled: true}
+	b.settle(id, settled{cancelled: true})
+}
+
+// settle records how a question ended. It is called with the lock held, and it
+// keeps the record bounded: a launch that settles more questions than the
+// bound keeps the most recent ones, which are the ones a retry can still
+// arrive for.
+func (b *AskBroker) settle(id string, s settled) {
+	b.past[id] = s
+	b.order = append(b.order, id)
+	for len(b.order) > askPastTracked {
+		oldest := b.order[0]
+		b.order = b.order[1:]
+		delete(b.past, oldest)
+	}
 }
 
 // Pending is what is open right now, narrowed to one operation when asked. A
@@ -179,7 +203,7 @@ func (b *AskBroker) Answer(epoch, operationID, askID string, answer AskAnswer) e
 	}
 	if open {
 		delete(b.open, askID)
-		b.past[askID] = settled{answer: answer}
+		b.settle(askID, settled{answer: answer})
 		b.mu.Unlock()
 		held.reply <- answer
 		return nil
