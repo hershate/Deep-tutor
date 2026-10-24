@@ -986,6 +986,37 @@ class MiddlewareNamespace:
         self._rollbacks.append(_rollback)
 
 
+def _release_route_call_caches() -> None:
+    """释放 FastAPI 侧「按 callable 分类」的结果缓存——它们把 endpoint 钉住了。
+
+    FastAPI 0.162 起，`fastapi.dependencies.models` 用 `@lru_cache` 缓存「这个 callable
+    是不是协程 / 生成器」，而**缓存键是持有 endpoint 强引用的 `_CallIdentity`**。
+    于是路由摘掉之后，endpoint 仍被缓存钉住 → 闭包捕获插件门面的整张 api 图永远
+    回收不了（iter 386 修掉的卸载泄漏在 0.162 上复发；实测 FastAPI 0.162 + Python
+    3.12/3.14 均复现，与 Python 版本无关）。
+
+    这几个缓存是纯函数缓存（入参 call，出参 bool），清掉只是重算，无副作用；
+    插件卸载是低频路径（热重载一个插件清一次），代价可忽略。
+    """
+    try:
+        from fastapi.dependencies import models as _dep_models
+    except Exception:  # noqa: BLE001 - FastAPI 结构变了也不该炸卸载
+        return
+    for name in (
+        "_is_gen_callable_cached",
+        "_is_async_gen_callable_cached",
+        "_is_coroutine_callable_cached",
+    ):
+        cached = getattr(_dep_models, name, None)
+        clear = getattr(cached, "cache_clear", None)
+        if clear is None:
+            continue
+        try:
+            clear()
+        except Exception:  # noqa: BLE001 - 清理尽力而为，不能因上游结构变化而毁掉卸载
+            pass
+
+
 class RoutesNamespace:
     """REST 路由挂载：插件路由统一隔离在 /api/plugins/<插件id>/ 命名空间下。
 
@@ -1033,6 +1064,10 @@ class RoutesNamespace:
             # iter 247：register 中途失败的回滚——按对象身份摘除本次挂载加入的条目
             # （不用 ==：_IncludedRouter 是 dataclass，字段相等会误删他人的同构挂载）
             self._app.router.routes[:] = [r for r in self._app.router.routes if all(r is not a for a in added)]
+            # iter 423：FastAPI 0.162 的 callable 分类缓存把 endpoint 钉住（键是持有
+            # endpoint 强引用的 _CallIdentity）——不清掉，插件门面图回收不了，见
+            # _release_route_call_caches 的注释。
+            _release_route_call_caches()
 
         self._rollbacks.append(_unmount)
         return full
