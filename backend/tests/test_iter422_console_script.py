@@ -13,7 +13,6 @@ pip 把 console script 装进**当前环境**的 scripts 目录（Windows: ``<ve
 
 from __future__ import annotations
 
-import sys
 import sysconfig
 from pathlib import Path
 
