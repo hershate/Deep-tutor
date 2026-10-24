@@ -27,6 +27,7 @@
     - GNU make **4.4.1**（winget 的 `ezwinports.make`，逐用户安装）——**`$(shell ...)` 恒走 cmd.exe** 的老坑依旧
     - Python **3.14.9**（`%LOCALAPPDATA%\Python\pythoncore-3.14-64`，`py -3.14`）与 **3.15.1**（`C:\Python315`；`python` 命中 3.14）
     - Git **2.56.0**（**`F:\Program Files\Git`**，不是 C 盘）
+    - **uv 0.11.12**（**`F:\uv\bin\uv.exe`**）——后端虚拟环境改由它建（iter 424）；启动脚本**优先用这份 F 盘本地的**，再退 PATH 上的 uv（PATH 上可能是别的机器留下的旧版或占位入口）
   - **旧机的缓存还在 F 盘上（`F:\DevCache\*`，本轮直接复用，没重下）**：
     - `go`（= 旧 `GOPATH`，1.26 GB，含 `bin/golangci-lint.exe` **2.12.2**——正是 `.golangci-version` 钉的版本）
     - `go-build`（= 旧 `GOCACHE`，**17.3 GB** 热的构建缓存）、`pnpm-store`（v10+v11）、`npm-cache`（2.1 GB）、`pip-cache`
@@ -74,6 +75,7 @@
     - Go 的模块与构建缓存**沿用旧机的 `F:\DevCache\*`**（见上条「旧机的缓存还在 F 盘上」——默认值 `%LOCALAPPDATA%\go-build`、`%USERPROFILE%\go` 在 C 盘，与「可丢弃产物落 F 盘」相悖）
     - `golangci-lint` 复用旧机那份 `F:\DevCache\go\bin\golangci-lint.exe`（2.12.2，与 `.golangci-version` 一致，`make lint-install` 可重装）；pnpm store 在 `F:\DevCache\pnpm-store`
     - Python 虚拟环境在仓库内 `backend\.venv`（随仓库走，本身就在 F 盘）
+    - **uv 的包缓存**默认落在**项目内** `.uv-cache`（iter 424）——与 `backend\.venv` 同卷 → 硬链接可用（跨卷时 uv 会退化成全量拷贝并告警），不写用户目录也不占系统盘；`.gitignore` 已挡。机器级另有 `UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/`（官方 PyPI 从本机实测只有 ~65 KB/s，镜像 ~4 MB/s，差 60 倍）
     - **npm 全局包是例外**：`%APPDATA%\npm` 在 C 盘且**必须留在那里**——`F:\Program Files\nodejs` 对本用户不可写，全局前缀改到用户目录才装得上 `pnpm`
   - **换机留下的两处死物**：`F:\Deeptutor\reasonix`（内核 home）**没随迁**——新机上由内核首次运行自建（`config.toml` 里有 seed 出来的 deepseek 供应商档案，密钥未配）；`F:\Deeptutor\.venv` 只剩一个**指向 Linux 路径的死符号链接 `lib64`**（旧机的 venv 残骸，Windows 删不掉也不影响任何东西）。
   - **scratch 根会长驻测试残留（iter 423 实测）**：跑一轮全量门禁后，`F:\TEMP\deeptutor` 会攒下几百个临时目录——iter 423 一轮下来是 **437 项 / 180 MB**。

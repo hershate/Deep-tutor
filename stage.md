@@ -38,6 +38,30 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 424（2026-10-24，启动脚本改用 uv 建虚拟环境 + 加 uv 环境检查，✅ 完成）**：用户要求「启动脚本在本项目范围内用 uv 创建虚拟环境，并加上 uv 环境检查，优先用本地 F 盘 uv」。
+
+- **改了什么**（`scripts/start.ps1` / `scripts/start.sh` 两版同形）：
+  - **uv 探测顺序**：显式 `DEEPTUTOR_UV` → **F 盘本地**（`F:\uv\bin\uv.exe`、`F:\uv\uv.exe`）→ PATH 上的 `uv`。每个候选都要**实跑** `--version`（找得到 ≠ 跑得起来）。`SKIP_UV=1` 直接不用 uv。
+  - **虚拟环境改由 uv 建**：`uv venv --seed --python <已探测的解释器绝对路径> backend\.venv`——落在**项目内**；`--seed` 把 pip 一并装进环境（OCR 栈那段仍走 pip，没有 pip 的 venv 跑 `python -m pip` 会直接报 No module named pip）。
+  - **已有 venv 不是 uv 建的 → 一次性重建**（判据：`pyvenv.cfg` 里有 `uv = <版本>` 标记；uv 写的还有 `seed = true`）。这是「确保用 uv 建」与「不每次启动都重建」之间的折中；`SKIP_UV=1` 可退出该行为。
+  - **服务栈改用 `uv pip install --python <venvPy> -r backend/requirements.txt`**；**uv 失败自动回退 pip** 再试一次（服务栈装不上就永远起不来，两条路都断才报错）。
+  - **OCR 栈仍走 pip**：重量级可选栈，pip 在「两栈互斥约束」下的行为已实证（iter 421/422）。原以为 uv 更严会拒绝，实测**不会**（uv 允许升级到破坏已装包声明约束的版本，与 pip 同语义）——但没必要动那条已验证的路径。
+- **uv 的落盘位置（都在项目范围内）**：
+  - venv：`backend\.venv`（项目内，随仓库走）。
+  - 包缓存：**项目内 `.uv-cache`**（与 venv 同卷 → uv 硬链接可用；跨卷时 uv 会退化成全量拷贝并告警 Failed to hardlink files）。`.gitignore` 已挡 `/.uv-cache/`。
+  - uv 默认把缓存放在 `%LOCALAPPDATA%\uv\cache`（C 盘），与本仓「可丢弃产物落项目所在卷」相悖，故不用默认位置。
+- **网络是真正的瓶颈（不是 uv 慢）**：本机从 **官方 PyPI 只有 ~65 KB/s**（实测 lxml 8MB 走 57.4s），国内镜像 **~4-5 MB/s**（同一文件 1.6-2.1s，差 30-60 倍）。uv 冷缓存直连官方源装服务栈 **50 分钟没装完**；指到镜像后全程 **10.4s**（解析 2.29s + 准备 5.69s + 安装 0.9s）。
+  - 处置（**机器级环境变量**，不写进仓库，与 GOPROXY/npm 的做法一致）：`UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/`。
+  - `UV_CACHE_DIR` **不设机器级**——留给脚本的项目内默认（`.uv-cache`），落实「本项目范围内」。
+- **自己踩的两个坑**：
+  - **复检逻辑写错**：新建 venv 后的复检只把 `$venvUsable` 置 false、成功时没置 true → 沿用了前面的 false → 脚本误判「新建的虚拟环境不可用」而中断（端到端实跑才发现）。
+  - **`uv venv` 默认不装 pip**：不加 `--seed` 的话，venv 里跑 `python -m pip` 直接报 No module named pip（OCR 栈那段依赖 pip）。
+- **验证**：
+  - 端到端实跑 `scripts/start.ps1`：uv 来源打印为 `F:\uv\bin\uv.exe`、缓存打印为 `F:\Github\repo\Deep-tutor\.uv-cache`；依赖装完、迁移到 head、插件 `loaded=8 failed=0`、`/api/health` 200、SPA 200。
+  - uv 建的 venv 里关键版本与 pip 建的一致（fastapi 0.162.0 / SQLAlchemy 2.1.6 / Pillow 13.0.0 / pydantic 2.14.1）。
+  - `ruff check app tests` All checks passed；后端全量 pytest **1770 passed / 2 skipped / 0 failed**，覆盖率 **88.68%**——与 pip 建的 venv **结果完全一致**。
+- **CI 不改**：CI 仍用 `actions/setup-python` + `pip install -r requirements.txt`（`requirements.txt` 保留，uv 只进本地启动脚本）。
+
 **iter 423（2026-10-24，换机：新机环境重建 + 启动脚本真缺陷修复 + 全量门禁复跑，✅ 完成）**：项目迁到新电脑（Windows 11，用户 Z，仓库仍在 `F:\Github\repo\Deep-tutor`）。本轮目标：**检查并修复项目，确保能正常启动、启动脚本有效**，并把项目文档更新到新机事实。
 
 - **新机环境审计（先扫 F 盘再动手）**：这台机器的「环境」**不在 C 盘而在 F 盘**。
