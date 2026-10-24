@@ -86,6 +86,7 @@ Thumbs.db
 *.out
 *.coverprofile
 coverage.out
+.coverage
 cpu.prof
 mem.prof
 *.exe
