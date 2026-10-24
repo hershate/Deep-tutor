@@ -488,6 +488,13 @@ Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向�
 | `internal/frontend/serve/wirelog.go`（写入） | 短写被忽略 → 日志里留下半行 JSON，其后每一行都不可解析。改为写不满就截回原长度，日志始终是「发生过的事」的前缀 |
 | `internal/frontend/serve/hub_picker.go` | 文件夹选择框**每请求起一个 `powershell.exe`**，且没有并发上限——它等人回答，进程就一直活着。改为**同一时刻只允许一个对话框**，第二个请求以 `picker.busy` 拒绝（新增文案见 `desktop/frontend-next/src/i18n/kernel.ts` 与 `en_kernel.ts`） |
 
+**第十四轮：换机后的构建基座与门禁修复（2026-10-24，iter 423）**：项目迁到全新 Windows 机器，暴露出两处随上游快照带进来的问题——一处是**门禁真红**（gofmt），一处是**构建基座的 shell 探测在新机的安装布局下失效**。
+
+| 位置 | 处理 |
+|---|---|
+| `internal/platform/update/release_unit_test.go` | 仅 `gofmt` 缩进（复合字面量由 2 空格改为 Go 1.19+ 要求的 3 空格）——`fa49eb62` 提交时格式不合规，CI 的 `gofmt -l` 门禁因此是红的。**无语义改动** |
+| `Makefile` | Windows 段的 **Git Bash 探测重写**：旧写法只认 C 盘的 8.3 短名路径，且用 `$(firstword ...)` 取值——它按空白切词，带空格的 `F:/Program Files/Git/bin/sh.exe` 会被切成半条路径。改为：候选 pattern 一律不含空格、末位候选由 `git --exec-path` 反推安装根、空格转义后再喂 `$(wildcard)`，并把 `SHELL` 改为 `$(if ...)`。**只影响 shell 探测与取值方式**，构建目标与产物不变 |
+
 后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
 
 ## 二、随 Reasonix 捆绑的第三方许可（原样保留）
