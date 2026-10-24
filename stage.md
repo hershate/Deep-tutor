@@ -95,6 +95,9 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
     - 那一例（`src/ui/tutor/Tutor.interaction.test.tsx` 里 `findByRole("checkbox")` 超时）**单跑该文件 21 例全绿** → 负载敏感 flake，与本轮改动无关（本轮未碰 `desktop/frontend-next` 任何文件）。
   - 旧机遗留的 `backend/.coverage` 停止入库（`.gitignore` 补 `.coverage` + `git rm --cached`）——它每次跑测试都被改写，只制造无意义的二进制 diff。
   - 新机 `.gitconfig` 丢了提交身份（`user.name`/`user.email`）→ 已按历史提交恢复为 `Zurker <91011862+hershate@users.noreply.github.com>`。
+  - **两处「自己造成的假红」，都不是回归**（记下来省得再查一遍）：
+    - **ruff F821**：新守卫 `test_iter423_plugin_unmount_releases_fastapi_cache.py` 里 `del api, ...` 把 `ping` 闭包引用的 `api` 删了 → 闭包 cell 被清空，ruff 报 undefined name。断言看的是 endpoint 有没有被缓存钉住，而 `api` 本身不引用 endpoint → 去掉这个 `del` 即可（pytest 那条路径没执行到，所以测试是绿的、只有 ruff 红）。
+    - **并发跑两个 pytest 进程**：全量套件在跑时我又单独起了守卫测试 → 两者争同一个测试库 → 全量里 `test_api_retry` / `test_api_share` 两例假红。**独占复跑即 1770 全绿**（这两例单独跑也全绿）。教训：后端测试**不要并发**跑两个进程。
 - **待用户定夺（本机两处环境项，都要管理员权限才能了）**：
   - 开启 Windows 开发者模式（设置 → 系统 → 开发者选项 → 开发人员模式）→ 解掉 12 个 symlink 用例的「A required privilege is not held by the client」。
   - 给 Kaspersky 实时防护加排除项（F 盘的 Go 构建缓存与临时目录）→ 解掉 4 个包「新写出的测试 exe 被拦（Access is denied）」。
