@@ -65,7 +65,10 @@ def test_unmount_releases_the_endpoint_from_the_caches():
     endpoint_ref = weakref.ref(ping)
     api.routes.mount(router, auth=False)
     api._rollback()
-    del api, status, router, ping
+    # `api` 故意**不删**：`ping` 的闭包引用它，删掉会把闭包 cell 清空（此时若 endpoint
+    # 被调用就是 NameError，而 ruff 的 F821 也会报 undefined）。它本身不引用 endpoint，
+    # 留着不影响本断言——断言看的是 endpoint 有没有被缓存钉住。
+    del status, router, ping
     gc.collect()
 
     assert endpoint_ref() is None, "endpoint 仍被 FastAPI 的 callable 分类缓存钉住"
