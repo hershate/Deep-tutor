@@ -109,15 +109,31 @@ bash scripts/start.sh
 
 脚本依次完成：建虚拟环境 → 装依赖 → 构建前端 → 数据库迁移 → 启动服务 → 打开浏览器。重复执行跳过已完成步骤。
 
+**换机后不用手动清环境**：脚本判定「虚拟环境可用」的标准是**解释器真的能跑起来**，不是「文件在不在」。
+
+venv 里的解释器指向的是**当初装它的那台机器**的基础解释器——换机 / 重装 Python 后那个路径可能已经没了，此时脚本会清掉这个空壳 venv 并重建（旧机的 venv 直接复制过来几乎必然踩这一条：文件在，pip 报 `No Python at ...`）。
+
+同理，脚本会**逐个实跑** PATH 上的 `python` / `py`，取第一个能执行且版本 ≥ 3.11 的（Windows 的「应用执行别名」占位入口会被跳过）。
+
 依赖分两栈装：`backend/requirements.txt` 是服务栈（**自身可解析**）；`backend/requirements-ocr.txt` 是 OCR/PDF 深度解析栈（marker，体积大，**只在首次**装）。
 
 两者必须分开——marker 钉 `Pillow<11`，服务进程须 `Pillow>=13.0`（直接解码用户上传图片；12.3.0 仍带 28 条 OSV 公告，13.0.0 是零公告版），写进同一个文件 pip 会判为无解（ResolutionImpossible），**装不上服务就起不来**。
 
-OCR 栈装不上不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。
+OCR 栈装不上不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。**嫌它慢（或网络不通）可直接跳过**：设 `SKIP_OCR_STACK=1` 只装服务栈——
+
+```bash
+# Windows（PowerShell）
+$env:SKIP_OCR_STACK='1'; powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+
+# Linux / macOS
+SKIP_OCR_STACK=1 bash scripts/start.sh
+```
 
 服务地址 `http://localhost:41173`，局域网内其他设备使用 `http://<本机IP>:41173`。首次访问进入设置向导（访问密码与 AI API Key 均可跳过，后续补充）；未配置 API Key 时应用可正常浏览数据，生成类功能不可用。
 
 **未设访问密码时服务以开放模式运行并监听全部网卡**（见 §2.1）：同一局域网内任意设备可免登录访问数据。设一个访问密码即可关闭开放模式（设置页或 `.env` 的 `ADMIN_PASSWORD`）；`AUTH_TOKEN` 必须是 `.env.example` 之外的真实值，模板占位串 `change-me-please` 不被接受为凭证。
+
+**启动脚本会在这种配置下打印一条提醒**（哪些情况算「没配真实凭证」由脚本自己判，不靠你记得）。
 
 端口改写：PowerShell 用 `-Port 9000`，或设置 `PORT` 环境变量。默认端口取 41173 而非 8000，因 8000 常落入 Windows 系统保留端口段导致绑定失败。
 
@@ -309,7 +325,9 @@ make check    # repolint -changed（仅报告工作树变更）
 make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 ```
 
-**CI 现状**：`.github/workflows/ci.yml` 当前只跑 Python v1 四步门禁（ruff → pytest 覆盖率 ≥80% → OpenAPI 契约 → 前端 build），**未纳入 Go 门禁**；Go 门禁基线重建与 CI 接入属阶段① M1.5。
+**CI 现状**：`.github/workflows/ci.yml` 已接入 **Go 内核门禁与桌面端前端门禁**（M1.5b，commit `c60b800`）——保留 Python v1 四步门禁（ruff → pytest 覆盖率 ≥80% → OpenAPI 契约 → 前端 build）。
+
+新增 `go-lint`（gofmt / go vet / golangci-lint v2.12.2 / repolint / desktop 子模块）、`go-test`（ubuntu + windows 矩阵，三个嵌套 module 各测各的）、`desktop-frontend`（pnpm build / test / **census** / census:verify + Electron `node --test`）。CI 只在 PR 与手动触发时跑。
 
 `go test ./...` 在本机固定失败的用例（WSL 启动器缺失、CI 缺 Windows Go job、AV 占用临时 `.exe`、`REF/` 副本污染工作树扫描等）属环境或工作树依赖，非代码回归；`internal/assembly/boot` 单包本机耗时 974.9 秒，超过 Go 默认 600 秒超时上限，一次性执行必报 timeout panic，需 `-timeout 25m`。完整清单与归因见 [`AGENTS.md`](./AGENTS.md) 的「门禁现状」表。
 
@@ -319,16 +337,16 @@ make test     # 根模块 + desktop + sdk/go 三个模块的 go test
 
 | 任务 | 状态 |
 |---|---|
-| M1.1 内核吸收与裁剪 | 完成（2026-10-17，8289 文件入库） |
-| M1.2 模块改名 `reasonix` → `deep-tutor` | 未开始（`go.mod` 仍为 `module reasonix`，全仓 8,431 处 `reasonix/` 模块路径 import，2026-10-21 实测） |
-| M1.3 多实例 spike | 未开始 |
-| M1.4 品牌化与 `DEEPTUTOR.md` 建档 | 未开始（`DEEPTUTOR.md` 尚不存在） |
-| M1.5 门禁基线重建 + CI 接入 | 未开始（`tools/repolint/baseline.json` 仍为上游基线） |
-| M1.6 `bin/deep-tutor.exe` 冒烟 | 未开始（`cmd/` 下仍为 `reasonix` 系列入口） |
-| M2 数据层与认证（SQL + sqlc + JWT/PAT） | 未开始 |
-| M3 生成流水线 + `/api` 兼容层 | 未开始（`internal/frontend/serve` 仅挂 `/tutor/*`，无 `/api` shim，旧 SPA 暂不能对接 Go 服务） |
-| M4 学习闭环全页 | 未开始 |
-| M5 管理页 + 事件流 + 旧 SPA 19 页回归 | 未开始 |
+| M1.1 内核吸收与裁剪 | ✅ 完成（2026-10-17，8289 文件入库） |
+| M1.2 模块改名 `reasonix` → `deep-tutor` | ✅ 完成（2026-10-21，commit `fd05bf6`；根模块 `module deep-tutor`，`desktop` 子模块 `module deep-tutor/desktop`） |
+| M1.3 多实例 spike | ✅ 完成（2026-10-22；矩阵/全局态/深水点回填 `plan/reasonix/04` §四） |
+| M1.4 品牌化与 `DEEPTUTOR.md` 建档 | ✅ 完成（2026-10-22，commits `40e4209`~`4c22dbe`；M1.4f 环境变量改名、M1.4g 半改收口随后完成） |
+| M1.5 门禁基线重建 + CI 接入 | ✅ 完成（2026-10-22，commits `3a9c267`/`c60b800`；`tools/repolint/baseline.json` 已按本仓树重建，CI 已含 Go 与桌面端前端门禁） |
+| M1.6 `bin/deep-tutor.exe` 冒烟 | ✅ 完成（2026-10-22，commit `ddb4070`；入口已改名 `cmd/deep-tutor`） |
+| M2 数据层与认证（SQL + sqlc + JWT/PAT） | ⬜ 未开始；**第 0 步**是 `plan/reasonix/04` §四 的 K 类内核改动（`Options.Home` 贯通 + `control.Controller` 加 Roots + `secrets` 包级开关 + `healthyConfig` 按 home 记账），M2.0b 测试隔离守卫已完成 |
+| M3 生成流水线 + `/api` 兼容层 | ⬜ 未开始（`internal/frontend/serve` 仅挂 `/tutor/*`；`internal/web` 服务层尚不存在 → 无 `/api` shim，旧 SPA 暂不能对接 Go 服务） |
+| M4 学习闭环全页 | ⬜ 未开始 |
+| M5 管理页 + 事件流 + 旧 SPA 19 页回归 | ⬜ 未开始 |
 
 Go 侧学习域实现位于 `internal/runtime/tutor/`（R-Tutor 移植，67 个 Go 文件），8 步流水线与 v1 同构；存储当前为 state root 下的 JSON 文件树，阶段① M2/M3 改为 SQL。
 

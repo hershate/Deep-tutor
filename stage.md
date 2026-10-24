@@ -38,6 +38,69 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 423（2026-10-24，换机：新机环境重建 + 启动脚本真缺陷修复 + 全量门禁复跑，✅ 完成）**：项目迁到新电脑（Windows 11，用户 Z，仓库仍在 `F:\Github\repo\Deep-tutor`）。本轮目标：**检查并修复项目，确保能正常启动、启动脚本有效**，并把项目文档更新到新机事实。
+
+- **新机环境审计（先扫 F 盘再动手）**：这台机器的「环境」**不在 C 盘而在 F 盘**。
+  - **已存在、直接复用**（旧机随迁带过来）：`F:\Program Files\Git`（2.56.0）、`F:\Program Files\nodejs`（24.22.1，**该目录对本用户不可写**）、`F:\soft\BuildTools`（只有 MSVC 的 `nmake.exe`）。
+    - `F:\DevCache\{go, go-build, pnpm-store, npm-cache, pip-cache}` = 旧 `GOPATH` / 旧 `GOCACHE`（**17.3 GB** 热的构建缓存）/ pnpm store / npm 缓存 / pip 缓存
+  - **确实缺、需装**：Go SDK（`F:\go`，1.26.10）、GNU make（winget 的 `ezwinports.make` 4.4.1；**choco 装不了**——本用户对 `C:\ProgramData\chocolatey\lib` 无写权限）。**F 盘上确实既没有 Go SDK 也没有 GNU make**（逐目录扫过 `F:\Program Files`、`F:\soft`、`F:\dev`、`F:\DevCache`）。
+  - **git 所有权**：仓库随旧机目录复制，owner 与当前用户不符 → `git config --system --add safe.directory F:/Github/repo/Deep-tutor`（否则所有 git 命令报 dubious ownership；**用系统级**的原因见下方「环境项」）。
+  - **网络**：`proxy.golang.org` 与 `sum.golang.org` 在本机超时 → 用户级 `GOPROXY=https://goproxy.cn,direct`、`GOSUMDB=sum.golang.google.cn`。
+  - **内核 home**：`DEEPTUTOR_HOME` 与 `REASONIX_HOME` 双拼写都恢复为 `F:\Deeptutor\reasonix`（旧机的 home **没随迁**，新机上由内核首次运行自建 `config.toml`，内含 seed 出来的 deepseek 供应商档案，密钥未配）。
+  - **缓存指回旧机布局**：`GOPATH=F:\DevCache\go`、`GOMODCACHE=F:\DevCache\go\pkg\mod`、`GOCACHE=F:\DevCache\go-build`、`GOBIN=F:\DevCache\go\bin`、`npm_config_cache=F:\DevCache\npm-cache`、`PIP_CACHE_DIR=F:\DevCache\pip-cache`。
+    - pnpm 的 store 写进它自己的 rc（`%LOCALAPPDATA%\pnpm\config\rc` → `store-dir=F:\DevCache\pnpm-store`）。**旧机那份 `golangci-lint.exe` 正好是 2.12.2**（`.golangci-version` 钉的版本）→ 直接复用，不再重装。
+  - **pnpm**：`F:\Program Files\nodejs` 不可写 → `corepack enable` 失败（EPERM）→ 改走 `npm install -g pnpm@10`（全局前缀 `%APPDATA%\npm`，本来就在 PATH 上）→ pnpm 10.34.8。
+- **启动脚本真缺陷（换机必踩）**：`backend/.venv` 随迁带过来，**基础解释器却随旧机消失了**（旧机是 `F:\Python-Launcher\python.exe`）——文件在、`pip` 报 `No Python at ...`，**服务永远起不来**。脚本的判定只看「文件在不在」（err.md E1 修的是「目录在但没有 python」），**没覆盖「解释器在但跑不起来」**这一种。
+  - 改法：判定改为「文件在 **且** 解释器能真跑起来」——`& $venvPy -c "import sys"` 的退出码说了算；跑不起来就清掉重建。POSIX 版同理（`-x` 之外再加一次实跑）。
+  - 顺带：解释器候选从「`Get-Command` 找得到就算」改为**逐个实跑**——Windows 的「应用执行别名」（`WindowsApps` 里的占位入口）找得到却跑不起来，py 启动器的默认版本也可能低于 3.11。
+- **启动脚本新增两项**：
+  - `SKIP_OCR_STACK=1`：跳过 2GB 的 marker 深度解析栈（只装服务栈，PDF 走 pypdf 快速档）——网络慢时不再卡住首次启动。
+  - **开放模式提醒**：`.env` 在、但 `ADMIN_PASSWORD` 为空或 `AUTH_TOKEN` 仍是模板占位 `change-me-please` 时，脚本**在启动前打印一条警告**（并说明绑 0.0.0.0 时局域网可访问）。只提醒，**不改绑定语义**（README §2.1 的取舍不动）。
+- **Makefile 的 Git Bash 探测重写**：新机 Git 在 `F:\Program Files\Git`——旧写法只认 C 盘，且 `$(firstword ...)` / `$(foreach ...)` 会把带空格的结果切开（`F:/Program Files/...` → `F:/Program`）。
+  - 逐条实测出来的 make 语义（记下来省得再踩）：`$(wildcard)` 收到的是**展开前**按空白切好的参数 → 字面路径含空格读不到；**变量展开后的空格同样会把 pattern 拆开**（`$(wildcard $(GIT_ROOT)/bin/sh.exe)` 拿含空格的变量 → 空）。
+    - **含空格的 pattern 必须用 `\ ` 转义**才命中；`$(firstword)`/`$(foreach)` 按空白切词 → 别拿它们装带空格的路径。
+  - 现写法：候选 pattern 一律**不含空格**（`C:/Progra~1/…`、`F:/Progra~1/…`），最后一个候选**问 git 自己**（`git --exec-path` → 推出安装根 → 空格转义后再喂 `$(wildcard)`）；`GITBASH_QUOTED` 改为「有值就整体加引号」（旧条件找的是**逗号**，而该触发引号的是**空格**）；`SHELL` 改为 `$(if ...)`（`firstword` 会切路径）。
+  - 另记：**F 盘没有 8.3 短名**（`dir /x F:\` 不给短名）→「短名优先」的老兜底在新机上无效。
+  - 验证：`GITBASH = F:/Program Files/Git/bin/sh.exe`、`BUILD_TIME_UTC = 2026-10-24T12:03:07Z`（单词、UTC、ISO 形状）、`make build` exit 0（两个二进制，60s，热缓存）。
+- **门禁真红一处（已修）**：`gofmt -l internal cmd tools sdk desktop` 报 `internal/platform/update/release_unit_test.go`——fa49eb62 提交的复合字面量缩进是 2 空格，Go 1.19+ 的 gofmt 要 3 空格 → **CI 的 gofmt 门禁是红的**。
+  - `gofmt -w` 修好，新机 `gofmt -l` 0 文件。**教训**：gofmt 的判定随 Go 版本走，换 Go 版本要重跑这一条。
+- **全新依赖下暴露的两个真缺陷（CI 现在就是红的，都已修）**——本机是第一次「从零装依赖」，装到的就是当前最新版本，于是把两处上游漂移顶了出来：
+  - **alembic 吃不下百分号编码的 URL**（`test_create_all_schema_matches_alembic_head` 红）：
+    - SQLAlchemy 2.1 起 `str(engine.url)` 对 Windows 路径做百分号编码（`sqlite:///F%3A%5C...`）。
+    - 而 alembic 的 ini 载体是 configparser：裸 `%` 被当插值标记，`set_main_option` 直接抛 `ValueError: invalid interpolation syntax`——**迁移一步都跑不动**（alembic 自己的 docstring 写明了要转义成 `%%`）。
+    - 修法：`app/db/migrate.py` 新增 `escape_config_interpolation()`（`%` → `%%`，configparser 读回时还原），`_alembic_config` 与 `alembic/env.py` 的 CLI 直跑路径都走它。
+    - 守卫（新）：`backend/tests/test_iter423_alembic_url_interpolation.py`（5 例）——编码 URL 不再抛异常、读回即原值、转义不影响指向的文件、真跑一次 `upgrade head` 建出业务表、env.py 也走了同一个 helper。
+  - **FastAPI 0.162 把 endpoint 钉在 lru_cache 里**（iter 386 的卸载泄漏复发）：
+    - `fastapi.dependencies.models` 用 `@lru_cache` 缓存「这个 callable 是不是协程/生成器」，**缓存键是持有 endpoint 强引用的 `_CallIdentity`**。
+    - 路由摘掉后 endpoint 仍被缓存钉住 → 闭包捕获插件门面的整张 api 图永远回收不了。
+    - 实测 FastAPI 0.162 + Python 3.12/3.14 **均复现**（与 Python 版本无关）。
+    - 修法：`app/plugins/api.py` 新增 `_release_route_call_caches()`（清掉那三个**纯函数**缓存，代价只是重算），在路由卸载回调 `_unmount` 里调用。
+    - 守卫（新）：`backend/tests/test_iter423_plugin_unmount_releases_fastapi_cache.py`（4 例）——缓存确实存在、卸载后 endpoint 不再被钉住、helper 三个缓存都清空、上游改名也不炸。
+- **Windows PowerShell 5.1 的一个坑（启动脚本探针）**：解释器跑不起来的表现恰恰是「非零退出码 + stderr 输出」，而 **5.1 会把原生命令的 stderr 变成错误记录**，在 `$ErrorActionPreference=Stop` 下那是**终止性错误**——探针自己先把脚本打断，走不到「重建 venv」那一步（死 venv 实测：脚本直接抛异常退出，而不是自愈）。
+  - 改法：两处探针（解释器候选、venv 解释器）一律包进 `try/catch`，异常一律当作「不可用」。改完**真跑一次死 venv 演练**（把 `pyvenv.cfg` 的 `home` 改回旧机的 `F:\Python-Launcher`）→ 脚本输出「现有 backend\.venv 不可用（基础解释器已失效），重建」→ 重建 → 装依赖 → 迁移 → 服务起得来（`/api/health` 200）。
+- **换机带进来的环境项（不是代码回归，但会让人以为代码坏了）**：
+  - **git 所有权：用户级 `safe.directory` 不够**——金丝雀（`tools/canary`）把 HOME 隔离到一次性目录后，git 读不到用户级配置。
+    - 后果：`git status` 报 dubious ownership → Go 的 VCS stamping 直接失败（`error obtaining VCS status: exit status 128`）→ 5 个 effect 用例与 1 个 agent 用例红。
+    - 改用系统级 `git config --system --add safe.directory F:/Github/repo/Deep-tutor`（系统级配置与 HOME 无关，隔离后仍生效）。
+  - **符号链接权限**：新机**没开开发者模式**，`os.Symlink` 报「A required privilege is not held by the client」→ 12 个 symlink 用例红（`internal/platform/repair` / `internal/runtime/receipt` / `internal/platform/packagegrant`）。需管理员或「设置 → 系统 → 开发者选项 → 开发人员模式」；**非管理员改不了**（HKLM 写被拒）。
+  - **Kaspersky 实时防护**拦下**新写出**的测试二进制（`Access is denied`）——与改动无关，回退到 HEAD 同样被拦；逐包复跑一般即过（旧机同一类问题，见下方「AV 占用」）。
+  - **跨卷 rename**：测试临时目录默认在 C:、scratch 在 F: → `rename` 报「不能把文件移到不同的磁盘驱动器」→ 2 个用例红。**按本仓规约把 `TMPDIR`/`TEMP`/`TMP` 指到 `F:\TEMP\deeptutor`**（可丢弃产物落项目所在卷）即消。
+- **行尾漂移（换机带进来的）**：工作树有 **201 个文件是 CRLF**（`.py`/`.md`/`.json`/`.svg` 等），但**没有一个 `.go` 或 `.sh`** → Go 与 shell 门禁不受影响；`.gitattributes` 的 `text=auto` 在提交时归一，**不做批量改写**（改了就是 201 个文件的假 diff）。
+- **文档更新**：`AGENTS.md`（「仓库状态速览」整节按新机实测重写 + Makefile 探测一节 + 落盘位置一节 + 门禁现状一节）、`README.md` §4.1（换机后 venv 自愈、解释器实跑选择、`SKIP_OCR_STACK`、开放模式提醒）、`NOTICE`（第十四轮：披露对上游两处文件的改动）。
+- **门禁复跑结果（本机实测）**：
+  - 后端全量 pytest：**1770 passed / 2 skipped / 0 failed**，覆盖率 **88.68%**（含两个新守卫共 9 例）；`ruff check app tests` All checks passed；OpenAPI 120 paths。
+  - Go 侧：`make build` exit 0（两个二进制，60s 热缓存）；`gofmt -l` 0 文件；`go vet ./...` exit 0；`make lint-go`（golangci-lint 2.12.2）**0 issues**；`make check`（repolint）**clean (2222 baselined findings)**。
+  - 三个 Go 模块：desktop **ok**、sdk **ok**；根模块剩余红项全部定性为环境项（见上），非代码回归。
+  - 桌面端前端：`pnpm install`（热 store 10.8s）/ `pnpm build` / `pnpm census`（Seal E held）/ `pnpm census:verify` 全绿；Electron `node --test` 133 pass / 0 fail / 6 skipped；vitest **4682 passed / 1 failed**。
+    - 那一例（`src/ui/tutor/Tutor.interaction.test.tsx` 里 `findByRole("checkbox")` 超时）**单跑该文件 21 例全绿** → 负载敏感 flake，与本轮改动无关（本轮未碰 `desktop/frontend-next` 任何文件）。
+  - 旧机遗留的 `backend/.coverage` 停止入库（`.gitignore` 补 `.coverage` + `git rm --cached`）——它每次跑测试都被改写，只制造无意义的二进制 diff。
+  - 新机 `.gitconfig` 丢了提交身份（`user.name`/`user.email`）→ 已按历史提交恢复为 `Zurker <91011862+hershate@users.noreply.github.com>`。
+- **待用户定夺（本机两处环境项，都要管理员权限才能了）**：
+  - 开启 Windows 开发者模式（设置 → 系统 → 开发者选项 → 开发人员模式）→ 解掉 12 个 symlink 用例的「A required privilege is not held by the client」。
+  - 给 Kaspersky 实时防护加排除项（F 盘的 Go 构建缓存与临时目录）→ 解掉 4 个包「新写出的测试 exe 被拦（Access is denied）」。
+  - 两者都不是代码回归，CI（Linux）不受影响；但本机 `go test ./...` 在此之前不会全绿。
+- **下一步**：① 回到 M2（数据层与认证），其第 0 步仍是 `plan/reasonix/04` §四 的 **K 类内核改动**；② 上面两处环境项待用户以管理员处置。
+
 **iter 420（2026-10-22，测试产物回到项目所在卷 + 修两处门禁红灯，✅ 完成）**：跑 Go 门禁时发现测试产物落在 **C 盘**，与本仓「可丢弃产物一律落 F 盘」的规约相悖。
 
 - **现象**：serve 包的测试临时目录落在 `C:\Users\Z\AppData\Local\Temp\`（本机已积 108 个残留目录 / 24.5 MB）。
@@ -62,7 +125,10 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - 系统级二进制（tesseract / ffprobe）**不动**：它们由系统安装，本来就该在 PATH 上。
 - **顺带把一处静默覆盖变成真覆盖**：`tests/test_parse_material_marker.py` 原先也按 PATH 找 marker，于是**一直跳过**（本机 marker 装着却从不上场）。改用同一解析器后，本机该用例**第一次真正跑起来**（29s）——这正是「Pillow 13 + marker 仍工作」的自动化守卫。
 - **守卫（新）**：`backend/tests/test_iter422_console_script.py`（5 例）：解释器旁边的入口在 PATH 没有时仍能找到；POSIX 形态同样；PATH 优先；找不到返回 None；**本机装了 marker 时解析器必须能找到它**。
-- **验证**：marker 集成测试 + 新守卫 + parse_material 媒体用例共 20 例全绿（此前 marker 那条是 skip）；后端全量 1757 passed / 1 skipped / 0 failed，覆盖率 88.70%；HTTP 端到端实测（`scripts/start.ps1` 起服务 → `/api/health` 200 → 首页 200 → 建会话 → 上传 PDF → full 档解析 29.5s → `meta.parser=marker`、落盘正文 `Hello Marker PDF test. Deep-tutor parsing.` 逐字一致）。
+- **验证**：marker 集成测试 + 新守卫 + parse_material 媒体用例共 20 例全绿（此前 marker 那条是 skip）。
+- 后端全量 pytest：1757 passed / 1 skipped / 0 failed，覆盖率 88.70%。
+- HTTP 端到端实测：`scripts/start.ps1` 起服务 → `/api/health` 200 → 首页 200 → 建会话 → 上传 PDF → full 档解析 29.5s。
+- 解析产出核对：`meta.parser=marker`，落盘正文 `Hello Marker PDF test. Deep-tutor parsing.` 与 marker 产出逐字一致。
 
 **iter 421（2026-10-23，服务栈 Pillow 升 13.0.0：把 28 条 OSV 公告清零，✅ 完成）**：iter 417 拆依赖栈时把服务栈的 Pillow 下限钉在 12.3（当时的上限），本轮推到唯一零公告的 13.0.0。
 
@@ -72,7 +138,9 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - Python：13.0.0 要求 >=3.11（CI 用 3.12、README 要求 3.11+，兼容）。
   - 13.0.0 移除/变更的 API 与本仓、OCR 栈**无一命中**：`fromarray` 的改类型用法（surya 的 `fromarray` 不带 mode）、`Image.Image.get_child_images`、`Image._show`、`ImageCmsProfile.product_name`、`ExifTags.IFD.Makernote`。
   - 本仓只用 `Image.open`；pytesseract 0.3.13 用 `fromarray`（不带 mode）/ `Image.new` / `getbands` / `getchannel` / `paste` / `save`——这些在 13.0.0 下逐条实测可用（本机无 tesseract 二进制，复刻其 PIL 调用面验证）。
-- **不需要给 OCR 栈单开 venv**（原待评估项）：marker/surya 钉 `Pillow<11` 是**上游保守约束**，不是运行时硬要求——实测 marker_single 在 Pillow 13.0.0 下转 PDF 成功（7.9s，markdown 产出正确）。单开 venv 要多占约 2GB，还要让 `shutil.which("marker_single")` 指向另一套解释器（iter 422 修的就是这个查找）。故维持同 venv、启动脚本「服务栈 → OCR 栈 → 服务栈」的三段式：实测把 Pillow 拽到 10.4.0 后，第三步拉回 13.0.0。
+- **不需要给 OCR 栈单开 venv**（原待评估项）：marker/surya 钉 `Pillow<11` 是**上游保守约束**，不是运行时硬要求——实测 marker_single 在 Pillow 13.0.0 下转 PDF 成功（7.9s，markdown 产出正确）。
+- 单开 venv 要多占约 2GB，还要让 `shutil.which("marker_single")` 指向另一套解释器（iter 422 修的就是这个查找）。
+- 故维持同 venv、启动脚本「服务栈 → OCR 栈 → 服务栈」的三段式：实测把 Pillow 拽到 10.4.0 后，第三步拉回 13.0.0。
 - **改法**：`backend/requirements.txt` 的 Pillow 改 `>=13.0,<14.0`（上限 = 下一个主版本，沿用文件头的版本策略）；`requirements-ocr.txt` 与 README 同步。
 - **守卫**：`backend/tests/test_requirements_split.py` 的 Pillow 下限断言由写死字符串改为**按数值比较**（`>= (13, 0)`）——日后下限再升不必改守卫，往下降必红。
 - **验证**：后端全量 pytest 1757 passed / 1 skipped / 0 failed，覆盖率 88.70%；新 venv 装服务栈 exit 0（40.3s，自解析仍成立）；三段安装往返 Pillow 10.4.0 → 13.0.0；marker PDF 深度解析实测成功。
