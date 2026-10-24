@@ -107,14 +107,26 @@ if (-not (Test-Path ".env")) {
     $hostDefault = "0.0.0.0"
 }
 $hostBind = if ($env:HOST) { $env:HOST } else { $hostDefault }
-# 开放模式提醒：.env 存在但没配真实凭证时，服务免登录且监听全部网卡——同一局域网内
+# 开放模式提醒：.env 存在但没配真实凭证时，服务可能免登录且监听全部网卡——同一局域网内
 # 任意设备可访问数据（README §2.1 已列为已知限制）。此处只提醒，不改绑定语义。
+#
+# 判据要说准：服务端的开放模式判据是 app.core.security.passwordless_open——
+# 「未配有效 AUTH_TOKEN」**且**「库里没有任何账号设过密码」。本脚本读不到库状态，
+# 所以只按 .env 判，并照此措辞：不把「可能开放」说成「一定开放」。
+# 同理，ADMIN_PASSWORD 与 AUTH_TOKEN 任意一项有效即会关闭开放模式，故这里是「或」。
+#
+# 匹配用 [ \t]* 而不是 \s*：.NET 的 \s 含换行，多行模式下 \s* 会把「空值那一行」的
+# 换行一起吞掉，于是把**下一行**当成了值（注释行也算）——本机的 .env 正是这样被误判成
+# 「已配置密码」，提醒因此从不打印。
 $envText = if (Test-Path ".env") { Get-Content ".env" -Raw -ErrorAction SilentlyContinue } else { "" }
-$adminPwd = if ($envText -match "(?m)^\s*ADMIN_PASSWORD\s*=\s*(.+)$") { $Matches[1].Trim() } else { "" }
-$authTok = if ($envText -match "(?m)^\s*AUTH_TOKEN\s*=\s*(.+)$") { $Matches[1].Trim() } else { "" }
-$hasRealCred = ($adminPwd.Length -gt 0) -and ($adminPwd -ne "change-me-please") -and ($authTok -ne "change-me-please")
-if (-not $hasRealCred -and $hostBind -ne "127.0.0.1") {
-    Write-Warning "未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 服务以免登录「开放模式」运行，且绑定 $hostBind（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。"
+$adminPwd = ""
+if ($envText -match "(?m)^[ \t]*ADMIN_PASSWORD[ \t]*=[ \t]*(.*)$") { $adminPwd = $Matches[1].Trim().Trim('"').Trim("'") }
+$authTok = ""
+if ($envText -match "(?m)^[ \t]*AUTH_TOKEN[ \t]*=[ \t]*(.*)$") { $authTok = $Matches[1].Trim().Trim('"').Trim("'") }
+$hasRealAdmin = ($adminPwd.Length -gt 0) -and ($adminPwd -ne "change-me-please")
+$hasRealToken = ($authTok.Length -gt 0) -and ($authTok -ne "change-me-please")
+if (-not ($hasRealAdmin -or $hasRealToken) -and $hostBind -ne "127.0.0.1") {
+    Write-Warning "未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 若库里也没有账号设过密码，服务将以免登录「开放模式」运行；当前绑定 $hostBind（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。"
 }
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）

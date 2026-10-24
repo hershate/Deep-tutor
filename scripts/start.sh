@@ -91,14 +91,18 @@ else
   HOST_DEFAULT=0.0.0.0
 fi
 HOST_BIND="${HOST:-$HOST_DEFAULT}"
-# 开放模式提醒：.env 存在但没配真实凭证时，服务免登录且监听全部网卡（README §2.1）。
+# 开放模式提醒：.env 存在但没配真实凭证时，服务可能免登录且监听全部网卡（README §2.1）。
 # 只提醒，不改绑定语义。
-admin_pwd=$(sed -n 's/^[[:space:]]*ADMIN_PASSWORD[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1)
-auth_tok=$(sed -n 's/^[[:space:]]*AUTH_TOKEN[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1)
-if [ "$admin_pwd" = "change-me-please" ] || [ "$auth_tok" = "change-me-please" ] || [ -z "$admin_pwd" ]; then
+# 判据要说准：服务端开放模式判据是「未配有效 AUTH_TOKEN」且「库里没有账号设过密码」，
+# 脚本读不到库状态，故只按 .env 判并照此措辞。ADMIN_PASSWORD 与 AUTH_TOKEN 任意一项
+# 有效即关闭开放模式，故这里是「或」。
+admin_pwd=$(sed -n 's/^[[:space:]]*ADMIN_PASSWORD[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1 | tr -d '\r"')
+auth_tok=$(sed -n 's/^[[:space:]]*AUTH_TOKEN[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1 | tr -d '\r"')
+if { [ -z "$admin_pwd" ] || [ "$admin_pwd" = "change-me-please" ]; } && \
+   { [ -z "$auth_tok" ] || [ "$auth_tok" = "change-me-please" ]; }; then
   case "$HOST_BIND" in
     127.0.0.1|localhost) : ;;
-    *) echo "警告：未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 服务以免登录「开放模式」运行，且绑定 $HOST_BIND（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。" >&2 ;;
+    *) echo "警告：未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 若库里也没有账号设过密码，服务将以免登录「开放模式」运行；当前绑定 $HOST_BIND（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。" >&2 ;;
   esac
 fi
 

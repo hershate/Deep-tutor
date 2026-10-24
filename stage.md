@@ -78,6 +78,12 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
     - 守卫（新）：`backend/tests/test_iter423_plugin_unmount_releases_fastapi_cache.py`（4 例）——缓存确实存在、卸载后 endpoint 不再被钉住、helper 三个缓存都清空、上游改名也不炸。
 - **Windows PowerShell 5.1 的一个坑（启动脚本探针）**：解释器跑不起来的表现恰恰是「非零退出码 + stderr 输出」，而 **5.1 会把原生命令的 stderr 变成错误记录**，在 `$ErrorActionPreference=Stop` 下那是**终止性错误**——探针自己先把脚本打断，走不到「重建 venv」那一步（死 venv 实测：脚本直接抛异常退出，而不是自愈）。
   - 改法：两处探针（解释器候选、venv 解释器）一律包进 `try/catch`，异常一律当作「不可用」。改完**真跑一次死 venv 演练**（把 `pyvenv.cfg` 的 `home` 改回旧机的 `F:\Python-Launcher`）→ 脚本输出「现有 backend\.venv 不可用（基础解释器已失效），重建」→ 重建 → 装依赖 → 迁移 → 服务起得来（`/api/health` 200）。
+- **开放模式提醒的两个错（我上一批自己引入的）**：这条提醒此前**在本机从不打印**，而本机恰恰是最该打印的场景（`.env` 无有效凭证、绑 0.0.0.0）。三个错叠在一起：
+  - **正则吞换行**：.NET 的 `\s` 含换行，多行模式下 `\s*` 会把「空值那一行」的换行一起吃掉，于是把**下一行**当成了值——本机 `.env` 的 `ADMIN_PASSWORD=` 后面紧跟一行注释，被读成「已配置密码」。改成 `[ \t]*`（只吃行内空白）后才对。
+  - **判据的「与」写成「或」**：服务端的开放模式判据是「未配有效 AUTH_TOKEN」**且**「库里没有账号设过密码」；而 ADMIN_PASSWORD 与 AUTH_TOKEN **任意一项有效**就会关闭开放模式。上一版要求两项都有效才算「已配置」，只配一项时反而误报。
+  - **把「可能开放」说成「一定开放」**：脚本读不到库状态，不能断言服务一定免登录。措辞改为「若库里也没有账号设过密码，服务将以免登录「开放模式」运行」。
+  - POSIX 版另加 `tr -d '\r'`——用户在 Windows 上编辑 `.env` 存成 CRLF 时，占位值比对会因行尾 `\r` 而失效。
+  - 验证：两版各跑 7 组样本（仅配一项 / 皆空 / 皆占位 / 全注释 / CRLF / 带引号 / 本机真实 `.env`）结果完全一致；再**真跑一次启动脚本**，确认 WARNING 这次真的打了出来，随后 health 200、SPA 200、133 paths、插件 8/8 在位。
 - **换机带进来的环境项（不是代码回归，但会让人以为代码坏了）**：
   - **git 所有权：用户级 `safe.directory` 不够**——金丝雀（`tools/canary`）把 HOME 隔离到一次性目录后，git 读不到用户级配置。
     - 后果：`git status` 报 dubious ownership → Go 的 VCS stamping 直接失败（`error obtaining VCS status: exit status 128`）→ 5 个 effect 用例与 1 个 agent 用例红。
