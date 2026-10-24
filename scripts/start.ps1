@@ -7,22 +7,63 @@ $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
 $py = $null
-foreach ($cand in @("python", "py")) {
-    if (Get-Command $cand -ErrorAction SilentlyContinue) { $py = $cand; break }
+$pySeen = @()
+# 换机后 PATH 上的 python 可能是「应用执行别名」（WindowsApps 里的占位入口）或版本过低的
+# 解释器——Get-Command 找得到它，跑起来却不是能用的 Python。故逐个候选**实跑**一遍：
+# 第一个既能执行、又满足 3.11+ 的胜出（err.md E2 的前置校验随之完成）。
+#
+# 探针必须**包在 try/catch 里**：解释器跑不起来的表现恰恰是「非零退出码 + stderr 输出」，
+# 而 Windows PowerShell 5.1 会把原生命令的 stderr 变成错误记录——在
+# $ErrorActionPreference=Stop 下那是**终止性错误**：探针自己先把脚本打断，走不到
+# 「换一个候选 / 重建 venv」那一步（iter 423 实测：死 venv 场景直接抛异常退出）。
+# 异常一律当作「这个候选不可用」。
+foreach ($cand in @("python", "py", "python3")) {
+    if (-not (Get-Command $cand -ErrorAction SilentlyContinue)) { continue }
+    $ver = ""
+    $ok = $false
+    try {
+        $ver = (& $cand -V 2>&1) -join " "
+        & $cand -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        $ok = ($LASTEXITCODE -eq 0)
+    } catch {
+        $ver = $_.Exception.Message
+        $ok = $false
+    }
+    $pySeen += "$cand ($ver)"
+    if ($ok) { $py = $cand; break }
 }
-if (-not $py) { throw "未找到 Python 3.11+，请先安装（https://www.python.org/downloads/）" }
-# err.md E2：前置版本校验（低版本建 venv 后到运行期才报错，排障困难）
-& $py -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
-if ($LASTEXITCODE -ne 0) { throw "需要 Python 3.11+（当前：$(& $py -V 2>&1)）" }
+if (-not $py) {
+    $seenTxt = if ($pySeen.Count) { $pySeen -join "、" } else { "PATH 上没有 python / py" }
+    throw "未找到可用的 Python 3.11+。已试：$seenTxt。请安装 Python 3.11+（https://www.python.org/downloads/）后重跑。"
+}
 
 # 1. 虚拟环境 + 依赖（幂等：已安装则 pip 秒过）
 $venvPy = "backend\.venv\Scripts\python.exe"
 # err.md E1：检测 venv python 可执行而非目录存在——venv 创建被中断时目录在但
 # 无 python，此前后续运行跳过重建直接 pip 失败；残留半成品先清再建
-if (-not (Test-Path $venvPy)) {
-    if (Test-Path "backend\.venv") { Remove-Item -Recurse -Force "backend\.venv" }
+# 「可用的 venv」＝解释器文件在 **且** 真的跑得起来。
+# 换机/重装 Python 后，venv 里的解释器仍指向旧机器的基础解释器（换机前本机是
+# F:\Python-Launcher\python.exe，该路径已随旧机消失）——文件在，pip 却报
+# "No Python at ..."，服务永远起不来；只看文件存在就会跳过重建，把坑留在第一步。
+$venvUsable = $false
+if (Test-Path $venvPy) {
+    try {
+        & $venvPy -c "import sys" 2>$null
+        $venvUsable = ($LASTEXITCODE -eq 0)
+    } catch {
+        # 死 venv 的 stderr（"No Python at ..."）在 Windows PowerShell 5.1 下是终止性错误
+        # ——不接住的话，脚本会在这里中断，而不是去重建 venv。
+        $venvUsable = $false
+    }
+}
+if (-not $venvUsable) {
+    if (Test-Path "backend\.venv") {
+        Write-Host "==> 现有 backend\.venv 不可用（基础解释器已失效），重建"
+        Remove-Item -Recurse -Force "backend\.venv"
+    }
     Write-Host "==> 创建虚拟环境 backend\.venv"
     & $py -m venv backend\.venv
+    if ($LASTEXITCODE -ne 0) { throw "创建虚拟环境失败（$LASTEXITCODE）" }
 }
 Write-Host "==> 安装/校验后端依赖"
 & $venvPy -m pip install -q -r backend\requirements.txt
@@ -33,7 +74,12 @@ if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
 # 已装包的旧约束降级 Pillow）。装不上不阻断启动——缺 marker 时 PDF 走 pypdf 快速档，
 # full 档按 R9 报 dependency_missing 并提示安装。
 $markerBin = "backend\.venv\Scripts\marker_single.exe"
-if (-not (Test-Path $markerBin)) {
+# OCR/PDF 深度解析栈是可选的重型栈（marker + torch，约 2GB），装它会拖慢首次启动。
+# 显式开关：SKIP_OCR_STACK=1 只装服务栈（PDF 走 pypdf 快速档，full 档按 R9 报
+# dependency_missing）——网络慢或只想先跑起来时用。
+if ($env:SKIP_OCR_STACK -eq "1") {
+    Write-Host "==> 按 SKIP_OCR_STACK=1 跳过 OCR/PDF 深度解析栈"
+} elseif (-not (Test-Path $markerBin)) {
     Write-Host "==> 安装 OCR/PDF 深度解析栈（marker；体积较大，仅首次）"
     & $venvPy -m pip install -q -r backend\requirements-ocr.txt
     if ($LASTEXITCODE -ne 0) {
@@ -61,6 +107,15 @@ if (-not (Test-Path ".env")) {
     $hostDefault = "0.0.0.0"
 }
 $hostBind = if ($env:HOST) { $env:HOST } else { $hostDefault }
+# 开放模式提醒：.env 存在但没配真实凭证时，服务免登录且监听全部网卡——同一局域网内
+# 任意设备可访问数据（README §2.1 已列为已知限制）。此处只提醒，不改绑定语义。
+$envText = if (Test-Path ".env") { Get-Content ".env" -Raw -ErrorAction SilentlyContinue } else { "" }
+$adminPwd = if ($envText -match "(?m)^\s*ADMIN_PASSWORD\s*=\s*(.+)$") { $Matches[1].Trim() } else { "" }
+$authTok = if ($envText -match "(?m)^\s*AUTH_TOKEN\s*=\s*(.+)$") { $Matches[1].Trim() } else { "" }
+$hasRealCred = ($adminPwd.Length -gt 0) -and ($adminPwd -ne "change-me-please") -and ($authTok -ne "change-me-please")
+if (-not $hasRealCred -and $hostBind -ne "127.0.0.1") {
+    Write-Warning "未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 服务以免登录「开放模式」运行，且绑定 $hostBind（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。"
+}
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）
 if (-not (Test-Path "frontend\dist\index.html")) {

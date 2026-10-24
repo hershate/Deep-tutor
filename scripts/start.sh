@@ -29,18 +29,29 @@ if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   echo "错误：端口须在 1-65535 之间（当前：$PORT）"; exit 1
 fi
 
-PY=python3
-command -v python3 >/dev/null 2>&1 || PY=python
-command -v "$PY" >/dev/null 2>&1 || { echo "错误：未找到 Python 3.11+，请先安装"; exit 1; }
-# err.md E2：前置版本校验（低版本建 venv 后到运行期才报错，排障困难）
-"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
-  || { echo "错误：需要 Python 3.11+（当前：$("$PY" -V 2>&1)）"; exit 1; }
+# 逐个候选**实跑**一遍：第一个既能执行、又满足 3.11+ 的胜出（err.md E2 的前置校验
+# 随之完成）。PATH 上有 python3 不等于它能用——换机后常见的是指向已卸载解释器的
+# 残留入口或版本过低的解释器。
+PY=""
+for cand in python3 python; do
+  command -v "$cand" >/dev/null 2>&1 || continue
+  if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+    PY=$cand; break
+  fi
+done
+[ -n "$PY" ] || { echo "错误：未找到可用的 Python 3.11+（python3 / python 均不可用或版本过低）"; exit 1; }
 
 # 1. 虚拟环境 + 依赖（幂等：已安装则 pip 秒过）
 VENV_PY=backend/.venv/bin/python
 # err.md E1：检测 venv python 可执行而非目录存在——venv 创建被中断时目录在但
 # 无 python，此前后续运行跳过重建直接 pip 失败；残留半成品先清再建
-if [ ! -x "$VENV_PY" ]; then
+# 「可用的 venv」＝解释器在 **且** 真跑得起来。换机/重装 Python 后，venv 仍指向旧的
+# 基础解释器：文件在，pip 却报 "No Python at ..."，服务永远起不来。
+VENV_USABLE=0
+if [ -x "$VENV_PY" ] && "$VENV_PY" -c 'import sys' >/dev/null 2>&1; then
+  VENV_USABLE=1
+fi
+if [ "$VENV_USABLE" -eq 0 ]; then
   [ -d backend/.venv ] && rm -rf backend/.venv
   echo "==> 创建虚拟环境 backend/.venv"
   "$PY" -m venv backend/.venv
@@ -52,7 +63,11 @@ echo "==> 安装/校验后端依赖"
 # 只在尚未安装时装一次：每次启动都重装它，会把 Pillow 一路拽回 <11（实测 pip 会为
 # 已装包的旧约束降级 Pillow）。装不上不阻断启动——缺 marker 时 PDF 走 pypdf 快速档，
 # full 档按 R9 报 dependency_missing 并提示安装。
-if [ ! -x "backend/.venv/bin/marker_single" ]; then
+# OCR/PDF 深度解析栈是可选的重型栈（marker + torch，约 2GB），装它会拖慢首次启动。
+# 显式开关：SKIP_OCR_STACK=1 只装服务栈（PDF 走 pypdf 快速档）。
+if [ "${SKIP_OCR_STACK:-}" = "1" ]; then
+  echo "==> 按 SKIP_OCR_STACK=1 跳过 OCR/PDF 深度解析栈"
+elif [ ! -x "backend/.venv/bin/marker_single" ]; then
   echo "==> 安装 OCR/PDF 深度解析栈（marker；体积较大，仅首次）"
   "$VENV_PY" -m pip install -q -r backend/requirements-ocr.txt || \
     echo "警告：OCR 栈安装失败——PDF 深度解析不可用，其余功能不受影响"
@@ -76,6 +91,16 @@ else
   HOST_DEFAULT=0.0.0.0
 fi
 HOST_BIND="${HOST:-$HOST_DEFAULT}"
+# 开放模式提醒：.env 存在但没配真实凭证时，服务免登录且监听全部网卡（README §2.1）。
+# 只提醒，不改绑定语义。
+admin_pwd=$(sed -n 's/^[[:space:]]*ADMIN_PASSWORD[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1)
+auth_tok=$(sed -n 's/^[[:space:]]*AUTH_TOKEN[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tail -n 1)
+if [ "$admin_pwd" = "change-me-please" ] || [ "$auth_tok" = "change-me-please" ] || [ -z "$admin_pwd" ]; then
+  case "$HOST_BIND" in
+    127.0.0.1|localhost) : ;;
+    *) echo "警告：未配置真实 ADMIN_PASSWORD / AUTH_TOKEN —— 服务以免登录「开放模式」运行，且绑定 $HOST_BIND（局域网内可访问）。设置访问密码可关闭开放模式（见 README §2.1）。" >&2 ;;
+  esac
+fi
 
 # 3. 前端构建产物（无 dist 且有 npm 则自动构建；两者皆无则报错）
 if [ ! -f frontend/dist/index.html ]; then
