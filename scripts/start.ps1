@@ -37,15 +37,67 @@ if (-not $py) {
     throw "未找到可用的 Python 3.11+。已试：$seenTxt。请安装 Python 3.11+（https://www.python.org/downloads/）后重跑。"
 }
 
-# 1. 虚拟环境 + 依赖（幂等：已安装则 pip 秒过）
-$venvPy = "backend\.venv\Scripts\python.exe"
-# err.md E1：检测 venv python 可执行而非目录存在——venv 创建被中断时目录在但
-# 无 python，此前后续运行跳过重建直接 pip 失败；残留半成品先清再建
+# 1. 虚拟环境 + 依赖（幂等：已装好则秒过）
+# iter 424：本项目的虚拟环境改由 **uv** 创建（落在项目内 backend\.venv），并加一段
+# 「uv 环境检查」——uv 在不在、版本、venv 健不健康、venv 是不是 uv 建的。
+$venvDir = "backend\.venv"
+$venvPy = "$venvDir\Scripts\python.exe"
+$venvCfg = "$venvDir\pyvenv.cfg"
+
+# uv 的落盘位置：uv 默认把缓存放在 %LOCALAPPDATA%\uv\cache（C 盘）——与本仓
+# 「可丢弃产物落项目所在卷」的规约相悖；且缓存与 venv 跨卷时硬链接失效，uv 会退化为
+# 全量拷贝（实测警告：Failed to hardlink files; falling back to full copy）。
+# 故默认指到**项目内**的 .uv-cache：跟着仓库走（与 backend\.venv 同卷，硬链接可用），
+# 换机后不必重下。调用方已显式设置 UV_CACHE_DIR 则尊重之。
+if (-not $env:UV_CACHE_DIR) {
+    $env:UV_CACHE_DIR = Join-Path (Get-Location) ".uv-cache"
+}
+
+# uv 检查：优先用**本机 F 盘**那份（uv 装在 F:\uv\bin），再退到 PATH 上的 uv。
+# 顺序理由：PATH 上可能是别的机器留下的旧版或占位入口；F 盘那份是本机明确安装的。
+# 候选顺序：显式指定 DEEPTUTOR_UV > F 盘本地 > PATH。每个候选都要**实跑**一次
+# --version（找得到不等于跑得起来）。
+$uvCmd = $null
+$uvVer = ""
+$uvSource = ""
+if ($env:SKIP_UV -ne "1") {
+    $uvCandidates = @()
+    if ($env:DEEPTUTOR_UV) { $uvCandidates += $env:DEEPTUTOR_UV }
+    $uvCandidates += @("F:\uv\bin\uv.exe", "F:\uv\uv.exe")
+    foreach ($c in $uvCandidates) {
+        if (-not (Test-Path $c)) { continue }
+        try {
+            $v = (& $c --version 2>&1) -join " "
+            if ($LASTEXITCODE -eq 0) { $uvCmd = $c; $uvVer = $v; $uvSource = $c; break }
+        } catch {
+            $uvCmd = $null
+        }
+    }
+    if (-not $uvCmd) {
+        $uvFound = Get-Command uv -ErrorAction SilentlyContinue
+        if ($uvFound) {
+            try {
+                $v = (& uv --version 2>&1) -join " "
+                if ($LASTEXITCODE -eq 0) { $uvCmd = "uv"; $uvVer = $v; $uvSource = "PATH" }
+            } catch {
+                $uvCmd = $null
+            }
+        }
+    }
+}
+if ($uvCmd) {
+    Write-Host "==> uv：$uvVer（$uvSource；缓存 $env:UV_CACHE_DIR）"
+} elseif ($env:SKIP_UV -eq "1") {
+    Write-Host "==> 按 SKIP_UV=1 跳过 uv：虚拟环境用标准库 venv + pip"
+} else {
+    Write-Host "==> 未检测到可用的 uv：回退到标准库 venv + pip（装 uv 可快很多：https://docs.astral.sh/uv/）"
+}
 # 「可用的 venv」＝解释器文件在 **且** 真的跑得起来。
 # 换机/重装 Python 后，venv 里的解释器仍指向旧机器的基础解释器（换机前本机是
 # F:\Python-Launcher\python.exe，该路径已随旧机消失）——文件在，pip 却报
 # "No Python at ..."，服务永远起不来；只看文件存在就会跳过重建，把坑留在第一步。
 $venvUsable = $false
+$venvMadeByUv = $false
 if (Test-Path $venvPy) {
     try {
         & $venvPy -c "import sys" 2>$null
@@ -55,19 +107,56 @@ if (Test-Path $venvPy) {
         # ——不接住的话，脚本会在这里中断，而不是去重建 venv。
         $venvUsable = $false
     }
+    if ($venvUsable -and (Test-Path $venvCfg)) {
+        try { $venvMadeByUv = ((Get-Content $venvCfg -Raw) -match "(?m)^uv\s*=") } catch { $venvMadeByUv = $false }
+    }
+}
+if ($venvUsable -and $uvCmd -and -not $venvMadeByUv) {
+    # 一次性迁移：项目内的 venv 一律由 uv 建（用户可用 SKIP_UV=1 退出本行为）
+    Write-Host "==> 现有 backend\.venv 不是 uv 建的，重建（SKIP_UV=1 可保留它）"
+    $venvUsable = $false
 }
 if (-not $venvUsable) {
-    if (Test-Path "backend\.venv") {
-        Write-Host "==> 现有 backend\.venv 不可用（基础解释器已失效），重建"
-        Remove-Item -Recurse -Force "backend\.venv"
+    if (Test-Path $venvDir) {
+        Write-Host "==> 现有 backend\.venv 不可用，重建"
+        Remove-Item -Recurse -Force $venvDir
     }
-    Write-Host "==> 创建虚拟环境 backend\.venv"
-    & $py -m venv backend\.venv
-    if ($LASTEXITCODE -ne 0) { throw "创建虚拟环境失败（$LASTEXITCODE）" }
+    if ($uvCmd) {
+        # 用已探测到的解释器（≥3.11）建 venv，落在项目内 backend\.venv。
+        # --seed：把 pip 装进 venv——OCR 栈那段仍走 pip（见下），且没有 pip 的 venv
+        # 跑 `python -m pip` 会直接报 No module named pip。
+        $pyAbs = (& $py -c "import sys; print(sys.executable)" 2>$null) -join ""
+        Write-Host "==> 用 uv 创建虚拟环境 backend\.venv（解释器 $pyAbs）"
+        & $uvCmd venv --seed --python "$pyAbs" $venvDir
+        if ($LASTEXITCODE -ne 0) { throw "uv venv 失败（$LASTEXITCODE）" }
+    } else {
+        Write-Host "==> 创建虚拟环境 backend\.venv"
+        & $py -m venv $venvDir
+        if ($LASTEXITCODE -ne 0) { throw "创建虚拟环境失败（$LASTEXITCODE）" }
+    }
+    # 建完立刻复检：venv 的解释器必须真能跑（uv 建的也要验，不假设）
+    try {
+        & $venvPy -c "import sys" 2>$null
+        $venvUsable = ($LASTEXITCODE -eq 0)
+    } catch {
+        $venvUsable = $false
+    }
+    if (-not $venvUsable) { throw "新建的虚拟环境不可用（$venvPy 跑不起来）" }
 }
 Write-Host "==> 安装/校验后端依赖"
-& $venvPy -m pip install -q -r backend\requirements.txt
-if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+if ($uvCmd) {
+    & $uvCmd pip install --python $venvPy -r backend\requirements.txt
+    if ($LASTEXITCODE -ne 0) {
+        # uv 失败（网络、索引、解析器差异都可能）不直接放弃——回退 pip 再试一次：
+        # 服务栈装不上就永远起不来，两条路都断了才报错。
+        Write-Warning "uv pip install 失败（$LASTEXITCODE），回退到 pip 重试"
+        & $venvPy -m pip install -q -r backend\requirements.txt
+        if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+    }
+} else {
+    & $venvPy -m pip install -q -r backend\requirements.txt
+    if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+}
 # OCR/PDF 深度解析栈（marker）：单独一个 requirements 文件——它与 Pillow 下限互斥，
 # 混装在一个文件里 pip 判为无解（见 backend\requirements-ocr.txt 的说明）。
 # 只在尚未安装时装一次：每次启动都重装它，会把 Pillow 一路拽回 <11（实测 pip 会为
