@@ -22,6 +22,27 @@ log = logging.getLogger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 
+
+def escape_config_interpolation(value: str) -> str:
+    """把裸 `%` 转成 `%%`，使该值能安全地交给 configparser（alembic 的 ini 载体）。
+
+    alembic 的 `Config.set_main_option` 最终落到 `ConfigParser.set`，而
+    `configparser.BasicInterpolation` 把 `%` 当插值标记：值里出现**不属于
+    `%(name)s` 形态**的裸 `%` 就直接抛 `ValueError: invalid interpolation syntax`。
+
+    谁会被咬：数据库 URL 里的百分号编码。SQLAlchemy 2.1 起 `str(engine.url)`
+    对 Windows 路径做百分号编码（`sqlite:///F%3A%5C...`）——把这样一条 URL
+    交给 alembic 就会炸在设置选项这一步，迁移根本跑不起来（iter 423 实测：
+    `test_create_all_schema_matches_alembic_head` 红，CI 装新依赖即红）。
+
+    转义后 configparser 读回时会把 `%%` 还原成 `%`，交给 SQLAlchemy 的仍是
+    原样的 URL（`make_url` 能正确还原百分号编码的路径）。
+
+    反过来说，URL 里的 `%(...)s` 形态并非本仓的用法（数据库 URL 不做
+    ini 插值），故整体转义是安全的。
+    """
+    return value.replace("%", "%%")
+
 # 代际探测：按迁移链从新到旧，首个命中的特征即该库 stamp 目标。
 # 每项 (revision, detector(insp) -> bool)；探测器须与链序严格一致（新在前）。
 def _has_table(table: str):
@@ -129,7 +150,7 @@ def _alembic_config(db_url: str) -> Config:
     cfg = Config(str(_BACKEND_DIR / "alembic.ini"))
     # script_location 相对 cwd 解析，显式钉到包路径，保证任意 cwd 可跑
     cfg.set_main_option("script_location", str(_BACKEND_DIR / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("sqlalchemy.url", escape_config_interpolation(db_url))
     # 本函数总是经应用进程（lifespan / python -m app.db.migrate）触达 env.py：
     # 阻止 env.py fileConfig（默认 disable_existing_loggers=True 会禁用 app/uvicorn
     # 既有 logger 并替换 root handlers——服务仍健康但日志全灭，看似启动即死，iter 90

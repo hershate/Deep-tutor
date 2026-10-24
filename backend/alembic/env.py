@@ -14,11 +14,15 @@ from sqlalchemy import engine_from_config, pool
 from app.core.settings import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db import models  # noqa: E402,F401  触发模型注册
+from app.db.migrate import escape_config_interpolation  # noqa: E402
 
 config = context.config
 # 已被调用方显式设置（如 app.db.migrate 指定目标库）时尊重之；否则回退 settings（CLI 直跑）
+# URL 里的 `%` 须先转义（iter 423）：alembic 的 ini 载体是 configparser，裸 `%`
+# 会被当插值标记直接抛 ValueError——SQLAlchemy 2.1 的 `str(engine.url)` 正是
+# 百分号编码的 Windows 路径。
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)  # err.md C10
+    config.set_main_option("sqlalchemy.url", escape_config_interpolation(settings.sqlalchemy_url))  # err.md C10
 
 # fileConfig 默认 disable_existing_loggers=True：在应用进程内执行迁移时
 # （lifespan -> app.db.migrate.run_migrations -> command.upgrade）会禁用
