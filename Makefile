@@ -12,13 +12,38 @@
 # environment only, so on that one the invocation is
 # `make SHELL="C:/Program Files/Git/bin/sh.exe" build`.
 ifeq ($(OS),Windows_NT)
-# The 8.3 name comes first because a path with a space in it has to be quoted,
-# and a quoted path inside $(shell ...) is what makes this make complain about
-# a pipe it could not close. The long name is the fallback for a system where
-# short names are off.
-GITBASH := $(firstword $(wildcard C:/Progra~1/Git/bin/sh.exe) $(wildcard C:/Program*/Git/bin/sh.exe))
-GITBASH_QUOTED := $(if $(findstring ,$(GITBASH)),"$(GITBASH)",$(GITBASH))
-SHELL := $(firstword $(GITBASH) /bin/sh)
+# Git for Windows ships the POSIX shell the recipes run under. Its install
+# path is not fixed: the drive changes with the machine, "Program Files"
+# holds a space, and 8.3 short names may be off on the volume that holds it
+# (a machine whose projects live on F: often has no short names there at
+# all). So the shell is probed, not assumed.
+#
+# The shape of the probe matters as much as its result:
+# - the pattern carries no space, so $(wildcard) can read it. A literal
+#   path with a space is read as two patterns and finds nothing.
+# - the result is never routed through $(foreach) or $(firstword): those
+#   split on whitespace and would hand the shell half a path ("F:/Program").
+# - the value keeps its space, and every use that reaches a shell quotes it.
+#
+# The last candidate asks git itself where it lives, so a Git installed
+# outside a "Program Files" directory is still found. That path's space is
+# escaped before $(wildcard) sees it, because an unescaped one splits the
+# pattern in two.
+empty :=
+space := $(empty) $(empty)
+# `git --exec-path` reads the same in cmd.exe and in a POSIX shell, so one
+# command covers both. Its layout has changed over the years (mingw64,
+# ucrt64), so the known tails are peeled off in turn.
+GIT_EXEC_PATH := $(strip $(shell git --exec-path))
+GIT_ROOT := $(patsubst %/ucrt64,%,$(patsubst %/mingw64,%,$(patsubst %/libexec/git-core,%,$(GIT_EXEC_PATH))))
+GITBASH := $(or \
+	$(wildcard C:/Progra~1/Git/bin/sh.exe), \
+	$(wildcard F:/Progra~1/Git/bin/sh.exe), \
+	$(wildcard $(subst $(space),\ ,$(GIT_ROOT))/bin/sh.exe))
+# Quoted for $(shell ...): the argument text is split on whitespace before
+# the value is expanded, so the quotes have to be part of the value.
+GITBASH_QUOTED := $(if $(GITBASH),"$(GITBASH)",)
+SHELL := $(if $(GITBASH),$(GITBASH),/bin/sh)
 endif
 
 # `$(shell ...)` is not the shell the recipes run under: mingw32-make runs it
