@@ -104,6 +104,8 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
   - **两处「自己造成的假红」，都不是回归**（记下来省得再查一遍）：
     - **ruff F821**：新守卫 `test_iter423_plugin_unmount_releases_fastapi_cache.py` 里 `del api, ...` 把 `ping` 闭包引用的 `api` 删了 → 闭包 cell 被清空，ruff 报 undefined name。断言看的是 endpoint 有没有被缓存钉住，而 `api` 本身不引用 endpoint → 去掉这个 `del` 即可（pytest 那条路径没执行到，所以测试是绿的、只有 ruff 红）。
     - **并发跑两个 pytest 进程**：全量套件在跑时我又单独起了守卫测试 → 两者争同一个测试库 → 全量里 `test_api_retry` / `test_api_share` 两例假红。**独占复跑即 1770 全绿**（这两例单独跑也全绿）。教训：后端测试**不要并发**跑两个进程。
+  - **scratch 根清账**：一轮全量门禁在 `F:\TEMP\deeptutor` 攒下 **437 项 / 180 MB** 临时目录（Go 的 `deep-tutor-test-*`、`.reasonix-test-home-*`、pytest 的 `pytest-of-Z`、Python 的 `tmp*`）。
+    - 已用仓库规定的 `mavis-trash.cmd` 分批清空（`Remove-Item` / `rm --` 均被拒）；逐项进回收站，180 MB 约需 20 分钟且会超时——分批跑、超时后重跑剩余的即可（幂等）。已记入 `AGENTS.md` 的落盘位置一节。
 - **待用户定夺（本机两处环境项，都要管理员权限才能了）**：
   - 开启 Windows 开发者模式（设置 → 系统 → 开发者选项 → 开发人员模式）→ 解掉 12 个 symlink 用例的「A required privilege is not held by the client」。
   - 给 Kaspersky 实时防护加排除项（F 盘的 Go 构建缓存与临时目录）→ 解掉 4 个包「新写出的测试 exe 被拦（Access is denied）」。

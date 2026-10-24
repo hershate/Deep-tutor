@@ -76,6 +76,10 @@
     - Python 虚拟环境在仓库内 `backend\.venv`（随仓库走，本身就在 F 盘）
     - **npm 全局包是例外**：`%APPDATA%\npm` 在 C 盘且**必须留在那里**——`F:\Program Files\nodejs` 对本用户不可写，全局前缀改到用户目录才装得上 `pnpm`
   - **换机留下的两处死物**：`F:\Deeptutor\reasonix`（内核 home）**没随迁**——新机上由内核首次运行自建（`config.toml` 里有 seed 出来的 deepseek 供应商档案，密钥未配）；`F:\Deeptutor\.venv` 只剩一个**指向 Linux 路径的死符号链接 `lib64`**（旧机的 venv 残骸，Windows 删不掉也不影响任何东西）。
+  - **scratch 根会长驻测试残留（iter 423 实测）**：跑一轮全量门禁后，`F:\TEMP\deeptutor` 会攒下几百个临时目录——iter 423 一轮下来是 **437 项 / 180 MB**。
+    - 来源：Go 侧的 `deep-tutor-test-*`（`internal/base/tempdir` 与 `internal/base/testenv` 用 `os.MkdirTemp` 建，Windows 上测试二进制被 AV 占着时清理不掉）、`.reasonix-test-home-*`（隔离守卫的一次性 home）、pytest 的 `pytest-of-Z` 与 `deep-tutor-test-*`、Python 侧的 `tmp*` 零散文件。
+    - 处置：走仓库规定的 `C:\Users\Z\.minimax\bin\mavis-trash.cmd -- <路径>`（工作区外删除只能用它；`Remove-Item` 与 `rm --` 都会被拒）。
+    - **别用 `-Recurse` 硬删**：`mavis-trash` 逐项进回收站，180 MB 约需 20 分钟且会超时——分批（每批 ≤60 项）跑，超时后重跑剩下的即可（幂等）。
 - **门禁现状（2026-10-22 更新）**：`.github/workflows/ci.yml` 已接上 **Go 内核门禁与桌面端前端门禁**（M1.5b，commit `c60b800`）——保留 Python v1 四步门禁（ruff / pytest 覆盖率≥80% / OpenAPI 契约 / 前端 build），新增 `go-lint`（gofmt / go vet / golangci-lint v2.12.2 / repolint / desktop 子模块）、`go-test`（ubuntu+windows 矩阵，三个模块各测各的：根模块 / `desktop` / `sdk/go`，后两个是嵌套 module）、`desktop-frontend`（pnpm build / test / **census** / census:verify + Electron `node --test`）。Go 门禁命令仍在 `Makefile`（`make lint` / `make check` / `make test` / `make coverage-gate` / `make pricecheck`）。
   - **Windows 上跑的根模块 `go test` 必须带 `-count=1`**：开着结果缓存时 go test 会在运行前后各做一次 `filepath.EvalSymlinks`，`internal/assembly/boot` 记了约 190 万条路径，在 Windows runner 上光这一步就要几分钟且不打印任何东西。`internal/base/testenv` 的 `TestWindowsCILegsBypassTheTestResultCache` 守的就是这一条形状。
   - **Go 测试必须分批 + 超时上限**：单包 `-timeout 30m`（`internal/assembly/boot` 本机 975–1340 秒，超过 Go 默认 600 秒上限，一次性 `go test ./...` 必然 timeout panic）、`-p 4`（满并发时一批与负载/时序敏感的用例会假失败，逐包串行复跑全绿）。
