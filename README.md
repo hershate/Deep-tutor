@@ -67,6 +67,7 @@
 ### 2.3 功能完整度
 
 - **高级输入需额外依赖**：图片 OCR（tesseract）、音视频转写（faster-whisper）、PDF 导出（weasyprint）默认未安装，缺失时对应入口返回 `dependency_missing`，其余功能不受影响。
+- **PDF 深度解析栈默认不装**：marker 那套（约 2GB）在慢网络下会卡住启动，故默认只装服务栈，PDF 走 pypdf 快速档；要装见 §4.1 的 `INSTALL_OCR_STACK=1`。
 - **记忆非自动召回**：AI 仅在需要时读取已记要点，属设计取舍。
 - **幻灯片为 HTML 网页**，非 PowerPoint 原生文件。
 - **存储为单机 SQLite 文件**，适合个人使用，未针对高并发多用户设计（PostgreSQL 迁移未实现）。
@@ -111,7 +112,7 @@ bash scripts/start.sh
 
 **虚拟环境用 uv 建（都在项目范围内）**：脚本先找 **本机 F 盘**那份 uv（`F:\uv\bin\uv.exe`），再退到 PATH 上的 uv——PATH 上可能是别的机器留下的旧版或占位入口，每个候选都要实跑一次 `--version` 才算数。两者都没有才回退到标准库 `venv` + pip（并打印提示）。
 
-环境建在项目内的 `backend\.venv`，uv 的包缓存放在项目内的 `.uv-cache`（跟着仓库走，与 venv 同卷 → 硬链接可用，不占系统盘、不写用户目录）。`uv venv --seed` 会把 pip 一并装进环境——OCR 栈那段仍走 pip。
+环境建在项目内的 `backend\.venv`，uv 的包缓存放在项目内的 `.uv-cache`（跟着仓库走，与 venv 同卷 → 硬链接可用，不占系统盘、不写用户目录）。`uv venv --seed` 会把 pip 一并装进环境——uv 不可用时 OCR 栈那段要靠 pip 兜底。
 
 **想强制不用 uv**：设 `SKIP_UV=1`（既不找 uv，也不重建已有的 venv）。**想指定用哪份 uv**：设 `DEEPTUTOR_UV=<uv 可执行文件路径>`。**想指定包索引**：设 `UV_DEFAULT_INDEX`（见下）。
 
@@ -123,21 +124,25 @@ venv 里的解释器指向的是**当初装它的那台机器**的基础解释�
 
 同理，脚本会**逐个实跑** PATH 上的 `python` / `py`，取第一个能执行且版本 ≥ 3.11 的（Windows 的「应用执行别名」占位入口会被跳过）。
 
-依赖分两栈装：`backend/requirements.txt` 是服务栈（**自身可解析**）；`backend/requirements-ocr.txt` 是 OCR/PDF 深度解析栈（marker，体积大，**只在首次**装）。
+依赖分两栈装：`backend/requirements.txt` 是服务栈（**自身可解析**，默认装）；`backend/requirements-ocr.txt` 是 OCR/PDF 深度解析栈（marker，约 2GB，**默认不装**——要装得显式说，见下）。
 
-服务栈用 uv 装（`uv pip install`，实测走镜像全程 10.4s：解析 2.3s + 准备 5.7s + 安装 0.9s）；uv 失败（网络、索引、解析器差异）会自动回退 pip 再试一次——服务栈装不上就永远起不来。OCR 栈仍走 pip：它是重量级可选栈，pip 在「两栈互斥约束」下的行为已在实践中验证过。
+服务栈用 uv 装（`uv pip install`，实测走镜像全程 10.4s：解析 2.3s + 准备 5.7s + 安装 0.9s）；uv 失败（网络、索引、解析器差异）会自动回退 pip 再试一次——服务栈装不上就永远起不来。OCR 栈若显式要求装，同样 uv 优先、pip 兜底。
 
 两者必须分开——marker 钉 `Pillow<11`，服务进程须 `Pillow>=13.0`（直接解码用户上传图片；12.3.0 仍带 28 条 OSV 公告，13.0.0 是零公告版），写进同一个文件 pip 会判为无解（ResolutionImpossible），**装不上服务就起不来**。
 
-OCR 栈装不上不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。**嫌它慢（或网络不通）可直接跳过**：设 `SKIP_OCR_STACK=1` 只装服务栈——
+OCR 栈**默认不装**：它是可选的重量级栈——`requirements-ocr.txt` 只有一行 `marker-pdf==1.10.2`，但它会拖进 torch / surya-ocr / transformers，首次约 2GB；慢网络下这一步足以把「启动」卡住几小时。默认启动**只装服务栈**：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。
+
+**需要 PDF 深度解析时显式要求安装**：
 
 ```bash
 # Windows（PowerShell）
-$env:SKIP_OCR_STACK='1'; powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+$env:INSTALL_OCR_STACK='1'; powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 
 # Linux / macOS
-SKIP_OCR_STACK=1 bash scripts/start.sh
+INSTALL_OCR_STACK=1 bash scripts/start.sh
 ```
+
+`SKIP_OCR_STACK=1` 保留为兼容项（与默认同义；两个变量同时给时以 `SKIP` 为准）。**已经装好的 marker 不会被卸载**——默认路径只跳过安装动作，并提示「环境里已有 marker，未动它」。
 
 服务地址 `http://localhost:41173`，局域网内其他设备使用 `http://<本机IP>:41173`。首次访问进入设置向导（访问密码与 AI API Key 均可跳过，后续补充）；未配置 API Key 时应用可正常浏览数据，生成类功能不可用。
 
@@ -250,6 +255,7 @@ tar czf dt-backup-$(date +%Y%m%d).tgz data/        # Linux/macOS
 |---|---|---|
 | 图片 OCR | 系统安装 `tesseract` + 中文语言包；`pip install pytesseract Pillow` | 入口报 `dependency_missing` |
 | 音视频转写 | `pip install faster-whisper`（首次使用自动下载模型） | 入口报 `dependency_missing` |
+| PDF 深度解析（full 档） | `pip install -r backend/requirements-ocr.txt`（marker，约 2GB；默认不装，见 §4.1） | PDF 走 pypdf 快速档；full 档报 `dependency_missing` |
 | PDF 导出 | `pip install weasyprint`（Windows 另需 GTK 运行时，Linux 需 pango） | 降级为 Markdown 并附提示 |
 | HTTPS | 反向代理（Caddy / Nginx Proxy Manager 等） | 不适用本机 / 局域网部署 |
 

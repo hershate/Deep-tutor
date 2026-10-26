@@ -38,6 +38,25 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 425（2026-10-26，OCR/PDF 深度解析栈（marker）改为可选项，✅ 完成）**：用户反馈「实际运行中卡在 marker 环境配置，要求把 marker（OCR/PDF 深度解析栈）改成可选项」。
+
+- **问题**：`scripts/start.ps1` / `scripts/start.sh` 此前**默认就装** OCR 栈（`backend/requirements-ocr.txt` → `marker-pdf==1.10.2` → torch / surya-ocr / transformers，约 2GB）。本机从官方 PyPI 只有 ~65 KB/s（iter 424 实测），这一段足以把「启动」卡住几小时——用户就卡在这里。
+- **改法（opt-in，不是 opt-out）**：默认**只装服务栈**；要装设 `INSTALL_OCR_STACK=1`。
+  - `SKIP_OCR_STACK=1` **保留**为兼容项（与默认同义）——既有文档/脚本里已有它；两个变量同时给时以 `SKIP` 为准。
+  - 已装好的 marker **不会被卸载**：默认路径只跳过安装动作，并打印「环境里已有 marker，未动它」。
+  - 装 OCR 栈时 **uv 优先、pip 兜底**（与 iter 424 定的服务栈同形）；装完再装一次服务栈，把 Pillow 拉回 `>=13.0`。
+  - 装不上仍只告警不阻断启动：PDF 走 pypdf 快速档，full 档按 R9 报 `dependency_missing`。
+- **验证（四个分支逐个实跑 `scripts/start.ps1`）**：
+  - 默认 → 日志「跳过 OCR/PDF 深度解析栈 —— PDF 走 pypdf 快速档；需要深度解析设 INSTALL_OCR_STACK=1」；`/api/health` 200、SPA 200、插件 `loaded=8 failed=0`。
+  - `INSTALL_OCR_STACK=1` → 日志「按 INSTALL_OCR_STACK=1 安装 OCR/PDF 深度解析栈」并进入 uv 安装。**uv 解析 marker 依赖树在本机极慢**（iter 424 实测 8 分钟未出结果；本次实跑同样未在 25s 内完成，已 stop）→ **这条 uv 路径未实证**，失败时脚本有 pip 兜底。
+  - `INSTALL_OCR_STACK=1` + `SKIP_OCR_STACK=1` → 跳过（`SKIP` 优先），服务正常起。
+  - 环境里已有 marker（临时放一个占位文件模拟）→ 日志「跳过 OCR/PDF 深度解析栈（环境里已有 marker，未动它）」，stderr 只有**一次** uv 调用（服务栈校验），**没有**去重装 marker。占位文件已删净（`backend\.venv\Scripts` 下 `marker*` 剩 0 项）。
+- **文档**：`README.md` §4.1（两栈装法、opt-in 开关、兼容项、已装不卸）、§2.3（功能完整度补一条）、§5.3 可选依赖表（补「PDF 深度解析（full 档）」行）；`AGENTS.md` 仓库状态速览补一条。
+- **门禁（本机实测）**：`ruff check app tests` All checks passed；后端全量 pytest **1770 passed / 2 skipped / 0 failed**，覆盖率 **88.68%**（与 iter 423/424 基线一致）。
+  - `repolint` clean（**未新增任何 finding**——逐规则计数与 HEAD 完全相同）；`backend/tests/test_requirements_split.py` 4 例全绿（安装顺序仍是「服务栈 → OCR 栈 → 服务栈」）。
+  - 两版脚本语法复验通过（PS 解析 0 错、`bash -n` exit 0）、行尾保持（start.ps1 全 CRLF+BOM、start.sh 全 LF）。
+- **CI 不动**：`requirements.txt` 保留，marker 集成测试本就 skip。
+
 **iter 424（2026-10-24，启动脚本改用 uv 建虚拟环境 + 加 uv 环境检查，✅ 完成）**：用户要求「启动脚本在本项目范围内用 uv 创建虚拟环境，并加上 uv 环境检查，优先用本地 F 盘 uv」。
 
 - **改了什么**（`scripts/start.ps1` / `scripts/start.sh` 两版同形）：
