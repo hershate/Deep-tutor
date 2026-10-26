@@ -28,6 +28,16 @@ esac
 if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   echo "错误：端口须在 1-65535 之间（当前：$PORT）"; exit 1
 fi
+# 端口占用预检（放在最前面，别等装完依赖、跑完迁移才撞上）：
+# 端口被占时，uvicorn 要走到「Application startup complete」之后才报 address already
+# in use——前半段全白跑一遍，且看不出是谁占着。这里先探一下：能连上就说明端口上已经有
+# 东西在听。用 bash 的 /dev/tcp（脚本 shebang 就是 bash）——连不上（refused）才是空闲。
+if (exec 3<>/dev/tcp/127.0.0.1/"$PORT") 2>/dev/null; then
+  exec 3<&- 2>/dev/null || true
+  echo "错误：端口 $PORT 已被占用——本机可能已有一个 Deep-tutor 在跑（或别的程序）。" >&2
+  echo "      先停掉占用者再启动，或换个端口：bash scripts/start.sh --port <其他端口>" >&2
+  exit 1
+fi
 
 # 逐个候选**实跑**一遍：第一个既能执行、又满足 3.11+ 的胜出（err.md E2 的前置校验
 # 随之完成）。PATH 上有 python3 不等于它能用——换机后常见的是指向已卸载解释器的

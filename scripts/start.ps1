@@ -37,6 +37,46 @@ if (-not $py) {
     throw "未找到可用的 Python 3.11+。已试：$seenTxt。请安装 Python 3.11+（https://www.python.org/downloads/）后重跑。"
 }
 
+# 0. 端口解析 + 占用预检（放在最前面，别等装完依赖、跑完迁移才撞上）
+# 端口优先级：-Port 参数 > PORT 环境变量 > 默认 41173
+# （默认 41173：8000 常落入 Windows Hyper-V/winNAT 排除端口段，bind 报 WinError 10013）
+# 注意：PowerShell 变量名不区分大小写——局部变量绝不可命名 $port（与参数 $Port
+# 是同一变量，默认值赋值会把传入参数覆盖掉，实机冒烟实证）
+$listenPort = 41173
+if ($Port -gt 0) {
+    $listenPort = $Port
+} elseif ($env:PORT) {
+    $parsed = 0
+    if (-not [int]::TryParse($env:PORT, [ref]$parsed)) { throw "PORT 环境变量须为 1-65535 的整数（当前：$env:PORT）" }
+    $listenPort = $parsed
+}
+if ($listenPort -lt 1 -or $listenPort -gt 65535) { throw "端口须在 1-65535 之间（当前：$listenPort）" }
+# 端口占用预检：端口被占时，uvicorn 要走到「Application startup complete」之后才报
+# WinError 10048（address already in use）——前半段（建 venv / 装依赖 / 迁移）全白跑
+# 一遍，且看不出是谁占着。这里先查一遍，给出可读提示。
+# 判据是「谁在 LISTEN」而不是「能不能 bind」：Windows 的地址复用语义让「绑不上」不可靠
+# ——实测 0.0.0.0 已被占时，另一个 socket 仍能 bind 127.0.0.1（同为 .NET TcpListener）。
+# Get-NetTCPConnection 不可用时（精简系统）退回 connect 探针：连得上就说明有人在听。
+$holders = @()
+try {
+    $holders = @(Get-NetTCPConnection -LocalPort $listenPort -State Listen -ErrorAction SilentlyContinue)
+} catch { }
+if (-not $holders.Count) {
+    $probe = $null
+    try {
+        $probe = New-Object System.Net.Sockets.TcpClient
+        $async = $probe.BeginConnect([System.Net.IPAddress]::Loopback, $listenPort, $null, $null)
+        if ($async.AsyncWaitHandle.WaitOne(500) -and $probe.Connected) { $holders = @("connect") }
+    } catch { } finally {
+        if ($probe) { try { $probe.Close() } catch { } }
+    }
+}
+if ($holders.Count) {
+    $pids = @($holders | ForEach-Object { $_.OwningProcess } | Where-Object { $_ } | Sort-Object -Unique)
+    $holderTxt = if ($pids.Count) { "占用者 pid：$($pids -join '、')" } else { "" }
+    throw "端口 $listenPort 已被占用——本机可能已有一个 Deep-tutor 在跑（或别的程序）。$holderTxt 先停掉占用者再启动，或换端口：-Port <其他端口>"
+}
+
 # 1. 虚拟环境 + 依赖（幂等：已装好则秒过）
 # iter 424：本项目的虚拟环境改由 **uv** 创建（落在项目内 backend\.venv），并加一段
 # 「uv 环境检查」——uv 在不在、版本、venv 健不健康、venv 是不是 uv 建的。
@@ -263,19 +303,7 @@ Write-Host "==> 数据库迁移"
 if ($LASTEXITCODE -ne 0) { throw "数据库迁移失败（$LASTEXITCODE）" }
 
 # 5. 启动（后端同端口托管 SPA 与 /api；0.0.0.0 供局域网访问）
-# 端口优先级：-Port 参数 > PORT 环境变量 > 默认 41173
-# （默认 41173：8000 常落入 Windows Hyper-V/winNAT 排除端口段，bind 报 WinError 10013）
-# 注意：PowerShell 变量名不区分大小写——局部变量绝不可命名 $port（与参数 $Port
-# 是同一变量，默认值赋值会把传入参数覆盖掉，实机冒烟实证）
-$listenPort = 41173
-if ($Port -gt 0) {
-    $listenPort = $Port
-} elseif ($env:PORT) {
-    $parsed = 0
-    if (-not [int]::TryParse($env:PORT, [ref]$parsed)) { throw "PORT 环境变量须为 1-65535 的整数（当前：$env:PORT）" }
-    $listenPort = $parsed
-}
-if ($listenPort -lt 1 -or $listenPort -gt 65535) { throw "端口须在 1-65535 之间（当前：$listenPort）" }
+# 端口优先级与占用预检都在脚本开头（步骤 0）做完了——此处直接用 $listenPort
 Write-Host "==> 启动 Deep-tutor：http://localhost:$listenPort（绑定 $hostBind；局域网访问需绑 0.0.0.0）"
 # 自动打开浏览器（NO_BROWSER=1 关闭）：iter 370 B18 改为轮询健康检查通过后再开——
 # 固定 3s 在冷启动（迁移/插件装载慢）时打开的是尚未就绪的页面，用户看到连接失败
@@ -296,3 +324,7 @@ if ($env:NO_BROWSER -ne "1") {
 # 均为进程内状态——多 worker 下各进程独立（SSE 续接/取消、配额计数、事件推送会失准）。
 # 多进程部署需 sticky session + Redis 共享这些状态（当前未实现，按单进程设计）。
 & $venvPy -m uvicorn app.main:app --host $hostBind --port $listenPort --app-dir backend --timeout-graceful-shutdown 20
+# 服务进程非零退出（如 bind 失败）时，脚本必须以非零码收场——否则调用方（CI、别的脚本、
+# 运维包装）看到「退出码 0」会以为服务正常起过了。Ctrl+C 停服务时 uvicorn 退出码为 0，
+# 不受影响。
+if ($LASTEXITCODE -ne 0) { throw "服务进程退出（$LASTEXITCODE）——见上方日志（端口占用、配置错误等）" }
