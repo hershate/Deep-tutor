@@ -38,6 +38,17 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 427（2026-10-26，本机级全局提示词落点留档 + 追加「安装克制」规则，✅ 完成）**：用户要求把一份通用工作规范设为「自此之后所有 MiniMax Code 任务都遵守，即本电脑范围内全局生效」；随后追加一条「禁止随意安装新软件包，先找系统内替代」。
+
+- **落点**：MiniMax Code 运行时带原生「全局指令」机制，位置是 `<dataDir>/AGENTS.md` → 本机即 `F:\MiniMax\Data\.minimax\AGENTS.md`（11 节 / 3836 字节 < 32 KB 上限，UTF-8 无 BOM）。该文件在运行时数据目录内、**不在任何 git 仓库里**，故本仓只做留档，不管其版本。
+- **机制（2026-10-26 实读 asar 内源码）**：`@mavis/local-runtime-v2` 的 `GlobalInstructions`（`resolve(dataDir, 'AGENTS.md')`）→ Turn 装配的 `loadPromptLayers()` **每轮读一次** → 与项目级 `AGENTS.md` 并列进同一个 `Codebase and user instructions are shown below…` 块，**全局段在前、项目段在后**。推论：**改完下一轮即生效，无需重启**；超过 32 KB 会被**整段丢弃**（不是截断）。
+- **活跃 dataDir 判定**：`F:\MiniMax\Data\.minimax` 为准（`v2/sqlite/runtime-state.sqlite-wal` 与 `v2/observability/logs/runtime-2026102611.log` 持续写入）；`C:\Users\Z\.minimax` 是 10/24–10/25 的陈旧 profile，**未写入**全局指令。
+- **叠加规则**：全局段与本仓 `AGENTS.md` 叠加，冲突时**以更具体的一方为准**（项目级优先）——该裁决已写进全局文件开头，避免两层规则打架时无依据。
+- **追加的「十一、安装克制」**：禁止随意安装新软件包，先找系统内替代（bandizip 替代 7zip）、禁止随意扩大依赖面与装新环境，确需安装先说明理由并征得同意。**本机实况已核**：`C:\Program Files\Bandizip\Bandizip.exe` 在 PATH 上，**本机无 7-Zip**（三个常见安装位置均无）→ 该替代规则本机直接可用。
+- **留档**：新增 `note/13-全局提示词.md`（落点、asar 内源码路径、活跃 dataDir 判定、规则全文快照、与本仓规约的重合与分歧、改与验的方法）+ `note/00-INDEX.md` 补 #13 索引行与阅读建议。
+- **顺带记下本仓一处过期路径**（**本轮未改**）：根 `AGENTS.md` 写的回收站程序 `C:\Users\Z\.minimax\bin\mavis-trash.cmd` 在本机已非活跃 profile；实际受信任入口是 `F:\MiniMax\Data\.minimax\bin\mavis-trash.cmd`（`rm --` 对工作区外目标会被策略拒绝）。待用户定夺是否改文档。
+- **跨会话协调**：本轮开工时另一会话（`mvs_8b2552dc…`，启动脚本/OCR 主题）正持有未提交的 `AGENTS.md`/`README.md`/`stage.md`，故 iter 425 留档当时只提交了自己的两个 note 文件、stage.md 条目暂缓；该会话随后提交（`7da897c2`/`9ee06c34`/`0a2c82ae`），本轮工作树已干净，补上本条。
+
 **iter 426（2026-10-26，启动脚本加端口占用预检，✅ 完成）**：用户贴出 `[Errno 10048] address already in use`——端口 41173 被上一个实例占着，而报错出现在「Application startup complete」**之后**：装依赖、跑迁移全白跑一遍，且看不出是谁占着。
 
 - **根因不在代码，在时序**：上一轮我为了验证「默认路径能起服务」把实例留着没停，用户自己再起时就撞上了。端口已释放（`netstat` 确认无 LISTENING）。
