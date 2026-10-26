@@ -1,5 +1,8 @@
 # OCR / PDF 深度解析栈（可选、重量级；与 backend/requirements.txt 分开装）
 #
+# 默认不装（iter 425）：本栈约 2GB，慢网络下足以把「启动」卡住几小时。启动脚本默认
+# 只装服务栈——要装设 INSTALL_OCR_STACK=1（SKIP_OCR_STACK=1 保留为兼容项，与默认同义）。
+#
 # 为什么单独一个文件
 # ------------------
 # marker-pdf 与 surya-ocr 都钉 Pillow<11（上游至今未放开——marker-pdf 2.0.0、surya-ocr 0.22.1

@@ -157,26 +157,47 @@ if ($uvCmd) {
     & $venvPy -m pip install -q -r backend\requirements.txt
     if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
 }
-# OCR/PDF 深度解析栈（marker）：单独一个 requirements 文件——它与 Pillow 下限互斥，
-# 混装在一个文件里 pip 判为无解（见 backend\requirements-ocr.txt 的说明）。
-# 只在尚未安装时装一次：每次启动都重装它，会把 Pillow 一路拽回 <11（实测 pip 会为
-# 已装包的旧约束降级 Pillow）。装不上不阻断启动——缺 marker 时 PDF 走 pypdf 快速档，
-# full 档按 R9 报 dependency_missing 并提示安装。
-$markerBin = "backend\.venv\Scripts\marker_single.exe"
-# OCR/PDF 深度解析栈是可选的重型栈（marker + torch，约 2GB），装它会拖慢首次启动。
-# 显式开关：SKIP_OCR_STACK=1 只装服务栈（PDF 走 pypdf 快速档，full 档按 R9 报
-# dependency_missing）——网络慢或只想先跑起来时用。
-if ($env:SKIP_OCR_STACK -eq "1") {
-    Write-Host "==> 按 SKIP_OCR_STACK=1 跳过 OCR/PDF 深度解析栈"
-} elseif (-not (Test-Path $markerBin)) {
-    Write-Host "==> 安装 OCR/PDF 深度解析栈（marker；体积较大，仅首次）"
-    & $venvPy -m pip install -q -r backend\requirements-ocr.txt
-    if ($LASTEXITCODE -ne 0) {
+# OCR/PDF 深度解析栈（marker）：**默认不装 —— 现在是 opt-in**。
+# 它是可选的重型栈：requirements-ocr.txt 只有一行 marker-pdf==1.10.2，但它会拖进
+# torch / surya-ocr / transformers，首次约 2GB。**在慢网络下这一步能把「启动」卡住**
+# （本机实测官方 PyPI ~65 KB/s 时这一段要几小时）——所以默认只装服务栈。
+#   · 要装：设 INSTALL_OCR_STACK=1（uv 可用时走 uv：实测比 pip 快一个量级）
+#   · 明确不装：SKIP_OCR_STACK=1（与默认同义，保留是为了兼容既有文档/脚本）
+# 装不上也不阻断启动——缺 marker 时 PDF 走 pypdf 快速档，full 档按 R9 报
+# dependency_missing 并提示安装。
+$markerBin = "$venvDir\Scripts\marker_single.exe"
+$wantOcrStack = ($env:INSTALL_OCR_STACK -eq "1") -and ($env:SKIP_OCR_STACK -ne "1")
+if (-not $wantOcrStack) {
+    $ocrState = if (Test-Path $markerBin) { "（环境里已有 marker，未动它）" } else { "" }
+    Write-Host "==> 跳过 OCR/PDF 深度解析栈$ocrState —— PDF 走 pypdf 快速档；需要深度解析设 INSTALL_OCR_STACK=1"
+} elseif (Test-Path $markerBin) {
+    Write-Host "==> OCR/PDF 深度解析栈已安装（marker），跳过重复安装"
+} else {
+    Write-Host "==> 按 INSTALL_OCR_STACK=1 安装 OCR/PDF 深度解析栈（marker；约 2GB，首次较慢——可随时 Ctrl+C 跳过）"
+    $ocrOk = $false
+    if ($uvCmd) {
+        & $uvCmd pip install --python $venvPy -r backend\requirements-ocr.txt
+        $ocrOk = ($LASTEXITCODE -eq 0)
+        if (-not $ocrOk) {
+            Write-Warning "uv 装 OCR 栈失败（$LASTEXITCODE），回退到 pip 重试"
+            & $venvPy -m pip install -q -r backend\requirements-ocr.txt
+            $ocrOk = ($LASTEXITCODE -eq 0)
+        }
+    } else {
+        & $venvPy -m pip install -q -r backend\requirements-ocr.txt
+        $ocrOk = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $ocrOk) {
         Write-Warning "OCR 栈安装失败（$LASTEXITCODE）——PDF 深度解析不可用，其余功能不受影响"
     } else {
         # OCR 栈把 Pillow 拽回了 <11；服务进程必须留在安全版本（直接要求优先，pip 只警告不中止）
-        & $venvPy -m pip install -q -r backend\requirements.txt
-        if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+        if ($uvCmd) {
+            & $uvCmd pip install --python $venvPy -r backend\requirements.txt
+            if ($LASTEXITCODE -ne 0) { throw "uv pip install 失败（$LASTEXITCODE）" }
+        } else {
+            & $venvPy -m pip install -q -r backend\requirements.txt
+            if ($LASTEXITCODE -ne 0) { throw "pip install 失败（$LASTEXITCODE）" }
+        }
     }
 }
 
