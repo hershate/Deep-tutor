@@ -38,6 +38,20 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 426（2026-10-26，启动脚本加端口占用预检，✅ 完成）**：用户贴出 `[Errno 10048] address already in use`——端口 41173 被上一个实例占着，而报错出现在「Application startup complete」**之后**：装依赖、跑迁移全白跑一遍，且看不出是谁占着。
+
+- **根因不在代码，在时序**：上一轮我为了验证「默认路径能起服务」把实例留着没停，用户自己再起时就撞上了。端口已释放（`netstat` 确认无 LISTENING）。
+- **改法（两版脚本同形）**：把**端口解析 + 占用预检提到脚本最前面**（PowerShell 版原在第 5 步，已上移到步骤 0）：
+  - 判据是「**谁在 LISTEN**」而不是「能不能 bind」——**Windows 的地址复用语义让「绑不上」不可靠**：实测 0.0.0.0 已被一个 .NET `TcpListener` 占着时，另一个 socket 仍能 bind 127.0.0.1（同为 .NET TcpListener），第一次按 bind 探针写的预检**完全没触发**。
+  - Windows 用 `Get-NetTCPConnection -LocalPort <port> -State Listen`（拿得到占用者 pid）；不可用时退回 connect 探针（连得上就说明有人在听）。
+  - POSIX 用 bash 的 `/dev/tcp` connect 探针（实测：端口空闲 → FREE，被占 → BUSY）。
+  - 命中即报错退出：带占用者 pid、给出换端口的写法，**退出码非零**。
+- **顺带修一处静默成功**：服务进程非零退出（如 bind 失败）时，脚本原本仍以 **exit 0** 收场——调用方（CI、别的脚本、运维包装）会以为服务正常起过。改为非零码 `throw`。
+- **验证**：
+  - 端口被占：实跑 `scripts/start.ps1` → **2.3 s** 退出、**exit 1**、打印「端口 41173 已被占用……占用者 pid：22624」（对比改前：整套启动跑完才在最后一行报 10048）。
+  - 端口空闲：正常启动 → `/api/health` 200（db/skills/disk 全 ok）、SPA 200、日志仍打印「跳过 OCR/PDF 深度解析栈」。
+  - 两版脚本语法复验通过（PS 解析 0 错、`bash -n` exit 0）、行尾保持（start.ps1 全 CRLF+BOM、start.sh 全 LF）。
+
 **iter 425（2026-10-26，OCR/PDF 深度解析栈（marker）改为可选项，✅ 完成）**：用户反馈「实际运行中卡在 marker 环境配置，要求把 marker（OCR/PDF 深度解析栈）改成可选项」。
 
 - **问题**：`scripts/start.ps1` / `scripts/start.sh` 此前**默认就装** OCR 栈（`backend/requirements-ocr.txt` → `marker-pdf==1.10.2` → torch / surya-ocr / transformers，约 2GB）。本机从官方 PyPI 只有 ~65 KB/s（iter 424 实测），这一段足以把「启动」卡住几小时——用户就卡在这里。

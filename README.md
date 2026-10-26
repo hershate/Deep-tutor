@@ -152,6 +152,8 @@ INSTALL_OCR_STACK=1 bash scripts/start.sh
 
 端口改写：PowerShell 用 `-Port 9000`，或设置 `PORT` 环境变量。默认端口取 41173 而非 8000，因 8000 常落入 Windows 系统保留端口段导致绑定失败。
 
+**端口被占用时会提前退出**：脚本在开头就查一遍端口（Windows 用 `Get-NetTCPConnection`，POSIX 用 connect 探针），已被占用就直接报「端口 41173 已被占用……占用者 pid：xxxx」并以非零码退出——不会走到装依赖、跑迁移之后才让 uvicorn 报 `address already in use`。换端口即可（`-Port` / `--port`）。
+
 ### 4.2 手动开发启动
 
 后端：
