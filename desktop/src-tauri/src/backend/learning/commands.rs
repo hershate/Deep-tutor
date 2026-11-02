@@ -57,3 +57,52 @@ pub fn regenerate_learning_plan<R: Runtime>(
 ) -> Result<Plan> {
     super::actions::regenerate(&app, &state.learning, &id, scope)
 }
+
+#[tauri::command]
+pub fn get_knowledge_overview(
+    state: State<'_, BackendState>,
+    id: String,
+) -> Result<super::knowledge::KnowledgeOverview> {
+    super::knowledge::progress(&state.learning, &id)
+}
+
+#[tauri::command]
+pub fn get_knowledge_path(
+    state: State<'_, BackendState>,
+    id: String,
+    from: String,
+    to: String,
+) -> Result<Vec<String>> {
+    super::knowledge::shortest_path(&state.learning, &id, &from, &to)
+}
+
+#[tauri::command]
+pub fn add_knowledge_task<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    node_id: String,
+) -> Result<serde_json::Value> {
+    super::knowledge::add_task(&app, &state.learning, &id, &node_id)
+}
+
+#[tauri::command]
+pub fn get_reading_progress(
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+) -> Result<super::knowledge::ReadingProgress> {
+    super::knowledge::reading(&state.learning, &id, &stage_id)
+}
+
+#[tauri::command]
+pub fn set_reading_progress<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+    completed: bool,
+    bookmarked: Option<bool>,
+) -> Result<super::knowledge::ReadingProgress> {
+    super::knowledge::set_reading(&app, &state.learning, &id, &stage_id, completed, bookmarked)
+}

@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub mod commands;
+pub(crate) mod knowledge;
 mod pipeline;
 mod types;
 mod validate;
@@ -154,12 +155,40 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             result_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             PRIMARY KEY (plan_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS learning_node_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            score REAL NOT NULL,
+            max_score REAL NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS learning_reading_progress (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            stage_id TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            bookmarked INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, stage_id)
+        );
+        CREATE TABLE IF NOT EXISTS learning_node_tasks (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            task_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, node_id)
         );",
     )?;
     Ok(())
 }
 
 pub fn clear_all(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM learning_node_evidence", [])?;
+    conn.execute("DELETE FROM learning_reading_progress", [])?;
+    conn.execute("DELETE FROM learning_node_tasks", [])?;
     conn.execute("DELETE FROM learning_plan_schedule_tasks", [])?;
     conn.execute("DELETE FROM learning_plan_adoptions", [])?;
     conn.execute("DELETE FROM learning_plan_versions", [])?;

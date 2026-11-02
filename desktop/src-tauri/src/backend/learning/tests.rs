@@ -22,6 +22,11 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             super::commands::resume_learning_plan,
             super::commands::adopt_learning_plan,
             super::commands::regenerate_learning_plan,
+            super::commands::get_knowledge_overview,
+            super::commands::get_knowledge_path,
+            super::commands::add_knowledge_task,
+            super::commands::get_reading_progress,
+            super::commands::set_reading_progress,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -629,4 +634,83 @@ fn regeneration_preserves_history_and_adoption_is_atomic_and_idempotent() {
         )
         .unwrap();
     assert_eq!(scheduled, 3);
+}
+
+#[test]
+fn knowledge_map_uses_real_paths_tasks_reading_and_evidence() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let path = ipc(
+        &window,
+        "get_knowledge_path",
+        json!({"id": started.id, "from": "prob", "to": "posterior"}),
+    )
+    .unwrap();
+    assert_eq!(path, json!(["prob", "bayes", "posterior"]));
+    assert_eq!(
+        knowledge::shortest_path(&state, &started.id, "prob", "posterior").unwrap(),
+        vec!["prob", "bayes", "posterior"]
+    );
+    assert_eq!(
+        knowledge::shortest_path(&state, &started.id, "posterior", "prob")
+            .unwrap_err()
+            .code,
+        "path_not_found"
+    );
+    let initial = knowledge::progress(&state, &started.id).unwrap();
+    assert_eq!(initial.overall_mastery, None);
+    assert_eq!(initial.evaluated_nodes, 0);
+    assert_eq!(initial.missing_evidence, 9);
+    let first = knowledge::add_task(app.handle(), &state, &started.id, "prob").unwrap();
+    assert_eq!(first["tasks"].as_array().unwrap().len(), 1);
+    assert_eq!(first["tasks"][0]["title"], json!("补学 · 概率"));
+    assert_eq!(
+        knowledge::add_task(app.handle(), &state, &started.id, "prob").unwrap(),
+        first
+    );
+    let from_ipc = ipc(
+        &window,
+        "add_knowledge_task",
+        json!({"id": started.id, "nodeId": "prob"}),
+    )
+    .unwrap();
+    assert_eq!(from_ipc, first);
+    let reading = knowledge::set_reading(
+        app.handle(),
+        &state,
+        &started.id,
+        "stage-1",
+        true,
+        Some(true),
+    )
+    .unwrap();
+    assert!(reading.completed && reading.bookmarked);
+    let store = state.store().unwrap();
+    store.conn.execute("INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at) VALUES (1, 'prob', 'quiz', 8, 10, '{}', 'now')", []).unwrap();
+    store.conn.execute("INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at) VALUES (1, 'prob', 'review', 4, 5, '{}', 'now')", []).unwrap();
+    let overview = knowledge::progress(&state, &started.id).unwrap();
+    assert_eq!(overview.overall_mastery, Some(80));
+    assert_eq!(overview.evaluated_nodes, 1);
+    assert_eq!(overview.missing_evidence, 8);
+    let node = overview
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "prob")
+        .unwrap();
+    assert_eq!(node.mastery, Some(80));
+    assert_eq!(node.evidence_count, 2);
+    assert!(node.reading_completed);
+    assert!(node.evidence.contains("12/15"));
+    let reading =
+        knowledge::set_reading(app.handle(), &state, &started.id, "stage-1", false, None).unwrap();
+    assert!(!reading.completed && reading.bookmarked);
+    let progress = knowledge::reading(&state, &started.id, "stage-1").unwrap();
+    assert!(!progress.completed && progress.bookmarked);
 }

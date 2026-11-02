@@ -5,7 +5,7 @@ use super::*;
 use rusqlite::params;
 use serde_json::{json, Value};
 
-fn text(value: &str, maximum: usize) -> String {
+pub(crate) fn text(value: &str, maximum: usize) -> String {
     if value.len() <= maximum {
         return value.to_string();
     }
