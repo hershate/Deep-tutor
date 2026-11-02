@@ -4,7 +4,7 @@ use super::super::{
 };
 use super::{
     cancel, delete, detail, enqueue, export_original, import_files, list, ImportOutcome,
-    JobAccepted, Material, MaterialDetail,
+    IngestResult, JobAccepted, Material, MaterialDetail,
 };
 use serde_json::Value;
 use std::path::Path;
@@ -23,6 +23,16 @@ pub fn import_material_files<R: Runtime>(
         ));
     }
     Ok(import_files(&app, &state.materials, paths))
+}
+
+#[tauri::command]
+pub fn import_material_text<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    title: String,
+    content: String,
+) -> Result<IngestResult> {
+    super::import_text(&app, &state.materials, title, content)
 }
 
 #[tauri::command]

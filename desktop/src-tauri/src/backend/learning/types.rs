@@ -201,6 +201,7 @@ pub struct Plan {
     pub current_step: u8,
     pub progress: u8,
     pub version: u32,
+    pub adopted_project_id: Option<i64>,
     pub steps: Vec<PlanStep>,
     pub artifacts: Value,
     pub result: Option<PlanResult>,

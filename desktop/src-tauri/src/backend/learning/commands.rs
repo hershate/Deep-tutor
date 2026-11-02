@@ -38,3 +38,22 @@ pub fn resume_learning_plan<R: Runtime>(
 ) -> Result<Plan> {
     super::resume(&app, &state.learning, &id)
 }
+
+#[tauri::command]
+pub fn adopt_learning_plan<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+) -> Result<serde_json::Value> {
+    super::actions::adopt(&app, &state.learning, &id)
+}
+
+#[tauri::command]
+pub fn regenerate_learning_plan<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    scope: u8,
+) -> Result<Plan> {
+    super::actions::regenerate(&app, &state.learning, &id, scope)
+}

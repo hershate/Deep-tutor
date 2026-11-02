@@ -581,7 +581,7 @@ impl Store {
         )?)
     }
 
-    fn next_free_id(conn: &Connection, namespace: &str) -> Result<String> {
+    pub(crate) fn next_free_id(conn: &Connection, namespace: &str) -> Result<String> {
         let id: i64 = conn.query_row(
             "SELECT COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1 FROM kv WHERE namespace = ?1",
             params![namespace],

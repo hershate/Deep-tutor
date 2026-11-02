@@ -48,6 +48,7 @@ fn main() {
             commands::import_backup,
             commands::events_since,
             materials::commands::import_material_files,
+            materials::commands::import_material_text,
             materials::commands::list_materials,
             materials::commands::get_material,
             materials::commands::enqueue_material_parse,
@@ -71,6 +72,8 @@ fn main() {
             learning::commands::get_learning_plan,
             learning::commands::cancel_learning_plan,
             learning::commands::resume_learning_plan,
+            learning::commands::adopt_learning_plan,
+            learning::commands::regenerate_learning_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");

@@ -20,6 +20,8 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             super::commands::get_learning_plan,
             super::commands::cancel_learning_plan,
             super::commands::resume_learning_plan,
+            super::commands::adopt_learning_plan,
+            super::commands::regenerate_learning_plan,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -532,4 +534,76 @@ fn ipc_commands_start_read_and_resume_a_real_plan() {
     assert_eq!(server.request_count(), 3);
     let error = ipc(&window, "get_learning_plan", json!({"id": "plan-999"})).unwrap_err();
     assert_eq!(error["code"], json!("not_found"));
+}
+
+#[test]
+fn regeneration_preserves_history_and_adoption_is_atomic_and_idempotent() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    assert_eq!(server.request_count(), 3);
+    actions::regenerate(app.handle(), &state, &started.id, 3).unwrap();
+    let second = wait_terminal(&state, &started.id);
+    assert_eq!(second.version, 2);
+    assert_eq!(second.steps[2].attempt, 1);
+    assert_eq!(second.steps[3].attempt, 2);
+    assert_eq!(second.steps[6].attempt, 2);
+    assert_eq!(server.request_count(), 5);
+    actions::regenerate(app.handle(), &state, &started.id, 3).unwrap();
+    let third = wait_terminal(&state, &started.id);
+    assert_eq!(third.version, 3);
+    assert_eq!(server.request_count(), 7);
+    assert_eq!(
+        actions::regenerate(app.handle(), &state, &started.id, 3)
+            .unwrap_err()
+            .code,
+        "regeneration_limit"
+    );
+    let snapshot = actions::adopt(app.handle(), &state, &started.id).unwrap();
+    assert_eq!(snapshot["tasks"].as_array().unwrap().len(), 3);
+    assert_eq!(snapshot["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        snapshot["projects"][0]["milestones"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(snapshot["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|task| task["duration"] == json!(45)));
+    let repeated = actions::adopt(app.handle(), &state, &started.id).unwrap();
+    assert_eq!(snapshot, repeated);
+    let adopted = get(&state, &started.id).unwrap();
+    assert!(adopted.adopted_project_id.is_some());
+    assert_eq!(
+        actions::regenerate(app.handle(), &state, &started.id, 3)
+            .unwrap_err()
+            .code,
+        "plan_adopted"
+    );
+    let store = state.store().unwrap();
+    let versions: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_plan_versions WHERE plan_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(versions, 2);
+    let scheduled: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_plan_schedule_tasks WHERE plan_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(scheduled, 3);
 }

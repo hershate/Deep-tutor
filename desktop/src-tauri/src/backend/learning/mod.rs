@@ -1,3 +1,4 @@
+pub(crate) mod actions;
 pub mod commands;
 mod pipeline;
 mod types;
@@ -132,12 +133,36 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
             PRIMARY KEY (plan_id, material_id)
         );
-        CREATE INDEX IF NOT EXISTS learning_plan_steps_requests ON learning_plan_steps(request_id);",
+        CREATE INDEX IF NOT EXISTS learning_plan_steps_requests ON learning_plan_steps(request_id);
+        CREATE TABLE IF NOT EXISTS learning_plan_adoptions (
+            plan_id INTEGER PRIMARY KEY REFERENCES learning_plans(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS learning_plan_schedule_tasks (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            task_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            stage_id TEXT NOT NULL,
+            node_ids_json TEXT NOT NULL,
+            minutes INTEGER NOT NULL,
+            PRIMARY KEY (plan_id, task_id)
+        );
+        CREATE TABLE IF NOT EXISTS learning_plan_versions (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, version)
+        );",
     )?;
     Ok(())
 }
 
 pub fn clear_all(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM learning_plan_schedule_tasks", [])?;
+    conn.execute("DELETE FROM learning_plan_adoptions", [])?;
+    conn.execute("DELETE FROM learning_plan_versions", [])?;
     conn.execute("DELETE FROM learning_plan_steps", [])?;
     conn.execute("DELETE FROM learning_plan_materials", [])?;
     conn.execute("DELETE FROM learning_plans", [])?;
@@ -392,6 +417,14 @@ pub fn get(state: &LearningState, id: &str) -> Result<Plan> {
     ).optional()?.ok_or_else(|| BackendError::new("not_found", "学习方案不存在"))?;
     let input = row.2?;
     let result = row.4.transpose()?;
+    let adopted_project_id = store
+        .conn
+        .query_row(
+            "SELECT project_id FROM learning_plan_adoptions WHERE plan_id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
     let mut statement = store.conn.prepare(
         "SELECT step_index, status, attempt, request_id, output_json, error_code, error_message,
             (SELECT usage_json FROM provider_requests WHERE request_id = learning_plan_steps.request_id),
@@ -449,6 +482,7 @@ pub fn get(state: &LearningState, id: &str) -> Result<Plan> {
         current_step: row.5 as u8,
         progress: (completed * 100 / STEP_NAMES.len()) as u8,
         version: row.6 as u32,
+        adopted_project_id,
         steps,
         artifacts: row.3?,
         result,

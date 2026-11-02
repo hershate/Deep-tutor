@@ -441,12 +441,14 @@ fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
     Ok((title, kind, bytes, sha256))
 }
 
-fn stage_one<R: Runtime>(
+fn stage_validated<R: Runtime>(
     app: &AppHandle<R>,
     state: &MaterialState,
-    source: &Path,
+    title: String,
+    kind: String,
+    bytes: Vec<u8>,
+    sha256: String,
 ) -> Result<IngestResult> {
-    let (title, kind, bytes, sha256) = validate_source(source)?;
     let store = state.store()?;
     if let Some(existing) = store
         .conn
@@ -521,6 +523,45 @@ fn stage_one<R: Runtime>(
         material: get(&store.conn, &state.root, id)?,
         deduplicated: false,
     })
+}
+
+fn stage_one<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MaterialState,
+    source: &Path,
+) -> Result<IngestResult> {
+    let (title, kind, bytes, sha256) = validate_source(source)?;
+    stage_validated(app, state, title, kind, bytes, sha256)
+}
+
+pub fn import_text<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MaterialState,
+    title: String,
+    content: String,
+) -> Result<IngestResult> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 200 {
+        return Err(BackendError::invalid(
+            "invalid_title",
+            "文本资料标题不能为空且不能超过 200 字节",
+        ));
+    }
+    if content.trim().is_empty() || content.len() > 500_000 {
+        return Err(BackendError::invalid(
+            "invalid_text",
+            "文本资料须包含 1 到 500000 字节的内容",
+        ));
+    }
+    if content.contains('\0') {
+        return Err(BackendError::invalid(
+            "invalid_text",
+            "文本资料不得包含 NUL 字符",
+        ));
+    }
+    let bytes = content.into_bytes();
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    stage_validated(app, state, title.to_string(), "txt".into(), bytes, sha256)
 }
 
 pub fn import_files<R: Runtime>(
@@ -1114,6 +1155,39 @@ mod tests {
         let path = directory.join(name);
         fs::write(&path, content).unwrap();
         path
+    }
+
+    #[test]
+    fn text_import_uses_real_content_deduplication_and_parsing() {
+        let (_directory, app, _) = setup();
+        let state = app.state::<MaterialState>();
+        let first =
+            import_text(app.handle(), &state, "课堂笔记".into(), "先验与后验".into()).unwrap();
+        assert!(!first.deduplicated);
+        assert!(first.material.original_available);
+        let second =
+            import_text(app.handle(), &state, "另一标题".into(), "先验与后验".into()).unwrap();
+        assert!(second.deduplicated);
+        assert_eq!(second.material.id, first.material.id);
+        assert_eq!(second.material.title, "课堂笔记");
+        assert_eq!(
+            import_text(app.handle(), &state, "空白".into(), "  ".into())
+                .unwrap_err()
+                .code,
+            "invalid_text"
+        );
+        assert_eq!(
+            import_text(app.handle(), &state, "空字符".into(), "a\0b".into())
+                .unwrap_err()
+                .code,
+            "invalid_text"
+        );
+        enqueue(app.handle(), &state, first.material.id).unwrap();
+        wait_for_idle(&state).unwrap();
+        let detail = detail(&state, first.material.id).unwrap();
+        assert_eq!(detail.material.status, "parsed");
+        assert_eq!(detail.text.as_deref(), Some("先验与后验"));
+        assert_eq!(detail.material.parse_mode, "text-utf8");
     }
 
     #[test]
