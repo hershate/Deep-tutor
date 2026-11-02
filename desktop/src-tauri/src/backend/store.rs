@@ -89,6 +89,7 @@ impl Store {
         super::materials::migrate(&conn)?;
         super::providers::migrate(&conn)?;
         super::learning::migrate(&conn)?;
+        super::agent::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -372,6 +373,7 @@ impl Store {
 
     pub fn reset(&self) -> Result<Mutation> {
         let tx = self.conn.unchecked_transaction()?;
+        super::agent::clear_all(&tx)?;
         super::learning::clear_all(&tx)?;
         super::materials::clear_all(&tx)?;
         super::providers::clear_all(&tx)?;

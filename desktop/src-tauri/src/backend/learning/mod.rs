@@ -88,13 +88,25 @@ impl LearningState {
     pub fn store(&self) -> Result<Store> {
         Store::new(self.database_path.clone())
     }
+
+    pub(crate) fn provider_state(&self) -> ProviderState {
+        self.providers.shared()
+    }
+
+    pub(crate) fn database_path(&self) -> &Path {
+        &self.database_path
+    }
+
+    pub(crate) fn material_state(&self) -> MaterialState {
+        self.materials.shared()
+    }
 }
 
 fn now() -> Result<String> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
 
-fn plan_id(value: &str) -> Result<i64> {
+pub(crate) fn plan_id(value: &str) -> Result<i64> {
     let id = value.strip_prefix("plan-").unwrap_or(value);
     let id = id
         .parse::<i64>()

@@ -83,6 +83,7 @@ pub fn reset_application<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Value> {
+    super::agent::stop(&state.agent)?;
     super::learning::stop(&state.learning)?;
     super::providers::stop_chats(&state.providers)?;
     let provider_ids = super::providers::credential_ids(&state.providers)?;
@@ -146,6 +147,7 @@ mod tests {
                 materials,
                 providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
                 learning: crate::backend::learning::LearningState::for_tests().unwrap(),
+                agent: crate::backend::agent::AgentState::for_tests().unwrap(),
             })
             .invoke_handler(tauri::generate_handler![
                 bootstrap,

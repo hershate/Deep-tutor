@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod commands;
 pub mod error;
 pub mod learning;
@@ -12,4 +13,5 @@ pub struct BackendState {
     pub materials: materials::MaterialState,
     pub providers: providers::ProviderState,
     pub learning: learning::LearningState,
+    pub agent: agent::AgentState,
 }

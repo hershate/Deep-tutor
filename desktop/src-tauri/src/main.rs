@@ -2,7 +2,7 @@
 
 mod backend;
 
-use backend::{commands, learning, materials, providers, store::Store, BackendState};
+use backend::{agent, commands, learning, materials, providers, store::Store, BackendState};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -19,11 +19,13 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let learning_state =
                 learning::LearningState::new(&path, &provider_state, &material_state);
+            let agent_state = agent::AgentState::new(&path, &provider_state, &learning_state);
             app.manage(BackendState {
                 store: Mutex::new(store),
                 materials: material_state,
                 providers: provider_state,
                 learning: learning_state,
+                agent: agent_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -31,6 +33,8 @@ fn main() {
             providers::recover_chats(app.handle(), &state.providers)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             learning::recover(app.handle(), &state.learning)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            agent::recover(app.handle(), &state.agent)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
@@ -84,6 +88,16 @@ fn main() {
             learning::commands::generate_lecture,
             learning::commands::cancel_lecture,
             learning::commands::save_study_note,
+            agent::commands::create_agent_session,
+            agent::commands::list_agent_sessions,
+            agent::commands::get_agent_session,
+            agent::commands::send_agent_message,
+            agent::commands::get_agent_run,
+            agent::commands::cancel_agent_run,
+            agent::commands::resume_agent_run,
+            agent::commands::delete_agent_session,
+            agent::commands::approve_agent_request,
+            agent::commands::cancel_agent_approval,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");

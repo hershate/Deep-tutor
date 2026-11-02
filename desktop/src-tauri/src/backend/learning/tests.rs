@@ -13,6 +13,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             materials: learning.materials.shared(),
             providers: learning.providers.shared(),
             learning: learning.shared(),
+            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::start_learning_plan,
