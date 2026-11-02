@@ -621,6 +621,86 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
         json!({"artifactId": external["artifactId"]}),
     );
     assert_eq!(modified["error"]["code"], "artifact_modified_externally");
+    let late = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "late-artifact",
+        "workspace.write",
+        json!({"path": "late.json", "stageId": "stage-1", "unitIndex": 2, "content": serde_json::to_value(original.units[2].content.as_ref().unwrap()).unwrap()}),
+    );
+    let pending = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "late-promote",
+        "artifact.promote",
+        json!({"artifactId": late["artifactId"]}),
+    );
+    let pending_id = pending["approvalId"].as_i64().unwrap().to_string();
+    let approval = get(&state, &session.id.to_string())
+        .unwrap()
+        .approvals
+        .into_iter()
+        .find(|approval| approval.id.to_string() == pending_id)
+        .unwrap();
+    assert_eq!(approval.payload["sha256"].as_str().unwrap().len(), 64);
+    std::fs::write(root.join("late.json"), "{}").unwrap();
+    assert_eq!(
+        tools::approve(app.handle(), &state, &pending_id)
+            .unwrap_err()
+            .code,
+        "artifact_modified_externally"
+    );
+    tools::cancel_approval(app.handle(), &state, &pending_id).unwrap();
+    let expired = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "expired-artifact",
+        "workspace.write",
+        json!({"path": "expired.json", "stageId": "stage-1", "unitIndex": 0, "content": unit.clone()}),
+    );
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE agent_artifacts SET expires_at = '2000-01-01T00:00:00Z' WHERE id = ?1",
+            params![expired["artifactId"].as_i64().unwrap()],
+        )
+        .unwrap();
+    let expired_approval = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "expired-promote",
+        "artifact.promote",
+        json!({"artifactId": expired["artifactId"]}),
+    );
+    let expired_id = expired_approval["approvalId"].as_i64().unwrap().to_string();
+    assert_eq!(
+        tools::approve(app.handle(), &state, &expired_id)
+            .unwrap_err()
+            .code,
+        "approval_expired"
+    );
+    assert_eq!(
+        tools::approve(app.handle(), &state, &expired_id)
+            .unwrap_err()
+            .code,
+        "approval_resolved"
+    );
+    assert_eq!(
+        learning::lecture::get(&state.learning, &session.plan_id, "stage-1", None)
+            .unwrap()
+            .version,
+        2
+    );
     #[cfg(windows)]
     {
         let outside = root.join("outside.json");
@@ -822,6 +902,25 @@ fn token_budget_stops_a_completed_response_before_another_request() {
             .content,
         "预算输出"
     );
+    assert_eq!(
+        get(&state, &session.id.to_string())
+            .unwrap()
+            .output_tokens_used,
+        1024
+    );
+    assert_eq!(
+        send(
+            app.handle(),
+            &state,
+            &session.id.to_string(),
+            "不能绕过会话预算".into(),
+        )
+        .unwrap_err()
+        .code,
+        "budget_exceeded"
+    );
+    assert_eq!(agent_server.request_count(), 1);
+    assert_eq!(get(&state, &session.id.to_string()).unwrap().runs.len(), 1);
 }
 
 #[test]

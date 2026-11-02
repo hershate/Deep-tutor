@@ -1,46 +1,49 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, BookOpen, Lightbulb, MessageCircleQuestion, RotateCcw, Sparkles, X } from 'lucide-react'
-import type { ChatMessage } from '../data'
-import { IconButton } from './UI'
+import { ArrowUp, BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Sparkles, Square, X } from 'lucide-react'
+import { IconButton, Button } from './UI'
+import { useAgent } from '../backend/useAgent'
+import { useBackendState } from '../backend/useBackendState'
 
-const initialMessages: ChatMessage[] = [
-  { id: 1, role: 'assistant', text: '我在当前章节里。你可以问概念，也可以让我只给一点提示。现在最想弄清楚哪一步？' },
-]
+const modes = ['讲解', '提示', '练习', '反馈']
 
-function demoReply(input: string, mode: string): ChatMessage {
-  const lower = input.toLowerCase()
-  if (input.includes('先验') || input.includes('贝叶斯') || input.includes('准确率')) return { id: Date.now(), role: 'assistant', text: '先把“检测有多准”和“我患病的可能性”分开。准确率高，只说明检测结果与真实状态高度相关；贝叶斯定理还会把疾病原本有多常见（先验概率）纳入更新。你可以把它理解为：新证据很重要，但起点也很重要。', source: '《概率论与数理统计》第 4 章 · 第 18 页' }
-  if (input.includes('提示') || mode === '提示') return { id: Date.now(), role: 'assistant', text: '我只给一个提示：不要急着套公式。先写出“在未检测前，此人患病的概率是多少”，再比较患者与健康人各自产生阳性结果的可能性。' }
-  if (input.includes('练习') || mode === '练习') return { id: Date.now(), role: 'assistant', text: '来做一个快速检查：如果一种疾病的患病率从 1% 上升到 10%，而检测性能不变，阳性结果的可信度会怎么变？请先用直觉回答，我再陪你验证。' }
-  if (lower.includes('递归')) return { id: Date.now(), role: 'assistant', text: '递归先检查三件事：什么时候停止、问题是否严格变小、子结果怎样组合。你可以把当前函数画成一棵调用树，我们再逐层看返回过程。' }
-  return { id: Date.now(), role: 'assistant', text: `我们可以用“概念 → 例子 → 反例 → 自测”来拆解「${input.slice(0, 28)}」。先说你的直觉理解，即使不完整也可以；我会针对你的回答继续追问，而不是直接给结论。` }
-}
-
-export default function TutorPanel({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
+export default function TutorPanel({ compact = false, onClose, planId, contextLabel }: { compact?: boolean; onClose?: () => void; planId?: string; contextLabel?: string }) {
+  const { plans, activeSession, activeRun, loading, error, busy, stream, createSession, send, cancel, resume, resolveApproval } = useAgent({ planId, sessionTitle: '知舟导师' })
+  const { snapshot, ready } = useBackendState()
   const [input, setInput] = useState('')
   const [mode, setMode] = useState('讲解')
-  const [typing, setTyping] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [messages, typing])
-  const send = (value = input) => {
+  const running = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
+  const messages = activeSession?.messages.filter(message => message.role !== 'tool') ?? []
+  const plan = plans.find(item => item.id === activeSession?.planId) ?? plans.find(item => item.id === planId) ?? plans[0]
+  const context = contextLabel ?? plan?.goal ?? '尚未选择学习方案'
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages.length, stream.text])
+  useEffect(() => { if (ready) setMode(snapshot.preferences.hintsOnly ? '提示' : '讲解') }, [ready, snapshot.preferences.hintsOnly])
+
+  const submit = async (value = input) => {
     const clean = value.trim()
-    if (!clean || typing) return
-    setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: clean }])
-    setInput(''); setTyping(true)
-    window.setTimeout(() => { setMessages(prev => [...prev, demoReply(clean, mode)]); setTyping(false) }, 650)
+    if (!clean || running || busy === 'send' || busy === 'create') return
+    const instruction = `【辅导模式：${mode}】请依据当前方案的真实内容辅导我，不要编造来源或学习效果。${mode === '提示' ? '只给引导提示，不直接给完整答案。' : mode === '练习' ? '给出练习并等待我的回答，不要代替我作答。' : mode === '反馈' ? '针对我的答案指出具体依据、问题和下一步。' : '优先帮助我理解概念并检查我的理解。'}我的输入：${clean}`
+    if (await send(instruction)) setInput('')
   }
+  const newSession = async () => { await createSession('知舟导师', planId) }
+
   return <div className={`tutor-panel ${compact ? 'is-compact' : ''}`}>
-    <div className="tutor-head"><div><span className="agent-mark"><Sparkles size={18} /></span><div><strong>知舟导师</strong><span><i />当前上下文已连接</span></div></div>{onClose && <IconButton label="关闭导师" onClick={onClose}><X size={18} /></IconButton>}</div>
-    <div className="tutor-context"><BookOpen size={14} /><span>贝叶斯定理 · 第 3 节</span><button onClick={() => setMessages(initialMessages)}><RotateCcw size={13} />新对话</button></div>
-    <div className="tutor-modes">{['讲解', '提示', '练习', '反馈'].map(item => <button key={item} className={mode === item ? 'active' : ''} onClick={() => setMode(item)}>{item}</button>)}</div>
+    <div className="tutor-head"><div><span className="agent-mark"><Sparkles size={18} /></span><div><strong>知舟导师</strong><span><i />{error ? '后端操作失败' : '本地后端会话'}</span></div></div>{onClose && <IconButton label="关闭导师" onClick={onClose}><X size={18} /></IconButton>}</div>
+    <div className="tutor-context"><BookOpen size={14} /><span>{context}</span><button disabled={running || busy === 'create'} onClick={() => void newSession()}><RotateCcw size={13} />新对话</button></div>
+    <div className="tutor-modes">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} disabled={running} onClick={() => setMode(item)}>{item}</button>)}</div>
+    {error && <div className="form-error" role="alert">{error}</div>}
     <div className="tutor-messages" aria-live="polite">
-      {messages.map(message => <div className={`message message-${message.role}`} key={message.id}><div className="message-bubble">{message.text}</div>{message.source && <button className="message-source" onClick={() => setInput('请解释这段资料中的公式') }><BookOpen size={13} />{message.source}</button>}</div>)}
-      {typing && <div className="message message-assistant"><div className="message-bubble typing"><span /><span /><span /><em>正在组织讲解</em></div></div>}
+      {loading && <div className="message message-assistant"><div className="message-bubble">正在读取真实会话…</div></div>}
+      {!loading && !messages.length && <div className="message message-assistant"><div className="message-bubble">请描述你想理解的内容。发送后，这里会显示模型通过原生后端返回的真实回答；没有模型档案时，会明确返回配置错误。</div></div>}
+      {messages.map(message => <div className={`message message-${message.role}`} key={message.id}><div className="message-bubble" style={{ whiteSpace: 'pre-wrap' }}>{message.role === 'user' ? message.content.replace(/^【辅导模式：[^】]+】.*?我的输入：/s, '') : message.content || '模型本步请求了工具，详细结果可在 Agent 工作台查看。'}</div>{message.reasoning && <details className="thought-details"><summary>模型返回的推理内容</summary><p style={{ whiteSpace: 'pre-wrap' }}>{message.reasoning}</p></details>}{message.partial && <small>这段模型输出未完成，可从最近运行恢复。</small>}</div>)}
+      {running && <div className="message message-assistant"><div className="message-bubble" style={{ whiteSpace: 'pre-wrap' }}>{stream.text || <span><LoaderCircle size={14} className="spin" /> 正在等待真实模型输出</span>}</div></div>}
+      {activeRun?.error && <div className="form-error" role="alert">{activeRun.error.message}<Button size="sm" disabled={busy === 'resume'} onClick={() => void resume(activeRun.id)}>恢复最近运行</Button></div>}
+      {activeSession?.approvals.map(approval => <div className="artifact-approval" key={approval.id}><strong>{approval.kind === 'artifact.promote' ? '讲义提升需要批准' : approval.kind === 'memory.delete' ? '删除记忆需要批准' : '保存记忆需要批准'}</strong><div><Button size="sm" disabled={busy === `approval-${approval.id}`} onClick={() => void resolveApproval(approval.id, true)}>批准</Button><Button size="sm" variant="ghost" disabled={busy === `approval-${approval.id}`} onClick={() => void resolveApproval(approval.id, false)}>取消</Button></div></div>)}
       <div ref={endRef} />
     </div>
-    {messages.length < 3 && <div className="tutor-suggestions"><button onClick={() => send('为什么准确率高，阳性结果仍可能不可靠？')}>为什么准确率高仍不可靠？</button><button onClick={() => send('只给我一个提示')}>只给一点提示</button><button onClick={() => send('出一道练习')}>检查我的理解</button></div>}
-    <form className="tutor-composer" onSubmit={e => { e.preventDefault(); send() }}><textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === '反馈' ? '贴入你的答案，我会给出反馈…' : '提问，或描述你卡住的地方…'} aria-label="向知舟导师提问" rows={2} /><div className="composer-bottom"><span><MessageCircleQuestion size={14} />{mode}模式 · 演示回复</span><button type="submit" aria-label="发送问题" disabled={!input.trim() || typing}><ArrowUp size={18} /></button></div></form>
-    <div className="tutor-foot"><Lightbulb size={13} />导师会优先引导思考，重要结论请核对来源。</div>
+    {!messages.some(message => message.role === 'user') && !running && <div className="tutor-suggestions"><button onClick={() => void submit(`请解释「${context}」的核心概念`)}>解释当前内容</button><button onClick={() => void submit('只给我一个理解当前内容的提示')}>只给一点提示</button><button onClick={() => void submit('依据当前学习内容出一道练习，并等待我回答')}>检查我的理解</button></div>}
+    {running && <div className="agent-running"><LoaderCircle size={15} className="spin" /><span>第 {activeRun.steps} / 25 步</span><button disabled={activeRun.status === 'cancelling' || busy === 'cancel'} onClick={() => void cancel(activeRun.id)}><Square size={13} />取消</button></div>}
+    <form className="tutor-composer" onSubmit={event => { event.preventDefault(); void submit() }}><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} placeholder={mode === '反馈' ? '贴入你的答案，我会给出反馈…' : '提问，或描述你卡住的地方…'} aria-label="向知舟导师提问" rows={2} /><div className="composer-bottom"><span><MessageCircleQuestion size={14} />{mode}模式 · 原生后端实时输出</span><button type="submit" aria-label="发送问题" disabled={!input.trim() || running || busy === 'send' || busy === 'create'}><ArrowUp size={18} /></button></div></form>
+    <div className="tutor-foot"><Lightbulb size={13} />导师会优先引导思考；工具调用与引用可在 Agent 工作台核查。</div>
   </div>
 }

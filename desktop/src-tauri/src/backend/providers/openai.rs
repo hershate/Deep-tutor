@@ -585,6 +585,7 @@ fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn stream_chat<F>(
     profile: &ProviderProfile,
     key: Option<Zeroizing<String>>,

@@ -227,6 +227,64 @@ export type ProviderRequest = {
 }
 export type ProviderExport = { version: 1; activeProvider: string | null; providers: ProviderProfile[]; notice: string }
 
+export type AgentToolCall = { id: string; name: string; arguments: string }
+export type AgentMessage = {
+  id: number
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  reasoning: string
+  toolCalls: AgentToolCall[]
+  toolCallId: string | null
+  name: string | null
+  stepIndex: number
+  partial: boolean
+  createdAt: string
+}
+export type AgentRun = {
+  id: number
+  status: 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+  steps: number
+  inputTokens: number
+  outputTokens: number
+  currentRequestId: string | null
+  error: BackendError | null
+  createdAt: string
+  updatedAt: string
+}
+export type AgentArtifact = {
+  id: number
+  path: string
+  planId: string
+  stageId: string
+  unitIndex: number
+  status: string
+  content: LectureContent
+  createdAt: string
+  expiresAt: string
+}
+export type AgentApproval = {
+  id: number
+  kind: 'memory.save' | 'memory.delete' | 'artifact.promote'
+  payload: Record<string, unknown>
+  status: string
+  createdAt: string
+}
+export type AgentSession = {
+  id: number
+  title: string
+  planId: string
+  providerId: string
+  budgetTokens: number
+  outputTokensUsed: number
+  status: string
+  messages: AgentMessage[]
+  runs: AgentRun[]
+  artifacts: AgentArtifact[]
+  approvals: AgentApproval[]
+  memory: [string, string][]
+  updatedAt: string
+}
+
 export const backend = {
   bootstrap: () => invoke<AppSnapshot>('bootstrap'),
   getAppState: () => invoke<AppSnapshot>('get_app_state'),
@@ -282,6 +340,16 @@ export const backend = {
   generateLecture: (id: string, stageId: string, force: boolean) => invoke<Lecture>('generate_lecture', { id, stageId, force }),
   cancelLecture: (id: string, stageId: string) => invoke<Lecture>('cancel_lecture', { id, stageId }),
   saveStudyNote: (id: string, stageId: string, content: string) => invoke<AppSnapshot>('save_study_note', { id, stageId, content }),
+  createAgentSession: (input: { title?: string; planId?: string; budgetTokens?: number }) => invoke<AgentSession>('create_agent_session', input),
+  listAgentSessions: () => invoke<AgentSession[]>('list_agent_sessions'),
+  getAgentSession: (id: string) => invoke<AgentSession>('get_agent_session', { id }),
+  sendAgentMessage: (sessionId: string, content: string) => invoke<AgentRun>('send_agent_message', { sessionId, content }),
+  getAgentRun: (id: string) => invoke<AgentRun>('get_agent_run', { id }),
+  cancelAgentRun: (id: string) => invoke<AgentRun>('cancel_agent_run', { id }),
+  resumeAgentRun: (id: string) => invoke<AgentRun>('resume_agent_run', { id }),
+  deleteAgentSession: (id: string) => invoke<void>('delete_agent_session', { id }),
+  approveAgentRequest: (id: string) => invoke<void>('approve_agent_request', { id }),
+  cancelAgentApproval: (id: string) => invoke<void>('cancel_agent_approval', { id }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {

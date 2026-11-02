@@ -1,45 +1,119 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, BookOpen, Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock3, Code2, FileCheck2, FileText, Globe2, History, Layers3, LoaderCircle, MemoryStick, MessageSquareText, MoreHorizontal, Network, Plus, Search, ShieldCheck, Sparkles, Square, Trash2, Wrench, X, Zap } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Code2, FileCheck2, FileText, History, LoaderCircle, MessageSquareText, Plus, Search, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from 'lucide-react'
 import { Badge, Button, IconButton, ProgressBar, SectionHeader } from '../components/UI'
+import { useAgent } from '../backend/useAgent'
+import type { AgentApproval, AgentMessage } from '../backend/client'
 
-type AgentMessage = { id: number; role: 'user' | 'assistant'; text: string; thought?: string; tools?: string[]; artifact?: boolean }
-const toolCatalog = ['workspace.read', 'workspace.write', 'workspace.edit', 'workspace.list', 'web.search', 'web.fetch', 'memory.save', 'memory.recall', 'memory.delete', 'history.load', 'history.search', 'artifact.promote']
-const initialMessages: AgentMessage[] = [
-  { id: 1, role: 'assistant', text: '我可以读取当前方案、检索知识库并编辑工作区产物。涉及“提升为正式内容”时，会先等待你的批准。' },
+const toolCatalog = [
+  ['workspace.read', '读取当前方案、讲义或 scratch 产物'],
+  ['workspace.write', '将有效的讲义单元保存为 scratch'],
+  ['workspace.edit', '对 scratch 讲义做唯一文本替换'],
+  ['workspace.list', '列出阅读与 scratch 产物'],
+  ['web.search', '尚未接入，返回 capability_unavailable'],
+  ['web.fetch', '尚未接入，返回 capability_unavailable'],
+  ['memory.save', '批准后保存学习偏好'],
+  ['memory.recall', '按需召回已批准的学习偏好'],
+  ['memory.delete', '批准后删除学习偏好'],
+  ['history.load', '读取当前会话的真实历史'],
+  ['history.search', '搜索真实会话与消息历史'],
+  ['artifact.promote', '批准后提升为讲义新版本'],
 ]
+const runStatus: Record<string, string> = { running: '运行中', cancelling: '正在取消', done: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }
+const toolStatus: Record<string, string> = { done: '完成', failed: '失败', committed: '已保存', approval_required: '等待审批' }
+
+function toolResult(message: AgentMessage | undefined) {
+  if (!message) return null
+  try { return JSON.parse(message.content) as { status?: string; error?: { message?: string } } } catch { return null }
+}
+
+function ApprovalCard({ approval, busy, onResolve }: { approval: AgentApproval; busy: boolean; onResolve: (approved: boolean) => void }) {
+  const artifact = approval.kind === 'artifact.promote'
+  const removing = approval.kind === 'memory.delete'
+  return <div className="artifact-approval">
+    <div><FileCheck2 size={19} /><div><strong>{artifact ? '讲义产物提升' : removing ? '删除学习记忆' : '保存学习记忆'}</strong><span>{artifact ? `产物 #${String(approval.payload.artifactId)} · 批准后创建新讲义版本` : `${String(approval.payload.key ?? '')}${!removing ? ` · ${String(approval.payload.value ?? '')}` : ''}`}</span></div><Badge tone="amber">等待批准</Badge></div>
+    <div><Button size="sm" disabled={busy} onClick={() => onResolve(true)}><Check size={15} />批准</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => onResolve(false)}><X size={15} />取消</Button></div>
+    <small>{artifact ? '提升前校验原文引用与 scratch 哈希；产物保留 24 小时。' : '未经批准不会写入或删除记忆。'}</small>
+  </div>
+}
 
 export default function AgentCenter({ notify }: { notify: (message: string) => void }) {
-  const [sessions, setSessions] = useState([{ id: 1, title: '贝叶斯学习方案', time: '刚刚' }, { id: 2, title: '递归错题分析', time: '昨天' }, { id: 3, title: '英语阅读计划', time: '10 月 30 日' }])
-  const [active, setActive] = useState(1)
-  const [messages, setMessages] = useState<AgentMessage[]>(initialMessages)
+  const { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval } = useAgent()
   const [input, setInput] = useState('')
-  const [running, setRunning] = useState(false)
-  const [runId, setRunId] = useState(0)
-  const runRef = useRef(0)
-  const [toolEvents, setToolEvents] = useState<{ name: string; status: string; detail: string }[]>([{ name: 'workspace.list', status: '完成', detail: '6 个工作区条目 · 84 ms' }, { name: 'memory.recall', status: '完成', detail: '按需召回 2 条偏好 · 126 ms' }])
   const [rightTab, setRightTab] = useState('运行过程')
-  const [artifactState, setArtifactState] = useState('committed')
   const [sessionSearch, setSessionSearch] = useState('')
-  const [cost, setCost] = useState(.184)
+  const [newPlan, setNewPlan] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages])
-  const send = () => {
-    const value = input.trim(); if (!value || running || cost >= 1) return
-    const currentRun = runRef.current + 1; runRef.current = currentRun; setRunId(currentRun); setRunning(true); setInput('')
-    setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: value }]); setToolEvents([])
-    window.setTimeout(() => { if (currentRun !== runRef.current) return; setToolEvents([{ name: 'workspace.read', status: '运行中', detail: '读取当前方案与单元上下文…' }]) }, 250)
-    window.setTimeout(() => { if (currentRun !== runRef.current) return; setToolEvents(prev => [{ ...prev[0], status: '完成', detail: '读取 3 个对象 · 96 ms' }, { name: 'web.search', status: '运行中', detail: '检索并验证候选资源…' }]); setCost(c => Math.min(1, c + .012)) }, 700)
-    window.setTimeout(() => {
-      if (currentRun !== runRef.current) return
-      setToolEvents(prev => [...prev.map(e => ({ ...e, status: '完成' })), { name: 'workspace.edit', status: '完成', detail: 'scratch 中更新 1 份讲义 · 141 ms' }])
-      setMessages(prev => [...prev, { id: Date.now(), role: 'assistant', text: '我已把“低基线率”补充为一个独立检查点，并在讲义中加入 10,000 人例子。当前修改只保存到工作区 scratch，尚未影响正式方案。', thought: '先确认用户要修改的是当前方案而不是新建内容；读取上下文后，最小范围编辑讲义，最后请求产物提升。', tools: ['workspace.read', 'web.search', 'workspace.edit'], artifact: true }])
-      setArtifactState('committed'); setRunning(false); setCost(c => Math.min(1, c + .026))
-    }, 1450)
+  const running = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
+  const resumable = activeRun && ['failed', 'cancelled', 'interrupted'].includes(activeRun.status)
+  const messages = useMemo(() => activeSession?.messages.filter(message => message.role !== 'tool') ?? [], [activeSession])
+  const plan = plans.find(item => item.id === activeSession?.planId)
+  const filteredSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.messages.map(message => message.content).join(' ')}`.toLowerCase().includes(sessionSearch.trim().toLowerCase())), [sessions, sessionSearch])
+  const toolEvents = useMemo(() => {
+    if (!activeSession) return []
+    const messages = activeSession.messages
+    const lastUser = messages.map(message => message.role).lastIndexOf('user')
+    const recent = messages.slice(Math.max(0, lastUser))
+    const results = new Map(recent.filter(message => message.role === 'tool').map(message => [message.toolCallId, message]))
+    return recent.flatMap(message => message.toolCalls.map(call => {
+      const result = toolResult(results.get(call.id))
+      return { id: call.id, name: call.name, status: result?.status ?? 'waiting', detail: result?.error?.message ?? (result?.status === 'approval_required' ? '后端已创建真实审批，等待用户决定' : '工具结果已持久化，可从会话历史恢复') }
+    }))
+  }, [activeSession])
+  const usedTokens = activeSession?.outputTokensUsed ?? 0
+  const budget = activeSession?.budgetTokens ?? 0
+  const budgetPercent = budget ? Math.min(100, usedTokens / budget * 100) : 0
+  const totalTools = activeSession?.messages.reduce((total, message) => total + message.toolCalls.length, 0) ?? 0
+
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages.length, stream.text])
+  const submit = async () => {
+    const value = input.trim()
+    if (!value || running || busy === 'send' || busy === 'create') return
+    const sent = await send(value)
+    if (sent) setInput('')
   }
-  const cancelRun = () => { runRef.current += 1; setRunId(runRef.current); setRunning(false); setToolEvents(prev => prev.map(e => ({ ...e, status: e.status === '运行中' ? '已取消' : e.status }))); notify('已取消当前 run；已产生 token 仍计入成本') }
+  const create = async () => {
+    const created = await createSession(undefined, newPlan || undefined)
+    if (created) notify('Agent 会话已写入本地后端')
+  }
+  const removeSession = async () => {
+    if (!activeSession) return
+    if (await remove(activeSession.id)) notify('会话及其本地历史已删除')
+  }
+  const resolve = async (approval: AgentApproval, approved: boolean) => {
+    if (await resolveApproval(approval.id, approved)) notify(approved ? approval.kind === 'artifact.promote' ? '产物已提升为正式讲义的新版本' : '记忆操作已由原生后端执行' : '审批已取消，未执行对应操作')
+  }
+
+  if (loading) return <div className="page-loading"><LoaderCircle size={24} className="spin" />正在读取 Agent 会话与事件…</div>
   return <div className="agent-workspace-page">
-    <aside className="agent-sessions"><div className="agent-sessions-head"><div><MessageSquareText size={18} /><strong>Agent 会话</strong></div><IconButton label="新建会话" onClick={() => { const id = Date.now(); setSessions([{ id, title: '新学习会话', time: '刚刚' }, ...sessions]); setActive(id); setMessages(initialMessages); setToolEvents([]) }}><Plus size={18} /></IconButton></div><div className="session-search"><Search size={15} /><input value={sessionSearch} onChange={e => setSessionSearch(e.target.value)} placeholder="搜索会话历史…" /></div><div className="session-list">{sessions.filter(s => s.title.includes(sessionSearch)).map(session => <button key={session.id} className={active === session.id ? 'active' : ''} onClick={() => { setActive(session.id); notify('已恢复会话，正在从最后事件续看') }}><MessageSquareText size={16} /><div><strong>{session.title}</strong><span>{session.time} · 本地演示</span></div><ChevronRight size={15} /></button>)}</div><div className="session-bottom"><History size={16} /><span>切走再切回，运行事件可续看；断连会自动取消孤儿 run。</span></div></aside>
-    <main className="agent-chat"><header><div><span className="agent-mark"><Sparkles size={18} /></span><div><h1>{sessions.find(s => s.id === active)?.title}</h1><p>桥接：贝叶斯学习方案 · 版本 v1</p></div></div><div><Badge tone="green"><i className="live-dot" />已连接</Badge><IconButton label="删除当前会话" onClick={() => { if (sessions.length > 1) { const rest = sessions.filter(s => s.id !== active); setSessions(rest); setActive(rest[0].id); notify('会话及本地演示历史已删除') } }}><Trash2 size={17} /></IconButton></div></header><div className="agent-message-scroll">{messages.map(message => <div className={`agent-message agent-${message.role}`} key={message.id}>{message.role === 'assistant' && <span className="agent-avatar"><Bot size={17} /></span>}<div className="agent-message-content"><div className="agent-bubble">{message.text}</div>{message.thought && <details className="thought-details"><summary><Brain size={14} />查看思考摘要<ChevronDown size={14} /></summary><p>{message.thought}</p></details>}{message.tools && <div className="message-tools">{message.tools.map(tool => <span key={tool}><Wrench size={12} />{tool}</span>)}</div>}{message.artifact && <div className="artifact-approval"><div><FileCheck2 size={19} /><div><strong>讲义修改已提交</strong><span>scratch → committed · {artifactState === 'promoted' ? '已提升' : '等待批准后提升'}</span></div><Badge tone={artifactState === 'promoted' ? 'green' : 'amber'}>{artifactState}</Badge></div>{artifactState !== 'promoted' ? <div><Button size="sm" onClick={() => { setArtifactState('promoted'); notify('产物已提升为正式讲义') }}><Check size={15} />批准提升</Button><Button variant="ghost" size="sm" onClick={() => { setArtifactState('cancelled'); notify('已取消提升，committed 产物保留 24 小时') }}><X size={15} />取消</Button></div> : <p><CheckCircle2 size={15} />正式方案已更新，可随时从历史版本恢复。</p>}<small>审批出口：批准 / 取消 / 24 小时自动过期</small></div>}</div></div>)}{running && <div className="agent-running"><LoaderCircle size={17} className="spin" /><span>Agent 正在执行工具循环（最多 25 步）</span><button onClick={cancelRun}><Square size={13} />取消</button></div>}{messages.length === 1 && !running && <div className="agent-starter"><span>从一个真实学习任务开始</span><div><button onClick={() => setInput('阅读当前方案，找出我最需要补齐的知识缺口')}><Search size={16} />分析当前方案的知识缺口</button><button onClick={() => setInput('检索库内资料，为贝叶斯定理补充一个直觉案例')}><BookOpen size={16} />检索资料并补充直觉案例</button><button onClick={() => setInput('把当前单元讲义改得更适合零基础学习者')}><FileText size={16} />编辑讲义并提交产物审批</button></div></div>}<div ref={endRef} /></div><div className="agent-composer-wrap"><form className="agent-composer" onSubmit={e => { e.preventDefault(); send() }}><textarea rows={3} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder="让 Agent 阅读、检索或修改当前学习工作区…" /><div><span><ShieldCheck size={14} />记忆按需召回，不自动注入</span><button type="submit" disabled={!input.trim() || running || cost >= 1}><ArrowUp size={18} /></button></div></form><div className="agent-cost-line"><span>本轮即时成本 ${cost.toFixed(3)}</span><span>会话预算 ${cost.toFixed(2)} / $1.00</span><ProgressBar value={cost * 100} /></div></div></main>
-    <aside className="agent-inspector"><div className="inspector-tabs">{['运行过程', '工具', '预算'].map(item => <button key={item} className={rightTab === item ? 'active' : ''} onClick={() => setRightTab(item)}>{item}</button>)}</div>{rightTab === '运行过程' && <div className="run-inspector"><SectionHeader title="实时工具调用" description={`run #${String(runId).padStart(4, '0')} · 文本与事件流同步`} />{toolEvents.length ? <div className="tool-event-list">{toolEvents.map((event, i) => <div key={`${event.name}-${i}`}><span className={event.status === '运行中' ? 'running' : ''}>{event.status === '运行中' ? <LoaderCircle size={14} className="spin" /> : event.status === '已取消' ? <X size={14} /> : <Check size={14} />}</span><div><strong>{event.name}</strong><p>{event.detail}</p></div><Badge tone={event.status === '运行中' ? 'amber' : 'neutral'}>{event.status}</Badge></div>)}</div> : <div className="inspector-empty"><Wrench size={24} /><p>发送一条指令后，工具调用过程会在这里实时显示。</p></div>}<div className="run-lifecycle"><h3>产物生命周期</h3><div className="lifecycle-track"><span className="done">scratch</span><i /><span className="done">committed</span><i /><span className={artifactState === 'promoted' ? 'done' : ''}>promoted</span></div><p>工作区修改先隔离保存；只有用户批准后才进入正式内容。</p></div></div>}{rightTab === '工具' && <div className="tool-catalog"><SectionHeader title="12 个 Agent 工具" description="工作区、网络、记忆、历史与产物。" />{toolCatalog.map(tool => <button key={tool} onClick={() => setInput(`请使用 ${tool} 帮我完成：`) }><Code2 size={15} /><span>{tool}</span><Plus size={14} /></button>)}<div className="security-note"><ShieldCheck size={16} />网页抓取经过 SSRF 防护；记忆保存与删除会请求明确确认。</div></div>}{rightTab === '预算' && <div className="budget-inspector"><SectionHeader title="三层预算防线" description="异常与取消路径同样入账。" /><div className="budget-item"><div><span>当前会话</span><strong>${cost.toFixed(3)} / $1.00</strong></div><ProgressBar value={cost * 100} /></div><div className="budget-item"><div><span>今日全部会话</span><strong>$2.64 / $10.00</strong></div><ProgressBar value={26.4} tone="blue" /></div><div className="budget-item"><div><span>方案重生成</span><strong>0 / 2 次</strong></div><ProgressBar value={0} tone="amber" /></div><div className="usage-breakdown"><h3>本轮计量</h3><div><span>输入 tokens</span><strong>8,420</strong></div><div><span>输出 tokens</span><strong>1,286</strong></div><div><span>工具调用</span><strong>{toolEvents.length}</strong></div></div><p>达到会话预算后会截断新生成，历史内容仍可查看与导出。</p></div>}</aside>
+    <aside className="agent-sessions">
+      <div className="agent-sessions-head"><div><MessageSquareText size={18} /><strong>Agent 会话</strong></div><IconButton label="新建会话" onClick={() => void create()} disabled={busy === 'create'}><Plus size={18} /></IconButton></div>
+      <div className="session-search"><Search size={15} /><input value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} placeholder="搜索真实会话与消息…" /></div>
+      <div className="session-list">{filteredSessions.map(session => <button key={session.id} className={activeId === session.id ? 'active' : ''} onClick={() => selectSession(session.id)}><MessageSquareText size={16} /><div><strong>{session.title}</strong><span>{new Date(session.updatedAt).toLocaleString('zh-CN')} · {session.messages.filter(message => message.role === 'user').length} 次提问</span></div><ChevronRight size={15} /></button>)}</div>
+      {!sessions.length && <div className="inspector-empty"><MessageSquareText size={24} /><p>尚无真实会话。新建后，消息和运行事件会保存在本地。</p></div>}
+      {!activeSession && <div style={{ padding: 12 }}><select aria-label="新会话学习方案" value={newPlan || plans[0]?.id || ''} onChange={event => setNewPlan(event.target.value)}><option value="" disabled>选择已采用方案</option>{plans.map(item => <option value={item.id} key={item.id}>{item.goal}</option>)}</select><Button size="sm" disabled={!plans.length || busy === 'create'} onClick={() => void create()}><Plus size={14} />创建真实会话</Button></div>}
+      <div className="session-bottom"><History size={16} /><span>消息、工具结果和运行状态由 SQLite 保存；切回会话可续看真实事件。</span></div>
+    </aside>
+
+    <main className="agent-chat">
+      <header><div><span className="agent-mark"><Sparkles size={18} /></span><div><h1>{activeSession?.title ?? 'Agent 学习工作台'}</h1><p>{activeSession ? `${plan?.goal ?? activeSession.planId} · ${activeSession.providerId}` : '需要已采用的学习方案和已配置的模型供应商'}</p></div></div><div><Badge tone={error ? 'amber' : 'green'}><i className="live-dot" />{error ? '后端连接异常' : '本地后端已连接'}</Badge><IconButton label="删除当前会话" disabled={!activeSession || running || busy === 'delete'} onClick={() => void removeSession()}><Trash2 size={17} /></IconButton></div></header>
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <div className="agent-message-scroll">
+        {messages.map(message => <div className={`agent-message agent-${message.role}`} key={message.id}>{message.role === 'assistant' && <span className="agent-avatar"><Bot size={17} /></span>}<div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{message.content || (message.toolCalls.length ? `已请求 ${message.toolCalls.length} 个工具调用。` : '模型未返回文本。')}</div>{message.reasoning && <details className="thought-details"><summary><Brain size={14} />查看模型返回的推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{message.reasoning}</p></details>}{message.toolCalls.length > 0 && <div className="message-tools">{message.toolCalls.map(tool => <span key={tool.id}><Wrench size={12} />{tool.name}</span>)}</div>}{message.partial && <Badge tone="amber">未完成的模型输出</Badge>}</div></div>)}
+        {running && (stream.text || stream.reasoning) && <div className="agent-message agent-assistant"><span className="agent-avatar"><Bot size={17} /></span><div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{stream.text || '模型正在返回推理或工具调用…'}</div>{stream.reasoning && <details className="thought-details"><summary><Brain size={14} />实时推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{stream.reasoning}</p></details>}</div></div>}
+        {activeSession?.approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} busy={busy === `approval-${approval.id}`} onResolve={approved => void resolve(approval, approved)} />)}
+        {activeRun?.error && <div className="form-error" role="alert">{activeRun.error.message}{resumable && <Button size="sm" disabled={busy === 'resume'} onClick={() => void resume(activeRun.id).then(ok => { if (ok) notify('已恢复运行；已完成的模型结果不会重复请求') })}>恢复运行</Button>}</div>}
+        {running && <div className="agent-running"><LoaderCircle size={17} className="spin" /><span>Agent 正在执行真实工具循环（第 {activeRun.steps} / 25 步）</span><button disabled={activeRun.status === 'cancelling' || busy === 'cancel'} onClick={() => void cancel(activeRun.id).then(ok => { if (ok) notify('取消请求已提交，最终状态由后端保存') })}><Square size={13} />取消</button></div>}
+        {!messages.length && !running && <div className="agent-starter"><span>从一个真实学习任务开始</span><div><button onClick={() => setInput('阅读当前方案，找出我最需要补齐的知识缺口')}><Search size={16} />分析当前方案的知识缺口</button><button onClick={() => setInput('使用 workspace.read 读取当前方案，并依据真实内容补充一个直觉案例')}><BookOpen size={16} />读取资料并补充案例</button><button onClick={() => setInput('把当前单元讲义改得更适合零基础学习者')}><FileText size={16} />编辑讲义并提交产物审批</button></div></div>}
+        <div ref={endRef} />
+      </div>
+      <div className="agent-composer-wrap"><form className="agent-composer" onSubmit={event => { event.preventDefault(); void submit() }}><textarea rows={3} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} placeholder="让 Agent 阅读、检索或修改当前学习工作区…" /><div><span><ShieldCheck size={14} />记忆按需召回，不自动注入</span><button type="submit" disabled={!input.trim() || running || busy === 'send' || busy === 'create'}><ArrowUp size={18} /></button></div></form><div className="agent-cost-line"><span>本轮实际输出 {activeRun?.outputTokens ?? 0} tokens</span><span>会话输出预算 {usedTokens} / {budget || 0} tokens</span><ProgressBar value={budgetPercent} /></div></div>
+    </main>
+
+    <aside className="agent-inspector">
+      <div className="inspector-tabs">{['运行过程', '工具', '预算'].map(item => <button key={item} className={rightTab === item ? 'active' : ''} onClick={() => setRightTab(item)}>{item}</button>)}</div>
+      {rightTab === '运行过程' && <div className="run-inspector"><SectionHeader title="持久化工具调用" description={activeRun ? `run #${activeRun.id} · ${runStatus[activeRun.status] ?? activeRun.status}` : '尚无运行'} />{toolEvents.length ? <div className="tool-event-list">{toolEvents.map(event => <div key={event.id}><span>{event.status === 'failed' ? <X size={14} /> : event.status === 'waiting' ? <LoaderCircle size={14} className={running ? 'spin' : ''} /> : <Check size={14} />}</span><div><strong>{event.name}</strong><p>{event.detail}</p></div><Badge tone={event.status === 'failed' || event.status === 'waiting' ? 'amber' : 'neutral'}>{toolStatus[event.status] ?? '等待模型完成'}</Badge></div>)}</div> : <div className="inspector-empty"><Wrench size={24} /><p>发送指令后，这里显示后端实际完成的工具调用；未执行的工具不会显示为成功。</p></div>}<div className="run-lifecycle"><h3>真实产物生命周期</h3><div className="lifecycle-track"><span className={activeSession?.artifacts.length ? 'done' : ''}>scratch</span><i /><span className={activeSession?.artifacts.some(item => item.status === 'committed') ? 'done' : ''}>committed</span><i /><span className={activeSession?.artifacts.some(item => item.status === 'promoted') ? 'done' : ''}>promoted</span></div><p>{activeSession?.artifacts.length ? activeSession.artifacts.map(item => `${item.path} · ${item.status} · 单元 ${item.unitIndex}`).join('\n') : '尚无 scratch 产物。工作区修改经批准后才进入正式讲义。'}</p></div></div>}
+      {rightTab === '工具' && <div className="tool-catalog"><SectionHeader title="12 个 Agent 工具" description="名称与参数由原生工具目录注册；网络工具尚未接入。" />{toolCatalog.map(([tool, description]) => <button key={tool} title={description} onClick={() => setInput(`请使用 ${tool} 帮我完成：`)}><Code2 size={15} /><span>{tool}</span><Plus size={14} /></button>)}<div className="security-note"><ShieldCheck size={16} />scratch 有路径限制与哈希校验；记忆写删和产物提升需要明确审批。网络工具当前明确返回不可用，不生成链接。</div></div>}
+      {rightTab === '预算' && <div className="budget-inspector"><SectionHeader title="真实运行限制" description="Token 用量来自供应商响应；无价格表时不换算为美元。" /><div className="budget-item"><div><span>当前会话输出</span><strong>{usedTokens} / {budget || 0} tokens</strong></div><ProgressBar value={budgetPercent} /></div><div className="budget-item"><div><span>本次运行步数</span><strong>{activeRun?.steps ?? 0} / 25</strong></div><ProgressBar value={(activeRun?.steps ?? 0) / 25 * 100} tone="blue" /></div><div className="usage-breakdown"><h3>本次运行计量</h3><div><span>输入 tokens</span><strong>{activeRun?.inputTokens ?? 0}</strong></div><div><span>输出 tokens</span><strong>{activeRun?.outputTokens ?? 0}</strong></div><div><span>会话工具调用</span><strong>{totalTools}</strong></div></div><p>达到输出 Token 预算后停止新请求；单步最多 8 个工具调用。异常与取消时已返回的 Token 仍计入。</p></div>}
+    </aside>
   </div>
 }

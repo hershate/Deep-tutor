@@ -136,6 +136,7 @@ pub struct AgentSession {
     pub plan_id: String,
     pub provider_id: String,
     pub budget_tokens: u64,
+    pub output_tokens_used: u64,
     pub status: String,
     pub messages: Vec<AgentMessage>,
     pub runs: Vec<AgentRun>,
@@ -418,6 +419,7 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
         plan_id,
         provider_id,
         budget_tokens,
+        output_tokens_used: session_output_tokens(state, id)?,
         status,
         messages,
         runs,
@@ -556,7 +558,13 @@ pub fn send<R: Runtime>(
             "消息不能为空且不能超过 32000 字节",
         ));
     }
-    let _ = get(state, &session_id.to_string())?;
+    let session = get(state, &session_id.to_string())?;
+    if session.output_tokens_used >= session.budget_tokens {
+        return Err(BackendError::new(
+            "budget_exceeded",
+            "已达到本会话 Token 预算，未创建新的运行",
+        ));
+    }
     let mut active = state
         .active
         .lock()
@@ -595,6 +603,15 @@ pub fn send<R: Runtime>(
     emit(app, &event);
     launch(app.clone(), state, run_id, session_id)?;
     get_run(state, run_id)
+}
+
+fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
+    let store = state.store()?;
+    Ok(store.conn.query_row(
+        "SELECT COALESCE(SUM(CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER)), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
+        params![session_id],
+        |row| row.get::<_, i64>(0),
+    )? as u64)
 }
 
 fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
@@ -754,6 +771,12 @@ fn run_loop<R: Runtime>(
         {
             return Err(BackendError::new("cancelled", "Agent 运行已取消"));
         }
+        if session_output_tokens(state, session_id)? >= session.budget_tokens {
+            return Err(BackendError::new(
+                "budget_exceeded",
+                "已达到本会话 Token 预算，未再发起新的模型请求",
+            ));
+        }
         let (step, request_id) = begin_step(app, state, &run)?;
         let request = providers::stream_chat_with_tools(
             app,
@@ -804,7 +827,7 @@ fn run_loop<R: Runtime>(
             None,
             false,
         )?;
-        if output_tokens >= session.budget_tokens {
+        if session_output_tokens(state, session_id)? >= session.budget_tokens {
             return Err(BackendError::new(
                 "budget_exceeded",
                 "已达到本会话 Token 预算，未再发起新的模型请求",
@@ -853,7 +876,7 @@ fn run_loop<R: Runtime>(
                 ..Default::default()
             });
         }
-        if output_tokens >= session.budget_tokens {
+        if session_output_tokens(state, session_id)? >= session.budget_tokens {
             return Err(BackendError::new(
                 "budget_exceeded",
                 "已达到本会话 Token 预算，未再发起新的模型请求",

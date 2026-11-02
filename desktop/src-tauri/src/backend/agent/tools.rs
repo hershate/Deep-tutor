@@ -332,7 +332,7 @@ fn read_artifact(
     state: &AgentState,
     session: &AgentSession,
     id: i64,
-) -> Result<(String, String, usize, LectureContent)> {
+) -> Result<(String, String, usize, LectureContent, String)> {
     let store = state.store()?;
     let (path, stage_id, unit_index, content, expected): (String, String, usize, String, String) = store.conn.query_row("SELECT path, stage_id, unit_index, content_json, sha256 FROM agent_artifacts WHERE id = ?1 AND session_id = ?2", params![id, session.id], |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as usize, row.get(3)?, row.get(4)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "scratch 产物不存在"))?;
     let target = artifact_path(state, session, &path)?;
@@ -343,7 +343,13 @@ fn read_artifact(
             "scratch 文件已被外部修改，不能直接提升",
         ));
     }
-    Ok((path, stage_id, unit_index, serde_json::from_str(&content)?))
+    Ok((
+        path,
+        stage_id,
+        unit_index,
+        serde_json::from_str(&content)?,
+        expected,
+    ))
 }
 
 fn approval<R: Runtime>(
@@ -484,7 +490,7 @@ pub fn execute<R: Runtime>(
                         .trim_start_matches("artifact:")
                         .parse::<i64>()
                         .map_err(|_| BackendError::invalid("invalid_reference", "产物引用无效"))?;
-                    let (_, _, _, content) = read_artifact(state, session, id)?;
+                    let (_, _, _, content, _) = read_artifact(state, session, id)?;
                     Ok(json!({"status": "done", "content": content}))
                 }
                 _ => Err(BackendError::invalid(
@@ -513,7 +519,7 @@ pub fn execute<R: Runtime>(
             }
             "workspace.edit" => {
                 let id = number(&arguments, "artifactId")?;
-                let (path, stage_id, unit_index, content) = read_artifact(state, session, id)?;
+                let (path, stage_id, unit_index, content, _) = read_artifact(state, session, id)?;
                 let old = string(&arguments, "oldText")?;
                 let new = string(&arguments, "newText")?;
                 let raw = serde_json::to_string_pretty(&content)?;
@@ -609,13 +615,13 @@ pub fn execute<R: Runtime>(
             }
             "artifact.promote" => {
                 let id = number(&arguments, "artifactId")?;
-                let _ = read_artifact(state, session, id)?;
+                let (_, _, _, _, sha256) = read_artifact(state, session, id)?;
                 approval(
                     app,
                     state,
                     session,
                     "artifact.promote",
-                    json!({"artifactId": id}),
+                    json!({"artifactId": id, "sha256": sha256}),
                 )
             }
             _ => Ok(
@@ -724,16 +730,25 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
             emit(app, &event);
             Ok(())
         }
-        "artifact.promote" => promote(
-            app,
-            state,
-            &session,
-            id,
-            payload
+        "artifact.promote" => {
+            let artifact_id = payload
                 .get("artifactId")
                 .and_then(Value::as_i64)
-                .ok_or_else(|| BackendError::invalid("invalid_approval", "产物审批缺少 ID"))?,
-        ),
+                .ok_or_else(|| BackendError::invalid("invalid_approval", "产物审批缺少 ID"))?;
+            let expected_sha256 = payload
+                .get("sha256")
+                .and_then(Value::as_str)
+                .filter(|value| {
+                    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                .ok_or_else(|| {
+                    BackendError::invalid(
+                        "approval_outdated",
+                        "旧审批未绑定产物哈希，请重新请求提升",
+                    )
+                })?;
+            promote(app, state, &session, id, artifact_id, expected_sha256)
+        }
         _ => Err(BackendError::invalid("invalid_approval", "未知审批类型")),
     }
 }
@@ -744,10 +759,11 @@ fn promote<R: Runtime>(
     session: &AgentSession,
     approval_id: i64,
     artifact_id: i64,
+    expected_sha256: &str,
 ) -> Result<()> {
     let store = state.store()?;
-    let artifact = store.conn.query_row("SELECT stage_id, unit_index, content_json, expires_at FROM agent_artifacts WHERE id = ?1 AND session_id = ?2", params![artifact_id, session.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "待提升产物不存在"))?;
-    if time::OffsetDateTime::parse(&artifact.3, &time::format_description::well_known::Rfc3339)
+    let artifact = store.conn.query_row("SELECT stage_id, unit_index, expires_at, sha256 FROM agent_artifacts WHERE id = ?1 AND session_id = ?2", params![artifact_id, session.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "待提升产物不存在"))?;
+    if time::OffsetDateTime::parse(&artifact.2, &time::format_description::well_known::Rfc3339)
         .map_err(|_| BackendError::new("invalid_artifact_expiry", "产物过期时间格式无效"))?
         <= time::OffsetDateTime::now_utc()
     {
@@ -769,8 +785,20 @@ fn promote<R: Runtime>(
             "产物已超过 24 小时，不能提升",
         ));
     }
+    let (_, stage_id, unit_index, current, actual_sha256) =
+        read_artifact(state, session, artifact_id)?;
+    if artifact.3 != expected_sha256
+        || actual_sha256 != expected_sha256
+        || stage_id != artifact.0
+        || unit_index as i64 != artifact.1
+    {
+        return Err(BackendError::new(
+            "artifact_approval_stale",
+            "产物已在请求批准后改变，请重新请求提升",
+        ));
+    }
     let sources = sources(state, session)?;
-    let content = content(serde_json::from_str(&artifact.2)?, &sources)?;
+    let content = content(serde_json::to_value(current)?, &sources)?;
     let lecture = learning::lecture::get(&state.learning, &session.plan_id, &artifact.0, None)?;
     if lecture.status != "done" {
         return Err(BackendError::new(
@@ -790,7 +818,13 @@ fn promote<R: Runtime>(
     resolve_pending(&tx, approval_id, "approved", &timestamp)?;
     tx.execute("INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, updated_at) SELECT plan_id, stage_id, ?1, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, ?2 FROM learning_lecture_units WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5", params![version, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, lecture.version])?;
     tx.execute("UPDATE learning_lecture_units SET content_json = ?1, status = 'done', request_id = NULL, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5 AND unit_index = ?6", params![serde_json::to_string(&content)?, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, version, artifact.1])?;
-    tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(&session.plan_id)?, artifact.0])?;
+    let promoted = tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5 AND version = ?6", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, lecture.version])?;
+    if promoted != 1 {
+        return Err(BackendError::new(
+            "lecture_version_conflict",
+            "基础讲义已更新，请基于新版本重新生成 scratch 产物",
+        ));
+    }
     tx.execute("INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![learning::plan_id(&session.plan_id)?, artifact.0, version, timestamp])?;
     tx.execute(
         "UPDATE agent_artifacts SET status = 'promoted' WHERE id = ?1",
@@ -799,7 +833,7 @@ fn promote<R: Runtime>(
     let event = Store::event(
         &tx,
         "agent.artifact_promoted",
-        json!({"approvalId": approval_id, "artifactId": artifact_id, "version": version}),
+        json!({"sessionId": session.id, "approvalId": approval_id, "artifactId": artifact_id, "planId": session.plan_id, "stageId": artifact.0, "version": version}),
     )?;
     tx.commit()?;
     emit(app, &event);

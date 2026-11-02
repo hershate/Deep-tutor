@@ -11,7 +11,7 @@ import type { Lecture, LearningPlan, ProviderRequest, ReadingProgress } from '..
 
 const lectureStatus: Record<string, string> = { empty: '尚未生成', running: '正在生成', cancelling: '正在取消', done: '已生成', failed: '生成失败', cancelled: '已取消', interrupted: '已中断' }
 
-export default function StudyRoom({ target, onFocus, onNavigate, notify }: { target?: { planId: string; stageId: string } | null; onFocus: () => void; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
+export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify }: { target?: { planId: string; stageId: string } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [stageId, setStageId] = useState('')
@@ -84,6 +84,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, notify }: { tar
       if (disposed) return
       if (event.kind.startsWith('lecture.') && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
       if (event.kind === 'study.progress_changed' && event.payload.planId === stageRef.current.planId) void refreshProgress()
+      if (event.kind === 'agent.artifact_promoted' && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
         const requestId = event.payload.requestId
         if (lecture?.units.some(unit => unit.status === 'running' && unit.requestId === requestId)) {
@@ -104,6 +105,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, notify }: { tar
   const completion = totalStages ? Math.round(completed / totalStages * 100) : 0
   const running = lecture?.status === 'running' || lecture?.status === 'cancelling'
   const currentReading = progress[stageId] || { completed: false, bookmarked: false }
+  useEffect(() => {
+    onTutorContext(plan && stage ? { planId: plan.id, label: `${plan.goal} · ${stage.title}${currentNode ? ` · ${currentNode.title}` : ''}` } : null)
+  }, [onTutorContext, plan, stage, currentNode])
 
   const saveReading = async (done: boolean, bookmarked?: boolean): Promise<boolean> => {
     if (!plan || !stageId) return false

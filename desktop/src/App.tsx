@@ -15,7 +15,8 @@ import Settings from './pages/Settings'
 
 import SharedPlan from './pages/SharedPlan'
 import TutorPanel from './components/TutorPanel'
-import { Button, IconButton, Modal, ProgressBar } from './components/UI'
+import AgentTaskCenter from './components/AgentTaskCenter'
+import { Button, IconButton, Modal } from './components/UI'
 import { knowledgeNodes } from './data'
 import type { PageId, Project, Task } from './data'
 import { backend, reportBackendError } from './backend/client'
@@ -51,6 +52,7 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string } | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
+  const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
   const [toast, setToast] = useState('')
   const [query, setQuery] = useState('')
@@ -124,7 +126,7 @@ export default function App() {
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
-      case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} notify={notify} />
+      case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} />
       case 'practice': return <Practice notify={notify} />
       case 'review': return <Review notify={notify} />
@@ -169,7 +171,7 @@ export default function App() {
 
     <nav className="mobile-bottom-nav" aria-label="移动端快捷导航">{[{ id: 'today' as PageId, label: '今日', icon: Home }, { id: 'study' as PageId, label: '学习', icon: BookOpen }, { id: 'review' as PageId, label: '复习', icon: Layers3 }, { id: 'library' as PageId, label: '笔记', icon: LibraryBig }].map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}<button onClick={() => setMobileNav(true)}><Menu size={20} /><span>全部</span></button></nav>
 
-    {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师"><TutorPanel compact onClose={() => setTutorOpen(false)} /></aside></div>}
+    {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师"><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} /></aside></div>}
 
     <Modal open={modal === 'search'} onClose={() => { setModal(null); setQuery('') }} title="全局搜索">
       <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map((result, index) => <button key={`${result.id}-${index}`} onClick={() => { navigate(result.id); setModal(null); setQuery('') }}><result.icon size={18} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty">没有找到匹配结果，试试“复习”或“贝叶斯”。</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能与笔记内容，按 Esc 关闭</div>
@@ -181,7 +183,7 @@ export default function App() {
       <div className="notification-list"><button onClick={() => { navigate('review'); setModal(null) }}><span className="notification-icon"><Layers3 size={18} /></span><div><strong>12 张记忆卡已到期</strong><p>预计 8 分钟，现在适合进行一次主动回忆。</p><small>10 分钟前</small></div></button><button onClick={() => { navigate('projects'); setModal(null) }}><span className="notification-icon"><FolderKanban size={18} /></span><div><strong>项目反馈已生成</strong><p>分类器项目有 2 条关于评估指标的新建议。</p><small>1 小时前</small></div></button><button onClick={() => { navigate('plan'); setModal(null) }}><span className="notification-icon"><CalendarDays size={18} /></span><div><strong>本周计划负荷适中</strong><p>周六项目任务可灵活迁移到周日。</p><small>今天 08:00</small></div></button></div><Button variant="ghost" onClick={() => { notify('所有通知已标为已读'); setModal(null) }}><Check size={16} />全部标为已读</Button>
     </Modal>
     <Modal open={modal === 'tasks'} onClose={() => setModal(null)} title="Agent 任务中心">
-      <div className="agent-task-list"><div><span className="task-status running"><Sparkles size={16} /></span><div><strong>分析本周掌握度变化</strong><p>正在综合练习、复习与项目证据…</p><ProgressBar value={72} /></div><BadgeLike>72%</BadgeLike></div><div><span className="task-status"><Check size={16} /></span><div><strong>生成贝叶斯针对练习</strong><p>3 道变式题已加入练习测评</p></div><small>刚刚</small></div><div><span className="task-status"><Check size={16} /></span><div><strong>整理第四章课程资料</strong><p>4 份资料已关联到当前章节</p></div><small>昨天</small></div></div><div className="setting-note"><Brain size={16} />任务状态为本地演示，重要计划修改始终需要你确认。</div>
+      <AgentTaskCenter notify={notify} />
     </Modal>
 
     {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习"><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => { setFocusOpen(false); setFocusRunning(false) }}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>理解贝叶斯定理与先验概率</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" onClick={() => setFocusRunning(!focusRunning)}>{focusRunning ? <Pause size={20} /> : <Play size={20} />}{focusRunning ? '暂停' : '开始专注'}</Button><IconButton label="重置为 25 分钟" onClick={() => { setFocusSeconds(25 * 60); setFocusRunning(false) }}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。消息与其他页面会在你回来时保留。</span></div><button className="focus-exit" onClick={() => { setFocusOpen(false); setFocusRunning(false) }}>Esc 退出专注</button></div>}
@@ -196,5 +198,3 @@ function Highlight({ text, query }: { text: string; query: string }) {
   const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'))
   return <>{parts.map((part, index) => part.toLowerCase() === query.toLowerCase() ? <mark key={index}>{part}</mark> : part)}</>
 }
-
-function BadgeLike({ children }: { children: string }) { return <span className="badge badge-green">{children}</span> }

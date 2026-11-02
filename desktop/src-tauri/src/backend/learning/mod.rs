@@ -89,14 +89,17 @@ impl LearningState {
         Store::new(self.database_path.clone())
     }
 
+    #[cfg(test)]
     pub(crate) fn provider_state(&self) -> ProviderState {
         self.providers.shared()
     }
 
+    #[cfg(test)]
     pub(crate) fn database_path(&self) -> &Path {
         &self.database_path
     }
 
+    #[cfg(test)]
     pub(crate) fn material_state(&self) -> MaterialState {
         self.materials.shared()
     }
