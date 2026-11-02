@@ -43,6 +43,61 @@ export type MaterialImportResult = {
   error: BackendError | null
 }
 
+export type ProviderProtocol = 'OpenAI Chat' | 'OpenAI Responses' | 'Anthropic Messages' | 'Gemini Native'
+export type ProviderKind = '官方' | '兼容服务' | '本地模型'
+export type ProviderProfile = {
+  id: string
+  name: string
+  preset: string
+  kind: ProviderKind
+  protocol: ProviderProtocol
+  baseUrl: string
+  models: string[]
+  defaultModel: string
+  hasKey: boolean
+  health: 'unknown' | 'healthy' | 'error'
+  latencyMs: number | null
+  enabled: boolean
+  note: string | null
+}
+export type ProviderProfileInput = {
+  id?: string
+  name: string
+  preset: string
+  kind: ProviderKind
+  protocol: ProviderProtocol
+  baseUrl: string
+  defaultModel: string
+  models: string[]
+  enabled?: boolean
+  note: string | null
+  apiKey?: string
+}
+export type ProviderTestResult = {
+  profileId: string
+  kind: 'models' | 'chat'
+  ok: boolean
+  latencyMs: number
+  models: string[] | null
+  result: { text: string; model: string; latencyMs: number; attempts: number } | null
+}
+export type ProviderChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+export type ProviderRequest = {
+  requestId: string
+  providerId: string
+  model: string
+  status: 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+  output: string
+  usage: { inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null } | null
+  finishReason: string | null
+  error: BackendError | null
+  attempts: number
+  latencyMs: number | null
+  createdAt: string
+  updatedAt: string
+}
+export type ProviderExport = { version: 1; activeProvider: string | null; providers: ProviderProfile[]; notice: string }
+
 export const backend = {
   bootstrap: () => invoke<AppSnapshot>('bootstrap'),
   getAppState: () => invoke<AppSnapshot>('get_app_state'),
@@ -70,6 +125,17 @@ export const backend = {
   deleteMaterial: (id: number) => invoke<AppSnapshot>('delete_material', { id }),
   exportMaterialOriginal: (id: number, destination: string) => invoke<{ bytes: number; sha256: string }>('export_material_original', { id, destination }),
   exportMaterialText: (id: number, destination: string) => invoke<{ bytes: number; sha256: string }>('export_material_text', { id, destination }),
+  listProviderProfiles: () => invoke<ProviderProfile[]>('list_provider_profiles'),
+  getActiveProvider: () => invoke<string | null>('get_active_provider'),
+  upsertProviderProfile: (input: ProviderProfileInput) => invoke<ProviderProfile>('upsert_provider_profile', { input }),
+  setActiveProvider: (id: string) => invoke<void>('set_active_provider', { id }),
+  deleteProviderProfile: (id: string) => invoke<void>('delete_provider_profile', { id }),
+  exportProviderConfig: () => invoke<ProviderExport>('export_provider_config'),
+  importProviderDeepLink: (link: string) => invoke<ProviderProfile>('import_provider_deep_link', { link }),
+  testProvider: (id: string, realRequest: boolean) => invoke<ProviderTestResult>('test_provider', { id, realRequest }),
+  streamProviderChat: (requestId: string, profileId: string, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('stream_provider_chat', { requestId, profileId, messages, maxTokens }),
+  cancelProviderChat: (requestId: string) => invoke<void>('cancel_provider_chat', { requestId }),
+  getProviderChat: (requestId: string) => invoke<ProviderRequest>('get_provider_chat', { requestId }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {

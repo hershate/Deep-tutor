@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Blocks, Check, CheckCircle2, ChevronRight, CircleAlert, Cloud, CloudCog, Code2, Copy, Cpu, Database, Download, Eye, EyeOff, FileJson, Gauge, Globe2, HardDrive, KeyRound, Laptop, Link2, ListFilter, LoaderCircle, LockKeyhole, Network, Play, Plus, RefreshCw, Route, Search, Server, Settings2, ShieldCheck, Sparkles, SquareArrowOutUpRight, Trash2, Upload, X, Zap } from 'lucide-react'
-import { Badge, Button, IconButton, Modal, ProgressBar, SectionHeader, Toggle } from '../components/UI'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, CheckCircle2, CircleAlert, Cloud, Copy, Download, Eye, EyeOff, FileJson, Gauge, Link2, ListFilter, LoaderCircle, LockKeyhole, Network, Plus, RefreshCw, Route, Search, Server, Settings2, ShieldCheck, Square, SquareArrowOutUpRight, Trash2, Upload, Zap } from 'lucide-react'
+import { Badge, Button, IconButton, Modal, SectionHeader } from '../components/UI'
+import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult } from '../backend/client'
 
-type Protocol = 'OpenAI Chat' | 'OpenAI Responses' | 'Anthropic Messages' | 'Gemini Native'
-type Health = 'unknown' | 'testing' | 'healthy' | 'error'
-type Profile = { id: string; name: string; preset: string; kind: '官方' | '兼容服务' | '本地模型'; protocol: Protocol; baseUrl: string; models: string[]; defaultModel: string; keyMask: string; health: Health; latency?: number; enabled: boolean; note?: string }
-type Preset = Omit<Profile, 'id' | 'health' | 'enabled' | 'keyMask'> & { docs?: string }
-type RouteConfig = { providerId: string; model: string }
+type Preset = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; docs?: string }
+type EditorForm = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; key: string; note: string }
+type View = '供应商' | '任务路由' | '故障转移' | '配置与同步'
 
 const presets: Preset[] = [
   { name: 'DeepSeek', preset: 'deepseek', kind: '官方', protocol: 'OpenAI Chat', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'], defaultModel: 'deepseek-chat', docs: 'https://api-docs.deepseek.com/' },
@@ -28,122 +28,312 @@ const presets: Preset[] = [
   { name: 'LM Studio', preset: 'lmstudio', kind: '本地模型', protocol: 'OpenAI Chat', baseUrl: 'http://127.0.0.1:1234/v1', models: ['local-model'], defaultModel: 'local-model' },
   { name: 'vLLM / 私有部署', preset: 'vllm', kind: '本地模型', protocol: 'OpenAI Chat', baseUrl: 'http://127.0.0.1:8000/v1', models: ['private-model'], defaultModel: 'private-model' },
 ]
-
-const initialProfiles: Profile[] = [
-  { id: 'p-deepseek', name: 'DeepSeek · 主账号', preset: 'deepseek', kind: '官方', protocol: 'OpenAI Chat', baseUrl: presets[0].baseUrl, models: presets[0].models, defaultModel: 'deepseek-chat', keyMask: 'sk-••••••••7f2a', health: 'healthy', latency: 386, enabled: true },
-  { id: 'p-kimi', name: 'Moonshot Kimi', preset: 'moonshot', kind: '官方', protocol: 'OpenAI Chat', baseUrl: presets[1].baseUrl, models: presets[1].models, defaultModel: 'moonshot-v1-128k', keyMask: 'sk-••••••••9c21', health: 'healthy', latency: 422, enabled: true },
-  { id: 'p-anthropic', name: 'Anthropic', preset: 'anthropic', kind: '官方', protocol: 'Anthropic Messages', baseUrl: presets[2].baseUrl, models: presets[2].models, defaultModel: presets[2].defaultModel, keyMask: 'sk-ant-••••••••31bd', health: 'unknown', enabled: true },
-  { id: 'p-openrouter', name: 'OpenRouter · 聚合', preset: 'openrouter', kind: '兼容服务', protocol: 'OpenAI Chat', baseUrl: presets[7].baseUrl, models: presets[7].models, defaultModel: 'auto', keyMask: 'sk-or-••••••••80ef', health: 'error', enabled: true, note: '上次检测：401，需更新密钥' },
-  { id: 'p-ollama', name: 'Ollama · 本机', preset: 'ollama', kind: '本地模型', protocol: 'OpenAI Chat', baseUrl: presets[15].baseUrl, models: presets[15].models, defaultModel: 'qwen2.5:7b', keyMask: '本地服务无需密钥', health: 'healthy', latency: 42, enabled: true },
-]
 const taskNames = ['Agent 对话', '方案生成', '自学讲义', '测验与判分', 'Wiki 引用问答', '资源检索', '向量嵌入']
-const defaultRoutes: Record<string, RouteConfig> = Object.fromEntries(taskNames.map((task, i) => [task, { providerId: i === 3 ? 'p-anthropic' : i === 6 ? 'p-ollama' : 'default', model: '' }]))
+const emptyForm: EditorForm = { name: '', preset: '', kind: '官方', protocol: 'OpenAI Chat', baseUrl: '', models: [], defaultModel: '', key: '', note: '' }
 
 function downloadJson(name: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function importedProfiles(data: unknown): ProviderProfileInput[] {
+  const items = Array.isArray(data) ? data : (data as { providers?: unknown })?.providers
+  if (!Array.isArray(items) || items.length > 200) throw new Error('invalid providers')
+  return items.map(item => {
+    if (!item || typeof item !== 'object') throw new Error('invalid provider')
+    const value = item as Record<string, unknown>
+    if (typeof value.name !== 'string' || typeof value.baseUrl !== 'string' || typeof value.defaultModel !== 'string') throw new Error('missing provider fields')
+    const kind = value.kind || '兼容服务'
+    const protocol = value.protocol || 'OpenAI Chat'
+    if (!['官方', '兼容服务', '本地模型'].includes(String(kind)) || !['OpenAI Chat', 'OpenAI Responses', 'Anthropic Messages', 'Gemini Native'].includes(String(protocol))) throw new Error('unsupported provider')
+    if (!Array.isArray(value.models) || value.models.some(model => typeof model !== 'string')) throw new Error('invalid models')
+    return {
+      name: value.name,
+      preset: typeof value.preset === 'string' ? value.preset : 'custom',
+      kind: kind as ProviderKind,
+      protocol: protocol as ProviderProtocol,
+      baseUrl: value.baseUrl,
+      models: value.models,
+      defaultModel: value.defaultModel,
+      enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
+      note: typeof value.note === 'string' ? value.note : null,
+    }
+  })
 }
 
 export default function ProviderHub({ notify, embedded = false }: { notify: (message: string) => void; embedded?: boolean }) {
-  const [profiles, setProfiles] = useState<Profile[]>(() => { try { return JSON.parse(localStorage.getItem('deep-tutor-provider-profiles') || 'null') || initialProfiles } catch { return initialProfiles } })
-  const [activeId, setActiveId] = useState(() => localStorage.getItem('deep-tutor-active-provider') || 'p-deepseek')
-  const [view, setView] = useState('供应商')
-  const [mode, setMode] = useState<'direct' | 'routing' | 'aggregate'>(() => (localStorage.getItem('deep-tutor-provider-mode') as 'direct' | 'routing' | 'aggregate') || 'direct')
+  const [profiles, setProfiles] = useState<ProviderProfile[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [view, setView] = useState<View>('供应商')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('全部')
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorStep, setEditorStep] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', preset: '', kind: '官方' as Profile['kind'], protocol: 'OpenAI Chat' as Protocol, baseUrl: '', models: [] as string[], defaultModel: '', key: '', note: '' })
+  const [form, setForm] = useState<EditorForm>(emptyForm)
   const [formError, setFormError] = useState('')
   const [showKey, setShowKey] = useState(false)
-  const [rectify, setRectify] = useState(true)
-  const [autoSync, setAutoSync] = useState(false)
+  const [clearKey, setClearKey] = useState(false)
+  const [busy, setBusy] = useState('')
   const [testingId, setTestingId] = useState('')
+  const [testingAll, setTestingAll] = useState(false)
   const [testStage, setTestStage] = useState('')
-  const [routes, setRoutes] = useState<Record<string, RouteConfig>>(() => { try { return JSON.parse(localStorage.getItem('deep-tutor-model-routes') || 'null') || defaultRoutes } catch { return defaultRoutes } })
-  const [queue, setQueue] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('deep-tutor-failover-queue') || 'null') || ['p-deepseek', 'p-kimi', 'p-ollama'] } catch { return ['p-deepseek', 'p-kimi', 'p-ollama'] } })
-  const [circuit, setCircuit] = useState({ failures: 3, cooldown: 60, timeout: 45, retries: 2 })
-  const [routeLog, setRouteLog] = useState('10:42:18 · deepseek-chat → deepseek-chat · 200 · 1.8s')
-  const [aggregateIds, setAggregateIds] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('deep-tutor-aggregate-providers') || 'null') || ['p-deepseek', 'p-kimi'] } catch { return ['p-deepseek', 'p-kimi'] } })
-  const [aggregateDefault, setAggregateDefault] = useState(() => localStorage.getItem('deep-tutor-aggregate-default') || 'p-deepseek')
-  const [importPreview, setImportPreview] = useState<Profile[] | null>(null)
+  const [importPreview, setImportPreview] = useState<ProviderProfileInput[] | null>(null)
   const [deepLinkOpen, setDeepLinkOpen] = useState(false)
   const [deepLink, setDeepLink] = useState('')
-  const [syncOpen, setSyncOpen] = useState(false)
+  const [configPreview, setConfigPreview] = useState<ProviderExport | null>(null)
+  const [prompt, setPrompt] = useState('请用一句话说明贝叶斯定理。')
+  const [maxTokens, setMaxTokens] = useState(256)
+  const [liveRequest, setLiveRequest] = useState<ProviderRequest | null>(null)
+  const [streamBusy, setStreamBusy] = useState(false)
+  const [streamError, setStreamError] = useState('')
+  const requestIdRef = useRef('')
   const importRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { localStorage.setItem('deep-tutor-provider-profiles', JSON.stringify(profiles)) }, [profiles])
-  useEffect(() => { localStorage.setItem('deep-tutor-active-provider', activeId) }, [activeId])
-  useEffect(() => { localStorage.setItem('deep-tutor-model-routes', JSON.stringify(routes)) }, [routes])
-  useEffect(() => { localStorage.setItem('deep-tutor-provider-mode', mode) }, [mode])
-  useEffect(() => { localStorage.setItem('deep-tutor-failover-queue', JSON.stringify(queue)) }, [queue])
-  useEffect(() => { localStorage.setItem('deep-tutor-aggregate-providers', JSON.stringify(aggregateIds)) }, [aggregateIds])
-  useEffect(() => { localStorage.setItem('deep-tutor-aggregate-default', aggregateDefault) }, [aggregateDefault])
-  const filtered = useMemo(() => profiles.filter(p => (filter === '全部' || p.kind === filter) && `${p.name}${p.baseUrl}${p.models.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [profiles, filter, query])
-  const enabledProfiles = profiles.filter(p => p.enabled)
-  const aggregatedModels = profiles.filter(p => aggregateIds.includes(p.id)).flatMap(p => p.models.map(model => ({ providerId: p.id, provider: p.name, model })))
-  const configPreview = useMemo(() => ({ version: 1, mode, activeProvider: activeId, providers: profiles.map(({ health, latency, ...p }) => p), routes, failover: { listen: '127.0.0.1:15721', queue, ...circuit }, notice: 'API keys are never exported.' }), [profiles, routes, mode, activeId, queue, circuit])
+  const refresh = useCallback(async () => {
+    try {
+      const [items, active] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider()])
+      setProfiles(items)
+      setActiveId(active)
+      setPageError('')
+    } catch (error) {
+      setPageError(backendErrorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-  const openAdd = () => { setEditingId(null); setEditorStep(0); setFormError(''); setTestStage(''); setForm({ name: '', preset: '', kind: '官方', protocol: 'OpenAI Chat', baseUrl: '', models: [], defaultModel: '', key: '', note: '' }); setEditorOpen(true) }
-  const choosePreset = (preset: Preset) => { setForm({ name: preset.name, preset: preset.preset, kind: preset.kind, protocol: preset.protocol, baseUrl: preset.baseUrl, models: preset.models, defaultModel: preset.defaultModel, key: '', note: preset.note || '' }); setEditorStep(1); setFormError('') }
-  const openEdit = (profile: Profile) => { setEditingId(profile.id); setEditorStep(1); setTestStage(''); setForm({ name: profile.name, preset: profile.preset, kind: profile.kind, protocol: profile.protocol, baseUrl: profile.baseUrl, models: profile.models, defaultModel: profile.defaultModel, key: '', note: profile.note || '' }); setFormError(''); setEditorOpen(true) }
-  const saveProfile = () => {
-    if (!form.name.trim() || !form.baseUrl.trim() || !form.defaultModel.trim()) { setFormError('请填写档案名称、Base URL 与默认模型。'); return }
-    try { const url = new URL(form.baseUrl); if (!['http:', 'https:'].includes(url.protocol)) throw new Error() } catch { setFormError('Base URL 必须是有效的 http 或 https 地址。'); return }
-    const keyMask = form.key ? `${form.key.slice(0, Math.min(5, form.key.length))}••••••••${form.key.slice(-4)}` : form.kind === '本地模型' ? '本地服务无需密钥' : editingId ? profiles.find(p => p.id === editingId)?.keyMask || '未配置密钥' : '未配置密钥（仅演示）'
-    if (editingId) setProfiles(profiles.map(p => p.id === editingId ? { ...p, name: form.name.trim(), preset: form.preset, kind: form.kind, protocol: form.protocol, baseUrl: form.baseUrl, models: form.models, defaultModel: form.defaultModel, keyMask, note: form.note, health: 'unknown' } : p))
-    else { const id = `p-${Date.now()}`; setProfiles([...profiles, { id, name: form.name.trim(), preset: form.preset || 'custom', kind: form.kind, protocol: form.protocol, baseUrl: form.baseUrl, models: form.models, defaultModel: form.defaultModel, keyMask, health: 'unknown', enabled: true, note: form.note }]); setActiveId(id) }
-    setForm(form => ({ ...form, key: '' })); setEditorOpen(false); notify(editingId ? '供应商配置已保存，密钥未写入浏览器存储' : '供应商已添加并完成基础校验')
+  useEffect(() => {
+    void refresh()
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void onBackendEvent(event => {
+      if (disposed) return
+      if (event.kind.startsWith('provider.') && !event.kind.startsWith('provider.chat_')) void refresh()
+      if (event.kind.startsWith('provider.chat_')) {
+        const requestId = event.payload.requestId
+        if (typeof requestId === 'string' && requestId === requestIdRef.current) {
+          void backend.getProviderChat(requestId).then(setLiveRequest).catch(error => setStreamError(backendErrorMessage(error)))
+        }
+      }
+    }).then(remove => {
+      if (disposed) remove()
+      else unlisten = remove
+    })
+    return () => { disposed = true; unlisten?.() }
+  }, [refresh])
+
+  useEffect(() => {
+    if (view !== '配置与同步') return
+    let current = true
+    void backend.exportProviderConfig().then(config => { if (current) setConfigPreview(config) }).catch(error => { if (current) setPageError(backendErrorMessage(error)) })
+    return () => { current = false }
+  }, [view, profiles, activeId])
+
+  const filtered = useMemo(() => profiles.filter(profile => (filter === '全部' || profile.kind === filter) && `${profile.name}${profile.baseUrl}${profile.models.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [profiles, filter, query])
+  const activeProfile = profiles.find(profile => profile.id === activeId)
+  const openAdd = () => {
+    setEditingId(null)
+    setEditorStep(0)
+    setForm(emptyForm)
+    setFormError('')
+    setTestStage('')
+    setClearKey(false)
+    setEditorOpen(true)
   }
-  const testProfile = (id: string, realRequest = false) => {
-    const profile = profiles.find(p => p.id === id); if (!profile) return
-    setTestingId(id); setTestStage(realRequest ? '发送最小真实请求（演示）' : '检查 DNS、TCP 与 HTTP 端点（演示）')
-    window.setTimeout(() => { const failed = profile.preset === 'openrouter' && !realRequest; setProfiles(current => current.map(p => p.id === id ? { ...p, health: failed ? 'error' : 'healthy', latency: failed ? undefined : profile.kind === '本地模型' ? 38 : 320 + profile.name.length * 7, note: failed ? '端点可达，但鉴权失败；请检查 API Key' : realRequest ? '端点、鉴权与模型请求均通过（演示）' : '端点可达；不代表密钥与模型名有效' } : p)); setTestingId(''); setTestStage(''); notify(failed ? '端点可达，但鉴权失败，请检查密钥' : realRequest ? '测试请求通过：端点、密钥和模型均有效（演示）' : '端点检测通过；可继续发送模型测试请求') }, 950)
+  const choosePreset = (preset: Preset) => {
+    setForm({ name: preset.name, preset: preset.preset, kind: preset.kind, protocol: preset.protocol, baseUrl: preset.baseUrl, models: preset.models, defaultModel: preset.defaultModel, key: '', note: '' })
+    setFormError('')
+    setEditorStep(1)
   }
-  const testAll = () => { setTestingId('all'); profiles.forEach((profile, index) => window.setTimeout(() => testProfile(profile.id), index * 180)); window.setTimeout(() => setTestingId(''), profiles.length * 180 + 1100) }
-  const switchProvider = (id: string) => { setActiveId(id); notify(`已切换至 ${profiles.find(p => p.id === id)?.name}，后续请求使用新配置`) }
-  const deleteProvider = (id: string) => {
-    if (id === activeId) { notify('当前使用中的供应商不能删除，请先切换到其他档案'); return }
-    if (mode === 'aggregate' && id === aggregateDefault) { notify('聚合默认供应商不能移除，请先更换默认项'); return }
-    setProfiles(profiles.filter(p => p.id !== id)); setQueue(queue.filter(item => item !== id)); setAggregateIds(aggregateIds.filter(item => item !== id)); notify('供应商档案已删除，共享设置未受影响')
+  const openEdit = (profile: ProviderProfile) => {
+    setEditingId(profile.id)
+    setEditorStep(1)
+    setForm({ name: profile.name, preset: profile.preset, kind: profile.kind, protocol: profile.protocol, baseUrl: profile.baseUrl, models: profile.models, defaultModel: profile.defaultModel, key: '', note: profile.note || '' })
+    setFormError('')
+    setTestStage('')
+    setClearKey(false)
+    setEditorOpen(true)
   }
-  const fetchModels = () => { const preset = presets.find(p => p.preset === form.preset); const fetched = preset?.models || (form.baseUrl.includes('11434') ? ['qwen2.5:7b', 'llama3.1:8b', 'deepseek-r1:7b'] : ['custom-chat-model', 'custom-reasoning-model']); setForm({ ...form, models: fetched, defaultModel: fetched[0] }); notify(`已获取 ${fetched.length} 个示例模型；真实环境将从 /models 读取`) }
-  const applyImport = (file: File) => { const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(String(reader.result)); const items = Array.isArray(data) ? data : data.providers; if (!Array.isArray(items)) throw new Error(); const clean = items.filter((p: Profile) => p.name && p.baseUrl).map((p: Profile, i: number) => ({ id: `p-import-${Date.now()}-${i}`, name: String(p.name), preset: String(p.preset || 'custom'), kind: p.kind || '兼容服务', protocol: p.protocol || 'OpenAI Chat', baseUrl: String(p.baseUrl), models: Array.isArray(p.models) ? p.models.map(String) : [String(p.defaultModel || 'custom-model')], defaultModel: String(p.defaultModel || 'custom-model'), keyMask: '导入配置不含密钥', health: 'unknown' as Health, enabled: true, note: p.note ? String(p.note) : undefined })); setImportPreview(clean) } catch { notify('导入失败：需要包含 providers 数组的有效 JSON 配置') } }; reader.readAsText(file) }
-  const exportConfig = () => { downloadJson('DeepTutor-provider-config.json', configPreview); notify('脱敏供应商配置已导出，不包含任何 API Key') }
+
+  const saveProfile = async (close = true): Promise<ProviderProfile | null> => {
+    if (!form.name.trim() || !form.baseUrl.trim() || !form.defaultModel.trim()) {
+      setFormError('请填写档案名称、Base URL 与默认模型。')
+      return null
+    }
+    if (clearKey && form.key) {
+      setFormError('输入新密钥与清除原密钥不能同时执行。')
+      return null
+    }
+    setBusy('save')
+    setFormError('')
+    const apiKey = clearKey ? '' : form.key || undefined
+    setForm(current => ({ ...current, key: '' }))
+    try {
+      const saved = await backend.upsertProviderProfile({ id: editingId || undefined, name: form.name, preset: form.preset || 'custom', kind: form.kind, protocol: form.protocol, baseUrl: form.baseUrl, models: form.models, defaultModel: form.defaultModel, enabled: profiles.find(profile => profile.id === editingId)?.enabled ?? true, note: form.note || null, apiKey })
+      setEditingId(saved.id)
+      setClearKey(false)
+      setForm(current => ({ ...current, models: saved.models, key: '' }))
+      setEditorOpen(!close)
+      if (close) notify('供应商档案已保存；密钥由系统密钥库保管')
+      await refresh()
+      return saved
+    } catch (error) {
+      setFormError(backendErrorMessage(error))
+      return null
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const testProfile = async (id: string, realRequest: boolean): Promise<ProviderTestResult | null> => {
+    setTestingId(id)
+    setTestStage(realRequest ? '正在发送最小真实模型请求…' : '正在读取上游 /models…')
+    try {
+      const result = await backend.testProvider(id, realRequest)
+      setTestStage(result.kind === 'models' ? `真实 /models 返回 ${result.models?.length || 0} 个模型 · ${result.latencyMs} ms` : `真实模型请求已返回 · ${result.latencyMs} ms`)
+      notify(result.kind === 'models' ? '模型列表读取成功；这不代表聊天请求已验证' : '真实模型请求成功，端点、凭据与模型名均已验证')
+      await refresh()
+      return result
+    } catch (error) {
+      const message = backendErrorMessage(error)
+      setTestStage(message)
+      notify(message)
+      await refresh()
+      return null
+    } finally {
+      setTestingId('')
+    }
+  }
+  const testAll = async () => {
+    setTestingAll(true)
+    for (const profile of profiles) await testProfile(profile.id, false)
+    setTestingAll(false)
+  }
+  const switchProvider = async (id: string) => {
+    setBusy(`active-${id}`)
+    try {
+      await backend.setActiveProvider(id)
+      await refresh()
+      notify('当前供应商已切换；后续原生请求使用新档案')
+    } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
+  }
+  const deleteProvider = async (id: string) => {
+    setBusy(`delete-${id}`)
+    try {
+      await backend.deleteProviderProfile(id)
+      await refresh()
+      notify('档案及其系统密钥库凭据已删除；学习数据未改变')
+    } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
+  }
+  const fetchModels = async () => {
+    const saved = await saveProfile(false)
+    if (!saved) return
+    const result = await testProfile(saved.id, false)
+    const models = result?.models
+    if (!models?.length) return
+    setBusy('models')
+    try {
+      const defaultModel = models.includes(saved.defaultModel) ? saved.defaultModel : models[0]
+      const updated = await backend.upsertProviderProfile({ ...saved, models, defaultModel })
+      setForm(current => ({ ...current, models: updated.models, defaultModel: updated.defaultModel }))
+      setTestStage(`已保存 /models 返回的 ${updated.models.length} 个模型；请重新检测以验证更新后的配置`)
+      await refresh()
+    } catch (error) { setFormError(backendErrorMessage(error)) } finally { setBusy('') }
+  }
+  const testFromEditor = async (realRequest: boolean) => {
+    setEditorStep(2)
+    const saved = await saveProfile(false)
+    if (saved) await testProfile(saved.id, realRequest)
+  }
+  const applyImport = async (file: File) => {
+    try {
+      if (file.size > 1024 * 1024) throw new Error('file too large')
+      setImportPreview(importedProfiles(JSON.parse(await file.text())))
+    } catch { notify('导入失败：需要不超过 1 MB 且包含有效 providers 数组的 JSON 配置') }
+  }
+  const confirmImport = async () => {
+    if (!importPreview) return
+    setBusy('import')
+    try {
+      for (const profile of importPreview) await backend.upsertProviderProfile(profile)
+      setImportPreview(null)
+      await refresh()
+      notify('脱敏档案已追加导入；密钥字段未读取，请逐档案配置')
+    } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
+  }
+  const importDeepLink = async () => {
+    setBusy('deep-link')
+    try {
+      await backend.importProviderDeepLink(deepLink)
+      setDeepLink('')
+      setDeepLinkOpen(false)
+      await refresh()
+      notify('Deep Link 已导入；任何密钥参数均未保存')
+    } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
+  }
+  const exportConfig = async () => {
+    try {
+      const config = await backend.exportProviderConfig()
+      setConfigPreview(config)
+      downloadJson('DeepTutor-provider-config.json', config)
+      notify('已从原生数据层导出脱敏配置，不包含 API Key')
+    } catch (error) { notify(backendErrorMessage(error)) }
+  }
+  const startChat = async () => {
+    if (!activeId || !prompt.trim() || streamBusy) return
+    const requestId = `manual-${crypto.randomUUID()}`
+    requestIdRef.current = requestId
+    setLiveRequest(null)
+    setStreamError('')
+    setStreamBusy(true)
+    try {
+      setLiveRequest(await backend.streamProviderChat(requestId, activeId, [{ role: 'user', content: prompt.trim() }], maxTokens))
+    } catch (error) { setStreamError(backendErrorMessage(error)) } finally { setStreamBusy(false) }
+  }
+  const cancelChat = async () => {
+    if (!requestIdRef.current) return
+    try { await backend.cancelProviderChat(requestIdRef.current) } catch (error) { setStreamError(backendErrorMessage(error)) }
+  }
 
   return <div className={embedded ? 'provider-hub is-embedded' : 'page provider-hub'}>
-    {!embedded && <div className="page-heading"><div><h1>模型接入中心</h1><p>集中管理官方、兼容与本地模型；切换只改变关键字段，不影响学习数据与共享设置。</p></div><div className="heading-actions"><Button variant="secondary" onClick={exportConfig}><Download size={17} />导出脱敏配置</Button><Button onClick={openAdd}><Plus size={18} />添加供应商</Button></div></div>}
-    <div className="provider-view-tabs">{['供应商', '任务路由', '故障转移', '配置与同步'].map(item => <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{item === '供应商' ? <Cloud size={17} /> : item === '任务路由' ? <Route size={17} /> : item === '故障转移' ? <Network size={17} /> : <Settings2 size={17} />}{item}</button>)}</div>
+    {!embedded && <div className="page-heading"><div><h1>模型接入中心</h1><p>原生管理供应商档案、系统凭据与真实模型请求。预设只是配置模板，不代表账号已经接入。</p></div><div className="heading-actions"><Button variant="secondary" onClick={() => void exportConfig()}><Download size={17} />导出脱敏配置</Button><Button onClick={openAdd}><Plus size={18} />添加供应商</Button></div></div>}
+    <div className="provider-view-tabs">{(['供应商', '任务路由', '故障转移', '配置与同步'] as View[]).map(item => <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{item === '供应商' ? <Cloud size={17} /> : item === '任务路由' ? <Route size={17} /> : item === '故障转移' ? <Network size={17} /> : <Settings2 size={17} />}{item}</button>)}</div>
+    {pageError && <div className="form-error"><CircleAlert size={16} />{pageError}<Button variant="ghost" size="sm" onClick={() => void refresh()}>重新读取</Button></div>}
 
     {view === '供应商' && <>
-      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式">{([['direct', '直连模式'], ['routing', '本地路由'], ['aggregate', '聚合模式']] as const).map(([id, label]) => <button key={id} className={mode === id ? 'active' : ''} onClick={() => { setMode(id); notify(id === 'direct' ? '已恢复直连配置' : id === 'routing' ? '本地路由已启动（演示），后续请求经 127.0.0.1 转发' : '聚合模型列表已更新') }}>{label}</button>)}</div><div className={`mode-description mode-${mode}`}><span>{mode === 'direct' ? '每个任务使用指定供应商，一键切换立即生效。' : mode === 'routing' ? '监听 127.0.0.1:15721 · 支持协议转换与自动故障转移。' : `${aggregatedModels.length} 个模型已合并；按模型名自动选择上游，不提供故障转移。`}</span>{mode === 'routing' && <Button variant="ghost" size="sm" onClick={() => setView('故障转移')}>配置路由<ArrowRight size={15} /></Button>}</div></div>
-      {mode === 'routing' && <div className="route-active-banner"><div><Network size={20} /><div><strong>本地路由运行中（演示）</strong><p>应用配置只保存本地地址与 PROXY_MANAGED；真实上游地址、密钥与模型保留在接入中心。</p></div></div><code>http://127.0.0.1:15721/v1</code></div>}
-      {mode === 'aggregate' && <section className="aggregate-models"><div><Blocks size={20} /><h2>统一模型列表</h2><Badge tone="green">{aggregatedModels.length} 个模型</Badge></div><p>请求按所选模型进入对应供应商；未指定模型时使用默认供应商。列表变更后，部分外部客户端可能需要重启。</p><div>{aggregatedModels.map(item => <button key={`${item.providerId}-${item.model}`} onClick={() => { setRoutes({ ...routes, 'Agent 对话': { providerId: item.providerId, model: item.model } }); notify(`Agent 默认模型已设为 ${item.model}`) }}><strong>{item.model}</strong><span>{item.provider}</span></button>)}</div></section>}
-      <div className="provider-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索供应商、地址或模型…" /></div><div className="filter-row">{['全部', '官方', '兼容服务', '本地模型'].map(item => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div><Button variant="secondary" size="sm" onClick={testAll} disabled={testingId === 'all'}>{testingId === 'all' ? <LoaderCircle size={16} className="spin" /> : <Gauge size={16} />}全部测速</Button><IconButton label="导入 JSON 配置" onClick={() => importRef.current?.click()}><Upload size={17} /></IconButton><IconButton label="从 Deep Link 导入" onClick={() => setDeepLinkOpen(true)}><Link2 size={17} /></IconButton><input ref={importRef} type="file" accept=".json" className="visually-hidden" onChange={e => { const file = e.target.files?.[0]; if (file) applyImport(file); e.target.value = '' }} /></div>
-      <div className="provider-health-summary"><span><CheckCircle2 size={16} />{profiles.filter(p => p.health === 'healthy').length} 个端点正常</span><span><CircleAlert size={16} />{profiles.filter(p => p.health === 'error').length} 个需要处理</span><span><LockKeyhole size={16} />密钥脱敏显示，导出永不包含密钥</span></div>
-      <div className="provider-card-list">{filtered.map(profile => { const active = profile.id === activeId; const testing = testingId === profile.id; return <article className={`provider-card ${active ? 'is-active' : ''} ${!profile.enabled ? 'is-disabled' : ''}`} key={profile.id}>
-        <div className="provider-card-main"><span className={`provider-monogram kind-${profile.kind}`}>{profile.name.slice(0, 1)}</span><div className="provider-identity"><div><h2>{profile.name}</h2>{active && mode !== 'aggregate' && <Badge tone="green">当前使用</Badge>}{mode === 'aggregate' && aggregateDefault === profile.id && <Badge tone="green">聚合默认</Badge>}<Badge tone="neutral">{profile.kind}</Badge></div><p><code>{profile.baseUrl}</code></p><div className="provider-model-line"><span>{profile.protocol}</span><strong>{profile.defaultModel}</strong><span>{profile.models.length} 个模型</span></div></div></div>
-        <div className="provider-health"><span className={`health-${profile.health}`}>{profile.health === 'testing' || testing ? <LoaderCircle size={15} className="spin" /> : profile.health === 'healthy' ? <CheckCircle2 size={15} /> : profile.health === 'error' ? <CircleAlert size={15} /> : <Activity size={15} />}{testing ? '检测中' : profile.health === 'healthy' ? `${profile.latency} ms` : profile.health === 'error' ? '需要检查' : '未检测'}</span><small>{profile.note || profile.keyMask}</small></div>
-        <div className="provider-card-actions">{mode === 'aggregate' ? <><Button variant={aggregateIds.includes(profile.id) ? 'secondary' : 'primary'} size="sm" onClick={() => { if (aggregateDefault === profile.id && aggregateIds.includes(profile.id)) { notify('默认供应商不能移出，请先更换默认项'); return } setAggregateIds(aggregateIds.includes(profile.id) ? aggregateIds.filter(id => id !== profile.id) : [...aggregateIds, profile.id]) }}>{aggregateIds.includes(profile.id) ? '移出聚合' : '加入聚合'}</Button>{aggregateIds.includes(profile.id) && <Button variant="ghost" size="sm" onClick={() => setAggregateDefault(profile.id)} disabled={aggregateDefault === profile.id}>设为默认</Button>}</> : <Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => switchProvider(profile.id)} disabled={active || !profile.enabled}>{active ? '正在使用' : '切换使用'}</Button>}<Button variant="secondary" size="sm" onClick={() => testProfile(profile.id)} disabled={Boolean(testingId)}><Gauge size={15} />测速</Button><Button variant="ghost" size="sm" onClick={() => openEdit(profile)}>编辑</Button><IconButton label={`删除${profile.name}`} onClick={() => deleteProvider(profile.id)}><Trash2 size={16} /></IconButton></div>
-      </article>})}{!filtered.length && <div className="provider-empty"><Search size={25} /><h2>没有匹配的供应商</h2><p>清除搜索或切换类型，也可以添加一个新的接入档案。</p><Button onClick={openAdd}><Plus size={16} />添加供应商</Button></div>}</div>
-      <div className="provider-security-note"><ShieldCheck size={17} /><p><strong>密钥处理：</strong>当前为纯前端演示，输入的 API Key 只用于当前内存态表单，保存时立即丢弃且仅保留掩码；真实产品应在后端密钥库中加密保存，浏览器永不接触长期明文。</p></div>
+      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式"><button className="active">直连模式</button><button onClick={() => setView('任务路由')}>本地路由 · 待接入</button><button onClick={() => setView('任务路由')}>聚合模式 · 待接入</button></div><div className="mode-description mode-direct"><span>当前供应商用于真实模型请求；任务级路由、协议转换和聚合尚未接入，未启动本地网络服务。</span></div></div>
+      <section className="surface native-chat-panel"><SectionHeader title="真实模型流式请求" description={activeProfile ? `${activeProfile.name} · ${activeProfile.defaultModel} · ${activeProfile.protocol}` : '请先保存并切换到一个供应商档案'} action={<Badge tone={liveRequest?.status === 'done' ? 'green' : 'neutral'}>{liveRequest ? `原生状态：${liveRequest.status}` : '尚未请求'}</Badge>} /><label>请求内容<textarea rows={3} maxLength={16000} value={prompt} onChange={event => setPrompt(event.target.value)} /></label><div className="form-grid"><label>最大输出 Token<input type="number" min={1} max={8192} value={maxTokens} onChange={event => setMaxTokens(Math.max(1, Math.min(8192, Number(event.target.value) || 1)))} /></label><div className="editor-actions"><Button variant="secondary" onClick={() => void cancelChat()} disabled={!streamBusy}><Square size={15} />取消请求</Button><Button onClick={() => void startChat()} disabled={!activeId || !prompt.trim() || streamBusy}>{streamBusy ? <LoaderCircle size={16} className="spin" /> : <Zap size={16} />}发送真实请求</Button></div></div>{streamError && <div className="form-error"><CircleAlert size={16} />{streamError}</div>}{liveRequest && <><pre className="native-chat-output">{liveRequest.output || (liveRequest.status === 'running' ? '等待上游返回文本…' : '没有已保存的文本输出')}</pre><div className="provider-health-summary"><span>模型：{liveRequest.model}</span><span>实际尝试：{liveRequest.attempts} 次</span><span>{liveRequest.usage ? `输入 ${liveRequest.usage.inputTokens ?? '未报告'} · 输出 ${liveRequest.usage.outputTokens ?? '未报告'} Token` : '上游未报告用量'}</span><span>{liveRequest.latencyMs === null ? '等待终态' : `${liveRequest.latencyMs} ms`}</span></div>{liveRequest.error && <div className="form-error"><CircleAlert size={16} />{liveRequest.error.code}：{liveRequest.error.message}</div>}</>}</section>
+      <div className="provider-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索已保存的供应商、地址或模型…" /></div><div className="filter-row">{['全部', '官方', '兼容服务', '本地模型'].map(item => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div><Button variant="secondary" size="sm" onClick={() => void testAll()} disabled={!profiles.length || Boolean(testingId)}>{testingAll ? <LoaderCircle size={16} className="spin" /> : <Gauge size={16} />}全部检测</Button><IconButton label="导入 JSON 配置" onClick={() => importRef.current?.click()}><Upload size={17} /></IconButton><IconButton label="从 Deep Link 导入" onClick={() => setDeepLinkOpen(true)}><Link2 size={17} /></IconButton><input ref={importRef} type="file" accept=".json" className="visually-hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void applyImport(file); event.target.value = '' }} /></div>
+      <div className="provider-health-summary"><span><CheckCircle2 size={16} />{profiles.filter(profile => profile.health === 'healthy').length} 个档案最近检测正常</span><span><CircleAlert size={16} />{profiles.filter(profile => profile.health === 'error').length} 个需要处理</span><span><LockKeyhole size={16} />密钥只存在系统密钥库，不进入档案或导出</span></div>
+      {loading ? <div className="provider-empty"><LoaderCircle size={25} className="spin" /><h2>正在读取原生供应商档案</h2></div> : <div className="provider-card-list">{filtered.map(profile => { const active = profile.id === activeId; const testing = testingId === profile.id; return <article className={`provider-card ${active ? 'is-active' : ''} ${!profile.enabled ? 'is-disabled' : ''}`} key={profile.id}>
+        <div className="provider-card-main"><span className={`provider-monogram kind-${profile.kind}`}>{profile.name.slice(0, 1)}</span><div className="provider-identity"><div><h2>{profile.name}</h2>{active && <Badge tone="green">当前使用</Badge>}<Badge tone="neutral">{profile.kind}</Badge></div><p><code>{profile.baseUrl}</code></p><div className="provider-model-line"><span>{profile.protocol}</span><strong>{profile.defaultModel}</strong><span>{profile.models.length} 个模型</span></div></div></div>
+        <div className="provider-health"><span className={`health-${testing ? 'testing' : profile.health}`}>{testing ? <LoaderCircle size={15} className="spin" /> : profile.health === 'healthy' ? <CheckCircle2 size={15} /> : profile.health === 'error' ? <CircleAlert size={15} /> : <Activity size={15} />}{testing ? '检测中' : profile.health === 'healthy' ? `${profile.latencyMs ?? '已测'} ms` : profile.health === 'error' ? '最近检测失败' : '未检测'}</span><small>{profile.note || (profile.hasKey ? '凭据已存入系统密钥库' : profile.kind === '本地模型' ? '本地服务可留空密钥' : '未配置密钥')}</small></div>
+        <div className="provider-card-actions"><Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => void switchProvider(profile.id)} disabled={active || !profile.enabled || Boolean(busy)}>{active ? '正在使用' : '切换使用'}</Button><Button variant="secondary" size="sm" onClick={() => void testProfile(profile.id, false)} disabled={Boolean(testingId)}><Gauge size={15} />检测</Button><Button variant="ghost" size="sm" onClick={() => void testProfile(profile.id, true)} disabled={Boolean(testingId)}>真实请求</Button><Button variant="ghost" size="sm" onClick={() => openEdit(profile)}>编辑</Button><IconButton label={`删除${profile.name}`} onClick={() => void deleteProvider(profile.id)} disabled={Boolean(busy)}><Trash2 size={16} /></IconButton></div>
+      </article>})}{!filtered.length && <div className="provider-empty"><Search size={25} /><h2>{profiles.length ? '没有匹配的档案' : '尚未配置供应商'}</h2><p>{profiles.length ? '清除搜索或切换类型。' : '选择一个预设或添加自定义档案；预设不会自动生成健康账号。'}</p><Button onClick={openAdd}><Plus size={16} />添加供应商</Button></div>}</div>}
+      <div className="provider-security-note"><ShieldCheck size={17} /><p><strong>密钥处理：</strong>API Key 通过一次性 IPC 参数交给 Rust，写入当前用户的系统密钥库。界面不显示密钥掩码，数据库、事件、导出与日志均不保存密钥明文。</p></div>
     </>}
 
-    {view === '任务路由' && <div className="model-routing-layout"><main className="surface task-routing-panel"><SectionHeader title="按学习任务分配模型" description="默认跟随当前供应商；也可为推理、写作、判分与本地嵌入分别选择最合适的模型。" action={<Badge tone="green">自动保存</Badge>} /><div className="routing-strategy"><span>快速策略</span>{[['均衡', 'p-deepseek'], ['质量优先', 'p-anthropic'], ['成本优先', 'p-ollama'], ['隐私优先', 'p-ollama']].map(([label, id]) => <button key={label} onClick={() => { const next = Object.fromEntries(taskNames.map(task => [task, { providerId: id, model: '' }])); setRoutes(next); notify(`已按「${label}」重排任务模型，可继续逐项微调`) }}>{label}</button>)}</div><div className="task-route-list">{taskNames.map((task, index) => { const route = routes[task] || { providerId: 'default', model: '' }; const provider = profiles.find(p => p.id === route.providerId); return <div className="task-route-row" key={task}><span className="task-route-index">0{index + 1}</span><div className="task-route-name"><strong>{task}</strong><span>{task === '向量嵌入' ? '本地知识库索引与召回' : task === '测验与判分' ? '需要稳定结构化输出' : '支持当前学习上下文'}</span></div><label>供应商<select value={route.providerId} onChange={e => { const providerId = e.target.value; setRoutes({ ...routes, [task]: { providerId, model: '' } }) }}><option value="default">跟随当前供应商</option>{enabledProfiles.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label><label>模型<select value={route.model} onChange={e => setRoutes({ ...routes, [task]: { ...route, model: e.target.value } })} disabled={route.providerId === 'default'}><option value="">{provider ? `默认 · ${provider.defaultModel}` : '使用供应商默认模型'}</option>{provider?.models.map(model => <option key={model} value={model}>{model}</option>)}</select></label></div>})}</div><div className="routing-footer"><span><Check size={15} />配置变更只影响后续请求，不改写历史会话与已完成内容。</span><Button onClick={() => notify('任务路由已应用；Agent 新会话将按此分配模型')}>应用任务路由</Button></div></main><aside className="routing-side"><section className="surface"><SectionHeader title="当前调用预览" /><div className="call-preview"><span>Agent 对话</span><strong>{profiles.find(p => p.id === (routes['Agent 对话']?.providerId === 'default' ? activeId : routes['Agent 对话']?.providerId))?.name}</strong><code>{routes['Agent 对话']?.model || profiles.find(p => p.id === activeId)?.defaultModel}</code><ArrowRight size={16} /><small>OpenAI / Anthropic 协议按上游格式自动适配</small></div></section><section className="surface routing-note"><Sparkles size={19} /><h3>模型选择的实际建议</h3><p>方案校验与复杂推理解剖可以使用推理模型；讲义摘要、格式整理和资源筛选可使用成本更低的对话模型；本地嵌入能减少资料外发。</p></section></aside></div>}
-
-    {view === '故障转移' && <div className="failover-layout"><main><section className="surface failover-queue"><SectionHeader title="自动故障转移队列" description="上游失败时按顺序尝试下一供应商；熔断后等待冷却再恢复探测。" action={<Badge tone={mode === 'routing' ? 'green' : 'amber'}>{mode === 'routing' ? '路由已启用' : '仅保存配置'}</Badge>} /><div className="failover-list">{queue.map((id, index) => { const profile = profiles.find(p => p.id === id); if (!profile) return null; return <div key={id}><span className="queue-position">{index + 1}</span><div><strong>{profile.name}</strong><code>{profile.defaultModel}</code><small>{profile.health === 'healthy' ? `${profile.latency} ms · 健康` : profile.health === 'error' ? '熔断或鉴权异常' : '等待健康检查'}</small></div><div><IconButton label="上移" disabled={index === 0} onClick={() => { const next = [...queue]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; setQueue(next) }}><ArrowUp size={16} /></IconButton><IconButton label="下移" disabled={index === queue.length - 1} onClick={() => { const next = [...queue]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; setQueue(next) }}><ArrowDown size={16} /></IconButton><IconButton label="移出队列" onClick={() => setQueue(queue.filter(item => item !== id))}><X size={16} /></IconButton></div></div>})}</div><div className="queue-add"><select value="" onChange={e => { if (e.target.value && !queue.includes(e.target.value)) setQueue([...queue, e.target.value]) }}><option value="">选择要加入队列的供应商…</option>{enabledProfiles.filter(p => !queue.includes(p.id)).map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select><Button variant="secondary" onClick={() => { const first = queue[0]; if (!first) return; setRouteLog(`${new Date().toLocaleTimeString()} · ${profiles.find(p => p.id === first)?.defaultModel} → ${profiles.find(p => p.id === queue[1])?.defaultModel || '无可用备份'} · 故障转移（演示）`); notify('已模拟首个上游失败，请求自动切换至下一健康供应商') }}><Play size={16} />模拟故障转移</Button></div></section><section className="surface route-request-log"><SectionHeader title="请求路由日志" description="展示“请求模型 → 实际上游模型”，便于定位协议与故障。" /><code>{routeLog}</code><p>路由模式会记录状态码、首 token 延迟、重试和熔断原因；日志不包含 API Key。</p></section></main><aside className="surface circuit-settings"><SectionHeader title="熔断与重试" description="避免故障上游拖慢所有学习请求。" /><label>连续失败阈值<input type="number" min={1} max={10} value={circuit.failures} onChange={e => setCircuit({ ...circuit, failures: Number(e.target.value) })} /></label><label>熔断冷却（秒）<input type="number" min={10} max={600} value={circuit.cooldown} onChange={e => setCircuit({ ...circuit, cooldown: Number(e.target.value) })} /></label><label>请求超时（秒）<input type="number" min={5} max={300} value={circuit.timeout} onChange={e => setCircuit({ ...circuit, timeout: Number(e.target.value) })} /></label><label>单上游重试次数<select value={circuit.retries} onChange={e => setCircuit({ ...circuit, retries: Number(e.target.value) })}><option value={0}>0 次</option><option value={1}>1 次</option><option value={2}>2 次</option><option value={3}>3 次</option></select></label><div className="circuit-formula"><Zap size={17} /><p>连续 {circuit.failures} 次失败 → 熔断 {circuit.cooldown} 秒 → 半开探测 → 恢复或继续冷却。</p></div><Button onClick={() => { setMode('routing'); notify('本地路由与故障转移配置已启用（演示）') }} disabled={!queue.length}>保存并启用路由</Button></aside></div>}
-
-    {view === '配置与同步' && <div className="provider-config-layout"><main className="surface config-preview"><SectionHeader title="脱敏配置预览" description="切换时只写入端点、密钥引用、模型与协议等关键字段；插件与学习数据保持不变。" action={<div className="heading-actions"><Button variant="ghost" size="sm" onClick={async () => { try { await navigator.clipboard.writeText(JSON.stringify(configPreview, null, 2)); notify('脱敏配置已复制') } catch { notify('复制失败，请使用下载') } }}><Copy size={15} />复制</Button><Button variant="secondary" size="sm" onClick={exportConfig}><Download size={15} />下载</Button></div>} /><pre>{JSON.stringify(configPreview, null, 2)}</pre><div className="config-import-actions"><Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={16} />导入并预演</Button><Button variant="ghost" onClick={() => setDeepLinkOpen(true)}><Link2 size={16} />从 Deep Link 添加</Button></div></main><aside><section className="surface config-safety"><ShieldCheck size={21} /><h2>最小侵入式写入</h2><ul><li>首次写入前自动备份原配置</li><li>原子写入，避免中途损坏</li><li>共享提示词、权限与插件不被覆盖</li><li>当前供应商与聚合默认项不可直接删除</li></ul></section><section className="surface cloud-sync"><SectionHeader title="配置同步" description="WebDAV / S3 兼容存储 · 演示设置" /><label>同步方式<select><option>WebDAV</option><option>S3 兼容存储</option></select></label><label>服务地址<input placeholder="https://dav.example.com/providers" /></label><Button variant="secondary" onClick={() => setSyncOpen(true)}><CloudCog size={16} />配置并测试同步</Button><div className="sync-status"><Check size={14} />尚未开启自动同步；不会上传任何学习资料</div></section></aside></div>}
+    {view === '任务路由' && <div className="model-routing-layout"><main className="surface task-routing-panel"><SectionHeader title="按学习任务分配模型" description="任务路由尚未接入原生调用链；以下项目不会被保存，也不会影响当前真实请求。" action={<Badge tone="amber">待原生接入</Badge>} /><div className="task-route-list">{taskNames.map((task, index) => <div className="task-route-row" key={task}><span className="task-route-index">0{index + 1}</span><div className="task-route-name"><strong>{task}</strong><span>等待对应的生成、对话或检索后端接入</span></div><label>供应商<select disabled value=""><option>尚未启用任务路由</option></select></label><label>模型<select disabled value=""><option>尚未启用模型映射</option></select></label></div>)}</div></main><aside className="surface routing-note"><Route size={19} /><h3>直连与任务路由的区别</h3><p>当前真实请求只使用「当前使用」档案。任务路由、聚合模型与协议转换将在配置持久化并接入实际调用链后启用，不会以本地状态模拟成功。</p></aside></div>}
+    {view === '故障转移' && <section className="surface failover-queue"><SectionHeader title="自动故障转移与熔断" description="尚未创建路由监听器、故障转移队列或熔断状态。" action={<Badge tone="amber">未启动</Badge>} /><div className="provider-empty"><Network size={25} /><h2>没有正在运行的路由服务</h2><p>真实故障转移必须接入学习请求并记录每次实际上游调用后才能验收。当前不提供模拟故障转移、伪造请求日志或虚假的运行状态。</p><Button variant="secondary" onClick={() => setView('供应商')}>返回真实供应商档案</Button></div></section>}
+    {view === '配置与同步' && <div className="provider-config-layout"><main className="surface config-preview"><SectionHeader title="原生脱敏配置" description="内容直接来自 SQLite 中的真实档案；hasKey 只表示系统密钥库中是否存在凭据。" action={<div className="heading-actions"><Button variant="ghost" size="sm" disabled={!configPreview} onClick={() => { if (!configPreview) return; void navigator.clipboard.writeText(JSON.stringify(configPreview, null, 2)).then(() => notify('脱敏配置已复制')).catch(() => notify('复制失败，请使用下载')) }}><Copy size={15} />复制</Button><Button variant="secondary" size="sm" onClick={() => void exportConfig()}><Download size={15} />下载</Button></div>} /><pre>{configPreview ? JSON.stringify(configPreview, null, 2) : '正在读取原生脱敏配置…'}</pre><div className="config-import-actions"><Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={16} />导入并预演</Button><Button variant="ghost" onClick={() => setDeepLinkOpen(true)}><Link2 size={16} />从 Deep Link 添加</Button></div></main><aside><section className="surface config-safety"><ShieldCheck size={21} /><h2>原生数据处理</h2><ul><li>档案与事件保存在应用 SQLite 数据库</li><li>密钥写入系统密钥库，不进入备份</li><li>导入仅追加白名单中的非敏感字段</li><li>当前供应商须先切换才能删除</li></ul></section><section className="surface cloud-sync"><SectionHeader title="配置同步" description="WebDAV / S3 原生同步尚未接入" action={<Badge tone="amber">未启用</Badge>} /><p>当前不会上传档案、学习资料或凭据，也不会显示未经验证的同步成功状态。</p><Button variant="secondary" disabled>等待原生同步实现</Button></section></aside></div>}
 
     <Modal open={editorOpen} onClose={() => setEditorOpen(false)} title={editingId ? '编辑供应商档案' : '添加供应商'} wide>
-      <div className="provider-editor"><div className="editor-step-line">{['选择预设', '连接配置', '检测与完成'].map((name, i) => <span key={name} className={editorStep >= i ? 'active' : ''}>{i + 1} · {name}</span>)}</div>
-        {editorStep === 0 && <><div className="preset-search"><ListFilter size={17} /><span>官方、兼容网关与本地服务预设；选择后仍可修改全部字段。</span></div><div className="preset-grid">{presets.map(preset => <button key={preset.preset} onClick={() => choosePreset(preset)}><span className={`provider-monogram kind-${preset.kind}`}>{preset.name.slice(0, 1)}</span><div><strong>{preset.name}</strong><small>{preset.protocol}</small></div><Badge tone="neutral">{preset.kind}</Badge></button>)}</div></>}
-        {editorStep === 1 && <div className="provider-form"><div className="form-grid"><label>档案名称<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="例如：DeepSeek · 工作账号" /></label><label>接入类型<select value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as Profile['kind'] })}><option>官方</option><option>兼容服务</option><option>本地模型</option></select></label></div><div className="form-grid"><label>上游协议<select value={form.protocol} onChange={e => setForm({ ...form, protocol: e.target.value as Protocol })}><option>OpenAI Chat</option><option>OpenAI Responses</option><option>Anthropic Messages</option><option>Gemini Native</option></select></label><label>默认模型<input value={form.defaultModel} onChange={e => setForm({ ...form, defaultModel: e.target.value })} placeholder="model-name" /></label></div><label>Base URL<input value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com/v1" /></label>{presets.find(p => p.preset === form.preset)?.docs && <a className="provider-doc-link" href={presets.find(p => p.preset === form.preset)?.docs} target="_blank" rel="noreferrer">查看官方接入文档<SquareArrowOutUpRight size={14} /></a>}<label>API Key{form.kind === '本地模型' && <span className="optional-label">本地服务通常留空</span>}<div className="secret-input"><input type={showKey ? 'text' : 'password'} value={form.key} onChange={e => setForm({ ...form, key: e.target.value })} placeholder={form.kind === '本地模型' ? '无需密钥' : '仅本次内存使用，不保存明文'} /><IconButton label={showKey ? '隐藏密钥' : '显示密钥'} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={17} /> : <Eye size={17} />}</IconButton></div></label><div className="model-fetch-row"><div><strong>可用模型</strong><span>{form.models.length ? `${form.models.length} 个 · 默认 ${form.defaultModel}` : '尚未获取模型列表'}</span></div><Button variant="secondary" size="sm" onClick={fetchModels}><RefreshCw size={15} />获取模型列表</Button></div><div className="model-check-list">{form.models.map(model => <label key={model}><input type="checkbox" checked={form.defaultModel === model} onChange={() => setForm({ ...form, defaultModel: model })} /><span>{model}</span>{form.defaultModel === model && <Badge tone="green">默认</Badge>}</label>)}</div><label>备注<textarea rows={2} value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="账号用途、部署区域或兼容注意事项…" /></label><details className="advanced-provider-options"><summary><Settings2 size={16} />高级连接与兼容设置</summary><div className="form-grid"><label>超时（秒）<input type="number" defaultValue={45} min={5} /></label><label>重试次数<select defaultValue="2"><option>0</option><option>1</option><option>2</option><option>3</option></select></label></div><label>自定义请求头（JSON）<textarea rows={3} defaultValue={'{\n  "X-Client": "DeepTutor"\n}'} /></label><label>模型映射（可选）<input placeholder="client-alias=upstream-model" /></label><Toggle checked={rectify} onChange={value => { setRectify(value); notify(`协议修正已${value ? '开启' : '关闭'}`) }} label="自动修正常见上游兼容问题" description="处理不支持的工具字段、思考签名与图像回退；实际修正在后端执行。" /></details>{formError && <div className="form-error"><CircleAlert size={16} />{formError}</div>}<div className="editor-actions"><Button variant="secondary" onClick={() => editingId ? setEditorOpen(false) : setEditorStep(0)}>{editingId ? '取消' : '返回预设'}</Button><div><Button variant="ghost" onClick={() => setEditorStep(2)}>检测与完成<ArrowRight size={16} /></Button><Button onClick={saveProfile}>保存档案</Button></div></div></div>}
-        {editorStep === 2 && <div className="connection-check"><div className="connection-summary"><span className={`provider-monogram kind-${form.kind}`}>{form.name.slice(0, 1) || 'M'}</span><div><h3>{form.name}</h3><code>{form.baseUrl}</code><p>{form.protocol} · {form.defaultModel}</p></div></div><div className="check-explainer"><Gauge size={20} /><div><strong>两种检测验证的内容不同</strong><p>端点测速只确认地址可达；模型测试请求还会检查密钥、模型名和上游协议。当前均为明确标识的演示结果。</p></div></div><div className="connection-test-actions"><Button variant="secondary" onClick={() => { setTestStage('正在检查端点连通性…'); window.setTimeout(() => { setTestStage('端点可达 · 386 ms（演示）'); notify('端点检测完成，可继续测试模型请求') }, 800) }}><Gauge size={16} />检测端点</Button><Button onClick={() => { setTestStage('正在发送最小模型请求…'); window.setTimeout(() => { setTestStage('端点、鉴权与模型请求均通过（演示）'); notify('供应商已可保存并使用') }, 1000) }}><Zap size={16} />发送测试请求</Button></div>{testStage && <div className="test-stage"><LoaderCircle size={17} className={testStage.includes('正在') ? 'spin' : 'hidden'} /><span>{testStage}</span></div>}<div className="local-cors-note"><Laptop size={17} /><p>本地模型需注意：浏览器直连可能受 CORS、混合内容和地址回环限制。生产环境建议通过后端代理访问 127.0.0.1，不要把本地未鉴权服务暴露到公网。</p></div><div className="editor-actions"><Button variant="secondary" onClick={() => setEditorStep(1)}>返回配置</Button><Button onClick={saveProfile}>保存并完成</Button></div></div>}
+      <div className="provider-editor"><div className="editor-step-line">{['选择预设', '连接配置', '检测与完成'].map((name, index) => <span key={name} className={editorStep >= index ? 'active' : ''}>{index + 1} · {name}</span>)}</div>
+        {editorStep === 0 && <><div className="preset-search"><ListFilter size={17} /><span>预设只填充连接字段，不创建账号、不伪造凭据或健康状态。</span></div><div className="preset-grid">{presets.map(preset => <button key={preset.preset} onClick={() => choosePreset(preset)}><span className={`provider-monogram kind-${preset.kind}`}>{preset.name.slice(0, 1)}</span><div><strong>{preset.name}</strong><small>{preset.protocol}</small></div><Badge tone="neutral">{preset.kind}</Badge></button>)}</div></>}
+        {editorStep === 1 && <div className="provider-form"><div className="form-grid"><label>档案名称<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="例如：DeepSeek · 工作账号" /></label><label>接入类型<select value={form.kind} onChange={event => setForm({ ...form, kind: event.target.value as ProviderKind })}><option>官方</option><option>兼容服务</option><option>本地模型</option></select></label></div><div className="form-grid"><label>上游协议<select value={form.protocol} onChange={event => setForm({ ...form, protocol: event.target.value as ProviderProtocol })}><option>OpenAI Chat</option><option>OpenAI Responses</option><option>Anthropic Messages</option><option>Gemini Native</option></select></label><label>默认模型<input value={form.defaultModel} onChange={event => setForm({ ...form, defaultModel: event.target.value })} placeholder="model-name" /></label></div><label>Base URL<input value={form.baseUrl} onChange={event => setForm({ ...form, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" /></label>{presets.find(preset => preset.preset === form.preset)?.docs && <a className="provider-doc-link" href={presets.find(preset => preset.preset === form.preset)?.docs} target="_blank" rel="noreferrer">查看官方接入文档<SquareArrowOutUpRight size={14} /></a>}<label>API Key{form.kind === '本地模型' && <span className="optional-label">本地服务通常留空</span>}<div className="secret-input"><input type={showKey ? 'text' : 'password'} value={form.key} onChange={event => setForm({ ...form, key: event.target.value })} autoComplete="new-password" placeholder={editingId ? '留空保留原密钥；输入新值则替换' : '仅本次传给原生系统密钥库'} /><IconButton label={showKey ? '隐藏密钥' : '显示密钥'} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={17} /> : <Eye size={17} />}</IconButton></div></label>{editingId && <label><input type="checkbox" checked={clearKey} onChange={event => setClearKey(event.target.checked)} /> 删除系统密钥库中的现有凭据</label>}<div className="model-fetch-row"><div><strong>可用模型</strong><span>{form.models.length ? `${form.models.length} 个 · 默认 ${form.defaultModel}` : '尚未读取真实模型列表'}</span></div><Button variant="secondary" size="sm" onClick={() => void fetchModels()} disabled={Boolean(testingId) || Boolean(busy)}><RefreshCw size={15} />保存并获取模型</Button></div><div className="model-check-list">{form.models.map(model => <label key={model}><input type="checkbox" checked={form.defaultModel === model} onChange={() => setForm({ ...form, defaultModel: model })} /><span>{model}</span>{form.defaultModel === model && <Badge tone="green">默认</Badge>}</label>)}</div><label>备注<textarea rows={2} value={form.note} onChange={event => setForm({ ...form, note: event.target.value })} placeholder="账号用途、部署区域或兼容注意事项…" /></label><div className="modal-callout"><Server size={17} />远程档案要求 HTTPS 与公网地址；本地 HTTP 仅允许回环或私网服务。只有 OpenAI Chat 已接入真实协议，其他协议可保存但会明确返回 unsupported_protocol。</div>{formError && <div className="form-error"><CircleAlert size={16} />{formError}</div>}<div className="editor-actions"><Button variant="secondary" onClick={() => editingId ? setEditorOpen(false) : setEditorStep(0)}>{editingId ? '关闭' : '返回预设'}</Button><div><Button variant="ghost" onClick={() => setEditorStep(2)}>检测与完成</Button><Button onClick={() => void saveProfile()} disabled={Boolean(busy)}>{busy === 'save' ? <LoaderCircle size={15} className="spin" /> : null}保存档案</Button></div></div></div>}
+        {editorStep === 2 && <div className="connection-check"><div className="connection-summary"><span className={`provider-monogram kind-${form.kind}`}>{form.name.slice(0, 1) || 'M'}</span><div><h3>{form.name}</h3><code>{form.baseUrl}</code><p>{form.protocol} · {form.defaultModel}</p></div></div><div className="check-explainer"><Gauge size={20} /><div><strong>两种检测验证的内容不同</strong><p>读取 /models 只验证端点与模型列表；真实聊天请求还验证凭据、模型名与协议。检测前会保存当前档案，结果来自实际上游响应。</p></div></div><div className="connection-test-actions"><Button variant="secondary" onClick={() => void testFromEditor(false)} disabled={Boolean(testingId) || Boolean(busy)}><Gauge size={16} />读取模型列表</Button><Button onClick={() => void testFromEditor(true)} disabled={Boolean(testingId) || Boolean(busy)}><Zap size={16} />发送真实测试请求</Button></div>{testStage && <div className="test-stage">{testingId ? <LoaderCircle size={17} className="spin" /> : <Activity size={17} />}<span>{testStage}</span></div>}{formError && <div className="form-error"><CircleAlert size={16} />{formError}</div>}<div className="local-cors-note"><Server size={17} /><p>请求由 Tauri 原生后端发送，不使用浏览器跨域访问。远程服务必须使用 HTTPS；本地服务不应暴露到公网。</p></div><div className="editor-actions"><Button variant="secondary" onClick={() => setEditorStep(1)}>返回配置</Button><Button onClick={() => void saveProfile()} disabled={Boolean(busy)}>保存并关闭</Button></div></div>}
       </div>
     </Modal>
-    <Modal open={Boolean(importPreview)} onClose={() => setImportPreview(null)} title="导入预演 · 脱敏供应商配置"><div className="import-provider-preview"><div className="modal-callout"><FileJson size={18} />检测到 {importPreview?.length || 0} 个有效供应商。导入采用追加方式，不覆盖现有档案；密钥字段会被忽略。</div>{importPreview?.map(profile => <div key={profile.id}><Cloud size={17} /><div><strong>{profile.name}</strong><code>{profile.baseUrl}</code></div><Badge tone="neutral">{profile.protocol}</Badge></div>)}<div className="confirm-actions"><Button variant="secondary" onClick={() => setImportPreview(null)}>取消</Button><Button onClick={() => { if (importPreview) setProfiles([...profiles, ...importPreview]); setImportPreview(null); notify('供应商配置已追加导入，请重新输入各档案密钥') }}>确认追加导入</Button></div></div></Modal>
-    <Modal open={deepLinkOpen} onClose={() => setDeepLinkOpen(false)} title="从 Deep Link 添加供应商"><div className="form-stack"><label>Deep Link<textarea rows={4} value={deepLink} onChange={e => setDeepLink(e.target.value)} placeholder="deeptutor://provider?name=My%20API&baseUrl=https%3A%2F%2Fapi.example.com%2Fv1&protocol=OpenAI%20Chat&model=custom-model" /></label><p className="form-help">支持 name、baseUrl、protocol、model 参数。链接中不应携带 API Key；如果包含 key 参数，会在导入前删除。</p><Button onClick={() => { try { const url = new URL(deepLink); const name = url.searchParams.get('name'); const baseUrl = url.searchParams.get('baseUrl'); if (!name || !baseUrl) throw new Error(); const model = url.searchParams.get('model') || 'custom-chat-model'; const protocol = (url.searchParams.get('protocol') || 'OpenAI Chat') as Protocol; const preset = `deeplink-${Date.now()}`; setProfiles([...profiles, { id: preset, name, preset: 'custom', kind: '兼容服务', protocol, baseUrl, models: [model], defaultModel: model, keyMask: '待配置密钥', health: 'unknown', enabled: true }]); setDeepLink(''); setDeepLinkOpen(false); notify('已从 Deep Link 添加供应商，密钥参数未导入') } catch { notify('无法解析 Deep Link：name 与 baseUrl 为必填参数') } }} disabled={!deepLink.trim()}><Link2 size={16} />解析并添加</Button></div></Modal>
-    <Modal open={syncOpen} onClose={() => setSyncOpen(false)} title="配置云同步"><div className="form-stack"><div className="modal-callout"><CloudCog size={18} />只同步脱敏供应商档案与任务路由。API Key 应使用各设备独立的后端密钥引用，不进入 WebDAV 或 S3。</div><label>服务地址<input defaultValue="https://dav.example.com/DeepTutor" /></label><div className="form-grid"><label>账号<input autoComplete="off" /></label><label>设备专用凭据<input type="password" autoComplete="new-password" /></label></div><Toggle checked={autoSync} onChange={value => { setAutoSync(value); notify(value ? '自动同步已开启（演示）' : '自动同步已关闭') }} label="每 24 小时自动同步" description="保留最近 10 个配置版本，可随时恢复。" /><Button onClick={() => { setSyncOpen(false); notify('同步连接测试通过（演示）；未实际上传任何数据') }}>测试连接并保存</Button></div></Modal>
+    <Modal open={Boolean(importPreview)} onClose={() => setImportPreview(null)} title="导入预演 · 脱敏供应商配置"><div className="import-provider-preview"><div className="modal-callout"><FileJson size={18} />检测到 {importPreview?.length || 0} 个供应商。仅追加白名单中的非敏感字段，不读取或导入任何密钥。</div>{importPreview?.map((profile, index) => <div key={`${profile.name}-${index}`}><Cloud size={17} /><div><strong>{profile.name}</strong><code>{profile.baseUrl}</code></div><Badge tone="neutral">{profile.protocol}</Badge></div>)}<div className="confirm-actions"><Button variant="secondary" onClick={() => setImportPreview(null)}>取消</Button><Button onClick={() => void confirmImport()} disabled={busy === 'import'}>{busy === 'import' ? '正在写入…' : '确认追加导入'}</Button></div></div></Modal>
+    <Modal open={deepLinkOpen} onClose={() => setDeepLinkOpen(false)} title="从 Deep Link 添加供应商"><div className="form-stack"><label>Deep Link<textarea rows={4} value={deepLink} onChange={event => setDeepLink(event.target.value)} placeholder="deeptutor://provider?name=My%20API&baseUrl=https%3A%2F%2Fapi.example.com%2Fv1&protocol=OpenAI%20Chat&model=custom-model" /></label><p className="form-help">原生后端只读取 name、baseUrl、protocol、model；链接中的密钥参数会被忽略。请勿在链接中放置 API Key。</p><Button onClick={() => void importDeepLink()} disabled={!deepLink.trim() || busy === 'deep-link'}><Link2 size={16} />解析并添加</Button></div></Modal>
   </div>
 }

@@ -1600,6 +1600,8 @@ h1, h2, h3 { text-wrap: balance; }
 
 /* Model provider hub */
 .provider-hub.is-embedded { padding: 0; }
+.native-chat-panel { margin-bottom: 18px; }
+.native-chat-output { max-height: 360px; margin: 14px 0; padding: 14px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.75 var(--font); }
 .provider-view-tabs { display: flex; gap: 5px; overflow-x: auto; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
 .provider-view-tabs button { flex: 0 0 auto; min-height: 48px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); }
 .provider-view-tabs button.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
