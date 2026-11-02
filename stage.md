@@ -38,6 +38,19 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 430（2026-11-02，T1：REF 界面入库 + Tauri 2 壳，✅ 完成）**：
+承接 iter 429，将 `REF/frontend/app` 源码复制到 `desktop/` 并新增 Tauri 2 原生壳。
+
+| 项 | 结果 |
+|---|---|
+| 新界面 | `desktop/src`、`public`、Vite/TS 配置与 lockfile 均来自用户 REF；未复制 REF 的 `dist` 与工具缓存 |
+| Tauri 2 | 新增 `desktop/src-tauri/{Cargo.toml,build.rs,src/main.rs,tauri.conf.json}`；唯一窗口为「知舟 Deep Tutor」；开发地址仅 `127.0.0.1:1420`；`bundle.active=false` |
+| 构建 | `npm install` 成功（项目内 204 包）；`npm run build`：1886 modules，TypeScript + Vite 构建通过；Tauri CLI **2.12.4** 正确读取配置 |
+| 交互 | 真实页面快速记录：任务 4→5，新任务显示；重载后仍存在，验证本地持久化；验证标签页与服务已关闭 |
+| 工具链 | `npx tauri info`：WebView2、MSVC 均存在；Rust/Cargo/rustup 缺失，未擅自安装；原生 `tauri build` 留待工具链可用后验证 |
+| 文档 | `desktop/README.md` 改为 Tauri 2 运行/构建/边界说明；`PRODUCT.md` 平台改为 Tauri 2 |
+| 下一步 | T2：删除旧 UI 目录与失效测试/CI/Makefile/文档引用，保持可验证增量 |
+
 **iter 429（2026-11-02，方向改定：唯一 UI = Tauri 2 + REF 新前端，🚧 进行中）**：
 用户要求废弃现有前端、停止网页端制作，强制使用 Tauri 2 与 `REF/frontend/app`，
 只保留应用界面。本步先完成范围盘点与决策修订。
