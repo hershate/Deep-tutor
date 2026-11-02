@@ -1,0 +1,7 @@
+import { BookOpen, CalendarDays, Check, Clock3, LockKeyhole, Target } from 'lucide-react'
+import { Badge, ProgressBar } from '../components/UI'
+
+export default function SharedPlan({ missing = false }: { missing?: boolean }) {
+  if (missing) return <div className="shared-missing"><LockKeyhole size={36} /><h1>分享内容不可用</h1><p>链接不存在、已撤销或已过期。</p><span>404</span></div>
+  return <div className="shared-plan"><header><div><span className="shared-logo">知舟</span><Badge tone="green">只读分享</Badge></div><span>有效期至 2027 年 1 月 31 日</span></header><main><div className="shared-hero"><Badge tone="green">学习方案</Badge><h1>贝叶斯定理：从公式到应用</h1><p>由陈默分享 · 仅供阅读，不包含私人笔记、会话或学习记录。</p><div><span><Target size={16} />4 个渐进阶段</span><span><CalendarDays size={16} />21 天</span><span><Clock3 size={16} />每日 45 分钟</span></div></div><section><h2>学习路径</h2>{[['建立概率直觉','已完成',100],['理解条件概率','已完成',100],['掌握贝叶斯更新','进行中',64],['完成真实分类项目','待开始',0]].map(([name,status,value],i)=><div className="shared-stage" key={String(name)}><span>{i+1}</span><div><strong>{name}</strong><ProgressBar value={Number(value)} /></div><Badge tone={value===100?'green':value===64?'amber':'neutral'}>{status}</Badge></div>)}</section><section><h2>本方案包含</h2><div className="shared-includes"><span><BookOpen size={17} />18 个知识节点</span><span><Check size={17} />24 道检查题</span><span><CalendarDays size={17} />12 个学习日程</span></div></section></main><footer>知舟 Deep Tutor · 只读方案视图</footer></div>
+}

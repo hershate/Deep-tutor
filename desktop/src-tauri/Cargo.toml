@@ -1,0 +1,11 @@
+[package]
+name = "deep-tutor-workspace"
+version = "1.0.0"
+description = "知舟 Deep Tutor desktop workspace"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
