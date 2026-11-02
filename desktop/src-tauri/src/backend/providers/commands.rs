@@ -132,8 +132,19 @@ pub async fn stream_provider_chat_with_tools<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_provider_chat(state: State<'_, BackendState>, request_id: String) -> Result<()> {
-    super::cancel_chat(&state.providers, &request_id)
+pub fn cancel_provider_chat<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    request_id: String,
+) -> Result<()> {
+    super::cancel_chat_with_app(&app, &state.providers, &request_id)
+}
+
+#[tauri::command]
+pub fn list_provider_circuits(
+    state: State<'_, BackendState>,
+) -> Result<Vec<super::routing::CircuitSnapshot>> {
+    super::routing::circuits(&state.providers)
 }
 
 #[tauri::command]

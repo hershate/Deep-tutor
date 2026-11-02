@@ -246,18 +246,9 @@ pub fn get(
                 error_message,
             ) = row?;
             let usage = match &request_id {
-                Some(request) => store
-                    .conn
-                    .query_row(
-                        "SELECT usage_json FROM provider_requests WHERE request_id = ?1",
-                        params![request],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .optional()?
-                    .flatten()
-                    .map(|value| serde_json::from_str(&value))
-                    .transpose()?
-                    .flatten(),
+                Some(request) => providers::get_chat(&state.providers, request)
+                    .ok()
+                    .and_then(|request| request.usage),
                 None => None,
             };
             units.push(LectureUnit {

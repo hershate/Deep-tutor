@@ -227,11 +227,24 @@ export type ProviderRequest = {
 }
 export type TaskRouteId = 'agent' | 'plan' | 'lecture' | 'practice' | 'wiki' | 'resources' | 'embedding'
 export type RouteAssignment = { providerId: string | null; model: string | null }
+export type CircuitSettings = { failures: number; cooldown: number; timeout: number; retries: number }
 export type RoutingSettings = {
   mode: 'direct' | 'routing' | 'aggregate'
   routes: Partial<Record<TaskRouteId, RouteAssignment>>
   aggregateProviderIds: string[]
   aggregateDefault: string | null
+  failover: string[]
+  circuit: CircuitSettings
+}
+export type CircuitSnapshot = { providerId: string; state: 'closed' | 'open' | 'half_open'; failures: number; openedAt: string | null; lastError: BackendError | null }
+export type ProviderRouteAttempt = {
+  attempt: number
+  providerId: string
+  model: string
+  upstreamRequestId: string | null
+  status: string
+  latencyMs: number | null
+  error: BackendError | null
 }
 export type ProviderRouteLog = {
   requestId: string
@@ -241,6 +254,7 @@ export type ProviderRouteLog = {
   providerId: string | null
   model: string | null
   error: BackendError | null
+  attempts: ProviderRouteAttempt[]
   createdAt: string
   updatedAt: string
 }
@@ -372,6 +386,7 @@ export const backend = {
   getRoutingSettings: () => invoke<RoutingSettings>('get_routing_settings'),
   saveRoutingSettings: (settings: RoutingSettings) => invoke<RoutingSettings>('save_routing_settings', { settings }),
   listProviderRouteLogs: () => invoke<ProviderRouteLog[]>('list_provider_route_logs'),
+  listProviderCircuits: () => invoke<CircuitSnapshot[]>('list_provider_circuits'),
   routeProviderChat: (requestId: string, task: TaskRouteId, profileId: string | null, model: string | null, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('route_provider_chat', { requestId, task, profileId, model, messages, maxTokens }),
 }
 

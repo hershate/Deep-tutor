@@ -3,7 +3,7 @@ import { Activity, CheckCircle2, CircleAlert, Cloud, Copy, Download, Eye, EyeOff
 import { Badge, Button, IconButton, Modal, SectionHeader } from '../components/UI'
 import ProviderRouting, { AggregateModels, ProviderRouteLogs, emptyRouting } from '../components/ProviderRouting'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
-import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult, ProviderRouteLog, RoutingSettings } from '../backend/client'
+import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult, ProviderRouteLog, RoutingSettings, CircuitSnapshot } from '../backend/client'
 
 type Preset = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; docs?: string }
 type EditorForm = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; key: string; note: string }
@@ -72,6 +72,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const [activeId, setActiveId] = useState<string | null>(null)
   const [routing, setRouting] = useState<RoutingSettings>(emptyRouting)
   const [routeLogs, setRouteLogs] = useState<ProviderRouteLog[]>([])
+  const [circuits, setCircuits] = useState<CircuitSnapshot[]>([])
   const [requestModel, setRequestModel] = useState('')
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
@@ -99,15 +100,17 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const [streamBusy, setStreamBusy] = useState(false)
   const [streamError, setStreamError] = useState('')
   const requestIdRef = useRef('')
+  const upstreamRequestIdRef = useRef('')
   const importRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [items, active, settings, logs] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider(), backend.getRoutingSettings(), backend.listProviderRouteLogs()])
+      const [items, active, settings, logs, circuitStates] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider(), backend.getRoutingSettings(), backend.listProviderRouteLogs(), backend.listProviderCircuits()])
       setProfiles(items)
       setActiveId(active)
       setRouting(settings)
       setRouteLogs(logs)
+      setCircuits(circuitStates)
       setPageError('')
     } catch (error) {
       setPageError(backendErrorMessage(error))
@@ -144,10 +147,11 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     let unlisten: (() => void) | undefined
     void onBackendEvent(event => {
       if (disposed) return
+      if (event.kind === 'provider.route_attempt' && event.payload.requestId === requestIdRef.current && typeof event.payload.upstreamRequestId === 'string') upstreamRequestIdRef.current = event.payload.upstreamRequestId
       if (event.kind.startsWith('provider.') && !event.kind.startsWith('provider.chat_')) void refresh()
       if (event.kind.startsWith('provider.chat_')) {
         const requestId = event.payload.requestId
-        if (typeof requestId === 'string' && requestId === requestIdRef.current) {
+        if (typeof requestId === 'string' && (requestId === requestIdRef.current || requestId === upstreamRequestIdRef.current)) {
           void backend.getProviderChat(requestId).then(setLiveRequest).catch(error => setStreamError(backendErrorMessage(error)))
         }
       }
@@ -262,7 +266,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     try {
       await backend.setActiveProvider(id)
       await refresh()
-      notify('当前供应商已切换；后续原生请求使用新档案')
+      notify(routing.mode === 'direct' ? '当前供应商已切换；后续直连请求使用新档案' : '默认档案已切换；显式任务路由与聚合成员配置保持不变')
     } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
   }
   const deleteProvider = async (id: string) => {
@@ -331,6 +335,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     if ((!activeId && routing.mode !== 'aggregate') || !prompt.trim() || streamBusy) return
     const requestId = `manual-${crypto.randomUUID()}`
     requestIdRef.current = requestId
+    upstreamRequestIdRef.current = requestId
     setLiveRequest(null)
     setStreamError('')
     setStreamBusy(true)
@@ -369,7 +374,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     </>}
 
     {view === '任务路由' && <ProviderRouting settings={routing} profiles={profiles} activeId={activeId} onSave={saveRouting} saving={busy === 'routing'} />}
-    {view === '故障转移' && <ProviderRouteLogs logs={routeLogs} settings={routing} profiles={profiles} />}
+    {view === '故障转移' && <ProviderRouteLogs logs={routeLogs} settings={routing} profiles={profiles} circuits={circuits} onSave={saveRouting} saving={busy === 'routing'} />}
     {view === '配置与同步' && <div className="provider-config-layout"><main className="surface config-preview"><SectionHeader title="原生脱敏配置" description="内容直接来自 SQLite 中的真实档案；hasKey 只表示系统密钥库中是否存在凭据。" action={<div className="heading-actions"><Button variant="ghost" size="sm" disabled={!configPreview} onClick={() => { if (!configPreview) return; void navigator.clipboard.writeText(JSON.stringify(configPreview, null, 2)).then(() => notify('脱敏配置已复制')).catch(() => notify('复制失败，请使用下载')) }}><Copy size={15} />复制</Button><Button variant="secondary" size="sm" onClick={() => void exportConfig()}><Download size={15} />下载</Button></div>} /><pre>{configPreview ? JSON.stringify(configPreview, null, 2) : '正在读取原生脱敏配置…'}</pre><div className="config-import-actions"><Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={16} />导入并预演</Button><Button variant="ghost" onClick={() => setDeepLinkOpen(true)}><Link2 size={16} />从 Deep Link 添加</Button></div></main><aside><section className="surface config-safety"><ShieldCheck size={21} /><h2>原生数据处理</h2><ul><li>档案与事件保存在应用 SQLite 数据库</li><li>密钥写入系统密钥库，不进入备份</li><li>导入仅追加白名单中的非敏感字段</li><li>当前供应商须先切换才能删除</li></ul></section><section className="surface cloud-sync"><SectionHeader title="配置同步" description="WebDAV / S3 原生同步尚未接入" action={<Badge tone="amber">未启用</Badge>} /><p>当前不会上传档案、学习资料或凭据，也不会显示未经验证的同步成功状态。</p><Button variant="secondary" disabled>等待原生同步实现</Button></section></aside></div>}
 
     <Modal open={editorOpen} onClose={() => setEditorOpen(false)} title={editingId ? '编辑供应商档案' : '添加供应商'} wide>

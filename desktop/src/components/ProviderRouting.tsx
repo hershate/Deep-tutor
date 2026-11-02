@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Check, Network, Route, ShieldCheck } from 'lucide-react'
-import { Badge, Button, SectionHeader } from './UI'
-import type { ProviderProfile, ProviderRouteLog, RoutingSettings, TaskRouteId } from '../backend/client'
+import { ArrowDown, ArrowUp, Check, Network, Route, ShieldCheck, X, Zap } from 'lucide-react'
+import { Badge, Button, IconButton, SectionHeader } from './UI'
+import type { CircuitSettings, CircuitSnapshot, ProviderProfile, ProviderRouteLog, RoutingSettings, TaskRouteId } from '../backend/client'
 
 export const taskRoutes: { id: TaskRouteId; name: string; hint: string }[] = [
   { id: 'agent', name: 'Agent 对话', hint: '支持当前学习上下文' },
@@ -12,7 +12,7 @@ export const taskRoutes: { id: TaskRouteId; name: string; hint: string }[] = [
   { id: 'resources', name: '资源检索', hint: '检索与筛选学习资源' },
   { id: 'embedding', name: '向量嵌入', hint: '本地知识库索引与召回' },
 ]
-export const emptyRouting: RoutingSettings = { mode: 'direct', routes: {}, aggregateProviderIds: [], aggregateDefault: null }
+export const emptyRouting: RoutingSettings = { mode: 'direct', routes: {}, aggregateProviderIds: [], aggregateDefault: null, failover: [], circuit: { failures: 3, cooldown: 60, timeout: 45, retries: 2 } }
 type Save = (settings: RoutingSettings) => Promise<boolean>
 type CommonProps = { settings: RoutingSettings; profiles: ProviderProfile[]; onSave: Save; saving: boolean }
 
@@ -47,7 +47,36 @@ export default function ProviderRouting({ settings, profiles, activeId, onSave, 
   })}</div><div className="routing-footer"><span><Check size={15} />配置只影响后续请求，不改写历史会话与已完成内容。</span><Button disabled={saving} onClick={() => void save(settings)}>保存并应用任务路由</Button></div></main><aside className="routing-side"><section className="surface"><SectionHeader title="当前调用预览" /><div className="call-preview"><span>Agent 对话</span><strong>{previewProvider?.name ?? '尚未配置供应商'}</strong><code>{agent?.model ?? previewProvider?.defaultModel ?? '未选择模型'}</code><small>{settings.mode === 'aggregate' ? '按聚合模型选择上游，不自动故障转移' : settings.mode === 'routing' ? '由原生任务路由选择供应商' : '使用当前供应商直连'}</small></div></section><section className="surface routing-note"><Route size={19} /><h3>真实调用边界</h3><p>模型覆盖会校验所选档案的模型列表，并记录实际上游供应商与模型。质量与成本快捷策略只是配置模板，不代表测评或价格结论。</p></section></aside></div>
 }
 
-export function ProviderRouteLogs({ logs, settings, profiles }: { logs: ProviderRouteLog[]; settings: RoutingSettings; profiles: ProviderProfile[] }) {
+export function ProviderRouteLogs({ logs, settings, profiles, circuits, onSave, saving }: { logs: ProviderRouteLog[]; settings: RoutingSettings; profiles: ProviderProfile[]; circuits: CircuitSnapshot[]; onSave: Save; saving: boolean }) {
   const latest = useMemo(() => logs.slice(0, 20), [logs])
-  return <div className="failover-layout"><main><section className="surface failover-queue"><SectionHeader title="自动故障转移队列" description="故障转移与熔断将在下一切片接入；当前不会伪造队列健康状态或模拟切换。" action={<Badge tone="amber">尚未启用</Badge>} /><div className="provider-empty"><Network size={25} /><h2>故障转移尚未接入</h2><p>当前{settings.mode === 'aggregate' ? '聚合按模型选择上游，不自动切换。' : settings.mode === 'routing' ? '任务路由按保存的分配调用上游。' : '请求直连当前供应商。'}真实请求结果仍保存在下方日志中。</p></div></section><section className="surface route-request-log"><SectionHeader title="请求路由日志" description="来自原生 route_runs；不包含 API Key 或提示词。" />{latest.length ? latest.map(log => <div className="route-log-entry" key={log.requestId}><code>{log.requestId}</code><span>{taskRoutes.find(task => task.id === log.task)?.name ?? log.task} · {log.mode}</span><strong>{profiles.find(profile => profile.id === log.providerId)?.name ?? log.providerId ?? '未选择'} · {log.model ?? '未知模型'}</strong><Badge tone={log.status === 'done' ? 'green' : log.status === 'failed' ? 'red' : 'amber'}>{log.status}</Badge>{log.error && <p>{log.error.code}：{log.error.message}</p>}</div>) : <p>尚无原生路由请求。发送一次真实模型请求后，这里会显示实际结果。</p>}</section></main><aside className="surface circuit-settings"><SectionHeader title="熔断与重试" description="连续失败阈值、冷却、超时与单上游重试尚未启用。" /><div className="security-note"><ShieldCheck size={17} />当前仅记录原生路由与实际请求，不提供模拟故障转移或虚假熔断状态。</div></aside></div>
+  const enabled = profiles.filter(profile => profile.enabled)
+  const move = (index: number, offset: number) => {
+    const target = index + offset
+    if (target < 0 || target >= settings.failover.length) return
+    const failover = [...settings.failover]
+    ;[failover[index], failover[target]] = [failover[target], failover[index]]
+    void onSave({ ...settings, failover })
+  }
+  const updateCircuit = (key: keyof CircuitSettings, value: number) => {
+    if (Number.isFinite(value)) void onSave({ ...settings, circuit: { ...settings.circuit, [key]: value } })
+  }
+  return <div className="failover-layout"><main>
+    <section className="surface failover-queue"><SectionHeader title="自动故障转移队列" description="主上游未产生文本的可重试失败，按此顺序尝试备份。取消与部分输出不会切换。" action={<Badge tone={settings.mode === 'routing' ? 'green' : 'amber'}>{settings.mode === 'routing' ? '路由已启用' : '仅保存配置'}</Badge>} />
+      <div className="failover-list">{settings.failover.map((id, index) => {
+        const profile = profiles.find(item => item.id === id)
+        const circuit = circuits.find(item => item.providerId === id)
+        return <div key={id}><span className="queue-position">{index + 1}</span><div><strong>{profile?.name ?? id}</strong><code>{profile?.defaultModel ?? '未知模型'}</code><small>{circuit ? `${circuit.state === 'open' ? '熔断冷却' : circuit.state === 'half_open' ? '半开探测' : '闭合'} · 连续失败 ${circuit.failures}` : '尚无失败记录'}</small></div><Badge tone={circuit?.state === 'open' ? 'amber' : circuit?.state === 'half_open' ? 'blue' : 'green'}>{circuit?.state ?? 'closed'}</Badge><div><IconButton label={`上移 ${profile?.name ?? id}`} disabled={index === 0 || saving} onClick={() => move(index, -1)}><ArrowUp size={16} /></IconButton><IconButton label={`下移 ${profile?.name ?? id}`} disabled={index === settings.failover.length - 1 || saving} onClick={() => move(index, 1)}><ArrowDown size={16} /></IconButton><IconButton label={`移出队列 ${profile?.name ?? id}`} disabled={saving} onClick={() => void onSave({ ...settings, failover: settings.failover.filter(item => item !== id) })}><X size={16} /></IconButton></div></div>
+      })}</div>
+      {!settings.failover.length && <div className="provider-empty"><Network size={24} /><p>尚未配置备份供应商。主上游失败时不会自动切换。</p></div>}
+      <div className="queue-add"><select aria-label="加入故障转移队列" value="" disabled={saving || !enabled.some(profile => !settings.failover.includes(profile.id))} onChange={event => { if (event.target.value) void onSave({ ...settings, failover: [...settings.failover, event.target.value] }) }}><option value="">选择要加入队列的供应商…</option>{enabled.filter(profile => !settings.failover.includes(profile.id)).map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><Button disabled={saving || !enabled.length} onClick={() => void onSave({ ...settings, mode: 'routing' })}>保存并启用路由</Button></div>
+    </section>
+    <section className="surface route-request-log"><SectionHeader title="请求路由日志" description="持久化的逻辑请求与每次真实上游调用；不包含 API Key 或提示词。" />{latest.length ? latest.map(log => <article className="route-log-entry" key={log.requestId}><code>{log.requestId}</code><span>{taskRoutes.find(task => task.id === log.task)?.name ?? log.task} · {log.mode}</span><strong>{profiles.find(profile => profile.id === log.providerId)?.name ?? log.providerId ?? '未选择'} · {log.model ?? '未知模型'}</strong><Badge tone={log.status === 'done' ? 'green' : log.status === 'failed' ? 'red' : 'amber'}>{log.status}</Badge>{log.error && <p>{log.error.code}：{log.error.message}</p>}<div className="route-attempt-list">{log.attempts.map(attempt => <div className="route-attempt" key={attempt.attempt}><span>#{attempt.attempt} {attempt.status}</span><strong>{profiles.find(profile => profile.id === attempt.providerId)?.name ?? attempt.providerId} · {attempt.model}</strong><code>{attempt.upstreamRequestId ?? '未发起上游请求'}</code><small>{attempt.latencyMs === null ? '无上游计时' : `${attempt.latencyMs} ms`}{attempt.error ? ` · ${attempt.error.code}：${attempt.error.message}` : ''}</small></div>)}</div></article>) : <p>尚无原生路由请求。发送一次真实模型请求后，这里会显示实际结果。</p>}</section>
+  </main><aside className="surface circuit-settings"><SectionHeader title="熔断与重试" description="保存后直接作用于后续路由请求；取消不计为上游失败。" />
+    <label>连续失败阈值<input key={`failures-${settings.circuit.failures}`} type="number" min={1} max={10} defaultValue={settings.circuit.failures} disabled={saving} onBlur={event => { const value = Number(event.target.value); if (value !== settings.circuit.failures) updateCircuit('failures', value) }} /></label>
+    <label>熔断冷却（秒）<input key={`cooldown-${settings.circuit.cooldown}`} type="number" min={10} max={600} defaultValue={settings.circuit.cooldown} disabled={saving} onBlur={event => { const value = Number(event.target.value); if (value !== settings.circuit.cooldown) updateCircuit('cooldown', value) }} /></label>
+    <label>请求超时（秒）<input key={`timeout-${settings.circuit.timeout}`} type="number" min={5} max={300} defaultValue={settings.circuit.timeout} disabled={saving} onBlur={event => { const value = Number(event.target.value); if (value !== settings.circuit.timeout) updateCircuit('timeout', value) }} /></label>
+    <label>单上游重试次数<select value={settings.circuit.retries} disabled={saving} onChange={event => updateCircuit('retries', Number(event.target.value))}>{[0, 1, 2, 3].map(value => <option key={value} value={value}>{value} 次</option>)}</select></label>
+    <div className="circuit-formula"><Zap size={17} /><p>连续 {settings.circuit.failures} 次失败 → 熔断 {settings.circuit.cooldown} 秒 → 半开探测 → 恢复或继续冷却。</p></div>
+    <div className="security-note"><ShieldCheck size={16} />仅路由模式使用故障转移队列；直连与聚合不进行切换。冷却期与半开并行探测由后端持久化控制。</div>
+  </aside></div>
 }

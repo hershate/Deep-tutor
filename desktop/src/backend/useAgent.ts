@@ -96,6 +96,15 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     let unlisten: (() => void) | undefined
     void onBackendEvent(event => {
       if (disposed) return
+      if (event.kind === 'provider.route_attempt') {
+        const requestId = stringField(event.payload.requestId)
+        const upstreamRequestId = stringField(event.payload.upstreamRequestId)
+        if (requestId === liveRequestRef.current && upstreamRequestId) {
+          setLiveRequest(upstreamRequestId)
+          setStream({ requestId: upstreamRequestId, text: '', reasoning: '' })
+        }
+        return
+      }
       if (event.kind === 'provider.chat_delta') {
         const requestId = stringField(event.payload.requestId)
         const text = stringField(event.payload.text)

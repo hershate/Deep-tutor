@@ -77,6 +77,7 @@ fn main() {
             providers::commands::get_routing_settings,
             providers::commands::save_routing_settings,
             providers::commands::list_provider_route_logs,
+            providers::commands::list_provider_circuits,
             providers::commands::route_provider_chat,
             learning::commands::start_learning_plan,
             learning::commands::list_learning_plans,

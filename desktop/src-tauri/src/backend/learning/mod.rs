@@ -518,9 +518,9 @@ pub fn get(state: &LearningState, id: &str) -> Result<Plan> {
         .optional()?;
     let mut statement = store.conn.prepare(
         "SELECT step_index, status, attempt, request_id, output_json, error_code, error_message,
-            (SELECT usage_json FROM provider_requests WHERE request_id = learning_plan_steps.request_id),
-            (SELECT attempts FROM provider_requests WHERE request_id = learning_plan_steps.request_id),
-            (SELECT latency_ms FROM provider_requests WHERE request_id = learning_plan_steps.request_id)
+            COALESCE((SELECT usage_json FROM provider_requests WHERE request_id = learning_plan_steps.request_id), (SELECT provider_requests.usage_json FROM provider_route_attempts JOIN provider_requests ON provider_requests.request_id = provider_route_attempts.upstream_request_id WHERE provider_route_attempts.request_id = learning_plan_steps.request_id ORDER BY attempt DESC LIMIT 1)),
+            COALESCE((SELECT attempts FROM provider_requests WHERE request_id = learning_plan_steps.request_id), (SELECT provider_requests.attempts FROM provider_route_attempts JOIN provider_requests ON provider_requests.request_id = provider_route_attempts.upstream_request_id WHERE provider_route_attempts.request_id = learning_plan_steps.request_id ORDER BY attempt DESC LIMIT 1)),
+            COALESCE((SELECT latency_ms FROM provider_requests WHERE request_id = learning_plan_steps.request_id), (SELECT provider_requests.latency_ms FROM provider_route_attempts JOIN provider_requests ON provider_requests.request_id = provider_route_attempts.upstream_request_id WHERE provider_route_attempts.request_id = learning_plan_steps.request_id ORDER BY attempt DESC LIMIT 1))
          FROM learning_plan_steps WHERE plan_id = ?1 ORDER BY step_index",
     )?;
     let rows = statement.query_map(params![id], |row| {

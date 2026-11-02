@@ -148,6 +148,7 @@ pub struct ProviderState {
     credentials: Arc<dyn CredentialBackend>,
     active_tests: Arc<Mutex<HashSet<String>>>,
     chat_cancels: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    route_cancels: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
 }
@@ -159,6 +160,7 @@ impl ProviderState {
             credentials: Arc::new(SystemCredentials),
             active_tests: Arc::new(Mutex::new(HashSet::new())),
             chat_cancels: Arc::new(Mutex::new(HashMap::new())),
+            route_cancels: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             _guard: None,
         })
@@ -172,6 +174,7 @@ impl ProviderState {
             credentials: Arc::new(MemoryCredentials::default()),
             active_tests: Arc::new(Mutex::new(HashSet::new())),
             chat_cancels: Arc::new(Mutex::new(HashMap::new())),
+            route_cancels: Arc::new(Mutex::new(HashMap::new())),
             _guard: Some(guard),
         })
     }
@@ -183,6 +186,7 @@ impl ProviderState {
             credentials: Arc::new(MemoryCredentials::default()),
             active_tests: Arc::new(Mutex::new(HashSet::new())),
             chat_cancels: Arc::new(Mutex::new(HashMap::new())),
+            route_cancels: Arc::new(Mutex::new(HashMap::new())),
             _guard: None,
         }
     }
@@ -193,6 +197,7 @@ impl ProviderState {
             credentials: Arc::clone(&self.credentials),
             active_tests: Arc::clone(&self.active_tests),
             chat_cancels: Arc::clone(&self.chat_cancels),
+            route_cancels: Arc::clone(&self.route_cancels),
             #[cfg(test)]
             _guard: None,
         }
@@ -874,7 +879,11 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
 }
 
 pub fn get_chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
-    chat(state, request_id)
+    match routing::latest_chat(state, request_id) {
+        Ok(request) => Ok(request),
+        Err(error) if error.code == "not_found" => chat(state, request_id),
+        Err(error) => Err(error),
+    }
 }
 
 fn begin_chat<R: Runtime>(
@@ -1000,6 +1009,32 @@ pub fn stream_chat_with_model<R: Runtime>(
     model: Option<&str>,
     tools: Option<&[tools::ToolDefinition]>,
 ) -> Result<ProviderRequest> {
+    stream_chat_with_policy(
+        app,
+        state,
+        request_id,
+        provider_id,
+        messages,
+        max_tokens,
+        model,
+        tools,
+        openai::StreamPolicy::default(),
+        None,
+    )
+}
+
+pub fn stream_chat_with_policy<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+    provider_id: &str,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    model: Option<&str>,
+    tools: Option<&[tools::ToolDefinition]>,
+    policy: openai::StreamPolicy,
+    parent_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<ProviderRequest> {
     let (pending, guard) = begin_chat(app, state, request_id, provider_id, model)?;
     let Some(_guard) = guard else {
         return chat(state, request_id);
@@ -1024,7 +1059,7 @@ pub fn stream_chat_with_model<R: Runtime>(
         .map_err(openai::ChatError::from)
         .and_then(|(mut profile, key)| {
             profile.default_model = pending.model;
-            openai::stream_chat_with_tools(&profile, key, messages, max_tokens, tools, cancel, |delta| {
+            openai::stream_chat_with_policy(&profile, key, messages, max_tokens, tools, cancel, parent_cancel, policy, |delta| {
                 let event = Store::event(
                     &store.conn,
                     "provider.chat_delta",
@@ -1055,7 +1090,7 @@ pub fn stream_chat_with_model<R: Runtime>(
                 (
                     status,
                     error.partial_text,
-                    String::new(),
+                    error.partial_reasoning,
                     Vec::new(),
                     error.usage,
                     None,
@@ -1093,6 +1128,24 @@ pub fn stream_chat_with_model<R: Runtime>(
 }
 
 pub fn cancel_chat(state: &ProviderState, request_id: &str) -> Result<()> {
+    if routing::cancel(state, request_id)? {
+        return Ok(());
+    }
+    cancel_direct_chat(state, request_id)
+}
+
+pub fn cancel_chat_with_app<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+) -> Result<()> {
+    if routing::cancel_with_app(app, state, request_id)? {
+        return Ok(());
+    }
+    cancel_direct_chat(state, request_id)
+}
+
+pub(crate) fn cancel_direct_chat(state: &ProviderState, request_id: &str) -> Result<()> {
     let flag = state
         .chat_cancels
         .lock()
@@ -1133,6 +1186,10 @@ pub fn recover_chats<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> R
 }
 
 pub fn stop_chats(state: &ProviderState) -> Result<()> {
+    routing::stop(state)
+}
+
+pub(crate) fn stop_direct_chats(state: &ProviderState) -> Result<()> {
     let cancels = state
         .chat_cancels
         .lock()

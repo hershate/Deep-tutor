@@ -40,6 +40,7 @@ pub struct ChatResult {
 pub struct ChatError {
     pub error: BackendError,
     pub partial_text: String,
+    pub partial_reasoning: String,
     pub usage: Option<TokenUsage>,
     pub attempts: u8,
 }
@@ -49,6 +50,7 @@ impl ChatError {
         Self {
             error: BackendError::new(code, message),
             partial_text: String::new(),
+            partial_reasoning: String::new(),
             usage: None,
             attempts: 1,
         }
@@ -58,9 +60,15 @@ impl ChatError {
         Self {
             error: self.error,
             partial_text: text,
+            partial_reasoning: String::new(),
             usage,
             attempts: self.attempts,
         }
+    }
+
+    fn with_reasoning(mut self, reasoning: String) -> Self {
+        self.partial_reasoning = reasoning;
+        self
     }
 }
 
@@ -69,6 +77,7 @@ impl From<BackendError> for ChatError {
         Self {
             error,
             partial_text: String::new(),
+            partial_reasoning: String::new(),
             usage: None,
             attempts: 1,
         }
@@ -600,6 +609,24 @@ where
     stream_chat_with_tools(profile, key, messages, max_tokens, None, cancel, on_delta)
 }
 
+#[derive(Clone, Copy)]
+pub struct StreamPolicy {
+    pub max_attempts: u8,
+    pub request_timeout: Duration,
+    pub chunk_timeout: Duration,
+}
+
+impl Default for StreamPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: 2,
+            request_timeout: Duration::from_secs(45),
+            chunk_timeout: Duration::from_secs(120),
+        }
+    }
+}
+
+#[cfg(test)]
 pub fn stream_chat_with_tools<F>(
     profile: &ProviderProfile,
     key: Option<Zeroizing<String>>,
@@ -607,6 +634,33 @@ pub fn stream_chat_with_tools<F>(
     max_tokens: u32,
     tools: Option<&[ToolDefinition]>,
     cancel: Arc<AtomicBool>,
+    on_delta: F,
+) -> std::result::Result<ChatResult, ChatError>
+where
+    F: FnMut(Delta) -> Result<()>,
+{
+    stream_chat_with_policy(
+        profile,
+        key,
+        messages,
+        max_tokens,
+        tools,
+        cancel,
+        None,
+        StreamPolicy::default(),
+        on_delta,
+    )
+}
+
+pub fn stream_chat_with_policy<F>(
+    profile: &ProviderProfile,
+    key: Option<Zeroizing<String>>,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    tools: Option<&[ToolDefinition]>,
+    cancel: Arc<AtomicBool>,
+    parent_cancel: Option<Arc<AtomicBool>>,
+    policy: StreamPolicy,
     mut on_delta: F,
 ) -> std::result::Result<ChatResult, ChatError>
 where
@@ -624,8 +678,14 @@ where
             "请先在系统密钥库中配置 API Key",
         ));
     }
+    if !(1..=4).contains(&policy.max_attempts) {
+        return Err(ChatError::new(
+            "invalid_retry_policy",
+            "单上游重试次数须为 0 到 3",
+        ));
+    }
     validate_messages(messages, max_tokens).map_err(ChatError::from)?;
-    for attempt in 1..=2u8 {
+    for attempt in 1..=policy.max_attempts {
         let started = Instant::now();
         match tauri::async_runtime::block_on(stream_once(
             profile,
@@ -634,6 +694,8 @@ where
             max_tokens,
             tools,
             &cancel,
+            &parent_cancel,
+            &policy,
             &mut on_delta,
         )) {
             Ok((text, reasoning, model, usage, finish_reason, tool_calls)) => {
@@ -651,9 +713,16 @@ where
             Err(mut error) => {
                 let retry = matches!(
                     error.error.code.as_str(),
-                    "provider_unavailable" | "rate_limited"
+                    "provider_unavailable"
+                        | "rate_limited"
+                        | "provider_timeout"
+                        | "endpoint_unreachable"
                 );
-                if !retry || attempt == 2 || !error.partial_text.is_empty() {
+                if !retry
+                    || attempt == policy.max_attempts
+                    || !error.partial_text.is_empty()
+                    || !error.partial_reasoning.is_empty()
+                {
                     error.attempts = attempt;
                     return Err(error);
                 }
@@ -683,7 +752,9 @@ struct StreamOutput {
 
 impl StreamOutput {
     fn error(&self, code: &str, message: &str) -> ChatError {
-        ChatError::new(code, message).partial(self.text.clone(), self.usage.clone())
+        ChatError::new(code, message)
+            .partial(self.text.clone(), self.usage.clone())
+            .with_reasoning(self.reasoning.clone())
     }
 
     fn finish(self, done: bool) -> std::result::Result<StreamSuccess, ChatError> {
@@ -694,13 +765,15 @@ impl StreamOutput {
             return Err(self.error("empty_completion", "模型没有返回文本内容或工具调用"));
         }
         let partial_text = self.text.clone();
+        let partial_reasoning = self.reasoning.clone();
         let partial_usage = self.usage.clone();
         let mut calls = Vec::new();
         for call in self.tool_calls.into_values() {
             if call.id.trim().is_empty() || call.name.trim().is_empty() {
                 return Err(
                     ChatError::new("invalid_tool_call", "工具调用缺少 ID 或函数名")
-                        .partial(partial_text.clone(), partial_usage.clone()),
+                        .partial(partial_text.clone(), partial_usage.clone())
+                        .with_reasoning(partial_reasoning.clone()),
                 );
             }
             let arguments = if call.arguments.trim().is_empty() {
@@ -712,12 +785,14 @@ impl StreamOutput {
                 .map_err(|_| {
                     ChatError::new("invalid_tool_arguments", "工具参数不是有效 JSON")
                         .partial(partial_text.clone(), partial_usage.clone())
+                        .with_reasoning(partial_reasoning.clone())
                 })?
                 .is_object()
             {
                 return Err(
                     ChatError::new("invalid_tool_arguments", "工具参数必须是 JSON 对象")
-                        .partial(partial_text, partial_usage),
+                        .partial(partial_text, partial_usage)
+                        .with_reasoning(partial_reasoning),
                 );
             }
             calls.push(ToolCall {
@@ -842,7 +917,9 @@ where
                     reasoning,
                 })
                 .map_err(|error| {
-                    ChatError::from(error).partial(output.text.clone(), output.usage.clone())
+                    ChatError::from(error)
+                        .partial(output.text.clone(), output.usage.clone())
+                        .with_reasoning(output.reasoning.clone())
                 })?;
                 if reasoning {
                     output.reasoning.push_str(text);
@@ -855,6 +932,13 @@ where
     Ok(false)
 }
 
+fn cancelled(cancel: &Arc<AtomicBool>, parent: &Option<Arc<AtomicBool>>) -> bool {
+    cancel.load(Ordering::Acquire)
+        || parent
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+}
+
 async fn stream_once<F>(
     profile: &ProviderProfile,
     key: &Option<Zeroizing<String>>,
@@ -862,6 +946,8 @@ async fn stream_once<F>(
     max_tokens: u32,
     tools: Option<&[ToolDefinition]>,
     cancel: &Arc<AtomicBool>,
+    parent_cancel: &Option<Arc<AtomicBool>>,
+    policy: &StreamPolicy,
     on_delta: &mut F,
 ) -> std::result::Result<StreamSuccess, ChatError>
 where
@@ -869,7 +955,7 @@ where
 {
     let url =
         endpoint(&profile.base_url, &profile.kind, "chat/completions").map_err(ChatError::from)?;
-    if cancel.load(Ordering::Acquire) {
+    if cancelled(cancel, parent_cancel) {
         return Err(ChatError::new("cancelled", "模型请求已取消"));
     }
     let mut body = json!({
@@ -891,7 +977,7 @@ where
         key,
     )
     .json(&body);
-    let mut response = match tokio::time::timeout(Duration::from_secs(45), request.send()).await {
+    let mut response = match tokio::time::timeout(policy.request_timeout, request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) if error.is_timeout() => {
             return Err(ChatError::new("provider_timeout", "模型服务响应超时"))
@@ -920,11 +1006,11 @@ where
     let mut last_chunk = Instant::now();
     let mut done = false;
     loop {
-        if cancel.load(Ordering::Acquire) {
+        if cancelled(cancel, parent_cancel) {
             return Err(output.error("cancelled", "模型请求已取消"));
         }
         let next = tokio::time::timeout(Duration::from_millis(100), response.chunk()).await;
-        if cancel.load(Ordering::Acquire) {
+        if cancelled(cancel, parent_cancel) {
             return Err(output.error("cancelled", "模型请求已取消"));
         }
         match next {
@@ -932,7 +1018,7 @@ where
                 last_chunk = Instant::now();
                 pending.extend_from_slice(&chunk);
                 while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
-                    if cancel.load(Ordering::Acquire) {
+                    if cancelled(cancel, parent_cancel) {
                         return Err(output.error("cancelled", "模型请求已取消"));
                     }
                     let line = pending.drain(..=end).collect::<Vec<_>>();
@@ -956,8 +1042,14 @@ where
             }
             Ok(Err(_)) => return Err(output.error("invalid_response", "流式响应读取失败")),
             Err(_) => {
-                if last_chunk.elapsed() >= Duration::from_secs(120) {
-                    return Err(output.error("provider_timeout", "模型服务超过 120 秒没有发送数据"));
+                if last_chunk.elapsed() >= policy.chunk_timeout {
+                    return Err(output.error(
+                        "provider_timeout",
+                        &format!(
+                            "模型服务超过 {} 秒没有发送数据",
+                            policy.chunk_timeout.as_secs()
+                        ),
+                    ));
                 }
             }
         }

@@ -31,6 +31,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::get_routing_settings,
             crate::backend::providers::commands::save_routing_settings,
             crate::backend::providers::commands::list_provider_route_logs,
+            crate::backend::providers::commands::list_provider_circuits,
             crate::backend::providers::commands::route_provider_chat,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -665,6 +666,7 @@ fn settings_with_mode(mode: &str) -> routing::RoutingSettings {
         routes: std::collections::BTreeMap::new(),
         aggregate_provider_ids: vec![],
         aggregate_default: None,
+        ..Default::default()
     }
 }
 
@@ -886,7 +888,7 @@ fn aggregate_routes_by_model_without_failover() {
     .unwrap();
     assert_eq!(failed.status, "failed");
     assert_eq!(failed.provider_id, a.id);
-    assert_eq!(failing.request_count(), 2);
+    assert_eq!(failing.request_count(), 3);
     assert_eq!(healthy.request_count(), 1);
     assert_eq!(
         routing::stream_chat(
@@ -1039,4 +1041,538 @@ fn route_recovery_preserves_an_already_completed_upstream_result() {
     assert_eq!(logs[0].status, "done");
     assert!(logs[0].error.is_none());
     assert_eq!(server.request_count(), 1);
+}
+
+#[test]
+fn failover_retries_switches_and_replays_the_actual_upstream() {
+    let (app, state) = setup();
+    let failing = server(|_request, stream| response(stream, "503 Service Unavailable", "{}"));
+    let healthy = server(|request, stream| {
+        assert!(request.contains("\"model\":\"backup-model\""));
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"备份上游真实输出\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+    });
+    let a = routed_profile(
+        &app,
+        &state,
+        "主上游",
+        &failing.url(),
+        "shared",
+        &["shared"],
+    );
+    let b = routed_profile(
+        &app,
+        &state,
+        "备份上游",
+        &healthy.url(),
+        "backup-model",
+        &["backup-model"],
+    );
+    set_active(app.handle(), &state, &a.id).unwrap();
+    let mut settings = settings_with_mode("routing");
+    settings.routes.insert(
+        "agent".into(),
+        routing::RouteAssignment {
+            provider_id: Some(a.id.clone()),
+            model: Some("shared".into()),
+        },
+    );
+    settings.failover = vec![b.id.clone()];
+    settings.circuit.retries = 1;
+    settings.circuit.timeout = 5;
+    routing::save_settings(app.handle(), &state, settings).unwrap();
+    let result = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-failover-1",
+        "agent",
+        Some(&a.id),
+        &messages("测试故障转移"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.status, "done");
+    assert_eq!(result.provider_id, b.id);
+    assert_eq!(result.model, "backup-model");
+    assert_eq!(result.output, "备份上游真实输出");
+    assert_eq!(result.request_id, "route-failover-1");
+    assert_eq!(failing.request_count(), 2);
+    assert_eq!(healthy.request_count(), 1);
+    let fetched = get_chat(&state, "route-failover-1").unwrap();
+    assert_eq!(fetched.provider_id, b.id);
+    assert_eq!(fetched.output, "备份上游真实输出");
+    assert_eq!(fetched.request_id, "route-failover-1");
+    assert_eq!(fetched.usage.unwrap().output_tokens, Some(7));
+    let replay = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-failover-1",
+        "agent",
+        Some(&a.id),
+        &messages("测试故障转移"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(replay.output, "备份上游真实输出");
+    assert_eq!(failing.request_count(), 2);
+    assert_eq!(healthy.request_count(), 1);
+    let logs = routing::logs(&state).unwrap();
+    assert_eq!(logs[0].attempts.len(), 2);
+    assert_eq!(logs[0].attempts[0].status, "failed");
+    assert_eq!(
+        logs[0].attempts[0].upstream_request_id.as_deref(),
+        Some("route-failover-1")
+    );
+    assert_eq!(logs[0].attempts[1].status, "done");
+    assert_eq!(
+        logs[0].attempts[1].upstream_request_id.as_deref(),
+        Some("route-failover-1-f1")
+    );
+    let circuits = routing::circuits(&state).unwrap();
+    let primary = circuits
+        .iter()
+        .find(|circuit| circuit.provider_id == a.id)
+        .unwrap();
+    assert_eq!(primary.state, "closed");
+    assert_eq!(primary.failures, 1);
+}
+
+#[test]
+fn circuit_skips_open_providers_recovers_half_open_and_reports_no_available_upstream() {
+    let (app, state) = setup();
+    let failing = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let primary_failing = Arc::clone(&failing);
+    let primary_server = server(move |request, stream| {
+        assert!(request.contains("shared"));
+        if primary_failing.load(std::sync::atomic::Ordering::Acquire) {
+            response(stream, "503 Service Unavailable", "{}");
+        } else {
+            response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"主上游恢复输出\"}}]}\n\ndata: [DONE]\n\n");
+        }
+    });
+    let backup_server = server(|_request, stream| {
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"备份输出\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let a = routed_profile(
+        &app,
+        &state,
+        "主上游",
+        &primary_server.url(),
+        "shared",
+        &["shared"],
+    );
+    let b = routed_profile(
+        &app,
+        &state,
+        "备份上游",
+        &backup_server.url(),
+        "backup",
+        &["backup"],
+    );
+    set_active(app.handle(), &state, &a.id).unwrap();
+    let mut settings = settings_with_mode("routing");
+    settings.failover = vec![b.id.clone()];
+    settings.circuit.failures = 1;
+    settings.circuit.cooldown = 10;
+    settings.circuit.timeout = 5;
+    settings.circuit.retries = 0;
+    routing::save_settings(app.handle(), &state, settings).unwrap();
+    let first = routing::stream_chat(
+        app.handle(),
+        &state,
+        "circuit-first",
+        "agent",
+        Some(&a.id),
+        &messages("第一次失败"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(first.provider_id, b.id);
+    assert_eq!(primary_server.request_count(), 1);
+    assert_eq!(backup_server.request_count(), 1);
+    let second = routing::stream_chat(
+        app.handle(),
+        &state,
+        "circuit-second",
+        "agent",
+        Some(&a.id),
+        &messages("冷却期"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(second.provider_id, b.id);
+    assert_eq!(primary_server.request_count(), 1);
+    assert_eq!(backup_server.request_count(), 2);
+    let logs = routing::logs(&state).unwrap();
+    assert_eq!(logs[0].request_id, "circuit-second");
+    assert_eq!(logs[0].attempts[0].status, "circuit_open");
+    assert!(logs[0].attempts[0].upstream_request_id.is_none());
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_circuits (provider_id, state, failures, opened_at) VALUES (?1, 'open', 1, ?2) ON CONFLICT(provider_id) DO UPDATE SET state = 'open', failures = 1, opened_at = excluded.opened_at",
+            params![numeric_id(&b.id).unwrap(), now().unwrap()],
+        )
+        .unwrap();
+    drop(store);
+    let unavailable = routing::stream_chat(
+        app.handle(),
+        &state,
+        "circuit-all-open",
+        "agent",
+        Some(&a.id),
+        &messages("全部熔断"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(unavailable.status, "failed");
+    assert_eq!(unavailable.error.unwrap().code, "all_providers_unavailable");
+    assert!(unavailable.provider_id.is_empty());
+    assert_eq!(primary_server.request_count(), 1);
+    assert_eq!(backup_server.request_count(), 2);
+    assert_eq!(
+        get_chat(&state, "circuit-all-open")
+            .unwrap()
+            .error
+            .unwrap()
+            .code,
+        "all_providers_unavailable"
+    );
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE provider_circuits SET opened_at = '2000-01-01T00:00:00Z' WHERE provider_id = ?1",
+            params![numeric_id(&a.id).unwrap()],
+        )
+        .unwrap();
+    drop(store);
+    failing.store(false, std::sync::atomic::Ordering::Release);
+    let recovered = routing::stream_chat(
+        app.handle(),
+        &state,
+        "circuit-half-open",
+        "agent",
+        Some(&a.id),
+        &messages("半开恢复"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(recovered.status, "done");
+    assert_eq!(recovered.provider_id, a.id);
+    assert_eq!(recovered.output, "主上游恢复输出");
+    assert_eq!(primary_server.request_count(), 2);
+    assert_eq!(backup_server.request_count(), 2);
+    let circuits = routing::circuits(&state).unwrap();
+    let primary = circuits
+        .iter()
+        .find(|circuit| circuit.provider_id == a.id)
+        .unwrap();
+    assert_eq!(primary.state, "closed");
+    assert_eq!(primary.failures, 0);
+}
+
+#[test]
+fn partial_output_is_not_replayed_and_route_cancellation_does_not_fail_over() {
+    let (app, state) = setup();
+    let partial = server(|_request, stream| {
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"不能重复的部分输出\"}}]}\n\n",
+        );
+    });
+    let backup = server(|_request, stream| {
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"不应切换\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let a = routed_profile(
+        &app,
+        &state,
+        "主上游",
+        &partial.url(),
+        "shared",
+        &["shared"],
+    );
+    let b = routed_profile(
+        &app,
+        &state,
+        "备份上游",
+        &backup.url(),
+        "backup",
+        &["backup"],
+    );
+    set_active(app.handle(), &state, &a.id).unwrap();
+    let mut settings = settings_with_mode("routing");
+    settings.failover = vec![b.id.clone()];
+    settings.circuit.failures = 1;
+    settings.circuit.retries = 0;
+    settings.circuit.timeout = 5;
+    routing::save_settings(app.handle(), &state, settings.clone()).unwrap();
+    let result = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-partial",
+        "agent",
+        Some(&a.id),
+        &messages("部分输出"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.status, "failed");
+    assert_eq!(result.output, "不能重复的部分输出");
+    assert_eq!(result.provider_id, a.id);
+    assert_eq!(backup.request_count(), 0);
+    settings.circuit.retries = 2;
+    routing::save_settings(app.handle(), &state, settings).unwrap();
+    let reasoning_server = server(|_request, stream| {
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"不能重复的推理片段\"}}]}\n\n",
+        );
+    });
+    let reasoning_profile = routed_profile(
+        &app,
+        &state,
+        "推理上游",
+        &reasoning_server.url(),
+        "shared",
+        &["shared"],
+    );
+    let reasoning = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-reasoning-only",
+        "agent",
+        Some(&reasoning_profile.id),
+        &messages("推理中断"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(reasoning.status, "failed");
+    assert!(reasoning.output.is_empty());
+    assert_eq!(reasoning.reasoning, "不能重复的推理片段");
+    assert_eq!(reasoning.attempts, 1);
+    assert_eq!(reasoning_server.request_count(), 1);
+    assert_eq!(backup.request_count(), 0);
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE provider_circuits SET state = 'closed', failures = 0, opened_at = NULL WHERE provider_id = ?1",
+            params![numeric_id(&a.id).unwrap()],
+        )
+        .unwrap();
+    drop(store);
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_release = Arc::clone(&release);
+    let waiting = server(move |_request, stream| {
+        start_stream(stream);
+        std::io::Write::write_all(
+            stream,
+            "data: {\"choices\":[{\"delta\":{\"content\":\"取消前的文本\"}}]}\n\n".as_bytes(),
+        )
+        .unwrap();
+        std::io::Write::flush(stream).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !server_release.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let _ = std::io::Write::write_all(stream, b"data: [DONE]\n\n");
+    });
+    let cancelling = routed_profile(
+        &app,
+        &state,
+        "可取消上游",
+        &waiting.url(),
+        "shared",
+        &["shared"],
+    );
+    let worker_app = app.handle().clone();
+    let worker_state = state.shared();
+    let worker = std::thread::spawn(move || {
+        routing::stream_chat(
+            &worker_app,
+            &worker_state,
+            "route-cancel-stream",
+            "agent",
+            Some(&cancelling.id),
+            &messages("取消"),
+            64,
+            None,
+            None,
+            false,
+        )
+    });
+    wait_for_output(&state, "route-cancel-stream");
+    cancel_chat_with_app(app.handle(), &state, "route-cancel-stream").unwrap();
+    release.store(true, std::sync::atomic::Ordering::Release);
+    let cancelled = worker.join().unwrap().unwrap();
+    assert_eq!(cancelled.status, "cancelled");
+    assert_eq!(cancelled.output, "取消前的文本");
+    assert_eq!(backup.request_count(), 0);
+    let logs = routing::logs(&state).unwrap();
+    assert_eq!(logs[0].status, "cancelled");
+    assert_eq!(logs[0].attempts[0].status, "cancelled");
+    stop_chats(&state).unwrap();
+}
+
+#[test]
+fn route_attempt_migration_preserves_history_and_allows_circuit_skips() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE provider_route_runs (
+            request_id TEXT PRIMARY KEY, task TEXT NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL,
+            provider_id INTEGER, model TEXT, error_code TEXT, error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE provider_route_attempts (
+            request_id TEXT NOT NULL REFERENCES provider_route_runs(request_id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, provider_id INTEGER NOT NULL, model TEXT NOT NULL,
+            upstream_request_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, latency_ms INTEGER,
+            error_code TEXT, error_message TEXT, created_at TEXT NOT NULL, PRIMARY KEY(request_id, attempt)
+        );
+        INSERT INTO provider_route_runs VALUES ('old-route', 'agent', 'direct', 'done', 1, 'model', NULL, NULL, 'now', 'now');
+        INSERT INTO provider_route_attempts VALUES ('old-route', 1, 1, 'model', 'old-route', 'done', 1, NULL, NULL, 'now');",
+    )
+    .unwrap();
+    routing::migrate(&conn).unwrap();
+    let nullable: bool = conn
+        .query_row(
+            "SELECT NOT [notnull] FROM pragma_table_info('provider_route_attempts') WHERE name = 'upstream_request_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(nullable);
+    conn.execute(
+        "INSERT INTO provider_route_attempts (request_id, attempt, provider_id, model, upstream_request_id, status, created_at) VALUES ('old-route', 2, 1, 'model', NULL, 'circuit_open', 'now')",
+        [],
+    )
+    .unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM provider_route_attempts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+    let old: String = conn
+        .query_row(
+            "SELECT upstream_request_id FROM provider_route_attempts WHERE attempt = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(old, "old-route");
+}
+
+#[test]
+fn ipc_failover_returns_the_backup_result_and_real_circuit_state() {
+    let (app, _state) = setup();
+    let failing = server(|_request, stream| response(stream, "503 Service Unavailable", "{}"));
+    let healthy = server(|request, stream| {
+        assert!(request.contains("\"model\":\"backup-model\""));
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"IPC 备份输出\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let create = |name: &str, url: String, model: &str| {
+        ipc(
+            &window,
+            "upsert_provider_profile",
+            json!({"input": {"name": name, "kind": "本地模型", "protocol": "OpenAI Chat", "baseUrl": url, "defaultModel": model, "models": [model], "apiKey": "ipc-failover-token"}}),
+        )
+        .unwrap()
+    };
+    let primary = create("主上游", failing.url(), "shared");
+    let backup = create("备份上游", healthy.url(), "backup-model");
+    let primary_id = primary["id"].as_str().unwrap().to_string();
+    let backup_id = backup["id"].as_str().unwrap().to_string();
+    ipc(&window, "set_active_provider", json!({"id": primary_id})).unwrap();
+    let saved = ipc(
+        &window,
+        "save_routing_settings",
+        json!({"settings": {
+            "mode": "routing",
+            "routes": {"agent": {"providerId": primary_id, "model": "shared"}},
+            "aggregateProviderIds": [], "aggregateDefault": null,
+            "failover": [backup_id],
+            "circuit": {"failures": 1, "cooldown": 60, "timeout": 5, "retries": 0}
+        }}),
+    )
+    .unwrap();
+    assert_eq!(saved["circuit"]["retries"], 0);
+    let result = ipc(
+        &window,
+        "route_provider_chat",
+        json!({"requestId": "ipc-failover-1", "task": "agent", "profileId": primary_id, "model": null, "messages": [{"role": "user", "content": "真实故障转移"}], "maxTokens": 64}),
+    )
+    .unwrap();
+    assert_eq!(result["requestId"], "ipc-failover-1");
+    assert_eq!(result["providerId"], backup_id);
+    assert_eq!(result["model"], "backup-model");
+    assert_eq!(result["output"], "IPC 备份输出");
+    assert_eq!(failing.request_count(), 1);
+    assert_eq!(healthy.request_count(), 1);
+    let logs = ipc(&window, "list_provider_route_logs", json!({})).unwrap();
+    assert_eq!(logs[0]["attempts"].as_array().unwrap().len(), 2);
+    assert_eq!(logs[0]["attempts"][0]["status"], "failed");
+    assert_eq!(
+        logs[0]["attempts"][0]["upstreamRequestId"],
+        "ipc-failover-1"
+    );
+    assert_eq!(logs[0]["attempts"][1]["status"], "done");
+    assert_eq!(
+        logs[0]["attempts"][1]["upstreamRequestId"],
+        "ipc-failover-1-f1"
+    );
+    let circuits = ipc(&window, "list_provider_circuits", json!({})).unwrap();
+    let primary_circuit = circuits
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|circuit| circuit["providerId"] == primary_id)
+        .unwrap();
+    assert_eq!(primary_circuit["state"], "open");
+    assert_eq!(primary_circuit["failures"], 1);
+    assert!(!serde_json::to_string(&logs)
+        .unwrap()
+        .contains("ipc-failover-token"));
 }

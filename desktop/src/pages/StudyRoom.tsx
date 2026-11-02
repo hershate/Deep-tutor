@@ -30,7 +30,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const [loading, setLoading] = useState(true)
   const stageRef = useRef({ planId: '', stageId: '' })
   const consumedTarget = useRef('')
+  const routeUpstreams = useRef<Record<string, string>>({})
   useEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
+  useEffect(() => { routeUpstreams.current = {} }, [plan?.id, stageId])
 
   const refreshProgress = useCallback(async () => {
     if (!plan?.result) { setProgress({}); return }
@@ -85,10 +87,14 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (event.kind.startsWith('lecture.') && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
       if (event.kind === 'study.progress_changed' && event.payload.planId === stageRef.current.planId) void refreshProgress()
       if (event.kind === 'agent.artifact_promoted' && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
+      if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && lecture?.units.some(unit => unit.status === 'running' && unit.requestId === event.payload.requestId)) {
+        routeUpstreams.current[event.payload.requestId] = event.payload.upstreamRequestId
+      }
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
         const requestId = event.payload.requestId
-        if (lecture?.units.some(unit => unit.status === 'running' && unit.requestId === requestId)) {
-          void backend.getProviderChat(requestId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
+        const logicalId = routeUpstreams.current[requestId] ?? requestId
+        if (lecture?.units.some(unit => unit.status === 'running' && unit.requestId === logicalId)) {
+          void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
