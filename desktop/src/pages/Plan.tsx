@@ -3,6 +3,8 @@ import { ArrowDownToLine, ArrowLeft, ArrowRight, CalendarRange, Check, ChevronLe
 import type { PageId, Task } from '../data'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import ExportCenter from '../components/ExportCenter'
+import { reportBackendError } from '../backend/client'
+import type { AppSnapshot } from '../backend/client'
 
 const days = ['周一 02', '周二 03', '周三 04', '周四 05', '周五 06', '周六 07', '周日 08']
 const schedule = [
@@ -15,7 +17,7 @@ const schedule = [
   [{ title: '轻量复盘', time: '20:00', kind: '复盘' }],
 ]
 
-export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => void; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
+export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
   const [intensity, setIntensity] = useState('标准')
   const [week, setWeek] = useState(0)
   const [addOpen, setAddOpen] = useState(false)
@@ -31,10 +33,12 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
     localStorage.setItem('deep-tutor-share-token', token); localStorage.setItem('deep-tutor-share-revoked', 'false')
     setShareUrl(`${window.location.origin}${window.location.pathname}?share=${token}#shared`); setShareOpen(true)
   }
-  const addTask = () => {
+  const addTask = async () => {
     if (!title.trim()) return
-    setTasks([...tasks, { id: Date.now(), title: title.trim(), subject, duration, done: false, kind: '学习' }])
-    setTitle(''); setAddOpen(false); notify('学习任务已加入今日计划')
+    try {
+      await setTasks([...tasks, { id: Date.now(), title: title.trim(), subject, duration, done: false, kind: '学习' }])
+      setTitle(''); setAddOpen(false); notify('学习任务已保存到今日计划')
+    } catch (error) { reportBackendError(error) }
   }
   return <div className="page plan-page">
     <div className="page-heading"><div><h1>学习计划</h1><p>让目标适配你的生活，而不是让生活追赶计划。</p></div><div className="heading-actions"><Button variant="secondary" onClick={openShare}><Share2 size={17} />分享</Button><Button variant="secondary" onClick={() => setExportOpen(true)}><ArrowDownToLine size={17} />导出</Button><Button onClick={() => onNavigate('generator')}><Sparkles size={17} />AI 生成方案</Button><Button variant="secondary" onClick={() => setAddOpen(true)}><Plus size={17} />添加任务</Button></div></div>
@@ -46,8 +50,8 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
     </section>
 
     <div className="plan-toolbar">
-      <div className="segmented" aria-label="学习强度">{['稳妥', '标准', '冲刺'].map(item => <button key={item} className={intensity === item ? 'active' : ''} onClick={() => { setIntensity(item); notify(`已切换为${item}强度，任务量将按此调整`) }}>{item}</button>)}</div>
-      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周计划 {intensity === '冲刺' ? '18' : intensity === '稳妥' ? '12' : '15'} 小时</span><Button variant="secondary" size="sm" onClick={() => { setTasks([...tasks.filter(t => t.done), ...tasks.filter(t => !t.done)].map((t, i) => ({ ...t, duration: Math.max(15, t.duration + (intensity === '冲刺' ? 5 : intensity === '稳妥' ? -5 : 0)) }))); notify('已根据掌握度与可用时间重新安排') }}><RefreshCw size={16} />智能重排</Button></div>
+      <div className="segmented" aria-label="学习强度">{['稳妥', '标准', '冲刺'].map(item => <button key={item} className={intensity === item ? 'active' : ''} onClick={() => setIntensity(item)}>{item}</button>)}</div>
+      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周计划 {intensity === '冲刺' ? '18' : intensity === '稳妥' ? '12' : '15'} 小时</span><Button variant="secondary" size="sm" onClick={() => { const next = [...tasks.filter(t => t.done), ...tasks.filter(t => !t.done)].map(t => ({ ...t, duration: Math.max(15, t.duration + (intensity === '冲刺' ? 5 : intensity === '稳妥' ? -5 : 0)) })); void setTasks(next).then(() => notify('任务顺序与时长已保存')).catch(reportBackendError) }}><RefreshCw size={16} />按强度重排</Button></div>
     </div>
 
     <section className="calendar-surface">

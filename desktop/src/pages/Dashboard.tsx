@@ -1,11 +1,15 @@
 import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, Play, RotateCcw, Sparkles, Target, TrendingUp } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, MiniBars, ProgressBar, ProgressRing, SectionHeader } from '../components/UI'
+import { reportBackendError } from '../backend/client'
+import type { AppSnapshot } from '../backend/client'
 
-export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => void; onNavigate: (page: PageId) => void; onFocus: () => void; notify: (message: string) => void }) {
+export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; onFocus: () => void; notify: (message: string) => void }) {
   const done = tasks.filter(task => task.done).length
-  const completion = Math.round(done / tasks.length * 100)
-  const toggleTask = (id: number) => setTasks(tasks.map(task => task.id === id ? { ...task, done: !task.done } : task))
+  const completion = tasks.length ? Math.round(done / tasks.length * 100) : 0
+  const toggleTask = (id: number) => {
+    void setTasks(tasks.map(task => task.id === id ? { ...task, done: !task.done } : task)).catch(reportBackendError)
+  }
   return <div className="page dashboard-page">
     <div className="page-heading">
       <div><p className="date-line">11 月 2 日 · 星期一</p><h1>早上好，陈默。</h1><p>今天不必学很多，只需完成最关键的三件事。</p></div>
@@ -35,7 +39,7 @@ export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify
             {!task.done && <button className="task-go" aria-label={`开始${task.title}`} onClick={() => onNavigate(task.kind === '复习' ? 'review' : task.kind === '练习' ? 'practice' : task.kind === '项目' ? 'projects' : 'study')}><Play size={16} /></button>}
           </div>)}
         </div>
-        <button className="text-action" onClick={() => { setTasks([...tasks, { id: Date.now(), title: '新的学习任务', subject: '待分类', duration: 20, done: false, kind: '学习' }]); notify('已添加任务，可在学习计划中编辑') }}>＋ 添加今日任务</button>
+        <button className="text-action" onClick={() => { void setTasks([...tasks, { id: Date.now(), title: '新的学习任务', subject: '待分类', duration: 20, done: false, kind: '学习' }]).then(() => notify('任务已保存，可在学习计划中编辑')).catch(reportBackendError) }}>＋ 添加今日任务</button>
       </section>
 
       <aside className="dashboard-side">
@@ -71,6 +75,6 @@ export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify
         <button className="text-action" onClick={() => onNavigate('projects')}>查看项目与里程碑<ArrowRight size={15} /></button>
       </section>
     </div>
-    <div className="demo-note"><Brain size={15} />当前展示为合成学习数据，操作会保存在此浏览器中。</div>
+    <div className="demo-note"><Brain size={15} />任务等已接入数据保存在当前应用的原生数据库；图表与其他学习示例仍为合成数据。</div>
   </div>
 }

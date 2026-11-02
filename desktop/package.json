@@ -10,6 +10,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "jszip": "^3.10.2",
     "katex": "^0.19.1",
     "lucide-react": "^0.468.0",

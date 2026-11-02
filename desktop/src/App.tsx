@@ -14,11 +14,13 @@ import Community from './pages/Community'
 import Settings from './pages/Settings'
 
 import SharedPlan from './pages/SharedPlan'
-import type { Preferences } from './pages/Settings'
 import TutorPanel from './components/TutorPanel'
 import { Button, IconButton, Modal, ProgressBar } from './components/UI'
-import { initialNotes, initialProjects, initialResources, initialTasks, knowledgeNodes } from './data'
-import type { Note, PageId, Project, Resource, Task } from './data'
+import { knowledgeNodes } from './data'
+import type { PageId, Project, Resource, Task } from './data'
+import { backend, reportBackendError } from './backend/client'
+import type { AppSnapshot } from './backend/client'
+import { useBackendState } from './backend/useBackendState'
 
 const Library = lazy(() => import('./pages/Library'))
 const PlanGenerator = lazy(() => import('./pages/PlanGenerator'))
@@ -32,21 +34,6 @@ const navGroups: { label: string; items: { id: PageId; label: string; icon: Luci
   { label: '成长', items: [{ id: 'projects', label: '项目作品', icon: FolderKanban }, { id: 'reports', label: '学习报告', icon: TrendingUp }, { id: 'community', label: '学习社区', icon: Users }, { id: 'providers', label: '模型供应商', icon: Cloud }, { id: 'integrations', label: '插件与事件', icon: Blocks }] },
 ]
 const allNav = navGroups.flatMap(group => group.items)
-const defaultPreferences: Preferences = { proactive: true, hintsOnly: true, notifications: true, weeklyReport: true, highContrast: false, reducedMotion: false, largeText: false, theme: 'light' }
-
-function usePersistentState<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(() => {
-    try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : initial } catch { return initial }
-  })
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage can be unavailable in private mode */ } }, [key, value])
-  return [value, setValue] as const
-}
-
-function mergeById<T extends { id: number }>(current: T[], incoming: unknown): T[] {
-  if (!Array.isArray(incoming)) return current
-  const additions = incoming.filter((item): item is T => Boolean(item && typeof item === 'object' && 'id' in item)).map((item, index) => current.some(existing => existing.id === item.id) ? { ...item, id: Date.now() + index } : item)
-  return [...current, ...additions]
-}
 
 function BrandMark() {
   return <svg viewBox="0 0 36 36" aria-hidden="true" className="brand-mark"><path d="M7 9.5 18 5l11 4.5v15L18 30 7 24.5Z" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="m7 9.5 11 5 11-5M18 14.5V30M11.5 18.5l6.5 3 6.5-3" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="m23 7 2-3 2 3" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
@@ -55,11 +42,13 @@ function BrandMark() {
 export default function App() {
   const initialPage = allNav.some(item => item.id === window.location.hash.slice(1)) || ['settings', 'shared'].includes(window.location.hash.slice(1)) ? window.location.hash.slice(1) as PageId : 'today'
   const [page, setPage] = useState<PageId>(initialPage)
-  const [tasks, setTasks] = usePersistentState<Task[]>('deep-tutor-tasks', initialTasks)
-  const [notes, setNotes] = usePersistentState<Note[]>('deep-tutor-notes', initialNotes)
-  const [resources, setResources] = usePersistentState<Resource[]>('deep-tutor-resources', initialResources)
-  const [projects, setProjects] = usePersistentState<Project[]>('deep-tutor-projects', initialProjects)
-  const [preferences, setPreferences] = usePersistentState<Preferences>('deep-tutor-preferences', defaultPreferences)
+  const { snapshot, ready, startupError, replaceCollection, resetApplication, importBackup } = useBackendState()
+  const { tasks, notes, resources, projects, preferences } = snapshot
+  const setTasks = (value: Task[]) => replaceCollection('tasks', value)
+  const setNotes = (value: AppSnapshot['notes']) => replaceCollection('notes', value)
+  const setResources = (value: Resource[]) => replaceCollection('resources', value)
+  const setProjects = (value: Project[]) => replaceCollection('projects', value)
+  const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
@@ -72,6 +61,11 @@ export default function App() {
   const [focusRunning, setFocusRunning] = useState(false)
 
   const notify = (message: string) => setToast(message)
+  useEffect(() => {
+    const onError = (event: Event) => notify((event as CustomEvent<string>).detail)
+    window.addEventListener('backend-error', onError)
+    return () => window.removeEventListener('backend-error', onError)
+  }, [])
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer) }, [toast])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
@@ -92,22 +86,26 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [focusRunning])
   const navigate = (target: PageId) => { setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false); window.scrollTo({ top: 0, behavior: preferences.reducedMotion ? 'auto' : 'smooth' }) }
-  const addQuick = () => {
+  const addQuick = async () => {
     if (!quickTitle.trim()) return
-    if (quickType === '任务') setTasks([...tasks, { id: Date.now(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
-    else setNotes([{ id: Date.now(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
-    notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
+    try {
+      if (quickType === '任务') await setTasks([...tasks, { id: Date.now(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
+      else await setNotes([{ id: Date.now(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
+      notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
+    } catch (error) { reportBackendError(error) }
   }
-  const exportAll = () => {
-    const data = { exportedAt: new Date().toISOString(), tasks, notes, resources, projects, preferences }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'DeepTutor-backup.json'; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify('全部学习数据已导出')
+  const exportAll = async () => {
+    try {
+      const data = await backend.exportBackup()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'DeepTutor-backup.json'; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify('学习数据已由原生后端导出')
+    } catch (error) { reportBackendError(error) }
   }
-  const importAll = (data: any) => {
-    setTasks(mergeById(tasks, data.tasks)); setNotes(mergeById(notes, data.notes)); setResources(mergeById(resources, data.resources)); setProjects(mergeById(projects, data.projects))
-    if (data.conversations) localStorage.setItem('deep-tutor-imported-conversations', JSON.stringify(data.conversations))
-    if (data.memories) localStorage.setItem('deep-tutor-imported-memories', JSON.stringify(data.memories))
+  const importAll = (data: unknown) => importBackup(data)
+  const resetAll = async () => {
+    const next = await resetApplication()
+    notify('本地任务、笔记、资料、项目、草稿和偏好已清空')
+    return next
   }
-  const resetAll = () => { setTasks(initialTasks); setNotes(initialNotes); setResources(initialResources); setProjects(initialProjects); setPreferences(defaultPreferences); notify('已恢复初始演示数据') }
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase()
     const plans = q ? ['贝叶斯学习方案', '计算机考研学习计划'].filter(name => name.toLowerCase().includes(q)).map(name => ({ id: 'plan' as PageId, title: name, subtitle: '学习方案 · 深链跳转', icon: CalendarDays })) : []
@@ -145,6 +143,13 @@ export default function App() {
     const token = new URLSearchParams(window.location.search).get('share')
     const missing = !token || localStorage.getItem('deep-tutor-share-token') !== token || localStorage.getItem('deep-tutor-share-revoked') === 'true'
     return <SharedPlan missing={missing} />
+  }
+
+  if (startupError) {
+    return <main className="page-loading"><LoaderMark /><h1>本地数据或实时连接打开失败</h1><p>{startupError}</p><Button onClick={() => window.location.reload()}>重试</Button></main>
+  }
+  if (!ready) {
+    return <main className="page-loading"><LoaderMark />正在打开本地学习数据…</main>
   }
 
   return <div className={`app-shell ${page === 'study' ? 'study-mode' : ''}`}>

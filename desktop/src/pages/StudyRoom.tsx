@@ -3,6 +3,8 @@ import { ArrowLeft, ArrowRight, BookMarked, BookOpen, Check, ChevronDown, Chevro
 import type { Note } from '../data'
 import TutorPanel from '../components/TutorPanel'
 import { Badge, Button, IconButton, Modal, ProgressBar } from '../components/UI'
+import { reportBackendError } from '../backend/client'
+import type { AppSnapshot } from '../backend/client'
 
 const lessons = [
   { id: 1, title: '从事件到概率', duration: '22 分钟', done: true },
@@ -12,7 +14,7 @@ const lessons = [
   { id: 5, title: '朴素贝叶斯应用', duration: '42 分钟', done: false },
 ]
 
-export default function StudyRoom({ onAddNote, onFocus, notify }: { onAddNote: (note: Note) => void; onFocus: () => void; notify: (message: string) => void }) {
+export default function StudyRoom({ onAddNote, onFocus, notify }: { onAddNote: (note: Note) => Promise<AppSnapshot>; onFocus: () => void; notify: (message: string) => void }) {
   const [lesson, setLesson] = useState(3)
   const [tab, setTab] = useState('阅读')
   const [fontScale, setFontScale] = useState(1)
@@ -24,10 +26,12 @@ export default function StudyRoom({ onAddNote, onFocus, notify }: { onAddNote: (
   const [lectureOpen, setLectureOpen] = useState(false)
   const [lectureRunning, setLectureRunning] = useState(false)
   const [lectureDone, setLectureDone] = useState(false)
-  const saveNote = () => {
+  const saveNote = async () => {
     if (!note.trim()) return
-    onAddNote({ id: Date.now(), title: '贝叶斯定理 · 学习批注', excerpt: note.trim().slice(0, 90), tag: '概率论', updated: '刚刚', content: note.trim() })
-    setNote(''); setNoteOpen(false); notify('笔记已保存，并关联到当前章节')
+    try {
+      await onAddNote({ id: Date.now(), title: '贝叶斯定理 · 学习批注', excerpt: note.trim().slice(0, 90), tag: '概率论', updated: '刚刚', content: note.trim() })
+      setNote(''); setNoteOpen(false); notify('笔记已保存到本地资料库')
+    } catch (error) { reportBackendError(error) }
   }
   return <div className="study-page">
     <div className="study-topbar">
@@ -68,7 +72,7 @@ export default function StudyRoom({ onAddNote, onFocus, notify }: { onAddNote: (
       <aside className="study-tutor"><TutorPanel /></aside>
     </div>
     <Modal open={noteOpen} onClose={() => setNoteOpen(false)} title="记录学习笔记">
-      <div className="form-stack"><div className="note-context"><BookOpen size={16} />贝叶斯定理 · 当前阅读位置</div><label>笔记内容<textarea autoFocus rows={7} value={note} onChange={e => setNote(e.target.value)} placeholder="记录你的理解、疑问或一个自己的例子…" /></label><div className="note-quick"><span>快速插入：</span><button onClick={() => setNote(note + '\n我的理解：')}>我的理解</button><button onClick={() => setNote(note + '\n仍有疑问：')}>仍有疑问</button><button onClick={() => setNote(note + '\n自己的例子：')}>自己的例子</button></div><Button onClick={saveNote} disabled={!note.trim()}>保存并关联本章</Button></div>
+      <div className="form-stack"><div className="note-context"><BookOpen size={16} />贝叶斯定理 · 当前阅读位置</div><label>笔记内容<textarea autoFocus rows={7} value={note} onChange={e => setNote(e.target.value)} placeholder="记录你的理解、疑问或一个自己的例子…" /></label><div className="note-quick"><span>快速插入：</span><button onClick={() => setNote(note + '\n我的理解：')}>我的理解</button><button onClick={() => setNote(note + '\n仍有疑问：')}>仍有疑问</button><button onClick={() => setNote(note + '\n自己的例子：')}>自己的例子</button></div><Button onClick={saveNote} disabled={!note.trim()}>保存到笔记库</Button></div>
     </Modal>
     <Modal open={lectureOpen} onClose={() => { if (!lectureRunning) setLectureOpen(false) }} title="生成自学讲义"><div className="form-stack"><div className="lecture-scope"><BookOpen size={18} /><div><strong>贝叶斯定理 · 难度 3/5</strong><p>按知识节点加权切分 4 个单元，引用仅保留资料白名单。</p></div></div><label>生成方式<select defaultValue="SSE 流式生成"><option>SSE 流式生成</option><option>同步 JSON</option><option>后台任务</option></select></label><div className="lecture-options"><span>单元 1：直觉与先验</span><span>单元 2：公式与证据</span><span>单元 3：低基线率案例</span><span>单元 4：迁移与检查</span></div>{lectureRunning && <div className="lecture-progress"><LoaderCircle size={18} className="spin" /><div><strong>正在逐单元生成讲义</strong><p>单元 2 / 4 · 引文清洗 · 内容未超过 500 行，无需分片</p><ProgressBar value={48} /></div></div>}{lectureDone && <div className="lecture-done"><Check size={18} /><div><strong>4 个讲义单元已就绪</strong><p>18 条引文均通过白名单校验，单元检查题已同步生成。</p></div></div>}<div className="generator-actions"><Button variant="secondary" onClick={() => setLectureOpen(false)} disabled={lectureRunning}>取消</Button><Button onClick={() => { if (lectureDone) { setLectureOpen(false); notify('新讲义已替换当前阅读版本，旧版本已保留') } else { setLectureRunning(true); window.setTimeout(() => { setLectureRunning(false); setLectureDone(true) }, 1200) } }} disabled={lectureRunning}>{lectureRunning ? '生成中…' : lectureDone ? '打开新讲义' : '开始生成'}</Button></div></div></Modal>
   </div>
