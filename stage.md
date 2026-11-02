@@ -38,10 +38,24 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 428（2026-11-02，全仓理解复核：note 全通读 + 当前代码对账，✅ 完成）**：
+用户要求「阅读并理解整个项目，要点在 note 文件夹」。本轮不改产品代码。
+
+| 项 | 对账结论 |
+|---|---|
+| 通读范围 | `note/00–13`、graft 档案、冻结 `API.md`、六份方案与工程规约 |
+| 代码对账 | Python 启动/流水线/Agent/ORM/旧 SPA；Go boot/control/agent、tutor、Roots、新前端；另核对启动脚本、插件、测试与 CI |
+| 当前事实 | 实测 OpenAPI **120 paths / 146 operations**、ORM **29 表**；根模块为 `deep-tutor`，`internal/web` 仍不存在，Go 侧只有 `/tutor/*`，不能称为已完成的多用户 v2 |
+| 理解基线 | v1 是 FastAPI + React + SQLite 的可用学习闭环，方案生成与 Agent 对话是两套执行模型；v2 复用 Reasonix 与同构 tutor，目标是由 `internal/web` 注入每用户 Roots、Provider、权限与全局扩展快照 |
+| 文档时点 | `note/01–11` 是领域语义基准，不是当前进度表；`plan/README` 与部分 README 数字/进度仍停留在 2026-10-20 前后。当前进度以 `stage.md`、`plan/reasonix/05` 与代码为准 |
+| 当前阶段 | M1 与 M2.0 已完成，下一步是 **M2.1 sqlc + 迁移 runner**；M2/M3 还须解决 `plan/reasonix/04` §四 #33 的全局扩展资产只读投影 |
+| 验证 | 本轮只读，未跑测试套件（无产品代码变更）；开工时工作树干净，HEAD 为 `ea71a4e5` |
+
 **iter 427（2026-10-26，本机级全局提示词落点留档 + 追加「安装克制」规则，✅ 完成）**：用户要求把一份通用工作规范设为「自此之后所有 MiniMax Code 任务都遵守，即本电脑范围内全局生效」；随后追加一条「禁止随意安装新软件包，先找系统内替代」。
 
 - **落点**：MiniMax Code 运行时带原生「全局指令」机制，位置是 `<dataDir>/AGENTS.md` → 本机即 `F:\MiniMax\Data\.minimax\AGENTS.md`（11 节 / 3836 字节 < 32 KB 上限，UTF-8 无 BOM）。该文件在运行时数据目录内、**不在任何 git 仓库里**，故本仓只做留档，不管其版本。
-- **机制（2026-10-26 实读 asar 内源码）**：`@mavis/local-runtime-v2` 的 `GlobalInstructions`（`resolve(dataDir, 'AGENTS.md')`）→ Turn 装配的 `loadPromptLayers()` **每轮读一次** → 与项目级 `AGENTS.md` 并列进同一个 `Codebase and user instructions are shown below…` 块，**全局段在前、项目段在后**。推论：**改完下一轮即生效，无需重启**；超过 32 KB 会被**整段丢弃**（不是截断）。
+- **机制（2026-10-26 实读 asar 内源码）**：`@mavis/local-runtime-v2` 的 `GlobalInstructions`（`resolve(dataDir, 'AGENTS.md')`）→ Turn 装配的 `loadPromptLayers()` **每轮读一次** → 与项目级 `AGENTS.md` 并列进同一个 `Codebase and user instructions are shown below…` 块，**全局段在前、项目段在后**。
+- **生效方式**：改完下一轮即生效，无需重启；超过 32 KB 会被**整段丢弃**（不是截断）。
 - **活跃 dataDir 判定**：`F:\MiniMax\Data\.minimax` 为准（`v2/sqlite/runtime-state.sqlite-wal` 与 `v2/observability/logs/runtime-2026102611.log` 持续写入）；`C:\Users\Z\.minimax` 是 10/24–10/25 的陈旧 profile，**未写入**全局指令。
 - **叠加规则**：全局段与本仓 `AGENTS.md` 叠加，冲突时**以更具体的一方为准**（项目级优先）——该裁决已写进全局文件开头，避免两层规则打架时无依据。
 - **追加的「十一、安装克制」**：禁止随意安装新软件包，先找系统内替代（bandizip 替代 7zip）、禁止随意扩大依赖面与装新环境，确需安装先说明理由并征得同意。**本机实况已核**：`C:\Program Files\Bandizip\Bandizip.exe` 在 PATH 上，**本机无 7-Zip**（三个常见安装位置均无）→ 该替代规则本机直接可用。
