@@ -24,7 +24,7 @@ React + TypeScript + Vite + Tauri 2（Rust 壳），界面来源为用户提供�
 
 ## Operating Context
 
-桌面多栏深度学习工作台，同时适配手机；支持本地演示数据、学习操作和设置持久化。
+桌面多栏深度学习工作台，窄窗口使用单栏布局。学习操作和设置由应用原生后端持久化。
 
 ## Capabilities and Constraints
 
@@ -34,9 +34,11 @@ React + TypeScript + Vite + Tauri 2（Rust 壳），界面来源为用户提供�
 
 独立模型接入中心提供 18 种官方／兼容／本地供应商预设、档案增删改、端点与模型请求检测、直连／本地路由／聚合三种模式、按学习任务分配模型、故障转移队列、Deep Link 与 JSON 脱敏导入导出、WebDAV／S3 同步流程。
 
-API Key 仅用于内存态表单，保存时丢弃且不进入 localStorage、导出或同步内容。
+API Key 经一次性表单进入系统密钥库，不进入 WebView 长期存储、日志、导出或同步载荷。
 
-当前为用户确认的本地可交互演示：AI 回复、SSE、供应商测试、安全策略和后台任务均为界面模拟，数据仅存于当前应用 WebView，不代表真实云端同步、模型服务或后端安全边界。
+当前正分片接入 Tauri 原生后端：commands、events、SQLite 与后端异步任务提供真实结果。
+在对应切片完成前，部分 AI 回复、SSE、供应商测试、安全策略和后台任务仍为界面模拟，
+不代表真实云端同步、模型服务或后端安全边界已经接通。
 
 ## Brand Commitments
 

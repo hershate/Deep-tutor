@@ -1,4 +1,4 @@
-"""后端插件热管理测试（API.md「后端插件 API」§热管理）。
+"""后端插件热管理测试。
 
 覆盖 loader 层 unload/reload/disable/enable 全生命周期 + 端点
 POST /api/plugins/{id}/{reload,disable,enable}（管理员）+ 禁用状态跨重启持久化。

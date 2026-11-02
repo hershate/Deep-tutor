@@ -1,6 +1,6 @@
 """Deep-tutor 后端插件完整示例（改名去掉 .disabled 后缀即启用）。
 
-演示后端插件 API（契约见仓库根 API.md「后端插件 API」）的全部命名空间：
+演示后端插件 API（由 app.plugins.api.BackendPluginAPI 定义）的全部命名空间：
 - routes：挂载 REST 端点（默认带宿主认证；DI 用 api.deps 取当前用户）
 - events：订阅核心事件（progress_updated / plan_created / quiz_submitted / startup / shutdown）
 - tools：注册 Agent Python 工具（汇入每次请求新建的工具注册表）

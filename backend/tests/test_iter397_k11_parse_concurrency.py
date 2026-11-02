@@ -216,7 +216,7 @@ def test_nested_parse_does_not_deadlock(monkeypatch, tmp_path):
     """插件解析器回调宿主 parse_material 时不得自死锁。
 
     回归：信号量不可重入。插件注册的解析器可经 ``api.tools.call("parse_material")``
-    回调宿主解析（API.md §8.4 允许插件组合核心工具）——重入同一信号量时，
+    回调宿主解析（api.tools.call 允许插件组合核心工具）——重入同一信号量时，
     上界为 1 即**永久挂起**（外层持槽等内层，内层等外层）；上界为 N 时，
     N 路重入请求即可占满全部槽位，此后全站解析请求排队卡死。
     """

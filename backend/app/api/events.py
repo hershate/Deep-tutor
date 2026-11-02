@@ -14,7 +14,7 @@ GET /api/events/stream  Server-Sent Events：把后端事件总线（app/plugins
   （同 plans.py 生成 SSE 的看门狗口径，iter 244 F9）。
 - 清理：客户端断开 -> 生成器 finally 退订 sink，无连接/监听泄漏。
 
-契约见 API.md「§事件流」。
+事件格式与重放语义由本模块的流处理器定义。
 """
 
 from __future__ import annotations

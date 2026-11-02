@@ -1,4 +1,4 @@
-"""后端插件 API v1.11.0 api.storage 持久化 KV 测试（API.md「§持久化 KV 存储」）。
+"""后端插件 API v1.11.0 api.storage 持久化 KV 测试。
 
 覆盖：get/set/default、delete、has、keys、clear、原子持久化往返（新实例读盘）、
 非 JSON 可序列化值拒绝、损坏文件容错（静默重置）、按插件 data_dir 命名空间隔离、键校验、门面接线。

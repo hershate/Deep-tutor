@@ -33,8 +33,8 @@ class ApiError(Exception):
 class UnknownToolError(ApiError, ValueError):
     """api.tools.call 未注册工具（iter 385 R28）。
 
-    双继承：``except ValueError`` 的既有插件与 api.tools.call 契约（API.md「未知工具 ->
-    ValueError」）保持兼容；未捕获时经宿主统一错误信封以 404 呈现——此前裸 ValueError
+    双继承：``except ValueError`` 的既有插件与 api.tools.call 契约（未知工具 ->
+    ValueError）保持兼容；未捕获时经宿主统一错误信封以 404 呈现——此前裸 ValueError
     逃出插件路由成 500，插件热管理窗口期（unload 后在途路由请求 / reload 重注册前）
     的在途调用被错误地恶化为服务器错误。定义在本叶子模块：plugins.api 顶层导入会
     构成 app.api.__init__ 循环，门面在抛出点函数内局部导入。"""
@@ -75,7 +75,7 @@ CODE_STATUS: dict[str, int] = {
     # iter 397（K9）：解析管线的三个错误码此前**未登记** -> ApiError 落到默认 400。
     # 此处显式登记为 **400**，即保持既有 HTTP 语义**完全不变**（note/11：v1 契约冻结，
     # 只改勘误不改语义——把 dependency_missing 升为 503 / parse_failed、degraded 升为
-    # 422 属契约变更，需先改 API.md 与前端分支，另行裁决；tests/test_api.py 的
+    # 422 属契约变更，需同步接口约定与前端分支，另行裁决；tests/test_api.py 的
     # test_upload_image_png_passes_validation 即钉住 dependency_missing -> 400）。
     "degraded": 400,  # 解析降级（marker_single 失败 / URL 抓取异常）
     "parse_failed": 400,  # 解析失败（格式损坏/加密/内容为空）

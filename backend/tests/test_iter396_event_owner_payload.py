@@ -12,12 +12,10 @@
 修复：两事件直传 `user_id`（后端插件 API v1.22.0），归属判定**零查库**、不依赖会话行
 存活；插件自定义事件仍可仅带 `session_id`（回落路径保持）。
 
-覆盖：载荷键存在性与取值 / 零查库 / 会话已删仍转发 / 回落路径 / API.md 漂移守卫。
+覆盖：载荷键存在性与取值 / 零查库 / 会话已删仍转发 / 回落路径。
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 
 def _first_user_id() -> int:
@@ -175,22 +173,3 @@ def test_session_id_only_payload_still_resolves():
         db.close()
 
     assert resolve_owner({"session_id": sid}) == uid
-
-
-# --- 文档漂移守卫 ---
-
-
-def test_api_doc_core_events_document_user_id():
-    """API.md §8.5 核心事件清单须声明 plan_created/materials_completed 的 user_id 键
-    （载荷加键后忘同步文档 -> 红）。"""
-    root = Path(__file__).resolve().parents[2]
-    doc = (root / "API.md").read_text(encoding="utf-8")
-    i = doc.index("### 8.5")
-    section = doc[i : doc.index("### 8.6", i)]
-    for event in ("plan_created", "materials_completed"):
-        row = next(
-            (ln for ln in section.splitlines() if ln.startswith(f"| `{event}`")),
-            None,
-        )
-        assert row, f"API.md §8.5 缺 {event} 行"
-        assert "user_id" in row, f"API.md §8.5 {event} 行未声明 user_id 键"

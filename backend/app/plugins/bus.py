@@ -1,7 +1,7 @@
-"""后端插件事件总线（契约见仓库根 API.md「后端插件 API」§事件）。
+"""后端插件事件总线。
 
 核心事件由宿主在关键节点广播（startup/shutdown/plan_created/progress_updated/
-quiz_submitted，清单与 payload 见 API.md）；插件亦可 emit 自定义事件做插件间协作
+quiz_submitted 等）；插件亦可 emit 自定义事件做插件间协作
 （建议以插件 id 作命名空间，如 "myplugin.ready"）。
 
 稳定性语义（宿主承诺）：

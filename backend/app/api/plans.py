@@ -1614,7 +1614,7 @@ def _persist_plan(db: Session, session_id: int, plan_dict: dict, user_id: int | 
     db.commit()
     db.refresh(plan)
     _sink_knowledge_map_to_kb(db, session_id, plan_dict)  # iter 348 缺陷 D：提交后沉淀，无死锁
-    # 后端插件事件（API.md「后端插件 API」§事件清单）：生成/重生成/重试均经本函数
+    # 后端插件事件：生成/重生成/重试均经本函数
     # 落库新版本，统一在此广播；监听器异常隔离，不影响主流程
     from app.plugins import bus as plugin_bus
 
@@ -1749,7 +1749,7 @@ def list_plans(
         q_ = q_.filter(models.Plan.session_id == session_id)
     if q and q.strip():
         # iter 128：按主题子串搜索（JSON_EXTRACT intent.topic；溢出落盘的大方案
-        # content={} 无路径 -> NULL 不匹配，属已知限制见 stage.md）
+        # content={} 无路径 -> NULL 不匹配，属已知限制）
         q_ = q_.filter(models.Plan.content["intent"]["topic"].as_string().contains(q.strip()))
     total = q_.count()
     # iter 267：按平均掌握度排序（薄弱优先/熟练优先）——聚合子查询 outerjoin 到方案主查询，
@@ -2365,7 +2365,7 @@ async def _materials_sse(
                 await asyncio.to_thread(_cleanup_finally)
             except Exception:  # noqa: BLE001  收尾失败不影响已生成内容
                 log.exception("材料流收尾清理失败 plan=%s", plan_id)
-        # 后端插件事件（API.md §8.5）：材料生成完成（全量/局部均广播；监听器异常隔离）
+        # 后端插件事件：材料生成完成（全量/局部均广播；监听器异常隔离）
         from app.plugins import bus as plugin_bus
 
         plugin_bus.emit(
@@ -2584,7 +2584,7 @@ async def generate_materials(
         spec = default_materials_from_plan(prompt_content)
 
     _persist_study_units(db, plan, spec, content)
-    # 后端插件事件（API.md §8.5）：同步 JSON 生成路径同样广播（幂等重渲染不广播——
+    # 后端插件事件：同步 JSON 生成路径同样广播（幂等重渲染不广播——
     # 无新生成；spec 级降级视为全部单元降级）
     from app.plugins import bus as plugin_bus
 

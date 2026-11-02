@@ -5,7 +5,7 @@
   快败循环（error 终态→立即重试）每轮 _load_parsed_materials + 状态写入，无频次上界；
 - kb POST /generate 建会话（另加逐文档复制资料+文件写，单次成本高于普通建会话），
   却不受 POST /sessions 的 sess_create 桶约束——不共桶可叠加绕出 60/min。
-其余未挂限流的写端点均为幂等单行写（认证+属主校验覆盖），矩阵结论见 stage.md R11。
+其余未挂限流的写端点均为幂等单行写（认证+属主校验覆盖），矩阵结论见 git 提交历史。
 """
 
 from fastapi.testclient import TestClient

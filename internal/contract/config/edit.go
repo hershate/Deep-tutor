@@ -754,7 +754,7 @@ func (c *Config) ClearPluginAuthentication(name string) (PluginEntry, bool, erro
 // declaration.
 //
 // The user-global candidates are the process's, not a session's: MCP servers
-// are global admin-managed assets (note/12 #55), so their declarations live in
+// are global admin-managed assets (the legacy multi-user policy), so their declarations live in
 // the asset library and every user may use them. A per-user copy would make an
 // admin's server visible to the user who installed it and to nobody else.
 func pluginTOMLSourcePathForRoot(root, name string) string {
@@ -865,7 +865,7 @@ func UpsertPluginInSourceForRoot(root string, entry PluginEntry) (string, error)
 // concurrent config update.
 //
 // The global declaration it writes is the asset library's user-global config:
-// MCP servers are global admin-managed assets (note/12 #55), installed once by
+// MCP servers are global admin-managed assets (the legacy multi-user policy), installed once by
 // the admin and usable by everybody.
 func InstallUserPluginForRoot(root string, entry PluginEntry, forceEnable bool) (string, error) {
 	entry.Source = MCPSourceUserConfig

@@ -18,7 +18,7 @@ usage（修复链前几轮已烧 token）随协程局部变量丢弃——run_to
 主循环卡在等 task[0]，断连后 finally 取消 task[0]（无计量不写行）、drain task[1] 的
 未消费计量（内容丢弃可重生成，token 不蒸发）。
 
-其余长连面分派（clean，见 stage.md iter R25）：slides/quiz/kb 同步或短后台任务，
+其余长连面分派：slides/quiz/kb 同步或短后台任务，
 失败隔离已有、计费在调用完成点即时落账；quiz 后台对会话删除的 FK 冲突已留档
 （R23：计费已先行落账，语义即「会话已不存在」）；前端材料流为裸 fetch 无自动重连
 （非幂等端点无误重连双计费）。

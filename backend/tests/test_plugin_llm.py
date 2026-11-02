@@ -1,4 +1,4 @@
-"""后端插件 API v1.5.0 LLM 能力扩展点测试（API.md「§LLM 能力」）。
+"""后端插件 API v1.5.0 LLM 能力扩展点测试。
 
 覆盖：
 - is_configured：无供应商 False / 有供应商 True（与 complete 解析口径一致）

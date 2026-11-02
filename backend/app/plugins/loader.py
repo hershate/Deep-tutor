@@ -1,4 +1,4 @@
-"""后端插件加载器（契约见 API.md「后端插件 API」§装载）。
+"""后端插件加载器。
 
 装载约定：
 - 扫描 PLUGINS_DIR（默认 <仓库根>/plugins，见 settings.plugins_dir）：

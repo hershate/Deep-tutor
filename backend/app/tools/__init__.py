@@ -48,9 +48,8 @@ def default_registry() -> ToolRegistry:
 
     for agent_tool in AGENT_TOOLS:
         reg.register(agent_tool)
-    # 后端插件工具（API.md「后端插件 API」§工具）：插件经 api.tools.register 注册，
-    # 随每次新建的注册表汇入。与核心工具同名 -> 覆盖并告警（registry.register 既有
-    # 行为），插件可借此替换核心工具实现（高级用法，见 API.md 开发规范）。
+    # 后端插件工具经 api.tools.register 注册，随每次新建的注册表汇入。
+    # 与核心工具同名 -> 覆盖并告警（registry.register 既有行为）。
     from app.plugins import runtime as plugin_runtime
 
     for plugin_tool in plugin_runtime.plugin_tools():

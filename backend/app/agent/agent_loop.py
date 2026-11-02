@@ -360,10 +360,7 @@ async def run_agent_loop(
     await _persist_message(db, thread_id, _role("user"), [{"type": "text", "text": user_message}], run_id)
 
     for step in range(max_steps):
-        # iter 397（A16）：message_start **每步一条**——API.md §11.3 承诺「每轮
-        # assistant 消息开始（多步 run 每步一条）」，而 message_end 本就是每步一条；
-        # 此前 message_start 只在循环外发一次 -> 起止事件不对称，第三方按文档实现
-        # 的事件配对会错位（契约冻结：实现对齐文档，不改文档语义）。
+        # message_start 与 message_end 均为每步一条，供客户端配对多步 run 的事件。
         if emit:
             await emit("message_start", {"run_id": run_id, "role": "assistant", "step": step})
         if ctx.cancel_event.is_set():

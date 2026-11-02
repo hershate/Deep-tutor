@@ -102,7 +102,7 @@ func (c *Controller) confineMCPToThisProject(e config.PluginEntry, scope MCPScop
 // the user just chose.
 //
 // The declaration goes to the global asset library, not to the session's own
-// home: MCP servers are global admin-managed assets (note/12 #55), installed
+// home: MCP servers are global admin-managed assets (the legacy multi-user policy), installed
 // once by the admin and usable by everybody. The session's own settings are a
 // different matter and do follow the session's binding.
 func (c *Controller) persistMCPServer(e config.PluginEntry) error {

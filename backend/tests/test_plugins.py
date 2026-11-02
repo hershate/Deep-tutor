@@ -1,4 +1,4 @@
-"""后端插件系统测试（API.md「后端插件 API」）。
+"""后端插件系统测试（插件接口「后端插件 API」）。
 
 覆盖：装载（单文件/包插件/_ 前缀停用/确定性排序）、隔离（导入失败/register 异常/
 缺入口/非法 id/重复 id/min_api 不兼容均记 failed 且不阻塞其余插件）、
@@ -309,7 +309,7 @@ def test_lifespan_loads_plugins_and_fires_lifecycle_events(auth_headers):
         r = client.get("/api/plugins", headers=auth_headers)
         assert r.status_code == 200, r.text
         body = r.json()
-        # 响应结构契约（API.md §8.6 示例键集合；前端插件管理页直接消费，键集合锁死）
+        # 响应结构契约（插件接口 §8.6 示例键集合；前端插件管理页直接消费，键集合锁死）
         assert set(body) == {"api_version", "plugins", "subscribed_events"}
         for row in body["plugins"]:
             assert set(row) == {"id", "name", "version", "state", "error", "file", "routes", "events", "tools", "parsers", "exporters", "providers", "webhooks", "middleware"}
@@ -327,11 +327,11 @@ def test_status_endpoint_requires_admin(client):
     assert client.get("/api/plugins").status_code == 401
 
 
-# --- 核心事件埋点（API.md §8.5 事件清单必须与宿主行为一致）---
+# --- 核心事件埋点（插件接口 §8.5 事件清单必须与宿主行为一致）---
 
 
 def test_materials_completed_event_emitted(client, auth_headers, monkeypatch):
-    """材料 SSE 生成完成 -> materials_completed 广播（v1.1.0；payload 契约见 API.md §8.5）。"""
+    """材料 SSE 生成完成 -> materials_completed 广播（v1.1.0；payload 契约见 插件接口 §8.5）。"""
     from test_api_plans_materials import _make_plan
     from test_api_plans_materials_sse import _UnitProvider, _unit_resp
 
@@ -369,7 +369,7 @@ def test_materials_completed_event_emitted(client, auth_headers, monkeypatch):
 
 
 def test_learning_log_added_event_emitted(client, auth_headers):
-    """学习打卡 -> learning_log_added 广播（v1.2.0；payload 契约见 API.md §8.5）。"""
+    """学习打卡 -> learning_log_added 广播（v1.2.0；payload 契约见 插件接口 §8.5）。"""
     from test_api_plans_materials import _make_plan
 
     from app.plugins import bus
@@ -400,7 +400,7 @@ def test_learning_log_added_event_emitted(client, auth_headers):
 
 
 def test_plan_created_event_payload(client, auth_headers):
-    """方案生成落库 -> plan_created 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    """方案生成落库 -> plan_created 广播（v1.0.0；payload 契约见 插件接口 §8.5）。"""
     from test_api_plans_materials import _make_plan
 
     from app.plugins import bus
@@ -419,7 +419,7 @@ def test_plan_created_event_payload(client, auth_headers):
 
 
 def test_progress_updated_event_payload(client, auth_headers):
-    """单节点进度更新 -> progress_updated 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    """单节点进度更新 -> progress_updated 广播（v1.0.0；payload 契约见 插件接口 §8.5）。"""
     from test_api_plans_materials import _make_plan
 
     from app.plugins import bus
@@ -445,7 +445,7 @@ def test_progress_updated_event_payload(client, auth_headers):
 
 
 def test_quiz_submitted_event_payload(client, auth_headers, monkeypatch):
-    """测验作答提交 -> quiz_submitted 广播（v1.0.0；payload 契约见 API.md §8.5）。"""
+    """测验作答提交 -> quiz_submitted 广播（v1.0.0；payload 契约见 插件接口 §8.5）。"""
     from test_api_quizzes import _QuizProvider, _gen_quiz, _make_plan, _quizzes_of
 
     from app.plugins import bus
@@ -473,7 +473,7 @@ def test_quiz_submitted_event_payload(client, auth_headers, monkeypatch):
     assert isinstance(payload["user_id"], int)
 
 
-# --- 仓库自带示例插件防腐（API.md §8.7 指向的示例必须始终可加载/可运行）---
+# --- 仓库自带示例插件防腐（插件接口 §8.7 指向的示例必须始终可加载/可运行）---
 
 
 def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
@@ -509,84 +509,3 @@ def test_bundled_example_plugin_loads_and_works(tmp_path, auth_headers):
     log_file = Path(settings.data_dir) / "plugins" / "example_hello" / "progress.log"
     assert log_file.exists()
     assert "plan=2" in log_file.read_text(encoding="utf-8")
-
-
-# --- API.md 文档 ↔ 实现漂移守卫（版本号/插槽单一事实源在代码，文档声明必须同步）---
-
-
-def test_api_doc_versions_match_implementation():
-    """API.md 声明的「当前版本」必须与代码 API_VERSION 一致（防 §8.6 示例式腐化）。"""
-    import re
-
-    from app.plugins.api import API_VERSION as BACKEND_VERSION
-
-    root = Path(__file__).resolve().parents[2]
-    doc = (root / "API.md").read_text(encoding="utf-8")
-    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
-    m = re.search(r"export const API_VERSION = '([^']+)'", fe_src)
-    assert m, "前端 plugins.ts 缺少 API_VERSION 导出"
-    fe_version = m.group(1)
-
-    # 文首版本线表：两条当前版本行
-    assert re.search(rf"\| 前端插件 API \| `{re.escape(fe_version)}` \|", doc), "版本线表前端行过期"
-    assert re.search(rf"\| 后端插件 API \| `{re.escape(BACKEND_VERSION)}` \|", doc), "版本线表后端行过期"
-    # §八「API 版本」行
-    assert re.search(rf"\*\*API 版本\*\*：`{re.escape(BACKEND_VERSION)}`", doc), "§八 API 版本行过期"
-    # §8.6 状态端点示例 JSON（全文恰好一处）
-    examples = re.findall(r'"api_version":\s*"([^"]+)"', doc)
-    assert examples == [BACKEND_VERSION], f"§8.6 示例 api_version 过期: {examples}"
-
-
-def test_api_doc_widget_slots_match_implementation():
-    """代码 WIDGET_SLOTS 每个插槽都必须出现在 API.md（新增插槽忘同步文档即红）。"""
-    import re
-
-    root = Path(__file__).resolve().parents[2]
-    doc = (root / "API.md").read_text(encoding="utf-8")
-    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
-    m = re.search(r"WIDGET_SLOTS = \[([^\]]+)\]", fe_src)
-    assert m, "前端 plugins.ts 缺少 WIDGET_SLOTS"
-    for slot in re.findall(r"'([^']+)'", m.group(1)):
-        assert slot in doc, f"插槽 {slot} 未写入 API.md"
-
-
-def _doc_event_table(doc: str, start: str, end: str) -> set[str]:
-    """提取 API.md 指定区间事件表首列（`| `name` |` 行）的事件名集合。"""
-    import re
-
-    i = doc.index(start)
-    section = doc[i : doc.index(end, i)]
-    return set(re.findall(r"^\| `(\w+)`", section, flags=re.M))
-
-
-def test_api_doc_backend_events_match_emit_sites():
-    """API.md §8.5 事件清单 == 宿主实际发射的核心事件（双向集合相等：
-
-    新增发射点忘同步文档 -> 红（漏文档）；文档写了但代码不发射 -> 红（虚假承诺）。
-    扫描以 `bus.emit/emit_async` 调用为事实源（orchestrator 的 `self._emit` 是 SSE 流事件，不匹配）。
-    """
-    import re
-
-    root = Path(__file__).resolve().parents[2]
-    emitted: set[str] = set()
-    for py in (root / "backend" / "app").rglob("*.py"):
-        emitted.update(re.findall(r'bus\.emit(?:_async)?\(\s*"([^"]+)"', py.read_text(encoding="utf-8")))
-    assert emitted, "扫描不到任何插件事件发射点（正则失效？）"
-    doc = (root / "API.md").read_text(encoding="utf-8")
-    documented = _doc_event_table(doc, "### 8.5", "### 8.6")
-    assert emitted == documented, f"发射点={sorted(emitted)} 文档={sorted(documented)}"
-
-
-def test_api_doc_frontend_events_match_event_map():
-    """API.md §四事件清单 == 前端 DeepTutorEventMap 键（双向集合相等）。"""
-    import re
-
-    root = Path(__file__).resolve().parents[2]
-    fe_src = (root / "frontend" / "src" / "lib" / "plugins.ts").read_text(encoding="utf-8")
-    m = re.search(r"export interface DeepTutorEventMap \{(.*?)\n\}", fe_src, flags=re.S)
-    assert m, "前端 plugins.ts 缺少 DeepTutorEventMap"
-    declared = set(re.findall(r"^\s{2}(\w+):", m.group(1), flags=re.M))
-    assert declared, "DeepTutorEventMap 键提取失败（正则失效？）"
-    doc = (root / "API.md").read_text(encoding="utf-8")
-    documented = _doc_event_table(doc, "### 事件清单", "### 方法")
-    assert declared == documented, f"事件映射={sorted(declared)} 文档={sorted(documented)}"

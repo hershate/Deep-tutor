@@ -1,4 +1,4 @@
-"""后端插件 API v1.9.0 MCP 客户端测试（API.md「§MCP 客户端」）。
+"""后端插件 API v1.9.0 MCP 客户端测试。
 
 用 httpx.MockTransport 起一个 spec-faithful 的 MCP server 桩（initialize / notifications/initialized /
 tools/list / tools/call，JSON 与 SSE 双响应模式），验证 McpHttpClient 协议正确性 + api.mcp.connect 接线。

@@ -1,529 +1,57 @@
 # NOTICE — 第三方作品引用与许可声明
 
-> 本文件依据 MIT License 的署名要求与本仓库的引用决策（note/12 决策 #30/#42）建立，是 Deep-tutor 对所引入第三方作品的**权威声明**。分发本仓库或构建产物时，本文件与对应 LICENSE 必须一并保留。
+分发本仓库或构建产物时，必须同时保留本文件及适用的许可全文。
+本文件只描述当前来源、修改范围和分发资产；逐次修改记录见 git 提交历史。
 
-## 一、Reasonix（DeepSeek-Reasonix）
+## Reasonix（DeepSeek-Reasonix）
 
-**本仓库的内核与桌面端基于 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 改造。**
+本仓库保留的部分 Go 内核、SDK、工具、脚本及内核文档源自
+[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的 `studio` 分支。
 
 | 项 | 值 |
 |---|---|
-| 上游仓库 | https://github.com/esengine/DeepSeek-Reasonix （`studio` 分支） |
-| 维护者 | Huahui Yu（@esengine）与全体 [Reasonix Contributors](https://github.com/esengine/DeepSeek-Reasonix/graphs/contributors) |
-| 基线快照 | `R-Tutor-src-studio-20261017.zip`（2026-10-17 工作树快照，含上游完成的 Deep-tutor 学习域嫁接 `internal/runtime/tutor` 与产品翻转后的 Studio 前端） |
-| 许可 | **MIT License** — Copyright (c) 2026 Reasonix Contributors，全文见根目录 [`LICENSE-REASONIX`](./LICENSE-REASONIX) |
-| 吸收记录 | `stage.md` iter R1（逐批 commit 清单与全链验证）；映射与修订见 `note/12-Reasonix改造决策.md` 修订记录、`plan/reasonix/01-仓库布局与内核落位.md` 执行状态注记 |
-
-### 吸收范围（路径映射）
-
-| 上游位置 | 本仓库位置 | 内容 |
-|---|---|---|
-| `internal/` `cmd/` `tools/` `sdk/` `benchmark/` | 同路径 | Go 内核、命令、门禁、SDK 与基准测试包 |
-| `desktop/` | 同路径 | Electron 宿主 + frontend-next 统一前端（Deep-tutor Studio 的基座） |
-| `docs/` | `docs/kernel/` | 内核工程文档（SPEC/TUTOR/TOOL_CONTRACT 等 40+ 份）与上游原件存档 `docs/kernel/upstream/` |
-| `scripts/` | `scripts/reasonix/` | 上游工具脚本 |
-| `.github/` | `docs/kernel/upstream/github/` | 上游 CI/模板（存档，不在本仓生效） |
-| 根 README±/AGENTS/CLAUDE/REASONIX/CONTRIBUTING/SECURITY/design-qa/.env.example/.gitignore/.gitattributes | `docs/kernel/upstream/` | 与本仓根文件同名冲突的上游原件（原样存档） |
-| `LICENSE` | `LICENSE-REASONIX` | 上游 MIT 许可 |
-| `note/graft/STAGE.md` | `note/graft/STAGE.md` | 上游嫁接进度一手档案 |
-| `.githooks/` `.reasonix/` `.signpath/` 及根级构建文件 | 同路径 | 工程基座与签名工具链 |
-
-### 已移除的上游资产
-
-以下上游目录与本仓目标形态无关，已于 2026-10-20 移除（内容保留于 git 历史，commit `bec5525`）：`release-notes/`、`benchmarks/`、`examples/`、`workers/`、`npm/`、`output/`。移除范围、理由与受影响文档见 [`docs/kernel/README.md`](./docs/kernel/README.md)。
-
-该处置与 note/12 修订记录 #37 的「全部内容入库、禁用项不接线」存在范围差异，偏差已登记于 note/12 修订记录。
-
-### 修改披露
-
-**代码级修改**（除 `internal/ext/hook/hook.go` 的失效引用修正外，均为 `docs/` → `docs/kernel/` 重定位的必要适配）：
-
-| 文件 | 修改 |
-|---|---|
-| `internal/tools/productdocs/{docs.go,docs_test.go}` | 2 行 import 路径 `reasonix/docs → deep-tutor/docs/kernel`（commit `5af3470`） |
-| `internal/contract/tool/contract_test.go` | `contractPath` 由 `../../../docs/TOOL_CONTRACT.md` 改为 `../../../docs/kernel/TOOL_CONTRACT.md`，另 3 处提示文本同步 |
-| `internal/assembly/boot/boot_test.go` | 读取工具合约文档的路径增加 `kernel` 层级 |
-| `internal/frontend/cli/compact_ratio_test.go` | 读取 CLI 文档的路径增加 `kernel` 层级 |
-| `internal/frontend/cli/upgrade_pointer_contract_test.go` | 读取 CLI 指针夹具的路径增加 `reasonix` 层级（`scripts/` → `scripts/reasonix/`） |
-| `internal/frontend/serve/theme_author_example_test.go` | 主题示例目录的路径增加 `kernel` 层级 |
-| `internal/ext/extension/protocolgen/generate.go` | `MarkdownArtifactPath` 由 `docs/EXTENSION_PROTOCOL.generated.md` 改为 `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
-| `internal/ext/hook/hook.go` | 注释引用的 `docs/DESKTOP_HOOKS.md`（该文件在上游树与本仓均不存在）改为 `docs/kernel/GUIDE.zh-CN.md:610` |
-| `sdk/go/sdk.go` | 注释路径 `docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
-
-上述之外，吸收内容中的 Go 代码未作实质修改。
-
-**代码级修改（2026-10-21，iter 397 Go 侧 tutor 暴露面加固）**：对上游 `internal/runtime/tutor` 与 `internal/frontend/serve` 的备份链路作安全与数据一致性加固（与本仓 Python v1 侧同批修复对齐）：
-
-| 文件 | 修改 |
-|---|---|
-| `internal/runtime/tutor/store.go` | 新增 `safeSegment`：会话/方案/笔记/材料/知识库/分享/用量等**由外部标识符拼出的路径**统一经其收敛（含分隔符、父级引用、盘符的标识符降级为不可越界的名字），并新增 `notePath`/`kbDocPath`/`sharePath` 三个「文件名唯一构造点」 |
-| `internal/runtime/tutor/kb.go` | 知识库文档 id 与解析文本路径改用 `safeSegment`/`kbDocPath` |
-| `internal/runtime/tutor/kbchat.go` | 知识库问答记录 id 路径改用 `safeSegment` |
-| `internal/runtime/tutor/share.go` | 分享令牌路径改用 `sharePath`（经 `safeSegment`） |
-| `internal/runtime/tutor/usage.go` | 用量台账日期路径改用 `safeSegment` |
-| `internal/frontend/serve/tutor.go` | 新增 `tutorPathGuard`：对 `/tutor/` 前缀的请求拒绝含 `..` 段的路径（Go 的 ServeMux 逐段反转义，`%2e%2e%2f` 会以 `../` 到达处理器） |
-| `internal/frontend/serve/routes.go` | 路由表返回时套上 `tutorPathGuard`（守卫属路由本身，不依赖某一种挂载方式） |
-| `internal/frontend/serve/hub.go` | Hub 的 tutor 路由挂载处套上同一个守卫 |
-| `internal/runtime/tutor/store_pathsafety_test.go` | 本仓新增：`safeSegment` 与路径构造器的越界回归 |
-| `internal/frontend/serve/tutor_path_guard_test.go` | 本仓新增：路径穿越请求被拒且不触及 store 外的文件 |
-| `internal/runtime/tutor/backup.go` | 新增导出常量 `BackupMaxBytes`（解码后体积上限，供 serve 层在解码前预检）；`restoreNotes` 增 `keep` 回调并登记本次写入的笔记文件，使导入失败时的回滚**覆盖笔记**（此前回滚只登记目录与知识库文件，笔记留在库里，而响应称「nothing was changed」——表达与实现不符） |
-| `internal/frontend/serve/tutor_backup.go` | 备份预检与导入**进程内互斥**（非阻塞获取，第二个请求返 409 `tutor.backup_busy`；锁在**读取请求体之前**取，使「全进程在途的备份解析内存」有确定上界——对应 Python 侧 `_RESTORE_LOCK`）；base64 信封**解码前**按估算体积拒收超限载荷（413 `tutor.backup_too_large`），避免为超限载荷分配解码副本 |
-| `internal/runtime/tutor/backup_rollback_test.go` | 本仓新增：导入失败时笔记必须回滚、导入成功时笔记保留 |
-| `internal/frontend/serve/tutor_backup_hardening_test.go` | 本仓新增：备份操作互斥（409）、超限载荷拒收（413）、请求结束后锁释放 |
-| `internal/runtime/tutor/quota.go` | 本仓新增：文件存储替代数据库后丢失的**事务隔离与计数型配额**的补偿实现——按键互斥表 `keyedLocks`（引用计数回收）、`Store.WithPlanLock`、`Store.SaveNoteGuarded`（**计数与写入同一临界区**，镜像本仓 Python 侧 `quota_slot`）、`ErrNoteQuota`/`ErrSessionQuota`/`ErrBadLogInput`，并把会话数/笔记数/打卡时长等上限常量收敛到一处 |
-| `internal/runtime/tutor/quota_test.go` | 本仓新增：配额竞态、标题正文钳制、并发作答与并发打卡不丢更新、minutes 非正被拒 |
-| `internal/runtime/tutor/store.go`（读改写加锁） | `AppendAttempt`（作答记录）与 `AddLog`（学习打卡）的读-改-写纳入**方案级锁**——此前两个并发写入各读到同一份旧列表，后写者覆盖先写者，更新静默丢失 |
-| `internal/runtime/tutor/progresssvc.go` | `RecordProgress` 的读-改-写纳入方案级锁；`AddLog` 校验 `minutes > 0` 并对 minutes 与 note 收敛（此前 minutes 可为负或 2^62 级，note 无上限，而全部打卡条目存于同一文件） |
-| `internal/runtime/tutor/notesio.go`、`internal/runtime/tutor/promote.go` | 笔记写入改走 `SaveNoteGuarded`（此前导入路径有笔记数上限，而在线写入路径没有——同一上限两套口径） |
-| `internal/runtime/tutor/backup.go`（版本钳制） | 导入的方案版本号收敛到 `backupMaxPlanVersion=100`——版本号是导入文档携带的数据，无上限时版本列表端点会按版本号回扫出最多 2^31 次路径查找 |
-| `internal/frontend/serve/tutor.go`（错误外泄与请求体上限） | 新增 `tutorFail`：内部错误只写入 `slog`，对外统一 500 `tutor.internal_error`（此前 default 分支把含绝对路径的原始错误回显给客户端）；新增请求体上限（默认 1MB，备份 360MB、笔记导入 8MB、材料与知识库上传 80MB、URL 抓取 10MB） |
-| `internal/frontend/serve/tutor_data.go` | 版本列表端点改用按目录枚举（`Store.PlanVersions`）而非按版本号回扫；笔记写入改走 `SaveNoteGuarded`；内部错误改走 `tutorFail` |
-| `internal/frontend/serve/tutor_kb.go` | 内部错误改走 `tutorFail`（共 7 处散落的 `writeErr` 一并收敛） |
-| `internal/runtime/tutor/verify.go` | 为 `publicOnlyClient` 增加 `CheckRedirect`：逐跳重做公网地址校验并限制跳数——此前手写的跳转循环在该客户端上从未生效（客户端自己跟完 10 跳），注释承诺的「逐跳复检」是死代码 |
-| `desktop/frontend-next/src/i18n/kernel.ts` | 新增 `tutor.backup_busy` / `tutor.bad_path` / `tutor.internal_error` 三条文案（内核前端 i18n 表须与后端拒绝码一一对应） |
-| `internal/runtime/tutor/quota.go`（第二批） | 增 `WithKbLock` / `WithMaterialsLock` / `AddMaterialGuarded` 与 `ErrMaterialQuota`：知识库的**去重检查 + 文档数检查 + 写行**、以及**材料数检查 + 写行**各自收进同一把键控锁（此前是分离的「先查后写」，并发上传可突破上限并产生同哈希重复行） |
-| `internal/runtime/tutor/kb.go` | 知识库写入改为「去重 + 配额 + 写行」同一临界区（`kbCommitRow`）；去重检查排除正在更新的文档自身（`kbDedup` 增 `exceptID`）；重复或被拒时删除已写入的原件/解析文本，不留孤儿文件 |
-| `internal/runtime/tutor/materials.go` | 材料写入走 `AddMaterialGuarded`（每会话 20 条上限此前**只有常量、无人执行**）；被拒时删除已写入的原件 |
-| `internal/runtime/tutor/progresssvc.go` | `RecordProgress` 校验节点归属：节点必须属于该方案（此前任意 id 都会建行，而总览只列方案自身的节点——写进去的行无人读、文件却无限增长）；node_id 长度上限 64（与 Python 端 `node_id: max_length=64` 同口径）；进度行数上限 500 |
-| `internal/runtime/tutor/pdf.go` | 新增解析预算：页数上限 2000、页树嵌套深度上限 64（递归遍历的栈深杠杆，超限在 Go 的 1GB 栈上限处是**不可恢复的进程级致命错误**）、**整份文档的解压字节预算** 256MB（此前只有单流上限，文档的流总和不受限）；解压预算按流对象去重计费（字体的 ToUnicode 每页解码一次，重复计费会把正常文档误杀） |
-| `internal/runtime/tutor/pdftext.go` | 内容流解码失败不再静默吞掉：逐页统计失败流数并写日志；全部页面无文本时给出「内容流解码失败」的明确错误，而非笼统的「文本层为空」 |
-| `internal/frontend/serve/tutor.go`（第二批） | 补齐配额与坏输入的拒绝映射：`tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota`（429）、`tutor.bad_log_input` / `tutor.bad_progress_input`（400）——此前笔记/会话配额未映射，落入 default 分支被当成内部错误报 500 |
-| `desktop/frontend-next/src/i18n/kernel.ts`（第二批） | 新增 `tutor.note_quota` / `tutor.session_quota` / `tutor.material_quota` / `tutor.bad_log_input` / `tutor.bad_progress_input` 五条文案 |
-| `internal/runtime/tutor/quota.go`（第三批，用户定夺的配额取值） | 上限放宽为「会话 500 / 每会话材料 50 / 每会话方案 100」（原 200/20/50）——tutor store 是本地单用户空间，上限的作用是约束失控增长而非多租户资源池 |
-| `internal/runtime/tutor/notesio.go`（第三批） | 笔记上限 500 -> 2000 |
-| `internal/runtime/tutor/kb.go`（第三批） | 知识库文档上限 200 -> 500 |
-| `internal/runtime/tutor/backup.go`（第三批） | 还原侧上限随在线上限同步（会话 500 / 每会话材料 50 / 每会话方案 100）——两侧口径必须一致，否则「导出->导入」往返会静默丢数据 |
-| `internal/runtime/tutor/kbio.go`（第三批） | 新增 `KbExportMaxBytes`（256MB）与 `ErrKbExportTooLarge`：知识库导出在**建临时文件之前**先按源字节结算体积，超限即拒（此前无总量上限，200 篇 × 50MB 原件可写出 GB 级 zip 落进系统临时目录） |
-| `internal/runtime/tutor/share.go`（第三批，用户定夺的分享期限） | 分享链接新增 `ExpiresAt`（默认 7 天，`ShareDefaultTTL`）：访问时校验，过期即失效并删除该分享；`ShareMakePermanent` 为「显式设为永久」；过期链接不再由创建接口原样返回（改发新链接），管理列表也不再列出 |
-| `internal/frontend/serve/tutor_share.go`（第三批） | 新增 `POST /tutor/plans/{id}/share/permanent`；分享响应与公开页携带到期时间（`expires_at`，永久态为 null） |
-| `internal/frontend/serve/tutor.go`（第三批） | `tutor.kb_export_too_large` 拒绝映射（413，提示用 ids 参数分批导出） |
-| `desktop/frontend-next/src/i18n/kernel.ts`（第三批） | 新增 `tutor.kb_export_too_large` 文案 |
-| `internal/frontend/serve/tutor_space.go` | 本仓新增：tutor 面的**状态空间（space）**解析层——一个 space 就是一个 store 根，空间之间**互不可见**（会话/方案/笔记/知识库/分享/用量全部按空间分目录）。`SetTutorSpaceResolver` 供多用户前端（`internal/web/auth`，阶段① M2/M3）按已认证主体命名空间；`SetTutorSpaceService` 允许宿主自行装配每个空间的 Service。默认空间**保持 store 原位**，既有安装无需迁移。空间键会被收敛成不可越界的目录名（带原键摘要，两个键不会归并到同一目录） |
-| `internal/frontend/serve/tutor.go`（第四批） | `tutorService()` 改为 `tutorServiceFor(r)`：按请求所属空间选 root 与 Service（79 处调用点同步）；空间注册表优先于 Server 级覆盖，覆盖优先于按 root 共享的池。**Server 级覆盖（`SetTutorService`）只对默认空间生效**——一个 Service 只对应一个 store，交给命名空间等于用默认空间的数据回答该调用方 |
-| `internal/frontend/serve/tutor_{data,kb,backup,export,share}.go`（第四批） | 79 处 `s.tutorService()` -> `s.tutorServiceFor(r)`（6 个此前忽略请求参数的处理器改收 `r`） |
-| `internal/frontend/serve/tutor_space_test.go` | 本仓新增：两个空间互不可见（写入者与读取者、以 id 越权读取均被拒）、空间键收敛的安全性与区分性、默认空间保持原位、**Server 级覆盖不外溢到命名空间** |
-| `internal/runtime/tutor/quota.go`（第五批） | 新增 `sessionKey` / `Store.LockSession`：会话的**生命周期锁**——删会话、登记运行、收尾落盘三条路径共用一把锁。文件存储没有事务，「删除」与「仍在落盘的写入」必须手工串行化，否则删除会被写回撤销（删掉的会话连同方案一起回来） |
-| `internal/runtime/tutor/service.go`（第五批） | `DeleteSession` / `finalize` / `StartGenerate` / `Clarify` / `Retry` / `Regenerate` 全部纳入会话生命周期锁；锁**一律先于服务互斥量获取**（反序即死锁） |
-| `internal/runtime/tutor/sessionlock_test.go` | 本仓新增：收尾落盘须等待会话锁（锁在持有期间不得出终态事件）、删除等待会话锁、运行登记等待会话锁、删掉的会话不会回来 |
-| `internal/base/fileutil/removeall.go` | 本仓新增：`RemoveAll`——**可重试的目录树删除**。Go 的 `os.RemoveAll` 在 Windows 上不重试：树内任一文件被杀软/索引器/未关闭的读句柄占住，删除立刻以「目录非空」失败，调用方拿到一棵删了一半的树和一个无法处理的错误。树比单文件更容易命中这个窗口，因此按 `Remove` 的同一退避策略重试（12 次 / 约 1.5 秒） |
-| `internal/base/fileutil/removeall_test.go` | 本仓新增：重试后成功、永久性错误照实上报、路径本就不存在算成功 |
-| `internal/runtime/tutor/{store,kb,materials,share,kbchat,backup,kbio}.go`（第六批） | 目录与文件的删除改走 `fileutil.RemoveAll` / `fileutil.Remove`（此前是裸 `os.RemoveAll` / `os.Remove`）——删会话、删方案、删材料、删笔记、删分享、删知识库文档都会在杀软占用时失败 |
-| `internal/runtime/tutor/{quiz,service,kb,materials,kbchat,service_materials,slides,share}.go`（第六批） | 此前被 `_ =` 吞掉的写失败改为记日志：清空旧答题记录、运行登记时的会话落盘、解析失败回写到行、用量记账、过期分享清理。此前这些失败**完全不可见**——答题记录没清掉会被算到新题上，用量没记上会让日预算少算 |
-| `internal/runtime/tutor/kbio.go`（第六批） | 知识库导出**自述缺档**：读不出的原件/解析文本不再静默跳过，改为逐条记日志并在压缩包内写入 `missing.md` 列明缺了什么。原文注释写的是「log-and-skip」，但代码里并没有 log |
-| `internal/runtime/tutor/notesio_test.go` | 笔记配额用例的批次数改为由 `noteQuota` 推导——硬编码的 540 条在配额从 500 抬到 2000 之后**不再触发配额**，该用例已经测不到任何东西 |
-| `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes` 的列表项改为**预览投影**（正文截断 300 字符，带 `truncated` 标志）——笔记上限 2000 条 × 每条 20000 字符，列表此前携带全部正文，一次响应要序列化上百 MB（每请求一次内存尖峰，在网络暴露面上是耗尽内存的杠杆）。与 v1 `GET /api/notes` 的列表语义对齐（列表给预览、详情给全文）；数组形状不变 |
-| `desktop/frontend-next/src/port/tutor.ts`（第七批） | `TutorNote` 增加可选的 `truncated` 标志 |
-| `desktop/frontend-next/src/ui/tutor/Notes.tsx`（第七批） | 打开笔记时改从详情端点取全文（此前用列表项的正文直接填编辑器——列表改为预览后，若照旧会把截断的正文存回去、丢掉其余内容） |
-| `internal/runtime/tutor/notesio.go`（第七批） | 新增 `ExportNotesZipTo(w io.Writer, …)`：导出归档写到调用方的 writer，**归档不再整包驻留内存**。`ExportNotesZip` 保留为同源实现的内存入口（兼容既有调用与测试） |
-| `internal/frontend/serve/tutor_data.go`（第七批） | `GET /tutor/notes/export.zip` 改为**落临时文件再流式回传**（`http.ServeContent`）——此前整包 zip 在堆里成型后一次性写出；笔记集可达上百 MB，v1 侧导出早已流式化（iter 396-B2），Go 侧此前未跟进 |
-| `internal/frontend/serve/tutor.go`（第八批） | `tutorPathGuard` 统一给 `/tutor/` 全面的响应加 `Cache-Control: no-store`——该面全是单个用户的私密学习数据（笔记、方案、材料、知识库、分享、用量），此前只有备份导出与分享端点自带该头；中间缓存若存下笔记列表、笔记 ZIP 或知识库导出并转手给下一个读取者，即为泄露。处理器若要别的策略（SSE 的 `no-cache`）仍可自行覆盖 |
-
-**代码级修改（2026-10-22，iter 419：面板数量上限）**：
-
-| 文件 | 修改 |
-|---|---|
-| `internal/contract/config/config.go` | 新增 `[serve] max_panes`（面板数上限，默认 16）与 `ServeConfig.PaneLimit()` |
-| `internal/contract/config/serve_config.go` | 本仓新增：`ServeConfig` 整体自 `config.go` 拆出（连同 `DefaultMaxPanes` 与 `PaneLimit()`）——`config.go` 已超文件规模上限，新代码不往里加行 |
-| `internal/contract/config/project_scope.go` | `max_panes` 归入「仅用户级」——项目配置不得为本机抬高面板上限 |
-| `internal/contract/config/serve_share_port.go` | `[serve]` 渲染出 `max_panes`（可发现、可保留） |
-| `internal/contract/config/serve_max_panes_test.go` | 本仓新增：默认值、保存往返、项目配置不得钉住 |
-| `internal/frontend/serve/hub_capacity.go` | 本仓新增：面板上限的认领/归还与拒绝码 `hub.too_many_panes`（429） |
-| `internal/frontend/serve/hub.go` | `Hub.claims` 认领计数；`Open`/`Adopt` 在**建面板之前**认领名额（一个面板是一整套 runtime：控制器、provider 客户端、会话租约、它自己拉起的 MCP sidecar），发布时把认领转成面板，失败归还 |
-| `internal/frontend/serve/hub_sessions.go` | 本仓新增：`findSession` / `resolveRoot` 自 `hub.go` 拆出（代码原样迁入）——`hub.go` 已超文件规模上限 |
-| `internal/frontend/serve/hub_remote.go` | 远程开面板前先查名额（否则拒绝会在线程那侧留下一个没人关的面板）；`OpenRemote` 走同一条认领 |
-| `internal/frontend/serve/hub_capacity_test.go` | 本仓新增：超限拒绝、拒绝码带上限、关闭释放名额、失败归还名额、默认值 |
-| `desktop/frontend-next/src/i18n/kernel.ts` | 新增 `hub.too_many_panes` 文案 |
-| `desktop/frontend-next/src/i18n/en_kernel.ts` | 同上文案的中→英对照 |
-| `desktop/frontend-next/src/port/hub.ts` | 修正过期注释：上限由本机 `[serve] max_panes` 决定，且**不随 `/runtimes` 响应回来**——原注释称由不存在的 `[desktop] max_panes` 决定并随响应回来 |
-
-**代码级修改（2026-10-22，iter 420：测试隔离收口，测试产物回到项目所在卷）**：
-
-| 文件 | 修改 |
-|---|---|
-| `internal/base/scratchroot/scratchroot.go` | 「系统默认临时目录」改为**进程启动时读一次**（`defaultTempAtStart`），不再每次现读 `%LOCALAPPDATA%`——测试隔离守卫会改写该变量，原实现因此把「默认」读成了「被重定向」，整套测试的 scratch 空间落到了系统盘（C:） |
-| `internal/base/scratchroot/scratchroot.go` | `projectVolume()` 忽略**临时目录里的可执行文件**：go 工具把测试二进制暂存到临时目录再运行，按它取卷会把「项目所在卷」读成系统临时卷；改用工作目录所在卷 |
-| `internal/base/scratchroot/scratchroot_windows_test.go` | 本仓新增：暂存的二进制不决定卷的回归 |
-| `internal/base/testenv/ci_workflow_test.go` | `goTestArgs` 认得金丝雀包装（`go run ./tools/canary run -- ./...`）——CI 的根模块测试已改走金丝雀，守卫此前看不见那一步，等于没有守 |
-| `internal/base/testenv/home_test.go` | 补断言：scratch 根不得落进系统临时目录 |
-| `tools/canary/main_test.go` | 补 `TestMain` 装隔离守卫——本包测试点名了 home 变量，形状门禁要求它装守卫 |
-
-**文档级修改（2026-10-20，上游资产清理轮）**：以下上游文档的**相对链接**与**文中路径文本**按新位置修正，除标注的路径文本外文字内容未改：
-
-| 文件 | 修改 |
-|---|---|
-| `desktop/README.md` | 1 处：`../docs/X.md` → `../docs/kernel/X.md` |
-| `sdk/go/README.md` | 2 处：`../../docs/X.md` → `../../docs/kernel/X.md` |
-| `sdk/go/examples/{providerextension,starterextension,toolextension}/README.md` | 8 处：`../../../../docs/X.md` → `../../../../docs/kernel/X.md` |
-| `docs/kernel/{EXTENSIONS,MARKET_AUTHOR_GUIDE,THEME_AUTHOR_GUIDE}.md` | 6 处：`../<dir>/` → `../../<dir>/`（重定位层级失配） |
-| `docs/kernel/DOCS_STANDARD.md` | 4 处表格路径 `docs/` → `docs/kernel/`（重定位），新增一段「本仓适配」说明（重定位映射、上游已移除树、CI 与 repolint 实际生效范围），L2 中文副本路径同步为 `docs/kernel/*` |
-| `docs/kernel/EXTENSION_PROTOCOL.md` | 1 处：`docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
-| `docs/kernel/PLUGIN_PACKAGES.md` | 1 处：`docs/EXTENSION_PROTOCOL.generated.md` → `docs/kernel/EXTENSION_PROTOCOL.generated.md` |
-| `docs/kernel/upstream/{README,README.zh-CN,CONTRIBUTING,design-qa}.md` | 57 处：`./docs/X.md` → `../X.md`、`docs/design/theme-palettes/` → `../design/theme-palettes/`、`desktop/`、`sdk/go/` → `../../../` |
-
-以下上游文档中指向**已移除目录**的链接改为无链接的说明性表述，保留被引用内容的能力边界描述：
-
-| 文件 | 修改 |
-|---|---|
-| `docs/kernel/PLUGIN_PACKAGES.md` | 9 处：上游示例包引用（多文件 skill、issue-to-PR、只读子代理、前端任务、API 文档、stdio MCP、兼容命令、会话启动上下文、原生提示）改为说明性表述，并指向存续的 `sdk/go/examples/` |
-| `docs/kernel/design/INTELLIGENT_UI.md` | 1 处：固定任务评测协议改为说明性表述 |
-
-**根级配置文件** `.gitattributes`、`.gitignore` 合并自上游，移除已删除目录的失效规则（`benchmarks/**/*.sh`、`/npm/.stage/`、`benchmarks/context-maintenance-e2e/run/`）并修正一处注释。
-
-**状态声明添加**：在 `desktop/README.md`、`desktop/frontend-next/README.md` 顶部各加一段本仓状态说明（上游产品名属上游语境、本地化与品牌化属阶段① M1.2 / M1.4），文字为新增，文档原有内容未改。
-
-**上游测试移除**：`examples/` 树清除后，7 个上游 effect 测试的**被测对象**（上游 9 个示例套件）已不存在，用例随被测对象一并移除：
-
-| 文件 | 用例 |
-|---|---|
-| `internal/ext/skill/scenario_examples_test.go` | `TestScenarioExamplesDiscoverWithoutInvalidFrontmatter` |
-| `internal/assembly/boot/effect_bundled_skill_reference_test.go` | `TestEffectBundledSkillReferenceReachesProviderAfterCopyInstall` |
-| `internal/assembly/boot/effect_installed_compatible_command_test.go` | `TestEffectInstalledCompatibleCommandLifecycle` |
-| `internal/assembly/boot/effect_mcp_author_example_test.go` | `TestEffectMCPAuthorExampleInstallLifecycle` |
-| `internal/assembly/boot/effect_repo_map_example_test.go` | `TestEffectRepoMapExampleLifecycle` |
-| `internal/assembly/boot/effect_review_context_example_test.go` | `TestEffectReviewContextExampleLifecycle` |
-| `internal/assembly/boot/effect_work_note_prompt_example_test.go` | `TestEffectWorkNotePromptExampleLifecycle` |
-
-每个文件仅含上表所列的单个用例，无其他断言丢失。基于 `sdk/go/examples/` 的 effect 测试（`effect_fullsidecar_test.go`、`effect_installed_sdk_sidecar_test.go`、`effect_sdk_provider_test.go`、`effect_sdk_tool_test.go`）保留，对应资产未移除。
-
-**门禁工具改动**：
-
-| 文件 | 修改 |
-|---|---|
-| `tools/repolint/wireparity.go` | `readMirrors` 表移除指向 `cmd/e2ebench/main.go` 的失效条目（该入口随上游资产清除移除） |
-| `tools/repolint/docs.go` | `docClassByPrefix` 的机器读前缀 `docs/EXTENSION_PROTOCOL.generated.md` 改为 `docs/kernel/EXTENSION_PROTOCOL.generated.md`；`translatedDocs` 三个路径改为 `docs/kernel/GUIDE.zh-CN.md`、`docs/kernel/CLI.zh-CN.md`、`docs/kernel/upstream/README.zh-CN.md` |
-| `tools/repolint/docs_test.go` | `TestOnlyOnboardingPagesKeepAChineseCopy` 的夹具路径同步为上述中文副本路径，断言的非入门页同步为 `docs/kernel/SPEC.zh-CN.md` |
-
-**脚本改动**：`scripts/reasonix/official-theme-art/provenance.py` 的 `DOCS` 由 `../../docs` 改为 `../../../docs/kernel`（`scripts/` 重定位为 `scripts/reasonix/` 后原相对路径失效），输出提示文本同步。
-
-**纯搬运性质**：路径重定位（见吸收范围表）、`git add -f` 补纳上游 `.gitignore` 挡住的 3 个基准夹具 png（commit `7b40d7a`）。
-
-**代码级修改（2026-10-21，M1.2 模块与 import 路径改名）**：根模块 `module reasonix` 改为 `module deep-tutor`，桌面端子模块改为 `module deep-tutor/desktop`（以 `replace` 指向根模块）。吸收内容中的 Go import 前缀随之批量改写——`reasonix/internal/`、`reasonix/desktop/`、`reasonix/cmd/`、`reasonix/docs/`、`reasonix/tools/` 五类前缀共 8445 处，仅改 import 路径，不改任何逻辑。
-
-| 文件 | 修改 |
-|---|---|
-| 全部含上述五类 import 前缀的 `.go` 文件（3189 个） | import 前缀 `reasonix/…` → `deep-tutor/…` |
-| `cmd/reasonix/{main.go,main_test.go}` | 目录改名 `cmd/deep-tutor/`（`git mv`，文件内容仅改 import 前缀） |
-| `cmd/reasonix-studio-host/`、`cmd/reasonix-plugin-example/` | 目录名保持上游形态不变（属发布路径与插件示例标识，见 M1.4/M1.6） |
-| `reasonix.example.toml` | 改名 `deeptutor.example.toml`（`git mv`，内容未改） |
-| `tools/repolint/layers.go` | `modulePrefix` 常量 `reasonix/` → `deep-tutor/`：分层检查按 import 前缀匹配模块，不改则匹配不上、检查静默空转 |
-| `tools/covergate/main.go` | `TrimPrefix` 前缀 `reasonix/` → `deep-tutor/`：覆盖率门禁按同一前缀裁剪路径，不改则门禁失效 |
-| `.goreleaser.yaml` | ldflags 中的 `-X reasonix/internal/tools/productdocs.…` 改为 `-X deep-tutor/internal/tools/productdocs.…` |
-| `Makefile` | `build` 目标产物 `bin/reasonix$(GOEXE)` → `bin/deep-tutor$(GOEXE)`（入口 `./cmd/reasonix` → `./cmd/deep-tutor`）；`cross` 目标产物 `dist/reasonix-…` → `dist/deep-tutor-…` |
-| `.gitignore` | 新增 `/deep-tutor`、`/deep-tutor.exe`（保留 `/reasonix`、`/reasonix.exe` 以兼容既有产物） |
-
-**不改的形态**（属 M1.4 品牌化范围，机械改名会连带改协议标识与产品语义）：产品名 `Reasonix`、工作区目录 `.reasonix/`、ACP vendor method `_reasonix.io/`、git 分支 `reasonix/delivery-*`、HTTP User-Agent `Reasonix/`、上游仓库地址 `github.com/esengine/DeepSeek-Reasonix`、运行时配置名 `reasonix/config.toml`。`sdk/go` 仍是独立 module `github.com/esengine/DeepSeek-Reasonix/sdk/go`。
-
-**代码级修改（2026-10-21，MCP transport 启动失败导致进程崩溃修复）**：`internal/ext/plugin` 属 Reasonix host checks 清单中的 sensitive 路径，本项修改经 review + security_review 后合入。
-
-缺陷：`newTransport` 以 `return newStdioTransport(ctx, s)` 的形式把构造器的 `(*stdioTransport)(nil)` 直接装入 `transport` 接口。接口值非 nil，故 `reconnectingTransport.restart` 中 `next != nil` 判空失效，对该值调用 `close()` 即空指针解引用。触发路径：MCP stdio 服务器启动失败（命令缺失、可执行文件解析失败、沙箱拒绝）→ `Client.redial` → `restart` → **panic 终止整个进程**。长时间运行的服务中，任一插件启动失败即可打挂主进程。
-
-| 文件 | 修改 |
-|---|---|
-| `internal/ext/plugin/plugin.go` | `newTransport` 三个分支改为显式返回 `nil, err`，不再把构造器的 typed nil 装入接口 |
-| `internal/ext/plugin/transport_stdio.go` | `(*stdioTransport).close()` 增加 nil 接收者早退 |
-| `internal/ext/plugin/transport_http.go` | `(*httpTransport).close()` 增加 nil 接收者早退 |
-| `internal/ext/plugin/transport_sse.go` | `(*sseTransport).close()` 增加 nil 接收者早退 |
-| `internal/ext/plugin/transport_reconnect.go` | 新增 `transportIsNil`（按 `reflect.Kind` 识别接口内的 nil 指针）；`restart` 的清理条件、`dialOne` 的成功条件、`close` 的活动连接条件改用该判定；`dialOne` 另加「dial 报成功但无 transport」的显式拒绝 |
-| `internal/ext/plugin/transport_typednil_test.go` | 本仓新增：typed nil 的 5 条回归（工厂返回 nil 接口、三种 transport 的 nil 接收者 close、restart 不 panic、dialOne 拒绝空 transport、`transportIsNil` 双向判定） |
-
-**代码级修改（2026-10-21，可丢弃产物落盘位置收敛到项目所在卷）**：可重建的产物（测试临时目录、测试库、会话私有临时目录、作业 scratch 树、孤立输出、检查点事务目录、更新缓存、插件/快照/候选临时目录）原先落在操作系统临时目录（本机为系统卷 C 盘），现统一落在项目 scratch 目录（`$DEEPTUTOR_SCRATCH_DIR`，缺省为项目所在卷的 `TEMP\deeptutor`）。系统卷小、由操作系统按自己的节奏回收，且住着机器上其他租户。
-
-Go 侧新增 `internal/base/scratchroot`：解析顺序为「调用方重定向过的临时目录（`TMPDIR`/`TEMP`/`TMP` 与系统默认不同）→ `$DEEPTUTOR_SCRATCH_DIR` → 项目所在卷的 `TEMP` 目录 → 系统临时目录」。重定向优先，因为用 `TMPDIR` 做隔离的夹具必须继续隔离。
-
-| 文件 | 修改 |
-|---|---|
-| `internal/base/scratchroot/{scratchroot.go,scratchroot_test.go,scratchroot_windows_test.go}` | 本仓新增：落盘位置解析（`Base`/`Ensure`/`Path`）、可写性探测、`redirectedSystemTemp` 判定 |
-| `internal/base/testenv/home.go` | 隔离用的临时 home 由「调用者 home 目录」改到 scratch 目录；清理由单次 `os.RemoveAll` 改为可重试删除（原先在 Windows 文件锁下静默失败，每次 Go 测试在用户 profile 留一个目录） |
-| `internal/base/testenv/remove.go` | 本仓新增：可重试树删除（12 次 / 递增退避），供 testenv 内部共用 |
-| `internal/base/testenv/tempdir.go` | `TempDir` 改在 scratch 目录下创建 |
-| `internal/base/testenv/home_test.go` | 断言由「隔离 home 位于调用者 home 之内」改为「位于 scratch 目录之内，且不在调用者 home 之内」 |
-| `internal/base/tempdir/tempdir.go` | `New` 改在 scratch 目录下创建 |
-| `internal/base/scratch/scratch.go` | `Create` 的根目录由 `os.TempDir()` 改为 scratch 目录 |
-| `internal/state/sessiontemp/manager.go` | 会话私有临时目录的根由 `os.TempDir()` 改为 scratch 目录（创建前先建目录，避免陈旧清扫读到不存在的根） |
-| `internal/contract/config/temp_roots.go` | 本仓新增：`tempRoots()` 列出「系统临时目录 + 项目 scratch 目录」两组可写根 |
-| `internal/contract/config/project_program_paths.go` | 可写根由 `[ws, os.TempDir()]` 改为 `[ws] + tempRoots()` |
-| `internal/contract/config/project_programs.go` | 同上 |
-| `internal/contract/config/workspace_roots.go` | 额外工作区根的「不可重叠」集合由 `os.TempDir()` 改为 `tempRoots()` |
-| `internal/platform/worktree/candidate.go` | 快照临时目录改在 scratch 目录下创建 |
-| `internal/state/sessionstore/orphan_outputs.go` | 孤立输出目录由 `os.TempDir()/reasonix-outputs` 改为 scratch 目录 |
-| `internal/state/checkpoint/transaction.go` | 检查点事务目录同上 |
-| `internal/platform/update/cache.go` | 用户缓存目录不可用时的回退由 `os.TempDir()` 改为 scratch 目录 |
-| `internal/platform/gitcmd/gitcmd.go` | 游离 git 命令的空目录改在 scratch 目录下创建 |
-| `internal/assembly/boot/bestof.go` | 候选运行目录同上 |
-| `internal/frontend/doctor/session_bundle.go` | 诊断包路径同上 |
-
-**未改的落盘点（有意保留）**：锁根（`%LOCALAPPDATA%\reasonix`、`~/.reasonix/locks`）按上游约定必须让同一 OS 用户的各实例收敛到同一处，改成可随环境变化会让互斥失效；其内容为 0 字节锁文件。
-
-**Python v1 侧**（本仓自有代码，不在上表）：`backend/app/core/scratchroot.py` 新增（与 Go 侧同规则），`backend/app/core/settings.py` 在模块导入期把 `tempfile.tempdir` 指向 scratch 目录，`backend/tests/conftest.py` 的测试库/数据/技能/插件目录改到 `<scratch>\v1`。
-
-**代码级修改（2026-10-21，配置编辑锁注册表回收机制）**：上游的锁注册表按「每个被编辑过的配置路径一个锁文件」组织，且**只增不减**——上游注释写明「删掉锁文件会破坏仍持有它的进程的互斥」。该注册表按 OS 用户收敛在 `~/.reasonix/locks/config-edits-<uid 摘要>/`，而测试夹具每轮给一个独立 home、每轮产生一个新配置路径，于是注册表无界增长：本机实测累积 **52099 个 0 字节锁文件**。
-
-新增回收：仅回收**同时**满足两个条件的文件——时间戳显示已闲置超过 24 小时、且其锁可被获取（说明无人持有）。每次进程内每个注册表只清扫一次，单次回收上限 1000 个文件、2 秒预算（积压分批排空，不在一次编辑里卡住）。另在每次成功加锁后刷新锁文件时间戳，使「在用」的锁文件不会被误判为闲置。锁根位置（收敛点）本身未改。
-
-| 文件 | 修改 |
-|---|---|
-| `internal/contract/config/config_edit_lock_sweep.go` | 本仓新增：`sweepConfigEditLocks` / `sweepConfigEditLocksOnce`（闲置且无人持有的锁文件回收）、`touchConfigEditLock`（加锁后刷新时间戳） |
-| `internal/contract/config/mutate.go` | `acquireConfigEditLockPath` 加锁成功后调用 `touchConfigEditLock` 并触发一次清扫 |
-| `internal/contract/config/config_edit_lock_sweep_test.go` | 本仓新增：3 条回归（闲置回收 / 在用与被持有的不回收 / 每进程每注册表只清扫一次） |
-
-**代码级修改（2026-10-21，M1.4 品牌化与 `DEEPTUTOR.md` 建档）**：按决策 #42「保留 Deep-tutor 品牌，对 Reasonix 开发者保持尊重」，把**用户可见**的产品名与命令名改为 Deep-tutor / Deep-tutor Studio，同时保留全部上游版权头、MIT 许可文件与上游署名。
-
-**改写规则**：只改**字符串字面量**里的展示名（产品名、CLI 命令名、界面文案），**不动标识符、路径、协议与数据契约**。判据是「这句话是给人看的，还是给机器认的」：产品名与命令名改；路径段、文件名、目录名、环境变量、HTTP 头名、协议 URN、插件清单 kind、注册表键名、发布产物名、npm/brew 包名一律保持原样。改写按「保护词表先占位、再统一替换、最后还原」三步执行，保护词表覆盖 60 余项标识。
-
-新增 `DEEPTUTOR.md`（仓库根）：由上游 `docs/kernel/upstream/REASONIX.md` 转换而来——保留缓存稳定/上下文投影/记忆/供应商费率/预置档/推前 CI 模拟/导入环规则/变更纪律/信任域/沙箱维度等**工程章节**，**删除上游协作流程章节**（PR hygiene：每轮评审一次强推、保持 diff 最小、评审意见用 amend），新增本仓规约（决策引用 note/12、stage.md 进度要求、v1 契约冻结、`internal/web` 分层铁律、落盘位置约定、host checks 的审阅要求），并在 sensitive 清单中**追加** `internal/web/auth/**`、`internal/web/session/**`、`internal/web/shim/**`（阶段① M2/M3 建成服务层后生效）。
-
-| 文件 | 修改 |
-|---|---|
-| `DEEPTUTOR.md` | 本仓新增：工程规约（上游章节 + 本仓规约 + sensitive 清单） |
-| `tools/covergate/main.go` | `sensitiveGlobs` 的候选文件增加 `DEEPTUTOR.md`（清单原文所在文件；不改则覆盖率门禁读不到该清单） |
-| `tools/repolint/frontendtypes.go` | `modulePath` 由 `reasonix` 改为 `deep-tutor`（M1.2 改模块名时漏改，前端类型一致性检查因此查找不到任何前端包而恒为失败） |
-| `internal/base/i18n/messages_{zh,en,zh_tw}.go` | 用户可见文案中的产品名与命令名：`Reasonix` → `Deep-tutor`、命令名 `reasonix` → `deep-tutor`。**受保护不改**：`.reasonix/`（工作区约定目录）、`reasonix.toml`、`reasonix.io`、`DeepSeek-Reasonix`、`crash.reasonix.io`、`REASONIX_*` |
-| `internal/frontend/cli/*` | CLI 命令名、帮助/用法文本、版本行（`deep-tutor <version>`）、shell 补全根命令名、ACP agent 名 |
-| `internal/frontend/serve/*`、`internal/session/control/*` | 面向用户的文案与日志前缀 |
-| `internal/contract/config/*` | 配置模板注释与错误提示中的产品名；`DefaultSystemPrompt` 的自述（`You are Deep-tutor, a coding agent.`） |
-| `internal/platform/*`、`internal/ext/*`、`internal/safety/*`、`internal/model/*`、`internal/runtime/*`、`internal/state/*`、`internal/tools/*` | 各包内面向用户的文案与日志前缀 |
-| `internal/frontend/tui/chrome.go` | TUI 横幅的产品名 |
-| `desktop/frontend-next/src/i18n/en*.ts` | 前端英文目录中的产品名与命令名（**中文原文即 key**，目录与调用点成对改写，改后逐条校验 key 仍可解析） |
-| `desktop/frontend-next/src/**` | 组件内与 `t()` key 同源的文案 |
-| `desktop/electron/src/*`、`desktop/electron/test/unit.mjs` | 窗口标题、托盘提示、任务栏角标文本、协议 `product`、对话框标题、旧版本清理提示 |
-| `desktop/frontend-next/{index.html,perf.html,public/manifest.webmanifest}` | 页面标题与 webmanifest 的 `name`/`description` |
-| `docs/kernel/*.md`（36 个文件） | 面向用户的手册中的产品名与命令名。`docs/kernel/upstream/**`（上游原件存档）与 `docs/kernel/STUDIO_RELEASE.md`（上游发布流水线）**未改**；`EXTENSION_PROTOCOL.generated.md` 由 `cmd/extension-protocol-gen` 重新生成（顺带修正了其中与 `schema_hash.generated.go` 不一致的陈旧 hash） |
-| `scripts/reasonix/**` | **整体保持上游形态不改**：这是上游发布流水线（写上游仓库 README 的标记、向 GitHub issue 写标记、发布上游 npm 包、守卫上游 Homebrew tap），改名会让它找不到自己写下的标记、指向不存在的包名与资产名。按 plan 阶段④ P4.5 整体重写发布流水线时再定 |
-| `.goreleaser.yaml` | 产物名与入口改为 Deep-tutor（原文指向 M1.2 已删的 `./cmd/reasonix`，实际已无法构建）；移除指向上游 Homebrew tap 的 cask 段（本仓无权发布到该 tap；#50 的发布路径为 GitHub Releases + minisig + SHA256SUMS） |
-| `internal/tools/productdocs/docs_test.go` | provider 可见契约的哈希钉随工具描述里的产品名更新（描述里只有产品名变了） |
-| `AGENTS.md`、`README.md`、`Makefile` | 规约指向 `DEEPTUTOR.md`、sensitive 清单出处、上游署名段、POSIX shell 依赖说明、`CGO_ENABLED` 改用 `export` 变量 |
-
-**随改名一并修正的行为不一致**（表达与实现对不上，属本轮审查发现）：
-
-| 位置 | 问题 | 处理 |
-|---|---|---|
-| `internal/frontend/cli/upgrade.go` | 自升级从上游发布渠道解包，包内二进制名为 `reasonix`；改名后按 `deep-tutor` 查找，**每次解包都会失败** | 解包名改回上游包内实际名；`cliPlatformAssetName` 同步回上游资产名（渠道未变） |
-| `internal/platform/releaseasset/cli.go` | 远程引导的资产名与包内可执行名同因被改，下载必然 404 | 改回上游形态，并加注释说明「渠道在上游，故名不可改」 |
-| `internal/platform/remote/bootstrap/windowsshell.go` | 远端 Windows 侧可执行名与上游包内名不符 | 改回 `reasonix.exe` |
-| `internal/frontend/cli/upgrade_install_source.go` | 受管安装检测只认 npm 前缀 `@reasonix/cli-` 与 brew cask `reasonix`；改名后**用户既有安装会被当作无主可覆盖** | 两种拼写都认，并让提示语报出实际命中的包/包名 |
-| `internal/ext/mcpsetup/parse.go` | 粘贴 `deep-tutor mcp add ...` 时不再被识别为本 CLI 的命令 | `isCLILauncher` 接受两种拼写，并按小写/去分隔符归一（`DEEPTUTOR.EXE` 亦可） |
-| `internal/session/control/input.go`、`planner_gate.go` | 计划路由标记 `[Reasonix: plan-first]` 改名后，旧前端写入的标记不再触发规划 | 保留旧拼写常量并同时识别、同时剥离 |
-| `desktop/internal/winuninstall/plan.go` | Windows 卸载注册的 `DisplayName`/`Publisher`/注册表键名被改，**卸载器认不出既有安装**（不更新、也不清理旧键） | 整体回退为安装身份原值 |
-| `internal/frontend/tui/chrome.go` 及 `internal/frontend/tui/*_test.go` | TUI 横幅仍是旧名（裸字面量受保护而漏改） | 横幅改 `deep-tutor`，断言同步 |
-| `internal/platform/repair/update.go` | 更新事务白名单只列新名，既有安装的更新会被拒 | 白名单取两种拼名的并集 |
-| `internal/contract/config/ccswitch.go` 及测试 | cc-switch 导入的 `apps.reasonix` 开关是上游 wire 字段，夹具改名后开关失效 | 夹具字段名保持 `reasonix`（与 `json:"reasonix"` 一致） |
-| `internal/frontend/serve/mcp_parse_*_test.go`、`internal/ext/mcpsetup/*_operand_test.go` | 服务名由**用户自己的脚本名**派生（`reasonix_server.js` → `reasonix-server`），期望值被改后与输入不再一致 | 期望值改回派生结果（派生逻辑本身未动） |
-| `desktop/frontend-next/src/port/cloud_remote.ts` | 远程握手的子协议名 `reasonix.auth.<ticket>` 是与上游中继的 wire 约定 | 改回原值 |
-| `desktop/electron/test/unit.mjs`、`cmd/reasonix-studio-host/owner_test.go` | macOS 应用包内可执行名 `Contents/MacOS/Reasonix Studio` 是真实路径 | 改回原值 |
-
-**第二轮复核（2026-10-22，同一 commit 前）**：改写完成后按「这句是给机器认的」逐点复扫，发现首轮保护词表漏掉了一批**跨版本 / 跨渠道的契约名**，一并回退或改成两种拼写都认：
-
-| 位置 | 问题 | 处理 |
-|---|---|---|
-| `desktop/electron/src/main.js` | `app.setName` 被改成 `Deep-tutor Studio`——它决定 Electron 的 `userData` 目录与单实例锁路径，改了**既有桌面端 profile（设置、凭据、会话历史）被孤立**，且同一安装的两次启动会落到两个 profile、两个锁 | 回退为 `Reasonix Studio`，并加注释说明为何不能跟产品名一起改 |
-| `internal/platform/remote/bootstrap/launch.go`、`windowsshell.go`、`install.go` | 远端内核的文件名恒为 `target.Executable()`（`reasonix` / `reasonix.exe`，来自上游发布渠道），改名后 **PATH 探测找不到、进程匹配 `*deep-tutor*serve*` 失配** → `StopCommand`/`ServeAliveCommand` 判不出「是自己的进程」，远端 serve 每次连接都被当成死的而重启、进程堆积；`npm i -g deep-tutor` 指向不存在的包 | 探测与进程匹配**两种拼写都认**（`remoteKernelNames`）；npm 安装名回到上游实际存在的 `reasonix` |
-| `internal/platform/repair/update.go` | 更新回滚节点的后缀被改成 `deep-tutor-failed`，而清理逻辑按 `.reasonix-failed-*` 匹配 → **失败回滚留下的 bundle 永远不被回收**（3 条既有测试转红） | 后缀回到 `reasonix-failed` |
-| `internal/state/memory/store_v2.go` | `legacyMemoryID` 的哈希域分隔符被改名 → 同一条旧事实每次重建都得到**不同的 ID**，已持久化的引用全部失配 | 域分隔符回到 `reasonix-memory-v2` |
-| `internal/frontend/cli/session_machine.go` | 机器会话 ID 的 HMAC 域分隔符被改名 → 已发放给用户的 `session_<hex>` 恢复 ID **全部无法再解析**（`run --resume` 报「no session matches」） | 域分隔符回到 `reasonix-machine-session-v1` |
-| `internal/frontend/cli/upgrade.go` | 「找不到本平台二进制」的错误提示打印的是本构建的名字，而实际查找的是上游资产名 → 提示指向一个不存在的文件 | 提示改用 `cliPlatformAssetName()`，与实际查找的名字一致 |
-| `internal/platform/installlayout/legacy_support_test.go` | 启动器名只改了 POSIX 分支，Windows 分支仍是 `reasonix-launcher.exe` → 同一函数两平台两个名字 | 回到 `reasonix-launcher` |
-| `internal/runtime/taskmonitor/tmux.go` | tmux owner 选项名被改成 `@deep-tutor-owner`；tmux 会话**比应用活得久**，新版本 `show-options` 读不到旧版本写的选项 → 认不出自己创建的会话，既不复用也不回收，会话堆积 | 选项名回到 `@reasonix-owner` |
-| `internal/frontend/acp/handshake.go` | ACP 认证方式的 ID 是**协议标识符**（客户端按它调 `authenticate`），改名后固定了旧 ID 的客户端找不到该方法 | ID 回到 `reasonix-setup`；展示用的 `Name`/`Description` 仍为 Deep-tutor |
-| `internal/platform/repair/update.go` | handoff 暂存目录名只认新拼写，旧版本遗留的暂存目录被判「名字异常」 | 两种拼写都认 |
-| `internal/platform/update/application_darwin.go` | 在更新包里按本构建的名字快路径找 `.app` | 回到上游形态（快路径本就是猜测，真正的查找靠遍历） |
-| `internal/platform/repair/*_test.go`、`internal/platform/update/apply_darwin_test.go`、`cmd/reasonix-studio-host/launchroot_test.go` | macOS bundle 夹具写成 `Deep-tutor.app` / `Contents/MacOS/Deep-tutor`，而真实身份是 `Reasonix Studio.app` / `Contents/MacOS/Reasonix Studio`（`electron-builder` 的 `productName` 未改） | 夹具回到真实身份，避免后来者据此改生产代码去找不存在的目录 |
-
-**刻意不改的标识**（改动会连带改协议、路径或环境变量语义，需配套迁移，另行处理）：`app.setName("Reasonix Studio")`（决定 Electron 的 `userData` 路径，改了会孤立既有桌面端 profile）、`electron-builder` 的 `productName`/`packageName` 与 polkit 文件名（打包身份与更新器路径）、`reasonix-studio-host` 二进制名、`io.reasonix.studio.*` profile 目录名、工作区目录 `.reasonix/`、运行时配置名 `reasonix/config.toml`、环境变量 `REASONIX_*`、ACP vendor method `_reasonix.io/`、ACP 认证方式 ID `reasonix-setup`、keyring 服务名 `reasonix` 与凭据清除标记 `# reasonix-cleared`、插件清单 kind `reasonix`、HTTP 头名 `X-Reasonix-Broker-Token`、User-Agent `Reasonix/`。
-
-**同样按「机器认的」保留的还有**（散落各处，逐点复核后确认）：安装布局里的二进制名（`reasonix-cli` / `reasonix-desktop` / `reasonix-update-helper` / `reasonix-launcher`）、更新回滚节点后缀 `reasonix-failed` 与备份后缀 `.reasonix-update-backup`、tmux owner 选项 `@reasonix-owner`、机器会话 ID 与旧事实 ID 的**哈希域分隔符**（`reasonix-machine-session-v1` / `reasonix-memory-v2`）、上游发布渠道的资产名与包内可执行名（`reasonix-<os>-<arch>` / `reasonix` / `reasonix.exe`）、上游 npm 包名（`reasonix`、`@reasonix/cli-*`）与 brew cask 名 `reasonix`。凡「以名字做匹配」的代码点（受管安装检测、MCP 粘贴命令解析、计划路由标记、远端内核探测与进程匹配、更新事务白名单、handoff 暂存目录名）**两种拼写都认**，只认新名会让旧安装失去能力，只认旧名会让新构建失效。
-
-**第三轮：环境变量改名（2026-10-22，M1.4f）**：产品读了哪些变量，是它的一部分；变量跟着产品名一起改，**但旧名必须继续有效**——改名前设过变量的机器（包括正是为了把数据留在非系统盘而设的那些）不能因此找不到自己的 home。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/base/envvar/`（本仓新增） | 改名变量的统一解析：`Get`（新名优先、旧名兜底）、`Lookup`（区分未设与设为空）、`Name`（报出**实际生效**的那个拼写，供「哪个变量钉住了这个位置」这类界面用） |
-| `internal/contract/config/paths.go`、`storage_roots.go`、`credentials.go`、`expand.go`、`dotenv.go` | home / state / cache / 凭据存储方式 / 工作区根 / 代理密码的展开，均走 `envvar`；`RootPinnedBy` 报出生效中的那个拼写 |
-| `internal/base/i18n/detect.go` | 语言检测的候选变量表改用新名（`envvar.Get` 自带旧名回落，候选顺序不变） |
-| `internal/frontend/{termrender,tui,cli,serve,doctor}/*`、`internal/platform/{telemetry,feedback}/*`、`internal/runtime/outputstyle/*`、`cmd/reasonix-studio-host/main.go` | 主题、鼠标接管、遥测开关、账号与远端地址、反馈地址、home 隔离判定的读取点改用 `envvar` |
-| `internal/contract/config/plugin_packages.go`、`internal/ext/hook/env_contract.go`、`internal/ext/extension/sidecar/process.go`、`internal/ext/pluginpkg/manifest_v1.go` | **注入**给插件 / 钩子 / 边车的变量两种拼写都注入（`REASONIX_PLUGIN_ROOT` 与 `DEEPTUTOR_PLUGIN_ROOT` 等），因为另一端是已经写好的程序；清单里的 `${REASONIX_PLUGIN_ROOT}` 与 `${DEEPTUTOR_PLUGIN_ROOT}` 都展开；钩子的变量引用检查同时认两个前缀 |
-| `internal/ext/configbackup/consent.go` | 备份拒绝携带的变量前缀加上 `DEEPTUTOR_`（两种拼写都不带走） |
-| `internal/base/testenv/home.go` | 测试隔离的 home 同时清掉两种拼写 |
-| 用户可见文案与手册（`internal/base/i18n/messages_*.go`、配置模板注释、`docs/kernel/**`、`DEEPTUTOR.md`、`AGENTS.md`、`note/08-核心基础设施.md`） | 变量名改为当前拼写；`docs/kernel/CONFIG_PATHS.md` 另有一段说明「两种拼写都有效、当前名优先」 |
-
-| `internal/runtime/tutor/verify.go`（robots 分组匹配） | robots.txt 的分组匹配改为按**实际发出的 UA 产品名**匹配（`robotAgentIsOurs()`），并同时认改名前的 `reasonix-tutor`；此前硬编码 `strings.Contains(agent, "reasonix")`，而请求带的是 `Deep-tutor-Tutor/1.0` → 站点为该 UA 声明的 `Disallow:` **读不到**，抓取器会去取被禁路径（真实行为缺陷，M1.4g） |
-| `internal/runtime/tutor/ics.go` | 日历 PRODID 由 `Reasonix` 改为 `Deep-tutor`，与 v1 侧 `backend/app/tools/build_ics.py` 对齐（两实现此前分叉） |
-| `sdk/go/**`（README.md、`sdk.go`、`fakehost_test.go`、4 个示例的 `main.go`/README、示例 `reasonix-plugin.json` 的 description） | 展示名改写（示例系统提示词 `You are Reasonix…` → `You are Deep-tutor…`、工具调用参数 `{"query":"reasonix"}` → `{"query":"deep-tutor"}`）；**模块路径与协议 ID 保持原名**，并在 README 说明理由 |
-| `desktop/README.md`、`desktop/electron/package.json`、`desktop/electron/assets/installer.nsh` | 展示文案改写；**安装身份不动**（electron-builder 的 productName `Reasonix Studio`、artifactName `ReasonixStudio-*`、`io.reasonix.studio.*` profile 目录名、Windows 卸载注册表键、macOS 应用包名与包内可执行名、`app.setName`） |
-| `internal/tools/builtin/{builtin_test.go,preview_test.go}`、`internal/runtime/promptrefine/refine_test.go` | 夹具输入与期望对齐（替换文本的输入仍是旧名、期望已是新名） |
-| `internal/model/openai/opencode_session_test.go` | **回退**测试到 `Reasonix`：User-Agent 是机器认标识，本仓规范 UA 仍是 `Reasonix/<version>` |
-| `internal/platform/releaseasset/cli_test.go` | **回退**夹具到 `reasonix.exe`：上游发布渠道的资产名不可改 |
-| `internal/frontend/cli/flag_parse_test.go` | 断言消息与断言本身相反，改消息 |
-| `cmd/reasonix-plugin-example/main.go` | 示例的展示文案改写（命令名本身不动） |
-| `tools/repolint/universe.go`（本仓新增）、`tools/repolint/{source.go,css.go,buildartifact.go,processinput.go,layers.go}` | 扫描域改为 **git 可见的树**（tracked + untracked-not-ignored），此前遍历工作树全集 → 本机的 `REF/` 副本让基线漂移；另新增 `processInputSeams` 解析缝豁免、`internal/base/scratchroot` 归入 leaves |
-| `tools/repolint/baseline.json` | 按本仓树重建基线（2173 findings / 524 files） |
-| `internal/base/envvar/doc.go`、`internal/base/scratchroot/doc.go`（本仓新增）、`internal/frontend/serve/tutor.go` | 包文档归位到 `doc.go`、注释收到限额内（repolint 门禁） |
-| `internal/runtime/agent/spawn_boundary_test.go` | 子代理构造点枚举改用 `git ls-files --cached --others --exclude-standard`（此前遍历工作树全部 `.go`、未过滤 `REF/` 副本） |
-| `internal/runtime/agent/cachehit_e2e_test.go` | 缓存守卫的三个环境变量改走 `internal/base/envvar`（`DEEPTUTOR_*` 优先 / `REASONIX_*` 兜底） |
-| `internal/safety/sandbox/shell_windir_windows.go`、`shell_windir_other.go`、`sandbox_test.go` | `systemWindowsDir` 由 `func` 改为包级 `var` 接缝，WSL 启动器的识别逻辑改由临时夹具证明——**生产行为不变**，测试不再依赖本机是否装 WSL（sensitive 路径） |
-| `internal/runtime/tutor/{quota_test.go,backup.go,tutor.go}` | golangci-lint v2.12.2 的 9 处告警（intrange / `max` / `slices.Contains`）；`backup.go` 改用 `max` 但**保留上限收敛的诊断 `add()`** |
-| `desktop/frontend-next/src/i18n/en_kernel.ts` | 补 9 条 refusal 文案的英文条目（本仓 iter397 只在 `kernel.ts` 加了中文，英文窗口会退回中文） |
-| `desktop/frontend-next/src/actions.ts` | 注册表新增 4 条：`provider.remove-cancel`、`tutor.confirm-no`、`tutor.confirm-yes`、`tutor.confirm-focus`；此前 `tutor.confirm-no/yes` 被渲染却未登记（普查 Seal E 红，普查以非零码退出） |
-| `desktop/frontend-next/src/ui/ProviderDetail.tsx` | 确认条上的「取消」按钮补 `data-action="provider.remove-cancel"`（此前是无名的输入，令未命名输入数超出上限） |
-| `desktop/frontend-next/src/ui/tutor/Confirm.tsx` | 遮罩层补 `data-action-click` / `data-action-keydown`（同一元素两个 handler 须分别声明） |
-| `desktop/frontend-next/src/ui/Providers.remove.interaction.test.tsx`、`Providers.leave-guard.interaction.test.tsx` | 两份过期规格改到与实现一致：删除服务先走确认条，测试点确认条上的第二个「删除」（这两份规格与本仓吸收的实现相矛盾——确认条是 R-Tutor 变体新增的，加的时候漏改了它们） |
-| `desktop/frontend-next/src/ui/addplugin-i18n.interaction.test.tsx` | 断言的展示名跟实现走（Reasonix → Deep-tutor） |
-| `Makefile` | **Windows 上取值与 shell 探测修复**：`$(wildcard C:/Program Files/Git/bin/sh.exe)` 因路径含空格恒空 → `SHELL` 落到不存在的 `/bin/sh` → mingw 版 make 的 `$(shell ...)` 走的是 POSIX 语义下的 Windows 程序（`date` 是交互式的 Windows `date`、`sed` 的单引号不认、`cat` 不是命令）→ **`BUILD_TIME_UTC` 变成带空格的英文句子，`-X` 的值被拆开，`make build` 链接失败**。修法：shell 探测改用 glob（8.3 短名优先，使 make 的 SHELL 指向真实存在的 shell，POSIX recipe 在 Windows 上随之可用）、`git describe`/`git rev-parse` 去掉管道与重定向（前缀用 `$(patsubst)`、空值用 `$(if)`）、时间戳显式点名 POSIX shell 并回落 PowerShell（形状固定 `YYYY-MM-DDTHH:MM:SSZ`，须为一个词）、`cat` 改 `$(file <.golangci-version)`（make 3.81 回落 `cat`）、`lint-install` 删掉冗余的 `CGO_ENABLED=0` 内联 POSIX 赋值（顶层已 export）。**stderr 一律不重定向**：空设备没有两边都认的拼法，重定向落到的其实是文件。Linux/macOS 上行为不变 |
-
-**第四轮：多用户存储绑定贯通（2026-10-22，M1.3 spike 的 K-1）**：一个进程服务多个用户时，每个用户的**用户全局**读写必须落在**自己的** home 下。此前控制器的运行期读取一律走进程级路径函数（`config.UserConfigPath()` 等 16 个），即使用户装配层已经声明了 home 也读不到自己的设置。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/session/control/`（35 文件） | `control.Options` 增 `Roots config.Roots`（**零值=跟随环境**，与原行为一致，故对现有调用方零影响）、`Controller` 增 `Roots()` 访问器；控制器的**用户全局**读写（用户配置、项目授权、命令根、插件树、用户配置读取路径）改走该绑定——**生产代码的进程级路径调用点归零** |
-| `internal/session/control/runtime_config.go`（本仓新增） | 运行期配置读取的统一入口：用户全局层取自绑定，**项目层仍取自进程工作目录**——「哪一层归哪个 home」是两件事，混在一起会让这次改动难以复核 |
-| `internal/session/control/trustable.go`（本仓新增） | 「可整目录信任」的判定改为**两半都查**：会话自己的 home 也受保护，进程 home 的既有保护不放宽（sensitive 路径 `approval_orchestration.go` 的三处调用随之改用该判定） |
-| `internal/contract/config/mutate.go` | 新增 `Roots.LockUserConfigEdits()`：配置编辑锁必须锁**被写文件自己**的锁。此前只能锁进程 home 的文件，换了 home 之后会变成「写 A 的文件、锁 B 的文件」，两个写者互不排斥（丢更新） |
-| `internal/contract/config/edit.go`、`paths.go` | `isUserConfigPath` 改为**按绑定**判断（文件归哪个 home，它的规则就跟到哪个 home）；新增 `Roots.StatedHome()`——调用方**指名**的 home，与解析出来的 home 不是一回事 |
-| `internal/contract/config/{load.go,edit.go,mutate.go,unparsed.go,path_access.go,project_edit_provenance.go,preserve.go,config.go}` | **配置的读/写路径整体绑定化**：新增 `Roots.LoadForEdit` / `LoadForEditReadOnlyStrict` / `EditConfigFile` / `RepairUnparsedConfig` / `WritePermissionsAllow`；`renderScopeForPath` 与 `configFilePerm` 由自由函数改为 `*Config` 的方法，跟着配置自己的绑定走。**为什么必须做**：文件是「用户文件」还是「项目文件」决定它怎么写——用户文件整份重写（只改动的键），项目文件按增量写（只写与默认值不同的节）。判定若仍按进程，per-user 的 config.toml 会被当**项目文件**增量写，**丢掉用户从未在项目里声明过的 provider 条目**。零值绑定=进程绑定，故对现有调用方零影响 |
-| `internal/assembly/boot/build.go`、`reload.go` | 装配时把 `b.roots` 传给控制器；`Rebuild` 让**替换件继承被替换件的 stated home**——换模型是同一个会话，不是可以另择 home 的新会话 |
-| `internal/frontend/serve/capability_project.go` | 能力面板按绑定读用户配置；serve 层尚无自己的用户，暂用零绑定（即进程行为，与原状一致） |
-
-**刻意保持全局的（不随 per-user home 走）**：**激活存储**（技能/MCP 的启用态）——它的作用域只有 global 与 project 两种，没有 user 一档；按 `plan/reasonix/04` §三，扩展资产是「全局一套（admin 管理），多用户共享」，故仍读进程 home（服务进程自己的 home 即全局资产库）。MCP 声明的安装/删除（`InstallUserPluginForRoot` 等）同理，属全局扩展资产面。**由此留下的产品级问题**（用户能否为自己单独关掉某个 MCP 服务器/技能）记入 `plan/reasonix/04` §四，待用户定夺。
-
-**第五轮：配置读路径的来源判定与凭据加载也按绑定（2026-10-22，M2-0a 的 K-1 续做）**：第四轮把「写」的部分接上了绑定，但「读」的一侧还留着按进程判定的地方——它们在单用户下看不出差别，换成 per-user home 后就会读错文件。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/contract/config/load.go` | **声明来源标注按绑定**（`mergeTOMLPlugins` / `mergeTOMLProviders` / `providerSourceForPath`）：此前一律用进程级的 `isUserConfigPath` 判定「这是用户文件还是项目文件」，于是 per-user 的 config.toml 里的 `[[plugins]]` 被记成**项目声明**。后果有二：移除该服务器时按项目源去找文件（找不到，删不掉）；同名 provider 的「用户层优先」也判错。**为什么必须做**：来源决定声明可以在哪个文件里被改，也决定它算全局还是本地 |
-| `internal/contract/config/decode.go` | TOML 的读取按绑定解析路径：用户文件允许是指向别处的链接，项目文件不得越出自己的目录——这条规则跟文件属于哪个 home 走。此前 stat 走绑定、decode 走进程，两者可能解析到不同结果 |
-| `internal/contract/config/load.go` | `desktop.provider_access` 的「用户是否声明过」按绑定判定：未声明的用户清单意为「全部允许」，项目清单不得把它收窄 |
-| `internal/contract/config/dotenv.go`、`load.go` | **凭据按绑定加载**：编辑态读配置时带入的 `.env` 是该 home 的，不是进程的。凭据是用户自己的，串了就是拿别人的 key 去解析自己的 `api_key_env` |
-| `internal/contract/config/unparsed.go` | 配置读不出来时的恢复读该 home 的「最后一次可用」快照，而不是进程的 |
-| `internal/contract/config/edit.go`、`mutate.go` | `SaveForRoot` 的落点、配置编辑锁的目标，都按绑定解析 |
-| `internal/session/control/trustable.go`、`boundary.go`、`workspace_roots.go`、`approval_orchestration.go` | **目录信任的存储位置收敛为一个口径**（`trustHome()`）：此前「信任记录」读 `posture.Home`、「记住的规则」读进程 home，同一份记录的两个视图读的是**两个 home**——多用户下就是两个用户的文件，用户授的规则与会话看到的规则对不上。改为一处：会话的存储绑定说话，姿态的 home 兜底（sensitive 路径 `approval_orchestration.go` 的 2 处随之改） |
-| `internal/contract/config/stated_home_test.go`、`internal/session/control/stated_home_test.go` | 本仓新增：来源标注、凭据加载、provider_access 归属、信任与记住的规则同一处的回归 |
-
-**MCP 声明仍然落在全局资产库**（note/12 决策 #55：MCP 服务器由管理员安装，全体用户可用，普通用户不可自装）。因此控制器的 MCP 安装/删除走**进程绑定**，不随会话的 per-user home 走；会话自身的设置（超时、语言、显示偏好）才随绑定走。**由此留下的装配层任务**：per-user 会话要看到全局的 MCP 清单，装配层须把全局安装态**只读投影**进每个用户（`plan/reasonix/04` §二/§三），内核侧的读路径已按绑定就绪（`c.roots.LoadForRoot` 读的是该 home，投影进去即可见）。
-
-**第六轮：最后一次可用（last-known-good）配置快照按 home 记账（2026-10-22，M2-0b 的 K-3）**：配置快照是**某个 home 的配置**的快照，记账单位必须跟着 home 走。此前是**进程一次**——一个进程服务多个用户时，先到的用户会吃掉那一次，后到的用户永远没有快照可恢复。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/assembly/boot/healthy_config.go` | 记账从**进程一个 `sync.Once`** 改为**按快照位置一个 once**（键=该 home 的 last-known-good 路径）。两个 home 各记一份；同一位置的两个 home 仍共享一次。装配成功即证明该配置可用——这条信号与前端无关，所以记录留在装配层 |
-| `internal/assembly/boot/runtime.go` | 记录时把本次装配的存储绑定传下去，写的是**该 home 的**配置，不是进程的 |
-| `internal/platform/repair/config.go` | 新增 `RecordHealthyConfigFor(roots, version)`：快照的源文件、固定快照、不可变快照序列都取自该绑定。原 `RecordHealthyConfig(version)` 保留为进程绑定的包装（运维 CLI 的行为不变） |
-| `internal/platform/repair/snapshot.go` | 新增绑定侧变体 `snapshotDirFor` / `recordConfigSnapshotFor` / `ListConfigSnapshotsFor` / `pruneConfigSnapshotsFor` / `pruneConfigSnapshotFor`；同名自由函数保留为进程绑定的包装 |
-| `internal/contract/config/lkg.go` | 导出 `Roots.LastKnownGoodConfigPath()`：恢复读侧本来就按绑定读（上一轮已改），写侧此前按进程写——两侧现在说的是同一个地方 |
-| `internal/assembly/boot/healthy_config_test.go`、`internal/platform/repair/stated_home_test.go` | 本仓新增：两个 home 各记一份；快照落在该 home 下，且进程 home 未被写入 |
-
-**第七轮：凭据保护层是进程级的，由全局配置决定（2026-10-22，M2-0c 的 K-2）**：`[secrets]` 的三个开关（`filter_subprocess_env` / `protect_sensitive_files` / `protect_credential_files`）在 `internal/base/secrets` 里是**包级状态**，工具层从那一处读。上游注释的前提是「`[secrets]` 不能按项目覆盖，所以包级全局安全」——一个进程只服务一个用户时成立；一个进程服务多个用户时失效：**最后完成的那次装配决定所有人的保护**。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/assembly/boot/options.go` | 新增 `Options.GlobalSecrets *config.SecretsConfig`：**安全底线注入口**——宿主可以自己声明这一进程执行的凭据保护 |
-| `internal/assembly/boot/secrets_floor.go` | 新增 `effectiveSecrets()`：注入口优先；否则装配是 per-user 时取**全局**配置，单用户时仍取本次装载的配置。**为什么必须做**：保护层是进程级的，一个用户的文件不得替所有用户决定它 |
-| `internal/assembly/boot/build.go` | 装配时用生效值**覆盖 `cfg.Secrets`** 再 arm 包级开关——沙箱的拒绝根（`cfg.ForbiddenRootsForRoot`）读的是 `cfg.Secrets`，只改包级开关会让两处读到不同的值 |
-| `internal/assembly/boot/build.go`（`loadConfig`） | 只读姿态原先在装载处强制两项保护为真，现移到装配处与底线合成一处：底线不得**放宽**只读姿态 |
-| `internal/contract/config/secrets.go` | 新增 `Roots.Secrets()` 与 `ProcessSecrets()`：只读**用户配置文件本身**（不取项目层、不碰凭据库、不做环境展开），读不出来时给**内置默认**而不是零值——零值会把保护关掉 |
-| `internal/contract/config/config.go` | 新增 `DefaultSecretsConfig()`，内置默认只有一处来源 |
-| `internal/assembly/boot/secrets_floor_test.go`、`internal/contract/config/secrets_test.go` | 本仓新增：per-user 装配不由用户文件决定保护、全局配置双向生效、注入口优先、单用户保持原样、底线到达工具层 |
-
-**第八轮：测试隔离守卫（2026-10-22，iter 408）**：产品改名后环境变量也换了名——`DEEPTUTOR_HOME` 是当前的，`REASONIX_HOME` 是改名前的，解析规则是「当前名优先、旧名兜底」。
-
-于是在机器级设了 `DEEPTUTOR_HOME` 的机器上，只设置旧名的测试**失去隔离作用**：测试以为把 home 指到了临时目录，产品读到的却是机器的真实 home。
-
-本轮实测：`internal/state/storage` 的测试把 `[storage] state` 指针写进了真实用户的 `config.toml`，用户的 state root 因此指向一个已被删除的临时目录。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/base/testenv/home.go` | 守卫清空的环境变量表提到包级 `guardedVars`，并补上 `WORKSPACE_ROOT`（产品从环境读工作区根） |
-| `internal/base/envvar`、`internal/ext/hook`、`internal/ext/pluginpkg`、`internal/ext/theme`、`internal/frontend/acp`、`internal/frontend/capdiag`、`internal/platform/appupdate`、`internal/platform/instanceid`、`internal/platform/remote/attach`、`internal/runtime/capability`、`internal/runtime/outputstyle`、`internal/runtime/usecap`、`internal/state/migration`、`internal/state/storage` 的 `main_test.go` | 本仓新增：这些包此前**没有**装隔离守卫，于是它们的「设置 home」全部失效。守卫把 `HOME`/`USERPROFILE`/`AppData`/`LocalAppData` 指向一次性目录，并清空两种拼写的 home 变量 |
-| `cmd/deep-tutor/main_test.go`、`internal/runtime/agent/main_test.go` | 已有 `TestMain` 的包补装守卫；后者用 `goleak.Cleanup` 在退出前清理 |
-| `cmd/deep-tutor/main_test.go`（子进程约定） | 子进程不再直接继承 `REASONIX_HOME`——守卫会在子进程启动时清空它。改为经专用变量 `REASONIX_TEST_FATAL_CHILD_HOME` 传递，并在子进程里重新声明（与 `internal/assembly/boot` 的 `REASONIX_PERMISSION_HOME` 同一约定） |
-| `internal/base/envvar/envvar_test.go` | 两处用例补上「当前拼写为空」的前提，不再依赖运行测试的机器恰好没设 `DEEPTUTOR_HOME` |
-| `internal/base/testenv/isolation_gate_test.go` | 本仓新增：**形状门禁**——凡是提到 home 根变量的包必须装隔离守卫，否则门禁失败 |
-
-**第九轮：网络服务的决策等待有上限（2026-10-22，iter 409）**：`ApprovalTimeout` 的零值是「永久等待」——对终端是对的，对**经网络到达的决策**是缺陷：浏览器一关答案就没了，会话永远停在提示上，**一个 Controller 就此长期占住**。多用户服务里这是资源泄漏，且没有任何东西会把它解开。内核语义未改（`approvalManager.waitContext` 本来就是「>0 才设限」），改的是**装配层带不带上这个值**。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/frontend/serve/approval.go` | 本仓新增：`serve.ApprovalTimeout = 10min`（`plan/reasonix/04` §五 的取值）与 `Server.SetApprovalTimeout`。**超时的结果是拒绝**（fail-closed），与「窗口关掉」本会给出的答案一致 |
-| `internal/frontend/serve/hub.go` | `HubOptions.ApprovalTimeout` → hub 自己开的面；hub 的 boot 选项抽成 `openOptions`，使这条装配路径**可被测试断言** |
-| `internal/frontend/serve/workspace.go`、`serve.go` | 重建路径（换模型 / 换工作区 / 重载扩展）带上同一个上限——重建出来的面若又开始永久等待，就把这条修复合订了 |
-| `internal/frontend/cli/build_options.go`、`serve_frontend.go` | `cliBuildOverrides.ApprovalTimeout` 贯通到 boot 选项；`serve` / `web` 命令（`serveBuildOverrides`）设上限，**终端 TUI 仍为零值**（人在提示符前，多久都该等） |
-
-**第十轮：运行期配置的项目层取自会话的工作区（2026-10-22，iter 410）**：运行期读配置的入口此前把**项目层**取自进程 cwd——serve 会话开在 B 工作区时，读到的是**服务启动目录**的 `reasonix.toml`。而装配层读的是 `b.root` 下的同一个文件：同一个会话，两处配置来源不一致。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/session/control/runtime_config.go` | `runtimeConfig(roots, root)` 增加根参数，改用 `roots.LoadForRootReadOnly(root)`：**项目层取会话自己的工作区，不再取进程 cwd**；只读——这些是查询路径，不该改写用户配置（盘上 MCP tier 迁移仍由装配时承担） |
-| `internal/session/control/{network,shell,skill,slash,slash_catalog,slash_workmode}.go` | 8 处调用点传 `c.WorkspaceRoot()`；`configuredModelRefs` / `configuredProviderNames` 增加根参数 |
-| `internal/session/control/slash.go` | `ArgData.ConfigRoot` 带上工作区根，`currentEffortEntry` 据此解析 provider——菜单与控制器现在读同一份配置 |
-| `internal/session/control/runtime_config_root_test.go` | 本仓新增：3 个回归（控制器模型清单 / 菜单模型引用 / effort provider 解析）——改前全红，改后全绿 |
-
-**第十一轮：内置自诊断技能的品牌化漏改（2026-10-22，iter 411）**：内置技能 `reasonix-guide` 仍教用户跑 `reasonix doctor capabilities` / `reasonix trust` / `reasonix plugin doctor`——产品改名后这些命令已经叫 `deep-tutor`，模型照着旧名字跑，命令不存在，指南在第一步就失效。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/ext/skill/builtincontent/reasonix-guide/SKILL.md` | 命令名改为 `deep-tutor`；描述里的 Hooks 事件数 11 → 14（正文列的就是 14 个）；`Reasonix home` 改为 `Deep-tutor home` |
-| `internal/ext/skill/builtincontent/reasonix-guide/SKILL.md`（**刻意未改**） | 契约名一律不动：技能名 `reasonix-guide`、`reasonix.toml`、`.reasonix` 目录、`reasonix-plugin.json`、`REASONIX.md`、`docs/GUIDE.md` 都是别的程序要匹配的字符串 |
-| `docs/kernel/STUDIO_RELEASE.md` | `reasonix upgrade` → `deep-tutor upgrade`（这份 runbook 讲的是本仓自己的发布流程） |
-| `scripts/reasonix/reasonix-session-diag.bat` | CLI 探测按「两种拼写都认」处理：先找 `deep-tutor` 再找 `reasonix`，调用走解析出来的名字 |
-
-**第十二轮：测试不再写进机器的 home（金丝雀门禁）（2026-10-22，iter 412）**：金丝雀扫描（把全仓测试跑在一次性 home 上，跑完看那个目录还空不空）查出**两处测试写进用户自己的 home**——写文件的包并不提任何 home 变量，它只是调了一个解析 home 的路径函数，所以静态形状门禁抓不到这一类。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/state/history/main_test.go`、`internal/platform/remote/main_test.go` | 本仓新增：装上 `testenv` 隔离守卫（与 iter 408 的 16 个包同一形状）。前者关闭进程级 history catalog 时会在 `cache/history-search` 落下 SQLite，后者用空 `HostKeyPolicy` 握手时会在 `remote/known_hosts` 落下一个文件 |
-| `tools/canary/main.go`、`main_test.go` | 本仓新增：**动态门禁**。`canary run` 把套件指向一次性 home、跑完检查；`canary check` 只检查。子进程环境里两种拼写都**替换**而不是追加——同名变量第一条生效，追加一条等于没换 |
-| `.github/workflows/ci.yml` | `go-test` job 的根模块步骤改走 `tools/canary`（同一个 job、同一遍测试，多一道泄漏检查） |
-| `Makefile` | `make test` 的根模块步骤同样走 `tools/canary` |
-| `.gitignore` | `/canary`（`go build` 这个命令会把它落在仓库根） |
-
-**第十三轮：serve 层的长跑资源与状态一致性（2026-10-22，iter 413/414）**：一轮针对 `internal/frontend/serve` 的长跑资源审计，查出并修掉**三处泄漏**与**两处状态/实现不一致**。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/frontend/serve/wirelog.go` | 帧镜像的 goroutine 与 `unsubscribe` **循环依赖**：它等一个只有自己返回才会关闭的通道，于是永不返回，订阅也就永不释放。改为可停止（`wireLog.stop`/`done`），由 hub 退役一个面时停掉 |
-| `internal/frontend/serve/hub.go` | `Hub.Close` 与 `Adopt`/`Open` 的失败路径停掉帧镜像；一个开面失败就走的路径此前每失败一次漏一个 goroutine |
-| `internal/frontend/serve/auth.go` | 限流器的清理协程**没有停止通道**，而 `newAuthGate` 每个面都建一个 → 每开一个面漏一个 goroutine。改为惰性清理：不再起协程，窗口过期即回收，记住的地址数有上限 |
-| `internal/frontend/serve/ask.go` | 已结清的问题只增不减，且每条记着**用户输入的原文**（远端要密码时就是密码）。改为有界：只留最近若干条，重试仍在窗口内 |
-| `internal/frontend/serve/device_share.go` | 监听器异常退出后 `s.live` 不清空 → 面板仍报「共享已开」，仍发**指向死地址**的配对码。改为监听器结束时即放弃监听权；`shareListener` 留住 `net.Listener` 以便看见它真的没了 |
-| `internal/frontend/serve/market.go` | 每个请求新建一个 `http.Client`（自带连接池）且**没有超时** → 每请求留下一个 transport、它的空闲连接和它们的协程。改为按代理设置缓存一个客户端，并给请求 30s 上限 |
-| `internal/frontend/serve/wirelog.go`（`/trajectory`） | 读整份日志（上限 8MB）时**持着写者的独占锁** → 事件落盘全程被堵。改为不持锁读（日志只追加，只有尾部可能是半帧），并丢掉没有换行收尾的半帧 |
-| `internal/frontend/serve/wirelog.go`（写入） | 短写被忽略 → 日志里留下半行 JSON，其后每一行都不可解析。改为写不满就截回原长度，日志始终是「发生过的事」的前缀 |
-| `internal/frontend/serve/hub_picker.go` | 文件夹选择框**每请求起一个 `powershell.exe`**，且没有并发上限——它等人回答，进程就一直活着。改为**同一时刻只允许一个对话框**，第二个请求以 `picker.busy` 拒绝（新增文案见 `desktop/frontend-next/src/i18n/kernel.ts` 与 `en_kernel.ts`） |
-
-**第十四轮：换机后的构建基座与门禁修复（2026-10-24，iter 423）**：项目迁到全新 Windows 机器，暴露出两处随上游快照带进来的问题——一处是**门禁真红**（gofmt），一处是**构建基座的 shell 探测在新机的安装布局下失效**。
-
-| 位置 | 处理 |
-|---|---|
-| `internal/platform/update/release_unit_test.go` | 仅 `gofmt` 缩进（复合字面量由 2 空格改为 Go 1.19+ 要求的 3 空格）——`fa49eb62` 提交时格式不合规，CI 的 `gofmt -l` 门禁因此是红的。**无语义改动** |
-| `Makefile` | Windows 段的 **Git Bash 探测重写**：旧写法只认 C 盘的 8.3 短名路径，且用 `$(firstword ...)` 取值——它按空白切词，带空格的 `F:/Program Files/Git/bin/sh.exe` 会被切成半条路径。改为：候选 pattern 一律不含空格、末位候选由 `git --exec-path` 反推安装根、空格转义后再喂 `$(wildcard)`，并把 `SHELL` 改为 `$(if ...)`。**只影响 shell 探测与取值方式**，构建目标与产物不变 |
-
-后续对吸收内容的实质修改持续记录于 `stage.md` 与 git 历史。
-
-## 二、随 Reasonix 捆绑的第三方许可（原样保留）
-
-| 组件 | 许可 | 文件 |
-|---|---|---|
-| Inter 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/Inter-OFL.txt` |
-| Noto Sans SC 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/NotoSansSC-OFL.txt` |
-| IBM Plex Mono 字体 | SIL Open Font License 1.1 | `desktop/frontend-next/public/fonts/IBMPlexMono-OFL.txt` |
-| CUA Driver | 见许可文件 | `desktop/electron/assets/cua-driver-LICENSE.txt` |
-
-Go/npm 依赖按各自模块许可证分发，清单见 `go.sum` 与 `desktop/frontend-next/package.json`。
-
-## 三、本仓库自有部分
-
-`backend/`、`frontend/`、`extension/`、`plugins/`、`skills/`、`note/`、`plan/`、`docs/archive/` 等 Deep-tutor 原有内容与后续本仓自研代码（含对吸收内核的后续改造），沿用根目录 [`LICENSE`](./LICENSE)。
-
-## 四、来源说明
-
-本仓库的内核与桌面端以 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 为基座。该项目的缓存优先 Agent 循环、工具调用修复与成本计量三项机制构成 Deep-tutor Python 版实现的参考来源，改造后直接以该内核为运行时基座。上游项目地址：https://github.com/esengine/DeepSeek-Reasonix
-
-## 五、2026-11-02 独立 Tauri 应用改造披露
-
-- 当前唯一用户界面来自用户提供的 `REF/frontend/app`，源码已复制到 `desktop/`。
-  该来源为用户交付的项目资产，不据此推断新的第三方许可或归属。
-- 新增 `desktop/src-tauri/`：Tauri 2 Rust 壳与 Windows NSIS 安装配置。
-- 按用户最新决策删除 `frontend/`、`desktop/frontend-next/`、`desktop/electron/`、
-  `plugin-examples/frontend/`、`extension/`、旧桌面发布工具、
-  `cmd/reasonix-studio-host` 与 `scripts/start.{ps1,sh}`。
-- 上文保留这些已删除文件的修改记录是为了披露历史来源，不表示当前仍分发它们。
-  已删除的 Electron 字体、图标和 CUA driver 许可随对应资产停止分发；
-  REF 新界面自带 `public/favicon.svg`。
+| 上游作者 | Huahui Yu（@esengine）与 [Reasonix Contributors](https://github.com/esengine/DeepSeek-Reasonix/graphs/contributors) |
+| 基线快照 | `R-Tutor-src-studio-20261017.zip`，2026-10-17 工作树快照 |
+| 许可 | MIT License，Copyright (c) 2026 Reasonix Contributors |
+| 许可全文 | [`LICENSE-REASONIX`](./LICENSE-REASONIX) |
+
+初始吸收将上游 `internal/`、`cmd/`、`tools/`、`sdk/`、`benchmark/` 置于同名目录，
+`docs/` 移至 `docs/kernel/`，`scripts/` 移至 `scripts/reasonix/`。
+与本仓根文件冲突的上游原件保存于 `docs/kernel/upstream/`，仅用于溯源。
+
+当前代码对上游的修改包括但不限于：
+
+- Go module 与产品展示名称改为 Deep-tutor，保留上游版权头、协议标识和安装身份。
+- 内核文档迁移到 `docs/kernel/`，相应调整 embed、生成器和测试中的路径。
+- 对学习域存储、备份、网络访问、并发、路径校验和错误映射进行安全及一致性修改。
+- 增加可配置存储绑定、临时目录规则、测试隔离和工程门禁。
+- 删除与当前产品无关的上游云服务、发布说明、网页示例及旧 Electron 桌面资产。
+
+`docs/kernel/` 中的上游手册和历史设计资料不构成当前产品架构或使用说明。
+各文件的实际修改可由 git 历史逐行核查。
+
+## 当前应用界面
+
+当前唯一用户界面是 `desktop/` 中的 React、TypeScript、Vite 与 Tauri 2 应用。
+界面由用户通过 `REF/frontend/app` 提供；`REF/` 是参考源，不是安装包内的独立应用。
+该用户交付来源不据此推定额外的第三方作者或许可。
+
+`desktop/src-tauri/` 包含本仓库新增的 Rust 壳和原生后端，使用
+[Tauri](https://github.com/tauri-apps/tauri) 及 Cargo/npm 依赖。
+依赖按其各自许可分发，具体版本见
+[`desktop/src-tauri/Cargo.lock`](./desktop/src-tauri/Cargo.lock) 与
+[`desktop/package-lock.json`](./desktop/package-lock.json)。
+Tauri 2 的许可见 [tauri-apps/tauri](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT)。
+
+## 已停止分发的旧资产
+
+旧浏览器前端、Electron 宿主、`frontend-next`、前端插件示例、剪藏扩展、
+旧桌面宿主及网页启动脚本已删除。随旧 Electron 资产分发的字体、图标和 CUA driver
+不再随当前应用分发。旧服务端 API 文档、改造方案和进度日志也已移除。
+这些删除不抹去 git 历史中的来源与许可信息。
+
+## 本仓库自有部分
+
+`backend/`、`desktop/`、`plugins/`、`skills/`、`note/`、`plan/` 等本仓库原创内容，
+以及对吸收代码的后续修改，适用根目录 [`LICENSE`](./LICENSE)。
+上游组件和明确标明的第三方依赖仍适用其各自的许可，不因本仓库修改而改变。

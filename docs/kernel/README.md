@@ -1,58 +1,33 @@
-# docs/kernel/ — Deep-tutor 内核工程文档（上游吸收）
+# docs/kernel/ — 上游内核资料
 
-> **本目录内容源自 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（`studio` 分支，快照 `R-Tutor-src-studio-20261017.zip`），MIT License，Copyright (c) 2026 Deep-tutor Contributors。**
-> 引用声明、路径映射与修改披露见仓库根目录 [`NOTICE`](../../NOTICE) 与 [`LICENSE-REASONIX`](../../LICENSE-REASONIX)。
+本目录源自 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)
+的 `studio` 分支（`R-Tutor-src-studio-20261017.zip`），按 MIT License 保留。
+引用和修改披露见 [`NOTICE`](../../NOTICE)，许可全文见
+[`LICENSE-REASONIX`](../../LICENSE-REASONIX)。
 
-## 阅读须知
+## 使用边界
 
-- 文档按上游 `docs/` 收录，整体从 `docs/` 迁移到 `docs/kernel/`（`internal/tools/productdocs` 的 embed 路径相应改为 `deep-tutor/docs/kernel`）。
-- 文中的产品名与命令名已按 M1.4 品牌化改为 "Deep-tutor" / `deep-tutor`；上游仓库路径、社区链接（Discord / QQ / 赞助码等）仍为**上游语境**。本地化工作按 note/12 决策执行：命令改名属阶段① M1.2，规约本地化 `DEEPTUTOR.md` 属 M1.4，均已完成。
-- **未随品牌化改写的部分**（刻意保留）：
-  - 上游仓库与发布渠道标识：`DeepSeek-Reasonix`、`crash.reasonix.io`、`reasonix.io`。
-  - 数据路径：`~/.reasonix/`、`.reasonix/`、`reasonix.toml`、`reasonix/config.toml`。
-  - 协议与插件清单标识：`reasonix.io/plugin/v2`、`reasonix-plugin.json`、`_reasonix.io/`。
-  - 环境变量：`REASONIX_*`（改名以"新名优先 + 旧名兜底"方式处理，见 stage.md）。
-  - 发布产物名：`reasonix-<os>-<arch>.*`，因为 `deep-tutor upgrade` 读的仍是上游发布渠道。
-- [`STUDIO_RELEASE.md`](./STUDIO_RELEASE.md) 描述的是上游发布流水线（npm / Homebrew cask / macOS 公证）。本仓的发布路径为 GitHub Releases + minisig + SHA256SUMS，该文档在发布阶段重写而非改名。
-- 与本仓根目录同名冲突的上游原件（README、AGENTS、CLAUDE、CONTRIBUTING、SECURITY、REASONIX、design-qa 等）存放在 [`upstream/`](./upstream/)，仅作存档对照，**不是本仓生效文档**；本仓生效的是根目录同名文件。
-- 上游 CI 工作流与模板存档在 [`upstream/github/`](./upstream/github/)，不在本仓生效。
+- 这些文件用于上游溯源，以及仍保留的 Go 内核的规格、工具契约和测试。
+- **它们不是当前产品架构、界面或安装说明。** 当前唯一交付物是
+  `desktop/` 中的 Tauri 2 安装包，产品文档以根目录 [`README.md`](../../README.md)
+  和 [`desktop/README.md`](../../desktop/README.md) 为准。
+- 上游文档中出现的 Electron、`frontend-next`、Web 服务、旧插件示例及发布流程
+  均为历史语境；即使相对链接仍存在，也不代表当前仓库交付该路径。
+- `internal/tools/productdocs` 嵌入了这里的部分文档，不能将其误当作无用文件删除。
+- `upstream/` 保存与仓库根文件冲突的上游原件；`upstream/github/` 中的工作流
+  和模板不在本仓库生效。上游作品及协议标识保持原名。
 
-## 本仓已移除的上游资产
+## 本地修改
 
-以下上游目录树与本仓目标形态无关，已在 2026-10-20 清理（内容保留于 git 历史，commit `bec5525`）：
+上游 `docs/` 移至本目录，相关 embed 和测试路径同步调整；用户可见产品名改为
+Deep-tutor。已移除的上游资产及后续实质修改均记录在 git 提交历史和
+[`NOTICE`](../../NOTICE)，不在此重复维护历史档案。
 
-| 上游目录 | 内容 | 移除后受影响的上游文档 |
-|---|---|---|
-| `release-notes/` | 上游 65 份版本发布说明 | `DOCS_STANDARD.md`（发布说明范围与 owner 约定）、`STUDIO_RELEASE.md`（上游发布流程） |
-| `benchmarks/` | 上游 15 组评测夹具与 129 个 Go 包 | `design/INTELLIGENT_UI.md`（固定任务评测协议） |
-| `examples/` | 上游 9 个 skill / 命令 / MCP 套件 | `PLUGIN_PACKAGES.md`（示例包引用） |
-| `workers/` | 上游 accounts / forum / crash-report 云服务 | `DESKTOP_CRASH_DIAGNOSTICS_RUNBOOK.md`（诊断迁移脚本） |
-| `npm/` | 上游 CLI 的 npm 分发包 | — |
-| `output/` | 上游 agent-workbench v4–v6 原型产物 | — |
+主要契约资料：
 
-对应处置：
-
-- 上游文档中指向已移除目录的链接改为**无链接的说明性表述**，保留被引用内容所描述的能力边界，不再指向不存在的文件。
-- 上游评测/示例/发布说明的等价物在 Deep-tutor 侧另有归属：评测与门禁见 [`../../tools/`](../../tools/)，扩展示例见 [`../../sdk/go/examples/`](../../sdk/go/examples/)，前端插件示例见 [`../../plugin-examples/`](../../plugin-examples/)，方法论资产见 [`../../skills/`](../../skills/)。
-- 保留的上游资产：`internal/`、`cmd/`、`tools/`、`sdk/`、`desktop/`、`scripts/reasonix/`、`docs/kernel/`（本文档树）、`benchmark/`（上游 Go 基准测试包）。
-
-## 链接适配
-
-上游文档的相对链接在 `docs/` → `docs/kernel/` 迁移后层级失配，已按新位置逐条修正：
-
-| 位置 | 修正形态 |
-|---|---|
-| `docs/kernel/*.md` 指向仓库根资源 | `../<dir>/` → `../../<dir>/` |
-| `desktop/README.md`、`sdk/go/README.md` 指向内核文档 | `docs/X.md` → `docs/kernel/X.md` |
-| `upstream/README*.md` 指向内核文档与资源 | `./docs/X.md` → `../X.md`；`desktop/`、`sdk/go/` → `../../../` |
-| `upstream/design-qa.md` 指向调色板图 | `docs/design/theme-palettes/` → `../design/theme-palettes/` |
-
-修改披露见根目录 [`NOTICE`](../../NOTICE)。
-
-## 目录速览
-
-- `SPEC.md` / `TOOL_CONTRACT.md` / `TASK_CONTRACT.md` — 内核规格与工具/任务合约（内核改造的权威依据）
-- `GUIDE(.zh-CN).md` / `CLI(.zh-CN).md` / `TUTOR.md` — 用户指南 / 命令参考 / 学习导师（Deep-tutor 域）
-- `EXTENSIONS*.md` / `PLUGIN_PACKAGES.md` / `EXTENSION_PROTOCOL*.md` — 扩展与插件体系
-- `STUDIO_*.md` / `DESKTOP_*` — Studio 桌面端与前端
-- `SUBAGENT_PROFILES.md` / `SESSION_MEMORY_RETRIEVAL.md` / `CAPABILITY_DIAGNOSTICS.md` / `RECOVERY.md` / `CHECKPOINTS.md` / `BILLING.md` 等专题
+- [`SPEC.md`](./SPEC.md)、[`TOOL_CONTRACT.md`](./TOOL_CONTRACT.md)、
+  [`TASK_CONTRACT.md`](./TASK_CONTRACT.md)：保留 Go 内核的规格与契约。
+- [`EXTENSION_PROTOCOL.generated.md`](./EXTENSION_PROTOCOL.generated.md)：
+  由协议生成器产出，不手工改写。
+- [`REASONING_PROVIDERS.md`](./REASONING_PROVIDERS.md)、[`BILLING.md`](./BILLING.md)、
+  [`RECOVERY.md`](./RECOVERY.md)：上游内核专题资料。

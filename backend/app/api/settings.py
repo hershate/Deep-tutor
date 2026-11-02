@@ -29,7 +29,7 @@ def _upsert_pref(db: Session, user_id: int, key: str, value: str | None) -> None
     原实现是「先查后插」（查 UserPref -> 无行则 add+commit）：并发首写同一格时
     双方都读到「无行」-> 都 INSERT -> 后者撞 uq_user_prefs_user_key ->
     IntegrityError 未捕获 -> **500**（实测：8 个并发 PUT /api/settings/prefs 有
-    4 个 500；pricing 7/8 500——见 stage.md iter 395）。
+    4 个 500；pricing 7/8 500——复现与修复见 git 提交历史）。
 
     改用数据库原生 upsert（INSERT ... ON CONFLICT DO UPDATE）：单条 DML，冲突
     交由数据库解决 -> 不再 500。写入语义不变（后写覆盖先写）。

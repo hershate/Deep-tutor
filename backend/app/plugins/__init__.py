@@ -1,4 +1,4 @@
-"""后端插件系统（契约见仓库根 API.md「后端插件 API」）。
+"""后端插件系统，公开入口由本包与 BackendPluginAPI 定义。
 
 - loader：PLUGINS_DIR 目录自动发现 + 隔离加载（坏插件不阻塞宿主）
 - api：插件门面 BackendPluginAPI（tools/parsers/routes/events/settings/deps/data_dir/log）

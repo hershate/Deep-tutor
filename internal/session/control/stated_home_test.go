@@ -95,7 +95,7 @@ func TestTwoSessionsInOneProcessDoNotShareTheirSettings(t *testing.T) {
 
 // TestAnMCPServerIsDeclaredInTheGlobalLibrary proves an MCP declaration lands
 // in the global asset library, not in the session's own home. MCP servers are
-// global admin-managed assets (note/12 #55): the admin installs them once and
+// global admin-managed assets (the legacy multi-user policy): the admin installs them once and
 // everybody may use them. A declaration written into one user's home would
 // make the admin's server visible to that user and to nobody else.
 func TestAnMCPServerIsDeclaredInTheGlobalLibrary(t *testing.T) {

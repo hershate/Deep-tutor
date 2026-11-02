@@ -947,7 +947,7 @@ class _ChatStream:
     def replay_truncated(self, last_event_id: int) -> bool:
         """重放是否被缓冲窗口截断（iter 397 A12）。
 
-        端点 docstring 与 API.md 承诺「从缓冲重放全部事件重建 UI」，而缓冲是 FIFO
+        端点不能承诺「从缓冲重放全部事件重建 UI」，因为缓冲是 FIFO
         有界（_MAX_EVENTS）——单轮事件数超窗后，早于窗口的事件**永久不可回放**，
         重连客户端重建的流缺失开头且无从察觉。现显式判定并告知客户端
         （replay_truncated 事件），前端据此改为拉取全量消息重建。

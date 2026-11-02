@@ -94,7 +94,7 @@ def submit_quiz(
             correct = body.user_answer.get("selected") == answer
     db.add(models.QuizAttempt(quiz_id=quiz.id, user_answer=body.user_answer, correct=correct))
     db.commit()
-    # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应
+    # 后端插件事件：监听器异常隔离，不影响响应
     from app.plugins import bus as plugin_bus
 
     plugin_bus.emit(

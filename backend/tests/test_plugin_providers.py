@@ -1,4 +1,4 @@
-"""后端插件 API v1.6.0 LLM Provider 扩展点测试（API.md「§LLM Provider 扩展点」）。
+"""后端插件 API v1.6.0 LLM Provider 扩展点测试。
 
 覆盖：
 - 注册表语义：normalize_kind / valid_kind_name / register+find / 'anthropic' 内置保留拒绝 /

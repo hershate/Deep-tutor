@@ -20,8 +20,8 @@ prompt — are not part of this repository. The worked examples that remain are
 the Go extension packages under
 [`sdk/go/examples/`](../../sdk/go/examples/): starter extension, tool
 extension, provider extension and full sidecar. The Deep-tutor domain adds its
-own front-end plugin examples under `plugin-examples/` and its prompt assets
-under `skills/`.
+prompt assets under `skills/`. Front-end plugin examples were retired with the
+old desktop UI.
 
 The [Studio theme author guide](THEME_AUTHOR_GUIDE.md) uses a copyable pure-theme
 package, the current token vocabulary, and Appearance activation and cleanup.

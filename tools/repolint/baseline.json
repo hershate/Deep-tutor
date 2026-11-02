@@ -10,7 +10,7 @@
     "css-size": 0,
     "doc-language": 0,
     "doc-owner": 0,
-    "doc-prose": 2468,
+    "doc-prose": 1281,
     "error-text": 5,
     "essay": 2885,
     "file-size": 18758,
@@ -34,44 +34,14 @@
     ".github/CODEOWNERS": {
       "codeowners": 1
     },
-    "AGENTS.md": {
-      "doc-prose": 37
-    },
-    "API.md": {
-      "doc-prose": 50
-    },
     "DEEPTUTOR.md": {
-      "doc-prose": 105
+      "doc-prose": 1
     },
     "cmd/reasonix-plugin-example/main.go": {
       "essay": 19
     },
     "desktop/src/styles.css": {
       "css-important": 11
-    },
-    "docs/archive/chat.md": {
-      "doc-prose": 1
-    },
-    "docs/archive/err.md": {
-      "doc-prose": 23
-    },
-    "docs/archive/plan-v1/01-architecture.md": {
-      "doc-prose": 4
-    },
-    "docs/archive/plan-v1/02-tools.md": {
-      "doc-prose": 5
-    },
-    "docs/archive/plan-v1/07-learning-workflows.md": {
-      "doc-prose": 1
-    },
-    "docs/archive/plan-v1/08-data-exchange-format.md": {
-      "doc-prose": 2
-    },
-    "docs/archive/plan-v1/09-audit.md": {
-      "doc-prose": 1
-    },
-    "docs/archive/plan-v1/10-integration.md": {
-      "doc-prose": 4
     },
     "docs/kernel/ACP.md": {
       "doc-prose": 14
@@ -1738,9 +1708,6 @@
     "internal/tools/jobs/jobs_security_test.go": {
       "essay": 4
     },
-    "note/00-INDEX.md": {
-      "doc-prose": 3
-    },
     "sdk/go/README.md": {
       "doc-prose": 9
     },
@@ -1759,9 +1726,6 @@
     },
     "skills/deep-tutor-validate/SKILL.md": {
       "doc-prose": 1
-    },
-    "stage.md": {
-      "doc-prose": 952
     },
     "tools/repolint/orphan.go": {
       "essay": 2

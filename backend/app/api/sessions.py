@@ -5,7 +5,7 @@ DELETE /api/sessions/{id}  删除会话（级联 DB + 文件）
 GET /api/sessions/{id}/materials  会话源资料清单（iter 104 增强，plan/03 未定义）
 DELETE /api/sessions/{id}/materials/{mid}  删除单个源资料（iter 104 增强：传错资料可移除后重生成）
 
-流程微调（记录于 stage.md）：先建 session 再上传材料（materials.session_id NOT NULL，
+流程：先建 session 再上传材料（materials.session_id NOT NULL，
 免 schema 迁移且更稳健）；plan/03 原 POST /sessions {material_ids} 简化为 {title?}。
 """
 

@@ -689,7 +689,7 @@ class ShareLink(Base):
 
 # ---------------------------------------------------------------------------
 # 记忆系统（iter 345：AI 对话记忆 + 完整 Agent）
-# 仿 OpenAI Assistants Thread/Message/Run/RunStep 持久化模型（见 plan 与 API.md）。
+# 仿 OpenAI Assistants Thread/Message/Run/RunStep 持久化模型。
 # 与既有 sessions/orchestrator_state/tool_calls 并存（additive，不动旧表语义）：
 # - threads/messages/runs/run_steps/memories 为新对话子系统；
 # - plan-gen 仍用 sessions + orchestrator_state，runs(kind=plan_generation) 为旁挂 overlay（phase I）。

@@ -7,7 +7,7 @@
   **HTTP 500 且用户根本没被删掉**。
 - **K9**：解析管线的错误码（degraded / parse_failed / dependency_missing）此前
   **未登记**进 `CODE_STATUS` -> 一律落默认 400。此处**显式**登记为 400（HTTP 语义
-  不变；语义升级属契约变更，须先改 API.md 与前端分支，另行裁决）。
+  不变；语义升级属契约变更，须先改 接口约定 与前端分支，另行裁决）。
 - **K12**：两条知识库入库路径的文本口径不同 -> 同一段文本经 API 提交与经自动
   沉淀入库得到**不同的 content_hash**，产生两篇文档（重复占配额/磁盘）；且
   `create_text_document` 的 docstring 承诺「500k 截断护栏」而实现根本没有。
@@ -106,7 +106,7 @@ def test_parse_error_codes_registered():
 
     登记本身不改变 HTTP 语义——note/11 定「v1 契约冻结，只改勘误不改语义」：
     这三个码此前未登记、落默认 400；语义升级（dependency_missing->503、
-    parse_failed/degraded->422）属契约变更，须先改 API.md 与前端分支，另行裁决
+    parse_failed/degraded->422）属契约变更，须先改 接口约定 与前端分支，另行裁决
     （tests/test_api.py::test_upload_image_png_passes_validation 钉住 400）。
     """
     from app.api.errors import CODE_STATUS

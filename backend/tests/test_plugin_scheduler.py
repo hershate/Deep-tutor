@@ -1,4 +1,4 @@
-"""后端插件 API v1.10.0 api.scheduler 后台任务测试（API.md「§后台任务调度」）。
+"""后端插件 API v1.10.0 api.scheduler 后台任务测试。
 
 用 asyncio.Event + asyncio.wait_for(timeout) 做时序断言（非固定 sleep），抗 CI 抖动。
 覆盖：every 周期跑 / once 延迟跑 / cancel 停止 / fn 异常隔离（不杀循环）/ reset 取消全部 /

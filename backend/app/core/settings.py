@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     )
     data_dir: str = Field(default="data", description="文件存储根（相对路径锚定仓库根）")
     skills_dir: str = Field(default="skills", description="Skill 目录（相对路径锚定仓库根）")
-    plugins_dir: str = Field(default="plugins", description="后端插件目录（相对路径锚定仓库根；API.md「后端插件 API」）")
+    plugins_dir: str = Field(default="plugins", description="后端插件目录（相对路径锚定仓库根）")
     frontend_dist: str = Field(
         default="",
         description="前端构建产物目录（设置后由后端托管 SPA + /api 同端口，免 nginx；空=不托管）",

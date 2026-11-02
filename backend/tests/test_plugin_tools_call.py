@@ -1,4 +1,4 @@
-"""后端插件 API v1.7.0 api.tools.call 工具调用测试（API.md「§工具注册与调用」）。
+"""后端插件 API v1.7.0 api.tools.call 工具调用测试。
 
 覆盖：
 - Python 工具调用（插件注册）：ok + data + 入参透传

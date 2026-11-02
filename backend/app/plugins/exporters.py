@@ -1,6 +1,6 @@
 """插件自定义导出格式注册表（后端插件 API v1.4.0 扩展点）。
 
-契约见 API.md「后端插件 API §导出格式扩展点」。用途：插件为内置导出（md/pdf/slides/
+用途：插件为内置导出（md/pdf/slides/
 ics/anki）不支持的格式（私有格式/小众格式，如 .epub 电子书、Anki 以外的卡片格式、
 企业归档格式）注册导出器，POST /api/export/{plan_id} 的 format 校验与分发链路自动
 识别并委托——无需改宿主代码即可"让后端支持新导出格式"（与 api.parsers 对称的出口侧）。

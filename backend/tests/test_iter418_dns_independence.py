@@ -14,7 +14,7 @@ app/core/urlguard.py 的 check_outbound_url）会解析 base_url 的域名；解
 对被网络拦截的域名**间歇性**返回 sinkhole(0.0.0.0)：
 0.0.0.0 落在私网/保留段 -> 判定「域名解析到私网」-> 建档 422。
 
-判定性实验（见 stage.md iter 418）：把该域名的解析结果换成 0.0.0.0，
+判定性实验：把该域名的解析结果换成 0.0.0.0，
 POST /api/providers 立刻返回
 422 {"code":"validation_error","details":[{"loc":["body","base_url"],
 "msg":"Value error, base_url 被安全策略拒绝：域名解析到私网 0.0.0.0"}]}。

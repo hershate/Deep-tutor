@@ -1,4 +1,4 @@
-"""后端插件 API v1.15.0 api.webhooks 测试（API.md「§Webhook 投递」）。
+"""后端插件 API v1.15.0 api.webhooks 测试。
 
 monkeypatch _deliver 捕获投递参数（避免真实 HTTP），验证：事件触发→投递、HMAC 签名、
 多事件注册、unregister 停止、入参校验、错误隔离。

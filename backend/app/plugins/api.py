@@ -1,4 +1,4 @@
-"""后端插件 API 门面——插件 register(api) 收到的对象（契约见 API.md「后端插件 API」）。
+"""后端插件 API 门面——插件 register(api) 收到的对象（契约见 本模块「后端插件 API」）。
 
 设计原则：插件只依赖本门面，不 import 宿主内部模块路径——宿主内部重构/模块搬家
 不破坏已发布插件。门面语义化版本（api.version）只增不改；新增能力以新命名空间/
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from app.agent.registry import Tool
     from app.plugins.runtime import PluginStatus
 
-# 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 API.md §版本线）
+# 后端插件 API 语义化版本（与前端 window.DeepTutor 版本相互独立，见 本模块 §版本线）
 # v1.3.0：新增 api.parsers 文件解析扩展点（插件为私有/小众格式注册解析器）。
 # v1.4.0：新增 api.exporters 导出格式扩展点（插件为私有/小众格式注册导出器）。
 # v1.5.0：新增 api.llm 宿主 LLM 能力调用（插件复用用户已配置的供应商，预算守卫+计量同宿主）。
@@ -96,7 +96,7 @@ class ToolsNamespace:
     注意：内置生成 PIPELINE 步骤固定，不会自动调用新工具——新工具主要供插件路由/
     其他插件经注册表显式调用（v1.7.0 起 call 可调用任意已注册工具，含核心 parse/search/
     quiz/understand 等，组合成"新工作流"，无需重实现）；与核心工具同名会覆盖核心实现
-    （注册表告警），属高级用法，见 API.md 开发规范。
+    （注册表告警），属高级用法，见 本模块 开发规范。
     """
 
     def __init__(self, plugin_id: str, status: PluginStatus, rollbacks: list) -> None:
@@ -237,7 +237,7 @@ class ToolsNamespace:
 
 
 class ParsersNamespace:
-    """文件解析器注册（v1.3.0 扩展点，契约见 API.md「§文件解析扩展点」）。
+    """文件解析器注册（v1.3.0 扩展点，契约见 本模块「§文件解析扩展点」）。
 
     插件为内置 parse_material 不支持的文件格式（私有/小众格式）注册解析器，上传校验
     与解析链路自动识别并委托——无需改宿主代码即可"让后端支持新格式"（用户点名需求）。
@@ -297,7 +297,7 @@ class ParsersNamespace:
 
 
 class ExportersNamespace:
-    """导出格式注册（v1.4.0 扩展点，契约见 API.md「§导出格式扩展点」）。
+    """导出格式注册（v1.4.0 扩展点，契约见 本模块「§导出格式扩展点」）。
 
     插件为内置导出（md/pdf/slides/ics/anki）不支持的格式（私有/小众格式）注册导出器，
     POST /api/export/{plan_id} 的 format 校验与分发自动识别并委托——无需改宿主代码即可
@@ -363,7 +363,7 @@ class ExportersNamespace:
 
 
 class LlmNamespace:
-    """宿主 LLM 能力调用（v1.5.0 扩展点，契约见 API.md「§LLM 能力」）。
+    """宿主 LLM 能力调用（v1.5.0 扩展点，契约见 本模块「§LLM 能力」）。
 
     插件做 AI 功能（自定义总结/批改/翻译/问答等）直接复用宿主已配置的供应商——
     用户无需为插件重复配 key；按 user_id 三级回退解析（DB 供应商档案 -> Key 凭证
@@ -547,7 +547,7 @@ class LlmNamespace:
 
 
 class ProvidersNamespace:
-    """LLM Provider 扩展点（v1.6.0 扩展点，契约见 API.md「§LLM Provider 扩展点」）。
+    """LLM Provider 扩展点（v1.6.0 扩展点，契约见 本模块「§LLM Provider 扩展点」）。
 
     插件为内置仅支持 Anthropic 协议的 LLM 层注册**新协议 Provider**（OpenAI
     /v1/chat/completions、Ollama、DeepSeek 原生、Gemini 等），经
@@ -614,7 +614,7 @@ class ProvidersNamespace:
 
 
 class McpNamespace:
-    """MCP（Model Context Protocol）客户端（v1.9.0 扩展点，契约见 API.md「§MCP 客户端」）。
+    """MCP（Model Context Protocol）客户端（v1.9.0 扩展点，契约见 本模块「§MCP 客户端」）。
 
     连接外部 MCP server（Streamable HTTP 传输）——列出并调用其工具，把任意外部工具 server
     接入后端（"扩展后端类 Claude Code 可以调用的工具和 MCP"，用户点名需求）。插件据此在自有
@@ -683,7 +683,7 @@ class McpNamespace:
 
 
 class SchedulerNamespace:
-    """后台任务调度（v1.10.0 扩展点，契约见 API.md「§后台任务调度」）。
+    """后台任务调度（v1.10.0 扩展点，契约见 本模块「§后台任务调度」）。
 
     插件注册周期/延迟后台任务——every(周期) / once(延迟)。填补"插件无法做周期工作"的缺口
     （定时同步 / 每日摘要 / 周期轮询 MCP 等；此前只有路由触发与事件触发）。
@@ -718,7 +718,7 @@ class SchedulerNamespace:
 
 
 class StorageNamespace:
-    """持久化 KV 存储（v1.11.0 扩展点，契约见 API.md「§持久化 KV 存储」）。
+    """持久化 KV 存储（v1.11.0 扩展点，契约见 本模块「§持久化 KV 存储」）。
 
     每插件私有键值存储（JSON 文件于插件 data_dir），替代裸 data_dir 文件 I/O——提供原子写
     （tmp + os.replace，防并发请求损坏）、JSON 序列化校验、损坏容错（损坏文件静默重置）与统一 API。
@@ -854,7 +854,7 @@ class StorageNamespace:
 
 
 class WebhooksNamespace:
-    """事件→外部 URL 投递（v1.15.0 扩展点，契约见 API.md「§Webhook 投递」）。
+    """事件→外部 URL 投递（v1.15.0 扩展点，契约见 本模块「§Webhook 投递」）。
 
     一行调用 ``api.webhooks.register(url, events=['plan_created'], secret='xxx')`` 即把指定事件
     非阻塞推送到外部 Webhook（Slack/Discord/自动化）——标准载荷 + 可选 HMAC-SHA256 签名 + 10s 超时 +
@@ -930,7 +930,7 @@ class WebhooksNamespace:
 
 
 class MiddlewareNamespace:
-    """HTTP 中间件注册（v1.17.0 扩展点，契约见 API.md「§HTTP 中间件」）。
+    """HTTP 中间件注册（v1.17.0 扩展点，契约见 本模块「§HTTP 中间件」）。
 
     插件注册全局请求中间件——全请求拦截（限流 / IP 过滤 / 审计日志 / 安全响应头 / 内容过滤）。
     用户 /goal "后端可引入额外安全防护插件"。
@@ -1022,7 +1022,7 @@ class RoutesNamespace:
 
     auth=True（默认）经宿主同一认证机制（JWT / AUTH_TOKEN / 开放本机模式）保护，
     未认证 401 与宿主端点语义一致；auth=False 用于公开 webhook 等场景（需自行验签，
-    见 API.md 开发规范 §安全）。
+    见 本模块 开发规范 §安全）。
     """
 
     def __init__(self, app: FastAPI, plugin_id: str, status: PluginStatus, rollbacks: list) -> None:
@@ -1173,7 +1173,7 @@ class DepsNamespace:
 
 
 class MemoryNamespace:
-    """记忆系统 CRUD 门面（v1.19.0，契约见 API.md「§记忆系统」）。
+    """记忆系统 CRUD 门面（v1.19.0，契约见 本模块「§记忆系统」）。
 
     让后端插件对**会话（Thread）/消息（Message）/记忆库（Memory）**做完整增删查改——
     运行于宿主进程内（无 HTTP 往返），所有操作按 ``user_id`` 归属校验（他人资源返 None/空，
@@ -1440,7 +1440,7 @@ class MemoryNamespace:
 
 
 class BackendPluginAPI:
-    """register(api) 收到的门面对象（属性一览见 API.md §api 门面）。"""
+    """register(api) 收到的门面对象（属性一览见 本模块 §api 门面）。"""
 
     def __init__(self, app: FastAPI, plugin_id: str, data_dir: Path, status: PluginStatus) -> None:
         self.version = API_VERSION

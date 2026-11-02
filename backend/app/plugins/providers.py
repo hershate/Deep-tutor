@@ -1,6 +1,6 @@
 """插件自定义 LLM Provider 注册表（后端插件 API v1.6.0 扩展点）。
 
-契约见 API.md「后端插件 API §LLM Provider 扩展点」。用途：插件为内置仅支持 Anthropic
+用途：插件为内置仅支持 Anthropic
 协议的 LLM 层注册**新协议 Provider**（OpenAI /v1/chat/completions、Ollama、DeepSeek 原生、
 Gemini 等），经 api.llm.complete(provider_kind=...) 调用——带宿主日预算守卫 + api_usage
 计量（与宿主端点同口径），无需让插件 DIY httpx 绕开预算/计量（"暗花费"）。

@@ -3,7 +3,7 @@
 POST /api/export/{plan_id}  导出方案为 md（pdf/slides 在 P1/P5）
   - format=anki & wrong_only=true（iter 134）：仅导出错题（最近作答判错）为独立 .apkg 牌组。
   - 插件格式（iter 307，后端插件 API v1.4.0 扩展点）：api.exporters 注册的 format 经
-    exporters.find_exporter 委托插件渲染器；内置优先（override=True 例外，见 API.md）。
+    exporters.find_exporter 委托插件渲染器；内置优先（override=True 例外）。
 
 GET /api/export/formats  导出格式发现：内置格式 + 插件注册格式（label/plugin_id/override）。
 
@@ -203,7 +203,7 @@ async def _export_plugin(
     except (TypeError, ValueError) as exc:
         raise ApiError(
             "export_failed",
-            f"插件导出器 {entry.plugin_id} 返回不合规: {exc}（契约见 API.md 导出格式扩展点）",
+            f"插件导出器 {entry.plugin_id} 返回不合规: {exc}（不符合 api.exporters 约定）",
         ) from exc
     return resp
 

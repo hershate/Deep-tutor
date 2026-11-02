@@ -56,7 +56,7 @@ def isolate():
     _reset_dns_cache()  # DNS 判定缓存跨测试隔离（iter 418：判定结果不得跨用例泄漏）
     from app.plugins.loader import reset_plugins
 
-    reset_plugins()  # 插件台账/工具表/事件订阅跨测试隔离（API.md「后端插件 API」）
+    reset_plugins()  # 插件台账/工具表/事件订阅跨测试隔离
     from app.llm.anthropic_provider import reset_client_cache
 
     reset_client_cache()  # LLM client 缓存跨测试隔离（iter 243：缓存绑定事件循环）

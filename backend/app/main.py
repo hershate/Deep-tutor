@@ -288,7 +288,7 @@ async def lifespan(app: FastAPI):
     if not whisper_available():
         log.warning("音视频转写不可用：未安装 faster-whisper（pip install faster-whisper）")
     skills = get_skill_registry()  # plan/05 §三.2 启动扫描 skills/ -> 注册表
-    # 后端插件（API.md「后端插件 API」）：PLUGINS_DIR 目录自动发现 + 隔离加载，
+    # 后端插件：PLUGINS_DIR 目录自动发现 + 隔离加载，
     # 坏插件记 failed 不阻塞启动；随后广播 startup 事件（监听器异常各自隔离）
     from app.plugins import bus as plugin_bus
     from app.plugins.loader import load_plugins

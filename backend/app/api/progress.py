@@ -204,7 +204,7 @@ def update_progress(
         # iter 394：更新提交后行被级联删除 -> 放弃本次更新（此前抛 InvalidRequestError -> 500）
         return {"updated": False, "warning": "progress_row_deleted"}
     mastery = row.mastery
-    # 后端插件事件（API.md「后端插件 API」§事件清单）：监听器异常隔离，不影响响应
+    # 后端插件事件：监听器异常隔离，不影响响应
     from app.plugins import bus as plugin_bus
 
     plugin_bus.emit(
@@ -608,7 +608,7 @@ def add_learning_log(
         db.add(row)
         db.commit()
         db.refresh(row)
-    # 后端插件事件（API.md §8.5）：学习打卡（监听器异常隔离，不影响响应）
+    # 后端插件事件：学习打卡（监听器异常隔离，不影响响应）
     from app.plugins import bus as plugin_bus
 
     plugin_bus.emit(

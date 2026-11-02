@@ -1,7 +1,7 @@
 """EPUB 电子书解析器（后端插件，复合 parsers+tools+routes）。
 
 为内置 parse_material 不支持的 .epub 格式注册解析器——上传 EPUB 电子书即可自动解析为文本
-注入学习方案生成（API.md 点名的「私有文件格式处理」）。EPUB 本质是 zip，内含 XHTML 章节。
+注入学习方案生成。EPUB 本质是 zip，内含 XHTML 章节。
 
 实际用途：用户上传 EPUB 技术书 / 教材 -> 解析为文本 -> 生成学习方案 / 入知识库。
 
@@ -47,8 +47,7 @@ def _strip_html(html: str) -> str:
 
 def _extract_chapters(path: Path) -> list[tuple[str, str]]:
     """从 epub 提取 [(标题, 正文)]；标题取首个 h1-h3，无则用文件名。zipfile 只 read 不 extract。"""
-    # iter 369：改用公开别名——私有符号不受 API 兼容承诺保护（API.md §9.1.3），
-    # 官方示例带头违反「只依赖稳定符号」契约会诱导插件作者照抄
+    # 只依赖公开符号，避免插件随宿主私有实现变化而失效。
     from app.tools.parse_material import check_zip_safety
 
     check_zip_safety(path)  # iter 365：zip bomb 防护（同 docx/pptx；插件 parser 路径绕过内置检查）

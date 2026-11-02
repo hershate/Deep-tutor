@@ -1,4 +1,4 @@
-"""实时事件流 API 测试（后端插件 API v1.5.0，API.md「§事件流」）。
+"""实时事件流 API 测试（后端插件 API v1.5.0）。
 
 覆盖：
 - bus.subscribe_all：接收全部事件 / sink 异常隔离 / off() / reset()
