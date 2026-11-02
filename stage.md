@@ -38,6 +38,16 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 433（2026-11-02，原生安装包构建与残余测试对齐，🚧 进行中）**：
+继续 iter 432，先确认 Rust 工具链是否真的缺失，再处理删除启动脚本后的测试债。
+
+| 项 | 结果 |
+|---|---|
+| Rust 发现 | PATH 没有 cargo/rustc，但 `F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc\bin` 已有完整工具链：`cargo 1.95.0`、`rustc 1.95.0`；直接复用，未安装新环境 |
+| 原生构建 | 以该 bin 目录加入 PATH，并复用 `CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`，实际启动 `npm run tauri build`，等待构建结果 |
+| 测试对齐 | `backend/tests/test_requirements_split.py` 不再读取两个已删除脚本，改为断言网页启动脚本不存在；`requirements-ocr.txt` 与 `app/core/quota.py` 的过期注释同步 |
+| 验证 | `pytest tests/test_requirements_split.py`：**4 passed**；ruff `All checks passed`；旧目录与启动脚本确认不存在 |
+
 **iter 432（2026-11-02，取消服务器交付：只保留 Tauri 安装程序，🚧 进行中）**：
 用户追加要求：移除网页启动脚本和脚本化环境部署，由服务端程序转为应用程序。
 本条覆盖 iter 431 对启动脚本的保留性改法。

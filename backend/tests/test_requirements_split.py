@@ -46,10 +46,6 @@ def _requirement_names(path: Path) -> set[str]:
     return names
 
 
-def _script_text(name: str) -> str:
-    return (REPO / "scripts" / name).read_text(encoding="utf-8-sig").replace("\\", "/")
-
-
 def test_the_service_requirements_do_not_carry_the_ocr_stack() -> None:
     names = _requirement_names(CORE_REQ)
     clash = names & set(OCR_STACK)
@@ -84,13 +80,7 @@ def test_the_service_requirements_keep_the_pillow_security_floor() -> None:
     )
 
 
-def test_both_startup_scripts_install_the_ocr_stack_after_the_service_stack() -> None:
-    """顺序是「服务栈 → OCR 栈 → 服务栈」：末次的服务栈安装把 Pillow 拽回安全版本。"""
-    core = "pip install -q -r backend/requirements.txt"
-    ocr = "pip install -q -r backend/requirements-ocr.txt"
+def test_web_startup_scripts_are_removed() -> None:
+    """独立 Tauri 应用不再提供脚本化网页或服务启动方式。"""
     for name in ("start.ps1", "start.sh"):
-        text = _script_text(name)
-        assert core in text, f"scripts/{name} 未安装服务栈依赖"
-        assert ocr in text, f"scripts/{name} 未安装 OCR 栈依赖"
-        assert text.index(core) < text.index(ocr), f"scripts/{name} 必须先装服务栈再装 OCR 栈"
-        assert text.rindex(core) > text.index(ocr), f"scripts/{name} 装完 OCR 栈必须重装服务栈（Pillow 回到安全版本）"
+        assert not (REPO / "scripts" / name).exists(), f"scripts/{name} 应随服务器交付方式一并删除"
