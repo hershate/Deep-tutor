@@ -43,6 +43,94 @@ export type MaterialImportResult = {
   error: BackendError | null
 }
 
+export type LearningNode = {
+  id: string
+  title: string
+  summary: string
+  difficulty: number
+  required: boolean
+  estimatedMinutes: number
+  citations: { materialId: number; quote: string }[]
+}
+export type LearningGraph = { nodes: LearningNode[]; edges: { from: string; to: string }[] }
+export type LearningStage = { id: string; title: string; nodeIds: string[]; difficulty: number }
+export type ScheduledStage = LearningStage & { minutes: number; startDate: string; endDate: string }
+export type LearningSchedule = {
+  startDate: string
+  endDate: string
+  totalMinutes: number
+  days: number
+  withinDeadline: boolean
+  milestoneDate: string | null
+  withinMilestone: boolean | null
+  entries: { date: string; stageId: string; nodeIds: string[]; minutes: number }[]
+}
+export type LearningCheckName = 'dependencyClosure' | 'difficultyStep' | 'cognitiveLoad' | 'milestoneFeasibility' | 'gapAnalysis'
+export type LearningValidation = Record<LearningCheckName, { status: 'pass' | 'warn' | 'fail'; details: string }> & { passed: boolean; fixes: string[] }
+export type LearningResult = {
+  goal: string
+  level: string
+  deadline: string
+  milestone: string | null
+  milestoneDate: string | null
+  graph: LearningGraph
+  stages: ScheduledStage[]
+  schedule: LearningSchedule
+  resources: {
+    items: { materialId: number; title: string; sha256: string; kind: string; verified: boolean }[]
+    externalSearch: { status: string; reason: string; queries: string[] }
+  }
+  validation: LearningValidation
+  warnings: string[]
+}
+export type LearningStep = {
+  index: number
+  name: string
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+  attempt: number
+  requestId: string | null
+  output: unknown
+  error: BackendError | null
+  usage: { inputTokens: number | null; outputTokens: number | null } | null
+  upstreamAttempts: number | null
+  latencyMs: number | null
+}
+export type LearningPlan = {
+  id: string
+  status: 'running' | 'cancelling' | 'done' | 'degraded' | 'failed' | 'cancelled' | 'interrupted'
+  providerId: string
+  goal: string
+  level: string
+  dailyMinutes: number
+  deadline: string
+  materialIds: number[]
+  currentStep: number
+  progress: number
+  version: number
+  adoptedProjectId: number | null
+  steps: LearningStep[]
+  artifacts: {
+    step0?: { snapshot: { id: number; title: string; sha256: string; warning: string | null }[] }
+    step2?: { graph: LearningGraph }
+    step3?: { stages: LearningStage[] }
+    step5?: { schedule: LearningSchedule; stages: ScheduledStage[] }
+  }
+  result: LearningResult | null
+  error: BackendError | null
+  createdAt: string
+  updatedAt: string
+}
+export type LearningPlanInput = {
+  goal: string
+  level: string
+  dailyMinutes: number
+  deadline: string
+  materialIds: number[]
+  providerId?: string
+  milestone: string | null
+  milestoneDate: string | null
+}
+
 export type ProviderProtocol = 'OpenAI Chat' | 'OpenAI Responses' | 'Anthropic Messages' | 'Gemini Native'
 export type ProviderKind = '官方' | '兼容服务' | '本地模型'
 export type ProviderProfile = {
@@ -119,6 +207,7 @@ export const backend = {
     options: { title: '保存到本地', defaultPath: title, filters: [{ name: '文件', extensions: [extension] }] },
   }),
   importMaterialFiles: (paths: string[]) => invoke<MaterialImportResult[]>('import_material_files', { paths }),
+  importMaterialText: (title: string, content: string) => invoke<{ material: Material; deduplicated: boolean }>('import_material_text', { title, content }),
   listMaterials: () => invoke<Material[]>('list_materials'),
   getMaterial: (id: number) => invoke<MaterialDetail>('get_material', { id }),
   enqueueMaterialParse: (id: number) => invoke<{ jobId: number; material: Material }>('enqueue_material_parse', { id }),
@@ -137,6 +226,13 @@ export const backend = {
   streamProviderChat: (requestId: string, profileId: string, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('stream_provider_chat', { requestId, profileId, messages, maxTokens }),
   cancelProviderChat: (requestId: string) => invoke<void>('cancel_provider_chat', { requestId }),
   getProviderChat: (requestId: string) => invoke<ProviderRequest>('get_provider_chat', { requestId }),
+  startLearningPlan: (input: LearningPlanInput) => invoke<LearningPlan>('start_learning_plan', { input }),
+  listLearningPlans: () => invoke<LearningPlan[]>('list_learning_plans'),
+  getLearningPlan: (id: string) => invoke<LearningPlan>('get_learning_plan', { id }),
+  cancelLearningPlan: (id: string) => invoke<LearningPlan>('cancel_learning_plan', { id }),
+  resumeLearningPlan: (id: string) => invoke<LearningPlan>('resume_learning_plan', { id }),
+  adoptLearningPlan: (id: string) => invoke<AppSnapshot>('adopt_learning_plan', { id }),
+  regenerateLearningPlan: (id: string, scope: number) => invoke<LearningPlan>('regenerate_learning_plan', { id, scope }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {

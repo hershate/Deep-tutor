@@ -154,6 +154,7 @@ mod tests {
                 events_since,
                 reset_application,
                 crate::backend::materials::commands::import_material_files,
+                crate::backend::materials::commands::import_material_text,
                 crate::backend::materials::commands::list_materials,
                 crate::backend::materials::commands::get_material,
                 crate::backend::materials::commands::enqueue_material_parse,
@@ -321,6 +322,34 @@ mod tests {
         let deleted = ipc(&app, "delete_material", json!({"id": id})).unwrap();
         assert_eq!(deleted["resources"], json!([]));
         assert!(!original.exists());
+    }
+
+    #[test]
+    fn ipc_text_import_preserves_real_content_and_deduplicates() {
+        let app = test_app();
+        let created = ipc(
+            &app,
+            "import_material_text",
+            json!({"title": "粘贴章节", "content": "先验、似然与后验"}),
+        )
+        .unwrap();
+        assert_eq!(created["material"]["title"], json!("粘贴章节"));
+        assert_eq!(created["material"]["originalAvailable"], json!(true));
+        assert_eq!(created["deduplicated"], json!(false));
+        let repeated = ipc(
+            &app,
+            "import_material_text",
+            json!({"title": "另一标题", "content": "先验、似然与后验"}),
+        )
+        .unwrap();
+        assert_eq!(repeated["deduplicated"], json!(true));
+        assert_eq!(repeated["material"]["id"], created["material"]["id"]);
+        assert_eq!(repeated["material"]["title"], json!("粘贴章节"));
+        let materials = ipc(&app, "list_materials", json!({})).unwrap();
+        assert_eq!(materials.as_array().unwrap().len(), 1);
+        let events = ipc(&app, "events_since", json!({"lastId": 0})).unwrap();
+        assert_eq!(events["events"].as_array().unwrap().len(), 1);
+        assert_eq!(events["events"][0]["kind"], json!("material.staged"));
     }
 
     #[test]
