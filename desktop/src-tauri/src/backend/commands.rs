@@ -19,7 +19,7 @@ fn finish<R: Runtime>(app: &AppHandle<R>, mutation: Mutation) -> Result<Value> {
     Ok(mutation.state)
 }
 
-fn emit<R: Runtime>(app: &AppHandle<R>, event: &BackendEvent) {
+pub(crate) fn emit<R: Runtime>(app: &AppHandle<R>, event: &BackendEvent) {
     if let Err(error) = app.emit("backend://event", event) {
         eprintln!("backend event {} delivery failed: {error}", event.kind);
     }
@@ -83,8 +83,18 @@ pub fn reset_application<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Value> {
-    let mutation = store(&state)?.reset()?;
-    finish(&app, mutation)
+    let backup = super::materials::prepare_reset(&state.materials)?;
+    let result = { store(&state)?.reset() };
+    match result {
+        Ok(mutation) => {
+            super::materials::finish_reset(&state.materials, backup, true)?;
+            finish(&app, mutation)
+        }
+        Err(error) => {
+            super::materials::finish_reset(&state.materials, backup, false)?;
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -122,15 +132,25 @@ mod tests {
     use tauri::{Listener, Manager, WebviewWindowBuilder};
 
     fn test_app() -> tauri::App<tauri::test::MockRuntime> {
+        let materials = crate::backend::materials::MaterialState::for_tests().unwrap();
         let app = tauri::test::mock_builder()
             .manage(BackendState {
-                store: Mutex::new(Store::in_memory().unwrap()),
+                store: Mutex::new(Store::new(materials.test_database_path()).unwrap()),
+                materials,
             })
             .invoke_handler(tauri::generate_handler![
                 bootstrap,
+                get_app_state,
                 replace_collection,
                 events_since,
-                reset_application
+                reset_application,
+                crate::backend::materials::commands::import_material_files,
+                crate::backend::materials::commands::list_materials,
+                crate::backend::materials::commands::get_material,
+                crate::backend::materials::commands::enqueue_material_parse,
+                crate::backend::materials::commands::delete_material,
+                crate::backend::materials::commands::export_material_original,
+                crate::backend::materials::commands::export_material_text,
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
@@ -231,6 +251,70 @@ mod tests {
     }
 
     #[test]
+    fn ipc_material_commands_share_state_and_emit_real_results() {
+        let app = test_app();
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("study.md");
+        std::fs::write(&source, "# 原生资料").unwrap();
+        let imported = ipc(
+            &app,
+            "import_material_files",
+            json!({"paths": [source.to_string_lossy()]}),
+        )
+        .unwrap();
+        assert_eq!(imported[0]["error"], Value::Null);
+        let id = imported[0]["material"]["id"].as_i64().unwrap();
+        let materials = ipc(&app, "list_materials", json!({})).unwrap();
+        assert_eq!(materials.as_array().unwrap().len(), 1);
+        assert_eq!(materials[0]["status"], "staged");
+        let state = ipc(&app, "get_app_state", json!({})).unwrap();
+        assert_eq!(state["resources"][0]["title"], "study.md");
+        ipc(&app, "enqueue_material_parse", json!({"id": id})).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let detail = loop {
+            let detail = ipc(&app, "get_material", json!({"id": id})).unwrap();
+            if detail["status"] == "parsed" {
+                break detail;
+            }
+            assert_ne!(detail["status"], "failed", "{detail}");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "parse did not finish: {detail}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert_eq!(detail["text"], "# 原生资料");
+        let events = ipc(&app, "events_since", json!({"lastId": 0})).unwrap();
+        assert!(events["events"].as_array().unwrap().iter().any(|event| {
+            event["kind"] == "material.parsed" && event["payload"]["materialId"] == id
+        }));
+        let destination = directory.path().join("parsed.txt");
+        ipc(
+            &app,
+            "export_material_text",
+            json!({"id": id, "destination": destination.to_string_lossy()}),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(destination).unwrap(), "# 原生资料");
+        let original = app
+            .state::<BackendState>()
+            .materials
+            .test_database_path()
+            .parent()
+            .unwrap()
+            .join("materials")
+            .join("originals")
+            .join(format!(
+                "{}.md",
+                imported[0]["material"]["sha256"].as_str().unwrap()
+            ));
+        assert!(original.is_file());
+        let deleted = ipc(&app, "delete_material", json!({"id": id})).unwrap();
+        assert_eq!(deleted["resources"], json!([]));
+        assert!(!original.exists());
+    }
+
+    #[test]
     fn real_shell_allows_native_event_listeners() {
         let capability: Value =
             serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
@@ -239,7 +323,12 @@ mod tests {
             .unwrap()
             .contains(&json!("main")));
         let permissions = capability["permissions"].as_array().unwrap();
-        for permission in ["core:event:allow-listen", "core:event:allow-unlisten"] {
+        for permission in [
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+            "dialog:allow-open",
+            "dialog:allow-save",
+        ] {
             assert!(
                 permissions.contains(&json!(permission)),
                 "missing {permission}"

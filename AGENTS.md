@@ -43,6 +43,8 @@
   不必安装 rustup。同步设置 `CARGO_HOME=F:\DevCache\cargo`、
   `RUSTUP_HOME=F:\DevCache\rustup`。
 - 后端测试：`cd desktop/src-tauri && cargo test --release`。
+- 禁止前台 UI 自动化、打开原生窗口或对话框、模拟键鼠及读取屏幕。
+  使用 MockRuntime、无界面 IPC、真实持久化和构建检查；需要用户操作时提供手动步骤。
 - 保留的 Go 代码：`go vet ./...`、`go test ./tools/repolint`。
 - 变更门禁：`make check`；Application Control 拦截新 Go 二进制时，
   构建到 `F:\TEMP\deeptutor\tb` 后运行。Rust 构建脚本被拦截时优先复用 release 缓存。

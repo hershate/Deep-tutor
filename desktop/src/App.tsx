@@ -17,7 +17,7 @@ import SharedPlan from './pages/SharedPlan'
 import TutorPanel from './components/TutorPanel'
 import { Button, IconButton, Modal, ProgressBar } from './components/UI'
 import { knowledgeNodes } from './data'
-import type { PageId, Project, Resource, Task } from './data'
+import type { PageId, Project, Task } from './data'
 import { backend, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
@@ -46,7 +46,6 @@ export default function App() {
   const { tasks, notes, resources, projects, preferences } = snapshot
   const setTasks = (value: Task[]) => replaceCollection('tasks', value)
   const setNotes = (value: AppSnapshot['notes']) => replaceCollection('notes', value)
-  const setResources = (value: Resource[]) => replaceCollection('resources', value)
   const setProjects = (value: Project[]) => replaceCollection('projects', value)
   const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
@@ -128,7 +127,7 @@ export default function App() {
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} />
       case 'practice': return <Practice notify={notify} />
       case 'review': return <Review notify={notify} />
-      case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} setResources={setResources} notify={notify} />
+      case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} notify={notify} />
       case 'reports': return <Reports notify={notify} />
       case 'community': return <Community notify={notify} />

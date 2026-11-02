@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BackendError {
     pub code: String,
     pub message: String,
@@ -27,8 +27,18 @@ impl BackendError {
 }
 
 impl From<rusqlite::Error> for BackendError {
-    fn from(_: rusqlite::Error) -> Self {
-        Self::storage()
+    fn from(error: rusqlite::Error) -> Self {
+        match error {
+            rusqlite::Error::SqliteFailure(code, _)
+                if matches!(
+                    code.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                ) =>
+            {
+                Self::new("database_busy", "数据库正忙，请稍后重试")
+            }
+            _ => Self::storage(),
+        }
     }
 }
 

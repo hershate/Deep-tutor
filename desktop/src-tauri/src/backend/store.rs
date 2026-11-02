@@ -7,12 +7,14 @@ use std::fs;
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 const MAX_BACKUP_BYTES: usize = 256 * 1024 * 1024;
+static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendEvent {
@@ -45,7 +47,7 @@ pub struct EventPage {
 }
 
 pub struct Store {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Store {
@@ -57,6 +59,9 @@ impl Store {
         {
             fs::create_dir_all(parent)?;
         }
+        let _open = STORE_OPEN_LOCK
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "数据库初始化锁不可用"))?;
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -81,6 +86,7 @@ impl Store {
                 created_at TEXT NOT NULL
             );",
         )?;
+        super::materials::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -142,7 +148,7 @@ impl Store {
             .unwrap_or(0))
     }
 
-    fn next_revision(conn: &Connection, namespace: &str) -> Result<i64> {
+    pub(crate) fn next_revision(conn: &Connection, namespace: &str) -> Result<i64> {
         let revision = Self::revision(conn, namespace)? + 1;
         conn.execute(
             "INSERT INTO revisions (namespace, value) VALUES (?1, ?2)
@@ -152,7 +158,12 @@ impl Store {
         Ok(revision)
     }
 
-    fn insert_json(conn: &Connection, namespace: &str, id: &str, value: &Value) -> Result<()> {
+    pub(crate) fn insert_json(
+        conn: &Connection,
+        namespace: &str,
+        id: &str,
+        value: &Value,
+    ) -> Result<()> {
         let data = serde_json::to_string(value)?;
         conn.execute(
             "INSERT INTO kv (namespace, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)
@@ -220,7 +231,7 @@ impl Store {
         Ok(Value::Object(state))
     }
 
-    fn event(conn: &Connection, kind: &str, payload: Value) -> Result<BackendEvent> {
+    pub(crate) fn event(conn: &Connection, kind: &str, payload: Value) -> Result<BackendEvent> {
         conn.execute(
             "INSERT INTO events (kind, payload, created_at) VALUES (?1, ?2, ?3)",
             params![kind, serde_json::to_string(&payload)?, Self::now()?],
@@ -251,6 +262,12 @@ impl Store {
         expected_revision: i64,
         value: &Value,
     ) -> Result<Mutation> {
+        if namespace == "resources" {
+            return Err(BackendError::new(
+                "use_material_commands",
+                "资料原件、解析和删除必须使用原生材料命令",
+            ));
+        }
         if !Self::namespace_allowed(namespace) {
             return Err(BackendError::invalid(
                 "unknown_collection",
@@ -353,6 +370,7 @@ impl Store {
 
     pub fn reset(&self) -> Result<Mutation> {
         let tx = self.conn.unchecked_transaction()?;
+        super::materials::clear_all(&tx)?;
         tx.execute(
             "DELETE FROM kv WHERE namespace IN ('tasks', 'notes', 'resources', 'projects', 'preferences', 'drafts')",
             [],
@@ -516,11 +534,19 @@ impl Store {
                         .map_err(|_| BackendError::new("storage_failed", "无法分配记录标识"))?;
                     imported_item["id"] = Value::from(numeric_id);
                 }
-                Self::insert_json(&tx, namespace, &id, &imported_item)?;
+                if namespace == "resources" {
+                    let imported_id = imported_item["id"].as_i64().ok_or_else(|| {
+                        BackendError::invalid("invalid_id", "资料标识必须是正整数")
+                    })?;
+                    super::materials::import_metadata(&tx, &imported_item, imported_id)?;
+                } else {
+                    Self::insert_json(&tx, namespace, &id, &imported_item)?;
+                }
                 Self::next_revision(&tx, namespace)?;
             }
             imported.insert(namespace.to_string(), Value::from(items.len()));
         }
+        super::materials::sync_resources(&tx)?;
         let drafts = object["drafts"].as_array().ok_or_else(|| {
             BackendError::invalid("collection_must_be_array", "草稿集合必须是数组")
         })?;

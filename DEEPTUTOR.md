@@ -48,6 +48,8 @@
 - Fix at the owning layer. Reuse the current path rather than adding a second implementation or workaround.
 - Frontend work must exercise the real command and durable result, not just a rendered notification.
   Real-time work must also verify event replay and terminal ordering.
+- Never drive foreground windows or dialogs, synthesize keyboard or mouse input, or capture the screen.
+  Use headless tests with real IPC and persistence; provide manual steps for interactive acceptance.
 - Run the affected build and tests before committing. Do not claim completion with red tests,
   missing implementation or unverified native behavior.
 - Commits are fine-grained, Chinese, and carry no co-author. Do not push.
