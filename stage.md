@@ -38,17 +38,19 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
-**iter 433（2026-11-02，原生安装包构建与残余测试对齐，🚧 进行中）**：
-继续 iter 432，先确认 Rust 工具链是否真的缺失，再处理删除启动脚本后的测试债。
+**iter 433（2026-11-02，原生安装包构建、安装运行与残余测试对齐，✅ 完成）**：
+继续 iter 432，复用现有工具链完成原生构建与真实安装验证，并处理删除启动脚本后的测试债。
 
 | 项 | 结果 |
 |---|---|
 | Rust 发现 | PATH 没有 cargo/rustc，但 `F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc\bin` 已有完整工具链：`cargo 1.95.0`、`rustc 1.95.0`；直接复用，未安装新环境 |
-| 原生构建 | 以该 bin 目录加入 PATH，并复用 `CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`，实际启动 `npm run tauri build`，等待构建结果 |
+| 原生构建 | 首次缺 `icons/icon.ico`，按 REF favicon 的矢量几何用 .NET `System.Drawing` 生成 256×256 图标；随后 Rust release 构建成功，生成 `deep-tutor-workspace.exe` |
+| NSIS | 首次下载因 DNS 失败；重试时 NSIS 3.13 与 `nsis_tauri_utils.dll` 下载/哈希校验成功，产出 `知舟 Deep Tutor_1.0.0_x64-setup.exe`（**2.90 MiB**）。本机另有 NSIS 3.04 缓存可回退 |
+| 安装运行 | 静默安装到 `F:\TEMP\deeptutor\app`，安装器 exit 0；原生窗口标题含「知舟」，启动成功并正常关闭；卸载器 exit 0，临时目录已清理 |
 | 测试对齐 | `backend/tests/test_requirements_split.py` 不再读取两个已删除脚本，改为断言网页启动脚本不存在；`requirements-ocr.txt` 与 `app/core/quota.py` 的过期注释同步 |
-| 验证 | `pytest tests/test_requirements_split.py`：**4 passed**；ruff `All checks passed`；旧目录与启动脚本确认不存在 |
+| 验证 | `pytest tests/test_requirements_split.py`：**4 passed**；ruff `All checks passed`；旧目录与启动脚本确认不存在；`Cargo.lock` 与生成图标纳入版本控制 |
 
-**iter 432（2026-11-02，取消服务器交付：只保留 Tauri 安装程序，🚧 进行中）**：
+**iter 432（2026-11-02，取消服务器交付：只保留 Tauri 安装程序，✅ 完成）**：
 用户追加要求：移除网页启动脚本和脚本化环境部署，由服务端程序转为应用程序。
 本条覆盖 iter 431 对启动脚本的保留性改法。
 
@@ -61,7 +63,7 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 | 文档同步 | `note/12` 追加 #29/#33/#40 服务交付形态替代；`AGENTS.md`、`plan/README.md`、`desktop/README.md`、`README.md`、`DEEPTUTOR.md`、`NOTICE` 同步 |
 | 基线理由 | 删除 Studio host 使旧桌面函数失去最后调用者（orphan 72→94）；REF 样式带入 11 处既有 `!important`。已显式 `-update -allow-widen` 并在此披露，未静默放宽门禁 |
 | 验证 | Go vet 与定向测试通过；serve 全量回归 PASS；UI build 通过；repolint clean（2143 findings）；`tauri info` 校验 bundle 通过；实现提交 `1e057e5a` |
-| 当前阻塞 | Rust/Cargo 缺失，`npm run tauri build` 在 `cargo metadata` 停止，未生成安装包；不擅自安装新环境 |
+| 当时阻塞及解决 | 起初 `cargo metadata` 因 PATH 无 Cargo 停止；iter 433 复用 F 盘现有工具链与图标完成 NSIS 构建，并通过临时安装、原生启动和卸载验证 |
 
 **iter 431（2026-11-02，T2：删除旧 UI 与失效工程引用，✅ 完成）**：
 删除旧浏览器 SPA、Electron、frontend-next、前端插件示例、剪藏扩展及旧桌面发布工具。
