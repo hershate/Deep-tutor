@@ -17,6 +17,7 @@
 | T1 | REF 界面入库并新增 Tauri 2 壳 | TypeScript/Vite 构建通过，壳配置属于 Tauri 2 |
 | T2 | 删除旧浏览器/Electron UI 与失效工程引用 | 指定旧目录不存在，CI/Makefile 不再构建旧 UI |
 | T3 | Tauri 安装包验证与文档收口 | Windows NSIS 安装包构建通过并安装运行；外部工具缺失明确登记 |
+| T4 | REF 全功能接入原生后端 | commands/events/SQLite 真实输出贯通全部页面，模拟实现与冗余旧后端清理完毕 |
 
 ## reasonix/ 文档索引
 
