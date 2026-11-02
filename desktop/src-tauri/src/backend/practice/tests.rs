@@ -7,6 +7,8 @@ use super::*;
 use serde_json::json;
 use std::sync::Mutex;
 
+mod subjective_tests;
+
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
     let state = PracticeState::for_tests().unwrap();
     let learning = state.learning.shared();
@@ -32,6 +34,8 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             super::commands::export_practice_mistakes,
             super::commands::set_practice_bookmark,
             super::commands::set_practice_mistake_mastered,
+            super::commands::cancel_practice_answer,
+            super::commands::resume_practice_answer,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -77,30 +81,72 @@ fn model_server(
     invalid_citation: bool,
 ) -> TestServer {
     server(move |request, stream| {
-        let body = if request.contains("学习测评命题器") {
+        let body = if request.contains("学习测评评分器") {
             if let Some(gate) = &gate {
                 start_stream(stream);
                 while !gate.load(Ordering::Acquire) {
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }
-            let quote = if invalid_citation {
-                "并非资料中的引用"
+            let grasp = if request.contains("评分溢出") {
+                1.5
+            } else if request.contains("不知道") {
+                0.0
             } else {
-                "先验概率"
+                1.0
             };
-            let choice = json!({
-                "kind": "choice", "prompt": "看到新证据之前的概率称为什么？",
-                "options": ["先验概率", "条件概率"], "answer": 0,
-                "hint": "注意证据出现之前的时间点", "explanation": "资料将先验概率与后验概率区分开。",
-                "citations": [{"materialId": material_id, "quote": quote}], "nodeIds": ["prob"], "difficulty": 2,
-            });
-            let fill = json!({
-                "kind": "fill", "prompt": "结合新证据后更新的概率称为什么？", "options": [],
-                "answer": "后验概率", "hint": "它是更新后的判断", "explanation": "资料中的后验概率对应更新后的判断。",
-                "citations": [{"materialId": material_id, "quote": "后验概率"}], "nodeIds": ["bayes"], "difficulty": 2,
-            });
-            json!({"questions": if request.contains("生成 1 道") { vec![choice] } else { vec![choice, fill] }})
+            json!({
+                "criteria": [
+                    {"id": "concept", "score": grasp, "evidence": if grasp == 1.0 { "学生说明了资料中的核心概念" } else { "学生没有给出核心概念解释" }, "feedback": "检查是否准确解释先验概率"},
+                    {"id": "evidence", "score": 0.5, "evidence": "论证联系了部分资料依据", "feedback": "进一步结合原文说明证据如何改变判断"},
+                ],
+                "overallFeedback": if grasp == 1.0 { "概念解释完整，但论证依据还可更具体。" } else { "未说明先验概率与资料依据，需补充核心概念。" },
+                "citations": [{"materialId": material_id, "quote": "先验概率"}],
+            })
+        } else if request.contains("学习测评命题器") {
+            if let Some(gate) = &gate {
+                start_stream(stream);
+                while !gate.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+            if request.contains("题目类别：subjective") {
+                let rubric = json!([
+                    {"id": "concept", "description": "准确解释资料中的核心概念", "points": 0.6},
+                    {"id": "evidence", "description": "结合资料说明判断依据", "points": 0.4},
+                ]);
+                let short = json!({
+                    "kind": "short", "prompt": "为什么看到新证据前需要先确定先验概率？", "options": [],
+                    "answer": "先验概率是引入新证据前的判断，贝叶斯更新以此为起点。",
+                    "hint": "比较引入证据前后的判断", "explanation": "回答应说明先验概率与证据更新的关系。",
+                    "citations": [{"materialId": material_id, "quote": "先验概率"}], "nodeIds": ["prob"], "difficulty": 2, "rubric": rubric,
+                });
+                let essay = json!({
+                    "kind": "essay", "prompt": "论述先验概率如何影响新证据后的判断。", "options": [],
+                    "answer": "应论述先验概率、证据与后验概率之间的关系，并结合资料说明。",
+                    "hint": "从判断的起点和更新过程展开", "explanation": "回答应形成完整论证并联系资料依据。",
+                    "citations": [{"materialId": material_id, "quote": "后验概率"}], "nodeIds": ["bayes"], "difficulty": 3, "rubric": rubric,
+                });
+                json!({"questions": if request.contains("生成 1 道") { vec![short] } else { vec![short, essay] }})
+            } else {
+                let quote = if invalid_citation {
+                    "并非资料中的引用"
+                } else {
+                    "先验概率"
+                };
+                let choice = json!({
+                    "kind": "choice", "prompt": "看到新证据之前的概率称为什么？",
+                    "options": ["先验概率", "条件概率"], "answer": 0,
+                    "hint": "注意证据出现之前的时间点", "explanation": "资料将先验概率与后验概率区分开。",
+                    "citations": [{"materialId": material_id, "quote": quote}], "nodeIds": ["prob"], "difficulty": 2,
+                });
+                let fill = json!({
+                    "kind": "fill", "prompt": "结合新证据后更新的概率称为什么？", "options": [],
+                    "answer": "后验概率", "hint": "它是更新后的判断", "explanation": "资料中的后验概率对应更新后的判断。",
+                    "citations": [{"materialId": material_id, "quote": "后验概率"}], "nodeIds": ["bayes"], "difficulty": 2,
+                });
+                json!({"questions": if request.contains("生成 1 道") { vec![choice] } else { vec![choice, fill] }})
+            }
         } else if request.contains("构建知识图谱") {
             json!({"nodes": [
                 {"id": "prob", "title": "概率", "summary": "真实概率节点", "difficulty": 1, "required": true, "estimatedMinutes": 15, "citations": [{"materialId": material_id, "quote": "概率"}]},
@@ -244,7 +290,7 @@ fn objective_questions_use_real_citations_answers_mistakes_and_evidence() {
         ipc(
             &window,
             "generate_practice",
-            json!({"input": input(&plan_id, 1, vec!["short"], "immediate")})
+            json!({"input": input(&plan_id, 1, vec!["unknown"], "immediate")})
         )
         .unwrap_err()["code"],
         "unsupported_question_kind"

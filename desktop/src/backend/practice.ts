@@ -22,25 +22,41 @@ export type PracticeSet = {
   updatedAt: string
   completedAt: string | null
 }
+export type QuestionKind = 'choice' | 'fill' | 'short' | 'essay'
+export type RubricCriterion = { id: string; description: string; points: number }
 export type PracticeQuestion = {
   id: number
   position: number
-  kind: 'choice' | 'fill'
+  kind: QuestionKind
   prompt: string
   options: string[]
   hint: string
   difficulty: number
   nodeIds: string[]
   citations: { materialId: number; quote: string }[]
+  rubric: RubricCriterion[]
   variantOf: number | null
   bookmarked: boolean
 }
 export type PracticeAnswer = {
+  id: number
   questionId: number
   score: number | null
   maxScore: number | null
   correct: boolean | null
-  feedback: { answer?: number | string; explanation?: string; hint?: string; status?: string }
+  status: 'done' | 'grading' | 'cancelling' | 'failed' | 'cancelled' | 'interrupted'
+  error: BackendError | null
+  requestId: string | null
+  response: number | string | null
+  feedback: {
+    answer?: number | string
+    explanation?: string
+    hint?: string
+    status?: string
+    overallFeedback?: string
+    criteria?: { id: string; description: string; score: number; maxScore: number; evidence: string; feedback: string }[]
+    citations?: { materialId: number; quote: string }[]
+  }
 }
 export type PracticeDetail = { set: PracticeSet; questions: PracticeQuestion[]; answers: PracticeAnswer[]; answeredQuestionIds: number[] }
 export type PracticeInput = {
@@ -49,7 +65,7 @@ export type PracticeInput = {
   count: number
   difficulty: 'adaptive' | 'basic' | 'advanced' | 'comprehensive'
   feedbackMode: 'immediate' | 'deferred' | 'hints'
-  kinds: ('choice' | 'fill')[]
+  kinds: QuestionKind[]
 }
 export type PracticeMistake = {
   questionId: number
@@ -72,4 +88,6 @@ export const practiceBackend = {
   exportMistakes: () => invoke<Record<string, unknown>>('export_practice_mistakes'),
   bookmark: (questionId: number, bookmarked: boolean) => invoke<void>('set_practice_bookmark', { questionId, bookmarked }),
   masterMistake: (questionId: number, mastered: boolean) => invoke<void>('set_practice_mistake_mastered', { questionId, mastered }),
+  cancelAnswer: (answerId: number) => invoke<PracticeDetail>('cancel_practice_answer', { answerId }),
+  resumeAnswer: (answerId: number) => invoke<PracticeDetail>('resume_practice_answer', { answerId }),
 }

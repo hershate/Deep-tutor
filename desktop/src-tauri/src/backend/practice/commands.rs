@@ -81,3 +81,21 @@ pub fn set_practice_mistake_mastered<R: Runtime>(
 ) -> Result<()> {
     super::set_mistake_mastered(&app, &state.practice, question_id, mastered)
 }
+
+#[tauri::command]
+pub fn cancel_practice_answer<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    answer_id: i64,
+) -> Result<PracticeSetDetail> {
+    super::subjective::cancel(&app, &state.practice, answer_id)
+}
+
+#[tauri::command]
+pub fn resume_practice_answer<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    answer_id: i64,
+) -> Result<PracticeSetDetail> {
+    super::subjective::resume(&app, &state.practice, answer_id)
+}

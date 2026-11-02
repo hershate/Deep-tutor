@@ -1805,3 +1805,10 @@ h1, h2, h3 { text-wrap: balance; }
 .practice-history-list > button { display: flex; justify-content: space-between; gap: 15px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
 .practice-history-list small { color: var(--muted); }
 .unavailable-feature { padding: 24px; }
+.rubric-preview { display: grid; gap: 8px; margin: 16px 0; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.rubric-preview > div { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
+.rubric-preview small { flex-shrink: 0; color: var(--muted); }
+.rubric-result { padding: 10px 0; border-top: 1px solid var(--border); }
+.rubric-result strong { float: right; }
+.rubric-result small { display: block; margin-top: 6px; color: var(--muted); }
+.streaming-output { max-height: 250px; overflow: auto; padding: 12px; border-radius: 8px; background: var(--surface-soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

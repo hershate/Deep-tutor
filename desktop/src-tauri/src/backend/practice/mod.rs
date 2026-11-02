@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod subjective;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -24,6 +25,7 @@ pub struct PracticeState {
     providers: ProviderState,
     learning: LearningState,
     active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    grading_active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
 }
 
 impl PracticeState {
@@ -33,6 +35,7 @@ impl PracticeState {
             providers: providers.shared(),
             learning: learning.shared(),
             active: Arc::new(Mutex::new(HashMap::new())),
+            grading_active: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -44,6 +47,7 @@ impl PracticeState {
             providers: learning.provider_state(),
             learning,
             active: Arc::new(Mutex::new(HashMap::new())),
+            grading_active: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -53,6 +57,7 @@ impl PracticeState {
             providers: self.providers.shared(),
             learning: self.learning.shared(),
             active: Arc::clone(&self.active),
+            grading_active: Arc::clone(&self.grading_active),
         }
     }
 
@@ -85,6 +90,14 @@ pub struct PracticeSet {
     pub completed_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RubricCriterion {
+    pub id: String,
+    pub description: String,
+    pub points: f64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PracticeQuestion {
@@ -97,6 +110,7 @@ pub struct PracticeQuestion {
     pub difficulty: u8,
     pub node_ids: Vec<String>,
     pub citations: Vec<Citation>,
+    pub rubric: Vec<RubricCriterion>,
     pub variant_of: Option<i64>,
     pub bookmarked: bool,
 }
@@ -113,11 +127,16 @@ pub struct PracticeSetDetail {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerView {
+    pub id: i64,
     pub question_id: i64,
     pub score: Option<f64>,
     pub max_score: Option<f64>,
     pub correct: Option<bool>,
     pub feedback: Value,
+    pub status: String,
+    pub error: Option<BackendError>,
+    pub request_id: Option<String>,
+    pub response: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,6 +185,8 @@ struct QuestionDraft {
     node_ids: Vec<String>,
     #[serde(default)]
     difficulty: Option<u8>,
+    #[serde(default)]
+    rubric: Vec<RubricCriterion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -250,6 +271,7 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if !columns.iter().any(|column| column == "kinds_json") {
         conn.execute("ALTER TABLE practice_sets ADD COLUMN kinds_json TEXT NOT NULL DEFAULT '[\"choice\", \"fill\"]'", [])?;
     }
+    subjective::migrate(conn)?;
     Ok(())
 }
 
@@ -355,10 +377,17 @@ fn generation_prompt(
             json!({"materialId": source.id, "title": source.title, "text": text})
         })
         .collect::<Vec<_>>();
+    let subjective = input
+        .kinds
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .all(|kind| ["short", "essay"].contains(&kind.as_str()));
     Ok(format!(
-        "生成 {} 道客观学习题，范围为 {:?}。只返回 {{\"questions\":[{{\"kind\":\"choice|fill\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或填空文本,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
+        "生成 {} 道学习题，范围为 {:?}。题目类别：{}。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
         input.count.unwrap_or(5),
         input.kinds,
+        if subjective { "subjective" } else { "objective" },
         input.difficulty.as_deref().unwrap_or("adaptive"),
         serde_json::to_string(&nodes)?,
         serde_json::to_string(&source_data)?,
@@ -428,11 +457,11 @@ pub fn generate<R: Runtime>(
         || unique.len() != kinds.len()
         || kinds
             .iter()
-            .any(|kind| !["choice", "fill"].contains(&kind.as_str()))
+            .any(|kind| !["choice", "fill", "short", "essay"].contains(&kind.as_str()))
     {
         return Err(BackendError::new(
             "unsupported_question_kind",
-            "当前支持单选和填空；主观题将在后续切片接入",
+            "支持的题型为单选、填空、简答与论述",
         ));
     }
     if input.variant_of.is_some() {
@@ -697,6 +726,22 @@ fn generate_questions<R: Runtime>(
                     return Err(BackendError::new("invalid_model_output", "填空题答案无效"));
                 }
             }
+            "short" | "essay" => {
+                if !question.options.is_empty()
+                    || question
+                        .answer
+                        .as_str()
+                        .is_none_or(|answer| answer.trim().is_empty() || answer.len() > 10_000)
+                    || question.hint.trim().is_empty()
+                    || question.explanation.trim().is_empty()
+                {
+                    return Err(BackendError::new(
+                        "invalid_model_output",
+                        "主观题参考答案、提示或解析无效",
+                    ));
+                }
+                subjective::validate_rubric(&question.rubric)?;
+            }
             _ => {
                 return Err(BackendError::new(
                     "unsupported_question_kind",
@@ -706,8 +751,8 @@ fn generate_questions<R: Runtime>(
         }
         validate_citations(&question.citations, &sources)?;
         tx.execute(
-            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3)],
+            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty, rubric_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?],
         )?;
     }
     let changed = tx.execute(
@@ -773,13 +818,14 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
 pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
     let store = state.store()?;
     let set = set_row(&store.conn, id)?;
-    let mut statement = store.conn.prepare("SELECT id, position, kind, prompt, options_json, hint, difficulty, citations_json, node_ids_json, variant_of FROM practice_questions WHERE set_id = ?1 ORDER BY position")?;
+    let mut statement = store.conn.prepare("SELECT id, position, kind, prompt, options_json, hint, difficulty, citations_json, node_ids_json, variant_of, rubric_json FROM practice_questions WHERE set_id = ?1 ORDER BY position")?;
     let questions = statement
         .query_map(params![id], |row| {
             let question_id: i64 = row.get(0)?;
             let options: String = row.get(4)?;
             let citations: String = row.get(7)?;
             let nodes: String = row.get(8)?;
+            let rubric: String = row.get(10)?;
             let bookmarked: bool = store.conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM practice_bookmarks WHERE question_id = ?1)",
                 params![question_id],
@@ -795,23 +841,26 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
                 difficulty: row.get::<_, i64>(6)? as u8,
                 citations: serde_json::from_str(&citations).unwrap_or_default(),
                 node_ids: serde_json::from_str(&nodes).unwrap_or_default(),
+                rubric: serde_json::from_str(&rubric).unwrap_or_default(),
                 variant_of: row.get(9)?,
                 bookmarked,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let answers = if set.status == "completed" || set.feedback_mode == "immediate" {
-        let mut statement = store.conn.prepare("SELECT question_id, score, max_score, correct, feedback_json FROM practice_answers WHERE set_id = ?1 AND status = 'done' ORDER BY id")?;
+    let mut answers = if set.status == "completed" || set.feedback_mode == "immediate" {
+        let mut statement = store.conn.prepare("SELECT id, question_id, response_json, grader_request_id, score, max_score, correct, feedback_json FROM practice_answers WHERE set_id = ?1 AND status = 'done' ORDER BY id")?;
         let rows = statement.query_map(params![id], |row| {
-            let feedback: String = row.get(4)?;
+            let feedback: String = row.get(7)?;
+            let response: String = row.get(2)?;
             let reveal = set.feedback_mode != "hints";
             Ok(AnswerView {
-                question_id: row.get(0)?,
-                score: reveal.then(|| row.get(1)).transpose()?,
-                max_score: reveal.then(|| row.get(2)).transpose()?,
-                correct: reveal.then(|| row.get(3)).transpose()?,
+                id: row.get(0)?,
+                question_id: row.get(1)?,
+                score: reveal.then(|| row.get(4)).transpose()?,
+                max_score: reveal.then(|| row.get(5)).transpose()?,
+                correct: reveal.then(|| row.get(6)).transpose()?,
                 feedback: if set.feedback_mode == "hints" {
-                    let question_id: i64 = row.get(0)?;
+                    let question_id: i64 = row.get(1)?;
                     let hint: String = store.conn.query_row(
                         "SELECT hint FROM practice_questions WHERE id = ?1",
                         params![question_id],
@@ -821,13 +870,21 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
                 } else {
                     serde_json::from_str(&feedback).unwrap_or(Value::Null)
                 },
+                status: "done".into(),
+                error: None,
+                request_id: row.get(3)?,
+                response: serde_json::from_str(&response).unwrap_or(Value::Null),
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     } else {
         Vec::new()
     };
-    let mut statement = store.conn.prepare("SELECT question_id FROM practice_answers WHERE set_id = ?1 AND status = 'done' ORDER BY id")?;
+    answers.extend(subjective::pending_answers(&store.conn, id)?);
+    answers.sort_by_key(|answer| answer.question_id);
+    let mut statement = store
+        .conn
+        .prepare("SELECT question_id FROM practice_answers WHERE set_id = ?1 ORDER BY id")?;
     let answered_question_ids = statement
         .query_map(params![id], |row| row.get(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -880,6 +937,10 @@ pub fn submit<R: Runtime>(
             "answer_already_graded",
             "这道题已判分，不能重复提交",
         ));
+    }
+    if ["short", "essay"].contains(&kind.as_str()) {
+        drop(tx);
+        return subjective::submit(app, state, set_id, question_id, answer);
     }
     let expected: Value = serde_json::from_str(&expected)?;
     let correct = match kind.as_str() {
@@ -960,6 +1021,7 @@ pub fn submit<R: Runtime>(
     )?;
     Ok(AnswerResult {
         answer: AnswerView {
+            id: answer_id,
             question_id,
             score: reveal.then_some(if correct { 1.0 } else { 0.0 }),
             max_score: reveal.then_some(1.0),
@@ -971,6 +1033,10 @@ pub fn submit<R: Runtime>(
             } else {
                 json!({"status": "submitted"})
             },
+            status: "done".into(),
+            error: None,
+            request_id: None,
+            response: answer,
         },
         set: result_set,
     })
@@ -1128,6 +1194,7 @@ pub fn stop(state: &PracticeState) -> Result<()> {
             }
         }
     }
+    subjective::stop(state)?;
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
         if state
@@ -1186,6 +1253,7 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<
         tx.commit()?;
         emit(app, &event);
     }
+    subjective::recover(app, state)?;
     Ok(())
 }
 

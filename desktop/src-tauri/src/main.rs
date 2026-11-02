@@ -123,6 +123,8 @@ fn main() {
             practice::commands::export_practice_mistakes,
             practice::commands::set_practice_bookmark,
             practice::commands::set_practice_mistake_mastered,
+            practice::commands::cancel_practice_answer,
+            practice::commands::resume_practice_answer,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,
