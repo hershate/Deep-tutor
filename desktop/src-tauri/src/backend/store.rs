@@ -87,6 +87,7 @@ impl Store {
             );",
         )?;
         super::materials::migrate(&conn)?;
+        super::providers::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -371,6 +372,7 @@ impl Store {
     pub fn reset(&self) -> Result<Mutation> {
         let tx = self.conn.unchecked_transaction()?;
         super::materials::clear_all(&tx)?;
+        super::providers::clear_all(&tx)?;
         tx.execute(
             "DELETE FROM kv WHERE namespace IN ('tasks', 'notes', 'resources', 'projects', 'preferences', 'drafts')",
             [],

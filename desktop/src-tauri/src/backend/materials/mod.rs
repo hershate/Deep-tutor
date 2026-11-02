@@ -1316,6 +1316,7 @@ mod tests {
             .manage(crate::backend::BackendState {
                 store: Mutex::new(state.store().unwrap()),
                 materials: MaterialState::new(&directory.path().join("app.db")).unwrap(),
+                providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();

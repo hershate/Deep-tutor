@@ -83,11 +83,17 @@ pub fn reset_application<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Value> {
+    super::providers::stop_chats(&state.providers)?;
+    let provider_ids = super::providers::credential_ids(&state.providers)?;
     let backup = super::materials::prepare_reset(&state.materials)?;
     let result = { store(&state)?.reset() };
     match result {
         Ok(mutation) => {
-            super::materials::finish_reset(&state.materials, backup, true)?;
+            let file_result = super::materials::finish_reset(&state.materials, backup, true);
+            let credential_result =
+                super::providers::purge_credentials(&state.providers, &provider_ids);
+            file_result?;
+            credential_result?;
             finish(&app, mutation)
         }
         Err(error) => {
@@ -137,6 +143,7 @@ mod tests {
             .manage(BackendState {
                 store: Mutex::new(Store::new(materials.test_database_path()).unwrap()),
                 materials,
+                providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
             })
             .invoke_handler(tauri::generate_handler![
                 bootstrap,

@@ -2,7 +2,7 @@
 
 mod backend;
 
-use backend::{commands, materials, store::Store, BackendState};
+use backend::{commands, materials, providers, store::Store, BackendState};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -15,12 +15,17 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let material_state = materials::MaterialState::new(&path)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let provider_state = providers::ProviderState::new(&path)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             app.manage(BackendState {
                 store: Mutex::new(store),
                 materials: material_state,
+                providers: provider_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            providers::recover_chats(app.handle(), &state.providers)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
@@ -45,6 +50,17 @@ fn main() {
             materials::commands::delete_material,
             materials::commands::export_material_original,
             materials::commands::export_material_text,
+            providers::commands::list_provider_profiles,
+            providers::commands::get_active_provider,
+            providers::commands::upsert_provider_profile,
+            providers::commands::set_active_provider,
+            providers::commands::delete_provider_profile,
+            providers::commands::export_provider_config,
+            providers::commands::import_provider_deep_link,
+            providers::commands::test_provider,
+            providers::commands::stream_provider_chat,
+            providers::commands::cancel_provider_chat,
+            providers::commands::get_provider_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");
