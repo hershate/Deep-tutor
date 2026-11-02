@@ -49,6 +49,7 @@ export default function App() {
   const setProjects = (value: Project[]) => replaceCollection('projects', value)
   const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
+  const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string } | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
   const [toast, setToast] = useState('')
@@ -123,8 +124,8 @@ export default function App() {
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
-      case 'study': return <StudyRoom onAddNote={note => setNotes([note, ...notes])} onFocus={() => setFocusOpen(true)} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} />
+      case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} notify={notify} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} />
       case 'practice': return <Practice notify={notify} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} notify={notify} />

@@ -139,6 +139,38 @@ export type KnowledgeOverview = {
 }
 export type ReadingProgress = { completed: boolean; bookmarked: boolean }
 
+export type LectureContent = {
+  title: string
+  overview: string
+  sections: { heading: string; content: string }[]
+  examples: { title: string; content: string }[]
+  checkpoints: { question: string; answer: string }[]
+  citations: { materialId: number; quote: string }[]
+}
+export type LectureUnit = {
+  index: number
+  nodeId: string
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+  attempt: number
+  requestId: string | null
+  content: LectureContent | null
+  error: BackendError | null
+  usage: { inputTokens: number | null; outputTokens: number | null } | null
+}
+export type Lecture = {
+  planId: string
+  stageId: string
+  version: number
+  status: 'empty' | 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+  totalUnits: number
+  completedUnits: number
+  currentUnit: number
+  previousVersion: number | null
+  units: LectureUnit[]
+  error: BackendError | null
+  updatedAt: string | null
+}
+
 export type ProviderProtocol = 'OpenAI Chat' | 'OpenAI Responses' | 'Anthropic Messages' | 'Gemini Native'
 export type ProviderKind = '官方' | '兼容服务' | '本地模型'
 export type ProviderProfile = {
@@ -246,6 +278,10 @@ export const backend = {
   addKnowledgeTask: (id: string, nodeId: string) => invoke<AppSnapshot>('add_knowledge_task', { id, nodeId }),
   getReadingProgress: (id: string, stageId: string) => invoke<ReadingProgress>('get_reading_progress', { id, stageId }),
   setReadingProgress: (id: string, stageId: string, completed: boolean, bookmarked?: boolean) => invoke<ReadingProgress>('set_reading_progress', { id, stageId, completed, bookmarked }),
+  getLecture: (id: string, stageId: string, version?: number) => invoke<Lecture>('get_lecture', { id, stageId, version }),
+  generateLecture: (id: string, stageId: string, force: boolean) => invoke<Lecture>('generate_lecture', { id, stageId, force }),
+  cancelLecture: (id: string, stageId: string) => invoke<Lecture>('cancel_lecture', { id, stageId }),
+  saveStudyNote: (id: string, stageId: string, content: string) => invoke<AppSnapshot>('save_study_note', { id, stageId, content }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {
