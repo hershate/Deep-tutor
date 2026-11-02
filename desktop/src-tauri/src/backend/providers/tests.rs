@@ -242,17 +242,12 @@ fn deep_link_discards_secrets_and_unsupported_protocol_is_explicit() {
         app.handle(),
         &state,
         ProfileInput {
-            protocol: "Anthropic Messages".into(),
+            protocol: "Unknown Protocol".into(),
             ..input("http://127.0.0.1:8000")
         },
     )
-    .unwrap();
-    assert_eq!(
-        test(app.handle(), &state, &unsupported.id, false)
-            .unwrap_err()
-            .code,
-        "unsupported_protocol"
-    );
+    .unwrap_err();
+    assert_eq!(unsupported.code, "unsupported_protocol");
 }
 
 #[test]

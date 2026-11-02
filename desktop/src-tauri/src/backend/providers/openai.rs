@@ -41,33 +41,41 @@ pub struct ChatError {
     pub error: BackendError,
     pub partial_text: String,
     pub partial_reasoning: String,
+    pub partial_tool_calls: Vec<ToolCall>,
     pub usage: Option<TokenUsage>,
     pub attempts: u8,
 }
 
 impl ChatError {
-    fn new(code: &str, message: &str) -> Self {
+    pub(crate) fn new(code: &str, message: &str) -> Self {
         Self {
             error: BackendError::new(code, message),
             partial_text: String::new(),
             partial_reasoning: String::new(),
+            partial_tool_calls: Vec::new(),
             usage: None,
             attempts: 1,
         }
     }
 
-    fn partial(self, text: String, usage: Option<TokenUsage>) -> Self {
+    pub(crate) fn partial(self, text: String, usage: Option<TokenUsage>) -> Self {
         Self {
             error: self.error,
             partial_text: text,
             partial_reasoning: String::new(),
+            partial_tool_calls: Vec::new(),
             usage,
             attempts: self.attempts,
         }
     }
 
-    fn with_reasoning(mut self, reasoning: String) -> Self {
+    pub(crate) fn with_reasoning(mut self, reasoning: String) -> Self {
         self.partial_reasoning = reasoning;
+        self
+    }
+
+    pub(crate) fn with_tool_calls(mut self, calls: Vec<ToolCall>) -> Self {
+        self.partial_tool_calls = calls;
         self
     }
 }
@@ -78,6 +86,7 @@ impl From<BackendError> for ChatError {
             error,
             partial_text: String::new(),
             partial_reasoning: String::new(),
+            partial_tool_calls: Vec::new(),
             usage: None,
             attempts: 1,
         }
@@ -225,11 +234,13 @@ pub(crate) fn endpoint(base_url: &str, kind: &str, suffix: &str) -> Result<reqwe
     url.path_segments_mut()
         .map_err(|_| BackendError::new("invalid_endpoint", "Base URL 不能作为服务根地址"))?
         .pop_if_empty()
-        .push(suffix);
+        .extend(suffix.split('/').filter(|part| !part.is_empty()));
+    let path = url.path().replace("%3A", ":").replace("%3a", ":");
+    url.set_path(&path);
     Ok(url)
 }
 
-fn client(url: &reqwest::Url, kind: &str) -> Result<reqwest::blocking::Client> {
+pub(crate) fn client(url: &reqwest::Url, kind: &str) -> Result<reqwest::blocking::Client> {
     let (host, addresses) = pinned_addresses(url, kind)?;
     reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -240,7 +251,7 @@ fn client(url: &reqwest::Url, kind: &str) -> Result<reqwest::blocking::Client> {
         .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))
 }
 
-fn streaming_client(url: &reqwest::Url, kind: &str) -> Result<reqwest::Client> {
+pub(crate) fn streaming_client(url: &reqwest::Url, kind: &str) -> Result<reqwest::Client> {
     let (host, addresses) = pinned_addresses(url, kind)?;
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -271,7 +282,7 @@ fn authorize(
     }
 }
 
-fn authorize_async(
+pub(crate) fn authorize_async(
     request: reqwest::RequestBuilder,
     key: &Option<Zeroizing<String>>,
 ) -> reqwest::RequestBuilder {
@@ -281,7 +292,7 @@ fn authorize_async(
     }
 }
 
-fn read_json(response: reqwest::blocking::Response) -> Result<Value> {
+pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> {
     let status = response.status().as_u16();
     if status != 200 {
         return Err(http_error(status));
@@ -301,7 +312,7 @@ fn read_json(response: reqwest::blocking::Response) -> Result<Value> {
         .map_err(|_| BackendError::new("invalid_response", "模型服务返回的不是有效 JSON"))
 }
 
-fn http_error(status: u16) -> BackendError {
+pub(crate) fn http_error(status: u16) -> BackendError {
     match status {
         401 | 403 => BackendError::new(
             "authentication_failed",
@@ -319,7 +330,10 @@ pub fn list_models(
     profile: &ProviderProfile,
     key: Option<Zeroizing<String>>,
 ) -> Result<Vec<String>> {
-    if profile.protocol != "OpenAI Chat" {
+    if !matches!(
+        profile.protocol.as_str(),
+        "OpenAI Chat" | "OpenAI Responses"
+    ) {
         return Err(BackendError::new(
             "unsupported_protocol",
             "该协议尚未接入原生实现",
@@ -515,7 +529,7 @@ pub fn chat_once_with_tools(
     })
 }
 
-fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Result<()> {
+pub(crate) fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Result<()> {
     if messages.is_empty() || messages.len() > 64 {
         return Err(BackendError::new(
             "invalid_messages",
@@ -722,6 +736,7 @@ where
                     || attempt == policy.max_attempts
                     || !error.partial_text.is_empty()
                     || !error.partial_reasoning.is_empty()
+                    || !error.partial_tool_calls.is_empty()
                 {
                     error.attempts = attempt;
                     return Err(error);
@@ -732,7 +747,7 @@ where
     unreachable!()
 }
 
-type StreamSuccess = (
+pub(crate) type StreamSuccess = (
     String,
     String,
     String,
@@ -741,23 +756,35 @@ type StreamSuccess = (
     Vec<ToolCall>,
 );
 
-struct StreamOutput {
-    text: String,
-    reasoning: String,
-    model: String,
-    usage: Option<TokenUsage>,
-    finish_reason: Option<String>,
-    tool_calls: BTreeMap<usize, ToolCall>,
+pub(crate) struct StreamOutput {
+    pub(crate) text: String,
+    pub(crate) reasoning: String,
+    pub(crate) model: String,
+    pub(crate) usage: Option<TokenUsage>,
+    pub(crate) finish_reason: Option<String>,
+    pub(crate) tool_calls: BTreeMap<usize, ToolCall>,
 }
 
 impl StreamOutput {
-    fn error(&self, code: &str, message: &str) -> ChatError {
+    pub(crate) fn new(model: String) -> Self {
+        Self {
+            text: String::new(),
+            reasoning: String::new(),
+            model,
+            usage: None,
+            finish_reason: None,
+            tool_calls: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn error(&self, code: &str, message: &str) -> ChatError {
         ChatError::new(code, message)
             .partial(self.text.clone(), self.usage.clone())
             .with_reasoning(self.reasoning.clone())
+            .with_tool_calls(self.tool_calls.values().cloned().collect())
     }
 
-    fn finish(self, done: bool) -> std::result::Result<StreamSuccess, ChatError> {
+    pub(crate) fn finish(self, done: bool) -> std::result::Result<StreamSuccess, ChatError> {
         if !done {
             return Err(self.error("incomplete_stream", "模型流式响应在结束标记前中断"));
         }
@@ -766,6 +793,7 @@ impl StreamOutput {
         }
         let partial_text = self.text.clone();
         let partial_reasoning = self.reasoning.clone();
+        let partial_tool_calls = self.tool_calls.values().cloned().collect::<Vec<_>>();
         let partial_usage = self.usage.clone();
         let mut calls = Vec::new();
         for call in self.tool_calls.into_values() {
@@ -773,7 +801,8 @@ impl StreamOutput {
                 return Err(
                     ChatError::new("invalid_tool_call", "工具调用缺少 ID 或函数名")
                         .partial(partial_text.clone(), partial_usage.clone())
-                        .with_reasoning(partial_reasoning.clone()),
+                        .with_reasoning(partial_reasoning.clone())
+                        .with_tool_calls(partial_tool_calls.clone()),
                 );
             }
             let arguments = if call.arguments.trim().is_empty() {
@@ -786,13 +815,15 @@ impl StreamOutput {
                     ChatError::new("invalid_tool_arguments", "工具参数不是有效 JSON")
                         .partial(partial_text.clone(), partial_usage.clone())
                         .with_reasoning(partial_reasoning.clone())
+                        .with_tool_calls(partial_tool_calls.clone())
                 })?
                 .is_object()
             {
                 return Err(
                     ChatError::new("invalid_tool_arguments", "工具参数必须是 JSON 对象")
                         .partial(partial_text, partial_usage)
-                        .with_reasoning(partial_reasoning),
+                        .with_reasoning(partial_reasoning)
+                        .with_tool_calls(partial_tool_calls),
                 );
             }
             calls.push(ToolCall {
@@ -932,7 +963,7 @@ where
     Ok(false)
 }
 
-fn cancelled(cancel: &Arc<AtomicBool>, parent: &Option<Arc<AtomicBool>>) -> bool {
+pub(crate) fn cancelled(cancel: &Arc<AtomicBool>, parent: &Option<Arc<AtomicBool>>) -> bool {
     cancel.load(Ordering::Acquire)
         || parent
             .as_ref()

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod openai;
+pub mod protocol;
 pub mod routing;
 pub mod tools;
 
@@ -697,7 +698,7 @@ pub fn test<R: Runtime>(
     let key = state.credentials.get(id)?;
     let started = Instant::now();
     let result = if real_request {
-        openai::chat_once(
+        protocol::chat_once(
             &profile,
             key,
             &[ChatMessage {
@@ -716,7 +717,7 @@ pub fn test<R: Runtime>(
             result: Some(result),
         })
     } else {
-        openai::list_models(&profile, key).map(|models| ProviderTestResult {
+        protocol::list_models(&profile, key).map(|models| ProviderTestResult {
             profile_id: id.into(),
             kind: "models".into(),
             ok: true,
@@ -1059,7 +1060,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
         .map_err(openai::ChatError::from)
         .and_then(|(mut profile, key)| {
             profile.default_model = pending.model;
-            openai::stream_chat_with_policy(&profile, key, messages, max_tokens, tools, cancel, parent_cancel, policy, |delta| {
+            protocol::stream_chat_with_policy(&profile, key, messages, max_tokens, tools, cancel, parent_cancel, policy, |delta| {
                 let event = Store::event(
                     &store.conn,
                     "provider.chat_delta",
@@ -1067,7 +1068,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
                 )?;
                 emit(app, &event);
                 Ok(())
-            })
+            }, request_id)
         });
     let (status, output, reasoning, tool_calls, usage, finish_reason, error, attempts) =
         match result {
@@ -1091,7 +1092,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
                     status,
                     error.partial_text,
                     error.partial_reasoning,
-                    Vec::new(),
+                    error.partial_tool_calls,
                     error.usage,
                     None,
                     Some(error.error),
@@ -1219,5 +1220,7 @@ pub(crate) fn stop_direct_chats(state: &ProviderState) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod test_support;
 
+#[cfg(test)]
+mod protocol_tests;
 #[cfg(test)]
 mod tests;
