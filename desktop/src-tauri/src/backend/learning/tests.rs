@@ -465,6 +465,7 @@ fn recovery_reuses_a_completed_graph_without_another_upstream_call() {
         &[ChatMessage {
             role: "user".into(),
             content: "构建知识图谱".into(),
+            ..Default::default()
         }],
         8192,
     )
@@ -897,6 +898,7 @@ fn lecture_recovery_reuses_completed_unit_output() {
         &[ChatMessage {
             role: "user".into(),
             content: "自学讲义".into(),
+            ..Default::default()
         }],
         8192,
     )

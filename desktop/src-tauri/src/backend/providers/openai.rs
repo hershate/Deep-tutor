@@ -1,7 +1,9 @@
 use super::super::error::{BackendError, Result};
+use super::tools::{ToolCall, ToolCallRequest, ToolDefinition};
 use super::{ChatMessage, ProviderProfile};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +28,7 @@ pub struct TokenUsage {
 pub struct ChatResult {
     pub text: String,
     pub reasoning: String,
+    pub tool_calls: Vec<ToolCall>,
     pub model: String,
     pub usage: Option<TokenUsage>,
     pub finish_reason: Option<String>,
@@ -361,7 +364,51 @@ fn usage(body: &Value) -> Option<TokenUsage> {
     })
 }
 
-fn completion(body: &Value) -> Result<(String, String, Option<String>)> {
+fn parse_tool_calls(message: &Value) -> Result<Vec<ToolCall>> {
+    let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let requests: Vec<ToolCallRequest> = serde_json::from_value(Value::Array(calls.clone()))
+        .map_err(|_| BackendError::new("invalid_tool_call", "工具调用结构无效"))?;
+    requests
+        .into_iter()
+        .map(|call| {
+            if call.kind != "function" {
+                return Err(BackendError::new(
+                    "unsupported_tool_type",
+                    "仅支持函数工具调用",
+                ));
+            }
+            if call.id.trim().is_empty() || call.function.name.trim().is_empty() {
+                return Err(BackendError::new(
+                    "invalid_tool_call",
+                    "工具调用缺少 ID 或函数名",
+                ));
+            }
+            let arguments = if call.function.arguments.trim().is_empty() {
+                "{}".into()
+            } else {
+                call.function.arguments
+            };
+            if !serde_json::from_str::<Value>(&arguments)
+                .map_err(|_| BackendError::new("invalid_tool_arguments", "工具参数不是有效 JSON"))?
+                .is_object()
+            {
+                return Err(BackendError::new(
+                    "invalid_tool_arguments",
+                    "工具参数必须是 JSON 对象",
+                ));
+            }
+            Ok(ToolCall {
+                id: call.id,
+                name: call.function.name,
+                arguments,
+            })
+        })
+        .collect()
+}
+
+fn completion(body: &Value) -> Result<(String, String, Option<String>, Vec<ToolCall>)> {
     let choice = body
         .get("choices")
         .and_then(Value::as_array)
@@ -373,11 +420,12 @@ fn completion(body: &Value) -> Result<(String, String, Option<String>)> {
     let text = message
         .get("content")
         .and_then(Value::as_str)
-        .ok_or_else(|| BackendError::new("invalid_response", "模型响应缺少文本内容"))?;
-    if text.is_empty() {
+        .unwrap_or_default();
+    let tool_calls = parse_tool_calls(message)?;
+    if text.is_empty() && tool_calls.is_empty() {
         return Err(BackendError::new(
             "empty_completion",
-            "模型没有返回文本内容",
+            "模型没有返回文本内容或工具调用",
         ));
     }
     Ok((
@@ -391,6 +439,7 @@ fn completion(body: &Value) -> Result<(String, String, Option<String>)> {
             .get("finish_reason")
             .and_then(Value::as_str)
             .map(str::to_string),
+        tool_calls,
     ))
 }
 
@@ -399,6 +448,16 @@ pub fn chat_once(
     key: Option<Zeroizing<String>>,
     messages: &[ChatMessage],
     max_tokens: u32,
+) -> Result<ChatResult> {
+    chat_once_with_tools(profile, key, messages, max_tokens, None)
+}
+
+pub fn chat_once_with_tools(
+    profile: &ProviderProfile,
+    key: Option<Zeroizing<String>>,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    tools: Option<&[ToolDefinition]>,
 ) -> Result<ChatResult> {
     if profile.protocol != "OpenAI Chat" {
         return Err(BackendError::new(
@@ -415,20 +474,26 @@ pub fn chat_once(
     validate_messages(messages, max_tokens)?;
     let url = endpoint(&profile.base_url, &profile.kind, "chat/completions")?;
     let started = Instant::now();
+    let mut body = json!({
+        "model": profile.default_model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": false
+    });
+    if let Some(tools) = tools {
+        body["tools"] = serde_json::to_value(tools)?;
+        body["tool_choice"] = json!("auto");
+    }
     let response = authorize(client(&url, &profile.kind)?.post(url), &key)
-        .json(&json!({
-            "model": profile.default_model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "stream": false
-        }))
+        .json(&body)
         .send()
         .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
     let body = read_json(response)?;
-    let (text, reasoning, finish_reason) = completion(&body)?;
+    let (text, reasoning, finish_reason, tool_calls) = completion(&body)?;
     Ok(ChatResult {
         text,
         reasoning,
+        tool_calls,
         model: body
             .get("model")
             .and_then(Value::as_str)
@@ -456,7 +521,15 @@ fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Result<()> {
     }
     let total = messages
         .iter()
-        .map(|message| message.content.len())
+        .map(|message| {
+            message.content.len()
+                + message.tool_calls.as_ref().map_or(0, |calls| {
+                    calls
+                        .iter()
+                        .map(|call| call.function.arguments.len())
+                        .sum::<usize>()
+                })
+        })
         .sum::<usize>();
     if total > 256 * 1024 {
         return Err(BackendError::new(
@@ -464,11 +537,50 @@ fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Result<()> {
             "单次模型上下文不能超过 256 KB",
         ));
     }
-    if messages.iter().any(|message| {
-        !matches!(message.role.as_str(), "system" | "user" | "assistant")
-            || message.content.trim().is_empty()
-    }) {
-        return Err(BackendError::new("invalid_messages", "消息角色或内容无效"));
+    for message in messages {
+        let valid = match message.role.as_str() {
+            "system" | "user" => !message.content.trim().is_empty(),
+            "assistant" => {
+                !message.content.trim().is_empty()
+                    || message
+                        .tool_calls
+                        .as_ref()
+                        .is_some_and(|calls| !calls.is_empty())
+            }
+            "tool" => {
+                !message.content.trim().is_empty()
+                    && message
+                        .tool_call_id
+                        .as_deref()
+                        .is_some_and(|id| !id.is_empty())
+                    && message.name.as_deref().is_some_and(|name| !name.is_empty())
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(BackendError::new(
+                "invalid_messages",
+                "消息角色、内容或工具关联无效",
+            ));
+        }
+        if let Some(calls) = &message.tool_calls {
+            for call in calls {
+                if call.kind != "function"
+                    || call.id.trim().is_empty()
+                    || call.function.name.trim().is_empty()
+                    || !serde_json::from_str::<Value>(&call.function.arguments)
+                        .map_err(|_| {
+                            BackendError::new("invalid_tool_arguments", "工具参数不是有效 JSON")
+                        })?
+                        .is_object()
+                {
+                    return Err(BackendError::new(
+                        "invalid_tool_call",
+                        "消息中的工具调用无效",
+                    ));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -478,6 +590,21 @@ pub fn stream_chat<F>(
     key: Option<Zeroizing<String>>,
     messages: &[ChatMessage],
     max_tokens: u32,
+    cancel: Arc<AtomicBool>,
+    on_delta: F,
+) -> std::result::Result<ChatResult, ChatError>
+where
+    F: FnMut(Delta) -> Result<()>,
+{
+    stream_chat_with_tools(profile, key, messages, max_tokens, None, cancel, on_delta)
+}
+
+pub fn stream_chat_with_tools<F>(
+    profile: &ProviderProfile,
+    key: Option<Zeroizing<String>>,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    tools: Option<&[ToolDefinition]>,
     cancel: Arc<AtomicBool>,
     mut on_delta: F,
 ) -> std::result::Result<ChatResult, ChatError>
@@ -504,13 +631,15 @@ where
             &key,
             messages,
             max_tokens,
+            tools,
             &cancel,
             &mut on_delta,
         )) {
-            Ok((text, reasoning, model, usage, finish_reason)) => {
+            Ok((text, reasoning, model, usage, finish_reason, tool_calls)) => {
                 return Ok(ChatResult {
                     text,
                     reasoning,
+                    tool_calls,
                     model,
                     usage,
                     finish_reason,
@@ -533,7 +662,14 @@ where
     unreachable!()
 }
 
-type StreamSuccess = (String, String, String, Option<TokenUsage>, Option<String>);
+type StreamSuccess = (
+    String,
+    String,
+    String,
+    Option<TokenUsage>,
+    Option<String>,
+    Vec<ToolCall>,
+);
 
 struct StreamOutput {
     text: String,
@@ -541,6 +677,7 @@ struct StreamOutput {
     model: String,
     usage: Option<TokenUsage>,
     finish_reason: Option<String>,
+    tool_calls: BTreeMap<usize, ToolCall>,
 }
 
 impl StreamOutput {
@@ -552,8 +689,41 @@ impl StreamOutput {
         if !done {
             return Err(self.error("incomplete_stream", "模型流式响应在结束标记前中断"));
         }
-        if self.text.is_empty() {
-            return Err(self.error("empty_completion", "模型没有返回文本内容"));
+        if self.text.is_empty() && self.tool_calls.is_empty() {
+            return Err(self.error("empty_completion", "模型没有返回文本内容或工具调用"));
+        }
+        let partial_text = self.text.clone();
+        let partial_usage = self.usage.clone();
+        let mut calls = Vec::new();
+        for call in self.tool_calls.into_values() {
+            if call.id.trim().is_empty() || call.name.trim().is_empty() {
+                return Err(
+                    ChatError::new("invalid_tool_call", "工具调用缺少 ID 或函数名")
+                        .partial(partial_text.clone(), partial_usage.clone()),
+                );
+            }
+            let arguments = if call.arguments.trim().is_empty() {
+                "{}".into()
+            } else {
+                call.arguments
+            };
+            if !serde_json::from_str::<Value>(&arguments)
+                .map_err(|_| {
+                    ChatError::new("invalid_tool_arguments", "工具参数不是有效 JSON")
+                        .partial(partial_text.clone(), partial_usage.clone())
+                })?
+                .is_object()
+            {
+                return Err(
+                    ChatError::new("invalid_tool_arguments", "工具参数必须是 JSON 对象")
+                        .partial(partial_text, partial_usage),
+                );
+            }
+            calls.push(ToolCall {
+                id: call.id,
+                name: call.name,
+                arguments,
+            });
         }
         Ok((
             self.text,
@@ -561,6 +731,7 @@ impl StreamOutput {
             self.model,
             self.usage,
             self.finish_reason,
+            calls,
         ))
     }
 }
@@ -611,6 +782,47 @@ where
         output.finish_reason = Some(reason.to_string());
     }
     if let Some(delta) = choice.get("delta") {
+        if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
+            for call in calls {
+                if call
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind != "function")
+                {
+                    return Err(output.error("unsupported_tool_type", "仅支持函数工具调用"));
+                }
+                let index = call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let function = match call.get("function") {
+                    Some(function) => function,
+                    None => return Err(output.error("invalid_tool_call", "工具调用缺少 function")),
+                };
+                let target = output.tool_calls.entry(index).or_default();
+                if let Some(id) = call.get("id").and_then(Value::as_str) {
+                    if !target.id.is_empty() && target.id != id {
+                        return Err(output.error("invalid_tool_call", "同一工具索引出现了不同 ID"));
+                    }
+                    target.id = id.into();
+                }
+                if let Some(name) = function.get("name").and_then(Value::as_str) {
+                    if !target.name.is_empty() && target.name != name {
+                        return Err(
+                            output.error("invalid_tool_call", "同一工具索引出现了不同函数名")
+                        );
+                    }
+                    if target.name.is_empty() {
+                        target.name = name.into();
+                    }
+                }
+                if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                    if target.arguments.len().saturating_add(arguments.len()) > 256 * 1024 {
+                        return Err(
+                            output.error("response_too_large", "单个工具参数超过 256 KB 上限")
+                        );
+                    }
+                    target.arguments.push_str(arguments);
+                }
+            }
+        }
         for (field, reasoning) in [("content", false), ("reasoning_content", true)] {
             if let Some(text) = delta.get(field).and_then(Value::as_str) {
                 if text.is_empty() {
@@ -647,6 +859,7 @@ async fn stream_once<F>(
     key: &Option<Zeroizing<String>>,
     messages: &[ChatMessage],
     max_tokens: u32,
+    tools: Option<&[ToolDefinition]>,
     cancel: &Arc<AtomicBool>,
     on_delta: &mut F,
 ) -> std::result::Result<StreamSuccess, ChatError>
@@ -658,19 +871,25 @@ where
     if cancel.load(Ordering::Acquire) {
         return Err(ChatError::new("cancelled", "模型请求已取消"));
     }
+    let mut body = json!({
+        "model": profile.default_model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": true,
+        "stream_options": {"include_usage": true}
+    });
+    if let Some(tools) = tools {
+        body["tools"] = serde_json::to_value(tools)
+            .map_err(|_| ChatError::new("invalid_tool_definition", "工具定义不是有效 JSON"))?;
+        body["tool_choice"] = json!("auto");
+    }
     let request = authorize_async(
         streaming_client(&url, &profile.kind)
             .map_err(ChatError::from)?
             .post(url),
         key,
     )
-    .json(&json!({
-        "model": profile.default_model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "stream": true,
-        "stream_options": {"include_usage": true}
-    }));
+    .json(&body);
     let mut response = match tokio::time::timeout(Duration::from_secs(45), request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) if error.is_timeout() => {
@@ -694,6 +913,7 @@ where
         model: profile.default_model.clone(),
         usage: None,
         finish_reason: None,
+        tool_calls: BTreeMap::new(),
     };
     let mut pending = Vec::new();
     let mut last_chunk = Instant::now();
@@ -784,6 +1004,7 @@ mod tests {
         vec![ChatMessage {
             role: "user".into(),
             content: "hello".into(),
+            ..Default::default()
         }]
     }
 
@@ -831,6 +1052,48 @@ mod tests {
         assert_eq!(error.error.code, "cancelled");
         assert!(error.partial_text.is_empty());
         assert!(error.usage.is_none());
+    }
+
+    #[test]
+    fn tool_calls_use_native_arguments_and_allow_empty_text() {
+        let tools = vec![ToolDefinition {
+            kind: "function".into(),
+            function: super::super::tools::ToolDefinitionFunction {
+                name: "memory.recall".into(),
+                description: "Read an approved memory entry".into(),
+                parameters: json!({"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}),
+            },
+        }];
+        let address = server(|request| {
+            assert!(request.contains("memory.recall"));
+            assert!(request.contains("\"tools\""));
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"memory.recall","arguments":"{\"key\":\"topic\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}"#.into()
+        });
+        let result =
+            chat_once_with_tools(&profile(&address), None, &messages(), 64, Some(&tools)).unwrap();
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "call-1");
+        assert_eq!(result.tool_calls[0].name, "memory.recall");
+        assert_eq!(result.tool_calls[0].arguments, r#"{"key":"topic"}"#);
+
+        let address = server(|request| {
+            assert!(request.contains("memory.recall"));
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory.recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n".into()
+        });
+        let result = stream_chat_with_tools(
+            &profile(&address),
+            None,
+            &messages(),
+            64,
+            Some(&tools),
+            Arc::new(AtomicBool::new(false)),
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert!(result.text.is_empty());
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].arguments, r#"{"key":"topic"}"#);
+        assert_eq!(result.usage.unwrap().input_tokens, Some(7));
     }
 
     #[test]

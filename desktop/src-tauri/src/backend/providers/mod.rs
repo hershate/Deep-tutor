@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod openai;
+pub mod tools;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -52,11 +53,17 @@ pub struct ProfileInput {
     pub api_key: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<tools::ToolCallRequest>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -228,7 +235,8 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             latency_ms INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            reasoning TEXT NOT NULL DEFAULT ''
+            reasoning TEXT NOT NULL DEFAULT '',
+            tool_calls_json TEXT
         );",
     )?;
     let mut statement = conn.prepare("PRAGMA table_info(provider_requests)")?;
@@ -239,6 +247,12 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if !columns.iter().any(|column| column == "reasoning") {
         conn.execute(
             "ALTER TABLE provider_requests ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|column| column == "tool_calls_json") {
+        conn.execute(
+            "ALTER TABLE provider_requests ADD COLUMN tool_calls_json TEXT",
             [],
         )?;
     }
@@ -664,6 +678,7 @@ pub fn test<R: Runtime>(
             &[ChatMessage {
                 role: "user".into(),
                 content: "Reply with one word.".into(),
+                ..Default::default()
             }],
             1,
         )
@@ -739,6 +754,7 @@ pub struct ProviderRequest {
     pub status: String,
     pub output: String,
     pub reasoning: String,
+    pub tool_calls: Vec<tools::ToolCall>,
     pub usage: Option<openai::TokenUsage>,
     pub finish_reason: Option<String>,
     pub error: Option<BackendError>,
@@ -782,12 +798,13 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
     let mut request = store
         .conn
         .query_row(
-            "SELECT request_id, provider_id, model, status, output, usage_json, finish_reason, error_code, error_message, attempts, latency_ms, created_at, updated_at, reasoning FROM provider_requests WHERE request_id = ?1",
+            "SELECT request_id, provider_id, model, status, output, usage_json, finish_reason, error_code, error_message, attempts, latency_ms, created_at, updated_at, reasoning, tool_calls_json FROM provider_requests WHERE request_id = ?1",
             params![request_id],
             |row| {
                 let error_code: Option<String> = row.get(7)?;
                 let error_message: Option<String> = row.get(8)?;
                 let usage_json: Option<String> = row.get(5)?;
+                let tool_calls: Option<String> = row.get(14)?;
                 Ok(ProviderRequest {
                     request_id: row.get(0)?,
                     provider_id: format!("p{}", row.get::<_, i64>(1)?),
@@ -795,6 +812,7 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
                     status: row.get(3)?,
                     output: row.get(4)?,
                     reasoning: row.get(13)?,
+                    tool_calls: tool_calls.map(|value| serde_json::from_str(&value)).transpose().unwrap_or_default().unwrap_or_default(),
                     usage: match usage_json {
                         Some(value) => serde_json::from_str(&value).unwrap_or(None),
                         None => None,
@@ -903,6 +921,26 @@ pub fn stream_chat<R: Runtime>(
     messages: &[ChatMessage],
     max_tokens: u32,
 ) -> Result<ProviderRequest> {
+    stream_chat_with_tools(
+        app,
+        state,
+        request_id,
+        provider_id,
+        messages,
+        max_tokens,
+        None,
+    )
+}
+
+pub fn stream_chat_with_tools<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+    provider_id: &str,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    tools: Option<&[tools::ToolDefinition]>,
+) -> Result<ProviderRequest> {
     let (_, guard) = begin_chat(app, state, request_id, provider_id)?;
     let Some(_guard) = guard else {
         return chat(state, request_id);
@@ -926,7 +964,7 @@ pub fn stream_chat<R: Runtime>(
         })
         .map_err(openai::ChatError::from)
         .and_then(|(profile, key)| {
-            openai::stream_chat(&profile, key, messages, max_tokens, cancel, |delta| {
+            openai::stream_chat_with_tools(&profile, key, messages, max_tokens, tools, cancel, |delta| {
                 let event = Store::event(
                     &store.conn,
                     "provider.chat_delta",
@@ -936,38 +974,41 @@ pub fn stream_chat<R: Runtime>(
                 Ok(())
             })
         });
-    let (status, output, reasoning, usage, finish_reason, error, attempts) = match result {
-        Ok(result) => (
-            "done",
-            result.text,
-            result.reasoning,
-            result.usage,
-            result.finish_reason,
-            None,
-            result.attempts,
-        ),
-        Err(error) => {
-            let status = if error.error.code == "cancelled" {
-                "cancelled"
-            } else {
-                "failed"
-            };
-            (
-                status,
-                error.partial_text,
-                String::new(),
-                error.usage,
+    let (status, output, reasoning, tool_calls, usage, finish_reason, error, attempts) =
+        match result {
+            Ok(result) => (
+                "done",
+                result.text,
+                result.reasoning,
+                result.tool_calls,
+                result.usage,
+                result.finish_reason,
                 None,
-                Some(error.error),
-                error.attempts,
-            )
-        }
-    };
+                result.attempts,
+            ),
+            Err(error) => {
+                let status = if error.error.code == "cancelled" {
+                    "cancelled"
+                } else {
+                    "failed"
+                };
+                (
+                    status,
+                    error.partial_text,
+                    String::new(),
+                    Vec::new(),
+                    error.usage,
+                    None,
+                    Some(error.error),
+                    error.attempts,
+                )
+            }
+        };
     let latency = started.elapsed().as_millis() as i64;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
-        "UPDATE provider_requests SET status = ?1, output = ?2, usage_json = ?3, finish_reason = ?4, error_code = ?5, error_message = ?6, attempts = ?7, latency_ms = ?8, updated_at = ?9, reasoning = ?10 WHERE request_id = ?11",
-        params![status, output, serde_json::to_string(&usage)?, finish_reason, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), attempts, latency, now()?, reasoning, request_id],
+        "UPDATE provider_requests SET status = ?1, output = ?2, usage_json = ?3, finish_reason = ?4, error_code = ?5, error_message = ?6, attempts = ?7, latency_ms = ?8, updated_at = ?9, reasoning = ?10, tool_calls_json = ?11 WHERE request_id = ?12",
+        params![status, output, serde_json::to_string(&usage)?, finish_reason, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), attempts, latency, now()?, reasoning, serde_json::to_string(&tool_calls)?, request_id],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -984,7 +1025,7 @@ pub fn stream_chat<R: Runtime>(
         } else {
             "provider.chat_failed"
         },
-        json!({"requestId": request_id, "status": status, "output": output, "reasoning": reasoning, "usage": usage, "finishReason": finish_reason, "attempts": attempts, "latencyMs": latency, "error": error}),
+        json!({"requestId": request_id, "status": status, "output": output, "reasoning": reasoning, "toolCalls": tool_calls, "usage": usage, "finishReason": finish_reason, "attempts": attempts, "latencyMs": latency, "error": error}),
     )?;
     tx.commit()?;
     emit(app, &event);

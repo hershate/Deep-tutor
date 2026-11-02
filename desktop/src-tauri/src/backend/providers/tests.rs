@@ -24,6 +24,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::import_provider_deep_link,
             crate::backend::providers::commands::test_provider,
             crate::backend::providers::commands::stream_provider_chat,
+            crate::backend::providers::commands::stream_provider_chat_with_tools,
             crate::backend::providers::commands::cancel_provider_chat,
             crate::backend::providers::commands::get_provider_chat,
         ])
@@ -52,6 +53,7 @@ fn messages(content: &str) -> Vec<ChatMessage> {
     vec![ChatMessage {
         role: "user".into(),
         content: content.into(),
+        ..Default::default()
     }]
 }
 
@@ -581,4 +583,45 @@ fn provider_request_migration_adds_reasoning_without_losing_output() {
         .unwrap();
     assert_eq!(output, "{\"ok\":true}");
     assert!(reasoning.is_empty());
+}
+
+#[test]
+fn ipc_tool_calls_are_persisted_and_can_be_read_back() {
+    let (app, state) = setup();
+    let server = server(|request, stream| {
+        assert!(request.contains("\"tools\""));
+        assert!(request.contains("memory.recall"));
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory.recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n");
+    });
+    let profile = upsert(app.handle(), &state, input(&server.url())).unwrap();
+    let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let result = ipc(
+        &window,
+        "stream_provider_chat_with_tools",
+        json!({
+            "requestId": "tool-call-1", "profileId": profile.id, "maxTokens": 64,
+            "messages": [{"role": "user", "content": "读取学习偏好"}],
+            "tools": [{"type": "function", "function": {"name": "memory.recall", "description": "读取已批准记忆", "parameters": {"type": "object"}}}],
+        }),
+    )
+    .unwrap();
+    assert_eq!(result["status"], json!("done"));
+    assert_eq!(result["output"], json!(""));
+    assert_eq!(result["toolCalls"][0]["id"], json!("call-1"));
+    assert_eq!(result["toolCalls"][0]["name"], json!("memory.recall"));
+    assert_eq!(
+        result["toolCalls"][0]["arguments"],
+        json!(r#"{"key":"topic"}"#)
+    );
+    assert_eq!(result["usage"]["inputTokens"], json!(7));
+    let stored = ipc(
+        &window,
+        "get_provider_chat",
+        json!({"requestId": "tool-call-1"}),
+    )
+    .unwrap();
+    assert_eq!(stored["toolCalls"], result["toolCalls"]);
+    assert_eq!(server.request_count(), 1);
 }

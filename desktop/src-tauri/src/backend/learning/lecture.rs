@@ -607,6 +607,7 @@ fn unit<R: Runtime>(
             ChatMessage {
                 role: "system".into(),
                 content: pipeline::MODEL_SYSTEM.into(),
+                ..Default::default()
             },
             ChatMessage {
                 role: "user".into(),
@@ -615,6 +616,7 @@ fn unit<R: Runtime>(
                 } else {
                     format!("{prompt}\n上次输出未通过校验，请重新输出完整且有效的 JSON。")
                 },
+                ..Default::default()
             },
         ];
         let request = match providers::stream_chat(

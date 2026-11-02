@@ -198,10 +198,12 @@ where
             ChatMessage {
                 role: "system".into(),
                 content: MODEL_SYSTEM.into(),
+                ..Default::default()
             },
             ChatMessage {
                 role: "user".into(),
                 content,
+                ..Default::default()
             },
         ];
         let request = match providers::stream_chat(

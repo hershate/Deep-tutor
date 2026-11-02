@@ -65,6 +65,7 @@ fn main() {
             providers::commands::import_provider_deep_link,
             providers::commands::test_provider,
             providers::commands::stream_provider_chat,
+            providers::commands::stream_provider_chat_with_tools,
             providers::commands::cancel_provider_chat,
             providers::commands::get_provider_chat,
             learning::commands::start_learning_plan,

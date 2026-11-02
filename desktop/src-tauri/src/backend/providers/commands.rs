@@ -103,6 +103,34 @@ pub async fn stream_provider_chat<R: Runtime>(
     })?
 }
 
+#[tauri::command(async)]
+pub async fn stream_provider_chat_with_tools<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    request_id: String,
+    profile_id: String,
+    messages: Vec<ChatMessage>,
+    max_tokens: u32,
+    tools: Option<Vec<super::tools::ToolDefinition>>,
+) -> Result<super::ProviderRequest> {
+    let state = state.providers.shared();
+    tauri::async_runtime::spawn_blocking(move || {
+        super::stream_chat_with_tools(
+            &app,
+            &state,
+            &request_id,
+            &profile_id,
+            &messages,
+            max_tokens,
+            tools.as_deref(),
+        )
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("task_join_failed", "工具调用流式任务异常终止")
+    })?
+}
+
 #[tauri::command]
 pub fn cancel_provider_chat(state: State<'_, BackendState>, request_id: String) -> Result<()> {
     super::cancel_chat(&state.providers, &request_id)
