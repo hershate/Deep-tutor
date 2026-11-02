@@ -1,6 +1,7 @@
 pub(crate) mod actions;
 pub mod commands;
 pub(crate) mod knowledge;
+pub(crate) mod lecture;
 mod pipeline;
 mod types;
 mod validate;
@@ -31,6 +32,7 @@ pub struct LearningState {
     providers: ProviderState,
     materials: MaterialState,
     active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    lecture_active: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
     #[cfg(test)]
@@ -44,6 +46,7 @@ impl LearningState {
             providers: providers.shared(),
             materials: materials.shared(),
             active: Arc::new(Mutex::new(HashMap::new())),
+            lecture_active: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             _guard: None,
             #[cfg(test)]
@@ -62,6 +65,7 @@ impl LearningState {
             providers,
             materials,
             active: Arc::new(Mutex::new(HashMap::new())),
+            lecture_active: Arc::new(Mutex::new(HashMap::new())),
             _guard: Some(guard),
             defer: Arc::new(AtomicBool::new(false)),
         })
@@ -73,6 +77,7 @@ impl LearningState {
             providers: self.providers.shared(),
             materials: self.materials.shared(),
             active: Arc::clone(&self.active),
+            lecture_active: Arc::clone(&self.lecture_active),
             #[cfg(test)]
             _guard: None,
             #[cfg(test)]
@@ -180,12 +185,56 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             task_id INTEGER NOT NULL,
             created_at TEXT NOT NULL,
             PRIMARY KEY (plan_id, node_id)
+        );
+        CREATE TABLE IF NOT EXISTS learning_lectures (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            stage_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            current_unit INTEGER NOT NULL DEFAULT 0,
+            error_code TEXT,
+            error_message TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, stage_id)
+        );
+        CREATE TABLE IF NOT EXISTS learning_lecture_units (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            stage_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            unit_index INTEGER NOT NULL,
+            node_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            request_id TEXT,
+            content_json TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, stage_id, version, unit_index)
+        );
+        CREATE TABLE IF NOT EXISTS learning_lecture_versions (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            stage_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, stage_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS learning_annotations (
+            plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
+            stage_id TEXT NOT NULL,
+            note_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (note_id)
         );",
     )?;
     Ok(())
 }
 
 pub fn clear_all(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM learning_annotations", [])?;
+    conn.execute("DELETE FROM learning_lecture_units", [])?;
+    conn.execute("DELETE FROM learning_lecture_versions", [])?;
+    conn.execute("DELETE FROM learning_lectures", [])?;
     conn.execute("DELETE FROM learning_node_evidence", [])?;
     conn.execute("DELETE FROM learning_reading_progress", [])?;
     conn.execute("DELETE FROM learning_node_tasks", [])?;
@@ -778,7 +827,14 @@ pub fn stop(state: &LearningState) -> Result<()> {
         .values()
         .cloned()
         .collect::<Vec<_>>();
-    for flag in flags {
+    let lecture_flags = state
+        .lecture_active
+        .lock()
+        .map_err(|_| BackendError::new("store_unavailable", "讲义任务状态不可用"))?
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    for flag in flags.into_iter().chain(lecture_flags) {
         flag.store(true, Ordering::Release);
     }
     let store = state.store()?;
@@ -787,7 +843,12 @@ pub fn stop(state: &LearningState) -> Result<()> {
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    for request in requests {
+    let mut statement = store.conn.prepare("SELECT request_id FROM learning_lecture_units WHERE status = 'running' AND request_id IS NOT NULL")?;
+    let lecture_requests = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    for request in requests.into_iter().chain(lecture_requests) {
         if let Err(error) = providers::cancel_chat(&state.providers, &request) {
             if error.code != "no_active_request" {
                 return Err(error);
@@ -796,19 +857,24 @@ pub fn stop(state: &LearningState) -> Result<()> {
     }
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
-        if state
+        let plans_idle = state
             .active
             .lock()
             .map(|active| active.is_empty())
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let lectures_idle = state
+            .lecture_active
+            .lock()
+            .map(|active| active.is_empty())
+            .unwrap_or(false);
+        if plans_idle && lectures_idle {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(10));
     }
     Err(BackendError::new(
         "plan_active",
-        "学习生成任务尚未停止，请稍后重试",
+        "学习生成或讲义任务尚未停止，请稍后重试",
     ))
 }
 
@@ -858,5 +924,5 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &LearningState) -> Result<
         tx.commit()?;
         emit(app, &event);
     }
-    Ok(())
+    lecture::recover(app, state)
 }

@@ -27,6 +27,10 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             super::commands::add_knowledge_task,
             super::commands::get_reading_progress,
             super::commands::set_reading_progress,
+            super::commands::get_lecture,
+            super::commands::generate_lecture,
+            super::commands::cancel_lecture,
+            super::commands::save_study_note,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -105,7 +109,16 @@ fn configure_provider(
 
 fn model_server(material_id: i64, cyclic: bool) -> TestServer {
     server(move |request, stream| {
-        let body = if request.contains("构建知识图谱") {
+        let body = if request.contains("自学讲义") {
+            json!({
+                "title": "原生讲义",
+                "overview": "由真实协议响应返回的概念概述",
+                "sections": [{"heading": "真实概念", "content": "依据资料生成的讲义正文"}],
+                "examples": [{"title": "真实例题", "content": "例题与解答"}],
+                "checkpoints": [{"question": "检查问题", "answer": "检查答案"}],
+                "citations": [{"materialId": material_id, "quote": "概率"}],
+            })
+        } else if request.contains("构建知识图谱") {
             let concepts = [
                 ("prob", "概率"),
                 ("cond", "条件概率"),
@@ -713,4 +726,260 @@ fn knowledge_map_uses_real_paths_tasks_reading_and_evidence() {
     assert!(!reading.completed && reading.bookmarked);
     let progress = knowledge::reading(&state, &started.id, "stage-1").unwrap();
     assert!(!progress.completed && progress.bookmarked);
+}
+
+fn wait_lecture(state: &LearningState, id: &str, stage_id: &str) -> lecture::Lecture {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let lecture = lecture::get(state, id, stage_id, None).unwrap();
+        if !["running", "cancelling"].contains(&lecture.status.as_str()) {
+            return lecture;
+        }
+        assert!(Instant::now() < deadline, "讲义生成未在限时内结束");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn lecture_generation_uses_real_units_and_preserves_versions() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    let initial_calls = server.request_count();
+    actions::adopt(app.handle(), &state, &started.id).unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    ipc(
+        &window,
+        "generate_lecture",
+        json!({"id": started.id, "stageId": "stage-1", "force": false}),
+    )
+    .unwrap();
+    let lecture = wait_lecture(&state, &started.id, "stage-1");
+    assert_eq!(lecture.status, "done");
+    assert_eq!(lecture.version, 1);
+    assert_eq!(lecture.completed_units, 3);
+    assert_eq!(lecture.units.len(), 3);
+    assert_eq!(server.request_count(), initial_calls + 3);
+    assert_eq!(
+        lecture.units[0].content.as_ref().unwrap().sections[0].content,
+        "依据资料生成的讲义正文"
+    );
+    assert_eq!(
+        lecture.units[0].content.as_ref().unwrap().citations[0].quote,
+        "概率"
+    );
+    assert_eq!(
+        lecture.units[0].usage.as_ref().unwrap().output_tokens,
+        Some(33)
+    );
+    let fetched = ipc(
+        &window,
+        "get_lecture",
+        json!({"id": started.id, "stageId": "stage-1"}),
+    )
+    .unwrap();
+    assert_eq!(fetched["completedUnits"], json!(3));
+    ipc(
+        &window,
+        "generate_lecture",
+        json!({"id": started.id, "stageId": "stage-1", "force": false}),
+    )
+    .unwrap();
+    assert_eq!(server.request_count(), initial_calls + 3);
+    ipc(
+        &window,
+        "generate_lecture",
+        json!({"id": started.id, "stageId": "stage-1", "force": true}),
+    )
+    .unwrap();
+    let second = wait_lecture(&state, &started.id, "stage-1");
+    assert_eq!(second.version, 2);
+    assert_eq!(second.previous_version, Some(1));
+    assert_eq!(server.request_count(), initial_calls + 6);
+    let old = lecture::get(&state, &started.id, "stage-1", Some(1)).unwrap();
+    assert_eq!(old.status, "done");
+    assert_eq!(old.units.len(), 3);
+    let versions: i64 = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_lecture_versions WHERE plan_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(versions, 2);
+}
+
+#[test]
+fn lecture_cancellation_stops_before_the_next_unit() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let plan_server = model_server(material_id, false);
+    configure_provider(&app, &state, &plan_server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    actions::adopt(app.handle(), &state, &started.id).unwrap();
+    let server = server(|_, stream| {
+        start_stream(stream);
+        let event =
+            serde_json::to_string(&json!({"choices": [{"delta": {"content": "{\"title\":"}}]}))
+                .unwrap();
+        let _ = std::io::Write::write_all(stream, format!("data: {event}\n\n").as_bytes());
+        let _ = std::io::Write::flush(stream);
+        std::thread::sleep(Duration::from_millis(400));
+    });
+    let profile = providers::get(&state.providers, &started.provider_id).unwrap();
+    providers::upsert(
+        app.handle(),
+        &state.providers,
+        ProfileInput {
+            id: Some(profile.id),
+            name: profile.name,
+            preset: Some(profile.preset),
+            kind: profile.kind,
+            protocol: profile.protocol,
+            base_url: server.url(),
+            default_model: profile.default_model,
+            models: profile.models,
+            enabled: Some(true),
+            note: profile.note,
+            api_key: None,
+        },
+    )
+    .unwrap();
+    lecture::generate(app.handle(), &state, &started.id, "stage-1", false).unwrap();
+    let request_id = lecture::request_id(1, "stage-1", 1, 0, 1);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if providers::get_chat(&state.providers, &request_id)
+            .map(|request| request.output.contains("title"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "讲义没有产生可取消的部分输出");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    lecture::cancel(app.handle(), &state, &started.id, "stage-1").unwrap();
+    let lecture = wait_lecture(&state, &started.id, "stage-1");
+    assert_eq!(lecture.status, "cancelled");
+    assert_eq!(lecture.units[0].status, "cancelled");
+    assert_eq!(lecture.units[1].status, "pending");
+    assert_eq!(server.request_count(), 1);
+    stop(&state).unwrap();
+}
+
+#[test]
+fn lecture_recovery_reuses_completed_unit_output() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    let initial_calls = server.request_count();
+    actions::adopt(app.handle(), &state, &started.id).unwrap();
+    state.defer.store(true, Ordering::Release);
+    lecture::generate(app.handle(), &state, &started.id, "stage-1", false).unwrap();
+    let (_, request_id) = lecture::begin_unit(app.handle(), &state, 1, "stage-1", 1, 0).unwrap();
+    let request = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        &request_id,
+        &started.provider_id,
+        &[ChatMessage {
+            role: "user".into(),
+            content: "自学讲义".into(),
+        }],
+        8192,
+    )
+    .unwrap();
+    assert_eq!(request.status, "done");
+    assert_eq!(server.request_count(), initial_calls + 1);
+    state.lecture_active.lock().unwrap().clear();
+    recover(app.handle(), &state).unwrap();
+    let interrupted = lecture::get(&state, &started.id, "stage-1", None).unwrap();
+    assert_eq!(interrupted.status, "interrupted");
+    assert_eq!(interrupted.units[0].status, "interrupted");
+    state.defer.store(false, Ordering::Release);
+    lecture::generate(app.handle(), &state, &started.id, "stage-1", false).unwrap();
+    let recovered = wait_lecture(&state, &started.id, "stage-1");
+    assert_eq!(recovered.status, "done");
+    assert_eq!(recovered.units[0].attempt, 1);
+    assert_eq!(recovered.completed_units, 3);
+    assert_eq!(server.request_count(), initial_calls + 3);
+}
+
+#[test]
+fn lecture_rejects_citations_outside_the_original_text() {
+    let sources = vec![Source {
+        id: 1,
+        title: "资料".into(),
+        sha256: "hash".into(),
+        text: "真实原文".into(),
+        warning: None,
+    }];
+    let content = lecture::LectureContent {
+        title: "标题".into(),
+        overview: "概述".into(),
+        sections: vec![lecture::LectureSection {
+            heading: "概念".into(),
+            content: "正文".into(),
+        }],
+        examples: vec![],
+        checkpoints: vec![lecture::LectureCheckpoint {
+            question: "问题".into(),
+            answer: "答案".into(),
+        }],
+        citations: vec![Citation {
+            material_id: 1,
+            quote: "不存在的原文".into(),
+        }],
+    };
+    assert_eq!(
+        lecture::validate_content(&content, &sources)
+            .unwrap_err()
+            .code,
+        "citation_mismatch"
+    );
+}
+
+#[test]
+fn study_notes_are_persisted_with_the_actual_stage() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let snapshot = ipc(
+        &window,
+        "save_study_note",
+        json!({"id": started.id, "stageId": "stage-1", "content": "记录真实学习批注"}),
+    )
+    .unwrap();
+    assert_eq!(snapshot["notes"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["notes"][0]["title"], json!("概率基础 · 学习批注"));
+    assert_eq!(snapshot["notes"][0]["content"], json!("记录真实学习批注"));
+    let count: i64 = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_annotations WHERE plan_id = 1 AND stage_id = 'stage-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
 }

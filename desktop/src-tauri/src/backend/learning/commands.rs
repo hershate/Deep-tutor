@@ -106,3 +106,45 @@ pub fn set_reading_progress<R: Runtime>(
 ) -> Result<super::knowledge::ReadingProgress> {
     super::knowledge::set_reading(&app, &state.learning, &id, &stage_id, completed, bookmarked)
 }
+
+#[tauri::command]
+pub fn get_lecture(
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+    version: Option<u32>,
+) -> Result<super::lecture::Lecture> {
+    super::lecture::get(&state.learning, &id, &stage_id, version)
+}
+
+#[tauri::command]
+pub fn generate_lecture<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+    force: bool,
+) -> Result<super::lecture::Lecture> {
+    super::lecture::generate(&app, &state.learning, &id, &stage_id, force)
+}
+
+#[tauri::command]
+pub fn cancel_lecture<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+) -> Result<super::lecture::Lecture> {
+    super::lecture::cancel(&app, &state.learning, &id, &stage_id)
+}
+
+#[tauri::command]
+pub fn save_study_note<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    stage_id: String,
+    content: String,
+) -> Result<serde_json::Value> {
+    super::knowledge::save_note(&app, &state.learning, &id, &stage_id, content)
+}

@@ -79,6 +79,10 @@ fn main() {
             learning::commands::add_knowledge_task,
             learning::commands::get_reading_progress,
             learning::commands::set_reading_progress,
+            learning::commands::get_lecture,
+            learning::commands::generate_lecture,
+            learning::commands::cancel_lecture,
+            learning::commands::save_study_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");

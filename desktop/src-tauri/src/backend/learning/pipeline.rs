@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
 
-const MODEL_SYSTEM: &str = "你是知舟 Deep Tutor 的学习方案生成器。你是文字模型，只能依据给定资料和明确输入工作。只输出一个 JSON 对象，不要 Markdown、代码围栏或额外解释。不要编造引用、链接、用量或已完成步骤。";
+pub(crate) const MODEL_SYSTEM: &str = "你是知舟 Deep Tutor 的学习方案生成器。你是文字模型，只能依据给定资料和明确输入工作。只输出一个 JSON 对象，不要 Markdown、代码围栏或额外解释。不要编造引用、链接、用量或已完成步骤。";
 
 #[derive(Default)]
 struct RunArtifacts {
@@ -141,7 +141,7 @@ fn validation_prompt(
     ))
 }
 
-fn parse_model_json<T: DeserializeOwned>(output: &str) -> Result<T> {
+pub(crate) fn parse_model_json<T: DeserializeOwned>(output: &str) -> Result<T> {
     let output = output.trim();
     let content = if output.starts_with("```") {
         let mut lines = output.lines();

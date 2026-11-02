@@ -282,3 +282,54 @@ pub fn set_reading<R: Runtime>(
     emit(app, &event);
     Ok(progress)
 }
+
+pub fn save_note<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &LearningState,
+    id: &str,
+    stage_id: &str,
+    content: String,
+) -> Result<serde_json::Value> {
+    let id = plan_id(id)?;
+    let content = content.trim();
+    if content.is_empty() || content.len() > 100_000 {
+        return Err(BackendError::invalid(
+            "invalid_note",
+            "批注不能为空且不能超过 100000 字节",
+        ));
+    }
+    let plan = get(state, &format!("plan-{id}"))?;
+    let stage = plan
+        .result
+        .as_ref()
+        .and_then(|result| result.stages.iter().find(|stage| stage.id == stage_id))
+        .ok_or_else(|| BackendError::new("not_found", "学习阶段不存在"))?;
+    let store = state.store()?;
+    let tx = store.conn.unchecked_transaction()?;
+    let note_id = Store::next_free_id(&tx, "notes")?
+        .parse::<i64>()
+        .map_err(|_| BackendError::new("storage_failed", "无法分配批注标识"))?;
+    Store::insert_json(
+        &tx,
+        "notes",
+        &note_id.to_string(),
+        &json!({
+            "id": note_id,
+            "title": actions::text(&format!("{} · 学习批注", stage.title), 500),
+            "excerpt": actions::text(content, 90),
+            "tag": actions::text(&plan.goal, 100),
+            "updated": now()?,
+            "content": content,
+        }),
+    )?;
+    tx.execute("INSERT INTO learning_annotations (plan_id, stage_id, note_id, created_at) VALUES (?1, ?2, ?3, ?4)", params![id, stage_id, note_id, now()?])?;
+    Store::next_revision(&tx, "notes")?;
+    let event = Store::event(
+        &tx,
+        "study.note_saved",
+        json!({"planId": format!("plan-{id}"), "stageId": stage_id, "noteId": note_id}),
+    )?;
+    tx.commit()?;
+    emit(app, &event);
+    store.app_state()
+}
