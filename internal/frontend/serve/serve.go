@@ -384,11 +384,10 @@ func controllerHasActiveRuntimeWork(ctrl control.SessionAPI) bool {
 	return status.Running || status.PendingPrompt || status.BackgroundJobs > 0
 }
 
-// Handler returns the HTTP routes: GET / (a minimal browser client), GET /events
-// (SSE), GET /history, GET /context, and POST command endpoints.
+// Handler returns the HTTP routes: GET /events (SSE), GET /history,
+// GET /context, and POST command endpoints.
 // Same-origin policy is what protects the unauthenticated agent endpoints, so
-// there is no cross-origin opt-in: a dev frontend proxies through its own
-// origin (see frontend-next/vite.config.ts) rather than being allowed in.
+// there is no cross-origin opt-in for third-party browser clients.
 func (s *Server) Handler() http.Handler {
 	return s.handler()
 }

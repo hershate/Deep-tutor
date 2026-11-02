@@ -25,19 +25,6 @@ func FindPage(dir string) (fs.FS, error) {
 		}
 		return os.DirFS(dir), nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range []string{
-		filepath.Join(filepath.Dir(exe), "frontend-next", "dist"),
-		filepath.Join("..", "frontend-next", "dist"),
-		filepath.Join("desktop", "frontend-next", "dist"),
-	} {
-		if hasIndex(candidate) {
-			return os.DirFS(candidate), nil
-		}
-	}
 	return nil, nil
 }
 

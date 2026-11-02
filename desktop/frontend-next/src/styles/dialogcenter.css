@@ -1,3 +1,0 @@
-:root:not([data-fold~="scene"]) :is(.prefs, .fbk-veil, .image-preview, .cpv, .agent-tx-scrim) {
-  border-bottom: var(--chrome-h, 39px) solid transparent;
-}

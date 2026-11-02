@@ -99,7 +99,7 @@ else
 GOLANGCI_VERSION := $(strip $(shell cat .golangci-version))
 endif
 
-.PHONY: build vet fmt lint lint-go lint-install lint-cross lint-update coverage-gate coverage-gate-update pricecheck check test studio-test sdk-test sdk-test-race hooks cross clean studio
+.PHONY: build vet fmt lint lint-go lint-install lint-cross lint-update coverage-gate coverage-gate-update pricecheck check test studio-ui-test sdk-test sdk-test-race hooks cross clean studio
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/deep-tutor$(GOEXE) ./cmd/deep-tutor
@@ -108,11 +108,9 @@ build:
 vet:
 	go vet ./...
 
-# Build Studio and launch it. The Electron shell is the one this runs: it is a
-# real GUI app on every platform without being bundled first, so there is one
-# launch path rather than a macOS one and an everywhere-else one.
+# Build the only deliverable: a Tauri 2 desktop installer.
 studio:
-	bash desktop/electron/run-studio.sh
+	cd desktop && npm run tauri build
 
 
 fmt:
@@ -166,26 +164,22 @@ pricecheck:
 
 # Linting one GOOS leaves every //go:build windows and darwin file unchecked.
 lint-cross:
-	@for t in "linux ." "darwin ." "windows ." "linux desktop" "windows desktop"; do \
+	@for t in "linux ." "darwin ." "windows ."; do \
 		set -- $$t; \
 		echo "== golangci-lint GOOS=$$1 ($$2)"; \
 		(cd $$2 && GOOS=$$1 golangci-lint run --timeout=5m ./...) || exit 1; \
 	done
 
-# Every module, because a nested one is where a red test hides longest: the
-# shell's route allowlist sat broken through a release, and `go test ./...` from
-# the root cannot see it.
-#
 # The root module runs under tools/canary: the suite is pointed at a disposable
 # home and the run fails when the suite wrote into it. A test that writes into
 # the user's own home is silent, and the damage lands on the user's next start
 # rather than on this run.
-test: studio-test sdk-test
+test: studio-ui-test sdk-test
 	go run ./tools/canary run -- ./...
 
-# The shell is a nested module, so the root `test` target never reaches it.
-studio-test:
-	cd desktop && go test ./...
+# The only UI is the Tauri application; its TypeScript/Vite build needs no Rust.
+studio-ui-test:
+	cd desktop && npm run build
 
 sdk-test:
 	cd sdk/go && go test ./...

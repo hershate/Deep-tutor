@@ -206,7 +206,6 @@ func run(root string) ([]Finding, error) {
 	findings = append(findings, checkStrayFiles(root)...)
 	findings = append(findings, checkDocs(root)...)
 	findings = append(findings, wires.findings(root)...)
-	findings = append(findings, checkTransientTagParity(root)...)
 	findings = append(findings, checkInboxRefusalParity(root)...)
 	parity, err := checkFrontendParity(root)
 	if err != nil {

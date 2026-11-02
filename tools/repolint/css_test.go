@@ -45,17 +45,6 @@ func TestCSSRatchetFailsWhenImportantRises(t *testing.T) {
 	}
 }
 
-func TestCSSRatchetFailsWhenABudgetedSheetGrows(t *testing.T) {
-	root := t.TempDir()
-	writeStyles(t, root, "app.css", strings.Repeat("a{b:c}\n", 10))
-	baseline := baselineFrom(checkCSS(root))
-	writeStyles(t, root, "app.css", strings.Repeat("a{b:c}\n", 11))
-	_, over := baseline.exceeded(checkCSS(root))
-	if len(over) == 0 || over[0].Rule != ruleCSSSize {
-		t.Fatalf("an 11th line must overrun a 10-line budget, got %v", over)
-	}
-}
-
 func TestCSSSizeBudgetCoversOnlyTheLayeredSheets(t *testing.T) {
 	root := t.TempDir()
 	writeStyles(t, root, "chart.css", strings.Repeat("a{b:c}\n", 3000))

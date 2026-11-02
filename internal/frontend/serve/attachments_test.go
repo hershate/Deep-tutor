@@ -12,9 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -180,32 +177,5 @@ func TestAttachmentStillStoresAPlainFile(t *testing.T) {
 	status, _ := postAttachment(t, attachmentServer(t, testenv.TempDir(t)), map[string]string{"mime": "text/plain", "name": "notes.txt", "data": b64([]byte("hello"))})
 	if status != http.StatusOK {
 		t.Fatalf("a text file = %d, want 200", status)
-	}
-}
-
-// The desktop refuses an oversize upload before reading it, with its own copy of
-// each cap; the numbers are the kernel's.
-func TestDesktopUploadCapsMatchTheKernels(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("..", "..", "..", "desktop", "frontend-next", "src", "port", "upload.ts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	block := regexp.MustCompile(`UPLOAD_LIMIT_MB\s*=\s*\{([^}]*)\}`).FindSubmatch(src)
-	if block == nil {
-		t.Fatal("upload.ts declares no UPLOAD_LIMIT_MB")
-	}
-	got := map[string]int{}
-	for _, m := range regexp.MustCompile(`(\w+)\s*:\s*(\d+)`).FindAllSubmatch(block[1], -1) {
-		n, _ := strconv.Atoi(string(m[2]))
-		got[string(m[1])] = n
-	}
-	want := map[string]int{
-		"attachment": maxAttachmentUpload >> 20,
-		"image":      control.MaxImageAttachmentBytes >> 20,
-		"wallpaper":  maxWallpaperUpload >> 20,
-		"theme":      maxThemeUpload >> 20,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("upload.ts caps %v, the kernel's are %v", got, want)
 	}
 }

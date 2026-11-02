@@ -10,9 +10,7 @@ const maxFileLines = 800
 // Translation tables are data, not code: they grow one entry per UI string, so
 // a ceiling there fires on every new label without ever pointing at something
 // worth splitting.
-var sizeExemptPrefixes = []string{
-	"desktop/frontend-next/src/i18n/",
-}
+var sizeExemptPrefixes = []string{}
 
 func sizeExempt(rel string) bool {
 	for _, prefix := range sizeExemptPrefixes {

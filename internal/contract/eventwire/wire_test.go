@@ -3,9 +3,6 @@ package eventwire
 import (
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -162,56 +159,6 @@ func TestKindNamesComplete(t *testing.T) {
 	}
 }
 
-func TestDesktopWireEventKindTypeCoversSharedKinds(t *testing.T) {
-	ts := readDesktopTypes(t)
-	for k := range event.KindCount {
-		kind := ToWire(event.Event{Kind: k}).Kind
-		if !strings.Contains(ts, `"`+kind+`"`) {
-			t.Fatalf("desktop WireEvent EventKind is missing %q", kind)
-		}
-	}
-}
-
-func TestDesktopWireEventTypeCoversSharedPayloadFields(t *testing.T) {
-	ts := readDesktopTypes(t)
-	for _, want := range []string{
-		"detail?: string;",
-		`outcome?: "final_readiness" | "recovery_paused" | "no_progress";`,
-		"checkpointTurn?: number;",
-		"retryAttempt?: number;",
-		"retryMax?: number;",
-		"retryScope?:",
-		"retryCause?:",
-		"retryStatus?: number;",
-		"retryDelayMs?: number;",
-		"retryTimeoutSecs?: number;",
-		"streamAttempt?: StreamAttempt;",
-		"export interface StreamAttempt",
-		"attemptId?: string;",
-		"contextPromptTokens?: number;",
-		"contextCompletionTokens?: number;",
-		"memoryCitations?: MemoryCitation[];",
-		"export interface MemoryCitation",
-		"resolvedName?: string;",
-		"capabilityId?: string;",
-		"bound?: Bound;",
-		"export interface Bound",
-		// The kinds are the contract: a frontend that cannot tell spilled from
-		// truncated is the bug this field exists to fix.
-		`kind: "spilled" | "windowed" | "truncated";`,
-		"cacheDiagnostics?: CacheDiagnostics;",
-		"export interface CacheDiagnostics",
-		"prefixHash: string;",
-		"prefixChanged: boolean;",
-		"prefixChangeReasons?: string[];",
-		"toolSchemaTokens: number;",
-	} {
-		if !strings.Contains(ts, want) {
-			t.Fatalf("desktop WireEvent types are missing %q", want)
-		}
-	}
-}
-
 func TestToWireNoticeDetail(t *testing.T) {
 	w := ToWire(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "short", Detail: "diagnostics"})
 	if w.Kind != "notice" || w.Level != "warn" || w.Text != "short" || w.Detail != "diagnostics" {
@@ -337,20 +284,6 @@ func TestToWireMessageMemoryCitations(t *testing.T) {
 	if !strings.Contains(string(b), `"memoryCitations":[`) {
 		t.Fatalf("wire JSON missing memoryCitations: %s", string(b))
 	}
-}
-
-func readDesktopTypes(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime caller unavailable")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "..", "..", "desktop", "frontend-next", "src", "port", "wire.ts")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read desktop types: %v", err)
-	}
-	return string(b)
 }
 
 func TestToWireToolPayloadJSON(t *testing.T) {

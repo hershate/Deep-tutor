@@ -13,14 +13,11 @@ const (
 	ruleStrayFile    = "stray-file"
 )
 
-const stylesDir = "desktop/frontend-next/src/styles"
+const stylesDir = "desktop/src"
 
-// The two layered sheets grow by accretion and are exempt from the 800-line
-// ceiling; their budget only stops the growth.
-var cssSizeBudgeted = map[string]bool{
-	stylesDir + "/app.css":    true,
-	stylesDir + "/studio.css": true,
-}
+// The former Studio sheets had per-file length budgets. The Tauri UI has one
+// replacement stylesheet and no legacy budget; only !important is checked here.
+var cssSizeBudgeted = map[string]bool{}
 
 var (
 	cssComment   = regexp.MustCompile(`(?s)/\*.*?\*/`)

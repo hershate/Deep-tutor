@@ -176,9 +176,6 @@ func TestProbeFindingWithoutAProbeIdentityStillCarriesACode(t *testing.T) {
 	if got.OK || got.Code != codeProbeFailed {
 		t.Fatalf("finding = %+v, want ok=false and %s", got, codeProbeFailed)
 	}
-	if !translatedCodes(t)[codeProbeFailed] {
-		t.Fatalf("kernel.ts has no wording for %s", codeProbeFailed)
-	}
 }
 
 func TestCheckProviderSuccessCarriesNoFailureFields(t *testing.T) {

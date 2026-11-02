@@ -106,15 +106,6 @@ func TestAPairedDeviceCannotGrantARootEvenWhenTheWindowCan(t *testing.T) {
 	}
 }
 
-func TestEveryWorkspaceRootRefusalIsTranslated(t *testing.T) {
-	said := translatedCodes(t)
-	for _, code := range []config.WorkspaceRootRefusal{config.RootNotDirectory, config.RootCoveredAlready, config.RootTooBroad, config.RootProtected, config.RootNotOwned, config.RootOverlapsWrite} {
-		if !said[string(code)] {
-			t.Errorf("refusal %s has no text in the frontend catalogue", code)
-		}
-	}
-}
-
 func TestSandboxAllowWriteRefusesWhatARootRefuses(t *testing.T) {
 	s := newProviderEditServer(t, t.TempDir())
 	s.AllowProviderEdit()

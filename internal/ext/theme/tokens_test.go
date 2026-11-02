@@ -3,10 +3,6 @@ package theme
 import (
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -220,28 +216,6 @@ func TestShippedPacksMeetSyntaxContrast(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-// The vocabulary is the kernel's and the mapping onto CSS variables is the
-// frontend's; a token one side knows and the other does not is either accepted
-// and never painted, or painted and never accepted.
-func TestThemeTokenVocabularyMatchesTheFrontend(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("..", "..", "..", "desktop", "frontend-next", "src", "ui", "theme.ts"))
-	if err != nil {
-		t.Skipf("frontend source not present: %v", err)
-	}
-	block := regexp.MustCompile(`(?s)const SURFACE: Record<string, string\[\]> = \{(.*?)\n\};`).FindSubmatch(src)
-	if block == nil {
-		t.Fatal("theme.ts no longer declares SURFACE; update this test with it")
-	}
-	var frontend []string
-	for _, m := range regexp.MustCompile(`(?m)^\s*([A-Za-z]+):\s*\[`).FindAllSubmatch(block[1], -1) {
-		frontend = append(frontend, string(m[1]))
-	}
-	slices.Sort(frontend)
-	if kernel := TokenNames(); !slices.Equal(frontend, kernel) {
-		t.Fatalf("frontend maps %v, kernel accepts %v", frontend, kernel)
 	}
 }
 

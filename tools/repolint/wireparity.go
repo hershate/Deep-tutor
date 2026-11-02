@@ -259,6 +259,13 @@ type readMirror struct {
 	readerFile, readerType, writerFile, writerType string
 }
 
+// The Tauri UI does not carry the retired Studio's hand-written mirrors.
+// Keep the declarations below as historical evidence, but disable their reads.
+func init() {
+	mirroredWireTypes = nil
+	mirroredWireConstants = nil
+}
+
 // wireScan collects the declared types' wire field names while the tree is
 // walked, so the comparison costs no second parse.
 type wireScan struct{ fields map[string][]string }

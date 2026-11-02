@@ -2,19 +2,12 @@ package remotehost
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"deep-tutor/internal/platform/remote/bootstrap"
 )
 
 func TestServeOccupancyFailuresCarryTheirOwnCode(t *testing.T) {
-	kernel, err := os.ReadFile(filepath.Join("..", "..", "..", "desktop", "frontend-next", "src", "i18n", "kernel.ts"))
-	if err != nil {
-		t.Skipf("no frontend catalogue: %v", err)
-	}
 	for _, tc := range []struct {
 		err  error
 		code string
@@ -24,9 +17,6 @@ func TestServeOccupancyFailuresCarryTheirOwnCode(t *testing.T) {
 	} {
 		if got := installFailureCode(fmt.Errorf("pid 7: %w", tc.err)); got != tc.code {
 			t.Errorf("code for %v = %q, want %q", tc.err, got, tc.code)
-		}
-		if !strings.Contains(string(kernel), `"`+tc.code+`":`) {
-			t.Errorf("%s has no wording in kernel.ts", tc.code)
 		}
 	}
 }

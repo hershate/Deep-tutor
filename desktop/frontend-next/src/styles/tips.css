@@ -1,1 +1,0 @@
-.navbtn:hover:not(:focus-visible) .navhint { transition-delay: var(--tip-delay); }

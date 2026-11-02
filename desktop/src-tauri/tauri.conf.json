@@ -25,6 +25,14 @@
     ]
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "知舟 Deep Tutor"
+      }
+    }
   }
 }

@@ -3,13 +3,10 @@ package serve
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"testing"
 
 	"deep-tutor/internal/base/testenv"
@@ -102,40 +99,6 @@ func TestOutOfRangeStoredZoomReadsClampedAndSurvivesUnrelatedSaves(t *testing.T)
 		zoomSave(t, map[string]any{"zoom": 1.15})
 		if got := zoomRead(t).Zoom; got != 1.15 {
 			t.Fatalf("a deliberate change did not replace the stored value: %v", got)
-		}
-	}
-}
-
-// The page draws its slider from the announcement, and the development fixture
-// stands in for the kernel's: it has to announce what config declares, and the
-// named presets have to sit inside it.
-func TestFrontendFixtureAndPresetsFollowTheDeclaredRange(t *testing.T) {
-	read := func(rel string) string {
-		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "desktop", "frontend-next", "src", rel))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(raw)
-	}
-	fixture := read("port/mock_look.ts")
-	m := regexp.MustCompile(`ZOOM = \{ min: ([0-9.]+), max: ([0-9.]+), step: ([0-9.]+) \}`).FindStringSubmatch(fixture)
-	if m == nil {
-		t.Fatal("the fixture no longer declares its zoom range where this test reads it")
-	}
-	got := [3]string{m[1], m[2], m[3]}
-	want := [3]string{fmt.Sprint(config.ZoomMin), fmt.Sprint(config.ZoomMax), fmt.Sprint(config.ZoomStep)}
-	if got != want {
-		t.Fatalf("fixture announces %v, config declares %v", got, want)
-	}
-
-	presets := regexp.MustCompile(`\[([0-9.]+), "`).FindAllStringSubmatch(read("ui/zoom.ts"), -1)
-	if len(presets) == 0 {
-		t.Fatal("no presets found in zoom.ts")
-	}
-	for _, p := range presets {
-		v, _ := strconv.ParseFloat(p[1], 64)
-		if v < config.ZoomMin || v > config.ZoomMax {
-			t.Errorf("preset %v is outside %v..%v", v, config.ZoomMin, config.ZoomMax)
 		}
 	}
 }

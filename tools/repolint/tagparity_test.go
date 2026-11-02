@@ -4,27 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"testing"
 )
-
-// The tree's two copies agree today. This is the check's own regression: both
-// declarations are matched by shape, so moving or renaming either one fails
-// here rather than silently passing with an empty list.
-func TestTransientTagParityIsCleanInTree(t *testing.T) {
-	if got := checkTransientTagParity("../.."); len(got) != 0 {
-		t.Fatalf("checkTransientTagParity = %v, want none", got)
-	}
-	kernel, err := tagsIn("../..", goTagFile, goTagListRe, goTagRe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The tag that motivated the check: its absence is what put host markup in
-	// the transcript, and an empty parse would report parity just as happily.
-	if !slices.Contains(kernel, "background-jobs") {
-		t.Fatalf("kernel tags = %v, want background-jobs among them", kernel)
-	}
-}
 
 // A page that knows fewer tags than the kernel prepends is the failure this
 // exists for, and it has to be named per missing tag — a count would not say

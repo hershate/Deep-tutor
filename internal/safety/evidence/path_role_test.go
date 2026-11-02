@@ -35,11 +35,10 @@ func TestUnknownPathIsProduction(t *testing.T) {
 	}
 }
 
-// A directory name is not a toolchain contract. This test asserted the
-// opposite until `desktop/frontend-next/src/i18n/format.ts` turned up under
-// the rule: a number-formatting module, waived out of review for sitting in a
-// directory named i18n. Stylesheets and fixtures were waived the same way, and
-// this repo has shipped a swallowed CSS brace and a duplicated locale key.
+// A directory name is not a toolchain contract. A number-formatting module
+// must not be waived out of review for sitting in a directory named i18n.
+// Stylesheets and fixtures follow the same rule: a swallowed CSS brace and a
+// duplicated locale key are production defects, not supporting material.
 func TestDirectoryNameDoesNotLowerAPath(t *testing.T) {
 	for _, p := range []string{
 		"src/i18n/format.ts", "src/i18n/zh.ts", "src/locales/en.json",

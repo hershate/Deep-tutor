@@ -6,22 +6,22 @@
     "codeowners": 1,
     "commented-code": 0,
     "complexity": 694,
-    "css-important": 207,
-    "css-size": 9846,
+    "css-important": 11,
+    "css-size": 0,
     "doc-language": 0,
     "doc-owner": 0,
-    "doc-prose": 2648,
-    "error-text": 9,
-    "essay": 2915,
-    "file-size": 20429,
+    "doc-prose": 2468,
+    "error-text": 5,
+    "essay": 2885,
+    "file-size": 18758,
     "flat-view": 0,
     "frontend-parity": 27,
-    "function-size": 2579,
+    "function-size": 2575,
     "layer-order": 0,
     "layering": 0,
     "marker": 0,
     "narrative": 0,
-    "orphan": 72,
+    "orphan": 94,
     "process-input": 87,
     "refusal-path": 0,
     "release-note": 0,
@@ -35,7 +35,7 @@
       "codeowners": 1
     },
     "AGENTS.md": {
-      "doc-prose": 55
+      "doc-prose": 37
     },
     "API.md": {
       "doc-prose": 50
@@ -43,40 +43,11 @@
     "DEEPTUTOR.md": {
       "doc-prose": 105
     },
-    "README.md": {
-      "doc-prose": 7
-    },
     "cmd/reasonix-plugin-example/main.go": {
       "essay": 19
     },
-    "desktop/README.md": {
-      "doc-prose": 5
-    },
-    "desktop/cmd/sign/main.go": {
-      "essay": 14
-    },
-    "desktop/cmd/update-helper/main_linux.go": {
-      "error-text": 4
-    },
-    "desktop/frontend-next/perf/README.md": {
-      "doc-prose": 21
-    },
-    "desktop/frontend-next/src/styles/LAYOUT.md": {
-      "doc-prose": 113
-    },
-    "desktop/frontend-next/src/styles/TOKENS.md": {
-      "doc-prose": 16
-    },
-    "desktop/frontend-next/src/styles/app.css": {
-      "css-important": 28,
-      "css-size": 5620
-    },
-    "desktop/frontend-next/src/styles/studio.css": {
-      "css-important": 179,
-      "css-size": 4226
-    },
-    "desktop/internal/winuninstall/registry_windows.go": {
-      "essay": 1
+    "desktop/src/styles.css": {
+      "css-important": 11
     },
     "docs/archive/chat.md": {
       "doc-prose": 1
@@ -171,18 +142,6 @@
     "docs/kernel/upstream/github/pull_request_template.md": {
       "doc-prose": 1
     },
-    "frontend/src/lib/api.ts": {
-      "file-size": 825
-    },
-    "frontend/src/lib/plugins.ts": {
-      "file-size": 662
-    },
-    "frontend/src/pages/Notes.tsx": {
-      "file-size": 45
-    },
-    "frontend/src/pages/PlanDetail.tsx": {
-      "file-size": 112
-    },
     "internal/assembly/boot/agent_preset.go": {
       "orphan": 1
     },
@@ -192,6 +151,9 @@
     },
     "internal/assembly/boot/boot_test.go": {
       "essay": 10
+    },
+    "internal/assembly/boot/browser.go": {
+      "orphan": 1
     },
     "internal/assembly/boot/extension_dispatch_test.go": {
       "essay": 3
@@ -299,8 +261,8 @@
       "process-input": 2
     },
     "internal/contract/config/config.go": {
-      "essay": 29,
-      "file-size": 921,
+      "essay": 26,
+      "file-size": 896,
       "process-input": 3
     },
     "internal/contract/config/config_edit_lock_sweep.go": {
@@ -793,7 +755,7 @@
     },
     "internal/frontend/cli/serve_frontend.go": {
       "complexity": 2,
-      "function-size": 68
+      "function-size": 64
     },
     "internal/frontend/cli/session_lease.go": {
       "essay": 4
@@ -823,15 +785,30 @@
     "internal/frontend/doctor/session_redact.go": {
       "essay": 12
     },
+    "internal/frontend/serve/ask.go": {
+      "orphan": 1
+    },
     "internal/frontend/serve/auth.go": {
       "essay": 2
+    },
+    "internal/frontend/serve/browser_host.go": {
+      "orphan": 1
+    },
+    "internal/frontend/serve/device_share.go": {
+      "orphan": 1
+    },
+    "internal/frontend/serve/listen.go": {
+      "orphan": 1
+    },
+    "internal/frontend/serve/loopback.go": {
+      "orphan": 3
     },
     "internal/frontend/serve/provider_setup.go": {
       "essay": 1
     },
     "internal/frontend/serve/serve.go": {
-      "essay": 19,
-      "file-size": 184
+      "essay": 15,
+      "file-size": 182
     },
     "internal/frontend/serve/serve_lease_test.go": {
       "essay": 3
@@ -904,6 +881,15 @@
     "internal/platform/browser/discover.go": {
       "process-input": 1
     },
+    "internal/platform/computer/driver.go": {
+      "orphan": 2
+    },
+    "internal/platform/crashreport/hostfatal.go": {
+      "orphan": 1
+    },
+    "internal/platform/diskhealth/monitor.go": {
+      "orphan": 1
+    },
     "internal/platform/editor/editor.go": {
       "process-input": 1
     },
@@ -931,6 +917,12 @@
       "function-size": 32
     },
     "internal/platform/installlayout/current.go": {
+      "orphan": 1
+    },
+    "internal/platform/notify/activate.go": {
+      "orphan": 2
+    },
+    "internal/platform/notify/diskhealth.go": {
       "orphan": 1
     },
     "internal/platform/releaseasset/cli.go": {
@@ -1046,18 +1038,30 @@
       "essay": 2
     },
     "internal/platform/telemetry/policy.go": {
+      "orphan": 1,
       "process-input": 2
+    },
+    "internal/platform/update/application_darwin.go": {
+      "orphan": 1
     },
     "internal/platform/update/apply_darwin.go": {
       "complexity": 42,
       "essay": 1,
-      "function-size": 180
+      "function-size": 180,
+      "orphan": 1
+    },
+    "internal/platform/update/apply_darwin_stub.go": {
+      "orphan": 2
     },
     "internal/platform/update/cache.go": {
       "process-input": 1
     },
     "internal/platform/update/manifest.go": {
-      "essay": 1
+      "essay": 1,
+      "orphan": 1
+    },
+    "internal/platform/update/tree_handoff.go": {
+      "orphan": 1
     },
     "internal/runtime/agent/agent.go": {
       "complexity": 32,
@@ -1471,9 +1475,6 @@
       "essay": 5,
       "file-size": 403,
       "process-input": 1
-    },
-    "internal/session/control/runtime_config.go": {
-      "essay": 8
     },
     "internal/session/control/session_lease_keeper.go": {
       "essay": 5

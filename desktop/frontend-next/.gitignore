@@ -1,6 +1,0 @@
-node_modules
-dist
-dist-perf
-*.png
-!public/icons/*.png
-tsconfig.tsbuildinfo
