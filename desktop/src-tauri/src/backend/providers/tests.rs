@@ -11,6 +11,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             store: Mutex::new(state.store().unwrap()),
             materials: crate::backend::materials::MaterialState::for_tests().unwrap(),
             providers: state.shared(),
+            learning: crate::backend::learning::LearningState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             crate::backend::commands::reset_application,

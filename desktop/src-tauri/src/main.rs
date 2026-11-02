@@ -2,7 +2,7 @@
 
 mod backend;
 
-use backend::{commands, materials, providers, store::Store, BackendState};
+use backend::{commands, learning, materials, providers, store::Store, BackendState};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -17,15 +17,20 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let provider_state = providers::ProviderState::new(&path)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let learning_state =
+                learning::LearningState::new(&path, &provider_state, &material_state);
             app.manage(BackendState {
                 store: Mutex::new(store),
                 materials: material_state,
                 providers: provider_state,
+                learning: learning_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             providers::recover_chats(app.handle(), &state.providers)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            learning::recover(app.handle(), &state.learning)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
@@ -61,6 +66,11 @@ fn main() {
             providers::commands::stream_provider_chat,
             providers::commands::cancel_provider_chat,
             providers::commands::get_provider_chat,
+            learning::commands::start_learning_plan,
+            learning::commands::list_learning_plans,
+            learning::commands::get_learning_plan,
+            learning::commands::cancel_learning_plan,
+            learning::commands::resume_learning_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");

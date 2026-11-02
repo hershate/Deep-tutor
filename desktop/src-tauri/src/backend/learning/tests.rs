@@ -1,0 +1,535 @@
+use super::super::providers::test_support::{response, server, start_stream, TestServer};
+use super::super::providers::{self, ChatMessage, ProfileInput};
+use super::super::BackendState;
+use super::*;
+use serde_json::json;
+use std::time::Duration;
+
+fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
+    let learning = LearningState::for_tests().unwrap();
+    let app = tauri::test::mock_builder()
+        .manage(BackendState {
+            store: Mutex::new(learning.store().unwrap()),
+            materials: learning.materials.shared(),
+            providers: learning.providers.shared(),
+            learning: learning.shared(),
+        })
+        .invoke_handler(tauri::generate_handler![
+            super::commands::start_learning_plan,
+            super::commands::list_learning_plans,
+            super::commands::get_learning_plan,
+            super::commands::cancel_learning_plan,
+            super::commands::resume_learning_plan,
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    (app, learning)
+}
+
+fn input(material_id: i64) -> PlanInput {
+    let mut deadline = validate::today();
+    for _ in 0..5 {
+        deadline = deadline.next_day().unwrap();
+    }
+    PlanInput {
+        goal: "掌握贝叶斯定理并应用于分类".into(),
+        level: "了解基础概率，不熟悉贝叶斯应用".into(),
+        daily_minutes: 45,
+        deadline: deadline.to_string(),
+        material_ids: vec![material_id],
+        provider_id: None,
+        milestone: Some("完成一次分类练习".into()),
+        milestone_date: None,
+    }
+}
+
+fn add_material(app: &tauri::App<tauri::test::MockRuntime>, state: &LearningState) -> i64 {
+    let path = state._guard.as_ref().unwrap().path().join("chapter.txt");
+    std::fs::write(
+        &path,
+        "概率 条件概率 独立性 贝叶斯定理 先验 似然 后验 分类 模型评估。每个概念都有教材原文。",
+    )
+    .unwrap();
+    let imported = super::super::materials::import_files(
+        app.handle(),
+        &state.materials,
+        vec![path.to_string_lossy().into_owned()],
+    );
+    let id = imported[0].material.as_ref().unwrap().id;
+    super::super::materials::enqueue(app.handle(), &state.materials, id).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let detail = super::super::materials::detail(&state.materials, id).unwrap();
+        if detail.material.status == "parsed" {
+            return id;
+        }
+        assert_ne!(detail.material.status, "failed");
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn configure_provider(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    state: &LearningState,
+    url: &str,
+) -> String {
+    let profile = providers::upsert(
+        app.handle(),
+        &state.providers,
+        ProfileInput {
+            id: None,
+            name: "学习生成测试".into(),
+            preset: Some("custom".into()),
+            kind: "本地模型".into(),
+            protocol: "OpenAI Chat".into(),
+            base_url: url.into(),
+            default_model: "test-model".into(),
+            models: vec!["test-model".into()],
+            enabled: Some(true),
+            note: None,
+            api_key: Some("learning-test-token".into()),
+        },
+    )
+    .unwrap();
+    providers::set_active(app.handle(), &state.providers, &profile.id).unwrap();
+    profile.id
+}
+
+fn model_server(material_id: i64, cyclic: bool) -> TestServer {
+    server(move |request, stream| {
+        let body = if request.contains("构建知识图谱") {
+            let concepts = [
+                ("prob", "概率"),
+                ("cond", "条件概率"),
+                ("indep", "独立性"),
+                ("bayes", "贝叶斯定理"),
+                ("prior", "先验"),
+                ("likelihood", "似然"),
+                ("posterior", "后验"),
+                ("classify", "分类"),
+                ("evaluation", "模型评估"),
+            ];
+            let nodes = concepts
+                .iter()
+                .enumerate()
+                .map(|(index, (id, title))| {
+                    json!({
+                        "id": id, "title": title, "summary": format!("依据教材学习{title}"),
+                        "difficulty": index / 3 + 1, "required": true, "estimatedMinutes": 15,
+                        "citations": [{"materialId": material_id, "quote": title}],
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut edges = vec![
+                ("prob", "bayes"),
+                ("cond", "bayes"),
+                ("indep", "likelihood"),
+                ("bayes", "posterior"),
+                ("prior", "classify"),
+                ("likelihood", "classify"),
+            ];
+            if cyclic {
+                edges.push(("evaluation", "prob"));
+                edges.push(("posterior", "evaluation"));
+            }
+            json!({
+                "nodes": nodes,
+                "edges": edges.into_iter().map(|(from, to)| json!({"from": from, "to": to})).collect::<Vec<_>>(),
+            })
+        } else if request.contains("设计渐进学习阶段") {
+            json!({"stages": [
+                {"id": "stage-1", "title": "概率基础", "nodeIds": ["prob", "cond", "indep"], "difficulty": 1},
+                {"id": "stage-2", "title": "贝叶斯更新", "nodeIds": ["bayes", "prior", "likelihood"], "difficulty": 2},
+                {"id": "stage-3", "title": "分类与评估", "nodeIds": ["posterior", "classify", "evaluation"], "difficulty": 3},
+            ]})
+        } else {
+            let check = || json!({"status": "pass", "details": ""});
+            json!({
+                "report": {
+                    "dependency_closure": check(), "difficulty_step": check(), "cognitive_load": check(),
+                    "milestone_feasibility": check(), "gap_analysis": check(),
+                },
+                "passed": true,
+                "fixes": [],
+            })
+        };
+        let event =
+            serde_json::to_string(&json!({"choices": [{"delta": {"content": body.to_string()}}]}))
+                .unwrap();
+        response(stream, "200 OK", &format!("data: {event}\n\ndata: {{\"usage\":{{\"prompt_tokens\":12,\"completion_tokens\":33}},\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"));
+    })
+}
+
+fn wait_terminal(state: &LearningState, id: &str) -> Plan {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let plan = get(state, id).unwrap();
+        if !["running", "cancelling"].contains(&plan.status.as_str()) {
+            return plan;
+        }
+        assert!(Instant::now() < deadline, "学习生成未在限时内结束");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn eight_steps_use_real_model_results_and_actual_usage() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let plan = wait_terminal(&state, &started.id);
+    assert_eq!(plan.status, "degraded", "{:?}", plan.error);
+    assert_eq!(plan.progress, 100);
+    assert!(plan.steps.iter().all(|step| step.status == "done"));
+    assert_eq!(server.request_count(), 3, "{:?}", plan.error);
+    let result = plan.result.unwrap();
+    assert_eq!(result.graph.nodes.len(), 9);
+    assert_eq!(result.stages.len(), 3);
+    assert_eq!(result.schedule.total_minutes, 135);
+    assert!(result
+        .schedule
+        .entries
+        .iter()
+        .all(|entry| entry.minutes <= 45));
+    assert!(result.validation.passed);
+    assert!(result
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("外部资源检索")));
+    assert_eq!(result.resources["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result.resources["items"][0]["materialId"],
+        json!(material_id)
+    );
+    for step in plan.steps.iter().filter(|step| step.request_id.is_some()) {
+        assert_eq!(step.usage.as_ref().unwrap().output_tokens, Some(33));
+        assert_eq!(step.upstream_attempts, Some(1));
+    }
+    assert_eq!(plan.steps[2].request_id.as_deref(), Some("plan-1-3-1"));
+    assert_eq!(plan.steps[3].request_id.as_deref(), Some("plan-1-4-1"));
+    assert_eq!(plan.steps[6].request_id.as_deref(), Some("plan-1-7-1"));
+    let resumed = resume(app.handle(), &state, &started.id).unwrap();
+    assert_eq!(resumed.status, "degraded");
+    assert_eq!(server.request_count(), 3);
+    let events = state.store().unwrap().events_since(0).unwrap();
+    for index in 0..STEP_NAMES.len() {
+        for kind in ["plan.step_started", "plan.step_completed"] {
+            assert!(
+                events.events.iter().any(|event| {
+                    event.kind == kind && event.payload["stepIndex"] == json!(index)
+                }),
+                "缺少 {kind} / step {index}"
+            );
+        }
+    }
+    assert_eq!(events.events.last().unwrap().kind, "plan.degraded");
+    assert_eq!(
+        super::super::materials::delete(app.handle(), &state.materials, material_id)
+            .unwrap_err()
+            .code,
+        "material_in_use"
+    );
+}
+
+#[test]
+fn dependency_cycles_fail_instead_of_fabricating_a_valid_plan() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, true);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let plan = wait_terminal(&state, &started.id);
+    assert_eq!(plan.status, "failed");
+    assert_eq!(
+        plan.error.as_ref().unwrap().code,
+        "dependency_cycle",
+        "{:?}",
+        plan.steps[2].error
+    );
+    assert!(plan.result.is_none());
+    assert_eq!(plan.steps[2].status, "failed");
+    assert_eq!(plan.steps[3].status, "pending");
+    assert_eq!(server.request_count(), 2);
+}
+
+#[test]
+fn deterministic_validation_reports_real_load_and_deadline_problems() {
+    let graph: Graph = serde_json::from_value(json!({
+        "nodes": [{"id": "prob", "title": "概率", "summary": "基础", "difficulty": 1, "required": true, "estimatedMinutes": 45, "citations": []}],
+        "edges": [],
+    }))
+    .unwrap();
+    let stages = vec![Stage {
+        id: "stage-1".into(),
+        title: "超负荷阶段".into(),
+        node_ids: vec!["prob".into()],
+        difficulty: 1,
+    }];
+    let deadline = validate::today();
+    let (schedule, _) = validate::schedule(&graph, &stages, 10, deadline, deadline, None).unwrap();
+    let model = validate::unavailable_model();
+    let report = validate::validation_report(&graph, &stages, &schedule, &model);
+    assert!(!schedule.within_deadline);
+    assert_eq!(report.cognitive_load.status, "fail");
+    assert_eq!(report.milestone_feasibility.status, "warn");
+    assert_eq!(report.gap_analysis.status, "warn");
+    assert!(!report.passed);
+    let (hard, _) =
+        validate::schedule(&graph, &stages, 10, deadline, deadline, Some(deadline)).unwrap();
+    let hard_report = validate::validation_report(&graph, &stages, &hard, &model);
+    assert_eq!(hard.within_milestone, Some(false));
+    assert_eq!(hard_report.milestone_feasibility.status, "fail");
+    assert!(hard_report
+        .milestone_feasibility
+        .details
+        .contains("硬里程碑"));
+}
+
+#[test]
+fn graph_cycles_and_stage_dependencies_are_checked_independently() {
+    let source = Source {
+        id: 1,
+        title: "资料".into(),
+        sha256: "hash".into(),
+        text: "概率 贝叶斯 后验".into(),
+        warning: None,
+    };
+    let node = |id: &str| KnowledgeNode {
+        id: id.into(),
+        title: id.into(),
+        summary: id.into(),
+        difficulty: 1,
+        required: true,
+        estimated_minutes: 15,
+        citations: vec![Citation {
+            material_id: 1,
+            quote: match id {
+                "prob" => "概率".into(),
+                "bayes" => "贝叶斯".into(),
+                "posterior" => "后验".into(),
+                _ => unreachable!(),
+            },
+        }],
+    };
+    let cyclic = Graph {
+        nodes: vec![node("prob"), node("bayes")],
+        edges: vec![
+            KnowledgeEdge {
+                from: "prob".into(),
+                to: "bayes".into(),
+            },
+            KnowledgeEdge {
+                from: "bayes".into(),
+                to: "prob".into(),
+            },
+        ],
+    };
+    assert_eq!(
+        validate::validate_graph(&cyclic, &[source.clone()])
+            .unwrap_err()
+            .code,
+        "dependency_cycle"
+    );
+    let valid = Graph {
+        nodes: vec![node("prob"), node("bayes"), node("posterior")],
+        edges: vec![
+            KnowledgeEdge {
+                from: "prob".into(),
+                to: "bayes".into(),
+            },
+            KnowledgeEdge {
+                from: "bayes".into(),
+                to: "posterior".into(),
+            },
+        ],
+    };
+    validate::validate_graph(&valid, &[source]).unwrap();
+    let stages = vec![
+        Stage {
+            id: "one".into(),
+            title: "一".into(),
+            node_ids: vec!["prob".into()],
+            difficulty: 1,
+        },
+        Stage {
+            id: "two".into(),
+            title: "二".into(),
+            node_ids: vec!["bayes".into()],
+            difficulty: 2,
+        },
+        Stage {
+            id: "three".into(),
+            title: "三".into(),
+            node_ids: vec!["posterior".into()],
+            difficulty: 3,
+        },
+    ];
+    validate::validate_stages(&valid, &stages).unwrap();
+}
+
+#[test]
+fn cancellation_stops_the_pipeline_and_keeps_the_actual_partial_request() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = server(|_, stream| {
+        start_stream(stream);
+        let event =
+            serde_json::to_string(&json!({"choices": [{"delta": {"content": "{\"nodes\":"}}]}))
+                .unwrap();
+        let _ = std::io::Write::write_all(stream, format!("data: {event}\n\n").as_bytes());
+        let _ = std::io::Write::flush(stream);
+        std::thread::sleep(Duration::from_millis(500));
+    });
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if providers::get_chat(&state.providers, "plan-1-3-1")
+            .map(|request| request.output.contains("nodes"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "图谱请求没有产生部分输出");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    cancel(app.handle(), &state, &started.id).unwrap();
+    let plan = wait_terminal(&state, &started.id);
+    assert_eq!(plan.status, "cancelled");
+    assert_eq!(plan.steps[2].status, "cancelled");
+    assert_eq!(plan.steps[3].status, "pending");
+    let request = providers::get_chat(&state.providers, "plan-1-3-1").unwrap();
+    assert_eq!(request.status, "cancelled");
+    assert!(request.output.contains("nodes"));
+    assert!(request.usage.is_none());
+    assert_eq!(server.request_count(), 1);
+    stop(&state).unwrap();
+}
+
+#[test]
+fn recovery_reuses_a_completed_graph_without_another_upstream_call() {
+    let (app, state) = setup();
+    state.defer.store(true, Ordering::Release);
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let detail = super::super::materials::detail(&state.materials, material_id).unwrap();
+    let source = Source {
+        id: detail.material.id,
+        title: detail.material.title,
+        sha256: detail.material.sha256,
+        text: detail.text.unwrap(),
+        warning: detail.material.warning,
+    };
+    complete_step(app.handle(), &state, 1, 0, json!({"snapshot": [source]})).unwrap();
+    let persisted_input = super::input(&state, 1).unwrap();
+    complete_step(
+        app.handle(),
+        &state,
+        1,
+        1,
+        json!({"input": persisted_input}),
+    )
+    .unwrap();
+    let (_, request_id) = begin_step(app.handle(), &state, 1, 2).unwrap();
+    let request_id = request_id.unwrap();
+    let graph = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        &request_id,
+        &started.provider_id,
+        &[ChatMessage {
+            role: "user".into(),
+            content: "构建知识图谱".into(),
+        }],
+        8192,
+    )
+    .unwrap();
+    assert_eq!(graph.status, "done");
+    assert_eq!(server.request_count(), 1);
+    state.active.lock().unwrap().clear();
+    recover(app.handle(), &state).unwrap();
+    let interrupted = get(&state, &started.id).unwrap();
+    assert_eq!(interrupted.status, "interrupted");
+    assert_eq!(interrupted.steps[2].status, "interrupted");
+    assert_eq!(server.request_count(), 1);
+    state.defer.store(false, Ordering::Release);
+    resume(app.handle(), &state, &started.id).unwrap();
+    let recovered = wait_terminal(&state, &started.id);
+    assert_eq!(recovered.status, "degraded");
+    assert_eq!(recovered.steps[2].status, "done");
+    assert_eq!(recovered.steps[2].attempt, 1);
+    assert_eq!(
+        recovered.steps[2].request_id.as_deref(),
+        Some(request_id.as_str())
+    );
+    assert_eq!(recovered.result.unwrap().graph.nodes.len(), 9);
+    assert_eq!(server.request_count(), 3);
+    assert_eq!(list(&state).unwrap().len(), 1);
+}
+
+fn ipc(
+    window: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    command: &str,
+    arguments: Value,
+) -> std::result::Result<Value, Value> {
+    tauri::test::get_ipc_response(
+        window,
+        tauri::webview::InvokeRequest {
+            cmd: command.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::Json(arguments),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.into(),
+        },
+    )
+    .map(|body| body.deserialize::<Value>().unwrap())
+}
+
+#[test]
+fn ipc_commands_start_read_and_resume_a_real_plan() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let started = ipc(
+        &window,
+        "start_learning_plan",
+        json!({"input": input(material_id)}),
+    )
+    .unwrap();
+    let id = started["id"].as_str().unwrap();
+    let completed = wait_terminal(&state, id);
+    assert_eq!(completed.status, "degraded");
+    assert_eq!(completed.steps.len(), STEP_NAMES.len());
+    assert_eq!(server.request_count(), 3);
+    let fetched = ipc(&window, "get_learning_plan", json!({"id": id})).unwrap();
+    assert_eq!(
+        fetched["result"]["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        9
+    );
+    assert_eq!(fetched["result"]["schedule"]["totalMinutes"], json!(135));
+    assert!(fetched["result"]["resources"]["externalSearch"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("尚未配置"));
+    let plans = ipc(&window, "list_learning_plans", json!({})).unwrap();
+    assert_eq!(plans.as_array().unwrap().len(), 1);
+    let resumed = ipc(&window, "resume_learning_plan", json!({"id": id})).unwrap();
+    assert_eq!(resumed["status"], json!("degraded"));
+    assert_eq!(server.request_count(), 3);
+    let error = ipc(&window, "get_learning_plan", json!({"id": "plan-999"})).unwrap_err();
+    assert_eq!(error["code"], json!("not_found"));
+}

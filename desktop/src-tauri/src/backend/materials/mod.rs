@@ -55,6 +55,20 @@ impl MaterialState {
         })
     }
 
+    pub fn shared(&self) -> Self {
+        Self {
+            database_path: self.database_path.clone(),
+            root: self.root.clone(),
+            active: Arc::clone(&self.active),
+            #[cfg(test)]
+            _guard: None,
+            #[cfg(test)]
+            pause: Arc::clone(&self.pause),
+            #[cfg(test)]
+            defer: Arc::clone(&self.defer),
+        }
+    }
+
     #[cfg(test)]
     pub fn for_tests() -> Result<Self> {
         let guard = tempfile::tempdir()?;
@@ -906,6 +920,17 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     }
     let store = state.store()?;
     let material = get(&store.conn, &state.root, id)?;
+    let in_use: bool = store.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1)",
+        params![id],
+        |row| row.get(0),
+    )?;
+    if in_use {
+        return Err(BackendError::new(
+            "material_in_use",
+            "该资料已被学习方案引用，不能删除其原文证据",
+        ));
+    }
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute("DELETE FROM materials WHERE id = ?1", params![id])?;
     if changed == 0 {
@@ -1317,6 +1342,7 @@ mod tests {
                 store: Mutex::new(state.store().unwrap()),
                 materials: MaterialState::new(&directory.path().join("app.db")).unwrap(),
                 providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
+                learning: crate::backend::learning::LearningState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();

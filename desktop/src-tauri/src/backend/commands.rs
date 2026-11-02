@@ -83,6 +83,7 @@ pub fn reset_application<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Value> {
+    super::learning::stop(&state.learning)?;
     super::providers::stop_chats(&state.providers)?;
     let provider_ids = super::providers::credential_ids(&state.providers)?;
     let backup = super::materials::prepare_reset(&state.materials)?;
@@ -144,6 +145,7 @@ mod tests {
                 store: Mutex::new(Store::new(materials.test_database_path()).unwrap()),
                 materials,
                 providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
+                learning: crate::backend::learning::LearningState::for_tests().unwrap(),
             })
             .invoke_handler(tauri::generate_handler![
                 bootstrap,
