@@ -38,6 +38,19 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 429（2026-11-02，方向改定：唯一 UI = Tauri 2 + REF 新前端，🚧 进行中）**：
+用户要求废弃现有前端、停止网页端制作，强制使用 Tauri 2 与 `REF/frontend/app`，
+只保留应用界面。本步先完成范围盘点与决策修订。
+
+| 项 | 结论 |
+|---|---|
+| REF 现状 | React 18 + TypeScript + Vite 5；无 `src-tauri`；`PRODUCT.md` 明确为本地交互演示，AI/SSE/同步/供应商测试均为模拟 |
+| 新结构 | REF 源码复制到 `desktop/`；新增 `desktop/src-tauri`；`REF` 原件保留 |
+| 删除范围 | `frontend/`、`desktop/frontend-next/`、`desktop/electron/`、`plugin-examples/frontend/`、`extension/`；后端与 Reasonix 内核不扩大删除 |
+| 决策修订 | `note/12` 记录 #4/#5 替代、#39/#45 取消、#47 提前、#59 替代；`plan/README` 与 `AGENTS.md` 同步 |
+| 工具链 | Node 24 可用；PATH 与常见目录未发现 Rust/Cargo，不擅自安装新环境，先完成可独立验证的部分 |
+| 下一步 | T1：接入 REF 与 Tauri 2 壳并验证前端构建；随后 T2 删除旧 UI 与失效引用 |
+
 **iter 428（2026-11-02，全仓理解复核：note 全通读 + 当前代码对账，✅ 完成）**：
 用户要求「阅读并理解整个项目，要点在 note 文件夹」。本轮不改产品代码。
 

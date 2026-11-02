@@ -2,6 +2,19 @@
 
 > 当前方案：**基于 Reasonix 内核的完全改造**（`reasonix/`，2026-10-15 定稿方向层）。
 > Python 时代实施计划已归档至 [docs/archive/plan-v1/](../docs/archive/plan-v1/)。
+>
+> **2026-11-02 最新方向覆盖**：唯一用户界面改为 **Tauri 2 + `REF/frontend/app`**。
+> 六份文档中关于浏览器 SPA、Electron、frontend-next、四前端和旧 SPA shim 的内容
+> 转为历史方案，不再执行；后端、Reasonix 内核、SQL、认证和 `/api` 改造不受影响。
+> 决策原文见 [note/12 最新修订](../note/12-Reasonix改造决策.md)。
+
+## 当前执行路径
+
+| 步骤 | 内容 | 出口判据 |
+|---|---|---|
+| T1 | REF 界面入库并新增 Tauri 2 壳 | TypeScript/Vite 构建通过，壳配置属于 Tauri 2 |
+| T2 | 删除旧浏览器/Electron UI 与失效工程引用 | 指定旧目录不存在，CI/Makefile 不再构建旧 UI |
+| T3 | Tauri 应用验证与文档收口 | 可用工具链内构建通过；缺失的外部工具明确登记 |
 
 ## reasonix/ 文档索引
 

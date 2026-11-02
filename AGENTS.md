@@ -1,6 +1,11 @@
 # AGENTS.md — Deep-tutor 仓库工作指引
 
 > 给在本仓库工作的 AI agent（与人类协作者）。改造期（Reasonix 架构）生效。
+>
+> **2026-11-02 最新方向**：唯一用户界面是 **Tauri 2 + `REF/frontend/app`**。
+> 停止一切浏览器 SPA、Electron、frontend-next、旧前端插件示例和剪藏扩展工作；
+> 这些目录按最新决策删除。后端与 Reasonix 内核继续保留。
+> 与旧「四前端」表述冲突时，以 `note/12` 的 2026-11-02 修订为准。
 
 ## 必读顺序（新会话开工前）
 
