@@ -532,6 +532,29 @@ fn ipc_commands_start_read_and_resume_a_real_plan() {
     let resumed = ipc(&window, "resume_learning_plan", json!({"id": id})).unwrap();
     assert_eq!(resumed["status"], json!("degraded"));
     assert_eq!(server.request_count(), 3);
+    let regenerated = ipc(
+        &window,
+        "regenerate_learning_plan",
+        json!({"id": id, "scope": 3}),
+    )
+    .unwrap();
+    assert!(["running", "degraded"].contains(&regenerated["status"].as_str().unwrap()));
+    assert_eq!(wait_terminal(&state, id).version, 2);
+    assert_eq!(server.request_count(), 5);
+    let adopted = ipc(&window, "adopt_learning_plan", json!({"id": id})).unwrap();
+    assert_eq!(adopted["tasks"].as_array().unwrap().len(), 3);
+    assert_eq!(adopted["projects"].as_array().unwrap().len(), 1);
+    let adopted_again = ipc(&window, "adopt_learning_plan", json!({"id": id})).unwrap();
+    assert_eq!(adopted, adopted_again);
+    assert_eq!(
+        ipc(
+            &window,
+            "regenerate_learning_plan",
+            json!({"id": id, "scope": 3})
+        )
+        .unwrap_err()["code"],
+        json!("plan_adopted")
+    );
     let error = ipc(&window, "get_learning_plan", json!({"id": "plan-999"})).unwrap_err();
     assert_eq!(error["code"], json!("not_found"));
 }
