@@ -619,13 +619,17 @@ fn unit<R: Runtime>(
                 ..Default::default()
             },
         ];
-        let request = match providers::stream_chat(
+        let request = match providers::routing::stream_chat(
             app,
             &state.providers,
             &request_id,
-            provider_id,
+            "lecture",
+            Some(provider_id),
             &messages,
             8192,
+            None,
+            None,
+            false,
         ) {
             Ok(request) => request,
             Err(error) => {

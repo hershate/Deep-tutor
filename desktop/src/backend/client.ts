@@ -225,7 +225,26 @@ export type ProviderRequest = {
   createdAt: string
   updatedAt: string
 }
-export type ProviderExport = { version: 1; activeProvider: string | null; providers: ProviderProfile[]; notice: string }
+export type TaskRouteId = 'agent' | 'plan' | 'lecture' | 'practice' | 'wiki' | 'resources' | 'embedding'
+export type RouteAssignment = { providerId: string | null; model: string | null }
+export type RoutingSettings = {
+  mode: 'direct' | 'routing' | 'aggregate'
+  routes: Partial<Record<TaskRouteId, RouteAssignment>>
+  aggregateProviderIds: string[]
+  aggregateDefault: string | null
+}
+export type ProviderRouteLog = {
+  requestId: string
+  task: TaskRouteId
+  mode: 'direct' | 'routing' | 'aggregate'
+  status: string
+  providerId: string | null
+  model: string | null
+  error: BackendError | null
+  createdAt: string
+  updatedAt: string
+}
+export type ProviderExport = { version: 1; activeProvider: string | null; routing: RoutingSettings; providers: ProviderProfile[]; notice: string }
 
 export type AgentToolCall = { id: string; name: string; arguments: string }
 export type AgentMessage = {
@@ -350,6 +369,10 @@ export const backend = {
   deleteAgentSession: (id: string) => invoke<void>('delete_agent_session', { id }),
   approveAgentRequest: (id: string) => invoke<void>('approve_agent_request', { id }),
   cancelAgentApproval: (id: string) => invoke<void>('cancel_agent_approval', { id }),
+  getRoutingSettings: () => invoke<RoutingSettings>('get_routing_settings'),
+  saveRoutingSettings: (settings: RoutingSettings) => invoke<RoutingSettings>('save_routing_settings', { settings }),
+  listProviderRouteLogs: () => invoke<ProviderRouteLog[]>('list_provider_route_logs'),
+  routeProviderChat: (requestId: string, task: TaskRouteId, profileId: string | null, model: string | null, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('route_provider_chat', { requestId, task, profileId, model, messages, maxTokens }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {

@@ -32,6 +32,8 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             providers::recover_chats(app.handle(), &state.providers)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            providers::routing::recover(app.handle(), &state.providers)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             learning::recover(app.handle(), &state.learning)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             agent::recover(app.handle(), &state.agent)
@@ -72,6 +74,10 @@ fn main() {
             providers::commands::stream_provider_chat_with_tools,
             providers::commands::cancel_provider_chat,
             providers::commands::get_provider_chat,
+            providers::commands::get_routing_settings,
+            providers::commands::save_routing_settings,
+            providers::commands::list_provider_route_logs,
+            providers::commands::route_provider_chat,
             learning::commands::start_learning_plan,
             learning::commands::list_learning_plans,
             learning::commands::get_learning_plan,

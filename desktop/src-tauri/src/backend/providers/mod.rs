@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod openai;
+pub mod routing;
 pub mod tools;
 
 use super::commands::emit;
@@ -256,10 +257,12 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    routing::migrate(conn)?;
     Ok(())
 }
 
 pub fn clear_all(conn: &Connection) -> Result<()> {
+    routing::clear_all(conn)?;
     conn.execute("DELETE FROM provider_requests", [])?;
     conn.execute("DELETE FROM provider_profiles", [])?;
     conn.execute("DELETE FROM provider_meta", [])?;
@@ -419,6 +422,16 @@ pub fn upsert<R: Runtime>(
             "当前供应商须先切换才能停用",
         ));
     }
+    if input.enabled == Some(false) {
+        if let Some(id) = previous.as_deref() {
+            if routing::provider_in_use(state, id)? {
+                return Err(BackendError::new(
+                    "provider_in_use",
+                    "请先移除任务路由或聚合中的供应商引用，再停用档案",
+                ));
+            }
+        }
+    }
     let previous_key = previous
         .as_deref()
         .map(|id| state.credentials.get(id))
@@ -539,6 +552,12 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &ProviderState, id: &str) -
             "当前供应商正在使用，请先切换到其他档案",
         ));
     }
+    if routing::provider_in_use(state, &id)? {
+        return Err(BackendError::new(
+            "provider_in_use",
+            "请先移除任务路由或聚合中的供应商引用，再删除档案",
+        ));
+    }
     let previous_key = state.credentials.get(&id)?;
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
@@ -571,6 +590,7 @@ pub fn export_config(state: &ProviderState) -> Result<Value> {
     Ok(json!({
         "version": 1,
         "activeProvider": active(state)?,
+        "routing": routing::export(state)?,
         "providers": list(state)?,
         "notice": "API keys are never exported."
     }))
@@ -862,15 +882,32 @@ fn begin_chat<R: Runtime>(
     state: &ProviderState,
     request_id: &str,
     provider_id: &str,
+    model: Option<&str>,
 ) -> Result<(ProviderRequest, Option<ChatGuard>)> {
     validate_request_id(request_id)?;
     let provider_id = format!("p{}", numeric_id(provider_id)?);
+    let model = match model.map(str::trim).filter(|model| !model.is_empty()) {
+        Some(model) if model.len() <= 200 => model.to_string(),
+        Some(_) => {
+            return Err(BackendError::invalid(
+                "invalid_model",
+                "模型名不能超过 200 字节",
+            ))
+        }
+        None => get(state, &provider_id)?.default_model,
+    };
     let mut cancels = state
         .chat_cancels
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?;
     match chat(state, request_id) {
         Ok(existing) => {
+            if existing.provider_id != provider_id || existing.model != model {
+                return Err(BackendError::new(
+                    "request_conflict",
+                    "请求标识已用于其他供应商或模型，不会覆盖原请求",
+                ));
+            }
             if existing.status == "running" && cancels.contains_key(request_id) {
                 return Err(BackendError::new(
                     "request_active",
@@ -886,8 +923,8 @@ fn begin_chat<R: Runtime>(
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(
-        "INSERT INTO provider_requests (request_id, provider_id, model, status, created_at, updated_at) VALUES (?1, ?2, (SELECT default_model FROM provider_profiles WHERE id = ?3), 'running', ?4, ?4)",
-        params![request_id, numeric_id(&provider_id)?, numeric_id(&provider_id)?, timestamp],
+        "INSERT INTO provider_requests (request_id, provider_id, model, status, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?4)",
+        params![request_id, numeric_id(&provider_id)?, model, timestamp],
     )?;
     let event = Store::event(
         &tx,
@@ -941,7 +978,29 @@ pub fn stream_chat_with_tools<R: Runtime>(
     max_tokens: u32,
     tools: Option<&[tools::ToolDefinition]>,
 ) -> Result<ProviderRequest> {
-    let (_, guard) = begin_chat(app, state, request_id, provider_id)?;
+    stream_chat_with_model(
+        app,
+        state,
+        request_id,
+        provider_id,
+        messages,
+        max_tokens,
+        None,
+        tools,
+    )
+}
+
+pub fn stream_chat_with_model<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+    provider_id: &str,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    model: Option<&str>,
+    tools: Option<&[tools::ToolDefinition]>,
+) -> Result<ProviderRequest> {
+    let (pending, guard) = begin_chat(app, state, request_id, provider_id, model)?;
     let Some(_guard) = guard else {
         return chat(state, request_id);
     };
@@ -963,7 +1022,8 @@ pub fn stream_chat_with_tools<R: Runtime>(
             Ok((profile, key))
         })
         .map_err(openai::ChatError::from)
-        .and_then(|(profile, key)| {
+        .and_then(|(mut profile, key)| {
+            profile.default_model = pending.model;
             openai::stream_chat_with_tools(&profile, key, messages, max_tokens, tools, cancel, |delta| {
                 let event = Store::event(
                     &store.conn,

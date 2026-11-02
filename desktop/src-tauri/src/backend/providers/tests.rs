@@ -28,6 +28,10 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::stream_provider_chat_with_tools,
             crate::backend::providers::commands::cancel_provider_chat,
             crate::backend::providers::commands::get_provider_chat,
+            crate::backend::providers::commands::get_routing_settings,
+            crate::backend::providers::commands::save_routing_settings,
+            crate::backend::providers::commands::list_provider_route_logs,
+            crate::backend::providers::commands::route_provider_chat,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -342,14 +346,20 @@ fn interrupted_stream_preserves_partial_text_and_does_not_retry_output() {
 #[test]
 fn cancellation_and_concurrent_replays_never_start_another_request() {
     let (app, state) = setup();
-    let server = server(|_, stream| {
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_release = Arc::clone(&release);
+    let server = server(move |_, stream| {
         start_stream(stream);
         let _ = std::io::Write::write_all(
             stream,
             b"data: {\"choices\":[{\"delta\":{\"content\":\"observed\"}}]}\n\n",
         );
         let _ = std::io::Write::flush(stream);
-        std::thread::sleep(Duration::from_millis(200));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !server_release.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "测试未收到取消释放信号");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let _ = std::io::Write::write_all(stream, b"data: [DONE]\n\n");
     });
     let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
@@ -381,6 +391,7 @@ fn cancellation_and_concurrent_replays_never_start_another_request() {
         "request_active"
     );
     cancel_chat(&state, "chat-cancel").unwrap();
+    release.store(true, std::sync::atomic::Ordering::Release);
     let request = worker.join().unwrap().unwrap();
     assert_eq!(request.status, "cancelled");
     assert_eq!(request.output, "observed");
@@ -397,7 +408,7 @@ fn recovery_restores_outbox_output_without_calling_the_provider() {
     let (app, state) = setup();
     let server = server(|_, stream| response(stream, "200 OK", "{}"));
     let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
-    let (_, guard) = begin_chat(app.handle(), &state, "chat-recover", &saved.id).unwrap();
+    let (_, guard) = begin_chat(app.handle(), &state, "chat-recover", &saved.id, None).unwrap();
     let store = state.store().unwrap();
     Store::event(
         &store.conn,
@@ -624,5 +635,408 @@ fn ipc_tool_calls_are_persisted_and_can_be_read_back() {
     )
     .unwrap();
     assert_eq!(stored["toolCalls"], result["toolCalls"]);
+    assert_eq!(server.request_count(), 1);
+}
+
+fn routed_profile(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    state: &ProviderState,
+    name: &str,
+    url: &str,
+    default_model: &str,
+    models: &[&str],
+) -> ProviderProfile {
+    upsert(
+        app.handle(),
+        state,
+        ProfileInput {
+            name: name.into(),
+            default_model: default_model.into(),
+            models: models.iter().map(|model| model.to_string()).collect(),
+            ..input(url)
+        },
+    )
+    .unwrap()
+}
+
+fn settings_with_mode(mode: &str) -> routing::RoutingSettings {
+    routing::RoutingSettings {
+        mode: mode.into(),
+        routes: std::collections::BTreeMap::new(),
+        aggregate_provider_ids: vec![],
+        aggregate_default: None,
+    }
+}
+
+#[test]
+fn task_routing_uses_actual_models_and_protects_referenced_profiles() {
+    let (app, state) = setup();
+    let server_a = server(|request, stream| {
+        assert!(
+            request.contains("\"model\":\"a-model\"")
+                || request.contains("\"model\":\"test-model\"")
+        );
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"A 真实输出\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let server_b = server(|request, stream| {
+        assert!(request.contains("\"model\":\"b-model\""));
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"B 真实输出\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let a = routed_profile(&app, &state, "A", &server_a.url(), "a-model", &["a-model"]);
+    let b = routed_profile(
+        &app,
+        &state,
+        "B",
+        &server_b.url(),
+        "b-model",
+        &["b-model", "shared"],
+    );
+    set_active(app.handle(), &state, &a.id).unwrap();
+    let mut settings = settings_with_mode("routing");
+    settings.routes.insert(
+        "agent".into(),
+        routing::RouteAssignment {
+            provider_id: Some(b.id.clone()),
+            model: Some("b-model".into()),
+        },
+    );
+    settings.routes.insert(
+        "plan".into(),
+        routing::RouteAssignment {
+            provider_id: Some(a.id.clone()),
+            model: Some("a-model".into()),
+        },
+    );
+    routing::save_settings(app.handle(), &state, settings.clone()).unwrap();
+    let reopened = ProviderState::for_tests_at(&state.database_path);
+    assert_eq!(routing::settings(&reopened).unwrap().mode, "routing");
+    assert_eq!(routing::provider_for_task(&state, "agent").unwrap(), b.id);
+    let agent = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-agent-1",
+        "agent",
+        Some(&a.id),
+        &messages("Agent"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(agent.provider_id, b.id);
+    assert_eq!(agent.model, "b-model");
+    assert_eq!(agent.output, "B 真实输出");
+    let replay = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-agent-1",
+        "agent",
+        Some(&a.id),
+        &messages("Agent"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(replay.output, agent.output);
+    assert_eq!(server_b.request_count(), 1);
+    let plan = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-plan-1",
+        "plan",
+        Some(&b.id),
+        &messages("方案"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(plan.provider_id, a.id);
+    assert_eq!(plan.model, "a-model");
+    assert_eq!(server_a.request_count(), 1);
+    let mut invalid = settings.clone();
+    invalid.routes.insert(
+        "agent".into(),
+        routing::RouteAssignment {
+            provider_id: Some(b.id.clone()),
+            model: Some("missing".into()),
+        },
+    );
+    assert_eq!(
+        routing::save_settings(app.handle(), &state, invalid)
+            .unwrap_err()
+            .code,
+        "invalid_route_model"
+    );
+    assert_eq!(
+        upsert(
+            app.handle(),
+            &state,
+            ProfileInput {
+                id: Some(b.id.clone()),
+                enabled: Some(false),
+                api_key: None,
+                ..input(&server_b.url())
+            },
+        )
+        .unwrap_err()
+        .code,
+        "provider_in_use"
+    );
+    assert_eq!(
+        delete(app.handle(), &state, &b.id).unwrap_err().code,
+        "provider_in_use"
+    );
+    routing::save_settings(app.handle(), &state, settings_with_mode("direct")).unwrap();
+    let direct = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-direct-1",
+        "agent",
+        None,
+        &messages("直连"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(direct.provider_id, a.id);
+    assert_eq!(direct.model, "a-model");
+    assert_eq!(server_a.request_count(), 2);
+    let logs = routing::logs(&state).unwrap();
+    assert_eq!(logs.len(), 3);
+    assert!(logs.iter().any(|log| log.request_id == "route-agent-1"
+        && log.provider_id.as_deref() == Some(b.id.as_str())));
+    assert_eq!(export_config(&state).unwrap()["routing"]["mode"], "direct");
+}
+
+#[test]
+fn aggregate_routes_by_model_without_failover() {
+    let (app, state) = setup();
+    let failing = server(|_request, stream| response(stream, "503 Service Unavailable", "{}"));
+    let healthy = server(|request, stream| {
+        assert!(request.contains("\"model\":\"b-model\""));
+        response(
+            stream,
+            "200 OK",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"聚合 B 输出\"}}]}\n\ndata: [DONE]\n\n",
+        );
+    });
+    let a = routed_profile(
+        &app,
+        &state,
+        "故障 A",
+        &failing.url(),
+        "shared",
+        &["shared"],
+    );
+    let b = routed_profile(
+        &app,
+        &state,
+        "健康 B",
+        &healthy.url(),
+        "b-model",
+        &["b-model"],
+    );
+    let mut settings = settings_with_mode("aggregate");
+    settings.aggregate_provider_ids = vec![a.id.clone(), b.id.clone()];
+    settings.aggregate_default = Some(a.id.clone());
+    routing::save_settings(app.handle(), &state, settings).unwrap();
+    let selected = routing::stream_chat(
+        app.handle(),
+        &state,
+        "aggregate-b",
+        "agent",
+        None,
+        &messages("选择模型"),
+        64,
+        Some("b-model"),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(selected.provider_id, b.id);
+    assert_eq!(selected.output, "聚合 B 输出");
+    assert_eq!(healthy.request_count(), 1);
+    let failed = routing::stream_chat(
+        app.handle(),
+        &state,
+        "aggregate-default",
+        "agent",
+        None,
+        &messages("默认模型"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(failed.status, "failed");
+    assert_eq!(failed.provider_id, a.id);
+    assert_eq!(failing.request_count(), 2);
+    assert_eq!(healthy.request_count(), 1);
+    assert_eq!(
+        routing::stream_chat(
+            app.handle(),
+            &state,
+            "aggregate-missing",
+            "agent",
+            None,
+            &messages("未知模型"),
+            64,
+            Some("missing"),
+            None,
+            false,
+        )
+        .unwrap_err()
+        .code,
+        "aggregate_model_unavailable"
+    );
+    let mut invalid = settings_with_mode("aggregate");
+    invalid.aggregate_provider_ids = vec![a.id.clone(), b.id.clone()];
+    assert_eq!(
+        routing::save_settings(app.handle(), &state, invalid)
+            .unwrap_err()
+            .code,
+        "aggregate_default_required"
+    );
+    assert!(routing::provider_in_use(&state, &b.id).unwrap());
+    assert_eq!(
+        delete(app.handle(), &state, &b.id).unwrap_err().code,
+        "provider_in_use"
+    );
+    assert_eq!(routing::logs(&state).unwrap().len(), 2);
+}
+
+#[test]
+fn ipc_routing_commands_save_configuration_and_return_real_output() {
+    let (app, _state) = setup();
+    let server = server(|request, stream| {
+        assert!(request.contains("\"model\":\"ipc-route-model\""));
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"路由 IPC 输出\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+    });
+    let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let created = ipc(
+        &window,
+        "upsert_provider_profile",
+        json!({"input": {"name": "路由 IPC", "kind": "本地模型", "protocol": "OpenAI Chat", "baseUrl": server.url(), "defaultModel": "ipc-route-model", "models": ["ipc-route-model"], "apiKey": "route-ipc-token"}}),
+    )
+    .unwrap();
+    let id = created["id"].as_str().unwrap().to_string();
+    ipc(&window, "set_active_provider", json!({"id": id})).unwrap();
+    let saved = ipc(
+        &window,
+        "save_routing_settings",
+        json!({"settings": {"mode": "routing", "routes": {"agent": {"providerId": id, "model": "ipc-route-model"}}, "aggregateProviderIds": [], "aggregateDefault": null}}),
+    )
+    .unwrap();
+    assert_eq!(saved["mode"], "routing");
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let listener_events = Arc::clone(&received);
+    app.listen("backend://event", move |message| {
+        let event: Value = serde_json::from_str(message.payload()).unwrap();
+        if event["kind"] == "provider.route_started" {
+            listener_events.lock().unwrap().push(event);
+        }
+    });
+    let result = ipc(
+        &window,
+        "route_provider_chat",
+        json!({"requestId": "ipc-route-1", "task": "agent", "profileId": null, "model": null, "messages": [{"role": "user", "content": "验证真实路由"}], "maxTokens": 64}),
+    )
+    .unwrap();
+    assert_eq!(result["providerId"], id);
+    assert_eq!(result["model"], "ipc-route-model");
+    assert_eq!(result["output"], "路由 IPC 输出");
+    assert_eq!(result["usage"]["outputTokens"], 3);
+    let settings = ipc(&window, "get_routing_settings", json!({})).unwrap();
+    assert_eq!(settings["routes"]["agent"]["model"], "ipc-route-model");
+    let logs = ipc(&window, "list_provider_route_logs", json!({})).unwrap();
+    assert_eq!(logs[0]["requestId"], "ipc-route-1");
+    assert_eq!(logs[0]["status"], "done");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while received.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(received.lock().unwrap()[0]["payload"]["providerId"], id);
+    assert!(!serde_json::to_string(&logs)
+        .unwrap()
+        .contains("route-ipc-token"));
+    ipc(&window, "reset_application", json!({})).unwrap();
+    assert_eq!(
+        ipc(&window, "list_provider_route_logs", json!({})).unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        ipc(&window, "get_routing_settings", json!({})).unwrap()["mode"],
+        "direct"
+    );
+}
+
+#[test]
+fn route_recovery_preserves_an_already_completed_upstream_result() {
+    let (app, state) = setup();
+    let server = server(|_request, stream| {
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"已完成的路由输出\"}}]}\n\ndata: [DONE]\n\n");
+    });
+    let profile = routed_profile(
+        &app,
+        &state,
+        "恢复测试",
+        &server.url(),
+        "test-model",
+        &["test-model"],
+    );
+    set_active(app.handle(), &state, &profile.id).unwrap();
+    let completed = routing::stream_chat(
+        app.handle(),
+        &state,
+        "route-recovery-1",
+        "agent",
+        None,
+        &messages("恢复"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(completed.status, "done");
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE provider_route_runs SET status = 'running' WHERE request_id = 'route-recovery-1'",
+            [],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE provider_route_attempts SET status = 'running' WHERE request_id = 'route-recovery-1'",
+            [],
+        )
+        .unwrap();
+    drop(store);
+    routing::recover(app.handle(), &state).unwrap();
+    let logs = routing::logs(&state).unwrap();
+    assert_eq!(logs[0].status, "done");
+    assert!(logs[0].error.is_none());
     assert_eq!(server.request_count(), 1);
 }

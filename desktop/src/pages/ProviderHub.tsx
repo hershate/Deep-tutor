@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, CheckCircle2, CircleAlert, Cloud, Copy, Download, Eye, EyeOff, FileJson, Gauge, Link2, ListFilter, LoaderCircle, LockKeyhole, Network, Plus, RefreshCw, Route, Search, Server, Settings2, ShieldCheck, Square, SquareArrowOutUpRight, Trash2, Upload, Zap } from 'lucide-react'
 import { Badge, Button, IconButton, Modal, SectionHeader } from '../components/UI'
+import ProviderRouting, { AggregateModels, ProviderRouteLogs, emptyRouting } from '../components/ProviderRouting'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
-import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult } from '../backend/client'
+import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult, ProviderRouteLog, RoutingSettings } from '../backend/client'
 
 type Preset = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; docs?: string }
 type EditorForm = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; key: string; note: string }
@@ -28,7 +29,6 @@ const presets: Preset[] = [
   { name: 'LM Studio', preset: 'lmstudio', kind: '本地模型', protocol: 'OpenAI Chat', baseUrl: 'http://127.0.0.1:1234/v1', models: ['local-model'], defaultModel: 'local-model' },
   { name: 'vLLM / 私有部署', preset: 'vllm', kind: '本地模型', protocol: 'OpenAI Chat', baseUrl: 'http://127.0.0.1:8000/v1', models: ['private-model'], defaultModel: 'private-model' },
 ]
-const taskNames = ['Agent 对话', '方案生成', '自学讲义', '测验与判分', 'Wiki 引用问答', '资源检索', '向量嵌入']
 const emptyForm: EditorForm = { name: '', preset: '', kind: '官方', protocol: 'OpenAI Chat', baseUrl: '', models: [], defaultModel: '', key: '', note: '' }
 
 function downloadJson(name: string, data: unknown) {
@@ -70,6 +70,9 @@ function importedProfiles(data: unknown): ProviderProfileInput[] {
 export default function ProviderHub({ notify, embedded = false }: { notify: (message: string) => void; embedded?: boolean }) {
   const [profiles, setProfiles] = useState<ProviderProfile[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [routing, setRouting] = useState<RoutingSettings>(emptyRouting)
+  const [routeLogs, setRouteLogs] = useState<ProviderRouteLog[]>([])
+  const [requestModel, setRequestModel] = useState('')
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [view, setView] = useState<View>('供应商')
@@ -100,9 +103,11 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
 
   const refresh = useCallback(async () => {
     try {
-      const [items, active] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider()])
+      const [items, active, settings, logs] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider(), backend.getRoutingSettings(), backend.listProviderRouteLogs()])
       setProfiles(items)
       setActiveId(active)
+      setRouting(settings)
+      setRouteLogs(logs)
       setPageError('')
     } catch (error) {
       setPageError(backendErrorMessage(error))
@@ -110,6 +115,28 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
       setLoading(false)
     }
   }, [])
+
+  const saveRouting = useCallback(async (settings: RoutingSettings): Promise<boolean> => {
+    setBusy('routing')
+    try {
+      setRouting(await backend.saveRoutingSettings(settings))
+      await refresh()
+      return true
+    } catch (error) {
+      setPageError(backendErrorMessage(error))
+      return false
+    } finally { setBusy('') }
+  }, [refresh])
+  const changeMode = (mode: RoutingSettings['mode']) => {
+    let next = { ...routing, mode }
+    if (mode === 'aggregate' && !next.aggregateProviderIds.length) {
+      const fallback = profiles.find(profile => profile.id === activeId && profile.enabled) ?? profiles.find(profile => profile.enabled)
+      if (!fallback) { notify('请先添加并启用一个供应商档案'); return }
+      next = { ...next, aggregateProviderIds: [fallback.id], aggregateDefault: fallback.id }
+    }
+    if (mode === 'aggregate' && !next.aggregateDefault) next.aggregateDefault = next.aggregateProviderIds[0]
+    void saveRouting(next).then(saved => { if (saved) notify(mode === 'direct' ? '已启用当前供应商直连' : mode === 'routing' ? '已启用进程内任务路由，不监听 HTTP 端口' : '已启用聚合模型选择，不自动故障转移') })
+  }
 
   useEffect(() => {
     void refresh()
@@ -136,10 +163,22 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     let current = true
     void backend.exportProviderConfig().then(config => { if (current) setConfigPreview(config) }).catch(error => { if (current) setPageError(backendErrorMessage(error)) })
     return () => { current = false }
-  }, [view, profiles, activeId])
+  }, [view, profiles, activeId, routing])
+  useEffect(() => { setRequestModel('') }, [activeId, routing.mode])
 
   const filtered = useMemo(() => profiles.filter(profile => (filter === '全部' || profile.kind === filter) && `${profile.name}${profile.baseUrl}${profile.models.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [profiles, filter, query])
   const activeProfile = profiles.find(profile => profile.id === activeId)
+  const requestModels = useMemo(() => {
+    if (routing.mode === 'aggregate') return profiles.filter(profile => profile.enabled && routing.aggregateProviderIds.includes(profile.id)).flatMap(profile => profile.models)
+    const provider = profiles.find(profile => profile.id === routing.routes.agent?.providerId && profile.enabled) ?? activeProfile
+    return provider?.models ?? []
+  }, [profiles, routing, activeProfile])
+  const toggleAggregate = (id: string) => {
+    const included = routing.aggregateProviderIds.includes(id)
+    if (included && routing.aggregateDefault === id) { notify('聚合默认供应商不能移出，请先更换默认项'); return }
+    const aggregateProviderIds = included ? routing.aggregateProviderIds.filter(item => item !== id) : [...routing.aggregateProviderIds, id]
+    void saveRouting({ ...routing, aggregateProviderIds, aggregateDefault: routing.aggregateDefault ?? aggregateProviderIds[0] ?? null })
+  }
   const openAdd = () => {
     setEditingId(null)
     setEditorStep(0)
@@ -289,14 +328,14 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     } catch (error) { notify(backendErrorMessage(error)) }
   }
   const startChat = async () => {
-    if (!activeId || !prompt.trim() || streamBusy) return
+    if ((!activeId && routing.mode !== 'aggregate') || !prompt.trim() || streamBusy) return
     const requestId = `manual-${crypto.randomUUID()}`
     requestIdRef.current = requestId
     setLiveRequest(null)
     setStreamError('')
     setStreamBusy(true)
     try {
-      setLiveRequest(await backend.streamProviderChat(requestId, activeId, [{ role: 'user', content: prompt.trim() }], maxTokens))
+      setLiveRequest(await backend.routeProviderChat(requestId, 'agent', activeId, requestModel || null, [{ role: 'user', content: prompt.trim() }], maxTokens))
     } catch (error) { setStreamError(backendErrorMessage(error)) } finally { setStreamBusy(false) }
   }
   const cancelChat = async () => {
@@ -310,20 +349,27 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     {pageError && <div className="form-error"><CircleAlert size={16} />{pageError}<Button variant="ghost" size="sm" onClick={() => void refresh()}>重新读取</Button></div>}
 
     {view === '供应商' && <>
-      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式"><button className="active">直连模式</button><button onClick={() => setView('任务路由')}>本地路由 · 待接入</button><button onClick={() => setView('任务路由')}>聚合模式 · 待接入</button></div><div className="mode-description mode-direct"><span>当前供应商用于真实模型请求；任务级路由、协议转换和聚合尚未接入，未启动本地网络服务。</span></div></div>
-      <section className="surface native-chat-panel"><SectionHeader title="真实模型流式请求" description={activeProfile ? `${activeProfile.name} · ${activeProfile.defaultModel} · ${activeProfile.protocol}` : '请先保存并切换到一个供应商档案'} action={<Badge tone={liveRequest?.status === 'done' ? 'green' : 'neutral'}>{liveRequest ? `原生状态：${liveRequest.status}` : '尚未请求'}</Badge>} /><label>请求内容<textarea rows={3} maxLength={16000} value={prompt} onChange={event => setPrompt(event.target.value)} /></label><div className="form-grid"><label>最大输出 Token<input type="number" min={1} max={8192} value={maxTokens} onChange={event => setMaxTokens(Math.max(1, Math.min(8192, Number(event.target.value) || 1)))} /></label><div className="editor-actions"><Button variant="secondary" onClick={() => void cancelChat()} disabled={!streamBusy}><Square size={15} />取消请求</Button><Button onClick={() => void startChat()} disabled={!activeId || !prompt.trim() || streamBusy}>{streamBusy ? <LoaderCircle size={16} className="spin" /> : <Zap size={16} />}发送真实请求</Button></div></div>{streamError && <div className="form-error"><CircleAlert size={16} />{streamError}</div>}{liveRequest && <><pre className="native-chat-output">{liveRequest.output || (liveRequest.status === 'running' ? '等待上游返回文本…' : '没有已保存的文本输出')}</pre><div className="provider-health-summary"><span>模型：{liveRequest.model}</span><span>实际尝试：{liveRequest.attempts} 次</span><span>{liveRequest.usage ? `输入 ${liveRequest.usage.inputTokens ?? '未报告'} · 输出 ${liveRequest.usage.outputTokens ?? '未报告'} Token` : '上游未报告用量'}</span><span>{liveRequest.latencyMs === null ? '等待终态' : `${liveRequest.latencyMs} ms`}</span></div>{liveRequest.error && <div className="form-error"><CircleAlert size={16} />{liveRequest.error.code}：{liveRequest.error.message}</div>}</>}</section>
+      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式">{([['direct', '直连模式'], ['routing', '本地路由'], ['aggregate', '聚合模式']] as const).map(([mode, label]) => <button key={mode} className={routing.mode === mode ? 'active' : ''} disabled={busy === 'routing'} onClick={() => changeMode(mode)}>{label}</button>)}</div><div className={`mode-description mode-${routing.mode}`}><span>{routing.mode === 'direct' ? `当前供应商直连：${activeProfile?.name ?? '尚未配置'}；不启动本地网络服务。` : routing.mode === 'routing' ? '任务路由在应用进程内执行，按任务选择真实上游，不监听 HTTP 端口。' : `${requestModels.length} 个上游模型已合并；按模型名选择供应商，不自动故障转移。`}</span>{routing.mode !== 'direct' && <Button variant="ghost" size="sm" onClick={() => setView('任务路由')}>配置路由</Button>}</div></div>
+      {routing.mode === 'aggregate' && <AggregateModels settings={routing} profiles={profiles} onSave={saveRouting} saving={busy === 'routing'} />}
+      <section className="surface native-chat-panel">
+        <SectionHeader title="真实模型流式请求" description={`${routing.mode === 'direct' ? '当前供应商直连' : routing.mode === 'routing' ? '原生任务路由' : '聚合模型选择'} · 实际协议由上游档案决定`} action={<Badge tone={liveRequest?.status === 'done' ? 'green' : 'neutral'}>{liveRequest ? `原生状态：${liveRequest.status}` : '尚未请求'}</Badge>} />
+        <label>请求内容<textarea rows={3} maxLength={16000} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
+        <div className="form-grid"><label>请求模型<select value={requestModel} onChange={event => setRequestModel(event.target.value)}><option value="">使用路由与默认模型</option>{[...new Set(requestModels)].map(model => <option key={model} value={model}>{model}</option>)}</select></label><label>最大输出 Token<input type="number" min={1} max={8192} value={maxTokens} onChange={event => setMaxTokens(Math.max(1, Math.min(8192, Number(event.target.value) || 1)))} /></label><div className="editor-actions"><Button variant="secondary" onClick={() => void cancelChat()} disabled={!streamBusy}><Square size={15} />取消请求</Button><Button onClick={() => void startChat()} disabled={(!activeId && routing.mode !== 'aggregate') || !prompt.trim() || streamBusy}>{streamBusy ? <LoaderCircle size={16} className="spin" /> : <Zap size={16} />}发送真实请求</Button></div></div>
+        {streamError && <div className="form-error"><CircleAlert size={16} />{streamError}</div>}
+        {liveRequest && <><pre className="native-chat-output">{liveRequest.output || (liveRequest.status === 'running' ? '等待上游返回文本…' : '没有已保存的文本输出')}</pre><div className="provider-health-summary"><span>实际上游：{profiles.find(profile => profile.id === liveRequest.providerId)?.name ?? liveRequest.providerId}</span><span>模型：{liveRequest.model}</span><span>实际尝试：{liveRequest.attempts} 次</span><span>{liveRequest.usage ? `输入 ${liveRequest.usage.inputTokens ?? '未报告'} · 输出 ${liveRequest.usage.outputTokens ?? '未报告'} Token` : '上游未报告用量'}</span><span>{liveRequest.latencyMs === null ? '等待终态' : `${liveRequest.latencyMs} ms`}</span></div>{liveRequest.error && <div className="form-error"><CircleAlert size={16} />{liveRequest.error.code}：{liveRequest.error.message}</div>}</>}
+      </section>
       <div className="provider-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索已保存的供应商、地址或模型…" /></div><div className="filter-row">{['全部', '官方', '兼容服务', '本地模型'].map(item => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div><Button variant="secondary" size="sm" onClick={() => void testAll()} disabled={!profiles.length || Boolean(testingId)}>{testingAll ? <LoaderCircle size={16} className="spin" /> : <Gauge size={16} />}全部检测</Button><IconButton label="导入 JSON 配置" onClick={() => importRef.current?.click()}><Upload size={17} /></IconButton><IconButton label="从 Deep Link 导入" onClick={() => setDeepLinkOpen(true)}><Link2 size={17} /></IconButton><input ref={importRef} type="file" accept=".json" className="visually-hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void applyImport(file); event.target.value = '' }} /></div>
       <div className="provider-health-summary"><span><CheckCircle2 size={16} />{profiles.filter(profile => profile.health === 'healthy').length} 个档案最近检测正常</span><span><CircleAlert size={16} />{profiles.filter(profile => profile.health === 'error').length} 个需要处理</span><span><LockKeyhole size={16} />密钥只存在系统密钥库，不进入档案或导出</span></div>
       {loading ? <div className="provider-empty"><LoaderCircle size={25} className="spin" /><h2>正在读取原生供应商档案</h2></div> : <div className="provider-card-list">{filtered.map(profile => { const active = profile.id === activeId; const testing = testingId === profile.id; return <article className={`provider-card ${active ? 'is-active' : ''} ${!profile.enabled ? 'is-disabled' : ''}`} key={profile.id}>
-        <div className="provider-card-main"><span className={`provider-monogram kind-${profile.kind}`}>{profile.name.slice(0, 1)}</span><div className="provider-identity"><div><h2>{profile.name}</h2>{active && <Badge tone="green">当前使用</Badge>}<Badge tone="neutral">{profile.kind}</Badge></div><p><code>{profile.baseUrl}</code></p><div className="provider-model-line"><span>{profile.protocol}</span><strong>{profile.defaultModel}</strong><span>{profile.models.length} 个模型</span></div></div></div>
+        <div className="provider-card-main"><span className={`provider-monogram kind-${profile.kind}`}>{profile.name.slice(0, 1)}</span><div className="provider-identity"><div><h2>{profile.name}</h2>{active && routing.mode !== 'aggregate' && <Badge tone="green">当前使用</Badge>}{routing.mode === 'aggregate' && routing.aggregateDefault === profile.id && <Badge tone="green">聚合默认</Badge>}<Badge tone="neutral">{profile.kind}</Badge></div><p><code>{profile.baseUrl}</code></p><div className="provider-model-line"><span>{profile.protocol}</span><strong>{profile.defaultModel}</strong><span>{profile.models.length} 个模型</span></div></div></div>
         <div className="provider-health"><span className={`health-${testing ? 'testing' : profile.health}`}>{testing ? <LoaderCircle size={15} className="spin" /> : profile.health === 'healthy' ? <CheckCircle2 size={15} /> : profile.health === 'error' ? <CircleAlert size={15} /> : <Activity size={15} />}{testing ? '检测中' : profile.health === 'healthy' ? `${profile.latencyMs ?? '已测'} ms` : profile.health === 'error' ? '最近检测失败' : '未检测'}</span><small>{profile.note || (profile.hasKey ? '凭据已存入系统密钥库' : profile.kind === '本地模型' ? '本地服务可留空密钥' : '未配置密钥')}</small></div>
-        <div className="provider-card-actions"><Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => void switchProvider(profile.id)} disabled={active || !profile.enabled || Boolean(busy)}>{active ? '正在使用' : '切换使用'}</Button><Button variant="secondary" size="sm" onClick={() => void testProfile(profile.id, false)} disabled={Boolean(testingId)}><Gauge size={15} />检测</Button><Button variant="ghost" size="sm" onClick={() => void testProfile(profile.id, true)} disabled={Boolean(testingId)}>真实请求</Button><Button variant="ghost" size="sm" onClick={() => openEdit(profile)}>编辑</Button><IconButton label={`删除${profile.name}`} onClick={() => void deleteProvider(profile.id)} disabled={Boolean(busy)}><Trash2 size={16} /></IconButton></div>
+        <div className="provider-card-actions">{routing.mode === 'aggregate' ? <><Button variant={routing.aggregateProviderIds.includes(profile.id) ? 'secondary' : 'primary'} size="sm" disabled={!profile.enabled || busy === 'routing'} onClick={() => toggleAggregate(profile.id)}>{routing.aggregateProviderIds.includes(profile.id) ? '移出聚合' : '加入聚合'}</Button>{routing.aggregateProviderIds.includes(profile.id) && <Button variant="ghost" size="sm" disabled={routing.aggregateDefault === profile.id || busy === 'routing'} onClick={() => void saveRouting({ ...routing, aggregateDefault: profile.id })}>{routing.aggregateDefault === profile.id ? '聚合默认' : '设为默认'}</Button>}</> : <Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => void switchProvider(profile.id)} disabled={active || !profile.enabled || Boolean(busy)}>{active ? '正在使用' : '切换使用'}</Button>}<Button variant="secondary" size="sm" onClick={() => void testProfile(profile.id, false)} disabled={Boolean(testingId)}><Gauge size={15} />检测</Button><Button variant="ghost" size="sm" onClick={() => void testProfile(profile.id, true)} disabled={Boolean(testingId)}>真实请求</Button><Button variant="ghost" size="sm" onClick={() => openEdit(profile)}>编辑</Button><IconButton label={`删除${profile.name}`} onClick={() => void deleteProvider(profile.id)} disabled={Boolean(busy)}><Trash2 size={16} /></IconButton></div>
       </article>})}{!filtered.length && <div className="provider-empty"><Search size={25} /><h2>{profiles.length ? '没有匹配的档案' : '尚未配置供应商'}</h2><p>{profiles.length ? '清除搜索或切换类型。' : '选择一个预设或添加自定义档案；预设不会自动生成健康账号。'}</p><Button onClick={openAdd}><Plus size={16} />添加供应商</Button></div>}</div>}
       <div className="provider-security-note"><ShieldCheck size={17} /><p><strong>密钥处理：</strong>API Key 通过一次性 IPC 参数交给 Rust，写入当前用户的系统密钥库。界面不显示密钥掩码，数据库、事件、导出与日志均不保存密钥明文。</p></div>
     </>}
 
-    {view === '任务路由' && <div className="model-routing-layout"><main className="surface task-routing-panel"><SectionHeader title="按学习任务分配模型" description="任务路由尚未接入原生调用链；以下项目不会被保存，也不会影响当前真实请求。" action={<Badge tone="amber">待原生接入</Badge>} /><div className="task-route-list">{taskNames.map((task, index) => <div className="task-route-row" key={task}><span className="task-route-index">0{index + 1}</span><div className="task-route-name"><strong>{task}</strong><span>等待对应的生成、对话或检索后端接入</span></div><label>供应商<select disabled value=""><option>尚未启用任务路由</option></select></label><label>模型<select disabled value=""><option>尚未启用模型映射</option></select></label></div>)}</div></main><aside className="surface routing-note"><Route size={19} /><h3>直连与任务路由的区别</h3><p>当前真实请求只使用「当前使用」档案。任务路由、聚合模型与协议转换将在配置持久化并接入实际调用链后启用，不会以本地状态模拟成功。</p></aside></div>}
-    {view === '故障转移' && <section className="surface failover-queue"><SectionHeader title="自动故障转移与熔断" description="尚未创建路由监听器、故障转移队列或熔断状态。" action={<Badge tone="amber">未启动</Badge>} /><div className="provider-empty"><Network size={25} /><h2>没有正在运行的路由服务</h2><p>真实故障转移必须接入学习请求并记录每次实际上游调用后才能验收。当前不提供模拟故障转移、伪造请求日志或虚假的运行状态。</p><Button variant="secondary" onClick={() => setView('供应商')}>返回真实供应商档案</Button></div></section>}
+    {view === '任务路由' && <ProviderRouting settings={routing} profiles={profiles} activeId={activeId} onSave={saveRouting} saving={busy === 'routing'} />}
+    {view === '故障转移' && <ProviderRouteLogs logs={routeLogs} settings={routing} profiles={profiles} />}
     {view === '配置与同步' && <div className="provider-config-layout"><main className="surface config-preview"><SectionHeader title="原生脱敏配置" description="内容直接来自 SQLite 中的真实档案；hasKey 只表示系统密钥库中是否存在凭据。" action={<div className="heading-actions"><Button variant="ghost" size="sm" disabled={!configPreview} onClick={() => { if (!configPreview) return; void navigator.clipboard.writeText(JSON.stringify(configPreview, null, 2)).then(() => notify('脱敏配置已复制')).catch(() => notify('复制失败，请使用下载')) }}><Copy size={15} />复制</Button><Button variant="secondary" size="sm" onClick={() => void exportConfig()}><Download size={15} />下载</Button></div>} /><pre>{configPreview ? JSON.stringify(configPreview, null, 2) : '正在读取原生脱敏配置…'}</pre><div className="config-import-actions"><Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={16} />导入并预演</Button><Button variant="ghost" onClick={() => setDeepLinkOpen(true)}><Link2 size={16} />从 Deep Link 添加</Button></div></main><aside><section className="surface config-safety"><ShieldCheck size={21} /><h2>原生数据处理</h2><ul><li>档案与事件保存在应用 SQLite 数据库</li><li>密钥写入系统密钥库，不进入备份</li><li>导入仅追加白名单中的非敏感字段</li><li>当前供应商须先切换才能删除</li></ul></section><section className="surface cloud-sync"><SectionHeader title="配置同步" description="WebDAV / S3 原生同步尚未接入" action={<Badge tone="amber">未启用</Badge>} /><p>当前不会上传档案、学习资料或凭据，也不会显示未经验证的同步成功状态。</p><Button variant="secondary" disabled>等待原生同步实现</Button></section></aside></div>}
 
     <Modal open={editorOpen} onClose={() => setEditorOpen(false)} title={editingId ? '编辑供应商档案' : '添加供应商'} wide>

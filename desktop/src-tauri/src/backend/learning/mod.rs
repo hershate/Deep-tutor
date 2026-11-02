@@ -304,9 +304,7 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
         .map(|date| date.to_string());
     let provider_id = match &input.provider_id {
         Some(id) => id.clone(),
-        None => providers::active(&state.providers)?.ok_or_else(|| {
-            BackendError::new("provider_not_configured", "请先配置并选择模型供应商")
-        })?,
+        None => providers::routing::provider_for_task(&state.providers, "plan")?,
     };
     let provider = providers::get(&state.providers, &provider_id)?;
     if !provider.enabled {

@@ -308,8 +308,7 @@ pub fn new_session<R: Runtime>(
             "Agent 工作区必须来自已采用的方案",
         ));
     }
-    let provider_id = providers::active(&state.providers)?
-        .ok_or_else(|| BackendError::new("provider_not_configured", "请先选择模型供应商"))?;
+    let provider_id = providers::routing::provider_for_task(&state.providers, "agent")?;
     let store = state.store()?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
@@ -778,14 +777,17 @@ fn run_loop<R: Runtime>(
             ));
         }
         let (step, request_id) = begin_step(app, state, &run)?;
-        let request = providers::stream_chat_with_tools(
+        let request = providers::routing::stream_chat(
             app,
             &state.providers,
             &request_id,
-            &session.provider_id,
+            "agent",
+            Some(&session.provider_id),
             &messages,
             4096,
+            None,
             Some(&catalog),
+            true,
         )?;
         let store = state.store()?;
         let (input_tokens, output_tokens): (u64, u64) = store.conn.query_row(

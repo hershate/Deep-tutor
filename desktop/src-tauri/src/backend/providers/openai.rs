@@ -923,11 +923,18 @@ where
         if cancel.load(Ordering::Acquire) {
             return Err(output.error("cancelled", "模型请求已取消"));
         }
-        match tokio::time::timeout(Duration::from_millis(100), response.chunk()).await {
+        let next = tokio::time::timeout(Duration::from_millis(100), response.chunk()).await;
+        if cancel.load(Ordering::Acquire) {
+            return Err(output.error("cancelled", "模型请求已取消"));
+        }
+        match next {
             Ok(Ok(Some(chunk))) => {
                 last_chunk = Instant::now();
                 pending.extend_from_slice(&chunk);
                 while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+                    if cancel.load(Ordering::Acquire) {
+                        return Err(output.error("cancelled", "模型请求已取消"));
+                    }
                     let line = pending.drain(..=end).collect::<Vec<_>>();
                     done = consume_line(&line, &mut output, on_delta)?;
                     if done {
