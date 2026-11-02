@@ -131,6 +131,14 @@ export type LearningPlanInput = {
   milestoneDate: string | null
 }
 
+export type KnowledgeOverview = {
+  nodes: { nodeId: string; mastery: number | null; evidenceCount: number; readingCompleted: boolean; evidence: string }[]
+  overallMastery: number | null
+  evaluatedNodes: number
+  missingEvidence: number
+}
+export type ReadingProgress = { completed: boolean; bookmarked: boolean }
+
 export type ProviderProtocol = 'OpenAI Chat' | 'OpenAI Responses' | 'Anthropic Messages' | 'Gemini Native'
 export type ProviderKind = '官方' | '兼容服务' | '本地模型'
 export type ProviderProfile = {
@@ -233,6 +241,11 @@ export const backend = {
   resumeLearningPlan: (id: string) => invoke<LearningPlan>('resume_learning_plan', { id }),
   adoptLearningPlan: (id: string) => invoke<AppSnapshot>('adopt_learning_plan', { id }),
   regenerateLearningPlan: (id: string, scope: number) => invoke<LearningPlan>('regenerate_learning_plan', { id, scope }),
+  getKnowledgeOverview: (id: string) => invoke<KnowledgeOverview>('get_knowledge_overview', { id }),
+  getKnowledgePath: (id: string, from: string, to: string) => invoke<string[]>('get_knowledge_path', { id, from, to }),
+  addKnowledgeTask: (id: string, nodeId: string) => invoke<AppSnapshot>('add_knowledge_task', { id, nodeId }),
+  getReadingProgress: (id: string, stageId: string) => invoke<ReadingProgress>('get_reading_progress', { id, stageId }),
+  setReadingProgress: (id: string, stageId: string, completed: boolean, bookmarked?: boolean) => invoke<ReadingProgress>('set_reading_progress', { id, stageId, completed, bookmarked }),
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {
