@@ -515,3 +515,15 @@ Go/npm 依赖按各自模块许可证分发，清单见 `go.sum` 与 `desktop/fr
 ## 四、来源说明
 
 本仓库的内核与桌面端以 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 为基座。该项目的缓存优先 Agent 循环、工具调用修复与成本计量三项机制构成 Deep-tutor Python 版实现的参考来源，改造后直接以该内核为运行时基座。上游项目地址：https://github.com/esengine/DeepSeek-Reasonix
+
+## 五、2026-11-02 独立 Tauri 应用改造披露
+
+- 当前唯一用户界面来自用户提供的 `REF/frontend/app`，源码已复制到 `desktop/`。
+  该来源为用户交付的项目资产，不据此推断新的第三方许可或归属。
+- 新增 `desktop/src-tauri/`：Tauri 2 Rust 壳与 Windows NSIS 安装配置。
+- 按用户最新决策删除 `frontend/`、`desktop/frontend-next/`、`desktop/electron/`、
+  `plugin-examples/frontend/`、`extension/`、旧桌面发布工具、
+  `cmd/reasonix-studio-host` 与 `scripts/start.{ps1,sh}`。
+- 上文保留这些已删除文件的修改记录是为了披露历史来源，不表示当前仍分发它们。
+  已删除的 Electron 字体、图标和 CUA driver 许可随对应资产停止分发；
+  REF 新界面自带 `public/favicon.svg`。

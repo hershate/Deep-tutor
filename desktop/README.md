@@ -12,7 +12,6 @@
 | `index.html`、`vite.config.ts`、`tsconfig.json` | Vite/TypeScript 入口与配置 |
 | `package.json`、`package-lock.json` | 界面依赖与 Tauri CLI |
 | `src-tauri/` | Tauri 2 配置、Rust 入口和构建脚本 |
-| `cmd/`、`internal/`、`packaging/`、`go.mod` | 既有 Go 桌面发布工具，不是用户界面 |
 
 `dist/`、`node_modules/` 与 `src-tauri/target/` 都是可重建产物，不入库。
 
@@ -26,17 +25,16 @@
 
 ```bash
 cd desktop
-npm install
-npm run build          # TypeScript + Vite 生产构建
-npm run tauri dev      # 启动 Tauri 2 开发应用
-npm run tauri build    # 构建原生应用
+npm ci
+npm run tauri build    # TypeScript + Vite + Rust + NSIS 安装包
 ```
 
-Vite 开发服务只绑定 `127.0.0.1:1420`，不作为浏览器产品入口。
-`tauri.conf.json` 的 `frontendDist` 指向 `../dist`，与 Vite 输出一致。
+构建产物位于 `desktop/src-tauri/target/release/bundle/nsis/`。
+`bundle.active=true` 且目标仅为 `nsis`：交付的是安装后运行的桌面应用，
+不是需要启动脚本或服务器环境的网页服务。`frontendDist` 与 Vite 输出一致。
 
-当前 `bundle.active=false`：本轮目标是唯一应用界面及其原生壳，
-不在此阶段生成安装包。后续发布时再启用 Tauri bundle 并补齐图标与签名配置。
+开发调试可运行 `npm run tauri dev`；Vite 仅绑定 `127.0.0.1:1420`，
+不作为产品入口，也不提供浏览器启动脚本。
 
 ## 当前边界
 
@@ -44,6 +42,3 @@ Vite 开发服务只绑定 `127.0.0.1:1420`，不作为浏览器产品入口。
 供应商测试、云同步、安全策略与后台任务均为界面模拟。
 数据保存在应用 WebView 的本地存储中；Tauri 化不代表已经接通真实后端、
 模型服务、云同步或多用户安全边界。
-
-`desktop/go.mod` 仍属于既有 Go 桌面发布工具模块，可独立执行
-`cd desktop && go test ./...`；它不参与新界面的渲染。

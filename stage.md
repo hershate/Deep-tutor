@@ -38,6 +38,33 @@ Python 时代一手资料替代入口：项目分析笔记 [`note/00-INDEX.md`](
 
 ## Reasonix 改造日志（2026-10-15 起；分支 `refactor/reasonix`，最新在上）
 
+**iter 432（2026-11-02，取消服务器交付：只保留 Tauri 安装程序，🚧 进行中）**：
+用户追加要求：移除网页启动脚本和脚本化环境部署，由服务端程序转为应用程序。
+本条覆盖 iter 431 对启动脚本的保留性改法。
+
+| 项 | 最新决定 |
+|---|---|
+| 启动脚本 | `scripts/start.ps1`、`scripts/start.sh` 直接删除，不再提供 venv/uvicorn/浏览器或 API 服务启动方式 |
+| 唯一交付 | `desktop/src-tauri` 的 Windows NSIS 安装包；`bundle.active=true`、`targets=["nsis"]`、当前用户安装与开始菜单目录（字段已按官方 schema 校验） |
+| 工程入口 | `make studio` 改为 `npm run tauri build`；CI 的 Tauri job 改为 Windows 构建并上传安装包 |
+| 服务边界 | 既有后端源码保留，但不再作为安装后需要单独启动的服务；多用户 Web 服务与 41173 交付路径取消 |
+| 文档同步 | `note/12` 追加 #29/#33/#40 服务交付形态替代；`AGENTS.md`、`plan/README.md`、`desktop/README.md`、`README.md`、`DEEPTUTOR.md`、`NOTICE` 同步 |
+| 基线理由 | 删除 Studio host 使旧桌面函数失去最后调用者（orphan 72→94）；REF 样式带入 11 处既有 `!important`。已显式 `-update -allow-widen` 并在此披露，未静默放宽门禁 |
+| 验证 | Go vet 与定向测试通过；serve 全量回归 PASS；UI build 通过；repolint clean（2143 findings）；`tauri info` 校验 bundle 通过；实现提交 `1e057e5a` |
+| 当前阻塞 | Rust/Cargo 缺失，`npm run tauri build` 在 `cargo metadata` 停止，未生成安装包；不擅自安装新环境 |
+
+**iter 431（2026-11-02，T2：删除旧 UI 与失效工程引用，✅ 完成）**：
+删除旧浏览器 SPA、Electron、frontend-next、前端插件示例、剪藏扩展及旧桌面发布工具。
+
+| 项 | 结果 |
+|---|---|
+| 删除目录 | `frontend/`、`desktop/frontend-next/`、`desktop/electron/`、`plugin-examples/frontend/`、`extension/`；含未跟踪旧构建产物 |
+| 追加退役 | Electron 依赖的 `desktop/cmd`、`desktop/internal`、`desktop/packaging`、`desktop/go.{mod,sum}` 与 `cmd/reasonix-studio-host`；旧前端基准 `benchmark/frontend_bundle_bench.mjs` |
+| 门禁迁移 | 旧前端契约/trace/i18n 测试退役；CI 删除旧 SPA/Electron job，改为 npm + Rust 的 `Tauri 2 application`；`make test` 加 UI 构建 |
+| 后续覆盖 | iter 432 直接删除 `scripts/start.{ps1,sh}` 并改为安装包构建，不再保留后端 API 启动方式 |
+| 验证 | `go vet ./...` 通过；定向 Go 测试通过；`internal/frontend/serve` 全量回归 PASS；UI build 与 repolint clean |
+| 环境问题 | Rust/Cargo 未安装，原生 Tauri build 暂不可本机验证；Application Control 拦截 Go 临时二进制时按仓库绕法构建到 `F:\TEMP\deeptutor\tb` |
+
 **iter 430（2026-11-02，T1：REF 界面入库 + Tauri 2 壳，✅ 完成）**：
 承接 iter 429，将 `REF/frontend/app` 源码复制到 `desktop/` 并新增 Tauri 2 原生壳。
 

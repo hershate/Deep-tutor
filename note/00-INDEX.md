@@ -4,6 +4,10 @@
 > 重基线日期：2026-10-20（分支 `refactor/reasonix`）
 > 行号口径：以重基线日工作区为准；`backend/` 与 `frontend/` 为 Python v1 实现，`internal/` 与 `cmd/` 为 Go 内核改造形态。
 > 统计口径：代码行数按**总行数**计（`[System.IO.File]::ReadAllLines` 逐文件累加，等价 `wc -l`），与文中行号引用同口径；表数取 `Base.metadata.tables`；端点数取 OpenAPI 实际导出。
+>
+> **2026-11-02 最新方向覆盖**：当前唯一交付物是 Tauri 2 + `REF/frontend/app`
+> 的桌面安装包。网页 SPA、Electron、frontend-next、网页启动脚本和服务器交付均已取消。
+> 本文中的两代前端对照及 M2–M5 进度为历史分析，不再作为当前执行路径。
 
 ## 目录
 

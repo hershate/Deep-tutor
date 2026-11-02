@@ -472,6 +472,17 @@ chapters above are the upstream's, kept as they were. What follows is this
 repository's, and it outranks the upstream's process chapters where the two
 disagree.
 
+### Current delivery decision (2026-11-02)
+
+The only deliverable is the Tauri 2 desktop installer built from `REF/frontend/app`.
+
+Browser SPA, Electron, `frontend-next`, web startup scripts and server delivery
+are retired. `scripts/start.ps1` and `scripts/start.sh` are deleted.
+
+Existing backend source may remain, but it is not a service the installed app needs.
+Where older chapters describe four frontends, `internal/web`, or a login service,
+read them as historical design unless the backend itself is changed independently.
+
 ### Where the decisions live
 
 - **改造决策（宪法）**：[`note/12-Reasonix改造决策.md`](./note/12-Reasonix改造决策.md)
