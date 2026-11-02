@@ -3,7 +3,7 @@
 mod backend;
 
 use backend::{
-    agent, commands, learning, materials, providers, review, store::Store, BackendState,
+    agent, commands, learning, materials, practice, providers, review, store::Store, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -22,6 +22,8 @@ fn main() {
             let learning_state =
                 learning::LearningState::new(&path, &provider_state, &material_state);
             let agent_state = agent::AgentState::new(&path, &provider_state, &learning_state);
+            let practice_state =
+                practice::PracticeState::new(&path, &provider_state, &learning_state);
             let review_state = review::ReviewState::new(&path, &learning_state);
             app.manage(BackendState {
                 store: Mutex::new(store),
@@ -29,6 +31,7 @@ fn main() {
                 providers: provider_state,
                 learning: learning_state,
                 agent: agent_state,
+                practice: practice_state,
                 review: review_state,
             });
             let state = app.state::<BackendState>();
@@ -41,6 +44,8 @@ fn main() {
             learning::recover(app.handle(), &state.learning)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             agent::recover(app.handle(), &state.agent)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            practice::recover(app.handle(), &state.practice)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
@@ -108,6 +113,16 @@ fn main() {
             review::commands::grade_review_card,
             review::commands::get_review_stats,
             review::commands::list_review_history,
+            practice::commands::generate_practice,
+            practice::commands::get_practice_set,
+            practice::commands::list_practice_history,
+            practice::commands::cancel_practice_generation,
+            practice::commands::resume_practice_generation,
+            practice::commands::submit_practice_answer,
+            practice::commands::list_practice_mistakes,
+            practice::commands::export_practice_mistakes,
+            practice::commands::set_practice_bookmark,
+            practice::commands::set_practice_mistake_mastered,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,

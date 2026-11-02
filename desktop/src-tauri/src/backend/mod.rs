@@ -3,6 +3,7 @@ pub mod commands;
 pub mod error;
 pub mod learning;
 pub mod materials;
+pub mod practice;
 pub mod providers;
 pub mod review;
 pub mod store;
@@ -15,5 +16,6 @@ pub struct BackendState {
     pub providers: providers::ProviderState,
     pub learning: learning::LearningState,
     pub agent: agent::AgentState,
+    pub practice: practice::PracticeState,
     pub review: review::ReviewState,
 }

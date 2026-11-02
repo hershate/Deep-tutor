@@ -35,6 +35,7 @@ impl ReviewState {
         })
     }
 
+    #[cfg(test)]
     pub fn shared(&self) -> Self {
         Self {
             database_path: self.database_path.clone(),
@@ -544,6 +545,7 @@ mod tests {
                 providers: learning.provider_state(),
                 learning: learning.shared(),
                 agent: crate::backend::agent::AgentState::for_tests().unwrap(),
+                practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
                 review: state.shared(),
             })
             .invoke_handler(tauri::generate_handler![

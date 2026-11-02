@@ -2,7 +2,7 @@ pub(crate) mod actions;
 pub mod commands;
 pub(crate) mod knowledge;
 pub(crate) mod lecture;
-mod pipeline;
+pub(crate) mod pipeline;
 mod types;
 mod validate;
 

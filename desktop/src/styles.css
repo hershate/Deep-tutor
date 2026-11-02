@@ -1788,3 +1788,20 @@ h1, h2, h3 { text-wrap: balance; }
 
 .provider-doc-link { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: -8px; color: var(--accent); font-size: 12px; text-decoration: none; }
 .provider-doc-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.review-card-list { display: grid; gap: 14px; }
+.review-card-row { padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
+.review-card-row h3 { margin: 9px 0; font-size: 15px; white-space: pre-wrap; }
+.review-card-row p { margin: 6px 0; color: var(--muted); font-size: 12px; }
+.row-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+.grade-again { background: var(--danger-soft, #f8e5e0); }
+.grade-hard { background: var(--warning-soft, #f5edcf); }
+.grade-good { background: var(--accent-soft); }
+.grade-easy { background: var(--info-soft, #e1edf5); }
+.practice-fill-input { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.practice-citations { margin-top: 18px; padding: 12px; border-left: 3px solid var(--accent); background: var(--surface-soft); }
+.practice-citations p { margin: 5px 0; font-size: 12px; }
+.practice-history-list { display: grid; gap: 8px; }
+.practice-history-list > button { display: flex; justify-content: space-between; gap: 15px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
+.practice-history-list small { color: var(--muted); }
+.unavailable-feature { padding: 24px; }
