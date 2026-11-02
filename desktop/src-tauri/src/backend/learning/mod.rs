@@ -242,6 +242,21 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             PRIMARY KEY (note_id)
         );",
     )?;
+    let mut statement = conn.prepare("PRAGMA table_info(learning_node_evidence)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    if !columns.iter().any(|column| column == "evidence_key") {
+        conn.execute(
+            "ALTER TABLE learning_node_evidence ADD COLUMN evidence_key TEXT",
+            [],
+        )?;
+    }
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS learning_evidence_key ON learning_node_evidence(plan_id, node_id, evidence_key)",
+        [],
+    )?;
     Ok(())
 }
 

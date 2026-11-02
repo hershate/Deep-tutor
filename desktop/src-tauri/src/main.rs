@@ -2,7 +2,9 @@
 
 mod backend;
 
-use backend::{agent, commands, learning, materials, providers, store::Store, BackendState};
+use backend::{
+    agent, commands, learning, materials, providers, review, store::Store, BackendState,
+};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -20,12 +22,14 @@ fn main() {
             let learning_state =
                 learning::LearningState::new(&path, &provider_state, &material_state);
             let agent_state = agent::AgentState::new(&path, &provider_state, &learning_state);
+            let review_state = review::ReviewState::new(&path, &learning_state);
             app.manage(BackendState {
                 store: Mutex::new(store),
                 materials: material_state,
                 providers: provider_state,
                 learning: learning_state,
                 agent: agent_state,
+                review: review_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -95,6 +99,15 @@ fn main() {
             learning::commands::generate_lecture,
             learning::commands::cancel_lecture,
             learning::commands::save_study_note,
+            review::commands::create_review_card,
+            review::commands::update_review_card,
+            review::commands::delete_review_card,
+            review::commands::set_review_card_suspended,
+            review::commands::list_review_cards,
+            review::commands::next_review_card,
+            review::commands::grade_review_card,
+            review::commands::get_review_stats,
+            review::commands::list_review_history,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,

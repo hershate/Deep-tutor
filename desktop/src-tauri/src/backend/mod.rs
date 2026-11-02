@@ -4,6 +4,7 @@ pub mod error;
 pub mod learning;
 pub mod materials;
 pub mod providers;
+pub mod review;
 pub mod store;
 
 use std::sync::Mutex;
@@ -14,4 +15,5 @@ pub struct BackendState {
     pub providers: providers::ProviderState,
     pub learning: learning::LearningState,
     pub agent: agent::AgentState,
+    pub review: review::ReviewState,
 }

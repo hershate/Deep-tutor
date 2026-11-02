@@ -1418,6 +1418,7 @@ mod tests {
                 providers: crate::backend::providers::ProviderState::for_tests().unwrap(),
                 learning: crate::backend::learning::LearningState::for_tests().unwrap(),
                 agent: crate::backend::agent::AgentState::for_tests().unwrap(),
+                review: crate::backend::review::ReviewState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
