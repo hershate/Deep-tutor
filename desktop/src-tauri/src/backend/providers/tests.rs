@@ -263,7 +263,7 @@ fn model_tests_and_sse_chat_use_real_responses_without_duplicate_billing() {
                 r#"{"model":"test-model","choices":[{"message":{"content":"actual answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}"#,
             );
         } else {
-            response(stream, "200 OK", "data: {\"model\":\"test-model\",\"choices\":[{\"delta\":{\"content\":\"先验\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\" 后验\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+            response(stream, "200 OK", "data: {\"model\":\"test-model\",\"choices\":[{\"delta\":{\"reasoning_content\":\"分析\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"先验\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\" 后验\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
         }
     });
     let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
@@ -285,6 +285,7 @@ fn model_tests_and_sse_chat_use_real_responses_without_duplicate_billing() {
     .unwrap();
     assert_eq!(first.status, "done");
     assert_eq!(first.output, "先验 后验");
+    assert_eq!(first.reasoning, "分析");
     assert_eq!(first.usage.unwrap().input_tokens, Some(8));
     assert_eq!(first.attempts, 1);
     assert_eq!(server.request_count(), 3);
@@ -400,11 +401,18 @@ fn recovery_restores_outbox_output_without_calling_the_provider() {
         json!({"requestId": "chat-recover", "text": "已恢复的部分输出", "reasoning": false}),
     )
     .unwrap();
+    Store::event(
+        &store.conn,
+        "provider.chat_delta",
+        json!({"requestId": "chat-recover", "text": "独立推理片段", "reasoning": true}),
+    )
+    .unwrap();
     drop(guard);
     recover_chats(app.handle(), &state).unwrap();
     let recovered = get_chat(&state, "chat-recover").unwrap();
     assert_eq!(recovered.status, "interrupted");
     assert_eq!(recovered.output, "已恢复的部分输出");
+    assert_eq!(recovered.reasoning, "独立推理片段");
     assert_eq!(recovered.error.unwrap().code, "request_interrupted");
     let replay = stream_chat(
         app.handle(),
@@ -537,4 +545,39 @@ fn ipc_provider_commands_emit_real_stream_and_reset_credentials() {
         .unwrap_err()["code"],
         json!("not_found")
     );
+}
+
+#[test]
+fn provider_request_migration_adds_reasoning_without_losing_output() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE provider_requests (
+            request_id TEXT PRIMARY KEY,
+            provider_id INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL,
+            output TEXT NOT NULL DEFAULT '',
+            usage_json TEXT,
+            finish_reason TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            attempts INTEGER NOT NULL DEFAULT 1,
+            latency_ms INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO provider_requests (request_id, provider_id, model, status, output, created_at, updated_at)
+        VALUES ('old-request', 1, 'old-model', 'done', '{\"ok\":true}', 'now', 'now');",
+    )
+    .unwrap();
+    migrate(&conn).unwrap();
+    let (output, reasoning) = conn
+        .query_row(
+            "SELECT output, reasoning FROM provider_requests WHERE request_id = 'old-request'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .unwrap();
+    assert_eq!(output, "{\"ok\":true}");
+    assert!(reasoning.is_empty());
 }

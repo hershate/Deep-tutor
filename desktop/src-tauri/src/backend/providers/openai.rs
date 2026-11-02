@@ -25,6 +25,7 @@ pub struct TokenUsage {
 #[serde(rename_all = "camelCase")]
 pub struct ChatResult {
     pub text: String,
+    pub reasoning: String,
     pub model: String,
     pub usage: Option<TokenUsage>,
     pub finish_reason: Option<String>,
@@ -360,19 +361,32 @@ fn usage(body: &Value) -> Option<TokenUsage> {
     })
 }
 
-fn completion(body: &Value) -> Result<(String, Option<String>)> {
+fn completion(body: &Value) -> Result<(String, String, Option<String>)> {
     let choice = body
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
         .ok_or_else(|| BackendError::new("invalid_response", "模型响应缺少 choices"))?;
-    let text = choice
+    let message = choice
         .get("message")
-        .and_then(|message| message.get("content"))
+        .ok_or_else(|| BackendError::new("invalid_response", "模型响应缺少 message"))?;
+    let text = message
+        .get("content")
         .and_then(Value::as_str)
         .ok_or_else(|| BackendError::new("invalid_response", "模型响应缺少文本内容"))?;
+    if text.is_empty() {
+        return Err(BackendError::new(
+            "empty_completion",
+            "模型没有返回文本内容",
+        ));
+    }
     Ok((
         text.to_string(),
+        message
+            .get("reasoning_content")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         choice
             .get("finish_reason")
             .and_then(Value::as_str)
@@ -411,9 +425,10 @@ pub fn chat_once(
         .send()
         .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
     let body = read_json(response)?;
-    let (text, finish_reason) = completion(&body)?;
+    let (text, reasoning, finish_reason) = completion(&body)?;
     Ok(ChatResult {
         text,
+        reasoning,
         model: body
             .get("model")
             .and_then(Value::as_str)
@@ -492,9 +507,10 @@ where
             &cancel,
             &mut on_delta,
         )) {
-            Ok((text, model, usage, finish_reason)) => {
+            Ok((text, reasoning, model, usage, finish_reason)) => {
                 return Ok(ChatResult {
                     text,
+                    reasoning,
                     model,
                     usage,
                     finish_reason,
@@ -517,8 +533,11 @@ where
     unreachable!()
 }
 
+type StreamSuccess = (String, String, String, Option<TokenUsage>, Option<String>);
+
 struct StreamOutput {
     text: String,
+    reasoning: String,
     model: String,
     usage: Option<TokenUsage>,
     finish_reason: Option<String>,
@@ -529,17 +548,20 @@ impl StreamOutput {
         ChatError::new(code, message).partial(self.text.clone(), self.usage.clone())
     }
 
-    fn finish(
-        self,
-        done: bool,
-    ) -> std::result::Result<(String, String, Option<TokenUsage>, Option<String>), ChatError> {
+    fn finish(self, done: bool) -> std::result::Result<StreamSuccess, ChatError> {
         if !done {
             return Err(self.error("incomplete_stream", "模型流式响应在结束标记前中断"));
         }
         if self.text.is_empty() {
             return Err(self.error("empty_completion", "模型没有返回文本内容"));
         }
-        Ok((self.text, self.model, self.usage, self.finish_reason))
+        Ok((
+            self.text,
+            self.reasoning,
+            self.model,
+            self.usage,
+            self.finish_reason,
+        ))
     }
 }
 
@@ -594,7 +616,12 @@ where
                 if text.is_empty() {
                     continue;
                 }
-                if output.text.len().saturating_add(text.len()) > MAX_COMPLETION_BYTES {
+                let current_length = if reasoning {
+                    output.reasoning.len()
+                } else {
+                    output.text.len()
+                };
+                if current_length.saturating_add(text.len()) > MAX_COMPLETION_BYTES {
                     return Err(output.error("response_too_large", "模型输出超过 1 MB 上限"));
                 }
                 on_delta(Delta {
@@ -604,7 +631,11 @@ where
                 .map_err(|error| {
                     ChatError::from(error).partial(output.text.clone(), output.usage.clone())
                 })?;
-                output.text.push_str(text);
+                if reasoning {
+                    output.reasoning.push_str(text);
+                } else {
+                    output.text.push_str(text);
+                }
             }
         }
     }
@@ -618,7 +649,7 @@ async fn stream_once<F>(
     max_tokens: u32,
     cancel: &Arc<AtomicBool>,
     on_delta: &mut F,
-) -> std::result::Result<(String, String, Option<TokenUsage>, Option<String>), ChatError>
+) -> std::result::Result<StreamSuccess, ChatError>
 where
     F: FnMut(Delta) -> Result<()>,
 {
@@ -659,6 +690,7 @@ where
     }
     let mut output = StreamOutput {
         text: String::new(),
+        reasoning: String::new(),
         model: profile.default_model.clone(),
         usage: None,
         finish_reason: None,

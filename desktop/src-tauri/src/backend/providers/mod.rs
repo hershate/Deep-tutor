@@ -168,6 +168,17 @@ impl ProviderState {
         })
     }
 
+    #[cfg(test)]
+    pub fn for_tests_at(database_path: &Path) -> Self {
+        Self {
+            database_path: database_path.to_path_buf(),
+            credentials: Arc::new(MemoryCredentials::default()),
+            active_tests: Arc::new(Mutex::new(HashSet::new())),
+            chat_cancels: Arc::new(Mutex::new(HashMap::new())),
+            _guard: None,
+        }
+    }
+
     pub fn shared(&self) -> Self {
         Self {
             database_path: self.database_path.clone(),
@@ -216,9 +227,21 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             attempts INTEGER NOT NULL DEFAULT 1,
             latency_ms INTEGER,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            reasoning TEXT NOT NULL DEFAULT ''
         );",
     )?;
+    let mut statement = conn.prepare("PRAGMA table_info(provider_requests)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    if !columns.iter().any(|column| column == "reasoning") {
+        conn.execute(
+            "ALTER TABLE provider_requests ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -268,7 +291,7 @@ fn profile(row: &Row<'_>, state: &ProviderState) -> Result<ProviderProfile> {
 
 const PROFILE_COLUMNS: &str = "id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms";
 
-fn get(state: &ProviderState, id: &str) -> Result<ProviderProfile> {
+pub(crate) fn get(state: &ProviderState, id: &str) -> Result<ProviderProfile> {
     let store = state.store()?;
     let mut statement = store.conn.prepare(&format!(
         "SELECT {PROFILE_COLUMNS} FROM provider_profiles WHERE id = ?1"
@@ -715,6 +738,7 @@ pub struct ProviderRequest {
     pub model: String,
     pub status: String,
     pub output: String,
+    pub reasoning: String,
     pub usage: Option<openai::TokenUsage>,
     pub finish_reason: Option<String>,
     pub error: Option<BackendError>,
@@ -758,7 +782,7 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
     let mut request = store
         .conn
         .query_row(
-            "SELECT request_id, provider_id, model, status, output, usage_json, finish_reason, error_code, error_message, attempts, latency_ms, created_at, updated_at FROM provider_requests WHERE request_id = ?1",
+            "SELECT request_id, provider_id, model, status, output, usage_json, finish_reason, error_code, error_message, attempts, latency_ms, created_at, updated_at, reasoning FROM provider_requests WHERE request_id = ?1",
             params![request_id],
             |row| {
                 let error_code: Option<String> = row.get(7)?;
@@ -770,6 +794,7 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
                     model: row.get(2)?,
                     status: row.get(3)?,
                     output: row.get(4)?,
+                    reasoning: row.get(13)?,
                     usage: match usage_json {
                         Some(value) => serde_json::from_str(&value).unwrap_or(None),
                         None => None,
@@ -785,15 +810,25 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
         )
         .optional()?
         .ok_or_else(|| BackendError::new("not_found", "模型请求不存在"))?;
-    if request.output.is_empty() && request.status != "done" {
-        let mut statement = store.conn.prepare(
-            "SELECT payload FROM events WHERE kind = 'provider.chat_delta' AND json_extract(payload, '$.requestId') = ?1 ORDER BY id",
-        )?;
-        let rows = statement.query_map(params![request_id], |row| row.get::<_, String>(0))?;
-        for row in rows {
-            let payload: Value = serde_json::from_str(&row?)?;
-            if let Some(text) = payload.get("text").and_then(Value::as_str) {
-                request.output.push_str(text);
+    if request.status != "done" {
+        let rebuild_output = request.output.is_empty();
+        let rebuild_reasoning = request.reasoning.is_empty();
+        if rebuild_output || rebuild_reasoning {
+            let mut statement = store.conn.prepare(
+                "SELECT payload FROM events WHERE kind = 'provider.chat_delta' AND json_extract(payload, '$.requestId') = ?1 ORDER BY id",
+            )?;
+            let rows = statement.query_map(params![request_id], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let payload: Value = serde_json::from_str(&row?)?;
+                if let Some(text) = payload.get("text").and_then(Value::as_str) {
+                    if payload.get("reasoning").and_then(Value::as_bool) == Some(true) {
+                        if rebuild_reasoning {
+                            request.reasoning.push_str(text);
+                        }
+                    } else if rebuild_output {
+                        request.output.push_str(text);
+                    }
+                }
             }
         }
     }
@@ -901,10 +936,11 @@ pub fn stream_chat<R: Runtime>(
                 Ok(())
             })
         });
-    let (status, output, usage, finish_reason, error, attempts) = match result {
+    let (status, output, reasoning, usage, finish_reason, error, attempts) = match result {
         Ok(result) => (
             "done",
             result.text,
+            result.reasoning,
             result.usage,
             result.finish_reason,
             None,
@@ -919,6 +955,7 @@ pub fn stream_chat<R: Runtime>(
             (
                 status,
                 error.partial_text,
+                String::new(),
                 error.usage,
                 None,
                 Some(error.error),
@@ -929,8 +966,8 @@ pub fn stream_chat<R: Runtime>(
     let latency = started.elapsed().as_millis() as i64;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
-        "UPDATE provider_requests SET status = ?1, output = ?2, usage_json = ?3, finish_reason = ?4, error_code = ?5, error_message = ?6, attempts = ?7, latency_ms = ?8, updated_at = ?9 WHERE request_id = ?10",
-        params![status, output, serde_json::to_string(&usage)?, finish_reason, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), attempts, latency, now()?, request_id],
+        "UPDATE provider_requests SET status = ?1, output = ?2, usage_json = ?3, finish_reason = ?4, error_code = ?5, error_message = ?6, attempts = ?7, latency_ms = ?8, updated_at = ?9, reasoning = ?10 WHERE request_id = ?11",
+        params![status, output, serde_json::to_string(&usage)?, finish_reason, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), attempts, latency, now()?, reasoning, request_id],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -947,7 +984,7 @@ pub fn stream_chat<R: Runtime>(
         } else {
             "provider.chat_failed"
         },
-        json!({"requestId": request_id, "status": status, "output": output, "usage": usage, "finishReason": finish_reason, "attempts": attempts, "latencyMs": latency, "error": error}),
+        json!({"requestId": request_id, "status": status, "output": output, "reasoning": reasoning, "usage": usage, "finishReason": finish_reason, "attempts": attempts, "latencyMs": latency, "error": error}),
     )?;
     tx.commit()?;
     emit(app, &event);

@@ -79,7 +79,7 @@ export type ProviderTestResult = {
   ok: boolean
   latencyMs: number
   models: string[] | null
-  result: { text: string; model: string; latencyMs: number; attempts: number } | null
+  result: { text: string; reasoning: string; model: string; latencyMs: number; attempts: number } | null
 }
 export type ProviderChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 export type ProviderRequest = {
@@ -88,6 +88,7 @@ export type ProviderRequest = {
   model: string
   status: 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
   output: string
+  reasoning: string
   usage: { inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null } | null
   finishReason: string | null
   error: BackendError | null
