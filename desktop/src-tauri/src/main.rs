@@ -11,10 +11,22 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 fn main() {
-    tauri::Builder::default()
+    let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let path = app.path().app_data_dir()?.join("deep-tutor.db");
+        .setup(move |app| {
+            let data_root = if verify_native {
+                let path = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
+                    .map(std::path::PathBuf::from)
+                    .filter(|path| path.is_absolute())
+                    .ok_or(
+                        "DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory",
+                    )?;
+                path
+            } else {
+                app.path().app_data_dir()?
+            };
+            let path = data_root.join("deep-tutor.db");
             let store = Store::new(&path)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let material_state = materials::MaterialState::new(&path)
@@ -74,6 +86,22 @@ fn main() {
                 security::with_user(principal.id, || {
                     sync::scheduler::start_scheduler(app.handle().clone())
                 });
+            }
+            if verify_native {
+                let snapshot = state
+                    .store
+                    .lock()
+                    .map_err(|_| -> Box<dyn std::error::Error> {
+                        "verification database lock failed".into()
+                    })?
+                    .bootstrap()
+                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+                assert!(snapshot["tasks"].is_array() && snapshot["preferences"].is_object());
+                println!(
+                    "native verification passed: workspace={}, lastEventId={}",
+                    snapshot["workspaceId"], snapshot["lastEventId"]
+                );
+                app.handle().exit(0);
             }
             Ok(())
         })
@@ -261,7 +289,12 @@ fn main() {
             agent::commands::delete_agent_session,
             agent::commands::approve_agent_request,
             agent::commands::cancel_agent_approval,
-        ]))
-        .run(tauri::generate_context!())
+        ]));
+    let mut context = tauri::generate_context!();
+    if verify_native {
+        context.config_mut().app.windows.clear();
+    }
+    builder
+        .run(context)
         .expect("error while running the Deep Tutor application");
 }
