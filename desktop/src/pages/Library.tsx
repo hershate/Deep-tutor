@@ -11,6 +11,7 @@ import WikiPanel from '../components/WikiPanel'
 import { backend, onBackendEvent, reportBackendError } from '../backend/client'
 import type { AppSnapshot, MaterialDetail } from '../backend/client'
 import { exportBackend } from '../backend/export'
+import { notesBackend } from '../backend/notes'
 
 const materialStatus: Record<string, string> = {
   staged: '已暂存', queued: '等待解析', parsing: '解析中', parsed: '已解析', degraded: '部分解析',
@@ -24,7 +25,7 @@ function materialTone(status: string): 'neutral' | 'green' | 'amber' | 'red' {
   return 'neutral'
 }
 
-export default function Library({ notes, setNotes, resources, notify }: { notes: Note[]; setNotes: (notes: Note[]) => Promise<AppSnapshot>; resources: Resource[]; notify: (message: string) => void }) {
+export default function Library({ notes, setNotes, resources, onImportNotes, notify }: { notes: Note[]; setNotes: (notes: Note[]) => Promise<AppSnapshot>; resources: Resource[]; onImportNotes: (path: string) => Promise<number>; notify: (message: string) => void }) {
   const [tab, setTab] = useState('笔记')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('全部')
@@ -41,7 +42,6 @@ export default function Library({ notes, setNotes, resources, notify }: { notes:
   const [importing, setImporting] = useState(false)
   const [materialBusy, setMaterialBusy] = useState(false)
   const [resourceTab, setResourceTab] = useState('解析文本')
-  const zipRef = useRef<HTMLInputElement>(null)
   const draftWrite = useRef<Promise<unknown>>(Promise.resolve())
   const draftBlocked = useRef(false)
   const [saving, setSaving] = useState(false)
@@ -206,26 +206,19 @@ export default function Library({ notes, setNotes, resources, notify }: { notes:
       notify(`已由原生后端导出 ${result.count} 条 Markdown 笔记与清单（${result.bytes.toLocaleString()} 字节）`)
     } catch (error) { reportBackendError(error) }
   }
-  const importNotes = async (file: File) => {
-    const imported: Note[] = []
+  const importNotes = async () => {
+    if (importing) return
+    setImporting(true)
     try {
-      if (file.name.endsWith('.zip')) {
-        const { default: JSZip } = await import('jszip')
-        const zip = await JSZip.loadAsync(file)
-        for (const [path, entry] of Object.entries(zip.files)) {
-          if (!entry.dir && /\.(md|txt)$/i.test(path) && !path.endsWith('manifest.json')) { const content = await entry.async('text'); const title = path.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '导入笔记'; imported.push({ id: Date.now() + imported.length, title, excerpt: content.slice(0, 90), content, tag: '复盘', updated: '刚刚导入' }) }
-        }
-      } else { const content = await file.text(); imported.push({ id: Date.now(), title: file.name.replace(/\.(md|txt)$/i, ''), excerpt: content.slice(0, 90), content, tag: '复盘', updated: '刚刚导入' }) }
-    } catch { notify('导入失败：文件损坏或不是有效 ZIP / Markdown'); return }
-    if (!imported.length) { notify('没有可导入的 Markdown 或 TXT 笔记'); return }
-    try {
-      await setNotes([...imported, ...notes])
-      notify(`已保存 ${imported.length} 条导入笔记，原有内容未覆盖`)
-    } catch (error) { reportBackendError(error) }
+      const selected = await notesBackend.openFiles()
+      const path = Array.isArray(selected) ? selected[0] : selected
+      if (!path) return
+      const imported = await onImportNotes(path)
+      notify(`已由原生后端追加 ${imported} 条笔记，原有内容未覆盖`)
+    } catch (error) { reportBackendError(error) } finally { setImporting(false) }
   }
   return <div className="page library-page">
-    <div className="page-heading"><div><h1>笔记与 Wiki</h1><p>自由笔记、原始资料与可核验的库内引用问答。</p></div><div className="heading-actions">{tab === '笔记' && <Button variant="secondary" onClick={() => zipRef.current?.click()}><FileArchive size={17} />批量导入</Button>}{tab === '笔记' ? <Button onClick={() => openNote()}><NotebookPen size={18} />新建笔记</Button> : <Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={18} />{importing ? '正在导入…' : '导入资料'}</Button>}</div></div>
-    <input ref={zipRef} type="file" className="visually-hidden" accept=".zip,.md,.txt" onChange={e => { const file = e.target.files?.[0]; if (file) importNotes(file); e.target.value = '' }} />
+    <div className="page-heading"><div><h1>笔记与 Wiki</h1><p>自由笔记、原始资料与可核验的库内引用问答。</p></div><div className="heading-actions">{tab === '笔记' && <Button variant="secondary" disabled={importing} onClick={() => { void importNotes() }}><FileArchive size={17} />{importing ? '正在导入…' : '批量导入'}</Button>}{tab === '笔记' ? <Button onClick={() => openNote()}><NotebookPen size={18} />新建笔记</Button> : <Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={18} />{importing ? '正在导入…' : '导入资料'}</Button>}</div></div>
     <div className="library-toolbar"><div className="library-tabs">{['笔记', '资料库', 'Wiki 问答'].map(item => <button key={item} className={tab === item ? 'active' : ''} onClick={() => { setTab(item); setFilter('全部') }}>{item === '笔记' ? <NotebookPen size={17} /> : item === '资料库' ? <Folder size={17} /> : <BookOpen size={17} />}{item}<span>{item === '笔记' ? notes.length : item === '资料库' ? resources.length : ''}</span></button>)}</div>{tab !== 'Wiki 问答' && <div className="search-field"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${tab}…`} aria-label={`搜索${tab}`} />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>}</div>
     {tab !== 'Wiki 问答' && <div className="filter-row">{(tab === '笔记' ? ['全部', '概率论', '数据结构', '英语', '复盘'] : ['全部', 'PDF', '视频', '网页', '音频', '文件']).map(item => <button className={filter === item ? 'active' : ''} key={item} onClick={() => setFilter(item)}>{item}</button>)}<span />{tab === '笔记' && <Button variant="ghost" size="sm" onClick={exportNotes}><Download size={16} />ZIP 导出</Button>}</div>}
     {tab === '笔记' && <>{filteredNotes.length ? <div className="notes-grid">{filteredNotes.map(note => <button className="note-card" key={note.id} onClick={() => openNote(note)}><div className="note-card-top"><Badge tone="neutral">{note.tag}</Badge><span>{note.updated}</span></div><h2>{note.title}</h2><p>{note.excerpt}</p><div className="note-card-bottom"><span><Link2 size={14} />知识关联待接入</span><ChevronRight size={17} /></div></button>)}</div> : <EmptyState title="没有找到匹配的笔记" description="尝试清除搜索词或切换标签，也可以现在创建一条新笔记。" action={<Button onClick={() => openNote()}>新建笔记</Button>} />}</>}

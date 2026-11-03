@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type AppSnapshot, type BackendError, type CollectionNamespace } from './client'
 import { backupBackend } from './backup'
+import { notesBackend } from './notes'
 
 const authenticationErrors = new Set(['invalid_session', 'session_expired', 'session_revoked', 'account_disabled', 'login_required'])
 
@@ -135,5 +136,12 @@ export function useBackendState() {
     return next
   }, [applySnapshot])
 
-  return { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup, sync }
+  const importNotes = useCallback(async (path: string) => {
+    const requestedGeneration = generation.current
+    const result = await notesBackend.import(path)
+    applySnapshot(result.state, requestedGeneration)
+    return result.imported
+  }, [applySnapshot])
+
+  return { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup, importNotes, sync }
 }

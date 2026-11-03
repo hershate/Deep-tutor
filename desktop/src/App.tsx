@@ -47,7 +47,7 @@ function BrandMark() {
 export default function App() {
   const initialPage = allNav.some(item => item.id === window.location.hash.slice(1)) || ['settings', 'shared'].includes(window.location.hash.slice(1)) ? window.location.hash.slice(1) as PageId : 'today'
   const [page, setPage] = useState<PageId>(initialPage)
-  const { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup } = useBackendState()
+  const { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup, importNotes } = useBackendState()
   const { tasks, notes, resources, projects, preferences } = snapshot
   const setTasks = (value: Task[]) => replaceCollection('tasks', value)
   const setNotes = (value: AppSnapshot['notes']) => replaceCollection('notes', value)
@@ -225,7 +225,7 @@ export default function App() {
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} />
       case 'practice': return <Practice notify={notify} />
       case 'review': return <Review notify={notify} />
-      case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} notify={notify} />
+      case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} notify={notify} />
       case 'reports': return <Reports notify={notify} onNavigate={navigate} />
       case 'community': return <Community notify={notify} />

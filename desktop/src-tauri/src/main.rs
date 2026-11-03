@@ -4,7 +4,7 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, engagement, export, knowledge, learning, maintenance,
-    materials, planning, plugins, practice, providers, reports, review, security, sharing,
+    materials, notes, planning, plugins, practice, providers, reports, review, security, sharing,
     store::Store, sync, BackendState,
 };
 use std::sync::Mutex;
@@ -142,6 +142,7 @@ fn main() {
             materials::commands::delete_material,
             materials::commands::export_material_original,
             materials::commands::export_material_text,
+            notes::commands::import_notes,
             providers::commands::list_provider_profiles,
             providers::commands::get_active_provider,
             providers::commands::upsert_provider_profile,

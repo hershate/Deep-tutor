@@ -9,6 +9,7 @@ pub mod knowledge;
 pub mod learning;
 pub mod maintenance;
 pub mod materials;
+pub mod notes;
 pub mod planning;
 pub mod plugins;
 pub mod practice;
