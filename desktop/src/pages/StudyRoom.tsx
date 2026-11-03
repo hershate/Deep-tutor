@@ -6,8 +6,10 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { PageId } from '../data'
 import { Badge, Button, IconButton, Modal, ProgressBar } from '../components/UI'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
-import type { Lecture, LearningPlan, ProviderRequest, ReadingProgress } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
+import type { Lecture, LearningPlan, Material, ProviderRequest, ReadingProgress } from '../backend/client'
+import { mediaBackend } from '../backend/media'
+import MediaPlayer from '../components/MediaPlayer'
 
 const lectureStatus: Record<string, string> = { empty: '尚未生成', running: '正在生成', cancelling: '正在取消', done: '已生成', failed: '生成失败', cancelled: '已取消', interrupted: '已中断' }
 
@@ -28,11 +30,30 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [mediaMaterials, setMediaMaterials] = useState<Material[]>([])
+  const [mediaId, setMediaId] = useState<number | null>(null)
   const stageRef = useRef({ planId: '', stageId: '' })
   const consumedTarget = useRef('')
   const routeUpstreams = useRef<Record<string, string>>({})
   useEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
   useEffect(() => { routeUpstreams.current = {} }, [plan?.id, stageId])
+  useEffect(() => {
+    if (tab !== '视频') return
+    let active = true
+    let stop: (() => void) | undefined
+    const load = async () => {
+      try {
+        const items = (await backend.listMaterials()).filter(item => item.originalAvailable && mediaBackend.isMedia(item.kind))
+        if (!active) return
+        setMediaMaterials(items)
+        setMediaId(current => items.some(item => item.id === current) ? current : items[0]?.id ?? null)
+      } catch (cause) { if (active) setError(backendErrorMessage(cause)) }
+    }
+    void load()
+    void onBackendEvent(event => { if (active && event.kind.startsWith('material.')) void load() }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    return () => { active = false; stop?.() }
+  }, [tab])
+  const selectedMedia = mediaMaterials.find(item => item.id === mediaId) ?? mediaMaterials[0]
 
   const refreshProgress = useCallback(async () => {
     if (!plan?.result) { setProgress({}); return }
@@ -174,7 +195,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       </aside>
 
       <main className="reading-pane">
-        <div className="reading-toolbar"><div className="content-tabs">{['阅读', '资料'].map(item => <button className={tab === item ? 'active' : ''} key={item} onClick={() => setTab(item)}>{item === '阅读' ? <BookOpen size={16} /> : <FileText size={16} />}{item}</button>)}<button disabled title="尚未接入真实视频资源与播放"><Video size={16} />视频（待接入）</button></div><div className="reading-tools"><IconButton label="减小字号" onClick={() => setFontScale(Math.max(.9, fontScale - .1))}><Minus size={16} /></IconButton><span>{Math.round(fontScale * 100)}%</span><IconButton label="增大字号" onClick={() => setFontScale(Math.min(1.25, fontScale + .1))}><Plus size={16} /></IconButton><IconButton label="生成自学讲义" onClick={() => setLectureOpen(true)}><Sparkles size={17} /></IconButton><IconButton label="记录学习笔记" onClick={() => setNoteOpen(true)}><NotebookPen size={17} /></IconButton></div></div>
+        <div className="reading-toolbar"><div className="content-tabs">{['阅读', '资料'].map(item => <button className={tab === item ? 'active' : ''} key={item} onClick={() => setTab(item)}>{item === '阅读' ? <BookOpen size={16} /> : <FileText size={16} />}{item}</button>)}<button className={tab === '视频' ? 'active' : ''} onClick={() => setTab('视频')}><Video size={16} />视频</button></div><div className="reading-tools"><IconButton label="减小字号" onClick={() => setFontScale(Math.max(.9, fontScale - .1))}><Minus size={16} /></IconButton><span>{Math.round(fontScale * 100)}%</span><IconButton label="增大字号" onClick={() => setFontScale(Math.min(1.25, fontScale + .1))}><Plus size={16} /></IconButton><IconButton label="生成自学讲义" onClick={() => setLectureOpen(true)}><Sparkles size={17} /></IconButton><IconButton label="记录学习笔记" onClick={() => setNoteOpen(true)}><NotebookPen size={17} /></IconButton></div></div>
         {tab === '阅读' && <article className="reading-article" style={{ fontSize: `${fontScale}rem` }}>
           <div className="article-kicker"><Badge tone="green">{stage.title}</Badge><span>难度 {stage.difficulty}/5 · 单元 {Math.min(unitIndex + 1, nodes.length)} / {nodes.length}</span></div>
           {content ? <>
@@ -193,6 +214,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
           <div className="article-footer"><Button variant="secondary" disabled={plan.result.stages[0]?.id === stageId} onClick={() => { const index = plan.result!.stages.findIndex(item => item.id === stageId); setStageId(plan.result!.stages[Math.max(0, index - 1)].id) }}><ArrowLeft size={16} />上一阶段</Button><Button onClick={() => void completeAndContinue()} disabled={busy === 'reading'}>{progress[stageId]?.completed ? '已完成阅读' : '完成并继续'}<ArrowRight size={16} /></Button></div>
         </article>}
         {tab === '资料' && <div className="chapter-resources"><h1>本方案关联资料</h1>{plan.result.resources.items.map(item => <button key={item.materialId} onClick={() => void exportMaterial(item.materialId, item.title)}><FileText size={21} /><div><strong>{item.title}</strong><span>资料 #{item.materialId} · SHA-256 {item.sha256.slice(0, 16)}… · 点击导出原件</span></div><ArrowRight size={17} /></button>)}</div>}
+        {tab === '视频' && <div className="chapter-resources"><h1>本地音视频原件</h1><p>只显示当前用户实际导入的媒体，不展示演示视频或虚构课程关联。</p>{selectedMedia ? <><label>选择媒体原件<select value={selectedMedia.id} onChange={event => setMediaId(Number(event.target.value))}>{mediaMaterials.map(item => <option key={item.id} value={item.id}>{item.title} · {item.kind}</option>)}</select></label><MediaPlayer material={selectedMedia} /></> : <div className="provider-empty"><Video size={26} /><h2>尚未导入音视频</h2><p>请在资料库导入真实 MP4、WebM、MP3、WAV 等原件，再在这里预览。</p><Button onClick={() => onNavigate('library')}>前往资料库</Button></div>}</div>}
       </main>
       <aside className="study-tutor"><section className="surface"><h3>当前知识节点</h3><h2>{currentNode?.title}</h2><p>{currentNode?.summary}</p><Badge tone="neutral">难度 {currentNode?.difficulty}/5</Badge><div className="node-relations"><h3>阶段信息</h3><div><span>预计时长</span><strong>{currentNode?.estimatedMinutes} 分钟</strong></div><div><span>阶段日期</span><strong>{stage.startDate} 至 {stage.endDate}</strong></div><div><span>阅读状态</span><strong>{currentReading.completed ? '已完成' : '未完成'}</strong></div></div><p>阅读状态与测评掌握度分别记录，不会将阅读完成自动视为已经掌握。</p></section></aside>
     </div>

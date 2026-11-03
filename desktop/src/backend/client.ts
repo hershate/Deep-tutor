@@ -335,7 +335,7 @@ export const backend = {
   resetApplication: () => invoke<AppSnapshot>('reset_application'),
   eventsSince: (lastId: number) => invoke<{ events: BackendEvent[]; latestId: number; hasMore: boolean }>('events_since', { lastId }),
   openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
-    options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md'] }] },
+    options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp'] }] },
   }),
   saveMaterialFile: (title: string, extension: string) => invoke<string | null>('plugin:dialog|save', {
     options: { title: '保存到本地', defaultPath: title, filters: [{ name: '文件', extensions: [extension] }] },

@@ -90,3 +90,21 @@ pub fn export_material_text(
 ) -> Result<Value> {
     super::export_text(&state.materials, id, Path::new(&destination))
 }
+
+#[tauri::command]
+pub fn get_material_media_info(
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<super::media::MediaInfo> {
+    super::media::info(&state.materials, id)
+}
+
+#[tauri::command]
+pub fn read_material_media_chunk(
+    state: State<'_, BackendState>,
+    id: i64,
+    offset: u64,
+    length: u64,
+) -> Result<super::media::MediaChunk> {
+    super::media::chunk(&state.materials, id, offset, length)
+}

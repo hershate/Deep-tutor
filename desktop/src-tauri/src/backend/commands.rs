@@ -149,6 +149,8 @@ mod tests {
                 crate::backend::materials::commands::import_material_text,
                 crate::backend::materials::commands::list_materials,
                 crate::backend::materials::commands::get_material,
+                crate::backend::materials::commands::get_material_media_info,
+                crate::backend::materials::commands::read_material_media_chunk,
                 crate::backend::materials::commands::enqueue_material_parse,
                 crate::backend::materials::commands::delete_material,
                 crate::backend::materials::commands::export_material_original,
@@ -342,6 +344,68 @@ mod tests {
         let events = ipc(&app, "events_since", json!({"lastId": 0})).unwrap();
         assert_eq!(events["events"].as_array().unwrap().len(), 1);
         assert_eq!(events["events"][0]["kind"], json!("material.staged"));
+    }
+
+    #[test]
+    fn native_media_import_hash_and_chunk_reads_preserve_real_bytes() {
+        let app = test_app();
+        let directory = tempfile::tempdir().unwrap();
+        let data = b"\0\0\0\x18ftypisom\0\0\0\0actual-video";
+        let source = directory.path().join("lesson.mp4");
+        std::fs::write(&source, data).unwrap();
+        let imported = ipc(
+            &app,
+            "import_material_files",
+            json!({"paths":[source.to_string_lossy()]}),
+        )
+        .unwrap();
+        let id = imported[0]["material"]["id"].as_i64().unwrap();
+        assert_eq!(
+            ipc(&app, "get_app_state", json!({})).unwrap()["resources"][0]["type"],
+            "视频"
+        );
+        let info = ipc(&app, "get_material_media_info", json!({"id":id})).unwrap();
+        assert_eq!(info["total"], data.len());
+        assert_eq!(info["mime"], "video/mp4");
+        assert_eq!(info["sha256"], imported[0]["material"]["sha256"]);
+        let chunk = ipc(
+            &app,
+            "read_material_media_chunk",
+            json!({"id":id,"offset":4,"length":8}),
+        )
+        .unwrap();
+        assert_eq!(chunk["data"], json!(data[4..12]));
+        assert_eq!(chunk["total"], data.len());
+        assert_eq!(
+            ipc(
+                &app,
+                "read_material_media_chunk",
+                json!({"id":id,"offset":data.len() as u64 + 1,"length":8})
+            )
+            .unwrap_err()["code"],
+            "invalid_media_range"
+        );
+        assert_eq!(
+            ipc(&app, "enqueue_material_parse", json!({"id":id})).unwrap_err()["code"],
+            "media_analysis_unsupported"
+        );
+        let fake = directory.path().join("fake.mp4");
+        std::fs::write(&fake, b"not a video").unwrap();
+        let rejected = ipc(
+            &app,
+            "import_material_files",
+            json!({"paths":[fake.to_string_lossy()]}),
+        )
+        .unwrap();
+        assert_eq!(rejected[0]["error"]["code"], "invalid_media_format");
+        assert_eq!(
+            ipc(&app, "list_materials", json!({}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

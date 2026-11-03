@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod media;
 pub mod parse;
 
 use super::commands::emit;
@@ -19,7 +20,10 @@ use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-const SUPPORTED: [&str; 6] = ["pdf", "docx", "pptx", "epub", "txt", "md"];
+const SUPPORTED: [&str; 19] = [
+    "pdf", "docx", "pptx", "epub", "txt", "md", "mp4", "mov", "m4v", "webm", "mp3", "wav", "ogg",
+    "m4a", "png", "jpg", "jpeg", "gif", "webp",
+];
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct MaterialState {
@@ -307,7 +311,7 @@ pub(crate) fn sync_resources(conn: &Connection) -> Result<()> {
         resources.push(json!({
             "id": id,
             "title": title,
-            "type": if kind == "pdf" { "PDF" } else if webpage { "网页" } else { "文件" },
+            "type": if kind == "pdf" { "PDF" } else if webpage { "网页" } else { media::category(&kind).unwrap_or("文件") },
             "meta": meta,
             "progress": progress
         }));
@@ -434,7 +438,19 @@ fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
             "文件在读取过程中发生变化，请重试",
         ));
     }
-    match kind.as_str() {
+    validate_content(&kind, &bytes)?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    Ok((title, kind, bytes, sha256))
+}
+
+fn validate_content(kind: &str, bytes: &[u8]) -> Result<()> {
+    if !SUPPORTED.contains(&kind) {
+        return Err(BackendError::new(
+            "unsupported_format",
+            "支持 PDF、DOCX、PPTX、EPUB、TXT、Markdown，以及常见音视频和图片原件",
+        ));
+    }
+    match kind {
         "pdf" if !bytes.starts_with(b"%PDF-") => {
             return Err(BackendError::new("invalid_format", "文件内容不是有效 PDF"))
         }
@@ -444,16 +460,16 @@ fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
                 "文件内容不是有效的 Office 或 EPUB 压缩文档",
             ))
         }
-        "txt" | "md" if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() => {
+        "txt" | "md" if bytes.contains(&0) || std::str::from_utf8(bytes).is_err() => {
             return Err(BackendError::new(
                 "invalid_format",
                 "文本文件必须是有效 UTF-8 且不含 NUL",
             ))
         }
+        _ if media::mime(kind).is_some() => media::validate(kind, bytes)?,
         _ => {}
     }
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
-    Ok((title, kind, bytes, sha256))
+    Ok(())
 }
 
 fn stage_validated<R: Runtime>(
@@ -872,6 +888,12 @@ pub fn enqueue<R: Runtime>(
     }
     let store = state.store()?;
     let material = get(&store.conn, &state.root(), id)?;
+    if media::mime(&material.kind).is_some() {
+        return Err(BackendError::new(
+            "media_analysis_unsupported",
+            "音视频与图片仅支持原件预览，不提供文字识别或内容分析",
+        ));
+    }
     if material.status == "metadata_only" {
         return Err(BackendError::new(
             "missing_original",
