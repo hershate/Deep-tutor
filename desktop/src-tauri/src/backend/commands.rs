@@ -146,6 +146,7 @@ mod tests {
                 events_since,
                 reset_application,
                 crate::backend::materials::commands::import_material_files,
+                crate::backend::materials::commands::import_material_archive,
                 crate::backend::materials::commands::import_material_text,
                 crate::backend::materials::commands::list_materials,
                 crate::backend::materials::commands::get_material,
@@ -406,6 +407,127 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn native_archive_import_validates_before_staging_real_entries() {
+        let app = test_app();
+        let directory = tempfile::tempdir().unwrap();
+        let write_zip = |path: &std::path::Path, entries: Vec<(&str, &[u8])>, deflate: bool| {
+            let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+            let options = zip::write::SimpleFileOptions::default().compression_method(if deflate {
+                zip::CompressionMethod::Deflated
+            } else {
+                zip::CompressionMethod::Stored
+            });
+            for (name, content) in entries {
+                writer.start_file(name, options).unwrap();
+                std::io::Write::write_all(&mut writer, content).unwrap();
+            }
+            writer.finish().unwrap();
+        };
+        let path = directory.path().join("materials.zip");
+        write_zip(
+            &path,
+            vec![
+                ("chapter.txt", "真实资料正文".as_bytes()),
+                ("lesson.mp3", b"ID3actual-audio"),
+                ("ignored.bin", b"ignored"),
+            ],
+            false,
+        );
+        let result = ipc(
+            &app,
+            "import_material_archive",
+            json!({"path":path.to_string_lossy()}),
+        )
+        .unwrap();
+        assert_eq!(result["outcomes"].as_array().unwrap().len(), 2);
+        assert_eq!(result["skipped"], json!(["ignored.bin"]));
+        let resources = ipc(&app, "get_app_state", json!({})).unwrap()["resources"].clone();
+        assert_eq!(resources.as_array().unwrap().len(), 2);
+        assert_eq!(resources[1]["type"], "音频");
+        let media = ipc(&app, "get_material_media_info", json!({"id":2})).unwrap();
+        assert_eq!(media["mime"], "audio/mpeg");
+        assert_eq!(media["total"], b"ID3actual-audio".len());
+        ipc(&app, "enqueue_material_parse", json!({"id":1})).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let detail = ipc(&app, "get_material", json!({"id":1})).unwrap();
+            if detail["status"] == "parsed" {
+                assert_eq!(detail["text"], "真实资料正文");
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let repeated = ipc(
+            &app,
+            "import_material_archive",
+            json!({"path":path.to_string_lossy()}),
+        )
+        .unwrap();
+        assert!(repeated["outcomes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|outcome| outcome["deduplicated"] == true));
+        let before = ipc(&app, "get_app_state", json!({})).unwrap();
+        let unsafe_path = directory.path().join("unsafe.zip");
+        write_zip(
+            &unsafe_path,
+            vec![
+                ("../escape.txt", b"not allowed"),
+                ("valid.txt", b"also not staged"),
+            ],
+            false,
+        );
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":unsafe_path.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "unsafe_archive_path"
+        );
+        let nested = directory.path().join("nested.zip");
+        write_zip(&nested, vec![("nested.zip", b"nested")], false);
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":nested.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "nested_archive_blocked"
+        );
+        let bomb = directory.path().join("bomb.zip");
+        let large = vec![b'a'; 1024 * 1024];
+        write_zip(&bomb, vec![("large.txt", large.as_slice())], true);
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":bomb.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "archive_entry_too_large"
+        );
+        let invalid = directory.path().join("invalid.zip");
+        std::fs::write(&invalid, b"not a zip").unwrap();
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":invalid.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "invalid_archive"
+        );
+        let after = ipc(&app, "get_app_state", json!({})).unwrap();
+        assert_eq!(after["resources"], before["resources"]);
+        assert_eq!(after["lastEventId"], before["lastEventId"]);
     }
 
     #[test]

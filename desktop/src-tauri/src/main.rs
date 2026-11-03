@@ -135,6 +135,7 @@ fn main() {
             security::commands::authenticate_access_token,
             security::commands::set_security_quota,
             materials::commands::import_material_files,
+            materials::commands::import_material_archive,
             materials::commands::import_material_text,
             materials::commands::list_materials,
             materials::commands::get_material,

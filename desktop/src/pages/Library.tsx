@@ -108,12 +108,18 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     try {
       const paths = await backend.openMaterialFiles()
       if (!paths?.length) return
-      const outcomes = await backend.importMaterialFiles(paths)
+      const outcomes = await backend.importMaterialFiles(paths.filter(path => !path.toLowerCase().endsWith('.zip')))
+      let skipped = 0
+      for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
+        const archive = await backend.importMaterialArchive(path)
+        outcomes.push(...archive.outcomes)
+        skipped += archive.skipped.length
+      }
       const staged = outcomes.filter(item => item.material && !item.deduplicated).length
       const duplicates = outcomes.filter(item => item.deduplicated).length
       const errors = outcomes.flatMap(item => item.error ? [item.error] : [])
-      if (errors.length) notify(`${staged} 份已暂存，${duplicates} 份去重，${errors.length} 份失败：${errors[0].message}`)
-      else notify(`${staged} 份原件已暂存，${duplicates} 份已去重；可在详情中开始解析`)
+      if (errors.length) notify(`${staged} 份已暂存，${duplicates} 份去重，${skipped} 个不支持条目已跳过，${errors.length} 份失败：${errors[0].message}`)
+      else notify(`${staged} 份原件已暂存，${duplicates} 份已去重，${skipped} 个不支持条目已跳过`)
     } catch (error) { reportBackendError(error) } finally { setImporting(false) }
   }
   const openMaterial = async (id: number) => {

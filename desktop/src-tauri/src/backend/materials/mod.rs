@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod commands;
 pub mod media;
 pub mod parse;
@@ -556,6 +557,24 @@ fn stage_validated<R: Runtime>(
         material: get(&store.conn, &state.root(), id)?,
         deduplicated: false,
     })
+}
+
+fn stage_bytes<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MaterialState,
+    title: String,
+    kind: String,
+    bytes: Vec<u8>,
+) -> Result<IngestResult> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(BackendError::new(
+            "invalid_archive_entry",
+            "资料包条目必须包含 1 到 50 MB 内容",
+        ));
+    }
+    validate_content(&kind, &bytes)?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    stage_validated(app, state, title, kind, bytes, sha256, None)
 }
 
 fn stage_one<R: Runtime>(

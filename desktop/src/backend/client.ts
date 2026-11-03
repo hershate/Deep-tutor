@@ -335,12 +335,13 @@ export const backend = {
   resetApplication: () => invoke<AppSnapshot>('reset_application'),
   eventsSince: (lastId: number) => invoke<{ events: BackendEvent[]; latestId: number; hasMore: boolean }>('events_since', { lastId }),
   openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
-    options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp'] }] },
+    options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'] }] },
   }),
   saveMaterialFile: (title: string, extension: string) => invoke<string | null>('plugin:dialog|save', {
     options: { title: '保存到本地', defaultPath: title, filters: [{ name: '文件', extensions: [extension] }] },
   }),
   importMaterialFiles: (paths: string[]) => invoke<MaterialImportResult[]>('import_material_files', { paths }),
+  importMaterialArchive: (path: string) => invoke<{ outcomes: MaterialImportResult[]; skipped: string[]; totalBytes: number }>('import_material_archive', { path }),
   importMaterialText: (title: string, content: string) => invoke<{ material: Material; deduplicated: boolean }>('import_material_text', { title, content }),
   listMaterials: () => invoke<Material[]>('list_materials'),
   getMaterial: (id: number) => invoke<MaterialDetail>('get_material', { id }),

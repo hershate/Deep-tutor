@@ -108,3 +108,12 @@ pub fn read_material_media_chunk(
 ) -> Result<super::media::MediaChunk> {
     super::media::chunk(&state.materials, id, offset, length)
 }
+
+#[tauri::command]
+pub fn import_material_archive<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    path: String,
+) -> Result<super::archive::ArchiveImportResult> {
+    super::archive::import_archive(&app, &state.materials, Path::new(&path))
+}

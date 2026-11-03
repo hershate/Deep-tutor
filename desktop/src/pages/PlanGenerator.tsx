@@ -146,7 +146,13 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     try {
       const paths = await backend.openMaterialFiles()
       if (!paths) return
-      for (const outcome of await backend.importMaterialFiles(paths)) {
+      const outcomes = await backend.importMaterialFiles(paths.filter(path => !path.toLowerCase().endsWith('.zip')))
+      for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
+        const archive = await backend.importMaterialArchive(path)
+        outcomes.push(...archive.outcomes)
+        if (archive.skipped.length) notify(`资料包中 ${archive.skipped.length} 个不支持条目已跳过`)
+      }
+      for (const outcome of outcomes) {
         if (outcome.material && mediaBackend.isText(outcome.material.kind)) setSelectedIds(current => current.includes(outcome.material!.id) ? current : [...current, outcome.material!.id])
         if (outcome.error) notify(backendErrorMessage(outcome.error))
       }
@@ -251,7 +257,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     <div className="generator-stepper">{phaseNames.map((name, index) => <button key={name} className={`${step === index ? 'active' : ''} ${step > index ? 'done' : ''}`} onClick={() => { if (index < step) setStep(index) }} disabled={index > step}><span>{step > index ? <Check size={15} /> : index + 1}</span><strong>{name}</strong>{index < 3 && <ChevronRight size={15} />}</button>)}</div>
 
     {step === 0 && <div className="generator-source-layout"><main className="surface source-workspace"><SectionHeader title="资料输入" description="文件和纯文本先暂存，确认后由原生解析器处理。" action={<Badge tone="neutral">{selected.length} / 8 份已选择</Badge>} /><div className="source-tabs">{sourceTabs.map(item => <button className={sourceTab === item ? 'active' : ''} key={item} onClick={() => setSourceTab(item)}>{item === '文件上传' ? <Upload size={16} /> : item === '纯文本' ? <FileText size={16} /> : item === 'URL 抓取' ? <Globe2 size={16} /> : <Clipboard size={16} />}{item}</button>)}</div>
-      {sourceTab === '文件上传' && <div className="source-dropzone"><CloudUpload size={28} /><strong>选择本地学习资料</strong><p>PDF / DOCX / PPTX / EPUB / TXT / Markdown，单文件不超过 50 MB</p><span>文档由原生文本解析；音视频与图片仅作原件预览，不提供 OCR 或内容识别。ZIP 尚未接入。</span><Button onClick={() => void importFiles()} disabled={Boolean(busy)}>{busy === 'files' ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />}选择文件</Button></div>}
+      {sourceTab === '文件上传' && <div className="source-dropzone"><CloudUpload size={28} /><strong>选择本地学习资料</strong><p>PDF / DOCX / PPTX / EPUB / TXT / Markdown，单文件不超过 50 MB</p><span>文档由原生文本解析；音视频与图片仅作原件预览，不提供 OCR 或内容识别。ZIP 由 Rust 预检后逐项暂存。</span><Button onClick={() => void importFiles()} disabled={Boolean(busy)}>{busy === 'files' ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />}选择文件</Button></div>}
       {sourceTab === '纯文本' && <div className="source-text-input"><label>资料标题<input value={textTitle} maxLength={200} onChange={event => setTextTitle(event.target.value)} placeholder={`文本资料_${materials.length + 1}`} /></label><textarea rows={8} value={text} onChange={event => setText(event.target.value.slice(0, 500000))} placeholder="粘贴教材章节、课程提纲或已有笔记…" /><div><span>{text.length.toLocaleString()} / 500,000 字符（后端另按 UTF-8 字节上限校验）</span><Button onClick={() => void importText()} disabled={!text.trim() || Boolean(busy)}>加入暂存</Button></div></div>}
       {sourceTab === 'URL 抓取' && <div className="source-url-input"><label>公开网页地址<div><Globe2 size={17} /><input value={url} maxLength={900} onChange={event => setUrl(event.target.value)} placeholder="https://example.com/chapter" /></div></label><p>仅抓取公网 HTTP/HTTPS HTML 或 UTF-8 纯文本；逐次校验重定向并限制内容大小。保存的是实际提取正文与最终来源，不执行网页脚本。</p><Button onClick={() => void importUrl()} disabled={!url.trim() || Boolean(busy)}>{busy === 'url' ? <LoaderCircle size={16} className="spin" /> : <Globe2 size={16} />}抓取并暂存</Button></div>}
       {sourceTab === '浏览器剪藏' && <div className="clipper-panel"><Clipboard size={25} /><h3>粘贴剪藏文字</h3><p>旧浏览器扩展已停用。可在用户点击后读取剪贴板文本，再按纯文本资料导入原生资料库。</p><div><Button variant="secondary" onClick={async () => { try { setText(await navigator.clipboard.readText()); setSourceTab('纯文本') } catch { notify('无法读取剪贴板，请直接粘贴文本') } }}><Clipboard size={16} />读取剪贴板</Button></div></div>}
