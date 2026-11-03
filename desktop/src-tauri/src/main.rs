@@ -4,8 +4,8 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, engagement, export, knowledge, learning, maintenance,
-    materials, notes, planning, plugins, practice, providers, reports, review, security, sharing,
-    store::Store, sync, web, BackendState,
+    materials, notes, planning, plugins, practice, projects, providers, reports, review, security,
+    sharing, store::Store, sync, web, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -65,6 +65,7 @@ fn main() {
                     learning::recover(app.handle(), &state.learning)?;
                     agent::recover(app.handle(), &state.agent)?;
                     practice::recover(app.handle(), &state.practice)?;
+                    projects::recover(app.handle(), &projects::ProjectState::new(&state.learning))?;
                     knowledge::recover(app.handle(), &state.knowledge)?;
                     sync::recover(app.handle(), &sync::SyncService::new(&state.learning))?;
                     Ok(())
@@ -183,6 +184,11 @@ fn main() {
             learning::commands::generate_lecture,
             learning::commands::cancel_lecture,
             learning::commands::save_study_note,
+            projects::commands::get_project_workspace,
+            projects::commands::submit_project_version,
+            projects::commands::cancel_project_feedback,
+            projects::commands::resume_project_feedback,
+            projects::commands::save_project_iteration_note,
             export::commands::export_content,
             export::commands::export_notes_archive,
             sharing::commands::create_shared_plan,

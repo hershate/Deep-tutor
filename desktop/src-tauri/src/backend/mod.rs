@@ -13,6 +13,7 @@ pub mod notes;
 pub mod planning;
 pub mod plugins;
 pub mod practice;
+pub mod projects;
 pub mod providers;
 pub(crate) mod random;
 pub mod reports;

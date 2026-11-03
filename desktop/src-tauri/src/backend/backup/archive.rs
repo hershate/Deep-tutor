@@ -50,6 +50,7 @@ pub(crate) const TABLES: &[&str] = &[
     "learning_lecture_units",
     "learning_lecture_versions",
     "learning_annotations",
+    "project_versions",
     "practice_sets",
     "practice_questions",
     "practice_answers",
@@ -602,6 +603,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
                     "focus_sessions",
                     "study_checkins",
                     "notifications",
+                    "project_versions",
                 ]
                 .contains(table))
         {

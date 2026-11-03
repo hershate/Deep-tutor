@@ -52,6 +52,7 @@ pub fn import<R: Runtime>(
         app,
         &super::practice::PracticeState::new(state.database_path(), &state.provider_state(), state),
     )?;
+    super::projects::recover(app, &super::projects::ProjectState::new(state))?;
     super::knowledge::recover(
         app,
         &super::knowledge::KnowledgeState::new(

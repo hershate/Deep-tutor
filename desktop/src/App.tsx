@@ -57,6 +57,7 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string } | null>(null)
   const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
+  const [mapPlanId, setMapPlanId] = useState<string | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
@@ -224,11 +225,11 @@ export default function App() {
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
-      case 'projects': return <Projects projects={projects} setProjects={setProjects} notify={notify} />
+      case 'projects': return <Projects projects={projects} setProjects={setProjects} onNavigateMap={planId => { setMapPlanId(planId); navigate('map') }} notify={notify} />
       case 'reports': return <Reports notify={notify} onNavigate={navigate} />
       case 'community': return <Community notify={notify} />
       case 'integrations': return <Integrations notify={notify} />

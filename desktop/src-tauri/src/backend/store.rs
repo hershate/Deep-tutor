@@ -129,6 +129,7 @@ impl Store {
         super::knowledge::migrate(&conn)?;
         super::providers::migrate(&conn)?;
         super::learning::migrate(&conn)?;
+        super::projects::migrate(&conn)?;
         super::sharing::migrate(&conn)?;
         super::practice::migrate(&conn)?;
         super::review::migrate(&conn)?;
@@ -551,6 +552,7 @@ impl Store {
         } else {
             tx.execute("DELETE FROM share_index WHERE user_id = 1", [])?;
         }
+        super::projects::clear_all(&tx)?;
         super::learning::clear_all(&tx)?;
         super::materials::clear_all(&tx)?;
         super::providers::clear_all(&tx)?;
@@ -806,12 +808,16 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                         "due",
                         "progress",
                         "tag",
+                        "planId",
                         "milestones",
                     ],
                 )?;
                 text(object, "description", 10_000, true)?;
                 text(object, "due", 100, true)?;
                 text(object, "tag", 100, false)?;
+                if object.get("planId").is_some_and(|value| !value.is_null()) {
+                    text(object, "planId", 64, false)?;
+                }
                 progress(object, "progress")?;
                 let milestones = field(object, "milestones")?.as_array().ok_or_else(|| {
                     BackendError::invalid("invalid_milestones", "里程碑必须是数组")

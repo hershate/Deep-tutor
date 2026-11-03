@@ -37,7 +37,7 @@ function graphLayout(graph: LearningGraph) {
   return positions
 }
 
-export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void; onPractice?: (planId: string, stageId: string, nodeId: string) => void }) {
+export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, initialPlanId }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void; onPractice?: (planId: string, stageId: string, nodeId: string) => void; initialPlanId?: string | null }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null)
@@ -58,9 +58,10 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice }
     try {
       const items = (await backend.listLearningPlans()).filter(item => item.adoptedProjectId !== null)
       setPlans(items)
-      setPlan(current => current ? items.find(item => item.id === current.id) || items[0] || null : items[0] || null)
+      const preferred = initialPlanId
+      setPlan(current => preferred ? items.find(item => item.id === preferred) || items[0] || null : current ? items.find(item => item.id === current.id) || items[0] || null : items[0] || null)
     } catch (cause) { setError(backendErrorMessage(cause)) }
-  }, [])
+  }, [initialPlanId])
   useEffect(() => { void refreshPlans() }, [refreshPlans])
   useEffect(() => { void refreshOverview() }, [refreshOverview])
   useEffect(() => {

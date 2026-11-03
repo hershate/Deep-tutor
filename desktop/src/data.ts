@@ -35,6 +35,7 @@ export type Project = {
   due: string
   progress: number
   tag: string
+  planId?: string | null
   milestones: Milestone[]
 }
 
