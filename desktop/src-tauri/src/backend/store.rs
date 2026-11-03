@@ -106,6 +106,7 @@ impl Store {
         super::agent::migrate(&conn)?;
         super::community::migrate(&conn)?;
         super::plugins::migrate(&conn)?;
+        super::security::migrate(&conn)?;
         super::sync::migrate(&conn)?;
         if version < 1 {
             conn.pragma_update(None, "user_version", 1)?;

@@ -81,7 +81,13 @@ pub(crate) const TABLES: &[&str] = &[
     "plugin_reloads",
     "sync_config",
     "sync_jobs",
+    "local_users",
+    "auth_sessions",
+    "access_tokens",
+    "security_quotas",
 ];
+
+pub(crate) const EXCLUDED_AUTH_TABLES: &[&str] = &["auth_sessions", "access_tokens"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -352,6 +358,15 @@ pub fn export<R: Runtime>(
     let snapshot = workspace.path.join("state.db");
     let path = snapshot.to_string_lossy().to_string();
     store.conn.execute("VACUUM INTO ?1", params![path])?;
+    {
+        let snapshot_connection = Connection::open(&snapshot)?;
+        snapshot_connection.execute_batch(
+            "PRAGMA secure_delete = ON;
+             DELETE FROM auth_sessions;
+             DELETE FROM access_tokens;
+             VACUUM;",
+        )?;
+    }
     let database_bytes = fs::read(&snapshot)?;
     if database_bytes.len() as u64 > MAX_DATABASE_BYTES {
         return Err(BackendError::new(
@@ -547,7 +562,16 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
             connection.query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), [], |row| {
                 row.get::<_, i64>(0)
             })? as u64;
-        if manifest.tables.get(*table) != Some(&count) {
+        if manifest.tables.get(*table) != Some(&count)
+            && !(manifest.tables.get(*table).is_none()
+                && [
+                    "local_users",
+                    "auth_sessions",
+                    "access_tokens",
+                    "security_quotas",
+                ]
+                .contains(table))
+        {
             return Err(BackendError::new(
                 "backup_manifest_mismatch",
                 "备份表计数与数据库不一致",

@@ -1503,8 +1503,14 @@ td strong { color: var(--text); }
 .maintenance-candidates code { overflow-wrap: anywhere; font-size: 12px; }
 .auth-chain { display: grid; gap: 8px; }
 .auth-chain > div { display: flex; align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--border); border-radius: 8px; }
-.auth-chain > div > span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.auth-chain > div > span { width: 36px; height: 26px; flex-shrink: 0; display: grid; place-items: center; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 10px; }
+.auth-chain > div > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .auth-chain strong { flex: 1; font-size: 12px; }
+.auth-chain small { color: var(--muted); font-size: 11px; }
+.user-row { flex-wrap: wrap; padding: 8px 0; }
+.user-row > div { min-width: 170px; }
+.quota-grid label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.quota-grid input { width: 90px; min-width: 0; }
 .security-disclosure { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; padding: 13px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .security-disclosure p { margin: 0; font-size: 12px; }
 .security-subsection { padding: 18px 0; border-top: 1px solid var(--border); }

@@ -74,7 +74,7 @@ fn schema(conn: &Connection, table: &str) -> Result<Vec<Column>> {
             Ok(Column {
                 name: row.get(1)?,
                 kind: row.get::<_, String>(2)?.to_ascii_uppercase(),
-                primary: row.get::<_, i64>(5)? == 1,
+                primary: row.get::<_, i64>(5)? > 0,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -88,16 +88,22 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
     for table in TABLES {
         let columns = schema(target, table)?;
         let source_columns = schema(source, table)?;
-        if columns
-            .iter()
-            .map(|column| &column.name)
-            .collect::<BTreeSet<_>>()
-            != source_columns.iter().map(|column| &column.name).collect()
+        if !source_columns.is_empty()
+            && columns
+                .iter()
+                .map(|column| &column.name)
+                .collect::<BTreeSet<_>>()
+                != source_columns.iter().map(|column| &column.name).collect()
         {
             return Err(BackendError::invalid(
                 "unsupported_backup_schema",
                 "备份表字段与当前版本不一致",
             ));
+        }
+        if source_columns.is_empty() || super::archive::EXCLUDED_AUTH_TABLES.contains(table) {
+            tables.insert(*table, Vec::new());
+            schemas.insert(*table, columns);
+            continue;
         }
         let mut statement = source.prepare(&format!("SELECT * FROM \"{table}\" ORDER BY rowid"))?;
         let rows = statement
@@ -565,7 +571,8 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     "projectId" => Some("kv:projects"),
                     "taskId" => Some("kv:tasks"),
                     "noteId" => Some("kv:notes"),
-                    "sessionId" => Some(
+                    "userId" => Some("local_users"),
+                    "sessionId" if !table.starts_with("event:security.") => Some(
                         if table.starts_with("agent_") || table.starts_with("event:agent.") {
                             "agent_sessions"
                         } else {
@@ -899,7 +906,12 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                     continue;
                 }
             }
-            transform(transfer, table, row, tx)?;
+            transform(transfer, table, row, tx).map_err(|error| {
+                BackendError::new(
+                    &error.code,
+                    &format!("处理备份表 {table} 时：{}", error.message),
+                )
+            })?;
             if *table == "materials" {
                 let id = row.get("id").cloned().ok_or_else(invalid_record)?;
                 let source = transfer.maps.get("materials").and_then(|map| {

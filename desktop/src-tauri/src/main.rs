@@ -4,7 +4,7 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, export, knowledge, learning, maintenance, materials,
-    plugins, practice, providers, review, sharing, store::Store, sync, BackendState,
+    plugins, practice, providers, review, security, sharing, store::Store, sync, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -43,6 +43,7 @@ fn main() {
                     .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?,
                 sharing: sharing_state,
             });
+            app.manage(security::SecurityState::new(&path));
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
@@ -86,6 +87,16 @@ fn main() {
             maintenance::commands::get_maintenance_report,
             maintenance::commands::cleanup_orphan_files,
             maintenance::commands::vacuum_database,
+            security::commands::get_security_overview,
+            security::commands::login_local_user,
+            security::commands::logout_local_user,
+            security::commands::create_local_user,
+            security::commands::set_local_user_active,
+            security::commands::remove_local_user,
+            security::commands::create_access_token,
+            security::commands::revoke_access_token,
+            security::commands::authenticate_access_token,
+            security::commands::set_security_quota,
             materials::commands::import_material_files,
             materials::commands::import_material_text,
             materials::commands::list_materials,
