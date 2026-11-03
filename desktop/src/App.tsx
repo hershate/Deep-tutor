@@ -24,6 +24,8 @@ import { backend, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
 import { communityBackend } from './backend/community'
+import { reportsBackend } from './backend/reports'
+import type { FocusSession } from './backend/reports'
 
 const Library = lazy(() => import('./pages/Library'))
 const PlanGenerator = lazy(() => import('./pages/PlanGenerator'))
@@ -62,7 +64,8 @@ export default function App() {
   const [quickTitle, setQuickTitle] = useState('')
   const [focusOpen, setFocusOpen] = useState(false)
   const [focusSeconds, setFocusSeconds] = useState(25 * 60)
-  const [focusRunning, setFocusRunning] = useState(false)
+  const [focusSession, setFocusSession] = useState<FocusSession | null>(null)
+  const [focusBusy, setFocusBusy] = useState(false)
 
   const notify = (message: string) => setToast(message)
   useEffect(() => {
@@ -93,15 +96,53 @@ export default function App() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setModal('search') }
-      if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false); setFocusRunning(false) }
+      if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false) }
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
   }, [])
   useEffect(() => {
-    if (!focusRunning) return
-    const timer = window.setInterval(() => setFocusSeconds(prev => { if (prev <= 1) { setFocusRunning(false); notify('本次专注完成，休息一下吧'); return 0 } return prev - 1 }), 1000)
+    if (!focusOpen || focusSession?.status !== 'running') return
+    const tick = () => {
+      const remaining = Math.max(0, focusSession.plannedSeconds - Math.floor((Date.now() - Date.parse(focusSession.startedAt)) / 1000))
+      setFocusSeconds(remaining)
+      if (remaining === 0 && !focusBusy) void finishFocus(false)
+    }
+    tick()
+    const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-  }, [focusRunning])
+  }, [focusOpen, focusSession, focusBusy])
+  const openFocus = () => {
+    setFocusOpen(true)
+    void reportsBackend.focus().then(overview => {
+      setFocusSession(overview.active)
+      setFocusSeconds(overview.active?.remainingSeconds ?? 25 * 60)
+    }).catch(reportBackendError)
+  }
+  const toggleFocus = async () => {
+    if (focusBusy) return
+    setFocusBusy(true)
+    try {
+      const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(null, 25 * 60)
+      setFocusSession(next)
+      setFocusSeconds(next.remainingSeconds)
+    } catch (error) { reportBackendError(error) } finally { setFocusBusy(false) }
+  }
+  const finishFocus = async (cancelled: boolean): Promise<FocusSession | null> => {
+    if (!focusSession || focusBusy) return null
+    setFocusBusy(true)
+    try {
+      const done = cancelled ? await reportsBackend.cancelFocus() : await reportsBackend.completeFocus()
+      setFocusSession(done)
+      setFocusSeconds(done.remainingSeconds)
+      notify(`${cancelled ? '已取消并保存' : '已完成'} ${done.actualSeconds} 秒真实专注`)
+      return done
+    } catch (error) { reportBackendError(error); return null } finally { setFocusBusy(false) }
+  }
+  const resetFocus = async () => {
+    if (focusSession && ['running', 'paused'].includes(focusSession.status) && !(await finishFocus(true))) return
+    setFocusSession(null)
+    setFocusSeconds(25 * 60)
+  }
   const navigate = (target: PageId) => { setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false); window.scrollTo({ top: 0, behavior: preferences.reducedMotion ? 'auto' : 'smooth' }) }
   const addQuick = async () => {
     if (!quickTitle.trim()) return
@@ -141,7 +182,7 @@ export default function App() {
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} notify={notify} />
-      case 'reports': return <Reports notify={notify} />
+      case 'reports': return <Reports notify={notify} onNavigate={navigate} />
       case 'community': return <Community notify={notify} />
       case 'integrations': return <Integrations notify={notify} />
       case 'providers': return <ProviderHub notify={notify} />
@@ -196,7 +237,7 @@ export default function App() {
       <AgentTaskCenter notify={notify} />
     </Modal>
 
-    {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习"><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => { setFocusOpen(false); setFocusRunning(false) }}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>理解贝叶斯定理与先验概率</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" onClick={() => setFocusRunning(!focusRunning)}>{focusRunning ? <Pause size={20} /> : <Play size={20} />}{focusRunning ? '暂停' : '开始专注'}</Button><IconButton label="重置为 25 分钟" onClick={() => { setFocusSeconds(25 * 60); setFocusRunning(false) }}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。消息与其他页面会在你回来时保留。</span></div><button className="focus-exit" onClick={() => { setFocusOpen(false); setFocusRunning(false) }}>Esc 退出专注</button></div>}
+    {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习"><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => setFocusOpen(false)}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{focusSession?.taskId ? tasks.find(task => task.id === focusSession.taskId)?.title || `任务 #${focusSession.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={focusBusy} onClick={() => void toggleFocus()}>{focusSession?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{focusSession?.status === 'running' ? '暂停' : focusSession?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={focusBusy || !focusSession || !['running', 'paused'].includes(focusSession.status)} onClick={() => void finishFocus(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={focusBusy} onClick={() => void resetFocus()}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={() => setFocusOpen(false)}>Esc 退出专注</button></div>}
     {toast && <div className="toast" role="status"><Check size={17} /><span>{toast}</span><button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
   </div>
 }

@@ -12,6 +12,7 @@ pub mod plugins;
 pub mod practice;
 pub mod providers;
 pub(crate) mod random;
+pub mod reports;
 pub mod review;
 pub mod security;
 pub mod sharing;

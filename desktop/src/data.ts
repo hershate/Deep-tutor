@@ -6,6 +6,7 @@ export type Task = {
   subject: string
   duration: number
   done: boolean
+  completedAt?: string
   kind: '学习' | '练习' | '复习' | '项目'
 }
 

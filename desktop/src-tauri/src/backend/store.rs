@@ -135,6 +135,7 @@ impl Store {
         super::agent::migrate(&conn)?;
         super::community::migrate(&conn)?;
         super::plugins::migrate(&conn)?;
+        super::reports::migrate(&conn)?;
         super::security::migrate(&conn)?;
         super::sync::migrate(&conn)?;
         if version < 1 {
@@ -366,6 +367,31 @@ impl Store {
         })
     }
 
+    fn normalize_tasks(&self, value: &Value) -> Result<Value> {
+        let previous = self.collection("tasks")?.value;
+        let mut normalized = value.clone();
+        let timestamp = Self::now()?;
+        if let Some(items) = normalized.as_array_mut() {
+            for item in items {
+                let Some(object) = item.as_object_mut() else {
+                    continue;
+                };
+                let id = object.get("id").and_then(Value::as_i64);
+                let done = object.get("done").and_then(Value::as_bool).unwrap_or(false);
+                let was_done = previous.as_array().into_iter().flatten().any(|task| {
+                    task.get("id").and_then(Value::as_i64) == id
+                        && task.get("done").and_then(Value::as_bool) == Some(true)
+                });
+                if done && !was_done {
+                    object.insert("completedAt".into(), Value::String(timestamp.clone()));
+                } else if !done {
+                    object.remove("completedAt");
+                }
+            }
+        }
+        Ok(normalized)
+    }
+
     pub fn replace_collection(
         &self,
         namespace: &str,
@@ -384,6 +410,12 @@ impl Store {
                 "不支持的数据集合",
             ));
         }
+        let normalized = if namespace == "tasks" {
+            Some(self.normalize_tasks(value)?)
+        } else {
+            None
+        };
+        let value = normalized.as_ref().unwrap_or(value);
         if namespace == "preferences" {
             validate_preferences(value)?;
         } else {
@@ -495,6 +527,7 @@ impl Store {
         super::agent::clear_all(&tx)?;
         super::practice::clear_all(&tx)?;
         super::review::clear_all(&tx)?;
+        super::reports::clear_all(&tx)?;
         super::knowledge::clear_all(&tx)?;
         super::sharing::clear_all(&tx)?;
         if let Some(owner_id) = self.owner_id {
@@ -697,8 +730,19 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
             "tasks" => {
                 allowed_fields(
                     object,
-                    &["id", "title", "subject", "duration", "done", "kind"],
+                    &[
+                        "id",
+                        "title",
+                        "subject",
+                        "duration",
+                        "done",
+                        "kind",
+                        "completedAt",
+                    ],
                 )?;
+                if object.contains_key("completedAt") {
+                    text(object, "completedAt", 64, false)?;
+                }
                 text(object, "subject", 100, false)?;
                 boolean(object, "done")?;
                 let duration = field(object, "duration")?

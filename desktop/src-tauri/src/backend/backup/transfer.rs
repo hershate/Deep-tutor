@@ -88,17 +88,29 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
     for table in TABLES {
         let columns = schema(target, table)?;
         let source_columns = schema(source, table)?;
-        if !source_columns.is_empty()
-            && columns
+        if !source_columns.is_empty() {
+            let target_names = columns
                 .iter()
                 .map(|column| &column.name)
-                .collect::<BTreeSet<_>>()
-                != source_columns.iter().map(|column| &column.name).collect()
-        {
-            return Err(BackendError::invalid(
-                "unsupported_backup_schema",
-                "备份表字段与当前版本不一致",
-            ));
+                .collect::<BTreeSet<_>>();
+            let source_names = source_columns
+                .iter()
+                .map(|column| &column.name)
+                .collect::<BTreeSet<_>>();
+            let missing = target_names
+                .difference(&source_names)
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if target_names != source_names
+                && !(table == &"focus_sessions"
+                    && missing.len() == 1
+                    && missing.iter().any(|name| name.as_str() == "paused_at"))
+            {
+                return Err(BackendError::invalid(
+                    "unsupported_backup_schema",
+                    "备份表字段与当前版本不一致",
+                ));
+            }
         }
         if source_columns.is_empty() || super::archive::EXCLUDED_AUTH_TABLES.contains(table) {
             tables.insert(*table, Vec::new());
@@ -109,8 +121,11 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
         let rows = statement
             .query_map([], |row| {
                 let mut values = BTreeMap::new();
-                for (index, column) in columns.iter().enumerate() {
+                for (index, column) in source_columns.iter().enumerate() {
                     values.insert(column.name.clone(), read_value(row, index, &column.kind)?);
+                }
+                if table == &"focus_sessions" {
+                    values.entry("paused_at".into()).or_insert(Value::Null);
                 }
                 Ok(values)
             })?
@@ -864,6 +879,7 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
         "meta" | "provider_meta" => "key",
         "revisions" => "namespace",
         "sync_config" => "id",
+        "study_checkins" => "date",
         _ => return Ok(false),
     };
     let value = row.get(key).ok_or_else(invalid_record)?;

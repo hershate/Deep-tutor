@@ -4,7 +4,8 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, export, knowledge, learning, maintenance, materials,
-    plugins, practice, providers, review, security, sharing, store::Store, sync, BackendState,
+    plugins, practice, providers, reports, review, security, sharing, store::Store, sync,
+    BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -98,6 +99,17 @@ fn main() {
             maintenance::commands::get_maintenance_report,
             maintenance::commands::cleanup_orphan_files,
             maintenance::commands::vacuum_database,
+            reports::commands::get_learning_report,
+            reports::commands::get_learning_calendar,
+            reports::commands::get_focus_overview,
+            reports::commands::start_focus_session,
+            reports::commands::complete_focus_session,
+            reports::commands::pause_focus_session,
+            reports::commands::resume_focus_session,
+            reports::commands::cancel_focus_session,
+            reports::commands::save_study_checkin,
+            reports::commands::adopt_report_recommendations,
+            reports::commands::export_learning_report,
             security::commands::get_security_overview,
             security::commands::login_local_user,
             security::commands::logout_local_user,
