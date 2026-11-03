@@ -109,26 +109,6 @@ pub fn reset_application<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn export_backup(state: State<'_, BackendState>) -> Result<Value> {
-    store(&state)?.export_backup()
-}
-
-#[tauri::command]
-pub fn preview_backup(state: State<'_, BackendState>, backup: Value) -> Result<Value> {
-    store(&state)?.preview_backup(&backup)
-}
-
-#[tauri::command]
-pub fn import_backup<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-    backup: Value,
-) -> Result<Value> {
-    let mutation = store(&state)?.import_backup(&backup)?;
-    finish(&app, mutation)
-}
-
-#[tauri::command]
 pub fn events_since(state: State<'_, BackendState>, last_id: i64) -> Result<EventPage> {
     store(&state)?.events_since(last_id)
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type AppSnapshot, type CollectionNamespace } from './client'
+import { backupBackend } from './backup'
 
 const emptySnapshot: AppSnapshot = {
   tasks: [], notes: [], resources: [], projects: [],
@@ -91,8 +92,8 @@ export function useBackendState() {
     return next
   }, [applySnapshot])
 
-  const importBackup = useCallback(async (backup: unknown) => {
-    const next = await backend.importBackup(backup)
+  const importBackup = useCallback(async (path: string) => {
+    const next = await backupBackend.import(path)
     applySnapshot(next)
     return next
   }, [applySnapshot])

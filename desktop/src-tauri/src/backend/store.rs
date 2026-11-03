@@ -13,7 +13,6 @@ use time::OffsetDateTime;
 
 const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
-const MAX_BACKUP_BYTES: usize = 256 * 1024 * 1024;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize)]
@@ -418,29 +417,12 @@ impl Store {
         self.finish_write(tx, Some(event))
     }
 
-    pub fn export_backup(&self) -> Result<Value> {
-        let mut backup = self.app_state()?;
-        let object = backup
-            .as_object_mut()
-            .ok_or_else(|| BackendError::new("storage_failed", "无法读取本地状态"))?;
-        object.remove("lastEventId");
-        object.remove("versions");
-        let drafts = self.drafts()?;
-        object.insert("drafts".to_string(), Value::Array(drafts));
-        object.insert(
-            "format".to_string(),
-            Value::String("deep-tutor-backup".into()),
-        );
-        object.insert("version".to_string(), Value::from(2));
-        object.insert("exportedAt".to_string(), Value::String(Self::now()?));
-        Ok(backup)
-    }
-
+    #[cfg(test)]
     fn drafts(&self) -> Result<Vec<Value>> {
-        let mut stmt = self
+        let mut statement = self
             .conn
             .prepare("SELECT id, data FROM kv WHERE namespace = 'drafts' ORDER BY id")?;
-        let rows = stmt.query_map([], |row| {
+        let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         let mut drafts = Vec::new();
@@ -451,150 +433,6 @@ impl Store {
             drafts.push(draft);
         }
         Ok(drafts)
-    }
-
-    fn validate_backup(backup: &Value) -> Result<&Map<String, Value>> {
-        if serde_json::to_vec(backup)?.len() > MAX_BACKUP_BYTES {
-            return Err(BackendError::new(
-                "backup_too_large",
-                "备份超过 256 MB 上限",
-            ));
-        }
-        let object = backup
-            .as_object()
-            .ok_or_else(|| BackendError::invalid("invalid_backup", "备份必须是 JSON 对象"))?;
-        if object.get("format").and_then(Value::as_str) != Some("deep-tutor-backup")
-            || object.get("version").and_then(Value::as_i64) != Some(2)
-        {
-            return Err(BackendError::invalid(
-                "unsupported_backup",
-                "仅支持第二版 Deep-tutor 完整备份",
-            ));
-        }
-        for key in object.keys() {
-            if !["format", "version", "exportedAt", "preferences", "drafts"]
-                .into_iter()
-                .chain(COLLECTIONS)
-                .any(|allowed| allowed == key)
-            {
-                return Err(BackendError::invalid(
-                    "invalid_backup_field",
-                    "备份包含未知字段",
-                ));
-            }
-        }
-        for namespace in COLLECTIONS {
-            validate_collection(
-                namespace,
-                object
-                    .get(namespace)
-                    .ok_or_else(|| BackendError::invalid("incomplete_backup", "备份缺少集合"))?,
-            )?;
-        }
-        validate_preferences(
-            object
-                .get("preferences")
-                .ok_or_else(|| BackendError::invalid("incomplete_backup", "备份缺少偏好"))?,
-        )?;
-        let drafts = object
-            .get("drafts")
-            .and_then(Value::as_array)
-            .ok_or_else(|| BackendError::invalid("incomplete_backup", "备份缺少草稿集合"))?;
-        if drafts.len() > 10_000 {
-            return Err(BackendError::new("quota_exceeded", "备份草稿数量超过上限"));
-        }
-        let mut ids = BTreeSet::new();
-        for draft in drafts {
-            validate_draft(draft)?;
-            let id = draft
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| BackendError::invalid("invalid_draft_id", "草稿缺少标识"))?;
-            Self::validate_draft_id(id)?;
-            if !ids.insert(id.to_string()) {
-                return Err(BackendError::invalid("duplicate_id", "备份草稿标识重复"));
-            }
-        }
-        Ok(object)
-    }
-
-    pub fn preview_backup(&self, backup: &Value) -> Result<Value> {
-        let object = Self::validate_backup(backup)?;
-        let mut counts = Map::new();
-        for key in COLLECTIONS.into_iter().chain(["drafts"]) {
-            counts.insert(
-                key.to_string(),
-                Value::from(object[key].as_array().map_or(0, Vec::len)),
-            );
-        }
-        Ok(json!({
-            "counts": counts,
-            "appendOnly": true,
-            "format": "deep-tutor-backup",
-            "version": 2
-        }))
-    }
-
-    pub fn import_backup(&self, backup: &Value) -> Result<Mutation> {
-        let object = Self::validate_backup(backup)?;
-        let tx = self.conn.unchecked_transaction()?;
-        let mut imported = Map::new();
-        for namespace in COLLECTIONS {
-            let items = object[namespace].as_array().ok_or_else(|| {
-                BackendError::invalid("collection_must_be_array", "集合必须是数组")
-            })?;
-            for item in items {
-                let original_id = record_id(item)?;
-                let mut id = original_id.clone();
-                let mut imported_item = item.clone();
-                if Self::record_exists(&tx, namespace, &id)? {
-                    id = Self::next_free_id(&tx, namespace)?;
-                    let numeric_id = id
-                        .parse::<i64>()
-                        .map_err(|_| BackendError::new("storage_failed", "无法分配记录标识"))?;
-                    imported_item["id"] = Value::from(numeric_id);
-                }
-                if namespace == "resources" {
-                    let imported_id = imported_item["id"].as_i64().ok_or_else(|| {
-                        BackendError::invalid("invalid_id", "资料标识必须是正整数")
-                    })?;
-                    super::materials::import_metadata(&tx, &imported_item, imported_id)?;
-                } else {
-                    Self::insert_json(&tx, namespace, &id, &imported_item)?;
-                }
-                Self::next_revision(&tx, namespace)?;
-            }
-            imported.insert(namespace.to_string(), Value::from(items.len()));
-        }
-        super::materials::sync_resources(&tx)?;
-        let drafts = object["drafts"].as_array().ok_or_else(|| {
-            BackendError::invalid("collection_must_be_array", "草稿集合必须是数组")
-        })?;
-        for draft in drafts {
-            let original_id = draft
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| BackendError::invalid("invalid_draft_id", "草稿缺少标识"))?;
-            let mut id = original_id.to_string();
-            let mut imported_draft = draft.clone();
-            if Self::record_exists(&tx, "drafts", &id)? {
-                id = format!("deep-tutor-draft-{}", Self::next_free_id(&tx, "drafts")?);
-                imported_draft["id"] = Value::String(id.clone());
-            }
-            Self::insert_json(&tx, "drafts", &id, &imported_draft)?;
-            Self::next_revision(&tx, "drafts")?;
-        }
-        imported.insert("drafts".to_string(), Value::from(drafts.len()));
-        let event = Self::event(&tx, "backup.imported", json!({"counts": imported}))?;
-        self.finish_write(tx, Some(event))
-    }
-
-    fn record_exists(conn: &Connection, namespace: &str, id: &str) -> Result<bool> {
-        Ok(conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM kv WHERE namespace = ?1 AND id = ?2)",
-            params![namespace, id],
-            |row| row.get(0),
-        )?)
     }
 
     pub(crate) fn next_free_id(conn: &Connection, namespace: &str) -> Result<String> {
@@ -718,7 +556,7 @@ fn allowed_fields(object: &Map<String, Value>, allowed: &[&str]) -> Result<()> {
     }
 }
 
-fn validate_collection(namespace: &str, value: &Value) -> Result<()> {
+pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> {
     let items = value
         .as_array()
         .ok_or_else(|| BackendError::invalid("collection_must_be_array", "集合必须是数组"))?;
@@ -830,7 +668,7 @@ fn validate_collection(namespace: &str, value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn validate_preferences(value: &Value) -> Result<()> {
+pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
     let object = value
         .as_object()
         .ok_or_else(|| BackendError::invalid("invalid_preferences", "偏好必须是对象"))?;
@@ -864,7 +702,7 @@ fn validate_preferences(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn validate_draft(value: &Value) -> Result<()> {
+pub(crate) fn validate_draft(value: &Value) -> Result<()> {
     let object = value
         .as_object()
         .ok_or_else(|| BackendError::invalid("invalid_draft", "草稿必须是对象"))?;
@@ -887,10 +725,6 @@ fn validate_draft(value: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn note(id: i64, title: &str) -> Value {
-        json!({"id": id, "title": title, "excerpt": "摘要", "tag": "复盘", "updated": "now", "content": "正文"})
-    }
 
     fn task(id: i64) -> Value {
         json!({"id": id, "title": "学习", "subject": "数学", "duration": 20, "done": false, "kind": "学习"})
@@ -1022,46 +856,5 @@ mod tests {
             reopened.events_since(-1).unwrap_err().code,
             "invalid_event_cursor"
         );
-    }
-
-    #[test]
-    fn backup_is_strict_atomic_and_append_only() {
-        let store = Store::in_memory().unwrap();
-        store.bootstrap().unwrap();
-        store
-            .replace_collection("notes", 0, &json!([note(1, "原笔记")]))
-            .unwrap();
-        store
-            .put_draft(
-                "deep-tutor-draft-new",
-                &json!({"title": "草稿", "content": "正文", "tag": "复盘"}),
-            )
-            .unwrap();
-        let backup = store.export_backup().unwrap();
-        assert_eq!(backup["version"], 2);
-        assert_eq!(backup["drafts"].as_array().unwrap().len(), 1);
-        assert_eq!(
-            store.preview_backup(&json!({})).unwrap_err().code,
-            "unsupported_backup"
-        );
-        let mut invalid = backup.clone();
-        invalid["notes"] = json!([note(2, "不应导入"), {"id": 3}]);
-        assert!(store.import_backup(&invalid).is_err());
-        assert_eq!(
-            store.collection("notes").unwrap().value,
-            json!([note(1, "原笔记")])
-        );
-        let event_count = store.latest_event_id().unwrap();
-        store.import_backup(&backup).unwrap();
-        let notes = store.collection("notes").unwrap().value;
-        assert_eq!(notes.as_array().unwrap().len(), 2);
-        assert_eq!(notes[0]["id"], 1);
-        assert_eq!(notes[1]["id"], 2);
-        assert_eq!(notes[1]["title"], "原笔记");
-        assert_eq!(store.drafts().unwrap().len(), 2);
-        assert!(store.latest_event_id().unwrap() > event_count);
-        store.reset().unwrap();
-        assert_eq!(store.app_state().unwrap()["notes"], json!([]));
-        assert!(store.latest_event_id().unwrap() > event_count + 1);
     }
 }

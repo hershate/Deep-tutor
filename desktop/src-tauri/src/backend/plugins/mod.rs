@@ -301,6 +301,9 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
                 "provider",
                 "plugin",
                 "app",
+                "share",
+                "content",
+                "backup",
             ]
             .contains(&prefix)
         } else {
@@ -328,6 +331,10 @@ fn parse_manifest(content: &str) -> Result<PluginManifest> {
     })?;
     validate(&manifest)?;
     Ok(manifest)
+}
+
+pub(crate) fn validate_manifest_content(content: &str) -> Result<()> {
+    parse_manifest(content).map(|_| ())
 }
 
 fn manifest_path(state: &PluginState, id: &str) -> Result<PathBuf> {

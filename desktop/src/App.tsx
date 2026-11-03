@@ -110,13 +110,7 @@ export default function App() {
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
     } catch (error) { reportBackendError(error) }
   }
-  const exportAll = async () => {
-    try {
-      const data = await backend.exportBackup()
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'DeepTutor-backup.json'; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify('学习数据已由原生后端导出')
-    } catch (error) { reportBackendError(error) }
-  }
-  const importAll = (data: unknown) => importBackup(data)
+  const importAll = (path: string) => importBackup(path)
   const resetAll = async () => {
     const next = await resetApplication()
     notify('本地任务、笔记、资料、项目、草稿和偏好已清空')
@@ -150,7 +144,7 @@ export default function App() {
       case 'community': return <Community notify={notify} />
       case 'integrations': return <Integrations notify={notify} />
       case 'providers': return <ProviderHub notify={notify} />
-      case 'settings': return <Settings preferences={preferences} setPreferences={setPreferences} onExport={exportAll} onImport={importAll} counts={{ tasks: tasks.length, notes: notes.length, resources: resources.length, projects: projects.length }} onReset={resetAll} notify={notify} />
+      case 'settings': return <Settings preferences={preferences} setPreferences={setPreferences} onImport={importAll} counts={{ tasks: tasks.length, notes: notes.length, resources: resources.length, projects: projects.length }} onReset={resetAll} notify={notify} />
       case 'shared': return <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
     }
   }

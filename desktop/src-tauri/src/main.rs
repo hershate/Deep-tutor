@@ -3,8 +3,8 @@
 mod backend;
 
 use backend::{
-    agent, commands, community, export, knowledge, learning, materials, plugins, practice, providers,
-    review, sharing, store::Store, BackendState,
+    agent, backup, commands, community, export, knowledge, learning, materials, plugins, practice,
+    providers, review, sharing, store::Store, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -69,10 +69,10 @@ fn main() {
             commands::get_draft,
             commands::delete_draft,
             commands::reset_application,
-            commands::export_backup,
-            commands::preview_backup,
-            commands::import_backup,
             commands::events_since,
+            backup::commands::export_full_backup,
+            backup::commands::preview_full_backup,
+            backup::commands::import_full_backup,
             materials::commands::import_material_files,
             materials::commands::import_material_text,
             materials::commands::list_materials,

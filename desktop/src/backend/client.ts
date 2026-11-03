@@ -20,7 +20,6 @@ export type BackendEvent = {
   createdAt: string
 }
 export type BackendError = { code: string; message: string }
-export type BackupPreview = { counts: Record<string, number>; appendOnly: true; format: 'deep-tutor-backup'; version: 2 }
 export type Material = {
   id: number
   title: string
@@ -327,9 +326,6 @@ export const backend = {
   getDraft: <T>(id: string) => invoke<{ value: T | null; revision: number }>('get_draft', { id }),
   deleteDraft: (id: string) => invoke<AppSnapshot>('delete_draft', { id }),
   resetApplication: () => invoke<AppSnapshot>('reset_application'),
-  exportBackup: () => invoke<Record<string, unknown>>('export_backup'),
-  previewBackup: (backup: unknown) => invoke<BackupPreview>('preview_backup', { backup }),
-  importBackup: (backup: unknown) => invoke<AppSnapshot>('import_backup', { backup }),
   eventsSince: (lastId: number) => invoke<{ events: BackendEvent[]; latestId: number; hasMore: boolean }>('events_since', { lastId }),
   openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
     options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md'] }] },
