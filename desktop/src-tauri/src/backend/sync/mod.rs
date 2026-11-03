@@ -61,7 +61,7 @@ impl SyncService {
             .unwrap_or_else(|error| error.into_inner());
         Arc::clone(
             databases
-                .entry(self.learning.database_path().to_path_buf())
+                .entry(self.learning.workspace_path().to_path_buf())
                 .or_default(),
         )
     }
@@ -535,7 +535,7 @@ fn run<R: Runtime>(
                 Some(path) => path,
                 None => service
                     .learning
-                    .database_path()
+                    .workspace_path()
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
                     .join("sync")
@@ -688,7 +688,7 @@ fn start_with_path<R: Runtime>(
     let worker_app = app.clone();
     let worker_id = id.clone();
     let destination = destination.map(PathBuf::from);
-    let spawn = std::thread::Builder::new()
+    let spawn = super::security::thread_builder()
         .name(format!("sync-{id}"))
         .spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

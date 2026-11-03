@@ -154,8 +154,7 @@ fn content(value: Value, sources: &[Source]) -> Result<LectureContent> {
 }
 
 fn scratch_root(state: &AgentState, session: &AgentSession) -> Result<PathBuf> {
-    let root = state
-        .database_path
+    let root = super::super::security::workspace_path(&state.database_path)
         .parent()
         .unwrap_or(Path::new("."))
         .join("agent-workspaces")

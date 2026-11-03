@@ -35,6 +35,7 @@ pub fn import<R: Runtime>(
 ) -> Result<Value> {
     let mut backup = archive::open(path, state)?;
     let counts = transfer::import(&mut backup, store, state)?;
+    super::sharing::reindex(&super::sharing::SharingState::new(state))?;
     let files = backup.manifest.files.len();
     let event = Store::event(
         &store.conn,

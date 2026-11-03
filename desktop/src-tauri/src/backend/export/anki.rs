@@ -38,7 +38,7 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
         ));
     }
     let root = state
-        .database_path()
+        .workspace_path()
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .join("exports");

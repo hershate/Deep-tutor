@@ -1119,7 +1119,7 @@ mod tests {
     {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
-        std::thread::spawn(move || {
+        let _ = crate::backend::security::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0u8; 8192];
             let count = stream.read(&mut buffer).unwrap();

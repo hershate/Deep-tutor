@@ -192,6 +192,6 @@ fn assets_are_real_files_and_reset_removes_installed_manifest_data() {
     state.store().unwrap().reset().unwrap();
     reset_files(&state).unwrap();
     assert!(list(&state).unwrap().is_empty());
-    assert!(!state.root.exists());
+    assert!(!state.root().exists());
     assert_eq!(super::overview(&state).unwrap().enabled_count, 0);
 }

@@ -20,25 +20,26 @@ static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct PluginState {
     database_path: PathBuf,
-    root: PathBuf,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
 }
 
 impl PluginState {
     pub fn new(path: &Path) -> Result<Self> {
-        let root = path
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-            .join("plugins");
-        fs::create_dir_all(&root)?;
-        Ok(Self {
+        let state = Self {
             database_path: path.to_path_buf(),
-            root,
             #[cfg(test)]
             _guard: None,
-        })
+        };
+        fs::create_dir_all(state.root())?;
+        Ok(state)
+    }
+
+    fn root(&self) -> PathBuf {
+        super::security::workspace_path(&self.database_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("plugins")
     }
 
     #[cfg(test)]
@@ -340,7 +341,7 @@ pub(crate) fn validate_manifest_content(content: &str) -> Result<()> {
 
 fn manifest_path(state: &PluginState, id: &str) -> Result<PathBuf> {
     validate_id(id)?;
-    Ok(state.root.join(id).join("manifest.json"))
+    Ok(state.root().join(id).join("manifest.json"))
 }
 
 fn write_manifest(state: &PluginState, id: &str, content: &str) -> Result<PathBuf> {
@@ -591,8 +592,8 @@ pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String
 }
 
 pub fn reset_files(state: &PluginState) -> Result<()> {
-    if state.root.exists() {
-        fs::remove_dir_all(&state.root)?;
+    if state.root().exists() {
+        fs::remove_dir_all(&state.root())?;
     }
     Ok(())
 }

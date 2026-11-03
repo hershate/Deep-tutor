@@ -229,7 +229,7 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, answer_id: i64) 
     let worker_app = app.clone();
     let worker_state = state.shared();
     let active = Arc::clone(&state.grading_active);
-    let result = std::thread::Builder::new()
+    let result = super::super::security::thread_builder()
         .name(format!("practice-grade-{answer_id}"))
         .spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

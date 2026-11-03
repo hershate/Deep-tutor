@@ -314,3 +314,24 @@ fn package_files_are_bounded_typed_and_atomically_written() {
         "invalid_share_file"
     );
 }
+
+#[test]
+fn public_tokens_resolve_the_owner_without_opening_the_other_workspace() {
+    let (app, state) = setup();
+    let created = super::super::security::with_user(1, || {
+        let plan_id = add_plan(&state, "done", "第一位用户的分享");
+        create(app.handle(), &state, &format!("plan-{plan_id}"), None).unwrap()
+    });
+    super::super::security::with_user(2, || {
+        assert!(list(&state, None).unwrap().is_empty());
+    });
+    let view = read_token(&state, &created.token).unwrap();
+    assert_eq!(view.plan.goal, "第一位用户的分享");
+    super::super::security::with_user(1, || {
+        revoke(app.handle(), &state, created.share.id).unwrap();
+    });
+    assert_eq!(
+        read_token(&state, &created.token).unwrap_err().code,
+        "share_unavailable"
+    );
+}

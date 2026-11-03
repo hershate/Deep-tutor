@@ -50,7 +50,7 @@ pub fn start_scheduler<R: Runtime + 'static>(app: AppHandle<R>) {
         return;
     }
     STOP.store(false, Ordering::Release);
-    let handle = std::thread::spawn(move || {
+    let handle = super::super::security::spawn(move || {
         for tick in 0.. {
             std::thread::sleep(Duration::from_secs(1));
             if STOP.load(Ordering::Acquire) {
@@ -65,7 +65,10 @@ pub fn start_scheduler<R: Runtime + 'static>(app: AppHandle<R>) {
             }
         }
     });
-    *scheduler = Some(handle);
+    match handle {
+        Ok(handle) => *scheduler = Some(handle),
+        Err(error) => eprintln!("scheduled sync thread failed to start: {error}"),
+    }
 }
 
 #[cfg(test)]

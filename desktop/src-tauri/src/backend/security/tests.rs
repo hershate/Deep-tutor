@@ -6,7 +6,7 @@ use tauri::{
     Manager,
 };
 
-fn setup() -> (tauri::App<tauri::test::MockRuntime>, SecurityState) {
+pub(super) fn setup() -> (tauri::App<tauri::test::MockRuntime>, SecurityState) {
     let state = SecurityState::for_tests().unwrap();
     let app = tauri::test::mock_builder()
         .manage(state.shared())
@@ -30,7 +30,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, SecurityState) {
     (app, state)
 }
 
-fn ipc(
+pub(super) fn ipc(
     app: &tauri::App<tauri::test::MockRuntime>,
     command: &str,
     arguments: Value,
@@ -239,50 +239,57 @@ fn jwt_rejects_tampering_and_expiry_but_allows_a_new_local_login() {
 fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
     let (app, state) = setup();
     ipc(&app, "get_security_overview", json!({})).unwrap();
-    let store = state.store().unwrap();
+    let store = Store::at_user(state.database_path.clone(), 1).unwrap();
     store.replace_collection("notes", 0, &json!([{"id":1,"title":"真实笔记","excerpt":"摘要","content":"内容","tag":"学习","updated":"刚刚"}])).unwrap();
     let materials = crate::backend::materials::MaterialState::new(&state.database_path).unwrap();
-    crate::backend::materials::import_text(
-        app.handle(),
-        &materials,
-        "配额材料".into(),
-        "真实材料".into(),
-    )
+    with_user(1, || {
+        crate::backend::materials::import_text(
+            app.handle(),
+            &materials,
+            "配额材料".into(),
+            "真实材料".into(),
+        )
+    })
     .unwrap();
     store.replace_collection("projects", 0, &json!([{"id":1,"title":"真实项目","description":"项目","due":"2099-01-01","progress":0,"tag":"项目","milestones":[]}])).unwrap();
     let providers = crate::backend::providers::ProviderState::for_tests_at(&state.database_path);
-    let profile = crate::backend::providers::upsert(
-        app.handle(),
-        &providers,
-        crate::backend::providers::ProfileInput {
-            id: None,
-            name: "本地测试".into(),
-            preset: Some("custom".into()),
-            kind: "本地模型".into(),
-            protocol: "OpenAI Chat".into(),
-            base_url: "http://127.0.0.1:9".into(),
-            default_model: "test-model".into(),
-            models: vec!["test-model".into()],
-            enabled: Some(true),
-            note: None,
-            api_key: Some("test-only".into()),
-        },
-    )
-    .unwrap();
-    crate::backend::providers::set_active(app.handle(), &providers, &profile.id).unwrap();
+    let profile = with_user(1, || {
+        let profile = crate::backend::providers::upsert(
+            app.handle(),
+            &providers,
+            crate::backend::providers::ProfileInput {
+                id: None,
+                name: "本地测试".into(),
+                preset: Some("custom".into()),
+                kind: "本地模型".into(),
+                protocol: "OpenAI Chat".into(),
+                base_url: "http://127.0.0.1:9".into(),
+                default_model: "test-model".into(),
+                models: vec!["test-model".into()],
+                enabled: Some(true),
+                note: None,
+                api_key: Some("test-only".into()),
+            },
+        )
+        .unwrap();
+        crate::backend::providers::set_active(app.handle(), &providers, &profile.id).unwrap();
+        profile
+    });
     let input = json!({"goal":"真实方案","level":"beginner","dailyMinutes":30,"deadline":"2099-01-01","materialIds":[]}).to_string();
     store.conn.execute("INSERT INTO learning_plans (status, provider_id, input_json, created_at, updated_at) VALUES ('done', ?1, ?2, 'now', 'now')", params![profile.id, input]).unwrap();
     store.conn.execute("INSERT INTO learning_plan_adoptions (plan_id, project_id, created_at) VALUES (1, 1, 'now')", []).unwrap();
     let learning =
         crate::backend::learning::LearningState::new(&state.database_path, &providers, &materials);
     let agent = crate::backend::agent::AgentState::new(&state.database_path, &providers, &learning);
-    crate::backend::agent::new_session(
-        app.handle(),
-        &agent,
-        Some("真实会话".into()),
-        Some("plan-1".into()),
-        None,
-    )
+    with_user(1, || {
+        crate::backend::agent::new_session(
+            app.handle(),
+            &agent,
+            Some("真实会话".into()),
+            Some("plan-1".into()),
+            None,
+        )
+    })
     .unwrap();
     store.conn.execute("INSERT INTO community_posts (title, body, kind, created_at, updated_at) VALUES ('真实讨论', '讨论内容', 'discussion', 'now', 'now')", []).unwrap();
     let token = ipc(&app, "create_access_token", json!({"name":"不进入备份"})).unwrap();
@@ -307,8 +314,11 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
         .parent()
         .unwrap()
         .join("security.dtbackup");
-    crate::backend::backup::export(app.handle(), &store, &learning, &path).unwrap();
-    let preview = crate::backend::backup::preview(&learning, &path).unwrap();
+    with_user(1, || {
+        crate::backend::backup::export(app.handle(), &store, &learning, &path)
+    })
+    .unwrap();
+    let preview = with_user(1, || crate::backend::backup::preview(&learning, &path)).unwrap();
     assert_eq!(preview.table_counts["access_tokens"], 0);
     assert_eq!(preview.table_counts["auth_sessions"], 0);
     let mut archive = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
@@ -318,7 +328,9 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
         .windows(token_hash.len())
         .any(|window| window == token_hash.as_bytes()));
     assert_eq!(
-        store
+        state
+            .store()
+            .unwrap()
             .conn
             .query_row("SELECT COUNT(*) FROM access_tokens", [], |row| row
                 .get::<_, i64>(0))
@@ -326,8 +338,11 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
         1
     );
     let target = crate::backend::learning::LearningState::for_tests().unwrap();
-    let target_store = target.store().unwrap();
-    crate::backend::backup::import(app.handle(), &target_store, &target, &path).unwrap();
+    let target_store = with_user(1, || target.store().unwrap());
+    with_user(1, || {
+        crate::backend::backup::import(app.handle(), &target_store, &target, &path)
+    })
+    .unwrap();
     assert_eq!(
         target_store
             .conn

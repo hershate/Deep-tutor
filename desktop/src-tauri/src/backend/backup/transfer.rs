@@ -1089,15 +1089,16 @@ pub fn import(
     prepare_ids(&mut transfer, &store.conn)?;
     let ordered = order(&transfer, &store.conn)?;
     let root = state
-        .database_path()
+        .workspace_path()
         .parent()
-        .unwrap_or_else(|| Path::new("."));
-    let staged = stage_files(&mut transfer, backup, root)?;
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let staged = stage_files(&mut transfer, backup, &root)?;
     let mut installed = Vec::new();
     let outcome = (|| {
         let tx = store.conn.unchecked_transaction()?;
         import_rows(&mut transfer, &tx, &ordered)?;
-        installed = install_files(root, &staged)?;
+        installed = install_files(&root, &staged)?;
         tx.commit()?;
         Ok(transfer.counts)
     })();

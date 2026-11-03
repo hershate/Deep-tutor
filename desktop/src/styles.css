@@ -1619,6 +1619,8 @@ td strong { color: var(--text); }
 }
 
 .page-loading { min-height: 55dvh; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px; }
+.access-gate { display: block; max-width: 920px; margin: 0 auto; padding: 40px 24px; }
+.access-gate-panel { margin-top: 24px; text-align: left; }
 .loader-mark { width: 20px; height: 20px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 
 .agent-starter { max-width: 680px; margin: 54px auto 0; text-align: center; }

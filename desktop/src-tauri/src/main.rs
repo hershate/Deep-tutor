@@ -44,27 +44,38 @@ fn main() {
                 sharing: sharing_state,
             });
             app.manage(security::SecurityState::new(&path));
+            let principal = match security::initialize_session(
+                app.handle(),
+                &app.state::<security::SecurityState>(),
+            ) {
+                Ok(principal) => Some(principal),
+                Err(error) if security::reauthentication_required(&error) => None,
+                Err(error) => return Err(error.into()),
+            };
             let state = app.state::<BackendState>();
-            materials::recover(app.handle(), &state.materials)
+            if let Some(principal) = principal {
+                security::with_user(principal.id, || -> backend::error::Result<()> {
+                    *state.store.lock().map_err(|_| {
+                        backend::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
+                    })? = Store::new(&path)?;
+                    materials::recover(app.handle(), &state.materials)?;
+                    providers::recover_chats(app.handle(), &state.providers)?;
+                    providers::routing::recover(app.handle(), &state.providers)?;
+                    learning::recover(app.handle(), &state.learning)?;
+                    agent::recover(app.handle(), &state.agent)?;
+                    practice::recover(app.handle(), &state.practice)?;
+                    knowledge::recover(app.handle(), &state.knowledge)?;
+                    sync::recover(app.handle(), &sync::SyncService::new(&state.learning))?;
+                    Ok(())
+                })
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            providers::recover_chats(app.handle(), &state.providers)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            providers::routing::recover(app.handle(), &state.providers)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            learning::recover(app.handle(), &state.learning)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            agent::recover(app.handle(), &state.agent)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            practice::recover(app.handle(), &state.practice)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            knowledge::recover(app.handle(), &state.knowledge)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            sync::recover(app.handle(), &sync::SyncService::new(&state.learning))
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            sync::scheduler::start_scheduler(app.handle().clone());
+                security::with_user(principal.id, || {
+                    sync::scheduler::start_scheduler(app.handle().clone())
+                });
+            }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(security::guard_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::get_app_state,
             commands::get_collection,
@@ -212,7 +223,7 @@ fn main() {
             agent::commands::delete_agent_session,
             agent::commands::approve_agent_request,
             agent::commands::cancel_agent_approval,
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running the Deep Tutor application");
 }

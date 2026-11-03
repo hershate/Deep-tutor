@@ -1,6 +1,12 @@
 pub mod commands;
+pub mod guard;
+pub use guard::guard_handler;
+#[cfg(test)]
+mod guard_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workspace_tests;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -21,6 +27,111 @@ use zeroize::Zeroizing;
 
 const SERVICE: &str = "deep-tutor-security";
 const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+thread_local! {
+    static PRINCIPAL: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) fn principal_id() -> Option<i64> {
+    PRINCIPAL.with(|principal| principal.get())
+}
+
+pub(crate) fn reauthentication_required(error: &BackendError) -> bool {
+    [
+        "invalid_session",
+        "session_expired",
+        "session_revoked",
+        "account_disabled",
+        "login_required",
+    ]
+    .contains(&error.code.as_str())
+}
+
+pub(crate) fn with_principal<T>(user_id: Option<i64>, operation: impl FnOnce() -> T) -> T {
+    struct Reset(Option<i64>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PRINCIPAL.with(|principal| principal.set(self.0));
+        }
+    }
+    let previous = PRINCIPAL.with(|principal| {
+        let previous = principal.get();
+        principal.set(user_id);
+        previous
+    });
+    let _reset = Reset(previous);
+    operation()
+}
+
+pub(crate) fn with_user<T>(user_id: i64, operation: impl FnOnce() -> T) -> T {
+    with_principal(Some(user_id), operation)
+}
+
+pub(crate) struct ScopedBuilder(std::thread::Builder);
+
+impl ScopedBuilder {
+    pub fn name(self, name: String) -> Self {
+        Self(self.0.name(name))
+    }
+
+    pub fn spawn<F, T>(self, operation: F) -> std::io::Result<std::thread::JoinHandle<T>>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let principal = principal_id();
+        self.0.spawn(move || with_principal(principal, operation))
+    }
+}
+
+pub(crate) fn thread_builder() -> ScopedBuilder {
+    ScopedBuilder(std::thread::Builder::new())
+}
+
+pub(crate) fn spawn<F, T>(operation: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    thread_builder().spawn(operation)
+}
+
+pub(crate) fn user_workspace_path(root: &Path, user_id: i64) -> Result<PathBuf> {
+    if user_id <= 0 || root == Path::new(":memory:") {
+        return Err(BackendError::invalid(
+            "invalid_workspace",
+            "工作区用户或数据库路径无效",
+        ));
+    }
+    let parent = root
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = root
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("workspace.db"));
+    Ok(parent
+        .join("users")
+        .join(user_id.to_string())
+        .join(file_name))
+}
+
+pub(crate) fn workspace_path(root: &Path) -> PathBuf {
+    match principal_id() {
+        Some(user_id) => user_workspace_path(root, user_id).unwrap_or_else(|_| root.to_path_buf()),
+        None => {
+            #[cfg(test)]
+            {
+                root.to_path_buf()
+            }
+            #[cfg(not(test))]
+            {
+                user_workspace_path(root, 1).unwrap_or_else(|_| root.to_path_buf())
+            }
+        }
+    }
+}
+
 const RESOURCES: [(&str, u64); 4] = [
     ("sessions", 200),
     ("notes", 500),
@@ -135,8 +246,17 @@ impl SecurityState {
         })
     }
 
+    #[cfg(test)]
+    pub fn for_tests_at(path: &Path) -> Self {
+        Self {
+            database_path: path.to_path_buf(),
+            credentials: Arc::new(MemoryCredentials::default()),
+            _guard: None,
+        }
+    }
+
     fn store(&self) -> Result<Store> {
-        Store::new(self.database_path.clone())
+        Store::root(self.database_path.clone())
     }
 }
 
@@ -243,6 +363,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             item_limit INTEGER NOT NULL CHECK(item_limit > 0),
             PRIMARY KEY(user_id, resource)
         );",
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS share_index (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT NOT NULL)",
+        [],
     )?;
     Ok(())
 }
@@ -538,6 +662,13 @@ fn initialize<R: Runtime>(
     }
 }
 
+pub(crate) fn initialize_session<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &SecurityState,
+) -> Result<LocalUser> {
+    Ok(initialize(app, state)?.0)
+}
+
 fn overview_from(state: &SecurityState) -> Result<SecurityOverview> {
     let store = state.store()?;
     let (current_user, session) = current(&store.conn, state)?;
@@ -567,6 +698,7 @@ fn overview_from(state: &SecurityState) -> Result<SecurityOverview> {
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
+    let workspace = Store::at_user(state.database_path.clone(), current_user.id)?;
     let mut quotas = Vec::new();
     for (resource, _) in RESOURCES {
         let limit: i64 = store.conn.query_row(
@@ -576,20 +708,22 @@ fn overview_from(state: &SecurityState) -> Result<SecurityOverview> {
         )?;
         let used: i64 = match resource {
             "sessions" => {
-                store
+                workspace
                     .conn
                     .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))?
             }
-            "notes" => store.conn.query_row(
+            "notes" => workspace.conn.query_row(
                 "SELECT COUNT(*) FROM kv WHERE namespace = 'notes'",
                 [],
                 |row| row.get(0),
             )?,
-            "materials" => store
-                .conn
-                .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?,
+            "materials" => {
+                workspace
+                    .conn
+                    .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?
+            }
             "threads" => {
-                store
+                workspace
                     .conn
                     .query_row("SELECT COUNT(*) FROM community_posts", [], |row| row.get(0))?
             }

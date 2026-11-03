@@ -85,9 +85,10 @@ pub(crate) const TABLES: &[&str] = &[
     "auth_sessions",
     "access_tokens",
     "security_quotas",
+    "share_index",
 ];
 
-pub(crate) const EXCLUDED_AUTH_TABLES: &[&str] = &["auth_sessions", "access_tokens"];
+pub(crate) const EXCLUDED_AUTH_TABLES: &[&str] = &["auth_sessions", "access_tokens", "share_index"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -230,9 +231,10 @@ fn file_entry(path: String, source: &Path) -> Result<FileEntry> {
 
 fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
     let root = state
-        .database_path()
+        .workspace_path()
         .parent()
-        .unwrap_or_else(|| Path::new("."));
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
     let store = state.store()?;
     let mut entries = Vec::new();
     let mut statement = store
@@ -354,16 +356,40 @@ pub fn export<R: Runtime>(
             "全量备份必须使用 .dtbackup 扩展名",
         ));
     }
-    let workspace = Workspace::new(state.database_path())?;
+    let workspace = Workspace::new(&state.workspace_path())?;
     let snapshot = workspace.path.join("state.db");
     let path = snapshot.to_string_lossy().to_string();
     store.conn.execute("VACUUM INTO ?1", params![path])?;
     {
         let snapshot_connection = Connection::open(&snapshot)?;
+        if let Some(user_id) = super::super::security::principal_id() {
+            let accounts = Connection::open(state.database_path())?;
+            let (name, role, active, created_at, updated_at, last_login_at): (String, String, bool, String, String, Option<String>) = accounts.query_row(
+                "SELECT display_name, role, active, created_at, updated_at, last_login_at FROM local_users WHERE id = ?1 AND deleted_at IS NULL",
+                params![user_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )?;
+            snapshot_connection.execute(
+                "INSERT OR REPLACE INTO local_users (id, display_name, role, active, created_at, updated_at, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![user_id, name, role, active, created_at, updated_at, last_login_at],
+            )?;
+            let mut statement = accounts
+                .prepare("SELECT resource, item_limit FROM security_quotas WHERE user_id = ?1")?;
+            let quotas = statement
+                .query_map(params![user_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            for (resource, limit) in quotas {
+                snapshot_connection.execute("INSERT OR REPLACE INTO security_quotas (user_id, resource, item_limit) VALUES (?1, ?2, ?3)", params![user_id, resource, limit])?;
+            }
+        }
         snapshot_connection.execute_batch(
             "PRAGMA secure_delete = ON;
              DELETE FROM auth_sessions;
              DELETE FROM access_tokens;
+             DELETE FROM share_index;
              VACUUM;",
         )?;
     }
@@ -407,7 +433,7 @@ pub fn export<R: Runtime>(
         write_archive_file(&mut writer, "state.db", &database_bytes)?;
         for file in &manifest.files {
             let source = state
-                .database_path()
+                .workspace_path()
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
                 .join(&file.path);
@@ -511,7 +537,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
             "备份数据库或表清单无效",
         ));
     }
-    let workspace = Workspace::new(state.database_path())?;
+    let workspace = Workspace::new(&state.workspace_path())?;
     let bytes = read_bounded(&mut archive.by_name("state.db")?, MAX_DATABASE_BYTES)?;
     if bytes.len() as u64 != manifest.database.bytes
         || format!("{:x}", Sha256::digest(&bytes)) != manifest.database.sha256
@@ -569,6 +595,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
                     "auth_sessions",
                     "access_tokens",
                     "security_quotas",
+                    "share_index",
                 ]
                 .contains(table))
         {

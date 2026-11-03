@@ -47,11 +47,33 @@ pub struct EventPage {
 
 pub struct Store {
     pub(crate) conn: Connection,
+    pub(crate) owner_id: Option<i64>,
+    pub(crate) account_path: PathBuf,
 }
 
 impl Store {
     pub fn new(path: impl Into<PathBuf>) -> Result<Self> {
-        let path = path.into();
+        let root = path.into();
+        #[cfg(not(test))]
+        let owner = super::security::principal_id().or(Some(1));
+        #[cfg(test)]
+        let owner = super::security::principal_id();
+        Self::open(root, owner)
+    }
+
+    pub fn at_user(path: impl Into<PathBuf>, user_id: i64) -> Result<Self> {
+        Self::open(path.into(), Some(user_id))
+    }
+
+    pub fn root(path: impl Into<PathBuf>) -> Result<Self> {
+        Self::open(path.into(), None)
+    }
+
+    fn open(root: PathBuf, owner: Option<i64>) -> Result<Self> {
+        let path = match owner {
+            Some(user_id) => super::security::user_workspace_path(&root, user_id)?,
+            None => root.clone(),
+        };
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -61,6 +83,13 @@ impl Store {
         let _open = STORE_OPEN_LOCK
             .lock()
             .map_err(|_| BackendError::new("store_unavailable", "数据库初始化锁不可用"))?;
+        if owner == Some(1) && root != path && root.exists() && !path.exists() {
+            let source = Connection::open(&root)?;
+            source.pragma_update(None, "busy_timeout", 10000)?;
+            source.execute_batch("PRAGMA wal_checkpoint(FULL)")?;
+            drop(source);
+            fs::copy(&root, &path)?;
+        }
         let conn = Connection::open(&path)?;
         let journal_mode: String =
             conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
@@ -111,7 +140,11 @@ impl Store {
         if version < 1 {
             conn.pragma_update(None, "user_version", 1)?;
         }
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            owner_id: owner,
+            account_path: root,
+        })
     }
 
     #[cfg(test)]
@@ -182,6 +215,53 @@ impl Store {
         Ok(revision)
     }
 
+    pub(crate) fn ensure_quota(&self, resource: &str, additional: u64) -> Result<()> {
+        let Some(user_id) = self.owner_id else {
+            return Ok(());
+        };
+        let accounts = Connection::open_with_flags(
+            &self.account_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let limit = accounts
+            .query_row(
+                "SELECT item_limit FROM security_quotas WHERE user_id = ?1 AND resource = ?2",
+                params![user_id, resource],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(limit) = limit else {
+            return Ok(());
+        };
+        let used: i64 = match resource {
+            "notes" => self.conn.query_row(
+                "SELECT COUNT(*) FROM kv WHERE namespace = 'notes'",
+                [],
+                |row| row.get(0),
+            )?,
+            "materials" => self
+                .conn
+                .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?,
+            "sessions" => {
+                self.conn
+                    .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))?
+            }
+            "threads" => {
+                self.conn
+                    .query_row("SELECT COUNT(*) FROM community_posts", [], |row| row.get(0))?
+            }
+            _ => return Err(BackendError::invalid("invalid_quota", "未知的资源配额")),
+        };
+        let additional = i64::try_from(additional).unwrap_or(i64::MAX);
+        if used.saturating_add(additional) > limit {
+            return Err(BackendError::new(
+                "quota_exceeded",
+                &format!("{resource} 配额已用尽：当前 {used}，上限 {limit}；未写入新内容"),
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn insert_json(
         conn: &Connection,
         namespace: &str,
@@ -249,6 +329,10 @@ impl Store {
         );
         state.insert("versions".to_string(), Value::Object(versions));
         state.insert(
+            "workspaceId".to_string(),
+            Value::from(self.owner_id.unwrap_or(0)),
+        );
+        state.insert(
             "lastEventId".to_string(),
             Value::from(self.latest_event_id()?),
         );
@@ -304,6 +388,15 @@ impl Store {
             validate_preferences(value)?;
         } else {
             validate_collection(namespace, value)?;
+        }
+        if namespace == "notes" {
+            let next = value.as_array().map_or(0, Vec::len);
+            let current = self
+                .collection("notes")?
+                .value
+                .as_array()
+                .map_or(0, Vec::len);
+            self.ensure_quota("notes", next.saturating_sub(current) as u64)?;
         }
         let tx = self.conn.unchecked_transaction()?;
         let revision = Self::next_revision(&tx, namespace)?;
@@ -404,6 +497,11 @@ impl Store {
         super::review::clear_all(&tx)?;
         super::knowledge::clear_all(&tx)?;
         super::sharing::clear_all(&tx)?;
+        if let Some(owner_id) = self.owner_id {
+            super::sharing::clear_index(&self.account_path, owner_id)?;
+        } else {
+            tx.execute("DELETE FROM share_index WHERE user_id = 1", [])?;
+        }
         super::learning::clear_all(&tx)?;
         super::materials::clear_all(&tx)?;
         super::providers::clear_all(&tx)?;

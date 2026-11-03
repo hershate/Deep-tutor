@@ -12,6 +12,7 @@ export type AppSnapshot = {
   preferences: Preferences
   versions: Record<CollectionNamespace | 'drafts', number>
   lastEventId: number
+  workspaceId: number
 }
 export type BackendEvent = {
   id: number

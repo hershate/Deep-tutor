@@ -310,6 +310,7 @@ pub fn new_session<R: Runtime>(
     }
     let provider_id = providers::routing::provider_for_task(&state.providers, "agent")?;
     let store = state.store()?;
+    store.ensure_quota("sessions", 1)?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)", params![title, plan_id, provider_id, budget as i64, timestamp])?;
@@ -483,7 +484,7 @@ fn launch<R: Runtime>(
     let worker_app = app.clone();
     let worker_state = state.shared();
     let worker_active = Arc::clone(&state.active);
-    let result = std::thread::Builder::new()
+    let result = super::security::thread_builder()
         .name(format!("agent-run-{run_id}"))
         .spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1065,8 +1066,7 @@ pub fn delete_session<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &s
     let event = Store::event(&tx, "agent.session_deleted", json!({"sessionId": id}))?;
     tx.commit()?;
     emit(app, &event);
-    let root = state
-        .database_path
+    let root = super::security::workspace_path(&state.database_path)
         .parent()
         .unwrap_or(Path::new("."))
         .join("agent-workspaces")

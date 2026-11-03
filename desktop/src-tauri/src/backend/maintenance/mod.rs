@@ -90,7 +90,7 @@ impl MaintenanceService {
 
     fn root(&self) -> PathBuf {
         self.learning
-            .database_path()
+            .workspace_path()
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf()
@@ -120,7 +120,7 @@ fn health(service: &MaintenanceService) -> Result<DatabaseHealth> {
             &format!("数据库存在 {foreign_key_violations} 条失效外键，未执行清理"),
         ));
     }
-    let path = service.learning.database_path();
+    let path = service.learning.workspace_path();
     Ok(DatabaseHealth {
         integrity,
         foreign_key_violations,
@@ -144,7 +144,7 @@ fn health(service: &MaintenanceService) -> Result<DatabaseHealth> {
             .conn
             .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))?
             as u64,
-        bytes: fs::metadata(path)?.len(),
+        bytes: fs::metadata(&path)?.len(),
         wal_bytes: fs::metadata(path.with_extension("db-wal"))
             .map(|metadata| metadata.len())
             .unwrap_or(0),
@@ -503,7 +503,7 @@ pub fn vacuum<R: Runtime>(
 ) -> Result<VacuumResult> {
     let result = (|| {
         let _ = health(service)?;
-        let before_bytes = fs::metadata(service.learning.database_path())?.len();
+        let before_bytes = fs::metadata(service.learning.workspace_path())?.len();
         store.conn.execute_batch("VACUUM")?;
         let (wal_busy, wal_log, wal_checkpointed): (i64, i64, i64) =
             store
@@ -519,7 +519,7 @@ pub fn vacuum<R: Runtime>(
         }
         Ok(VacuumResult {
             before_bytes,
-            after_bytes: fs::metadata(service.learning.database_path())?.len(),
+            after_bytes: fs::metadata(service.learning.workspace_path())?.len(),
             wal_busy,
             wal_log,
             wal_checkpointed,

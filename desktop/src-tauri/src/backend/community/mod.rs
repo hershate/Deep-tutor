@@ -389,6 +389,7 @@ pub fn create_post<R: Runtime>(
         }
         None
     };
+    store.ensure_quota("threads", 1)?;
     let tx = store.conn.unchecked_transaction()?;
     let timestamp = now()?;
     tx.execute(

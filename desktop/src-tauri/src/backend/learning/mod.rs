@@ -97,6 +97,10 @@ impl LearningState {
         &self.database_path
     }
 
+    pub(crate) fn workspace_path(&self) -> PathBuf {
+        super::security::workspace_path(&self.database_path)
+    }
+
     pub(crate) fn material_state(&self) -> MaterialState {
         self.materials.shared()
     }
@@ -372,7 +376,7 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &LearningState, id: i64) -> Resu
     let worker_state = state.shared();
     let worker_app = app.clone();
     let active = Arc::clone(&state.active);
-    std::thread::Builder::new()
+    super::security::thread_builder()
         .name(format!("learning-plan-{id}"))
         .spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

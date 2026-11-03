@@ -325,7 +325,7 @@ fn launch<R: Runtime>(
     let worker_stage = stage_id.clone();
     let active = Arc::clone(&state.lecture_active);
     let key = key(id, &stage_id);
-    std::thread::Builder::new()
+    super::super::security::thread_builder()
         .name(format!("lecture-{id}"))
         .spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

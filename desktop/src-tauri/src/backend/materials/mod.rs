@@ -24,7 +24,6 @@ static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct MaterialState {
     database_path: PathBuf,
-    root: PathBuf,
     active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
@@ -36,15 +35,8 @@ pub struct MaterialState {
 
 impl MaterialState {
     pub fn new(database_path: &Path) -> Result<Self> {
-        let root = database_path
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-            .join("materials");
-        fs::create_dir_all(&root)?;
-        Ok(Self {
+        let state = Self {
             database_path: database_path.to_path_buf(),
-            root,
             active: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             _guard: None,
@@ -52,13 +44,21 @@ impl MaterialState {
             pause: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             defer: Arc::new(AtomicBool::new(false)),
-        })
+        };
+        fs::create_dir_all(state.root())?;
+        Ok(state)
+    }
+
+    fn root(&self) -> PathBuf {
+        super::security::workspace_path(&self.database_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("materials")
     }
 
     pub fn shared(&self) -> Self {
         Self {
             database_path: self.database_path.clone(),
-            root: self.root.clone(),
             active: Arc::clone(&self.active),
             #[cfg(test)]
             _guard: None,
@@ -358,7 +358,7 @@ fn get(conn: &Connection, root: &Path, id: i64) -> Result<Material> {
 
 pub fn detail(state: &MaterialState, id: i64) -> Result<MaterialDetail> {
     let store = state.store()?;
-    let material = get(&store.conn, &state.root, id)?;
+    let material = get(&store.conn, &state.root(), id)?;
     let text = store
         .conn
         .query_row(
@@ -375,7 +375,7 @@ pub fn list(state: &MaterialState) -> Result<Vec<Material>> {
     let mut statement = store.conn.prepare(
         "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning FROM materials ORDER BY id",
     )?;
-    let rows = statement.query_map([], |row| material(row, &state.root))?;
+    let rows = statement.query_map([], |row| material(row, &state.root()))?;
     let mut materials = Vec::new();
     for row in rows {
         materials.push(row?);
@@ -464,12 +464,13 @@ fn stage_validated<R: Runtime>(
         .optional()?
     {
         return Ok(IngestResult {
-            material: get(&store.conn, &state.root, existing)?,
+            material: get(&store.conn, &state.root(), existing)?,
             deduplicated: true,
         });
     }
-    let destination = original_path(&state.root, &sha256, &kind);
-    fs::create_dir_all(destination.parent().unwrap_or(&state.root))?;
+    store.ensure_quota("materials", 1)?;
+    let destination = original_path(&state.root(), &sha256, &kind);
+    fs::create_dir_all(destination.parent().unwrap_or(&state.root()))?;
     let temporary = destination.with_extension(format!(
         "{kind}.upload-{}-{}",
         std::process::id(),
@@ -524,7 +525,7 @@ fn stage_validated<R: Runtime>(
     };
     emit(app, &event);
     Ok(IngestResult {
-        material: get(&store.conn, &state.root, id)?,
+        material: get(&store.conn, &state.root(), id)?,
         deduplicated: false,
     })
 }
@@ -727,7 +728,7 @@ fn spawn_job<R: Runtime>(
         active.insert(id, cancel.clone());
     }
     let active = Arc::clone(&state.active);
-    let root = state.root.clone();
+    let root = state.root();
     let database_path = state.database_path.clone();
     let job_cancel = cancel.clone();
     let thread_app = app.clone();
@@ -735,7 +736,7 @@ fn spawn_job<R: Runtime>(
     let state_root = root.clone();
     #[cfg(test)]
     let pause = state.pause.clone();
-    let result = std::thread::Builder::new()
+    let result = super::security::thread_builder()
         .name(format!("material-parse-{id}"))
         .spawn(move || {
             #[cfg(test)]
@@ -816,7 +817,7 @@ fn spawn_job<R: Runtime>(
         transition(
             &app,
             &store,
-            &state.root,
+            &state.root(),
             id,
             job_id,
             "failed",
@@ -840,7 +841,7 @@ pub fn enqueue<R: Runtime>(
         ));
     }
     let store = state.store()?;
-    let material = get(&store.conn, &state.root, id)?;
+    let material = get(&store.conn, &state.root(), id)?;
     if material.status == "metadata_only" {
         return Err(BackendError::new(
             "missing_original",
@@ -885,7 +886,7 @@ pub fn enqueue<R: Runtime>(
     spawn_job(app.clone(), state, id, job_id)?;
     Ok(JobAccepted {
         job_id,
-        material: get(&store.conn, &state.root, id)?,
+        material: get(&store.conn, &state.root(), id)?,
     })
 }
 
@@ -917,7 +918,7 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     )?;
     tx.commit()?;
     emit(app, &event);
-    get(&store.conn, &state.root, id)
+    get(&store.conn, &state.root(), id)
 }
 
 pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<()> {
@@ -941,7 +942,7 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<
             transition(
                 app,
                 &store,
-                &state.root,
+                &state.root(),
                 id,
                 job_id,
                 "cancelled",
@@ -949,7 +950,7 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<
                 Some(&error),
             )?;
         } else {
-            transition(app, &store, &state.root, id, job_id, "queued", 10, None)?;
+            transition(app, &store, &state.root(), id, job_id, "queued", 10, None)?;
             spawn_job(app.clone(), state, id, job_id)?;
         }
     }
@@ -964,7 +965,7 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
         ));
     }
     let store = state.store()?;
-    let material = get(&store.conn, &state.root, id)?;
+    let material = get(&store.conn, &state.root(), id)?;
     let in_use: bool = store.conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1)",
         params![id],
@@ -987,7 +988,7 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     emit(app, &event);
     if material.original_available {
         fs::remove_file(original_path(
-            &state.root,
+            &state.root(),
             &material.sha256,
             &material.kind.to_ascii_lowercase(),
         ))
@@ -1003,7 +1004,7 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
 
 pub fn export_original(state: &MaterialState, id: i64, destination: &Path) -> Result<Value> {
     let store = state.store()?;
-    let material = get(&store.conn, &state.root, id)?;
+    let material = get(&store.conn, &state.root(), id)?;
     if !material.original_available {
         return Err(BackendError::new(
             "missing_original",
@@ -1011,7 +1012,7 @@ pub fn export_original(state: &MaterialState, id: i64, destination: &Path) -> Re
         ));
     }
     let source = original_path(
-        &state.root,
+        &state.root(),
         &material.sha256,
         &material.kind.to_ascii_lowercase(),
     );
@@ -1085,13 +1086,13 @@ pub fn export_text(state: &MaterialState, id: i64, destination: &Path) -> Result
 
 pub fn prepare_reset(state: &MaterialState) -> Result<Option<PathBuf>> {
     state.stop_all()?;
-    if !state.root.exists() {
+    let root = state.root();
+    if !root.exists() {
         return Ok(None);
     }
-    let destination = state
-        .root
-        .with_extension(format!("reset-{}", TEMP_ID.fetch_add(1, Ordering::Relaxed)));
-    fs::rename(&state.root, &destination)?;
+    let destination =
+        root.with_extension(format!("reset-{}", TEMP_ID.fetch_add(1, Ordering::Relaxed)));
+    fs::rename(root, &destination)?;
     Ok(Some(destination))
 }
 
@@ -1101,7 +1102,7 @@ pub fn finish_reset(state: &MaterialState, backup: Option<PathBuf>, committed: b
         fs::remove_dir_all(backup)
             .map_err(|_| BackendError::new("cleanup_failed", "数据已清空，但旧原件目录清理失败"))?;
     } else {
-        fs::rename(backup, &state.root)?;
+        fs::rename(backup, &state.root())?;
     }
     Ok(())
 }
@@ -1410,7 +1411,7 @@ mod tests {
         export_text(&state, first_id, &text).unwrap();
         assert_eq!(fs::read_to_string(&text).unwrap(), "第一份正文");
         let first_material = detail(&state, first_id).unwrap().material;
-        let original = original_path(&state.root, &first_material.sha256, "txt");
+        let original = original_path(&state.root(), &first_material.sha256, "txt");
         assert!(original.is_file());
         delete(app.handle(), &state, first_id).unwrap();
         assert!(!original.exists());
@@ -1445,7 +1446,7 @@ mod tests {
         assert!(!reset_app
             .state::<crate::backend::BackendState>()
             .materials
-            .root
+            .root()
             .exists());
         let second_material = detail(&state, second_id).unwrap_err();
         assert_eq!(second_material.code, "not_found");

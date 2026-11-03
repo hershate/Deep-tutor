@@ -126,6 +126,55 @@ pub fn clear_all(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn register_index(state: &SharingState, hash: &str, user_id: i64) -> Result<()> {
+    let root = Store::root(state.learning.database_path().to_path_buf())?;
+    root.conn.execute(
+        "INSERT INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)",
+        params![hash, user_id, now()?],
+    )?;
+    Ok(())
+}
+
+pub fn clear_index(root: &Path, user_id: i64) -> Result<()> {
+    let store = Store::root(root.to_path_buf())?;
+    store.conn.execute(
+        "DELETE FROM share_index WHERE user_id = ?1",
+        params![user_id],
+    )?;
+    Ok(())
+}
+
+pub fn reindex(state: &SharingState) -> Result<()> {
+    let store = state.store()?;
+    let mut statement = store.conn.prepare("SELECT token_hash FROM shared_plans")?;
+    let hashes = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    let user_id = super::security::principal_id().unwrap_or(1);
+    let root = Store::root(state.learning.database_path().to_path_buf())?;
+    root.conn.execute(
+        "DELETE FROM share_index WHERE user_id = ?1",
+        params![user_id],
+    )?;
+    for hash in hashes {
+        root.conn.execute("INSERT OR REPLACE INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)", params![hash, user_id, now()?])?;
+    }
+    Ok(())
+}
+
+fn indexed_owner(state: &SharingState, hash: &str) -> Result<Option<i64>> {
+    let root = Store::root(state.learning.database_path().to_path_buf())?;
+    root.conn
+        .query_row(
+            "SELECT user_id FROM share_index WHERE token_hash = ?1",
+            params![hash],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
 fn now() -> Result<String> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
@@ -248,14 +297,24 @@ pub fn create<R: Runtime>(
         ));
     }
     let store = state.store()?;
+    let hash = token_hash(&token);
+    let owner = super::security::principal_id().unwrap_or(1);
+    register_index(state, &hash, owner)?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO shared_plans (plan_id, plan_version, token_hash, payload_json, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![super::learning::plan_id(plan_id)?, plan.version, token_hash(&token), payload, expires_at, created_at.format(&Rfc3339)?],
+        params![super::learning::plan_id(plan_id)?, plan.version, hash, payload, expires_at, created_at.format(&Rfc3339)?],
     )?;
     let id = tx.last_insert_rowid();
     let event = Store::event(&tx, "share.created", json_event(id, plan_id, plan.version))?;
-    tx.commit()?;
+    if let Err(error) = tx.commit() {
+        let root = Store::root(state.learning.database_path().to_path_buf())?;
+        let _ = root.conn.execute(
+            "DELETE FROM share_index WHERE token_hash = ?1",
+            params![token_hash(&token)],
+        );
+        return Err(error.into());
+    }
     emit(app, &event);
     let (share, _) = metadata(&store.conn, id)?;
     let package = make_package(token.clone(), snapshot, expires_at)?;
@@ -288,8 +347,7 @@ fn make_package(token: String, plan: SharedPlanSnapshot, expires_at: String) -> 
     .map_err(Into::into)
 }
 
-pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
-    validate_token(token)?;
+fn read_local(state: &SharingState, token: &str) -> Result<SharedPlanView> {
     let store = state.store()?;
     let id = store
         .conn
@@ -312,6 +370,61 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
         expires_at: share.expires_at,
         source: "local".into(),
     })
+}
+
+pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
+    validate_token(token)?;
+    if super::security::principal_id().is_some() {
+        return read_local(state, token);
+    }
+    let current = state.store()?;
+    let local: bool = current.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
+        params![token_hash(token)],
+        |row| row.get(0),
+    )?;
+    drop(current);
+    if local {
+        return read_local(state, token);
+    }
+    if let Some(user_id) = indexed_owner(state, &token_hash(token))? {
+        return super::security::with_user(user_id, || read_local(state, token));
+    }
+    let error = match read_local(state, token) {
+        Ok(view) => return Ok(view),
+        Err(error) if error.code == "share_unavailable" => error,
+        Err(error) => return Err(error),
+    };
+    let root = state
+        .learning
+        .database_path()
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("users");
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(error.into()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries.flatten().take(10_000) {
+        let Ok(user_id) = entry.file_name().to_string_lossy().parse::<i64>() else {
+            continue;
+        };
+        if user_id <= 0 || !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let candidate = Store::at_user(state.learning.database_path().to_path_buf(), user_id)?;
+        let found: bool = candidate.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
+            params![token_hash(token)],
+            |row| row.get(0),
+        )?;
+        if found {
+            register_index(state, &token_hash(token), user_id)?;
+            return super::security::with_user(user_id, || read_local(state, token));
+        }
+    }
+    Err(error)
 }
 
 pub fn list(state: &SharingState, plan_id: Option<&str>) -> Result<Vec<ShareMetadata>> {

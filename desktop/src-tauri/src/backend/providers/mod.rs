@@ -89,36 +89,60 @@ pub(crate) trait CredentialBackend: Send + Sync {
 
 struct SystemCredentials;
 
+fn credential_name(id: &str) -> String {
+    format!(
+        "provider-u{}-{id}",
+        super::security::principal_id().unwrap_or(1)
+    )
+}
+
+fn read_credential(name: &str) -> Result<Option<Zeroizing<String>>> {
+    let entry = keyring::Entry::new(SERVICE, name)
+        .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(Zeroizing::new(value))),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err(BackendError::new("credential_error", "无法读取系统密钥库")),
+    }
+}
+
 impl CredentialBackend for SystemCredentials {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>> {
-        let entry = keyring::Entry::new(SERVICE, &format!("provider-{id}"))
-            .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
-        match entry.get_password() {
-            Ok(value) => Ok(Some(Zeroizing::new(value))),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err(BackendError::new("credential_error", "无法读取系统密钥库")),
+        if let Some(value) = read_credential(&credential_name(id))? {
+            return Ok(Some(value));
         }
+        if super::security::principal_id().unwrap_or(1) == 1 {
+            return read_credential(&format!("provider-{id}"));
+        }
+        Ok(None)
     }
 
     fn set(&self, id: &str, value: &str) -> Result<()> {
-        let entry = keyring::Entry::new(SERVICE, &format!("provider-{id}"))
-            .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
-        entry
+        keyring::Entry::new(SERVICE, &credential_name(id))
+            .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?
             .set_password(value)
             .map_err(|_| BackendError::new("credential_error", "无法写入系统密钥库"))
     }
 
     fn delete(&self, id: &str) -> Result<()> {
-        let entry = keyring::Entry::new(SERVICE, &format!("provider-{id}"))
-            .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
-        match entry.delete_credential() {
-            Ok(_) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(BackendError::new(
-                "credential_cleanup_failed",
-                "无法删除系统密钥库中的凭据",
-            )),
+        let mut names = vec![credential_name(id)];
+        if super::security::principal_id().unwrap_or(1) == 1 {
+            names.push(format!("provider-{id}"));
         }
+        for name in names {
+            let entry = keyring::Entry::new(SERVICE, &name)
+                .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
+            match entry.delete_credential() {
+                Ok(_) | Err(keyring::Error::NoEntry) => {}
+                Err(_) => {
+                    return Err(BackendError::new(
+                        "credential_cleanup_failed",
+                        "无法删除系统密钥库中的凭据",
+                    ))
+                }
+            }
+        }
+        Ok(())
     }
 }
 
