@@ -547,6 +547,7 @@ mod tests {
                 agent: crate::backend::agent::AgentState::for_tests().unwrap(),
                 practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
                 review: state.shared(),
+                knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             })
             .invoke_handler(tauri::generate_handler![
                 super::commands::create_review_card,

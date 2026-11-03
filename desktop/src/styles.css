@@ -1812,3 +1812,13 @@ h1, h2, h3 { text-wrap: balance; }
 .rubric-result strong { float: right; }
 .rubric-result small { display: block; margin-top: 6px; color: var(--muted); }
 .streaming-output { max-height: 250px; overflow: auto; padding: 12px; border-radius: 8px; background: var(--surface-soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.wiki-search { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; }
+.wiki-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
+.knowledge-search-results { display: grid; gap: 8px; max-height: 280px; overflow: auto; margin: 12px 0; }
+.knowledge-search-results button { display: flex; align-items: flex-start; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
+.knowledge-search-results button > div { flex: 1; min-width: 0; }
+.knowledge-search-results p { margin: 5px 0; color: var(--muted); font-size: 12px; }
+.knowledge-search-results small { color: var(--muted); }
+.citation-source-text { max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.wiki-history > div { display: flex; align-items: center; gap: 3px; }
+.wiki-history > div > button:first-child { flex: 1; min-width: 0; }

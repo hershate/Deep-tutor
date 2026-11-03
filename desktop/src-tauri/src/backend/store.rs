@@ -87,6 +87,7 @@ impl Store {
             );",
         )?;
         super::materials::migrate(&conn)?;
+        super::knowledge::migrate(&conn)?;
         super::providers::migrate(&conn)?;
         super::learning::migrate(&conn)?;
         super::practice::migrate(&conn)?;
@@ -378,6 +379,7 @@ impl Store {
         super::agent::clear_all(&tx)?;
         super::practice::clear_all(&tx)?;
         super::review::clear_all(&tx)?;
+        super::knowledge::clear_all(&tx)?;
         super::learning::clear_all(&tx)?;
         super::materials::clear_all(&tx)?;
         super::providers::clear_all(&tx)?;

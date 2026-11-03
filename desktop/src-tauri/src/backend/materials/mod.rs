@@ -962,14 +962,14 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     let store = state.store()?;
     let material = get(&store.conn, &state.root, id)?;
     let in_use: bool = store.conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1)",
+        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1)",
         params![id],
         |row| row.get(0),
     )?;
     if in_use {
         return Err(BackendError::new(
             "material_in_use",
-            "该资料已被学习方案引用，不能删除其原文证据",
+            "该资料已被学习方案或 Wiki 问答引用，不能删除其原文证据",
         ));
     }
     let tx = store.conn.unchecked_transaction()?;
@@ -1420,6 +1420,7 @@ mod tests {
                 agent: crate::backend::agent::AgentState::for_tests().unwrap(),
                 practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
                 review: crate::backend::review::ReviewState::for_tests().unwrap(),
+                knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();

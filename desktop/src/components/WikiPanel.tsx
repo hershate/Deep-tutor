@@ -1,19 +1,133 @@
-import { useState } from 'react'
-import { ArrowUp, BookOpen, Check, ChevronRight, FileText, History, Link2, Search, ShieldCheck, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowUp, BookOpen, Check, ChevronRight, CircleAlert, FileText, History, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import type { Resource } from '../data'
-import { Badge, Button, EmptyState } from './UI'
-
-type WikiHistory = { id: number; question: string; answer: string; sources: string[] }
+import { Badge, Button, EmptyState, Modal } from './UI'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail } from '../backend/client'
+import { knowledgeBackend, type KnowledgeCitation, type KnowledgeHit, type KnowledgeSession } from '../backend/knowledge'
 
 export default function WikiPanel({ resources, notify }: { resources: Resource[]; notify: (message: string) => void }) {
-  const [selected, setSelected] = useState<number[]>(resources.slice(0, 2).map(r => r.id))
+  const [selected, setSelected] = useState<number[]>(() => resources.filter(resource => resource.progress === 100).slice(0, 2).map(resource => resource.id))
   const [question, setQuestion] = useState('')
-  const [answer, setAnswer] = useState<WikiHistory | null>(null)
-  const [history, setHistory] = useState<WikiHistory[]>([{ id: 1, question: '贝叶斯定理和全概率公式有什么关系？', answer: '全概率公式用于计算证据出现的总概率 P(B)，它是贝叶斯公式分母的重要来源。', sources: ['概率论与数理统计 · 第四章'] }])
-  const ask = () => {
-    if (!question.trim() || !selected.length) return
-    const item = { id: Date.now(), question: question.trim(), answer: '根据当前选中的库内资料，判断阳性结果时必须同时考虑先验患病率与检测性能。低基线率会放大健康人群中假阳性的相对数量，因此“准确率高”并不直接等于“阳性后患病概率高”。', sources: resources.filter(r => selected.includes(r.id)).slice(0, 2).map(r => r.title) }
-    setAnswer(item); setHistory([item, ...history]); setQuestion('')
+  const [sessions, setSessions] = useState<KnowledgeSession[]>([])
+  const [current, setCurrent] = useState<KnowledgeSession | null>(null)
+  const [output, setOutput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<KnowledgeHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [reading, setReading] = useState<{ citation: KnowledgeCitation | null; detail: MaterialDetail } | null>(null)
+  const [noteHit, setNoteHit] = useState<KnowledgeHit | null>(null)
+  const currentId = useRef<number | null>(null)
+
+  const refresh = useCallback(async () => {
+    const items = await knowledgeBackend.list()
+    setSessions(items)
+    if (currentId.current) setCurrent(await knowledgeBackend.get(currentId.current))
+  }, [])
+  useEffect(() => {
+    void refresh().catch(reportBackendError)
+    let unlisten: (() => void) | undefined
+    const listening = onBackendEvent(event => {
+      if (event.kind.startsWith('knowledge.')) void refresh().catch(reportBackendError)
+    }).then(stop => { unlisten = stop }).catch(reportBackendError)
+    return () => { unlisten?.(); void listening }
+  }, [refresh])
+  useEffect(() => {
+    setSelected(previous => previous.filter(id => resources.some(resource => resource.id === id)))
+  }, [resources])
+  useEffect(() => {
+    const requestId = current?.requestId
+    if (!requestId || !current || !['running', 'cancelling'].includes(current.status)) { setOutput(''); return }
+    let active = true
+    const update = () => {
+      void backend.getProviderChat(requestId).then(request => { if (active) setOutput(request.output) }).catch(error => {
+        if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error)
+      })
+    }
+    update()
+    let unlisten: (() => void) | undefined
+    const listening = onBackendEvent(event => {
+      if (event.kind === 'provider.chat_delta' && event.payload.requestId === requestId) update()
+    }).then(stop => { unlisten = stop }).catch(reportBackendError)
+    return () => { active = false; unlisten?.(); void listening }
+  }, [current?.requestId, current?.status])
+
+  const choose = (session: KnowledgeSession) => {
+    currentId.current = session.id
+    setCurrent(session)
   }
-  return <div className="wiki-layout"><aside className="wiki-docs"><div className="wiki-docs-head"><div><BookOpen size={18} /><strong>引用范围</strong></div><Badge tone="neutral">{selected.length} 份</Badge></div><p>回答只会引用选中的库内文档。</p>{resources.map(resource => <label key={resource.id} className={selected.includes(resource.id) ? 'selected' : ''}><input type="checkbox" checked={selected.includes(resource.id)} onChange={() => setSelected(selected.includes(resource.id) ? selected.filter(id => id !== resource.id) : [...selected, resource.id])} /><FileText size={17} /><div><strong>{resource.title}</strong><span>{resource.type} · {resource.meta}</span></div></label>)}<div className="wiki-policy"><ShieldCheck size={16} />白名单过滤无法定位到原文的引用，不用模型记忆补造来源。</div></aside><main className="wiki-qa"><div className="wiki-answer-area">{answer ? <article className="wiki-answer"><Badge tone="green">库内引用回答</Badge><h2>{answer.question}</h2><p>{answer.answer}</p><div className="wiki-citations">{answer.sources.map((source, i) => <button key={source} onClick={() => notify(`已定位到「${source}」的解析文本`)}><span>[{i + 1}]</span><div><strong>{source}</strong><small>第 4 章 · 解析文本第 18 段</small></div><ChevronRight size={15} /></button>)}</div><div className="wiki-answer-note"><Check size={15} />{answer.sources.length} 条引用均通过库内白名单校验</div></article> : <EmptyState title="向你的知识库提问" description="先选择引用文档，再输入问题。回答、引用与历史都会保留在当前页面。" />}</div><form className="wiki-composer" onSubmit={e => { e.preventDefault(); ask() }}><textarea rows={3} value={question} onChange={e => setQuestion(e.target.value)} placeholder="例如：根据教材和课程，为什么准确率高仍可能误判？" /><div><span>{selected.length ? `基于 ${selected.length} 份文档作答` : '请至少选择一份文档'}</span><Button type="submit" disabled={!question.trim() || !selected.length}><ArrowUp size={17} />提问</Button></div></form></main><aside className="wiki-history"><div><History size={17} /><strong>问答历史</strong></div>{history.map(item => <button key={item.id} onClick={() => setAnswer(item)}><strong>{item.question}</strong><span>{item.sources.length} 条引用</span></button>)}{history.length > 0 && <Button variant="ghost" size="sm" onClick={() => { setHistory([]); setAnswer(null); notify('Wiki 问答历史已删除') }}><Trash2 size={15} />清空历史</Button>}</aside></div>
+  const ask = async () => {
+    if (busy || !question.trim() || !selected.length) return
+    setBusy(true)
+    try {
+      choose(await knowledgeBackend.ask(question.trim(), selected))
+      setQuestion('')
+      await refresh()
+      notify('问答任务已保存，等待真实模型输出')
+    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+  }
+  const cancel = async () => {
+    if (!current || busy) return
+    setBusy(true)
+    try { choose(await knowledgeBackend.cancel(current.id)); notify('已请求取消，原始问题与资料范围已保留') }
+    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+  }
+  const resume = async () => {
+    if (!current || busy) return
+    setBusy(true)
+    try { choose(await knowledgeBackend.resume(current.id)); notify('已从保存的问答状态恢复') }
+    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+  }
+  const remove = async (id: number) => {
+    try {
+      await knowledgeBackend.remove(id)
+      if (currentId.current === id) { currentId.current = null; setCurrent(null) }
+      await refresh()
+      notify('这条真实问答历史已删除')
+    } catch (error) { reportBackendError(error) }
+  }
+  const clear = async () => {
+    try {
+      await knowledgeBackend.clearHistory()
+      currentId.current = null; setCurrent(null); setSessions([])
+      notify('Wiki 历史已由原生后端清空')
+    } catch (error) { reportBackendError(error) }
+  }
+  const search = async () => {
+    if (searching || !query.trim()) return
+    setSearching(true)
+    try { setHits(await knowledgeBackend.search(query)) }
+    catch (error) { reportBackendError(error) } finally { setSearching(false) }
+  }
+  const openCitation = async (citation: KnowledgeCitation) => {
+    try {
+      const detail = await backend.getMaterial(citation.materialId)
+      if (!detail.text?.includes(citation.quote)) throw new Error('引用已无法在当前解析文本中定位')
+      setReading({ citation, detail })
+    } catch (error) { reportBackendError(error) }
+  }
+  const openHit = async (hit: KnowledgeHit) => {
+    if (hit.kind === 'note') { setNoteHit(hit); return }
+    if (hit.citation) { await openCitation(hit.citation); return }
+    if (hit.materialId) {
+      try { setReading({ citation: null, detail: await backend.getMaterial(hit.materialId) }) }
+      catch (error) { reportBackendError(error) }
+    }
+  }
+
+  return <div className="wiki-layout"><aside className="wiki-docs"><div className="wiki-docs-head"><div><BookOpen size={18} /><strong>引用范围</strong></div><Badge tone="neutral">{selected.length} 份</Badge></div><p>仅使用选中的已解析资料；每次问答会保存实际范围。</p>{resources.map(resource => <label key={resource.id} className={selected.includes(resource.id) ? 'selected' : ''}><input type="checkbox" checked={selected.includes(resource.id)} onChange={() => setSelected(selected.includes(resource.id) ? selected.filter(id => id !== resource.id) : [...selected, resource.id])} /><FileText size={17} /><div><strong>{resource.title}</strong><span>{resource.type} · {resource.progress === 100 ? '已解析' : `解析进度 ${resource.progress}%`}</span></div></label>)}<div className="wiki-policy"><ShieldCheck size={16} />模型引用必须能逐字定位到所选资料，否则不会保存为有效回答。</div></aside><main className="wiki-qa">
+    <form className="wiki-search" onSubmit={event => { event.preventDefault(); void search() }}><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="检索真实笔记标题、正文与资料解析文本" aria-label="检索知识库" /><Button size="sm" disabled={searching || !query.trim()}>检索</Button></form>
+    {query && <div className="knowledge-search-results">{hits.map(hit => <button key={`${hit.kind}-${hit.id}`} onClick={() => void openHit(hit)}><Badge tone="neutral">{hit.kind === 'material' ? '资料' : '笔记'}</Badge><div><strong>{hit.title}</strong><p>{hit.excerpt || '标题匹配，尚未产生解析正文。'}</p><small>实际匹配 {hit.score} 次{hit.citation ? ` · 第 ${hit.citation.line} 行` : ''}</small></div><ChevronRight size={16} /></button>)}</div>}
+    <div className="wiki-answer-area">{current ? <article className="wiki-answer"><Badge tone={current.sufficient === false ? 'amber' : 'green'}>{current.status === 'done' ? current.sufficient === false ? '资料不足' : '库内引用回答' : '真实问答任务'}</Badge><h2>{current.question}</h2>
+      {['running', 'cancelling'].includes(current.status) && <><pre className="streaming-output">{output || '问题与资料范围已保存，等待真实模型输出…'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || current.status === 'cancelling'}>取消问答</Button></>}
+      {['failed', 'cancelled', 'interrupted'].includes(current.status) && <div className="answer-feedback is-wrong"><CircleAlert size={20} /><p>{current.error ? backendErrorMessage(current.error) : '问答尚未完成'}</p><Button onClick={() => void resume()} disabled={busy}>恢复问答</Button></div>}
+      {current.status === 'done' && <><p style={{ whiteSpace: 'pre-wrap' }}>{current.answer}</p>{current.warning && <p className="setting-note">{current.warning}</p>}<div className="wiki-citations">{current.citations.map((citation, index) => <button key={`${citation.materialId}-${citation.charStart}`} onClick={() => void openCitation(citation)}><span>[{index + 1}]</span><div><strong>{citation.title}</strong><small>第 {citation.line} 行 · 字符 {citation.charStart}–{citation.charEnd}</small><p>{citation.quote}</p></div><ChevronRight size={15} /></button>)}</div><div className="wiki-answer-note"><Check size={15} />{current.citations.length ? `${current.citations.length} 条引用均已定位到实际解析文本` : '本次回答没有可定位引用，请核对资料是否足够。'}</div></>}
+      <div className="row-actions"><span>实际范围：{current.sources.map(source => source.title).join('、')}</span><Button variant="ghost" size="sm" onClick={() => void remove(current.id)} disabled={['running', 'cancelling'].includes(current.status)}><Trash2 size={14} />删除此条</Button></div>
+    </article> : <EmptyState title="向你的真实知识库提问" description="选择已解析资料，再输入问题。回答、引用位置与历史都由原生后端保存。" />}</div>
+    <form className="wiki-composer" onSubmit={event => { event.preventDefault(); void ask() }}><textarea rows={3} value={question} onChange={event => setQuestion(event.target.value)} placeholder="例如：根据所选资料，先验概率是什么？" /><div><span>{selected.length ? `基于 ${selected.length} 份实际资料作答` : '请至少选择一份资料'}</span><Button type="submit" disabled={busy || !question.trim() || !selected.length}><ArrowUp size={17} />提问</Button></div></form>
+  </main><aside className="wiki-history"><div><History size={17} /><strong>真实问答历史</strong></div>{sessions.map(item => <div key={item.id}><button onClick={() => choose(item)}><strong>{item.question}</strong><span>{item.citations.length} 条引用 · 第 {item.attempt} 次尝试 · {item.status}</span></button><button aria-label={`删除问答 ${item.question}`} onClick={() => void remove(item.id)} disabled={['running', 'cancelling'].includes(item.status)}><Trash2 size={13} /></button></div>)}{sessions.length > 0 && <Button variant="ghost" size="sm" onClick={() => void clear()}><Trash2 size={15} />清空历史</Button>}</aside>
+
+    <Modal open={reading !== null} onClose={() => setReading(null)} title={reading?.detail.title ?? '资料原文'} wide>{reading && <div><p className="form-help">{reading.citation ? `第 ${reading.citation.line} 行 · 字符 ${reading.citation.charStart}–${reading.citation.charEnd}` : '实际解析文本'} · SHA-256 {reading.detail.sha256}</p><pre className="citation-source-text">{reading.citation ? reading.detail.text?.split(reading.citation.quote).map((part, index, parts) => <span key={index}>{part}{index < parts.length - 1 && <mark>{reading.citation!.quote}</mark>}</span>) : reading.detail.text ?? '尚未产生解析文本。'}</pre></div>}</Modal>
+    <Modal open={noteHit !== null} onClose={() => setNoteHit(null)} title={noteHit?.title ?? '笔记检索结果'}><p>{noteHit?.excerpt}</p><p className="form-help">来自笔记 #{noteHit?.noteId} · 实际匹配 {noteHit?.score} 次</p></Modal>
+  </div>
 }

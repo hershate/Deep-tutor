@@ -18,6 +18,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, AgentState) {
             agent: state.shared(),
             practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
             review: crate::backend::review::ReviewState::for_tests().unwrap(),
+            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::create_agent_session,

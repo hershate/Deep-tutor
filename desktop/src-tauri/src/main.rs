@@ -3,7 +3,8 @@
 mod backend;
 
 use backend::{
-    agent, commands, learning, materials, practice, providers, review, store::Store, BackendState,
+    agent, commands, knowledge, learning, materials, practice, providers, review, store::Store,
+    BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -21,6 +22,8 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let learning_state =
                 learning::LearningState::new(&path, &provider_state, &material_state);
+            let knowledge_state =
+                knowledge::KnowledgeState::new(&path, &provider_state, &material_state);
             let agent_state = agent::AgentState::new(&path, &provider_state, &learning_state);
             let practice_state =
                 practice::PracticeState::new(&path, &provider_state, &learning_state);
@@ -33,6 +36,7 @@ fn main() {
                 agent: agent_state,
                 practice: practice_state,
                 review: review_state,
+                knowledge: knowledge_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -46,6 +50,8 @@ fn main() {
             agent::recover(app.handle(), &state.agent)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             practice::recover(app.handle(), &state.practice)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            knowledge::recover(app.handle(), &state.knowledge)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
@@ -126,6 +132,14 @@ fn main() {
             practice::commands::set_practice_mistake_mastered,
             practice::commands::cancel_practice_answer,
             practice::commands::resume_practice_answer,
+            knowledge::commands::search_knowledge,
+            knowledge::commands::ask_knowledge,
+            knowledge::commands::list_knowledge_sessions,
+            knowledge::commands::get_knowledge_session,
+            knowledge::commands::cancel_knowledge_answer,
+            knowledge::commands::resume_knowledge_answer,
+            knowledge::commands::delete_knowledge_session,
+            knowledge::commands::clear_knowledge_history,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,

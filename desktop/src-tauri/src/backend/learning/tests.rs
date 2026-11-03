@@ -16,6 +16,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             agent: crate::backend::agent::AgentState::for_tests().unwrap(),
             practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
             review: crate::backend::review::ReviewState::for_tests().unwrap(),
+            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::start_learning_plan,
