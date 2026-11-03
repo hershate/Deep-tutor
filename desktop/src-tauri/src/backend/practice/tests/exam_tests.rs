@@ -4,6 +4,7 @@ fn exam_input(plan_id: &str, count: u32, kinds: Vec<&str>) -> GenerateInput {
     GenerateInput {
         plan_id: plan_id.into(),
         stage_id: None,
+        node_id: None,
         count: Some(count),
         difficulty: Some("comprehensive".into()),
         feedback_mode: Some("deferred".into()),

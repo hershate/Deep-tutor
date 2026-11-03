@@ -7,6 +7,7 @@ export type PracticeSet = {
   status: 'generating' | 'cancelling' | 'ready' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   planId: string
   stageId: string | null
+  nodeId: string | null
   providerId: string
   difficulty: string
   feedbackMode: 'immediate' | 'deferred' | 'hints'
@@ -75,6 +76,7 @@ export type PracticeDetail = {
 export type PracticeInput = {
   planId: string
   stageId: string | null
+  nodeId?: string | null
   count: number
   difficulty: 'adaptive' | 'basic' | 'advanced' | 'comprehensive'
   feedbackMode: 'immediate' | 'deferred' | 'hints'
@@ -98,6 +100,8 @@ export type PracticeMistake = {
   mastered: boolean
   masteredQuestionId: number | null
 }
+
+export type PracticeTarget = { planId: string; stageId: string; nodeId: string; nonce: number }
 
 export const practiceBackend = {
   generate: (input: PracticeInput) => invoke<PracticeDetail>('generate_practice', { input }),

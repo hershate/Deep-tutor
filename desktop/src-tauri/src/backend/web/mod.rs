@@ -305,6 +305,13 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
             "检索词须为 1 到 300 字节，结果数须为 1 到 5",
         ));
     }
+    #[cfg(test)]
+    if SEARCH_ENDPOINT.lock().unwrap().is_none() {
+        return Err(BackendError::new(
+            "web_network_error",
+            "测试未配置回环检索服务",
+        ));
+    }
     let mut endpoint = Url::parse(&search_endpoint())
         .map_err(|_| BackendError::new("search_unavailable", "公开检索入口无效"))?;
     endpoint.query_pairs_mut().append_pair("q", query);

@@ -14,6 +14,7 @@ fn generate_subjectives(
         GenerateInput {
             plan_id: plan_id.into(),
             stage_id: None,
+            node_id: None,
             count: Some(2),
             difficulty: Some("adaptive".into()),
             feedback_mode: Some(feedback.into()),

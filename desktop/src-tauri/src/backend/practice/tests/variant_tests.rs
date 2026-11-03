@@ -23,6 +23,7 @@ fn variant_input(plan_id: &str, source: i64, kind: &str, count: u32) -> Generate
     GenerateInput {
         plan_id: plan_id.into(),
         stage_id: None,
+        node_id: None,
         count: Some(count),
         difficulty: Some("adaptive".into()),
         feedback_mode: None,
@@ -157,6 +158,7 @@ fn subjective_variants_use_the_same_rubric_mastery_evidence() {
         GenerateInput {
             plan_id: plan_id.clone(),
             stage_id: None,
+            node_id: None,
             count: Some(2),
             difficulty: Some("adaptive".into()),
             feedback_mode: Some("immediate".into()),

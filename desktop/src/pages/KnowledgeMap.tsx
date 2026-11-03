@@ -37,7 +37,7 @@ function graphLayout(graph: LearningGraph) {
   return positions
 }
 
-export default function KnowledgeMap({ onNavigate, notify, onStudy }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void }) {
+export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void; onPractice?: (planId: string, stageId: string, nodeId: string) => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null)
@@ -125,7 +125,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy }: { onNaviga
         <div className="node-detail-top"><Badge tone={progress?.mastery != null && progress.mastery >= 70 ? 'green' : progress?.readingCompleted ? 'amber' : 'neutral'}>{progress?.mastery != null ? '已有测评' : progress?.readingCompleted ? '阅读完成' : '待评估'}</Badge><span>知识点详情</span></div><h2>{node.title}</h2><p>{node.summary}</p>
         <div className="mastery-evidence"><div><strong>{progress?.mastery == null ? '待评估' : `${progress.mastery}%`}</strong><span>测评掌握度</span></div><ProgressBar value={progress?.mastery || 0} /><small><Target size={14} />{progress?.evidence || '尚无测评证据'}</small></div>
         <div className="node-relations"><h3>知识关系</h3><div><span>前置知识</span><strong>{prerequisites.length ? prerequisites.join('、') : '无'}</strong></div><div><span>后续应用</span><strong>{successors.length ? successors.join('、') : '无直接后续节点'}</strong></div></div>
-        <div className="node-actions"><Button disabled={!stage} onClick={() => { if (stage) { if (onStudy) onStudy(plan.id, stage.id); else onNavigate('study') } }}>{stage ? <BookOpen size={17} /> : <CircleDashed size={17} />}{stage ? '开始学习' : '尚未安排阶段'}</Button><Button variant="secondary" disabled title="真实判分将在练习切片接入">针对练习（待接入）</Button><Button variant="secondary" onClick={() => void addTask()} disabled={busy}><Play size={17} />加入计划</Button></div>
+        <div className="node-actions"><Button disabled={!stage} onClick={() => { if (stage) { if (onStudy) onStudy(plan.id, stage.id); else onNavigate('study') } }}>{stage ? <BookOpen size={17} /> : <CircleDashed size={17} />}{stage ? '开始学习' : '尚未安排阶段'}</Button><Button variant="secondary" disabled={!stage || !node} onClick={() => { if (stage && node) { if (onPractice) onPractice(plan.id, stage.id, node.id); else onNavigate('practice') } }}><Target size={17} />针对「{node?.title}」练习</Button><Button variant="secondary" onClick={() => void addTask()} disabled={busy}><Play size={17} />加入计划</Button></div>
         <div className="node-agent"><h3>原文引用</h3>{node.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => onNavigate('library')}><p>“{citation.quote}”</p><small>资料 #{citation.materialId} · 来自所选原文</small></button>)}</div>
       </aside>}
     </div>

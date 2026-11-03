@@ -26,6 +26,7 @@ import { engagementBackend } from './backend/engagement'
 import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
+import type { PracticeTarget } from './backend/practice'
 
 const Library = lazy(() => import('./pages/Library'))
 const PlanGenerator = lazy(() => import('./pages/PlanGenerator'))
@@ -55,6 +56,7 @@ export default function App() {
   const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string } | null>(null)
+  const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
@@ -222,8 +224,8 @@ export default function App() {
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} />
-      case 'practice': return <Practice notify={notify} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
+      case 'practice': return <Practice notify={notify} target={practiceTarget} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} notify={notify} />

@@ -73,6 +73,7 @@ fn input(plan_id: &str, count: u32, kinds: Vec<&str>, feedback: &str) -> Generat
     GenerateInput {
         plan_id: plan_id.into(),
         stage_id: None,
+        node_id: None,
         count: Some(count),
         difficulty: Some("adaptive".into()),
         feedback_mode: Some(feedback.into()),
@@ -668,4 +669,44 @@ fn migration_preserves_the_objective_question_kind_configuration() {
         serde_json::from_str::<Vec<String>>(&kinds).unwrap(),
         vec!["choice", "fill"]
     );
+}
+
+#[test]
+fn node_scope_is_validated_persisted_and_enforced_in_real_generation() {
+    let (app, state, _server, plan_id) = prepare();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let mut request = input(&plan_id, 1, vec!["choice"], "immediate");
+    request.stage_id = Some("stage-1".into());
+    request.node_id = Some("prob".into());
+    let prompt = generation_prompt(
+        &learning::get(&state.learning, &plan_id).unwrap(),
+        &[],
+        &request,
+        &HashSet::from(["prob".to_string()]),
+        None,
+    )
+    .unwrap();
+    assert!(prompt.contains("\"id\":\"prob\""));
+    assert!(!prompt.contains("\"id\":\"cond\""));
+    request.node_id = Some("bayes".into());
+    let error = ipc(&window, "generate_practice", json!({"input":request})).unwrap_err();
+    assert_eq!(error["code"], "invalid_practice_scope");
+    request.node_id = Some("prob".into());
+    let started = ipc(&window, "generate_practice", json!({"input":request})).unwrap();
+    assert_eq!(started["set"]["nodeId"], "prob");
+    let generated = wait_set(&state, started["set"]["id"].as_i64().unwrap());
+    assert_eq!(generated.set.status, "ready", "{:?}", generated.set.error);
+    assert_eq!(generated.set.node_id.as_deref(), Some("prob"));
+    assert!(generated
+        .questions
+        .iter()
+        .all(|question| question.node_ids == vec!["prob"]));
+    let history = ipc(&window, "list_practice_history", json!({})).unwrap();
+    assert!(history
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|set| set["id"] == started["set"]["id"] && set["nodeId"] == "prob"));
 }

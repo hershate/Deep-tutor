@@ -76,6 +76,7 @@ pub struct PracticeSet {
     pub status: String,
     pub plan_id: String,
     pub stage_id: Option<String>,
+    pub node_id: Option<String>,
     pub provider_id: String,
     pub difficulty: String,
     pub feedback_mode: String,
@@ -177,6 +178,7 @@ pub struct Mistake {
 pub struct GenerateInput {
     pub plan_id: String,
     pub stage_id: Option<String>,
+    pub node_id: Option<String>,
     pub count: Option<u32>,
     pub difficulty: Option<String>,
     pub feedback_mode: Option<String>,
@@ -287,6 +289,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if !columns.iter().any(|column| column == "kinds_json") {
         conn.execute("ALTER TABLE practice_sets ADD COLUMN kinds_json TEXT NOT NULL DEFAULT '[\"choice\", \"fill\"]'", [])?;
     }
+    if !columns.iter().any(|column| column == "node_id") {
+        conn.execute("ALTER TABLE practice_sets ADD COLUMN node_id TEXT", [])?;
+    }
     subjective::migrate(conn)?;
     variants::migrate(conn)?;
     exams::migrate(conn)?;
@@ -381,9 +386,13 @@ fn generation_prompt(
                 .nodes
                 .iter()
                 .filter(|node| {
-                    stage
-                        .map(|stage| stage.node_ids.contains(&node.id))
-                        .unwrap_or_else(|| node_ids.contains(&node.id))
+                    if input.node_id.is_some() {
+                        node_ids.contains(&node.id)
+                    } else {
+                        stage
+                            .map(|stage| stage.node_ids.contains(&node.id))
+                            .unwrap_or_else(|| node_ids.contains(&node.id))
+                    }
                 })
                 .map(|node| json!({"id": node.id, "title": node.title, "summary": node.summary, "difficulty": node.difficulty}))
                 .collect::<Vec<_>>()
@@ -579,6 +588,30 @@ pub fn generate<R: Runtime>(
             ));
         }
     }
+    if let Some(node_id) = input.node_id.as_deref() {
+        let valid = !node_id.trim().is_empty()
+            && plan.result.as_ref().is_some_and(|result| {
+                result.graph.nodes.iter().any(|node| node.id == node_id)
+                    && stage_id.as_ref().is_none_or(|stage_id| {
+                        result.stages.iter().any(|stage| {
+                            &stage.id == stage_id && stage.node_ids.iter().any(|id| id == node_id)
+                        })
+                    })
+            })
+            && match input.variant_of {
+                Some(source_id) => variants::source(state, source_id, &input.plan_id)?
+                    .node_ids
+                    .iter()
+                    .any(|id| id == node_id),
+                None => true,
+            };
+        if !valid {
+            return Err(BackendError::new(
+                "invalid_practice_scope",
+                "目标知识节点不存在、超出所选阶段或不符合变式范围",
+            ));
+        }
+    }
     let provider_id = providers::routing::provider_for_task(&state.providers, "practice")?;
     let mut active = state
         .active
@@ -590,8 +623,8 @@ pub fn generate<R: Runtime>(
         .conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute(
-        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, exam_time_limit_minutes, pass_score_percent, total_questions, created_at, updated_at) VALUES (?1, 'generating', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
-        params![mode, learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, exam_config.map(|config| config.0), exam_config.map(|config| config.1), count, timestamp],
+        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, exam_time_limit_minutes, pass_score_percent, total_questions, node_id, created_at, updated_at) VALUES (?1, 'generating', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+        params![mode, learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, exam_config.map(|config| config.0), exam_config.map(|config| config.1), count, input.node_id, timestamp],
     )?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
@@ -650,16 +683,17 @@ fn generate_questions<R: Runtime>(
     id: i64,
 ) -> Result<()> {
     let store = state.store()?;
-    let (plan_id, stage_id, provider_id, difficulty, feedback, kinds, count, attempt, mode, variant_of): (i64, Option<String>, String, String, String, String, u32, u32, String, Option<i64>) = store.conn.query_row(
-        "SELECT plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, attempt, mode, variant_of FROM practice_sets WHERE id = ?1",
+    let (plan_id, stage_id, provider_id, difficulty, feedback, kinds, count, attempt, mode, variant_of, node_id): (i64, Option<String>, String, String, String, String, u32, u32, String, Option<i64>, Option<String>) = store.conn.query_row(
+        "SELECT plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, attempt, mode, variant_of, node_id FROM practice_sets WHERE id = ?1",
         params![id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?)),
     )?;
     let plan_id = format!("plan-{plan_id}");
     let (plan, sources, nodes) = sources(state, &plan_id)?;
     let input = GenerateInput {
         plan_id: plan_id.clone(),
         stage_id,
+        node_id,
         count: Some(count),
         difficulty: Some(difficulty),
         feedback_mode: Some(feedback),
@@ -674,6 +708,8 @@ fn generate_questions<R: Runtime>(
         .transpose()?;
     let nodes = if let Some(source) = &variant {
         source.node_ids.iter().cloned().collect::<HashSet<_>>()
+    } else if let Some(node_id) = input.node_id.as_deref() {
+        HashSet::from([node_id.to_string()])
     } else if let Some(stage_id) = input.stage_id.as_deref() {
         plan.result
             .as_ref()
@@ -878,7 +914,7 @@ fn generate_questions<R: Runtime>(
 
 fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
     let (mut set, kinds): (PracticeSet, String) = conn.query_row(
-        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at, variant_of, exam_time_limit_minutes, exam_started_at, exam_deadline, pass_score_percent FROM practice_sets WHERE id = ?1",
+        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at, variant_of, exam_time_limit_minutes, exam_started_at, exam_deadline, pass_score_percent, node_id FROM practice_sets WHERE id = ?1",
         params![id],
         |row| {
             let plan_id: i64 = row.get(2)?;
@@ -890,6 +926,7 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 status: row.get(1)?,
                 plan_id: format!("plan-{plan_id}"),
                 stage_id: row.get(3)?,
+                node_id: row.get(23)?,
                 provider_id: row.get(4)?,
                 difficulty: row.get(5)?,
                 feedback_mode: row.get(6)?,
