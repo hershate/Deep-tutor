@@ -968,3 +968,56 @@ fn tool_loop_stops_at_twenty_five_real_model_steps() {
     assert_eq!(completed.input_tokens, 300);
     assert_eq!(completed.output_tokens, 825);
 }
+
+#[test]
+fn web_tools_use_real_http_persist_results_and_replay_without_another_request() {
+    let (app, state, _model, session) = prepare();
+    let web_server = server(|request, stream| {
+        let (content_type, body) = if request.contains("GET /?q=") {
+            ("text/html", "<a class=\"result__a\" href=\"/article\">候选</a><span class=\"result__snippet\">真实摘要</span>")
+        } else {
+            (
+                "text/html",
+                "<title>真实网页</title><script>不应进入正文</script><p>实际抓取正文</p>",
+            )
+        };
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        std::io::Write::write_all(stream, response.as_bytes()).unwrap();
+    });
+    let _guard = crate::backend::web::set_search_endpoint_for_tests(Some(web_server.url()));
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store.conn.execute("INSERT INTO agent_runs (session_id, status, created_at, updated_at) VALUES (?1, 'running', ?2, ?2)", params![session.id, timestamp]).unwrap();
+    let run_id = store.conn.last_insert_rowid();
+    let search_call = ToolCall {
+        id: "web-search-real".into(),
+        name: "web.search".into(),
+        arguments: json!({"query":"真实检索","limit":1}).to_string(),
+    };
+    let result = tools::execute(app.handle(), &state, run_id, &session, &search_call, 0).unwrap();
+    assert_eq!(result["status"], "done");
+    assert_eq!(result["search"]["results"][0]["title"], "真实网页");
+    assert_eq!(result["search"]["results"][0]["snippet"], "真实摘要");
+    let fetch_call = ToolCall {
+        id: "web-fetch-real".into(),
+        name: "web.fetch".into(),
+        arguments: json!({"url":format!("{}/article", web_server.url())}).to_string(),
+    };
+    let page = tools::execute(app.handle(), &state, run_id, &session, &fetch_call, 0).unwrap();
+    assert_eq!(page["status"], "done");
+    assert_eq!(page["page"]["text"], "实际抓取正文");
+    assert_eq!(web_server.request_count(), 3);
+    let replayed = tools::execute(app.handle(), &state, run_id, &session, &search_call, 0).unwrap();
+    assert_eq!(replayed, result);
+    assert_eq!(web_server.request_count(), 3);
+    let persisted: i64 = store.conn.query_row("SELECT COUNT(*) FROM agent_tool_calls WHERE id IN ('web-search-real', 'web-fetch-real') AND status = 'done' AND result_json IS NOT NULL", [], |row| row.get(0)).unwrap();
+    assert_eq!(persisted, 2);
+    let failed_call = ToolCall {
+        id: "web-fetch-blocked".into(),
+        name: "web.fetch".into(),
+        arguments: json!({"url":"file:///tmp/private"}).to_string(),
+    };
+    let failed = tools::execute(app.handle(), &state, run_id, &session, &failed_call, 0).unwrap();
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(failed["error"]["code"], "invalid_web_url");
+}

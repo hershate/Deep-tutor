@@ -49,12 +49,12 @@ pub fn catalog() -> Vec<super::super::providers::tools::ToolDefinition> {
         ),
         definition(
             "web.search",
-            "检索公开学习资源；当前未接入，返回真实不可用状态",
-            json!({"type": "object", "properties": {"query": {"type": "string"}}}),
+            "通过公开 DuckDuckGo HTML 检索并实际抓取验证候选网页，只返回真实可访问结果",
+            json!({"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 5}}, "required": ["query"]}),
         ),
         definition(
             "web.fetch",
-            "抓取公开网页；当前未接入，返回真实不可用状态",
+            "安全抓取公开 HTML 或纯文本网页并提取真实文字，不执行网页脚本",
             json!({"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}),
         ),
         definition(
@@ -543,9 +543,14 @@ pub fn execute<R: Runtime>(
                     true,
                 )
             }
-            "web.search" | "web.fetch" => Ok(
-                json!({"status": "failed", "error": {"code": "capability_unavailable", "message": "外部检索与网页抓取尚未接入，未生成或验证任何链接"}}),
-            ),
+            "web.search" => {
+                let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(3);
+                let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+                super::super::web::search(string(&arguments, "query")?, limit)
+                    .map(|result| json!({"status":"done","search":result}))
+            }
+            "web.fetch" => super::super::web::fetch(string(&arguments, "url")?)
+                .map(|page| json!({"status":"done","page":page})),
             "memory.save" => {
                 let key = memory_key(string(&arguments, "key")?)?;
                 let value = memory_value(string(&arguments, "value")?)?;

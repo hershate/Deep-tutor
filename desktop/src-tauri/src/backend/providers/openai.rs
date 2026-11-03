@@ -100,7 +100,7 @@ pub struct Delta {
     pub reasoning: bool,
 }
 
-fn public_address(address: std::net::IpAddr) -> bool {
+pub(crate) fn public_address(address: std::net::IpAddr) -> bool {
     match address {
         std::net::IpAddr::V4(address) => {
             let [a, b, _, _] = address.octets();

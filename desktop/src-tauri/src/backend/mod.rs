@@ -21,6 +21,7 @@ pub mod security;
 pub mod sharing;
 pub mod store;
 pub mod sync;
+pub mod web;
 
 use std::sync::Mutex;
 
