@@ -94,7 +94,6 @@ impl LearningState {
         self.providers.shared()
     }
 
-    #[cfg(test)]
     pub(crate) fn database_path(&self) -> &Path {
         &self.database_path
     }

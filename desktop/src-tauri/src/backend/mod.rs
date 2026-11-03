@@ -2,6 +2,7 @@ pub mod agent;
 pub mod commands;
 pub mod community;
 pub mod error;
+pub mod export;
 pub mod knowledge;
 pub mod learning;
 pub mod materials;

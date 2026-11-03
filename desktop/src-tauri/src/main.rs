@@ -3,7 +3,7 @@
 mod backend;
 
 use backend::{
-    agent, commands, community, knowledge, learning, materials, plugins, practice, providers,
+    agent, commands, community, export, knowledge, learning, materials, plugins, practice, providers,
     review, sharing, store::Store, BackendState,
 };
 use std::sync::Mutex;
@@ -119,6 +119,8 @@ fn main() {
             learning::commands::generate_lecture,
             learning::commands::cancel_lecture,
             learning::commands::save_study_note,
+            export::commands::export_content,
+            export::commands::export_notes_archive,
             sharing::commands::create_shared_plan,
             sharing::commands::list_shared_plans,
             sharing::commands::read_shared_plan,

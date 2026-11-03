@@ -54,6 +54,12 @@ impl From<serde_json::Error> for BackendError {
     }
 }
 
+impl From<zip::result::ZipError> for BackendError {
+    fn from(_: zip::result::ZipError) -> Self {
+        Self::new("export_failed", "无法生成有效的压缩归档")
+    }
+}
+
 impl From<time::error::Format> for BackendError {
     fn from(_: time::error::Format) -> Self {
         Self::storage()

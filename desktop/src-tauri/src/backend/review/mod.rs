@@ -349,6 +349,15 @@ pub fn list(state: &ReviewState) -> Result<Vec<ReviewCard>> {
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
+pub fn export_cards(state: &ReviewState) -> Result<Vec<ReviewCard>> {
+    let store = state.store()?;
+    let mut statement = store.conn.prepare(&format!(
+        "SELECT {CARD_COLUMNS} FROM review_cards WHERE deleted = 0 ORDER BY due_at, id"
+    ))?;
+    let rows = statement.query_map([], card)?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
 pub fn next(state: &ReviewState) -> Result<Option<ReviewCard>> {
     let store = state.store()?;
     store

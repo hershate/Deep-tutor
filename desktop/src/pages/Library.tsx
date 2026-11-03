@@ -10,6 +10,7 @@ import { Badge, Button, EmptyState, Modal, ProgressBar } from '../components/UI'
 import WikiPanel from '../components/WikiPanel'
 import { backend, onBackendEvent, reportBackendError } from '../backend/client'
 import type { AppSnapshot, MaterialDetail } from '../backend/client'
+import { exportBackend } from '../backend/export'
 
 const materialStatus: Record<string, string> = {
   staged: '已暂存', queued: '等待解析', parsing: '解析中', parsed: '已解析', degraded: '部分解析',
@@ -22,8 +23,6 @@ function materialTone(status: string): 'neutral' | 'green' | 'amber' | 'red' {
   if (['queued', 'parsing', 'cancelling'].includes(status)) return 'amber'
   return 'neutral'
 }
-
-function saveBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
 
 export default function Library({ notes, setNotes, resources, notify }: { notes: Note[]; setNotes: (notes: Note[]) => Promise<AppSnapshot>; resources: Resource[]; notify: (message: string) => void }) {
   const [tab, setTab] = useState('笔记')
@@ -200,11 +199,12 @@ export default function Library({ notes, setNotes, resources, notify }: { notes:
     } catch (error) { reportBackendError(error) } finally { draftBlocked.current = false; setSaving(false) }
   }
   const exportNotes = async () => {
-    const { default: JSZip } = await import('jszip')
-    const zip = new JSZip(); const folder = zip.folder('知舟笔记')
-    notes.forEach((note, i) => folder?.file(`${String(i + 1).padStart(2, '0')}-${note.title.replace(/[\\/:*?"<>|]/g, '_')}.md`, `# ${note.title}\n\n标签：${note.tag}\n更新时间：${note.updated}\n\n${note.content}`))
-    folder?.file('manifest.json', JSON.stringify({ version: 1, count: notes.length, exportedAt: new Date().toISOString() }, null, 2))
-    saveBlob(await zip.generateAsync({ type: 'blob' }), 'DeepTutor-notes.zip'); notify(`已导出 ${notes.length} 条 Markdown 笔记与清单`)
+    try {
+      const destination = await backend.saveMaterialFile('DeepTutor-notes.zip', 'zip')
+      if (!destination) return
+      const result = await exportBackend.notesArchive(destination)
+      notify(`已由原生后端导出 ${result.count} 条 Markdown 笔记与清单（${result.bytes.toLocaleString()} 字节）`)
+    } catch (error) { reportBackendError(error) }
   }
   const importNotes = async (file: File) => {
     const imported: Note[] = []

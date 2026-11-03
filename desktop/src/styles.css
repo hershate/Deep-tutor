@@ -1334,6 +1334,10 @@ td strong { color: var(--text); }
 .export-grid span { color: var(--muted); font-size: 12px; }
 .export-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; }
 .export-foot > span { color: var(--muted); font-size: 12px; }
+.export-grid > button:disabled { cursor: not-allowed; opacity: .55; }
+.export-center > label { display: grid; gap: 7px; margin-bottom: 14px; }
+.export-receipt { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.export-receipt p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 11px; }
 .share-status { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .share-status > div { flex: 1; }
 .share-status p { margin: 4px 0 0; font-size: 12px; }
