@@ -89,16 +89,49 @@ fn sources(state: &LearningState, input: &PlanInput) -> Result<Vec<Source>> {
     Ok(sources)
 }
 
-fn resources(input: &PlanInput, sources: &[Source]) -> Value {
+pub(crate) fn resources(input: &PlanInput, sources: &[Source]) -> Value {
+    let (status, reason, results) = match super::super::web::search(&input.goal, 3) {
+        Ok(search) => {
+            let results = search
+                .get("results")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let rejected = search
+                .get("rejected")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            let status = if rejected == 0 { "done" } else { "partial" };
+            let reason = if rejected == 0 {
+                format!("已实际抓取并验证 {} 个公开网页", results.len())
+            } else {
+                format!(
+                    "已实际抓取并验证 {} 个公开网页；{} 个候选未通过验证，未采用",
+                    results.len(),
+                    rejected
+                )
+            };
+            (status, reason, results)
+        }
+        Err(error) => (
+            "unavailable",
+            format!(
+                "外部资源检索不可用（{}：{}）；未采用未验证的外部链接",
+                error.code, error.message
+            ),
+            Vec::new(),
+        ),
+    };
     json!({
         "items": sources.iter().map(|source| json!({
             "materialId": source.id, "title": source.title, "sha256": source.sha256,
             "kind": "material", "verified": true,
         })).collect::<Vec<_>>(),
         "externalSearch": {
-            "status": "unavailable",
-            "reason": "尚未配置原生外部资源检索，未生成或验证任何外部链接",
+            "status": status,
+            "reason": reason,
             "queries": [input.goal],
+            "results": results,
         }
     })
 }

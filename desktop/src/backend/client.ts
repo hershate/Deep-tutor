@@ -34,6 +34,7 @@ export type Material = {
   warning: string | null
   error: BackendError | null
   originalAvailable: boolean
+  sourceUrl: string | null
 }
 export type MaterialDetail = Material & { text: string | null }
 export type MaterialImportResult = {
@@ -78,7 +79,12 @@ export type LearningResult = {
   schedule: LearningSchedule
   resources: {
     items: { materialId: number; title: string; sha256: string; kind: string; verified: boolean }[]
-    externalSearch: { status: string; reason: string; queries: string[] }
+    externalSearch: {
+      status: string
+      reason: string
+      queries: string[]
+      results?: { title: string; url: string; snippet: string; sha256: string; verified: boolean }[]
+    }
   }
   validation: LearningValidation
   warnings: string[]

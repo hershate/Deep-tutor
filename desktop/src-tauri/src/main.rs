@@ -145,6 +145,7 @@ fn main() {
             notes::commands::import_notes,
             notes::commands::get_library_overview,
             web::commands::fetch_webpage,
+            web::commands::import_webpage,
             providers::commands::list_provider_profiles,
             providers::commands::get_active_provider,
             providers::commands::upsert_provider_profile,

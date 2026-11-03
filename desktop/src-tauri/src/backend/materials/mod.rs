@@ -125,6 +125,7 @@ pub struct Material {
     pub warning: Option<String>,
     pub error: Option<BackendError>,
     pub original_available: bool,
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -297,10 +298,16 @@ pub(crate) fn sync_resources(conn: &Connection) -> Result<()> {
         } else {
             format!("{size_kb} KB · {}", status_label(&status))
         };
+        let webpage = source_meta.starts_with("https://") || source_meta.starts_with("http://");
+        let meta = if webpage && status != "metadata_only" {
+            format!("{source_meta} · {meta}")
+        } else {
+            meta
+        };
         resources.push(json!({
             "id": id,
             "title": title,
-            "type": if kind == "pdf" { "PDF" } else { "文件" },
+            "type": if kind == "pdf" { "PDF" } else if webpage { "网页" } else { "文件" },
             "meta": meta,
             "progress": progress
         }));
@@ -339,6 +346,10 @@ fn material(row: &Row<'_>, root: &Path) -> rusqlite::Result<Material> {
         warning: row.get(11)?,
         error: error_code
             .map(|code| BackendError::new(&code, error_message.as_deref().unwrap_or("解析失败"))),
+        source_url: row
+            .get::<_, Option<String>>(12)
+            .unwrap_or(None)
+            .filter(|value| !value.is_empty()),
     })
 }
 
@@ -347,7 +358,7 @@ fn get(conn: &Connection, root: &Path, id: i64) -> Result<Material> {
         return Err(BackendError::invalid("invalid_id", "资料标识必须是正整数"));
     }
     conn.query_row(
-        "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning
+        "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning, source_meta
          FROM materials WHERE id = ?1",
         params![id],
         |row| material(row, root),
@@ -373,7 +384,7 @@ pub fn detail(state: &MaterialState, id: i64) -> Result<MaterialDetail> {
 pub fn list(state: &MaterialState) -> Result<Vec<Material>> {
     let store = state.store()?;
     let mut statement = store.conn.prepare(
-        "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning FROM materials ORDER BY id",
+        "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning, source_meta FROM materials ORDER BY id",
     )?;
     let rows = statement.query_map([], |row| material(row, &state.root()))?;
     let mut materials = Vec::new();
@@ -452,6 +463,7 @@ fn stage_validated<R: Runtime>(
     kind: String,
     bytes: Vec<u8>,
     sha256: String,
+    source_url: Option<&str>,
 ) -> Result<IngestResult> {
     let store = state.store()?;
     if let Some(existing) = store
@@ -500,9 +512,9 @@ fn stage_validated<R: Runtime>(
     let result = (|| {
         let tx = store.conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO materials (title, kind, size, sha256, status, progress, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?5, ?5)",
-            params![title, kind, bytes.len() as i64, sha256, timestamp],
+            "INSERT INTO materials (title, kind, size, sha256, status, progress, source_meta, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?5, ?6, ?6)",
+            params![title, kind, bytes.len() as i64, sha256, source_url.unwrap_or(""), timestamp],
         )?;
         let id = tx.last_insert_rowid();
         sync_resources(&tx)?;
@@ -536,7 +548,7 @@ fn stage_one<R: Runtime>(
     source: &Path,
 ) -> Result<IngestResult> {
     let (title, kind, bytes, sha256) = validate_source(source)?;
-    stage_validated(app, state, title, kind, bytes, sha256)
+    stage_validated(app, state, title, kind, bytes, sha256, None)
 }
 
 pub fn import_text<R: Runtime>(
@@ -544,6 +556,16 @@ pub fn import_text<R: Runtime>(
     state: &MaterialState,
     title: String,
     content: String,
+) -> Result<IngestResult> {
+    import_text_with_source(app, state, title, content, None)
+}
+
+pub(crate) fn import_text_with_source<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MaterialState,
+    title: String,
+    content: String,
+    source_url: Option<&str>,
 ) -> Result<IngestResult> {
     let title = title.trim();
     if title.is_empty() || title.len() > 200 {
@@ -566,7 +588,15 @@ pub fn import_text<R: Runtime>(
     }
     let bytes = content.into_bytes();
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
-    stage_validated(app, state, title.to_string(), "txt".into(), bytes, sha256)
+    stage_validated(
+        app,
+        state,
+        title.to_string(),
+        "txt".into(),
+        bytes,
+        sha256,
+        source_url,
+    )
 }
 
 pub fn import_files<R: Runtime>(

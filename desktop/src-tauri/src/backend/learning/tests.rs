@@ -552,7 +552,7 @@ fn ipc_commands_start_read_and_resume_a_real_plan() {
     assert!(fetched["result"]["resources"]["externalSearch"]["reason"]
         .as_str()
         .unwrap()
-        .contains("尚未配置"));
+        .contains("未采用未验证的外部链接"));
     let plans = ipc(&window, "list_learning_plans", json!({})).unwrap();
     assert_eq!(plans.as_array().unwrap().len(), 1);
     let resumed = ipc(&window, "resume_learning_plan", json!({"id": id})).unwrap();
@@ -1005,4 +1005,38 @@ fn study_notes_are_persisted_with_the_actual_stage() {
         )
         .unwrap();
     assert_eq!(count, 1);
+}
+
+#[test]
+fn resource_pipeline_uses_verified_web_results_and_reports_real_failures() {
+    let server = server(|request, stream| {
+        let body = if request.contains("GET /?q=") {
+            "<a class=\"result__a\" href=\"/verified\">真实候选</a><span class=\"result__snippet\">真实摘要</span>"
+        } else {
+            "<title>真实资源</title><p>实际网页正文</p>"
+        };
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        std::io::Write::write_all(stream, response.as_bytes()).unwrap();
+    });
+    let guard = crate::backend::web::set_search_endpoint_for_tests(Some(server.url()));
+    let result = pipeline::resources(&input(1), &[]);
+    assert_eq!(result["externalSearch"]["status"], "done");
+    assert_eq!(
+        result["externalSearch"]["results"][0]["url"],
+        format!("{}/verified", server.url())
+    );
+    assert_eq!(result["externalSearch"]["results"][0]["title"], "真实资源");
+    assert_eq!(result["externalSearch"]["results"][0]["verified"], true);
+    assert!(result["items"].as_array().unwrap().is_empty());
+    drop(guard);
+    let unavailable = pipeline::resources(&input(1), &[]);
+    assert_eq!(unavailable["externalSearch"]["status"], "unavailable");
+    assert!(unavailable["externalSearch"]["results"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(unavailable["externalSearch"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("web_network_error"));
 }

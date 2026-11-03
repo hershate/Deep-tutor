@@ -2,6 +2,69 @@ use super::*;
 use crate::backend::providers::test_support::{server, TestServer};
 use std::io::Write;
 use std::net::TcpStream;
+use tauri::Manager;
+
+fn ipc_app() -> (
+    tauri::App<tauri::test::MockRuntime>,
+    crate::backend::learning::LearningState,
+) {
+    let learning = crate::backend::learning::LearningState::for_tests().unwrap();
+    let path = learning.database_path().to_path_buf();
+    let providers = learning.provider_state();
+    let app = tauri::test::mock_builder()
+        .manage(crate::backend::BackendState {
+            store: std::sync::Mutex::new(learning.store().unwrap()),
+            materials: learning.material_state(),
+            providers: providers.shared(),
+            learning: learning.shared(),
+            agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &providers, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(
+                &path,
+                &providers,
+                &learning.material_state(),
+            ),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
+            sharing: crate::backend::sharing::SharingState::new(&learning),
+        })
+        .manage(crate::backend::security::SecurityState::for_tests_at(&path))
+        .invoke_handler(tauri::generate_handler![
+            commands::fetch_webpage,
+            commands::import_webpage,
+            crate::backend::materials::commands::enqueue_material_parse,
+            crate::backend::materials::commands::get_material,
+            crate::backend::commands::get_app_state,
+            crate::backend::commands::events_since,
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    (app, learning)
+}
+
+fn ipc(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    command: &str,
+    arguments: Value,
+) -> std::result::Result<Value, Value> {
+    tauri::test::get_ipc_response(
+        &app.get_webview_window("main").unwrap(),
+        tauri::webview::InvokeRequest {
+            cmd: command.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::Json(arguments),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.into(),
+        },
+    )
+    .map(|body| body.deserialize::<Value>().unwrap())
+}
 
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str, extra: &str) {
     let response = format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n{extra}\r\n{body}", body.len());
@@ -146,4 +209,76 @@ fn html_parser_handles_quoted_angle_brackets_and_separate_snippets() {
     assert_eq!(parsed.candidates.len(), 1);
     assert_eq!(parsed.candidates[0].title, "标题");
     assert_eq!(parsed.candidates[0].snippet, "分离的摘要");
+}
+
+#[test]
+fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc() {
+    let (app, learning) = ipc_app();
+    let server = web_server();
+    let url = format!("{}/article", server.url());
+    let page = ipc(&app, "fetch_webpage", json!({"url":url})).unwrap();
+    assert_eq!(page["title"], "实际文章标题");
+    assert_eq!(page["text"], "真实正文 & 证据");
+    let imported = ipc(&app, "import_webpage", json!({"url":url})).unwrap();
+    assert_eq!(imported["deduplicated"], false);
+    assert_eq!(imported["material"]["title"], "实际文章标题");
+    assert_eq!(imported["material"]["sourceUrl"], url);
+    assert_eq!(imported["material"]["originalAvailable"], true);
+    let id = imported["material"]["id"].as_i64().unwrap();
+    let state = ipc(&app, "get_app_state", json!({})).unwrap();
+    assert_eq!(state["resources"][0]["type"], "网页");
+    assert!(state["resources"][0]["meta"]
+        .as_str()
+        .unwrap()
+        .contains(&url));
+    ipc(&app, "enqueue_material_parse", json!({"id":id})).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let detail = loop {
+        let detail = ipc(&app, "get_material", json!({"id":id})).unwrap();
+        if detail["status"] == "parsed" {
+            break detail;
+        }
+        assert_ne!(detail["status"], "failed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "网页资料未在限时内完成原生解析"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(detail["text"], "真实正文 & 证据");
+    assert_eq!(detail["sourceUrl"], url);
+    let source: String = learning
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT source_meta FROM materials WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(source, url);
+    let events = ipc(&app, "events_since", json!({"lastId":0})).unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let staged = events
+        .iter()
+        .position(|event| event["kind"] == "material.staged")
+        .unwrap();
+    let parsed = events
+        .iter()
+        .position(|event| event["kind"] == "material.parsed")
+        .unwrap();
+    assert!(staged < parsed);
+    let duplicate = ipc(&app, "import_webpage", json!({"url":url})).unwrap();
+    assert_eq!(duplicate["deduplicated"], true);
+    assert_eq!(duplicate["material"]["id"], id);
+    assert_eq!(
+        ipc(&app, "get_app_state", json!({})).unwrap()["resources"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
