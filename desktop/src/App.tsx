@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleHelp, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, MessageSquareText, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
@@ -18,12 +18,12 @@ import TutorPanel from './components/TutorPanel'
 import AgentTaskCenter from './components/AgentTaskCenter'
 import SecurityPanel from './components/SecurityPanel'
 import { Button, IconButton, Modal } from './components/UI'
-import { knowledgeNodes } from './data'
 import type { PageId, Project, Task } from './data'
-import { backend, reportBackendError } from './backend/client'
+import { backend, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
-import { communityBackend } from './backend/community'
+import { engagementBackend } from './backend/engagement'
+import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
 
@@ -66,6 +66,10 @@ export default function App() {
   const [focusSeconds, setFocusSeconds] = useState(25 * 60)
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null)
   const [focusBusy, setFocusBusy] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
+  const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
 
   const notify = (message: string) => setToast(message)
   useEffect(() => {
@@ -75,17 +79,43 @@ export default function App() {
   }, [])
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer) }, [toast])
   useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      void engagementBackend.search(query).then(results => {
+        if (active) setSearchResults(results)
+      }).catch(reportBackendError).finally(() => { if (active) setSearching(false) })
+    }, query.trim() ? 120 : 0)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [query])
+  useEffect(() => {
     if (!ready) return
     let active = true
-    const poll = async () => {
-      try {
-        const reminders = await communityBackend.claimDueReminders()
-        if (active) reminders.forEach(reminder => notify(`学习预约「${reminder.title}」：${new Date(reminder.startAt).toLocaleString()} 开始`))
-      } catch (error) { reportBackendError(error) }
+    let stop: (() => void) | undefined
+    const load = async () => {
+      const next = await engagementBackend.notifications()
+      if (active) setNotifications(next)
     }
-    void poll()
-    const timer = window.setInterval(() => { void poll() }, 30000)
-    return () => { active = false; window.clearInterval(timer) }
+    void load().catch(reportBackendError)
+    void onBackendEvent(event => {
+      if (active && ['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    const timer = window.setInterval(() => { void load().catch(reportBackendError) }, 30000)
+    return () => { active = false; stop?.(); window.clearInterval(timer) }
+  }, [ready])
+  useEffect(() => {
+    if (!ready) return
+    let active = true
+    let stop: (() => void) | undefined
+    const load = async () => {
+      const next = await engagementBackend.dashboard()
+      if (active) setHomeSummary(next)
+    }
+    void load().catch(reportBackendError)
+    void onBackendEvent(event => {
+      if (active && ['state.changed', 'plan.', 'study.checkin', 'security.session_started', 'focus.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    return () => { active = false; stop?.() }
   }, [ready])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
@@ -158,21 +188,36 @@ export default function App() {
     notify('本地任务、笔记、资料、项目、草稿和偏好已清空')
     return next
   }
-  const searchResults = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const plans = q ? ['贝叶斯学习方案', '计算机考研学习计划'].filter(name => name.toLowerCase().includes(q)).map(name => ({ id: 'plan' as PageId, title: name, subtitle: '学习方案 · 深链跳转', icon: CalendarDays })) : []
-    const foundNotes = notes.filter(note => q && `${note.title}${note.content}`.toLowerCase().includes(q)).map(note => ({ id: 'library' as PageId, title: note.title, subtitle: `笔记 · ${note.tag}`, icon: FileText }))
-    const docs = resources.filter(resource => q && resource.title.toLowerCase().includes(q)).map(resource => ({ id: 'library' as PageId, title: resource.title, subtitle: `KB 文档 · ${resource.type}`, icon: BookOpen }))
-    const nodes = knowledgeNodes.filter(node => q && `${node.label}${node.description}`.toLowerCase().includes(q)).map(node => ({ id: 'map' as PageId, title: node.label, subtitle: `知识节点 · 掌握度 ${node.mastery}%`, icon: Map }))
-    const pages = allNav.filter(item => !q || item.label.toLowerCase().includes(q)).map(item => ({ id: item.id, title: item.label, subtitle: '功能页面', icon: item.icon }))
-    return [...plans, ...foundNotes, ...docs, ...nodes, ...pages].slice(0, 12)
-  }, [query, notes, resources])
+  const openSearchResult = (result: SearchResult) => {
+    if (result.planId && result.stageId) {
+      setStudyTarget({ planId: result.planId, stageId: result.stageId })
+      navigate('study')
+    } else {
+      navigate(result.page)
+    }
+    setModal(null)
+    setQuery('')
+  }
+  const markAllRead = async () => {
+    try {
+      setNotifications(await engagementBackend.markAllRead())
+      setModal(null)
+      notify('通知已全部标为已读')
+    } catch (error) { reportBackendError(error) }
+  }
+  const readNotification = async (id: string, page: PageId) => {
+    try {
+      setNotifications(await engagementBackend.markRead(id))
+      setModal(null)
+      navigate(page)
+    } catch (error) { reportBackendError(error) }
+  }
   const minutes = Math.floor(focusSeconds / 60).toString().padStart(2, '0')
   const seconds = (focusSeconds % 60).toString().padStart(2, '0')
 
   const renderPage = () => {
     switch (page) {
-      case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={() => setFocusOpen(true)} notify={notify} />
+      case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} />
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
@@ -210,13 +255,13 @@ export default function App() {
     {mobileNav && <button className="nav-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>DEEP TUTOR</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
-      <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>计算机考研</strong></div><ChevronDown size={15} /></button>
-      <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && <i>12</i>}</button>)}</div>)}</nav>
-      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span><i className="running-dot" /></button><div className="sidebar-profile"><span>陈</span><div><strong>陈默</strong><small>连续学习 16 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
+      <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronDown size={15} /></button>
+      <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</button>)}</div>)}</nav>
+      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span><i className="running-dot" /></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
     </aside>
 
     <div className="app-main">
-      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识点…</span><kbd>⌘ K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences({ ...preferences, theme: preferences.theme === 'light' ? 'dark' : 'light' })}>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} /><i /></IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)}><Sparkles size={16} />问知舟</Button></div></header>
+      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识点…</span><kbd>⌘ K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences({ ...preferences, theme: preferences.theme === 'light' ? 'dark' : 'light' })}>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)}><Sparkles size={16} />问知舟</Button></div></header>
       <main id="main-content" className="main-content"><Suspense fallback={<div className="page-loading"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
     </div>
 
@@ -225,13 +270,14 @@ export default function App() {
     {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师"><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} /></aside></div>}
 
     <Modal open={modal === 'search'} onClose={() => { setModal(null); setQuery('') }} title="全局搜索">
-      <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map((result, index) => <button key={`${result.id}-${index}`} onClick={() => { navigate(result.id); setModal(null); setQuery('') }}><result.icon size={18} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty">没有找到匹配结果，试试“复习”或“贝叶斯”。</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能与笔记内容，按 Esc 关闭</div>
+      <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty">{searching ? '正在检索真实工作区…' : '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
     </Modal>
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
       <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
-      <div className="notification-list"><button onClick={() => { navigate('review'); setModal(null) }}><span className="notification-icon"><Layers3 size={18} /></span><div><strong>12 张记忆卡已到期</strong><p>预计 8 分钟，现在适合进行一次主动回忆。</p><small>10 分钟前</small></div></button><button onClick={() => { navigate('projects'); setModal(null) }}><span className="notification-icon"><FolderKanban size={18} /></span><div><strong>项目反馈已生成</strong><p>分类器项目有 2 条关于评估指标的新建议。</p><small>1 小时前</small></div></button><button onClick={() => { navigate('plan'); setModal(null) }}><span className="notification-icon"><CalendarDays size={18} /></span><div><strong>本周计划负荷适中</strong><p>周六项目任务可灵活迁移到周日。</p><small>今天 08:00</small></div></button></div><Button variant="ghost" onClick={() => { notify('所有通知已标为已读'); setModal(null) }}><Check size={16} />全部标为已读</Button>
+      {notifications?.suppressed && <p className="form-help">当前处于免打扰时段；通知仍保留在中心，不主动弹出提醒。</p>}
+      <div className="notification-list">{notifications?.items.map(item => <button key={item.id} onClick={() => void readNotification(item.id, item.page)}><span className="notification-icon"><Bell size={18} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Date(item.createdAt).toLocaleString()} · {item.readAt ? '已读' : '未读'}</small></div></button>)}{notifications && !notifications.items.length && <div className="search-empty">当前没有真实通知。到期复习、计划和预约会在这里出现。</div>}</div><Button variant="ghost" disabled={!notifications || notifications.unreadCount === 0} onClick={() => void markAllRead()}><Check size={16} />全部标为已读</Button>
     </Modal>
     <Modal open={modal === 'tasks'} onClose={() => setModal(null)} title="Agent 任务中心">
       <AgentTaskCenter notify={notify} />
@@ -243,6 +289,12 @@ export default function App() {
 }
 
 function LoaderMark() { return <span className="loader-mark" aria-hidden="true" /> }
+
+function SearchResultIcon({ kind }: { kind: string }) {
+  const icons: Record<string, LucideIcon> = { note: FileText, material: BookOpen, node: Map, plan: CalendarDays, task: ListChecks, project: FolderKanban }
+  const Icon = icons[kind] || Search
+  return <Icon size={18} />
+}
 
 function Highlight({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <>{text}</>

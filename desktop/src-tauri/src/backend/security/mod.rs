@@ -226,7 +226,6 @@ impl SecurityState {
         }
     }
 
-    #[cfg(test)]
     pub fn shared(&self) -> Self {
         Self {
             database_path: self.database_path.clone(),

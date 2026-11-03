@@ -88,6 +88,7 @@ pub(crate) const TABLES: &[&str] = &[
     "share_index",
     "focus_sessions",
     "study_checkins",
+    "notifications",
 ];
 
 pub(crate) const EXCLUDED_AUTH_TABLES: &[&str] = &["auth_sessions", "access_tokens", "share_index"];
@@ -600,6 +601,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
                     "share_index",
                     "focus_sessions",
                     "study_checkins",
+                    "notifications",
                 ]
                 .contains(table))
         {

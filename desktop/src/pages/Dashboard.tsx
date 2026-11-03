@@ -1,80 +1,48 @@
-import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, Play, RotateCcw, Sparkles, Target, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, LoaderCircle, Play, RotateCcw, Sparkles, TrendingUp } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, MiniBars, ProgressBar, ProgressRing, SectionHeader } from '../components/UI'
-import { reportBackendError } from '../backend/client'
+import { onBackendEvent, reportBackendError } from '../backend/client'
+import { engagementBackend } from '../backend/engagement'
 import type { AppSnapshot } from '../backend/client'
+import type { DashboardOverview } from '../backend/engagement'
 
 export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; onFocus: () => void; notify: (message: string) => void }) {
+  const [overview, setOverview] = useState<DashboardOverview | null>(null)
+  useEffect(() => {
+    let active = true
+    let stop: (() => void) | undefined
+    const load = async () => {
+      const next = await engagementBackend.dashboard()
+      if (active) setOverview(next)
+    }
+    void load().catch(reportBackendError)
+    void onBackendEvent(event => {
+      if (active && ['state.changed', 'focus.', 'plan.', 'practice.', 'review.', 'study.checkin', 'security.session_started'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    return () => { active = false; stop?.() }
+  }, [])
+  if (!overview) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实学习摘要…</div>
   const done = tasks.filter(task => task.done).length
   const completion = tasks.length ? Math.round(done / tasks.length * 100) : 0
+  const next = overview.nextTask
+  const nextPage: PageId = next?.kind === '复习' ? 'review' : next?.kind === '练习' ? 'practice' : next?.kind === '项目' ? 'projects' : 'study'
+  const recommendation = overview.recommendation
+  const weeklyMinutes = overview.week.reduce((sum, day) => sum + day.seconds / 60, 0)
   const toggleTask = (id: number) => {
     void setTasks(tasks.map(task => task.id === id ? { ...task, done: !task.done } : task)).catch(reportBackendError)
   }
+  const formatDate = (value: string) => {
+    const timestamp = Date.parse(value)
+    return Number.isNaN(timestamp) ? value : new Date(timestamp).toLocaleDateString('zh-CN')
+  }
   return <div className="page dashboard-page">
-    <div className="page-heading">
-      <div><p className="date-line">11 月 2 日 · 星期一</p><h1>早上好，陈默。</h1><p>今天不必学很多，只需完成最关键的三件事。</p></div>
-      <Button variant="secondary" onClick={onFocus}><Play size={17} />进入专注</Button>
+    <div className="page-heading"><div><p className="date-line">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</p><h1>你好，{overview.name}。</h1><p>根据真实记录，选择下一步，而不是填充示例目标。</p></div><Button variant="secondary" onClick={onFocus}><Play size={17} />进入专注</Button></div>
+    <section className="today-hero"><div className="hero-orbit" aria-hidden="true"><span /><span /><span /></div><div className="today-hero-copy"><Badge tone="green">当前目标 · {overview.goal}</Badge><h2>把「不知道学什么」<br />变成清晰的下一步。</h2>{next ? <><p>下一站：{next.title} · {next.detail}</p><div className="hero-actions"><Button variant="light" size="lg" onClick={() => onNavigate(nextPage)}>继续学习<ArrowRight size={18} /></Button><span><Clock3 size={16} />预计 {next.minutes} 分钟</span></div></> : <><p>当前没有待完成任务，可以创建下一项真实学习活动。</p><div className="hero-actions"><Button variant="light" size="lg" onClick={() => onNavigate('plan')}>查看学习计划<ArrowRight size={18} /></Button></div></>}</div><div className="hero-progress"><ProgressRing value={overview.progress} size={148}><div><strong>{overview.progress}%</strong><span>方案生成进度</span></div></ProgressRing><p>{overview.deadline ? `目标日 ${formatDate(overview.deadline)}` : '尚未设置目标日'}</p></div></section>
+    <div className="dashboard-grid"><section className="surface task-surface"><SectionHeader title="今日学习航线" description={`${done}/${tasks.length} 项已完成 · 约 ${tasks.filter(task => !task.done).reduce((sum, task) => sum + task.duration, 0)} 分钟剩余`} action={<Button variant="ghost" size="sm" onClick={() => onNavigate('plan')}>查看计划<ChevronRight size={16} /></Button>} /><div className="task-progress"><ProgressBar value={completion} /><span>{completion}%</span></div><div className="task-list">{tasks.map((task, index) => <div className={`task-row ${task.done ? 'is-done' : ''}`} key={task.id}><button className="task-check" aria-label={task.done ? `将${task.title}标为未完成` : `完成${task.title}`} onClick={() => toggleTask(task.id)}>{task.done ? <Check size={16} /> : <span>{index + 1}</span>}</button><div className="task-copy"><strong>{task.title}</strong><span>{task.subject} · {task.kind}</span></div><span className="task-time">{task.duration} 分钟</span>{!task.done && <button className="task-go" aria-label={`开始${task.title}`} onClick={() => onNavigate(task.kind === '复习' ? 'review' : task.kind === '练习' ? 'practice' : task.kind === '项目' ? 'projects' : 'study')}><Play size={16} /></button>}</div>)}{!tasks.length && <p className="form-help">还没有任务，先添加一项真实学习活动。</p>}</div><button className="text-action" onClick={() => { void setTasks([...tasks, { id: Date.now(), title: '新的学习任务', subject: '待分类', duration: 20, done: false, kind: '学习' }]).then(() => notify('任务已保存，可在学习计划中编辑')).catch(reportBackendError) }}>＋ 添加今日任务</button></section>
+      <aside className="dashboard-side"><section className="surface review-callout"><div className="review-callout-head"><span className="soft-icon"><RotateCcw size={19} /></span><Badge tone="amber">记忆到期</Badge></div><h3>{overview.reviewDue} 张卡片等待复习</h3><p>按真实到期时间安排主动回忆。</p><div className="review-meta"><span>预计 {overview.reviewMinutes} 分钟</span></div><Button onClick={() => onNavigate('review')}>开始复习<ArrowRight size={17} /></Button></section><section className="surface streak-panel"><div><Flame size={20} /><strong>连续记录 {overview.streak} 天</strong></div><p>保持节奏，但休息也算计划的一部分。</p><div className="week-dots">{overview.week.map((day, index) => <div key={day.kind}><span className={day.seconds > 0 ? 'active' : ''}>{day.seconds > 0 && <Check size={13} />}</span><small>{['日', '一', '二', '三', '四', '五', '六'][new Date(`${day.kind}T00:00:00`).getDay()] || index + 1}</small></div>)}</div></section></aside>
     </div>
-
-    <section className="today-hero">
-      <div className="hero-orbit" aria-hidden="true"><span /><span /><span /></div>
-      <div className="today-hero-copy">
-        <Badge tone="green">当前目标 · 计算机考研</Badge>
-        <h2>把「不知道学什么」<br />变成清晰的下一步。</h2>
-        <p>下一站：贝叶斯定理 · 条件概率如何更新我们的判断</p>
-        <div className="hero-actions"><Button variant="light" size="lg" onClick={() => onNavigate('study')}>继续上次学习<ArrowRight size={18} /></Button><span><Clock3 size={16} />预计 35 分钟</span></div>
-      </div>
-      <div className="hero-progress"><ProgressRing value={68} size={148}><div><strong>68%</strong><span>目标进度</span></div></ProgressRing><p>距离目标日还有 <strong>48 天</strong></p></div>
-    </section>
-
-    <div className="dashboard-grid">
-      <section className="surface task-surface">
-        <SectionHeader title="今日学习航线" description={`${done}/${tasks.length} 项已完成 · 约 ${tasks.filter(t => !t.done).reduce((sum, t) => sum + t.duration, 0)} 分钟剩余`} action={<Button variant="ghost" size="sm" onClick={() => onNavigate('plan')}>查看计划<ChevronRight size={16} /></Button>} />
-        <div className="task-progress"><ProgressBar value={completion} /><span>{completion}%</span></div>
-        <div className="task-list">
-          {tasks.map((task, index) => <div className={`task-row ${task.done ? 'is-done' : ''}`} key={task.id}>
-            <button className="task-check" aria-label={task.done ? `将${task.title}标为未完成` : `完成${task.title}`} onClick={() => toggleTask(task.id)}>{task.done ? <Check size={16} /> : <span>{index + 1}</span>}</button>
-            <div className="task-copy"><strong>{task.title}</strong><span>{task.subject} · {task.kind}</span></div>
-            <span className="task-time">{task.duration} 分钟</span>
-            {!task.done && <button className="task-go" aria-label={`开始${task.title}`} onClick={() => onNavigate(task.kind === '复习' ? 'review' : task.kind === '练习' ? 'practice' : task.kind === '项目' ? 'projects' : 'study')}><Play size={16} /></button>}
-          </div>)}
-        </div>
-        <button className="text-action" onClick={() => { void setTasks([...tasks, { id: Date.now(), title: '新的学习任务', subject: '待分类', duration: 20, done: false, kind: '学习' }]).then(() => notify('任务已保存，可在学习计划中编辑')).catch(reportBackendError) }}>＋ 添加今日任务</button>
-      </section>
-
-      <aside className="dashboard-side">
-        <section className="surface review-callout">
-          <div className="review-callout-head"><span className="soft-icon"><RotateCcw size={19} /></span><Badge tone="amber">记忆到期</Badge></div>
-          <h3>12 张卡片等待复习</h3><p>现在回忆，比重新阅读一遍更有效。</p>
-          <div className="review-meta"><span>概率论 7</span><span>数据结构 5</span></div>
-          <Button onClick={() => onNavigate('review')}>开始 8 分钟复习<ArrowRight size={17} /></Button>
-        </section>
-        <section className="surface streak-panel">
-          <div><Flame size={20} /><strong>连续学习 16 天</strong></div><p>保持节奏，但休息也算计划的一部分。</p>
-          <div className="week-dots">{['一', '二', '三', '四', '五', '六', '日'].map((day, i) => <div key={day}><span className={i < 6 ? 'active' : ''}>{i < 6 ? <Check size={13} /> : ''}</span><small>{day}</small></div>)}</div>
-        </section>
-      </aside>
-    </div>
-
-    <div className="dashboard-lower">
-      <section className="surface rhythm-panel">
-        <SectionHeader title="本周学习节奏" description="总计 12 小时 40 分钟，比上周多 8%" action={<Badge tone="green"><TrendingUp size={13} />稳定上升</Badge>} />
-        <MiniBars values={[70, 95, 55, 110, 82, 125, 45]} labels={['一', '二', '三', '四', '五', '六', '日']} />
-        <div className="rhythm-stats"><div><span>专注学习</span><strong>9.6<small>小时</small></strong></div><div><span>主动练习</span><strong>126<small>题</small></strong></div><div><span>记忆保持率</span><strong>84<small>%</small></strong></div></div>
-      </section>
-      <section className="surface insight-panel">
-        <div className="insight-title"><Sparkles size={19} /><h2>知舟的学习观察</h2></div>
-        <p>你在<strong>条件概率</strong>的练习中表现稳定，但遇到“低基线率”情境时容易忽略先验概率。</p>
-        <div className="insight-evidence"><CircleAlert size={17} /><span>依据：最近 12 道题中的 3 次同类错误</span></div>
-        <Button variant="secondary" onClick={() => { notify('已生成 3 道低基线率变式题'); onNavigate('practice') }}><Lightbulb size={17} />生成针对练习</Button>
-      </section>
-      <section className="surface upcoming-panel">
-        <SectionHeader title="接下来" action={<CalendarDays size={19} />} />
-        <div className="upcoming-item"><span className="upcoming-date">04<small>11 月</small></span><div><strong>阶段测验 · 概率论</strong><p>20 题 · 限时 45 分钟</p></div></div>
-        <div className="upcoming-item"><span className="upcoming-date">12<small>11 月</small></span><div><strong>分类器项目截止</strong><p>还剩 2 个里程碑</p></div></div>
-        <button className="text-action" onClick={() => onNavigate('projects')}>查看项目与里程碑<ArrowRight size={15} /></button>
-      </section>
-    </div>
-    <div className="demo-note"><Brain size={15} />任务等已接入数据保存在当前应用的原生数据库；图表与其他学习示例仍为合成数据。</div>
+    <div className="dashboard-lower"><section className="surface rhythm-panel"><SectionHeader title="本周学习节奏" description={`真实记录 ${(weeklyMinutes / 60).toFixed(1)} 小时`} action={<Badge tone="green"><TrendingUp size={13} />真实数据</Badge>} /><MiniBars values={overview.week.map(day => day.seconds / 60)} labels={overview.week.map(day => new Date(`${day.kind}T00:00:00`).toLocaleDateString('zh-CN', { weekday: 'short' }))} /><div className="rhythm-stats"><div><span>有效学习记录</span><strong>{(overview.focusSeconds / 3600).toFixed(1)}<small>小时</small></strong></div><div><span>主动练习</span><strong>{overview.practiceCount}<small>题</small></strong></div><div><span>记忆保持率</span><strong>{overview.retentionPercent === null ? '—' : `${Math.round(overview.retentionPercent * 100)}%`}</strong></div></div></section><section className="surface insight-panel"><div className="insight-title"><Sparkles size={19} /><h2>知舟的学习观察</h2></div>{recommendation ? <><p><strong>{recommendation.title}</strong>：{recommendation.detail}</p><div className="insight-evidence"><CircleAlert size={17} /><span>建议来自当前工作区的真实证据。</span></div><Button variant="secondary" onClick={() => recommendation.kind === 'focus' ? onFocus() : onNavigate('practice')}><Lightbulb size={17} />{recommendation.kind === 'focus' ? '开始真实专注' : '前往针对练习'}</Button></> : <><p>当前没有足够的证据生成学习建议。</p><Button variant="secondary" onClick={() => onNavigate('plan')}><BookOpen size={17} />查看真实计划</Button></>}</section><section className="surface upcoming-panel"><SectionHeader title="接下来" action={<CalendarDays size={19} />} />{overview.upcoming.length ? overview.upcoming.map(item => <button className="upcoming-item" key={`${item.kind}-${item.title}-${item.date}`} onClick={() => onNavigate(item.page)}><span className="upcoming-date">{formatDate(item.date)}</span><div><strong>{item.title}</strong><p>{item.detail}</p></div></button>) : <p className="form-help">暂无已安排的考试或项目。</p>}<button className="text-action" onClick={() => onNavigate('projects')}>查看项目与里程碑<ArrowRight size={15} /></button></section></div>
+    <div className="demo-note"><Brain size={15} />首页只使用当前工作区的真实记录；空状态代表尚无数据，不填充示例。</div>
   </div>
 }

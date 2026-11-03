@@ -2,6 +2,7 @@ pub mod agent;
 pub mod backup;
 pub mod commands;
 pub mod community;
+pub mod engagement;
 pub mod error;
 pub mod export;
 pub mod knowledge;

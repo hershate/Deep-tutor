@@ -135,6 +135,7 @@ impl Store {
         super::agent::migrate(&conn)?;
         super::community::migrate(&conn)?;
         super::plugins::migrate(&conn)?;
+        super::engagement::migrate(&conn)?;
         super::reports::migrate(&conn)?;
         super::security::migrate(&conn)?;
         super::sync::migrate(&conn)?;
@@ -175,7 +176,17 @@ impl Store {
             "highContrast": false,
             "reducedMotion": false,
             "largeText": false,
-            "theme": "light"
+            "theme": "light",
+            "language": "zh-CN",
+            "weeklyHours": 15,
+            "learningStyle": "案例与练习结合",
+            "explanationStyle": "先追问，再针对讲解",
+            "quietStart": "22:00",
+            "quietEnd": "08:00",
+            "quietEnabled": true,
+            "learningRole": "自学者",
+            "learningGoal": "",
+            "diagnosticStartedAt": null
         })
     }
 
@@ -527,6 +538,7 @@ impl Store {
         super::agent::clear_all(&tx)?;
         super::practice::clear_all(&tx)?;
         super::review::clear_all(&tx)?;
+        super::engagement::clear_all(&tx)?;
         super::reports::clear_all(&tx)?;
         super::knowledge::clear_all(&tx)?;
         super::sharing::clear_all(&tx)?;
@@ -842,6 +854,17 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
             "reducedMotion",
             "largeText",
             "theme",
+            "language",
+            "weeklyHours",
+            "learningStyle",
+            "explanationStyle",
+            "quietStart",
+            "quietEnd",
+            "quietEnabled",
+            "profileName",
+            "learningRole",
+            "learningGoal",
+            "diagnosticStartedAt",
         ],
     )?;
     for key in [
@@ -854,6 +877,52 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
         "largeText",
     ] {
         boolean(object, key)?;
+    }
+    if object.contains_key("quietEnabled") {
+        boolean(object, "quietEnabled")?;
+    }
+    if object.contains_key("weeklyHours")
+        && ![8, 15, 25].contains(&field(object, "weeklyHours")?.as_u64().unwrap_or_default())
+    {
+        return Err(BackendError::invalid(
+            "invalid_weekly_hours",
+            "每周投入小时数不受支持",
+        ));
+    }
+    for (key, maximum) in [
+        ("language", 16),
+        ("learningStyle", 100),
+        ("explanationStyle", 100),
+        ("profileName", 80),
+        ("learningRole", 100),
+        ("learningGoal", 200),
+    ] {
+        if object.contains_key(key) {
+            text(object, key, maximum, key == "learningGoal")?;
+        }
+    }
+    for key in ["quietStart", "quietEnd"] {
+        if object.contains_key(key) {
+            let value = field(object, key)?.as_str().unwrap_or_default();
+            let valid = value.split_once(':').is_some_and(|(hour, minute)| {
+                hour.len() == 2
+                    && minute.len() == 2
+                    && hour.parse::<u32>().is_ok_and(|hour| hour < 24)
+                    && minute.parse::<u32>().is_ok_and(|minute| minute < 60)
+            });
+            if !valid {
+                return Err(BackendError::invalid(
+                    "invalid_quiet_time",
+                    "免打扰时间格式无效",
+                ));
+            }
+        }
+    }
+    if object
+        .get("diagnosticStartedAt")
+        .is_some_and(|value| !value.is_null())
+    {
+        text(object, "diagnosticStartedAt", 64, false)?;
     }
     if !["light", "dark"].contains(&field(object, "theme")?.as_str().unwrap_or_default()) {
         return Err(BackendError::invalid("invalid_theme", "主题不受支持"));
