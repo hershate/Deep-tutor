@@ -1822,3 +1822,14 @@ h1, h2, h3 { text-wrap: balance; }
 .citation-source-text { max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .wiki-history > div { display: flex; align-items: center; gap: 3px; }
 .wiki-history > div > button:first-child { flex: 1; min-width: 0; }
+.section-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.community-room-list { margin-top: 20px; }
+.community-room-row { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--border); }
+.community-room-row > div:last-child { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.community-replies { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.community-replies > div { padding: 10px; border-radius: 8px; background: var(--surface-soft); }
+.community-replies p { white-space: pre-wrap; }
+.community-replies small { color: var(--muted); }
+.reply-composer { display: grid; gap: 9px; }
+.reply-composer textarea { width: 100%; resize: vertical; }
+@media (max-width: 700px) { .community-room-row { flex-direction: column; } }

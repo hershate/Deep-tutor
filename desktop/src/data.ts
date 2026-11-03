@@ -87,9 +87,3 @@ export const knowledgeNodes = [
   { id: 'nb', label: '朴素贝叶斯', x: 625, y: 105, mastery: 28, status: '待巩固', description: '基于特征条件独立假设的概率分类方法。', evidence: '项目进行中 · 尚未完成测评' },
   { id: 'eval', label: '模型评估', x: 625, y: 285, mastery: 12, status: '未学', description: '准确率、精确率、召回率与混淆矩阵。', evidence: '完成朴素贝叶斯后解锁' },
 ]
-
-export const communityPosts = [
-  { id: 1, author: '林一', initials: '林', title: '如何避免“看懂了但做不出”？', body: '最近把每次学习后的闭卷复述加入流程，错题率明显下降。我的具体做法是……', tag: '学习方法', replies: 28, likes: 94, time: '18 分钟前' },
-  { id: 2, author: '周澄', initials: '周', title: '贝叶斯分类器项目互评招募', body: '刚完成数据清洗和初版模型，希望找一位同学互查评估指标与项目报告。', tag: '项目互评', replies: 12, likes: 36, time: '1 小时前' },
-  { id: 3, author: '许言', initials: '许', title: '一份不焦虑的冲刺周计划', body: '不延长学习时长，只调整任务顺序：先补高频缺口，再做整卷，最后处理低频细节。', tag: '备考计划', replies: 41, likes: 128, time: '昨天' },
-]

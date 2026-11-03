@@ -1421,6 +1421,7 @@ mod tests {
                 practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
                 review: crate::backend::review::ReviewState::for_tests().unwrap(),
                 knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
+                community: crate::backend::community::CommunityState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();

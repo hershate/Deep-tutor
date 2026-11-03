@@ -22,6 +22,7 @@ import type { PageId, Project, Task } from './data'
 import { backend, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
+import { communityBackend } from './backend/community'
 
 const Library = lazy(() => import('./pages/Library'))
 const PlanGenerator = lazy(() => import('./pages/PlanGenerator'))
@@ -69,6 +70,19 @@ export default function App() {
     return () => window.removeEventListener('backend-error', onError)
   }, [])
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer) }, [toast])
+  useEffect(() => {
+    if (!ready) return
+    let active = true
+    const poll = async () => {
+      try {
+        const reminders = await communityBackend.claimDueReminders()
+        if (active) reminders.forEach(reminder => notify(`学习预约「${reminder.title}」：${new Date(reminder.startAt).toLocaleString()} 开始`))
+      } catch (error) { reportBackendError(error) }
+    }
+    void poll()
+    const timer = window.setInterval(() => { void poll() }, 30000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [ready])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)

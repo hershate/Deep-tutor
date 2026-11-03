@@ -93,6 +93,7 @@ impl Store {
         super::practice::migrate(&conn)?;
         super::review::migrate(&conn)?;
         super::agent::migrate(&conn)?;
+        super::community::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -376,6 +377,7 @@ impl Store {
 
     pub fn reset(&self) -> Result<Mutation> {
         let tx = self.conn.unchecked_transaction()?;
+        super::community::clear_all(&tx)?;
         super::agent::clear_all(&tx)?;
         super::practice::clear_all(&tx)?;
         super::review::clear_all(&tx)?;

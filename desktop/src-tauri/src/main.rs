@@ -3,7 +3,7 @@
 mod backend;
 
 use backend::{
-    agent, commands, knowledge, learning, materials, practice, providers, review, store::Store,
+    agent, commands, community, knowledge, learning, materials, practice, providers, review, store::Store,
     BackendState,
 };
 use std::sync::Mutex;
@@ -37,6 +37,7 @@ fn main() {
                 practice: practice_state,
                 review: review_state,
                 knowledge: knowledge_state,
+                community: community::CommunityState::new(&path),
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -140,6 +141,18 @@ fn main() {
             knowledge::commands::resume_knowledge_answer,
             knowledge::commands::delete_knowledge_session,
             knowledge::commands::clear_knowledge_history,
+            community::commands::get_community_overview,
+            community::commands::create_community_post,
+            community::commands::reply_community_post,
+            community::commands::accept_community_reply,
+            community::commands::toggle_community_reaction,
+            community::commands::create_community_group,
+            community::commands::toggle_community_group,
+            community::commands::create_community_room,
+            community::commands::reserve_community_room,
+            community::commands::cancel_community_reservation,
+            community::commands::cancel_community_room,
+            community::commands::claim_community_reminders,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,

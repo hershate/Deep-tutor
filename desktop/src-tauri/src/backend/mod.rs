@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod commands;
+pub mod community;
 pub mod error;
 pub mod knowledge;
 pub mod learning;
@@ -20,4 +21,5 @@ pub struct BackendState {
     pub practice: practice::PracticeState,
     pub review: review::ReviewState,
     pub knowledge: knowledge::KnowledgeState,
+    pub community: community::CommunityState,
 }
