@@ -1,0 +1,1108 @@
+{
+ "POST /auth/login": {
+  "module": "app.api.auth",
+  "func": "login",
+  "auth": "PUBLIC",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /auth/me": {
+  "module": "app.api.auth",
+  "func": "me",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /health": {
+  "module": "app.api.health",
+  "func": "health",
+  "auth": "PUBLIC",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /sessions": {
+  "module": "app.api.sessions",
+  "func": "create_session",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "DELETE /sessions/{session_id}": {
+  "module": "app.api.sessions",
+  "func": "delete_session",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /sessions": {
+  "module": "app.api.sessions",
+  "func": "list_sessions",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /sessions/{session_id}": {
+  "module": "app.api.sessions",
+  "func": "get_session",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /sessions/{session_id}/materials": {
+  "module": "app.api.sessions",
+  "func": "list_session_materials",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "DELETE /sessions/{session_id}/materials/{material_id}": {
+  "module": "app.api.sessions",
+  "func": "delete_material",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /materials/formats": {
+  "module": "app.api.materials",
+  "func": "list_formats",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /materials/upload": {
+  "module": "app.api.materials",
+  "func": "upload_material",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /materials/{material_id}/confirm": {
+  "module": "app.api.materials",
+  "func": "confirm_material",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /materials/{material_id}/parse": {
+  "module": "app.api.materials",
+  "func": "parse_material_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /materials/url": {
+  "module": "app.api.materials",
+  "func": "url_material",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /materials/text": {
+  "module": "app.api.materials",
+  "func": "text_material",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /materials/{unit_id}": {
+  "module": "app.api.materials",
+  "func": "get_study_unit_content",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /materials/{unit_id}/export": {
+  "module": "app.api.materials",
+  "func": "export_unit_slides",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /materials/{unit_id}/done": {
+  "module": "app.api.materials",
+  "func": "mark_unit_done",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /materials/clip": {
+  "module": "app.api.materials",
+  "func": "clip_material",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /plans/generate": {
+  "module": "app.api.plans",
+  "func": "generate",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /plans/{session_id}/retry": {
+  "module": "app.api.plans",
+  "func": "retry",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /plans/{session_id}/clarify": {
+  "module": "app.api.plans",
+  "func": "clarify",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /plans/{session_id}/cancel": {
+  "module": "app.api.plans",
+  "func": "cancel",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /plans/{plan_id}/regenerate": {
+  "module": "app.api.plans",
+  "func": "regenerate",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /plans": {
+  "module": "app.api.plans",
+  "func": "list_plans",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /plans/today": {
+  "module": "app.api.plans",
+  "func": "today_tasks",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /plans/{plan_id}": {
+  "module": "app.api.plans",
+  "func": "get_plan",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /plans/{plan_id}/materials": {
+  "module": "app.api.plans",
+  "func": "generate_materials",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /plans/{plan_id}/materials/export": {
+  "module": "app.api.plans",
+  "func": "export_materials",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /plans/{plan_id}/materials": {
+  "module": "app.api.plans",
+  "func": "list_materials",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /plans/{plan_id}/materials/search": {
+  "module": "app.api.plans",
+  "func": "search_materials",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /plans/{plan_id}/quiz": {
+  "module": "app.api.plans",
+  "func": "generate_quiz_endpoint",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /plans/{plan_id}/quiz/wrong": {
+  "module": "app.api.plans",
+  "func": "wrong_quizzes",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /plans/{plan_id}/quiz/stats": {
+  "module": "app.api.plans",
+  "func": "quiz_stats",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /export/formats": {
+  "module": "app.api.exports",
+  "func": "list_export_formats",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /export/{plan_id}": {
+  "module": "app.api.exports",
+  "func": "export_plan_endpoint",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /usage": {
+  "module": "app.api.usage",
+  "func": "get_usage",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /usage/daily": {
+  "module": "app.api.usage",
+  "func": "get_usage_daily",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /usage/by-model": {
+  "module": "app.api.usage",
+  "func": "usage_by_model",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /settings": {
+  "module": "app.api.settings",
+  "func": "get_settings",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "PUT /settings/prefs": {
+  "module": "app.api.settings",
+  "func": "update_prefs",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /settings/pricing": {
+  "module": "app.api.settings",
+  "func": "get_pricing_settings",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "PUT /settings/pricing": {
+  "module": "app.api.settings",
+  "func": "update_pricing_settings",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /progress": {
+  "module": "app.api.progress",
+  "func": "update_progress",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /progress/logs": {
+  "module": "app.api.progress",
+  "func": "list_day_logs",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /progress/{plan_id}": {
+  "module": "app.api.progress",
+  "func": "get_progress",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /progress/review/due": {
+  "module": "app.api.progress",
+  "func": "review_due",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /progress/review/queue": {
+  "module": "app.api.progress",
+  "func": "review_queue",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /progress/stats/summary": {
+  "module": "app.api.progress",
+  "func": "stats_summary",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /progress/stats/calendar": {
+  "module": "app.api.progress",
+  "func": "stats_calendar",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /progress/stats/by-plan": {
+  "module": "app.api.progress",
+  "func": "stats_by_plan",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /progress/logs": {
+  "module": "app.api.progress",
+  "func": "add_learning_log",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /progress/logs/{plan_id}": {
+  "module": "app.api.progress",
+  "func": "list_learning_logs",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "DELETE /progress/logs/{log_id}": {
+  "module": "app.api.progress",
+  "func": "delete_learning_log",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /quizzes/{quiz_id}/submit": {
+  "module": "app.api.quizzes",
+  "func": "submit_quiz",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /quizzes/wrong-overview": {
+  "module": "app.api.quizzes",
+  "func": "wrong_overview",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /quizzes/wrong-queue": {
+  "module": "app.api.quizzes",
+  "func": "wrong_queue",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /search": {
+  "module": "app.api.search",
+  "func": "global_search",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /providers": {
+  "module": "app.api.providers",
+  "func": "list_providers",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /providers/kinds": {
+  "module": "app.api.providers",
+  "func": "list_provider_kinds",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /providers": {
+  "module": "app.api.providers",
+  "func": "create_provider",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "PUT /providers/{profile_id}": {
+  "module": "app.api.providers",
+  "func": "update_provider",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "DELETE /providers/{profile_id}": {
+  "module": "app.api.providers",
+  "func": "delete_provider",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /providers/{profile_id}/activate": {
+  "module": "app.api.providers",
+  "func": "activate_provider",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /providers/deactivate": {
+  "module": "app.api.providers",
+  "func": "deactivate_providers",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /providers/{profile_id}/test": {
+  "module": "app.api.providers",
+  "func": "test_provider",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /users": {
+  "module": "app.api.users",
+  "func": "list_users",
+  "auth": "ADMIN",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /users": {
+  "module": "app.api.users",
+  "func": "create_user",
+  "auth": "ADMIN",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "PUT /users/{user_id}": {
+  "module": "app.api.users",
+  "func": "update_user",
+  "auth": "ADMIN",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "DELETE /users/{user_id}": {
+  "module": "app.api.users",
+  "func": "delete_user",
+  "auth": "ADMIN",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /plans/{plan_id}/share": {
+  "module": "app.api.share",
+  "func": "create_share",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "DELETE /plans/{plan_id}/share": {
+  "module": "app.api.share",
+  "func": "revoke_share",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /plans/{plan_id}/share": {
+  "module": "app.api.share",
+  "func": "get_share",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /shares": {
+  "module": "app.api.share",
+  "func": "list_shares",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /shared/{token}": {
+  "module": "app.api.share",
+  "func": "read_shared",
+  "auth": "PUBLIC",
+  "ownership_evidence": false,
+  "rate_limited": true
+ },
+ "GET /setup/status": {
+  "module": "app.api.setup",
+  "func": "setup_status",
+  "auth": "PUBLIC",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /setup": {
+  "module": "app.api.setup",
+  "func": "setup",
+  "auth": "PUBLIC",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /setup/dismiss": {
+  "module": "app.api.setup",
+  "func": "dismiss",
+  "auth": "PUBLIC",
+  "ownership_evidence": false,
+  "rate_limited": true
+ },
+ "GET /backup/export": {
+  "module": "app.api.backup",
+  "func": "export_backup",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /backup/preview": {
+  "module": "app.api.backup",
+  "func": "preview_backup_endpoint",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /backup/import": {
+  "module": "app.api.backup",
+  "func": "import_backup",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /knowledge": {
+  "module": "app.api.knowledge",
+  "func": "list_knowledge",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /knowledge/notes": {
+  "module": "app.api.knowledge",
+  "func": "list_notes",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /knowledge/export": {
+  "module": "app.api.knowledge",
+  "func": "export_knowledge_handbook",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /knowledge/notes/{node_id}": {
+  "module": "app.api.knowledge",
+  "func": "get_node_note",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "PUT /knowledge/notes/{node_id}": {
+  "module": "app.api.knowledge",
+  "func": "put_node_note",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /kb/documents/upload": {
+  "module": "app.api.kb",
+  "func": "upload_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /kb/documents/{document_id}/confirm": {
+  "module": "app.api.kb",
+  "func": "confirm_document",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /kb/documents/{document_id}/parse": {
+  "module": "app.api.kb",
+  "func": "parse_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /kb/documents/text": {
+  "module": "app.api.kb",
+  "func": "create_text_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /kb/documents/url": {
+  "module": "app.api.kb",
+  "func": "create_url_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /kb/documents": {
+  "module": "app.api.kb",
+  "func": "list_documents",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /kb/documents/{document_id}": {
+  "module": "app.api.kb",
+  "func": "get_document",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "PUT /kb/documents/{document_id}": {
+  "module": "app.api.kb",
+  "func": "rename_document",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /kb/documents/{document_id}": {
+  "module": "app.api.kb",
+  "func": "delete_document",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /kb/documents/{document_id}/raw": {
+  "module": "app.api.kb",
+  "func": "get_document_raw",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /kb/documents/{document_id}/parsed": {
+  "module": "app.api.kb",
+  "func": "get_document_parsed",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /kb/export": {
+  "module": "app.api.kb",
+  "func": "export_kb_zip",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /kb/generate": {
+  "module": "app.api.kb",
+  "func": "generate_from_documents",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "POST /kb/chat": {
+  "module": "app.api.kb",
+  "func": "chat_with_kb",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /kb/chats": {
+  "module": "app.api.kb",
+  "func": "list_chat_records",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "DELETE /kb/chats/{record_id}": {
+  "module": "app.api.kb",
+  "func": "delete_chat_record",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /credentials": {
+  "module": "app.api.credentials",
+  "func": "list_credentials",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /credentials": {
+  "module": "app.api.credentials",
+  "func": "create_credential",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "PUT /credentials/{credential_id}": {
+  "module": "app.api.credentials",
+  "func": "update_credential",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /credentials/{credential_id}": {
+  "module": "app.api.credentials",
+  "func": "delete_credential",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /credentials/{credential_id}/activate": {
+  "module": "app.api.credentials",
+  "func": "activate_credential",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /credentials/{credential_id}/deactivate": {
+  "module": "app.api.credentials",
+  "func": "deactivate_credential",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /credentials/deactivate-all": {
+  "module": "app.api.credentials",
+  "func": "deactivate_all",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /notes": {
+  "module": "app.api.notes",
+  "func": "list_notes",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /notes": {
+  "module": "app.api.notes",
+  "func": "create_note",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /notes/import": {
+  "module": "app.api.notes",
+  "func": "import_notes",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /notes/export": {
+  "module": "app.api.notes",
+  "func": "export_notes_zip",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /notes/{note_id}": {
+  "module": "app.api.notes",
+  "func": "get_note",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "PUT /notes/{note_id}": {
+  "module": "app.api.notes",
+  "func": "update_note",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /notes/{note_id}": {
+  "module": "app.api.notes",
+  "func": "delete_note",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /threads": {
+  "module": "app.api.memory",
+  "func": "create_thread",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /threads": {
+  "module": "app.api.memory",
+  "func": "list_threads",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /threads/{thread_id}": {
+  "module": "app.api.memory",
+  "func": "get_thread",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "PATCH /threads/{thread_id}": {
+  "module": "app.api.memory",
+  "func": "patch_thread",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /threads/{thread_id}": {
+  "module": "app.api.memory",
+  "func": "delete_thread",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /threads/{thread_id}/messages": {
+  "module": "app.api.memory",
+  "func": "list_messages",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /threads/{thread_id}/messages/{message_id}": {
+  "module": "app.api.memory",
+  "func": "delete_message",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /threads/{thread_id}/memory": {
+  "module": "app.api.memory",
+  "func": "list_thread_memory",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /threads/{thread_id}/memory": {
+  "module": "app.api.memory",
+  "func": "add_thread_memory",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "DELETE /threads/{thread_id}/memory/{memory_id}": {
+  "module": "app.api.memory",
+  "func": "delete_thread_memory",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /memory": {
+  "module": "app.api.memory",
+  "func": "list_user_memory",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /memory": {
+  "module": "app.api.memory",
+  "func": "add_user_memory",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "DELETE /memory/{memory_id}": {
+  "module": "app.api.memory",
+  "func": "delete_user_memory",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /threads/{thread_id}/runs": {
+  "module": "app.api.memory",
+  "func": "list_runs",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /runs/{run_id}": {
+  "module": "app.api.memory",
+  "func": "get_run",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /runs/{run_id}/steps": {
+  "module": "app.api.memory",
+  "func": "list_steps",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /runs/{run_id}": {
+  "module": "app.api.memory",
+  "func": "delete_run",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /runs/{run_id}/cancel": {
+  "module": "app.api.memory",
+  "func": "cancel_run",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /runs/{run_id}/files": {
+  "module": "app.api.memory",
+  "func": "list_files",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /runs/{run_id}/files/{name:path}": {
+  "module": "app.api.memory",
+  "func": "read_file",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /runs/{run_id}/approve": {
+  "module": "app.api.memory",
+  "func": "approve_promote",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /threads/{thread_id}/runs": {
+  "module": "app.api.memory",
+  "func": "start_run",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": true
+ },
+ "GET /threads/{thread_id}/runs/active": {
+  "module": "app.api.memory",
+  "func": "stream_active_run",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /plugins": {
+  "module": "app.api.plugins",
+  "func": "list_plugins",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /plugins/{plugin_id}/reload": {
+  "module": "app.api.plugins",
+  "func": "reload_plugin",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /plugins/{plugin_id}/disable": {
+  "module": "app.api.plugins",
+  "func": "disable_plugin",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /plugins/{plugin_id}/enable": {
+  "module": "app.api.plugins",
+  "func": "enable_plugin",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /events/stream": {
+  "module": "app.api.events",
+  "func": "event_stream",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /tools": {
+  "module": "app.api.tools",
+  "func": "list_tools",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /explain": {
+  "module": "dt_plugin_ai_tutor",
+  "func": "explain",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /breakdown": {
+  "module": "dt_plugin_ai_tutor",
+  "func": "breakdown",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /status": {
+  "module": "dt_plugin_ai_tutor",
+  "func": "status",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /info": {
+  "module": "dt_plugin_epub_reader",
+  "func": "info",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /tools": {
+  "module": "dt_plugin_mcp_bridge",
+  "func": "tools",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /invoke": {
+  "module": "dt_plugin_mcp_bridge",
+  "func": "invoke",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "PUT /config": {
+  "module": "dt_plugin_provider_bridge",
+  "func": "set_config",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /config": {
+  "module": "dt_plugin_provider_bridge",
+  "func": "get_config",
+  "auth": "USER",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "POST /chat": {
+  "module": "dt_plugin_provider_bridge",
+  "func": "chat",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "GET /stats": {
+  "module": "dt_plugin_security_guard",
+  "func": "stats",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "GET /dashboard": {
+  "module": "dt_plugin_study_stats",
+  "func": "dashboard",
+  "auth": "USER",
+  "ownership_evidence": true,
+  "rate_limited": false
+ },
+ "POST /config": {
+  "module": "dt_plugin_webhook_notify",
+  "func": "set_config",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ },
+ "DELETE /config": {
+  "module": "dt_plugin_webhook_notify",
+  "func": "del_config",
+  "auth": "ADMIN",
+  "ownership_evidence": false,
+  "rate_limited": false
+ }
+}

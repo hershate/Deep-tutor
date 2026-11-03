@@ -1,149 +1,49 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.venv/
-venv/
-env/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-# uv 的包缓存（启动脚本建虚拟环境时用；项目内，与 backend/.venv 同卷）
-/.uv-cache/
-
-# 环境变量（不入库）
+# Secrets and local configuration
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
 
-# 运行时数据（SQLite + 上传/解析/导出等，plan/01 §五 存储策略）
-# 锚定根目录：内核 desktop 等子目录内含同名源码目录 data/，不得误伤
+# User data and reference source, never treated as build inputs to delete
 /data/
-
-# 用户自装后端插件（仓库仅收录装载约定 README 与官方示例；自己的插件不入库）
-plugins/*
-!plugins/README.md
-!plugins/example_hello.py.disabled
-# —— 官方实用插件（入库，开箱即用；用户自装插件仍不入库）——
-!plugins/study_export_pack.py
-!plugins/study_stats.py
-!plugins/epub_reader.py
-!plugins/ai_tutor.py
-!plugins/security_guard.py
-!plugins/webhook_notify.py
-!plugins/provider_bridge.py
-!plugins/mcp_bridge.py
-
-# 前端
-frontend/node_modules/
-frontend/dist/
-frontend/dist-ssr/
-
-# OS / IDE
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.swp
-
-# Claude 本地工作区（会话草稿/定时任务，不入库）
-.claude/
-# note/ 自 2026-10-15 起纳入跟踪（项目分析与改造决策档案）
-# REF/ = Reasonix/R-Tutor 源码参考副本（zip 为本地备份，不入库；上游 https://github.com/esengine/DeepSeek-Reasonix）
+/backend/data/
 /REF
 
-# —— Reasonix 内核（自 REF 20261017 快照吸收，2026-10-17）——
-# 构建产物（go build 会把各 main 包二进制落在根目录）
-/bin/
-/dist/
-/stage/
-/reasonix
-/reasonix.exe
-/deep-tutor
-/deep-tutor.exe
-/e2ebench
-/e2ebench.exe
-/context-retrieval
-/compaction
-/context-maintenance-e2e
-/runtime-resume
-/extension-protocol-gen
-/reasonix-plugin-example
-/mcp-line-counter-kit
-/reasonix-studio-host
-/signpath-contract
-/studio-delta
-/covergate
-/pricecheck
-/repolint
-/canary
-/workgroupassay
-/write_heartbeat
-/catalog-detector
-/tool-surface-cache
+# Local tools and historical runtime state
+.claude/
+.reasonix/
+.idea/
+.vscode/
+.codegraph/
 
-# Go 测试/构建临时物
+# Python-era caches retained only to avoid accidental re-use
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
+
+# JavaScript and Rust build outputs
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+*.tsbuildinfo
+/dist/
+/bin/
+
+# OS and test artifacts
+.DS_Store
+Thumbs.db
+*.swp
 *.test
 *.out
 *.coverprofile
 coverage.out
 .coverage
-cpu.prof
-mem.prof
 *.exe
 *.exe~
-
-# Wails/桌面构建产物
-/desktop/build/*
-!/desktop/build/appicon.png
-!/desktop/build/appicon.svg
-/desktop/desktop
-/desktop/frontend/dist/*
-!/desktop/frontend/dist/.gitkeep
-/desktop/frontend/sourcemaps/
-/desktop/frontend/wailsjs/
-/desktop/frontend/package.json.md5
-/desktop/.env
-/desktop/reasonix.toml
-/reasonix.toml
-
-# Node 依赖与缓存
-node_modules/
-.pnpm-store/
-.npm/
-
-# 项目本地 Reasonix 状态（保留内置 review 命令）
-/.reasonix/*
-!/.reasonix/commands/
-!/.reasonix/commands/review.md
-internal/**/.reasonix/
-desktop/**/.reasonix/
-
-# CodeGraph 索引（本地重建）
-.codegraph/
-
-# 本地草稿
-temp/
-
-# 主题产物缓存
-scripts/reasonix/official-theme-art/out/
-scripts/reasonix/official-theme-art/__pycache__/
-
-# Python 后端测试运行时数据（/data/ 锚定后显形，仍不入库）
-/backend/data/
-
-# 手工审计脚本生成物（tests/contract_audit.py、contract_frontend.py、contract_diff.py、
-# auth_matrix.py 复跑再生；iter 374/375 的 JSON 快照与 diff 报告不入库）
-/backend/tests/backend_contract.json
-/backend/tests/frontend_contract.json
-/backend/tests/contract_diff_report.txt
-/backend/tests/auth_matrix.json
-
-# iter 402 的一次误留：Makefile 曾把 stderr 重定向到 `NUL`，而本机的
-# mingw 版 make 让 `$(shell ...)` 走 POSIX shell —— 那里 `NUL` 是个普通
-# 文件名，于是仓库根目录多了一个指向空设备的 reparse point。它是 Windows
-# 的保留设备名，回收站启动器按设计拒收（无法核验 reparse point 标签），
-# 故留着并在此挡住：否则一次 `git add -A` 会把它当作符号链接提交进去。
-# Makefile 里那条重定向已删除，不会再生成。
 NUL

@@ -1,33 +1,30 @@
 # 知舟 Deep Tutor
 
-> **版本**：1.0.0 · **唯一交付形态**：Tauri 2 桌面安装包
->
-> 界面来自用户提供的 `REF/frontend/app`，由 React 18、TypeScript、Vite 和
-> Tauri 2（Rust）组成。项目不再交付浏览器 SPA、Electron、网页启动脚本或服务器环境。
-> 当前正在把 REF 的全部功能接入 Tauri 原生后端，使用真实实时输出。
+**版本 1.0.0 · 唯一交付形态：Tauri 2 桌面安装包**
 
-## 1. 产品边界
+界面来自用户提供的 `REF/frontend/app`，由 React 18、TypeScript、Vite 和 Tauri 2（Rust）组成。前后端在应用进程内通过 commands/events 连接，不需要启动网页、HTTP 服务、Electron 或旧脚本。
 
-应用包含今日、AI 方案生成、学习计划、学习空间、知识地图、Agent 工作台、
-练习测评、间隔复习、自由笔记、KB 文档与 Wiki 问答、项目作品、学习报告、
-学习社区、模型接入、插件事件、备份、只读分享和访问安全设置。
+## 产品与数据
 
-**当前真实性边界**：REF 界面已能构建和运行，但全功能原生后端仍在分片实现。
-在对应切片完成前，部分页面仍含本地状态或模拟逻辑，不据此宣称全部模型、
-同步、生成和安全能力已经接通。覆盖矩阵见
-[`note/14-Tauri原生后端覆盖清单.md`](./note/14-Tauri原生后端覆盖清单.md)。
+应用提供学习计划与方案生成、讲义与知识地图、练习与模拟考试、间隔复习、Agent、自由笔记、KB/Wiki、项目成果、学习报告、本机社区、模型供应商、声明式插件、备份分享、导入导出、同步与本地访问安全。
 
-## 2. 安装包构建
+- 业务状态、任务执行、版本和事件 outbox 保存于应用数据目录的 SQLite。
+- 材料原件、媒体和导出文件保存在应用数据目录，不随仓库分发。
+- 模型与网页请求由 Rust 实际执行；不可用时返回明确错误，不生成模拟结果。
+- API Key 只进入系统密钥库。日志、导出、同步载荷和测试夹具不得包含明文密钥。
+- 文本模型不处理图像或音频识别；媒体仅作真实原件预览，不伪造 OCR、字幕或内容分析。
+
+功能与验收矩阵见 [`note/14-Tauri原生后端覆盖清单.md`](./note/14-Tauri原生后端覆盖清单.md)。
+
+## 构建安装包
 
 ### 环境
 
-- Windows（当前安装目标）。
-- Node.js 24+ 与 npm。
-- Rust/Cargo（Tauri 2 原生构建必需）。本机可复用
-  `F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc`。
-- WebView2 与 MSVC。
+- Windows 与 WebView2。
+- Node.js 24+ 和 npm。
+- Rust/Cargo 与 MSVC 构建环境。
 
-### 构建
+### 命令
 
 ```bash
 cd desktop
@@ -35,80 +32,59 @@ npm ci
 npm run tauri build
 ```
 
-该命令依次执行 TypeScript/Vite 生产构建、Rust 构建和 NSIS 打包。
-安装包输出到：
+该命令执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。安装包输出到：
 
 ```text
 desktop/src-tauri/target/release/bundle/nsis/
 ```
 
-`tauri.conf.json` 已启用 `bundle.active=true`、`targets=["nsis"]`、
-当前用户安装与开始菜单目录。安装后从开始菜单启动 **知舟 Deep Tutor**，
-不需要再运行任何脚本或启动服务。
+安装后从开始菜单启动 **知舟 Deep Tutor**，不需要运行脚本或配置服务器。
 
-CI 的 `Tauri 2 application` job 在 Windows 上执行同一条构建命令，
-并上传 `deep-tutor-windows-nsis` 构建附件。
+开发调试可运行 `npm run tauri dev`。Vite 只绑定 `127.0.0.1:1420` 供 Tauri 开发壳使用，不是产品网页入口。
 
-## 3. 开发调试
-
-```bash
-cd desktop
-npm run tauri dev
-```
-
-Vite 仅绑定 `127.0.0.1:1420`，供 Tauri 开发壳使用，不是产品网页入口。
-仓库不再提供 `scripts/start.ps1`、`scripts/start.sh` 或其他 venv、
-pip、uvicorn、浏览器/API 服务启动方式。
-
-## 4. 当前目录
+## 当前目录
 
 ```text
 Deep-tutor/
 ├── desktop/                 # 唯一应用界面与 Tauri 2 安装包
-│   ├── src/                 # REF 提供的 React 页面与原生后端客户端
+│   ├── src/                 # React 页面、样式与原生后端客户端
 │   ├── public/              # 静态资产
 │   ├── src-tauri/           # Rust 壳、原生后端与 NSIS 配置
-│   ├── package.json         # 界面依赖与 Tauri CLI
-│   └── PRODUCT.md           # 产品能力与真实性边界
-├── backend/                 # 既有 Python 源码，保留待等价替换，不是运行前提
-├── internal/                # 既有 Reasonix Go 源码，保留待等价替换
-├── cmd/                     # 保留的 Go 命令（旧 Studio host 已删除）
-├── sdk/                     # 扩展 SDK
-├── tools/                   # 工程门禁
-├── docs/                    # 上游溯源文档
-├── note/                    # 当前决策与功能覆盖清单
-├── plan/                    # 当前执行路径
+│   └── package.json         # 界面依赖与 Tauri CLI
+├── note/                    # 当前产品决策与功能验收矩阵
+├── plan/                    # 当前验证契约
+├── .github/workflows/       # Tauri 2 无界面 CI
+├── Makefile                 # 构建与检查入口
+├── NOTICE                   # 来源与许可披露
 └── REF/                     # 用户提供的参考源，非交付目录
 ```
 
-已删除：旧前端、Electron、旧桌面发布工具、网页启动脚本、`stage.md`、
-旧 `API.md`、旧 Reasonix 六份方案、旧 Python 分析笔记和 `docs/archive`。
-这些历史内容只通过 git 历史追溯，不另建重复档案。
+旧浏览器前端、Electron、Python/Go 后端、网页启动脚本、`stage.md`、旧服务端文档和改造档案已删除。历史只通过 git 追溯，不保留重复文档。
 
-## 5. 验证
+## 验证
 
 ```bash
-cd desktop && npm run build       # TypeScript + Vite
-cd desktop/src-tauri && cargo test --release
-make check                        # 变更范围 repolint
-go vet ./...                      # 保留的 Go 源码静态检查
-make test                         # UI 构建 + Go 测试
-make studio                       # Tauri 2 + NSIS 安装包
+make lint                         # Rust 格式与 TypeScript/Vite 构建
+make test                         # 原生后端全量测试，串行执行
+make check                        # 上述全部检查
+make build                        # Tauri 2 NSIS 安装包
 ```
 
-仅编译或界面展示不能证明后端功能完成。功能验收须覆盖真实命令、
-持久化、实时事件续接以及安装包内运行。
+也可直接运行：
 
-## 6. 文档与许可
+```bash
+cd desktop && npm run build
+cd desktop/src-tauri && cargo test --release --locked -- --test-threads=1
+```
+
+测试使用 MockRuntime、真实 SQLite、临时文件和本机回环服务，不打开窗口、模拟键鼠或截屏。真实供应商、真实媒体编码播放及交互安装仍需单独验收，不能由协议夹具或构建成功替代。
+
+## 文档与许可
 
 - 当前决策：[`note/产品与技术决策.md`](./note/产品与技术决策.md)
-- 覆盖清单：[`note/14-Tauri原生后端覆盖清单.md`](./note/14-Tauri原生后端覆盖清单.md)
-- 当前执行路径：[`plan/README.md`](./plan/README.md)
+- 验收契约：[`plan/README.md`](./plan/README.md)
 - 工程规约：[`DEEPTUTOR.md`](./DEEPTUTOR.md)
-- 桌面运行与边界：[`desktop/README.md`](./desktop/README.md)
-- 引用与修改披露：[`NOTICE`](./NOTICE)
+- 桌面说明：[`desktop/README.md`](./desktop/README.md)
+- 来源与许可：[`NOTICE`](./NOTICE)、[`LICENSE-REASONIX`](./LICENSE-REASONIX)
 
-内核与桌面端历史代码吸收自
-[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（MIT）。
-原许可保留在 [`LICENSE-REASONIX`](./LICENSE-REASONIX)。
-当前界面来自用户提供的 `REF/frontend/app`。
+历史上游参考为 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（MIT）。当前界面来自用户提供的 `REF/frontend/app`，Tauri 与依赖适用各自许可。

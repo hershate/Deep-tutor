@@ -1,12 +1,11 @@
 # NOTICE — 第三方作品引用与许可声明
 
 分发本仓库或构建产物时，必须同时保留本文件及适用的许可全文。
-本文件只描述当前来源、修改范围和分发资产；逐次修改记录见 git 提交历史。
+本文件描述当前来源、修改范围和分发资产；逐次修改见 git 提交历史。
 
 ## Reasonix（DeepSeek-Reasonix）
 
-本仓库保留的部分 Go 内核、SDK、工具、脚本及内核文档源自
-[DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的 `studio` 分支。
+本项目历史上吸收并参考了 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的 `studio` 分支。当前原生实现参考了其中部分架构与工程语义，未被沿用的旧 Go 内核、SDK、工具、脚本及历史文档已从工作树移除。
 
 | 项 | 值 |
 |---|---|
@@ -15,43 +14,14 @@
 | 许可 | MIT License，Copyright (c) 2026 Reasonix Contributors |
 | 许可全文 | [`LICENSE-REASONIX`](./LICENSE-REASONIX) |
 
-初始吸收将上游 `internal/`、`cmd/`、`tools/`、`sdk/`、`benchmark/` 置于同名目录，
-`docs/` 移至 `docs/kernel/`，`scripts/` 移至 `scripts/reasonix/`。
-与本仓根文件冲突的上游原件保存于 `docs/kernel/upstream/`，仅用于溯源。
+历史修改包括产品命名、学习域状态与持久化、网络与路径安全、并发控制、错误分类和测试隔离。旧前端、旧服务端、Electron 资产、旧文档和未被沿用的上游代码已停止分发。删除这些文件不抹去 git 历史中的来源与许可信息。
 
-当前代码对上游的修改包括但不限于：
+## 当前应用界面与依赖
 
-- Go module 与产品展示名称改为 Deep-tutor，保留上游版权头、协议标识和安装身份。
-- 内核文档迁移到 `docs/kernel/`，相应调整 embed、生成器和测试中的路径。
-- 对学习域存储、备份、网络访问、并发、路径校验和错误映射进行安全及一致性修改。
-- 增加可配置存储绑定、临时目录规则、测试隔离和工程门禁。
-- 删除与当前产品无关的上游云服务、发布说明、网页示例及旧 Electron 桌面资产。
+当前唯一用户界面是 `desktop/` 中的 React、TypeScript、Vite 与 Tauri 2 应用，由用户通过 `REF/frontend/app` 提供。`REF/` 是参考源，不是安装包内的独立应用；不据此推定额外的第三方作者或许可。
 
-`docs/kernel/` 中的上游手册和历史设计资料不构成当前产品架构或使用说明。
-各文件的实际修改可由 git 历史逐行核查。
-
-## 当前应用界面
-
-当前唯一用户界面是 `desktop/` 中的 React、TypeScript、Vite 与 Tauri 2 应用。
-界面由用户通过 `REF/frontend/app` 提供；`REF/` 是参考源，不是安装包内的独立应用。
-该用户交付来源不据此推定额外的第三方作者或许可。
-
-`desktop/src-tauri/` 包含本仓库新增的 Rust 壳和原生后端，使用
-[Tauri](https://github.com/tauri-apps/tauri) 及 Cargo/npm 依赖。
-依赖按其各自许可分发，具体版本见
-[`desktop/src-tauri/Cargo.lock`](./desktop/src-tauri/Cargo.lock) 与
-[`desktop/package-lock.json`](./desktop/package-lock.json)。
-Tauri 2 的许可见 [tauri-apps/tauri](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT)。
-
-## 已停止分发的旧资产
-
-旧浏览器前端、Electron 宿主、`frontend-next`、前端插件示例、剪藏扩展、
-旧桌面宿主及网页启动脚本已删除。随旧 Electron 资产分发的字体、图标和 CUA driver
-不再随当前应用分发。旧服务端 API 文档、改造方案和进度日志也已移除。
-这些删除不抹去 git 历史中的来源与许可信息。
+`desktop/src-tauri/` 包含本仓库新增的 Rust 壳与原生后端，使用 [Tauri](https://github.com/tauri-apps/tauri) 及 Cargo/npm 依赖。依赖版本见 [`desktop/src-tauri/Cargo.lock`](./desktop/src-tauri/Cargo.lock) 和 [`desktop/package-lock.json`](./desktop/package-lock.json)，各依赖适用其自身许可。Tauri 2 的许可见 [tauri-apps/tauri](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT)。
 
 ## 本仓库自有部分
 
-`backend/`、`desktop/`、`plugins/`、`skills/`、`note/`、`plan/` 等本仓库原创内容，
-以及对吸收代码的后续修改，适用根目录 [`LICENSE`](./LICENSE)。
-上游组件和明确标明的第三方依赖仍适用其各自的许可，不因本仓库修改而改变。
+`desktop/`、`note/`、`plan/` 等本仓库原创内容，以及对参考设计的后续修改，适用根目录 [`LICENSE`](./LICENSE)。上游组件和明确标明的第三方依赖仍适用其各自许可，不因本仓库修改而改变。

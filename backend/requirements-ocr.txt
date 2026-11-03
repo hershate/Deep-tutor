@@ -1,2 +1,0 @@
-# Legacy Python reference implementation only; not required by the Tauri application.
-marker-pdf==1.10.2
