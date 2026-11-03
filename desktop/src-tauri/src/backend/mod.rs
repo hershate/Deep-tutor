@@ -13,6 +13,7 @@ pub mod providers;
 pub mod review;
 pub mod sharing;
 pub mod store;
+pub mod sync;
 
 use std::sync::Mutex;
 

@@ -2,6 +2,7 @@ pub mod commands;
 pub mod openai;
 pub mod protocol;
 pub mod routing;
+pub(crate) mod sync_config;
 pub mod tools;
 pub mod usage;
 
@@ -22,8 +23,8 @@ use zeroize::Zeroizing;
 
 const SERVICE: &str = "deep-tutor";
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderProfile {
     pub id: String,
     pub name: String,
@@ -80,7 +81,7 @@ pub struct ProviderTestResult {
     pub result: Option<openai::ChatResult>,
 }
 
-trait CredentialBackend: Send + Sync {
+pub(crate) trait CredentialBackend: Send + Sync {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>>;
     fn set(&self, id: &str, value: &str) -> Result<()>;
     fn delete(&self, id: &str) -> Result<()>;
@@ -207,6 +208,10 @@ impl ProviderState {
 
     pub fn store(&self) -> Result<Store> {
         Store::new(self.database_path.clone())
+    }
+
+    pub(crate) fn credential_backend(&self) -> Arc<dyn CredentialBackend> {
+        Arc::clone(&self.credentials)
     }
 }
 
@@ -342,7 +347,7 @@ pub fn list(state: &ProviderState) -> Result<Vec<ProviderProfile>> {
     Ok(profiles)
 }
 
-fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
+pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
     if input.name.trim().is_empty() || input.name.len() > 100 {
         return Err(BackendError::invalid(
             "invalid_provider_name",
@@ -755,6 +760,7 @@ pub fn credential_ids(state: &ProviderState) -> Result<Vec<String>> {
     for row in rows {
         ids.push(format!("p{}", row?));
     }
+    ids.extend(["sync-webdav", "sync-s3-access", "sync-s3-secret"].map(str::to_string));
     Ok(ids)
 }
 

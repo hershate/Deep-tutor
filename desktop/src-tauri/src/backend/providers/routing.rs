@@ -52,7 +52,7 @@ impl Default for CircuitSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct RoutingSettings {
     pub mode: String,
     pub routes: BTreeMap<String, RouteAssignment>,

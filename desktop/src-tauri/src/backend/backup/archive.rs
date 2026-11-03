@@ -79,6 +79,8 @@ pub(crate) const TABLES: &[&str] = &[
     "plugin_subscriptions",
     "plugin_deliveries",
     "plugin_reloads",
+    "sync_config",
+    "sync_jobs",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

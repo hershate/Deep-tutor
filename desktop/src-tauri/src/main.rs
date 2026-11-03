@@ -4,7 +4,7 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, export, knowledge, learning, materials, plugins, practice,
-    providers, review, sharing, store::Store, BackendState,
+    providers, review, sharing, store::Store, sync, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -58,6 +58,8 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             knowledge::recover(app.handle(), &state.knowledge)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            sync::recover(app.handle(), &sync::SyncService::new(&state.learning))
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -73,6 +75,11 @@ fn main() {
             backup::commands::export_full_backup,
             backup::commands::preview_full_backup,
             backup::commands::import_full_backup,
+            sync::commands::get_sync_overview,
+            sync::commands::save_sync_config,
+            sync::commands::start_sync_job,
+            sync::commands::get_sync_job,
+            sync::commands::cancel_sync_job,
             materials::commands::import_material_files,
             materials::commands::import_material_text,
             materials::commands::list_materials,

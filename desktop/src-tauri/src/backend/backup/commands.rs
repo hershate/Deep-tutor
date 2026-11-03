@@ -23,6 +23,7 @@ pub fn export_full_backup<R: Runtime>(
     state: State<'_, BackendState>,
     destination: String,
 ) -> Result<BackupResult> {
+    super::super::sync::stop()?;
     let store = store(&state)?;
     super::export(
         &app,
@@ -48,6 +49,7 @@ pub fn import_full_backup<R: Runtime>(
     knowledge::stop(&state.knowledge)?;
     learning::stop(&state.learning)?;
     providers::stop_chats(&state.providers)?;
+    super::super::sync::stop()?;
     let store = store(&state)?;
     super::import(&app, &store, &state.learning, std::path::Path::new(&path))
 }

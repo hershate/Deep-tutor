@@ -62,5 +62,6 @@ pub fn import<R: Runtime>(
     super::providers::recover_chats(app, &state.provider_state())?;
     super::providers::routing::recover(app, &state.provider_state())?;
     super::materials::recover(app, &state.material_state())?;
+    super::sync::recover(app, &super::sync::SyncService::new(state))?;
     store.app_state()
 }

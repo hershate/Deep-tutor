@@ -88,6 +88,7 @@ pub fn reset_application<R: Runtime>(
     super::knowledge::stop(&state.knowledge)?;
     super::learning::stop(&state.learning)?;
     super::providers::stop_chats(&state.providers)?;
+    super::sync::stop()?;
     let provider_ids = super::providers::credential_ids(&state.providers)?;
     let backup = super::materials::prepare_reset(&state.materials)?;
     let result = { store(&state)?.reset() };

@@ -227,7 +227,7 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                 }
             }
             if !transfer.reused.contains(&reuse_key)
-                && !["meta", "provider_meta", "revisions"].contains(table)
+                && !["meta", "provider_meta", "revisions", "sync_config"].contains(table)
                 && (exists(target, table, &primary.name, &mapped)?
                     || allocated.contains(&key(&mapped)?))
             {
@@ -549,9 +549,11 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                 let target = match name.as_str() {
                     "materialId" | "materialIds" => Some("materials"),
                     "planId" => Some("learning_plans"),
-                    "providerId" | "aggregateProviderIds" | "aggregateDefault" | "failover" => {
-                        Some("provider_profiles")
-                    }
+                    "providerId"
+                    | "aggregateProviderIds"
+                    | "aggregateDefault"
+                    | "failover"
+                    | "activeProvider" => Some("provider_profiles"),
                     "requestId" | "upstreamRequestId" | "graderRequestId" => {
                         Some("provider_requests")
                     }
@@ -854,6 +856,7 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
     let key = match table {
         "meta" | "provider_meta" => "key",
         "revisions" => "namespace",
+        "sync_config" => "id",
         _ => return Ok(false),
     };
     let value = row.get(key).ok_or_else(invalid_record)?;

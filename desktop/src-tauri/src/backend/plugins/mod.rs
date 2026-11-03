@@ -304,6 +304,7 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
                 "share",
                 "content",
                 "backup",
+                "sync",
             ]
             .contains(&prefix)
         } else {

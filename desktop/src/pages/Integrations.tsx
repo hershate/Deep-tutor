@@ -5,7 +5,7 @@ import { onBackendEvent, reportBackendError } from '../backend/client'
 import { pluginBackend, type PluginOverview } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
 
-const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'app']
+const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'app', 'share', 'content', 'backup', 'sync']
 
 export default function Integrations({ notify }: { notify: (message: string) => void }) {
   const [tab, setTab] = useState('插件体系')
