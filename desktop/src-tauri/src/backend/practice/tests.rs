@@ -8,6 +8,7 @@ use serde_json::json;
 use std::sync::Mutex;
 
 mod subjective_tests;
+mod variant_tests;
 
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
     let state = PracticeState::for_tests().unwrap();
@@ -110,7 +111,28 @@ fn model_server(
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }
-            if request.contains("题目类别：subjective") {
+            if request.contains("变式练习") {
+                if request.contains("原题型：short") {
+                    json!({"questions": [{
+                        "kind": "short", "prompt": "在新情境中说明为什么先验概率会改变证据更新后的判断。", "options": [],
+                        "answer": "先验概率决定判断起点，新证据在此基础上更新为后验概率。",
+                        "hint": "说明判断起点和更新过程", "explanation": "回答应准确联系先验、证据与后验。",
+                        "citations": [{"materialId": material_id, "quote": "先验概率"}], "nodeIds": ["prob"], "difficulty": 2,
+                        "rubric": [
+                            {"id": "concept", "description": "准确解释资料中的核心概念", "points": 0.6},
+                            {"id": "evidence", "description": "结合资料说明判断依据", "points": 0.4},
+                        ],
+                    }]})
+                } else {
+                    let questions = (0..3).map(|index| json!({
+                        "kind": "choice", "prompt": format!("变式情境 {}：在证据出现前应先确定什么？", index + 1),
+                        "options": ["先验概率", "与证据无关的信息"], "answer": 0,
+                        "hint": "考虑证据出现前的判断", "explanation": "新情境仍然检查先验概率的含义。",
+                        "citations": [{"materialId": material_id, "quote": "先验概率"}], "nodeIds": ["prob"], "difficulty": 2,
+                    })).collect::<Vec<_>>();
+                    json!({"questions": questions})
+                }
+            } else if request.contains("题目类别：subjective") {
                 let rubric = json!([
                     {"id": "concept", "description": "准确解释资料中的核心概念", "points": 0.6},
                     {"id": "evidence", "description": "结合资料说明判断依据", "points": 0.4},

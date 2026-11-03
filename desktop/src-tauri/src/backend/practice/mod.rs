@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod subjective;
+pub mod variants;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -78,6 +79,7 @@ pub struct PracticeSet {
     pub difficulty: String,
     pub feedback_mode: String,
     pub kinds: Vec<String>,
+    pub variant_of: Option<i64>,
     pub total_questions: u32,
     pub answered_questions: u32,
     pub score: f64,
@@ -150,12 +152,17 @@ pub struct AnswerResult {
 #[serde(rename_all = "camelCase")]
 pub struct Mistake {
     pub question_id: i64,
+    pub set_id: i64,
+    pub plan_id: String,
+    pub stage_id: Option<String>,
+    pub kind: String,
     pub prompt: String,
     pub node_ids: Vec<String>,
     pub reason: String,
     pub wrong_count: u32,
     pub last_wrong_at: String,
     pub mastered: bool,
+    pub mastered_question_id: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -272,6 +279,7 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE practice_sets ADD COLUMN kinds_json TEXT NOT NULL DEFAULT '[\"choice\", \"fill\"]'", [])?;
     }
     subjective::migrate(conn)?;
+    variants::migrate(conn)?;
     Ok(())
 }
 
@@ -347,6 +355,7 @@ fn generation_prompt(
     sources: &[Source],
     input: &GenerateInput,
     node_ids: &HashSet<String>,
+    variant: Option<&variants::VariantSource>,
 ) -> Result<String> {
     let stage = input.stage_id.as_deref().and_then(|id| {
         plan.result
@@ -383,7 +392,7 @@ fn generation_prompt(
         .unwrap_or_default()
         .iter()
         .all(|kind| ["short", "essay"].contains(&kind.as_str()));
-    Ok(format!(
+    let prompt = format!(
         "生成 {} 道学习题，范围为 {:?}。题目类别：{}。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
         input.count.unwrap_or(5),
         input.kinds,
@@ -391,7 +400,12 @@ fn generation_prompt(
         input.difficulty.as_deref().unwrap_or("adaptive"),
         serde_json::to_string(&nodes)?,
         serde_json::to_string(&source_data)?,
-    ))
+    );
+    if let Some(source) = variant {
+        Ok(format!("{prompt}\n变式练习：保持原考点与原题型：{}，改变设问情境、数值或论证角度，不得只换几个词或复制原题。原题与错误原因：{}", source.kind, source.prompt_json()?))
+    } else {
+        Ok(prompt)
+    }
 }
 
 fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, id: i64) -> Result<()> {
@@ -448,7 +462,7 @@ pub fn generate<R: Runtime>(
             "练习数量须为 1 到 20 题",
         ));
     }
-    let kinds = input
+    let mut kinds = input
         .kinds
         .clone()
         .unwrap_or_else(|| vec!["choice".into(), "fill".into()]);
@@ -464,20 +478,37 @@ pub fn generate<R: Runtime>(
             "支持的题型为单选、填空、简答与论述",
         ));
     }
-    if input.variant_of.is_some() {
-        return Err(BackendError::new(
-            "unsupported_question_variant",
-            "变式练习将在后续切片接入",
-        ));
+    let mut stage_id = input.stage_id.clone();
+    let mut feedback_mode = input
+        .feedback_mode
+        .clone()
+        .unwrap_or_else(|| "immediate".into());
+    if let Some(source_id) = input.variant_of {
+        let source = variants::source(state, source_id, &input.plan_id)?;
+        if input
+            .kinds
+            .as_ref()
+            .is_some_and(|requested| requested.len() != 1 || requested[0] != source.kind)
+        {
+            return Err(BackendError::new(
+                "invalid_variant_kind",
+                "变式练习必须保持原题题型",
+            ));
+        }
+        kinds = vec![source.kind.clone()];
+        if stage_id.is_none() {
+            stage_id = source.stage_id.clone();
+        }
+        if input.feedback_mode.is_none() {
+            feedback_mode = source.feedback_mode.clone();
+        }
     }
     if !["adaptive", "basic", "advanced", "comprehensive"]
         .contains(&input.difficulty.as_deref().unwrap_or("adaptive"))
     {
         return Err(BackendError::invalid("invalid_difficulty", "练习难度无效"));
     }
-    if !["immediate", "deferred", "hints"]
-        .contains(&input.feedback_mode.as_deref().unwrap_or("immediate"))
-    {
+    if !["immediate", "deferred", "hints"].contains(&feedback_mode.as_str()) {
         return Err(BackendError::invalid(
             "invalid_feedback_mode",
             "反馈方式无效",
@@ -490,7 +521,7 @@ pub fn generate<R: Runtime>(
         ));
     }
     let (plan, _, _) = sources(state, &input.plan_id)?;
-    if let Some(stage_id) = &input.stage_id {
+    if let Some(stage_id) = &stage_id {
         if !plan.result.as_ref().is_some_and(|result| {
             result
                 .stages
@@ -514,11 +545,15 @@ pub fn generate<R: Runtime>(
         .conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute(
-        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, created_at, updated_at) VALUES ('targeted', 'generating', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-        params![learning::plan_id(&input.plan_id)?, input.stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), input.feedback_mode.as_deref().unwrap_or("immediate"), serde_json::to_string(&kinds)?, count, timestamp],
+        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, total_questions, created_at, updated_at) VALUES ('targeted', 'generating', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+        params![learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, count, timestamp],
     )?;
     let id = tx.last_insert_rowid();
-    let event = Store::event(&tx, "practice.generation_started", json!({"setId": id}))?;
+    let event = Store::event(
+        &tx,
+        "practice.generation_started",
+        json!({"setId": id, "variantOf": input.variant_of}),
+    )?;
     active.insert(id, Arc::new(AtomicBool::new(false)));
     if let Err(error) = tx.commit() {
         active.remove(&id);
@@ -570,10 +605,10 @@ fn generate_questions<R: Runtime>(
     id: i64,
 ) -> Result<()> {
     let store = state.store()?;
-    let (plan_id, stage_id, provider_id, difficulty, feedback, kinds, count, attempt, mode): (i64, Option<String>, String, String, String, String, u32, u32, String) = store.conn.query_row(
-        "SELECT plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, attempt, mode FROM practice_sets WHERE id = ?1",
+    let (plan_id, stage_id, provider_id, difficulty, feedback, kinds, count, attempt, mode, variant_of): (i64, Option<String>, String, String, String, String, u32, u32, String, Option<i64>) = store.conn.query_row(
+        "SELECT plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, attempt, mode, variant_of FROM practice_sets WHERE id = ?1",
         params![id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
     )?;
     let plan_id = format!("plan-{plan_id}");
     let (plan, sources, nodes) = sources(state, &plan_id)?;
@@ -585,9 +620,14 @@ fn generate_questions<R: Runtime>(
         feedback_mode: Some(feedback),
         kinds: Some(serde_json::from_str(&kinds)?),
         mode: Some(mode),
-        variant_of: None,
+        variant_of,
     };
-    let nodes = if let Some(stage_id) = input.stage_id.as_deref() {
+    let variant = variant_of
+        .map(|source_id| variants::source(state, source_id, &plan_id))
+        .transpose()?;
+    let nodes = if let Some(source) = &variant {
+        source.node_ids.iter().cloned().collect::<HashSet<_>>()
+    } else if let Some(stage_id) = input.stage_id.as_deref() {
         plan.result
             .as_ref()
             .and_then(|result| result.stages.iter().find(|stage| stage.id == stage_id))
@@ -613,7 +653,7 @@ fn generate_questions<R: Runtime>(
     {
         return Err(BackendError::new("cancelled", "练习生成已取消"));
     }
-    let prompt = generation_prompt(&plan, &sources, &input, &nodes)?;
+    let prompt = generation_prompt(&plan, &sources, &input, &nodes, variant.as_ref())?;
     let messages = vec![
         ChatMessage {
             role: "system".into(),
@@ -671,6 +711,9 @@ fn generate_questions<R: Runtime>(
             .unwrap_or_default()
             .contains(&question.kind)
             || question.prompt.trim().is_empty()
+            || variant
+                .as_ref()
+                .is_some_and(|source| source.prompt.trim() == question.prompt.trim())
             || question.prompt.len() > 6000
             || question.hint.len() > 2000
             || question.explanation.len() > 6000
@@ -751,8 +794,8 @@ fn generate_questions<R: Runtime>(
         }
         validate_citations(&question.citations, &sources)?;
         tx.execute(
-            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty, rubric_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?],
+            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty, rubric_json, variant_of) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?, input.variant_of],
         )?;
     }
     let changed = tx.execute(
@@ -777,7 +820,7 @@ fn generate_questions<R: Runtime>(
 
 fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
     let (mut set, kinds): (PracticeSet, String) = conn.query_row(
-        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at FROM practice_sets WHERE id = ?1",
+        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at, variant_of FROM practice_sets WHERE id = ?1",
         params![id],
         |row| {
             let plan_id: i64 = row.get(2)?;
@@ -793,6 +836,7 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 difficulty: row.get(5)?,
                 feedback_mode: row.get(6)?,
                 kinds: Vec::new(),
+                variant_of: row.get(18)?,
                 total_questions: row.get(8)?,
                 answered_questions: 0,
                 score: row.get(9)?,
@@ -964,7 +1008,7 @@ pub fn submit<R: Runtime>(
         _ => {
             return Err(BackendError::new(
                 "unsupported_question_kind",
-                "主观题判分将在后续切片接入",
+                "不支持的练习题型",
             ))
         }
     };
@@ -976,7 +1020,7 @@ pub fn submit<R: Runtime>(
     let answer_id = tx.last_insert_rowid();
     if !correct {
         tx.execute(
-            "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0",
+            "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0, mastered_question_id = NULL",
             params![question_id, explanation, timestamp],
         )?;
     }
@@ -1006,13 +1050,22 @@ pub fn submit<R: Runtime>(
     } else {
         "practice.answer_submitted"
     };
-    let event = Store::event(
+    let mut events = vec![Store::event(
         &tx,
         kind,
         json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "answered": answered, "correct": reveal.then_some(correct)}),
-    )?;
+    )?];
+    if let Some(source_question_id) = variants::mark_mastered(&tx, question_id, correct)? {
+        events.push(Store::event(
+            &tx,
+            "practice.mistake_mastered_by_variant",
+            json!({"setId": set_id, "sourceQuestionId": source_question_id, "variantQuestionId": question_id, "answerId": answer_id}),
+        )?);
+    }
     tx.commit()?;
-    emit(app, &event);
+    for event in events {
+        emit(app, &event);
+    }
     let result_set = set_row(&store.conn, set_id)?;
     let hint: String = store.conn.query_row(
         "SELECT hint FROM practice_questions WHERE id = ?1",
@@ -1055,17 +1108,22 @@ pub fn history(state: &PracticeState) -> Result<Vec<PracticeSet>> {
 
 pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
     let store = state.store()?;
-    let mut statement = store.conn.prepare("SELECT question_id, prompt, node_ids_json, reason, wrong_count, last_wrong_at, mastered FROM practice_mistakes JOIN practice_questions ON practice_questions.id = practice_mistakes.question_id ORDER BY last_wrong_at DESC")?;
+    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id ORDER BY m.last_wrong_at DESC")?;
     let rows = statement.query_map([], |row| {
-        let nodes: String = row.get(2)?;
+        let nodes: String = row.get(6)?;
         Ok(Mistake {
             question_id: row.get(0)?,
-            prompt: row.get(1)?,
+            set_id: row.get(1)?,
+            plan_id: format!("plan-{}", row.get::<_, i64>(2)?),
+            stage_id: row.get(3)?,
+            kind: row.get(4)?,
+            prompt: row.get(5)?,
             node_ids: serde_json::from_str(&nodes).unwrap_or_default(),
-            reason: row.get(3)?,
-            wrong_count: row.get::<_, i64>(4)? as u32,
-            last_wrong_at: row.get(5)?,
-            mastered: row.get(6)?,
+            reason: row.get(7)?,
+            wrong_count: row.get::<_, i64>(8)? as u32,
+            last_wrong_at: row.get(9)?,
+            mastered: row.get(10)?,
+            mastered_question_id: row.get(11)?,
         })
     })?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
@@ -1110,7 +1168,7 @@ pub fn set_mistake_mastered<R: Runtime>(
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
-        "UPDATE practice_mistakes SET mastered = ?1 WHERE question_id = ?2",
+        "UPDATE practice_mistakes SET mastered = ?1, mastered_question_id = NULL WHERE question_id = ?2",
         params![mastered, question_id],
     )?;
     if changed == 0 {

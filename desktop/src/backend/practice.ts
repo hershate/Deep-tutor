@@ -11,6 +11,7 @@ export type PracticeSet = {
   difficulty: string
   feedbackMode: 'immediate' | 'deferred' | 'hints'
   kinds: string[]
+  variantOf: number | null
   totalQuestions: number
   answeredQuestions: number
   score: number
@@ -66,15 +67,21 @@ export type PracticeInput = {
   difficulty: 'adaptive' | 'basic' | 'advanced' | 'comprehensive'
   feedbackMode: 'immediate' | 'deferred' | 'hints'
   kinds: QuestionKind[]
+  variantOf?: number
 }
 export type PracticeMistake = {
   questionId: number
+  setId: number
+  planId: string
+  stageId: string | null
+  kind: QuestionKind
   prompt: string
   nodeIds: string[]
   reason: string
   wrongCount: number
   lastWrongAt: string
   mastered: boolean
+  masteredQuestionId: number | null
 }
 
 export const practiceBackend = {

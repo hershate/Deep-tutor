@@ -137,6 +137,23 @@ export default function Practice({ notify }: { notify: (message: string) => void
       notify(item.mastered ? '已恢复为待巩固' : '已保存手动掌握标记')
     } catch (error) { reportBackendError(error) }
   }
+  const generateVariant = async (item: PracticeMistake) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      chooseSet(await practiceBackend.generate({
+        planId: item.planId,
+        stageId: item.stageId,
+        count: 3,
+        difficulty: 'adaptive',
+        feedbackMode: 'immediate',
+        kinds: [item.kind],
+        variantOf: item.questionId,
+      }))
+      await refresh()
+      notify('已根据真实错题创建变式生成任务')
+    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+  }
   const selectHistory = async (id: number) => {
     try { chooseSet(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }
   }
@@ -179,7 +196,7 @@ export default function Practice({ notify }: { notify: (message: string) => void
     </div>}
 
     {tab === 'subjective' && <SubjectivePractice detail={detail} history={history} plans={plans} onUpdated={setDetail} onGenerated={chooseSet} onSelectSet={id => void selectHistory(id)} onShowObjective={() => setTab('practice')} notify={notify} />}
-    {tab === 'mistakes' && <section className="surface mistakes-surface"><SectionHeader title="真实错题与下一步" description="错误原因来自该题实际解析；手动掌握标记会持久化，变式练习将在后续切片接入。" action={<Button variant="secondary" size="sm" onClick={() => void exportMistakes()}>导出错题</Button>} /><div className="mistake-list">{!mistakes.length && <p>还没有错题。提交练习后，答错的题目会显示在这里。</p>}{mistakes.map(item => <div className="mistake-row" key={item.questionId}><span className="mistake-count">{item.wrongCount}<small>次错误</small></span><div><Badge tone={item.mastered ? 'green' : 'neutral'}>{item.mastered ? '手动标记掌握' : item.nodeIds.join('、')}</Badge><h3>{item.prompt}</h3><p>{item.reason} · 最近错误：{new Date(item.lastWrongAt).toLocaleString()}</p></div><div className="mistake-actions"><Button variant="secondary" size="sm" disabled title="变式练习正在接入">变式练习待接入</Button><button onClick={() => void setMastered(item)}>{item.mastered ? '恢复待巩固' : '标记掌握'}</button></div></div>)}</div></section>}
+    {tab === 'mistakes' && <section className="surface mistakes-surface"><SectionHeader title="真实错题与下一步" description="变式达到真实掌握阈值后自动更新原错题；手动标记会单独注明。" action={<Button variant="secondary" size="sm" onClick={() => void exportMistakes()}>导出错题</Button>} /><div className="mistake-list">{!mistakes.length && <p>还没有错题。提交练习后，答错的题目会显示在这里。</p>}{mistakes.map(item => <div className="mistake-row" key={item.questionId}><span className="mistake-count">{item.wrongCount}<small>次错误</small></span><div><Badge tone={item.mastered ? 'green' : 'neutral'}>{item.mastered ? item.masteredQuestionId ? `变式 #${item.masteredQuestionId} 通过` : '手动标记掌握' : item.nodeIds.join('、')}</Badge><h3>{item.prompt}</h3><p>{item.reason} · 最近错误：{new Date(item.lastWrongAt).toLocaleString()}</p></div><div className="mistake-actions"><Button variant="secondary" size="sm" onClick={() => void generateVariant(item)} disabled={busy}>生成变式<ChevronRight size={15} /></Button><button onClick={() => void setMastered(item)}>{item.mastered ? '恢复待巩固' : '标记掌握'}</button></div></div>)}</div></section>}
     {tab === 'exam' && <section className="surface unavailable-feature"><FileQuestion size={32} /><h2>模拟考试正在接入</h2><p>完整模拟考试将包含真实试卷配置、计时、保存作答进度、统一判分和历史成绩。当前可使用针对练习的“全部完成后反馈”模式，不会展示虚构试题、分数或考试历史。</p><Button onClick={() => { setTab('practice'); setInput(previous => ({ ...previous, feedbackMode: 'deferred' })); setSetupOpen(true) }}>生成统一反馈练习<ArrowRight size={17} /></Button></section>}
 
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="生成一组针对练习"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>练习范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><div className="form-grid"><label>题目数量<select value={input.count} onChange={event => setInput({ ...input, count: Number(event.target.value) })}>{[1, 5, 10, 20].map(count => <option key={count} value={count}>{count} 题</option>)}</select></label><label>难度<select value={input.difficulty} onChange={event => setInput({ ...input, difficulty: event.target.value as PracticeInput['difficulty'] })}><option value="adaptive">自适应</option><option value="basic">基础</option><option value="advanced">进阶</option><option value="comprehensive">综合</option></select></label></div><fieldset className="question-type-field"><legend>题型覆盖</legend>{(['choice', 'fill', 'short', 'essay'] as const).map(kind => <label key={kind}><input type="checkbox" checked={input.kinds.includes(kind)} onChange={event => setInput({ ...input, kinds: event.target.checked ? [...input.kinds, kind] : input.kinds.filter(item => item !== kind) })} />{{ choice: '单选 choice', fill: '填空 fill', short: '简答 short', essay: '论述 essay' }[kind]}</label>)}</fieldset><label>反馈方式<select value={input.feedbackMode} onChange={event => setInput({ ...input, feedbackMode: event.target.value as PracticeInput['feedbackMode'] })}><option value="immediate">每题提交后反馈</option><option value="deferred">全部完成后反馈</option><option value="hints">只给提示，不显示答案</option></select></label><Button onClick={() => void generate()} disabled={busy || !input.planId || !input.kinds.length}>开始真实生成<ArrowRight size={17} /></Button></div></Modal>

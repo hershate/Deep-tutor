@@ -466,7 +466,7 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
     }
     if !correct {
         tx.execute(
-            "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0",
+            "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0, mastered_question_id = NULL",
             params![task.question_id, overall_feedback, timestamp],
         )?;
     }
@@ -499,16 +499,27 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
     } else {
         "practice.answer_submitted"
     };
-    let event = Store::event(
+    let mut events = vec![Store::event(
         &tx,
         kind,
         json!({
             "setId": task.set_id, "questionId": task.question_id, "answerId": answer_id,
             "answered": answered, "correct": reveal.then_some(correct), "requestId": request_id,
         }),
-    )?;
+    )?];
+    if let Some(source_question_id) =
+        super::variants::mark_mastered(&tx, task.question_id, correct)?
+    {
+        events.push(Store::event(
+            &tx,
+            "practice.mistake_mastered_by_variant",
+            json!({"setId": task.set_id, "sourceQuestionId": source_question_id, "variantQuestionId": task.question_id, "answerId": answer_id, "requestId": request_id}),
+        )?);
+    }
     tx.commit()?;
-    emit(app, &event);
+    for event in events {
+        emit(app, &event);
+    }
     Ok(())
 }
 
