@@ -212,17 +212,28 @@ pub async fn route_provider_chat<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn get_usage_overview(state: State<'_, BackendState>, days: Option<u32>) -> Result<super::usage::UsageOverview> {
+pub fn get_usage_overview(
+    state: State<'_, BackendState>,
+    days: Option<u32>,
+) -> Result<super::usage::UsageOverview> {
     super::usage::overview(&state.providers, days)
 }
 
 #[tauri::command]
-pub fn save_usage_settings<R: Runtime>(app: AppHandle<R>, state: State<'_, BackendState>, settings: super::usage::UsageSettings) -> Result<super::usage::UsageSettings> {
+pub fn save_usage_settings<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    settings: super::usage::UsageSettings,
+) -> Result<super::usage::UsageSettings> {
     super::usage::save_settings(&app, &state.providers, settings)
 }
 
 #[tauri::command]
-pub fn upsert_usage_rate<R: Runtime>(app: AppHandle<R>, state: State<'_, BackendState>, input: super::usage::RateInput) -> Result<super::usage::UsageRate> {
+pub fn upsert_usage_rate<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    input: super::usage::RateInput,
+) -> Result<super::usage::UsageRate> {
     super::usage::upsert_rate(&app, &state.providers, input)
 }
 

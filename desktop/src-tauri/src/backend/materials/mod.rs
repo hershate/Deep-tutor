@@ -1022,7 +1022,7 @@ pub fn export_original(state: &MaterialState, id: i64, destination: &Path) -> Re
     Ok(json!({"bytes": bytes.len(), "sha256": material.sha256}))
 }
 
-fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
     if destination.file_name().is_none() {
         return Err(BackendError::invalid(
             "invalid_destination",
@@ -1423,6 +1423,7 @@ mod tests {
                 knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
                 community: crate::backend::community::CommunityState::for_tests().unwrap(),
                 plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+                sharing: crate::backend::sharing::SharingState::for_tests().unwrap(),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();

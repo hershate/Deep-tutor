@@ -22,6 +22,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, KnowledgeState) {
             knowledge: state.shared(),
             community: crate::backend::community::CommunityState::new(&path),
             plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
+            sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::search_knowledge,

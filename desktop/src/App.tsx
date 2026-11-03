@@ -151,14 +151,12 @@ export default function App() {
       case 'integrations': return <Integrations notify={notify} />
       case 'providers': return <ProviderHub notify={notify} />
       case 'settings': return <Settings preferences={preferences} setPreferences={setPreferences} onExport={exportAll} onImport={importAll} counts={{ tasks: tasks.length, notes: notes.length, resources: resources.length, projects: projects.length }} onReset={resetAll} notify={notify} />
-      case 'shared': return <SharedPlan />
+      case 'shared': return <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
     }
   }
 
   if (page === 'shared') {
-    const token = new URLSearchParams(window.location.search).get('share')
-    const missing = !token || localStorage.getItem('deep-tutor-share-token') !== token || localStorage.getItem('deep-tutor-share-revoked') === 'true'
-    return <SharedPlan missing={missing} />
+    return <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
   }
 
   if (startupError) {

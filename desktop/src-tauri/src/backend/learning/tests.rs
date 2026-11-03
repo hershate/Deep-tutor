@@ -19,6 +19,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             community: crate::backend::community::CommunityState::for_tests().unwrap(),
             plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+            sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::start_learning_plan,
@@ -613,8 +614,13 @@ fn regeneration_preserves_history_and_adoption_is_atomic_and_idempotent() {
     providers::usage::save_settings(
         app.handle(),
         &state.providers,
-        providers::usage::UsageSettings { session_usd: 1.0, daily_usd: 10.0, regeneration_limit: 3 },
-    ).unwrap();
+        providers::usage::UsageSettings {
+            session_usd: 1.0,
+            daily_usd: 10.0,
+            regeneration_limit: 3,
+        },
+    )
+    .unwrap();
     actions::regenerate(app.handle(), &state, &started.id, 3).unwrap();
     let fourth = wait_terminal(&state, &started.id);
     assert_eq!(fourth.version, 4);

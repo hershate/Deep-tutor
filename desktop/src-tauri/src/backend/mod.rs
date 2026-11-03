@@ -5,10 +5,11 @@ pub mod error;
 pub mod knowledge;
 pub mod learning;
 pub mod materials;
-pub mod practice;
 pub mod plugins;
+pub mod practice;
 pub mod providers;
 pub mod review;
+pub mod sharing;
 pub mod store;
 
 use std::sync::Mutex;
@@ -24,4 +25,5 @@ pub struct BackendState {
     pub knowledge: knowledge::KnowledgeState,
     pub community: community::CommunityState,
     pub plugins: plugins::PluginState,
+    pub sharing: sharing::SharingState,
 }

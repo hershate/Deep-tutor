@@ -21,6 +21,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             community: crate::backend::community::CommunityState::for_tests().unwrap(),
             plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+            sharing: crate::backend::sharing::SharingState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::super::commands::get_usage_overview,

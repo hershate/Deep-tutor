@@ -3,9 +3,8 @@
 mod backend;
 
 use backend::{
-    agent, commands, community, knowledge, learning, materials, plugins, practice, providers, review,
-    store::Store,
-    BackendState,
+    agent, commands, community, knowledge, learning, materials, plugins, practice, providers,
+    review, sharing, store::Store, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -29,6 +28,7 @@ fn main() {
             let practice_state =
                 practice::PracticeState::new(&path, &provider_state, &learning_state);
             let review_state = review::ReviewState::new(&path, &learning_state);
+            let sharing_state = sharing::SharingState::new(&learning_state);
             app.manage(BackendState {
                 store: Mutex::new(store),
                 materials: material_state,
@@ -41,6 +41,7 @@ fn main() {
                 community: community::CommunityState::new(&path),
                 plugins: plugins::PluginState::new(&path)
                     .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?,
+                sharing: sharing_state,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -118,6 +119,13 @@ fn main() {
             learning::commands::generate_lecture,
             learning::commands::cancel_lecture,
             learning::commands::save_study_note,
+            sharing::commands::create_shared_plan,
+            sharing::commands::list_shared_plans,
+            sharing::commands::read_shared_plan,
+            sharing::commands::revoke_shared_plan,
+            sharing::commands::read_shared_plan_package,
+            sharing::commands::export_shared_plan_package,
+            sharing::commands::read_shared_plan_file,
             review::commands::create_review_card,
             review::commands::update_review_card,
             review::commands::delete_review_card,

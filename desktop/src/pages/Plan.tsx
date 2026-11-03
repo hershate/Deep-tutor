@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { ArrowDownToLine, ArrowLeft, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Copy, Link2, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, ArrowLeft, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import ExportCenter from '../components/ExportCenter'
+import SharePlanDialog from '../components/SharePlanDialog'
 import { reportBackendError } from '../backend/client'
 import type { AppSnapshot } from '../backend/client'
+import { localShareUrl } from '../backend/sharing'
 
 const days = ['周一 02', '周二 03', '周三 04', '周四 05', '周五 06', '周六 07', '周日 08']
 const schedule = [
@@ -27,12 +29,7 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
   const [duration, setDuration] = useState(30)
   const [exportOpen, setExportOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const [shareUrl, setShareUrl] = useState('')
-  const openShare = () => {
-    const token = localStorage.getItem('deep-tutor-share-token') || `dt_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-    localStorage.setItem('deep-tutor-share-token', token); localStorage.setItem('deep-tutor-share-revoked', 'false')
-    setShareUrl(`${window.location.origin}${window.location.pathname}?share=${token}#shared`); setShareOpen(true)
-  }
+  const openShare = () => setShareOpen(true)
   const addTask = async () => {
     if (!title.trim()) return
     try {
@@ -73,6 +70,6 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
       <div className="form-stack"><label>目标名称<input defaultValue="2026 计算机考研 · 数据结构专项" /></label><div className="form-grid"><label>目标日期<input type="date" defaultValue="2026-12-20" /></label><label>每周可投入（小时）<input type="number" defaultValue={15} min={1} max={80} /></label></div><label>当前掌握情况<select defaultValue="部分掌握"><option>零基础</option><option>部分掌握</option><option>系统学过，需要冲刺</option></select></label><div className="modal-callout"><CalendarRange size={18} /><span>保存后，知舟会保留已完成记录，并给出新的计划建议。</span></div><Button onClick={() => { setGoalOpen(false); notify('目标已更新，学习路径已重新校准') }}>保存并重新规划</Button></div>
     </Modal>
     <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} />
-    <Modal open={shareOpen} onClose={() => setShareOpen(false)} title="分享只读学习方案"><div className="form-stack"><div className="share-status"><Link2 size={19} /><div><strong>免登录只读链接</strong><p>默认 90 天过期，不包含私人笔记、会话或学习记录。当前演示链接仅在本浏览器有效。</p></div><Badge tone="green">有效</Badge></div><label>分享地址<div className="copy-field"><input readOnly value={shareUrl} onFocus={e => e.target.select()} /><Button variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); notify('只读链接已复制') } catch { notify('请手动复制输入框中的链接') } }}><Copy size={16} />复制</Button></div></label><div className="share-actions"><Button variant="secondary" onClick={() => { window.location.hash = 'shared'; window.open(shareUrl, '_blank', 'noopener') }}>打开只读预览</Button><Button variant="ghost" onClick={() => { localStorage.setItem('deep-tutor-share-revoked', 'true'); setShareOpen(false); notify('分享已撤销；链接现在与不存在一样返回 404') }}><Trash2 size={16} />撤销分享</Button></div></div></Modal>
+    <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
   </div>
 }

@@ -1362,6 +1362,25 @@ td strong { color: var(--text); }
 .shared-missing { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; background: var(--bg); color: var(--muted); text-align: center; }
 .shared-missing h1 { margin: 18px 0 8px; color: var(--text); }
 .shared-missing > span { margin-top: 20px; font-size: 42px; font-weight: 800; opacity: .25; }
+.shared-missing > .btn { margin-top: 20px; }
+.share-created { padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
+.share-created h3, .share-history h3 { margin: 0 0 12px; font-size: 14px; }
+.share-created .share-actions { margin-top: 14px; }
+.share-record { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); }
+.share-record > div { flex: 1; min-width: 0; }
+.share-record p, .share-record small { margin: 4px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.shared-description { color: var(--muted); font-size: 13px; }
+.shared-stage p { margin: 4px 0; color: var(--text-secondary); font-size: 13px; }
+.shared-stage small { color: var(--muted); }
+.offline-notice { margin-top: 16px; }
+.shared-nodes { display: grid; gap: 8px; }
+.shared-nodes details { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.shared-nodes summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.shared-nodes summary span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.shared-nodes details p { margin: 12px 0 0; color: var(--text-secondary); }
+.shared-validation > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; }
+.shared-validation > div > span { display: flex; align-items: center; gap: 6px; flex: 1; }
+.shared-validation p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
 
 @media (min-width: 640px) {
   .plugin-grid { grid-template-columns: 1fr 1fr; }
