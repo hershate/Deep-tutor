@@ -460,6 +460,9 @@ impl Store {
                 Self::insert_json(&tx, namespace, &record_id(item)?, item)?;
             }
         }
+        if namespace == "notes" {
+            tx.execute("DELETE FROM learning_annotations WHERE note_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'notes')", [])?;
+        }
         let event = Self::event(
             &tx,
             "state.changed",

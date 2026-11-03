@@ -34,6 +34,7 @@ fn setup() -> tauri::App<tauri::test::MockRuntime> {
         .manage(SecurityState::for_tests_at(&path))
         .invoke_handler(tauri::generate_handler![
             commands::import_notes,
+            commands::get_library_overview,
             crate::backend::export::commands::export_notes_archive,
             crate::backend::commands::get_collection,
             crate::backend::commands::events_since
@@ -233,4 +234,123 @@ fn real_exported_archive_round_trips_through_ipc_without_losing_note_content() {
         .clone();
     assert_eq!(events.last().unwrap()["kind"], "state.changed");
     assert_eq!(events.last().unwrap()["payload"]["namespace"], "notes");
+}
+
+fn insert_link_plan(learning: &LearningState) {
+    let store = learning.store().unwrap();
+    let now = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    let input = json!({"goal":"真实关联方案","level":"基础","dailyMinutes":30,"deadline":"2099-01-01","materialIds":[]}).to_string();
+    let result = json!({
+        "goal":"真实关联方案","level":"基础","deadline":"2099-01-01","milestone":null,"milestoneDate":null,
+        "graph":{"nodes":[
+            {"id":"node-1","title":"真实节点一","summary":"摘要","difficulty":1,"required":true,"estimatedMinutes":20,"citations":[]},
+            {"id":"node-2","title":"真实节点二","summary":"摘要","difficulty":1,"required":true,"estimatedMinutes":20,"citations":[]}
+        ],"edges":[]},
+        "stages":[{"id":"stage-1","title":"真实阶段","nodeIds":["node-1","node-2"],"difficulty":1,"minutes":40,"startDate":"2099-01-01","endDate":"2099-01-02"}],
+        "schedule":{"startDate":"2099-01-01","endDate":"2099-01-02","totalMinutes":40,"days":2,"withinDeadline":true,"milestoneDate":null,"withinMilestone":null,"entries":[]},
+        "resources":{},"validation":{"dependencyClosure":{"status":"pass","details":"真实"},"difficultyStep":{"status":"pass","details":"真实"},"cognitiveLoad":{"status":"pass","details":"真实"},"milestoneFeasibility":{"status":"pass","details":"真实"},"gapAnalysis":{"status":"pass","details":"真实"},"passed":true,"fixes":[]},"warnings":[]
+    }).to_string();
+    store.conn.execute("INSERT INTO learning_plans (status, provider_id, input_json, result_json, created_at, updated_at) VALUES ('done', 'p1', ?1, ?2, ?3, ?3)", rusqlite::params![input, result, now]).unwrap();
+}
+
+#[test]
+fn library_links_and_checks_reflect_actual_annotations_materials_and_deletion() {
+    let app = setup();
+    let empty = ipc(&app, "get_library_overview", json!({})).unwrap();
+    assert_eq!(empty["linkedNodes"], 0);
+    assert!(empty["notes"].as_array().unwrap().is_empty());
+    assert!(empty["issues"].as_array().unwrap().is_empty());
+    let learning = app.state::<BackendState>().learning.shared();
+    insert_link_plan(&learning);
+    let saved = crate::backend::learning::knowledge::save_note(
+        app.handle(),
+        &learning,
+        "plan-1",
+        "stage-1",
+        "真实阶段批注".into(),
+    )
+    .unwrap();
+    let annotation = saved["notes"][0].clone();
+    let note_id = annotation["id"].as_i64().unwrap();
+    learning.store().unwrap().replace_collection("notes", 1, &json!([
+        annotation,
+        {"id":2,"title":"重复笔记一","excerpt":"相同","tag":"复盘","updated":"原时间","content":"完全相同的正文"},
+        {"id":3,"title":"重复笔记二","excerpt":"相同","tag":"复盘","updated":"原时间","content":"完全相同的正文"}
+    ])).unwrap();
+    let imported = crate::backend::materials::import_text(
+        app.handle(),
+        &learning.material_state(),
+        "真实材料".into(),
+        "真实原文".into(),
+    )
+    .unwrap();
+    let original = learning
+        .workspace_path()
+        .parent()
+        .unwrap()
+        .join("materials")
+        .join("originals")
+        .join(format!("{}.txt", imported.material.sha256));
+    std::fs::remove_file(original).unwrap();
+    learning.store().unwrap().conn.execute("UPDATE materials SET status = 'failed', error_code = 'parse_failed', error_message = '真实解析错误' WHERE id = ?1", rusqlite::params![imported.material.id]).unwrap();
+    let report = ipc(&app, "get_library_overview", json!({})).unwrap();
+    let linked = report["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|note| note["noteId"] == note_id)
+        .unwrap();
+    assert_eq!(linked["links"].as_array().unwrap().len(), 2);
+    assert_eq!(linked["links"][0]["planId"], "plan-1");
+    assert_eq!(report["linkedNodes"], 2);
+    assert_eq!(report["duplicateNoteGroups"], 1);
+    assert_eq!(report["unlinkedNotes"], 2);
+    assert_eq!(report["missingOriginals"], 1);
+    assert_eq!(report["failedMaterials"], 1);
+    let issues = report["issues"].as_array().unwrap();
+    assert!(issues
+        .iter()
+        .any(|issue| issue["kind"] == "duplicate_notes"));
+    assert!(issues
+        .iter()
+        .any(|issue| issue["kind"] == "missing_original"
+            && issue["materialId"] == imported.material.id));
+    assert!(issues.iter().any(|issue| issue["kind"] == "parse_failed"
+        && issue["detail"].as_str().unwrap().contains("真实解析错误")));
+    let remaining = learning
+        .store()
+        .unwrap()
+        .collection("notes")
+        .unwrap()
+        .value
+        .as_array()
+        .unwrap()[0]
+        .clone();
+    learning
+        .store()
+        .unwrap()
+        .replace_collection("notes", 2, &json!([remaining]))
+        .unwrap();
+    learning
+        .store()
+        .unwrap()
+        .replace_collection("notes", 3, &json!([]))
+        .unwrap();
+    let count = learning
+        .store()
+        .unwrap()
+        .conn
+        .query_row("SELECT COUNT(*) FROM learning_annotations", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
+    let after = ipc(&app, "get_library_overview", json!({})).unwrap();
+    assert_eq!(after["linkedNodes"], 0);
+    assert!(after["notes"].as_array().unwrap().is_empty());
+    assert!(!after["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["kind"] == "orphan_annotation"));
 }

@@ -143,6 +143,7 @@ fn main() {
             materials::commands::export_material_original,
             materials::commands::export_material_text,
             notes::commands::import_notes,
+            notes::commands::get_library_overview,
             providers::commands::list_provider_profiles,
             providers::commands::get_active_provider,
             providers::commands::upsert_provider_profile,

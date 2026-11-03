@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod library;
 #[cfg(test)]
 mod tests;
 

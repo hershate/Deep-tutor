@@ -11,3 +11,10 @@ pub fn import_notes<R: Runtime>(
 ) -> Result<NotesImportResult> {
     super::import(&app, &state, Path::new(&path))
 }
+
+#[tauri::command]
+pub fn get_library_overview(
+    state: State<'_, BackendState>,
+) -> Result<super::library::LibraryOverview> {
+    super::library::overview(&state)
+}
