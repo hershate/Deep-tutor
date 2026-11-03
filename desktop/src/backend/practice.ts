@@ -12,6 +12,10 @@ export type PracticeSet = {
   feedbackMode: 'immediate' | 'deferred' | 'hints'
   kinds: string[]
   variantOf: number | null
+  examTimeLimitMinutes: number | null
+  examStartedAt: string | null
+  examDeadline: string | null
+  passScorePercent: number | null
   totalQuestions: number
   answeredQuestions: number
   score: number
@@ -54,12 +58,20 @@ export type PracticeAnswer = {
     explanation?: string
     hint?: string
     status?: string
+    unanswered?: boolean
     overallFeedback?: string
     criteria?: { id: string; description: string; score: number; maxScore: number; evidence: string; feedback: string }[]
     citations?: { materialId: number; quote: string }[]
   }
 }
-export type PracticeDetail = { set: PracticeSet; questions: PracticeQuestion[]; answers: PracticeAnswer[]; answeredQuestionIds: number[] }
+export type PracticeDetail = {
+  set: PracticeSet
+  questions: PracticeQuestion[]
+  answers: PracticeAnswer[]
+  answeredQuestionIds: number[]
+  examExpired: boolean
+  examRemainingSeconds: number | null
+}
 export type PracticeInput = {
   planId: string
   stageId: string | null
@@ -68,6 +80,9 @@ export type PracticeInput = {
   feedbackMode: 'immediate' | 'deferred' | 'hints'
   kinds: QuestionKind[]
   variantOf?: number
+  mode?: 'targeted' | 'exam'
+  timeLimitMinutes?: number
+  passScorePercent?: number
 }
 export type PracticeMistake = {
   questionId: number
@@ -97,4 +112,5 @@ export const practiceBackend = {
   masterMistake: (questionId: number, mastered: boolean) => invoke<void>('set_practice_mistake_mastered', { questionId, mastered }),
   cancelAnswer: (answerId: number) => invoke<PracticeDetail>('cancel_practice_answer', { answerId }),
   resumeAnswer: (answerId: number) => invoke<PracticeDetail>('resume_practice_answer', { answerId }),
+  submitExam: (id: number) => invoke<PracticeDetail>('submit_exam', { id }),
 }

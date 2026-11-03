@@ -20,6 +20,8 @@ fn generate_subjectives(
             kinds: Some(vec!["short".into(), "essay".into()]),
             mode: None,
             variant_of: None,
+            time_limit_minutes: None,
+            pass_score_percent: None,
         },
     )
     .unwrap();

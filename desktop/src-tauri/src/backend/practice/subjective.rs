@@ -156,6 +156,7 @@ pub fn submit<R: Runtime>(
             "练习尚未生成完成或已提交",
         ));
     }
+    super::exams::ensure_accepting(&set)?;
     let rubric: String = tx.query_row(
         "SELECT rubric_json FROM practice_questions WHERE id = ?1 AND set_id = ?2 AND kind IN ('short', 'essay')",
         params![question_id, set_id],
@@ -485,7 +486,7 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
         |row| row.get(0),
     )?;
     let set = set_row(&tx, task.set_id)?;
-    let completed = answered == set.total_questions;
+    let completed = answered == set.total_questions && set.mode != "exam";
     if completed {
         tx.execute("UPDATE practice_sets SET status = 'completed', score = (SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = practice_sets.id AND status = 'done'), completed_at = ?1, updated_at = ?1 WHERE id = ?2", params![timestamp, task.set_id])?;
     } else {

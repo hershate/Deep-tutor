@@ -53,6 +53,15 @@ pub fn submit_practice_answer<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn submit_exam<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<PracticeSetDetail> {
+    super::exams::finalize(&app, &state.practice, id)
+}
+
+#[tauri::command]
 pub fn list_practice_mistakes(state: State<'_, BackendState>) -> Result<Vec<Mistake>> {
     super::mistakes(&state.practice)
 }

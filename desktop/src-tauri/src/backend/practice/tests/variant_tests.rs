@@ -29,6 +29,8 @@ fn variant_input(plan_id: &str, source: i64, kind: &str, count: u32) -> Generate
         kinds: Some(vec![kind.into()]),
         mode: None,
         variant_of: Some(source),
+        time_limit_minutes: None,
+        pass_score_percent: None,
     }
 }
 
@@ -161,6 +163,8 @@ fn subjective_variants_use_the_same_rubric_mastery_evidence() {
             kinds: Some(vec!["short".into(), "essay".into()]),
             mode: None,
             variant_of: None,
+            time_limit_minutes: None,
+            pass_score_percent: None,
         },
     )
     .unwrap();

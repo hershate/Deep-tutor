@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod exams;
 pub mod subjective;
 pub mod variants;
 
@@ -80,6 +81,10 @@ pub struct PracticeSet {
     pub feedback_mode: String,
     pub kinds: Vec<String>,
     pub variant_of: Option<i64>,
+    pub exam_time_limit_minutes: Option<u32>,
+    pub exam_started_at: Option<String>,
+    pub exam_deadline: Option<String>,
+    pub pass_score_percent: Option<u8>,
     pub total_questions: u32,
     pub answered_questions: u32,
     pub score: f64,
@@ -124,6 +129,8 @@ pub struct PracticeSetDetail {
     pub questions: Vec<PracticeQuestion>,
     pub answers: Vec<AnswerView>,
     pub answered_question_ids: Vec<i64>,
+    pub exam_expired: bool,
+    pub exam_remaining_seconds: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +183,8 @@ pub struct GenerateInput {
     pub kinds: Option<Vec<String>>,
     pub mode: Option<String>,
     pub variant_of: Option<i64>,
+    pub time_limit_minutes: Option<u32>,
+    pub pass_score_percent: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -280,6 +289,7 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     }
     subjective::migrate(conn)?;
     variants::migrate(conn)?;
+    exams::migrate(conn)?;
     Ok(())
 }
 
@@ -478,6 +488,12 @@ pub fn generate<R: Runtime>(
             "支持的题型为单选、填空、简答与论述",
         ));
     }
+    if input.mode.as_deref() == Some("exam") && input.variant_of.is_some() {
+        return Err(BackendError::new(
+            "variant_in_exam",
+            "错题变式请使用针对练习，不作为模拟考试",
+        ));
+    }
     let mut stage_id = input.stage_id.clone();
     let mut feedback_mode = input
         .feedback_mode
@@ -514,12 +530,41 @@ pub fn generate<R: Runtime>(
             "反馈方式无效",
         ));
     }
-    if !matches!(input.mode.as_deref(), None | Some("targeted")) {
-        return Err(BackendError::new(
-            "unsupported_practice_mode",
-            "完整模拟考试将在后续切片接入；当前可生成统一反馈的练习",
+    let mode = input.mode.as_deref().unwrap_or("targeted");
+    if !["targeted", "exam"].contains(&mode) {
+        return Err(BackendError::invalid(
+            "invalid_practice_mode",
+            "练习模式无效",
         ));
     }
+    let time_limit = input.time_limit_minutes.unwrap_or(45);
+    let pass_score = input.pass_score_percent.unwrap_or(80);
+    if mode == "exam" {
+        if feedback_mode != "deferred" {
+            return Err(BackendError::invalid(
+                "invalid_feedback_mode",
+                "模拟考试必须在交卷后统一反馈",
+            ));
+        }
+        if !(1..=240).contains(&time_limit) {
+            return Err(BackendError::invalid(
+                "invalid_exam_time_limit",
+                "考试时长须为 1 到 240 分钟",
+            ));
+        }
+        if !(1..=100).contains(&pass_score) {
+            return Err(BackendError::invalid(
+                "invalid_pass_score",
+                "建议通过百分比须为 1 到 100",
+            ));
+        }
+    } else if input.time_limit_minutes.is_some() || input.pass_score_percent.is_some() {
+        return Err(BackendError::invalid(
+            "invalid_exam_configuration",
+            "考试时长与通过百分比只适用于模拟考试",
+        ));
+    }
+    let exam_config = (mode == "exam").then_some((time_limit, pass_score));
     let (plan, _, _) = sources(state, &input.plan_id)?;
     if let Some(stage_id) = &stage_id {
         if !plan.result.as_ref().is_some_and(|result| {
@@ -545,14 +590,14 @@ pub fn generate<R: Runtime>(
         .conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute(
-        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, total_questions, created_at, updated_at) VALUES ('targeted', 'generating', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
-        params![learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, count, timestamp],
+        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, exam_time_limit_minutes, pass_score_percent, total_questions, created_at, updated_at) VALUES (?1, 'generating', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+        params![mode, learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, exam_config.map(|config| config.0), exam_config.map(|config| config.1), count, timestamp],
     )?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
         &tx,
         "practice.generation_started",
-        json!({"setId": id, "variantOf": input.variant_of}),
+        json!({"setId": id, "mode": mode, "variantOf": input.variant_of}),
     )?;
     active.insert(id, Arc::new(AtomicBool::new(false)));
     if let Err(error) = tx.commit() {
@@ -621,6 +666,8 @@ fn generate_questions<R: Runtime>(
         kinds: Some(serde_json::from_str(&kinds)?),
         mode: Some(mode),
         variant_of,
+        time_limit_minutes: None,
+        pass_score_percent: None,
     };
     let variant = variant_of
         .map(|source_id| variants::source(state, source_id, &plan_id))
@@ -798,9 +845,20 @@ fn generate_questions<R: Runtime>(
             params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?, input.variant_of],
         )?;
     }
+    let (started_at, deadline) = if input.mode.as_deref() == Some("exam") {
+        let minutes = set_row(&store.conn, id)?
+            .exam_time_limit_minutes
+            .ok_or_else(|| BackendError::new("exam_not_started", "试卷缺少考试时长"))?;
+        let started_at = now()?;
+        let deadline = (OffsetDateTime::now_utc() + Duration::from_secs(minutes as u64 * 60))
+            .format(&Rfc3339)?;
+        (Some(started_at), Some(deadline))
+    } else {
+        (None, None)
+    };
     let changed = tx.execute(
-        "UPDATE practice_sets SET status = 'ready', max_score = ?1, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE id = ?3 AND status = 'generating'",
-        params![count, now()?, id],
+        "UPDATE practice_sets SET status = 'ready', max_score = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, exam_started_at = CASE WHEN ?4 = 'exam' THEN ?5 ELSE NULL END, exam_deadline = CASE WHEN ?4 = 'exam' THEN ?6 ELSE NULL END WHERE id = ?3 AND status = 'generating'",
+        params![count, now()?, id, input.mode.as_deref(), started_at, deadline],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -820,7 +878,7 @@ fn generate_questions<R: Runtime>(
 
 fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
     let (mut set, kinds): (PracticeSet, String) = conn.query_row(
-        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at, variant_of FROM practice_sets WHERE id = ?1",
+        "SELECT mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, score, max_score, attempt, request_id, error_code, error_message, created_at, updated_at, completed_at, variant_of, exam_time_limit_minutes, exam_started_at, exam_deadline, pass_score_percent FROM practice_sets WHERE id = ?1",
         params![id],
         |row| {
             let plan_id: i64 = row.get(2)?;
@@ -837,6 +895,10 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 feedback_mode: row.get(6)?,
                 kinds: Vec::new(),
                 variant_of: row.get(18)?,
+                exam_time_limit_minutes: row.get::<_, Option<i64>>(19)?.map(|value| value as u32),
+                exam_started_at: row.get(20)?,
+                exam_deadline: row.get(21)?,
+                pass_score_percent: row.get::<_, Option<i64>>(22)?.map(|value| value as u8),
                 total_questions: row.get(8)?,
                 answered_questions: 0,
                 score: row.get(9)?,
@@ -932,11 +994,14 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
     let answered_question_ids = statement
         .query_map(params![id], |row| row.get(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (exam_expired, exam_remaining_seconds) = exams::remaining(&set)?;
     Ok(PracticeSetDetail {
         set,
         questions,
         answers,
         answered_question_ids,
+        exam_expired,
+        exam_remaining_seconds,
     })
 }
 
@@ -966,6 +1031,7 @@ pub fn submit<R: Runtime>(
             "练习尚未生成完成或已提交",
         ));
     }
+    exams::ensure_accepting(&set)?;
     let (kind, expected, explanation, nodes, options): (String, String, String, String, String) = tx.query_row(
         "SELECT kind, answer_json, explanation, node_ids_json, options_json FROM practice_questions WHERE id = ?1 AND set_id = ?2",
         params![question_id, set_id],
@@ -1036,7 +1102,7 @@ pub fn submit<R: Runtime>(
         params![set_id],
         |row| row.get(0),
     )?;
-    let completed = answered == set.total_questions;
+    let completed = answered == set.total_questions && set.mode != "exam";
     if completed {
         tx.execute("UPDATE practice_sets SET status = 'completed', score = (SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = practice_sets.id AND status = 'done'), completed_at = ?1, updated_at = ?1 WHERE id = ?2", params![timestamp, set_id])?;
     } else {

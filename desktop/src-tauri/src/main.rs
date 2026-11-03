@@ -119,6 +119,7 @@ fn main() {
             practice::commands::cancel_practice_generation,
             practice::commands::resume_practice_generation,
             practice::commands::submit_practice_answer,
+            practice::commands::submit_exam,
             practice::commands::list_practice_mistakes,
             practice::commands::export_practice_mistakes,
             practice::commands::set_practice_bookmark,

@@ -7,6 +7,7 @@ use super::*;
 use serde_json::json;
 use std::sync::Mutex;
 
+mod exam_tests;
 mod subjective_tests;
 mod variant_tests;
 
@@ -31,6 +32,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             super::commands::cancel_practice_generation,
             super::commands::resume_practice_generation,
             super::commands::submit_practice_answer,
+            super::commands::submit_exam,
             super::commands::list_practice_mistakes,
             super::commands::export_practice_mistakes,
             super::commands::set_practice_bookmark,
@@ -73,6 +75,8 @@ fn input(plan_id: &str, count: u32, kinds: Vec<&str>, feedback: &str) -> Generat
         kinds: Some(kinds.into_iter().map(str::to_owned).collect()),
         mode: None,
         variant_of: None,
+        time_limit_minutes: None,
+        pass_score_percent: None,
     }
 }
 
@@ -324,7 +328,7 @@ fn objective_questions_use_real_citations_answers_mistakes_and_evidence() {
             json!({"input": {"planId": plan_id, "mode": "exam", "count": 2}})
         )
         .unwrap_err()["code"],
-        "unsupported_practice_mode"
+        "invalid_feedback_mode"
     );
     let started = ipc(
         &window,
