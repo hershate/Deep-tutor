@@ -1488,6 +1488,19 @@ td strong { color: var(--text); }
 .backup-preview-grid strong { font-size: 23px; }
 .backup-preview-grid span { color: var(--muted); font-size: 12px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.maintenance-panel { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
+.maintenance-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.maintenance-facts > div { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+.maintenance-facts span { color: var(--muted); font-size: 11px; }
+.maintenance-facts strong { font-size: 12px; overflow-wrap: anywhere; }
+.maintenance-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 12px; border-radius: 8px; background: oklch(0.95 0.035 95); color: var(--text-secondary); }
+.maintenance-warning > svg { flex-shrink: 0; color: var(--warning); }
+.maintenance-warning p { margin: 5px 0; font-size: 12px; }
+.maintenance-warning code { display: block; margin-top: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.maintenance-candidates { display: grid; gap: 8px; max-height: 320px; margin-top: 16px; overflow-y: auto; }
+.maintenance-candidates > div { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+.maintenance-candidates span, .maintenance-candidates small { color: var(--muted); font-size: 11px; }
+.maintenance-candidates code { overflow-wrap: anywhere; font-size: 12px; }
 .auth-chain { display: grid; gap: 8px; }
 .auth-chain > div { display: flex; align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--border); border-radius: 8px; }
 .auth-chain > div > span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; }

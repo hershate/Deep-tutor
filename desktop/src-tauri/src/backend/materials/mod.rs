@@ -106,6 +106,10 @@ impl MaterialState {
     }
 }
 
+pub(crate) fn stop(state: &MaterialState) -> Result<()> {
+    state.stop_all()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Material {

@@ -3,8 +3,8 @@
 mod backend;
 
 use backend::{
-    agent, backup, commands, community, export, knowledge, learning, materials, plugins, practice,
-    providers, review, sharing, store::Store, sync, BackendState,
+    agent, backup, commands, community, export, knowledge, learning, maintenance, materials,
+    plugins, practice, providers, review, sharing, store::Store, sync, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -83,6 +83,9 @@ fn main() {
             sync::commands::cancel_sync_job,
             sync::commands::get_sync_versions,
             sync::commands::restore_sync_version,
+            maintenance::commands::get_maintenance_report,
+            maintenance::commands::cleanup_orphan_files,
+            maintenance::commands::vacuum_database,
             materials::commands::import_material_files,
             materials::commands::import_material_text,
             materials::commands::list_materials,

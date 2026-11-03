@@ -61,10 +61,21 @@ impl Store {
         let _open = STORE_OPEN_LOCK
             .lock()
             .map_err(|_| BackendError::new("store_unavailable", "数据库初始化锁不可用"))?;
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+        let conn = Connection::open(&path)?;
+        let journal_mode: String =
+            conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+        if !journal_mode.eq_ignore_ascii_case("wal") {
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+        }
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "busy_timeout", 10000)?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > 1 {
+            return Err(BackendError::new(
+                "unsupported_schema",
+                "数据库版本高于当前应用，拒绝执行降级修改",
+            ));
+        }
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS kv (
                 namespace TEXT NOT NULL,
@@ -96,6 +107,9 @@ impl Store {
         super::community::migrate(&conn)?;
         super::plugins::migrate(&conn)?;
         super::sync::migrate(&conn)?;
+        if version < 1 {
+            conn.pragma_update(None, "user_version", 1)?;
+        }
         Ok(Self { conn })
     }
 

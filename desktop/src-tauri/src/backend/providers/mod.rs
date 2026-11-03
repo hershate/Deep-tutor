@@ -896,6 +896,17 @@ pub fn get_chat(state: &ProviderState, request_id: &str) -> Result<ProviderReque
     }
 }
 
+pub fn completed_chat(state: &ProviderState, request_id: Option<&str>) -> Result<bool> {
+    let Some(request_id) = request_id else {
+        return Ok(false);
+    };
+    match get_chat(state, request_id) {
+        Ok(request) => Ok(request.status == "done"),
+        Err(error) if error.code == "not_found" => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn begin_chat<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,

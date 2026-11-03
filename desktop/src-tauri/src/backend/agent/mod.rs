@@ -694,15 +694,7 @@ fn begin_step<R: Runtime>(
         |row| row.get::<_, i64>(0),
     )? as u32;
     let retry = !completed && current.is_some();
-    let reusable = retry
-        && current
-            .as_deref()
-            .map(|request| {
-                providers::get_chat(&state.providers, request)
-                    .map(|result| result.status == "done")
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+    let reusable = retry && providers::completed_chat(&state.providers, current.as_deref())?;
     let attempt = if retry && !reusable {
         previous_attempt + 1
     } else {

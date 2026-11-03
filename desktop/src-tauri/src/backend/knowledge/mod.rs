@@ -727,14 +727,7 @@ pub fn resume<R: Runtime>(
         return Err(BackendError::new("answer_active", "该问答已在恢复"));
     }
     let reusable = status == "interrupted"
-        && previous
-            .as_deref()
-            .map(|request| {
-                providers::get_chat(&state.providers, request)
-                    .map(|result| result.status == "done")
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        && providers::completed_chat(&state.providers, previous.as_deref())?;
     let attempt = if reusable {
         initial.attempt
     } else {

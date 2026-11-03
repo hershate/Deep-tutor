@@ -1410,14 +1410,7 @@ pub fn resume<R: Runtime>(
         ));
     }
     let completed = set.status == "interrupted"
-        && previous_request
-            .as_deref()
-            .map(|request| {
-                providers::get_chat(&state.providers, request)
-                    .map(|result| result.status == "done")
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if completed {
         set.attempt
     } else {

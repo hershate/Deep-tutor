@@ -311,7 +311,10 @@ fn interrupted_answer_reuses_completed_provider_output() {
     assert_eq!(server.request_count(), 1);
     recover(app.handle(), &state).unwrap();
     assert_eq!(get(&state, 1).unwrap().status, "interrupted");
-    resume(app.handle(), &state, 1).unwrap();
+    let persisted = providers::get_chat(&state.providers, "wiki-1-1").unwrap();
+    assert_eq!(persisted.status, "done", "{persisted:?}");
+    let resumed = resume(app.handle(), &state, 1).unwrap();
+    assert_eq!(resumed.attempt, 1, "{resumed:?}");
     let restored = wait(&state, 1);
     assert_eq!(restored.status, "done");
     assert_eq!(restored.attempt, 1);

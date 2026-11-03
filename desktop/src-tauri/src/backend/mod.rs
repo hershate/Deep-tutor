@@ -6,6 +6,7 @@ pub mod error;
 pub mod export;
 pub mod knowledge;
 pub mod learning;
+pub mod maintenance;
 pub mod materials;
 pub mod plugins;
 pub mod practice;
