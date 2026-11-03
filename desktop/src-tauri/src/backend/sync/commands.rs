@@ -39,3 +39,29 @@ pub fn cancel_sync_job<R: Runtime>(
 ) -> Result<SyncJobView> {
     super::cancel(&app, &SyncService::new(&state.learning), &id)
 }
+
+#[tauri::command]
+pub fn get_sync_versions(
+    state: State<'_, BackendState>,
+) -> Result<Vec<super::versions::SyncVersion>> {
+    let service = SyncService::new(&state.learning);
+    let config = super::config(&service)?.ok_or_else(|| {
+        super::super::error::BackendError::new("sync_not_configured", "请先保存同步配置")
+    })?;
+    super::versions::list(&service, &config)
+}
+
+#[tauri::command]
+pub fn restore_sync_version<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    version_path: String,
+    destination: Option<String>,
+) -> Result<SyncJobView> {
+    super::restore(
+        &app,
+        &SyncService::new(&state.learning),
+        version_path,
+        destination,
+    )
+}

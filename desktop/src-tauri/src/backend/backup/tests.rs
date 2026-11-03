@@ -180,6 +180,9 @@ fn seed_target(app: &tauri::App<tauri::test::MockRuntime>, state: &LearningState
 
 #[test]
 fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let source = LearningState::for_tests().unwrap();
     let source_app = setup(&source);
     let (token, material_hash) = seed_source(&source_app, &source);
@@ -349,6 +352,9 @@ fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
 
 #[test]
 fn corrupt_or_incomplete_backups_are_rejected_without_partial_writes() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let source = LearningState::for_tests().unwrap();
     let source_app = setup(&source);
     seed_source(&source_app, &source);
@@ -422,6 +428,9 @@ fn corrupt_or_incomplete_backups_are_rejected_without_partial_writes() {
 
 #[test]
 fn unsafe_archive_paths_are_rejected_before_any_file_write() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let source = LearningState::for_tests().unwrap();
     let source_app = setup(&source);
     seed_source(&source_app, &source);
@@ -490,6 +499,9 @@ fn unsafe_archive_paths_are_rejected_before_any_file_write() {
 
 #[test]
 fn broken_provider_reference_rolls_back_database_and_staged_originals() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let source = LearningState::for_tests().unwrap();
     let source_app = setup(&source);
     seed_source(&source_app, &source);

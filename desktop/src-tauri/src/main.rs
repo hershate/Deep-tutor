@@ -60,6 +60,7 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             sync::recover(app.handle(), &sync::SyncService::new(&state.learning))
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            sync::scheduler::start_scheduler(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -80,6 +81,8 @@ fn main() {
             sync::commands::start_sync_job,
             sync::commands::get_sync_job,
             sync::commands::cancel_sync_job,
+            sync::commands::get_sync_versions,
+            sync::commands::restore_sync_version,
             materials::commands::import_material_files,
             materials::commands::import_material_text,
             materials::commands::list_materials,

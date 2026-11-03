@@ -64,8 +64,9 @@ fn signature(
     let canonical_headers =
         format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{timestamp}\n");
     let canonical = format!(
-        "{method}\n{}\n\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}",
-        url.path()
+        "{method}\n{}\n{}\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}",
+        url.path(),
+        url.query().unwrap_or("")
     );
     let scope = format!("{date}/{}/s3/aws4_request", config.region);
     let string_to_sign = format!(
@@ -93,17 +94,44 @@ pub fn send(
     method: &str,
     body: Option<Vec<u8>>,
 ) -> Result<Vec<u8>> {
+    send_at(
+        config,
+        credentials,
+        method,
+        body,
+        &config.remote_path,
+        &[],
+        None,
+    )
+}
+
+pub fn send_at(
+    config: &SyncConfig,
+    credentials: &SyncCredentials,
+    method: &str,
+    body: Option<Vec<u8>>,
+    path: &str,
+    query: &[(&str, &str)],
+    depth: Option<u8>,
+) -> Result<Vec<u8>> {
     let kind = if config.allow_private {
         "本地模型"
     } else {
         "官方"
     };
     let suffix = if config.kind == "s3" {
-        format!("{}/{}", config.bucket, config.remote_path)
+        if path.is_empty() {
+            config.bucket.clone()
+        } else {
+            format!("{}/{}", config.bucket, path)
+        }
     } else {
-        config.remote_path.clone()
+        path.to_string()
     };
-    let url = openai::endpoint(&config.endpoint, kind, &suffix)?;
+    let mut url = openai::endpoint(&config.endpoint, kind, &suffix)?;
+    if !query.is_empty() {
+        url.query_pairs_mut().extend_pairs(query.iter().copied());
+    }
     let client: Client = openai::client(&url, kind)?;
     let payload_hash = format!("{:x}", Sha256::digest(body.as_deref().unwrap_or_default()));
     let mut request = client.request(
@@ -112,7 +140,7 @@ pub fn send(
         url.clone(),
     );
     if method == "PROPFIND" {
-        request = request.header("Depth", "0");
+        request = request.header("Depth", depth.unwrap_or(0).to_string());
     }
     if config.kind == "s3" {
         let (timestamp, authorization) =

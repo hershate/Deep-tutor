@@ -1,7 +1,11 @@
 pub mod commands;
+pub(crate) mod scheduler;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod transport;
+mod versions;
+#[cfg(test)]
+mod versions_tests;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -11,7 +15,6 @@ use super::store::Store;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,7 +25,8 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use zeroize::{Zeroize, Zeroizing};
 
 static NEXT_JOB: AtomicU64 = AtomicU64::new(0);
-static ACTIVE: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+static ACTIVE: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>>>> =
+    OnceLock::new();
 #[cfg(test)]
 static DEFER: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
@@ -50,8 +54,16 @@ impl SyncService {
         self.learning.store()
     }
 
-    fn active() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-        ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+    fn active(&self) -> Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> {
+        let mut databases = ACTIVE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        Arc::clone(
+            databases
+                .entry(self.learning.database_path().to_path_buf())
+                .or_default(),
+        )
     }
 }
 
@@ -66,6 +78,10 @@ pub struct SyncConfig {
     pub auth_kind: String,
     pub username: String,
     pub allow_private: bool,
+    #[serde(default)]
+    pub auto_sync: bool,
+    #[serde(default)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -79,6 +95,7 @@ pub struct SyncConfigInput {
     pub auth_kind: String,
     pub username: String,
     pub allow_private: bool,
+    pub auto_sync: bool,
     pub password: Option<String>,
     pub access_key: Option<String>,
     pub secret_key: Option<String>,
@@ -164,7 +181,10 @@ fn valid_remote_path(value: &str) -> bool {
 }
 
 fn validate_input(input: &SyncConfigInput) -> Result<SyncConfig> {
-    if !["webdav", "s3"].contains(&input.kind.as_str()) || !valid_remote_path(&input.remote_path) {
+    if !["webdav", "s3"].contains(&input.kind.as_str())
+        || !valid_remote_path(&input.remote_path)
+        || !input.remote_path.ends_with(".json")
+    {
         return Err(BackendError::invalid(
             "invalid_sync_path",
             "同步类型或远端对象路径无效",
@@ -220,6 +240,8 @@ fn validate_input(input: &SyncConfigInput) -> Result<SyncConfig> {
         auth_kind: input.auth_kind.clone(),
         username: input.username.trim().into(),
         allow_private: input.allow_private,
+        auto_sync: input.auto_sync,
+        updated_at: now()?,
     })
 }
 
@@ -279,13 +301,17 @@ fn config(service: &SyncService) -> Result<Option<SyncConfig>> {
     let value = store
         .conn
         .query_row(
-            "SELECT config_json FROM sync_config WHERE id = 1",
+            "SELECT config_json, updated_at FROM sync_config WHERE id = 1",
             [],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
     value
-        .map(|value| serde_json::from_str(&value).map_err(Into::into))
+        .map(|(value, updated_at)| {
+            let mut config: SyncConfig = serde_json::from_str(&value)?;
+            config.updated_at = updated_at;
+            Ok::<_, BackendError>(config)
+        })
         .transpose()
 }
 
@@ -362,6 +388,7 @@ pub fn save_config<R: Runtime>(
         )?;
         tx.commit()?;
         emit(app, &event);
+        scheduler::start_scheduler(app.clone());
         Ok(())
     })();
     if let Err(error) = result {
@@ -429,8 +456,9 @@ fn stage<R: Runtime>(
     Ok(())
 }
 
-fn cancelled(_service: &SyncService, id: &str) -> bool {
-    SyncService::active()
+fn cancelled(service: &SyncService, id: &str) -> bool {
+    service
+        .active()
         .lock()
         .ok()
         .and_then(|active| active.get(id).cloned())
@@ -497,25 +525,12 @@ fn run<R: Runtime>(
         "upload" => {
             let bytes = serde_json::to_vec_pretty(&providers::export_config(&service.providers)?)?;
             let preview = providers::sync_config::preview(&bytes)?;
-            let _ = transport::send(config, &credentials, "PUT", Some(bytes.clone()))?;
-            check_cancelled(service, id)?;
-            stage(app, service, id, "running", "verify")?;
-            let remote = transport::send(config, &credentials, "GET", None)?;
-            if remote != bytes {
-                return Err(BackendError::new(
-                    "sync_verify_failed",
-                    "远端回读内容与本地脱敏配置不一致",
-                ));
-            }
-            check_cancelled(service, id)?;
-            Ok(Outcome {
-                result: json!({"sha256": format!("{:x}", Sha256::digest(&bytes)), "bytes": bytes.len(), "profiles": preview.profiles, "remoteConfirmed": true}),
-                local_path: None,
-            })
+            versions::upload(app, service, id, config, &credentials, bytes, preview)
         }
-        "download" | "import" => {
+        "download" | "import" | "restore" => {
             let bytes = transport::send(config, &credentials, "GET", None)?;
             let preview = providers::sync_config::preview(&bytes)?;
+            let import = kind == "import" || (kind == "restore" && destination.is_none());
             let path = match destination {
                 Some(path) => path,
                 None => service
@@ -535,7 +550,7 @@ fn run<R: Runtime>(
                     "本地同步文件写入校验失败",
                 ));
             }
-            if kind == "import" {
+            if import {
                 let imported = providers::sync_config::import(app, &service.providers, &bytes)?;
                 Ok(Outcome {
                     result: serde_json::to_value(imported)?,
@@ -591,20 +606,24 @@ fn finish<R: Runtime>(
     Ok(())
 }
 
-pub fn start<R: Runtime>(
+fn start_with_path<R: Runtime>(
     app: &AppHandle<R>,
     service: &SyncService,
     kind: String,
     destination: Option<String>,
+    remote_path: Option<String>,
 ) -> Result<SyncJobView> {
-    if !["check", "upload", "download", "import"].contains(&kind.as_str()) {
+    if !["check", "upload", "download", "import", "restore"].contains(&kind.as_str()) {
         return Err(BackendError::invalid(
             "invalid_sync_job",
             "同步任务类型不受支持",
         ));
     }
-    let config = config(service)?
+    let mut config = config(service)?
         .ok_or_else(|| BackendError::new("sync_not_configured", "请先保存同步配置"))?;
+    if let Some(path) = remote_path {
+        config.remote_path = path;
+    }
     if kind == "download"
         && !destination.as_deref().is_some_and(|path| {
             Path::new(path)
@@ -630,7 +649,8 @@ pub fn start<R: Runtime>(
         NEXT_JOB.fetch_add(1, Ordering::Relaxed)
     );
     {
-        let mut active = SyncService::active()
+        let active_jobs = service.active();
+        let mut active = active_jobs
             .lock()
             .map_err(|_| BackendError::new("store_unavailable", "同步任务状态不可用"))?;
         if !active.is_empty() {
@@ -656,7 +676,8 @@ pub fn start<R: Runtime>(
     let event = match result {
         Ok(event) => event,
         Err(error) => {
-            if let Ok(mut active) = SyncService::active().lock() {
+            let active_jobs = service.active();
+            if let Ok(mut active) = active_jobs.lock() {
                 active.remove(&id);
             }
             return Err(error);
@@ -685,12 +706,13 @@ pub fn start<R: Runtime>(
                 Err(_) => Err(BackendError::new("task_panicked", "同步任务异常终止")),
             };
             let _ = finish(&worker_app, &worker_service, &worker_id, outcome);
-            if let Ok(mut active) = SyncService::active().lock() {
+            if let Ok(mut active) = worker_service.active().lock() {
                 active.remove(&worker_id);
             }
         });
     if let Err(error) = spawn {
-        if let Ok(mut active) = SyncService::active().lock() {
+        let active_jobs = service.active();
+        if let Ok(mut active) = active_jobs.lock() {
             active.remove(&id);
         }
         let _ = finish(
@@ -707,6 +729,44 @@ pub fn start<R: Runtime>(
     job(service, &id)
 }
 
+pub fn start<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &SyncService,
+    kind: String,
+    destination: Option<String>,
+) -> Result<SyncJobView> {
+    start_with_path(app, service, kind, destination, None)
+}
+
+pub fn restore<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &SyncService,
+    version_path: String,
+    destination: Option<String>,
+) -> Result<SyncJobView> {
+    let config = config(service)?
+        .ok_or_else(|| BackendError::new("sync_not_configured", "请先保存同步配置"))?;
+    versions::valid_version_path(&config, &version_path)?;
+    if destination.as_deref().is_some_and(|path| {
+        !Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    }) {
+        return Err(BackendError::invalid(
+            "invalid_sync_destination",
+            "版本下载必须使用 .json 文件",
+        ));
+    }
+    start_with_path(
+        app,
+        service,
+        "restore".into(),
+        destination,
+        Some(version_path),
+    )
+}
+
 pub fn cancel<R: Runtime>(
     app: &AppHandle<R>,
     service: &SyncService,
@@ -716,7 +776,8 @@ pub fn cancel<R: Runtime>(
     if ["done", "failed", "cancelled", "interrupted"].contains(&current.status.as_str()) {
         return Ok(current);
     }
-    let flag = SyncService::active()
+    let flag = service
+        .active()
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "同步任务状态不可用"))?
         .get(id)
@@ -754,8 +815,10 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, service: &SyncService) -> Result<
     Ok(())
 }
 
-pub fn stop() -> Result<()> {
-    let flags = SyncService::active()
+pub fn stop(service: &SyncService) -> Result<()> {
+    scheduler::stop_scheduler();
+    let active_jobs = service.active();
+    let flags = active_jobs
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "同步任务状态不可用"))?
         .values()
@@ -766,7 +829,7 @@ pub fn stop() -> Result<()> {
     }
     let deadline = Instant::now() + Duration::from_secs(50);
     while Instant::now() < deadline {
-        if SyncService::active()
+        if active_jobs
             .lock()
             .map(|active| active.is_empty())
             .unwrap_or(false)

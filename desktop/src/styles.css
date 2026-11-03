@@ -1863,3 +1863,8 @@ h1, h2, h3 { text-wrap: balance; }
 .sync-job p, .sync-job small { display: block; margin: 4px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
 .sync-job .form-error { color: var(--danger); }
 .cloud-sync .data-actions { margin-top: 10px; }
+.sync-version { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.sync-version > div { min-width: 0; }
+.sync-version p { margin: 5px 0; color: var(--muted); font-size: 12px; }
+.sync-version code { display: block; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11px; }
+.sync-version > .btn { flex-shrink: 0; }

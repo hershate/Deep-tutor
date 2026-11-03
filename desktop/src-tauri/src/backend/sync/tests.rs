@@ -2,6 +2,7 @@ use super::*;
 use crate::backend::providers::test_support::{response, server};
 use crate::backend::BackendState;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 use tauri::{
     ipc::{CallbackFn, InvokeBody},
@@ -9,16 +10,16 @@ use tauri::{
     Listener, Manager,
 };
 
-static TEST_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-struct ResetDefer;
+pub(crate) struct ResetDefer;
 impl Drop for ResetDefer {
     fn drop(&mut self) {
         defer(false);
     }
 }
 
-fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
+pub(crate) fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
     let learning = LearningState::for_tests().unwrap();
     let path = learning.database_path();
     let providers = learning.provider_state();
@@ -46,6 +47,8 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             commands::start_sync_job,
             commands::get_sync_job,
             commands::cancel_sync_job,
+            commands::get_sync_versions,
+            commands::restore_sync_version,
             crate::backend::commands::events_since
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -56,7 +59,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
     (app, learning)
 }
 
-fn ipc(
+pub(crate) fn ipc(
     app: &tauri::App<tauri::test::MockRuntime>,
     command: &str,
     arguments: Value,
@@ -76,7 +79,7 @@ fn ipc(
     .map(|body| body.deserialize::<Value>().unwrap())
 }
 
-fn config(kind: &str, endpoint: &str) -> SyncConfigInput {
+pub(crate) fn config(kind: &str, endpoint: &str) -> SyncConfigInput {
     SyncConfigInput {
         kind: kind.into(),
         endpoint: endpoint.into(),
@@ -98,6 +101,7 @@ fn config(kind: &str, endpoint: &str) -> SyncConfigInput {
         },
         username: String::new(),
         allow_private: true,
+        auto_sync: false,
         password: None,
         access_key: if kind == "s3" {
             Some("test-access".into())
@@ -112,7 +116,11 @@ fn config(kind: &str, endpoint: &str) -> SyncConfigInput {
     }
 }
 
-fn create_provider(app: &tauri::App<tauri::test::MockRuntime>, state: &LearningState, url: &str) {
+pub(crate) fn create_provider(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    state: &LearningState,
+    url: &str,
+) {
     crate::backend::providers::upsert(
         app.handle(),
         &state.provider_state(),
@@ -133,7 +141,7 @@ fn create_provider(app: &tauri::App<tauri::test::MockRuntime>, state: &LearningS
     .unwrap();
 }
 
-fn wait_job(service: &SyncService, id: &str) -> SyncJobView {
+pub(crate) fn wait_job(service: &SyncService, id: &str) -> SyncJobView {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let job = job(service, id).unwrap();
@@ -328,10 +336,10 @@ fn s3_signs_real_requests_and_hmac_matches_the_standard_vector() {
         "done"
     );
     let checks = checks.lock().unwrap();
-    assert_eq!(checks.len(), 3);
+    assert_eq!(checks.len(), 7);
     assert!(checks
         .iter()
-        .all(|check| check["path"] == "/test-bucket/deep-tutor/provider-config.json"));
+        .any(|check| check["path"] == "/test-bucket/deep-tutor/provider-config.json"));
     assert!(checks.iter().all(|check| check["hashMatches"] == true));
     assert!(checks
         .iter()
@@ -420,4 +428,33 @@ fn remote_hash_mismatch_is_a_failed_sync_not_a_success() {
     let failed = wait_job(&service, accepted["id"].as_str().unwrap());
     assert_eq!(failed.status, "failed");
     assert_eq!(failed.error.unwrap().code, "sync_verify_failed");
+}
+
+#[test]
+fn stopping_another_database_does_not_cancel_the_current_job() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _reset = ResetDefer;
+    let server = server(|_, stream| response(stream, "207 Multi-Status", ""));
+    let (app, learning) = setup();
+    ipc(
+        &app,
+        "save_sync_config",
+        json!({"input": config("webdav", &server.url())}),
+    )
+    .unwrap();
+    defer(true);
+    let accepted = ipc(
+        &app,
+        "start_sync_job",
+        json!({"kind": "check", "destination": null}),
+    )
+    .unwrap();
+    let other = LearningState::for_tests().unwrap();
+    stop(&SyncService::new(&other)).unwrap();
+    defer(false);
+    let service = SyncService::new(&learning);
+    assert_eq!(
+        wait_job(&service, accepted["id"].as_str().unwrap()).status,
+        "done"
+    );
 }

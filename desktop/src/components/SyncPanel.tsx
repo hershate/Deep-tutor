@@ -3,31 +3,39 @@ import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldC
 import { Badge, Button, Modal, SectionHeader, Toggle } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
 import { syncBackend } from '../backend/sync'
-import type { SyncConfigInput, SyncJob, SyncOverview } from '../backend/sync'
+import type { SyncConfigInput, SyncJob, SyncOverview, SyncVersion } from '../backend/sync'
 
 const statusNames: Record<string, string> = { running: '进行中', cancelling: '取消中', done: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }
-const jobNames: Record<string, string> = { check: '连接检测', upload: '上传配置', download: '下载配置', import: '下载并导入' }
+const jobNames: Record<string, string> = { check: '连接检测', upload: '上传配置', download: '下载配置', import: '下载并导入', restore: '恢复历史版本' }
 
 export default function SyncPanel({ notify }: { notify: (message: string) => void }) {
   const [overview, setOverview] = useState<SyncOverview | null>(null)
-  const [form, setForm] = useState<SyncConfigInput>({ kind: 'webdav', endpoint: '', remotePath: 'deep-tutor/provider-config.json', region: '', bucket: '', authKind: 'none', username: '', allowPrivate: false, password: null, accessKey: null, secretKey: null })
+  const [form, setForm] = useState<SyncConfigInput>({ kind: 'webdav', endpoint: '', remotePath: 'deep-tutor/provider-config.json', region: '', bucket: '', authKind: 'none', username: '', allowPrivate: false, autoSync: false, password: null, accessKey: null, secretKey: null })
   const [password, setPassword] = useState('')
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [clearCredentials, setClearCredentials] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [versions, setVersions] = useState<SyncVersion[] | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
     try { setOverview(await syncBackend.overview()) } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [])
+  const loadVersions = useCallback(async () => {
+    try { setVersions(await syncBackend.versions()) } catch (cause) { setError(backendErrorMessage(cause)) }
+  }, [])
   useEffect(() => {
     void refresh()
     let unlisten: (() => void) | undefined
-    void onBackendEvent(event => { if (event.kind.startsWith('sync.')) void refresh() }).then(remove => { unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
+    void onBackendEvent(event => {
+      if (event.kind.startsWith('sync.')) void refresh()
+      if (event.kind === 'sync.completed') void loadVersions()
+    }).then(remove => { unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
     return () => { unlisten?.() }
-  }, [refresh])
+  }, [refresh, loadVersions])
   useEffect(() => {
     if (!overview?.config) return
     const config = overview.config.config
@@ -39,7 +47,9 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     setBusy(test ? 'check' : 'save')
     setError('')
     try {
-      const input = { ...form, password: clearCredentials ? '' : form.kind === 's3' ? null : password || null, accessKey: clearCredentials ? '' : form.kind === 's3' ? accessKey || null : null, secretKey: clearCredentials ? '' : form.kind === 's3' ? secretKey || null : null }
+      const { updatedAt: _, ...config } = form as SyncConfigInput & { updatedAt?: string }
+      void _
+      const input = { ...config, password: clearCredentials ? '' : form.kind === 's3' ? null : password || null, accessKey: clearCredentials ? '' : form.kind === 's3' ? accessKey || null : null, secretKey: clearCredentials ? '' : form.kind === 's3' ? secretKey || null : null }
       await syncBackend.saveConfig(input)
       setPassword(''); setAccessKey(''); setSecretKey(''); setClearCredentials(false)
       await refresh()
@@ -67,6 +77,21 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     setBusy(`cancel-${id}`)
     try { await syncBackend.cancel(id); await refresh() } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
+  const openVersions = async () => {
+    setBusy('versions')
+    await loadVersions()
+    setVersionsOpen(true)
+    setBusy('')
+  }
+  const restoreVersion = async (path: string) => {
+    setBusy('restore')
+    setError('')
+    try {
+      const accepted = await syncBackend.restore(path)
+      notify(`历史版本恢复任务 ${accepted.id} 已启动，将按真实配置追加导入`)
+      await refresh()
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
   const configured = Boolean(overview?.config)
   const checkIcon = busy === 'check' ? <LoaderCircle size={16} className="spin" /> : <Eye size={16} />
   const saveIcon = busy === 'save' ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />
@@ -79,7 +104,8 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       <Button variant="ghost" size="sm" disabled={!configured || Boolean(busy)} onClick={() => void start('download')}><Download size={15} />下载配置</Button>
       <Button variant="ghost" size="sm" disabled={!configured || Boolean(busy)} onClick={() => void start('import')}><RefreshCw size={15} />下载并追加导入</Button>
     </div>
-    <p className="form-help">当前为手动同步。自动调度与最近 10 个版本保留尚未启用；不会显示未经验证的同步成功。</p>
+    <div className="data-actions"><Button variant="ghost" size="sm" disabled={!configured || busy === 'versions'} onClick={() => void openVersions()}><RefreshCw size={15} />{busy === 'versions' ? '正在读取远端版本…' : '浏览远端历史版本'}</Button></div>
+    <p className="form-help">自动同步开启后每 24 小时检查到期任务；上传同时保存历史版本，最多保留最近 10 个。</p>
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="sync-jobs">
       {overview?.jobs.map(job => <div className="sync-job" key={job.id}>
@@ -114,11 +140,19 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
           <label>Secret Key<input type="password" autoComplete="new-password" value={secretKey} onChange={event => setSecretKey(event.target.value)} placeholder="留空则保留已有凭据" /></label>
         </div>}
         <Toggle checked={form.allowPrivate} onChange={value => update('allowPrivate', value)} label="允许本机或私网服务" description="仅用于明确的本地 MinIO / WebDAV。未开启时公网服务必须使用 HTTPS，禁止访问私网地址。" />
+        <Toggle checked={form.autoSync} onChange={value => update('autoSync', value)} label="每 24 小时自动同步" description="保存后由原生调度器检查到期任务；每次上传保留历史版本，最近 10 个可恢复。" />
         <Toggle checked={clearCredentials} onChange={setClearCredentials} label="清除此服务的已保存凭据" description="保存后删除系统密钥库中对应的同步凭据，不影响模型供应商密钥。" />
         <div className="share-actions">
           <Button variant="secondary" disabled={Boolean(busy)} onClick={() => void save(true)}>{checkIcon}测试连接并保存</Button>
           <Button disabled={Boolean(busy)} onClick={() => void save(false)}>{saveIcon}保存配置</Button>
         </div>
+      </div>
+    </Modal>
+    <Modal open={versionsOpen} onClose={() => setVersionsOpen(false)} title="远端历史版本" wide>
+      <div className="form-stack">
+        <div className="modal-callout"><ShieldCheck size={18} /><span>版本来自远端实际列表。恢复会读取所选对象并追加导入档案与路由，不覆盖本机系统凭据。</span></div>
+        <div className="data-actions"><Button variant="secondary" size="sm" onClick={() => void loadVersions()}><RefreshCw size={15} />重新读取远端列表</Button></div>
+        {versions === null ? <LoaderCircle size={22} className="spin" /> : versions.length ? versions.map(version => <div className="sync-version" key={version.path}><div><strong>{version.path.split('/').at(-1)}</strong><p>{version.size === null ? '大小未提供' : `${version.size.toLocaleString()} 字节`} · {version.lastModified ? new Date(version.lastModified).toLocaleString() : '时间未提供'}</p><code>{version.path}</code></div><Button variant="secondary" size="sm" disabled={busy === 'restore'} onClick={() => void restoreVersion(version.path)}>恢复并追加</Button></div>) : <p>远端尚无历史版本。完成一次实际上传后可在这里恢复。</p>}
       </div>
     </Modal>
   </section>
