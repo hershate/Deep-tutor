@@ -3,7 +3,8 @@
 mod backend;
 
 use backend::{
-    agent, commands, community, knowledge, learning, materials, practice, providers, review, store::Store,
+    agent, commands, community, knowledge, learning, materials, plugins, practice, providers, review,
+    store::Store,
     BackendState,
 };
 use std::sync::Mutex;
@@ -38,6 +39,8 @@ fn main() {
                 review: review_state,
                 knowledge: knowledge_state,
                 community: community::CommunityState::new(&path),
+                plugins: plugins::PluginState::new(&path)
+                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?,
             });
             let state = app.state::<BackendState>();
             materials::recover(app.handle(), &state.materials)
@@ -153,6 +156,14 @@ fn main() {
             community::commands::cancel_community_reservation,
             community::commands::cancel_community_room,
             community::commands::claim_community_reminders,
+            plugins::commands::install_plugin,
+            plugins::commands::set_plugin_enabled,
+            plugins::commands::reload_plugin,
+            plugins::commands::uninstall_plugin,
+            plugins::commands::emit_plugin_ping,
+            plugins::commands::get_plugin_overview,
+            plugins::commands::list_plugin_events,
+            plugins::commands::get_developer_asset,
             agent::commands::create_agent_session,
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,

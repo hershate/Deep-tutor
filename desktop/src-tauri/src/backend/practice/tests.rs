@@ -26,6 +26,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             review: crate::backend::review::ReviewState::new(&path, &learning),
             knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             community: crate::backend::community::CommunityState::for_tests().unwrap(),
+            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::generate_practice,

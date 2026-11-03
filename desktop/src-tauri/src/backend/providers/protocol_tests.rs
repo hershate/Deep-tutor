@@ -17,6 +17,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             review: crate::backend::review::ReviewState::for_tests().unwrap(),
             knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
             community: crate::backend::community::CommunityState::for_tests().unwrap(),
+            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             crate::backend::providers::commands::upsert_provider_profile,

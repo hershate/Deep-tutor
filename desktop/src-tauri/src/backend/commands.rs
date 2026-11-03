@@ -98,6 +98,7 @@ pub fn reset_application<R: Runtime>(
                 super::providers::purge_credentials(&state.providers, &provider_ids);
             file_result?;
             credential_result?;
+            super::plugins::reset_files(&state.plugins)?;
             finish(&app, mutation)
         }
         Err(error) => {
@@ -154,6 +155,7 @@ mod tests {
                 review: crate::backend::review::ReviewState::for_tests().unwrap(),
                 knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
                 community: crate::backend::community::CommunityState::for_tests().unwrap(),
+                plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
             })
             .invoke_handler(tauri::generate_handler![
                 bootstrap,

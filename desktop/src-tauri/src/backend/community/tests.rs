@@ -21,6 +21,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, CommunityState) {
                 &path, &providers, &materials,
             ),
             community: CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
         })
         .invoke_handler(tauri::generate_handler![
             super::commands::get_community_overview,

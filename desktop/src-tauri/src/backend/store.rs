@@ -94,6 +94,7 @@ impl Store {
         super::review::migrate(&conn)?;
         super::agent::migrate(&conn)?;
         super::community::migrate(&conn)?;
+        super::plugins::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -243,12 +244,14 @@ impl Store {
             "INSERT INTO events (kind, payload, created_at) VALUES (?1, ?2, ?3)",
             params![kind, serde_json::to_string(&payload)?, Self::now()?],
         )?;
-        Ok(BackendEvent {
+        let event = BackendEvent {
             id: conn.last_insert_rowid(),
             kind: kind.to_string(),
             payload,
             created_at: Self::now()?,
-        })
+        };
+        super::plugins::dispatch(conn, event.id, &event.kind)?;
+        Ok(event)
     }
 
     fn finish_write(
@@ -377,6 +380,7 @@ impl Store {
 
     pub fn reset(&self) -> Result<Mutation> {
         let tx = self.conn.unchecked_transaction()?;
+        super::plugins::clear_all(&tx)?;
         super::community::clear_all(&tx)?;
         super::agent::clear_all(&tx)?;
         super::practice::clear_all(&tx)?;

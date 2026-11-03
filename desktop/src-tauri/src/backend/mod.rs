@@ -6,6 +6,7 @@ pub mod knowledge;
 pub mod learning;
 pub mod materials;
 pub mod practice;
+pub mod plugins;
 pub mod providers;
 pub mod review;
 pub mod store;
@@ -22,4 +23,5 @@ pub struct BackendState {
     pub review: review::ReviewState,
     pub knowledge: knowledge::KnowledgeState,
     pub community: community::CommunityState,
+    pub plugins: plugins::PluginState,
 }
