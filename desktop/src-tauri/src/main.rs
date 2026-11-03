@@ -4,8 +4,8 @@ mod backend;
 
 use backend::{
     agent, backup, commands, community, engagement, export, knowledge, learning, maintenance,
-    materials, plugins, practice, providers, reports, review, security, sharing, store::Store,
-    sync, BackendState,
+    materials, planning, plugins, practice, providers, reports, review, security, sharing,
+    store::Store, sync, BackendState,
 };
 use std::sync::Mutex;
 use tauri::Manager;
@@ -118,6 +118,11 @@ fn main() {
             engagement::commands::save_learning_profile,
             engagement::commands::restart_learning_diagnostic,
             engagement::commands::get_dashboard,
+            planning::commands::get_plan_overview,
+            planning::commands::get_plan_alternatives,
+            planning::commands::apply_plan_intensity,
+            planning::commands::update_learning_goal,
+            planning::commands::assign_task_date,
             security::commands::get_security_overview,
             security::commands::login_local_user,
             security::commands::logout_local_user,

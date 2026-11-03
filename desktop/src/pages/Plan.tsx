@@ -1,75 +1,174 @@
-import { useState } from 'react'
-import { ArrowDownToLine, ArrowLeft, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
 import type { PageId, Task } from '../data'
-import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
+import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import ExportCenter from '../components/ExportCenter'
 import SharePlanDialog from '../components/SharePlanDialog'
-import { reportBackendError } from '../backend/client'
+import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import type { AppSnapshot } from '../backend/client'
 import { localShareUrl } from '../backend/sharing'
+import { planningBackend } from '../backend/planning'
+import type { PlanAlternative, PlanOverview, ScheduleEvent } from '../backend/planning'
 
-const days = ['周一 02', '周二 03', '周三 04', '周四 05', '周五 06', '周六 07', '周日 08']
-const schedule = [
-  [{ title: '贝叶斯定理', time: '09:00', kind: '学习' }, { title: '英语长难句', time: '19:30', kind: '学习' }],
-  [{ title: '条件概率练习', time: '09:00', kind: '练习' }, { title: '递归错题', time: '20:00', kind: '复习' }],
-  [{ title: '概率论阶段测', time: '19:00', kind: '测评' }],
-  [{ title: '朴素贝叶斯', time: '09:30', kind: '学习' }, { title: '项目：模型评估', time: '20:00', kind: '项目' }],
-  [{ title: '英语阅读精练', time: '19:30', kind: '练习' }],
-  [{ title: '项目深度工作', time: '10:00', kind: '项目' }, { title: '周复习', time: '16:00', kind: '复习' }],
-  [{ title: '轻量复盘', time: '20:00', kind: '复盘' }],
-]
+const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+function localDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+function currentMonday() {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() - (date.getDay() + 6) % 7)
+  return localDate(date)
+}
+function shiftWeek(start: string, amount: number) {
+  const date = new Date(`${start}T12:00:00`)
+  date.setDate(date.getDate() + amount * 7)
+  return localDate(date)
+}
 
 export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
-  const [intensity, setIntensity] = useState('标准')
-  const [week, setWeek] = useState(0)
+  const [overview, setOverview] = useState<PlanOverview | null>(null)
+  const [weekStart, setWeekStart] = useState(currentMonday)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [goalOpen, setGoalOpen] = useState(false)
+  const [alternativesOpen, setAlternativesOpen] = useState(false)
+  const [alternatives, setAlternatives] = useState<PlanAlternative[]>([])
+  const [selectedTask, setSelectedTask] = useState<ScheduleEvent | null>(null)
+  const [taskDate, setTaskDate] = useState('')
   const [title, setTitle] = useState('')
-  const [subject, setSubject] = useState('概率论')
+  const [subject, setSubject] = useState('')
   const [duration, setDuration] = useState(30)
+  const [newTaskDate, setNewTaskDate] = useState(localDate(new Date()))
+  const [goal, setGoal] = useState('')
+  const [deadline, setDeadline] = useState('')
+  const [weeklyHours, setWeeklyHours] = useState(15)
+  const [level, setLevel] = useState('')
   const [exportOpen, setExportOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const openShare = () => setShareOpen(true)
-  const addTask = async () => {
-    if (!title.trim()) return
-    try {
-      await setTasks([...tasks, { id: Date.now(), title: title.trim(), subject, duration, done: false, kind: '学习' }])
-      setTitle(''); setAddOpen(false); notify('学习任务已保存到今日计划')
-    } catch (error) { reportBackendError(error) }
-  }
-  return <div className="page plan-page">
-    <div className="page-heading"><div><h1>学习计划</h1><p>让目标适配你的生活，而不是让生活追赶计划。</p></div><div className="heading-actions"><Button variant="secondary" onClick={openShare}><Share2 size={17} />分享</Button><Button variant="secondary" onClick={() => setExportOpen(true)}><ArrowDownToLine size={17} />导出</Button><Button onClick={() => onNavigate('generator')}><Sparkles size={17} />AI 生成方案</Button><Button variant="secondary" onClick={() => setAddOpen(true)}><Plus size={17} />添加任务</Button></div></div>
+  const plan = overview?.plan ?? null
+  const ready = Boolean(plan?.result && ['done', 'degraded'].includes(plan.status))
+  const progress = overview?.stages.length ? Math.round(overview.stages.filter(stage => stage.completed).length / overview.stages.length * 100) : 0
+  const load = overview?.loadPercent ?? 0
+  const loadText = load > 100 ? '超出每周可投入时间' : load >= 75 ? '接近每周投入上限' : '仍有可安排的余量'
 
-    <section className="goal-strip">
-      <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>当前主目标</span><h2>2026 计算机考研 · 数据结构专项</h2><p>目标日 12 月 20 日 · 每周可投入 15 小时</p></div></div>
-      <div className="goal-progress"><div><strong>68%</strong><span>整体进度</span></div><ProgressBar value={68} /></div>
-      <Button variant="secondary" onClick={() => setGoalOpen(true)}><SlidersHorizontal size={17} />调整目标</Button>
-    </section>
+  const refresh = useCallback(async () => {
+    try {
+      setOverview(await planningBackend.overview(weekStart))
+      setError('')
+    } catch (cause) { setError(backendErrorMessage(cause)) }
+  }, [weekStart])
+  useEffect(() => {
+    void refresh()
+    let active = true
+    let stop: (() => void) | undefined
+    void onBackendEvent(event => {
+      if (active && (event.kind.startsWith('plan.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && ['tasks', 'preferences'].includes(String(event.payload.namespace))))) void refresh()
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    return () => { active = false; stop?.() }
+  }, [refresh])
+
+  const changeIntensity = async (intensity: string) => {
+    if (busy || !ready) return
+    setBusy('intensity')
+    try {
+      setOverview(await planningBackend.applyIntensity(intensity, weekStart))
+      notify(`已按「${intensity}」保存全部方案排期与任务时长`)
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const showAlternatives = async () => {
+    setBusy('alternatives')
+    try {
+      setAlternatives(await planningBackend.alternatives(weekStart))
+      setAlternativesOpen(true)
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const openGoal = () => {
+    if (!plan) return
+    setGoal(plan.goal); setDeadline(plan.deadline); setWeeklyHours(overview?.weeklyHours ?? 15); setLevel(plan.level)
+    setError(''); setGoalOpen(true)
+  }
+  const saveGoal = async () => {
+    if (!plan || busy) return
+    setBusy('goal'); setError('')
+    try {
+      const next = await planningBackend.updateGoal({ planId: plan.id, goal, deadline, weeklyHours, level })
+      setGoalOpen(false)
+      notify(next.status === 'running' || next.status === 'cancelling' ? '目标已保存，原生再规划已开始' : `目标已保存，再规划状态：${next.status}`)
+      await refresh()
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const addTask = async () => {
+    if (!title.trim() || busy) return
+    setBusy('task')
+    try {
+      const id = Date.now()
+      await setTasks([...tasks, { id, title: title.trim(), subject: subject.trim() || plan?.goal || '综合学习', duration, done: false, kind: '学习' }])
+      if (plan && newTaskDate) await planningBackend.assignTaskDate(id, newTaskDate)
+      setTitle(''); setAddOpen(false)
+      notify(plan && newTaskDate ? '任务已保存并加入所选日期' : '任务已保存，可在待排期列表中选择日期')
+      await refresh()
+    } catch (cause) { setError(backendErrorMessage(cause)); setAddOpen(false) } finally { setBusy('') }
+  }
+  const saveTaskDate = async () => {
+    if (!selectedTask?.taskId || !taskDate || busy) return
+    setBusy('schedule')
+    try {
+      const next = await planningBackend.assignTaskDate(selectedTask.taskId, taskDate)
+      setOverview(next); setWeekStart(next.weekStart); setSelectedTask(null)
+      notify('任务日期已保存到真实排期')
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const toggleTask = async () => {
+    if (!selectedTask?.taskId || busy) return
+    setBusy('toggle')
+    try {
+      await setTasks(tasks.map(task => task.id === selectedTask.taskId ? { ...task, done: !selectedTask.done } : task))
+      setSelectedTask(null); await refresh()
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const openTask = (event: ScheduleEvent) => {
+    setSelectedTask(event); setTaskDate(event.date ?? weekStart); setError('')
+  }
+  const weekEnd = overview ? shiftWeek(overview.weekStart, 1) : ''
+  const endLabel = weekEnd ? localDate(new Date(new Date(`${weekEnd}T12:00:00`).getTime() - 86400000)) : ''
+  return <div className="page plan-page">
+    <div className="page-heading"><div><h1>学习计划</h1><p>让目标适配你的生活，而不是让生活追赶计划。</p></div><div className="heading-actions"><Button variant="secondary" disabled={!ready} onClick={() => setShareOpen(true)}><Share2 size={17} />分享</Button><Button variant="secondary" onClick={() => setExportOpen(true)}><ArrowDownToLine size={17} />导出</Button><Button onClick={() => onNavigate('generator')}><Sparkles size={17} />AI 生成方案</Button><Button variant="secondary" onClick={() => { setSubject(plan?.goal ?? ''); setAddOpen(true) }}><Plus size={17} />添加任务</Button></div></div>
+    {error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+    {plan ? <section className="goal-strip">
+      <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>当前主目标 · {plan.id} · v{plan.version}</span><h2>{plan.goal}</h2><p>目标日 {plan.deadline} · 每周可投入 {overview?.weeklyHours ?? 0} 小时 · {plan.adoptedProjectId === null ? '尚未采用' : '已采用'}</p></div></div>
+      <div className="goal-progress"><div><strong>{progress}%</strong><span>阶段阅读进度</span></div><ProgressBar value={progress} /></div>
+      <Button variant="secondary" onClick={openGoal}><SlidersHorizontal size={17} />调整目标</Button>
+    </section> : <section className="surface"><EmptyState title="尚未创建学习方案" description="从已解析资料生成真实方案，采用后会出现排期与阶段。你仍可以添加并保存自己的任务。" action={<Button onClick={() => onNavigate('generator')}>创建真实方案</Button>} /></section>}
+    {plan && !ready && <div className="capacity-warning"><RefreshCw size={18} className={plan.status === 'running' ? 'spin' : ''} /><div><strong>方案状态：{plan.status} · 生成进度 {plan.progress}%</strong><p>{plan.error ? `${plan.error.code}：${plan.error.message}` : plan.status === 'running' ? '正在等待原生步骤与真实事件，不会提前展示新的排期。' : '当前没有完整可采用的方案结果。'}</p><Button variant="secondary" size="sm" onClick={() => onNavigate('generator')}>查看真实生成步骤</Button></div></div>}
 
     <div className="plan-toolbar">
-      <div className="segmented" aria-label="学习强度">{['稳妥', '标准', '冲刺'].map(item => <button key={item} className={intensity === item ? 'active' : ''} onClick={() => setIntensity(item)}>{item}</button>)}</div>
-      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周计划 {intensity === '冲刺' ? '18' : intensity === '稳妥' ? '12' : '15'} 小时</span><Button variant="secondary" size="sm" onClick={() => { const next = [...tasks.filter(t => t.done), ...tasks.filter(t => !t.done)].map(t => ({ ...t, duration: Math.max(15, t.duration + (intensity === '冲刺' ? 5 : intensity === '稳妥' ? -5 : 0)) })); void setTasks(next).then(() => notify('任务顺序与时长已保存')).catch(reportBackendError) }}><RefreshCw size={16} />按强度重排</Button></div>
+      <div className="segmented" aria-label="学习强度">{(['稳妥', '标准', '冲刺'] as const).map(item => <button key={item} disabled={!ready || busy === 'intensity'} className={overview?.intensity === item ? 'active' : ''} onClick={() => void changeIntensity(item)}>{item}</button>)}</div>
+      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周已排 {(overview?.weeklyMinutes ?? 0) / 60} 小时 / 可投入 {overview?.weeklyHours ?? 0} 小时</span><Button variant="secondary" size="sm" disabled={!ready || busy === 'intensity'} onClick={() => void changeIntensity(overview?.intensity ?? '标准')}><RefreshCw size={16} />按强度保存排期</Button></div>
     </div>
 
     <section className="calendar-surface">
-      <SectionHeader title={week === 0 ? '11 月 2 日—11 月 8 日' : week < 0 ? '10 月 26 日—11 月 1 日' : '11 月 9 日—11 月 15 日'} description="学习、练习与复习交错安排，降低连续同类任务的疲劳。" action={<div className="calendar-nav"><button aria-label="上一周" onClick={() => setWeek(week - 1)}><ChevronLeft size={18} /></button><button className="today-button" onClick={() => setWeek(0)}>本周</button><button aria-label="下一周" onClick={() => setWeek(week + 1)}><ChevronRight size={18} /></button></div>} />
-      <div className="week-calendar">{days.map((day, index) => <div className={`day-column ${index === 0 && week === 0 ? 'is-today' : ''}`} key={day}><div className="day-head"><strong>{day.split(' ')[0]}</strong><span>{day.split(' ')[1]}</span></div><div className="day-events">{(week === 0 ? schedule[index] : schedule[(index + Math.abs(week)) % 7]).map((event, i) => <button className={`calendar-event event-${event.kind}`} key={i} onClick={() => notify(`已打开「${event.title}」任务详情`)}><span>{event.time}</span><strong>{event.title}</strong><small>{event.kind}</small></button>)}</div></div>)}</div>
+      <SectionHeader title={overview ? `${overview.weekStart}—${endLabel}` : '正在读取真实周历'} description="仅显示已保存的日期、任务和预计分钟；未指定具体时间的任务不会虚构时刻。" action={<div className="calendar-nav"><button aria-label="上一周" onClick={() => setWeekStart(shiftWeek(weekStart, -1))}><ChevronLeft size={18} /></button><button className="today-button" onClick={() => setWeekStart(currentMonday())}>本周</button><button aria-label="下一周" onClick={() => setWeekStart(shiftWeek(weekStart, 1))}><ChevronRight size={18} /></button></div>} />
+      <div className="week-calendar">{(overview?.days ?? []).map((day, index) => <div className={`day-column ${day.date === localDate(new Date()) ? 'is-today' : ''}`} key={day.date}><div className="day-head"><strong>{weekDays[index]}</strong><span>{day.date.slice(5)}</span></div><div className="day-events">{day.events.map(event => <button className={`calendar-event event-${event.kind}`} key={event.taskId ?? event.title} onClick={() => openTask(event)}><span>{event.minutes} 分钟{event.done ? ' · 已完成' : ''}</span><strong>{event.title}</strong><small>{event.kind}</small></button>)}</div></div>)}</div>
+      {overview && !overview.days.some(day => day.events.length) && <EmptyState title="本周没有已排期任务" description="可从下方待排期任务选择真实日期，或切换周查看已有安排。" />}
     </section>
 
+    {overview && overview.unscheduled.length > 0 && <section className="surface"><SectionHeader title="待排期任务" description="这些任务已保存，但当前方案中没有日期。选择任务即可安排或调整日期。" /><div className="milestone-list">{overview.unscheduled.map(event => <button className="milestone-row" key={event.taskId} onClick={() => openTask(event)}><span className="milestone-marker"><CalendarRange size={15} /></span><div><strong>{event.title}</strong><small>{event.kind} · {event.minutes} 分钟{event.done ? ' · 已完成' : ''}</small></div><Badge>选择日期</Badge></button>)}</div></section>}
+
     <div className="plan-bottom-grid">
-      <section className="surface milestone-panel"><SectionHeader title="阶段里程碑" description="把远期目标变成可检查的短期成果。" /><div className="milestone-list">
-        {[['概率基础与条件概率', '已完成', 100], ['贝叶斯定理与模型应用', '进行中', 64], ['随机变量与数字特征', '待开始', 0], ['概率论综合模拟', '待开始', 0]].map(([name, status, value], index) => <div className="milestone-row" key={String(name)}><span className={`milestone-marker ${value === 100 ? 'done' : ''}`}>{value === 100 ? <Check size={15} /> : index + 1}</span><div><strong>{name}</strong><ProgressBar value={Number(value)} /></div><Badge tone={value === 100 ? 'green' : value === 64 ? 'amber' : 'neutral'}>{status}</Badge></div>)}
+      <section className="surface milestone-panel"><SectionHeader title="阶段里程碑" description="完成状态来自真实阅读记录；掌握证据请在知识地图与报告中查看。" /><div className="milestone-list">
+        {overview?.stages.map((stage, index) => <div className="milestone-row" key={stage.id}><span className={`milestone-marker ${stage.completed ? 'done' : ''}`}>{stage.completed ? <Check size={15} /> : index + 1}</span><div><strong>{stage.title}</strong><small>{stage.minutes} 分钟 · 难度 {stage.difficulty}/5 · {stage.nodeIds.length} 个知识节点</small></div><Badge tone={stage.completed ? 'green' : 'neutral'}>{stage.completed ? '已完成' : '待完成'}</Badge></div>)}
+        {overview && !overview.stages.length && <EmptyState title="没有完整阶段" description="方案生成并保存真实阶段后，才会显示里程碑。" />}
       </div></section>
-      <section className="surface workload-panel"><SectionHeader title="学习负荷" description="根据任务预计耗时计算。" /><div className="workload-number"><strong>72<small>%</small></strong><span>当前负荷适中</span></div><ProgressBar value={72} tone="blue" /><p>周六安排了 3 小时项目深度工作。若临时有事，可将其中 1 小时迁移到周日，不影响里程碑。</p><Button variant="ghost" onClick={() => notify('已生成 3 种本周时间调整方案')}>查看替代安排<ArrowRight size={16} /></Button></section>
+      <section className="surface workload-panel"><SectionHeader title="学习负荷" description="按本周已排任务分钟数 ÷ 每周可投入时间计算。" /><div className="workload-number"><strong>{load}<small>%</small></strong><span>{loadText}</span></div><ProgressBar value={load} tone="blue" /><p>本周已排 {overview?.weeklyMinutes ?? 0} 分钟，可投入 {(overview?.weeklyHours ?? 0) * 60} 分钟。替代安排基于当前周的真实任务，不会自动移动日期。</p><Button variant="ghost" disabled={!ready || busy === 'alternatives'} onClick={() => void showAlternatives()}>查看替代安排<ArrowRight size={16} /></Button></section>
     </div>
 
-    <Modal open={addOpen} onClose={() => setAddOpen(false)} title="添加学习任务">
-      <div className="form-stack"><label>任务名称<input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="例如：完成贝叶斯定理变式练习" /></label><div className="form-grid"><label>科目<select value={subject} onChange={e => setSubject(e.target.value)}><option>概率论</option><option>数据结构</option><option>英语</option><option>项目实践</option></select></label><label>预计时长（分钟）<input type="number" min={5} max={240} value={duration} onChange={e => setDuration(Number(e.target.value))} /></label></div><Button onClick={addTask} disabled={!title.trim()}>加入今日计划</Button></div>
-    </Modal>
-    <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="调整学习目标">
-      <div className="form-stack"><label>目标名称<input defaultValue="2026 计算机考研 · 数据结构专项" /></label><div className="form-grid"><label>目标日期<input type="date" defaultValue="2026-12-20" /></label><label>每周可投入（小时）<input type="number" defaultValue={15} min={1} max={80} /></label></div><label>当前掌握情况<select defaultValue="部分掌握"><option>零基础</option><option>部分掌握</option><option>系统学过，需要冲刺</option></select></label><div className="modal-callout"><CalendarRange size={18} /><span>保存后，知舟会保留已完成记录，并给出新的计划建议。</span></div><Button onClick={() => { setGoalOpen(false); notify('目标已更新，学习路径已重新校准') }}>保存并重新规划</Button></div>
-    </Modal>
-    <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} />
-    <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
+    <Modal open={addOpen} onClose={() => setAddOpen(false)} title="添加学习任务"><div className="form-stack"><label>任务名称<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="输入要实际完成的学习任务" /></label><label>科目或方向<input value={subject} onChange={event => setSubject(event.target.value)} placeholder="例如：当前方案主题" /></label><div className="form-grid"><label>预计时长（分钟）<input type="number" min={5} max={240} value={duration} onChange={event => setDuration(Number(event.target.value))} /></label><label>安排日期<input type="date" value={newTaskDate} onChange={event => setNewTaskDate(event.target.value)} disabled={!plan} /></label></div>{!plan && <p className="form-help">尚无方案，任务会保存在待排期列表中。</p>}<Button onClick={() => void addTask()} disabled={!title.trim() || busy === 'task'}>{busy === 'task' ? '正在保存…' : '保存任务并排期'}</Button></div></Modal>
+    <Modal open={Boolean(selectedTask)} onClose={() => setSelectedTask(null)} title="任务与排期"><div className="form-stack"><h3>{selectedTask?.title}</h3><p>{selectedTask?.kind} · {selectedTask?.minutes} 分钟 · {selectedTask?.done ? '已完成' : '未完成'}</p><label>实际安排日期<input type="date" value={taskDate} onChange={event => setTaskDate(event.target.value)} /></label><Button disabled={!taskDate || busy === 'schedule'} onClick={() => void saveTaskDate()}>{busy === 'schedule' ? '正在保存…' : '保存日期'}</Button><Button variant="secondary" disabled={busy === 'toggle'} onClick={() => void toggleTask()}>{selectedTask?.done ? '标记为未完成' : '标记为已完成'}</Button></div></Modal>
+    <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="调整学习目标"><div className="form-stack">{plan?.adoptedProjectId !== null ? <div className="modal-callout"><AlertTriangle size={18} /><span>已采用方案的学习记录必须保留，不能直接重跑。请通过 AI 生成方案创建新版本，采用新版本不会修改旧方案的完成记录。</span><Button variant="secondary" onClick={() => { setGoalOpen(false); onNavigate('generator') }}>创建新方案</Button></div> : <><label>目标名称<input value={goal} onChange={event => setGoal(event.target.value)} maxLength={200} /></label><div className="form-grid"><label>目标日期<input type="date" value={deadline} onChange={event => setDeadline(event.target.value)} /></label><label>每周可投入（小时）<input type="number" value={weeklyHours} onChange={event => setWeeklyHours(Number(event.target.value))} min={1} max={80} /></label></div><label>当前掌握情况<textarea rows={3} value={level} onChange={event => setLevel(event.target.value)} /></label><div className="modal-callout"><CalendarRange size={18} /><span>保存后会真正从知识图谱步骤重新生成。现有版本先进入历史，真实生成完成后才能采用；失败会保留错误，不会显示虚假成功。</span></div><Button onClick={() => void saveGoal()} disabled={busy === 'goal' || !goal.trim() || !deadline || !level.trim() || weeklyHours < 1 || weeklyHours > 80}>{busy === 'goal' ? '正在保存并启动…' : '保存并重新规划'}</Button></>}</div></Modal>
+    <Modal open={alternativesOpen} onClose={() => setAlternativesOpen(false)} title="本周替代安排"><div className="form-stack">{alternatives.map(item => <button className="milestone-row" key={item.intensity} disabled={busy === 'intensity'} onClick={() => { setAlternativesOpen(false); void changeIntensity(item.intensity) }}><span className="milestone-marker"><Clock3 size={15} /></span><div><strong>{item.intensity} · {item.weeklyMinutes} 分钟</strong><small>占每周可投入时间的 {item.loadPercent}%，保留当前任务日期</small></div><Badge tone={overview?.intensity === item.intensity ? 'green' : 'neutral'}>{overview?.intensity === item.intensity ? '当前方案' : '采用此强度'}</Badge></button>)}</div></Modal>
+    <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} />
+    <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
   </div>
 }

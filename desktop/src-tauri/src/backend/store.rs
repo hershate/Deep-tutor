@@ -179,6 +179,7 @@ impl Store {
             "theme": "light",
             "language": "zh-CN",
             "weeklyHours": 15,
+            "planIntensity": "标准",
             "learningStyle": "案例与练习结合",
             "explanationStyle": "先追问，再针对讲解",
             "quietStart": "22:00",
@@ -856,6 +857,7 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
             "theme",
             "language",
             "weeklyHours",
+            "planIntensity",
             "learningStyle",
             "explanationStyle",
             "quietStart",
@@ -882,11 +884,20 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
         boolean(object, "quietEnabled")?;
     }
     if object.contains_key("weeklyHours")
-        && ![8, 15, 25].contains(&field(object, "weeklyHours")?.as_u64().unwrap_or_default())
+        && !(1..=80).contains(&field(object, "weeklyHours")?.as_u64().unwrap_or_default())
     {
         return Err(BackendError::invalid(
             "invalid_weekly_hours",
-            "每周投入小时数不受支持",
+            "每周投入须为 1 到 80 小时",
+        ));
+    }
+    if object.contains_key("planIntensity")
+        && !["稳妥", "标准", "冲刺"]
+            .contains(&field(object, "planIntensity")?.as_str().unwrap_or_default())
+    {
+        return Err(BackendError::invalid(
+            "invalid_intensity",
+            "学习强度须为稳妥、标准或冲刺",
         ));
     }
     for (key, maximum) in [
