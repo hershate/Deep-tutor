@@ -908,6 +908,7 @@ pub fn stream_chat<R: Runtime>(
         }
         return latest_chat(state, request_id);
     }
+    super::usage::ensure_budget(state, None)?;
     let _guard = register_route(state, request_id)?;
     let cancel = state
         .route_cancels

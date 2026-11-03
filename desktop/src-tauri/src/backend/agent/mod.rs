@@ -776,6 +776,7 @@ fn run_loop<R: Runtime>(
                 "已达到本会话 Token 预算，未再发起新的模型请求",
             ));
         }
+        providers::usage::ensure_budget(&state.providers, Some(session_id))?;
         let (step, request_id) = begin_step(app, state, &run)?;
         let request = providers::routing::stream_chat(
             app,

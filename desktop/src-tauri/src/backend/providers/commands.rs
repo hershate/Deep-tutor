@@ -210,3 +210,23 @@ pub async fn route_provider_chat<R: Runtime>(
         super::super::error::BackendError::new("task_join_failed", "路由模型任务异常终止")
     })?
 }
+
+#[tauri::command]
+pub fn get_usage_overview(state: State<'_, BackendState>, days: Option<u32>) -> Result<super::usage::UsageOverview> {
+    super::usage::overview(&state.providers, days)
+}
+
+#[tauri::command]
+pub fn save_usage_settings<R: Runtime>(app: AppHandle<R>, state: State<'_, BackendState>, settings: super::usage::UsageSettings) -> Result<super::usage::UsageSettings> {
+    super::usage::save_settings(&app, &state.providers, settings)
+}
+
+#[tauri::command]
+pub fn upsert_usage_rate<R: Runtime>(app: AppHandle<R>, state: State<'_, BackendState>, input: super::usage::RateInput) -> Result<super::usage::UsageRate> {
+    super::usage::upsert_rate(&app, &state.providers, input)
+}
+
+#[tauri::command]
+pub fn export_usage_csv(state: State<'_, BackendState>) -> Result<String> {
+    super::usage::export_csv(&state.providers)
+}

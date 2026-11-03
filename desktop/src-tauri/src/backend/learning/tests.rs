@@ -610,6 +610,15 @@ fn regeneration_preserves_history_and_adoption_is_atomic_and_idempotent() {
             .code,
         "regeneration_limit"
     );
+    providers::usage::save_settings(
+        app.handle(),
+        &state.providers,
+        providers::usage::UsageSettings { session_usd: 1.0, daily_usd: 10.0, regeneration_limit: 3 },
+    ).unwrap();
+    actions::regenerate(app.handle(), &state, &started.id, 3).unwrap();
+    let fourth = wait_terminal(&state, &started.id);
+    assert_eq!(fourth.version, 4);
+    assert_eq!(server.request_count(), 9);
     let snapshot = actions::adopt(app.handle(), &state, &started.id).unwrap();
     assert_eq!(snapshot["tasks"].as_array().unwrap().len(), 3);
     assert_eq!(snapshot["projects"].as_array().unwrap().len(), 1);
@@ -644,7 +653,7 @@ fn regeneration_preserves_history_and_adoption_is_atomic_and_idempotent() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(versions, 2);
+    assert_eq!(versions, 3);
     let scheduled: i64 = store
         .conn
         .query_row(

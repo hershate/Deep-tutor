@@ -3,6 +3,7 @@ pub mod openai;
 pub mod protocol;
 pub mod routing;
 pub mod tools;
+pub mod usage;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
@@ -264,11 +265,13 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
     routing::migrate(conn)?;
+    usage::migrate(conn)?;
     Ok(())
 }
 
 pub fn clear_all(conn: &Connection) -> Result<()> {
     routing::clear_all(conn)?;
+    usage::clear_all(conn)?;
     conn.execute("DELETE FROM provider_requests", [])?;
     conn.execute("DELETE FROM provider_profiles", [])?;
     conn.execute("DELETE FROM provider_meta", [])?;

@@ -144,10 +144,11 @@ pub fn regenerate<R: Runtime>(
             "已采用的方案不能直接重生成，请保留历史并创建新方案",
         ));
     }
-    if plan.version >= 3 {
+    let regeneration_limit = providers::usage::settings(&state.providers)?.regeneration_limit;
+    if plan.version > u32::from(regeneration_limit) {
         return Err(BackendError::new(
             "regeneration_limit",
-            "每个方案最多局部重生成两次",
+            &format!("每个方案最多局部重生成 {regeneration_limit} 次"),
         ));
     }
     let result = plan
