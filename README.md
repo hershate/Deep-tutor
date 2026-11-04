@@ -32,11 +32,13 @@ npm ci
 npm run tauri build
 ```
 
-该命令执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。安装包输出到：
+该命令执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
 
 ```text
-desktop/src-tauri/target/release/bundle/nsis/
+dist/
 ```
+
+例如 `dist/知舟 Deep Tutor_1.0.0_x64-setup.exe`。
 
 安装后从开始菜单启动 **知舟 Deep Tutor**，不需要运行脚本或配置服务器。
 
@@ -51,6 +53,7 @@ Deep-tutor/
 │   ├── public/              # 静态资产
 │   ├── src-tauri/           # Rust 壳、原生后端与 NSIS 配置
 │   └── package.json         # 界面依赖与 Tauri CLI
+├── dist/                    # 最终安装包，可重建且不入库
 ├── note/                    # 当前产品决策与功能验收矩阵
 ├── plan/                    # 当前验证契约
 ├── .github/workflows/       # Tauri 2 无界面 CI

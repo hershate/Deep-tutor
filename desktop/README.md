@@ -38,7 +38,7 @@ cd src-tauri
 cargo test --release --locked -- --test-threads=1
 ```
 
-安装包位于 `desktop/src-tauri/target/release/bundle/nsis/`。安装后从开始菜单运行，不需要脚本、虚拟环境或服务。
+安装包统一输出到仓库根目录的 `dist/`，例如 `dist/知舟 Deep Tutor_1.0.0_x64-setup.exe`；复制后校验 SHA-256。安装后从开始菜单运行，不需要脚本、虚拟环境或服务。
 
 开发调试可运行 `npm run tauri dev`；Vite 仅绑定 `127.0.0.1:1420` 供开发壳使用，不是产品网页入口。
 
