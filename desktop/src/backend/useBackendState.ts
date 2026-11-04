@@ -68,6 +68,55 @@ export function useBackendState() {
   useEffect(() => {
     mounted.current = true
     let unlisten: (() => void) | undefined
+    let starting = false
+    let activeStartup = -1
+    let settled = false
+    let timer: number | undefined
+    const fail = (error: unknown, expectedGeneration = generation.current) => {
+      if (!mounted.current || generation.current !== expectedGeneration) return
+      settled = true
+      if (authenticationErrors.has((error as Partial<BackendError>)?.code || '')) {
+        setStartupError('')
+        setLoginRequired(true)
+        setReady(true)
+        return
+      }
+      reportBackendError(error)
+      setStartupError(backendErrorMessage(error))
+      setReady(false)
+    }
+    const armTimeout = () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      settled = false
+      timer = window.setTimeout(() => {
+        if (!mounted.current || settled || !starting) return
+        settled = true
+        setStartupError('等待本地后端响应已超过 20 秒。请重试，或检查应用数据目录权限及其他知舟进程是否占用数据库。重试不会清除学习数据。')
+        setReady(false)
+      }, 20000)
+    }
+    const start = () => {
+      const requestedGeneration = generation.current
+      activeStartup = requestedGeneration
+      starting = true
+      setStartupError('')
+      setReady(false)
+      armTimeout()
+      void backend.bootstrap().then(state => {
+        applySnapshot(state, requestedGeneration)
+        return sync()
+      }).then(() => {
+        if (!mounted.current || generation.current !== requestedGeneration || activeStartup !== requestedGeneration) return
+        starting = false
+        settled = true
+        setStartupError('')
+        setLoginRequired(false)
+        setReady(true)
+      }).catch(error => {
+        if (activeStartup === requestedGeneration) starting = false
+        fail(error, requestedGeneration)
+      })
+    }
     const requestSync = (event?: { kind: string }) => {
       if (event?.kind === 'security.session_started') {
         setLoginRequired(false)
@@ -76,39 +125,31 @@ export function useBackendState() {
         versions.current = emptySnapshot.versions
         queued.current = true
         setSnapshot(emptySnapshot)
-        setReady(false)
+        start()
+        return
       }
+      if (starting) return
       const requestedGeneration = generation.current
       void sync().then(() => {
-        if (mounted.current && generation.current === requestedGeneration) setReady(true)
-      }).catch(reportBackendError)
+        if (!mounted.current || generation.current !== requestedGeneration) return
+        settled = true
+        setStartupError('')
+        setLoginRequired(false)
+        setReady(true)
+      }).catch(error => fail(error, requestedGeneration))
     }
     const refresh = () => requestSync()
     void onBackendEvent(requestSync).then(stop => {
-      if (mounted.current) unlisten = stop
-      else stop()
-    }).catch(error => {
-      reportBackendError(error)
-      if (mounted.current) setStartupError(backendErrorMessage(error))
-    })
+      if (mounted.current) {
+        unlisten = stop
+        start()
+      } else stop()
+    }).catch(fail)
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
-    void backend.bootstrap().then(state => {
-      applySnapshot(state)
-      return sync()
-    }).then(() => { if (mounted.current) setReady(true) }).catch(error => {
-      if (authenticationErrors.has((error as Partial<BackendError>)?.code || '')) {
-        if (mounted.current) {
-          setLoginRequired(true)
-          setReady(true)
-        }
-        return
-      }
-      reportBackendError(error)
-      if (mounted.current) setStartupError(backendErrorMessage(error))
-    })
     return () => {
       mounted.current = false
+      if (timer !== undefined) window.clearTimeout(timer)
       unlisten?.()
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)

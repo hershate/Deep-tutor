@@ -7,6 +7,10 @@
   and `stage.md` are retired and removed from the working tree.
 - Backend code lives in `desktop/src-tauri/src/backend/`; frontend clients live in
   `desktop/src/backend/`. Do not reintroduce a standalone HTTP service.
+- A missing application data directory requires explicit native consent before any file is
+  created. Keep the main window hidden until backend assembly succeeds; startup failures need
+  an actionable error instead of an indefinite loader. The explicit `--verify-native` path is
+  non-interactive and uses only its separate absolute verification directory.
 - Project status is recorded in git commit descriptions, never in a progress log.
 
 ## Architecture and invariants

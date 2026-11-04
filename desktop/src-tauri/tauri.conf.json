@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "知舟 Deep Tutor · 个人学习操作系统",
+        "visible": false,
         "width": 1440,
         "height": 900,
         "minWidth": 375,

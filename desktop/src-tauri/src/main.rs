@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod startup;
 
 use backend::{
     agent, backup, commands, community, engagement, export, knowledge, learning, maintenance,
@@ -9,6 +10,63 @@ use backend::{
 };
 use std::sync::Mutex;
 use tauri::Manager;
+
+fn initialize_backend<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: &std::path::Path,
+) -> backend::error::Result<()> {
+    let store = Store::new(path)?;
+    let material_state = materials::MaterialState::new(path)?;
+    let provider_state = providers::ProviderState::new(path)?;
+    let learning_state = learning::LearningState::new(path, &provider_state, &material_state);
+    let knowledge_state = knowledge::KnowledgeState::new(path, &provider_state, &material_state);
+    let agent_state = agent::AgentState::new(path, &provider_state, &learning_state);
+    let practice_state = practice::PracticeState::new(path, &provider_state, &learning_state);
+    let review_state = review::ReviewState::new(path, &learning_state);
+    let sharing_state = sharing::SharingState::new(&learning_state);
+    app.manage(BackendState {
+        store: Mutex::new(store),
+        materials: material_state,
+        providers: provider_state,
+        learning: learning_state,
+        agent: agent_state,
+        practice: practice_state,
+        review: review_state,
+        knowledge: knowledge_state,
+        community: community::CommunityState::new(path),
+        plugins: plugins::PluginState::new(path)?,
+        sharing: sharing_state,
+    });
+    app.manage(security::SecurityState::new(path));
+    let principal = match security::initialize_session(app, &app.state::<security::SecurityState>())
+    {
+        Ok(principal) => Some(principal),
+        Err(error) if security::reauthentication_required(&error) => None,
+        Err(error) => return Err(error),
+    };
+    let state = app.state::<BackendState>();
+    if let Some(principal) = principal {
+        security::with_user(principal.id, || -> backend::error::Result<()> {
+            *state.store.lock().map_err(|_| {
+                backend::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
+            })? = Store::new(path)?;
+            materials::recover(app, &state.materials)?;
+            providers::recover_chats(app, &state.providers)?;
+            providers::routing::recover(app, &state.providers)?;
+            learning::recover(app, &state.learning)?;
+            agent::recover(app, &state.agent)?;
+            practice::recover(app, &state.practice)?;
+            projects::recover(app, &projects::ProjectState::new(&state.learning))?;
+            knowledge::recover(app, &state.knowledge)?;
+            sync::recover(app, &sync::SyncService::new(&state.learning))?;
+            Ok(())
+        })?;
+        security::with_user(principal.id, || {
+            sync::scheduler::start_scheduler(app.clone())
+        });
+    }
+    Ok(())
+}
 
 fn main() {
     let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
@@ -26,67 +84,24 @@ fn main() {
             } else {
                 app.path().app_data_dir()?
             };
-            let path = data_root.join("deep-tutor.db");
-            let store = Store::new(&path)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            let material_state = materials::MaterialState::new(&path)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            let provider_state = providers::ProviderState::new(&path)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            let learning_state =
-                learning::LearningState::new(&path, &provider_state, &material_state);
-            let knowledge_state =
-                knowledge::KnowledgeState::new(&path, &provider_state, &material_state);
-            let agent_state = agent::AgentState::new(&path, &provider_state, &learning_state);
-            let practice_state =
-                practice::PracticeState::new(&path, &provider_state, &learning_state);
-            let review_state = review::ReviewState::new(&path, &learning_state);
-            let sharing_state = sharing::SharingState::new(&learning_state);
-            app.manage(BackendState {
-                store: Mutex::new(store),
-                materials: material_state,
-                providers: provider_state,
-                learning: learning_state,
-                agent: agent_state,
-                practice: practice_state,
-                review: review_state,
-                knowledge: knowledge_state,
-                community: community::CommunityState::new(&path),
-                plugins: plugins::PluginState::new(&path)
-                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?,
-                sharing: sharing_state,
-            });
-            app.manage(security::SecurityState::new(&path));
-            let principal = match security::initialize_session(
-                app.handle(),
-                &app.state::<security::SecurityState>(),
-            ) {
-                Ok(principal) => Some(principal),
-                Err(error) if security::reauthentication_required(&error) => None,
-                Err(error) => return Err(error.into()),
-            };
-            let state = app.state::<BackendState>();
-            if let Some(principal) = principal {
-                security::with_user(principal.id, || -> backend::error::Result<()> {
-                    *state.store.lock().map_err(|_| {
-                        backend::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
-                    })? = Store::new(&path)?;
-                    materials::recover(app.handle(), &state.materials)?;
-                    providers::recover_chats(app.handle(), &state.providers)?;
-                    providers::routing::recover(app.handle(), &state.providers)?;
-                    learning::recover(app.handle(), &state.learning)?;
-                    agent::recover(app.handle(), &state.agent)?;
-                    practice::recover(app.handle(), &state.practice)?;
-                    projects::recover(app.handle(), &projects::ProjectState::new(&state.learning))?;
-                    knowledge::recover(app.handle(), &state.knowledge)?;
-                    sync::recover(app.handle(), &sync::SyncService::new(&state.learning))?;
-                    Ok(())
-                })
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-                security::with_user(principal.id, || {
-                    sync::scheduler::start_scheduler(app.handle().clone())
-                });
+            if !verify_native {
+                if let Err(error) =
+                    startup::launch(app.handle(), data_root.clone(), initialize_backend)
+                {
+                    let message = format!("{}\n数据目录：{}", error.message, data_root.display());
+                    startup::fail_startup(
+                        app.handle(),
+                        backend::error::BackendError { message, ..error },
+                    );
+                }
+                return Ok(());
             }
+            std::fs::create_dir_all(&data_root)
+                .map_err(|_| "cannot create the explicit verification directory")?;
+            let path = data_root.join("deep-tutor.db");
+            initialize_backend(app.handle(), &path)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let state = app.state::<BackendState>();
             if verify_native {
                 let snapshot = state
                     .store
