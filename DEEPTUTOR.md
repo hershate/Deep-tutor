@@ -22,6 +22,8 @@
 - Run the full schema migration only when its fingerprint changes; repair detected drift instead
   of skipping it. Reuse the account connection, but release its guard before another operation
   or command needs the same account store.
+- Use one material parse worker. Keep pending jobs in SQLite, support cancellation while queued,
+  do not start another job after stopping, and register the next job before retiring the old one.
 - Events have monotonically increasing ids and support Last-Event-ID replay. Persist a
   terminal result before emitting it. Reconnecting must not repeat execution or billing.
 - Cancellation and failure paths retain all tokens and costs already consumed.

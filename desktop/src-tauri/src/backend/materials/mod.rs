@@ -27,9 +27,12 @@ const SUPPORTED: [&str; 19] = [
 ];
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+const MAX_PARSE_WORKERS: usize = 1;
+
 pub struct MaterialState {
     database_path: PathBuf,
     active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    accepting: Arc<AtomicBool>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
     #[cfg(test)]
@@ -43,6 +46,7 @@ impl MaterialState {
         let state = Self {
             database_path: database_path.to_path_buf(),
             active: Arc::new(Mutex::new(HashMap::new())),
+            accepting: Arc::new(AtomicBool::new(true)),
             #[cfg(test)]
             _guard: None,
             #[cfg(test)]
@@ -65,6 +69,7 @@ impl MaterialState {
         Self {
             database_path: self.database_path.clone(),
             active: Arc::clone(&self.active),
+            accepting: Arc::clone(&self.accepting),
             #[cfg(test)]
             _guard: None,
             #[cfg(test)]
@@ -99,6 +104,7 @@ impl MaterialState {
     }
 
     fn stop_all(&self) -> Result<()> {
+        self.accepting.store(false, Ordering::Release);
         let jobs = self
             .active
             .lock()
@@ -776,9 +782,13 @@ fn spawn_job<R: Runtime>(
     state: &MaterialState,
     id: i64,
     job_id: i64,
+    from_worker: bool,
 ) -> Result<()> {
     #[cfg(test)]
     if state.defer.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if !state.accepting.load(Ordering::Acquire) {
         return Ok(());
     }
     let cancel = Arc::new(AtomicBool::new(false));
@@ -790,9 +800,14 @@ fn spawn_job<R: Runtime>(
         if active.contains_key(&id) {
             return Err(BackendError::new("job_active", "该资料已在解析队列中"));
         }
+        if (!from_worker && active.len() >= MAX_PARSE_WORKERS)
+            || !state.accepting.load(Ordering::Acquire)
+        {
+            return Ok(());
+        }
         active.insert(id, cancel.clone());
     }
-    let active = Arc::clone(&state.active);
+    let next_state = state.shared();
     let root = state.root();
     let database_path = state.database_path.clone();
     let job_cancel = cancel.clone();
@@ -869,8 +884,8 @@ fn spawn_job<R: Runtime>(
                     eprintln!("material {id} initialization failed: {}", error.code);
                 }
             }
-            if let Ok(mut active) = active.lock() {
-                active.remove(&id);
+            if let Err(error) = schedule_next(&thread_app, &next_state, id) {
+                eprintln!("material queue continuation failed: {}", error.code);
             }
         });
     if result.is_err() {
@@ -954,7 +969,7 @@ pub fn enqueue<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
-    spawn_job(app.clone(), state, id, job_id)?;
+    spawn_job(app.clone(), state, id, job_id, false)?;
     Ok(JobAccepted {
         job_id,
         material: get(&store.conn, &state.root(), id)?,
@@ -967,14 +982,31 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "材料任务状态暂不可用"))?
         .get(&id)
-        .cloned()
-        .ok_or_else(|| BackendError::new("no_active_job", "该资料没有正在执行的解析任务"))?;
-    flag.store(true, Ordering::Release);
+        .cloned();
+    if let Some(flag) = &flag {
+        flag.store(true, Ordering::Release);
+    }
     let store = state.store()?;
-    let job_id: i64 = store.conn.query_row(
-        "SELECT id FROM material_jobs WHERE material_id = ?1 AND status IN ('queued', 'parsing', 'cancelling') ORDER BY id DESC LIMIT 1",
-        params![id], |row| row.get(0),
-    )?;
+    let job: Option<(i64, String)> = store
+        .conn
+        .query_row(
+            "SELECT id, status FROM material_jobs WHERE material_id = ?1 AND status IN ('queued', 'parsing', 'cancelling') ORDER BY id DESC LIMIT 1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((job_id, status)) = job else {
+        return Err(BackendError::new(
+            "no_active_job",
+            "该资料没有正在执行的解析任务",
+        ));
+    };
+    if flag.is_none() && status != "queued" {
+        return Err(BackendError::new(
+            "no_active_job",
+            "该资料没有正在执行的解析任务",
+        ));
+    }
     let tx = store.conn.unchecked_transaction()?;
     tx.execute("UPDATE material_jobs SET cancel_requested = 1, status = 'cancelling', updated_at = ?1 WHERE id = ?2", params![now()?, job_id])?;
     tx.execute(
@@ -989,10 +1021,57 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     )?;
     tx.commit()?;
     emit(app, &event);
+    if flag.is_none() {
+        let error = BackendError::new("cancelled", "等待中的解析任务已取消，未读取原件");
+        transition(
+            app,
+            &store,
+            &state.root(),
+            id,
+            job_id,
+            "cancelled",
+            0,
+            Some(&error),
+        )?;
+    }
     get(&store.conn, &state.root(), id)
 }
 
+fn schedule_next<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MaterialState,
+    finished_id: i64,
+) -> Result<()> {
+    let result = (|| -> Result<()> {
+        if !state.accepting.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let store = state.store()?;
+        let mut statement = store.conn.prepare(
+            "SELECT material_id, id FROM material_jobs WHERE status = 'queued' ORDER BY id",
+        )?;
+        let jobs = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+        drop(store);
+        for (id, job_id) in jobs {
+            if id == finished_id || state.is_active(id) {
+                continue;
+            }
+            spawn_job(app.clone(), state, id, job_id, true)?;
+            break;
+        }
+        Ok(())
+    })();
+    if let Ok(mut active) = state.active.lock() {
+        active.remove(&finished_id);
+    }
+    result
+}
+
 pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<()> {
+    state.accepting.store(true, Ordering::Release);
     let store = state.store()?;
     let mut statement = store.conn.prepare("SELECT id, material_id, cancel_requested FROM material_jobs WHERE status IN ('queued', 'parsing', 'cancelling')")?;
     let rows = statement.query_map([], |row| {
@@ -1022,7 +1101,7 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<
             )?;
         } else {
             transition(app, &store, &state.root(), id, job_id, "queued", 10, None)?;
-            spawn_job(app.clone(), state, id, job_id)?;
+            spawn_job(app.clone(), state, id, job_id, false)?;
         }
     }
     Ok(())
@@ -1264,6 +1343,99 @@ mod tests {
         assert_eq!(detail.material.status, "parsed");
         assert_eq!(detail.text.as_deref(), Some("先验与后验"));
         assert_eq!(detail.material.parse_mode, "text-utf8");
+    }
+
+    #[test]
+    fn parsing_is_bounded_and_queue_drains_after_worker_finishes() {
+        let (directory, app, _) = setup();
+        let state = app.state::<MaterialState>();
+        state.pause.store(true, Ordering::Release);
+        let outcomes = import_files(
+            app.handle(),
+            &state,
+            vec![
+                text_file(directory.path(), "first.txt", "第一份正文")
+                    .to_string_lossy()
+                    .into_owned(),
+                text_file(directory.path(), "second.txt", "第二份正文")
+                    .to_string_lossy()
+                    .into_owned(),
+                text_file(directory.path(), "third.txt", "第三份正文")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        );
+        let ids = outcomes
+            .iter()
+            .map(|outcome| outcome.material.as_ref().unwrap().id)
+            .collect::<Vec<_>>();
+        for id in &ids {
+            enqueue(app.handle(), &state, *id).unwrap();
+        }
+        assert_eq!(state.active.lock().unwrap().len(), 1);
+        assert_eq!(
+            cancel(app.handle(), &state, ids[1]).unwrap().status,
+            "cancelled"
+        );
+        state.pause.store(false, Ordering::Release);
+        wait_for_idle(&state).unwrap();
+        assert_eq!(
+            detail(&state, ids[0]).unwrap().text.as_deref(),
+            Some("第一份正文")
+        );
+        assert_eq!(
+            detail(&state, ids[2]).unwrap().text.as_deref(),
+            Some("第三份正文")
+        );
+        let cancelled = detail(&state, ids[1]).unwrap();
+        assert_eq!(cancelled.material.status, "cancelled");
+        assert_eq!(cancelled.text, None);
+    }
+
+    #[test]
+    fn stopping_a_queue_does_not_start_the_next_job_until_recovery() {
+        let (directory, app, _) = setup();
+        let state = app.state::<MaterialState>();
+        state.pause.store(true, Ordering::Release);
+        let outcomes = import_files(
+            app.handle(),
+            &state,
+            vec![
+                text_file(directory.path(), "stop-first.txt", "停止第一项")
+                    .to_string_lossy()
+                    .into_owned(),
+                text_file(directory.path(), "stop-second.txt", "等待恢复")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        );
+        let ids = outcomes
+            .iter()
+            .map(|outcome| outcome.material.as_ref().unwrap().id)
+            .collect::<Vec<_>>();
+        for id in &ids {
+            enqueue(app.handle(), &state, *id).unwrap();
+        }
+        let stopping = state.shared();
+        let worker = std::thread::spawn(move || stop(&stopping));
+        for _ in 0..100 {
+            if !state.accepting.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!state.accepting.load(Ordering::Acquire));
+        state.pause.store(false, Ordering::Release);
+        worker.join().unwrap().unwrap();
+        assert_eq!(detail(&state, ids[0]).unwrap().material.status, "cancelled");
+        assert_eq!(detail(&state, ids[1]).unwrap().material.status, "queued");
+        assert_eq!(detail(&state, ids[1]).unwrap().text, None);
+        recover(app.handle(), &state).unwrap();
+        wait_for_idle(&state).unwrap();
+        assert_eq!(
+            detail(&state, ids[1]).unwrap().text.as_deref(),
+            Some("等待恢复")
+        );
     }
 
     #[test]

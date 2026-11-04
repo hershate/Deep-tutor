@@ -1,6 +1,6 @@
 # 知舟 Deep Tutor
 
-**版本 1.0.2 · 唯一交付形态：Tauri 2 桌面安装包**
+**版本 1.0.3 · 唯一交付形态：Tauri 2 桌面安装包**
 
 界面来自用户提供的 `REF/frontend/app`，由 React 18、TypeScript、Vite 和 Tauri 2（Rust）组成。前后端在应用进程内通过 commands/events 连接，不需要启动网页、HTTP 服务、Electron 或旧脚本。
 
@@ -38,7 +38,7 @@ npm run tauri build
 dist/
 ```
 
-例如 `dist/知舟 Deep Tutor_1.0.2_x64-setup.exe`。
+例如 `dist/知舟 Deep Tutor_1.0.3_x64-setup.exe`。
 
 安装后从开始菜单启动 **知舟 Deep Tutor**，不需要运行脚本或配置服务器。默认学习数据目录自动创建，主窗口直接显示初始化状态；可在“设置 → 隐私、备份与数据”修改目录，重启后生效且不自动迁移旧数据。目录、数据库或后端连接失败时，主窗口内提供重试、修改目录和恢复默认的入口。
 

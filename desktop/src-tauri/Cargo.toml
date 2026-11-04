@@ -1,6 +1,6 @@
 [package]
 name = "deep-tutor-workspace"
-version = "1.0.2"
+version = "1.0.3"
 description = "知舟 Deep Tutor desktop workspace"
 edition = "2021"
 
