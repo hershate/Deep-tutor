@@ -101,6 +101,7 @@ fn users_roles_tokens_and_deactivation_are_real_commands() {
             .unwrap(),
         raw
     );
+    drop(store);
     assert_eq!(
         ipc(&app, "authenticate_access_token", json!({"token":raw})).unwrap()["id"],
         2
@@ -142,7 +143,7 @@ fn users_roles_tokens_and_deactivation_are_real_commands() {
     let remaining = ipc(&app, "get_security_overview", json!({})).unwrap();
     assert_eq!(remaining["users"].as_array().unwrap().len(), 1);
     assert!(remaining["tokens"].as_array().unwrap().is_empty());
-    let events = store.events_since(0).unwrap();
+    let events = state.store().unwrap().events_since(0).unwrap();
     assert!(events
         .events
         .iter()
@@ -197,6 +198,7 @@ fn jwt_rejects_tampering_and_expiry_but_allows_a_new_local_login() {
         verify(&store.conn, &state, &expired).unwrap_err().code,
         "session_expired"
     );
+    drop(store);
     let logged_out = ipc(&app, "get_security_overview", json!({})).unwrap();
     assert_eq!(logged_out["requiresLogin"], true);
     assert_eq!(logged_out["currentUser"], Value::Null);
@@ -205,6 +207,7 @@ fn jwt_rejects_tampering_and_expiry_but_allows_a_new_local_login() {
     assert!(logged_out["quotas"].as_array().unwrap().is_empty());
     let renewed = ipc(&app, "login_local_user", json!({"userId":1})).unwrap();
     assert_ne!(renewed["session"]["id"], sid);
+    let store = state.store().unwrap();
     assert_eq!(
         verify(
             &store.conn,
@@ -401,4 +404,22 @@ fn base64url_round_trips_every_token_length() {
             bytes
         );
     }
+}
+
+#[test]
+fn account_store_is_reused_across_session_checks() {
+    let state = SecurityState::for_tests().unwrap();
+    {
+        let store = state.store().unwrap();
+        store.conn.pragma_update(None, "query_only", true).unwrap();
+    }
+    let store = state.store().unwrap();
+    let query_only: bool = store
+        .conn
+        .pragma_query_value(None, "query_only", |row| row.get(0))
+        .unwrap();
+    assert!(
+        query_only,
+        "each session check must not reopen the account database"
+    );
 }

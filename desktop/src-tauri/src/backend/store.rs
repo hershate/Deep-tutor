@@ -2,11 +2,14 @@ use super::error::{BackendError, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -14,6 +17,13 @@ use time::OffsetDateTime;
 const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+static MIGRATION_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+pub fn migration_count() -> usize {
+    MIGRATION_RUNS.load(Ordering::Acquire)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendEvent {
@@ -67,6 +77,30 @@ impl Store {
 
     pub fn root(path: impl Into<PathBuf>) -> Result<Self> {
         Self::open(path.into(), None)
+    }
+
+    fn schema_fingerprint(conn: &Connection) -> Result<String> {
+        let mut statement = conn.prepare(
+            "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name, tbl_name",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut digest = Sha256::new();
+        for row in rows {
+            let (kind, name, table, sql) = row?;
+            for value in [kind, name, table, sql] {
+                digest.update(value.as_bytes());
+                digest.update([0]);
+            }
+        }
+        Ok(format!("{:x}", digest.finalize()))
     }
 
     fn open(root: PathBuf, owner: Option<i64>) -> Result<Self> {
@@ -125,21 +159,39 @@ impl Store {
                 created_at TEXT NOT NULL
             );",
         )?;
-        super::materials::migrate(&conn)?;
-        super::knowledge::migrate(&conn)?;
-        super::providers::migrate(&conn)?;
-        super::learning::migrate(&conn)?;
-        super::projects::migrate(&conn)?;
-        super::sharing::migrate(&conn)?;
-        super::practice::migrate(&conn)?;
-        super::review::migrate(&conn)?;
-        super::agent::migrate(&conn)?;
-        super::community::migrate(&conn)?;
-        super::plugins::migrate(&conn)?;
-        super::engagement::migrate(&conn)?;
-        super::reports::migrate(&conn)?;
-        super::security::migrate(&conn)?;
-        super::sync::migrate(&conn)?;
+        let fingerprint = Self::schema_fingerprint(&conn)?;
+        let recorded: Option<String> = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_fingerprint'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if recorded.as_deref() != Some(fingerprint.as_str()) {
+            #[cfg(test)]
+            MIGRATION_RUNS.fetch_add(1, Ordering::AcqRel);
+            super::materials::migrate(&conn)?;
+            super::knowledge::migrate(&conn)?;
+            super::providers::migrate(&conn)?;
+            super::learning::migrate(&conn)?;
+            super::projects::migrate(&conn)?;
+            super::sharing::migrate(&conn)?;
+            super::practice::migrate(&conn)?;
+            super::review::migrate(&conn)?;
+            super::agent::migrate(&conn)?;
+            super::community::migrate(&conn)?;
+            super::plugins::migrate(&conn)?;
+            super::engagement::migrate(&conn)?;
+            super::reports::migrate(&conn)?;
+            super::security::migrate(&conn)?;
+            super::sync::migrate(&conn)?;
+            let verified = Self::schema_fingerprint(&conn)?;
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('schema_fingerprint', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![verified],
+            )?;
+        }
         if version < 1 {
             conn.pragma_update(None, "user_version", 1)?;
         }
@@ -1104,5 +1156,31 @@ mod tests {
             reopened.events_since(-1).unwrap_err().code,
             "invalid_event_cursor"
         );
+    }
+
+    #[test]
+    fn verified_schema_is_not_migrated_again_but_schema_drift_is_repaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        drop(Store::root(&path).unwrap());
+        let baseline = migration_count();
+        for _ in 0..20 {
+            drop(Store::root(&path).unwrap());
+        }
+        assert_eq!(migration_count(), baseline);
+        let connection = Connection::open(&path).unwrap();
+        connection.execute("DROP TABLE sync_jobs", []).unwrap();
+        drop(connection);
+        let store = Store::root(&path).unwrap();
+        assert_eq!(migration_count(), baseline + 1);
+        let restored: bool = store
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_jobs')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(restored);
     }
 }

@@ -212,8 +212,25 @@ impl CredentialBackend for MemoryCredentials {
 pub struct SecurityState {
     database_path: PathBuf,
     credentials: Arc<dyn CredentialBackend>,
+    connection: Arc<std::sync::Mutex<Option<Store>>>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
+}
+
+struct AccountStoreGuard<'a>(std::sync::MutexGuard<'a, Option<Store>>);
+
+impl std::ops::Deref for AccountStoreGuard<'_> {
+    type Target = Store;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("account store initialized")
+    }
+}
+
+impl std::ops::DerefMut for AccountStoreGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().expect("account store initialized")
+    }
 }
 
 impl SecurityState {
@@ -221,6 +238,7 @@ impl SecurityState {
         Self {
             database_path: path.to_path_buf(),
             credentials: Arc::new(SystemCredentials),
+            connection: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             _guard: None,
         }
@@ -230,6 +248,7 @@ impl SecurityState {
         Self {
             database_path: self.database_path.clone(),
             credentials: Arc::clone(&self.credentials),
+            connection: Arc::clone(&self.connection),
             #[cfg(test)]
             _guard: None,
         }
@@ -241,6 +260,7 @@ impl SecurityState {
         Ok(Self {
             database_path: guard.path().join("app.db"),
             credentials: Arc::new(MemoryCredentials::default()),
+            connection: Arc::new(std::sync::Mutex::new(None)),
             _guard: Some(guard),
         })
     }
@@ -250,12 +270,20 @@ impl SecurityState {
         Self {
             database_path: path.to_path_buf(),
             credentials: Arc::new(MemoryCredentials::default()),
+            connection: Arc::new(std::sync::Mutex::new(None)),
             _guard: None,
         }
     }
 
-    fn store(&self) -> Result<Store> {
-        Store::root(self.database_path.clone())
+    fn store(&self) -> Result<AccountStoreGuard<'_>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "本地账户数据库暂不可用"))?;
+        if connection.is_none() {
+            *connection = Some(Store::root(self.database_path.clone())?);
+        }
+        Ok(AccountStoreGuard(connection))
     }
 }
 
@@ -580,8 +608,8 @@ fn issue<R: Runtime>(
     app: &AppHandle<R>,
     state: &SecurityState,
     user_id: i64,
+    store: &Store,
 ) -> Result<SessionView> {
-    let store = state.store()?;
     active_user(&store.conn, user_id)?;
     let issued = OffsetDateTime::from_unix_timestamp(now()?.unix_timestamp())
         .map_err(|_| BackendError::new("invalid_time", "无法建立会话时间"))?;
@@ -622,16 +650,13 @@ fn issue<R: Runtime>(
     result
 }
 
-fn ensure_accounts(state: &SecurityState) -> Result<()> {
-    let store = state.store()?;
-    let count: i64 = store
-        .conn
-        .query_row("SELECT COUNT(*) FROM local_users", [], |row| row.get(0))?;
+fn ensure_accounts(conn: &Connection) -> Result<()> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_users", [], |row| row.get(0))?;
     if count > 0 {
         return Ok(());
     }
     let timestamp = timestamp(now()?)?;
-    let tx = store.conn.unchecked_transaction()?;
+    let tx = conn.unchecked_transaction()?;
     tx.execute("INSERT INTO local_users (display_name, role, created_at, updated_at) VALUES ('本地管理员', '管理员', ?1, ?1)", params![timestamp])?;
     let user_id = tx.last_insert_rowid();
     for (resource, limit) in RESOURCES {
@@ -648,13 +673,13 @@ fn initialize<R: Runtime>(
     app: &AppHandle<R>,
     state: &SecurityState,
 ) -> Result<(LocalUser, SessionView)> {
-    ensure_accounts(state)?;
     let store = state.store()?;
+    ensure_accounts(&store.conn)?;
     match current(&store.conn, state) {
         Ok(current) => Ok(current),
         Err(error) if error.code == "login_required" => {
             let id: i64 = store.conn.query_row("SELECT id FROM local_users WHERE role = '管理员' AND active = 1 AND deleted_at IS NULL ORDER BY id LIMIT 1", [], |row| row.get(0))?;
-            let session = issue(app, state, id)?;
+            let session = issue(app, state, id, &store)?;
             Ok((user(&store.conn, id, id)?, session))
         }
         Err(error) => Err(error),
@@ -842,8 +867,10 @@ pub fn login<R: Runtime>(
     state: &SecurityState,
     user_id: i64,
 ) -> Result<SecurityOverview> {
-    ensure_accounts(state)?;
-    issue(app, state, user_id)?;
+    let store = state.store()?;
+    ensure_accounts(&store.conn)?;
+    issue(app, state, user_id, &store)?;
+    drop(store);
     overview_from(state)
 }
 
@@ -905,6 +932,7 @@ pub fn create_user<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
+    drop(store);
     overview_from(state)
 }
 
@@ -977,6 +1005,7 @@ pub fn set_active<R: Runtime>(
         state.credentials.delete(&format!("session-{session}"))?;
     }
     emit(app, &event);
+    drop(store);
     overview_from(state)
 }
 
@@ -1005,6 +1034,7 @@ pub fn remove_user<R: Runtime>(
         state.credentials.delete(&format!("session-{session}"))?;
     }
     emit(app, &event);
+    drop(store);
     overview_from(state)
 }
 
@@ -1078,6 +1108,7 @@ pub fn revoke_token<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
+    drop(store);
     overview_from(state)
 }
 
@@ -1144,5 +1175,6 @@ pub fn set_quota<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
+    drop(store);
     overview_from(state)
 }
