@@ -3,6 +3,8 @@
 ## Current delivery
 
 - The only deliverable is the Tauri 2 desktop installer built from `REF/frontend/app`.
+- Generated installation, Start Menu and installer names use ASCII `DeepTutor`. Keep the Chinese
+  interface brand and the `com.deeptutor.workspace` identifier unchanged so existing data stays put.
 - Browser SPA, Electron, `frontend-next`, Python/Go backends, web startup scripts
   and `stage.md` are retired and removed from the working tree.
 - Backend code lives in `desktop/src-tauri/src/backend/`; frontend clients live in

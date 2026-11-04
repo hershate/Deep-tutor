@@ -482,6 +482,22 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn generated_install_names_are_ascii_without_changing_workspace_identity() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(config["productName"].as_str().unwrap().is_ascii());
+        assert!(config["bundle"]["windows"]["nsis"]["startMenuFolder"]
+            .as_str()
+            .unwrap()
+            .is_ascii());
+        assert_eq!(config["identifier"], "com.deeptutor.workspace");
+        assert!(config["app"]["windows"][0]["title"]
+            .as_str()
+            .unwrap()
+            .contains("知舟"));
+    }
+
+    #[test]
     fn a_missing_default_directory_is_created_without_a_dialog() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("learning-data");
