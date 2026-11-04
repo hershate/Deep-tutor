@@ -48,7 +48,8 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
     try { await task.cancel(); notify('取消请求已提交，最终状态由原生后端保存'); await refresh() }
     catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
-  if (loading) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实运行记录…</div>
+  if (loading && !error) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实运行记录…</div>
+  if (error && !tasks.length) return <div className="page-loading" role="alert"><CircleAlert size={25} /><h2>运行记录读取失败</h2><p>{error}</p><Button onClick={() => { setError(''); setLoading(true); void refresh() }}>重新读取</Button></div>
   return <>
     {error && <div className="form-error" role="alert">{error}</div>}
     {!tasks.length ? <EmptyState title="尚无运行记录" description="方案生成、讲义生成和 Agent 运行后，会在这里显示真实状态。" /> : <div className="agent-task-list">{tasks.map(task => <div key={task.id}><span className={`task-status ${task.status === 'running' ? 'running' : ''}`}>{task.status === 'running' || task.status === 'cancelling' ? <LoaderCircle size={16} className="spin" /> : task.status === 'done' ? <Check size={16} /> : <CircleAlert size={16} />}</span><div><strong>{task.title}</strong><p>{task.detail}</p><ProgressBar value={task.progress} /><small>{new Date(task.updatedAt).toLocaleString('zh-CN')}</small></div><Badge tone={task.status === 'done' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'amber'}>{labels[task.status] ?? task.status}</Badge>{task.cancel && <Button variant="ghost" size="sm" aria-label={`取消 ${task.title}`} disabled={busy === task.id} onClick={() => void cancel(task)}><Square size={13} />取消</Button>}</div>)}</div>}

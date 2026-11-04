@@ -2,26 +2,33 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, LoaderCircle, Play, RotateCcw, Sparkles, TrendingUp } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, MiniBars, ProgressBar, ProgressRing, SectionHeader } from '../components/UI'
-import { onBackendEvent, reportBackendError } from '../backend/client'
+import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { engagementBackend } from '../backend/engagement'
 import type { AppSnapshot } from '../backend/client'
 import type { DashboardOverview } from '../backend/engagement'
 
 export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify }: { tasks: Task[]; setTasks: (tasks: Task[]) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; onFocus: () => void; notify: (message: string) => void }) {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
+  const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
     const load = async () => {
-      const next = await engagementBackend.dashboard()
-      if (active) setOverview(next)
+      try {
+        const next = await engagementBackend.dashboard()
+        if (active) { setOverview(next); setError('') }
+      } catch (cause) {
+        if (active) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+      }
     }
-    void load().catch(reportBackendError)
+    void load()
     void onBackendEvent(event => {
-      if (active && ['state.changed', 'focus.', 'plan.', 'practice.', 'review.', 'study.checkin', 'security.session_started'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
+      if (active && ['state.changed', 'focus.', 'plan.', 'practice.', 'review.', 'study.checkin', 'security.session_started'].some(prefix => event.kind.startsWith(prefix))) void load()
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [])
+  }, [reloadKey])
+  if (!overview && error) return <div className="page-loading" role="alert"><CircleAlert size={25} /><h2>学习摘要读取失败</h2><p>{error}</p><Button onClick={() => { setError(''); setReloadKey(current => current + 1) }}>重新读取</Button></div>
   if (!overview) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实学习摘要…</div>
   const done = tasks.filter(task => task.done).length
   const completion = tasks.length ? Math.round(done / tasks.length * 100) : 0

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
-import { onBackendEvent, reportBackendError } from '../backend/client'
+import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { securityBackend } from '../backend/security'
 import type { CreatedToken, LocalUser, SecurityOverview } from '../backend/security'
 
@@ -9,6 +9,7 @@ const quotaNames: Record<string, string> = { sessions: 'Agent 会话', notes: '�
 
 export default function SecurityPanel({ notify }: { notify: (message: string) => void }) {
   const [data, setData] = useState<SecurityOverview | null>(null)
+  const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [userOpen, setUserOpen] = useState(false)
   const [tokenOpen, setTokenOpen] = useState(false)
@@ -24,14 +25,17 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
     setQuotaDrafts(Object.fromEntries(next.quotas.map(quota => [quota.resource, String(quota.limit)])))
   }, [])
   const refresh = useCallback(async () => {
-    apply(await securityBackend.overview())
+    try {
+      apply(await securityBackend.overview())
+      setError('')
+    } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
   }, [apply])
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
-    void refresh().catch(reportBackendError)
+    void refresh()
     void onBackendEvent(event => {
-      if (active && event.kind.startsWith('security.')) void refresh().catch(reportBackendError)
+      if (active && event.kind.startsWith('security.')) void refresh()
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
   }, [refresh])
@@ -69,7 +73,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
     catch (error) { reportBackendError(error) }
   }
 
-  if (!data) return <div className="security-panel"><LoaderCircle size={22} className="spin" /><p>正在验证本地会话并读取用户、令牌和配额…</p><Button variant="secondary" onClick={() => void refresh().catch(reportBackendError)}>重试</Button></div>
+  if (!data) return <div className="security-panel">{error ? <><p className="form-error" role="alert">{error}</p><p>未能读取本地用户与配额，请重试。</p></> : <><LoaderCircle size={22} className="spin" /><p>正在验证本地会话并读取用户、令牌和配额…</p></>}<Button variant="secondary" onClick={() => { setError(''); void refresh() }}>重试</Button></div>
   const current = data.currentUser
   const administrator = current?.role === '管理员' && !data.requiresLogin
   return <div className="security-panel">

@@ -37,7 +37,7 @@ function ApprovalCard({ approval, busy, onResolve }: { approval: AgentApproval; 
 }
 
 export default function AgentCenter({ notify }: { notify: (message: string) => void }) {
-  const { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval } = useAgent()
+  const { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval, retry } = useAgent()
   const [input, setInput] = useState('')
   const [rightTab, setRightTab] = useState('运行过程')
   const [sessionSearch, setSessionSearch] = useState('')
@@ -83,7 +83,8 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
     if (await resolveApproval(approval.id, approved)) notify(approved ? approval.kind === 'artifact.promote' ? '产物已提升为正式讲义的新版本' : '记忆操作已由原生后端执行' : '审批已取消，未执行对应操作')
   }
 
-  if (loading) return <div className="page-loading"><LoaderCircle size={24} className="spin" />正在读取 Agent 会话与事件…</div>
+  if (loading && !error) return <div className="page-loading"><LoaderCircle size={24} className="spin" />正在读取 Agent 会话与事件…</div>
+  if (error && !sessions.length) return <div className="page-loading" role="alert"><h2>Agent 会话读取失败</h2><p>{error}</p><Button onClick={() => void retry()}>重新读取</Button></div>
   return <div className="agent-workspace-page">
     <aside className="agent-sessions">
       <div className="agent-sessions-head"><div><MessageSquareText size={18} /><strong>Agent 会话</strong></div><IconButton label="新建会话" onClick={() => void create()} disabled={busy === 'create'}><Plus size={18} /></IconButton></div>

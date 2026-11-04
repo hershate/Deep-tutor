@@ -19,7 +19,7 @@ import AgentTaskCenter from './components/AgentTaskCenter'
 import SecurityPanel from './components/SecurityPanel'
 import { Button, IconButton, Modal } from './components/UI'
 import type { PageId, Project, Task } from './data'
-import { backend, onBackendEvent, reportBackendError } from './backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
 import { engagementBackend } from './backend/engagement'
@@ -71,7 +71,9 @@ export default function App() {
   const [focusBusy, setFocusBusy] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
   const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
+  const [notificationsError, setNotificationsError] = useState('')
   const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
 
   const notify = (message: string) => setToast(message)
@@ -85,9 +87,12 @@ export default function App() {
     let active = true
     const timer = window.setTimeout(() => {
       setSearching(true)
+      setSearchError('')
       void engagementBackend.search(query).then(results => {
         if (active) setSearchResults(results)
-      }).catch(reportBackendError).finally(() => { if (active) setSearching(false) })
+      }).catch(error => {
+        if (active) { setSearchError(backendErrorMessage(error)); reportBackendError(error) }
+      }).finally(() => { if (active) setSearching(false) })
     }, query.trim() ? 120 : 0)
     return () => { active = false; window.clearTimeout(timer) }
   }, [query])
@@ -95,15 +100,20 @@ export default function App() {
     if (!ready) return
     let active = true
     let stop: (() => void) | undefined
-    const load = async () => {
-      const next = await engagementBackend.notifications()
-      if (active) setNotifications(next)
+    const fail = (error: unknown) => {
+      if (active) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }
     }
-    void load().catch(reportBackendError)
+    const load = async () => {
+      try {
+        const next = await engagementBackend.notifications()
+        if (active) { setNotifications(next); setNotificationsError('') }
+      } catch (error) { fail(error) }
+    }
+    void load()
     void onBackendEvent(event => {
-      if (active && ['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
-    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
-    const timer = window.setInterval(() => { void load().catch(reportBackendError) }, 30000)
+      if (active && ['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void load()
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(fail)
+    const timer = window.setInterval(() => { void load() }, 30000)
     return () => { active = false; stop?.(); window.clearInterval(timer) }
   }, [ready])
   useEffect(() => {
@@ -273,14 +283,15 @@ export default function App() {
     {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师"><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} /></aside></div>}
 
     <Modal open={modal === 'search'} onClose={() => { setModal(null); setQuery('') }} title="全局搜索">
-      <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty">{searching ? '正在检索真实工作区…' : '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
+      <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={searchError ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : searchError || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
     </Modal>
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
       <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
+      {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
       {notifications?.suppressed && <p className="form-help">当前处于免打扰时段；通知仍保留在中心，不主动弹出提醒。</p>}
-      <div className="notification-list">{notifications?.items.map(item => <button key={item.id} onClick={() => void readNotification(item.id, item.page)}><span className="notification-icon"><Bell size={18} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Date(item.createdAt).toLocaleString()} · {item.readAt ? '已读' : '未读'}</small></div></button>)}{notifications && !notifications.items.length && <div className="search-empty">当前没有真实通知。到期复习、计划和预约会在这里出现。</div>}</div><Button variant="ghost" disabled={!notifications || notifications.unreadCount === 0} onClick={() => void markAllRead()}><Check size={16} />全部标为已读</Button>
+      <div className="notification-list">{notifications?.items.map(item => <button key={item.id} onClick={() => void readNotification(item.id, item.page)}><span className="notification-icon"><Bell size={18} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Date(item.createdAt).toLocaleString()} · {item.readAt ? '已读' : '未读'}</small></div></button>)}{notifications && !notifications.items.length && <div className="search-empty">当前没有真实通知。到期复习、计划和预约会在这里出现。</div>}{!notifications && !notificationsError && <div className="search-empty">正在读取真实通知…</div>}</div><Button variant="ghost" disabled={!notifications || notifications.unreadCount === 0} onClick={() => void markAllRead()}><Check size={16} />全部标为已读</Button>
     </Modal>
     <Modal open={modal === 'tasks'} onClose={() => setModal(null)} title="Agent 任务中心">
       <AgentTaskCenter notify={notify} />

@@ -193,5 +193,12 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     } catch (cause) { setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
   }, [refreshSession])
 
-  return { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval, refresh }
+  const retry = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    if (!enabled) { setLoading(false); return }
+    await refresh()
+  }, [enabled, refresh])
+
+  return { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval, refresh, retry }
 }

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CircleDollarSign, Download, ShieldCheck } from 'lucide-react'
 import { Badge, Button, EmptyState, MiniBars, ProgressBar, SectionHeader } from './UI'
-import { backend, onBackendEvent, reportBackendError, type ProviderProfile } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type ProviderProfile } from '../backend/client'
 import { usageBackend, type UsageOverview } from '../backend/usage'
 
 export default function UsagePanel({ notify }: { notify: (message: string) => void }) {
   const [data, setData] = useState<UsageOverview | null>(null)
   const [profiles, setProfiles] = useState<ProviderProfile[]>([])
+  const [error, setError] = useState('')
   const [rateProvider, setRateProvider] = useState('')
   const [rateModel, setRateModel] = useState('')
   const [inputRate, setInputRate] = useState('1')
@@ -17,18 +18,21 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   const [busy, setBusy] = useState(false)
 
   const refresh = useCallback(async () => {
-    const [usage, providers] = await Promise.all([usageBackend.overview(), backend.listProviderProfiles()])
-    setData(usage)
-    setProfiles(providers)
-    setSessionUsd(usage.settings.sessionUsd)
-    setDailyUsd(usage.settings.dailyUsd)
-    setRegenerationLimit(usage.settings.regenerationLimit)
+    try {
+      const [usage, providers] = await Promise.all([usageBackend.overview(), backend.listProviderProfiles()])
+      setData(usage)
+      setProfiles(providers)
+      setSessionUsd(usage.settings.sessionUsd)
+      setDailyUsd(usage.settings.dailyUsd)
+      setRegenerationLimit(usage.settings.regenerationLimit)
+      setError('')
+    } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
   }, [])
   useEffect(() => {
-    void refresh().catch(reportBackendError)
+    void refresh()
     let unlisten: (() => void) | undefined
     const listening = onBackendEvent(event => {
-      if (event.kind.startsWith('usage.') || ['completed', 'cancelled', 'failed'].some(suffix => event.kind.endsWith(`.${suffix}`))) void refresh().catch(reportBackendError)
+      if (event.kind.startsWith('usage.') || ['completed', 'cancelled', 'failed'].some(suffix => event.kind.endsWith(`.${suffix}`))) void refresh()
     }).then(stop => { unlisten = stop }).catch(reportBackendError)
     return () => { unlisten?.(); void listening }
   }, [refresh])
@@ -71,6 +75,7 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   const profile = profiles.find(item => item.id === rateProvider)
   const budgetPercent = data && data.settings.dailyUsd > 0 ? data.summary.todayCost / data.settings.dailyUsd * 100 : 0
 
+  if (!data && error) return <div className="form-error" role="alert"><p>{error}</p><Button variant="secondary" size="sm" onClick={() => { setError(''); void refresh() }}>重新读取用量</Button></div>
   if (!data) return <p>正在读取真实用量台账…</p>
   return <div className="usage-page"><div className="usage-metrics"><div><span>今日已计价成本</span><strong>${data.summary.todayCost.toFixed(6)}</strong><small>每日预算使用 {budgetPercent.toFixed(2)}%</small></div><div><span>已上报输入 tokens</span><strong>{data.summary.inputTokens}</strong><small>{data.summary.missingUsage} 条记录未完整上报用量</small></div><div><span>已上报输出 tokens</span><strong>{data.summary.outputTokens}</strong><small>{data.summary.unpricedRequests} 条记录未计价</small></div><div><span>取消／异常已计价</span><strong>${(data.summary.cancelledCost + data.summary.failedCost).toFixed(6)}</strong><small>仅计算实际返回且已配置费率的用量</small></div></div>
     {data.summary.unpricedRequests > 0 && <p className="setting-note">有 {data.summary.unpricedRequests} 条记录因缺少完整用量或费率而未计价；预算只依据已记录费用，不估算未知成本。</p>}

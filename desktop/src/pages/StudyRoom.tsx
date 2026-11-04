@@ -182,7 +182,8 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
     } catch (cause) { setError(backendErrorMessage(cause)) }
   }
 
-  if (loading) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取已采用的学习方案…</div>
+  if (loading && !error) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取已采用的学习方案…</div>
+  if (error && !plans.length) return <div className="page study-page"><div className="provider-empty" role="alert"><h2>学习方案读取失败</h2><p>{error}</p><Button onClick={() => { setError(''); setLoading(true); void refreshPlans() }}>重新读取</Button></div></div>
   if (!plan?.result || !stage) return <div className="page study-page"><div className="provider-empty"><BookOpen size={26} /><h2>还没有可学习的课程</h2><p>请先通过真实资料生成并采用学习方案，阶段和讲义会出现在这里。</p><Button onClick={() => onNavigate('generator')}>前往方案生成<ArrowRight size={16} /></Button></div></div>
 
   return <div className="study-page">

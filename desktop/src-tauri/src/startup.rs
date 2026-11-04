@@ -184,4 +184,36 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(file).unwrap(), "keep");
     }
+
+    #[test]
+    fn corruption_and_locked_writes_return_typed_errors() {
+        let temporary = tempfile::tempdir().unwrap();
+        let corrupt = temporary.path().join("corrupt.db");
+        fs::write(&corrupt, b"not a sqlite database").unwrap();
+        let error = match crate::backend::store::Store::root(&corrupt) {
+            Ok(_) => panic!("a corrupt database must not be accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "storage_failed");
+
+        let locked = temporary.path().join("locked.db");
+        let store = crate::backend::store::Store::root(&locked).unwrap();
+        let blocker = rusqlite::Connection::open(&locked).unwrap();
+        blocker
+            .execute_batch("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE")
+            .unwrap();
+        blocker
+            .execute(
+                "INSERT INTO meta (key, value) VALUES ('lock-test', 'held')",
+                [],
+            )
+            .unwrap();
+        let error = match store.replace_collection("notes", 0, &serde_json::json!([])) {
+            Ok(_) => panic!("a write-locked database must return its bounded-wait error"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "database_busy");
+        blocker.execute_batch("ROLLBACK").unwrap();
+        drop(store);
+    }
 }
