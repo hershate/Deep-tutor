@@ -21,10 +21,11 @@ async function main() {
   }
   if (args[0] !== 'build') return
 
+  const config = JSON.parse(await readFile(path.join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8'))
   const bundle = path.join(desktop, 'src-tauri', 'target', 'release', 'bundle', 'nsis')
   const installers = (await readdir(bundle, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('-setup.exe'))
-  if (installers.length !== 1) throw new Error('应当且只能生成一个 NSIS 安装包')
+    .filter(entry => entry.isFile() && entry.name.includes(`_${config.version}_`) && entry.name.toLowerCase().endsWith('-setup.exe'))
+  if (installers.length !== 1) throw new Error(`应当且只能生成一个 ${config.version} NSIS 安装包`)
   const source = path.join(bundle, installers[0].name)
   const destinationDirectory = path.join(repository, 'dist')
   const destination = path.join(destinationDirectory, installers[0].name)
