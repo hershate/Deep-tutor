@@ -1,0 +1,84 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Folder, RefreshCw, RotateCcw } from 'lucide-react'
+import { Badge, Button, SectionHeader } from './UI'
+import { backendErrorMessage, reportBackendError } from '../backend/client'
+import { storageBackend } from '../backend/storage'
+import type { StorageOverview } from '../backend/storage'
+
+export default function DataDirectoryPanel() {
+  const [overview, setOverview] = useState<StorageOverview | null>(null)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState('')
+
+  const apply = useCallback((next: StorageOverview) => {
+    setOverview(next)
+    setDraft(next.pendingDataRoot ?? next.dataRoot)
+    setError('')
+  }, [])
+  const refresh = useCallback(async () => {
+    try { apply(await storageBackend.overview()) }
+    catch (cause) { setError(backendErrorMessage(cause)) }
+  }, [apply])
+  useEffect(() => { void refresh() }, [refresh])
+
+  const run = async (action: string, operation: () => Promise<StorageOverview>) => {
+    if (busy) return
+    setBusy(action)
+    setError('')
+    setMessage('')
+    try { apply(await operation()) }
+    catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+    finally { setBusy('') }
+  }
+  const choose = async () => {
+    if (busy) return
+    setBusy('choose')
+    setError('')
+    try {
+      const selected = await storageBackend.chooseDirectory(overview?.pendingDataRoot ?? overview?.dataRoot)
+      if (selected) { setDraft(selected); setMessage('目录已选择，点击“保存目录”后才会写入配置。') }
+    } catch (cause) { setError(backendErrorMessage(cause)) }
+    finally { setBusy('') }
+  }
+  const save = () => run('save', async () => {
+    const next = await storageBackend.save(draft.trim())
+    setMessage('新目录已保存，重启后使用；原目录中的学习数据未移动或删除。')
+    return next
+  })
+  const reset = () => run('reset', async () => {
+    const next = await storageBackend.reset()
+    setMessage('已恢复默认目录设置，原目录中的学习数据仍然保留。')
+    return next
+  })
+  const retry = () => run('retry', async () => {
+    const next = await storageBackend.retry()
+    if (next.ready) { window.location.reload() }
+    if (next.error) { throw next.error }
+    return next
+  })
+  const restart = async () => {
+    if (busy) return
+    setBusy('restart')
+    setError('')
+    try { await storageBackend.restart() }
+    catch (cause) { setError(backendErrorMessage(cause)); setBusy('') }
+  }
+
+  if (!overview) return <section className="surface setting-section storage-location-panel"><SectionHeader title="本地学习数据目录" description="目录设置由原生后端保存。" />{error ? <div className="form-error" role="alert"><span>{error}</span><Button size="sm" onClick={() => void refresh()}>重新读取</Button></div> : <p>正在读取目录设置…</p>}</section>
+  const unchanged = draft.trim() === overview.dataRoot && overview.pendingDataRoot === null
+  const pending = overview.pendingDataRoot
+  return <section className="surface setting-section storage-location-panel">
+    <SectionHeader title="本地学习数据目录" description="默认目录自动创建。你可以修改保存位置，新设置在下次启动时生效。" action={<Badge tone={pending ? 'amber' : overview.initializing ? 'neutral' : overview.ready ? 'green' : 'red'}>{pending ? '重启后生效' : overview.initializing ? '正在初始化' : overview.ready ? '当前使用' : '需要处理'}</Badge>} />
+    <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small></div></div>
+    {pending && <div className="modal-callout"><RefreshCw size={17} /><div><strong>下次启动使用：{pending}</strong><p>当前进程仍使用原目录。切换不会自动迁移或删除旧数据；需要原有内容时，请先通过备份功能导出，再在新目录中导入。重启会结束当前进程，请先完成或取消正在运行的任务。</p></div></div>}
+    {overview.error && <div className="form-error" role="alert">{overview.error.code}：{overview.error.message}</div>}
+    <label>新的保存位置<input aria-label="本地学习数据目录" value={draft} disabled={Boolean(busy)} onChange={event => { setDraft(event.target.value); setMessage('') }} placeholder="输入磁盘上的绝对目录" /></label>
+    <div className="data-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void choose()}><Folder size={16} />选择目录</Button><Button disabled={Boolean(busy) || !draft.trim() || (unchanged && overview.ready)} onClick={() => void save()}>{busy === 'save' ? '正在验证并保存…' : '保存目录'}</Button><Button variant="ghost" disabled={Boolean(busy)} onClick={() => void reset()}><RotateCcw size={16} />恢复默认目录</Button></div>
+    <p className="form-help">保存时会检查目录和数据库。已有数据库会被打开；空目录会创建新数据库。不会覆盖或删除原目录中的学习数据。</p>
+    {message && <p className="setting-note" role="status">{message}</p>}
+    {error && <div className="form-error" role="alert">{error}</div>}
+    <div className="data-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void retry()}><RefreshCw size={16} />{busy === 'retry' ? '正在初始化…' : '重试初始化'}</Button>{pending && <Button disabled={Boolean(busy)} onClick={() => void restart()}>保存并立即重启</Button>}</div>
+  </section>
+}

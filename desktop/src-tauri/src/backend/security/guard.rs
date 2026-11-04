@@ -136,6 +136,20 @@ where
 {
     move |invoke| {
         let command = invoke.message.command();
+        if matches!(
+            command,
+            "get_storage_overview"
+                | "retry_storage_initialization"
+                | "set_storage_location"
+                | "reset_storage_location"
+                | "restart_application"
+        ) {
+            return handler(invoke);
+        }
+        let app = invoke.message.webview().app_handle().clone();
+        if let Err(error) = crate::startup::ensure_ready(&app) {
+            return reject(invoke, error);
+        }
         if command == "login_local_user" {
             return switch(invoke, &handler);
         }

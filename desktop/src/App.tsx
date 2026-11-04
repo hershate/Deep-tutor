@@ -16,6 +16,7 @@ import Settings from './pages/Settings'
 import SharedPlan from './pages/SharedPlan'
 import TutorPanel from './components/TutorPanel'
 import AgentTaskCenter from './components/AgentTaskCenter'
+import DataDirectoryPanel from './components/DataDirectoryPanel'
 import SecurityPanel from './components/SecurityPanel'
 import { Button, IconButton, Modal } from './components/UI'
 import type { PageId, Project, Task } from './data'
@@ -254,7 +255,7 @@ export default function App() {
   }
 
   if (startupError) {
-    return <main className="page-loading"><LoaderMark /><h1>本地数据或实时连接打开失败</h1><p>{startupError}</p><Button onClick={() => window.location.reload()}>重试</Button></main>
+    return <main className="page-loading startup-recovery"><h1>本地数据或实时连接打开失败</h1><p role="alert">{startupError}</p><DataDirectoryPanel /></main>
   }
   if (loginRequired) {
     return <main className="page-loading access-gate"><h1>选择本地用户</h1><p>会话已过期或尚未建立。请选择本地身份，继续进入对应的学习工作区。</p><div className="surface access-gate-panel"><SecurityPanel notify={notify} /></div>{toast && <p role="alert">{toast}</p>}</main>

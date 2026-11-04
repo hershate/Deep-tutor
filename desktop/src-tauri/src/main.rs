@@ -6,104 +6,56 @@ mod startup;
 use backend::{
     agent, backup, commands, community, engagement, export, knowledge, learning, maintenance,
     materials, notes, planning, plugins, practice, projects, providers, reports, review, security,
-    sharing, store::Store, sync, web, BackendState,
+    sharing, sync, web, BackendState,
 };
-use std::sync::Mutex;
 use tauri::Manager;
-
-fn initialize_backend<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    path: &std::path::Path,
-) -> backend::error::Result<()> {
-    let store = Store::new(path)?;
-    let material_state = materials::MaterialState::new(path)?;
-    let provider_state = providers::ProviderState::new(path)?;
-    let learning_state = learning::LearningState::new(path, &provider_state, &material_state);
-    let knowledge_state = knowledge::KnowledgeState::new(path, &provider_state, &material_state);
-    let agent_state = agent::AgentState::new(path, &provider_state, &learning_state);
-    let practice_state = practice::PracticeState::new(path, &provider_state, &learning_state);
-    let review_state = review::ReviewState::new(path, &learning_state);
-    let sharing_state = sharing::SharingState::new(&learning_state);
-    app.manage(BackendState {
-        store: Mutex::new(store),
-        materials: material_state,
-        providers: provider_state,
-        learning: learning_state,
-        agent: agent_state,
-        practice: practice_state,
-        review: review_state,
-        knowledge: knowledge_state,
-        community: community::CommunityState::new(path),
-        plugins: plugins::PluginState::new(path)?,
-        sharing: sharing_state,
-    });
-    app.manage(security::SecurityState::new(path));
-    let principal = match security::initialize_session(app, &app.state::<security::SecurityState>())
-    {
-        Ok(principal) => Some(principal),
-        Err(error) if security::reauthentication_required(&error) => None,
-        Err(error) => return Err(error),
-    };
-    let state = app.state::<BackendState>();
-    if let Some(principal) = principal {
-        security::with_user(principal.id, || -> backend::error::Result<()> {
-            *state.store.lock().map_err(|_| {
-                backend::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
-            })? = Store::new(path)?;
-            materials::recover(app, &state.materials)?;
-            providers::recover_chats(app, &state.providers)?;
-            providers::routing::recover(app, &state.providers)?;
-            learning::recover(app, &state.learning)?;
-            agent::recover(app, &state.agent)?;
-            practice::recover(app, &state.practice)?;
-            projects::recover(app, &projects::ProjectState::new(&state.learning))?;
-            knowledge::recover(app, &state.knowledge)?;
-            sync::recover(app, &sync::SyncService::new(&state.learning))?;
-            Ok(())
-        })?;
-        security::with_user(principal.id, || {
-            sync::scheduler::start_scheduler(app.clone())
-        });
-    }
-    Ok(())
-}
 
 fn main() {
     let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
-            let data_root = if verify_native {
-                let path = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
+            let (data_root, default_root, pointer, configuration_error) = if verify_native {
+                let root = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
                     .map(std::path::PathBuf::from)
                     .filter(|path| path.is_absolute())
                     .ok_or(
                         "DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory",
                     )?;
-                path
+                let pointer = root.join("verification-storage.json");
+                (root.clone(), root.clone(), pointer, None)
             } else {
-                app.path().app_data_dir()?
+                let default_root = app.path().app_data_dir()?;
+                let pointer = app
+                    .path()
+                    .app_local_data_dir()?
+                    .join("storage-location.json");
+                let selected = startup::configured_directory(&pointer, &default_root);
+                let root = selected.clone().unwrap_or_else(|_| default_root.clone());
+                (root, default_root, pointer, selected.err())
             };
-            if !verify_native {
-                if let Err(error) =
-                    startup::launch(app.handle(), data_root.clone(), initialize_backend)
-                {
-                    let message = format!("{}\n数据目录：{}", error.message, data_root.display());
-                    startup::fail_startup(
-                        app.handle(),
-                        backend::error::BackendError { message, ..error },
-                    );
-                }
-                return Ok(());
-            }
-            std::fs::create_dir_all(&data_root)
-                .map_err(|_| "cannot create the explicit verification directory")?;
-            let path = data_root.join("deep-tutor.db");
-            initialize_backend(app.handle(), &path)
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-            let state = app.state::<BackendState>();
             if verify_native {
-                let snapshot = state
+                startup::initialize(
+                    app.handle(),
+                    &data_root,
+                    &default_root,
+                    &pointer,
+                    configuration_error,
+                );
+            } else {
+                startup::initialize_background(
+                    app.handle(),
+                    &data_root,
+                    &default_root,
+                    &pointer,
+                    configuration_error,
+                );
+            }
+            if verify_native {
+                startup::ensure_ready(app.handle())
+                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+                let snapshot = app
+                    .state::<BackendState>()
                     .store
                     .lock()
                     .map_err(|_| -> Box<dyn std::error::Error> {
@@ -121,6 +73,11 @@ fn main() {
             Ok(())
         })
         .invoke_handler(security::guard_handler(tauri::generate_handler![
+            startup::commands::get_storage_overview,
+            startup::commands::retry_storage_initialization,
+            startup::commands::set_storage_location,
+            startup::commands::reset_storage_location,
+            startup::commands::restart_application,
             commands::bootstrap,
             commands::get_app_state,
             commands::get_collection,

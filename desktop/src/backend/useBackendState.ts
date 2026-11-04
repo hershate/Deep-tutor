@@ -102,7 +102,18 @@ export function useBackendState() {
       setStartupError('')
       setReady(false)
       armTimeout()
-      void backend.bootstrap().then(state => {
+      const bootstrap = async () => {
+        const deadline = Date.now() + 20000
+        for (;;) {
+          try { return await backend.bootstrap() }
+          catch (error) {
+            const code = (error as Partial<BackendError>)?.code
+            if (code !== 'startup_not_ready' || Date.now() >= deadline || !mounted.current || generation.current !== requestedGeneration) throw error
+            await new Promise(resolve => window.setTimeout(resolve, 250))
+          }
+        }
+      }
+      void bootstrap().then(state => {
         applySnapshot(state, requestedGeneration)
         return sync()
       }).then(() => {
