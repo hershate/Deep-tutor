@@ -16,6 +16,17 @@
 
 CI（.github/workflows/ci.yml）：PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端构建 → `cargo fmt --check` → 原生测试（同 --test-threads=1）→ NSIS 安装包 → 上传构件 `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
 
+```mermaid
+flowchart LR
+    A[PR 或手动触发] --> B[npm ci Node 24]
+    B --> C[npm run build tsc + vite]
+    C --> D[cargo fmt --check]
+    D --> E[cargo test --release --locked 串行]
+    E --> F[npm run tauri build NSIS]
+    F --> G[上传安装包构件 缺失即失败]
+    H[pre-push hook] --> I[make check = lint + test]
+```
+
 发布节奏证据：dist/ 下 1.0.0→1.0.4 五个安装包；版本号三处同步（package.json、tauri.conf.json、Cargo.toml 均为 1.0.4）。
 
 ## 2. 测试策略
@@ -50,13 +61,21 @@ flowchart TD
 
 ### 3.1 材料进入（Materials）
 决策链（materials/mod.rs:408-544）：
-```text
-路径 canonicalize 失败? → invalid_material
-非普通文件/空/ >50MB/扩展名不在 19 种白名单 → invalid_material
-魔数不符（PDF %PDF-、office PK\x03\x04、txt/md UTF-8 无 NUL、媒体签名）→ invalid_material
-sha256 已存在 → 返回 deduplicated=true（不重复占用配额）
-ensure_quota(materials) 超限 → quota_exceeded（未写入）
-全部通过 → 原件 originals/{sha256}.{kind} + status=staged + 事件
+
+```mermaid
+flowchart TD
+    A[导入文件 网页文本 ZIP 包] --> B{路径 canonicalize 成功且为普通文件?}
+    B -->|否| C[invalid_material]
+    B -->|是| D{非空 50MB 内 文件名 500B 内 扩展名 19 种白名单?}
+    D -->|否| C
+    D -->|是| E{魔数匹配? PDF office zip txt md 媒体签名}
+    E -->|否| C
+    E -->|是| F{sha256 已存在?}
+    F -->|是| G[deduplicated true 不占配额]
+    F -->|否| H{materials 配额内?}
+    H -->|否| I[quota_exceeded 未写入]
+    H -->|是| J[原件 originals 哈希命名 + staged + 事件]
+    J --> K[进入解析队列]
 ```
 
 ### 3.2 方案生成与采纳（Learning/Planning）
@@ -64,6 +83,39 @@ ensure_quota(materials) 超限 → quota_exceeded（未写入）
 - 采纳 `adopt_learning_plan`（learning/actions.rs:19）：幂等（已有 adoptions 直接返回）；创建 project + 每 `learning_plan_schedule_tasks` 一条 tasks 集合任务 + `plan.adopted`。
 - 目标修改 `update_learning_goal`（planning/mod.rs:431）：进入原生再生成（受 `regeneration_limit=2` 限制，actions.rs:147）；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
 - 强度调整 `apply_plan_intensity`（planning/mod.rs:313）：factor 稳妥 0.8/标准 1.0/冲刺 1.2（:259）；`round(m×target/current)` 下限 15 分钟（:271）——按比例避免往返切换累积缩放；乐观锁 preferences/tasks revision（:329-342）。
+
+方案生命周期：
+
+```mermaid
+flowchart TD
+    A[start_learning_plan 四源输入] --> B[八步流水线]
+    B --> C{status done 或 degraded?}
+    C -->|是| D[adopt_learning_plan 幂等]
+    D --> E[建 project + 每排期一条任务 + adoptions]
+    E --> F[讲义逐单元生成 版本递增]
+    F --> G{目标修改?}
+    G -->|是| H[regenerate 局部重跑 存旧版本 version 加 1 受上限 2 约束]
+    G -->|否| I{强度调整?}
+    H --> I
+    I -->|是| J[比例缩放 round m 乘 target 除 current 下限 15 分钟]
+    I -->|否| K[保持既有排期]
+    J --> L[同步 schedule entries 与 tasks duration 乐观锁 revision]
+```
+
+错题变式闭环：
+
+```mermaid
+flowchart TD
+    A[答错或未答] --> B[practice_mistakes upsert wrong_count 加一]
+    B --> C[以错题为源生成变式]
+    C --> D{源是真实错题 同 plan 同题型 且非 exam?}
+    D -->|否| E[拒绝]
+    D -->|是| F[prompt 追加改变情境不得复制]
+    F --> G[校验拒绝与原题相同 prompt]
+    G --> H{变式作答}
+    H -->|答对| I[原子置原错题 mastered 1 并记录变式题号]
+    H -->|答错| J[原错题 mastered 回 0 可再变式]
+```
 
 ### 3.3 练习与复习（Practice/Review）
 - 出题范围约束：nodeId 必须属于方案图谱、所选阶段且属变式 node_ids（practice/mod.rs:591-614）；生成 prompt 与题目校验均受该范围约束（:816-844）；恢复任务不扩大范围。
@@ -73,16 +125,75 @@ ensure_quota(materials) 超限 → quota_exceeded（未写入）
 ### 3.4 项目成果（Projects）
 提交 `submit_project_version`（projects/mod.rs:278）：content 1-100000B 无 NUL；可选材料须已解析；每项目单反馈任务（事务内复查 :313）；INSERT 'running' + **commit 后才 emit** `project.feedback_started`（:329-335）；量规由模型按概念应用/实现质量/验证与反思 0-100 评分（:443-448），`validate_feedback`（:351）限分≤100、summary≤6000、建议 1-5 条；不声称执行代码。恢复：completed_chat 为真直接重放 evaluate，否则 interrupted（:571-602）。迭代笔记写入真实 notes 集合（:607-648）。
 
+```mermaid
+flowchart TD
+    A[submit_project_version] --> B[content 1 到 100000B 无 NUL 可选材料已解析]
+    B --> C{该项目已有反馈任务?}
+    C -->|是| D[拒绝]
+    C -->|否| E[INSERT running 事务 commit 后才 emit started]
+    E --> F[线程 project-feedback-id]
+    F --> G[量规三分 0 到 100 prompt 2048 tokens]
+    G --> H{validate_feedback 分数与建议有效?}
+    H -->|是| I[done + feedback_json + completed 事件]
+    H -->|否| J[failed 不伪造评价]
+    I --> K[迭代想法写入真实 notes]
+    J --> L[用户 resume 或修改后重提]
+```
+
 ### 3.5 报告（Reports）
 只聚合真实记录：专注实际秒数（running 时实时推导 `now-started_at`，pause 冻结，resume 改写 started_at=now-actual 保持时钟连续，reports/mod.rs:226-244,394,417-420）；完成任务保留计划分钟并区分；掌握度来自 `learning_node_evidence` AVG；无证据不填示例趋势；建议采纳一次提交（:914）；CSV/报告导出经后端（:982）。
 
+专注会话时钟语义：
+
+```mermaid
+stateDiagram-v2
+    [*] --> running: start 60 到 14400 秒 单活跃
+    running --> paused: pause 冻结 actual_seconds 写 paused_at
+    paused --> running: resume started_at 改写为 now 减 actual
+    running --> completed: complete 落盘实际秒数
+    running --> cancelled: cancel
+```
+
 ### 3.6 知识库与 Wiki（Knowledge/Notes）
 - 问答 `ask_knowledge`（knowledge/mod.rs:454）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用双重校验**：material_id 必须在 scope 白名单（`citation_out_of_scope` :602）+ quote 必须能在资料原文 `text.find` 定位（`citation_mismatch` :182，得 char_start/char_end/line）；`UPDATE ... WHERE status='running'` 防取消后写入（:612-617）。
+
+引用双重校验：
+
+```mermaid
+flowchart TD
+    A[ask_knowledge 1 到 8 份已解析资料] --> B[每份截 16000 字符 标记 truncated]
+    B --> C[系统提示强约束只用提供资料]
+    C --> D[stream_chat 4096]
+    D --> E{answer 30000B 内? sufficient 则 citations 非空?}
+    E -->|否| F[校验失败]
+    E -->|是| G{material_id 在 scope 白名单?}
+    G -->|否| H[citation_out_of_scope]
+    G -->|是| I{text.find 定位 quote 原文}
+    I -->|找不到| J[citation_mismatch]
+    I -->|找到| K[落 char_start char_end line]
+    K --> L[UPDATE WHERE status running 防取消后写入]
+```
+
 - 知识关联：笔记↔节点映射只来自学习阶段批注（learning_annotations）；删除笔记同步清理（store.rs:517）。
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
 预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；前端轮询 `claim_community_reminders`（:832）逐条置 delivered_at 并发 `community.reminder_due`；取消预约/房间同步删提醒（:789-792,821-825）。
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant R as reserve 预约
+    participant RM as community_reminders
+    participant FE as 前端轮询
+    U->>R: 预约房间 scheduled 未过期 已入组
+    R->>RM: remind_at 为开始前 15 分钟与现在的较大值
+    FE->>RM: claim_community_reminders 轮询
+    RM-->>FE: 到期且未投递的提醒
+    RM->>RM: 逐条置 delivered_at
+    RM-->>FE: community.reminder_due 事件
+    Note over RM: 取消预约或房间同步删除提醒
+```
 
 ## 4. 数据生命周期工作流
 
@@ -120,6 +231,17 @@ flowchart LR
 | 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:49-127 |
 
 ## 6. 安全工作流
+
+密钥生命周期：
+
+```mermaid
+flowchart LR
+    A[一次性表单输入] --> B[keyring set 系统密钥库]
+    B --> C[库与日志仅出现 has_key 布尔]
+    C --> D[导出配置 reject_sensitive 拒绝凭据字段]
+    C --> E[同步上传载荷不含 apiKey 测试断言]
+    C --> F[重置时 purge_credentials 全量清除]
+```
 
 - 密钥流：一次性表单 → `CredentialBackend.set`（keyring）→ 库/日志/导出/同步只出现 `has_key` 布尔；导出配置 `reject_sensitive`（providers/sync_config.rs:30）拒绝凭据字段；上传载荷测试断言无 apiKey。
 - 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目（security/mod.rs:939-953,1004-1006）。

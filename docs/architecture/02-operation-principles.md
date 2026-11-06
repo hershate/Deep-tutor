@@ -27,6 +27,30 @@ sequenceDiagram
 3. 失败语义：初始化线程 panic 被 catch（:299-307）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts:88-97`）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` 仅在未运行且无 pending 时重新 `initialize`，`startup.rs:431-451`）、改目录（写 pointer 原子替换 `.tmp`+rename，:212-227）、恢复默认（只删 pointer 不动数据，:231-243）、立即重启。
 4. 命令可用性：未就绪时守卫 `ensure_ready`（`SEC/guard.rs:150`）对除存储外的命令返回 `startup_not_ready`，前端据此继续轮询。
 
+启动目录决策与失败出口：
+
+```mermaid
+flowchart TD
+    A[main 启动] --> B{verify-native 模式?}
+    B -->|是| C[要求 DEEPTUTOR_VERIFY_DATA_DIR 绝对路径]
+    C --> D[同步 initialize + bootstrap 断言 + exit 0]
+    B -->|否| E[读 storage-location.json]
+    E -->|缺失| F[回退 app_data_dir 默认目录]
+    E -->|损坏或版本不符| G[storage_config_invalid]
+    E -->|有效| H[validate + inspect 目录校验]
+    F --> I[initialize_background 后台线程]
+    G --> I
+    H --> I
+    I --> J{assemble 成功?}
+    J -->|是| K[recover 八模块 + 启动 sync 调度]
+    J -->|否| L[记录 failure 前端显示恢复面板]
+    L --> M{用户操作}
+    M -->|重试| I
+    M -->|修改目录| N[原子写 pointer 下次启动生效]
+    M -->|恢复默认| O[仅删 pointer 不动学习数据]
+    M -->|立即重启| P[app.restart]
+```
+
 ## 2. 数据库打开与 schema 指纹迁移
 
 `Store::open`（`store.rs:106-203`）每次打开：
@@ -38,6 +62,28 @@ sequenceDiagram
 
 各模块 migrate 均为幂等 `CREATE TABLE IF NOT EXISTS` + `PRAGMA table_info` 检测补列（如 providers/mod.rs:284-295、reports/mod.rs:197-199、practice/exams.rs:26-44）。
 
+打开决策链：
+
+```mermaid
+flowchart TD
+    A[Store::open root owner] --> B{owner 指定?}
+    B -->|无| C[路径等于根库]
+    B -->|有| D[users/id 工作区库]
+    C --> E{user 1 且旧根库存在且工作区不存在?}
+    E -->|是| F[wal_checkpoint FULL 后一次性复制]
+    E -->|否| G[打开目标库]
+    D --> G
+    F --> G
+    G --> H[WAL + foreign_keys + busy_timeout 10s]
+    H --> I{user_version 大于 1?}
+    I -->|是| J[unsupported_schema 拒绝降级]
+    I -->|否| K[建四张通用表]
+    K --> L{schema_fingerprint 与 meta 记录一致?}
+    L -->|一致| M[零迁移直接复用]
+    L -->|漂移| N[执行 15 个模块 migrate]
+    N --> O[回写新指纹]
+```
+
 ## 3. 事件系统与 Last-Event-ID 续接
 
 后端写路径（事务内 `Store::event` store.rs:408-421 → commit → `emit` backend/commands.rs:22-26）保证**终态先落盘再发送**。事件 id 由 events 表 AUTOINCREMENT 单调递增。
@@ -48,6 +94,25 @@ sequenceDiagram
 3. 触发点：bootstrap 后、窗口 focus/visibilitychange（:159-160）、`security.session_started` 全量重载（:131-141）。
 
 断线不重复执行的机制不在事件层，而在任务层：每个模型步骤持久化 `request_id`+`attempt`，恢复时 `providers::completed_chat` 为真则复用原请求结果不再调上游（见 §5）。
+
+写路径与前端追赶：
+
+```mermaid
+sequenceDiagram
+    participant CMD as 命令层
+    participant TX as 写事务
+    participant EV as events 表
+    participant PL as plugin_deliveries
+    participant FE as 前端
+    CMD->>TX: 开启 unchecked_transaction
+    TX->>EV: INSERT 事件 单调递增 id
+    TX->>PL: 同事务 dispatch 命中订阅的插件
+    TX-->>CMD: commit 终态已落盘
+    CMD->>FE: emit backend://event
+    FE->>FE: applySnapshot 校验 lastEventId 单调
+    FE->>CMD: events_since 每页 200 翻页追赶
+    FE->>CMD: get_app_state 全量校准快照
+```
 
 ## 4. 方案生成八步流水线（learning）
 
@@ -73,6 +138,26 @@ sequenceDiagram
 
 **断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:707 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:301,346）还原再执行未完成步骤。`begin_step`（L/mod.rs:655-668）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:456-473）与重启 `recover`（:903，running/cancelling → interrupted/cancelled）。
 
+八步流水线与分支：
+
+```mermaid
+flowchart TD
+    A[0 解析资料 sources] --> B[1 澄清意图 本地无模型]
+    B --> C[2 知识图谱 model_json]
+    C --> D[3 渐进阶段 stages_prompt]
+    D --> E[4 资源检索 web.search 3 条实抓]
+    E --> F[5 确定性排期 本地装箱]
+    F --> G[6 五维校验 模型 + 原生复核]
+    G --> H[7 方案落盘 finish_result]
+    H --> I{passed 且无警告?}
+    I -->|是| J[status done]
+    I -->|否| K[status degraded]
+    C -. 校验失败重试 2 次 .-> C
+    A -. 文本合计超 192KB .-> L[context_too_large]
+    E -. 拒绝或失败 .-> M[partial 或 unavailable 不虚构链接]
+    G -. 模型输出无效 .-> N[降级 unavailable_model 全部告警]
+```
+
 ## 5. 提供商调用、流式与取消
 
 直连链：`stream_provider_chat[_with_tools]`（P/commands.rs:81/107）→ `spawn_blocking` → `stream_chat_with_policy`（P/mod.rs:1071）：
@@ -85,6 +170,31 @@ sequenceDiagram
 
 取消：`cancel_provider_chat`（P/commands.rs:135）→ 路由层 `cancel_inner`（routing.rs:1109）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag（:1162）→ SSE 泵检测后以 `cancelled` 错误收尾。
 
+直连流式时序：
+
+```mermaid
+sequenceDiagram
+    participant C as stream_provider_chat
+    participant B as begin_chat
+    participant P as protocol 协议分派
+    participant H as HTTP SSE 上游
+    participant E as events 表
+    C->>B: INSERT provider_requests running
+    B->>B: 注册取消标志 Arc AtomicBool
+    B->>E: provider.chat_started
+    C->>P: stream_chat_with_policy
+    P->>H: POST 禁重定向 + DNS 固定公网
+    loop 每个 SSE 增量
+        H-->>P: delta 文本或思考
+        P->>E: provider.chat_delta 落库
+        P-->>C: emit 增量推前端
+        P->>P: chunk 超时窗口前后各查一次取消
+    end
+    P-->>C: StreamOutput 文本 usage 工具调用
+    C->>E: UPDATE done 或 cancelled 或 failed
+    C->>C: emit 终态事件
+```
+
 ## 6. 路由、聚合、故障转移与熔断
 
 `route_provider_chat`（P/commands.rs:182）→ `routing::stream_chat`（routing.rs:867）：
@@ -96,6 +206,42 @@ sequenceDiagram
 6. 全部不可用 → `all_providers_unavailable`（:1082）。
 
 熔断状态机（`provider_circuits.state`）：closed→open（failures≥3，:699-704）；open→half_open（冷却 60s 到期，:653）；half_open→closed（成功 :695）/→open（失败或重启恢复 :687-689,1267-1269）。
+
+路由候选循环：
+
+```mermaid
+flowchart TD
+    A[route_provider_chat] --> B[select 按 direct routing aggregate 选供应商]
+    B --> C{request_id 已有完成 attempt?}
+    C -->|是| D[幂等复用不重调]
+    C -->|否| E[ensure_budget 会话与日预算]
+    E --> F[INSERT route_runs + route_started]
+    F --> G[构造 failover 候选队列]
+    G --> H{还有候选?}
+    H -->|否| I[all_providers_unavailable]
+    H -->|是| J{circuit_permit 熔断许可?}
+    J -->|open 未到期| K[circuit_open 跳过该候选]
+    K --> H
+    J -->|closed 或 half_open| L[save_attempt + 调直连层]
+    L -->|成功| M[record_circuit 复位 closed]
+    M --> N[finish route_completed]
+    L -->|失败| O{can_failover 允许转移?}
+    O -->|是| P[record_circuit failures 加一]
+    P --> H
+    O -->|否| Q[finish route_failed]
+```
+
+熔断状态转换：
+
+```mermaid
+stateDiagram-v2
+    [*] --> closed
+    closed --> open: failures 大于等于 3
+    closed --> closed: 成功清零 failures
+    open --> half_open: 冷却 60s 到期 CAS
+    half_open --> closed: 试探成功
+    half_open --> open: 失败或重启恢复
+```
 
 用量：每次请求 usage_json 落 `provider_requests`；`overview`（usage.rs:314）聚合日/模型/会话口径；`export_csv` 防公式注入（:469）。
 
@@ -115,6 +261,45 @@ ZIP 资料包（archive.rs:125 `import_archive` → `read_archive` :19）：扩�
 
 媒体（media.rs）：`info`（:132）整读校验 SHA-256；`chunk`（:153）offset 合法 + ≤256KiB 分块读；路径约束 originals 目录内 + 拒绝符号链接（:105-121）。
 
+材料导入链：
+
+```mermaid
+flowchart TD
+    A[import_material_files 上限 32 个] --> B[validate_source]
+    B --> C{绝对路径 普通文件 非空 50MB 内 扩展名白名单?}
+    C -->|否| D[invalid_material]
+    C -->|是| E[魔数 validate_content]
+    E --> F[计算 SHA-256]
+    F --> G{sha256 已存在?}
+    G -->|是| H[deduplicated true 不占配额]
+    G -->|否| I[ensure_quota materials]
+    I -->|超限| J[quota_exceeded 未写入]
+    I -->|通过| K[原件写 originals 哈希名 + rename]
+    K --> L[事务 INSERT staged + material.staged 事件]
+```
+
+解析队列与单工作线程语义：
+
+```mermaid
+flowchart TD
+    A[enqueue] --> B{media 或 metadata_only?}
+    B -->|是| C[拒绝入队]
+    B -->|否| D{已有活跃 job?}
+    D -->|是| E[拒绝重复]
+    D -->|否| F[INSERT material_jobs queued + 事件]
+    F --> G{active 数量小于 1?}
+    G -->|否| H[留在队列等待]
+    G -->|是| I[spawn material-parse-id 线程]
+    I --> J[run_job: parsing 35 → 原件哈希复核 → parse → parsing 85]
+    J -->|成功| K[parsed 或 degraded 100 + UPSERT material_text]
+    J -->|失败| L[failed 或 cancelled]
+    J --> M[schedule_next: 先 spawn 下一个 queued 再移除自身]
+    N[cancel 请求] -->|排队中| O[直接置 cancelled]
+    N -->|运行中| P[置 flag + cancel_requested=1 → cancelling]
+    Q[重启 recover] -->|cancel_requested=1| R[置 cancelled]
+    Q -->|否则| S[回置 queued 重新 spawn]
+```
+
 ## 8. Agent 工具循环
 
 `send_agent_message`（agent/mod.rs:547）：
@@ -127,10 +312,57 @@ ZIP 资料包（archive.rs:125 `import_archive` → `read_archive` :19）：扩�
 工具目录（tools.rs:13-91）：workspace.list/read/write/edit、web.search/web.fetch（走 §9 抓取链）、memory.save/recall/delete、history.load/search、artifact.promote。写文件产物 `commit_artifact`（:258）：阶段/单元校验 → `lecture::validate_content` → `artifact_path`（:167，拒绝对对路径/父级/>6 层/非 json-md-txt/符号链接/越界）→ 原子写（tmp+previous 双 rename :218）→ `agent_artifacts`（expires_at=+24h）。
 审批：memory.save/delete、artifact.promote 产生 `agent_approvals('pending')`；`approve_agent_request`（:686）CAS pending→approved 执行——promote 校验 sha256 与阶段未漂移（:792-803），讲义须 done，整版本拷贝 `learning_lecture_units` 并推进版本（:823-831）。
 
+Agent 工具循环：
+
+```mermaid
+flowchart TD
+    A[send_agent_message] --> B{会话累计 output 超过 budget?}
+    B -->|是| C[拒绝]
+    B -->|否| D{同会话已有 running?}
+    D -->|是| E[拒绝]
+    D -->|否| F[Immediate 事务 INSERT run running]
+    F --> G[线程 agent-run-id]
+    G --> H{每轮检查: 取消 会话预算 usage 预算}
+    H --> I[begin_step 25 步上限 + 复用 completed_chat]
+    I --> J[routing stream_chat 任务 agent 携带 12 工具]
+    J --> K{返回 tool_calls?}
+    K -->|无| L[finish_run done]
+    K -->|有且不超过 8 个| M[tools execute 幂等登记]
+    M --> N{工具类别}
+    N -->|workspace 读写编辑| O[文件产物: 路径约束 + 原子写 + sha256 + 24h 过期]
+    N -->|web 检索抓取| P[走安全抓取链]
+    N -->|memory 或 promote| Q[生成 pending 审批]
+    Q --> R{用户 approve_agent_request}
+    R -->|批准| S[CAS pending 到 approved 执行]
+    R -->|拒绝| T[approval cancelled]
+    S -->|promote| U[校验 sha256 未漂移 + 拷贝讲义新版本]
+```
+
 ## 9. 网页检索与抓取（web/）
 
 - `search`（web/mod.rs:300）：query 1-300B、limit 1-5 → `https://html.duckduckgo.com/html/`（:61）→ `document`（:139）循环：`resolve`（:71）URL ≤900B、query 拒 token/secret 键、DNS `to_socket_addrs` 后拒绝非公网（`ssrf_blocked`，复用 providers::openai::public_address :122）→ 禁代理+禁重定向客户端 → 手工跟随重定向 ≤3 次逐次重校验（:139-181）→ Content-Type 白名单（:195）→ 非 UTF-8 拒（:204）→ 1MB 上限（:213,227）→ `html::parse` 提取结果（html.rs:216-242）→ `candidate_url` 展开 DDG 跳转（:279-296）→ 逐条 `fetch` 真实抓取后才标记 verified（mod.rs:335-337）。
 - `fetch`（:250）：`html::parse(body,false)` 剥脚本样式 → text/plain 保留原文 → 空拒 → `truncate` 256KB → sha256 内容哈希。
+
+抓取校验链：
+
+```mermaid
+flowchart TD
+    A[web.search query 1 到 300B limit 1 到 5] --> B[html.duckduckgo.com html 端点]
+    B --> C[document 逐 URL 处理]
+    C --> D{resolve: 长度 900B 内 无凭据键 DNS 解析为公网?}
+    D -->|否| E[ssrf_blocked]
+    D -->|是| F[禁代理 + 禁自动重定向 GET]
+    F --> G{重定向}
+    G -->|每跳重新校验 且最多 3 次| F
+    G -->|超过 3 次| H[拒绝]
+    G -->|最终响应| I{Content-Type 白名单? UTF-8? 1MB 内?}
+    I -->|否| J[拒绝]
+    I -->|是| K[html.parse 提取结果候选]
+    K --> L[candidate_url 展开 DDG 跳转参数]
+    L --> M[逐条 fetch 真实抓取]
+    M -->|抓取成功| N[verified true]
+    M -->|抓取失败| O[不标记不虚构]
+```
 
 ## 10. 判分与复习调度算法
 
@@ -144,6 +376,50 @@ ZIP 资料包（archive.rs:125 `import_archive` → `read_archive` :19）：扩�
 - 并发防护：条件 UPDATE 带 `due_at<=?8`，仅一行生效（:438-447，测试 :768）。
 - 证据映射：again/hard/good/easy = 0/0.6/0.8/1.0（:453-465）。
 
+判分分流：
+
+```mermaid
+flowchart TD
+    A[submit_practice_answer] --> B{exam 已截止?}
+    B -->|是| C[拒绝]
+    B -->|否| D{题型}
+    D -->|choice| E[选项下标合法且等于期望 → done]
+    D -->|fill| F[normalize 去空白小写后全等 → done]
+    D -->|short 或 essay| G[INSERT grading + 线程 practice-grade]
+    G --> H[题面 + 参考答案 + 量规 + 作答 prompt]
+    H --> I[stream_chat 4096]
+    I --> J[evaluate: 逐项 score 乘 points 求和 clamp]
+    J --> K[correct 为 score 不小于 0.8 → done]
+    E --> L[错题 upsert wrong_count 加一]
+    F --> L
+    K --> L
+    L --> M[写节点证据 practice-answer-id]
+    M --> N{变式答对?}
+    N -->|是| O[原错题 mastered 置 1]
+    N -->|否| P[保持]
+    M --> Q{非 exam 全部答完?}
+    Q -->|是| R[set completed]
+```
+
+复习评分调度：
+
+```mermaid
+flowchart TD
+    A[grade_review_card 四档] --> B{档位}
+    B -->|again| C[间隔 10 分钟 ease 减 0.2 下限 1.3 重置 repetitions]
+    B -->|hard 首轮| D[2 天]
+    B -->|good 首轮| E[5 天]
+    B -->|easy 首轮| F[12 天]
+    D --> G[后续 hard 为 prev 乘 1.2]
+    E --> H[后续 good 为 prev 乘 ease]
+    F --> I[后续 easy 为 prev 乘 ease 乘 1.3]
+    C --> J[条件 UPDATE due_at 小于等于 now 防并发双评]
+    G --> J
+    H --> J
+    I --> J
+    J --> K[证据分 again 0 hard 0.6 good 0.8 easy 1.0]
+```
+
 ## 11. 备份、分享、同步、运维
 
 - **导出**（backup/archive.rs:347）：停 sync → `.dtbackup` 扩展名校验 → RAII 临时目录 → `VACUUM INTO state.db` → 回填 local_users/security_quotas → `secure_delete=ON` 清三张敏感表再 VACUUM（:392-398）→ 收集三类文件（原件/插件清单/agent scratch 仅 json-md-txt）→ 写入前逐项哈希重验防 TOCTOU（:444-452）→ zip ≤2GB → `materials::atomic_export` + `backup.exported`。
@@ -152,7 +428,96 @@ ZIP 资料包（archive.rs:125 `import_archive` → `read_archive` :19）：扩�
 - **同步**（sync/）：上传 = `providers::export_config`（脱敏，无 apiKey，测试 sync/tests.rs:223-225）→ PUT 历史对象+当前对象 → GET 回读双双比对（`sync_verify_failed`）→ 版本保留：list（S3 list-type=2 / WebDAV PROPFIND）按时间倒序 skip(10) 删除，复查 remaining>10 → `sync_retention_failed`（versions.rs:206-218）。调度线程 1s tick/60s 检查，auto_sync 且距上次上传 ≥24h 触发（scheduler.rs:16-43）。凭据 WebDAV 密码/S3 密钥存 keyring，库中 sync_config 脱敏（mod.rs:249-296）。
 - **运维**（maintenance/）：`health` 读 PRAGMA integrity_check/foreign_key_check/journal_mode/page 统计/WAL 字节数（mod.rs:100-151）；孤儿扫描白名单=DB 记录的原件 + agent scratch + 有效插件清单 + 可识别临时目录（:210-346），缺失原件只报告；清理/VACUUM 前置 `OPERATION` 互斥 + 停全部任务 + 锁 store，结束必重启调度（commands.rs:39-73）。
 
+备份导出：
+
+```mermaid
+flowchart TD
+    A[export_full_backup] --> B[先停 sync]
+    B --> C[VACUUM INTO state.db 一致性快照]
+    C --> D[回填 local_users 与 security_quotas]
+    D --> E[secure_delete 清三张敏感表再 VACUUM]
+    E --> F[收集: 原件 插件清单 agent scratch 仅 json md txt]
+    F --> G[写入前逐项哈希重验 防 TOCTOU]
+    G --> H[zip manifest + state.db + files 上限 2GB]
+    H --> I[atomic_export 落盘 + backup.exported 事件]
+```
+
+备份导入（预演 + 追加）：
+
+```mermaid
+flowchart TD
+    A[import_full_backup] --> B[停全部子系统]
+    B --> C[open: 条目数 manifest 哈希 FK 完整性校验]
+    C --> D[schema 双端比对]
+    D --> E[prepare_ids: sha256 与 token_hash 复用 其余 MAX+1 或 imported-n]
+    E --> F[外键拓扑排序]
+    F --> G[transform 重写列与 json 内嵌 ID]
+    G --> H[单事务 import_rows + install_files hard_link]
+    H -->|失败| I[回滚 + 删除已装文件]
+    H -->|成功| J[各模块 recover + backup.imported appendOnly true]
+```
+
+分享创建与读取：
+
+```mermaid
+sequenceDiagram
+    participant O as 方案所有者
+    participant SP as shared_plans 用户库
+    participant IX as share_index 根库
+    participant R as 读取方
+    O->>SP: create 方案须 done 或 degraded 快照 2MB 内
+    O->>O: 令牌 dt_ 46 字符 只存 SHA-256
+    O->>IX: 登记哈希索引供定位
+    R->>SP: read_shared_plan token
+    alt 已登录
+        R->>SP: 本库 token_hash 定位
+    else 未登录
+        R->>IX: 哈希找 owner
+        R->>R: with_user 切库读取
+    end
+    Note over R,SP: 仍未命中则遍历 users 目录 上限 10000 并回填索引
+    R->>R: revoked 或 expired 一律 share_unavailable
+```
+
+同步上传与版本保留：
+
+```mermaid
+flowchart TD
+    A[start_sync_job upload] --> B[ACTIVE 单任务互斥]
+    B --> C[providers.export_config 脱敏无 apiKey]
+    C --> D[PUT versions 时间戳-id-sha256.json 历史对象]
+    D --> E[PUT 当前对象]
+    E --> F[GET 回读当前与历史 双双比对]
+    F -->|不一致| G[sync_verify_failed]
+    F -->|一致| H[list 远端版本 S3 或 WebDAV]
+    H --> I[按时间倒序 skip 10 逐个 DELETE]
+    I --> J{复查剩余不超过 10?}
+    J -->|否| K[sync_retention_failed]
+    J -->|是| L[done + sync.completed]
+```
+
 ## 12. 状态机汇总
+
+全部长任务实体共用同一生命周期模式（个别域多一个 ready/completed 或 degraded 业务态）：
+
+```mermaid
+stateDiagram-v2
+    [*] --> running: 启动任务 INSERT
+    running --> cancelling: cancel 置标志 + cancel_chat
+    cancelling --> cancelled: 上游确认取消
+    running --> done: 成功
+    running --> degraded: 成功但有警告
+    running --> failed: 错误或 panic
+    running --> interrupted: 重启 recover
+    cancelling --> interrupted: 重启 recover
+    interrupted --> running: resume 复用 completed_chat
+    failed --> running: resume
+    cancelled --> running: resume
+    done --> [*]
+    degraded --> [*]
+    failed --> [*]
+    cancelled --> [*]
+```
 
 | 实体（表.列） | 状态集 | 终态 | 恢复函数 |
 |---|---|---|---|
@@ -183,12 +548,75 @@ ZIP 资料包（archive.rs:125 `import_archive` → `read_archive` :19）：扩�
 - **SQLite 并发**：WAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send :576、resume :937）或条件 UPDATE（review grade :438）。
 - **停止协议**：`stop`/`stop_all` 置全部取消标志 + 取消全部上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:844、providers P/mod.rs:1246、materials M/mod.rs:106、agent :969、sync :818）；重置（reset_application，backend/commands.rs:82-110）先停五类任务，DB reset 成功后才删原件备份与凭据。
 
+停止协议：
+
+```mermaid
+flowchart TD
+    A[stop 或 stop_all] --> B[置全部 AtomicBool 取消标志]
+    B --> C[providers.cancel_chat 全部 running 请求]
+    C --> D[15 秒轮询等待 active map 清空]
+    D -->|清空| E[停止完成 返回]
+    D -->|超时| F[返回 后续命令仍受守卫与事务保护]
+```
+
+应用重置：
+
+```mermaid
+flowchart TD
+    A[reset_application] --> B[停五类任务 agent practice knowledge learning providers chats sync]
+    B --> C[materials.prepare_reset 备份原件清单]
+    C --> D[store.reset 单事务清 15 模块表 + kv + 种子默认偏好]
+    D -->|成功| E[finish_reset 删除原件 + purge 全部凭据 + 插件文件重置]
+    D -->|失败| F[恢复备份 不删原件与凭据]
+```
+
 ## 14. 前端运行原理要点
 
 - 启动：bootstrap 对 `startup_not_ready` 每 250ms 重试至 20s（useBackendState.ts:105-115）；认证错误码集合切 loginRequired（:6,78-83）。
 - 实时渲染：页面按事件 kind 前缀 + 业务 id 过滤后调用对应 get 命令刷新（如 PlanGenerator.tsx:95-110 `plan.*` → getLearningPlan；`provider.chat_delta` 按 requestId 命中后 getProviderChat 拉增量 :111-118）。
 - 媒体预览：MediaPlayer.tsx:19-36 `get_material_media_info` → 循环 `read_material_media_chunk(256KB)` → 拼 Blob → `crypto.subtle` SHA-256 与 info 比对 → objectURL 渲染，卸载 revoke。
 - 主题/无障碍：preferences 经 `replace_collection('preferences')` 持久化，App.tsx:135-138 同步 `data-theme/large-text/high-contrast/reduce-motion` 到 `<html>`。
+
+前端启动与实时流：
+
+```mermaid
+flowchart TD
+    A[bootstrap] --> B{startup_not_ready?}
+    B -->|是 每 250ms 重试 上限 20s| A
+    B -->|认证类错误码| C[loginRequired → SecurityPanel 选用户]
+    B -->|其他错误| D[startupError → DataDirectoryPanel 恢复面板]
+    B -->|成功| E[events_since 翻页追赶 + get_app_state 校准]
+    E --> F[listen backend://event]
+    F --> G{workspaceId 变化?}
+    G -->|是| H[游标归零 重新 bootstrap]
+    G -->|否| I[丢弃 lastEventId 回退事件 应用增量]
+    C --> J[登录成功 session_started]
+    J --> H
+    D --> K{用户操作}
+    K -->|重试| A
+    K -->|改目录或恢复默认| L[下次启动生效 或立即重启]
+```
+
+页面级实时消费（以方案生成页为例）：
+
+```mermaid
+sequenceDiagram
+    participant PG as PlanGenerator 页面
+    participant IN as invoke 命令
+    participant BE as Rust 后端
+    participant WS as 工作线程
+    PG->>IN: startLearningPlan
+    IN->>WS: 起流水线线程
+    loop 每个事件
+        WS->>BE: 事务落盘 plan 步骤事件
+        BE-->>PG: emit backend://event
+        PG->>PG: plan 前缀按 planId 匹配
+        PG->>IN: getLearningPlan 刷新步骤进度
+        PG->>IN: chat_delta 命中时 getProviderChat 拉增量
+    end
+    WS->>BE: 终态 done 或 degraded
+    BE-->>PG: 终态事件 页面切换结果视图
+```
 
 ## 15. 观察到的边界情况
 

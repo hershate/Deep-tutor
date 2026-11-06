@@ -99,12 +99,80 @@ graph TD
 
 `app_state()`（:378）输出聚合快照：四集合 + preferences + versions（六命名空间 revision）+ `workspaceId` + `lastEventId`，是前端单一真相源。
 
+双库结构：
+
+```mermaid
+graph LR
+    subgraph 根库 deep-tutor.db
+        LU[local_users 管理员或成员]
+        SQ[security_quotas]
+        AS[auth_sessions]
+        AT[access_tokens 仅 SHA-256]
+        SI[share_index]
+        LU --- SQ
+        AS --- LU
+        AT --- LU
+    end
+    subgraph 用户工作区库 users 目录每用户一份
+        GEN[kv meta revisions events 通用表]
+        DOM1[materials material_text material_jobs]
+        DOM2[learning_plans steps lectures evidence]
+        DOM3[practice_sets questions answers mistakes]
+        DOM4[agent_sessions runs tool_calls approvals]
+        DOM5[provider_profiles requests route_runs circuits]
+        DOM6[sync_jobs review_cards project_versions 等]
+        GEN --- DOM1
+        GEN --- DOM2
+        GEN --- DOM3
+        GEN --- DOM4
+        GEN --- DOM5
+        GEN --- DOM6
+    end
+    LU -. 首位用户一次性复制 .-> DOM2
+```
+
 user-1 旧库一次性复制：`open` 中 `owner==Some(1) && root!=path && root.exists() && !path.exists()` 时对根库 `wal_checkpoint(FULL)` 后 `fs::copy`（:120-126），此后根库只存账户表。
 
 ### 4.3 命令守卫与用户隔离（`security/`）
 
 - `guard_handler`（`guard.rs:132`）分层放行：5 个存储命令直通（:139）→ `ensure_ready`（:150）→ `login_local_user` 走 `switch()`（:153）→ 5 个免登录命令（:156-163）→ 其余命令在 `WORKSPACE_SWITCH` 读锁下 `with_user(user, handler)`（:172-183）。
+
+命令守卫判定顺序：
+
+```mermaid
+flowchart TD
+    A[前端 invoke 命令] --> B{属于 5 个存储命令?}
+    B -->|是| C[直通 Store 免登录]
+    B -->|否| D{ensure_ready 就绪?}
+    D -->|否| E[startup_not_ready]
+    D -->|是| F{命令是 login_local_user?}
+    F -->|是| G[switch 切换用户工作区]
+    F -->|否| H{属于 5 个免登录命令?}
+    H -->|是| I[直接执行 含只读分享]
+    H -->|否| J[取 WORKSPACE_SWITCH 读锁]
+    J --> K[current 验证 JWT 会话]
+    K -->|无效或过期| L[login_required 类错误]
+    K -->|有效| M[with_user 设置 thread-local principal]
+    M --> N[按用户工作区打开 Store]
+    N --> O[执行 handler]
+```
+
 - `switch()`（`guard.rs:49`）：停 7 个子系统（:20-28）→ 写锁内替换 `BackendState.store` 为目标用户库（:98-117）→ 执行 → 必要时回滚 → 重启 sync 调度（:82）。
+
+用户切换时序：
+
+```mermaid
+sequenceDiagram
+    participant G as guard switch
+    participant S as 七个子系统
+    participant B as BackendState
+    G->>S: stop 停全部活动任务
+    G->>G: 获取 WORKSPACE_SWITCH 写锁
+    G->>B: with_user 目标用户新建 Store 替换
+    G->>G: 执行 login handler
+    G->>B: 实际用户与目标不同则回滚 store
+    G->>S: 重启 sync 调度线程
+```
 - 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:99`）；thread-local `PRINCIPAL`（:31）由 `with_user` 设置，`ScopedBuilder::spawn`（:77-97）把 principal 继承到后台线程，`Store::new` 读它决定 owner（`store.rs:68`）。
 - 会话：JWT HS256 手写实现（签名 `security/mod.rs:470`，签发 `jwt()` :509，验证 `verify` :555 常量时间比对 :569），secret 与 session token 存系统密钥库（`session-{id}`，:630）；7 天有效期（`SESSION_SECONDS` :29）。
 - PAT：`random::token("dtp_")` 47 字符（`random.rs:64`，BCryptGenRandom），库中仅存 SHA-256（`mod.rs:1065`），明文只在创建响应出现一次。
