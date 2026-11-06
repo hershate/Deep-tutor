@@ -57,6 +57,7 @@ Deep-tutor/
 ├── note/                    # 当前产品决策与功能验收矩阵
 ├── plan/                    # 当前验证契约
 ├── .github/workflows/       # Tauri 2 无界面 CI
+├── .githooks/pre-push       # 推送前执行 make check
 ├── Makefile                 # 构建与检查入口
 ├── NOTICE                   # 来源与许可披露
 └── REF/                     # 用户提供的参考源，非交付目录
@@ -71,6 +72,7 @@ make lint                         # Rust 格式与 TypeScript/Vite 构建
 make test                         # 原生后端全量测试，串行执行
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包
+make hooks                        # 启用 .githooks/pre-push（推送前 make check）
 ```
 
 也可直接运行：
