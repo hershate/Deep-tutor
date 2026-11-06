@@ -35,6 +35,10 @@ fn main() {
                 (root, default_root, pointer, selected.err())
             };
             if verify_native {
+                app.handle()
+                    .manage(security::SecurityState::for_verification(
+                        &data_root.join("deep-tutor.db"),
+                    ));
                 startup::initialize(
                     app.handle(),
                     &data_root,

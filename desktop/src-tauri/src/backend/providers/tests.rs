@@ -1577,3 +1577,23 @@ fn ipc_failover_returns_the_backup_result_and_real_circuit_state() {
         .unwrap()
         .contains("ipc-failover-token"));
 }
+
+#[test]
+fn production_credential_store_persists_across_entries() {
+    // Same regression guard as the security module: provider API keys must
+    // survive across Entry instances in the real system credential store.
+    let id = format!("probe-{}", crate::backend::random::token("").unwrap());
+    let backend = SystemCredentials;
+    backend.set(&id, "probe-value").unwrap();
+    assert_eq!(
+        backend
+            .get(&id)
+            .unwrap()
+            .as_ref()
+            .map(|value| value.as_str()),
+        Some("probe-value"),
+        "credential store does not persist across entries"
+    );
+    backend.delete(&id).unwrap();
+    assert!(backend.get(&id).unwrap().is_none());
+}

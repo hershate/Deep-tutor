@@ -423,3 +423,24 @@ fn account_store_is_reused_across_session_checks() {
         "each session check must not reopen the account database"
     );
 }
+
+#[test]
+fn production_credential_store_persists_across_entries() {
+    // keyring 3.x falls back to a per-entry mock store when no platform
+    // feature is enabled; the session token would be lost on every write and
+    // each command would reissue a session.
+    let id = format!("probe-{}", crate::backend::random::token("").unwrap());
+    let backend = SystemCredentials(SERVICE);
+    backend.set(&id, "probe-value").unwrap();
+    assert_eq!(
+        backend
+            .get(&id)
+            .unwrap()
+            .as_ref()
+            .map(|value| value.as_str()),
+        Some("probe-value"),
+        "credential store does not persist across entries"
+    );
+    backend.delete(&id).unwrap();
+    assert!(backend.get(&id).unwrap().is_none());
+}

@@ -26,6 +26,7 @@ use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "deep-tutor-security";
+const VERIFICATION_SERVICE: &str = "deep-tutor-security-verify";
 const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
 
 thread_local! {
@@ -145,11 +146,11 @@ trait CredentialBackend: Send + Sync {
     fn delete(&self, id: &str) -> Result<()>;
 }
 
-struct SystemCredentials;
+struct SystemCredentials(&'static str);
 
 impl CredentialBackend for SystemCredentials {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>> {
-        let entry = keyring::Entry::new(SERVICE, id)
+        let entry = keyring::Entry::new(self.0, id)
             .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?;
         match entry.get_password() {
             Ok(value) => Ok(Some(Zeroizing::new(value))),
@@ -159,14 +160,14 @@ impl CredentialBackend for SystemCredentials {
     }
 
     fn set(&self, id: &str, value: &str) -> Result<()> {
-        keyring::Entry::new(SERVICE, id)
+        keyring::Entry::new(self.0, id)
             .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?
             .set_password(value)
             .map_err(|_| BackendError::new("credential_error", "无法写入系统密钥库"))
     }
 
     fn delete(&self, id: &str) -> Result<()> {
-        match keyring::Entry::new(SERVICE, id)
+        match keyring::Entry::new(self.0, id)
             .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?
             .delete_credential()
         {
@@ -237,7 +238,19 @@ impl SecurityState {
     pub fn new(path: &Path) -> Self {
         Self {
             database_path: path.to_path_buf(),
-            credentials: Arc::new(SystemCredentials),
+            credentials: Arc::new(SystemCredentials(SERVICE)),
+            connection: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(test)]
+            _guard: None,
+        }
+    }
+
+    /// Verification runs get their own credential service so `--verify-native`
+    /// never overwrites the daily JWT secret or session tokens.
+    pub fn for_verification(path: &Path) -> Self {
+        Self {
+            database_path: path.to_path_buf(),
+            credentials: Arc::new(SystemCredentials(VERIFICATION_SERVICE)),
             connection: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             _guard: None,
