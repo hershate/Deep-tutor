@@ -7,23 +7,13 @@
 
 # User data and reference source, never treated as build inputs to delete
 /data/
-/backend/data/
 /REF
 
 # Local tools and historical runtime state
 .claude/
-.reasonix/
 .idea/
 .vscode/
 .codegraph/
-
-# Python-era caches retained only to avoid accidental re-use
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/
-.ruff_cache/
-.uv-cache/
 
 # JavaScript and Rust build outputs
 node_modules/
@@ -33,7 +23,6 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 *.tsbuildinfo
 /dist/
-/bin/
 
 # OS and test artifacts
 .DS_Store
