@@ -1,0 +1,32 @@
+# Deep-tutor 架构文档
+
+**分析基准**：main 分支 commit `cf2cb36c`（2026-11-06）
+**分析范围**：`desktop/`（Tauri 2 应用全量：Rust 后端 47,367 行 / 112 文件 + React 前端 6,202 行 / 60 文件）
+**分析模式**：全量静态分析，未运行应用
+
+## 项目快照
+
+- **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
+- **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 5
+- **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
+- **规模**：190 个 Tauri 命令、22 个后端域模块、16 个页面、24 个前端客户端文件
+- **CI**：GitHub Actions windows-latest（fmt + 前端构建 + 原生测试串行 + NSIS 安装包）
+- **分支**：main（单线演进，细粒度中文提交）
+
+## 文档目录
+
+| 文档 | 内容 |
+|---|---|
+| [01 架构分析](01-architecture.md) | 分层与模块清单、横切层（错误/存储/守卫/事件）、各域数据结构与 SQLite 表、模块依赖图、前端架构、命令注册总览 |
+| [02 运行原理](02-operation-principles.md) | 启动序列、schema 指纹迁移、事件与 Last-Event-ID、八步方案流水线、提供商流式与路由熔断、材料解析队列、Agent 工具循环、判分与复习算法、状态机汇总、并发模型 |
+| [03 工作流分析](03-workflow.md) | 构建/CI/测试策略、学习闭环业务流与决策链、数据生命周期、异常恢复矩阵、安全工作流、页面×命令矩阵 |
+
+## 核心发现
+
+1. **单进程全原生**：WebView 零业务逻辑，全部 I/O（SQLite/文件/HTTP/密钥库）在 Rust 侧执行；前端唯一事件通道 `backend://event` 与命令名和注册表完全一致。
+2. **统一任务生命周期**：11 类长任务实体共用同一模式——SQLite status 列 + AtomicBool 取消注册表 + `providers::completed_chat` 请求复用 + 重启 `recover`（running→interrupted、cancelling→cancelled、不自动重跑）。
+3. **终态先落盘再发送**：所有事件经 `Store::event` 在写事务内进 outbox 表，commit 后才 emit；断线续接靠 `events_since` 分页追赶 + 任务层请求复用，不重复执行或计费。
+4. **安全以结构 enforcement**：SSRF/DNS pin/重定向逐跳校验、密钥仅入 keyring、备份 secure_delete 排除凭据、分享令牌只存哈希、配额提交前强制——均可在具体函数定位。
+5. **算法可定位**：八步流水线（learning/pipeline.rs:428）、SM-2 简化调度（review/mod.rs:419-435）、贪心排期（learning/validate.rs:206）、BFS 补学路径（learning/knowledge.rs:115）、熔断状态机（providers/routing.rs:626-714）。
+
+本次按约定未生成 AI 替代方案与 Skill 蓝图。
