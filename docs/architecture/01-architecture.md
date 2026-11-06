@@ -245,8 +245,8 @@ graph TD
     SHARING[sharing] --> LEARNING
     SYNC[sync] --> PROVIDERS
     SYNC --> LEARNING
-    BACKUP[backup] --> 全部 recover
-    MAINT[maintenance] --> 各 stop
+    BACKUP[backup 编排全部模块 recover] -.-> STORE
+    MAINT[maintenance 停各模块任务并锁 store] -.-> STORE
     WEB --> MATERIALS
     EXPORT[export] --> LEARNING
     EXPORT --> REVIEW
