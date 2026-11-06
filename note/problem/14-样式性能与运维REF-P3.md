@@ -1,4 +1,4 @@
-# P3 样式性能、插件运维与 REF 盘点问题（22 项）
+# P3 样式性能、插件运维与 REF 盘点问题（26 项）
 
 第五轮对 styles.css 全量、前端性能/资产、plugins/maintenance/notes 内部、
 REF/ 参考源的审计发现。验证通过未列入：styles 选择器同属性覆盖冲突（零）、
