@@ -2,7 +2,8 @@
 
 ## Current delivery
 
-- The only deliverable is the Tauri 2 desktop installer built from `REF/frontend/app`.
+- The only deliverable is the Tauri 2 desktop installer built from `desktop/`; its UI
+  originates from the user-supplied `REF/frontend/app`.
 - Generated installation, Start Menu and installer names use ASCII `DeepTutor`. Keep the Chinese
   interface brand and the `com.deeptutor.workspace` identifier unchanged so existing data stays put.
 - Browser SPA, Electron, `frontend-next`, Python/Go backends, web startup scripts
@@ -52,7 +53,9 @@
 - Do not install test software or packages without need. Reuse existing project and F-drive caches.
 - Run affected build and tests before committing. Do not claim completion with red tests,
   missing implementation or unverified native behavior.
-- Commits are fine-grained, Chinese, and carry no co-author. Do not push.
+- Work happens on `main`; the `refactor/reasonix` branch is retired. Commits are
+  fine-grained, Chinese, and carry no co-author. Do not push proactively; the user
+  decides pushes and releases.
   Describe behavior, verification and remaining limits in the commit description.
 
 ## Sensitive host checks
