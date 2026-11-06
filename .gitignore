@@ -7,7 +7,12 @@
 
 # User data and reference source, never treated as build inputs to delete
 /data/
+/backend/data/
 /REF
+
+# Old Python-era pytest cache with a broken ACL: cannot be opened or deleted
+# without elevation; ignore it until it is removed manually.
+.pytest_cache/
 
 # Local tools and historical runtime state
 .claude/
