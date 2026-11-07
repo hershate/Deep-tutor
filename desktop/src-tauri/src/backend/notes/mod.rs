@@ -66,9 +66,9 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
                     line.is_empty()
                         || line.split_once(':').is_some_and(|(key, _)| {
                             !key.is_empty()
-                                && key
-                                    .chars()
-                                    .all(|character| character.is_ascii_lowercase() || character == '-')
+                                && key.chars().all(|character| {
+                                    character.is_ascii_lowercase() || character == '-'
+                                })
                         })
                 });
             let mut matched = false;

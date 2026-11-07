@@ -422,11 +422,16 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
 // 27#3：ensure_budget 改为 SQL 聚合（budget_spend），原内存版 known_spend 移除
 
 enum BudgetScope {
-    Daily { shift: String, today: String },
+    Daily {
+        shift: String,
+        today: String,
+    },
     // 31#1：会话口径直接携带 session_id——请求 id 按 run_id 命名（agent-{run}-…），
     // session_id 与 run_id 是两张独立自增表，原先按 agent-{session}-* GLOB
     /// 匹配几乎恒空：护栏从不拦截、撞号时跨会话错账
-    Session { session_id: i64 },
+    Session {
+        session_id: i64,
+    },
 }
 
 /// 27#3：预算聚合下推 SQL——原实现把 provider_requests 全表读入内存（每行

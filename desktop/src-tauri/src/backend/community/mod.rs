@@ -243,8 +243,8 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     // Z 形态；无法解析的行保持原样（到期判定走 parse_time 不受影响）
     {
         let rooms: Vec<(i64, String)> = {
-            let mut statement =
-                conn.prepare("SELECT id, start_at FROM community_rooms WHERE start_at NOT LIKE '%Z'")?;
+            let mut statement = conn
+                .prepare("SELECT id, start_at FROM community_rooms WHERE start_at NOT LIKE '%Z'")?;
             let rows = statement
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -260,8 +260,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             }
         }
         let reminders: Vec<(i64, String)> = {
-            let mut statement = conn
-                .prepare("SELECT id, remind_at FROM community_reminders WHERE remind_at NOT LIKE '%Z'")?;
+            let mut statement = conn.prepare(
+                "SELECT id, remind_at FROM community_reminders WHERE remind_at NOT LIKE '%Z'",
+            )?;
             let rows = statement
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;

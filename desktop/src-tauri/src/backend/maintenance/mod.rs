@@ -210,8 +210,7 @@ const IN_FLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(24 *
 // 31#3：测试注入的宽限覆盖——Some(d) 时以 d 判定，用于把刚写入的临时件
 // 立即移出宽限，避免测试操纵文件 mtime（std 无稳定写 mtime API）
 #[cfg(test)]
-static GRACE_OVERRIDE: std::sync::Mutex<Option<std::time::Duration>> =
-    std::sync::Mutex::new(None);
+static GRACE_OVERRIDE: std::sync::Mutex<Option<std::time::Duration>> = std::sync::Mutex::new(None);
 
 fn in_flight_grace() -> std::time::Duration {
     #[cfg(test)]

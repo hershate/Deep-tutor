@@ -228,9 +228,7 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
             // 前缀断裂（会话预算 GLOB 聚合失配、历史输出重复计费）。按内容签名
             // 找回目标中已存在的同一逻辑请求，映射到既有 id 交给 global_conflict
             // 跳过；目标同名行内容不同（真正的独立请求）才改写 imported-N
-            if *table == "provider_requests"
-                && exists(target, table, &primary.name, &original)?
-            {
+            if *table == "provider_requests" && exists(target, table, &primary.name, &original)? {
                 let matched: Option<String> = target
                     .query_row(
                         "SELECT request_id FROM provider_requests WHERE model IS ?1 AND created_at IS ?2 AND finish_reason IS ?3 AND attempts IS ?4 AND latency_ms IS ?5 AND status IS ?6 LIMIT 1",
@@ -680,7 +678,9 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     "agent_session_id" => Some("agent_sessions"),
                     // 31#8：主键=外键的两张练习子表——主键随题目映射重写，
                     // 否则按本表自编号后撞「缺少记录」整单失败或静默挂错题
-                    "question_id" if table == "practice_mistakes" || table == "practice_bookmarks" => {
+                    "question_id"
+                        if table == "practice_mistakes" || table == "practice_bookmarks" =>
+                    {
                         Some("practice_questions")
                     }
                     "runId" => Some("agent_runs"),
@@ -999,9 +999,7 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
     // 31#8：主键=外键的练习子表按题目键跳过（题目已映射为目标 id，
     // 目标已有该题的错题/收藏即先前导入过，保留目标侧行）
     if table == "practice_mistakes" || table == "practice_bookmarks" {
-        let question = row
-            .get("question_id")
-            .ok_or_else(invalid_record)?;
+        let question = row.get("question_id").ok_or_else(invalid_record)?;
         return exists(tx, table, "question_id", question);
     }
     // 31#43：同一 request_id 已存在 = 同一逻辑请求（追加导入幂等跳过）

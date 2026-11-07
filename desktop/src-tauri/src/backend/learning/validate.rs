@@ -33,8 +33,7 @@ pub fn validate_graph(graph: &Graph, sources: &[Source]) -> Result<()> {
             || !node.id.bytes().enumerate().all(|(index, byte)| {
                 // 31#21：'-' 与数字只允许出现在首字母之后——原先首字符也放行
                 // '-'，'-…' 甚至全 '-' 节点可通过并进入 GLOB/前缀匹配
-                byte.is_ascii_lowercase()
-                    || (index > 0 && (byte == b'-' || byte.is_ascii_digit()))
+                byte.is_ascii_lowercase() || (index > 0 && (byte == b'-' || byte.is_ascii_digit()))
             })
         {
             return Err(BackendError::new(

@@ -1286,7 +1286,9 @@ pub fn authenticate_token<R: Runtime>(
         }
         issue(app, state, user_id, &store)
     })??;
-    with_user(user_id, || super::sync::scheduler::start_scheduler(app.clone()));
+    with_user(user_id, || {
+        super::sync::scheduler::start_scheduler(app.clone())
+    });
     user(&store.conn, user_id, user_id)
 }
 
