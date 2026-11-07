@@ -29,7 +29,7 @@ export default function DataDirectoryPanel() {
     setError('')
     setMessage('')
     try { apply(await operation()) }
-    catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+    catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause, 'write') }
     finally { setBusy('') }
   }
   const choose = async () => {

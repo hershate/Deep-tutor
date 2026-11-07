@@ -132,7 +132,7 @@ export default function Community({ notify }: { notify: (message: string) => voi
     } catch (error) {
       // 29#1：列表滞后时重复点"取消预约"，not_reserved/room_not_available 表示
       // 目标已被另一操作正常处理，刷新即可，不弹错误
-      if (!isCancelRace(error)) reportBackendError(error)
+      if (!isCancelRace(error)) reportBackendError(error, 'write')
     }
   }
   const cancelRoom = async (id: number) => {

@@ -71,7 +71,7 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
       const result = await reportsBackend.adopt(ids, period)
       notify(result.focus ? '已根据建议开始真实专注计时' : `已按真实建议加入 ${result.added} 项任务`)
       await refresh()
-    } catch (error) { reportBackendError(error) } finally { setBusy('') }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy('') }
   }
   const metrics = report?.metrics
   const difference = metrics && metrics.previousFocusSeconds > 0 ? (metrics.focusSeconds - metrics.previousFocusSeconds) / metrics.previousFocusSeconds : null

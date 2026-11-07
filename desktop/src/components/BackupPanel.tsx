@@ -25,7 +25,7 @@ export default function BackupPanel({ onImport, counts, notify }: { onImport: (p
       notify(result.missingFiles.length
         ? `已保存全量备份：${result.records} 条记录、${result.files} 个文件；另有 ${result.missingFiles.length} 个已缺失文件被跳过`
         : `已保存全量备份：${result.records} 条记录、${result.files} 个文件`)
-    } catch (error) { reportBackendError(error) } finally { setBusy('') }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy('') }
   }
   const chooseBackup = async () => {
     setBusy('preview')

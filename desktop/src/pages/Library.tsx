@@ -146,7 +146,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       const errors = outcomes.flatMap(item => item.error ? [item.error] : [])
       if (errors.length) notify(`${staged} 份已暂存，${duplicates} 份去重，${skipped} 个不支持条目已跳过，${errors.length} 份失败：${errors[0].message}`)
       else notify(`${staged} 份原件已暂存，${duplicates} 份已去重，${skipped} 个不支持条目已跳过`)
-    } catch (error) { reportBackendError(error) } finally { setImporting(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setImporting(false) }
   }
   const openMaterial = async (id: number) => {
     if (openingMaterial !== null) return
@@ -163,7 +163,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       const result = await backend.enqueueMaterialParse(id)
       setActiveMaterial(current => current?.id === id ? { ...current, ...result.material } : current)
       notify('原生解析任务已登记，进度将由后端实时推送')
-    } catch (error) { reportBackendError(error) } finally { setMaterialBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setMaterialBusy(false) }
   }
   const cancelParse = async (id: number) => {
     setMaterialBusy(true)
@@ -279,7 +279,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       if (!path) return
       const imported = await onImportNotes(path)
       notify(`已由原生后端追加 ${imported} 条笔记，原有内容未覆盖`)
-    } catch (error) { reportBackendError(error) } finally { setImporting(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setImporting(false) }
   }
   return <div className="page library-page">
     <div className="page-heading"><div><h1>笔记与 Wiki</h1><p>自由笔记、原始资料与可核验的库内引用问答。</p></div><div className="heading-actions">{tab === '笔记' && <Button variant="secondary" disabled={importing} onClick={() => { void importNotes() }}><FileArchive size={17} />{importing ? '正在导入…' : '批量导入'}</Button>}{tab === '笔记' ? <Button onClick={() => openNote()}><NotebookPen size={18} />新建笔记</Button> : <Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={18} />{importing ? '正在导入…' : '导入资料'}</Button>}</div></div>

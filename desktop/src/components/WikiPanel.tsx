@@ -104,7 +104,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
       if (currentId.current === id) { currentId.current = null; setCurrent(null) }
       await refresh()
       notify('这条真实问答历史已删除')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   // 20#5：清空问答历史不可恢复——补确认
   const [clearOpen, setClearOpen] = useState(false)
@@ -113,7 +113,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
       await knowledgeBackend.clearHistory()
       currentId.current = null; setCurrent(null); setSessions([])
       notify('Wiki 历史已由原生后端清空')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
   }
   const search = async () => {
     if (searching || !query.trim()) return

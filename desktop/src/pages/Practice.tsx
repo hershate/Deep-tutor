@@ -172,7 +172,7 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
       await practiceBackend.masterMistake(item.questionId, !item.mastered)
       setMistakes(await practiceBackend.mistakes())
       notify(item.mastered ? '已恢复为待巩固' : '已保存手动掌握标记')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const generateVariant = async (item: PracticeMistake) => {
     if (busy) return
@@ -189,7 +189,7 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
       }))
       await refresh()
       notify('已根据真实错题创建变式生成任务')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const selectHistory = async (id: number) => {
     try { chooseSet(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }

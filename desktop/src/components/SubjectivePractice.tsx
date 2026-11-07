@@ -106,7 +106,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     try {
       onUpdated(await practiceBackend.resumeAnswer(answer.id))
       notify('已从保存的作答恢复评分')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const generate = async () => {
     if (busy || !input.planId) return
@@ -115,7 +115,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       onGenerated(await practiceBackend.generate(input))
       setSetupOpen(false)
       notify('简答题与论述题正在由真实模型生成')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const selectSet = async (id: number) => {
     try { onGenerated(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }

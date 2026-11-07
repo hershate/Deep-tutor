@@ -81,7 +81,7 @@ export default function Settings({ preferences, setPreferences, onImport, counts
       setDraft(next)
       setProfileOpen(true)
       notify('已记录新的诊断开始时间，现有学习记录未删除')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const editDraft = <K extends keyof LearningProfile>(key: K, value: LearningProfile[K]) => {
     if (draft) setDraft({ ...draft, [key]: value })
@@ -104,7 +104,7 @@ export default function Settings({ preferences, setPreferences, onImport, counts
       <section className="surface setting-section" id="setting-4"><SectionHeader title="隐私、备份与数据" description="管理本地数据位置，导出当前已接入的数据，预览追加导入及其覆盖面。" /><DataDirectoryPanel /><BackupPanel onImport={onImport} counts={counts} notify={notify} /><div className="data-actions"><Button variant="ghost" onClick={() => setResetOpen(true)}><Trash2 size={17} />清除本地学习数据</Button></div><div className="privacy-line"><ShieldCheck size={16} />本地状态由 Tauri 原生后端保存，不使用浏览器存储充当数据库。</div></section>
       <section className="surface setting-section" id="setting-5"><SectionHeader title="成员与访问安全" description="多用户、个人访问令牌、资源配额与认证链管理。" /><SecurityPanel notify={notify} /></section>
     </main></div>
-    <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="清除本地学习数据？"><div className="confirm-dialog"><p>这会清空任务、笔记、资料、项目、草稿并恢复默认偏好。此操作无法撤销，建议先导出备份。</p><div><Button variant="secondary" onClick={() => setResetOpen(false)}>取消</Button><Button onClick={() => { void onReset().then(() => setResetOpen(false)).catch(reportBackendError) }}>确认清除</Button></div></div></Modal>
+    <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="清除本地学习数据？"><div className="confirm-dialog"><p>这会清空任务、笔记、资料、项目、草稿并恢复默认偏好。此操作无法撤销，建议先导出备份。</p><div><Button variant="secondary" onClick={() => setResetOpen(false)}>取消</Button><Button onClick={() => { void onReset().then(() => setResetOpen(false)).catch((error: unknown) => reportBackendError(error, 'write')) }}>确认清除</Button></div></div></Modal>
     <Modal open={profileOpen && Boolean(draft)} onClose={() => setProfileOpen(false)} title="编辑个人学习档案">{draft && <div className="form-stack"><label>显示名称<input value={draft.name} onChange={event => editDraft('name', clampToBytes(event.target.value, 80))} /></label><label>学习者描述<input value={draft.role} onChange={event => editDraft('role', clampToBytes(event.target.value, 100))} placeholder="例如：自学者" /></label><label>学习目标<input value={draft.goal} onChange={event => editDraft('goal', clampToBytes(event.target.value, 200))} placeholder="例如：计算机考研" /></label><label>语言偏好<select value={draft.language} onChange={event => editDraft('language', event.target.value)}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select><p className="form-help">界面文本暂仅提供中文；此偏好保存在学习档案中。</p></label><label>每周可投入<select value={draft.weeklyHours} onChange={event => editDraft('weeklyHours', Number(event.target.value))}><option value={8}>8 小时</option><option value={15}>15 小时</option><option value={25}>25 小时</option></select></label><label>偏好学习方式<select value={draft.learningStyle} onChange={event => editDraft('learningStyle', event.target.value)}>{learningStyles.map(style => <option key={style}>{style}</option>)}</select></label><div className="modal-callout"><Brain size={17} />重新诊断只记录新的开始时间，不会删除已有计划、笔记、练习或复习记录。</div><Button disabled={busy || !draft.name.trim()} onClick={() => void saveProfile(draft, true)}>{busy ? '正在保存…' : '保存学习档案'}</Button></div>}</Modal>
   </div>
 }

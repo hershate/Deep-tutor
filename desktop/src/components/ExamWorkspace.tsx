@@ -132,7 +132,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       onUpdated(await practiceBackend.detail(exam.set.id))
       setSelected(null); setDraft('')
       notify('答案已保存，交卷后统一显示反馈')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   // 28#11：交卷不可逆（未作答按 0 分计并写入证据）——确认后再执行
   const [finalizeOpen, setFinalizeOpen] = useState(false)
@@ -143,7 +143,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       const result = await practiceBackend.submitExam(exam.set.id)
       onUpdated(result)
       notify(`已交卷，实际得分 ${result.set.score ?? '—'} / ${result.set.maxScore ?? '—'}`)
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const cancelAnswer = async () => {
     if (!answer) return
