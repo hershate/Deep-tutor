@@ -364,3 +364,46 @@ fn invalid_model_scores_never_become_learning_evidence() {
     assert_eq!(server.request_count(), calls + 1);
     assert!(mistakes(&state).unwrap().is_empty());
 }
+
+#[test]
+fn hints_mode_subjective_wrong_answer_stays_out_of_mistakes() {
+    // 23#2：hints 模式承诺「只给提示不显示答案」——主观题判低分时总体反馈
+    // 文本是答案信号，不得写入错题本（原实现只守卫客观题路径，主观 reason
+    // 是完整模型反馈，会经错题本与错题变式提示词两个旁路泄露）
+    let (app, state, _server, plan_id) = prepare();
+    let generated = generate_subjectives(&app, &state, &plan_id, "hints");
+    let question = &generated.questions[0];
+    subjective::submit(
+        app.handle(),
+        &state,
+        generated.set.id,
+        question.id,
+        json!("不知道"),
+    )
+    .unwrap();
+    // hints 模式下 detail() 遮蔽已完成作答（03#2 口径，仅 pending 可见），
+    // 等待终态直接查库
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status: String = state
+            .store()
+            .unwrap()
+            .conn
+            .query_row(
+                "SELECT status FROM practice_answers WHERE question_id = ?1",
+                params![question.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if status == "done" || status == "failed" {
+            assert_eq!(status, "done");
+            break;
+        }
+        assert!(Instant::now() < deadline, "主观评分未在限时内结束（{status}）");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        mistakes(&state).unwrap().is_empty(),
+        "hints 模式主观题错答不得进入错题本"
+    );
+}

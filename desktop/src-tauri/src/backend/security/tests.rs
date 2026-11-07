@@ -489,6 +489,14 @@ impl Drop for ProbeGuard {
     }
 }
 
+/// 26#1：真实 keyring 探针的执行状态——静默跳过会让"181 全绿"在没有
+/// keyring 的主机上零覆盖真实凭据链路；跳过必须可见，且整个套件至少
+/// 有一次真实执行或显式记录跳过
+pub(crate) static KEYRING_PROBE_RAN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+pub(crate) static KEYRING_PROBE_SKIPPED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[test]
 fn production_credential_store_persists_across_entries() {
     // keyring 3.x falls back to a per-entry mock store when no platform
@@ -499,8 +507,10 @@ fn production_credential_store_persists_across_entries() {
     let backend = SystemCredentials(SERVICE);
     if backend.set(&id, "probe-value").is_err() {
         eprintln!("skipped: 宿主环境没有可用系统密钥库");
+        KEYRING_PROBE_SKIPPED.store(true, std::sync::atomic::Ordering::Release);
         return;
     }
+    KEYRING_PROBE_RAN.store(true, std::sync::atomic::Ordering::Release);
     let _guard = ProbeGuard { id: id.clone() };
     assert_eq!(
         backend
@@ -513,4 +523,59 @@ fn production_credential_store_persists_across_entries() {
     );
     drop(_guard);
     assert!(backend.get(&id).unwrap().is_none());
+}
+
+#[test]
+fn zzz_keyring_probe_status_is_recorded() {
+    // 26#1：串行执行下按名称排序收口探针状态——运行输出必须能看出
+    // 真实 keyring 链路是否被覆盖；未执行也未标记跳过说明探针接线断裂
+    let ran = KEYRING_PROBE_RAN.load(std::sync::atomic::Ordering::Acquire);
+    let skipped = KEYRING_PROBE_SKIPPED.load(std::sync::atomic::Ordering::Acquire);
+    assert!(
+        ran || skipped,
+        "keyring 探针既未执行也未标记跳过：探针接线断裂"
+    );
+    if skipped {
+        eprintln!("KEYRING 探针在本机跳过（无可用系统密钥库）：真实 keyring set/get/delete 链路在本机零覆盖");
+    } else {
+        eprintln!("KEYRING 探针已真实执行：真实系统密钥库 set/get/delete 链路有覆盖");
+    }
+}
+
+#[test]
+fn logout_revokes_all_sessions_of_the_user() {
+    // 23#6：登录用户1 → 切换用户2 → 登出。只撤最新一条时，下一条受守卫
+    // 命令会命中用户1 仍有效的旧会话并以他人身份静默续用；登出必须撤销
+    // 该用户全部会话
+    let (app, state) = setup();
+    ipc(&app, "login_local_user", json!({"userId": 1})).unwrap();
+    let created = ipc(
+        &app,
+        "create_local_user",
+        json!({"name": "第二用户", "role": "成员"}),
+    )
+    .unwrap();
+    let second = created["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["name"] == "第二用户")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    ipc(&app, "login_local_user", json!({"userId": second})).unwrap();
+    ipc(&app, "logout_local_user", json!({})).unwrap();
+    let store = state.store().unwrap();
+    let remaining: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "登出后不得残留任何未撤销会话（含切换前的旧会话）"
+    );
 }

@@ -1023,3 +1023,58 @@ fn web_tools_use_real_http_persist_results_and_replay_without_another_request() 
     assert_eq!(failed["status"], "failed");
     assert_eq!(failed["error"]["code"], "invalid_web_url");
 }
+
+#[test]
+fn history_replay_trims_dangling_tool_calls_and_orphan_tool_messages() {
+    // 23#9：取消/超限中断的运行会留下"assistant.tool_calls 无完整对应
+    // tool 回复"的悬挂历史——OpenAI 系端点对这类请求返回 400，resume 永久
+    // 卡死；重放前必须修剪为自洽序列
+    let (app, state) = setup();
+    // 直接落会话行：本测试只关心消息历史的修剪，不走需要已采用方案的
+    // new_session 校验
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES ('悬挂历史会话', 'plan-1', 'p1', 16000, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_runs (session_id, status, steps, created_at, updated_at) VALUES (1, 'cancelled', 1, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let created_id = 1_i64;
+    // assistant 声明两个调用，只落了一条 tool 回复（另一个悬挂）；
+    // 再补一条孤儿 tool 回复（无对应声明）
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'assistant', '正文', '', ?2, NULL, NULL, 0, ?3)",
+        params![created_id, r#"[{"id":"call-a","name":"web.search","arguments":"{}"},{"id":"call-b","name":"web.search","arguments":"{}"}]"#, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'tool', '调用A结果', '', NULL, 'call-a', 'web.search', 0, ?2)",
+        params![created_id, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'tool', '孤儿回复', '', NULL, 'call-z', 'web.search', 0, ?2)",
+        params![created_id, timestamp],
+    ).unwrap();
+    let session = get(&state, &created_id.to_string()).unwrap();
+    let replay = history(&session).unwrap();
+    // 悬挂的 call-b 不声明、孤儿 call-z 不发送、call-a 保持配对
+    let assistant = replay.iter().find(|message| message.role == "assistant").unwrap();
+    let calls = assistant.tool_calls.as_ref().expect("配对完整的调用应保留");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].function.name, "web.search");
+    assert_eq!(calls[0].id, "call-a");
+    let tools: Vec<_> = replay.iter().filter(|message| message.role == "tool").collect();
+    assert_eq!(tools.len(), 1, "孤儿 tool 回复必须被修剪");
+    assert_eq!(tools[0].tool_call_id.as_deref(), Some("call-a"));
+}

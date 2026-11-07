@@ -1,4 +1,4 @@
-use super::super::security::{principal_id, with_principal};
+use super::super::security::{session_principal, with_principal};
 use super::super::{error::Result, BackendState};
 use super::{
     active, deep_link, delete, export_config, list, set_active, test, upsert, ChatMessage,
@@ -24,10 +24,10 @@ pub async fn upsert_provider_profile<R: Runtime>(
     input: ProfileInput,
 ) -> Result<ProviderProfile> {
     let state = state.providers.shared();
-    // 23#7：spawn_blocking 线程不继承 guard 在 IPC 线程设置的 thread-local
-    // principal——在此捕获并显式传播，否则 Store::new 会 fail-open 落到
-    // user1 工作区，把其他用户的档案/密钥/请求写进 user1 的库
-    let principal = principal_id();
+    // 23#7：async 命令体运行在 tokio worker（respond_async spawn），
+    // guard 在 IPC 线程设置的 thread-local principal 不可见——从会话派生
+    // 当前用户再显式传播进阻塞线程，否则 Store::new 会打开错误的工作区
+    let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || upsert(&app, &state, input))
     })
@@ -77,8 +77,8 @@ pub async fn test_provider<R: Runtime>(
     real_request: bool,
 ) -> Result<ProviderTestResult> {
     let state = state.providers.shared();
-    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
-    let principal = principal_id();
+    // 23#7：同 upsert——会话派生 principal 随闭包显式传播到阻塞线程
+    let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || test(&app, &state, &id, real_request))
     })
@@ -98,8 +98,8 @@ pub async fn stream_provider_chat<R: Runtime>(
     max_tokens: u32,
 ) -> Result<super::ProviderRequest> {
     let state = state.providers.shared();
-    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
-    let principal = principal_id();
+    // 23#7：同 upsert——会话派生 principal 随闭包显式传播到阻塞线程
+    let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
             super::stream_chat(
@@ -178,8 +178,8 @@ pub async fn route_provider_chat<R: Runtime>(
     tools: Option<Vec<super::tools::ToolDefinition>>,
 ) -> Result<super::ProviderRequest> {
     let state = state.providers.shared();
-    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
-    let principal = principal_id();
+    // 23#7：同 upsert——会话派生 principal 随闭包显式传播到阻塞线程
+    let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
             super::routing::stream_chat(

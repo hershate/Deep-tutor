@@ -180,9 +180,8 @@ fn locate(source: &Scope, quote: &str) -> Result<KnowledgeCitation> {
             "引用长度须为 1 到 1000 字",
         ));
     }
-    let (byte_start, byte_end) = find_ignoring_case(&source.text, quote).ok_or_else(|| {
-        BackendError::new("citation_mismatch", "引用无法在所选资料原文中定位")
-    })?;
+    let (byte_start, byte_end) = find_ignoring_case(&source.text, quote)
+        .ok_or_else(|| BackendError::new("citation_mismatch", "引用无法在所选资料原文中定位"))?;
     let matched = &source.text[byte_start..byte_end];
     let char_start = source.text[..byte_start].chars().count();
     let line = source.text[..byte_start]
@@ -326,7 +325,8 @@ fn find_ignoring_case(haystack: &str, needle: &str) -> Option<(usize, usize)> {
         let mut end = offset;
         let matched = needle.iter().all(|expected| {
             window.next().is_some_and(|(index, actual)| {
-                end = index + actual.len_utf8();
+                // index 相对 haystack[offset..]，须补回 offset 才是绝对字节位
+                end = offset + index + actual.len_utf8();
                 actual.to_lowercase().eq(expected.to_lowercase())
             })
         });

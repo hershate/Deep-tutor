@@ -35,7 +35,6 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::import_provider_deep_link,
             crate::backend::providers::commands::test_provider,
             crate::backend::providers::commands::stream_provider_chat,
-            crate::backend::providers::commands::stream_provider_chat_with_tools,
             crate::backend::providers::commands::cancel_provider_chat,
             crate::backend::providers::commands::get_provider_chat,
             crate::backend::providers::commands::get_routing_settings,
@@ -625,11 +624,14 @@ fn ipc_tool_calls_are_persisted_and_can_be_read_back() {
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
+    // 21#2：stream_provider_chat_with_tools 已并入 route_provider_chat
+    //（tools 参数化）——经由保留下来的唯一入口验证工具调用的 IPC 持久化
     let result = ipc(
         &window,
-        "stream_provider_chat_with_tools",
+        "route_provider_chat",
         json!({
-            "requestId": "tool-call-1", "profileId": profile.id, "maxTokens": 64,
+            "requestId": "tool-call-1", "task": "agent", "profileId": profile.id,
+            "model": null, "maxTokens": 64,
             "messages": [{"role": "user", "content": "读取学习偏好"}],
             "tools": [{"type": "function", "function": {"name": "memory.recall", "description": "读取已批准记忆", "parameters": {"type": "object"}}}],
         }),
@@ -1639,8 +1641,13 @@ fn production_credential_store_persists_across_entries() {
     let backend = SystemCredentials;
     if backend.set(&id, "probe-value").is_err() {
         eprintln!("skipped: 宿主环境没有可用系统密钥库");
+        // 26#1：跳过状态对齐 security 域探针（本域不重复置 RAN）
+        crate::backend::security::tests::KEYRING_PROBE_SKIPPED
+            .store(true, std::sync::atomic::Ordering::Release);
         return;
     }
+    crate::backend::security::tests::KEYRING_PROBE_RAN
+        .store(true, std::sync::atomic::Ordering::Release);
     let _guard = ProbeGuard { id: id.clone() };
     assert_eq!(
         backend

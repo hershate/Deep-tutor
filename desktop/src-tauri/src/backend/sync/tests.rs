@@ -159,7 +159,7 @@ fn request_body(request: &str) -> &str {
 
 #[test]
 fn webdav_upload_download_import_and_terminal_events_are_real() {
-    let _lock = TEST_LOCK.lock().unwrap();
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let _reset = ResetDefer;
     let uploaded = Arc::new(Mutex::new(String::new()));
     let remote = uploaded.clone();
@@ -264,7 +264,7 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
 
 #[test]
 fn s3_signs_real_requests_and_hmac_matches_the_standard_vector() {
-    let _lock = TEST_LOCK.lock().unwrap();
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let _reset = ResetDefer;
     assert_eq!(
         transport::hmac(b"key", b"The quick brown fox jumps over the lazy dog")
@@ -355,7 +355,7 @@ fn s3_signs_real_requests_and_hmac_matches_the_standard_vector() {
 
 #[test]
 fn invalid_remote_secrets_and_cancelled_jobs_never_claim_success() {
-    let _lock = TEST_LOCK.lock().unwrap();
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let _reset = ResetDefer;
     let server = server(|_, stream| {
         response(
@@ -401,7 +401,7 @@ fn invalid_remote_secrets_and_cancelled_jobs_never_claim_success() {
 
 #[test]
 fn remote_hash_mismatch_is_a_failed_sync_not_a_success() {
-    let _lock = TEST_LOCK.lock().unwrap();
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let _reset = ResetDefer;
     let server = server(|request, stream| {
         if request.starts_with("PUT ") {

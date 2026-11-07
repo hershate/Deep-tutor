@@ -39,6 +39,8 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             crate::backend::materials::commands::import_material_text,
             crate::backend::materials::commands::list_materials,
             commands::get_security_overview,
+            crate::backend::providers::commands::list_provider_profiles,
+            crate::backend::providers::commands::upsert_provider_profile,
             commands::create_local_user,
             commands::login_local_user,
             commands::set_security_quota,
@@ -211,4 +213,70 @@ fn expired_session_offers_login_then_switches_workspace() {
         .as_array()
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn async_commands_derive_principal_from_session_not_thread_local() {
+    // 23#7：tauri 把 async 命令体 spawn 到 tokio worker，guard 在 IPC 线程
+    // 设置的 thread-local principal 到不了那里——命令必须从会话派生当前
+    // 用户；曾 fail-open 落回 user1 工作区把 user2 的档案写进别人的库
+    let (app, learning) = setup();
+    let created = ipc(
+        &app,
+        "create_local_user",
+        json!({"name": "第二用户", "role": "成员"}),
+    )
+    .unwrap();
+    let second = created["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["name"] == "第二用户")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    ipc(&app, "login_local_user", json!({"userId": second})).unwrap();
+    let profile = ipc(
+        &app,
+        "upsert_provider_profile",
+        json!({"input": {
+            "name": "user2 档案", "kind": "本地模型", "protocol": "OpenAI Chat",
+            "baseUrl": "http://127.0.0.1:1", "defaultModel": "m", "models": ["m"]
+        }}),
+    )
+    .unwrap();
+    let profile_id = profile["id"].as_str().unwrap().to_string();
+    let user2 =
+        crate::backend::store::Store::at_user(learning.database_path().to_path_buf(), second)
+            .unwrap();
+    let in_user2: i64 = user2
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM provider_profiles WHERE name = 'user2 档案'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(in_user2, 1, "user2 的档案必须写入 user2 工作区");
+    let user1 =
+        crate::backend::store::Store::at_user(learning.database_path().to_path_buf(), 1).unwrap();
+    let in_user1: i64 = user1
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM provider_profiles WHERE name = 'user2 档案'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(in_user1, 0, "user1 工作区不得出现 user2 的档案");
+    // 同步读命令在 guard 的 with_user(second) 下应列出该档案
+    let listed = ipc(&app, "list_provider_profiles", json!({})).unwrap();
+    assert!(
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"].as_str() == Some(&profile_id)),
+        "user2 视角的列表必须包含其档案"
+    );
 }

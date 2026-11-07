@@ -148,7 +148,12 @@ fn ipc_shares_real_immutable_snapshots_and_revokes_after_commit() {
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    assert_eq!(hash, token_hash(token));
+    // 26#2：期望值独立重算 SHA-256——原先直接调用被测实现 token_hash，
+    // 实现退化为恒等函数（明文入库）时该断言仍然通过
+    use sha2::Digest;
+    let expected = format!("{:x}", sha2::Sha256::digest(token.as_bytes()));
+    assert_eq!(hash, expected);
+    assert_ne!(hash, *token, "哈希不得等于明文");
     store
         .conn
         .execute(

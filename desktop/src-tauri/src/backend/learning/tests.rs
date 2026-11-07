@@ -196,10 +196,30 @@ fn model_server(material_id: i64, cyclic: bool) -> TestServer {
 }
 
 fn wait_terminal(state: &LearningState, id: &str) -> Plan {
+    wait_plan(state, id, true)
+}
+
+/// 26#6：成功路径用 wait_terminal——failed 终态立即带根因失败，原先静默
+/// 返回会让后续断言在错误前提下间接失败，诊断离根因更远；
+/// expect_failure 供依赖环等"以 failed 为正确结局"的用例取回终态自行断言
+fn wait_plan(state: &LearningState, id: &str, expect_failure: bool) -> Plan {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let plan = get(state, id).unwrap();
         if !["running", "cancelling"].contains(&plan.status.as_str()) {
+            if plan.status == "failed" && !expect_failure {
+                panic!(
+                    "学习生成 failed（{}：{}）",
+                    plan.error
+                        .as_ref()
+                        .map(|error| error.code.as_str())
+                        .unwrap_or("?"),
+                    plan.error
+                        .as_ref()
+                        .map(|error| error.message.as_str())
+                        .unwrap_or("?")
+                );
+            }
             return plan;
         }
         assert!(Instant::now() < deadline, "学习生成未在限时内结束");
@@ -275,7 +295,7 @@ fn dependency_cycles_fail_instead_of_fabricating_a_valid_plan() {
     let server = model_server(material_id, true);
     configure_provider(&app, &state, &server.url());
     let started = start(app.handle(), &state, input(material_id)).unwrap();
-    let plan = wait_terminal(&state, &started.id);
+    let plan = wait_plan(&state, &started.id, true);
     assert_eq!(plan.status, "failed");
     assert_eq!(
         plan.error.as_ref().unwrap().code,

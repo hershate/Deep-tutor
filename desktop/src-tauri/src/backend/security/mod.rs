@@ -4,7 +4,8 @@ pub use guard::guard_handler;
 #[cfg(test)]
 mod guard_tests;
 #[cfg(test)]
-mod tests;
+// tests 需被 providers 探针共享 keyring 状态标记（26#1）
+pub(crate) mod tests;
 #[cfg(test)]
 mod workspace_tests;
 
@@ -21,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use zeroize::Zeroizing;
 
@@ -66,6 +67,17 @@ pub(crate) fn with_principal<T>(user_id: Option<i64>, operation: impl FnOnce() -
 
 pub(crate) fn with_user<T>(user_id: i64, operation: impl FnOnce() -> T) -> T {
     with_principal(Some(user_id), operation)
+}
+
+/// 23#7：tauri 把 async 命令体 spawn 到 tokio worker（ipc respond_async），
+/// guard 在 IPC 线程设置的 thread-local principal 到不了那里——此类命令
+/// 改由会话派生当前用户（与 guard 的 current() 同源，线程无关）。
+/// 未装配 SecurityState 的测试直连环境退回 thread-local（生产不走到）。
+pub(crate) fn session_principal<R: Runtime>(app: &AppHandle<R>) -> Result<Option<i64>> {
+    match app.try_state::<SecurityState>() {
+        Some(security) => Ok(Some(initialize(app, &security)?.0.id)),
+        None => Ok(principal_id()),
+    }
 }
 
 pub(crate) struct ScopedBuilder(std::thread::Builder);
@@ -635,6 +647,32 @@ fn issue<R: Runtime>(
     store: &Store,
 ) -> Result<SessionView> {
     active_user(&store.conn, user_id)?;
+    // 23#6：签发新会话前撤销全部仍活跃的旧会话（本机同一时刻只保留一个
+    // 活动会话）——否则"登录用户1 → 切换用户2 → 登出"后 current() 会命中
+    // 用户1 的旧会话，以他人身份静默续用；凭据槽一并清理
+    {
+        let retired: Vec<String> = {
+            let mut statement = store
+                .conn
+                .prepare("SELECT id FROM auth_sessions WHERE revoked_at IS NULL")?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            rows
+        };
+        if !retired.is_empty() {
+            let tx = store.conn.unchecked_transaction()?;
+            tx.execute(
+                "UPDATE auth_sessions SET revoked_at = ?1 WHERE revoked_at IS NULL",
+                params![timestamp(now()?)?],
+            )?;
+            tx.commit()?;
+            for id in retired {
+                let _ = state.credentials.delete(&format!("session-{id}"));
+            }
+        }
+    }
     let issued = OffsetDateTime::from_unix_timestamp(now()?.unix_timestamp())
         .map_err(|_| BackendError::new("invalid_time", "无法建立会话时间"))?;
     let expires = issued + Duration::seconds(SESSION_SECONDS);
@@ -937,9 +975,9 @@ pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<(
     // 23#6：撤销该用户全部会话——只撤最新一条时，"登录用户1 → 切换用户2 →
     // 登出"后 current() 会命中用户1 仍有效的旧会话，以他人身份静默续用
     let active_sessions: Vec<String> = {
-        let mut statement = store.conn.prepare(
-            "SELECT id FROM auth_sessions WHERE user_id = ?1 AND revoked_at IS NULL",
-        )?;
+        let mut statement = store
+            .conn
+            .prepare("SELECT id FROM auth_sessions WHERE user_id = ?1 AND revoked_at IS NULL")?;
         let rows = statement
             .query_map(params![user.id], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;

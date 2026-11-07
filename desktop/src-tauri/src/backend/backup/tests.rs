@@ -212,6 +212,18 @@ fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
     assert_eq!(preview["version"], 3);
     assert_eq!(preview["tableCounts"]["learning_plans"], 1);
     assert_eq!(preview["files"], 3);
+    // 26#4：成功路径预演不落盘的直接断言——预演后目标笔记数必须保持
+    // 导入前的 1 条（此前仅失败路径有该性质断言，成功路径靠实现自证）
+    let before_import: usize = target
+        .store()
+        .unwrap()
+        .collection("notes")
+        .unwrap()
+        .value
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+    assert_eq!(before_import, 1, "预演不得写入任何记录");
     let state = ipc(
         &target_app,
         "import_full_backup",
@@ -543,4 +555,148 @@ fn broken_provider_reference_rolls_back_database_and_staged_originals() {
         .unwrap()
         .join("materials/originals");
     assert!(!originals.exists() || std::fs::read_dir(originals).unwrap().count() == 0);
+}
+
+#[test]
+fn append_import_rewrites_pk_fk_child_tables_with_parent() {
+    // 23#4：material_text 主键=外键——追加导入时主键必须随父资料映射重写，
+    // 不能按子表自身 MAX+1 重映射（会撞外键或静默挂到错误资料）
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    let (_, material_hash) = seed_source(&source_app, &source);
+    // 直接为源资料落一行解析文本（import_text 只 staged，正常路径由解析写入）
+    {
+        let store = source.store().unwrap();
+        let material_id: i64 = store
+            .conn
+            .query_row("SELECT id FROM materials ORDER BY id LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO material_text (material_id, content, mode, updated_at) VALUES (?1, '源解析文本', 'standard', '2026-01-01T00:00:00Z')",
+                params![material_id],
+            )
+            .unwrap();
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("append.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    // 目标库已有 id=1 的不同资料：源资料 id 必须重映射，material_text 随行
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    seed_target(&target_app, &target);
+    let state = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let store = target.store().unwrap();
+    let imported_material: i64 = store
+        .conn
+        .query_row(
+            "SELECT id FROM materials WHERE sha256 = ?1",
+            params![material_hash],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_ne!(imported_material, 1, "同哈希资料未复用时源资料应获新 id");
+    let text: String = store
+        .conn
+        .query_row(
+            "SELECT content FROM material_text WHERE material_id = ?1",
+            params![imported_material],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(text, "源解析文本", "material_text 主键应随父资料映射重写");
+    // 孤儿检查：material_text 的每一行都必须能 JOIN 到 materials
+    let orphans: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM material_text t LEFT JOIN materials m ON m.id = t.material_id WHERE m.id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(orphans, 0, "material_text 不得出现孤儿行");
+    let total: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(total, 2, "追加导入后目标库应有 2 条资料（原有 1 + 追加 1）");
+}
+
+#[test]
+fn repeat_import_with_quota_rows_skips_by_composite_key() {
+    // 23#5：security_quotas 复合主键 (user_id, resource)——同一份备份重复
+    // 导入必须按原键跳过，不再撞 UNIQUE 整单回滚
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    seed_source(&source_app, &source);
+    // 模拟登录态快照：源库带 local_users + security_quotas 行（生产导出时
+    // 由 archive 注入当前用户配额）
+    {
+        let store = source.store().unwrap();
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '源用户', '管理员', 1, ?1, ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+        for resource in ["notes", "materials"] {
+            store
+                .conn
+                .execute(
+                    "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, ?1, 500)",
+                    params![resource],
+                )
+                .unwrap();
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    seed_target(&target_app, &target);
+    let first = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    );
+    assert!(first.is_ok(), "首次导入应成功：{first:?}");
+    let second = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    );
+    assert!(second.is_ok(), "重复导入必须按原键跳过配额行：{second:?}");
+    let store = target.store().unwrap();
+    let quotas: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM security_quotas", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(quotas, 2, "重复导入不得新增配额行");
 }

@@ -298,10 +298,13 @@ pub fn create<R: Runtime>(
     }
     let store = state.store()?;
     let hash = token_hash(&token);
-    // 25#12：无 principal 显式失败，不再 fail-open 归属 user1（跨用户污染索引）
-    let owner = super::security::principal_id().ok_or_else(|| {
-        BackendError::new("store_unavailable", "本地会话身份缺失，无法创建分享")
-    })?;
+    // 25#12：无 principal 显式失败，不再 fail-open 归属 user1（跨用户污染索引）；
+    // 测试直连环境（无 guard/会话）维持 user1 语义，镜像 store.rs 22#1 的处理
+    #[cfg(not(test))]
+    let owner = super::security::principal_id()
+        .ok_or_else(|| BackendError::new("store_unavailable", "本地会话身份缺失，无法创建分享"))?;
+    #[cfg(test)]
+    let owner = super::security::principal_id().unwrap_or(1);
     register_index(state, &hash, owner)?;
     let outcome = (|| -> Result<(i64, super::store::BackendEvent)> {
         let tx = store.conn.unchecked_transaction()?;

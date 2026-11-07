@@ -432,7 +432,7 @@ fn map_plain(value: &Value, target: &str, maps: &IdMap) -> Result<Value> {
         .ok_or_else(|| {
             BackendError::new(
                 "invalid_backup_reference",
-                &format!("备份关联目标 {target} 缺少记录"),
+                &format!("备份关联目标 {target} 缺少记录 {key:?}"),
             )
         })?;
     if target == "provider_profiles" && value.is_string() {
@@ -980,10 +980,7 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
             // 23#4：material_text 主键随父资料映射——父资料按同哈希复用目标侧
             // 已有记录时，目标侧已持有该资料的解析文本，跳过避免撞主键
             if *table == "material_text" {
-                let original = row
-                    .get("material_id")
-                    .cloned()
-                    .ok_or_else(invalid_record)?;
+                let original = row.get("material_id").cloned().ok_or_else(invalid_record)?;
                 if transfer
                     .reused
                     .contains(&format!("materials:{}", key(&original)?))
@@ -1160,13 +1157,15 @@ pub fn dry_run(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    // stage_files 只写入备份临时工作区（RAII 随 OpenBackup 清理），
-    // 目标文件系统仅读校验；插件清单校验也在这里完成
-    stage_files(&mut transfer, backup, &root)?;
     let tx = store.conn.unchecked_transaction()?;
     // 25#14：与 import 同步——ID 分配在事务内执行，预演与真实导入的
     // 冲突判定保持同一套时序
     prepare_ids(&mut transfer, &tx)?;
+    // stage_files 只写入备份临时工作区（RAII 随 OpenBackup 清理），
+    // 目标文件系统仅读校验；插件清单校验也在这里完成。
+    // 必须在 prepare_ids 之后：plugins/<id>/manifest.json 的目标路径
+    // 要按重映射后的插件 id 落位（提前执行会拿空映射报缺少记录）
+    stage_files(&mut transfer, backup, &root)?;
     let ordered = order(&transfer, &tx)?;
     import_rows(&mut transfer, &tx, &ordered)?;
     tx.rollback()?;
@@ -1187,7 +1186,7 @@ pub fn import(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    let staged = stage_files(&mut transfer, backup, &root)?;
+    let mut staged = Vec::new();
     let mut installed = Vec::new();
     let outcome = (|| {
         // 25#14：ID 冲突分配与依赖排序放进 IMMEDIATE 事务——原实现在
@@ -1198,6 +1197,10 @@ pub fn import(
             rusqlite::TransactionBehavior::Immediate,
         )?;
         prepare_ids(&mut transfer, &tx)?;
+        // stage_files 须在 prepare_ids 之后：插件清单目标路径按重映射后
+        // 的插件 id 落位（提前执行会拿空映射报缺少记录）；staged 只写
+        // 备份临时工作区，失败由 OpenBackup RAII 清理
+        staged = stage_files(&mut transfer, backup, &root)?;
         let ordered = order(&transfer, &tx)?;
         import_rows(&mut transfer, &tx, &ordered)?;
         installed = install_files(&root, &staged)?;
