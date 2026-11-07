@@ -360,7 +360,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .calendar-event { display: grid; gap: 3px; min-height: 84px; padding: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); text-align: left; transition: transform .16s ease, border-color .16s ease; }
 .calendar-event:hover { transform: translateY(-2px); border-color: var(--accent); }
 .calendar-event span { font-size: 12px; color: var(--muted); }
-.calendar-event strong { font-size: 12px; line-height: 1.45; }
+.calendar-event strong { font-size: 12px; line-height: 1.5; }
 .calendar-event small { width: fit-content; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
 .event-复习 { border-color: var(--warning); }
 .event-项目 { border-color: var(--info); }
@@ -431,7 +431,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .term-grid p { margin: 6px 0 0; font-size: .8em; }
 .worked-example { margin: 24px 0; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .example-head { display: flex; align-items: center; gap: 10px; }
-.example-head span { padding: 3px 7px; border-radius: 5px; background: var(--accent); color: var(--surface); font-size: .7em; }
+.example-head span { padding: 3px 7px; border-radius: 5px; background: var(--accent); color: var(--surface); font-size: .75em; }
 .example-head strong { font-size: .9em; }
 .worked-example ol { padding-left: 20px; color: var(--text-secondary); font-size: .85em; }
 .worked-example p { margin-bottom: 0; font-size: .85em; }
