@@ -16,7 +16,8 @@ export default function Community({ notify }: { notify: (message: string) => voi
   const [modal, setModal] = useState<'post' | 'group' | 'room' | null>(null)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState<number | null>(null)
-  const [reply, setReply] = useState('')
+  // 回复草稿按帖子分桶（09#3）：全页单一 state 会把帖 A 的半截草稿发给帖 B
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({})
   const [rulesOpen, setRulesOpen] = useState(false)
   const [postTitle, setPostTitle] = useState('')
   const [postBody, setPostBody] = useState('')
@@ -68,11 +69,12 @@ export default function Community({ notify }: { notify: (message: string) => voi
     try { await communityBackend.reaction(id, kind); await refresh() } catch (error) { reportBackendError(error) }
   }
   const addReply = async (postId: number) => {
-    if (!reply.trim() || busy) return
+    const draft = replyDrafts[postId] ?? ''
+    if (!draft.trim() || busy) return
     setBusy(true)
     try {
-      await communityBackend.reply(postId, reply)
-      setReply('')
+      await communityBackend.reply(postId, draft)
+      setReplyDrafts(current => ({ ...current, [postId]: '' }))
       await refresh()
       notify('回复已保存，可将其标记为已采纳')
     } catch (error) { reportBackendError(error) } finally { setBusy(false) }
@@ -123,7 +125,7 @@ export default function Community({ notify }: { notify: (message: string) => voi
     <div className="page-heading"><div><h1>学习社区</h1><p>本机共学空间：真实讨论、互评与预约；没有外部服务时，不虚构其他在线用户。</p></div><Button onClick={() => setModal('post')}><Plus size={18} />发起讨论</Button></div>
     <div className="community-layout"><main><div className="community-toolbar"><div className="library-tabs">{([['discussion', '学习讨论'], ['peer_review', '项目互评'], ['groups', '学习小组']] as const).map(item => <button key={item[0]} className={tab === item[0] ? 'active' : ''} onClick={() => setTab(item[0])}>{item[1]}</button>)}</div>{tab !== 'groups' && <div className="search-field"><Search size={16} /><input value={query} onChange={event => setQuery(clampToBytes(event.target.value, 200))} placeholder="搜索真实讨论…" /></div>}</div>
       {tab !== 'groups' ? <div className="post-list">{data?.posts.map(post => <article className="post-card" key={post.id}><div className="post-author"><span>本</span><div><strong>{post.author}</strong><small>{new Date(post.createdAt).toLocaleString()}</small></div><Badge tone="neutral">{kindNames[post.kind]}</Badge></div><h2>{post.title}</h2>{post.projectTitle && <Badge tone="blue">关联真实项目：{post.projectTitle}</Badge>}<p>{post.body}</p><div className="post-actions"><button aria-pressed={post.liked} onClick={() => void reaction(post.id, 'like')}><Heart size={17} />{post.likes} 有帮助</button><button onClick={() => setExpanded(expanded === post.id ? null : post.id)}><MessageCircle size={17} />{post.replies.length} 条回复</button><button aria-pressed={post.bookmarked} onClick={() => void reaction(post.id, 'bookmark')}>{post.bookmarked ? '取消收藏' : '收藏'}</button></div>
-        {expanded === post.id && <div className="community-replies">{post.replies.map(item => <div key={item.id}><p>{item.body}</p><small>{item.author} · {new Date(item.createdAt).toLocaleString()}</small><button onClick={() => void accept(item.id, !item.accepted)}>{item.accepted ? <><Check size={14} />已采纳，点击取消</> : '采纳这条回复'}</button></div>)}<form className="reply-composer" onSubmit={event => { event.preventDefault(); void addReply(post.id) }}><textarea rows={3} value={reply} onChange={event => setReply(clampToBytes(event.target.value, 10000))} placeholder="写下基于实际学习或项目内容的回复" /><Button type="submit" disabled={busy || !reply.trim()}>保存回复<Send size={15} /></Button></form></div>}
+        {expanded === post.id && <div className="community-replies">{post.replies.map(item => <div key={item.id}><p>{item.body}</p><small>{item.author} · {new Date(item.createdAt).toLocaleString()}</small><button onClick={() => void accept(item.id, !item.accepted)}>{item.accepted ? <><Check size={14} />已采纳，点击取消</> : '采纳这条回复'}</button></div>)}<form className="reply-composer" onSubmit={event => { event.preventDefault(); void addReply(post.id) }}><textarea rows={3} value={replyDrafts[post.id] ?? ''} onChange={event => setReplyDrafts(current => ({ ...current, [post.id]: clampToBytes(event.target.value, 10000) }))} placeholder="写下基于实际学习或项目内容的回复" /><Button type="submit" disabled={busy || !(replyDrafts[post.id] ?? '').trim()}>保存回复<Send size={15} /></Button></form></div>}
       </article>)}{data && !data.posts.length && <EmptyState title="还没有匹配的真实讨论" description="创建一条讨论或项目互评；这里不会出现虚构的社区动态。" action={<Button onClick={() => setModal('post')}>发起讨论</Button>} />}</div>
       : <><div className="section-actions"><Button variant="secondary" onClick={() => setModal('group')}><Plus size={16} />创建小组</Button><Button onClick={() => setModal('room')}><CalendarClock size={16} />安排学习时间</Button></div><div className="group-grid">{data?.groups.map(group => <article className="group-card" key={group.id}><div className="group-card-head"><Users size={22} /><Badge tone={group.joined ? 'green' : 'neutral'}>{group.joined ? '已加入' : '本机小组'}</Badge></div><h2>{group.name}</h2><p>{group.topic}</p><div><span>{group.memberCount} 位本机成员</span><span>{group.schedule}</span></div><Button variant={group.joined ? 'secondary' : 'primary'} onClick={() => void toggleGroup(group.id, !group.joined)}>{group.joined ? '退出小组' : '加入小组'}<ArrowRight size={16} /></Button></article>)}{data && !data.groups.length && <EmptyState title="还没有本机小组" description="创建小组、设置常规学习安排，再决定是否加入。" action={<Button onClick={() => setModal('group')}>创建小组</Button>} />}</div></>}
       {data && data.rooms.length > 0 && <section className="surface community-room-list"><SectionHeader title="真实学习安排" description="只保存本机预约和应用内提醒，不提供在线音视频服务" />{data.rooms.map(room => { const group = room.groupId !== null ? data.groups.find(item => item.id === room.groupId) ?? null : null; const groupJoined = !group || group.joined; return <div className="community-room-row" key={room.id}><div><Badge tone={room.status === 'cancelled' ? 'red' : room.reserved ? 'green' : 'neutral'}>{room.status === 'cancelled' ? '已取消' : room.reserved ? '已预约' : '可预约'}</Badge><h3>{room.title}</h3><p>{room.topic}</p><small>{new Date(room.startAt).toLocaleString()} · {room.durationMinutes} 分钟 · {room.reservationCount} 条有效预约{group ? ` · 小组：${group.name}${group.joined ? '' : '（需先加入）'}` : ''}{room.reminderAt ? ` · 提醒 ${new Date(room.reminderAt).toLocaleString()}` : ''}</small></div><div>{room.status === 'scheduled' && <><Button size="sm" variant="secondary" disabled={!groupJoined && !room.reserved} title={groupJoined || room.reserved ? undefined : '先加入关联小组才能预约'} onClick={() => void reserve(room.id, room.reserved)}>{room.reserved ? '取消预约' : groupJoined ? '预约提醒' : '需先加入小组'}</Button><Button size="sm" variant="ghost" onClick={() => void cancelRoom(room.id)}>取消安排</Button></>}</div></div> })}</section>}

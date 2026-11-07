@@ -5,6 +5,7 @@ import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '..
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { AppSnapshot, LearningPlan, Material } from '../backend/client'
 import { projectsBackend } from '../backend/projects'
+import { localId } from '../ids'
 import type { ProjectVersion } from '../backend/projects'
 import { clampToBytes } from '../limits'
 
@@ -93,7 +94,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     if (!title.trim() || !tag.trim() || !due || !milestones.length || busy) return
     setBusy('create')
     try {
-      const item: Project = { id: Date.now(), title: title.trim(), description: description.trim(), due, progress: 0, tag: tag.trim(), planId: planId || null, milestones }
+      const item: Project = { id: localId(), title: title.trim(), description: description.trim(), due, progress: 0, tag: tag.trim(), planId: planId || null, milestones }
       await setProjects([...projects, item])
       setSelected(item.id)
       setTitle(''); setDescription(''); setTag('个人项目'); setPlanId(''); setCreateOpen(false)
@@ -104,7 +105,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     if (!project || !milestoneTitle.trim() || busy) return
     setBusy('milestone')
     try {
-      await setProjects(projects.map(item => item.id === project.id ? withProgress({ ...item, milestones: [...item.milestones, { id: Date.now(), title: milestoneTitle.trim(), done: false }] }) : item))
+      await setProjects(projects.map(item => item.id === project.id ? withProgress({ ...item, milestones: [...item.milestones, { id: localId(), title: milestoneTitle.trim(), done: false }] }) : item))
       setMilestoneTitle(''); setMilestoneOpen(false)
       notify('里程碑已保存')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }

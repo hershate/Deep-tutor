@@ -6,6 +6,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { Note, Resource } from '../data'
 import { Badge, Button, EmptyState, Modal, ProgressBar } from '../components/UI'
+import { localId } from '../ids'
 import WikiPanel from '../components/WikiPanel'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import type { AppSnapshot, MaterialDetail } from '../backend/client'
@@ -204,7 +205,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     setSaving(true)
     try {
       await draftWrite.current
-      const next = activeNote ? notes.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: '刚刚' } : n) : [{ id: Date.now(), title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: '刚刚' }, ...notes]
+      const next = activeNote ? notes.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: '刚刚' } : n) : [{ id: localId(), title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: '刚刚' }, ...notes]
       await setNotes(next)
       await backend.deleteDraft(draftKey)
       setDirty(false); setNoteOpen(false); notify(activeNote ? '笔记修改已保存' : '新笔记已创建')

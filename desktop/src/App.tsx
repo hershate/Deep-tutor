@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
@@ -18,7 +18,7 @@ import TutorPanel from './components/TutorPanel'
 import AgentTaskCenter from './components/AgentTaskCenter'
 import DataDirectoryPanel from './components/DataDirectoryPanel'
 import SecurityPanel from './components/SecurityPanel'
-import { Button, IconButton, Modal } from './components/UI'
+import { Button, IconButton, Modal, useFocusContainment } from './components/UI'
 import type { PageId, Project, Task } from './data'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
@@ -28,6 +28,7 @@ import { quickPages } from './backend/engagement'
 import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
 import { communityBackend } from './backend/community'
 import { clampToBytes } from './limits'
+import { localId } from './ids'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
 import type { PracticeTarget } from './backend/practice'
@@ -79,6 +80,11 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
   const [notificationsError, setNotificationsError] = useState('')
   const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
+  const tutorRef = useRef<HTMLElement>(null)
+  const focusLayerRef = useRef<HTMLDivElement>(null)
+  // 导师抽屉与专注层同为 aria-modal 弹层：焦点必须圈禁在内（09#5）
+  useFocusContainment(tutorRef, tutorOpen)
+  useFocusContainment(focusLayerRef, focusOpen)
 
   const notify = (message: string) => setToast({ message, tone: 'info' })
   // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
@@ -234,8 +240,8 @@ export default function App() {
   const addQuick = async () => {
     if (!quickTitle.trim()) return
     try {
-      if (quickType === '任务') await setTasks([...tasks, { id: Date.now(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
-      else await setNotes([{ id: Date.now(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
+      if (quickType === '任务') await setTasks([...tasks, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
+      else await setNotes([{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
     } catch (error) { reportBackendError(error) }
   }
@@ -311,7 +317,7 @@ export default function App() {
   }
 
   return <div className={`app-shell ${page === 'study' ? 'study-mode' : ''}`}>
-    <a className="skip-link" href="#main-content">跳到主要内容</a>
+    <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>跳到主要内容</a>
     {mobileNav && <button className="nav-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>DEEP TUTOR</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
@@ -322,12 +328,12 @@ export default function App() {
 
     <div className="app-main">
       <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识点…</span><kbd>⌘ K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences({ ...preferences, theme: preferences.theme === 'light' ? 'dark' : 'light' })}>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)}><Sparkles size={16} />问知舟</Button></div></header>
-      <main id="main-content" className="main-content"><Suspense fallback={<div className="page-loading"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
+      <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
     </div>
 
     <nav className="mobile-bottom-nav" aria-label="移动端快捷导航">{[{ id: 'today' as PageId, label: '今日', icon: Home }, { id: 'study' as PageId, label: '学习', icon: BookOpen }, { id: 'review' as PageId, label: '复习', icon: Layers3 }, { id: 'library' as PageId, label: '笔记', icon: LibraryBig }].map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}<button onClick={() => setMobileNav(true)}><Menu size={20} /><span>全部</span></button></nav>
 
-    {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师"><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} /></aside></div>}
+    {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师" tabIndex={-1} ref={tutorRef}><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} hintsOnly={preferences.hintsOnly} /></aside></div>}
 
     <Modal open={modal === 'search'} onClose={() => { setModal(null); setQuery('') }} title="全局搜索">
       <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={searchError ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : searchError || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
@@ -344,7 +350,7 @@ export default function App() {
       <AgentTaskCenter notify={notify} />
     </Modal>
 
-    {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习"><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => setFocusOpen(false)}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{focusSession?.taskId ? tasks.find(task => task.id === focusSession.taskId)?.title || `任务 #${focusSession.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={focusBusy} onClick={() => void toggleFocus()}>{focusSession?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{focusSession?.status === 'running' ? '暂停' : focusSession?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={focusBusy || !focusSession || !['running', 'paused'].includes(focusSession.status)} onClick={() => void finishFocus(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={focusBusy} onClick={() => void resetFocus()}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={() => setFocusOpen(false)}>Esc 退出专注</button></div>}
+    {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={focusLayerRef}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => setFocusOpen(false)}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{focusSession?.taskId ? tasks.find(task => task.id === focusSession.taskId)?.title || `任务 #${focusSession.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={focusBusy} onClick={() => void toggleFocus()}>{focusSession?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{focusSession?.status === 'running' ? '暂停' : focusSession?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={focusBusy || !focusSession || !['running', 'paused'].includes(focusSession.status)} onClick={() => void finishFocus(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={focusBusy} onClick={() => void resetFocus()}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={() => setFocusOpen(false)}>Esc 退出专注</button></div>}
     {toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}
   </div>
 }

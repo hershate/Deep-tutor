@@ -6,6 +6,7 @@ import ExportCenter from '../components/ExportCenter'
 import SharePlanDialog from '../components/SharePlanDialog'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import type { AppSnapshot } from '../backend/client'
+import { localId } from '../ids'
 import { localShareUrl } from '../backend/sharing'
 import { planningBackend } from '../backend/planning'
 import type { PlanAlternative, PlanOverview, ScheduleEvent } from '../backend/planning'
@@ -105,7 +106,7 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
     if (!title.trim() || busy) return
     setBusy('task')
     try {
-      const id = Date.now()
+      const id = localId()
       // 后端合法区间 1..=10080 分钟：手输越界值在提交前钳制，避免整单被拒后输入丢失
       const minutes = Math.min(10080, Math.max(1, Math.round(duration) || 1))
       await setTasks([...tasks, { id, title: title.trim(), subject: subject.trim() || plan?.goal || '综合学习', duration: minutes, done: false, kind: '学习' }])
@@ -149,7 +150,7 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
 
     <div className="plan-toolbar">
       <div className="segmented" aria-label="学习强度">{(['稳妥', '标准', '冲刺'] as const).map(item => <button key={item} disabled={!ready || busy === 'intensity'} className={overview?.intensity === item ? 'active' : ''} onClick={() => void changeIntensity(item)}>{item}</button>)}</div>
-      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周已排 {(overview?.weeklyMinutes ?? 0) / 60} 小时 / 可投入 {overview?.weeklyHours ?? 0} 小时</span><Button variant="secondary" size="sm" disabled={!ready || busy === 'intensity'} onClick={() => void changeIntensity(overview?.intensity ?? '标准')}><RefreshCw size={16} />按强度保存排期</Button></div>
+      <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周已排 {Math.round((overview?.weeklyMinutes ?? 0) / 6) / 10} 小时 / 可投入 {overview?.weeklyHours ?? 0} 小时</span><Button variant="secondary" size="sm" disabled={!ready || busy === 'intensity'} onClick={() => void changeIntensity(overview?.intensity ?? '标准')}><RefreshCw size={16} />按强度保存排期</Button></div>
     </div>
 
     <section className="calendar-surface">

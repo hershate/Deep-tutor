@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Sparkles, Square, X } from 'lucide-react'
 import { IconButton, Button } from './UI'
 import { useAgent } from '../backend/useAgent'
-import { useBackendState } from '../backend/useBackendState'
 
 const modes = ['讲解', '提示', '练习', '反馈']
 
-export default function TutorPanel({ compact = false, onClose, planId, contextLabel }: { compact?: boolean; onClose?: () => void; planId?: string; contextLabel?: string }) {
+// hintsOnly 由 App 传入：本组件不得再实例化 useBackendState，
+// 否则抽屉打开期间会并行跑第二条 bootstrap 轮询与事件同步管道（09#1）
+export default function TutorPanel({ compact = false, onClose, planId, contextLabel, hintsOnly = false }: { compact?: boolean; onClose?: () => void; planId?: string; contextLabel?: string; hintsOnly?: boolean }) {
   const { plans, activeSession, activeRun, loading, error, busy, stream, createSession, send, cancel, resume, resolveApproval } = useAgent({ planId, sessionTitle: '知舟导师' })
-  const { snapshot, ready } = useBackendState()
   const [input, setInput] = useState('')
   const [mode, setMode] = useState('讲解')
   const endRef = useRef<HTMLDivElement>(null)
@@ -17,7 +17,7 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   const plan = plans.find(item => item.id === activeSession?.planId) ?? plans.find(item => item.id === planId) ?? plans[0]
   const context = contextLabel ?? plan?.goal ?? '尚未选择学习方案'
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages.length, stream.text])
-  useEffect(() => { if (ready) setMode(snapshot.preferences.hintsOnly ? '提示' : '讲解') }, [ready, snapshot.preferences.hintsOnly])
+  useEffect(() => { setMode(hintsOnly ? '提示' : '讲解') }, [hintsOnly])
 
   const submit = async (value = input) => {
     const clean = value.trim()
