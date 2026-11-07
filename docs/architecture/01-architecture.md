@@ -9,12 +9,12 @@
 ```mermaid
 graph TD
     subgraph WebView
-        P[React 页面 16 个] --> CL[backend 客户端层 24 个 ts]
+        P[React 页面 16 个] --> CL[backend 客户端层 23 个 ts]
         CL --> IP[invoke / listen]
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[188 个 tauri::command]
+        GH --> CMD[186 个 tauri::command]
         CMD --> DOM[21 个域模块 backend/*]
         DOM --> ST[store.rs SQLite + 事件 outbox]
         DOM --> FS[应用数据目录文件区]
@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 188 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
+- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 186 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:270-272`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:58-76`）。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:296-318`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
 
@@ -93,7 +93,7 @@ graph TD
 | `replace_collection(namespace, expected_revision, value)` | store.rs:460 | 校验→配额→事务内 DELETE+INSERT→revision 乐观锁（:500-504）→events 写 `state.changed`（:519） |
 | `event(conn, kind, payload)` | store.rs:408 | INSERT events 后同事务调 `plugins::dispatch`（:419） |
 | `events_since(last_id)` | store.rs:673 | `id > ?1 ORDER BY id LIMIT 201`，截 200 + has_more（:701-702） |
-| `ensure_quota(resource, additional)` | store.rs:284 | 根库只读连接查 `security_quotas`，notes/materials/sessions/threads 四类计数（:302-319） |
+| `ensure_quota(resource, additional)` | store.rs:284 | 根库连接查 `security_quotas`，notes/materials/sessions/threads/agent_memory 五类计数（:302-319） |
 | `validate_collection` / `validate_preferences` / `validate_draft` | store.rs:777/904/1005 | 字段白名单、长度上限（记录 1MB、集合 10000 条）、枚举与范围校验 |
 | `bootstrap()` | store.rs:247 | 首次种子默认偏好（`defaults()` :223-245）后返回 `app_state()` |
 
@@ -257,7 +257,7 @@ graph TD
 
 ## 7. 前端架构
 
-- 骨架：`main.tsx:6-10` → `App.tsx`；无 router，`page` 状态 + hash 同步（`App.tsx:50,190`），`renderPage()` switch 分发（:232-251）；5 个重页面 React.lazy（:32-36）；三组导航 + 顶栏（⌘K 搜索/快速记录/主题/通知）+ 移动底栏（:270-282）。
+- 骨架：`main.tsx:6-10` → `App.tsx`；无 router，`page` 状态 + hash 同步（`App.tsx:50,190`），`renderPage()` switch 分发（:232-251）；6 个重页面 React.lazy（:35-40）；三组导航 + 顶栏（⌘K 搜索/快速记录/主题/通知）+ 移动底栏（:270-282）。
 - 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader（:253-265）。
 - 客户端层 23 个文件：`client.ts` 聚合 63 个 invoke；领域客户端 practice/review/knowledge/community/… 一一对应命令组（见 03 工作流 §2 表）；事件统一走 `onBackendEvent`。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:29-39）；`security.session_started` 触发 generation+1 全量重载（:131-141）。

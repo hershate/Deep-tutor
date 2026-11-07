@@ -35,6 +35,8 @@ desktop/src-tauri/gen/
 /dist/
 
 # OS and test artifacts
+# 22#3：项目 TEMP 子文件夹作为临时测试环境的忽略规则（全局规约配套）
+/TEMP/
 .DS_Store
 Thumbs.db
 *.swp

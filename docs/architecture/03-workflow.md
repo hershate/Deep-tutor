@@ -14,15 +14,15 @@
 
 本地 Rust 工具链复用：`F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc`，`CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`（AGENTS.md 约定）。
 
-CI（.github/workflows/ci.yml）：PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端构建 → `cargo fmt --check` → 原生测试（同 --test-threads=1）→ NSIS 安装包 → 上传构件 `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
+CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（前端 tsc/vite 构建在该步骤的 beforeBuildCommand 内执行）→ 上传构件 `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
 
 ```mermaid
 flowchart LR
-    A[PR 或手动触发] --> B[npm ci Node 24]
-    B --> C[npm run build tsc + vite]
-    C --> D[cargo fmt --check]
-    D --> E[cargo test --release --locked 串行]
-    E --> F[npm run tauri build NSIS]
+    A[push:main / PR / 手动触发] --> B[npm ci Node 24]
+    B --> C[cargo fmt --check]
+    C --> D[cargo test --release --locked 串行]
+    D --> E[check-versions + collect-licenses]
+    E --> F[npm run tauri build NSIS 内含前端构建]
     F --> G[上传安装包构件 缺失即失败]
     H[pre-push hook] --> I[make check = lint + test]
 ```
@@ -241,7 +241,7 @@ flowchart LR
 
 - 密钥流：一次性表单 → `CredentialBackend.set`（keyring）→ 库/日志/导出/同步只出现 `has_key` 布尔；导出配置 `reject_sensitive`（providers/sync_config.rs:30）拒绝凭据字段；上传载荷测试断言无 apiKey。
 - 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目（security/mod.rs:939-953,1004-1006）。
-- 配额流：四资源（notes 500/materials 200/sessions 200/threads 500 默认，security/mod.rs:135）提交前强制；拒绝写入不影响其他用户（store.rs:284-329）。
+- 配额流：五资源（notes 500/materials 200/sessions 200/threads 500/agent_memory 500 默认，security/mod.rs:135）提交前强制；拒绝写入不影响其他用户（store.rs:284-329）。
 - 分享流：令牌只存哈希；哈希索引仅暴露给只读定位；分享快照本体不含工作区 ID 与事件代次（事件代次口径已移除，13#21/22），用户标识在定位索引、工作区 ID 在 app_state 快照（sharing/mod.rs）。
 - 网络流：全部出站经 `public_address`/DNS pin/禁代理绕过/重定向逐跳校验（providers/openai.rs:103,243-254；web/mod.rs:71-181）。
 
