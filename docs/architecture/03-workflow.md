@@ -1,6 +1,6 @@
 # 03 · 工作流分析
 
-> 基准：main 分支 commit `0c47bfd7`。引用形如 `文件:行号`，相对仓库根（`desktop/` 内引用会显式标注）。
+> 基准：main 分支 commit `df63ee0f`。引用形如 `文件:行号`，相对仓库根（`desktop/` 内引用会显式标注）。
 
 ## 1. 开发与构建工作流
 
@@ -31,7 +31,7 @@ flowchart LR
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，188 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，194 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。
@@ -81,8 +81,8 @@ flowchart TD
 ### 3.2 方案生成与采纳（Learning/Planning）
 - 启动前置：材料 1-8 份已解析、daily_minutes 10-600、路由存在（learning/mod.rs:281-346）。
 - 采纳 `adopt_learning_plan`（learning/actions.rs:19）：幂等（已有 adoptions 直接返回）；创建 project + 每 `learning_plan_schedule_tasks` 一条 tasks 集合任务 + `plan.adopted`。
-- 目标修改 `update_learning_goal`（planning/mod.rs:464）：事务内预检方案状态与 `regeneration_limit=2` 再进入再生成；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
-- 强度调整 `apply_plan_intensity`（planning/mod.rs:345）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；`round(m×target/current)` 下限 15 分钟——按比例避免往返切换累积缩放；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
+- 目标修改 `update_learning_goal`（planning/commands.rs:38）：事务内预检方案状态与 `regeneration_limit=2` 再进入再生成；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
+- 强度调整 `apply_plan_intensity`（planning/mod.rs:348）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；`round(m×target/current)` 下限 10 分钟（31#20）——按比例避免往返切换累积缩放；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision；事务内复查方案状态，防与并发 regenerate 穿插（34#21）。缩放同步写五处：schedule entries、stages[].minutes（31#15）、覆盖前 `learning_plan_versions` 快照（31#16；34#3 起同版本重复切换用 OR REPLACE 以最近一次为准）、artifacts_json `$.step5` 与 `learning_plan_steps.output_json` 双写（34#4——run() 重建读 step 表，单写 artifacts 会静默回退缩放）。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
 
 方案生命周期：
 
@@ -97,9 +97,9 @@ flowchart TD
     G -->|是| H[regenerate 局部重跑 存旧版本 version 加 1 受上限 2 约束]
     G -->|否| I{强度调整?}
     H --> I
-    I -->|是| J[比例缩放 round m 乘 target 除 current 下限 15 分钟]
+    I -->|是| J[比例缩放 round m 乘 target 除 current 下限 10 分钟 存版本快照]
     I -->|否| K[保持既有排期]
-    J --> L[同步 schedule entries 与 tasks duration 乐观锁 revision]
+    J --> L[同步 schedule entries stages 与 tasks duration 乐观锁 revision 双写 step5]
 ```
 
 错题变式闭环：
@@ -178,7 +178,7 @@ flowchart TD
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；`claim_community_reminders`（:832）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders），提醒投递闭环已生效；取消预约/房间同步删提醒（:789-792,821-825）。
+预约 `reserve`（community/mod.rs:834）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:969，IPC `claim_community_reminders` commands.rs:112）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders），提醒投递闭环已生效；取消预约/房间同步删提醒（:905,:935）。
 
 ```mermaid
 sequenceDiagram
@@ -204,7 +204,7 @@ flowchart LR
 ```
 
 - 备份排除项：auth_sessions、access_tokens、share_index（secure_delete 后 VACUUM，backup/archive.rs:392-398）；系统凭据本就不在库中（keyring）。
-- 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:862-866）；agent_memory 重名加"· 导入 n"后缀（:900-914）。
+- 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:866,:1013-1021）；agent_memory 重名加"· 导入 n"后缀（:1101-1112）。
 - 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:31 校验路径属本配置 versions/ 目录）。
 - 数据目录切换：不搬移不删除旧数据；目录配置不作为备份中的绝对路径恢复（startup.rs:194-243；plan/README.md 约定）。
 

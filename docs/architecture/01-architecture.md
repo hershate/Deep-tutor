@@ -1,6 +1,6 @@
 # 01 · 架构分析
 
-> 基准：main 分支 commit `0c47bfd7`。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
+> 基准：main 分支 commit `df63ee0f`。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
 
 ## 1. 总览
 
@@ -45,31 +45,31 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 5 / 2114 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
+| backend（根） | 5 / 2168 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
 | startup | 1 / 765 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1312 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:61`） |
-| security | 6 / 2587 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
-| providers | 15 / 9113 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:193`） |
+| store | 1 / 1366 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:61`） |
+| security | 6 / 2633 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
+| providers | 15 / 9327 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:193`） |
 | web | 4 / 1063 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 2853 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 1100 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 4944 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 880 | 周视图、强度、目标、排期 | 复用 LearningState |
+| materials | 5 / 2875 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 1113 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 5005 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| planning | 3 / 959 | 周视图、强度、目标、排期 | 复用 LearningState |
 | knowledge | 3 / 1349 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 4492 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
+| practice | 9 / 4500 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
 | review | 2 / 915 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1001 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 3279 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:47`） |
-| engagement | 3 / 1183 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1745 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1542 | 本机讨论/小组/预约/提醒 | 复用 |
+| projects | 3 / 1027 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 3492 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:47`） |
+| engagement | 3 / 1192 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1746 | 专注会话、学习报告、日历 | 复用 |
+| community | 3 / 1592 | 本机讨论/小组/预约/提醒 | 复用 |
 | plugins | 3 / 1046 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
-| backup | 5 / 2812 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
-| sharing | 3 / 987 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| backup | 5 / 3028 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
+| sharing | 3 / 1004 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
 | sync | 7 / 2328 | WebDAV/S3 配置同步、24h 调度、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:28-29`） |
-| maintenance | 3 / 956 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
-| export | 7 / 2048 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 62 / 7052 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
+| maintenance | 3 / 1008 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
+| export | 7 / 2110 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 62 / 7168 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
 
 ## 4. 横切层
 
@@ -203,7 +203,7 @@ sequenceDiagram
 - 表：`materials`（sha256 UNIQUE、status、progress、parse_mode）、`material_text`（PK=material_id CASCADE）、`material_jobs`（UNIQUE(material_id,kind,attempt)、cancel_requested）。
 - 文件区：`{数据目录}/materials/originals/{sha256}.{kind}`（materials/mod.rs:61-66,335）；导出原子替换 `.download-{n}/.previous-{n}`（:1192-1206）。
 - 解析限制常量（parse.rs:11-15）：文件 50MB、文本 5MB、XML 32MB、ZIP 总量 64MB、PDF 2000 页；ZIP 资料包另有 archive.rs:8-9 的 64 条/200MB。
-- export：`ExportScope{Plan,Lecture,Knowledge,Review,Schedule}` 与 `ExportFormat` 8 值（mod.rs:24-58）；PDF 为手工 TrueType 解析 + CIDFontType2 自写（pdf.rs:126-340，msyh/simhei ≤64MB :214）；Anki 生成真实 collection.anki2（anki.rs:71-119）。
+- export：`ExportScope{Plan,Lecture,Knowledge,Review,Schedule}` 与 `ExportFormat` 8 值（mod.rs:24-58）；PDF 为手工 TrueType 解析 + CIDFontType2 自写（pdf.rs:126-340，msyh/simhei ≤64MB :214）；Anki 生成真实 collection.anki2（export/anki.rs:55 render 起，:220 入包）。
 
 ### 5.5 agent / community / engagement / reports
 - agent 表（mod.rs:189-256）：`agent_sessions`(budget_tokens 默认 16000)、`agent_runs`(status/steps/current_request_id)、`agent_messages`、`agent_tool_calls`(id PK 幂等)、`agent_artifacts`(sha256/expires_at)、`agent_approvals`、`agent_memory`；agent_messages/runs/artifacts/approvals 四表各带 session_id 索引（mod.rs:269-272，每个 agent.* 事件不再全表扫描）。

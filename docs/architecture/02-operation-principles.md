@@ -1,6 +1,6 @@
 # 02 · 运行原理
 
-> 基准：main 分支 commit `0c47bfd7`。引用形如 `文件:行号`，相对 `desktop/` 目录。`L/`=learning，`P/`=providers，`M/`=materials，`K/`=knowledge，`SEC/`=security。
+> 基准：main 分支 commit `df63ee0f`。引用形如 `文件:行号`，相对 `desktop/` 目录。`L/`=learning，`P/`=providers，`M/`=materials，`K/`=knowledge，`SEC/`=security。
 
 ## 1. 启动流程
 
@@ -162,9 +162,9 @@ flowchart TD
 
 直连链：`stream_provider_chat`（P/commands.rs:92，async 命令；另有 test_provider/route_provider_chat 同构）先经 `security::session_principal`（SEC/mod.rs:76）从会话派生当前用户——async 命令体由 `respond_async` spawn 到 tokio worker，guard 的 thread-local principal 不可见——再 `spawn_blocking` + `with_principal` 传播 → `stream_chat_with_policy`（P/mod.rs:1118）：
 1. `begin_chat`（:981）INSERT `provider_requests('running')` + 注册取消标志 + emit `provider.chat_started`。
-2. enabled/has_key 校验 → `protocol::stream_chat_with_policy`（protocol.rs:346）按 `profile.protocol` 分派：OpenAI Chat（openai.rs:632 自建 SSE 泵 `stream_once` :1000）/ OpenAI Responses（responses.rs:86）/ Anthropic（anthropic.rs:98）/ Gemini（gemini.rs:97）。
-3. HTTP 客户端（openai.rs:248）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:154）做 SSRF/路径穿越校验。
-4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:550）；响应 1MB（read_json :298）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
+2. enabled/has_key 校验 → `protocol::stream_chat_with_policy`（protocol.rs:351）按 `profile.protocol` 分派：OpenAI Chat（openai.rs:701 `stream_chat_with_policy` 自建 SSE 泵 `stream_once` :1024）/ OpenAI Responses（responses.rs:86）/ Anthropic（anthropic.rs:98）/ Gemini（gemini.rs:114）。
+3. HTTP 客户端（openai.rs:258 / :269）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:212）做 SSRF/路径穿越校验。
+4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
 5. 每个 delta 双写：`Store::event("provider.chat_delta")` 落库 + emit（P/mod.rs:1143 起）——delta 事件同时是恢复重建源（`completed_chat` :970）。
 6. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1199 起）。
 
@@ -200,7 +200,7 @@ sequenceDiagram
 `route_provider_chat`（P/commands.rs:169）→ `routing::stream_chat`（routing.rs:872）：
 1. `select`（:402）按 RoutingSettings.mode（direct/routing/aggregate）选 profile+model；任务路由表 `routes: BTreeMap<task, providerId>`。
 2. 幂等：已存在同 request_id attempt 直接复用（:888-910）。
-3. `usage::ensure_budget`（usage.rs:462）按 session_usd/daily_usd 拒绝超预算——消耗经 `budget_spend`（usage.rs:432）SQL 聚合 usage_rates 加权，不再全表读入内存。
+3. `usage::ensure_budget`（usage.rs:480）按 session_usd/daily_usd 拒绝超预算——消耗经 `budget_spend`（usage.rs:443）SQL 聚合 usage_rates 加权，不再全表读入内存。
 4. INSERT `provider_route_runs('running')` + `provider.route_started`（routing.rs:933）。
 5. 候选循环（failover 队列）：`circuit_permit`（:626）——熔断 open 且冷却未到 → `circuit_open` 拒绝；到期 CAS 置 half_open（:634）；`save_attempt`（:729）逐试次落库 + `provider.route_attempt` 事件（携带 upstream_request_id，前端借此切换流匹配，`useAgent.ts:129`）；调用直连层（StreamPolicy 取自 circuit timeout/retries）；成功 `record_circuit`（:670）closed 复位 failures；失败且 `can_failover`（:592）→ 下一候选。熔断读-改-写在 IMMEDIATE 事务内，消除并发窗口。
 6. 全部不可用 → `all_providers_unavailable`（routing.rs:1095）。
@@ -246,7 +246,7 @@ stateDiagram-v2
     half_open --> open: 失败或重启恢复
 ```
 
-用量：每次请求 usage_json 落 `provider_requests`；`overview`（usage.rs:314）聚合日/模型/会话口径；`export_csv` 防公式注入（:504）。
+用量：每次请求 usage_json 落 `provider_requests`；`overview`（usage.rs:317）聚合日/模型/会话口径；`export_csv` 防公式注入（:517）。
 
 ## 7. 材料导入与解析队列
 
@@ -305,11 +305,11 @@ flowchart TD
 
 ## 8. Agent 工具循环
 
-`send_agent_message`（agent/mod.rs:574）：
-1. 预算闸：会话累计 output_tokens ≥ budget_tokens 拒绝（:562）；同会话 running 查重（:577）。
-2. Immediate 事务 INSERT `agent_runs('running')` + 用户消息 + `agent.run_started`；注册取消标志（:588-597）。
-3. 线程 `agent-run-{id}`（:515）跑 `run_loop`（:811）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:647，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。
-4. 成本从 `provider_requests.usage_json` 聚合，会话口径 GLOB `agent-<id>-*`（:608,786-792）。
+`send_agent_message`（agent/mod.rs:575）：
+1. 预算闸：会话累计 output_tokens ≥ budget_tokens 拒绝（:590）；同会话 running 查重（:605）。
+2. Immediate 事务 INSERT `agent_runs('running')` + 用户消息 + `agent.run_started`；注册取消标志（:616-625）。
+3. 线程 `agent-run-{id}`（:516）跑 `run_loop`（:855）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:775，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。历史重放先修剪悬挂 tool_calls/孤儿 tool 消息（23#9），并收敛到最近 62 条 / 200KB 内（34#8，validate_messages 上限 64 条 / 256KB）；工具循环的 tool 消息前必须落 assistant(tool_calls) 声明（34#5）。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。
+4. 成本从 `provider_requests.usage_json` 聚合，会话口径双通道：`agent_session_id = ?` 外键为主（31#1，导入经 FK 重映射保持关联），GLOB `agent-<run>-*` 仅兜底无主行（34#16，防直连请求串扰他人会话；agent/mod.rs:644、usage.rs:448-455）。
 5. 无 tool_calls → `finish_run("done")`；有则工具循环：`tools::execute`（tools.rs:413）先幂等登记 `agent_tool_calls`（ON CONFLICT 重放或 `tool_active`）再分发。
 
 工具目录（tools.rs:13-91）：workspace.list/read/write/edit、web.search/web.fetch（走 §9 抓取链）、memory.save/recall/delete、history.load/search、artifact.promote。写文件产物 `commit_artifact`（:258）：阶段/单元校验 → `lecture::validate_content` → `artifact_path`（:167，拒绝对对路径/父级/>6 层/非 json-md-txt/符号链接/越界）→ 原子写（tmp+previous 双 rename :218）→ `agent_artifacts`（expires_at=+24h）。
@@ -371,7 +371,7 @@ flowchart TD
 
 **客观题**（practice/mod.rs 判分段）：choice——answer 须为合法选项下标且等于期望；fill——`normalize`（去空白+lowercase，:1082）后全等；`correct`（:1139）同时决定错题与掌握度写入——hints 模式作答不进错题本、不置掌握（遮蔽承诺）。
 **主观题**（subjective.rs:189 起）：INSERT `practice_answers('grading')` + request_id=`practice-grade-{id}-1` → 线程 `grade`（:385）：题面+参考答案+rubric+学生作答 prompt → `stream_chat` 4096 → `evaluate`（:325）逐项 `score∈[0,1]×points` 求和并 clamp，`correct = score≥0.8`（:372）→ 二次 `validate_citations`。rubric 校验 2-6 项、points∈(0,1]、总和=1（:56）。
-**共同尾部**：错题 upsert wrong_count+1（hints 模式除外）；逐节点写 `learning_node_evidence`（kind practice/exam、evidence_key=`practice-answer-{answer_id}`，mod.rs:1190）；变式答对 → 原错题 mastered=1（variants.rs:106-133）；全部作答完 → set completed。
+**共同尾部**：错题 upsert wrong_count+1（hints 模式除外）；逐节点写 `learning_node_evidence`（kind practice/exam、evidence_key=`practice-answer-{answer_id}`，mod.rs:1190）——**hints 模式同样跳过 evidence 写入**（31#12：evidence 带真实得分会被知识图谱页「0/1」反推对错，与错题本同口径遮蔽）；变式答对 → 原错题 mastered=1（variants.rs:106-133）；全部作答完 → set completed。
 **模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:112）；未答题逐题 0 分 + mistakes('未作答') + evidence(0)（:138-165）。
 **复习调度**（review/mod.rs:403 grade，SM-2 简化、4 档无 q 因子；挂起卡片返回 `card_suspended`）：
 - 间隔（:419-428）：again=10 分钟；首轮 hard=2/good=5/easy=12 天；后续 hard=prev×1.2、good=prev×ease、easy=prev×ease×1.3。
@@ -426,7 +426,7 @@ flowchart TD
 ## 11. 备份、分享、同步、运维
 
 - **导出**（backup/archive.rs:364）：停 sync → `.dtbackup` 扩展名校验 → RAII 临时目录 → `VACUUM INTO state.db` → 回填 local_users/security_quotas → `secure_delete=ON` 清三张敏感表再 VACUUM（:410-416）→ 收集三类文件（原件/插件清单/agent scratch 仅 json-md-txt）→ 写入前逐项哈希重验防 TOCTOU → zip ≤2GB → `materials::atomic_export` + `backup.exported`。
-- **预演/导入**（transfer.rs:1175）：预演只读统计；导入前停全部子系统（backup/commands.rs）；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:197）：materials 按 sha256 复用已有 ID、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、kv 重编号、preferences 已有则跳过 → `stage_files`（:1069，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序（:529）→ `transform`（:574）重写列与 `*_json` 内嵌 ID → 单事务 import_rows（:925）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。
+- **预演/导入**（transfer.rs:1320 dry_run / :1351 import）：预演只读统计；导入前停全部子系统（backup/commands.rs）；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:205）：materials 按 sha256 复用已有 ID、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、provider_requests 的 TEXT 主键冲突先按内容签名（model/created_at/finish_reason/attempts/latency_ms/status/usage_json 七字段，31#43；34#15 起含 usage_json 且按 request_id 排序取首——provider_id 不可用，profiles 每次导入都重映射）找回既有行复用（重复导入幂等，agent- 前缀请求不改名）、kv 重编号、preferences 已有则跳过 → `stage_files`（:1243，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序（:602）→ `transform`（:833）重写列与 `*_json` 内嵌 ID → 单事务 import_rows（:1078）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。
 - **分享**（sharing/mod.rs:263 create）：仅 done/degraded 方案、快照≤2MB；令牌 `dt_` 46 字符只存 SHA-256（token_hash）+ 根库 share_index；读取无登录时先查索引定位 owner，`with_user` 切库读取，仍未命中遍历 users/ 目录（≤10000）回填索引（:375-426）；revoked/expired 一律 `share_unavailable`。
 - **同步**（sync/）：上传 = `providers::export_config`（脱敏，无 apiKey，测试断言）→ PUT 历史对象+当前对象 → GET 回读双双比对（`sync_verify_failed`）→ 版本保留：list（S3 list-type=2 / WebDAV PROPFIND）按时间倒序 skip(10) 删除，复查 remaining>10 → `sync_retention_failed`（versions.rs:236 起）。调度线程 1s tick/60s 检查，auto_sync 且距上次上传 ≥24h 触发（scheduler.rs:40）。凭据 WebDAV 密码/S3 密钥存 keyring，库中 sync_config 脱敏（mod.rs:150）；下载/恢复的目的地拒绝落在应用数据目录内（数据根遏制）。
 - **运维**（maintenance/）：`health` 读 PRAGMA integrity_check/foreign_key_check/journal_mode/page 统计/WAL 字节数（mod.rs:106 起）；孤儿扫描白名单=DB 记录的原件 + agent scratch + 有效插件清单 + 可识别临时目录，缺失原件只报告；清理/VACUUM 前置 `OPERATION` 互斥（commands.rs:9）+ 停全部任务 + 锁 store，结束必重启调度（commands.rs:51）。

@@ -1,12 +1,12 @@
 # deep-tutor-knowledge-map
 
 ## 简介
-Deep-tutor「知识图谱构建」工具的方法论指令源。运行时由 Python Skill 加载器读取 `SKILL.md` 正文，作为 `build_knowledge_map` 工具调用 LLM 时的 system prompt。依据学习意图与资料拆解知识点依赖图谱（nodes/edges）。
+Deep-tutor「知识图谱构建」工具的方法论指令源。源自已删除的 Python 后端；`SKILL.md` 现作为 legacy-skill 静态资产编译期嵌入二进制、仅经插件面板展示，不再作运行时 system prompt，对应能力由 Rust 原生流水线实现。依据学习意图与资料拆解知识点依赖图谱（nodes/edges）。
 
 ## 目录结构
 ```
 deep-tutor-knowledge-map/
-├── SKILL.md     # 方法论指令（运行时作 system prompt）
+├── SKILL.md     # 方法论指令（历史资产，仅静态展示）
 └── README.md    # 本文件
 ```
 
@@ -19,7 +19,7 @@ deep-tutor-knowledge-map/
 ## 当前资产状态
 - **嵌入方式**：`SKILL.md` 由 `desktop/src-tauri/src/backend/plugins/mod.rs` 的
   `assets()` 以 `include_str!` **编译期嵌入**二进制，作为「legacy-skill（历史
-  Skill 资产）」静态条目经 `get_plugin_overview`/`asset` 命令展示。
+  Skill 资产）」静态条目经 `get_plugin_overview`（清单）与 `get_developer_asset`（正文）命令展示（`asset` 为 Rust 内部函数，非 IPC 命令）。
 - **生效方式**：修改 `SKILL.md` 后须**重新编译 Rust**（重启应用不生效）。
 - **执行边界**：当前应用不执行 Python；内联技能 `native-operations` 明示
   「不执行 Python」。
@@ -28,6 +28,6 @@ deep-tutor-knowledge-map/
 移植自 study-planner Step 2（核心前置 / 核心知识 / 进阶扩展 / 实战项目）。
 
 ## 注意事项
-- 本 Skill 不是 Claude Code 用户态技能，而是 Deep-tutor 运行时确定性加载的方法论指令。
+- 本 Skill 不是 Claude Code 用户态技能，而是历史 Python 后端的方法论指令，现作为 legacy-skill 静态资产展示。
 - 修改 `SKILL.md` 须重新编译 Rust（`include_str!` 编译期嵌入，重启应用不生效）。
-- 输出 schema 变更须同步 `KnowledgeMapData` pydantic 模型。
+- 原 `KnowledgeMapData` pydantic 模型已随 Python 后端删除；输出契约现由 Rust 流水线的提示词与 serde 校验承接（backend/learning）。

@@ -20,7 +20,7 @@
 
 当前唯一用户界面是 `desktop/` 中的 React、TypeScript、Vite 与 Tauri 2 应用，由用户通过 `REF/frontend/app` 提供。`REF/` 是参考源，不是安装包内的独立应用；不据此推定额外的第三方作者或许可。
 
-`desktop/src-tauri/` 包含本仓库新增的 Rust 壳与原生后端，使用 [Tauri](https://github.com/tauri-apps/tauri) 及 Cargo/npm 依赖。依赖版本见 [`desktop/src-tauri/Cargo.lock`](./desktop/src-tauri/Cargo.lock) 和 [`desktop/package-lock.json`](./desktop/package-lock.json)，各依赖适用其自身许可。Tauri 2 的许可见 [tauri-apps/tauri](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT)。安装包构建时由 `scripts/collect-licenses.mjs` 汇总各依赖的许可/声明文本并经 `bundle.resources` 随安装包分发（安装目录 `licenses/`）；个别源码未解包的 Rust 依赖以上游仓库公示的许可为准。
+`desktop/src-tauri/` 包含本仓库新增的 Rust 壳与原生后端，使用 [Tauri](https://github.com/tauri-apps/tauri) 及 Cargo/npm 依赖。依赖版本见 [`desktop/src-tauri/Cargo.lock`](./desktop/src-tauri/Cargo.lock) 和 [`desktop/package-lock.json`](./desktop/package-lock.json)，各依赖适用其自身许可。Tauri 2 的许可见 [tauri-apps/tauri](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT)。安装包构建时由 `scripts/collect-licenses.mjs` 汇总各依赖的许可/声明文本并经 `bundle.resources` 随安装包分发（安装目录 `licenses/`）；源码目录缺失时脚本先从 registry/cache 的 `.crate` 归档直抽 LICENSE* 文本，仅归档亦缺失的个别依赖以上游仓库公示的许可为准。
 
 ## 本仓库自有部分
 
