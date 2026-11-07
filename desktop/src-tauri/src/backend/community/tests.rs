@@ -295,6 +295,73 @@ fn groups_rooms_reservations_reminders_and_reset_use_real_state() {
         .code,
         "invalid_room_time"
     );
+    // 03#13-12：同一时段重叠的房间被拒绝，错开时段可创建
+    let fresh_start = (OffsetDateTime::now_utc() + Duration::hours(3))
+        .format(&Rfc3339)
+        .unwrap();
+    create_room(
+        app.handle(),
+        &state,
+        RoomInput {
+            group_id: None,
+            title: "时段占用".into(),
+            topic: "占住该时段".into(),
+            start_at: fresh_start.clone(),
+            duration_minutes: 45,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        create_room(
+            app.handle(),
+            &state,
+            RoomInput {
+                group_id: None,
+                title: "重叠房间".into(),
+                topic: "不应接受".into(),
+                start_at: fresh_start.clone(),
+                duration_minutes: 10,
+            }
+        )
+        .unwrap_err()
+        .code,
+        "room_time_conflict"
+    );
+    let later = (OffsetDateTime::now_utc() + Duration::hours(4))
+        .format(&Rfc3339)
+        .unwrap();
+    assert!(
+        create_room(
+            app.handle(),
+            &state,
+            RoomInput {
+                group_id: None,
+                title: "错开时段".into(),
+                topic: "应接受".into(),
+                start_at: later,
+                duration_minutes: 30,
+            },
+        )
+        .is_ok()
+    );
+    // 预约同样受冲突约束：直接落库一条与“时段占用”重叠的旧排期再预约
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO community_rooms (group_id, title, topic, start_at, duration_minutes, status, created_at) VALUES (NULL, '旧排期', '绕过校验的历史数据', ?1, 30, 'scheduled', ?2)",
+            params![
+                fresh_start,
+                OffsetDateTime::now_utc().format(&Rfc3339).unwrap()
+            ],
+        )
+        .unwrap();
+    let stale_id = store.conn.last_insert_rowid();
+    drop(store);
+    assert_eq!(
+        reserve(app.handle(), &state, stale_id).unwrap_err().code,
+        "room_time_conflict"
+    );
     assert_eq!(
         overview(&state, None, None)
             .unwrap()

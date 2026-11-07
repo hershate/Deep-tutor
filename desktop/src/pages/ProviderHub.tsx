@@ -3,7 +3,7 @@ import { Activity, CheckCircle2, CircleAlert, Cloud, Copy, Download, Eye, EyeOff
 import { Badge, Button, IconButton, Modal, SectionHeader } from '../components/UI'
 import ProviderRouting, { AggregateModels, ProviderRouteLogs, emptyRouting } from '../components/ProviderRouting'
 import SyncPanel from '../components/SyncPanel'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, deltaThrottle, isCancelRace, onBackendEvent } from '../backend/client'
 import type { ProviderExport, ProviderKind, ProviderProfile, ProviderProfileInput, ProviderProtocol, ProviderRequest, ProviderTestResult, ProviderRouteLog, RoutingSettings, CircuitSnapshot } from '../backend/client'
 
 type Preset = { name: string; preset: string; kind: ProviderKind; protocol: ProviderProtocol; baseUrl: string; models: string[]; defaultModel: string; docs?: string }
@@ -146,6 +146,8 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     void refresh()
     let disposed = false
     let unlisten: (() => void) | undefined
+    // 03#4：每条 delta 都全量重放是 O(n²)——150ms 窗口内合并为一次拉取
+    const throttledChatRefresh = deltaThrottle()
     void onBackendEvent(event => {
       if (disposed) return
       if (event.kind === 'provider.route_attempt' && event.payload.requestId === requestIdRef.current && typeof event.payload.upstreamRequestId === 'string') upstreamRequestIdRef.current = event.payload.upstreamRequestId
@@ -153,7 +155,9 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
       if (event.kind.startsWith('provider.chat_')) {
         const requestId = event.payload.requestId
         if (typeof requestId === 'string' && (requestId === requestIdRef.current || requestId === upstreamRequestIdRef.current)) {
-          void backend.getProviderChat(requestId).then(setLiveRequest).catch(error => setStreamError(backendErrorMessage(error)))
+          throttledChatRefresh(() => {
+            void backend.getProviderChat(requestId).then(setLiveRequest).catch(error => setStreamError(backendErrorMessage(error)))
+          })
         }
       }
     }).then(remove => {
@@ -346,7 +350,9 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   }
   const cancelChat = async () => {
     if (!requestIdRef.current) return
-    try { await backend.cancelProviderChat(requestIdRef.current) } catch (error) { setStreamError(backendErrorMessage(error)) }
+    // 03#5：流已结束但 invoke 未返回时点取消会报 no_active_request——
+    // 请求实际已正常完成，按取消竞态静默处理
+    try { await backend.cancelProviderChat(requestIdRef.current) } catch (error) { if (!isCancelRace(error)) setStreamError(backendErrorMessage(error)) }
   }
 
   return <div className={embedded ? 'provider-hub is-embedded' : 'page provider-hub'}>

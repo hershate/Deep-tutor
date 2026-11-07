@@ -246,3 +246,48 @@ fn variant_schema_migration_retains_existing_learning_records() {
     assert_eq!(set_column, 1);
     assert_eq!(mistake_column, 1);
 }
+
+#[test]
+fn variant_mastery_propagates_up_the_chain_to_the_original_mistake() {
+    let (app, state, _server, plan_id) = prepare();
+    let (_original, source) = seed_choice_mistake(&app, &state, &plan_id);
+    // V1：原错题的变式，答错成为新错题
+    let v1_set = wait_set(
+        &state,
+        generate(
+            app.handle(),
+            &state,
+            variant_input(&plan_id, source, "choice", 3),
+        )
+        .unwrap()
+        .set
+        .id,
+    );
+    let v1 = v1_set.questions[0].id;
+    let wrong = submit(app.handle(), &state, v1_set.set.id, v1, json!(1)).unwrap();
+    assert_eq!(wrong.answer.correct, Some(false));
+    // V2：直接落库一条以 V1 为源的二级变式（桩服务器固定返回同题面，
+    // 二级变式走模型会因"重复"被判无效；此处验证的是掌握传播而非生成）
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, variant_of, rubric_json, difficulty) SELECT set_id, position + 10, kind, prompt || '（二级变式）', options_json, answer_json, hint, explanation, citations_json, node_ids_json, ?1, rubric_json, difficulty FROM practice_questions WHERE id = ?1",
+            params![v1],
+        )
+        .unwrap();
+    let v2 = store.conn.last_insert_rowid();
+    drop(store);
+    let graded = submit(app.handle(), &state, v1_set.set.id, v2, json!(0)).unwrap();
+    assert_eq!(graded.answer.correct, Some(true));
+    // 03#13-25：掌握沿 variant_of 链传播——V1 与原错题一并标记掌握
+    let rows = mistakes(&state).unwrap();
+    for question in [source, v1] {
+        let row = rows
+            .iter()
+            .find(|item| item.question_id == question)
+            .unwrap();
+        assert!(row.mastered, "question {question} should be mastered");
+        assert_eq!(row.mastered_question_id, Some(v2));
+    }
+}

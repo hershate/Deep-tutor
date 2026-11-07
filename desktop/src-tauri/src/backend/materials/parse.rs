@@ -144,12 +144,24 @@ fn parse_pdf(
             break;
         }
     }
+    // 03#16：预定义 CMap（GBK-EUC-H 等）缺 ToUnicode 时会解出替换符；
+    // 占比超 1% 即降级为 warning，不再把疑似乱码静默标成“已解析”
+    let garbled = text.chars().filter(|ch| *ch == '\u{FFFD}').count();
+    let total = text.chars().count();
+    let warning = if total > 0 && garbled * 100 > total {
+        Some(format!(
+            "文本层含 {garbled} 个无法映射的字符（约 {}%），可能存在乱码，请人工核对内容",
+            garbled * 100 / total
+        ))
+    } else {
+        (skipped_pages > 0).then(|| {
+            format!("有 {skipped_pages} 页的文本层无法读取，已跳过这些页；其余页文本完整保留")
+        })
+    };
     Ok(ParsedDocument {
         text,
         mode: "pdf-text-layer".into(),
-        warning: (skipped_pages > 0).then(|| {
-            format!("有 {skipped_pages} 页的文本层无法读取，已跳过这些页；其余页文本完整保留")
-        }),
+        warning,
     })
 }
 

@@ -119,15 +119,36 @@ pub fn mark_mastered(
     let Some(source) = source else {
         return Ok(None);
     };
-    let changed = conn.execute(
-        "UPDATE practice_mistakes SET mastered = 1, mastered_question_id = ?1 WHERE question_id = ?2",
-        params![variant_question_id, source],
-    )?;
+    // 03#13-25：沿 variant_of 链向上传播到原错题——对变式再生成变式并答对时，
+    // 中间错题与原错题一并出“待巩固”，与“自动更新原错题”的文案一致
+    let mut chain = vec![source];
+    let mut current = source;
+    loop {
+        let parent: Option<i64> = conn.query_row(
+            "SELECT variant_of FROM practice_questions WHERE id = ?1",
+            params![current],
+            |row| row.get(0),
+        )?;
+        match parent {
+            Some(id) if id != variant_question_id && !chain.contains(&id) => {
+                chain.push(id);
+                current = id;
+            }
+            _ => break,
+        }
+    }
+    let mut changed = 0;
+    for id in &chain {
+        changed += conn.execute(
+            "UPDATE practice_mistakes SET mastered = 1, mastered_question_id = ?1 WHERE question_id = ?2",
+            params![variant_question_id, id],
+        )?;
+    }
     if changed == 0 {
         return Err(BackendError::new(
             "variant_source_missing",
             "变式的原错题记录不存在",
         ));
     }
-    Ok(Some(source))
+    Ok(Some(*chain.last().unwrap_or(&source)))
 }

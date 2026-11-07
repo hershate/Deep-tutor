@@ -37,7 +37,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   const activeRequest = exam && ['generating', 'cancelling'].includes(exam.set.status) ? exam.set.requestId : answer && ['grading', 'cancelling'].includes(answer.status) ? answer.requestId : null
   const completed = exam?.set.status === 'completed'
   const selectedValue = selected ?? (typeof answer?.response === 'number' ? answer.response : null)
-  const percentage = exam && exam.set.maxScore > 0 ? exam.set.score / exam.set.maxScore * 100 : 0
+  const percentage = exam && (exam.set.maxScore ?? 0) > 0 ? (exam.set.score ?? 0) / (exam.set.maxScore ?? 1) * 100 : 0
   const passed = percentage >= (exam?.set.passScorePercent ?? 80)
 
   useEffect(() => {
@@ -114,7 +114,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     try {
       const result = await practiceBackend.submitExam(exam.set.id)
       onUpdated(result)
-      notify(`已交卷，实际得分 ${result.set.score} / ${result.set.maxScore}`)
+      notify(`已交卷，实际得分 ${result.set.score ?? '—'} / ${result.set.maxScore ?? '—'}`)
     } catch (error) { reportBackendError(error) } finally { setBusy(false) }
   }
   const cancelAnswer = async () => {
@@ -137,7 +137,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     : ['failed', 'cancelled', 'interrupted'].includes(exam.set.status) ? <section className="surface exam-intro"><CircleAlert size={30} /><h2>试卷生成未完成</h2><p>{exam.set.error ? backendErrorMessage(exam.set.error) : '生成已停止'}</p><Button onClick={() => void resumeGeneration()}>恢复生成<RefreshCw size={17} /></Button></section>
     : <section className="surface question-surface">
       <div className="question-top"><div><Badge tone="blue">模拟考试</Badge><span>{plan?.goal ?? exam.set.planId}</span></div><span>{completed ? '已交卷' : `剩余 ${time}`}</span></div>
-      {completed && <div className="practice-result"><span className="result-mark"><CheckCircle2 size={34} /></span><h2>{exam.set.score} / {exam.set.maxScore}</h2><p>正确率 {Math.round(percentage)}% · 建议通过线 {exam.set.passScorePercent}%</p><Badge tone={passed ? 'green' : 'amber'}>{passed ? '达到建议分数线' : '未达到建议分数线'}</Badge><p>{passed ? '成绩已保存，可作为知识掌握证据之一。' : '可查看逐题反馈，再通过变式练习巩固。'}</p></div>}
+      {completed && <div className="practice-result"><span className="result-mark"><CheckCircle2 size={34} /></span><h2>{exam.set.score ?? '—'} / {exam.set.maxScore ?? '—'}</h2><p>正确率 {Math.round(percentage)}% · 建议通过线 {exam.set.passScorePercent}%</p><Badge tone={passed ? 'green' : 'amber'}>{passed ? '达到建议分数线' : '未达到建议分数线'}</Badge><p>{passed ? '成绩已保存，可作为知识掌握证据之一。' : '可查看逐题反馈，再通过变式练习巩固。'}</p></div>}
       {exam.examExpired && !completed && <div className="form-error"><Clock3 size={18} />考试时间已结束，不能继续作答；请提交已保存的作答并交卷。</div>}
       {question ? <>
         <div className="question-top"><div><Badge tone="neutral">{kindNames[question.kind]}</Badge><span>第 {index + 1} / {exam.questions.length} 题 · 难度 {question.difficulty} / 5</span></div><span>已判分 {exam.set.answeredQuestions} / {exam.set.totalQuestions}</span></div>
@@ -166,7 +166,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       </> : <p>试卷尚未生成题目。</p>}
       {!completed && <div className="editor-actions"><p className="form-help">交卷后统一显示评分。未作答按 0 分计；未完成的评分不会被伪造。</p><Button onClick={() => void finalize()} disabled={pending || busy}>{pending ? '等待评分完成' : '交卷并查看结果'}<CheckCircle2 size={17} /></Button></div>}
     </section>}
-  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
+  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
 
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="配置模拟考试"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>考试范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><div className="form-grid"><label>题目数量<select value={input.count} onChange={event => setInput({ ...input, count: Number(event.target.value) })}>{[5, 10, 20].map(count => <option value={count} key={count}>{count} 题</option>)}</select></label><label>考试时长（分钟）<input type="number" min={1} max={240} value={input.timeLimitMinutes} onChange={event => setInput({ ...input, timeLimitMinutes: Number(event.target.value) })} /></label></div><label>建议通过百分比<input type="number" min={1} max={100} value={input.passScorePercent} onChange={event => setInput({ ...input, passScorePercent: Number(event.target.value) })} /></label><fieldset className="question-type-field"><legend>题型覆盖</legend>{(['choice', 'fill', 'short', 'essay'] as const).map(kind => <label key={kind}><input type="checkbox" checked={input.kinds.includes(kind)} onChange={event => setInput({ ...input, kinds: event.target.checked ? [...input.kinds, kind] : input.kinds.filter(item => item !== kind) })} />{kindNames[kind]}</label>)}</fieldset><p className="form-help">题目就绪后开始计时。交卷前统一隐藏答案；未作答按 0 分计，正在评分的作答需完成后才能交卷。</p><Button onClick={() => void generate()} disabled={busy || !input.planId || !input.kinds.length}>生成模拟考试<ArrowRight size={17} /></Button></div></Modal>
   </div>

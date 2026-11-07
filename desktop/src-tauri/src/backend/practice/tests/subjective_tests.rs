@@ -90,7 +90,7 @@ fn subjective_rubrics_scores_citations_and_evidence_are_real() {
             .answered_questions,
         1
     );
-    assert_eq!(detail(&state, generated.set.id).unwrap().set.score, 0.8);
+    assert_eq!(detail(&state, generated.set.id).unwrap().set.score, Some(0.8));
     assert_eq!(
         subjective::submit(
             app.handle(),
@@ -116,8 +116,8 @@ fn subjective_rubrics_scores_citations_and_evidence_are_real() {
     assert_eq!(second.correct, Some(false));
     let completed = detail(&state, generated.set.id).unwrap();
     assert_eq!(completed.set.status, "completed");
-    assert_eq!(completed.set.score, 1.0);
-    assert_eq!(completed.set.max_score, 2.0);
+    assert_eq!(completed.set.score, Some(1.0));
+    assert_eq!(completed.set.max_score, Some(2.0));
     assert_eq!(completed.answered_question_ids.len(), 2);
     assert_eq!(mistakes(&state).unwrap().len(), 1);
     assert!(mistakes(&state).unwrap()[0]

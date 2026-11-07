@@ -672,6 +672,39 @@ fn rooms(conn: &Connection) -> Result<Vec<RoomView>> {
     ids.into_iter().map(|id| room_row(conn, id)).collect()
 }
 
+/// 03#13-12：[start, end) 与现有排期重叠时拒绝——同一时段只保留一个学习预约
+fn ensure_no_overlap(
+    conn: &Connection,
+    exclude: Option<i64>,
+    start: OffsetDateTime,
+    end: OffsetDateTime,
+) -> Result<()> {
+    let mut statement = conn
+        .prepare("SELECT id, start_at, duration_minutes FROM community_rooms WHERE status = 'scheduled'")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (room_id, other_start, duration) = row?;
+        if Some(room_id) == exclude {
+            continue;
+        }
+        let other_start = parse_time(&other_start)?;
+        let other_end = other_start + Duration::minutes(duration.max(0));
+        if start < other_end && other_start < end {
+            return Err(BackendError::new(
+                "room_time_conflict",
+                "该时段已有学习预约，请选择其他时间",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn create_room<R: Runtime>(
     app: &AppHandle<R>,
     state: &CommunityState,
@@ -706,6 +739,13 @@ pub fn create_room<R: Runtime>(
             return Err(BackendError::new("not_found", "关联小组不存在"));
         }
     }
+    // 03#13-12：新房间先与现有排期比对，重叠即拒绝
+    ensure_no_overlap(
+        &store.conn,
+        None,
+        start,
+        start + Duration::minutes(input.duration_minutes as i64),
+    )?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO community_rooms (group_id, title, topic, start_at, duration_minutes, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6)", params![input.group_id, input.title.trim(), input.topic.trim(), input.start_at, input.duration_minutes, now()?])?;
     let id = tx.last_insert_rowid();
@@ -725,12 +765,12 @@ pub fn reserve<R: Runtime>(
     id: i64,
 ) -> Result<RoomView> {
     let store = state.store()?;
-    let (group_id, start_at, status): (Option<i64>, String, String) = store
+    let (group_id, start_at, duration, status): (Option<i64>, String, i64, String) = store
         .conn
         .query_row(
-            "SELECT group_id, start_at, status FROM community_rooms WHERE id = ?1",
+            "SELECT group_id, start_at, duration_minutes, status FROM community_rooms WHERE id = ?1",
             params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?
         .ok_or_else(|| BackendError::new("not_found", "学习预约不存在"))?;
@@ -751,6 +791,14 @@ pub fn reserve<R: Runtime>(
     if existing == Some(None) {
         return room_row(&tx, id);
     }
+    // 03#13-12：预约时段不得与现有排期重叠（跳过本房间自身）
+    let window_start = parse_time(&start_at)?;
+    ensure_no_overlap(
+        &tx,
+        Some(id),
+        window_start,
+        window_start + Duration::minutes(duration.max(0)),
+    )?;
     if let Some(group_id) = group_id {
         let joined: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM community_group_members WHERE group_id = ?1 AND left_at IS NULL)", params![group_id], |row| row.get(0))?;
         if !joined {

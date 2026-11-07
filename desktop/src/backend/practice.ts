@@ -19,8 +19,9 @@ export type PracticeSet = {
   passScorePercent: number | null
   totalQuestions: number
   answeredQuestions: number
-  score: number
-  maxScore: number
+  /** hints 模式由后端遮蔽（03#2）：不公布总分与正确率 */
+  score: number | null
+  maxScore: number | null
   attempt: number
   requestId: string | null
   error: BackendError | null

@@ -150,10 +150,8 @@ pub fn finalize<R: Runtime>(
             params![question_id, id, serde_json::to_string(&feedback)?, timestamp],
         )?;
         let answer_id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, '未作答，按 0 分计。', ?2) ON CONFLICT(question_id) DO NOTHING",
-            params![question_id, timestamp],
-        )?;
+        // 03#13-27：未作答≠做错——不再写入错题本，避免空题灌满错题与变式来源；
+        // 0 分答案与掌握度证据仍如实记录
         let nodes: Vec<String> = serde_json::from_str(&nodes)?;
         for node in nodes {
             tx.execute(

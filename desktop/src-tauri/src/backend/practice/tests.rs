@@ -474,7 +474,7 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     )
     .unwrap();
     assert_eq!(completed.answer.correct, Some(true));
-    assert_eq!(completed.set.score, 1.0);
+    assert_eq!(completed.set.score, Some(1.0));
     assert_eq!(detail(&state, deferred.set.id).unwrap().answers.len(), 2);
     let hints = generate(
         app.handle(),
@@ -492,6 +492,11 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     let answer = &detail(&state, hints.set.id).unwrap().answers[0];
     assert_eq!(answer.correct, None);
     assert_eq!(answer.feedback.get("answer"), None);
+    // 03#2：hints 模式连 set 级总分也不公布（完成页只显示完成题数）
+    let masked = detail(&state, hints.set.id).unwrap();
+    assert_eq!(masked.set.status, "completed");
+    assert_eq!(masked.set.score, None);
+    assert_eq!(masked.set.max_score, None);
 }
 
 #[test]

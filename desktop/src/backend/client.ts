@@ -438,5 +438,8 @@ export function isCancelRace(error: unknown) {
 export function reportBackendError(error: unknown) {
   const message = backendErrorMessage(error)
   console.error(error)
+  // 03#6：database_busy 是瞬态争用（写锁超时/维护检查点未完），事件驱动
+  // 刷新会随下一个事件自动重试，不打断用户
+  if (typeof error === 'object' && error !== null && 'code' in error && (error as Partial<BackendError>).code === 'database_busy') return
   window.dispatchEvent(new CustomEvent('backend-error', { detail: message }))
 }

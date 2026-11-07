@@ -106,7 +106,12 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
         if (current && (request.status === 'running' || request.status === 'cancelled' || request.status === 'failed')) {
           setStream({ requestId: liveRequestId, text: request.output, reasoning: request.reasoning })
         }
-      }).catch(cause => { if (current) setError(backendErrorMessage(cause)) })
+      }).catch(cause => {
+        // 03#1：step_started 事件先于路由行落库到达时 not_found 是毫秒级竞态，
+        // 流式正文随后由事件增量补齐，不当作错误横幅
+        const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String((cause as { code?: unknown }).code) : ''
+        if (current && code !== 'not_found') setError(backendErrorMessage(cause))
+      })
     }
     return () => { current = false }
   }, [liveRequestId, activeRun?.status])

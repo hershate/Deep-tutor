@@ -88,8 +88,9 @@ pub struct PracticeSet {
     pub pass_score_percent: Option<u8>,
     pub total_questions: u32,
     pub answered_questions: u32,
-    pub score: f64,
-    pub max_score: f64,
+    /// 03#2：hints 模式不公布 set 级总分（与逐题遮蔽同口径）
+    pub score: Option<f64>,
+    pub max_score: Option<f64>,
     pub attempt: u32,
     pub request_id: Option<String>,
     pub error: Option<BackendError>,
@@ -412,7 +413,7 @@ fn generation_prompt(
         .iter()
         .all(|kind| ["short", "essay"].contains(&kind.as_str()));
     let prompt = format!(
-        "生成 {} 道学习题，范围为 {:?}。题目类别：{}。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
+        "生成 {} 道学习题，范围为 {:?}。题目类别：{}（请求了多种类别时，每种类别至少 1 道，除非题目总数少于类别数）。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
         input.count.unwrap_or(5),
         input.kinds,
         if subjective { "subjective" } else { "objective" },
@@ -918,6 +919,7 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
         params![id],
         |row| {
             let plan_id: i64 = row.get(2)?;
+            let feedback_mode: String = row.get(6)?;
             let code: Option<String> = row.get(13)?;
             let message: Option<String> = row.get(14)?;
             Ok((PracticeSet {
@@ -929,7 +931,7 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 node_id: row.get(23)?,
                 provider_id: row.get(4)?,
                 difficulty: row.get(5)?,
-                feedback_mode: row.get(6)?,
+                feedback_mode: feedback_mode.clone(),
                 kinds: Vec::new(),
                 variant_of: row.get(18)?,
                 exam_time_limit_minutes: row.get::<_, Option<i64>>(19)?.map(|value| value as u32),
@@ -938,8 +940,9 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 pass_score_percent: row.get::<_, Option<i64>>(22)?.map(|value| value as u8),
                 total_questions: row.get(8)?,
                 answered_questions: 0,
-                score: row.get(9)?,
-                max_score: row.get(10)?,
+                // 03#2：hints 模式遮蔽 set 级分数，完成后也不公布总分与正确率
+                score: (feedback_mode != "hints").then(|| row.get(9)).transpose()?,
+                max_score: (feedback_mode != "hints").then(|| row.get(10)).transpose()?,
                 attempt: row.get(11)?,
                 request_id: row.get(12)?,
                 error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("练习生成失败"))),

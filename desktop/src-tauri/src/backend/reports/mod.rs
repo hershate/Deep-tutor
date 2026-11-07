@@ -475,11 +475,16 @@ fn period_bounds(period: &str) -> Result<(OffsetDateTime, i64, OffsetDateTime)> 
         "4w" => 28,
         "8w" => 56,
         "semester" => {
+            // 03#13-10：学期按“秋季 9/1 起至次年 2 月末、春季 3/1 起至 8 月末”取起点，
+            // 寒暑假月归入刚结束的学期，避免 7 月把寒假一并计入“本学期”
             let year = local.year();
-            let start = if local.month() as u8 >= 9 {
+            let month = local.month() as u8;
+            let start = if month >= 9 {
                 time::Date::from_calendar_date(year, time::Month::September, 1)
+            } else if month >= 3 {
+                time::Date::from_calendar_date(year, time::Month::March, 1)
             } else {
-                time::Date::from_calendar_date(year, time::Month::January, 1)
+                time::Date::from_calendar_date(year - 1, time::Month::September, 1)
             }
             .map_err(|_| BackendError::new("invalid_period", "无法确定学期开始日期"))?;
             (today.date() - start).whole_days().max(0) + 1
@@ -496,15 +501,23 @@ fn period_bounds(period: &str) -> Result<(OffsetDateTime, i64, OffsetDateTime)> 
     Ok((since, days, previous))
 }
 
-fn task_minutes(store: &Store, since: &str, previous: &str) -> Result<(u64, u64)> {
+fn task_minutes(
+    store: &Store,
+    since: &str,
+    previous: &str,
+    current_focus: &std::collections::HashMap<i64, u64>,
+    previous_focus: &std::collections::HashMap<i64, u64>,
+) -> Result<(u64, u64)> {
     let tasks = store.collection("tasks")?.value;
     let tasks = tasks
         .as_array()
         .ok_or_else(|| BackendError::new("invalid_record", "任务集合格式无效"))?;
     let since = parse_time(since)?;
     let previous = parse_time(previous)?;
-    let mut minutes = 0;
-    let mut previous_minutes = 0;
+    // 03#20/13#9：同一任务的“勾选计划分钟”与“专注计时秒”只取较大者——
+    // 专注 25 分钟后勾选 60 分钟任务记 60 分钟，不再双计成 85 分钟
+    let mut seconds = 0u64;
+    let mut previous_seconds = 0u64;
     for task in tasks {
         if !task.get("done").and_then(Value::as_bool).unwrap_or(false) {
             continue;
@@ -514,35 +527,57 @@ fn task_minutes(store: &Store, since: &str, previous: &str) -> Result<(u64, u64)
         };
         let completed = parse_time(completed)?;
         let duration = task.get("duration").and_then(Value::as_u64).unwrap_or(0);
+        let id = task.get("id").and_then(Value::as_i64).unwrap_or_default();
         if completed >= since {
-            minutes += duration;
+            seconds += (duration * 60).max(current_focus.get(&id).copied().unwrap_or(0));
         } else if completed >= previous {
-            previous_minutes += duration;
+            previous_seconds += (duration * 60).max(previous_focus.get(&id).copied().unwrap_or(0));
         }
     }
-    Ok((minutes, previous_minutes))
+    Ok((seconds / 60, previous_seconds / 60))
 }
 
 fn focus_minutes(store: &Store, since: &str, previous: &str) -> Result<(u64, u64)> {
     let since = parse_time(since)?;
     let previous = parse_time(previous)?;
-    let mut statement = store.conn.prepare("SELECT actual_seconds, ended_at FROM focus_sessions WHERE status = 'completed' AND ended_at IS NOT NULL")?;
+    let mut statement = store.conn.prepare("SELECT actual_seconds, task_id, ended_at FROM focus_sessions WHERE status = 'completed' AND ended_at IS NOT NULL")?;
     let rows = statement.query_map([], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, Option<i64>>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     })?;
-    let mut current = 0;
-    let mut previous_value = 0;
+    // 03#20/13#9：关联任务的专注秒并入该任务的 max(计划分钟, 专注秒)；
+    // 只有未关联任务的专注按实际秒全额计入
+    let mut current_free = 0u64;
+    let mut previous_free = 0u64;
+    let mut current_tasks: std::collections::HashMap<i64, u64> = std::collections::HashMap::new();
+    let mut previous_tasks: std::collections::HashMap<i64, u64> = std::collections::HashMap::new();
     for row in rows {
-        let (seconds, ended) = row?;
+        let (seconds, task_id, ended) = row?;
         let ended = parse_time(&ended)?;
+        let seconds = seconds.max(0) as u64;
         if ended >= since {
-            current += seconds.max(0) as u64;
+            match task_id {
+                Some(id) => *current_tasks.entry(id).or_insert(0) += seconds,
+                None => current_free += seconds,
+            }
         } else if ended >= previous {
-            previous_value += seconds.max(0) as u64;
+            match task_id {
+                Some(id) => *previous_tasks.entry(id).or_insert(0) += seconds,
+                None => previous_free += seconds,
+            }
         }
     }
-    let (tasks, old_tasks) = task_minutes(store, &timestamp(since)?, &timestamp(previous)?)?;
-    Ok((current + tasks * 60, previous_value + old_tasks * 60))
+    let (tasks, old_tasks) = task_minutes(
+        store,
+        &timestamp(since)?,
+        &timestamp(previous)?,
+        &current_tasks,
+        &previous_tasks,
+    )?;
+    Ok((current_free + tasks * 60, previous_free + old_tasks * 60))
 }
 
 fn evidence(store: &Store, since: &str) -> Result<Vec<(i64, String, String, f64, f64, String)>> {

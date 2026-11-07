@@ -118,7 +118,8 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
     assert_eq!(finished["answers"][1]["response"], serde_json::Value::Null);
     assert_eq!(finished["answers"][1]["feedback"]["unanswered"], true);
     assert_eq!(finished["answers"][1]["score"], 0.0);
-    assert_eq!(mistakes(&state).unwrap().len(), 2);
+    // 03#13-27：未作答不再写入错题本，只保留真实答错的一道
+    assert_eq!(mistakes(&state).unwrap().len(), 1);
     let store = state.store().unwrap();
     let evidence: i64 = store
         .conn
@@ -189,7 +190,7 @@ fn expired_exam_rejects_new_answers_and_finalizes_only_as_unanswered() {
     );
     let finished = exams::finalize(app.handle(), &state, generated.set.id).unwrap();
     assert_eq!(finished.set.status, "completed");
-    assert_eq!(finished.set.score, 0.0);
+    assert_eq!(finished.set.score, Some(0.0));
     assert_eq!(finished.answers[0].feedback["unanswered"], true);
     assert_eq!(finished.answers[0].score, Some(0.0));
 }
@@ -234,7 +235,7 @@ fn exam_waits_for_subjective_grading_before_finishing() {
     assert!(detail(&state, generated.set.id).unwrap().answers.is_empty());
     let finished = exams::finalize(app.handle(), &state, generated.set.id).unwrap();
     assert_eq!(finished.set.status, "completed");
-    assert_eq!(finished.set.score, 0.8);
+    assert_eq!(finished.set.score, Some(0.8));
     assert_eq!(finished.answers.len(), 2);
     assert_eq!(finished.answers[0].feedback["criteria"][0]["score"], 0.6);
     assert_eq!(finished.answers[1].feedback["unanswered"], true);
