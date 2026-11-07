@@ -169,10 +169,19 @@ export function useBackendState() {
 
   const replaceCollection = useCallback(async <T,>(namespace: CollectionNamespace, value: T) => {
     const requestedGeneration = generation.current
-    const next = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, value)
-    applySnapshot(next, requestedGeneration)
-    return next
-  }, [applySnapshot])
+    try {
+      const next = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, value)
+      applySnapshot(next, requestedGeneration)
+      return next
+    } catch (error) {
+      if ((error as Partial<BackendError>)?.code !== 'revision_conflict') throw error
+      // 快速连续操作时后到者撞版本号（先到者已生效）：立即拉取最新快照同步界面，
+      // 再以明确指引报错，用户基于最新数据重试一次即可成功
+      const fresh = await backend.getAppState()
+      applySnapshot(fresh, requestedGeneration)
+      throw { code: 'revision_conflict', message: '内容刚被其他操作更新，已为你刷新到最新，请重试一次。' } satisfies Partial<BackendError>
+    }
+  }, [applySnapshot, sync])
 
   const resetApplication = useCallback(async () => {
     const requestedGeneration = generation.current

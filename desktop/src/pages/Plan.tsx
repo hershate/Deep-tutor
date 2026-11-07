@@ -10,6 +10,7 @@ import { localShareUrl } from '../backend/sharing'
 import { planningBackend } from '../backend/planning'
 import type { PlanAlternative, PlanOverview, ScheduleEvent } from '../backend/planning'
 import { clampToBytes } from '../limits'
+import { statusName } from '../status'
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 function localDate(date: Date) {
@@ -96,7 +97,7 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
     try {
       const next = await planningBackend.updateGoal({ planId: plan.id, goal, deadline, weeklyHours, level })
       setGoalOpen(false)
-      notify(next.status === 'running' || next.status === 'cancelling' ? '目标已保存，原生再规划已开始' : `目标已保存，再规划状态：${next.status}`)
+      notify(next.status === 'running' || next.status === 'cancelling' ? '目标已保存，原生再规划已开始' : `目标已保存，再规划状态：${statusName(next.status)}`)
       await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
@@ -144,7 +145,7 @@ export default function Plan({ tasks, setTasks, onNavigate, notify }: { tasks: T
       <div className="goal-progress"><div><strong>{progress}%</strong><span>阶段阅读进度</span></div><ProgressBar value={progress} /></div>
       <Button variant="secondary" onClick={openGoal}><SlidersHorizontal size={17} />调整目标</Button>
     </section> : <section className="surface"><EmptyState title="尚未创建学习方案" description="从已解析资料生成真实方案，采用后会出现排期与阶段。你仍可以添加并保存自己的任务。" action={<Button onClick={() => onNavigate('generator')}>创建真实方案</Button>} /></section>}
-    {plan && !ready && <div className="capacity-warning"><RefreshCw size={18} className={plan.status === 'running' ? 'spin' : ''} /><div><strong>方案状态：{plan.status} · 生成进度 {plan.progress}%</strong><p>{plan.error ? `${plan.error.code}：${plan.error.message}` : plan.status === 'running' ? '正在等待原生步骤与真实事件，不会提前展示新的排期。' : '当前没有完整可采用的方案结果。'}</p><Button variant="secondary" size="sm" onClick={() => onNavigate('generator')}>查看真实生成步骤</Button></div></div>}
+    {plan && !ready && <div className="capacity-warning"><RefreshCw size={18} className={plan.status === 'running' ? 'spin' : ''} /><div><strong>方案状态：{statusName(plan.status)} · 生成进度 {plan.progress}%</strong><p>{plan.error ? `${plan.error.code}：${plan.error.message}` : plan.status === 'running' ? '正在等待原生步骤与真实事件，不会提前展示新的排期。' : '当前没有完整可采用的方案结果。'}</p><Button variant="secondary" size="sm" onClick={() => onNavigate('generator')}>查看真实生成步骤</Button></div></div>}
 
     <div className="plan-toolbar">
       <div className="segmented" aria-label="学习强度">{(['稳妥', '标准', '冲刺'] as const).map(item => <button key={item} disabled={!ready || busy === 'intensity'} className={overview?.intensity === item ? 'active' : ''} onClick={() => void changeIntensity(item)}>{item}</button>)}</div>

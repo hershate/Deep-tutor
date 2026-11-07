@@ -3,7 +3,8 @@ import { ArrowUp, BookOpen, Check, ChevronRight, CircleAlert, FileText, History,
 import type { Resource } from '../data'
 import { Badge, Button, EmptyState, Modal } from './UI'
 import { clampToBytes } from '../limits'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail } from '../backend/client'
+import { statusName } from '../status'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail, isCancelRace } from '../backend/client'
 import { knowledgeBackend, type KnowledgeCitation, type KnowledgeHit, type KnowledgeSession } from '../backend/knowledge'
 
 export default function WikiPanel({ resources, notify }: { resources: Resource[]; notify: (message: string) => void }) {
@@ -74,7 +75,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     if (!current || busy) return
     setBusy(true)
     try { choose(await knowledgeBackend.cancel(current.id)); notify('已请求取消，原始问题与资料范围已保留') }
-    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const resume = async () => {
     if (!current || busy) return
@@ -129,7 +130,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
       <div className="row-actions"><span>实际范围：{current.sources.map(source => source.title).join('、')}</span><Button variant="ghost" size="sm" onClick={() => void remove(current.id)} disabled={['running', 'cancelling'].includes(current.status)}><Trash2 size={14} />删除此条</Button></div>
     </article> : <EmptyState title="向你的真实知识库提问" description="选择已解析资料，再输入问题。回答、引用位置与历史都由原生后端保存。" />}</div>
     <form className="wiki-composer" onSubmit={event => { event.preventDefault(); void ask() }}><textarea rows={3} value={question} onChange={event => setQuestion(clampToBytes(event.target.value, 8000))} placeholder="例如：根据所选资料，先验概率是什么？" /><div><span>{selected.length ? `基于 ${selected.length} 份实际资料作答` : '请至少选择一份资料'}</span><Button type="submit" disabled={busy || !question.trim() || !selected.length}><ArrowUp size={17} />提问</Button></div></form>
-  </main><aside className="wiki-history"><div><History size={17} /><strong>真实问答历史</strong></div>{sessions.map(item => <div key={item.id}><button onClick={() => choose(item)}><strong>{item.question}</strong><span>{item.citations.length} 条引用 · 第 {item.attempt} 次尝试 · {item.status}</span></button><button aria-label={`删除问答 ${item.question}`} onClick={() => void remove(item.id)} disabled={['running', 'cancelling'].includes(item.status)}><Trash2 size={13} /></button></div>)}{sessions.length > 0 && <Button variant="ghost" size="sm" onClick={() => void clear()}><Trash2 size={15} />清空历史</Button>}</aside>
+  </main><aside className="wiki-history"><div><History size={17} /><strong>真实问答历史</strong></div>{sessions.map(item => <div key={item.id}><button onClick={() => choose(item)}><strong>{item.question}</strong><span>{item.citations.length} 条引用 · 第 {item.attempt} 次尝试 · {statusName(item.status)}</span></button><button aria-label={`删除问答 ${item.question}`} onClick={() => void remove(item.id)} disabled={['running', 'cancelling'].includes(item.status)}><Trash2 size={13} /></button></div>)}{sessions.length > 0 && <Button variant="ghost" size="sm" onClick={() => void clear()}><Trash2 size={15} />清空历史</Button>}</aside>
 
     <Modal open={reading !== null} onClose={() => setReading(null)} title={reading?.detail.title ?? '资料原文'} wide>{reading && <div><p className="form-help">{reading.citation ? `第 ${reading.citation.line} 行 · 字符 ${reading.citation.charStart}–${reading.citation.charEnd}` : '实际解析文本'} · SHA-256 {reading.detail.sha256}</p><pre className="citation-source-text">{reading.citation ? reading.detail.text?.split(reading.citation.quote).map((part, index, parts) => <span key={index}>{part}{index < parts.length - 1 && <mark>{reading.citation!.quote}</mark>}</span>) : reading.detail.text ?? '尚未产生解析文本。'}</pre></div>}</Modal>
     <Modal open={noteHit !== null} onClose={() => setNoteHit(null)} title={noteHit?.title ?? '笔记检索结果'}><p>{noteHit?.excerpt}</p><p className="form-help">来自笔记 #{noteHit?.noteId} · 实际匹配 {noteHit?.score} 次</p></Modal>

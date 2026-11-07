@@ -3,8 +3,9 @@ import { ArrowRight, BookOpenCheck, CheckCircle2, ChevronRight, CircleAlert, Clo
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import SubjectivePractice from '../components/SubjectivePractice'
 import ExamWorkspace from '../components/ExamWorkspace'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeMistake, type PracticeSet, type PracticeTarget } from '../backend/practice'
+import { statusName } from '../status'
 
 type Tab = 'practice' | 'subjective' | 'mistakes' | 'exam'
 const emptyInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'adaptive', feedbackMode: 'immediate', kinds: ['choice', 'fill'] }
@@ -23,10 +24,12 @@ export default function Practice({ notify, target }: { notify: (message: string)
   const [setupOpen, setSetupOpen] = useState(false)
   const [input, setInput] = useState<PracticeInput>(emptyInput)
   const [generationOutput, setGenerationOutput] = useState('')
+  const [loadError, setLoadError] = useState('')
   const currentId = useRef<number | null>(null)
   const requestId = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
+    setLoadError('')
     const [allPlans, sets, allMistakes] = await Promise.all([
       backend.listLearningPlans(), practiceBackend.history(), practiceBackend.mistakes(),
     ])
@@ -51,7 +54,8 @@ export default function Practice({ notify, target }: { notify: (message: string)
   }, [])
 
   useEffect(() => {
-    void refresh().catch(reportBackendError)
+    // 加载失败保留在页面上的错误横幅（含重试），不再只剩误导性空态
+    void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) })
     let unlisten: (() => void) | undefined
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
@@ -100,7 +104,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
       setDetail(await practiceBackend.cancel(detail.set.id))
       await refresh()
       notify('已请求取消，正在停止模型请求')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
   const resume = async () => {
     if (!detail || busy) return
@@ -182,6 +186,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
 
   return <div className="page practice-page">
     <div className="page-heading"><div><h1>练习与测评</h1><p>题目、答案、解析和掌握证据都来自已保存的学习方案与真实模型结果。</p></div><Button onClick={() => setSetupOpen(true)} disabled={!plans.length}><SlidersHorizontal size={17} />生成练习</Button></div>
+    {loadError && <div className="form-error" role="alert"><span>练习数据读取失败：{loadError}</span><Button variant="secondary" size="sm" onClick={() => { setLoadError(''); void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) }) }}>重试</Button></div>}
     <div className="practice-tabs">{([{ id: 'practice', label: '针对练习' }, { id: 'subjective', label: '主观题' }, { id: 'mistakes', label: '错题本' }, { id: 'exam', label: '模拟考试' }] as { id: Tab; label: string }[]).map(item => <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.id === 'practice' ? <Target size={17} /> : item.id === 'mistakes' ? <RotateCcw size={17} /> : <Clock3 size={17} />}{item.label}{item.id === 'mistakes' && <span>{mistakes.filter(item => !item.mastered).length}</span>}</button>)}</div>
 
     {tab === 'practice' && <div className="practice-layout">
@@ -205,7 +210,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
           <div className="question-actions"><Button variant="ghost" onClick={() => setHint(!hint)} disabled={answered}><Lightbulb size={17} />{hint ? '收起提示' : '只给一点提示'}</Button><Button variant="ghost" onClick={() => void bookmark()}>{question.bookmarked ? '取消收藏' : '收藏解析'}</Button>{!answered ? <Button onClick={() => void submit()} disabled={busy || (question.kind === 'choice' ? selected === null : !textAnswer.trim())}>提交答案<ArrowRight size={17} /></Button> : <Button onClick={() => { setIndex(Math.min(index + 1, objectiveQuestions.length - 1)); setSelected(null); setTextAnswer(''); setHint(false) }} disabled={index === objectiveQuestions.length - 1}>下一题<ChevronRight size={17} /></Button>}</div>
         </> : <p>题目尚未写入，请刷新练习状态。</p>}
       </section>
-      <aside className="practice-side"><section className="surface"><SectionHeader title="本组依据" description={plan?.goal} /><p className="side-copy">范围：{detail?.set.nodeId ? `节点：${plan?.result?.graph.nodes.find(node => node.id === detail.set.nodeId)?.title ?? detail.set.nodeId}` : detail ? plan?.result?.stages.find(stage => stage.id === detail.set.stageId)?.title ?? '整个方案' : '尚未选择'}。每道题都必须通过原文引用与知识节点校验。</p>{detail && <p className="side-copy">题型：{detail.set.kinds.map(kind => kind === 'choice' ? '单选' : kind === 'fill' ? '填空' : kind === 'short' ? '简答' : '论述').join('、')} · 反馈：{{ immediate: '逐题反馈', deferred: '统一反馈', hints: '只给提示' }[detail.set.feedbackMode]}</p>}</section><section className="surface"><SectionHeader title="真实练习历史" description="点击可恢复未完成的作答" /><div className="practice-history-list">{history.map(item => <button key={item.id} onClick={() => void selectHistory(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {item.status}</small></span><strong>{item.status === 'completed' ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section></aside>
+      <aside className="practice-side"><section className="surface"><SectionHeader title="本组依据" description={plan?.goal} /><p className="side-copy">范围：{detail?.set.nodeId ? `节点：${plan?.result?.graph.nodes.find(node => node.id === detail.set.nodeId)?.title ?? detail.set.nodeId}` : detail ? plan?.result?.stages.find(stage => stage.id === detail.set.stageId)?.title ?? '整个方案' : '尚未选择'}。每道题都必须通过原文引用与知识节点校验。</p>{detail && <p className="side-copy">题型：{detail.set.kinds.map(kind => kind === 'choice' ? '单选' : kind === 'fill' ? '填空' : kind === 'short' ? '简答' : '论述').join('、')} · 反馈：{{ immediate: '逐题反馈', deferred: '统一反馈', hints: '只给提示' }[detail.set.feedbackMode]}</p>}</section><section className="surface"><SectionHeader title="真实练习历史" description="点击可恢复未完成的作答" /><div className="practice-history-list">{history.map(item => <button key={item.id} onClick={() => void selectHistory(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {statusName(item.status)}</small></span><strong>{item.status === 'completed' ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section></aside>
     </div>}
 
     {tab === 'subjective' && <SubjectivePractice detail={detail} history={history} plans={plans} onUpdated={setDetail} onGenerated={chooseSet} onSelectSet={id => void selectHistory(id)} onShowObjective={() => setTab('practice')} notify={notify} />}

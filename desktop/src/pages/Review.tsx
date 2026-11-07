@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowRight, Brain, CalendarClock, Check, ChevronRight, CircleHelp, Clock3, Layers3, Plus, RotateCcw, Sparkles } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
-import { backend, onBackendEvent, reportBackendError, type LearningPlan } from '../backend/client'
+import { backend, onBackendEvent, reportBackendError, type LearningPlan, backendErrorMessage } from '../backend/client'
 import { reviewBackend, type ReviewCard, type ReviewCardInput, type ReviewGrade, type ReviewHistoryEntry, type ReviewStats } from '../backend/review'
 import { clampToBytes } from '../limits'
 
@@ -12,6 +12,7 @@ const gradeDays: Record<ReviewGrade, string> = { again: '10 分钟后', hard: '�
 
 export default function Review({ notify }: { notify: (message: string) => void }) {
   const [card, setCard] = useState<ReviewCard | null>(null)
+  const [loadError, setLoadError] = useState('')
   const [cards, setCards] = useState<ReviewCard[]>([])
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [stats, setStats] = useState<ReviewStats>(emptyStats)
@@ -27,6 +28,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
   const [logicOpen, setLogicOpen] = useState(false)
 
   const refresh = useCallback(async () => {
+    setLoadError('')
     const [next, allCards, nextStats, allPlans] = await Promise.all([
       reviewBackend.next(), reviewBackend.list(), reviewBackend.stats(), backend.listLearningPlans(),
     ])
@@ -37,7 +39,8 @@ export default function Review({ notify }: { notify: (message: string) => void }
   }, [])
 
   useEffect(() => {
-    void refresh().catch(reportBackendError)
+    // 加载失败保留错误横幅（含重试），与"现在没有到期卡片"空态区分
+    void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) })
     let unlisten: (() => void) | undefined
     const stop = onBackendEvent(event => {
       if (event.kind.startsWith('review.') || event.kind.startsWith('plan.')) void refresh().catch(reportBackendError)
@@ -112,6 +115,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
   const maximum = Math.max(...stats.calendar.map(day => day.count), 1)
 
   return <div className="page review-page">
+    {loadError && <div className="form-error" role="alert"><span>复习数据读取失败：{loadError}</span><Button variant="secondary" size="sm" onClick={() => { setLoadError(''); void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) }) }}>重试</Button></div>}
     <div className="page-heading"><div><h1>记忆复习</h1><p>先努力回忆，再查看答案；每次反馈都会持久化并计算下次到期时间。</p></div><div className="heading-actions"><Button variant="secondary" onClick={() => setManageOpen(true)}>管理卡片</Button><Button onClick={() => edit()}><Plus size={17} />创建记忆卡</Button></div></div>
     <div className="review-stats"><div><Layers3 size={20} /><span>今日待复习</span><strong>{stats.dueToday}<small>张</small></strong></div><div><Brain size={20} /><span>历史反馈保持率</span><strong>{stats.retention ?? '—'}<small>{stats.retention === null ? '' : '%'}</small></strong></div><div><Clock3 size={20} /><span>预计用时</span><strong>{stats.estimatedMinutes}<small>分钟</small></strong></div><div><CalendarClock size={20} /><span>明日到期</span><strong>{stats.tomorrow}<small>张</small></strong></div></div>
     <div className="review-layout">

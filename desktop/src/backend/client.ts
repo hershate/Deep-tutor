@@ -408,6 +408,24 @@ export function backendErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** 任务已终态后取消返回的竞态码：界面刷新滞后所致，任务实际已正常结束，
+ * 不应作为错误弹出（覆盖方案/讲义/练习/主观题/问答/Agent/项目评价/同步/模型请求各域）。 */
+export function isCancelRace(error: unknown) {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  const code = (error as Partial<BackendError>).code
+  return typeof code === 'string' && [
+    'no_active_plan',
+    'no_active_lecture',
+    'no_active_generation',
+    'no_active_grading',
+    'no_active_answer',
+    'no_active_run',
+    'project_feedback_not_active',
+    'sync_not_active',
+    'no_active_request',
+  ].includes(code)
+}
+
 export function reportBackendError(error: unknown) {
   const message = backendErrorMessage(error)
   console.error(error)

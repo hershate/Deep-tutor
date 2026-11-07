@@ -5,7 +5,7 @@ import { Badge, Button, IconButton, Modal, ProgressBar, SectionHeader } from '..
 import SharePlanDialog from '../components/SharePlanDialog'
 import ExportCenter from '../components/ExportCenter'
 import { localShareUrl } from '../backend/sharing'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, isCancelRace, onBackendEvent } from '../backend/client'
 import type { LearningCheckName, LearningGraph, LearningPlan, Material, ProviderRequest } from '../backend/client'
 import { webBackend } from '../backend/web'
 import { usageBackend } from '../backend/usage'
@@ -229,7 +229,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
   const cancel = async () => {
     if (!plan) return
     setBusy('cancel')
-    try { setPlan(await backend.cancelLearningPlan(plan.id)) } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    try { setPlan(await backend.cancelLearningPlan(plan.id)) } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const resume = async () => {
     if (!plan) return

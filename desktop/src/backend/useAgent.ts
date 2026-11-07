@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { backend, backendErrorMessage, onBackendEvent } from './client'
+import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from './client'
 import type { AgentRun, AgentSession, LearningPlan } from './client'
 
 type Options = { planId?: string; sessionTitle?: string; enabled?: boolean }
@@ -190,7 +190,12 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const cancel = useCallback(async (id: number) => {
     setBusy('cancel')
     try { await backend.cancelAgentRun(String(id)); if (activeIdRef.current) await refreshSession(activeIdRef.current); return true }
-    catch (cause) { setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
+    catch (cause) {
+      // 任务已终态后的取消是刷新竞态：刷新会话即可，不作为错误提示
+      if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
+      if (activeIdRef.current) await refreshSession(activeIdRef.current).catch(() => {})
+      return false
+    } finally { setBusy('') }
   }, [refreshSession])
   const resume = useCallback(async (id: number) => {
     setBusy('resume')

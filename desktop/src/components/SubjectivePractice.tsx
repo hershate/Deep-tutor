@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet } from '../backend/practice'
 
 type Props = {
@@ -89,7 +89,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     try {
       onUpdated(await practiceBackend.cancelAnswer(answer.id))
       notify('已请求取消评分，原始作答仍然保留')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const resume = async () => {
     if (!answer || busy) return

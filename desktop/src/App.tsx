@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleHelp, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, MessageSquareText, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
+import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleAlert, CircleHelp, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, MessageSquareText, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Plan from './pages/Plan'
@@ -64,7 +64,7 @@ export default function App() {
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
-  const [toast, setToast] = useState('')
+  const [toast, setToast] = useState<{ message: string; tone: 'info' | 'error' } | null>(null)
   const [query, setQuery] = useState('')
   const [quickType, setQuickType] = useState('任务')
   const [quickTitle, setQuickTitle] = useState('')
@@ -79,7 +79,7 @@ export default function App() {
   const [notificationsError, setNotificationsError] = useState('')
   const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
 
-  const notify = (message: string) => setToast(message)
+  const notify = (message: string) => setToast({ message, tone: 'info' })
   // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
   useEffect(() => {
     const sync = () => {
@@ -100,11 +100,12 @@ export default function App() {
     setPage(previous => (previous === 'shared' ? 'today' : previous))
   }, [])
   useEffect(() => {
-    const onError = (event: Event) => notify((event as CustomEvent<string>).detail)
+    // 后端错误以错误样式（alert）播报，与成功提示区分，不再共用绿色对勾
+    const onError = (event: Event) => setToast({ message: (event as CustomEvent<string>).detail, tone: 'error' })
     window.addEventListener('backend-error', onError)
     return () => window.removeEventListener('backend-error', onError)
   }, [])
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer) }, [toast])
+  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), toast.tone === 'error' ? 5200 : 3200); return () => window.clearTimeout(timer) }, [toast])
   useEffect(() => {
     let active = true
     const timer = window.setTimeout(() => {
@@ -294,13 +295,13 @@ export default function App() {
   }
 
   if (startupError) {
-    return <main className="page-loading startup-recovery"><h1>本地数据或实时连接打开失败</h1><p role="alert">{startupError}</p><DataDirectoryPanel /></main>
+    return <main className="page-loading startup-recovery"><h1>本地数据或实时连接打开失败</h1><p role="alert">{startupError}</p><DataDirectoryPanel />{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
   }
   if (loginRequired) {
-    return <main className="page-loading access-gate"><h1>选择本地用户</h1><p>会话已过期或尚未建立。请选择本地身份，继续进入对应的学习工作区。</p><div className="surface access-gate-panel"><SecurityPanel notify={notify} /></div>{toast && <p role="alert">{toast}</p>}</main>
+    return <main className="page-loading access-gate"><h1>选择本地用户</h1><p>会话已过期或尚未建立。请选择本地身份，继续进入对应的学习工作区。</p><div className="surface access-gate-panel"><SecurityPanel notify={notify} /></div>{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
   }
   if (!ready) {
-    return <main className="page-loading"><LoaderMark />正在打开本地学习数据…</main>
+    return <main className="page-loading"><LoaderMark />正在打开本地学习数据…{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
   }
 
   return <div className={`app-shell ${page === 'study' ? 'study-mode' : ''}`}>
@@ -338,7 +339,7 @@ export default function App() {
     </Modal>
 
     {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习"><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => setFocusOpen(false)}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{focusSession?.taskId ? tasks.find(task => task.id === focusSession.taskId)?.title || `任务 #${focusSession.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={focusBusy} onClick={() => void toggleFocus()}>{focusSession?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{focusSession?.status === 'running' ? '暂停' : focusSession?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={focusBusy || !focusSession || !['running', 'paused'].includes(focusSession.status)} onClick={() => void finishFocus(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={focusBusy} onClick={() => void resetFocus()}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={() => setFocusOpen(false)}>Esc 退出专注</button></div>}
-    {toast && <div className="toast" role="status"><Check size={17} /><span>{toast}</span><button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
+    {toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}
   </div>
 }
 
