@@ -54,6 +54,7 @@ Deep-tutor/
 │   ├── src-tauri/           # Rust 壳、原生后端与 NSIS 配置
 │   └── package.json         # 界面依赖与 Tauri CLI
 ├── dist/                    # 最终安装包，可重建且不入库
+├── docs/architecture/       # 架构与运维原理文档（状态机、模块清单、工作流）
 ├── note/                    # 当前产品决策与功能验收矩阵
 ├── plan/                    # 当前验证契约
 ├── .github/workflows/       # Tauri 2 无界面 CI

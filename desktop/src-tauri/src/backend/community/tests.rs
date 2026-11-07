@@ -307,3 +307,39 @@ fn groups_rooms_reservations_reminders_and_reset_use_real_state() {
     assert!(cleared.posts.is_empty() && cleared.groups.is_empty() && cleared.rooms.is_empty());
     assert_eq!(cleared.stats.joined_groups, 0);
 }
+
+#[test]
+fn community_overview_reads_real_rows_and_filters_through_ipc() {
+    let (app, state) = setup();
+    state.store().unwrap().replace_collection("projects", 0, &json!([{
+        "id": 1, "title": "真实分类器项目", "description": "检查真实评估指标", "due": "2099-01-01",
+        "progress": 25, "tag": "项目", "milestones": [{"id": 1, "title": "评估", "done": false}],
+    }])).unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    ipc(
+        &window,
+        "create_community_post",
+        json!({"input": {
+            "title": "如何复习概率", "body": "分享主动回忆的安排", "kind": "discussion", "projectId": null,
+        }}),
+    )
+    .unwrap();
+    let overview = ipc(&window, "get_community_overview", json!({})).unwrap();
+    assert_eq!(overview["stats"]["posts"], 1);
+    assert_eq!(overview["posts"].as_array().unwrap().len(), 1);
+    // kind / query 过滤必须落到真实 SQL 与行级匹配，而不是前端兜底
+    let filtered =
+        ipc(&window, "get_community_overview", json!({"kind": "peer_review"})).unwrap();
+    assert!(filtered["posts"].as_array().unwrap().is_empty());
+    let searched =
+        ipc(&window, "get_community_overview", json!({"query": "概率"})).unwrap();
+    assert_eq!(searched["posts"].as_array().unwrap().len(), 1);
+    let missing = ipc(&window, "get_community_overview", json!({"query": "不存在的关键词"}))
+        .unwrap();
+    assert!(missing["posts"].as_array().unwrap().is_empty());
+    let invalid =
+        ipc(&window, "get_community_overview", json!({"kind": "unknown"})).unwrap_err();
+    assert_eq!(invalid["code"], "invalid_post_kind");
+}

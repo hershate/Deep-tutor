@@ -72,7 +72,9 @@ explicitly declared, not inferred from a file name.
 - sensitive: desktop/src-tauri/src/backend/sharing/**
 - sensitive: desktop/src-tauri/src/backend/sync/**
 - sensitive: desktop/src-tauri/src/backend/plugins/**
+- sensitive: desktop/src-tauri/src/backend/export/**   # PDF/Anki/文件写磁盘，与 backup/sharing 同属文件输出域
 - sensitive: desktop/src-tauri/src/backend/store.rs
+- sensitive: desktop/src-tauri/src/backend/*/commands.rs   # 全部 IPC 入口：参数映射与路径遏制
 - sensitive: desktop/src-tauri/src/main.rs
 
 Review path containment, archive and decompression limits, URL resolution and redirect

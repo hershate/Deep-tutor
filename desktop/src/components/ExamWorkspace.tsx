@@ -12,14 +12,13 @@ type Props = {
   generationOutput: string
   onUpdated: (detail: PracticeDetail) => void
   onGenerated: (detail: PracticeDetail) => void
-  onSelectSet: (id: number) => void
   notify: (message: string) => void
 }
 
 const kindNames: Record<QuestionKind, string> = { choice: '单选', fill: '填空', short: '简答', essay: '论述' }
 const initialInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'comprehensive', feedbackMode: 'deferred', kinds: ['choice', 'fill', 'short', 'essay'], mode: 'exam', timeLimitMinutes: 45, passScorePercent: 80 }
 
-export default function ExamWorkspace({ detail, history, plans, generationOutput, onUpdated, onGenerated, onSelectSet, notify }: Props) {
+export default function ExamWorkspace({ detail, history, plans, generationOutput, onUpdated, onGenerated, notify }: Props) {
   const [index, setIndex] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [draft, setDraft] = useState('')

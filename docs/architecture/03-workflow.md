@@ -27,7 +27,7 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏证据：dist/ 下 1.0.0→1.0.4 五个安装包；版本号三处同步（package.json、tauri.conf.json、Cargo.toml 均为 1.0.4）。
+发布节奏证据：dist/ 下 1.0.0→1.0.5 六个安装包；版本号三处同步（package.json、tauri.conf.json、Cargo.toml 均为 1.0.5）。
 
 ## 2. 测试策略
 

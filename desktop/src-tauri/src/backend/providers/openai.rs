@@ -136,7 +136,10 @@ pub(crate) fn public_address(address: std::net::IpAddr) -> bool {
                 && !(segments[0] == 0x2001 && segments[1] == 0x0002)
                 && !(segments[0] == 0x2001 && segments[1] & 0xfff0 == 0x0010)
                 && !(segments[0] == 0x0100 && segments[1] == 0)
-                && !(segments[0] & 0xfff0 == 0x3fff)
+                // 3fff::/20（RFC 9637 文档段，含旧 6bone 3ffe::/16）：
+                // 前 20 位掩码比较，低 4 位恒 0，须与 0x3ff0 比较（08#1，
+                // 原写法 0x3fff 低 4 位为 f，恒不相等属死代码）
+                && !(segments[0] & 0xfff0 == 0x3ff0)
         }
     }
 }

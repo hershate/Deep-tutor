@@ -37,7 +37,10 @@ fn setup() -> tauri::App<tauri::test::MockRuntime> {
             commands::get_library_overview,
             crate::backend::export::commands::export_notes_archive,
             crate::backend::commands::get_collection,
-            crate::backend::commands::events_since
+            crate::backend::commands::events_since,
+            crate::backend::commands::save_draft,
+            crate::backend::commands::get_draft,
+            crate::backend::commands::delete_draft
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -353,4 +356,58 @@ fn library_links_and_checks_reflect_actual_annotations_materials_and_deletion() 
         .unwrap()
         .iter()
         .any(|issue| issue["kind"] == "orphan_annotation"));
+}
+
+#[test]
+fn draft_commands_round_trip_through_ipc_with_real_rows_and_events() {
+    let app = setup();
+    let saved = ipc(
+        &app,
+        "save_draft",
+        json!({"id": "deep-tutor-draft-new", "value": {
+            "title": "未完成笔记", "content": "草稿正文，等待续写", "tag": "笔记", "savedAt": 1730000000,
+        }}),
+    )
+    .unwrap();
+    assert!(
+        saved["versions"]["drafts"].as_i64().unwrap() >= 1,
+        "save_draft 应返回包含 drafts 版本号的快照"
+    );
+    let loaded = ipc(&app, "get_draft", json!({"id": "deep-tutor-draft-new"})).unwrap();
+    assert_eq!(loaded["value"]["title"], "未完成笔记");
+    assert!(loaded["revision"].as_i64().unwrap() >= 1);
+    // 草稿标识约定在 IPC 参数层真实生效
+    let rejected = ipc(
+        &app,
+        "save_draft",
+        json!({"id": "随意前缀", "value": {"title": "x", "content": "y", "tag": "笔记"}}),
+    )
+    .unwrap_err();
+    assert_eq!(rejected["code"], "invalid_draft_id");
+    let deleted = ipc(&app, "delete_draft", json!({"id": "deep-tutor-draft-new"})).unwrap();
+    assert!(
+        deleted["versions"]["drafts"].as_i64().unwrap() >= 1,
+        "delete_draft 应返回更新后的快照"
+    );
+    let after = ipc(&app, "get_draft", json!({"id": "deep-tutor-draft-new"})).unwrap();
+    assert!(after["value"].is_null());
+    // 重复删除幂等：事件表中不再新增 draft.deleted
+    let events_before = ipc(&app, "events_since", json!({"lastId": 0})).unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .len();
+    ipc(&app, "delete_draft", json!({"id": "deep-tutor-draft-new"})).unwrap();
+    let events_after = ipc(&app, "events_since", json!({"lastId": 0})).unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(events_before, events_after);
+    let events = ipc(&app, "events_since", json!({"lastId": 0})).unwrap()["events"].clone();
+    let kinds: Vec<&str> = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|event| event["kind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"draft.saved") && kinds.contains(&"draft.deleted"));
 }

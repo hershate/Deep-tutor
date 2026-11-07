@@ -97,18 +97,16 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
                 .iter()
                 .map(|column| &column.name)
                 .collect::<BTreeSet<_>>();
-            let missing = target_names
-                .difference(&source_names)
+            // 允许旧版本备份缺少后续新增列（缺列走默认值）；
+            // 备份出现当前未知列说明它来自更新版本，给出明确版本错误（08#9）
+            let unknown = source_names
+                .difference(&target_names)
                 .copied()
                 .collect::<BTreeSet<_>>();
-            if target_names != source_names
-                && !(table == &"focus_sessions"
-                    && missing.len() == 1
-                    && missing.iter().any(|name| name.as_str() == "paused_at"))
-            {
+            if !unknown.is_empty() {
                 return Err(BackendError::invalid(
                     "unsupported_backup_schema",
-                    "备份表字段与当前版本不一致",
+                    "备份表字段来自更新版本的应用，请先升级再导入",
                 ));
             }
         }

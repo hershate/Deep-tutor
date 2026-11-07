@@ -45,6 +45,11 @@ pub struct StartupOverview {
 }
 
 impl StartupState {
+    /// 当前应用数据根目录：导出等写盘命令用它做第二道路径遏制（08#2）
+    pub fn data_root(&self) -> &std::path::Path {
+        &self.root
+    }
+
     fn failure(&self) -> Result<Option<BackendError>> {
         self.failure
             .lock()

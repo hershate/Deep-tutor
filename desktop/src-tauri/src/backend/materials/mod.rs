@@ -174,7 +174,60 @@ fn now() -> Result<String> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
 
-pub fn migrate(conn: &Connection) -> Result<()> {
+/// `legacy_import`：是否执行 kv→materials 的一次性旧数据导入。
+/// 根库（账号库）传 false，避免一次性复制后在根库再生成一份死数据（08#8）。
+pub fn migrate(conn: &Connection, legacy_import: bool) -> Result<()> {
+    migrate_schema(conn)?;
+    if !legacy_import {
+        return Ok(());
+    }
+    // kv→materials 的一次性导入只在真正的旧版用户库上执行；meta 标记防止重复执行
+    let imported_marker: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'materials_kv_imported'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?
+        .filter(|value| value == "1");
+    if imported_marker.is_some() {
+        return Ok(());
+    }
+    let has_materials: bool =
+        conn.query_row("SELECT EXISTS(SELECT 1 FROM materials)", [], |row| {
+            row.get(0)
+        })?;
+    if has_materials {
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('materials_kv_imported', '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+            [],
+        )?;
+        return Ok(());
+    }
+    let mut statement = conn.prepare("SELECT data FROM kv WHERE namespace = 'resources'")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut migrated = false;
+    for row in rows {
+        let value: Value = serde_json::from_str(&row?)?;
+        let id = value.get("id").and_then(Value::as_i64).unwrap_or(0);
+        if id > 0 {
+            import_metadata(conn, &value, id)?;
+            migrated = true;
+        }
+    }
+    if migrated {
+        sync_resources(conn)?;
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('materials_kv_imported', '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn migrate_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS materials (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,26 +267,6 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS material_jobs_active ON material_jobs(material_id, status);",
     )?;
-    let has_materials: bool =
-        conn.query_row("SELECT EXISTS(SELECT 1 FROM materials)", [], |row| {
-            row.get(0)
-        })?;
-    if !has_materials {
-        let mut statement = conn.prepare("SELECT data FROM kv WHERE namespace = 'resources'")?;
-        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-        let mut migrated = false;
-        for row in rows {
-            let value: Value = serde_json::from_str(&row?)?;
-            let id = value.get("id").and_then(Value::as_i64).unwrap_or(0);
-            if id > 0 {
-                import_metadata(conn, &value, id)?;
-                migrated = true;
-            }
-        }
-        if migrated {
-            sync_resources(conn)?;
-        }
-    }
     Ok(())
 }
 

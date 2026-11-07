@@ -16,13 +16,16 @@ NPM ?= npm
 .PHONY: build lint test check hooks
 
 build:
-	cd desktop && $(NPM) run tauri build
+	node scripts/collect-licenses.mjs
+	cd desktop && $(NPM) run tauri build -- --locked
 
 lint:
 	cd desktop/src-tauri && $(CARGO) fmt --all -- --check
+	node scripts/check-versions.mjs
 	cd desktop && $(NPM) run build
 
 test:
+	# 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染
 	cd desktop/src-tauri && $(CARGO) test --release --locked -- --test-threads=1
 
 check: lint test

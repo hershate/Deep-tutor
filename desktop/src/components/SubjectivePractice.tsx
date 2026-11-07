@@ -10,12 +10,11 @@ type Props = {
   plans: LearningPlan[]
   onUpdated: (detail: PracticeDetail) => void
   onGenerated: (detail: PracticeDetail) => void
-  onSelectSet: (id: number) => void
   onShowObjective: () => void
   notify: (message: string) => void
 }
 
-export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onSelectSet, onShowObjective, notify }: Props) {
+export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, notify }: Props) {
   const [index, setIndex] = useState(0)
   const [draft, setDraft] = useState('')
   const [hint, setHint] = useState(false)

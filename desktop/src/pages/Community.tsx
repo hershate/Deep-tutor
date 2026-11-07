@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, BookOpen, CalendarClock, Check, Heart, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from 'lucide-react'
+import { ArrowRight, CalendarClock, Check, Heart, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from 'lucide-react'
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, SectionHeader } from '../components/UI'
 import { backend, onBackendEvent, reportBackendError } from '../backend/client'

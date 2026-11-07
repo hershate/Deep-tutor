@@ -14,6 +14,11 @@
 # without elevation; ignore it until it is removed manually.
 .pytest_cache/
 
+# Generated third-party license bundle (scripts/collect-licenses.mjs);
+# README.md 占位入库，保证 tauri.conf.json 的 licenses/* 资源通配始终可匹配
+desktop/src-tauri/licenses/*
+!desktop/src-tauri/licenses/README.md
+
 # Local tools and historical runtime state
 .claude/
 .idea/

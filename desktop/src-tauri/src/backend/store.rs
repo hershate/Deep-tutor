@@ -201,7 +201,8 @@ impl Store {
         if recorded.as_deref() != Some(fingerprint.as_str()) || recorded_version < SCHEMA_VERSION {
             #[cfg(test)]
             MIGRATION_RUNS.fetch_add(1, Ordering::AcqRel);
-            super::materials::migrate(&conn)?;
+            // 根库（owner 为空）跳过 kv→materials 一次性导入，避免复制后再生成死数据
+            super::materials::migrate(&conn, owner.is_some())?;
             super::knowledge::migrate(&conn)?;
             super::providers::migrate(&conn)?;
             super::learning::migrate(&conn)?;

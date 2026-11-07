@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": ["licenses/*"],
     "icon": [],
     "windows": {
       "nsis": {

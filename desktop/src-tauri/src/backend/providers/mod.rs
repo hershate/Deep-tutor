@@ -19,7 +19,7 @@ use std::time::Instant;
 use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const SERVICE: &str = "deep-tutor";
 
@@ -447,7 +447,7 @@ pub fn upsert<R: Runtime>(
     state: &ProviderState,
     input: ProfileInput,
 ) -> Result<ProviderProfile> {
-    let input = validate_input(&input)?;
+    let mut input = validate_input(&input)?;
     let store = state.store()?;
     let id = input.id.as_deref().map(numeric_id).transpose()?;
     let previous = id.map(|id| format!("p{id}"));
@@ -508,6 +508,11 @@ pub fn upsert<R: Runtime>(
             return Err(error);
         }
     }
+    // 入参明文用完即擦，减少堆中残留窗口（08#4）；
+    // validate_input 返回的规范化副本在此处同样持有明文，一并擦除。
+    // Option<String> 的 zeroize 会把值置为 None，回滚判定须先留存标记。
+    let key_provided = input.api_key.is_some();
+    input.api_key.zeroize();
     let result = (|| -> Result<_> {
         let has_key = state.credentials.get(&id_string)?.is_some();
         let event = Store::event(
@@ -521,7 +526,7 @@ pub fn upsert<R: Runtime>(
     let event = match result {
         Ok(event) => event,
         Err(error) => {
-            if input.api_key.is_some() {
+            if key_provided {
                 restore_credential(state, &id_string, previous_key)?;
             }
             return Err(error);

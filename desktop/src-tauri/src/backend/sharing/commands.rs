@@ -44,11 +44,13 @@ pub fn read_shared_plan_package(
 }
 
 #[tauri::command]
-pub fn export_shared_plan_package(
+pub fn export_shared_plan_package<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, BackendState>,
     package: String,
     destination: String,
 ) -> Result<Value> {
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     super::export_package(&state.sharing, &package, std::path::Path::new(&destination))
 }
 

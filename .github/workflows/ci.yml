@@ -17,7 +17,7 @@ jobs:
   tauri-app:
     name: Tauri 2 application
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: desktop
@@ -28,19 +28,24 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: desktop/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      # 工具链钉住：与 rust-toolchain.toml 一致，避免 stable rustfmt 规则漂移
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
       - name: Install frontend dependencies
         run: npm ci
-      - name: TypeScript + Vite build
-        run: npm run build
       - name: Rust format
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check
       - name: Native backend tests
         working-directory: desktop/src-tauri
+        # 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染
         run: cargo test --release --locked -- --test-threads=1
+      - name: Collect third-party licenses
+        run: node ../scripts/collect-licenses.mjs
       - name: Build NSIS installer
-        run: npm run tauri build
+        run: npm run tauri build -- --locked
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

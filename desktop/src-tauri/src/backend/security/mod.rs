@@ -587,12 +587,12 @@ fn verify(conn: &Connection, state: &SecurityState, token: &str) -> Result<Local
         .map_err(|_| BackendError::new("invalid_session", "会话载荷无效"))?;
     let expected = signature(&secret(state)?, &format!("{}.{}", segments[0], segments[1]));
     let provided = decode(segments[2])?;
-    if expected.len() != provided.len()
-        || !expected
-            .iter()
-            .zip(provided.iter())
-            .all(|(left, right)| *left == *right)
-    {
+    // 常量时间比对：累积差值后统一判断，避免短路比较泄露前缀信息（08#5）
+    let mut mismatch = expected.len() ^ provided.len();
+    for (left, right) in expected.iter().zip(provided.iter()) {
+        mismatch |= usize::from(*left ^ *right);
+    }
+    if mismatch != 0 {
         return Err(BackendError::new("invalid_session", "会话签名无效"));
     }
     if payload.sid.is_empty()
@@ -1152,6 +1152,8 @@ pub fn authenticate_token<R: Runtime>(
     state: &SecurityState,
     token: String,
 ) -> Result<LocalUser> {
+    // 令牌明文在函数返回后立即擦除，减少堆中残留窗口（08#4）
+    let token = Zeroizing::new(token);
     let suffix = token.strip_prefix("dtp_").unwrap_or_default();
     if suffix.len() != 43
         || !suffix

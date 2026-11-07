@@ -544,6 +544,9 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
             "仅支持第三版 Deep Tutor 全量备份",
         ));
     }
+    // 表清单允许是当前 TABLES 的子集（旧版本备份缺新表可导入），
+    // 但不允许包含未知表（新版本备份在旧应用中导入给出明确版本错误而非"损坏"）（08#9）
+    let current_tables = TABLES.iter().copied().collect::<BTreeSet<_>>();
     if manifest.database.path != "state.db"
         || manifest.database.bytes > MAX_DATABASE_BYTES
         || !valid_hash(&manifest.database.sha256)
@@ -551,12 +554,11 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
             .tables
             .keys()
             .map(String::as_str)
-            .collect::<BTreeSet<_>>()
-            != TABLES.iter().copied().collect()
+            .any(|table| !current_tables.contains(table))
     {
         return Err(BackendError::invalid(
             "invalid_backup_manifest",
-            "备份数据库或表清单无效",
+            "备份数据库或表清单无效（如为更新版本创建的备份，请先升级应用）",
         ));
     }
     let workspace = Workspace::new(&state.workspace_path())?;
@@ -606,25 +608,15 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
         ));
     }
     for table in TABLES {
+        // 旧版本备份可能整表缺失（后续版本新增的表）：无清单记录即跳过计数校验
+        let Some(expected) = manifest.tables.get(*table) else {
+            continue;
+        };
         let count =
             connection.query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), [], |row| {
                 row.get::<_, i64>(0)
             })? as u64;
-        if manifest.tables.get(*table) != Some(&count)
-            && !(manifest.tables.get(*table).is_none()
-                && [
-                    "local_users",
-                    "auth_sessions",
-                    "access_tokens",
-                    "security_quotas",
-                    "share_index",
-                    "focus_sessions",
-                    "study_checkins",
-                    "notifications",
-                    "project_versions",
-                ]
-                .contains(table))
-        {
+        if expected != &count {
             return Err(BackendError::new(
                 "backup_manifest_mismatch",
                 "备份表计数与数据库不一致",

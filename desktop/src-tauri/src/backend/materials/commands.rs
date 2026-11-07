@@ -74,20 +74,24 @@ pub fn delete_material<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn export_material_original(
+pub fn export_material_original<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     id: i64,
     destination: String,
 ) -> Result<Value> {
+    super::super::reject_data_root_destination(&app, Path::new(&destination))?;
     export_original(&state.materials, id, Path::new(&destination))
 }
 
 #[tauri::command]
-pub fn export_material_text(
+pub fn export_material_text<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     id: i64,
     destination: String,
 ) -> Result<Value> {
+    super::super::reject_data_root_destination(&app, Path::new(&destination))?;
     super::export_text(&state.materials, id, Path::new(&destination))
 }
 

@@ -43,3 +43,5 @@ cargo test --release --locked -- --test-threads=1
 开发调试可运行 `npm run tauri dev`；Vite 仅绑定 `127.0.0.1:1420` 供开发壳使用，不是产品网页入口。
 
 真实供应商、媒体编码播放和交互安装需要单独验收，不能以本机协议夹具或编译结果代替。
+
+界面设计规范（间距、色彩与组件尺寸基线）见 [`DESIGN.md`](./DESIGN.md)。

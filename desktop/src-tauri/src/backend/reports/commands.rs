@@ -96,6 +96,7 @@ pub fn export_learning_report<R: Runtime>(
     destination: String,
     period: Option<String>,
 ) -> Result<ReportDownload> {
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     super::export_report(
         &app,
         &ReportState::new(&state.learning),

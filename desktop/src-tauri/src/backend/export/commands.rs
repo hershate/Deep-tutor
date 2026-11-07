@@ -9,6 +9,7 @@ pub fn export_content<R: Runtime>(
     input: ExportInput,
     destination: String,
 ) -> Result<ExportResult> {
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     super::export(
         &app,
         &state.learning,
@@ -23,5 +24,6 @@ pub fn export_notes_archive<R: Runtime>(
     state: State<'_, BackendState>,
     destination: String,
 ) -> Result<super::notes::NotesArchiveResult> {
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     super::notes::archive(&app, &state.learning, std::path::Path::new(&destination))
 }

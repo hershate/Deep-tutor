@@ -1,0 +1,4 @@
+[toolchain]
+# 与 CI（dtolnay/rust-toolchain@1.95.0）及本机 F 盘缓存一致，钉住避免 stable 漂移
+channel = "1.95.0"
+profile = "minimal"

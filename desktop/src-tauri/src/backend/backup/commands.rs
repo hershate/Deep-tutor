@@ -24,6 +24,7 @@ pub fn export_full_backup<R: Runtime>(
     destination: String,
 ) -> Result<BackupResult> {
     super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))?;
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     let store = store(&state)?;
     let result = super::export(
         &app,

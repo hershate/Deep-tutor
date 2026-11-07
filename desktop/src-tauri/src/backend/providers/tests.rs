@@ -1597,3 +1597,62 @@ fn production_credential_store_persists_across_entries() {
     backend.delete(&id).unwrap();
     assert!(backend.get(&id).unwrap().is_none());
 }
+
+#[test]
+fn ipc_deep_link_import_creates_profile_and_delete_guards_active() {
+    let (app, state) = setup();
+    let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    // 非 deeptutor://provider 的链接在 IPC 参数层直接拒绝
+    let bad = ipc(
+        &window,
+        "import_provider_deep_link",
+        json!({"link": "https://example.com/import"}),
+    )
+    .unwrap_err();
+    assert_eq!(bad["code"], "invalid_deep_link");
+    let first = ipc(
+        &window,
+        "import_provider_deep_link",
+        json!({"link": "deeptutor://provider?name=DeepLink%E5%AF%BC%E5%85%A5&baseUrl=http://127.0.0.1:9/v1/&protocol=OpenAI%20Chat&model=imported-model"}),
+    )
+    .unwrap();
+    let first_id = first["id"].as_str().unwrap().to_string();
+    assert_eq!(first["protocol"], "OpenAI Chat");
+    assert_eq!(first["defaultModel"], "imported-model");
+    let second = ipc(
+        &window,
+        "import_provider_deep_link",
+        json!({"link": "deeptutor://provider?name=%E5%A4%87%E7%94%A8%E6%A1%A3%E6%A1%88&baseUrl=http://127.0.0.1:10/v1/&model=backup-model"}),
+    )
+    .unwrap();
+    let second_id = second["id"].as_str().unwrap().to_string();
+    assert_ne!(first_id, second_id);
+    // 活动供应商删除必须被 provider_in_use 拦截
+    ipc(&window, "set_active_provider", json!({"id": first_id})).unwrap();
+    let guarded = ipc(&window, "delete_provider_profile", json!({"id": first_id})).unwrap_err();
+    assert_eq!(guarded["code"], "provider_in_use");
+    // 非活动档案删除成功且真实落库
+    ipc(&window, "delete_provider_profile", json!({"id": second_id})).unwrap();
+    let remaining = ipc(&window, "list_provider_profiles", json!({})).unwrap();
+    let ids: Vec<&str> = remaining
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|profile| profile["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec![first_id.as_str()]);
+    let missing = ipc(&window, "delete_provider_profile", json!({"id": second_id})).unwrap_err();
+    assert_eq!(missing["code"], "not_found");
+    let store = state.store().unwrap();
+    let count: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM provider_profiles WHERE id = ?1",
+            params![numeric_id(&second_id).unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
