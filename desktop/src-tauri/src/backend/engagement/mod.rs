@@ -532,12 +532,14 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
     {
         let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let today = local.date().to_string();
+        // 边界转 UTC 后格式化：due_at 以 UTC 存储，字典序比较要求两侧时区后缀一致
         let tomorrow = timestamp(
-            local
+            (local
                 .date()
                 .with_time(time::Time::MIDNIGHT)
                 .assume_offset(local.offset())
-                + Duration::days(1),
+                + Duration::days(1))
+                .to_offset(time::UtcOffset::UTC),
         )?;
         let due: i64 = store.conn.query_row(
             "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at < ?1",

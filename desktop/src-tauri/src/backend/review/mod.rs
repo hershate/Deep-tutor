@@ -122,7 +122,12 @@ fn timestamp(value: OffsetDateTime) -> Result<String> {
 }
 
 fn day_start(date: time::Date, offset: time::UtcOffset) -> Result<String> {
-    timestamp(date.with_time(time::Time::MIDNIGHT).assume_offset(offset))
+    // 统一转 UTC 后再格式化：due_at 以 UTC 存储，字符串（字典序）比较要求两侧时区后缀一致
+    timestamp(
+        date.with_time(time::Time::MIDNIGHT)
+            .assume_offset(offset)
+            .to_offset(time::UtcOffset::UTC),
+    )
 }
 
 fn parse_time(value: &str) -> Result<OffsetDateTime> {

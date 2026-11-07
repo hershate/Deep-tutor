@@ -358,7 +358,13 @@ fn finish_focus<R: Runtime>(
     let session = focus_by_id(&store.conn, id)?;
     let timestamp = timestamp(now()?)?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE focus_sessions SET status = ?1, actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?4 AND status = 'running'", params![status, session.actual_seconds as i64, timestamp, id])?;
+    let updated = tx.execute("UPDATE focus_sessions SET status = ?1, actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?4 AND status IN ('running', 'paused')", params![status, session.actual_seconds as i64, timestamp, id])?;
+    if updated == 0 {
+        return Err(BackendError::new(
+            "no_active_focus",
+            "当前没有进行中的专注",
+        ));
+    }
     let event = Store::event(
         &tx,
         &format!("focus.{status}"),
@@ -375,6 +381,37 @@ pub fn complete_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Re
 
 pub fn cancel_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<FocusSession> {
     finish_focus(app, state, "cancelled")
+}
+
+/// 崩溃恢复：把残留 running/paused 专注会话收尾为 interrupted。
+/// 时长取暂停时的累计值，或墙钟流逝（封顶计划时长），避免停机时间全部计入统计。
+pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<()> {
+    let store = state.store()?;
+    let mut statement = store
+        .conn
+        .prepare("SELECT id FROM focus_sessions WHERE status IN ('running', 'paused') ORDER BY id")?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    for id in ids {
+        let session = focus_by_id(&store.conn, id)?;
+        let actual = session.actual_seconds.min(session.planned_seconds) as i64;
+        let timestamp = timestamp(now()?)?;
+        let tx = store.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE focus_sessions SET status = 'interrupted', actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?1 AND status IN ('running', 'paused')",
+            params![id, actual, timestamp],
+        )?;
+        let event = Store::event(
+            &tx,
+            "focus.interrupted",
+            json!({"sessionId":id,"actualSeconds":actual,"taskId":session.task_id}),
+        )?;
+        tx.commit()?;
+        emit(app, &event);
+    }
+    Ok(())
 }
 
 pub fn pause_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<FocusSession> {
@@ -853,7 +890,14 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
         });
     }
     let mut streak = 0;
-    for date in days.iter().rev() {
+    let mut remaining = days.iter().rev();
+    // 今天尚无记录时给一天宽限：连续链从昨天起算，不因"今天还没学"清零
+    if let Some(today) = remaining.next() {
+        if today.minutes > 0 {
+            streak += 1;
+        }
+    }
+    for date in remaining {
         if date.minutes > 0 {
             streak += 1;
         } else {
@@ -915,6 +959,7 @@ pub fn adopt_recommendations<R: Runtime>(
     app: &AppHandle<R>,
     state: &ReportState,
     ids: Vec<String>,
+    period: Option<String>,
 ) -> Result<AdoptionResult> {
     if ids.is_empty()
         || ids.len() > 3
@@ -925,7 +970,7 @@ pub fn adopt_recommendations<R: Runtime>(
             "请选择一至三条不同的建议",
         ));
     }
-    let report = get_report(state, None)?;
+    let report = get_report(state, period.as_deref())?;
     let store = state.store()?;
     let mut added = 0;
     let mut wants_focus = false;

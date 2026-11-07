@@ -72,6 +72,54 @@ fn ipc(
 }
 
 #[test]
+fn paused_focus_can_be_completed_directly_without_leaving_a_ghost_session() {
+    let (app, learning) = setup();
+    let started = ipc(
+        &app,
+        "start_focus_session",
+        json!({"taskId":null,"plannedSeconds":1500}),
+    )
+    .unwrap();
+    assert_eq!(started["status"], "running");
+    let paused = ipc(&app, "pause_focus_session", json!({})).unwrap();
+    assert_eq!(paused["status"], "paused");
+    // 暂停后直接"结束并保存"必须落库，否则幽灵会话会阻塞新专注
+    let completed = ipc(&app, "complete_focus_session", json!({})).unwrap();
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["actualSeconds"], paused["actualSeconds"]);
+    let again = ipc(
+        &app,
+        "start_focus_session",
+        json!({"taskId":null,"plannedSeconds":1500}),
+    )
+    .unwrap();
+    assert_eq!(again["status"], "running");
+    // 崩溃恢复：残留 running 会话收尾为 interrupted，时长封顶计划值
+    learning
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE focus_sessions SET started_at = ?1 WHERE id = ?2",
+            params![
+                timestamp(now().unwrap() - Duration::seconds(90_000)).unwrap(),
+                again["id"].as_i64().unwrap()
+            ],
+        )
+        .unwrap();
+    super::recover(app.handle(), &super::ReportState::new(&learning)).unwrap();
+    let overview = ipc(&app, "get_focus_overview", json!({})).unwrap();
+    assert_eq!(overview["active"], Value::Null);
+    let interrupted = ipc(
+        &app,
+        "start_focus_session",
+        json!({"taskId":null,"plannedSeconds":1500}),
+    )
+    .unwrap();
+    assert_eq!(interrupted["status"], "running");
+}
+
+#[test]
 fn focus_completion_and_empty_report_use_real_time_and_no_fake_metrics() {
     let (app, learning) = setup();
     let empty = ipc(&app, "get_learning_report", json!({"period":"8w"})).unwrap();

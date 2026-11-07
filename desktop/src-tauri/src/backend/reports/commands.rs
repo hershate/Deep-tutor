@@ -84,8 +84,9 @@ pub fn adopt_report_recommendations<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     ids: Vec<String>,
+    period: Option<String>,
 ) -> Result<AdoptionResult> {
-    super::adopt_recommendations(&app, &ReportState::new(&state.learning), ids)
+    super::adopt_recommendations(&app, &ReportState::new(&state.learning), ids, period)
 }
 
 #[tauri::command]

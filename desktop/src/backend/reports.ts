@@ -67,7 +67,7 @@ export const reportsBackend = {
   resumeFocus: () => invoke<FocusSession>('resume_focus_session'),
   cancelFocus: () => invoke<FocusSession>('cancel_focus_session'),
   saveCheckin: (input: { date: string; minutes: number; note: string }) => invoke<CalendarReport>('save_study_checkin', { input }),
-  adopt: (ids: string[]) => invoke<AdoptionResult>('adopt_report_recommendations', { ids }),
+  adopt: (ids: string[], period: string) => invoke<AdoptionResult>('adopt_report_recommendations', { ids, period }),
   export: (destination: string, period: string) => invoke<ReportDownload>('export_learning_report', { destination, period }),
   save: () => invoke<string | null>('plugin:dialog|save', { options: { title: '导出真实学习报告', defaultPath: 'DeepTutor-learning-report.csv', filters: [{ name: 'CSV 学习报告', extensions: ['csv'] }] } }),
 }

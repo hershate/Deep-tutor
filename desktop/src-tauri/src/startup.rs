@@ -1,8 +1,8 @@
 use crate::backend::{
     agent, community,
     error::{BackendError, Result},
-    knowledge, learning, materials, plugins, practice, projects, providers, review, security,
-    sharing,
+    knowledge, learning, materials, plugins, practice, projects, providers, reports, review,
+    security, sharing,
     store::Store,
     sync, BackendState,
 };
@@ -378,6 +378,7 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
             projects::recover(app, &projects::ProjectState::new(&state.learning))?;
             knowledge::recover(app, &state.knowledge)?;
             sync::recover(app, &sync::SyncService::new(&state.learning))?;
+            reports::recover(app, &reports::ReportState::new(&state.learning))?;
             Ok(())
         })?;
         security::with_user(principal.id, || {
