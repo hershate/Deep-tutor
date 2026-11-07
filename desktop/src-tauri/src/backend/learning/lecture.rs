@@ -587,7 +587,7 @@ fn unit<R: Runtime>(
         }
     };
     let prompt = format!(
-        "为知识节点撰写自学讲义。只返回 {{\"title\":\"...\",\"overview\":\"...\",\"sections\":[{{\"heading\":\"...\",\"content\":\"Markdown 正文\"}}],\"examples\":[{{\"title\":\"...\",\"content\":\"...\"}}],\"checkpoints\":[{{\"question\":\"...\",\"answer\":\"...\"}}],\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料中连续存在的原文\"}}]}}。\n正文必须基于资料，包含概念解释和至少一道检查题；示例可为空数组；所有引用必须真实存在于资料中，不得编造来源或链接。总正文不超过 500 行。\n阶段：{}\n节点：{}\n节点摘要：{}\n难度：{}\n资料快照：{}",
+        "为知识节点撰写自学讲义。只返回 {{\"title\":\"...\",\"overview\":\"...\",\"sections\":[{{\"heading\":\"...\",\"content\":\"Markdown 正文\"}}],\"examples\":[{{\"title\":\"...\",\"content\":\"...\"}}],\"checkpoints\":[{{\"question\":\"...\",\"answer\":\"...\"}}],\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料中连续存在的原文\"}}]}}。\n正文必须基于资料，包含概念解释和至少一道检查题；示例可为空数组；所有引用必须真实存在于资料中，不得编造来源或链接。总正文控制在 250 行以内。\n阶段：{}\n节点：{}\n节点摘要：{}\n难度：{}\n资料快照：{}",
         stage.title,
         node.title,
         node.summary,
@@ -607,6 +607,9 @@ fn unit<R: Runtime>(
             return Err(BackendError::new("cancelled", "讲义生成已取消"));
         }
         let (_, request_id) = begin_unit(app, state, id, stage_id, version, index)?;
+        // B-3：截断类失败（输出超 8192 被 Token 上限截断→JSON 不完整）原样
+        // 重发大概率复现——重试轮输出上限翻倍，与 pipeline::model_json 同策
+        let max_tokens = if retry == 0 { 8192 } else { 16384 };
         let messages = vec![
             ChatMessage {
                 role: "system".into(),
@@ -636,7 +639,7 @@ fn unit<R: Runtime>(
             "lecture",
             Some(provider_id),
             &messages,
-            8192,
+            max_tokens,
             None,
             None,
             false,

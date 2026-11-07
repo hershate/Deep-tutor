@@ -32,14 +32,18 @@ fn fill_random(bytes: &mut [u8]) -> Result<()> {
 #[cfg(unix)]
 fn fill_random(bytes: &mut [u8]) -> Result<()> {
     use std::io::Read;
-    std::fs::File::open("/dev/urandom")?
+    // E-7：同一资源（CSPRNG）的两类故障返回同一错误码——原先打开失败走
+    // From<io::Error> 泛化为 storage()，读取失败才是专用码，前端无法按码归类
+    let unavailable = || {
+        BackendError::new(
+            "secure_random_unavailable",
+            "系统无法生成安全随机令牌，未执行创建操作",
+        )
+    };
+    std::fs::File::open("/dev/urandom")
+        .map_err(|_| unavailable())?
         .read_exact(bytes)
-        .map_err(|_| {
-            BackendError::new(
-                "secure_random_unavailable",
-                "系统无法生成安全随机令牌，未执行创建操作",
-            )
-        })
+        .map_err(|_| unavailable())
 }
 
 pub(crate) fn encode(bytes: &[u8]) -> String {

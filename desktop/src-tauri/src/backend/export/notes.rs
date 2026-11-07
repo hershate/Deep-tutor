@@ -37,7 +37,12 @@ fn file_name(note: &Value) -> Result<String> {
             }
         })
         .take(80)
-        .collect::<String>();
+        .collect::<String>()
+        // E-4 小项：尾随空格/句点会被部分 Windows 解压工具再修剪，导致
+        // 「导出的文件名」与 manifest/导入侧认知不一致
+        .trim_end_matches([' ', '.'])
+        .to_string();
+    let title = if title.is_empty() { "未命名笔记".to_string() } else { title };
     Ok(format!("知舟笔记/{id:03}-{title}.md"))
 }
 
@@ -69,11 +74,19 @@ pub fn archive<R: Runtime>(
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
         for note in notes {
+            // E-4：单文件格式的元数据以换行哨兵串分隔——标题/标签含换行时
+            // 再导入会提前命中哨兵导致标题截断、tag 吸收残余；导出侧把
+            // 换行折叠为空格，保证元数据恒单行、往返一致
             let title = note
                 .get("title")
                 .and_then(Value::as_str)
-                .unwrap_or("未命名笔记");
-            let tag = note.get("tag").and_then(Value::as_str).unwrap_or("");
+                .unwrap_or("未命名笔记")
+                .replace(['\n', '\r'], " ");
+            let tag = note
+                .get("tag")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .replace(['\n', '\r'], " ");
             let updated = note.get("updated").and_then(Value::as_str).unwrap_or("");
             let content = note.get("content").and_then(Value::as_str).unwrap_or("");
             archive.start_file(file_name(note)?, options)?;

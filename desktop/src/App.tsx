@@ -71,6 +71,8 @@ export default function App() {
   const [quickTitle, setQuickTitle] = useState('')
   const [focusOpen, setFocusOpen] = useState(false)
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null)
+  // A-19：从任务行进入专注时携带的任务 id（无关联专注为 null）
+  const focusTaskRef = useRef<number | null>(null)
   const [focusBusy, setFocusBusy] = useState(false)
   const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
   const [notificationsError, setNotificationsError] = useState('')
@@ -175,7 +177,10 @@ export default function App() {
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
   }, [exitShared])
-  const openFocus = () => {
+  const openFocus = (taskId?: number) => {
+    // A-19：从任务行进入时可携带任务 id，专注秒计入任务桶参与取大——
+    // 否则「自由专注 + 勾选任务」双来源双计（03#20 原场景）
+    focusTaskRef.current = taskId ?? null
     setFocusOpen(true)
     void reportsBackend.focus().then(overview => {
       setFocusSession(overview.active)
@@ -185,7 +190,7 @@ export default function App() {
     if (focusBusy) return
     setFocusBusy(true)
     try {
-      const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(null, 25 * 60)
+      const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(focusTaskRef.current, 25 * 60)
       setFocusSession(next)
     } catch (error) { reportBackendError(error) } finally { setFocusBusy(false) }
   }
@@ -195,12 +200,14 @@ export default function App() {
     try {
       const done = cancelled ? await reportsBackend.cancelFocus() : await reportsBackend.completeFocus()
       setFocusSession(done)
+      focusTaskRef.current = null
       notify(`${cancelled ? '已取消并保存' : '已完成'} ${done.actualSeconds} 秒真实专注`)
       return done
     } catch (error) { reportBackendError(error); return null } finally { setFocusBusy(false) }
   }
   const resetFocus = async () => {
     if (focusSession && ['running', 'paused'].includes(focusSession.status) && !(await finishFocus(true))) return
+    focusTaskRef.current = null
     setFocusSession(null)
   }
   const navigate = (target: PageId) => { setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false); window.scrollTo({ top: 0, behavior: preferences.reducedMotion ? 'auto' : 'smooth' }) }

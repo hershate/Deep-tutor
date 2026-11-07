@@ -131,8 +131,20 @@ fn source(state: &MaterialState, id: i64) -> Result<(Material, PathBuf)> {
 
 pub fn info(state: &MaterialState, id: i64) -> Result<MediaInfo> {
     let (material, path) = source(state, id)?;
-    let bytes = fs::read(&path)?;
-    let actual = format!("{:x}", Sha256::digest(&bytes));
+    // E-3：流式哈希——原先 fs::read 整读最大 50MB 进内存只为算摘要，
+    // 每次预览都放大内存峰值；改为 256KiB 分块读取（与 chunk() 同粒度）
+    let total = path.metadata()?.len();
+    let mut file = fs::File::open(&path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let actual = format!("{:x}", hasher.finalize());
     if actual != material.sha256 {
         return Err(BackendError::new(
             "media_integrity_failed",
@@ -144,7 +156,7 @@ pub fn info(state: &MaterialState, id: i64) -> Result<MediaInfo> {
         .to_string();
     Ok(MediaInfo {
         id,
-        total: bytes.len() as u64,
+        total,
         mime,
         sha256: actual,
     })

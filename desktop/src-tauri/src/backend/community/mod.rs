@@ -329,15 +329,21 @@ fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<V
     }
     // 13#13：关键词下推 SQL LIKE（配额量级 500），不再“先 LIMIT 200 再内存
     // 过滤”——否则第 201 条以后的旧帖即使完全匹配也永远搜不到
+    // B-10：转义须先处理 ~ 自身（ESAPE 字符），否则含 ~ 的查询把 ~x 当
+    // 字面 x 永远匹配不到原文；大小写比较用注册的 uni_lower（SQL 内建
+    // lower 仅覆盖 ASCII，非 ASCII 字母变体检索由不敏感变回敏感）
     let pattern = if query.is_empty() {
         String::new()
     } else {
-        format!("%{}%", query.replace('%', "~%").replace('_', "~_"))
+        format!(
+            "%{}%",
+            query.replace('~', "~~").replace('%', "~%").replace('_', "~_")
+        )
     };
     let mut statement = conn.prepare(
         "SELECT id FROM community_posts
          WHERE (?1 IS NULL OR kind = ?1)
-           AND (?2 = '' OR lower(title || ' ' || body) LIKE lower(?2) ESCAPE '~')
+           AND (?2 = '' OR uni_lower(title || ' ' || body) LIKE uni_lower(?2) ESCAPE '~')
          ORDER BY id DESC LIMIT 500",
     )?;
     let ids = statement

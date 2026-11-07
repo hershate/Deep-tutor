@@ -75,12 +75,14 @@ pub fn start_scheduler<R: Runtime + 'static>(app: AppHandle<R>) {
 pub fn start_scheduler<R: Runtime + 'static>(_app: AppHandle<R>) {}
 
 pub fn stop_scheduler() {
+    // E-1：置 STOP 与 take/join 必须全程持锁——否则「置位后、take 前」的
+    // 窗口内 start_scheduler 会看到 STOP=true 便清零并覆盖句柄：stop 随后
+    // join 到一个 STOP 已被清零、每秒循环永不退出的新线程，sync::stop
+    // 永久挂死，被覆盖的旧线程同时泄漏。持锁期间 start 只能等待，join 的
+    // 调度线程自身不获取 SCHEDULER 锁，无死锁。
+    let mut scheduler = SCHEDULER.lock().unwrap_or_else(|error| error.into_inner());
     STOP.store(true, Ordering::Release);
-    let handle = SCHEDULER
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .take();
-    if let Some(handle) = handle {
+    if let Some(handle) = scheduler.take() {
         let _ = handle.join();
     }
 }

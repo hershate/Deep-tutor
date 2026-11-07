@@ -18,5 +18,11 @@ export function clampToBytes(text: string, limit: number): string {
     if (utf8Bytes(text.slice(0, middle)) <= limit) low = middle
     else high = middle - 1
   }
-  return text.slice(0, low)
+  // B-1：二分按 UTF-16 码元切片，可能停在代理对中间——孤立高代理计
+  // 3B 而完整代理对计 4B，二分会停在半截处；清除尾部孤立代理，避免
+  // 输入框乱字符与提交时 JSON 序列化产出非法转义导致保存必败
+  let result = text.slice(0, low)
+  const tail = result.charCodeAt(result.length - 1)
+  if (tail >= 0xd800 && tail <= 0xdbff) result = result.slice(0, -1)
+  return result
 }

@@ -42,6 +42,9 @@ jobs:
         working-directory: desktop/src-tauri
         # 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染
         run: cargo test --release --locked -- --test-threads=1
+      - name: Check versions
+        # 15#9/C-1：版本一致性检查进 CI，PR 路径不再只靠本地 make lint
+        run: node ../scripts/check-versions.mjs
       - name: Collect third-party licenses
         run: node ../scripts/collect-licenses.mjs
       - name: Build NSIS installer

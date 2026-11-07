@@ -504,7 +504,7 @@ fn task_minutes(
     previous: &str,
     current_focus: &std::collections::HashMap<i64, u64>,
     previous_focus: &std::collections::HashMap<i64, u64>,
-) -> Result<(u64, u64)> {
+) -> Result<(u64, u64, u64, u64)> {
     let tasks = store.collection("tasks")?.value;
     let tasks = tasks
         .as_array()
@@ -515,6 +515,10 @@ fn task_minutes(
     // 专注 25 分钟后勾选 60 分钟任务记 60 分钟，不再双计成 85 分钟
     let mut seconds = 0u64;
     let mut previous_seconds = 0u64;
+    // B-8：任务未勾选/完成时间落窗之外时，其关联专注秒不再整额消失——
+    // 回退为按真实计时计入当期自由专注
+    let mut counted_current: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut counted_previous: std::collections::HashSet<i64> = std::collections::HashSet::new();
     for task in tasks {
         if !task.get("done").and_then(Value::as_bool).unwrap_or(false) {
             continue;
@@ -527,11 +531,30 @@ fn task_minutes(
         let id = task.get("id").and_then(Value::as_i64).unwrap_or_default();
         if completed >= since {
             seconds += (duration * 60).max(current_focus.get(&id).copied().unwrap_or(0));
+            counted_current.insert(id);
         } else if completed >= previous {
             previous_seconds += (duration * 60).max(previous_focus.get(&id).copied().unwrap_or(0));
+            counted_previous.insert(id);
         }
     }
-    Ok((seconds / 60, previous_seconds / 60))
+    let mut residual_current = 0u64;
+    for (id, value) in current_focus {
+        if !counted_current.contains(id) {
+            residual_current += value;
+        }
+    }
+    let mut residual_previous = 0u64;
+    for (id, value) in previous_focus {
+        if !counted_previous.contains(id) {
+            residual_previous += value;
+        }
+    }
+    Ok((
+        seconds / 60,
+        previous_seconds / 60,
+        residual_current,
+        residual_previous,
+    ))
 }
 
 fn focus_minutes(store: &Store, since: &str, previous: &str) -> Result<(u64, u64)> {
@@ -567,14 +590,19 @@ fn focus_minutes(store: &Store, since: &str, previous: &str) -> Result<(u64, u64
             }
         }
     }
-    let (tasks, old_tasks) = task_minutes(
+    let (tasks, old_tasks, residual_free, previous_residual) = task_minutes(
         store,
         &timestamp(since)?,
         &timestamp(previous)?,
         &current_tasks,
         &previous_tasks,
     )?;
-    Ok((current_free + tasks * 60, previous_free + old_tasks * 60))
+    // B-8：residual 为未计入取大的关联专注秒（任务未勾选/落窗外），按真实
+    // 计时并入自由专注
+    Ok((
+        current_free + residual_free + tasks * 60,
+        previous_free + previous_residual + old_tasks * 60,
+    ))
 }
 
 fn evidence(store: &Store, since: &str) -> Result<Vec<(i64, String, String, f64, f64, String)>> {
@@ -712,7 +740,9 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let previous_text = timestamp(previous.to_offset(time::UtcOffset::UTC))?;
     let (focus_seconds, previous_focus_seconds) =
         focus_minutes(&store, &since_text, &previous_text)?;
-    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN max_score > 0 THEN score / max_score END) FROM practice_answers WHERE status = 'done' AND created_at >= ?1", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    // B-11：hints 模式作答不进正确率聚合——「题目答错」可从聚合值反推，
+    // 属遮蔽口径的报表旁路
+    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
     // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新
     let all_plans = super::learning::list(&state.learning)?;
@@ -935,7 +965,14 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
             Some((minutes, note)) => {
                 let reported = minutes.max(0) as u64;
                 let merged = reported.max(focus_minutes);
-                (merged, note, "self_report".to_string())
+                // B-9：来源标签与数值实际来源一致——计时更大时标 timer，
+                // 不再出现「90 分钟 · 手动打卡」实际 90 来自计时
+                let source = if focus_minutes > reported {
+                    "timer"
+                } else {
+                    "self_report"
+                };
+                (merged, note, source.to_string())
             }
             None if focus > 0 => (focus_minutes, String::new(), "timer".to_string()),
             None => (0, String::new(), "none".to_string()),
@@ -947,7 +984,9 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
             recorded += 1;
         }
         if minutes > 0 && active_start.is_none() {
-            active_start = Some((84 - offset).max(1) as u64);
+            // 15#1：首个活跃日距今 offset 天，活跃天数 = offset + 1
+            // （今天首活跃 = 1，83 天前首活跃 = 84），不得反向
+            active_start = Some(offset as u64 + 1);
         }
         days.push(CalendarDay {
             date: date_text,
@@ -1131,11 +1170,12 @@ pub fn export_report<R: Runtime>(
         ("主动练习题数", report.metrics.practice_count.to_string()),
         (
             "正确率百分比",
-            // 13#11：与页面 Math.round 同口径输出整数百分比
+            // 13#11：与页面 Math.round(value*100) 同口径输出整数百分比；
+            // 15#2：指标为 [0,1] 小数，漏乘 100 会把 76.9% 输出为 1
             report
                 .metrics
                 .correct_percent
-                .map(|value| format!("{}", value.round() as u8))
+                .map(|value| format!("{}", (value * 100.0).round() as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         (
@@ -1143,7 +1183,7 @@ pub fn export_report<R: Runtime>(
             report
                 .metrics
                 .retention_percent
-                .map(|value| format!("{}", value.round() as u8))
+                .map(|value| format!("{}", (value * 100.0).round() as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         ("目标状态", report.metrics.goal_status.clone()),

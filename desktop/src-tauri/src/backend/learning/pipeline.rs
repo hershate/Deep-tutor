@@ -178,7 +178,7 @@ pub(crate) fn parse_model_json<T: DeserializeOwned>(output: &str) -> Result<T> {
     let output = output.trim();
     // 10#12：模型常在围栏前加说明文字，或输出被上限截断丢失闭合围栏。
     // 取首个 ``` 行之后到最后一个 ``` 之前的内容；无闭合围栏则取到结尾。
-    let content = if let Some(start) = output.find("```") {
+    let extracted = if let Some(start) = output.find("```") {
         let after = &output[start + 3..];
         let after = match after.find('\n') {
             Some(newline) => &after[newline + 1..],
@@ -193,10 +193,26 @@ pub(crate) fn parse_model_json<T: DeserializeOwned>(output: &str) -> Result<T> {
     } else {
         output
     };
-    let repaired = strip_trailing_commas(content);
-    serde_json::from_str(&repaired)
-        .or_else(|_| serde_json::from_str(content))
-        .map_err(|_| BackendError::new("invalid_model_output", "模型输出不是符合约定结构的 JSON"))
+    // B-2：裸 JSON 的字符串值内含 ```（讲义正文为 Markdown 天然可能）时，
+    // find 会命中字符串内部截出损坏片段——提取物解析失败回退整体解析
+    let candidates = if extracted.len() < output.len() {
+        [extracted, output]
+    } else {
+        [output, output]
+    };
+    for content in candidates {
+        let repaired = strip_trailing_commas(content);
+        if let Ok(value) = serde_json::from_str::<T>(&repaired) {
+            return Ok(value);
+        }
+        if let Ok(value) = serde_json::from_str::<T>(content) {
+            return Ok(value);
+        }
+    }
+    Err(BackendError::new(
+        "invalid_model_output",
+        "模型输出不是符合约定结构的 JSON",
+    ))
 }
 
 /// 丢弃 ] / } 前的尾随逗号（10#12）：截断续写或宽松模型常见，
@@ -263,15 +279,22 @@ where
         .as_deref()
         .ok_or_else(|| BackendError::new("provider_not_configured", "方案缺少模型供应商"))?;
     let mut last_error = None;
+    // B-4：输出上限 8192 档的模型对 16384 请求直接 400（不可重试
+    // provider_error）——请求被拒时降级到 8192 重试一次，不再直接失败
+    let mut downgraded = false;
     for retry in 0..2 {
         cancelled(state, id)?;
         // 截断类失败原样重发大概率复现：重试轮输出上限翻倍（10#12），
-        // 封顶在 providers 校验的 16384 界内（10#16）
-        let max_tokens = if retry == 0 {
+        // 封顶在 providers 校验的 16384 界内（10#16）；已被上游拒绝过则
+        // 全程压在 8192 内（B-4），避免翻倍再次触发 400
+        let mut max_tokens = if retry == 0 {
             max_tokens
         } else {
             max_tokens.saturating_mul(2).min(16384)
         };
+        if downgraded {
+            max_tokens = max_tokens.min(8192);
+        }
         let (_, request_id) = begin_step(app, state, id, index)?;
         let request_id = request_id
             .ok_or_else(|| BackendError::new("storage_failed", "模型步骤缺少请求标识"))?;
@@ -312,6 +335,14 @@ where
         ) {
             Ok(request) => request,
             Err(error) => {
+                // B-4：上游对超限 max_tokens 返回 400（映射 provider_error）
+                // 时降半重试一次；其余错误维持直接失败
+                if error.code == "provider_error" && !downgraded && max_tokens > 8192 {
+                    downgraded = true;
+                    fail_step(app, state, id, index, &error)?;
+                    last_error = Some(error);
+                    continue;
+                }
                 fail_step(app, state, id, index, &error)?;
                 return Err(error);
             }

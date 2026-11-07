@@ -117,7 +117,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (event.kind === 'study.progress_changed' && event.payload.planId === stageRef.current.planId) void refreshProgress()
       if (event.kind === 'agent.artifact_promoted' && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && lecture?.units.some(unit => unit.status === 'running' && unit.requestId === event.payload.requestId)) {
-        routeUpstreams.current[event.payload.requestId] = event.payload.upstreamRequestId
+        // 15#6：delta 携带的是上游 id（-f1/-f2），映射必须以上游 id 为 key、
+        // 逻辑 id 为 value，方向写反会导致 failover 后查表必 miss、直播冻结
+        routeUpstreams.current[event.payload.upstreamRequestId] = event.payload.requestId
       }
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
         const requestId = event.payload.requestId

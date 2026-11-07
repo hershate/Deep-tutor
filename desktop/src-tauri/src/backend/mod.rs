@@ -33,15 +33,17 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
     let Some(state) = app.try_state::<crate::startup::StartupState>() else {
         return Ok(());
     };
+    // A-12：root 规范化失败回退词法形态而非放行——三处 fail-open 使
+    // 「数据根内新建子目录」可穿透（先 create_dir_all 再写入，父目录
+    // canonicalize 时已存在），守卫语义与声明不符
     let root = state.data_root();
-    let Ok(root) = root.canonicalize() else {
-        return Ok(());
-    };
-    // 目标可能尚不存在：规范化其父目录再拼接文件名
-    let parent = destination.parent().unwrap_or(destination);
-    let candidate = match parent.canonicalize() {
-        Ok(parent) => parent.join(destination.file_name().unwrap_or_default()),
-        Err(_) => return Ok(()),
+    let root = root
+        .canonicalize()
+        .unwrap_or_else(|_| lexical_absolute(root));
+    // 目标可能尚不存在：优先规范化已存在的父目录；不存在时词法绝对化
+    let candidate = match destination.parent().and_then(|parent| parent.canonicalize().ok()) {
+        Some(parent) => parent.join(destination.file_name().unwrap_or_default()),
+        None => lexical_absolute(destination),
     };
     if candidate.starts_with(&root) {
         return Err(error::BackendError::new(
@@ -50,6 +52,29 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
         ));
     }
     Ok(())
+}
+
+/// 词法绝对化：清除 `.`/`..` 组件但不解析符号链接，用于路径尚不存在、
+/// canonicalize 不可用时的守卫比较（A-12）。
+fn lexical_absolute(path: &std::path::Path) -> std::path::PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let mut result = std::path::PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                result.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => result.push(other.as_os_str()),
+        }
+    }
+    result
 }
 pub mod sync;
 pub mod web;

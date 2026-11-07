@@ -1152,7 +1152,10 @@ pub fn submit<R: Runtime>(
         params![question_id, set_id, serde_json::to_string(&answer)?, if correct { 1.0 } else { 0.0 }, correct, serde_json::to_string(&json!({"answer": expected, "explanation": explanation}))?, timestamp],
     )?;
     let answer_id = tx.last_insert_rowid();
-    if !correct {
+    // B-11：hints 模式承诺「只给提示不显示答案」——错题本行本身即答错
+    // 信号、reason 更是完整解析，写错题本会把答案经同屏标签页泄露出去；
+    // hints 模式的作答不进错题本（反馈面与遮蔽口径一致）
+    if !correct && set.feedback_mode != "hints" {
         tx.execute(
             "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0, mastered_question_id = NULL",
             params![question_id, explanation, timestamp],

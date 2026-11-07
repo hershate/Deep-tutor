@@ -469,13 +469,12 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
     })
 }
 
-pub fn upsert<R: Runtime>(
-    app: &AppHandle<R>,
+/// upsert 的停用约束预检（E-2）：import 等批量写入方先整批调用本函数，
+/// 避免「写一半才撞约束」造成部分提交
+pub(crate) fn check_disable_constraints(
     state: &ProviderState,
-    input: ProfileInput,
-) -> Result<ProviderProfile> {
-    let mut input = validate_input(&input)?;
-    let store = state.store()?;
+    input: &ProfileInput,
+) -> Result<()> {
     let id = input.id.as_deref().map(numeric_id).transpose()?;
     let previous = id.map(|id| format!("p{id}"));
     if input.enabled == Some(false)
@@ -497,6 +496,25 @@ pub fn upsert<R: Runtime>(
             }
         }
     }
+    Ok(())
+}
+
+pub fn upsert<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    input: ProfileInput,
+) -> Result<ProviderProfile> {
+    // A-13：原始入参（IPC 反序列化副本）在产出规范化副本后立即擦除明文
+    // Key——此前 shadow 后原始副本存活至函数尾，普通 drop 不覆写堆内存，
+    // 「用完即擦」只覆盖了规范化那一份
+    let mut original = input;
+    let mut input = validate_input(&original)?;
+    original.api_key.zeroize();
+    drop(original);
+    let store = state.store()?;
+    check_disable_constraints(state, &input)?;
+    let id = input.id.as_deref().map(numeric_id).transpose()?;
+    let previous = id.map(|id| format!("p{id}"));
     let previous_key = previous
         .as_deref()
         .map(|id| state.credentials.get(id))

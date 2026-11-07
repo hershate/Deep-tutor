@@ -6,9 +6,12 @@
 // 定位本地源码目录中的 LICENSE*。cargo 不可用时跳过 Rust 部分并在清单中注明。
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { basename, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// 15#7：以脚本自身位置定位仓库根，不依赖 process.cwd()——CI 的 job 级
+// working-directory 或任意子目录运行时，相对 cwd 的路径会整体落空且静默
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = join(root, 'desktop/src-tauri/licenses')
 mkdirSync(outDir, { recursive: true })
 
@@ -38,7 +41,7 @@ if (existsSync(modules)) {
 let cargoSkipped = false
 let cargoMissing = 0
 try {
-  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--format-version', '1', '--manifest-path', 'desktop/src-tauri/Cargo.toml'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }))
+  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--format-version', '1', '--manifest-path', join(root, 'desktop/src-tauri/Cargo.toml')], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }))
   for (const pkg of metadata.packages) {
     if (!pkg.manifest_path) continue
     try {
@@ -66,3 +69,10 @@ writeFileSync(join(outDir, 'COLLECTED.md'), `# 本次构建收录清单
 完整依赖版本清单见安装包同仓库的 Cargo.lock 与 package-lock.json。
 `)
 console.log(`collect-licenses: ${copied.length} 个依赖许可已汇总${cargoSkipped ? '（Rust 部分跳过）' : ''}`)
+
+// 15#7：零收录属于管线失效（依赖缺失/路径漂移），不能以成功退出——
+// 否则安装包「许可汇总」为空而 NOTICE 的合规承诺形同虚设
+if (copied.length === 0) {
+  console.error('collect-licenses: 未收录任何依赖许可，请检查 node_modules 与 cargo 环境')
+  process.exit(1)
+}

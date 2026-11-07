@@ -133,11 +133,14 @@ pub(crate) fn workspace_path(root: &Path) -> PathBuf {
     }
 }
 
-const RESOURCES: [(&str, u64); 4] = [
+const RESOURCES: [(&str, u64); 5] = [
     ("sessions", 200),
     ("notes", 500),
     ("materials", 200),
     ("threads", 500),
+    // B-5：agent/tools.rs 的 ensure_quota("agent_memory") 查无种子行即放行，
+    // 无本行时记忆配额检查在默认部署下永远 no-op
+    ("agent_memory", 500),
 ];
 
 trait CredentialBackend: Send + Sync {
@@ -674,6 +677,19 @@ fn issue<R: Runtime>(
 fn ensure_accounts(conn: &Connection) -> Result<()> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_users", [], |row| row.get(0))?;
     if count > 0 {
+        // B-5：既有账户幂等补齐后续版本新增的资源行——种子只在首次建库
+        // 写入，RESOURCES 扩充（如 agent_memory）后老库若不补行，
+        // ensure_quota 查无行即放行，配额检查永远 no-op
+        let tx = conn.unchecked_transaction()?;
+        for (resource, limit) in RESOURCES {
+            tx.execute(
+                "INSERT INTO security_quotas (user_id, resource, item_limit)
+                 SELECT u.id, ?2, ?3 FROM local_users u
+                 WHERE NOT EXISTS (SELECT 1 FROM security_quotas q WHERE q.user_id = u.id AND q.resource = ?2)",
+                params![resource, limit as i64],
+            )?;
+        }
+        tx.commit()?;
         return Ok(());
     }
     let timestamp = timestamp(now()?)?;

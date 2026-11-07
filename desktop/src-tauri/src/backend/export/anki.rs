@@ -21,16 +21,19 @@ impl Drop for TempDatabase {
     }
 }
 
-/// 复习卡的 Anki due（rev 卡为自 epoch 起的天数；11#3）。
-/// 解析失败或为空时回退为“今天”，卡片仍进入复习队列。
+/// 复习卡的 Anki due（11#3、15#4）。Anki schema 中 queue=2（复习）卡的
+/// due 是「自 collection crt 起的天数」，而 col.crt 写入的是导出时刻
+/// （下方 INSERT INTO col 的 ?1=now），因此这里返回到期时刻与导出时刻的
+/// 差值天数（个位数量级，负值表示已过期）。解析失败或为空时回退 0
+/// （今天到期），卡片仍进入复习队列。
 fn anki_due_day(due_at: &str, now: i64) -> Result<i64> {
     if due_at.is_empty() {
-        return Ok(now / 86_400);
+        return Ok(0);
     }
     Ok(
         time::OffsetDateTime::parse(due_at, &time::format_description::well_known::Rfc3339)
-            .map(|moment| moment.unix_timestamp() / 86_400)
-            .unwrap_or(now / 86_400),
+            .map(|moment| (moment.unix_timestamp() - now) / 86_400)
+            .unwrap_or(0),
     )
 }
 
@@ -117,7 +120,16 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
             let anchor = if card.id != 0 {
                 format!("{}:{}", card.id, card.front)
             } else {
-                format!("content:{}", card.front)
+                // B-6：无稳定 id 的卡必须把背面纳入锚——多条未命名笔记
+                // front 恒为「未命名笔记」，仅按 front 锚定会 guid 碰撞，
+                // Anki 按 guid 合并导致内容静默丢失；内容全同的卡合并
+                // 无损失，front 同 back 不同的卡因此得以区分
+                let back_digest = Sha256::digest(card.back.as_bytes());
+                format!(
+                    "content:{}:{:x}",
+                    card.front,
+                    u32::from_be_bytes([back_digest[0], back_digest[1], back_digest[2], back_digest[3]])
+                )
             };
             let guid = format!("{:x}", Sha256::digest(anchor.as_bytes()))
                 .chars()

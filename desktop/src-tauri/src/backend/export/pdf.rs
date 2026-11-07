@@ -290,7 +290,7 @@ fn unicode_cmap(glyphs: &BTreeMap<char, u16>) -> String {
     result
 }
 
-pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
+pub fn render(document: &ExportDocument) -> Result<(Vec<u8>, Option<String>)> {
     let font = system_font()?;
     let source = source_lines(document);
     // 11#1：任一字符缺字形不再让整份 PDF 失败——收集时跳过缺字形字符，
@@ -307,7 +307,16 @@ pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
     }
     let fallback_glyph = font.glyph('\u{25A1}')?.unwrap_or(0);
     glyphs.entry('\u{25A1}').or_insert(fallback_glyph);
+    // 缺字形替换的 advance：字体无 □ 字形（glyph 0）时 width≈0 会让大量
+    // 替换符挤进一行（A-17），回退为约半字宽
+    let fallback_advance = if fallback_glyph == 0 {
+        5.5
+    } else {
+        font.width(fallback_glyph)? * 0.011
+    };
     let mut lines = Vec::new();
+    let mut total_characters = 0_usize;
+    let mut replaced_characters = 0_usize;
     for line in source {
         let line = line.replace('\t', "    ");
         let mut current = String::new();
@@ -315,15 +324,17 @@ pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
         for character in line.chars() {
             let glyph = match glyphs.get(&character) {
                 Some(glyph) => *glyph,
-                // 11#1：缺字形字符以 □ 替代，导出继续
+                // 11#1：缺字形字符以 □ 替代，导出继续；A-17：计数用于回执警告
                 None => {
-                    let advance = font.width(fallback_glyph)? * 0.011;
+                    let advance = fallback_advance;
                     if !current.is_empty() && width + advance > 495.0 {
                         lines.push(std::mem::take(&mut current));
                         width = 0.0;
                     }
                     current.push('\u{25A1}');
                     width += advance;
+                    total_characters += 1;
+                    replaced_characters += 1;
                     continue;
                 }
             };
@@ -334,6 +345,7 @@ pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
             }
             current.push(character);
             width += advance;
+            total_characters += 1;
         }
         lines.push(current);
     }
@@ -398,5 +410,18 @@ pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
     pdf.compress();
     let mut bytes = Vec::new();
     pdf.save_to(&mut bytes)?;
-    Ok(bytes)
+    // A-17：缺字形替换占比 >1% 时随回执告警（与材料解析域 03#16 同阈值），
+    // 不再让成片 □ 静默进入成品
+    let notice = if total_characters > 0
+        && replaced_characters * 100 > total_characters
+    {
+        Some(format!(
+            "导出字体缺少 {} 个字符的字形（约 {}%），已用 □ 替代，建议改用 HTML/Markdown 格式查看完整内容",
+            replaced_characters,
+            replaced_characters * 100 / total_characters.max(1)
+        ))
+    } else {
+        None
+    };
+    Ok((bytes, notice))
 }

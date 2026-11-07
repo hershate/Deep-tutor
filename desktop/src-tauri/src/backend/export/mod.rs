@@ -75,6 +75,10 @@ pub struct ExportResult {
     pub sha256: String,
     pub format: ExportFormat,
     pub title: String,
+    /// 导出降级警告（A-17）：如 PDF 缺字形字符以 □ 替换的占比提示；
+    /// 无降级时为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -544,9 +548,15 @@ pub fn export<R: Runtime>(
             "当前范围没有可导出的内容",
         ));
     }
+    let mut warning = None;
     let bytes = match input.format {
         ExportFormat::Md => formats::markdown(&document).into_bytes(),
-        ExportFormat::Pdf => pdf::render(&document)?,
+        // A-17：缺字形替换占比超阈值时向导出回执带出警告，不再静默降质
+        ExportFormat::Pdf => {
+            let (bytes, notice) = pdf::render(&document)?;
+            warning = notice;
+            bytes
+        }
         ExportFormat::Ics => formats::ics(&document)?.into_bytes(),
         ExportFormat::Apkg => anki::render(state, &document)?,
         ExportFormat::Html => formats::html(&document).into_bytes(),
@@ -586,5 +596,6 @@ pub fn export<R: Runtime>(
         sha256,
         format: input.format,
         title: document.title,
+        warning,
     })
 }

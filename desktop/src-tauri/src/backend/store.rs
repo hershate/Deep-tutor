@@ -145,8 +145,43 @@ impl Store {
                 let _ = fs::remove_file(&staged);
                 return Err(error.into());
             }
+            // A-14：迁移成功后清理根库旧业务表——根库此后不再被读写，
+            // 残留副本是永久死重（根库体积翻倍、审计者困惑）。仅在复制
+            // 与改名都成功后执行；失败不影响迁移结果（下次启动 path 已
+            // 存在，不再进本分支，清理失败仅意味着死重照旧）。
+            if let Ok(source) = Connection::open(&root) {
+                let tables: Vec<String> = source
+                    .prepare(
+                        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                    )
+                    .and_then(|mut statement| {
+                        let mut rows = statement.query([])?;
+                        let mut names = Vec::new();
+                        while let Some(row) = rows.next()? {
+                            names.push(row.get(0)?);
+                        }
+                        Ok(names)
+                    })
+                    .unwrap_or_default();
+                for table in tables {
+                    let _ = source.execute(&format!("DROP TABLE IF EXISTS \"{table}\""), []);
+                }
+                let _ = source.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
+            }
         }
         let conn = Connection::open(&path)?;
+        // B-10：SQLite 内建 lower() 仅覆盖 ASCII——注册 Unicode 版供搜索
+        // 等场景使用（西里尔/希腊等字母的大小写变体检索）
+        conn.create_scalar_function(
+            "uni_lower",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let text: String = ctx.get(0)?;
+                Ok(text.to_lowercase())
+            },
+        )?;
         let journal_mode: String =
             conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
         if !journal_mode.eq_ignore_ascii_case("wal") {

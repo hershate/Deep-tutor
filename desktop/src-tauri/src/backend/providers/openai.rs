@@ -1126,24 +1126,48 @@ where
     Ok((text, reasoning, model, usage, finish_reason, tool_calls))
 }
 
-/// 请求侧：历史消息中的本地工具名（含点号）→ 远端消毒名（10#8）。
-/// 无工具时原样克隆，保持请求体不变。
+/// 请求侧：历史消息构造为 OpenAI wire 格式（15#5）。
+/// ChatMessage 结构体带 `rename_all = "camelCase"`（前端 IPC 契约），直接
+/// 序列化上线会把 tool_calls/tool_call_id 写成 toolCalls/toolCallId，
+/// 严格端点对 tool 消息必报 400——因此这里手工按 snake_case 键名构造，
+/// 同时把历史中的本地工具名（含点号）→ 远端消毒名（10#8）。
 fn remote_messages(
     names: &super::protocol::ToolNames,
     messages: &[ChatMessage],
-) -> Vec<ChatMessage> {
+) -> serde_json::Value {
     messages
         .iter()
         .map(|message| {
-            let mut next = message.clone();
-            if let Some(calls) = next.tool_calls.as_mut() {
-                for call in calls.iter_mut() {
-                    call.function.name = names.remote(&call.function.name);
-                }
+            let mut wire = json!({
+                "role": message.role,
+                "content": message.content,
+            });
+            if let Some(calls) = &message.tool_calls {
+                wire["tool_calls"] = calls
+                    .iter()
+                    .map(|call| {
+                        json!({
+                            "id": call.id,
+                            "type": call.kind,
+                            "function": {
+                                "name": names.remote(&call.function.name),
+                                "arguments": call.function.arguments,
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
             }
-            next
+            if let Some(id) = &message.tool_call_id {
+                wire["tool_call_id"] = json!(id);
+            }
+            if let Some(name) = &message.name {
+                wire["name"] = json!(names.remote(name));
+            }
+            wire
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .into()
 }
 
 #[cfg(test)]

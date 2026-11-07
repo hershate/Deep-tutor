@@ -434,7 +434,10 @@ pub fn install<R: Runtime>(
     // 竞态；清单在提交前落盘，失败整体回滚，清理只针对本次写入
     let mut wrote_manifest = false;
     let outcome = (|| -> Result<PluginView> {
-        let tx = store.conn.unchecked_transaction()?;
+        // B-14：EXISTS 读 + INSERT 写属读-改-写，用 IMMEDIATE（自家
+        // write_transaction 指引，07#11）——DEFERRED 下并发同 id 安装的败者
+        // 收到泛化 database_locked 而非语义清晰的 plugin_already_installed
+        let tx = store.write_transaction()?;
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
             params![manifest.id],

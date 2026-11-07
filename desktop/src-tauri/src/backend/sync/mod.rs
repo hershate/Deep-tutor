@@ -551,8 +551,8 @@ fn run<R: Runtime>(
             let bytes = transport::send(config, &credentials, "GET", None)?;
             let preview = providers::sync_config::preview(&bytes)?;
             let import = kind == "import" || (kind == "restore" && destination.is_none());
-            let path = match destination {
-                Some(path) => path,
+            let path = match &destination {
+                Some(path) => path.clone(),
                 None => service
                     .learning
                     .workspace_path()
@@ -563,21 +563,42 @@ fn run<R: Runtime>(
             };
             super::materials::atomic_export(&path, &bytes)?;
             // 13#29：本地回写文件保留最近 10 份，更早的清理——
-            // 原先无清理路径，users/<id>/sync 随任务数无限累积
-            if let Some(parent) = path.parent() {
-                let mut stale: Vec<std::path::PathBuf> = std::fs::read_dir(parent)
-                    .map(|entries| {
-                        entries
-                            .filter_map(std::result::Result::ok)
-                            .map(|entry| entry.path())
-                            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                if stale.len() > 10 {
-                    stale.sort();
-                    for old in &stale[..stale.len() - 10] {
-                        let _ = std::fs::remove_file(old);
+            // 原先无清理路径，users/<id>/sync 随任务数无限累积。
+            // 15#3：清理只作用于默认 sync 目录（destination 为用户自选路径时
+            // 该目录不属于本应用管理，绝不枚举删除）；且只碰 sync- 前缀的
+            // 本应用产物，按修改时间排序，避免进程重启后 pid 变化导致
+            // 字典序与时间序脱节而误删刚写完的文件
+            if destination.is_none() {
+                if let Some(parent) = path.parent() {
+                    let mut stale: Vec<(std::time::SystemTime, std::path::PathBuf)> =
+                        std::fs::read_dir(parent)
+                            .map(|entries| {
+                                entries
+                                    .filter_map(std::result::Result::ok)
+                                    .filter(|entry| {
+                                        entry.file_name().to_string_lossy().starts_with("sync-")
+                                    })
+                                    .filter(|entry| {
+                                        entry
+                                            .path()
+                                            .extension()
+                                            .is_some_and(|ext| ext == "json")
+                                    })
+                                    .filter_map(|entry| {
+                                        let modified = entry
+                                            .metadata()
+                                            .and_then(|meta| meta.modified())
+                                            .ok();
+                                        modified.map(|time| (time, entry.path()))
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                    if stale.len() > 10 {
+                        stale.sort_by_key(|(modified, _)| *modified);
+                        for (_, old) in &stale[..stale.len() - 10] {
+                            let _ = std::fs::remove_file(old);
+                        }
                     }
                 }
             }

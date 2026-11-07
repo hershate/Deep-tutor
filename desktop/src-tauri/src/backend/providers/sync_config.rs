@@ -160,6 +160,27 @@ pub fn import<R: Runtime>(
     bytes: &[u8],
 ) -> Result<SyncPreview> {
     let config = parse(bytes)?;
+    // E-2：parse 已对每个档案跑过输入校验，这里再整批预检停用约束——
+    // 远端含 enabled:false 且 id 撞本地激活档案时，逐档案 upsert 会在
+    // 中途失败留下部分提交；预检失败时零落库，用户可先处理冲突再重试
+    for profile in &config.providers {
+        super::check_disable_constraints(
+            state,
+            &ProfileInput {
+                id: Some(profile.id.clone()),
+                name: profile.name.clone(),
+                preset: Some(profile.preset.clone()),
+                kind: profile.kind.clone(),
+                protocol: profile.protocol.clone(),
+                base_url: profile.base_url.clone(),
+                default_model: profile.default_model.clone(),
+                models: profile.models.clone(),
+                enabled: Some(profile.enabled),
+                note: profile.note.clone(),
+                api_key: None,
+            },
+        )?;
+    }
     let mut mapping = HashMap::new();
     let mut applied = 0;
     for profile in config.providers {
@@ -177,7 +198,13 @@ pub fn import<R: Runtime>(
             note: profile.note,
             api_key: None,
         };
-        let imported = super::upsert(app, state, input)?;
+        // E-2：中途失败时带回「已导入 N 个」上下文，不再裸错误
+        let imported = super::upsert(app, state, input).map_err(|error| {
+            BackendError::new(
+                &error.code,
+                &format!("已导入 {applied} 个档案后中断：{}", error.message),
+            )
+        })?;
         mapping.insert(old_id, imported.id);
         applied += 1;
     }
@@ -209,7 +236,12 @@ pub fn import<R: Runtime>(
     })?;
     if let Some(active) = config.active_provider {
         let active = mapping.get(&active).cloned().unwrap_or(active);
-        super::set_active(app, state, &active)?;
+        super::set_active(app, state, &active).map_err(|error| {
+            BackendError::new(
+                "sync_active_restore_failed",
+                &format!("已追加 {applied} 个档案，但默认档案恢复失败：{}", error.message),
+            )
+        })?;
     }
     Ok(SyncPreview {
         profiles: applied,

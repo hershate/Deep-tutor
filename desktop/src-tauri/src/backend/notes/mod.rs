@@ -45,7 +45,10 @@ fn truncate(value: &str, maximum: usize) -> String {
 
 fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
     let mut title = file_title.to_string();
-    let mut content = text;
+    // A-18：Windows 记事本等外部工具保存的 md 常带 BOM（U+FEFF）与 CRLF——
+    // BOM 使 frontmatter 前缀匹配失效并把 FEFF 带进正文，CRLF 使逐行键
+    // 匹配失效；先统一规范化再解析
+    let mut content = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
     let mut tag = "复盘".to_string();
     // 11#17：外部工具常见的 YAML frontmatter（--- 包围块，title/tag 字段）。
     // 此前只识别自家导出头，外部 Markdown 的元数据会混进正文。
@@ -53,11 +56,15 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
         if let Some(end) = rest.find("\n---") {
             let block = &rest[..end];
             let body = rest[end + 4..].trim_start_matches('\n');
+            // B-7：只有块内确实命中元数据键才按 frontmatter 剥离——正文以
+            // --- 分隔线开头的正常 Markdown（块内无 title:/tag:）不得丢段
+            let mut matched = false;
             for line in block.lines() {
                 if let Some(value) = line.strip_prefix("title:") {
                     let cleaned = value.trim().trim_matches('"').trim();
                     if !cleaned.is_empty() {
                         title = cleaned.to_string();
+                        matched = true;
                     }
                 }
                 if let Some(value) = line
@@ -76,10 +83,13 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
                         .trim();
                     if !cleaned.is_empty() {
                         tag = cleaned.to_string();
+                        matched = true;
                     }
                 }
             }
-            content = body.to_string();
+            if matched {
+                content = body.to_string();
+            }
         }
     }
     if let Some(rest) = content.strip_prefix("# ") {

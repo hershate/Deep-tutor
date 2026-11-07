@@ -60,6 +60,8 @@ pub struct CleanupResult {
     pub deleted_temp_items: u64,
     pub freed_bytes: u64,
     pub failures: Vec<BackendError>,
+    /// B-12：未处理剩余项（成功+失败之外未轮到的孤儿），>0 时提示再清一次
+    pub remaining: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -312,9 +314,14 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             let entry = entry?;
             let id = entry.file_name().to_string_lossy().into_owned();
             // 14#19：install 中途失败会遗留“无 manifest.json 的目录”与
-            // .manifest-N.tmp——无清单目录不可能是合法插件，一并纳入孤儿
+            // .manifest-N.tmp——无清单目录不可能是合法插件，一并纳入孤儿。
+            // B-13：tmp 与其他进行中临时文件同享宽限——install 在清单写入
+            // 成功后、事务 commit 前的毫秒窗内若被并发清理删掉清单，
+            // 装好的插件将报 plugin_manifest_missing
             if id.starts_with(".manifest-") && id.ends_with(".tmp") && entry.path().is_file() {
-                plugins.push(file_item(&root, &entry.path())?);
+                if !modified_recently(&entry.path()) {
+                    plugins.push(file_item(&root, &entry.path())?);
+                }
                 continue;
             }
             let path = entry.path().join("manifest.json");
@@ -334,6 +341,14 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                     bytes: 0,
                 });
                 continue;
+            }
+            // B-13：已安装插件缺磁盘清单（并发清理误删等）此前零报告——
+            // reload 将报 plugin_manifest_missing，体检应能提前暴露
+            if installed && entry.path().is_dir() && !path.exists() {
+                issues.push(BackendError::new(
+                    "plugin_manifest_missing",
+                    &format!("插件 {id} 已安装但磁盘清单缺失，重装该插件可恢复"),
+                ));
             }
             if !installed && path.is_file() {
                 match fs::read_to_string(&path)
@@ -512,16 +527,18 @@ pub fn cleanup<R: Runtime>(
         let mut failures = Vec::new();
         let root = service.root();
         // 14#20：单次清理上限 500 项，避免孤儿量大时长时间占库锁；
-        // 剩余项下次清理继续
+        // 剩余项下次清理继续。B-12：配额只按成功删除计——失败项（symlink/
+        // 占用/拒绝）不占批次，否则 ≥500 个持续失败项会占满配额，其后
+        // 可删除项永远轮不到，清理功能对该工作区失效
         const CLEANUP_BATCH: usize = 500;
         let mut batch = 0usize;
         for item in orphans.originals.iter().chain(&orphans.scratch) {
             if batch >= CLEANUP_BATCH {
                 break;
             }
-            batch += 1;
             match remove_file(&root, item) {
                 Ok(bytes) => {
+                    batch += 1;
                     deleted_files += 1;
                     freed_bytes += bytes;
                 }
@@ -532,7 +549,6 @@ pub fn cleanup<R: Runtime>(
             if batch >= CLEANUP_BATCH {
                 break;
             }
-            batch += 1;
             // 14#19：插件孤儿按目录整体收——真实清单与“空目录占位项”都指向
             // 插件目录，只删 manifest.json 会留下空目录被反复扫描报出；
             // 直接位于 plugins 根下的杂项文件退回单文件删除
@@ -552,13 +568,18 @@ pub fn cleanup<R: Runtime>(
             };
             match outcome {
                 Ok(bytes) => {
+                    batch += 1;
                     deleted_files += 1;
                     freed_bytes += bytes;
                 }
                 Err(error) => failures.push(error),
             }
         }
+        // B-12：tempdirs 循环此前无批次计数，孤儿量大时同样长占库锁
         for item in &orphans.tempdirs {
+            if batch >= CLEANUP_BATCH {
+                break;
+            }
             let path = root.join(&item.path);
             let outcome = if path.is_dir() {
                 remove_tree(&root, &path, 0)
@@ -567,17 +588,23 @@ pub fn cleanup<R: Runtime>(
             };
             match outcome {
                 Ok(()) => {
+                    batch += 1;
                     deleted_temp_items += 1;
                     freed_bytes += item.bytes;
                 }
                 Err(error) => failures.push(error),
             }
         }
+        // B-12：截断对用户可见——报告未轮到的剩余项数
+        let remaining = (orphans.originals.len() + orphans.scratch.len() + orphans.plugins.len()
+            + orphans.tempdirs.len())
+            .saturating_sub(batch + failures.len()) as u64;
         Ok(CleanupResult {
             deleted_files,
             deleted_temp_items,
             freed_bytes,
             failures,
+            remaining,
         })
     })();
     let store = service.store()?;
@@ -592,6 +619,16 @@ pub fn vacuum<R: Runtime>(
     let result = (|| {
         let _ = health(service)?;
         let before_bytes = fs::metadata(service.learning.workspace_path())?.len();
+        // B-16：事件表只承担短窗口的通知投递职责（UI 刷新触发/插件投递
+        // 记录），流式 delta 逐行写入使其随使用无限增长——整理时按
+        // 「90 天且最近 20000 条以外」裁剪；状态恢复以全量快照为准，
+        // 裁剪过期事件不影响一致性
+        let cutoff = (time::OffsetDateTime::now_utc() - time::Duration::days(90))
+            .format(&time::format_description::well_known::Rfc3339)?;
+        store.conn.execute(
+            "DELETE FROM events WHERE created_at < ?1 AND id <= (SELECT COALESCE(MAX(id), 0) - 20000 FROM events)",
+            params![cutoff],
+        )?;
         store.conn.execute_batch("VACUUM")?;
         // 14#20：VACUUM 本体已完成；检查点被并发读挡住（wal_busy=1）只
         // 意味着 WAL 稍后再截断，不再把整条“整理数据库”报为失败误导重试

@@ -48,13 +48,22 @@ export function Toggle({ checked, onChange, label, description }: { checked: boo
 // 焦点逃逸到遮罩背后时拉回；卸载后把焦点还给打开前的元素。
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: boolean) {
+export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: boolean, restore?: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!active) return
     const container = ref.current
-    const previous = document.activeElement as HTMLElement | null
+    // 15#8：autoFocus 弹窗在 effect 运行前已把焦点落进容器，此时捕获到的
+    // activeElement 属于弹窗内部（卸载后还原无效）；调用方可经 restore
+    // 传入渲染期（DOM 更新前）捕获的打开前焦点
+    const initial = document.activeElement as HTMLElement | null
+    const previous = (restore?.current ?? null) || (container?.contains(initial) ? null : initial)
     const focusables = () => Array.from(container?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(item => item.offsetParent !== null)
-    const focusFirst = () => { const items = focusables(); (items.length ? items[0] : container)?.focus() }
+    const focusFirst = () => {
+      // 15#8：焦点已在容器内（如 React autoFocus 已落位输入框）则不抢夺，
+      // 否则 20ms 后会把焦点搬到 DOM 序首个可聚焦元素（关闭按钮）
+      if (container?.contains(document.activeElement)) return
+      const items = focusables(); (items.length ? items[0] : container)?.focus()
+    }
     const timer = window.setTimeout(focusFirst, 20)
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Tab' || !container) return
@@ -69,7 +78,7 @@ export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: 
     }
     document.addEventListener('keydown', onKey)
     return () => { window.clearTimeout(timer); document.removeEventListener('keydown', onKey); previous?.focus() }
-  }, [active, ref])
+  }, [active, ref, restore])
 }
 
 export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
@@ -78,7 +87,13 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
   // 通过 ref 取最新回调，避免弹窗内每次输入都触发焦点被抢回容器
   const closeRef = useRef(onClose)
   useEffect(() => { closeRef.current = onClose })
-  useFocusContainment(ref, open)
+  // 15#8：在渲染阶段（DOM 更新与 autoFocus 之前）捕获打开前的焦点，
+  // 供关闭时还原——effect 运行时 autoFocus 已把 activeElement 移入弹窗
+  const previousFocus = useRef<HTMLElement | null>(null)
+  const wasOpen = useRef(false)
+  if (open && !wasOpen.current) previousFocus.current = document.activeElement as HTMLElement | null
+  wasOpen.current = open
+  useFocusContainment(ref, open, previousFocus)
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeRef.current() }
