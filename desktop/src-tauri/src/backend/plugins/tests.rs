@@ -103,7 +103,11 @@ fn manifest_lifecycle_event_deduplication_and_reload_preservation_are_real() {
     assert_eq!(after_ping, 2);
     let first = plugin_row(&state.store().unwrap().conn, "practice-events").unwrap();
     assert_eq!(first.event_count, after_ping);
-    assert_eq!(events(&state, None).unwrap()[0].kind, "plugin.ping");
+    assert_eq!(events(&state, None, None).unwrap()[0].kind, "plugin.ping");
+    // 14#18：before 游标分页——排除最新一条后只剩更早投递
+    let earlier = events(&state, None, Some(event_id)).unwrap();
+    assert!(!earlier.is_empty());
+    assert!(earlier.iter().all(|item| item.event_id < event_id));
     let store = state.store().unwrap();
     let practice = Store::event(
         &store.conn,

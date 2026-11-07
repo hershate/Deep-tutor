@@ -3,7 +3,6 @@ import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, Circle
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Plan from './pages/Plan'
-import StudyRoom from './pages/StudyRoom'
 import KnowledgeMap from './pages/KnowledgeMap'
 import Practice from './pages/Practice'
 import Review from './pages/Review'
@@ -33,6 +32,7 @@ import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
 import type { PracticeTarget } from './backend/practice'
 
+const StudyRoom = lazy(() => import('./pages/StudyRoom'))
 const Library = lazy(() => import('./pages/Library'))
 const PlanGenerator = lazy(() => import('./pages/PlanGenerator'))
 const AgentCenter = lazy(() => import('./pages/AgentCenter'))
@@ -67,24 +67,18 @@ export default function App() {
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
   const [toast, setToast] = useState<{ message: string; tone: 'info' | 'error' } | null>(null)
-  const [query, setQuery] = useState('')
   const [quickType, setQuickType] = useState('任务')
   const [quickTitle, setQuickTitle] = useState('')
   const [focusOpen, setFocusOpen] = useState(false)
-  const [focusSeconds, setFocusSeconds] = useState(25 * 60)
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null)
   const [focusBusy, setFocusBusy] = useState(false)
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState('')
   const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
   const [notificationsError, setNotificationsError] = useState('')
   const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
   const tutorRef = useRef<HTMLElement>(null)
-  const focusLayerRef = useRef<HTMLDivElement>(null)
-  // 导师抽屉与专注层同为 aria-modal 弹层：焦点必须圈禁在内（09#5）
+  // 导师抽屉为 aria-modal 弹层：焦点必须圈禁在内（09#5）；
+  // 专注层的圈禁在其组件内部接线（14#10）
   useFocusContainment(tutorRef, tutorOpen)
-  useFocusContainment(focusLayerRef, focusOpen)
 
   const notify = (message: string) => setToast({ message, tone: 'info' })
   // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
@@ -113,21 +107,6 @@ export default function App() {
     return () => window.removeEventListener('backend-error', onError)
   }, [])
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), toast.tone === 'error' ? 5200 : 3200); return () => window.clearTimeout(timer) }, [toast])
-  useEffect(() => {
-    let active = true
-    // 空查询直接给本地页面快捷入口，不发 IPC；有词时 120ms 去抖后走后端全文检索
-    if (!query.trim()) { setSearchResults(quickPages); setSearching(false); setSearchError(''); return }
-    const timer = window.setTimeout(() => {
-      setSearching(true)
-      setSearchError('')
-      void engagementBackend.search(query).then(results => {
-        if (active) setSearchResults(results)
-      }).catch(error => {
-        if (active) { setSearchError(backendErrorMessage(error)); reportBackendError(error) }
-      }).finally(() => { if (active) setSearching(false) })
-    }, 120)
-    return () => { active = false; window.clearTimeout(timer) }
-  }, [query])
   useEffect(() => {
     if (!ready || loginRequired) return
     let active = true
@@ -188,27 +167,18 @@ export default function App() {
   }, [preferences])
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setModal('search') }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        // 14#4：专注层 z90 完全遮挡搜索模态（z70），此时打开只会劫持键盘焦点
+        if (!focusOpen) { event.preventDefault(); setModal('search') }
+      }
       if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false); exitShared() }
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
   }, [exitShared])
-  useEffect(() => {
-    if (!focusOpen || focusSession?.status !== 'running') return
-    const tick = () => {
-      const remaining = Math.max(0, focusSession.plannedSeconds - Math.floor((Date.now() - Date.parse(focusSession.startedAt)) / 1000))
-      setFocusSeconds(remaining)
-      if (remaining === 0 && !focusBusy) void finishFocus(false)
-    }
-    tick()
-    const timer = window.setInterval(tick, 1000)
-    return () => window.clearInterval(timer)
-  }, [focusOpen, focusSession, focusBusy])
   const openFocus = () => {
     setFocusOpen(true)
     void reportsBackend.focus().then(overview => {
       setFocusSession(overview.active)
-      setFocusSeconds(overview.active?.remainingSeconds ?? 25 * 60)
     }).catch(reportBackendError)
   }
   const toggleFocus = async () => {
@@ -217,7 +187,6 @@ export default function App() {
     try {
       const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(null, 25 * 60)
       setFocusSession(next)
-      setFocusSeconds(next.remainingSeconds)
     } catch (error) { reportBackendError(error) } finally { setFocusBusy(false) }
   }
   const finishFocus = async (cancelled: boolean): Promise<FocusSession | null> => {
@@ -226,7 +195,6 @@ export default function App() {
     try {
       const done = cancelled ? await reportsBackend.cancelFocus() : await reportsBackend.completeFocus()
       setFocusSession(done)
-      setFocusSeconds(done.remainingSeconds)
       notify(`${cancelled ? '已取消并保存' : '已完成'} ${done.actualSeconds} 秒真实专注`)
       return done
     } catch (error) { reportBackendError(error); return null } finally { setFocusBusy(false) }
@@ -234,7 +202,6 @@ export default function App() {
   const resetFocus = async () => {
     if (focusSession && ['running', 'paused'].includes(focusSession.status) && !(await finishFocus(true))) return
     setFocusSession(null)
-    setFocusSeconds(25 * 60)
   }
   const navigate = (target: PageId) => { setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false); window.scrollTo({ top: 0, behavior: preferences.reducedMotion ? 'auto' : 'smooth' }) }
   const addQuick = async () => {
@@ -259,7 +226,6 @@ export default function App() {
       navigate(result.page)
     }
     setModal(null)
-    setQuery('')
   }
   const markAllRead = async () => {
     try {
@@ -275,9 +241,6 @@ export default function App() {
       navigate(page)
     } catch (error) { reportBackendError(error) }
   }
-  const minutes = Math.floor(focusSeconds / 60).toString().padStart(2, '0')
-  const seconds = (focusSeconds % 60).toString().padStart(2, '0')
-
   const renderPage = () => {
     switch (page) {
       case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} overview={homeSummary} summaryError={homeSummaryError} onRetrySummary={() => setSummaryReload(current => current + 1)} />
@@ -335,9 +298,7 @@ export default function App() {
 
     {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师" tabIndex={-1} ref={tutorRef}><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} hintsOnly={preferences.hintsOnly} /></aside></div>}
 
-    <Modal open={modal === 'search'} onClose={() => { setModal(null); setQuery('') }} title="全局搜索">
-      <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={searchError ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : searchError || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
-    </Modal>
+    <SearchLayer open={modal === 'search'} onClose={() => setModal(null)} onOpenResult={openSearchResult} />
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
       <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
@@ -350,7 +311,15 @@ export default function App() {
       <AgentTaskCenter notify={notify} />
     </Modal>
 
-    {focusOpen && <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={focusLayerRef}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={() => setFocusOpen(false)}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{focusSession?.taskId ? tasks.find(task => task.id === focusSession.taskId)?.title || `任务 #${focusSession.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{seconds}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={focusBusy} onClick={() => void toggleFocus()}>{focusSession?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{focusSession?.status === 'running' ? '暂停' : focusSession?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={focusBusy || !focusSession || !['running', 'paused'].includes(focusSession.status)} onClick={() => void finishFocus(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={focusBusy} onClick={() => void resetFocus()}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={() => setFocusOpen(false)}>Esc 退出专注</button></div>}
+    {focusOpen && <FocusLayer
+      session={focusSession}
+      tasks={tasks}
+      busy={focusBusy}
+      onToggle={() => void toggleFocus()}
+      onFinish={finishFocus}
+      onReset={() => void resetFocus()}
+      onExit={() => setFocusOpen(false)}
+    />}
     {toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}
   </div>
 }
@@ -367,4 +336,68 @@ function Highlight({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <>{text}</>
   const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'))
   return <>{parts.map((part, index) => part.toLowerCase() === query.toLowerCase() ? <mark key={index}>{part}</mark> : part)}</>
+}
+
+// 专注层独立组件（14#10）：计时器每秒只重渲染本层，
+// 不再驱动整个 App reconcile；焦点圈禁也在此接线
+function FocusLayer({ session, tasks, busy, onToggle, onFinish, onReset, onExit }: {
+  session: FocusSession | null
+  tasks: Task[]
+  busy: boolean
+  onToggle: () => void
+  onFinish: (cancelled: boolean) => Promise<FocusSession | null>
+  onReset: () => void
+  onExit: () => void
+}) {
+  const [seconds, setSeconds] = useState(session?.remainingSeconds ?? 25 * 60)
+  const ref = useRef<HTMLDivElement>(null)
+  useFocusContainment(ref, true)
+  useEffect(() => {
+    setSeconds(session ? session.remainingSeconds : 25 * 60)
+  }, [session])
+  useEffect(() => {
+    if (session?.status !== 'running') return
+    const tick = () => {
+      const remaining = Math.max(0, session.plannedSeconds - Math.floor((Date.now() - Date.parse(session.startedAt)) / 1000))
+      setSeconds(remaining)
+      if (remaining === 0 && !busy) void onFinish(false)
+    }
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [session, busy, onFinish])
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const display = (seconds % 60).toString().padStart(2, '0')
+  return <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={ref}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={onExit}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{session?.taskId ? tasks.find(task => task.id === session.taskId)?.title || `任务 #${session.taskId}` : '自由专注'}</h2><div className="focus-timer"><span>{minutes}</span><i>:</i><span>{display}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={busy} onClick={onToggle}>{session?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{session?.status === 'running' ? '暂停' : session?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={busy || !session || !['running', 'paused'].includes(session.status)} onClick={() => void onFinish(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={busy} onClick={onReset}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={onExit}>Esc 退出专注</button></div>
+}
+
+// 全局搜索独立组件（14#11）：输入 state 只重渲染弹层，
+// 击键不再整页 reconcile
+function SearchLayer({ open, onClose, onOpenResult }: {
+  open: boolean
+  onClose: () => void
+  onOpenResult: (result: SearchResult) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    // 空查询直接给本地页面快捷入口，不发 IPC；有词时 120ms 去抖后走后端全文检索
+    if (!query.trim()) { setResults(quickPages); setSearching(false); setError(''); return }
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      setError('')
+      void engagementBackend.search(query).then(next => {
+        if (active) setResults(next)
+      }).catch(cause => {
+        if (active) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+      }).finally(() => { if (active) setSearching(false) })
+    }, 120)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [query])
+  return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
+    <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{results.length ? results.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => onOpenResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
+  </Modal>
 }

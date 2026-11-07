@@ -56,8 +56,9 @@ pub fn get_plugin_overview(state: State<'_, BackendState>) -> Result<PluginOverv
 pub fn list_plugin_events(
     state: State<'_, BackendState>,
     plugin_id: Option<String>,
+    before: Option<i64>,
 ) -> Result<Vec<PluginEventView>> {
-    super::events(&state.plugins, plugin_id)
+    super::events(&state.plugins, plugin_id, before)
 }
 
 #[tauri::command]

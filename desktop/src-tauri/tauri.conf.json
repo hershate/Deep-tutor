@@ -31,9 +31,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "resources": ["licenses/*"],
-    "icon": [],
+    "targets": [
+      "nsis"
+    ],
+    "resources": [
+      "licenses/*"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",

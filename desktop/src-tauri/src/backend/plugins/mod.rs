@@ -359,8 +359,12 @@ fn write_manifest(state: &PluginState, id: &str, content: &str) -> Result<PathBu
         .write(true)
         .create_new(true)
         .open(&temporary)?;
-    std::io::Write::write_all(&mut file, content.as_bytes())?;
-    file.sync_all()?;
+    // 14#15：写坏即删 tmp，不留半截文件被孤儿扫描收走
+    if let Err(error) = std::io::Write::write_all(&mut file, content.as_bytes()).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
     drop(file);
     if let Err(error) = fs::rename(&temporary, &path) {
         let _ = fs::remove_file(temporary);
@@ -424,20 +428,22 @@ pub fn install<R: Runtime>(
 ) -> Result<PluginView> {
     let manifest = parse_manifest(&content)?;
     let store = state.store()?;
-    let exists: bool = store.conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
-        params![manifest.id],
-        |row| row.get(0),
-    )?;
-    if exists {
-        return Err(BackendError::new(
-            "plugin_already_installed",
-            "插件已安装；更新磁盘清单后可重载，旧配置不会被覆盖",
-        ));
-    }
-    write_manifest(state, &manifest.id, &content)?;
+    // 14#15：存在性检查与 INSERT、事件写入同事务，消除“事务外双查双插”
+    // 竞态；清单在提交前落盘，失败整体回滚，清理只针对本次写入
+    let mut wrote_manifest = false;
     let outcome = (|| -> Result<PluginView> {
         let tx = store.conn.unchecked_transaction()?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
+            params![manifest.id],
+            |row| row.get(0),
+        )?;
+        if exists {
+            return Err(BackendError::new(
+                "plugin_already_installed",
+                "插件已安装；更新磁盘清单后可重载，旧配置不会被覆盖",
+            ));
+        }
         let timestamp = now()?;
         tx.execute("INSERT INTO plugins (id, name, version, description, kind, manifest_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)", params![manifest.id, manifest.name, manifest.version, manifest.description, manifest.kind, content, timestamp])?;
         for pattern in &manifest.subscriptions {
@@ -446,6 +452,8 @@ pub fn install<R: Runtime>(
                 params![manifest.id, pattern],
             )?;
         }
+        write_manifest(state, &manifest.id, &content)?;
+        wrote_manifest = true;
         let event = Store::event(
             &tx,
             "plugin.installed",
@@ -456,8 +464,39 @@ pub fn install<R: Runtime>(
         plugin_row(&store.conn, &manifest.id)
     })();
     if outcome.is_err() {
-        let path = manifest_path(state, &manifest.id)?;
-        let _ = fs::remove_file(path);
+        // 14#15：仅当“本次确实落过盘且库里仍无此插件”才清理——并发同 id
+        // 安装的胜者拥有清单，败者不得误删；目录只删空目录
+        if wrote_manifest {
+            let installed_now: bool = store
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
+                    params![manifest.id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if !installed_now {
+                if let Ok(path) = manifest_path(state, &manifest.id) {
+                    let _ = fs::remove_file(&path);
+                    if let Some(directory) = path.parent() {
+                        let _ = fs::remove_dir(directory);
+                    }
+                }
+            }
+        } else if let Ok(path) = manifest_path(state, &manifest.id) {
+            // 清单未落成：write_manifest 可能已建目录或遗留 .manifest-N.tmp
+            if let Some(directory) = path.parent() {
+                if let Ok(entries) = fs::read_dir(directory) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name().to_string_lossy().into_owned();
+                        if name.starts_with(".manifest-") && name.ends_with(".tmp") {
+                            let _ = fs::remove_file(entry.path());
+                        }
+                    }
+                }
+                let _ = fs::remove_dir(directory);
+            }
+        }
     }
     outcome
 }
@@ -499,8 +538,8 @@ fn record_reload<R: Runtime>(
     error: Option<&BackendError>,
 ) -> Result<()> {
     let store = state.store()?;
-    let tx = store.conn.unchecked_transaction()?;
-    let generation: u32 = tx
+    let generation: u32 = store
+        .conn
         .query_row(
             "SELECT generation FROM plugins WHERE id = ?1",
             params![id],
@@ -508,6 +547,20 @@ fn record_reload<R: Runtime>(
         )
         .optional()?
         .ok_or_else(|| BackendError::new("not_found", "插件不存在"))?;
+    record_reload_with(app, state, id, status, error, generation)
+}
+
+/// 14#17：generation 由调用方传入（成功路径来自本次 UPDATE 写入值）
+fn record_reload_with<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &PluginState,
+    id: &str,
+    status: &str,
+    error: Option<&BackendError>,
+    generation: u32,
+) -> Result<()> {
+    let store = state.store()?;
+    let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO plugin_reloads (plugin_id, generation, status, error_code, error_message, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![id, generation, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?])?;
     let event = Store::event(
         &tx,
@@ -568,14 +621,40 @@ pub fn reload<R: Runtime>(
             params![id, pattern],
         )?;
     }
+    // 14#17：代数取本次 UPDATE 写入值，不用新连接事后重读（并发 reload
+    // 下会把他人递增后的代数记进审计表）
+    let generation: u32 = tx.query_row(
+        "SELECT generation FROM plugins WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
     tx.commit()?;
-    record_reload(app, state, &id, "done", None)?;
+    // 记录失败不再把已生效的 reload 报为失败（UI 会误导重试）
+    if let Err(error) = record_reload_with(app, state, &id, "done", None, generation) {
+        eprintln!("plugin reload audit record failed: {}", error.message);
+    }
     plugin_row(&store.conn, &id)
 }
 
 pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String) -> Result<()> {
     let path = manifest_path(state, &id)?;
     let store = state.store()?;
+    let exists: bool = store.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
+        params![id],
+        |row| row.get(0),
+    )?;
+    // 14#16：先删目录再提交 DB 删除——目录删除失败（Windows 文件占用）时
+    // 保持两边一致可重试；原顺序会“已卸载却报错”，重试即 not_found 且
+    // 磁盘残留无入口清理。DB 无记录但目录存在时顺手清掉残留目录。
+    if let Some(directory) = path.parent() {
+        if directory.exists() {
+            fs::remove_dir_all(directory)?;
+        }
+    }
+    if !exists {
+        return Err(BackendError::new("not_found", "插件不存在"));
+    }
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute("DELETE FROM plugins WHERE id = ?1", params![id])?;
     if changed == 0 {
@@ -584,11 +663,6 @@ pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String
     let event = Store::event(&tx, "plugin.uninstalled", json!({"pluginId": id}))?;
     tx.commit()?;
     emit(app, &event);
-    if let Some(directory) = path.parent() {
-        if directory.exists() {
-            fs::remove_dir_all(directory)?;
-        }
-    }
     Ok(())
 }
 
@@ -632,10 +706,16 @@ pub fn ping<R: Runtime>(app: &AppHandle<R>, state: &PluginState) -> Result<i64> 
     Ok(event.id)
 }
 
-pub fn events(state: &PluginState, plugin_id: Option<String>) -> Result<Vec<PluginEventView>> {
+/// 14#18：before 游标分页（event_id < before），早于最新 100 条的
+/// 历史投递仍有入口可查
+pub fn events(
+    state: &PluginState,
+    plugin_id: Option<String>,
+    before: Option<i64>,
+) -> Result<Vec<PluginEventView>> {
     let store = state.store()?;
-    let mut statement = store.conn.prepare("SELECT d.plugin_id, p.name, d.event_id, e.kind, d.created_at FROM plugin_deliveries d JOIN plugins p ON p.id = d.plugin_id JOIN events e ON e.id = d.event_id WHERE (?1 IS NULL OR d.plugin_id = ?1) ORDER BY d.event_id DESC LIMIT 100")?;
-    let rows = statement.query_map(params![plugin_id], |row| {
+    let mut statement = store.conn.prepare("SELECT d.plugin_id, p.name, d.event_id, e.kind, d.created_at FROM plugin_deliveries d JOIN plugins p ON p.id = d.plugin_id JOIN events e ON e.id = d.event_id WHERE (?1 IS NULL OR d.plugin_id = ?1) AND (?2 IS NULL OR d.event_id < ?2) ORDER BY d.event_id DESC LIMIT 100")?;
+    let rows = statement.query_map(params![plugin_id, before], |row| {
         Ok(PluginEventView {
             plugin_id: row.get(0)?,
             plugin_name: row.get(1)?,
@@ -679,7 +759,7 @@ pub fn overview(state: &PluginState) -> Result<PluginOverview> {
     let event_count = plugins.iter().map(|plugin| plugin.event_count).sum();
     Ok(PluginOverview {
         plugins,
-        events: events(state, None)?,
+        events: events(state, None, None)?,
         assets: assets()
             .into_iter()
             .map(|(id, title, kind, content)| asset_info(id, title, kind, content))

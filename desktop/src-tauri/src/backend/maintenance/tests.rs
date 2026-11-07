@@ -96,6 +96,9 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     write(root, "materials/originals/orphan.txt", "orphan");
     write(root, "agent-workspaces/999/scratch/orphan.json", "{}");
     write(root, "plugins/stale.events/manifest.json", &json!({"id": "stale.events", "name": "过期插件", "version": "1.0.0", "description": "失效记录", "kind": "events", "subscriptions": []}).to_string());
+    // 14#19：安装中断残留——无清单空目录与遗留在 plugins 根的 .manifest-N.tmp
+    std::fs::create_dir_all(root.join("plugins/broken.events")).unwrap();
+    write(root, "plugins/.manifest-7.tmp", "partial");
     write(root, "backup-work/123-4/state.db", "snapshot");
     write(root, "exports/anki-123-4.db", "stale");
     store.conn.execute("INSERT INTO materials (title, kind, size, sha256, status, progress, parse_mode, text_length, source_meta, created_at, updated_at) VALUES ('缺失', 'txt', 1, ?1, 'metadata_only', 0, '', 0, '', ?2, ?2)", params!["a".repeat(64), timestamp]).unwrap();
@@ -105,7 +108,7 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     assert_eq!(report["database"]["schemaVersion"], 1);
     assert_eq!(report["orphans"]["originals"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["scratch"].as_array().unwrap().len(), 1);
-    assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 1);
+    assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 3);
     assert_eq!(report["orphans"]["tempdirs"].as_array().unwrap().len(), 2);
     assert_eq!(
         report["orphans"]["missingOriginals"]
@@ -115,7 +118,7 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
         1
     );
     let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
-    assert_eq!(cleanup["deletedFiles"], 3);
+    assert_eq!(cleanup["deletedFiles"], 5);
     assert_eq!(cleanup["deletedTempItems"], 2);
     assert_eq!(cleanup["failures"], json!([]));
     assert!(cleanup["freedBytes"].as_u64().unwrap() > 0);
@@ -127,6 +130,7 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
         .join("agent-workspaces/999/scratch/orphan.json")
         .exists());
     assert!(!root.join("plugins/stale.events/manifest.json").exists());
+    assert!(!root.join("plugins/broken.events").exists());
     assert!(!root.join("backup-work/123-4").exists());
     assert!(!root.join("exports/anki-123-4.db").exists());
     let after = ipc(&app, "get_maintenance_report", json!({})).unwrap();

@@ -37,7 +37,8 @@ fn check_cancel(cancel: &Arc<AtomicBool>) -> Result<()> {
     }
 }
 
-/// 无进度回调的默认入口
+/// 无进度回调的默认入口（生产路径走 parse_with_progress，仅测试直接使用）
+#[cfg(test)]
 pub fn parse(bytes: &[u8], kind: &str, cancel: Arc<AtomicBool>) -> Result<ParsedDocument> {
     parse_with_progress(bytes, kind, cancel, |_| {})
 }

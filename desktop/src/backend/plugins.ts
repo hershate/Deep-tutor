@@ -25,6 +25,7 @@ export const pluginBackend = {
   reload: (id: string) => invoke<PluginRecord>('reload_plugin', { id }),
   uninstall: (id: string) => invoke<void>('uninstall_plugin', { id }),
   ping: () => invoke<number>('emit_plugin_ping'),
-  events: (pluginId?: string) => invoke<PluginEvent[]>('list_plugin_events', { pluginId: pluginId ?? null }),
+  // before 为 event_id 游标：取早于该 ID 的 100 条（14#18）
+  events: (pluginId?: string, before?: number) => invoke<PluginEvent[]>('list_plugin_events', { pluginId: pluginId ?? null, before: before ?? null }),
   asset: (id: string) => invoke<DeveloperAssetContent>('get_developer_asset', { id }),
 }

@@ -150,7 +150,18 @@ export function useBackendState() {
       }).catch(error => fail(error, requestedGeneration))
     }
     const refresh = () => requestSync()
-    void onBackendEvent(requestSync).then(stop => {
+    // 14#9：事件密集期（讲义逐单元、agent 逐步输出）合并刷新——
+    // 120ms 尾沿去抖把“每事件一次全量快照+全树 reconcile”压缩为
+    // 每次事件簇一次；sync 内部队列仍保证不丢事件
+    let coalesceTimer: number | undefined
+    const requestSyncCoalesced = () => {
+      if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
+      coalesceTimer = window.setTimeout(() => {
+        coalesceTimer = undefined
+        requestSync()
+      }, 120)
+    }
+    void onBackendEvent(requestSyncCoalesced).then(stop => {
       if (mounted.current) {
         unlisten = stop
         start()
@@ -161,6 +172,7 @@ export function useBackendState() {
     return () => {
       mounted.current = false
       if (timer !== undefined) window.clearTimeout(timer)
+      if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
       unlisten?.()
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)

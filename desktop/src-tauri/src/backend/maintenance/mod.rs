@@ -311,12 +311,30 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
         for entry in fs::read_dir(&plugin_root)? {
             let entry = entry?;
             let id = entry.file_name().to_string_lossy().into_owned();
+            // 14#19：install 中途失败会遗留“无 manifest.json 的目录”与
+            // .manifest-N.tmp——无清单目录不可能是合法插件，一并纳入孤儿
+            if id.starts_with(".manifest-") && id.ends_with(".tmp") && entry.path().is_file() {
+                plugins.push(file_item(&root, &entry.path())?);
+                continue;
+            }
             let path = entry.path().join("manifest.json");
             let installed: bool = store.conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM plugins WHERE id = ?1)",
                 params![id],
                 |row| row.get(0),
             )?;
+            if !installed && !entry.path().is_dir() {
+                // 非目录非清单的杂项文件也按孤儿处理
+                plugins.push(file_item(&root, &entry.path())?);
+                continue;
+            }
+            if !installed && entry.path().is_dir() && !path.exists() {
+                plugins.push(FileItem {
+                    path: format!("plugins/{id}/manifest.json"),
+                    bytes: 0,
+                });
+                continue;
+            }
             if !installed && path.is_file() {
                 match fs::read_to_string(&path)
                     .ok()
@@ -489,15 +507,50 @@ pub fn cleanup<R: Runtime>(
         let mut deleted_files = 0;
         let mut deleted_temp_items = 0;
         let mut freed_bytes = 0;
-        let mut failures = orphans.issues.clone();
+        // 14#20：failures 只承载“删除失败”；扫描期的提示性跳过（清单无效、
+        // 符号链接等）保留在 issues，不再混入失败列表同图标警示
+        let mut failures = Vec::new();
         let root = service.root();
-        for item in orphans
-            .originals
-            .iter()
-            .chain(&orphans.scratch)
-            .chain(&orphans.plugins)
-        {
+        // 14#20：单次清理上限 500 项，避免孤儿量大时长时间占库锁；
+        // 剩余项下次清理继续
+        const CLEANUP_BATCH: usize = 500;
+        let mut batch = 0usize;
+        for item in orphans.originals.iter().chain(&orphans.scratch) {
+            if batch >= CLEANUP_BATCH {
+                break;
+            }
+            batch += 1;
             match remove_file(&root, item) {
+                Ok(bytes) => {
+                    deleted_files += 1;
+                    freed_bytes += bytes;
+                }
+                Err(error) => failures.push(error),
+            }
+        }
+        for item in &orphans.plugins {
+            if batch >= CLEANUP_BATCH {
+                break;
+            }
+            batch += 1;
+            // 14#19：插件孤儿按目录整体收——真实清单与“空目录占位项”都指向
+            // 插件目录，只删 manifest.json 会留下空目录被反复扫描报出；
+            // 直接位于 plugins 根下的杂项文件退回单文件删除
+            let directory = Path::new(&item.path)
+                .parent()
+                .filter(|parent| parent.components().count() >= 2)
+                .map(|parent| root.join(parent));
+            let outcome = match directory {
+                Some(directory) if directory.is_dir() => {
+                    remove_tree(&root, &directory, 0).map(|()| item.bytes)
+                }
+                _ if !root.join(&item.path).exists() => {
+                    // 同批更早项已连带删除本项所在目录
+                    Ok(0)
+                }
+                _ => remove_file(&root, item),
+            };
+            match outcome {
                 Ok(bytes) => {
                     deleted_files += 1;
                     freed_bytes += bytes;
@@ -540,18 +593,14 @@ pub fn vacuum<R: Runtime>(
         let _ = health(service)?;
         let before_bytes = fs::metadata(service.learning.workspace_path())?.len();
         store.conn.execute_batch("VACUUM")?;
-        let (wal_busy, wal_log, wal_checkpointed): (i64, i64, i64) =
-            store
-                .conn
-                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })?;
-        if wal_busy != 0 {
-            return Err(BackendError::new(
-                "database_busy",
-                "数据库检查点未完成，请稍后重试",
-            ));
-        }
+        // 14#20：VACUUM 本体已完成；检查点被并发读挡住（wal_busy=1）只
+        // 意味着 WAL 稍后再截断，不再把整条“整理数据库”报为失败误导重试
+        let (wal_busy, wal_log, wal_checkpointed): (i64, i64, i64) = store
+            .conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap_or((1, 0, 0));
         Ok(VacuumResult {
             before_bytes,
             after_bytes: fs::metadata(service.learning.workspace_path())?.len(),
