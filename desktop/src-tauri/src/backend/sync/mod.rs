@@ -348,6 +348,8 @@ pub fn save_config<R: Runtime>(
     }
     let result = (|| {
         if config.kind == "s3" {
+            let clearing = matches!(input.access_key.as_deref(), Some(""))
+                || matches!(input.secret_key.as_deref(), Some(""));
             if let Some(value) = input.access_key.as_mut() {
                 if value.is_empty() {
                     backend.delete("sync-s3-access")?;
@@ -364,8 +366,11 @@ pub fn save_config<R: Runtime>(
                 }
                 value.zeroize();
             }
-            let _ = credentials(service, &config)?;
+            if !clearing {
+                let _ = credentials(service, &config)?;
+            }
         } else {
+            let clearing = matches!(input.password.as_deref(), Some(""));
             if let Some(value) = input.password.as_mut() {
                 if value.is_empty() {
                     backend.delete("sync-webdav")?;
@@ -374,7 +379,7 @@ pub fn save_config<R: Runtime>(
                 }
                 value.zeroize();
             }
-            if config.auth_kind != "none" {
+            if config.auth_kind != "none" && !clearing {
                 let _ = credentials(service, &config)?;
             }
         }

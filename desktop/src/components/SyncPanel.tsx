@@ -124,7 +124,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       <div className="form-stack">
         <div className="modal-callout"><ShieldCheck size={18} /><span>只同步脱敏档案与路由。凭据经一次性表单进入系统密钥库，不写入数据库、远端文件或任务日志。</span></div>
         <div className="form-grid">
-          <label>同步方式<select value={form.kind} onChange={event => { const kind = event.target.value as SyncConfigInput['kind']; setForm(current => ({ ...current, kind, authKind: kind === 's3' ? 'aws4' : 'none' })) }}><option value="webdav">WebDAV</option><option value="s3">S3 兼容存储</option></select></label>
+          <label>同步方式<select value={form.kind} onChange={event => { const kind = event.target.value as SyncConfigInput['kind']; setForm(current => ({ ...current, kind, authKind: kind === 's3' ? 'aws4' : 'none', region: kind === 's3' ? current.region : '', bucket: kind === 's3' ? current.bucket : '' })) }}><option value="webdav">WebDAV</option><option value="s3">S3 兼容存储</option></select></label>
           <label>远端对象路径<input value={form.remotePath} onChange={event => update('remotePath', event.target.value)} /></label>
         </div>
         <label>服务地址<input value={form.endpoint} onChange={event => update('endpoint', event.target.value)} placeholder={form.kind === 's3' ? 'https://s3.example.com' : 'https://dav.example.com/DeepTutor'} /></label>

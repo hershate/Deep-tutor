@@ -144,6 +144,17 @@ fn parse_versions(config: &SyncConfig, bytes: &[u8]) -> Result<Vec<SyncVersion>>
     Ok(result)
 }
 
+/// RFC 4918 要求 PUT 的父集合已存在（否则 409）；逐级 MKCOL 创建目录。
+fn ensure_collections(config: &SyncConfig, credentials: &SyncCredentials, dir: &str) -> Result<()> {
+    let mut prefix = String::new();
+    for segment in dir.split('/').filter(|segment| !segment.is_empty()) {
+        prefix.push_str(segment);
+        prefix.push('/');
+        transport::mkcol(config, credentials, &prefix)?;
+    }
+    Ok(())
+}
+
 pub fn list(service: &SyncService, config: &SyncConfig) -> Result<Vec<SyncVersion>> {
     let credentials = credentials(service, config)?;
     let bytes = if config.kind == "s3" {
@@ -159,7 +170,19 @@ pub fn list(service: &SyncService, config: &SyncConfig) -> Result<Vec<SyncVersio
         )?
     } else {
         let path = format!("{}/versions/", base(config)?);
-        transport::send_at(config, &credentials, "PROPFIND", None, &path, &[], Some(1))?
+        match transport::send_at_or_missing(
+            config,
+            &credentials,
+            "PROPFIND",
+            None,
+            &path,
+            &[],
+            Some(1),
+        )? {
+            Some(bytes) => bytes,
+            // 集合尚未创建（从未上传过）视作没有历史版本，而不是报 404
+            None => return Ok(Vec::new()),
+        }
     };
     parse_versions(config, &bytes)
 }
@@ -178,6 +201,10 @@ pub fn upload<R: Runtime>(
     let timestamp = OffsetDateTime::now_utc().format(&format)?;
     let history = format!("{}/versions/{timestamp}-{id}-{sha256}.json", base(config)?);
     valid_version_path(config, &history)?;
+    if config.kind != "s3" {
+        // 首次上传前父集合可能不存在，WebDAV 服务器对缺失父集合的 PUT 返回 409
+        ensure_collections(config, credentials, &format!("{}/versions/", base(config)?))?;
+    }
     stage(app, service, id, "running", "version")?;
     let _ = transport::send_at(
         config,

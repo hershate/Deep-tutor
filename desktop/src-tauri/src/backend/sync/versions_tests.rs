@@ -17,12 +17,36 @@ fn webdav_remote() -> (
     Arc<Mutex<BTreeMap<String, String>>>,
 ) {
     let objects = Arc::new(Mutex::new(BTreeMap::<String, String>::new()));
+    let collections = Arc::new(Mutex::new(std::collections::BTreeSet::<String>::new()));
     let remote = objects.clone();
+    let created = collections.clone();
     let server = server(move |request, stream| {
         let method = request.split(' ').next().unwrap_or_default();
         let path = request_path(request).trim_start_matches('/').to_string();
+        let parent = |path: &str| -> String {
+            match path.rfind('/') {
+                Some(index) => path[..index + 1].to_string(),
+                None => String::new(),
+            }
+        };
         match method {
+            "MKCOL" => {
+                // 集合键统一去掉结尾斜杠（endpoint 构造会丢弃空路径段）
+                let key = path.trim_end_matches('/').to_string();
+                let mut created = created.lock().unwrap();
+                if created.insert(key) {
+                    response(stream, "201 Created", "")
+                } else {
+                    response(stream, "405 Method Not Allowed", "")
+                }
+            }
             "PUT" => {
+                // RFC 4918：父集合不存在时 PUT 返回 409
+                let parent_key = parent(&path).trim_end_matches('/').to_string();
+                if !parent_key.is_empty() && !created.lock().unwrap().contains(&parent_key) {
+                    response(stream, "409 Conflict", "");
+                    return;
+                }
                 remote
                     .lock()
                     .unwrap()

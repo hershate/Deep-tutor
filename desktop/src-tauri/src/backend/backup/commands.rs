@@ -25,12 +25,14 @@ pub fn export_full_backup<R: Runtime>(
 ) -> Result<BackupResult> {
     super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))?;
     let store = store(&state)?;
-    super::export(
+    let result = super::export(
         &app,
         &store,
         &state.learning,
         std::path::Path::new(&destination),
-    )
+    );
+    super::super::sync::scheduler::start_scheduler(app.clone());
+    result
 }
 
 #[tauri::command]
@@ -51,5 +53,7 @@ pub fn import_full_backup<R: Runtime>(
     providers::stop_chats(&state.providers)?;
     super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))?;
     let store = store(&state)?;
-    super::import(&app, &store, &state.learning, std::path::Path::new(&path))
+    let result = super::import(&app, &store, &state.learning, std::path::Path::new(&path));
+    super::super::sync::scheduler::start_scheduler(app.clone());
+    result
 }

@@ -114,6 +114,65 @@ pub fn send_at(
     query: &[(&str, &str)],
     depth: Option<u8>,
 ) -> Result<Vec<u8>> {
+    let (status, bytes) = execute(config, credentials, method, body, path, query, depth)?;
+    if !status.is_success() {
+        return Err(BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// 与 `send_at` 相同，但把 404 映射为 `None`，用于"集合可能尚不存在"的查询。
+pub fn send_at_or_missing(
+    config: &SyncConfig,
+    credentials: &SyncCredentials,
+    method: &str,
+    body: Option<Vec<u8>>,
+    path: &str,
+    query: &[(&str, &str)],
+    depth: Option<u8>,
+) -> Result<Option<Vec<u8>>> {
+    let (status, bytes) = execute(config, credentials, method, body, path, query, depth)?;
+    if status.as_u16() == 404 {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        return Err(BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
+        ));
+    }
+    Ok(Some(bytes))
+}
+
+/// MKCOL 创建 WebDAV 集合；2xx 与 405（集合已存在）都视为成功。
+pub fn mkcol(
+    config: &SyncConfig,
+    credentials: &SyncCredentials,
+    path: &str,
+) -> Result<()> {
+    let (status, _) = execute(config, credentials, "MKCOL", None, path, &[], None)?;
+    if status.is_success() || status.as_u16() == 405 {
+        Ok(())
+    } else {
+        Err(BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
+        ))
+    }
+}
+
+fn execute(
+    config: &SyncConfig,
+    credentials: &SyncCredentials,
+    method: &str,
+    body: Option<Vec<u8>>,
+    path: &str,
+    query: &[(&str, &str)],
+    depth: Option<u8>,
+) -> Result<(reqwest::StatusCode, Vec<u8>)> {
     let kind = if config.allow_private {
         "本地模型"
     } else {
@@ -186,12 +245,6 @@ pub fn send_at(
             "同步服务重定向已被阻止，请核对实际服务地址",
         ));
     }
-    if !status.is_success() {
-        return Err(BackendError::new(
-            "sync_http_error",
-            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
-        ));
-    }
     let mut bytes = Vec::new();
     response.take(MAX_RESPONSE_BYTES).read_to_end(&mut bytes)?;
     if bytes.len() as u64 >= MAX_RESPONSE_BYTES {
@@ -200,5 +253,5 @@ pub fn send_at(
             "远端响应超过 1 MB 上限",
         ));
     }
-    Ok(bytes)
+    Ok((status, bytes))
 }
