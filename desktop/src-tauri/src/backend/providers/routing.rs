@@ -1064,6 +1064,17 @@ pub fn stream_chat<R: Runtime>(
                     None,
                     Some(error.clone()),
                 )?;
+                // 34#13：本地错误（预算超限/provider_disabled 等）也要回写熔断
+                // 状态——原先只有 Ok 分支调 record_circuit，半开探测被本地
+                // Err 打断后 half_open 无人翻转，该供应商卡死到重启
+                record_circuit(
+                    app,
+                    state,
+                    &candidate.id,
+                    false,
+                    Some(error.clone()),
+                    &settings.circuit,
+                )?;
                 finish_error(app, state, request_id, &error)?;
                 return Err(error);
             }

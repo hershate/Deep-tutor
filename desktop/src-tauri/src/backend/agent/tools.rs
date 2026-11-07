@@ -623,12 +623,22 @@ pub fn execute<R: Runtime>(
                     .and_then(Value::as_i64)
                     .unwrap_or(20)
                     .clamp(1, 100);
-                let messages = session
-                    .messages
-                    .iter()
-                    .rev()
-                    .take(limit as usize)
-                    .collect::<Vec<_>>();
+                // 34#23：读活库而非 run 开始时的会话快照——多步 run 中模型
+                // 调用本工具应看到已落库的本 run 消息（快照读不到，与工具
+                // 描述矛盾并诱导重复提问）
+                let store = state.store()?;
+                let mut statement = store.conn.prepare(
+                    "SELECT role, content FROM agent_messages WHERE session_id = ?1 ORDER BY id DESC LIMIT ?2",
+                )?;
+                let messages = statement
+                    .query_map(rusqlite::params![session.id, limit], |row| {
+                        Ok(json!({
+                            "role": row.get::<_, String>(0)?,
+                            "content": row.get::<_, String>(1)?,
+                        }))
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                drop(statement);
                 Ok(json!({"status": "done", "messages": messages}))
             }
             "history.search" => {

@@ -752,6 +752,26 @@ fn transition<R: Runtime>(
     error: Option<&BackendError>,
 ) -> Result<Material> {
     let tx = store.conn.unchecked_transaction()?;
+    // 34#12：parsing 翻转以「任务仍处活跃态」为条件的原子更新——cancel 在
+    // spawn 前后落 cancelled 终态后，迟到的解析线程不得覆盖取消结果。
+    // 其余状态（终态写入）保持无条件
+    let job_changed = if status == "parsing" {
+        tx.execute(
+            "UPDATE material_jobs SET status = ?2, error_code = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1 AND status IN ('queued', 'parsing')",
+            params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
+        )?
+    } else {
+        tx.execute(
+            "UPDATE material_jobs SET status = ?2, error_code = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1",
+            params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
+        )?
+    };
+    if status == "parsing" && job_changed == 0 {
+        return Err(BackendError::new(
+            "cancelled",
+            "该任务已被取消，不再启动解析",
+        ));
+    }
     let changed = tx.execute(
         "UPDATE materials SET status = ?2, progress = ?3, error_code = ?4, error_message = ?5, updated_at = ?6 WHERE id = ?1",
         params![id, status, progress, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
@@ -762,10 +782,6 @@ fn transition<R: Runtime>(
             "资料已删除，停止本次解析",
         ));
     }
-    tx.execute(
-        "UPDATE material_jobs SET status = ?2, error_code = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1",
-        params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
-    )?;
     sync_resources(&tx)?;
     let event = Store::event(
         &tx,

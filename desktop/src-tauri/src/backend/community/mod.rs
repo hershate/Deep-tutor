@@ -449,7 +449,8 @@ pub fn create_post<R: Runtime>(
         }
         None
     };
-    let tx = store.conn.unchecked_transaction()?;
+    // 34#11：IMMEDIATE——与 25#18 注释宣称一致（DEFERRED 读快照计数仍可超配额）
+    let tx = store.write_transaction()?;
     // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
     store.ensure_quota_in_tx(&tx, "threads", 1)?;
     let timestamp = now()?;
@@ -491,8 +492,9 @@ pub fn reply<R: Runtime>(
         return Err(BackendError::new("not_found", "讨论不存在"));
     }
     // 03#10：回复同样计入 threads 配额，与发帖共用同一上限；
-    // 25#18：计数与插入同事务，关闭 check-then-insert 并发窗口
-    let tx = store.conn.unchecked_transaction()?;
+    // 25#18：计数与插入同事务，关闭 check-then-insert 并发窗口。
+    // 34#11：IMMEDIATE——同发帖
+    let tx = store.write_transaction()?;
     store.ensure_quota_in_tx(&tx, "threads", 1)?;
     tx.execute(
         "INSERT INTO community_replies (post_id, body, created_at) VALUES (?1, ?2, ?3)",
@@ -755,7 +757,11 @@ fn ensure_no_overlap(
         if Some(room_id) == exclude {
             continue;
         }
-        let other_start = parse_time(&other_start)?;
+        // 34#19：损坏的 start_at 行跳过而非上抛——migrate 31#33 对不可解析行
+        // 保持原样，一条毒行不该阻断全部房间创建与预约（到期判定独立不受影响）
+        let Ok(other_start) = parse_time(&other_start) else {
+            continue;
+        };
         let other_end = other_start + Duration::minutes(duration.max(0));
         if start < other_end && other_start < end {
             return Err(BackendError::new(
@@ -846,7 +852,9 @@ pub fn reserve<R: Runtime>(
             "已取消或过期的时间不能预约",
         ));
     }
-    let tx = store.conn.unchecked_transaction()?;
+    // 34#11：IMMEDIATE——31#35 只把 create_room 挪进写事务，预约的重叠检查
+    // 仍在 DEFERRED 读快照上做（注释与实现不符）
+    let tx = store.write_transaction()?;
     let existing: Option<Option<String>> = tx
         .query_row(
             "SELECT cancelled_at FROM community_reservations WHERE room_id = ?1",

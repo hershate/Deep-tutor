@@ -437,6 +437,20 @@ pub fn apply_intensity<R: Runtime>(
         .result
         .clone()
         .ok_or_else(|| BackendError::new("plan_not_ready", "当前方案没有可调整的排期"))?;
+    // 34#21：事务内复查方案状态——读取 result 与开事务之间可能被并发
+    // regenerate 穿插（result 置 NULL、步骤重置），无守卫会复活旧结果并向
+    // 已移除的 artifacts $.step5 写旧值；对照 regenerate 自身的三重前置校验
+    let status: String = tx.query_row(
+        "SELECT status FROM learning_plans WHERE id = ?1",
+        params![numeric],
+        |row| row.get(0),
+    )?;
+    if !["done", "degraded"].contains(&status.as_str()) {
+        return Err(BackendError::new(
+            "plan_not_ready",
+            "方案正在生成或重生成，暂不能调整强度",
+        ));
+    }
     // 31#16：覆盖前记 versions（与 regenerate 同一「覆盖前保留历史」不变量）。
     // 同版本多次切强度以最近一次覆盖前快照为准（OR REPLACE 避免主键冲突）
     tx.execute(
@@ -458,16 +472,20 @@ pub fn apply_intensity<R: Runtime>(
         .map(|entry| entry.minutes)
         .sum();
     // 31#16：同步 artifacts $.step5——finish_result 以旧 step5 重建会让
-    // scope=6 重生成静默回退缩放前强度，且再切强度在错误基数上继续缩放
+    // scope=6 重生成静默回退缩放前强度，且再切强度在错误基数上继续缩放。
+    // 34#4：complete_step 是双写（step 表 output_json + artifacts_json），而
+    // run() 重建读的是 step 表——两处必须同步更新，否则重建仍回退旧排期
+    let step5_json = serde_json::to_string(&serde_json::json!({
+        "schedule": result.schedule,
+        "stages": result.stages,
+    }))?;
     tx.execute(
         "UPDATE learning_plans SET artifacts_json = json_set(COALESCE(artifacts_json, '{}'), '$.step5', json(?1)) WHERE id = ?2",
-        params![
-            serde_json::to_string(&serde_json::json!({
-                "schedule": result.schedule,
-                "stages": result.stages,
-            }))?,
-            numeric
-        ],
+        params![step5_json, numeric],
+    )?;
+    tx.execute(
+        "UPDATE learning_plan_steps SET output_json = ?1, updated_at = ?2 WHERE plan_id = ?3 AND step_index = 5",
+        params![step5_json, timestamp(OffsetDateTime::now_utc())?, numeric],
     )?;
     let mut input: super::learning::PlanInput = serde_json::from_str(&store.conn.query_row(
         "SELECT input_json FROM learning_plans WHERE id = ?1",

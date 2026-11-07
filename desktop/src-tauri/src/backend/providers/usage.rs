@@ -295,7 +295,10 @@ fn entry(row: &rusqlite::Row<'_>, conn: &Connection) -> Result<UsageEntry> {
 }
 
 fn entries(conn: &Connection) -> Result<Vec<UsageEntry>> {
-    let mut statement = conn.prepare("SELECT r.request_id, r.provider_id, r.model, r.status, r.usage_json, p.name, routes.task, r.attempts, r.created_at FROM provider_requests r LEFT JOIN provider_profiles p ON p.id = r.provider_id LEFT JOIN provider_route_runs routes ON routes.request_id = r.request_id ORDER BY r.rowid DESC")?;
+    // 34#22：failover 上游行（{request_id}-fN）经 attempts.upstream_request_id
+    // 反查逻辑请求取 task——原先精确 join 不到，真实计费行被归为 direct
+
+    let mut statement = conn.prepare("SELECT r.request_id, r.provider_id, r.model, r.status, r.usage_json, p.name, routes.task, r.attempts, r.created_at FROM provider_requests r LEFT JOIN provider_profiles p ON p.id = r.provider_id LEFT JOIN provider_route_attempts attempts ON attempts.upstream_request_id = r.request_id LEFT JOIN provider_route_runs routes ON routes.request_id = COALESCE(attempts.request_id, r.request_id) ORDER BY r.rowid DESC")?;
     let mut rows = statement.query([])?;
     let mut entries = Vec::new();
     while let Some(row) = rows.next()? {
@@ -443,9 +446,11 @@ fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
             (" AND date(r.created_at, ?1) = ?2", vec![shift, today])
         }
         BudgetScope::Session { session_id } => (
-            // 31#1：经 agent_session_id 外键关联（导入经 FK 重映射保持关联）；
+            // 31#1：经 agent_session_id 外键关联（导入经 FK 重映射保持关联）。
+            // 34#16：GLOB 兜底只作用于无主行——前端自造型如 agent-{n}-x 的
+            // 直连请求不得经字面前缀串扰他人会话预算；
             // 存量行无该列时回退按本会话 run id 的 GLOB 关联
-            " AND (r.agent_session_id = ?1 OR EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*'))",
+            " AND (r.agent_session_id = ?1 OR (r.agent_session_id IS NULL AND EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*')))",
             vec![session_id.to_string()],
         ),
     };

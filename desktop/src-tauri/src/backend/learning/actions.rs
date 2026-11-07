@@ -158,7 +158,9 @@ pub fn regenerate<R: Runtime>(
     let outcome = (|| -> Result<_> {
         let store = state.store()?;
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("INSERT INTO learning_plan_versions (plan_id, version, result_json, created_at) VALUES (?1, ?2, ?3, ?4)", params![id, plan.version, serde_json::to_string(&result)?, now()?])?;
+        // 34#3：OR REPLACE——apply_intensity（31#16）也会在同版本落「覆盖前快照」，
+        // 裸 INSERT 撞 (plan_id, version) 主键使切过强度的方案永久无法重生成
+        tx.execute("INSERT OR REPLACE INTO learning_plan_versions (plan_id, version, result_json, created_at) VALUES (?1, ?2, ?3, ?4)", params![id, plan.version, serde_json::to_string(&result)?, now()?])?;
         for index in scope..STEP_NAMES.len() as u8 {
             tx.execute("UPDATE learning_plans SET artifacts_json = json_remove(artifacts_json, ?1) WHERE id = ?2", params![format!("$.step{index}"), id])?;
         }

@@ -16,7 +16,9 @@ const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
 pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// 代码侧 schema 版本：任何 migrate() 新增表/列时必须递增，
 /// 使老库即使指纹与记录一致也会重新执行迁移（指纹只反映库内现状，不反映代码期望）。
-const SCHEMA_VERSION: i64 = 1;
+/// v2（34#1）：provider_requests 增列 agent_session_id（31#1 引入时漏递增，
+/// 已在版本 1 记录过指纹的存量库跳过迁移，Agent 域 SQL 报 no such column）
+const SCHEMA_VERSION: i64 = 2;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 // 12#20：迁移计数改为互斥保护——无锁原子计数在并行测试下与幂等断言竞态；
 // 互斥后读取/递增串行化，断言不再随机漂移

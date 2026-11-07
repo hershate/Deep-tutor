@@ -1267,12 +1267,17 @@ pub fn authenticate_token<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
+    // 34#2：先释放账户库互斥锁再取 WORKSPACE_SWITCH 写锁——原先锁序
+    // （互斥锁→写锁）与普通命令（读锁→互斥锁）/登录 switch（写锁→互斥锁）
+    // 相反，构成 ABBA 死锁。统一为「切换锁在前、互斥锁在后」
+    drop(store);
     // 21#1：PAT 认证是显式登录行为——验证通过即为该用户签发新会话
     // （与 login 同口径），安全面板的「使用访问令牌登录」入口依赖于此。
     // 31#7：切换到另一用户时与 login switch 同口径——先停旧用户全部
     // 后台与同步调度器，签发后以新用户身份重启调度，不留后台穿透。
     // 31#34：停机/签发段持 WORKSPACE_SWITCH 写锁，与 switch 对称
     guard::exclusive(|| {
+        let store = state.store()?;
         let previous = current(&store.conn, state)
             .ok()
             .map(|(previous, _)| previous.id);
@@ -1289,6 +1294,7 @@ pub fn authenticate_token<R: Runtime>(
     with_user(user_id, || {
         super::sync::scheduler::start_scheduler(app.clone())
     });
+    let store = state.store()?;
     user(&store.conn, user_id, user_id)
 }
 

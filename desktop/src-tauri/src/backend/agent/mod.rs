@@ -641,7 +641,7 @@ fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
         // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
         // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
         // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
-        "SELECT COALESCE(SUM(CASE WHEN json_extract(r.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(r.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(r.output AS BLOB)) / 2 END), 0) FROM provider_requests r WHERE r.agent_session_id = ?1 OR EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*')",
+        "SELECT COALESCE(SUM(CASE WHEN json_extract(r.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(r.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(r.output AS BLOB)) / 2 END), 0) FROM provider_requests r WHERE r.agent_session_id = ?1 OR (r.agent_session_id IS NULL AND EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*'))",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )? as u64)
@@ -690,6 +690,7 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         .filter_map(|message| message.tool_call_id.as_deref())
         .filter(|id| declared.contains(id))
         .collect();
+    let mut replay: Vec<ChatMessage> = Vec::new();
     for message in &session.messages {
         if message.role == "tool"
             && !message
@@ -718,7 +719,7 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         } else {
             message.content.clone()
         };
-        messages.push(ChatMessage {
+        replay.push(ChatMessage {
             role: message.role.clone(),
             content,
             tool_calls: (!calls.is_empty()).then_some(calls),
@@ -726,6 +727,48 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
             name: message.name.clone(),
         });
     }
+    // 34#8：validate_messages 上限 64 条 / 256KB——重放窗口收敛到最近 62 条
+    // （为 system+user 引导留余量）与 200KB 预算，长会话不再永久
+    // invalid_messages / context_too_large
+    let start = replay.len().saturating_sub(62);
+    replay.drain(..start);
+    let message_bytes = |message: &ChatMessage| {
+        message.content.len()
+            + message.tool_calls.as_ref().map_or(0, |calls| {
+                calls
+                    .iter()
+                    .map(|call| call.function.arguments.len())
+                    .sum::<usize>()
+            })
+    };
+    let mut used = 0_usize;
+    let mut keep_from = replay.len();
+    for (index, message) in replay.iter().enumerate().rev() {
+        let bytes = message_bytes(message);
+        if used + bytes > 200 * 1024 {
+            break;
+        }
+        used += bytes;
+        keep_from = index;
+    }
+    replay.drain(..keep_from);
+    // 截断可能制造新的孤儿 tool（声明它的 assistant 被裁掉）——头部再裁一次，
+    // 保证发给端点的序列与 23#9 的自洽约束一致
+    let mut declared_ids: HashSet<String> = HashSet::new();
+    replay.retain(|message| {
+        if let Some(id) = &message.tool_call_id {
+            if !declared_ids.contains(id) {
+                return false;
+            }
+        }
+        if let Some(calls) = &message.tool_calls {
+            for call in calls {
+                declared_ids.insert(call.id.clone());
+            }
+        }
+        true
+    });
+    messages.append(&mut replay);
     Ok(messages)
 }
 
@@ -837,16 +880,7 @@ fn run_loop<R: Runtime>(
         }
         providers::usage::ensure_budget(&state.providers, Some(session_id))?;
         let (step, request_id) = begin_step(app, state, &run)?;
-        // 31#1：请求落库后回填会话外键——预算/输出统计按 agent_session_id
-        // 聚合，不再依赖 request_id 字面前缀（导入重映射后前缀会断裂）
-        {
-            let store = state.store()?;
-            store.conn.execute(
-                "UPDATE provider_requests SET agent_session_id = ?1 WHERE request_id = ?2 AND agent_session_id IS NULL",
-                params![session_id, request_id],
-            )?;
-        }
-        let request = providers::routing::stream_chat(
+        let outcome = providers::routing::stream_chat(
             app,
             &state.providers,
             &request_id,
@@ -857,7 +891,19 @@ fn run_loop<R: Runtime>(
             None,
             Some(&catalog),
             true,
-        )?;
+        );
+        // 31#1：请求落库后回填会话外键——预算/输出统计按 agent_session_id
+        // 聚合，不再依赖 request_id 字面前缀（导入重映射后前缀会断裂）。
+        // 34#6：回填须在 begin_chat 的 INSERT 之后执行——原先置于调用前，
+        // UPDATE 恒匹配 0 行，列恒 NULL；此处 Ok/Err 两种返回都已落行
+        {
+            let store = state.store()?;
+            store.conn.execute(
+                "UPDATE provider_requests SET agent_session_id = ?1 WHERE request_id = ?2 AND agent_session_id IS NULL",
+                params![session_id, request_id],
+            )?;
+        }
+        let request = outcome?;
         let store = state.store()?;
         let (input_tokens, output_tokens): (u64, u64) = store.conn.query_row(
             "SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.inputTokens') AS INTEGER)), 0), COALESCE(SUM(CAST(json_extract(usage_json, '$.outputTokens') AS INTEGER)), 0) FROM provider_requests WHERE request_id GLOB ?1",
@@ -962,6 +1008,30 @@ fn run_loop<R: Runtime>(
         if request.tool_calls.is_empty() {
             return finish_run(app, state, run_id, "done", None);
         }
+        // 34#5：assistant(tool_calls) 声明进上下文——OpenAI 系要求 tool 消息
+        // 前置 assistant 声明（Anthropic tool_use/tool_result、Gemini
+        // functionCall/functionResponse 同理）；原先只落库不进 messages 向量，
+        // 多步工具循环的第二次模型请求在严格端点必 400。与 history() 重放
+        // （23#9 修剪后的自洽序列）保持同一形态
+        let declared_calls = request
+            .tool_calls
+            .iter()
+            .map(|call| ToolCallRequest {
+                id: call.id.clone(),
+                kind: "function".into(),
+                function: ToolCallFunction {
+                    name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                },
+            })
+            .collect::<Vec<_>>();
+        messages.push(ChatMessage {
+            role: "assistant".into(),
+            content: request.output.clone(),
+            tool_calls: Some(declared_calls),
+            tool_call_id: None,
+            name: None,
+        });
         for call in &request.tool_calls {
             if state
                 .active

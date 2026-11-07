@@ -554,6 +554,9 @@ pub fn cleanup<R: Runtime>(
         // 可删除项永远轮不到，清理功能对该工作区失效
         const CLEANUP_BATCH: usize = 500;
         let mut batch = 0usize;
+        // 34#18：宽限跳过项不计入 remaining——原先「还有 N 项未处理」把 24h
+        // 内清不掉的项也算进去，用户按提示重跑得到同样数字，提示空转
+        let mut deferred = 0usize;
         for item in orphans.originals.iter().chain(&orphans.scratch) {
             if batch >= CLEANUP_BATCH {
                 break;
@@ -562,6 +565,7 @@ pub fn cleanup<R: Runtime>(
             // rename 为正式原件、事务尚未提交」的毫秒级窗口，rename 保留临时件刚
             // 写入的 mtime，命中宽限即跳过，下一轮扫描再收
             if modified_recently(&root.join(&item.path)) {
+                deferred += 1;
                 continue;
             }
             match remove_file(&root, item) {
@@ -628,7 +632,7 @@ pub fn cleanup<R: Runtime>(
             + orphans.scratch.len()
             + orphans.plugins.len()
             + orphans.tempdirs.len())
-        .saturating_sub(batch + failures.len()) as u64;
+        .saturating_sub(batch + failures.len() + deferred) as u64;
         Ok(CleanupResult {
             deleted_files,
             deleted_temp_items,

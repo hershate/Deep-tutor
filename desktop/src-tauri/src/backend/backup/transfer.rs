@@ -229,9 +229,14 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
             // 找回目标中已存在的同一逻辑请求，映射到既有 id 交给 global_conflict
             // 跳过；目标同名行内容不同（真正的独立请求）才改写 imported-N
             if *table == "provider_requests" && exists(target, table, &primary.name, &original)? {
+                // 34#15：签名补 usage_json 并固定排序——原六字段签名不含请求
+                // 内容，两个不同逻辑请求字段全同即被误合并丢行；LIMIT 1 无序
+                // 时归并对象不确定。usage_json 随行逐字复制、跨导入稳定，且
+                // 重复导入时 profiles 自身会再映射（p1→p2→p3），不能按供应
+                // 商比对（会把首次导入行判为不同请求）
                 let matched: Option<String> = target
                     .query_row(
-                        "SELECT request_id FROM provider_requests WHERE model IS ?1 AND created_at IS ?2 AND finish_reason IS ?3 AND attempts IS ?4 AND latency_ms IS ?5 AND status IS ?6 LIMIT 1",
+                        "SELECT request_id FROM provider_requests WHERE model IS ?1 AND created_at IS ?2 AND finish_reason IS ?3 AND attempts IS ?4 AND latency_ms IS ?5 AND status IS ?6 AND usage_json IS ?7 ORDER BY request_id LIMIT 1",
                         params![
                             row.get("model").map(sql_value).transpose()?,
                             row.get("created_at").map(sql_value).transpose()?,
@@ -239,6 +244,7 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                             row.get("attempts").map(sql_value).transpose()?,
                             row.get("latency_ms").map(sql_value).transpose()?,
                             row.get("status").map(sql_value).transpose()?,
+                            row.get("usage_json").map(sql_value).transpose()?,
                         ],
                         |row| row.get(0),
                     )
@@ -534,6 +540,12 @@ fn reference(table: &str, column: &str) -> Option<&'static str> {
     if column == "provider_id" {
         return Some("provider_profiles");
     }
+    // 34#7：会话外键随导入重映射——31#1 把分支误加进 JSON 载荷键映射
+    // （camelCase 域，INTEGER 列永不经过），列重映射路径的 reference() 反而无
+    // 分支，源会话 id 原样入库造成归属错乱/漏计
+    if column == "agent_session_id" && table == "provider_requests" {
+        return Some("agent_sessions");
+    }
     if column == "plan_id" && table != "learning_plans" {
         return Some("learning_plans");
     }
@@ -673,9 +685,6 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                             "knowledge_sessions"
                         },
                     ),
-                    // 31#1：agent 会话预算经 agent_session_id 关联（不再依赖
-                    // request_id 字面前缀），导入时按外键重映射保持关联
-                    "agent_session_id" => Some("agent_sessions"),
                     // 31#8：主键=外键的两张练习子表——主键随题目映射重写，
                     // 否则按本表自编号后撞「缺少记录」整单失败或静默挂错题
                     "question_id"
@@ -699,12 +708,36 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     _ => None,
                 };
                 if name == "snapshot" {
+                    // 34#14：events 是历史事实流——snapshot 引用的资料可能已被
+                    // 删除（先删资料后导出），实体表仍严格、事件载荷丢条目降级
+                    let lenient_snapshot = table.starts_with("event:");
+                    let mut removed = false;
                     if let Some(sources) = object.get_mut(&name).and_then(Value::as_array_mut) {
-                        for source in sources {
+                        let mut next = Vec::new();
+                        for source in sources.iter() {
                             if let Some(id) = source.get("id").cloned() {
-                                source["id"] = map_plain(&id, "materials", maps)?;
+                                match map_plain(&id, "materials", maps) {
+                                    Ok(mapped) => {
+                                        let mut source = source.clone();
+                                        source["id"] = mapped;
+                                        next.push(source);
+                                    }
+                                    Err(error)
+                                        if lenient_snapshot
+                                            && error.code == "invalid_backup_reference" =>
+                                    {
+                                        removed = true;
+                                    }
+                                    Err(error) => return Err(error),
+                                }
+                            } else {
+                                next.push(source.clone());
                             }
                         }
+                        *sources = next;
+                    }
+                    if removed {
+                        object.remove(&name);
                     }
                 }
                 if name == "tool_calls_json" {
@@ -742,13 +775,34 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     rewrite_json(item, table, maps)?;
                 }
             }
-            if table == "provider_requests" || table == "agent_messages" {
+            // 34#14：toolCalls 内嵌 call id 随 agent_tool_calls 重映射——原先
+            // 只对实体表生效，provider.chat_completed 等事件载荷里的 id 保持
+            // 源侧值形成悬挂；事件表按 31#2 口径 lenient（映射不到丢该条调用）
+            if table == "provider_requests"
+                || table == "agent_messages"
+                || table.starts_with("event:")
+            {
+                let lenient_calls = table.starts_with("event:");
                 if let Some(calls) = object.get_mut("toolCalls").and_then(Value::as_array_mut) {
-                    for call in calls {
-                        if let Some(id) = call.get("id").cloned() {
-                            call["id"] = map_plain(&id, "agent_tool_calls", maps)?;
+                    let mut next = Vec::new();
+                    for call in calls.iter() {
+                        match call
+                            .get("id")
+                            .cloned()
+                            .map(|id| map_plain(&id, "agent_tool_calls", maps))
+                        {
+                            Some(Ok(mapped)) => {
+                                let mut call = call.clone();
+                                call["id"] = mapped;
+                                next.push(call);
+                            }
+                            Some(Err(error))
+                                if lenient_calls && error.code == "invalid_backup_reference" => {}
+                            Some(Err(error)) => return Err(error),
+                            None => next.push(call.clone()),
                         }
                     }
+                    *calls = next;
                 }
             }
         }

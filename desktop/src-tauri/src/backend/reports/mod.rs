@@ -763,7 +763,9 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let adopted = store
         .conn
         .query_row(
-            "SELECT plan_id FROM learning_plan_adoptions ORDER BY id DESC LIMIT 1",
+            // 34#9：31#19 漏改的调用点——plan_id 即 rowid，ORDER BY id 等价按
+            // 方案编号倒序；与首页/planning 同口径按采用时间倒序
+            "SELECT plan_id FROM learning_plan_adoptions ORDER BY created_at DESC, plan_id DESC LIMIT 1",
             [],
             |row| row.get::<_, i64>(0),
         )
@@ -1126,12 +1128,11 @@ pub fn adopt_recommendations<R: Runtime>(
         {
             continue;
         }
-        let id = tasks
-            .iter()
-            .filter_map(|task| task.get("id").and_then(Value::as_i64))
-            .max()
-            .unwrap_or(0)
-            + 1;
+        // 34#20：id 分配走 next_free_id 的毫秒基数——max+1 紧贴前端
+        // Date.now() 型 localId，同毫秒邻接即撞号（24#4/31#58 同族）
+        let id: i64 = Store::next_free_id(&store.conn, "tasks")?
+            .parse()
+            .map_err(|_| BackendError::new("invalid_id", "任务标识无效"))?;
         tasks.push(json!({"id":id,"title":recommendation.title,"subject":"学习建议","duration":20,"done":false,"kind":"练习"}));
         added += 1;
     }
