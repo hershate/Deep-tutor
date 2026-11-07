@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Folder, RefreshCw, RotateCcw } from 'lucide-react'
+import { Folder, FolderOpen, RefreshCw, RotateCcw } from 'lucide-react'
 import { Badge, Button, SectionHeader } from './UI'
 import { backendErrorMessage, reportBackendError } from '../backend/client'
 import { storageBackend } from '../backend/storage'
+import { revealInFileManager } from '../backend/shell'
 import type { StorageOverview } from '../backend/storage'
 
 export default function DataDirectoryPanel() {
@@ -72,13 +73,19 @@ export default function DataDirectoryPanel() {
     try { await storageBackend.restart() }
     catch (cause) { setError(backendErrorMessage(cause)); setBusy('') }
   }
+  // 37#4：数据目录只读展示的配套能力——一键在资源管理器中定位
+  const reveal = async () => {
+    if (!overview) return
+    try { await revealInFileManager(overview.dataRoot) }
+    catch (cause) { setError(backendErrorMessage(cause)) }
+  }
 
   if (!overview) return <section className="surface setting-section storage-location-panel"><SectionHeader title="本地学习数据目录" description="目录设置由原生后端保存。" />{error ? <div className="form-error" role="alert"><span>{error}</span><Button size="sm" onClick={() => void refresh()}>重新读取</Button></div> : <p>正在读取目录设置…</p>}</section>
   const unchanged = draft.trim() === overview.dataRoot && overview.pendingDataRoot === null
   const pending = overview.pendingDataRoot
   return <section className="surface setting-section storage-location-panel">
     <SectionHeader title="本地学习数据目录" description="默认目录自动创建。你可以修改保存位置，新设置在下次启动时生效。" action={<Badge tone={pending ? 'amber' : overview.initializing ? 'neutral' : overview.ready ? 'green' : 'red'}>{pending ? '重启后生效' : overview.initializing ? '正在初始化' : overview.ready ? '当前使用' : '需要处理'}</Badge>} />
-    <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small></div></div>
+    <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small><div><Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button></div></div></div>
     {pending && <div className="modal-callout"><RefreshCw size={17} /><div><strong>下次启动使用：{pending}</strong><p>当前进程仍使用原目录。切换不会自动迁移或删除旧数据；需要原有内容时，请先通过备份功能导出，再在新目录中导入。重启会结束当前进程，请先完成或取消正在运行的任务。</p></div></div>}
     {overview.error && <div className="form-error" role="alert">{overview.error.code}：{overview.error.message}</div>}
     <label>新的保存位置<input aria-label="本地学习数据目录" value={draft} disabled={Boolean(busy)} onChange={event => { setDraft(event.target.value); setMessage('') }} placeholder="输入磁盘上的绝对目录" /></label>

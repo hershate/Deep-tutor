@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
+import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, FolderOpen, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
 import type { LearningPlan, Lecture } from '../backend/client'
 import { exportBackend } from '../backend/export'
+import { revealInFileManager } from '../backend/shell'
 import type { ExportFormat, ExportResult, ExportScope } from '../backend/export'
 
 const formats: { id: ExportFormat; name: string; description: string; icon: typeof FileText; ext: string }[] = [
@@ -44,6 +45,8 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [done, setDone] = useState<ExportResult | null>(null)
+  // 37#4：回执保留用户选择的落盘位置，供「在资源管理器中显示」定位
+  const [donePath, setDonePath] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -102,13 +105,19 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
     setBusy(format)
     setError('')
     setDone(null)
+    setDonePath('')
     try {
       const destination = await backend.saveMaterialFile(fileName(title, extension), extension)
       if (!destination) return
       const result = await exportBackend.content({ scope, format, planId: needsPlan ? planId : null, stageId: scope === 'lecture' ? stageId : null, unitIndex: scope === 'lecture' ? unitIndex : null, version: null }, destination)
       setDone(result)
+      setDonePath(destination)
       notify(`已原生导出「${result.title}」，共 ${result.bytes.toLocaleString()} 字节`)
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
+  const reveal = async () => {
+    if (!donePath) return
+    try { await revealInFileManager(donePath) } catch (cause) { setError(backendErrorMessage(cause)) }
   }
 
   return <Modal open={open} onClose={onClose} title="导出学习内容" wide><div className="export-center">
@@ -117,7 +126,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
     {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="export-grid">{available.map(format => <button key={format.id} onClick={() => void run(format.id, format.ext)} disabled={Boolean(busy) || !canExport}><format.icon size={22} /><div><strong>{format.name}</strong><span>{format.description}</span></div>{busy === format.id ? <LoaderCircle size={18} className="spin" /> : done?.format === format.id ? <Check size={18} /> : <ArrowDownToLine size={18} />}</button>)}</div>
-    {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div></div>}
+    {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div>{donePath && <Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button>}</div>}
     <div className="export-foot"><span>动态文本按格式转义；HTML 不执行脚本。只有用户选择保存位置后才写入文件。</span><Button variant="secondary" onClick={onClose}>完成</Button></div>
   </div></Modal>
 }

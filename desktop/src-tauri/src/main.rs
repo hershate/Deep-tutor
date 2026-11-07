@@ -14,6 +14,9 @@ fn main() {
     let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // 37#4/37#8：官方 opener——「在资源管理器中显示」与 https 外链显式
+        // 走系统浏览器（替代 WebView2 NewWindowRequested 的未定义行为）
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let (data_root, default_root, pointer, configuration_error) = if verify_native {
                 let root = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")

@@ -544,11 +544,26 @@ mod tests {
             "core:event:allow-unlisten",
             "dialog:allow-open",
             "dialog:allow-save",
+            // 37#4/37#8：opener——资源管理器定位与 https 外链走系统浏览器
+            "opener:allow-reveal-item-in-dir",
         ] {
             assert!(
                 permissions.contains(&json!(permission)),
                 "missing {permission}"
             );
         }
+        // open-url 以带 scope 的对象条目授权：仅放行 https://**，
+        // 不授予任意协议/scheme 的打开能力
+        let open_url = permissions
+            .iter()
+            .find(|entry| {
+                entry.get("identifier").and_then(Value::as_str) == Some("opener:allow-open-url")
+            })
+            .expect("missing opener:allow-open-url entry");
+        assert_eq!(
+            open_url["allow"][0]["url"],
+            json!("https://**"),
+            "open-url scope must be limited to https"
+        );
     }
 }
