@@ -121,11 +121,23 @@ pub(crate) fn public_address(address: std::net::IpAddr) -> bool {
                 return public_address(address.into());
             }
             let segments = address.segments();
-            let global_unicast = segments[0] & 0xe000 == 0x2000
-                || (segments[0] == 0x0064
-                    && segments[1] == 0xff9b
-                    && segments[2] == 0
-                    && segments[3] == 0);
+            // 31#30：NAT64 well-known 前缀 64:ff9b::/96 须递归校验内嵌 IPv4
+            // ——原先只认前缀，AAAA 直设 64:ff9b::c0a8:0166（内嵌 192.168.1.102）
+            // 可过公网检查
+            if segments[0] == 0x0064
+                && segments[1] == 0xff9b
+                && segments[2] == 0
+                && segments[3] == 0
+            {
+                let embedded = std::net::Ipv4Addr::new(
+                    (segments[4] >> 8) as u8,
+                    (segments[4] & 0xff) as u8,
+                    (segments[5] >> 8) as u8,
+                    (segments[5] & 0xff) as u8,
+                );
+                return public_address(std::net::IpAddr::V4(embedded));
+            }
+            let global_unicast = segments[0] & 0xe000 == 0x2000;
             global_unicast
                 && !address.is_unspecified()
                 && !address.is_loopback()
@@ -899,7 +911,19 @@ where
         output.model = model.to_string();
     }
     if let Some(usage) = usage(&body) {
-        output.usage = Some(usage);
+        // 31#39：空字段不覆盖已记录值（与 anthropic/gemini 同口径）——部分
+        // 代理/旧 vLLM 中间 chunk 发空 usage:{}，整体覆盖会把已累计计数
+        // 抹成 None 落库 missing_usage
+        let previous = output.usage.take().unwrap_or(TokenUsage {
+            input_tokens: None,
+            output_tokens: None,
+            cached_input_tokens: None,
+        });
+        output.usage = Some(TokenUsage {
+            input_tokens: usage.input_tokens.or(previous.input_tokens),
+            output_tokens: usage.output_tokens.or(previous.output_tokens),
+            cached_input_tokens: usage.cached_input_tokens.or(previous.cached_input_tokens),
+        });
     }
     let Some(choice) = body
         .get("choices")
@@ -1085,6 +1109,11 @@ where
                 while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
                     if cancelled(cancel, parent_cancel) {
                         return Err(output.error("cancelled", "模型请求已取消"));
+                    }
+                    // 31#36：整行随单次 chunk 到达时同样受限——原先上限只作用于
+                    // 无换行的剩余段，>64KB 完整行一次读取即绕过
+                    if end + 1 > MAX_SSE_LINE_BYTES {
+                        return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
                     }
                     let line = pending.drain(..=end).collect::<Vec<_>>();
                     done = consume_line(&line, &mut output, on_delta)?;

@@ -153,13 +153,14 @@ pub fn reindex(state: &SharingState) -> Result<()> {
     drop(statement);
     let user_id = super::security::principal_id().unwrap_or(1);
     let root = Store::root(state.learning.database_path().to_path_buf())?;
-    root.conn.execute(
-        "DELETE FROM share_index WHERE user_id = ?1",
-        params![user_id],
-    )?;
+    // 31#67：DELETE+INSERT 收进同一事务——原先窗口内索引短暂为空，未登录
+    // 读取落进 users 遍历兜底（慢路径）
+    let tx = root.conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM share_index WHERE user_id = ?1", params![user_id])?;
     for hash in hashes {
-        root.conn.execute("INSERT OR REPLACE INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)", params![hash, user_id, now()?])?;
+        tx.execute("INSERT OR REPLACE INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)", params![hash, user_id, now()?])?;
     }
+    tx.commit()?;
     Ok(())
 }
 

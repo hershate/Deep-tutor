@@ -337,7 +337,8 @@ pub fn new_session<R: Runtime>(
     let provider_id = providers::routing::provider_for_task(&state.providers, "agent")?;
     let store = state.store()?;
     let timestamp = now()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
+    let tx = store.write_transaction()?;
     // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
     store.ensure_quota_in_tx(&tx, "sessions", 1)?;
     tx.execute("INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)", params![title, plan_id, provider_id, budget as i64, timestamp])?;
@@ -931,6 +932,19 @@ fn run_loop<R: Runtime>(
             )?;
             return Err(BackendError::new("cancelled", "Agent 运行已取消"));
         }
+        // 31#41：带 calls 的响应在预算耗尽时不落库直接失败——原先先落库再判
+        // 预算，留下悬挂 tool_calls（history 修剪兜底但 UI 显示悬空卡片）。
+        // 纯文本最终回复已实际计费：正常落库置 done，后续 send 由入口
+        // ensure_budget 拦截——原先置 failed 使「回答在库但状态失败」，
+        // 会话就此封死
+        if !request.tool_calls.is_empty()
+            && session_output_tokens(state, session_id)? >= session.budget_tokens
+        {
+            return Err(BackendError::new(
+                "budget_exceeded",
+                "已达到本会话 Token 预算，未再发起新的模型请求",
+            ));
+        }
         save_message(
             app,
             state,
@@ -945,12 +959,6 @@ fn run_loop<R: Runtime>(
             None,
             false,
         )?;
-        if session_output_tokens(state, session_id)? >= session.budget_tokens {
-            return Err(BackendError::new(
-                "budget_exceeded",
-                "已达到本会话 Token 预算，未再发起新的模型请求",
-            ));
-        }
         if request.tool_calls.is_empty() {
             return finish_run(app, state, run_id, "done", None);
         }

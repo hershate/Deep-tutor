@@ -236,6 +236,14 @@ where
                                     item.get("arguments").and_then(Value::as_str)
                                 {
                                     if !arguments.is_empty() {
+                                        // 31#37：与 delta/done 路径同一 25#17 上限
+                                        // ——output_item.done 整段替换原先无检查
+                                        if arguments.len() > 256 * 1024 {
+                                            return Err(output.error(
+                                                "response_too_large",
+                                                "单个工具参数超过 256 KB 上限",
+                                            ));
+                                        }
                                         call.arguments = arguments.into();
                                     }
                                 }

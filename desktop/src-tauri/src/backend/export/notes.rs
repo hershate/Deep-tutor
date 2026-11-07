@@ -30,7 +30,9 @@ fn file_name(note: &Value) -> Result<String> {
         .unwrap_or("未命名笔记")
         .chars()
         .map(|character| {
-            if "\\/:*?\"<>|\r\n".contains(character) {
+            // 31#27：Windows 控制字符（0x00-0x1F、0x7F）不在原替换表内，
+            // 含控制符的标题会损坏 ZIP 条目名，外部解压工具不可用
+            if "\\/:*?\"<>|\r\n".contains(character) || character.is_control() {
                 '_'
             } else {
                 character

@@ -322,6 +322,12 @@ pub fn render(document: &ExportDocument) -> Result<(Vec<u8>, Option<String>)> {
         let mut current = String::new();
         let mut width = 0.0;
         for character in line.chars() {
+            // 31#26：控制字符与 BOM 在布局阶段直接丢弃——字形收集已滤除，
+            // 原先它们落入缺字形分支被替换为 □ 并计入降级告警，粘贴携带
+            // 控制符时产生误导性「缺字形」警告
+            if character.is_control() || character == '\u{FEFF}' {
+                continue;
+            }
             let glyph = match glyphs.get(&character) {
                 Some(glyph) => *glyph,
                 // 11#1：缺字形字符以 □ 替代，导出继续；A-17：计数用于回执警告

@@ -161,6 +161,38 @@ impl ExportDocument {
     }
 }
 
+/// 31#31：构建阶段按累计字节熔断——原先 64MB 上限在全部内容物化渲染之后
+/// 才检查，大库导出先吃满数百 MB 瞬时内存/CPU 才被拒绝
+fn guard_document_size(document: &ExportDocument) -> Result<()> {
+    let mut bytes = document.title.len();
+    for section in &document.sections {
+        bytes += section.heading.len();
+        bytes += section
+            .paragraphs
+            .iter()
+            .map(|paragraph| paragraph.len() + 1)
+            .sum::<usize>();
+        bytes += section
+            .bullets
+            .iter()
+            .map(|bullet| bullet.len() + 1)
+            .sum::<usize>();
+    }
+    for row in &document.rows {
+        bytes += row.title.len() + row.content.len() + row.detail.len() + row.date.len();
+    }
+    for card in &document.cards {
+        bytes += card.front.len() + card.back.len() + card.tag.len();
+    }
+    if bytes > MAX_EXPORT_BYTES {
+        return Err(BackendError::new(
+            "export_size_invalid",
+            "导出内容超过 64 MB 上限",
+        ));
+    }
+    Ok(())
+}
+
 fn section(heading: String, paragraphs: Vec<String>, bullets: Vec<String>) -> ExportSection {
     ExportSection {
         heading,
@@ -396,6 +428,7 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
         document
             .cards
             .push(ExportCard::new(title.into(), content.into(), tag.into()));
+        guard_document_size(&document)?;
     }
     let mut statement = store.conn.prepare("SELECT materials.title, materials.kind, material_text.content FROM material_text JOIN materials ON materials.id = material_text.material_id ORDER BY materials.id")?;
     let rows = statement
@@ -422,6 +455,7 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
             date: String::new(),
             minutes: None,
         });
+        guard_document_size(&document)?;
     }
     Ok(document)
 }
@@ -461,6 +495,7 @@ fn review_document(state: &LearningState) -> Result<ExportDocument> {
             lapses: card.lapses,
             suspended: card.suspended,
         });
+        guard_document_size(&document)?;
     }
     Ok(document)
 }

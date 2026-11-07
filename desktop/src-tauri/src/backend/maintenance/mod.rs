@@ -559,6 +559,12 @@ pub fn cleanup<R: Runtime>(
             if batch >= CLEANUP_BATCH {
                 break;
             }
+            // 31#32：删除前复查宽限——扫描与删除之间存在「导入已把 .upload-* 临时件
+            // rename 为正式原件、事务尚未提交」的毫秒级窗口，rename 保留临时件刚
+            // 写入的 mtime，命中宽限即跳过，下一轮扫描再收
+            if modified_recently(&root.join(&item.path)) {
+                continue;
+            }
             match remove_file(&root, item) {
                 Ok(bytes) => {
                     batch += 1;

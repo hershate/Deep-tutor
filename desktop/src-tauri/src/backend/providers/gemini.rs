@@ -83,14 +83,28 @@ fn request_body(
 fn update_usage(output: &mut StreamOutput, usage: &Value) {
     let candidates = usage.get("candidatesTokenCount").and_then(Value::as_u64);
     let thoughts = usage.get("thoughtsTokenCount").and_then(Value::as_u64);
+    // 31#39：空字段不覆盖已记录值（与 anthropic.rs 同口径）——个别网关中间
+    // 事件携带空 usageMetadata 时，整体覆盖会丢掉已累计的计数
+    let previous = output.usage.take().unwrap_or(TokenUsage {
+        input_tokens: None,
+        output_tokens: None,
+        cached_input_tokens: None,
+    });
     output.usage = Some(TokenUsage {
-        input_tokens: usage.get("promptTokenCount").and_then(Value::as_u64),
+        input_tokens: usage
+            .get("promptTokenCount")
+            .and_then(Value::as_u64)
+            .or(previous.input_tokens),
         output_tokens: candidates
             .zip(thoughts)
             .map(|(candidates, thoughts)| candidates.saturating_add(thoughts))
             .or(candidates)
-            .or(thoughts),
-        cached_input_tokens: usage.get("cachedContentTokenCount").and_then(Value::as_u64),
+            .or(thoughts)
+            .or(previous.output_tokens),
+        cached_input_tokens: usage
+            .get("cachedContentTokenCount")
+            .and_then(Value::as_u64)
+            .or(previous.cached_input_tokens),
     });
 }
 

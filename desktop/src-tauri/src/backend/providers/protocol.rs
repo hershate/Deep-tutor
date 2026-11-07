@@ -313,6 +313,11 @@ where
                     if openai::cancelled(cancel, parent_cancel) {
                         return Err(output.error("cancelled", "模型请求已取消"));
                     }
+                    // 31#36：整行随单次 chunk 到达时同样受限——原先上限只作用于
+                    // 无换行的剩余段，>64KB 完整行一次读取即绕过
+                    if end + 1 > MAX_SSE_LINE_BYTES {
+                        return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
+                    }
                     let line = pending.drain(..=end).collect::<Vec<_>>();
                     done = process(&line)? || done;
                     if done {

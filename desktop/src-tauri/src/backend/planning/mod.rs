@@ -283,7 +283,9 @@ pub fn get_overview(state: &PlanningState, week_start: Option<String>) -> Result
             .unwrap_or_else(|_| OffsetDateTime::now_utc())
             .date(),
     };
-    let plan = latest_plan(state, None)?;
+    // 31#18：周视图与强度切换/报告同口径（adopted-first，25#5 修复补全）——
+    // 原先取最新方案，已采用 plan-1 + 未采用 plan-2 时周历恒空而强度改 plan-1
+    let plan = adopted_first_plan(state)?;
     overview(state, start, plan)
 }
 
@@ -301,8 +303,9 @@ fn factor(intensity: &str) -> Result<f64> {
 
 fn scaled(minutes: u32, current: &str, target: &str) -> Result<u32> {
     let ratio = factor(target)? / factor(current)?;
-    // 排期步硬校验每日 10..=600 分钟：强度缩放后封顶，避免方案局部重生成永久必败
-    Ok(((minutes as f64 * ratio).round() as u32).clamp(15, 600))
+    // 排期步硬校验每日 10..=600 分钟：强度缩放后封顶，避免方案局部重生成永久必败。
+    // 31#20：下限与 validate 对齐到 10——原 15 使 daily=10 切「稳妥」反被放大
+    Ok(((minutes as f64 * ratio).round() as u32).clamp(10, 600))
 }
 
 fn alternatives_for(overview: &PlanOverview) -> Result<Vec<PlanAlternative>> {
@@ -393,6 +396,19 @@ pub fn apply_intensity<R: Runtime>(
         emit(app, &event);
         return overview(state, start, None);
     };
+    // 31#17：存在「未完成方案」（result 未生成）时与无方案分支同口径——
+    // 先落偏好再返回未缩放总览；原先事务内 plan_not_ready 整单回滚，
+    // 连偏好都无法保存
+    if plan.result.is_none() {
+        let event = Store::event(
+            &tx,
+            "plan.intensity_updated",
+            json!({"planId":plan.id,"intensity":intensity}),
+        )?;
+        tx.commit()?;
+        emit(app, &event);
+        return overview(state, start, Some(plan));
+    }
     let numeric = super::learning::plan_id(&plan.id)?;
     let mut statement =
         tx.prepare("SELECT task_id, minutes FROM learning_plan_schedule_tasks WHERE plan_id = ?1")?;
@@ -419,9 +435,21 @@ pub fn apply_intensity<R: Runtime>(
     }
     let mut result = plan
         .result
+        .clone()
         .ok_or_else(|| BackendError::new("plan_not_ready", "当前方案没有可调整的排期"))?;
+    // 31#16：覆盖前记 versions（与 regenerate 同一「覆盖前保留历史」不变量）。
+    // 同版本多次切强度以最近一次覆盖前快照为准（OR REPLACE 避免主键冲突）
+    tx.execute(
+        "INSERT OR REPLACE INTO learning_plan_versions (plan_id, version, result_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![numeric, plan.version, serde_json::to_string(&result)?, timestamp(OffsetDateTime::now_utc())?],
+    )?;
     for entry in &mut result.schedule.entries {
         entry.minutes = scaled(entry.minutes, &current.intensity, &intensity)?;
+    }
+    // 31#15：阶段视图分钟与排期同步缩放——PlanOverview.stages 读
+    // result.stages[].minutes，原先不缩放导致强度切换后阶段卡停留旧值
+    for stage in &mut result.stages {
+        stage.minutes = scaled(stage.minutes, &current.intensity, &intensity)?;
     }
     result.schedule.total_minutes = result
         .schedule
@@ -429,6 +457,18 @@ pub fn apply_intensity<R: Runtime>(
         .iter()
         .map(|entry| entry.minutes)
         .sum();
+    // 31#16：同步 artifacts $.step5——finish_result 以旧 step5 重建会让
+    // scope=6 重生成静默回退缩放前强度，且再切强度在错误基数上继续缩放
+    tx.execute(
+        "UPDATE learning_plans SET artifacts_json = json_set(COALESCE(artifacts_json, '{}'), '$.step5', json(?1)) WHERE id = ?2",
+        params![
+            serde_json::to_string(&serde_json::json!({
+                "schedule": result.schedule,
+                "stages": result.stages,
+            }))?,
+            numeric
+        ],
+    )?;
     let mut input: super::learning::PlanInput = serde_json::from_str(&store.conn.query_row(
         "SELECT input_json FROM learning_plans WHERE id = ?1",
         params![numeric],
@@ -518,16 +558,19 @@ pub fn update_goal<R: Runtime>(
         .and_then(Value::as_str)
         .unwrap_or("标准")
         .to_string();
-    let base = (input.weekly_hours * 60 / 7).clamp(15, 600);
-    plan_input.daily_minutes = ((base as f64 * factor(&intensity)?).round() as u32).clamp(15, 600);
+    // 31#20：下限与 validate 的 10..=600 对齐——原 15 把 weekly_hours=1 钳到 105 分钟/周
+    let base = (input.weekly_hours * 60 / 7).clamp(10, 600);
+    plan_input.daily_minutes = ((base as f64 * factor(&intensity)?).round() as u32).clamp(10, 600);
     if let Some(level) = input.level {
         // A-2：level 直接落 input_json 并随 regenerate 进入模型提示词——
         // generate 入口的 1000B 校验（learning）在本路径不重跑，超长基础
         // 描述会静默污染提示词，这里同界校验
-        if level.len() > 1000 {
+        // 31#22：与 start 入口（learning::validate_input）对齐——空/全空白
+        // level 同样拒绝，原先只查长度，空白可落 input_json 并进入提示词
+        if level.trim().is_empty() || level.len() > 1000 {
             return Err(BackendError::invalid(
                 "invalid_level",
-                "当前掌握情况不能超过 1000 字节",
+                "当前掌握情况不能为空且不能超过 1000 字节",
             ));
         }
         plan_input.level = level;
@@ -567,7 +610,9 @@ pub fn assign_task_date<R: Runtime>(
     task_id: i64,
     date_value: String,
 ) -> Result<PlanOverview> {
-    let plan = latest_plan(state, None)?
+    // 31#18：任务排期与周视图同口径 adopted-first——原先挂到最新草稿，
+    // 已采用方案的任务日期会写进另一个方案
+    let plan = adopted_first_plan(state)?
         .ok_or_else(|| BackendError::new("no_plan", "请先创建学习方案，再为任务排期"))?;
     let plan_id = super::learning::plan_id(&plan.id)?;
     let day = date(&date_value)?;

@@ -778,7 +778,7 @@ pub fn cancel<R: Runtime>(
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     // 只把生成中的讲义翻成 cancelling：终态竞态窗口内不覆盖结果（与 practice/knowledge 守卫一致）
-    let changed = tx.execute("UPDATE learning_lectures SET status = 'cancelling', updated_at = ?1 WHERE plan_id = ?2 AND stage_id = ?3 AND status IN ('running', 'queued')", params![now()?, id, stage_id])?;
+    let changed = tx.execute("UPDATE learning_lectures SET status = 'cancelling', updated_at = ?1 WHERE plan_id = ?2 AND stage_id = ?3 AND status IN ('running')  -- 31#49：'queued' 无任何写入方，历史遗留守卫条件", params![now()?, id, stage_id])?;
     if changed == 0 {
         return Err(BackendError::new(
             "no_active_lecture",

@@ -238,6 +238,45 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL
         );",
     )?;
+    // 31#33：25#15 只改写入路径，存量 '+08:00' 行与 Z 串做字典序比较会错序
+    // 8 小时（claim 提前/推迟触发、rooms ORDER BY start_at 混排）——回填
+    // Z 形态；无法解析的行保持原样（到期判定走 parse_time 不受影响）
+    {
+        let rooms: Vec<(i64, String)> = {
+            let mut statement =
+                conn.prepare("SELECT id, start_at FROM community_rooms WHERE start_at NOT LIKE '%Z'")?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            rows
+        };
+        for (id, start_at) in rooms {
+            if let Ok(normalized) = normalize_time(&start_at) {
+                conn.execute(
+                    "UPDATE community_rooms SET start_at = ?1 WHERE id = ?2",
+                    params![normalized, id],
+                )?;
+            }
+        }
+        let reminders: Vec<(i64, String)> = {
+            let mut statement = conn
+                .prepare("SELECT id, remind_at FROM community_reminders WHERE remind_at NOT LIKE '%Z'")?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            rows
+        };
+        for (id, remind_at) in reminders {
+            if let Ok(normalized) = normalize_time(&remind_at) {
+                conn.execute(
+                    "UPDATE community_reminders SET remind_at = ?1 WHERE id = ?2",
+                    params![normalized, id],
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -761,16 +800,18 @@ pub fn create_room<R: Runtime>(
             return Err(BackendError::new("not_found", "关联小组不存在"));
         }
     }
+    // 25#15：入库统一 UTC Z 形态，不保留调用方输入的时区偏移
+    let start_at = normalize_time(&input.start_at)?;
+    // 31#35：重叠检查移入写事务——原先在 tx 外做 TOCTOU 检查，并发创建可
+    // 各自通过后双双提交；对齐 reserve 的 IMMEDIATE 事务内检查
+    let tx = store.write_transaction()?;
     // 03#13-12：新房间先与现有排期比对，重叠即拒绝
     ensure_no_overlap(
-        &store.conn,
+        &tx,
         None,
         start,
         start + Duration::minutes(input.duration_minutes as i64),
     )?;
-    // 25#15：入库统一 UTC Z 形态，不保留调用方输入的时区偏移
-    let start_at = normalize_time(&input.start_at)?;
-    let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO community_rooms (group_id, title, topic, start_at, duration_minutes, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6)", params![input.group_id, input.title.trim(), input.topic.trim(), start_at, input.duration_minutes, now()?])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(

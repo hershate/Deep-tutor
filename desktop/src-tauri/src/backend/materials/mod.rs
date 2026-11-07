@@ -582,7 +582,8 @@ fn stage_validated<R: Runtime>(
     }
     let timestamp = now()?;
     let result = (|| {
-        let tx = store.conn.unchecked_transaction()?;
+        // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
+        let tx = store.write_transaction()?;
         // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
         store.ensure_quota_in_tx(&tx, "materials", 1)?;
         tx.execute(
@@ -1018,19 +1019,24 @@ pub fn enqueue<R: Runtime>(
             "该资料只有元数据，没有可解析原件",
         ));
     }
-    let active_job: Option<i64> = store.conn.query_row(
-        "SELECT id FROM material_jobs WHERE material_id = ?1 AND status IN ('queued', 'parsing', 'cancelling')",
-        params![id],
-        |row| row.get(0),
-    ).optional()?;
+    let timestamp = now()?;
+    // 31#45：active 检查移入 IMMEDIATE 事务——原先在 tx 外做 TOCTOU 预检，
+    // 并发 enqueue 各自通过后双双提交 queued 行，稍后被 schedule_next 捡起
+    // 重复解析；同临界区后第二个调用阻塞至对方提交并读到其 queued 行
+    let tx = store.write_transaction()?;
+    let active_job: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM material_jobs WHERE material_id = ?1 AND status IN ('queued', 'parsing', 'cancelling')",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
     if active_job.is_some() {
         return Err(BackendError::new(
             "job_active",
             "该资料已有未完成任务，不会重复执行",
         ));
     }
-    let timestamp = now()?;
-    let tx = store.conn.unchecked_transaction()?;
     let attempt: i64 = tx.query_row(
         "SELECT COALESCE(MAX(attempt), 0) + 1 FROM material_jobs WHERE material_id = ?1 AND kind = 'parse'",
         params![id],

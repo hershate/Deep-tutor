@@ -57,7 +57,20 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
             let block = &rest[..end];
             let body = rest[end + 4..].trim_start_matches('\n');
             // B-7：只有块内确实命中元数据键才按 frontmatter 剥离——正文以
-            // --- 分隔线开头的正常 Markdown（块内无 title:/tag:）不得丢段
+            // --- 分隔线开头的正常 Markdown（块内无 title:/tag:）不得丢段。
+            // 31#28：进一步要求块内每行均为 key: value 形态——「分隔线之间的
+            // 正文恰含 title:/tag: 行」时原先整块剥掉，首段无告警丢失
+            let frontmatter_shape = !block.is_empty()
+                && block.lines().all(|line| {
+                    let line = line.trim();
+                    line.is_empty()
+                        || line.split_once(':').is_some_and(|(key, _)| {
+                            !key.is_empty()
+                                && key
+                                    .chars()
+                                    .all(|character| character.is_ascii_lowercase() || character == '-')
+                        })
+                });
             let mut matched = false;
             for line in block.lines() {
                 if let Some(value) = line.strip_prefix("title:") {
@@ -87,7 +100,7 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
                     }
                 }
             }
-            if matched {
+            if matched && frontmatter_shape {
                 content = body.to_string();
             }
         }

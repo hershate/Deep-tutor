@@ -734,7 +734,8 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                 params![key],
                 |row| row.get(0),
             )?;
-            let tx = store.conn.unchecked_transaction()?;
+            // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
+            let tx = store.write_transaction()?;
             // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
             if !key_exists {
                 store.ensure_quota_in_tx(&tx, "agent_memory", 1)?;

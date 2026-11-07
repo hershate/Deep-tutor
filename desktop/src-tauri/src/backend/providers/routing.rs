@@ -924,10 +924,31 @@ pub fn stream_chat<R: Runtime>(
         .ok_or_else(|| BackendError::new("request_active", "路由状态已改变"))?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
+    // 31#38：INSERT route_runs 与首次 save_attempt 之间存在窗口——其间失败后
+    // 同 id 重试时 attempts 无 attempt=1 行，预检放行而 INSERT 撞主键报未分类
+    // constraint 错误。OR IGNORE 后按既有行校验一致性并走幂等续读
+    let changed = tx.execute(
+        "INSERT OR IGNORE INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
         params![request_id, task, mode, profile_id(&profile.id)?, model, timestamp],
     )?;
+    if changed == 0 {
+        let (existing_task, existing_provider, existing_model): (String, i64, String) = tx
+            .query_row(
+                "SELECT task, provider_id, model FROM provider_route_runs WHERE request_id = ?1",
+                params![request_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        if existing_task != task
+            || existing_provider != profile_id(&profile.id)?
+            || existing_model != model
+        {
+            return Err(BackendError::new(
+                "request_conflict",
+                "请求标识已用于其他任务、供应商或模型，不会覆盖原请求",
+            ));
+        }
+        return latest_chat(state, request_id);
+    }
     let event = Store::event(
         &tx,
         "provider.route_started",

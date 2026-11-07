@@ -43,7 +43,13 @@ fn stable_id(value: &str) -> i64 {
 }
 
 fn field(value: &str) -> String {
-    escape_html(value).replace('\n', "<br>")
+    // 31#26：滤控制字符——含 \u{001F} 单元分隔符时 Anki flds 的字段边界
+    // 会被击穿，其余控制符也会污染卡面
+    escape_html(value)
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>()
+        .replace('\n', "<br>")
 }
 
 pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8>> {
@@ -141,17 +147,27 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                 .take(10)
                 .collect::<String>();
             // 11#3：SM-2 调度迁移——有复习记录的卡按到期日/间隔/难度写入
-            // cards 表，而不是全部清零回新卡队列
-            let (card_type, queue, due, ivl, factor) = if card.repetitions == 0 {
-                (0, 0, index as i64, 0, (card.ease * 1000.0) as i64)
-            } else if card.suspended {
+            // cards 表，而不是全部清零回新卡队列。
+            // 31#24：挂起判定优先于新卡分支——repetitions==0 的挂起新卡原先
+            // 落入 queue=0 新卡队列，导出后在 Anki 照常进入学习队列
+            let (card_type, queue, due, ivl, factor) = if card.suspended {
                 (
-                    2,
+                    if card.repetitions == 0 { 0 } else { 2 },
                     -1,
-                    anki_due_day(&card.due_at, now)?,
-                    card.interval_days.round() as i64,
+                    if card.repetitions == 0 {
+                        index as i64
+                    } else {
+                        anki_due_day(&card.due_at, now)?
+                    },
+                    if card.repetitions == 0 {
+                        0
+                    } else {
+                        card.interval_days.round() as i64
+                    },
                     (card.ease * 1000.0) as i64,
                 )
+            } else if card.repetitions == 0 {
+                (0, 0, index as i64, 0, (card.ease * 1000.0) as i64)
             } else {
                 (
                     2,
@@ -167,7 +183,9 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                     note_id,
                     guid,
                     model_id,
-                    now,
+                    // 31#25：notes.mod 与 cards.mod 期望毫秒（同 col.mod/scm），
+                    // 秒级值会让 Anki 显示「修改于 1970-01」
+                    now_ms,
                     format!(" {} ", card.tag.replace([' ', '\n', '\r'], "_")),
                     format!("{}\u{1f}{}", field(&card.front), field(&card.back)),
                     card.front,
@@ -180,7 +198,8 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                     note_id + 1_000_000,
                     note_id,
                     deck_id,
-                    now,
+                    // 31#25：cards.mod 同为毫秒
+                    now_ms,
                     card_type,
                     queue,
                     due,

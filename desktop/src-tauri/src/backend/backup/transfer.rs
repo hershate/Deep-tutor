@@ -182,9 +182,17 @@ fn free_text_id(
     column: &str,
     allocated: &HashSet<String>,
 ) -> Result<Value> {
-    for number in 1..1_000_000_u32 {
+    // 31#46：一次取最大已用号再自增，替代逐号 EXISTS 探测（编号多时 O(n²)）
+    let max: i64 = conn.query_row(
+        &format!(
+            "SELECT COALESCE(MAX(CAST(SUBSTR(\"{column}\", 10) AS INTEGER)), 0) FROM \"{table}\" WHERE \"{column}\" GLOB 'imported-[0-9]*' AND \"{column}\" NOT GLOB 'imported-[0-9]*[^0-9]*'"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    for number in (max + 1).max(1)..1_000_000 {
         let candidate = Value::String(format!("imported-{number}"));
-        if !exists(conn, table, column, &candidate)? && !allocated.contains(&key(&candidate)?) {
+        if !allocated.contains(&key(&candidate)?) {
             return Ok(candidate);
         }
     }
@@ -1016,6 +1024,18 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
 }
 
 fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str]) -> Result<()> {
+    // 31#46：一次性构建「按哈希复用目标已有资料」的目标 id 集合——原先
+    // 每行资料在 transform 后对 IdMap 线性反查（O(n²)）
+    let reused_material_targets: HashSet<String> = transfer
+        .maps
+        .get("materials")
+        .map(|map| {
+            map.iter()
+                .filter(|(source, _)| transfer.reused.contains(&format!("materials:{source}")))
+                .filter_map(|(_, mapped)| key(mapped).ok())
+                .collect()
+        })
+        .unwrap_or_default();
     import_kv(transfer, tx)?;
     for table in ordered {
         if *table == "kv" {
@@ -1052,6 +1072,7 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                 }
             }
             // 31#9：material_text 的复用判定要在改写前记录源侧资料 id
+            // （transform 会改写 material_id；prepare_ids 不改 FK）
             let reused_material_source = if *table == "material_text" {
                 row.get("material_id")
                     .map(|value| key(value).map(|key| format!("materials:{key}")))
@@ -1065,16 +1086,14 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                     &format!("处理备份表 {table} 时：{}", error.message),
                 )
             })?;
+            // 31#46：资料复用按目标 id 判定（prepare_ids 已把主键改写为映射值）
             if *table == "materials" {
-                let id = row.get("id").cloned().ok_or_else(invalid_record)?;
-                let source = transfer.maps.get("materials").and_then(|map| {
-                    map.iter()
-                        .find(|(_, value)| **value == id)
-                        .map(|(source, _)| source.clone())
-                });
-                if source
-                    .is_some_and(|source| transfer.reused.contains(&format!("materials:{source}")))
-                {
+                let id = row
+                    .get("id")
+                    .map(|value| key(value))
+                    .transpose()?
+                    .unwrap_or_default();
+                if reused_material_targets.contains(&id) {
                     continue;
                 }
             }

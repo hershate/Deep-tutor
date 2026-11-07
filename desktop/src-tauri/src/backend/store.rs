@@ -486,15 +486,17 @@ impl Store {
     }
 
     pub(crate) fn event(conn: &Connection, kind: &str, payload: Value) -> Result<BackendEvent> {
+        // 31#60：单次取时——原先落库与返回事件各取一次 now()，亚秒漂移不一致
+        let created_at = Self::now()?;
         conn.execute(
             "INSERT INTO events (kind, payload, created_at) VALUES (?1, ?2, ?3)",
-            params![kind, serde_json::to_string(&payload)?, Self::now()?],
+            params![kind, serde_json::to_string(&payload)?, created_at],
         )?;
         let event = BackendEvent {
             id: conn.last_insert_rowid(),
             kind: kind.to_string(),
             payload,
-            created_at: Self::now()?,
+            created_at,
         };
         super::plugins::dispatch(conn, event.id, &event.kind)?;
         Ok(event)
@@ -753,8 +755,9 @@ impl Store {
         // 24#4：前端 localId 以 Date.now 为基（毫秒时间戳量级），后端补学
         // 任务等 MAX+1 紧贴该序列——同毫秒交错时后端刚占用的 id 会被前端
         // 下一个 localId 撞上（kv 主键冲突/React key 重复）。基数从
-        // 当前毫秒时间戳起跳，两个空间不再交叠
-        let floor = OffsetDateTime::now_utc().unix_timestamp() * 1000;
+        // 当前毫秒时间戳起跳，两个空间不再交叠。
+        // 31#58：floor+1——与前端 Date.now() 同毫秒仍可能同值，前移 1ms 消除
+        let floor = OffsetDateTime::now_utc().unix_timestamp() * 1000 + 1;
         let id: i64 = conn.query_row(
             "SELECT MAX(COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1, ?2) FROM kv WHERE namespace = ?1",
             params![namespace, floor],

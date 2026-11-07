@@ -896,8 +896,9 @@ fn token_budget_stops_a_completed_response_before_another_request() {
     )
     .unwrap();
     let completed = wait_run(&state, &run.id.to_string());
-    assert_eq!(completed.status, "failed");
-    assert_eq!(completed.error.unwrap().code, "budget_exceeded");
+    // 31#41：纯文本最终回复已计费——正常落库置 done，不再 failed 封死会话；
+    // 后续 send 仍被入口预算拦截（见下）
+    assert_eq!(completed.status, "done");
     assert_eq!(completed.output_tokens, 1024);
     assert_eq!(agent_server.request_count(), 1);
     assert_eq!(

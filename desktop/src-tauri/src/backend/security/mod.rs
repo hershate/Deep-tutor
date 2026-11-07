@@ -1116,7 +1116,9 @@ pub fn set_active<R: Runtime>(
     )?;
     tx.commit()?;
     for session in sessions {
-        state.credentials.delete(&format!("session-{session}"))?;
+        // 31#55：keyring 删除失败不向用户报错——DB 已提交，孤儿凭据无害；
+        // 与 issue/logout 的容忍口径一致（原 credential_cleanup_failed 误判失败）
+        let _ = state.credentials.delete(&format!("session-{session}"));
     }
     emit(app, &event);
     drop(store);
@@ -1145,7 +1147,9 @@ pub fn remove_user<R: Runtime>(
     )?;
     tx.commit()?;
     for session in sessions {
-        state.credentials.delete(&format!("session-{session}"))?;
+        // 31#55：keyring 删除失败不向用户报错——DB 已提交，孤儿凭据无害；
+        // 与 issue/logout 的容忍口径一致（原 credential_cleanup_failed 误判失败）
+        let _ = state.credentials.delete(&format!("session-{session}"));
     }
     emit(app, &event);
     drop(store);

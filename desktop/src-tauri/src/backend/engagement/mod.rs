@@ -361,7 +361,10 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
     let store = state.store()?;
     let mut results = pages(&query);
     let needle = format!("%{}%", escape_like(&query));
-    let mut statement = store.conn.prepare("SELECT namespace, id, data FROM kv WHERE namespace IN ('notes', 'tasks', 'projects') AND data LIKE ?1 ESCAPE '\\' COLLATE NOCASE")?;
+    // 31#23：只在真实字段值上匹配——原先对整条 JSON 文本 LIKE，查询词命中
+    // 键名（tag/title/done/null）时全库误命中，真实内容被挤出前 40；同时
+    // 统一 uni_lower（Unicode 折叠）口径，替代仅 ASCII 的 NOCASE
+    let mut statement = store.conn.prepare("SELECT namespace, id, data FROM kv WHERE namespace IN ('notes', 'tasks', 'projects') AND uni_lower(COALESCE(json_extract(data, '$.title'), '') || ' ' || COALESCE(json_extract(data, '$.subject'), '') || ' ' || COALESCE(json_extract(data, '$.excerpt'), '') || ' ' || COALESCE(json_extract(data, '$.tag'), '') || ' ' || COALESCE(json_extract(data, '$.content'), '') || ' ' || COALESCE(json_extract(data, '$.description'), '')) LIKE uni_lower(?1) ESCAPE '\\'")?;
     let rows = statement.query_map(params![needle], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -405,7 +408,8 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
         }
     }
     drop(statement);
-    let mut statement = store.conn.prepare("SELECT id, title, kind, status FROM materials WHERE title LIKE ?1 ESCAPE '\\' COLLATE NOCASE")?;
+    // 31#23：与 kv 检索同口径——uni_lower 折叠替代 NOCASE 的仅 ASCII 大小写
+    let mut statement = store.conn.prepare("SELECT id, title, kind, status FROM materials WHERE uni_lower(title) LIKE uni_lower(?1) ESCAPE '\\'")?;
     let materials = statement
         .query_map(params![needle], |row| {
             Ok((
@@ -573,8 +577,10 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             )?;
         }
         // C-10：与 today 同源取本地日期——此前 recent_floor 用 UTC now()，
-        // 东八区凌晨窗口实际跨越 8-9 个日历日
-        let recent_floor = (local - Duration::days(7)).date().to_string();
+        // 东八区凌晨窗口实际跨越 8-9 个日历日。
+        // 31#29：[today-7, today] 闭区间共 8 个日历日——收敛到 today-6 使
+        // 窗口恰为 7 天，计数与「近 7 天」文案一致
+        let recent_floor = (local - Duration::days(6)).date().to_string();
         // 13#2：原 WHERE date <= today 无下界，全部历史逾期都计入；
         // 收敛为近 7 天窗口，数字不再随陈年未勾选任务虚高。C-10：标题
         // 与查询口径一致（此前查询 7 天标题却写「今日」）
@@ -753,7 +759,10 @@ pub fn mark_read<R: Runtime>(
 /// 25#5：强度切换（planning）复用同一口径，避免改写未采用的更新草稿。
 pub(in crate::backend) fn adopted_plan_id(conn: &rusqlite::Connection) -> Option<i64> {
     conn.query_row(
-        "SELECT plan_id FROM learning_plan_adoptions ORDER BY id DESC LIMIT 1",
+        // 31#19：plan_id 是 INTEGER PRIMARY KEY（即 rowid），原 ORDER BY id DESC
+        // 等价按方案编号倒序——先采用 plan-5 再采用 plan-3 时仍指向 plan-5。
+        // 按采用时间倒序，同刻并列时编号大者优先（确定性）
+        "SELECT plan_id FROM learning_plan_adoptions ORDER BY created_at DESC, plan_id DESC LIMIT 1",
         [],
         |row| row.get::<_, i64>(0),
     )
