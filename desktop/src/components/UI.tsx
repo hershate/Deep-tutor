@@ -81,6 +81,13 @@ export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: 
   }, [active, ref, restore])
 }
 
+// 24#2：弹层栈与滚动锁计数——Esc 只关最顶层叠加弹层（原实现每个 Modal 各自
+// 监听、一次 Esc 连锁关闭全部，焦点恢复链错乱）；body 滚动锁按打开数计数，
+// 嵌套关闭时外层还开着，背景不得提前恢复滚动
+const MODAL_STACK: { id: number; close: () => void }[] = []
+let modalSequence = 0
+let overflowLocks = 0
+
 export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   // onClose 多为每次渲染新建的内联函数：焦点 effect 只依赖 open，
@@ -96,10 +103,25 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
   useFocusContainment(ref, open, previousFocus)
   useEffect(() => {
     if (!open) return
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeRef.current() }
-    document.addEventListener('keydown', onKey)
+    const id = ++modalSequence
+    MODAL_STACK.push({ id, close: () => closeRef.current() })
+    overflowLocks += 1
     document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // 24#2：非最顶层弹层不响应——一次 Esc 只关闭一个叠加层
+      const top = MODAL_STACK[MODAL_STACK.length - 1]
+      if (!top || top.id !== id) return
+      closeRef.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      const index = MODAL_STACK.findIndex(entry => entry.id === id)
+      if (index >= 0) MODAL_STACK.splice(index, 1)
+      overflowLocks = Math.max(0, overflowLocks - 1)
+      if (overflowLocks === 0) document.body.style.overflow = ''
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
   if (!open) return null
   return <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
@@ -108,6 +130,22 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
       <div className="modal-body">{children}</div>
     </div>
   </div>
+}
+
+// 20#5/28#11：破坏性操作确认对话框——对齐 Settings 清除数据的防误触标准
+// （PRODUCT.md 原则 4：关键操作可见、可撤销或可恢复）
+export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = '确认', busy = false }: {
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+  title: string
+  description: ReactNode
+  confirmLabel?: string
+  busy?: boolean
+}) {
+  return <Modal open={open} onClose={onClose} title={title}>
+    <div className="confirm-dialog"><p>{description}</p><div><Button variant="secondary" onClick={onClose}>取消</Button><Button disabled={busy} onClick={onConfirm}>{confirmLabel}</Button></div></div>
+  </Modal>
 }
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {

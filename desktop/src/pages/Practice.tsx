@@ -132,12 +132,17 @@ export default function Practice({ notify, target }: { notify: (message: string)
   }
   const bookmark = async () => {
     const question = detail?.questions[index]
-    if (!question) return
+    // 20#7：busy 守卫——快速双击会触发两次 toggle 相互抵消、两次详情拉取，
+    // 且提示文案基于请求前闭包值与最终状态相反
+    if (!question || busy) return
+    setBusy(true)
     try {
       await practiceBackend.bookmark(question.id, !question.bookmarked)
-      setDetail(await practiceBackend.detail(detail!.set.id))
-      notify(question.bookmarked ? '已取消收藏本题' : '已收藏本题、解析与资料依据')
-    } catch (error) { reportBackendError(error) }
+      const next = await practiceBackend.detail(detail!.set.id)
+      setDetail(next)
+      const refreshed = next.questions.find(item => item.id === question.id)
+      notify(refreshed?.bookmarked ? '已收藏本题、解析与资料依据' : '已取消收藏本题')
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const exportMistakes = async () => {
     try {

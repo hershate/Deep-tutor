@@ -30,11 +30,14 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   }, [])
   useEffect(() => {
     void refresh()
+    let mounted = true
     let unlisten: (() => void) | undefined
     const listening = onBackendEvent(event => {
       if (event.kind.startsWith('usage.') || ['completed', 'cancelled', 'failed'].some(suffix => event.kind.endsWith(`.${suffix}`))) void refresh()
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { unlisten?.(); void listening }
+    })
+    listening.then(stop => { if (mounted) unlisten = stop; else stop() }).catch(reportBackendError)
+    // 28#5：卸载早于 listen() promise resolve 时立即注销，不再空转刷新
+    return () => { mounted = false; unlisten?.(); void listening.then(stop => { if (!mounted) stop() }) }
   }, [refresh])
   useEffect(() => {
     if (!profiles.length) return

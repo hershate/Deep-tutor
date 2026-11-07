@@ -45,7 +45,7 @@ export default function SharedPlan({ token = null }: { token?: string | null }) 
   }
 
   if (loading) return <div className="shared-missing"><LoaderCircle size={32} className="spin" /><h1>正在读取真实分享</h1><p>正在校验本机快照、撤销状态与有效期。</p></div>
-  if (!view) return <div className="shared-missing"><LockKeyhole size={36} /><h1>{token ? '分享内容不可用' : '打开只读学习方案'}</h1><p>{error || '选择由知舟导出的 .dtshare 分享包，查看不可变的方案快照。'}</p><p className="form-help">离线包仅校验完整性与包内声明的有效期，不验证发送者身份，也无法接收创建者的后续撤销；请只打开来自信任来源的文件。</p><Button onClick={() => void openPackage()} disabled={opening}><FileUp size={17} />{opening ? '正在等待选择文件' : '选择分享包'}</Button>{token && <span>不可用</span>}</div>
+  if (!view) return <div className="shared-missing"><LockKeyhole size={36} /><h1>{token ? '分享内容不可用' : '打开只读学习方案'}</h1><p>{error || '选择由知舟导出的 .dtshare 分享包，查看不可变的方案快照。'}</p><p className="form-help">离线包仅校验完整性与包内声明的有效期，不验证发送者身份，也无法接收创建者的后续撤销；请只打开来自信任来源的文件。</p><Button onClick={() => void openPackage()} disabled={opening}><FileUp size={17} />{opening ? '正在等待选择文件' : '选择分享包'}</Button></div>
 
   const { plan } = view
   return <div className="shared-plan">

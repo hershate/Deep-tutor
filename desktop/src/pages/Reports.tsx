@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpenCheck, Brain, CircleAlert, Clock3, Download, LoaderCircle, Target, TrendingUp } from 'lucide-react'
 import { Badge, Button, EmptyState, LineChart, MiniBars, ProgressBar, SectionHeader } from '../components/UI'
 import { CalendarReport, PlanReport } from '../components/ReportViews'
@@ -27,13 +27,21 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
   const [busy, setBusy] = useState('')
   const [selected, setSelected] = useState<string[]>([])
 
+  // 28#4：序号守卫——切周期/事件风暴期并发刷新先发后至时，旧响应不得
+  // 覆盖新周期的数据（tab 与图表短暂错配）
+  const refreshSequence = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSequence.current
     try {
       const [next, days] = await Promise.all([reportsBackend.report(period), reportsBackend.calendar()])
+      if (ticket !== refreshSequence.current) return
       setReport(next)
       setCalendar(days)
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+    } catch (cause) {
+      if (ticket !== refreshSequence.current) return
+      setError(backendErrorMessage(cause)); reportBackendError(cause)
+    }
   }, [period])
   useEffect(() => {
     let active = true

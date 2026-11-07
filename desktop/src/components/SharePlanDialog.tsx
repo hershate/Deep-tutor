@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from 'lucide-react'
-import { Badge, Button, Modal } from './UI'
+import { Badge, Button, ConfirmDialog, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
 import { localShareUrl, sharingBackend } from '../backend/sharing'
 import type { CreatedShare, ShareMetadata } from '../backend/sharing'
@@ -73,6 +73,8 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 
+  // 20#5：撤销分享令牌立即失效，不可恢复——确认后再执行
+  const [revokeId, setRevokeId] = useState<number | null>(null)
   const revoke = async (id: number) => {
     setBusy(`revoke-${id}`)
     setError('')
@@ -108,8 +110,9 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
         <p className="form-help">令牌只返回一次；此后只能查看元数据。再次下载请保留当前对话框，或创建新分享。</p>
         <div className="share-actions"><Button variant="secondary" onClick={() => onPreview(matchingCreated.token)}><Eye size={16} />只读预览</Button><Button onClick={() => void download()} disabled={Boolean(busy)}><Download size={16} />{busy === 'download' ? '等待选择保存位置' : '下载 .dtshare 分享包'}</Button></div>
       </section>}
-      <section className="share-history"><h3>本机分享记录</h3>{shares.length ? shares.map(share => <div className="share-record" key={share.id}><div><strong>{share.title}</strong><p>{share.planId} · 快照 v{share.planVersion} · 创建于 {new Date(share.createdAt).toLocaleString()}</p><small>有效期至 {new Date(share.expiresAt).toLocaleString()}</small></div><Badge tone={share.status === 'active' ? 'green' : share.status === 'expired' ? 'amber' : 'red'}>{statusNames[share.status]}</Badge>{share.status !== 'revoked' && <Button variant="ghost" size="sm" onClick={() => void revoke(share.id)} disabled={Boolean(busy)}><Trash2 size={15} />撤销</Button>}</div>) : <p>{loading ? '正在读取真实分享记录…' : '还没有分享记录。'}</p>}</section>
+      <section className="share-history"><h3>本机分享记录</h3>{shares.length ? shares.map(share => <div className="share-record" key={share.id}><div><strong>{share.title}</strong><p>{share.planId} · 快照 v{share.planVersion} · 创建于 {new Date(share.createdAt).toLocaleString()}</p><small>有效期至 {new Date(share.expiresAt).toLocaleString()}</small></div><Badge tone={share.status === 'active' ? 'green' : share.status === 'expired' ? 'amber' : 'red'}>{statusNames[share.status]}</Badge>{share.status !== 'revoked' && <Button variant="ghost" size="sm" onClick={() => setRevokeId(share.id)} disabled={Boolean(busy)}><Trash2 size={15} />撤销</Button>}</div>) : <p>{loading ? '正在读取真实分享记录…' : '还没有分享记录。'}</p>}</section>
       <p className="form-help">已导出的离线包不包含本机数据库引用，无法接收后续撤销。SHA-256 校验值只检测损坏或修改，不证明发送者身份。</p>
     </div>
+    <ConfirmDialog open={revokeId !== null} onClose={() => setRevokeId(null)} onConfirm={() => { const id = revokeId; setRevokeId(null); if (id !== null) void revoke(id) }} title="撤销这个分享？" description="撤销后分享令牌立即失效，已导出的离线包不受影响；此操作不可恢复。" confirmLabel="确认撤销" busy={Boolean(busy)} />
   </Modal>
 }

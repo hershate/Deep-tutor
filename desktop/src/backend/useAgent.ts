@@ -98,12 +98,16 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     else if (!id && liveLogicalRef.current) clearLive()
   }, [activeRun?.id, activeRun?.currentRequestId, activeRun?.status, setLiveLogical, clearLive])
 
+  // 24#3：delta 游标——快照请求期间到达的增量会让游标前进，晚到的快照
+  // 不得覆盖已拼接的文本
+  const deltaEpochRef = useRef(0)
   useEffect(() => {
     let current = true
     setStream(emptyStream)
     if (liveRequestId && (activeRun?.status === 'running' || activeRun?.status === 'cancelling')) {
+      const epochAtFetch = deltaEpochRef.current
       void backend.getProviderChat(liveRequestId).then(request => {
-        if (current && (request.status === 'running' || request.status === 'cancelled' || request.status === 'failed')) {
+        if (current && epochAtFetch === deltaEpochRef.current && (request.status === 'running' || request.status === 'cancelled' || request.status === 'failed')) {
           setStream({ requestId: liveRequestId, text: request.output, reasoning: request.reasoning })
         }
       }).catch(cause => {
@@ -136,6 +140,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
         const requestId = stringField(event.payload.requestId)
         const text = stringField(event.payload.text)
         if (requestId !== null && text !== null && (routeUpstreams.current.get(requestId) ?? requestId) === liveLogicalRef.current && liveLogicalRef.current) {
+          deltaEpochRef.current += 1
           setStream(current => current.requestId === liveRequestRef.current
             ? event.payload.reasoning === true ? { ...current, reasoning: current.reasoning + text } : { ...current, text: current.text + text }
             : { requestId, text: event.payload.reasoning === true ? '' : text, reasoning: event.payload.reasoning === true ? text : '' })

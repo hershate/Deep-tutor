@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
@@ -18,7 +18,9 @@ type Props = {
 
 export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, notify }: Props) {
   const [index, setIndex] = useState(0)
+  // 28#2：草稿按题暂存——翻题不再静默丢弃未提交的长文作答
   const [draft, setDraft] = useState('')
+  const draftByQuestion = useRef<Record<number, string>>({})
   const [hint, setHint] = useState(false)
   const [busy, setBusy] = useState(false)
   const [output, setOutput] = useState('')
@@ -43,9 +45,11 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     setHint(false)
   }, [setId])
   useEffect(() => {
-    setDraft('')
+    // 28#2：切换题目换入该题暂存草稿（无则清空）
+    setDraft(question ? draftByQuestion.current[question.id] ?? '' : '')
     setHint(false)
-  }, [index])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, setId])
   useEffect(() => {
     if (question && index >= questions.length) setIndex(Math.max(0, questions.length - 1))
   }, [questions.length, index, question])
@@ -72,8 +76,10 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     const listening = onBackendEvent(event => {
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === requestId) upstreams.set(event.payload.upstreamRequestId, requestId)
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { active = false; unlisten?.(); void listening }
+    })
+    listening.then(stop => { if (active) unlisten = stop; else stop() }).catch(reportBackendError)
+    // 28#5：卸载早于 listen() promise resolve 时立即注销
+    return () => { active = false; unlisten?.(); void listening.then(stop => { if (!active) stop() }) }
   }, [answer?.requestId, answer?.status])
 
   const submit = async () => {
@@ -120,7 +126,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     <ProgressBar value={questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length / questions.length * 100} />
     <div className="subjective-body"><PenLine size={24} /><h2>{question.prompt}</h2>
       <div className="rubric-preview"><strong>评分要点（合计 1 分）</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>
-      <textarea rows={question.kind === 'essay' ? 9 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} onChange={event => setDraft(clampToBytes(event.target.value, 30000))} disabled={recorded || busy} placeholder="先组织自己的回答，再由后端按评分要点评价…" />
+      <textarea rows={question.kind === 'essay' ? 9 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} disabled={recorded || busy} placeholder="先组织自己的回答，再由后端按评分要点评价…" />
       {hint && !recorded && <div className="hint-box"><Lightbulb size={17} /><p>{question.hint}</p></div>}
       {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback"><h3>{answer.status === 'cancelling' ? '正在取消评分' : '正在按评分要点判分'}</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || answer.status === 'cancelling'}>取消评分</Button></div>}
       {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><CircleAlert size={21} /><h3>评分尚未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分任务已停止'}</p><p>原始作答已保留，恢复不会重复提交答案。</p><Button onClick={() => void resume()} disabled={busy}>恢复评分<RefreshCw size={17} /></Button></div>}
@@ -131,9 +137,9 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
         {answer.feedback.answer !== undefined && <div><span>参考答案</span><p>{answer.feedback.answer}</p></div>}
         {answer.feedback.explanation && <p>{answer.feedback.explanation}</p>}
         {answer.feedback.hint && <p>{answer.feedback.hint}</p>}
-        {(answer.feedback.citations ?? question.citations).map(citation => <small key={`${citation.materialId}-${citation.quote}`}>资料 #{citation.materialId}：{citation.quote}</small>)}
+        {(answer.feedback.citations ?? question.citations).map((citation, citationIndex) => <small key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</small>)}
       </div>}
-      <div className="practice-citations"><strong>题目资料依据</strong>{question.citations.map(citation => <p key={`${citation.materialId}-${citation.quote}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>
+      <div className="practice-citations"><strong>题目资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>
     </div>
     <div className="question-actions"><Button variant="ghost" onClick={() => setHint(!hint)} disabled={recorded}><Lightbulb size={16} />{hint ? '收起提示' : '查看提示'}</Button>{!recorded ? <Button onClick={() => void submit()} disabled={busy || !draft.trim()}>提交并真实评分<ArrowRight size={16} /></Button> : <Button onClick={() => setIndex(Math.min(index + 1, questions.length - 1))} disabled={index === questions.length - 1}>下一题<ArrowRight size={16} /></Button>}</div>
   </> : <div className="practice-result"><span className="result-mark"><PenLine size={32} /></span><h2>从真实资料生成主观题</h2><p>{plans.length ? '每次生成 2 道主观题，默认简答与论述各 1 道（以模型实际生成为准）。作答由后端按题目保存的评分要点逐项判分。' : '请先创建并采用一份包含资料的学习方案。'}</p>{plans.length > 0 && <Button onClick={() => setSetupOpen(true)}>生成主观题<ArrowRight size={17} /></Button>}</div>

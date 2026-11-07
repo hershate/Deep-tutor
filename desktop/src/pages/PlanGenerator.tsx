@@ -159,7 +159,13 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     try {
       const paths = await backend.openMaterialFiles()
       if (!paths) return
-      const outcomes = await backend.importMaterialFiles(paths.filter(path => !path.toLowerCase().endsWith('.zip')))
+      // 19#5：后端单次最多 32 个文件——超过时分批提交，避免一次选择
+      // >32 个文件整批被拒（与资料库页的导入行为一致）
+      const regular = paths.filter(path => !path.toLowerCase().endsWith('.zip'))
+      const outcomes = []
+      for (let index = 0; index < regular.length; index += 32) {
+        outcomes.push(...await backend.importMaterialFiles(regular.slice(index, index + 32)))
+      }
       for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
         const archive = await backend.importMaterialArchive(path)
         outcomes.push(...archive.outcomes)
@@ -259,7 +265,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       await backend.adoptLearningPlan(plan.id)
       const next = await backend.getLearningPlan(plan.id)
       setPlan(next)
-      notify(`方案已采用，已创建项目 ${next.adoptedProjectId ? `#${next.adoptedProjectId}` : ''} 与原生学习任务`)
+      notify(next.adoptedProjectId !== null ? `方案已采用，已创建项目 #${next.adoptedProjectId} 与原生学习任务` : '方案已采用，已创建原生学习任务')
       onNavigate('plan')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }

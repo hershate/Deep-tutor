@@ -19,7 +19,7 @@ function withProgress(project: Project): Project {
   return { ...project, progress: project.milestones.length ? Math.round(project.milestones.filter(item => item.done).length / project.milestones.length * 100) : 0 }
 }
 
-export default function Projects({ projects, setProjects, onNavigateMap, notify }: { projects: Project[]; setProjects: (projects: Project[]) => Promise<AppSnapshot>; onNavigateMap: (planId: string) => void; notify: (message: string) => void }) {
+export default function Projects({ projects, setProjects, onNavigateMap, notify }: { projects: Project[]; setProjects: (projects: Project[] | ((current: Project[]) => Project[])) => Promise<AppSnapshot>; onNavigateMap: (planId: string) => void; notify: (message: string) => void }) {
   const [selected, setSelected] = useState(projects[0]?.id || 0)
   const [versions, setVersions] = useState<ProjectVersion[]>([])
   const [plans, setPlans] = useState<LearningPlan[]>([])
@@ -86,8 +86,8 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
 
   const toggleMilestone = (id: number) => {
     if (!project) return
-    const next = projects.map(item => item.id === project.id ? withProgress({ ...item, milestones: item.milestones.map(milestone => milestone.id === id ? { ...milestone, done: !milestone.done } : milestone) }) : item)
-    void setProjects(next).catch(reportBackendError)
+    void setProjects(current => current.map(item => item.id === project.id ? withProgress({ ...item, milestones: item.milestones.map(milestone => milestone.id === id ? { ...milestone, done: !milestone.done } : milestone) }) : item))
+      .catch(error => reportBackendError(error, 'write'))
   }
   const createProject = async () => {
     const milestones = milestoneText.split('\n').map(item => item.trim()).filter(Boolean).map((title, index) => ({ id: index + 1, title, done: false }))
@@ -95,7 +95,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     setBusy('create')
     try {
       const item: Project = { id: localId(), title: title.trim(), description: description.trim(), due, progress: 0, tag: tag.trim(), planId: planId || null, milestones }
-      await setProjects([...projects, item])
+      await setProjects(current => [...current, item])
       setSelected(item.id)
       setTitle(''); setDescription(''); setTag('个人项目'); setPlanId(''); setCreateOpen(false)
       notify(`项目及 ${milestones.length} 个里程碑已保存`)
@@ -105,7 +105,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     if (!project || !milestoneTitle.trim() || busy) return
     setBusy('milestone')
     try {
-      await setProjects(projects.map(item => item.id === project.id ? withProgress({ ...item, milestones: [...item.milestones, { id: localId(), title: milestoneTitle.trim(), done: false }] }) : item))
+      await setProjects(current => current.map(item => item.id === project.id ? withProgress({ ...item, milestones: [...item.milestones, { id: localId(), title: milestoneTitle.trim(), done: false }] }) : item))
       setMilestoneTitle(''); setMilestoneOpen(false)
       notify('里程碑已保存')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }

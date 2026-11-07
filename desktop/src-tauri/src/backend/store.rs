@@ -757,9 +757,14 @@ impl Store {
     }
 
     pub(crate) fn next_free_id(conn: &Connection, namespace: &str) -> Result<String> {
+        // 24#4：前端 localId 以 Date.now 为基（毫秒时间戳量级），后端补学
+        // 任务等 MAX+1 紧贴该序列——同毫秒交错时后端刚占用的 id 会被前端
+        // 下一个 localId 撞上（kv 主键冲突/React key 重复）。基数从
+        // 当前毫秒时间戳起跳，两个空间不再交叠
+        let floor = OffsetDateTime::now_utc().unix_timestamp() * 1000;
         let id: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1 FROM kv WHERE namespace = ?1",
-            params![namespace],
+            "SELECT MAX(COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1, ?2) FROM kv WHERE namespace = ?1",
+            params![namespace, floor],
             |row| row.get(0),
         )?;
         Ok(id.to_string())

@@ -25,6 +25,10 @@ export function useBackendState() {
   const generation = useRef(0)
   const syncing = useRef<Promise<void> | null>(null)
   const queued = useRef(false)
+  // 24#5：最新集合镜像——提交前从这里取集合，避免渲染闭包旧集合把
+  // 同帧内前一次写入静默覆盖掉（revision 防护恰被已前进的版本号绕过）
+  const collections = useRef<AppSnapshot>(emptySnapshot)
+  const inflight = useRef<Partial<Record<CollectionNamespace, Promise<unknown>>>>({})
 
   const applySnapshot = useCallback((next: AppSnapshot, expectedGeneration = generation.current) => {
     if (!mounted.current || expectedGeneration !== generation.current) return
@@ -35,6 +39,7 @@ export function useBackendState() {
     if (next.lastEventId < lastEventId.current) return
     lastEventId.current = next.lastEventId
     versions.current = next.versions
+    collections.current = next
     setSnapshot(next)
   }, [])
 
@@ -67,20 +72,41 @@ export function useBackendState() {
 
   useEffect(() => {
     mounted.current = true
+    // 24#6：闭包局部存活标志取代共享 ref 的判定——StrictMode 双挂载下共享
+    // ref 会被第二轮 effect 立即置回 true，第一轮的异步回调误判存活，
+    // 造成监听器泄漏与双 bootstrap（对齐 App.tsx/useAgent.ts 的同型写法）
+    let disposed = false
+    const alive = () => !disposed
     let unlisten: (() => void) | undefined
     let starting = false
     let activeStartup = -1
     let settled = false
     let timer: number | undefined
+    let transientRetries = 0
     const fail = (error: unknown, expectedGeneration = generation.current) => {
-      if (!mounted.current || generation.current !== expectedGeneration) return
-      settled = true
-      if (authenticationErrors.has((error as Partial<BackendError>)?.code || '')) {
+      if (!alive() || generation.current !== expectedGeneration) return
+      const code = (error as Partial<BackendError>)?.code || ''
+      if (authenticationErrors.has(code)) {
+        settled = true
         setStartupError('')
         setLoginRequired(true)
         setReady(true)
         return
       }
+      // 24#1：database_busy 是瞬态读争用（备份导入大事务/流式写入高峰），
+      // 不得把整个应用卸载成错误页——保留当前快照与界面，静默延迟重试；
+      // 连续 5 次仍失败才视为持续故障进入错误页
+      if (code === 'database_busy' && transientRetries < 5) {
+        transientRetries += 1
+        reportBackendError(error)
+        window.setTimeout(() => {
+          if (!alive() || settled || generation.current !== expectedGeneration) return
+          requestSync()
+        }, 1500)
+        return
+      }
+      transientRetries = 0
+      settled = true
       reportBackendError(error)
       setStartupError(backendErrorMessage(error))
       setReady(false)
@@ -114,6 +140,10 @@ export function useBackendState() {
         }
       }
       void bootstrap().then(state => {
+        // 24#8：bootstrap 成功即落定——20s 超时只看管 bootstrap 本身，
+        // 原实现要等 sync 追平才置 settled，临界误报会把整树切到错误页
+        settled = true
+        transientRetries = 0
         applySnapshot(state, requestedGeneration)
         return sync()
       }).then(() => {
@@ -142,8 +172,9 @@ export function useBackendState() {
       if (starting) return
       const requestedGeneration = generation.current
       void sync().then(() => {
-        if (!mounted.current || generation.current !== requestedGeneration) return
+        if (!alive() || generation.current !== requestedGeneration) return
         settled = true
+        transientRetries = 0
         setStartupError('')
         setLoginRequired(false)
         setReady(true)
@@ -162,7 +193,7 @@ export function useBackendState() {
       }, 120)
     }
     void onBackendEvent(requestSyncCoalesced).then(stop => {
-      if (mounted.current) {
+      if (alive()) {
         unlisten = stop
         start()
       } else stop()
@@ -170,6 +201,7 @@ export function useBackendState() {
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => {
+      disposed = true
       mounted.current = false
       if (timer !== undefined) window.clearTimeout(timer)
       if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
@@ -179,21 +211,37 @@ export function useBackendState() {
     }
   }, [applySnapshot, sync])
 
-  const replaceCollection = useCallback(async <T,>(namespace: CollectionNamespace, value: T) => {
+  // 24#5：接受值或更新函数（以最新集合为基准计算）；同命名空间的写入按
+  // 提交顺序排队——后到者等先到者落库后携带新版本号提交，既不丢同帧写入、
+  // 也不再依赖"恰被绕过"的 revision 防护
+  const replaceCollection = useCallback(async <T,>(namespace: CollectionNamespace, value: T | ((current: T) => T)) => {
+    const previous = inflight.current[namespace]
     const requestedGeneration = generation.current
+    const task = (async () => {
+      if (previous) await previous.catch(() => {})
+      const resolved = typeof value === 'function'
+        ? (value as (current: T) => T)(collections.current[namespace] as T)
+        : value
+      try {
+        const next = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, resolved)
+        applySnapshot(next, requestedGeneration)
+        return next
+      } catch (error) {
+        if ((error as Partial<BackendError>)?.code !== 'revision_conflict') throw error
+        // 快速连续操作时后到者撞版本号（先到者已生效）：立即拉取最新快照同步界面，
+        // 再以明确指引报错，用户基于最新数据重试一次即可成功
+        const fresh = await backend.getAppState()
+        applySnapshot(fresh, requestedGeneration)
+        throw { code: 'revision_conflict', message: '内容刚被其他操作更新，已为你刷新到最新，请重试一次。' } satisfies Partial<BackendError>
+      }
+    })()
+    inflight.current[namespace] = task
     try {
-      const next = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, value)
-      applySnapshot(next, requestedGeneration)
-      return next
-    } catch (error) {
-      if ((error as Partial<BackendError>)?.code !== 'revision_conflict') throw error
-      // 快速连续操作时后到者撞版本号（先到者已生效）：立即拉取最新快照同步界面，
-      // 再以明确指引报错，用户基于最新数据重试一次即可成功
-      const fresh = await backend.getAppState()
-      applySnapshot(fresh, requestedGeneration)
-      throw { code: 'revision_conflict', message: '内容刚被其他操作更新，已为你刷新到最新，请重试一次。' } satisfies Partial<BackendError>
+      return await task
+    } finally {
+      if (inflight.current[namespace] === task) delete inflight.current[namespace]
     }
-  }, [applySnapshot, sync])
+  }, [applySnapshot])
 
   const resetApplication = useCallback(async () => {
     const requestedGeneration = generation.current

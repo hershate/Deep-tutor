@@ -30,18 +30,28 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   }, [])
   useEffect(() => {
     void refresh()
+    let mounted = true
     let unlisten: (() => void) | undefined
-    void onBackendEvent(event => {
+    const listening = onBackendEvent(event => {
       if (event.kind.startsWith('sync.')) void refresh()
       // 版本列表只在弹窗打开时跟随刷新；关闭状态下不额外发起远端列举请求
       if (event.kind === 'sync.completed' && versionsOpenRef.current) void loadVersions()
-    }).then(remove => { unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
-    return () => { unlisten?.() }
+    })
+    listening.then(remove => { if (mounted) unlisten = remove; else remove() }).catch(cause => setError(backendErrorMessage(cause)))
+    // 28#5：卸载早于 listen() promise resolve 时立即注销
+    return () => { mounted = false; unlisten?.(); void listening.then(remove => { if (!mounted) remove() }) }
   }, [refresh, loadVersions])
+  // configOpen 声明在组件头部（28#10）：这里仅追加 ref 镜像供事件刷新判定
+  const configOpenRef = useRef(false)
+  useEffect(() => { configOpenRef.current = configOpen }, [configOpen])
   useEffect(() => {
     if (!overview?.config) return
     const config = overview.config.config
-    setForm(current => ({ ...current, ...config, password: null, accessKey: null, secretKey: null }))
+    // 28#10：编辑弹窗打开时不以外来事件覆盖正在输入的表单——仅在关闭
+    // 状态或字段未被用户改动时跟随最新配置
+    setForm(current => configOpenRef.current
+      ? current
+      : { ...current, ...config, password: null, accessKey: null, secretKey: null })
   }, [overview?.config])
 
   const update = <K extends keyof SyncConfigInput>(key: K, value: SyncConfigInput[K]) => setForm(current => ({ ...current, [key]: value }))

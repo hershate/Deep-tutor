@@ -2,7 +2,12 @@ import { invoke } from '@tauri-apps/api/core'
 import type { BackendError } from './client'
 
 export type KnowledgeSource = { materialId: number; title: string; sha256: string; kind: string }
-export type KnowledgeCitation = KnowledgeSource & {
+// 21#4：显式声明后端真实字段——原实现继承 KnowledgeSource 的 kind，
+// 后端结构体并无该字段，按 kind 分支的代码会静默走错路
+export type KnowledgeCitation = {
+  materialId: number
+  title: string
+  sha256: string
   quote: string
   charStart: number
   charEnd: number

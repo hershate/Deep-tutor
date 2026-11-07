@@ -990,7 +990,9 @@ td strong { color: var(--text); }
   .report-metrics > div { padding: 14px; }
   .result-analysis { align-items: flex-start; }
 }
-.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+/* 24#7：手动"减少动态"通道补 html 自身匹配——媒体查询通道用 * 已覆盖
+   html，类通道原先漏掉，锚点平滑滚动仍会发生 */
+html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

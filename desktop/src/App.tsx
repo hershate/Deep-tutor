@@ -55,12 +55,13 @@ export default function App() {
   const [page, setPage] = useState<PageId>(initialPage)
   const { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup, importNotes } = useBackendState()
   const { tasks, notes, resources, projects, preferences } = snapshot
-  const setTasks = (value: Task[]) => replaceCollection('tasks', value)
-  const setNotes = (value: AppSnapshot['notes']) => replaceCollection('notes', value)
-  const setProjects = (value: Project[]) => replaceCollection('projects', value)
+  // 24#5：集合 setter 支持更新函数（以最新集合为基准），消除一帧双写的静默丢失
+  const setTasks = (value: Task[] | ((current: Task[]) => Task[])) => replaceCollection('tasks', value)
+  const setNotes = (value: AppSnapshot['notes'] | ((current: AppSnapshot['notes']) => AppSnapshot['notes'])) => replaceCollection('notes', value)
+  const setProjects = (value: Project[] | ((current: Project[]) => Project[])) => replaceCollection('projects', value)
   const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
-  const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string } | null>(null)
+  const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string; nonce: number } | null>(null)
   const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
   const [mapPlanId, setMapPlanId] = useState<string | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
@@ -179,10 +180,17 @@ export default function App() {
         // 14#4：专注层 z90 完全遮挡搜索模态（z70），此时打开只会劫持键盘焦点
         if (!focusOpen) { event.preventDefault(); setModal('search') }
       }
-      if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false); exitShared() }
+      if (event.key === 'Escape') {
+        // 24#2：Esc 分层仲裁——Modal（含确认框）打开时交给弹层栈处理最顶层，
+        // 专注层次之，最后才收起抽屉/移动导航/共享页，一次 Esc 只关一层
+        if (document.querySelector('.overlay')) return
+        if (focusOpen) { setFocusOpen(false); return }
+        if (tutorOpen) { setTutorOpen(false); return }
+        setMobileNav(false); exitShared()
+      }
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
-  }, [exitShared])
+  }, [exitShared, focusOpen, tutorOpen])
   const openFocus = (taskId?: number) => {
     // A-19：从任务行进入时可携带任务 id，专注秒计入任务桶参与取大——
     // 否则「自由专注 + 勾选任务」双来源双计（03#20 原场景）
@@ -228,14 +236,20 @@ export default function App() {
     focusTaskRef.current = null
     setFocusSession(null)
   }
-  const navigate = (target: PageId) => { setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false); window.scrollTo({ top: 0, behavior: preferences.reducedMotion ? 'auto' : 'smooth' }) }
+  const navigate = (target: PageId) => {
+    setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false)
+    // 24#7：系统级 prefers-reduced-motion 同样禁用平滑滚动——显式 behavior
+    // 会覆盖 CSS 的 scroll-behavior，只看应用内偏好会让系统设置失效
+    const systemReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: preferences.reducedMotion || systemReduced ? 'auto' : 'smooth' })
+  }
   const addQuick = async () => {
     if (!quickTitle.trim()) return
     try {
-      if (quickType === '任务') await setTasks([...tasks, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
+      if (quickType === '任务') await setTasks(current => [...current, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
       // 19#3：updated 持久化 ISO 时间戳（渲染层格式化为相对时间），不再写入
       // 相对时间文案「刚刚」——那会让笔记永远显示"刚刚"
-      else await setNotes([{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: new Date().toISOString(), content: quickTitle.trim() }, ...notes])
+      else await setNotes(current => [{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: new Date().toISOString(), content: quickTitle.trim() }, ...current])
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
     } catch (error) { reportBackendError(error, 'write') }
   }
@@ -247,7 +261,7 @@ export default function App() {
   }
   const openSearchResult = (result: SearchResult) => {
     if (result.planId && result.stageId) {
-      setStudyTarget({ planId: result.planId, stageId: result.stageId })
+      setStudyTarget({ planId: result.planId, stageId: result.stageId, nonce: Date.now() })
       navigate('study')
     } else {
       navigate(result.page)
@@ -272,10 +286,10 @@ export default function App() {
     switch (page) {
       case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} overview={homeSummary} summaryError={homeSummaryError} onRetrySummary={() => setSummaryReload(current => current + 1)} />
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
-      case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
+      case 'plan': return <Plan setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
@@ -313,7 +327,7 @@ export default function App() {
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>DEEP TUTOR</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
       <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronDown size={15} /></button>
       <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</button>)}</div>)}</nav>
-      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span><i className="running-dot" /></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
+      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
     </aside>
 
     <div className="app-main">
@@ -327,7 +341,7 @@ export default function App() {
 
     <SearchLayer open={modal === 'search'} onClose={() => setModal(null)} onOpenResult={openSearchResult} />
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
-      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
+      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」。'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
       {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
@@ -384,16 +398,23 @@ function FocusLayer({ session, tasks, busy, onToggle, onFinish, onReset, onExit 
 }) {
   const [seconds, setSeconds] = useState(session?.remainingSeconds ?? 25 * 60)
   const ref = useRef<HTMLDivElement>(null)
+  // 19#2：自动收尾只尝试一次——完成请求持久性失败时不再每秒重试+
+  // 每秒错误 toast（1Hz 风暴），失败后由手动按钮接管；新会话重置标记
+  const autoFinishedRef = useRef(false)
   useFocusContainment(ref, true)
   useEffect(() => {
     setSeconds(session ? session.remainingSeconds : 25 * 60)
+    autoFinishedRef.current = false
   }, [session])
   useEffect(() => {
     if (session?.status !== 'running') return
     const tick = () => {
       const remaining = Math.max(0, session.plannedSeconds - Math.floor((Date.now() - Date.parse(session.startedAt)) / 1000))
       setSeconds(remaining)
-      if (remaining === 0 && !busy) void onFinish(false)
+      if (remaining === 0 && !busy && !autoFinishedRef.current) {
+        autoFinishedRef.current = true
+        void onFinish(false)
+      }
     }
     tick()
     const timer = window.setInterval(tick, 1000)
@@ -415,6 +436,8 @@ function SearchLayer({ open, onClose, onOpenResult }: {
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
+  // 20#9：键盘导航——↵ 角标暗示 Enter 打开，补上下方向键选择与高亮
+  const [activeIndex, setActiveIndex] = useState(0)
   useEffect(() => {
     let active = true
     // 空查询直接给本地页面快捷入口，不发 IPC；有词时 120ms 去抖后走后端全文检索
@@ -430,7 +453,15 @@ function SearchLayer({ open, onClose, onOpenResult }: {
     }, 120)
     return () => { active = false; window.clearTimeout(timer) }
   }, [query])
+  useEffect(() => { setActiveIndex(0) }, [results])
+  const openResult = (result: SearchResult) => { setQuery(''); onOpenResult(result) }
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!results.length) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex(index => (index + 1) % results.length) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex(index => (index - 1 + results.length) % results.length) }
+    else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); openResult(results[activeIndex] ?? results[0]) }
+  }
   return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
-    <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识节点…" /></div><div className="command-results">{results.length ? results.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => { setQuery(''); onOpenResult(result) }}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案与知识节点，按 Esc 关闭</div>
+    <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、↵ 打开、Esc 关闭</div>
   </Modal>
 }

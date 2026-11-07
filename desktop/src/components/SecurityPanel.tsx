@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
@@ -22,9 +22,20 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
   const [patInput, setPatInput] = useState('')
   const [quotaDrafts, setQuotaDrafts] = useState<Record<string, string>>({})
 
+  // 28#10：配额草稿不随事件刷新被覆盖——安全事件（会话/PAT 变更等）频繁
+  // 刷新 overview，正在编辑的上限值只在保存后才应被新值替换
+  const previousLimits = useRef<Record<string, number>>({})
   const apply = useCallback((next: SecurityOverview) => {
     setData(next)
-    setQuotaDrafts(Object.fromEntries(next.quotas.map(quota => [quota.resource, String(quota.limit)])))
+    setQuotaDrafts(current => {
+      const merged: Record<string, string> = Object.fromEntries(next.quotas.map(quota => [quota.resource, String(quota.limit)]))
+      for (const [resource, draft] of Object.entries(current)) {
+        const previous = previousLimits.current[resource]
+        if (previous !== undefined && draft !== String(previous)) merged[resource] = draft
+      }
+      return merged
+    })
+    previousLimits.current = Object.fromEntries(next.quotas.map(quota => [quota.resource, quota.limit]))
   }, [])
   const refresh = useCallback(async () => {
     try {

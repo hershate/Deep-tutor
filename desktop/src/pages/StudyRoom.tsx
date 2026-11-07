@@ -14,7 +14,7 @@ import { clampToBytes } from '../limits'
 
 const lectureStatus: Record<string, string> = { empty: '尚未生成', running: '正在生成', cancelling: '正在取消', done: '已生成', failed: '生成失败', cancelled: '已取消', interrupted: '已中断' }
 
-export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify }: { target?: { planId: string; stageId: string } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void }) {
+export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify }: { target?: { planId: string; stageId: string; nonce: number } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [stageId, setStageId] = useState('')
@@ -86,7 +86,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   }, [target])
   useEffect(() => { void refreshPlans() }, [refreshPlans])
   useEffect(() => { void refreshProgress() }, [refreshProgress])
-  const targetKey = target ? `${target.planId}:${target.stageId}` : ''
+  // 28#6：nonce 让同阶段的重复导航（⌘K 再点同一结果）也能触发跳转——
+  // consumedTarget 只增不减会静默吞掉重复目标
+  const targetKey = target ? `${target.planId}:${target.stageId}:${target.nonce}` : ''
   useEffect(() => {
     const stages = plan?.result?.stages || []
     if (target && targetKey !== consumedTarget.current && target.planId === plan?.id && stages.some(stage => stage.id === target.stageId)) {
@@ -166,12 +168,26 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const generate = async () => {
     if (!plan || !stageId) return
     setBusy('generate')
-    try { setLecture(await backend.generateLecture(plan.id, stageId, lecture?.status === 'done')) } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    // 28#1：生成/恢复前把版本 ref 重置为"跟当前"——首次生成（空讲义返回
+    // version=0）与恢复生成（versions 表无行）若沿用旧值，每条 lecture.*
+    // 事件都会以不存在的版本号请求并报 not_found，进度永不更新、弹窗被
+    // running 挡住形成死锁
+    readingVersionRef.current = undefined
+    try {
+      const next = await backend.generateLecture(plan.id, stageId, lecture?.status === 'done')
+      readingVersionRef.current = next.version
+      setLecture(next)
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const cancel = async () => {
     if (!plan || !stageId) return
     setBusy('cancel')
-    try { setLecture(await backend.cancelLecture(plan.id, stageId)) } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    try { setLecture(await backend.cancelLecture(plan.id, stageId)) } catch (cause) {
+      if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
+      // 28#1：取消命中竞态码（任务已终态）时重读当前状态，避免弹窗停在
+      // running 卡死（flag 已随线程结束移除，取消必然 no_active_lecture）
+      else void refreshLecture()
+    } finally { setBusy('') }
   }
   const saveNote = async () => {
     if (!plan || !stageId || !note.trim()) return
