@@ -47,7 +47,9 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
     if (busy || !rateProvider || !rateModel) return
     setBusy(true)
     try {
-      await usageBackend.upsertRate({ providerId: rateProvider, model: rateModel, inputPerMillion: Number(inputRate), outputPerMillion: Number(outputRate) })
+      // 后端限制费率有限、非负且 ≤1,000,000：提交前按同一区间钳制
+      const clampRate = (value: string) => Math.min(1_000_000, Math.max(0, Number(value) || 0))
+      await usageBackend.upsertRate({ providerId: rateProvider, model: rateModel, inputPerMillion: clampRate(inputRate), outputPerMillion: clampRate(outputRate) })
       await refresh()
       notify('实际模型费率已保存，后续台账按该费率计算')
     } catch (error) { reportBackendError(error) } finally { setBusy(false) }
@@ -56,7 +58,8 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
     if (busy) return
     setBusy(true)
     try {
-      const settings = await usageBackend.saveSettings({ sessionUsd, dailyUsd, regenerationLimit })
+      const clampBudget = (value: number) => Math.max(0, Number.isFinite(value) ? value : 0)
+      const settings = await usageBackend.saveSettings({ sessionUsd: clampBudget(sessionUsd), dailyUsd: clampBudget(dailyUsd), regenerationLimit })
       setData(current => current ? { ...current, settings } : current)
       await refresh()
       notify('预算与方案重生成上限已保存，并用于后续原生请求')

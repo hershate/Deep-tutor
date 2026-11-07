@@ -114,7 +114,12 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     try {
       const paths = await backend.openMaterialFiles()
       if (!paths?.length) return
-      const outcomes = await backend.importMaterialFiles(paths.filter(path => !path.toLowerCase().endsWith('.zip')))
+      // 后端单次最多 32 个文件：超过时分批提交，避免整批被拒
+      const regular = paths.filter(path => !path.toLowerCase().endsWith('.zip'))
+      const outcomes = []
+      for (let index = 0; index < regular.length; index += 32) {
+        outcomes.push(...await backend.importMaterialFiles(regular.slice(index, index + 32)))
+      }
       let skipped = 0
       for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
         const archive = await backend.importMaterialArchive(path)
