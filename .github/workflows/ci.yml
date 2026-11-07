@@ -48,7 +48,7 @@ jobs:
       - name: Collect third-party licenses
         run: node ../scripts/collect-licenses.mjs
       - name: Build NSIS installer
-        run: npm run tauri build -- --locked
+        run: npm run tauri build -- -- --locked
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

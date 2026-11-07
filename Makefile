@@ -17,7 +17,8 @@ NPM ?= npm
 
 build:
 	node scripts/collect-licenses.mjs
-	cd desktop && $(NPM) run tauri build -- --locked
+	# npm 吞掉第一个 --，脚本收到 build -- --locked，--locked 才能转发给 cargo
+	cd desktop && $(NPM) run tauri build -- -- --locked
 
 lint:
 	cd desktop/src-tauri && $(CARGO) fmt --all -- --check

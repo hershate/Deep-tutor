@@ -24,7 +24,7 @@ if (!readmeVersion) {
   process.exit(1)
 }
 
-const versions = { 'desktop/package.json': packageVersion, 'desktop/src-tauri/tauri.conf.json': tauriVersion, 'desktop/src-tauri/Cargo.toml': cargoVersion, 'README.md': readmeVersion }
+const versions = { 'desktop/package.json': packageVersion, 'desktop/package-lock.json': JSON.parse(read('desktop/package-lock.json')).version, 'desktop/src-tauri/tauri.conf.json': tauriVersion, 'desktop/src-tauri/Cargo.toml': cargoVersion, 'README.md': readmeVersion }
 const unique = new Set(Object.values(versions))
 if (unique.size !== 1) {
   console.error('check-versions: 版本号不一致，请同步后重试：')
@@ -33,4 +33,4 @@ if (unique.size !== 1) {
   }
   process.exit(1)
 }
-console.log(`check-versions: 四处版本一致 (${packageVersion})`)
+console.log(`check-versions: 五处版本一致 (${packageVersion})`)
