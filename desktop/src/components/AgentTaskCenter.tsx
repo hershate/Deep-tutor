@@ -37,10 +37,15 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
     void refresh()
     let unlisten: (() => void) | undefined
     let disposed = false
+    // 方案事件前缀是 plan.*（无 learning.* 事件）；事件密集时合并为一次刷新，避免逐步扇出
+    let timer: number | undefined
     void onBackendEvent(event => {
-      if (['learning.', 'agent.', 'lecture.'].some(prefix => event.kind.startsWith(prefix)) && ['started', 'completed', 'failed', 'cancelled', 'interrupted', 'degraded'].some(status => event.kind.endsWith(status))) void refresh()
+      if (['plan.', 'agent.', 'lecture.'].some(prefix => event.kind.startsWith(prefix)) && ['started', 'completed', 'failed', 'cancelled', 'interrupted', 'degraded'].some(status => event.kind.endsWith(status))) {
+        if (timer !== undefined) return
+        timer = window.setTimeout(() => { timer = undefined; void refresh() }, 300)
+      }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
-    return () => { disposed = true; unlisten?.() }
+    return () => { disposed = true; unlisten?.(); if (timer !== undefined) window.clearTimeout(timer) }
   }, [refresh])
   const cancel = async (task: TaskEntry) => {
     if (!task.cancel) return

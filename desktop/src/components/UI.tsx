@@ -44,15 +44,19 @@ export function Toggle({ checked, onChange, label, description }: { checked: boo
 
 export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
+  // onClose 多为每次渲染新建的内联函数：焦点 effect 只依赖 open，
+  // 通过 ref 取最新回调，避免弹窗内每次输入都触发焦点被抢回容器
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose })
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement
     const timer = window.setTimeout(() => ref.current?.focus(), 20)
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeRef.current() }
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     return () => { window.clearTimeout(timer); document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; previous?.focus() }
-  }, [open, onClose])
+  }, [open])
   if (!open) return null
   return <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}>

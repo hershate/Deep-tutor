@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleHelp, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, MessageSquareText, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
@@ -25,6 +25,7 @@ import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
 import { engagementBackend } from './backend/engagement'
 import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
+import { communityBackend } from './backend/community'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
 import type { PracticeTarget } from './backend/practice'
@@ -78,6 +79,25 @@ export default function App() {
   const [homeSummary, setHomeSummary] = useState<DashboardOverview | null>(null)
 
   const notify = (message: string) => setToast(message)
+  // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
+  useEffect(() => {
+    const sync = () => {
+      const target = window.location.hash.slice(1)
+      if (allNav.some(item => item.id === target) || ['settings', 'shared'].includes(target)) setPage(current => (current === target ? current : target as PageId))
+    }
+    window.addEventListener('hashchange', sync)
+    window.addEventListener('popstate', sync)
+    return () => { window.removeEventListener('hashchange', sync); window.removeEventListener('popstate', sync) }
+  }, [])
+  // 退出只读分享页：清掉地址栏 share 令牌并回到主界面
+  const exitShared = useCallback(() => {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has('share') && url.hash !== '#shared') return
+    url.searchParams.delete('share')
+    if (url.hash === '#shared') url.hash = ''
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+    setPage(previous => (previous === 'shared' ? 'today' : previous))
+  }, [])
   useEffect(() => {
     const onError = (event: Event) => notify((event as CustomEvent<string>).detail)
     window.addEventListener('backend-error', onError)
@@ -132,6 +152,21 @@ export default function App() {
     return () => { active = false; stop?.() }
   }, [ready])
   useEffect(() => {
+    // 社区预约提醒：后端只在被领取时投递（置 delivered_at 并发 community.reminder_due），
+    // 应用打开期间每分钟领取一次到期提醒，触发通知中心刷新与弹层提示
+    if (!ready) return
+    let active = true
+    const claim = async () => {
+      try {
+        const due = await communityBackend.claimDueReminders()
+        if (active && due.length) notify(`预约「${due[due.length - 1].title}」即将开始`)
+      } catch { /* 尽力而为的提醒轮询：失败时等待下一轮，不打断主界面 */ }
+    }
+    void claim()
+    const timer = window.setInterval(() => { void claim() }, 60000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [ready])
+  useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)
     document.documentElement.classList.toggle('high-contrast', preferences.highContrast)
@@ -140,10 +175,10 @@ export default function App() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setModal('search') }
-      if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false) }
+      if (event.key === 'Escape') { setMobileNav(false); setTutorOpen(false); setFocusOpen(false); exitShared() }
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [exitShared])
   useEffect(() => {
     if (!focusOpen || focusSession?.status !== 'running') return
     const tick = () => {
@@ -251,7 +286,10 @@ export default function App() {
   }
 
   if (page === 'shared') {
-    return <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
+    return <div className="shared-screen">
+      <header className="shared-topbar"><BrandMark /><strong>知舟 · 只读分享预览</strong><Button variant="secondary" size="sm" onClick={exitShared}><X size={15} />返回应用</Button></header>
+      <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
+    </div>
   }
 
   if (startupError) {
@@ -287,7 +325,7 @@ export default function App() {
       <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{searchResults.length ? searchResults.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => openSearchResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={searchError ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : searchError || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
     </Modal>
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
-      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
+      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
       {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
