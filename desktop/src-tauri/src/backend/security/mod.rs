@@ -934,10 +934,22 @@ pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<(
         .store(true, std::sync::atomic::Ordering::Release);
     let store = state.store()?;
     let (user, session) = current(&store.conn, state)?;
+    // 23#6：撤销该用户全部会话——只撤最新一条时，"登录用户1 → 切换用户2 →
+    // 登出"后 current() 会命中用户1 仍有效的旧会话，以他人身份静默续用
+    let active_sessions: Vec<String> = {
+        let mut statement = store.conn.prepare(
+            "SELECT id FROM auth_sessions WHERE user_id = ?1 AND revoked_at IS NULL",
+        )?;
+        let rows = statement
+            .query_map(params![user.id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+        rows
+    };
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(
-        "UPDATE auth_sessions SET revoked_at = ?1 WHERE id = ?2",
-        params![timestamp(now()?)?, session.id],
+        "UPDATE auth_sessions SET revoked_at = ?1 WHERE user_id = ?2 AND revoked_at IS NULL",
+        params![timestamp(now()?)?, user.id],
     )?;
     let event = Store::event(
         &tx,
@@ -945,9 +957,9 @@ pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<(
         json!({"sessionId":session.id,"userId":user.id}),
     )?;
     tx.commit()?;
-    state
-        .credentials
-        .delete(&format!("session-{}", session.id))?;
+    for id in active_sessions {
+        let _ = state.credentials.delete(&format!("session-{id}"));
+    }
     emit(app, &event);
     Ok(())
 }
@@ -1206,6 +1218,9 @@ pub fn authenticate_token<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
+    // 21#1：PAT 认证是显式登录行为——验证通过即为该用户签发新会话
+    // （与 login 同口径），安全面板的「使用访问令牌登录」入口依赖于此
+    issue(app, state, user_id, &store)?;
     user(&store.conn, user_id, user_id)
 }
 

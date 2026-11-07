@@ -19,6 +19,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
   const [tokenName, setTokenName] = useState('')
   const [newToken, setNewToken] = useState<CreatedToken | null>(null)
   const [removeUser, setRemoveUser] = useState<LocalUser | null>(null)
+  const [patInput, setPatInput] = useState('')
   const [quotaDrafts, setQuotaDrafts] = useState<Record<string, string>>({})
 
   const apply = useCallback((next: SecurityOverview) => {
@@ -73,6 +74,19 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
     try { await navigator.clipboard.writeText(newToken.token); notify('PAT 已复制，请保存到安全位置') }
     catch (error) { reportBackendError(error) }
   }
+  // 21#1：PAT 登录入口——输入完整访问令牌即可切换到令牌所属用户
+  const loginWithToken = async () => {
+    const token = patInput.trim()
+    if (busy || !token) return
+    setBusy('pat-login')
+    try {
+      const user = await securityBackend.authenticateToken(token)
+      setPatInput('')
+      await refresh()
+      notify(`已通过访问令牌登录「${user.name}」`)
+    } catch (error) { reportBackendError(error, 'write') }
+    finally { setBusy('') }
+  }
 
   if (!data) return <div className="security-panel">{error ? <><p className="form-error" role="alert">{error}</p><p>未能读取本地用户与配额，请重试。</p></> : <><LoaderCircle size={22} className="spin" /><p>正在验证本地会话并读取用户、令牌和配额…</p></>}<Button variant="secondary" onClick={() => { setError(''); void refresh() }}>重试</Button></div>
   const current = data.currentUser
@@ -88,6 +102,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
         {administrator && !user.current && <Button variant="ghost" size="sm" disabled={Boolean(busy)} onClick={() => setRemoveUser(user)} aria-label={`移除用户 ${user.name}`}><Trash2 size={14} /></Button>}
       </div>)}
       {!data.users.some(user => user.active) && <p className="form-error">没有可用的本地用户，请先通过管理员恢复账户。</p>}
+      <div className="data-actions"><label className="pat-login">使用访问令牌登录<input value={patInput} onChange={event => setPatInput(clampToBytes(event.target.value, 100))} placeholder="dtp_…" /></label><Button variant="ghost" size="sm" disabled={Boolean(busy) || !patInput.trim()} onClick={() => void loginWithToken()}>{busy === 'pat-login' ? '正在验证…' : '令牌登录'}</Button><span className="form-help">输入完整 PAT 即可以令牌所属用户身份登录；令牌明文不落库。</span></div>
     </section>
     {current && !data.requiresLogin && <>
       <section className="security-subsection"><div><KeyRound size={18} /><h3>个人访问令牌</h3><Button variant="secondary" size="sm" disabled={Boolean(busy)} onClick={() => setTokenOpen(true)}><Plus size={15} />创建 PAT</Button></div>

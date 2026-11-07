@@ -445,6 +445,14 @@ pub fn grade<R: Runtime>(
         params![due_at, next_interval, ease, if grade == "again" { 0 } else { card.repetitions + 1 }, if grade == "again" { card.lapses + 1 } else { card.lapses }, now()?, id, now()?],
     )?;
     if changed == 0 {
+        // 25#3：区分"已暂停"与"已被其他操作复习"——管理弹窗暂停同卡后、
+        // 队列刷新前评分命中此处，统一报"已被复习"会误导用户
+        if card.suspended {
+            return Err(BackendError::new(
+                "card_suspended",
+                "这张卡片已暂停，暂停期间不参与复习",
+            ));
+        }
         return Err(BackendError::new(
             "card_not_due",
             "这张卡片已被其他操作复习",

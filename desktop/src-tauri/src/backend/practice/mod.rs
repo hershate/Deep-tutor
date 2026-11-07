@@ -280,7 +280,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS practice_bookmarks (
             question_id INTEGER PRIMARY KEY REFERENCES practice_questions(id) ON DELETE CASCADE,
             created_at TEXT NOT NULL
-        );",
+        );
+        -- 27#5：答题提交/详情/计数按 set_id 过滤 practice_answers，仅 PK+
+        -- UNIQUE(question_id) 时为全表扫
+        CREATE INDEX IF NOT EXISTS practice_answers_set ON practice_answers(set_id);",
     )?;
     let mut statement = conn.prepare("PRAGMA table_info(practice_sets)")?;
     let columns = statement
@@ -968,9 +971,21 @@ pub fn lazy_finalize_expired_exam<R: Runtime>(
     state: &PracticeState,
     id: i64,
 ) -> Result<()> {
-    let set = set_row(&state.store()?.conn, id)?;
+    let conn = state.store()?.conn;
+    let set = set_row(&conn, id)?;
     if exams::remaining(&set).is_ok_and(|(expired, _)| expired) {
-        exams::finalize(app, state, id)?;
+        // 23#3：仍有未完成评分的作答（评分失败/重启置 interrupted）时跳过惰性
+        // 收卷——此时 finalize 必报 grading_in_progress，若随读取上抛会让详情
+        // 整体不可读，而恢复评分所需的 answer_id 只能从详情枚举，形成恢复
+        // 死锁；报错留给显式交卷路径
+        let pending: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM practice_answers WHERE set_id = ?1 AND status != 'done'",
+            params![id],
+            |row| row.get(0),
+        )?;
+        if pending == 0 {
+            exams::finalize(app, state, id)?;
+        }
     }
     Ok(())
 }
@@ -1137,6 +1152,14 @@ pub fn submit<R: Runtime>(
                 .as_str()
                 .filter(|answer| !answer.trim().is_empty())
                 .ok_or_else(|| BackendError::invalid("invalid_answer", "填空题答案不能为空"))?;
+            // 25#9：对齐主观题的 30,000 字节上限——生成侧填空限 1,000 字，
+            // 用户作答原无上限，超大载荷会经 normalize 全量直写 response_json
+            if actual.len() > 30_000 {
+                return Err(BackendError::invalid(
+                    "invalid_answer",
+                    "填空题答案不能超过 30000 字节",
+                ));
+            }
             normalize(actual) == normalize(expected.as_str().unwrap_or_default())
         }
         _ => {
@@ -1192,7 +1215,9 @@ pub fn submit<R: Runtime>(
         kind,
         json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "answered": answered, "correct": reveal.then_some(correct)}),
     )?];
-    if let Some(source_question_id) = variants::mark_mastered(&tx, question_id, correct)? {
+    if let Some(source_question_id) =
+        variants::mark_mastered(&tx, question_id, correct && set.feedback_mode != "hints")?
+    {
         events.push(Store::event(
             &tx,
             "practice.mistake_mastered_by_variant",

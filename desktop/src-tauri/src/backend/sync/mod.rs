@@ -155,7 +155,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             remote_path TEXT NOT NULL, result_json TEXT, local_path TEXT, error_code TEXT, error_message TEXT,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS sync_jobs_created ON sync_jobs(id, created_at);",
+        -- 27 信息性#1：原 (id, created_at) 以唯一 PK 前导、排序用不上——
+        -- 换成 created_at 单列索引支撑列表 ORDER BY created_at DESC
+        DROP INDEX IF EXISTS sync_jobs_created;
+        CREATE INDEX IF NOT EXISTS sync_jobs_created ON sync_jobs(created_at);",
     )?;
     Ok(())
 }
@@ -765,7 +768,7 @@ fn start_with_path<R: Runtime>(
                 active.remove(&worker_id);
             }
         });
-    if let Err(error) = spawn {
+    if let Err(_spawn_error) = spawn {
         let active_jobs = service.active();
         if let Ok(mut active) = active_jobs.lock() {
             active.remove(&id);
@@ -777,8 +780,9 @@ fn start_with_path<R: Runtime>(
             Err(BackendError::new("task_start_failed", "无法启动同步线程")),
         );
         return Err(BackendError::new(
+            // 29#3：不把 OS io::Error 原文透给用户界面，技术细节留给日志侧排查
             "task_start_failed",
-            &format!("无法启动同步线程：{error}"),
+            "无法启动同步线程",
         ));
     }
     job(service, &id)

@@ -187,7 +187,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             minutes INTEGER NOT NULL,
             note TEXT NOT NULL,
             updated_at TEXT NOT NULL
-        );",
+        );
+        -- 27#6：周报 evidence() 按 created_at 过滤排序 learning_node_evidence，
+        -- 证据行每次作答/复习/考试 UPSERT 且无上限
+        CREATE INDEX IF NOT EXISTS learning_node_evidence_created
+            ON learning_node_evidence(created_at);",
     )?;
     let mut statement = conn.prepare("PRAGMA table_info(focus_sessions)")?;
     let columns = statement
@@ -315,7 +319,16 @@ pub fn start_focus<R: Runtime>(
             return Err(BackendError::new("not_found", "专注关联的任务不存在"));
         }
     }
-    let running: bool = store.conn.query_row(
+    let timestamp = timestamp(now()?)?;
+    // 25#1：活跃检查移入 IMMEDIATE 事务——原实现 EXISTS 在 autocommit 态，
+    // 并发两次 start_focus 会双双通过、各插一条 running（finish 只收尾最新
+    // 一条，另一条残 running 直到重启）；持写锁后二次检查关闭窗口，
+    // 对齐 projects::submit 的做法
+    let tx = rusqlite::Transaction::new_unchecked(
+        &store.conn,
+        rusqlite::TransactionBehavior::Immediate,
+    )?;
+    let running: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM focus_sessions WHERE status IN ('running', 'paused'))",
         [],
         |row| row.get(0),
@@ -326,8 +339,6 @@ pub fn start_focus<R: Runtime>(
             "已有一个进行中的专注，请先完成或取消",
         ));
     }
-    let timestamp = timestamp(now()?)?;
-    let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO focus_sessions (task_id, status, planned_seconds, started_at, created_at, updated_at) VALUES (?1, 'running', ?2, ?3, ?3, ?3)", params![task_id, planned_seconds as i64, timestamp])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
@@ -610,28 +621,26 @@ fn evidence(store: &Store, since: &str) -> Result<Vec<(i64, String, String, f64,
     let rows = statement.query_map(params![since], |row| {
         let score: f64 = row.get(3)?;
         let maximum: f64 = row.get(4)?;
-        if !score.is_finite()
-            || !maximum.is_finite()
-            || maximum <= 0.0
-            || score < 0.0
-            || score > maximum
-        {
-            return Err(rusqlite::Error::InvalidColumnType(
-                3,
-                "无效掌握证据".into(),
-                rusqlite::types::Type::Real,
-            ));
-        }
         Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
             score,
             maximum,
-            row.get(5)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
-    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    let mut collected = Vec::new();
+    for row in rows {
+        // 25#7：单条脏掌握证据（非有限/超界，外部改库或异常写入）只跳过该行，
+        // 不再上抛——原实现令 learning_report 与 get_dashboard 整体失败，
+        // 与 learning/knowledge.rs 对同一数据的静默跳过口径不一致
+        let (plan_id, node_id, kind, score, maximum, created_at) = row?;
+        if score.is_finite() && maximum.is_finite() && maximum > 0.0 && score >= 0.0 && score <= maximum {
+            collected.push((plan_id, node_id, kind, score, maximum, created_at));
+        }
+    }
+    Ok(collected)
 }
 
 fn node_titles(state: &ReportState, plan_id: i64) -> Result<HashMap<String, String>> {
@@ -868,7 +877,9 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let plans = super::learning::list(&state.learning)?.into_iter().map(|plan| {
         let id = super::learning::plan_id(&plan.id)?;
         let total_stages = plan.result.as_ref().map(|result| result.stages.len() as u64).unwrap_or(0);
-        let completed_stages: i64 = store.conn.query_row("SELECT COUNT(*) FROM learning_reading_progress WHERE plan_id = ?1 AND completed = 1", params![id], |row| row.get(0))?;
+        // 25#8：局部重生成不清理旧阶段的完成行，孤儿计数可超过当前阶段总数
+        //（"3/2 已完成"）——封顶到 total_stages 保持统计自洽
+        let completed_stages: i64 = store.conn.query_row("SELECT COUNT(*) FROM learning_reading_progress WHERE plan_id = ?1 AND completed = 1", params![id], |row| row.get::<_, i64>(0))?.min(i64::try_from(total_stages).unwrap_or(i64::MAX));
         let practice_count: i64 = store.conn.query_row("SELECT COUNT(*) FROM practice_sets WHERE plan_id = ?1", params![id], |row| row.get(0))?;
         Ok(PlanStats { id: plan.id.clone(), title: plan.goal, status: plan.status, progress: plan.progress, focus_seconds: focus_by_plan.get(&id).copied().unwrap_or(0), practice_count: practice_count as u64, completed_stages: completed_stages as u64, total_stages })
     }).collect::<Result<Vec<_>>>()?;
@@ -1041,6 +1052,14 @@ pub fn save_checkin<R: Runtime>(
         return Err(BackendError::invalid(
             "future_checkin",
             "不能为未到来的日期打卡",
+        ));
+    }
+    // 25#16：日历只枚举近 84 天——更早的打卡会被接受入库但永不展示、不进
+    // 统计（"存而不显"），封住下界使写入与展示口径一致
+    if date < local.date() - time::Duration::days(83) {
+        return Err(BackendError::invalid(
+            "invalid_checkin_date",
+            "只能为最近 84 天内的日期打卡",
         ));
     }
     let note = input.note.trim().to_string();

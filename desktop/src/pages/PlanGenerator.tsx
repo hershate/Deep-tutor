@@ -240,7 +240,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       setPlan(await backend.resumeLearningPlan(plan.id))
       setStep(2)
       await refreshPlans()
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const regenerate = async () => {
     if (!plan) return

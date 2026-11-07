@@ -750,7 +750,8 @@ pub fn mark_read<R: Runtime>(
 }
 
 /// 首页/报告的目标方案口径（13#6）：最近采用的方案优先，无采用记录回退最新。
-fn adopted_plan_id(conn: &rusqlite::Connection) -> Option<i64> {
+/// 25#5：强度切换（planning）复用同一口径，避免改写未采用的更新草稿。
+pub(in crate::backend) fn adopted_plan_id(conn: &rusqlite::Connection) -> Option<i64> {
     conn.query_row(
         "SELECT plan_id FROM learning_plan_adoptions ORDER BY id DESC LIMIT 1",
         [],

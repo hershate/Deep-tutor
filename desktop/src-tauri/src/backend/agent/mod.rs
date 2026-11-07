@@ -13,7 +13,7 @@ use super::store::Store;
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -263,7 +263,13 @@ pub fn migrate(conn: &rusqlite::Connection) -> Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
-        );",
+        );
+        -- 27#4：getAgentSession 按 session_id 过滤 messages/runs/artifacts/
+        -- approvals 四表，每个 agent.* 事件触发一次，仅 PK 时为全表扫
+        CREATE INDEX IF NOT EXISTS agent_messages_session ON agent_messages(session_id);
+        CREATE INDEX IF NOT EXISTS agent_runs_session ON agent_runs(session_id);
+        CREATE INDEX IF NOT EXISTS agent_artifacts_session ON agent_artifacts(session_id);
+        CREATE INDEX IF NOT EXISTS agent_approvals_session ON agent_approvals(session_id);",
     )?;
     Ok(())
 }
@@ -330,9 +336,10 @@ pub fn new_session<R: Runtime>(
     }
     let provider_id = providers::routing::provider_for_task(&state.providers, "agent")?;
     let store = state.store()?;
-    store.ensure_quota("sessions", 1)?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
+    // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+    store.ensure_quota_in_tx(&tx, "sessions", 1)?;
     tx.execute("INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)", params![title, plan_id, provider_id, budget as i64, timestamp])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
@@ -629,9 +636,11 @@ fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
     let store = state.store()?;
     Ok(store.conn.query_row(
         // 08#7：部分供应商不回传 usage 字段，原先这些请求对预算贡献 0，
-        // 长会话的已耗被系统性低估；缺失时按输出文本长度保守估算
-        // （2 字符≈1 token，宁可高估），预算护栏不失真
-        "SELECT COALESCE(SUM(CASE WHEN json_extract(provider_requests.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER) ELSE (LENGTH(provider_requests.output) + 1) / 2 END), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
+        // 长会话的已耗被系统性低估；缺失时按输出长度保守估算（字节数/2），
+        // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
+        // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
+        // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
+        "SELECT COALESCE(SUM(CASE WHEN json_extract(provider_requests.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(provider_requests.output AS BLOB)) / 2 END), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )? as u64)
@@ -662,10 +671,37 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
             ..Default::default()
         },
     ];
+    // 23#9：修剪悬挂 tool_calls 与孤儿 tool 消息——取消/超限中断的运行可能
+    // 留下"assistant.tool_calls 无完整对应 tool 回复"的历史（保存先于上限/
+    // 取消判定），OpenAI 系端点对这类请求返回 400，resume 会每次必败；
+    // 重放前裁剪为自洽序列（无回复的调用不声明、无声明对应的回复不发送）
+    let declared: HashSet<&str> = session
+        .messages
+        .iter()
+        .filter(|message| message.role == "assistant")
+        .flat_map(|message| message.tool_calls.iter())
+        .map(|call| call.id.as_str())
+        .collect();
+    let answered: HashSet<&str> = session
+        .messages
+        .iter()
+        .filter(|message| message.role == "tool")
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .filter(|id| declared.contains(id))
+        .collect();
     for message in &session.messages {
+        if message.role == "tool"
+            && !message
+                .tool_call_id
+                .as_deref()
+                .is_some_and(|id| answered.contains(id))
+        {
+            continue;
+        }
         let calls = message
             .tool_calls
             .iter()
+            .filter(|call| answered.contains(call.id.as_str()))
             .map(|call| ToolCallRequest {
                 id: call.id.clone(),
                 kind: "function".into(),
@@ -838,6 +874,54 @@ fn run_loop<R: Runtime>(
                 .error
                 .unwrap_or_else(|| BackendError::new("provider_error", "模型请求未完成")));
         }
+        // 23#9：上限/取消判定前移到保存 assistant(tool_calls) 之前——原顺序
+        // 先落库再判定，超限/取消返回后留下"tool_calls 无完整对应 tool 回复"
+        // 的悬挂历史，resume 重放被上游 400 拒绝而永久卡死。命中时按失败
+        // 路径只保存正文（partial、不声明调用），历史保持自洽
+        if !request.tool_calls.is_empty() && request.tool_calls.len() > 8 {
+            save_message(
+                app,
+                state,
+                session_id,
+                run_id,
+                step,
+                "assistant",
+                request.output.clone(),
+                request.reasoning.clone(),
+                &[],
+                None,
+                None,
+                true,
+            )?;
+            return Err(BackendError::new(
+                "too_many_tool_calls",
+                "单步工具调用超过 8 个上限",
+            ));
+        }
+        if !request.tool_calls.is_empty()
+            && state
+                .active
+                .lock()
+                .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?
+                .get(&run_id)
+                .is_some_and(|flag| flag.load(Ordering::Acquire))
+        {
+            save_message(
+                app,
+                state,
+                session_id,
+                run_id,
+                step,
+                "assistant",
+                request.output.clone(),
+                request.reasoning.clone(),
+                &[],
+                None,
+                None,
+                true,
+            )?;
+            return Err(BackendError::new("cancelled", "Agent 运行已取消"));
+        }
         save_message(
             app,
             state,
@@ -860,12 +944,6 @@ fn run_loop<R: Runtime>(
         }
         if request.tool_calls.is_empty() {
             return finish_run(app, state, run_id, "done", None);
-        }
-        if request.tool_calls.len() > 8 {
-            return Err(BackendError::new(
-                "too_many_tool_calls",
-                "单步工具调用超过 8 个上限",
-            ));
         }
         for call in &request.tool_calls {
             if state

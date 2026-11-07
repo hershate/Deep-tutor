@@ -241,7 +241,13 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
                 _ => {}
             }
         }
-        let Some(end) = end else { break };
+        // 23#8：引号永不闭合（如注释内英文撇号、畸形属性）时不得终止整个
+        // 解析——正文会被静默截断且无告警；按畸形标签跳过该 '<' 继续扫描，
+        // 让其余文档照常解析
+        let Some(end) = end else {
+            cursor = open + 1;
+            continue;
+        };
         let tag = &html[open + 1..end];
         if tag.starts_with("!--") {
             // 10#21：注释可能包含 '>'，通用扫描会提前收束导致后半段泄漏为正文

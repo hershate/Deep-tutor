@@ -127,7 +127,30 @@ pub fn overview(state: &BackendState) -> Result<LibraryOverview> {
             ));
             continue;
         };
-        let plan = learning::get(&state.learning, &format!("plan-{plan_id}"))?;
+        // 25#10：方案行损坏/缺失只降级为本条 issue，不再上抛——同函数对孤儿
+        // 批注、无结果方案均降级，单条坏数据不应放大为整个知识库检查失败
+        let plan = match learning::get(&state.learning, &format!("plan-{plan_id}")) {
+            Ok(plan) => plan,
+            Err(_) => {
+                issues.push(issue(
+                    format!("plan-unreadable:{note_id}"),
+                    "warning",
+                    "plan_unreadable",
+                    "关联方案数据不可读".into(),
+                    format!(
+                        "笔记「{}」关联的方案 #{plan_id} 无法读取，已跳过该条关联。",
+                        note_values
+                            .iter()
+                            .find(|note| note["id"].as_i64() == Some(note_id))
+                            .and_then(|note| note["title"].as_str())
+                            .unwrap_or("未命名笔记")
+                    ),
+                    Some(note_id),
+                    None,
+                ));
+                continue;
+            }
+        };
         let Some(result) = plan.result else {
             issues.push(issue(
                 format!("pending-plan:{note_id}"),

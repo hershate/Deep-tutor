@@ -67,8 +67,17 @@ pub struct Store {
 impl Store {
     pub fn new(path: impl Into<PathBuf>) -> Result<Self> {
         let root = path.into();
+        // 22#1：隐式入口不再 fail-open 回退 user1——无 principal 的裸线程
+        // 误用会静默写入 user1 工作区（23#7 曾实证踩中）；启动装配
+        // （startup::assemble）显式用 at_user(…, 1) 创建引导库，测试环境
+        // 维持 root 语义
         #[cfg(not(test))]
-        let owner = super::security::principal_id().or(Some(1));
+        let owner = Some(super::security::principal_id().ok_or_else(|| {
+            BackendError::new(
+                "store_unavailable",
+                "本地会话身份缺失，拒绝打开数据层",
+            )
+        })?);
         #[cfg(test)]
         let owner = super::security::principal_id();
         Self::open(root, owner)
@@ -166,6 +175,11 @@ impl Store {
         }
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "busy_timeout", 10000)?;
+        // 27#7：WAL 常规搭配 synchronous=NORMAL——每提交 fsync 的 FULL 在
+        // Windows 上放大流式 delta 的写延迟；NORMAL 下断电最多丢最后一次
+        // 提交（WAL 不损坏、checkpoint 仍可靠），事件 outbox 的顺序与重放
+        // 语义不受影响（见 note/产品与技术决策.md）
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version > 1 {
             return Err(BackendError::new(
@@ -191,7 +205,11 @@ impl Store {
                 kind TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            );",
+            );
+            -- 27#2：流式期间 getProviderChat 按 kind+json_extract(requestId) 重放
+            -- delta（前端 8 个页面 150ms 轮询），表达式索引让该查询免全表扫描
+            CREATE INDEX IF NOT EXISTS events_kind_request
+                ON events(kind, json_extract(payload, '$.requestId'));",
         )?;
         let fingerprint = Self::schema_fingerprint(&conn)?;
         let recorded: Option<String> = conn
@@ -335,6 +353,18 @@ impl Store {
     }
 
     pub(crate) fn ensure_quota(&self, resource: &str, additional: u64) -> Result<()> {
+        self.ensure_quota_in_tx(&self.conn, resource, additional)
+    }
+
+    /// 25#18：配额计数在调用方写事务内执行——原 ensure_quota 在只读连接上
+    /// check-then-insert，窗口内并发写可超限在途并发数；把计数放进与插入
+    /// 相同的事务（调用方持 IMMEDIATE 写锁）后窗口关闭
+    pub(crate) fn ensure_quota_in_tx(
+        &self,
+        conn: &Connection,
+        resource: &str,
+        additional: u64,
+    ) -> Result<()> {
         let Some(user_id) = self.owner_id else {
             return Ok(());
         };
@@ -346,36 +376,32 @@ impl Store {
             .query_row(
                 "SELECT item_limit FROM security_quotas WHERE user_id = ?1 AND resource = ?2",
                 params![user_id, resource],
-                |row| row.get::<_, i64>(0),
+                |row| row.get(0),
             )
             .optional()?;
         let Some(limit) = limit else {
             return Ok(());
         };
         let used: i64 = match resource {
-            "notes" => self.conn.query_row(
+            "notes" => conn.query_row(
                 "SELECT COUNT(*) FROM kv WHERE namespace = 'notes'",
                 [],
                 |row| row.get(0),
             )?,
-            "materials" => self
-                .conn
-                .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?,
+            "materials" => {
+                conn.query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?
+            }
             "sessions" => {
-                self.conn
-                    .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))?
+                conn.query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))?
             }
             // 03#10：threads 配额按帖子与回复总数计，回复不再无限突破上限
-            "threads" => {
-                self.conn.query_row(
-                    "SELECT (SELECT COUNT(*) FROM community_posts) + (SELECT COUNT(*) FROM community_replies)",
-                    [],
-                    |row| row.get(0),
-                )?
-            }
+            "threads" => conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM community_posts) + (SELECT COUNT(*) FROM community_replies)",
+                [],
+                |row| row.get(0),
+            )?,
             "agent_memory" => {
-                self.conn
-                    .query_row("SELECT COUNT(*) FROM agent_memory", [], |row| row.get(0))?
+                conn.query_row("SELECT COUNT(*) FROM agent_memory", [], |row| row.get(0))?
             }
             _ => return Err(BackendError::invalid("invalid_quota", "未知的资源配额")),
         };
@@ -547,17 +573,23 @@ impl Store {
         } else {
             validate_collection(namespace, value)?;
         }
-        if namespace == "notes" {
+        // 25#18：notes 配额的增量先算好，计数检查放进下方写事务内执行
+        let notes_quota = if namespace == "notes" {
             let next = value.as_array().map_or(0, Vec::len);
             let current = self
                 .collection("notes")?
                 .value
                 .as_array()
                 .map_or(0, Vec::len);
-            self.ensure_quota("notes", next.saturating_sub(current) as u64)?;
-        }
+            Some(next.saturating_sub(current) as u64)
+        } else {
+            None
+        };
         // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT
         let tx = self.write_transaction()?;
+        if let Some(additional) = notes_quota {
+            self.ensure_quota_in_tx(&tx, "notes", additional)?;
+        }
         let revision = Self::next_revision(&tx, namespace)?;
         if revision - 1 != expected_revision {
             return Err(BackendError::new(

@@ -198,7 +198,7 @@ export default function App() {
     try {
       const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(focusTaskRef.current, 25 * 60)
       setFocusSession(next)
-    } catch (error) { reportBackendError(error) } finally { setFocusBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setFocusBusy(false) }
   }
   const finishFocus = async (cancelled: boolean): Promise<FocusSession | null> => {
     if (!focusSession || focusBusy) return null
@@ -209,7 +209,19 @@ export default function App() {
       focusTaskRef.current = null
       notify(`${cancelled ? '已取消并保存' : '已完成'} ${done.actualSeconds} 秒真实专注`)
       return done
-    } catch (error) { reportBackendError(error); return null } finally { setFocusBusy(false) }
+    } catch (error) {
+      // 19#2：会话已在别处收尾（并发完成/重启恢复）——本地作废，避免
+      // 计时层每秒重试造成 1Hz 错误风暴
+      const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : ''
+      if (code === 'no_active_focus') {
+        setFocusSession(null)
+        focusTaskRef.current = null
+        notify('专注会话已结束')
+        return null
+      }
+      reportBackendError(error, 'write')
+      return null
+    } finally { setFocusBusy(false) }
   }
   const resetFocus = async () => {
     if (focusSession && ['running', 'paused'].includes(focusSession.status) && !(await finishFocus(true))) return
@@ -221,7 +233,9 @@ export default function App() {
     if (!quickTitle.trim()) return
     try {
       if (quickType === '任务') await setTasks([...tasks, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
-      else await setNotes([{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
+      // 19#3：updated 持久化 ISO 时间戳（渲染层格式化为相对时间），不再写入
+      // 相对时间文案「刚刚」——那会让笔记永远显示"刚刚"
+      else await setNotes([{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: new Date().toISOString(), content: quickTitle.trim() }, ...notes])
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
     } catch (error) { reportBackendError(error, 'write') }
   }

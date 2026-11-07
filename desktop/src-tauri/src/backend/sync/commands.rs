@@ -23,6 +23,11 @@ pub fn start_sync_job<R: Runtime>(
     kind: String,
     destination: Option<String>,
 ) -> Result<SyncJobView> {
+    // 23#10：下载/恢复写盘与 backup/export 等域共用第二道遏制（08#2）——
+    // 目的地不得指向应用数据目录内，防止注入脚本借同步下载覆盖工作区文件
+    if let Some(target) = destination.as_deref() {
+        super::super::reject_data_root_destination(&app, std::path::Path::new(target))?;
+    }
     super::start(&app, &SyncService::new(&state.learning), kind, destination)
 }
 
@@ -58,6 +63,10 @@ pub fn restore_sync_version<R: Runtime>(
     version_path: String,
     destination: Option<String>,
 ) -> Result<SyncJobView> {
+    // 23#10：同 start_sync_job——恢复写盘目的地不得位于应用数据目录内
+    if let Some(target) = destination.as_deref() {
+        super::super::reject_data_root_destination(&app, std::path::Path::new(target))?;
+    }
     super::restore(
         &app,
         &SyncService::new(&state.learning),

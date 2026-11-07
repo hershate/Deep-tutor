@@ -642,7 +642,8 @@ pub fn iteration_note<R: Runtime>(
         "projectVersionId": input.version_id,
     });
     super::store::validate_collection("notes", &Value::Array(vec![note.clone()]))?;
-    store.ensure_quota("notes", 1)?;
+    // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+    store.ensure_quota_in_tx(&tx, "notes", 1)?;
     Store::insert_json(&tx, "notes", &id, &note)?;
     let revision = Store::next_revision(&tx, "notes")?;
     let event = Store::event(

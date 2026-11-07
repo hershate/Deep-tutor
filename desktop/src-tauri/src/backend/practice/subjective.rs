@@ -465,7 +465,10 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
             "主观评分已取消，未写入模型评分",
         ));
     }
-    if !correct {
+    // B-11（23#2）：hints 模式承诺「只给提示不显示答案」——主观题的总体反馈
+    // 文本即答案信号，写错题本会经错题本 UI 与错题变式提示词（variants JOIN
+    // practice_mistakes）两个旁路泄露；与客观题路径（practice/mod.rs）同守卫
+    if !correct && task.feedback_mode != "hints" {
         tx.execute(
             "INSERT INTO practice_mistakes (question_id, reason, last_wrong_at) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET wrong_count = wrong_count + 1, last_wrong_at = excluded.last_wrong_at, mastered = 0, mastered_question_id = NULL",
             params![task.question_id, overall_feedback, timestamp],
@@ -508,9 +511,12 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
             "answered": answered, "correct": reveal.then_some(correct), "requestId": request_id,
         }),
     )?];
-    if let Some(source_question_id) =
-        super::variants::mark_mastered(&tx, task.question_id, correct)?
-    {
+    // 23#2：hints 模式不下发掌握事件——事件本身即"答对"信号，与遮蔽口径一致
+    if let Some(source_question_id) = super::variants::mark_mastered(
+        &tx,
+        task.question_id,
+        correct && task.feedback_mode != "hints",
+    )? {
         events.push(Store::event(
             &tx,
             "practice.mistake_mastered_by_variant",

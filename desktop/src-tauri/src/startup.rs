@@ -116,7 +116,15 @@ fn validate_location(path: &Path) -> Result<()> {
                 "数据目录必须位于本机磁盘，不能使用网络共享目录",
             ));
         }
-        let candidate = path.to_string_lossy().to_lowercase();
+        // 25#18：`\\?\C:\Windows`（VerbatimDisk）与 `C:\Windows`（Disk）的
+        // 组件前缀不同，Path::starts_with 恒 false 会绕过系统目录黑名单——
+        // 先剥掉 verbatim 前缀再比较
+        let candidate = {
+            let text = path.to_string_lossy().to_lowercase();
+            text.strip_prefix(r"\\?\")
+                .map(str::to_string)
+                .unwrap_or(text)
+        };
         for name in [
             "SystemRoot",
             "ProgramFiles",
@@ -338,7 +346,10 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
     let path = root.join("deep-tutor.db");
     app.manage(security::SecurityState::new(&path));
     prepare_directory(root)?;
-    let store = Store::new(&path)?;
+    // 22#1：装配先于会话初始化、无 principal——显式以 user1 打开引导库
+    // （含旧版单库向 user1 工作区的迁移），不再依赖 Store::new 的隐式回退；
+    // 首条受守卫命令经 prepare_store 切到实际登录用户
+    let store = Store::at_user(&path, 1)?;
     let material_state = materials::MaterialState::new(&path)?;
     let provider_state = providers::ProviderState::new(&path)?;
     let learning_state = learning::LearningState::new(&path, &provider_state, &material_state);

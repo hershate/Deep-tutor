@@ -188,6 +188,14 @@ where
                             return Err(output.error("invalid_tool_call", "工具参数缺少对应的调用"));
                         };
                         if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                            // 25#17：对齐 openai.rs 的 256 KB 上限——自配的故障
+                            // 端点可用 endless delta 使内存无界增长
+                            if call.arguments.len().saturating_add(delta.len()) > 256 * 1024 {
+                                return Err(output.error(
+                                    "response_too_large",
+                                    "单个工具参数超过 256 KB 上限",
+                                ));
+                            }
                             call.arguments.push_str(delta);
                         }
                     }
@@ -205,6 +213,13 @@ where
                                 );
                             };
                             if !arguments.is_empty() {
+                                // 25#17：done 事件整段替换同样受 256 KB 上限约束
+                                if arguments.len() > 256 * 1024 {
+                                    return Err(output.error(
+                                        "response_too_large",
+                                        "单个工具参数超过 256 KB 上限",
+                                    ));
+                                }
                                 call.arguments = arguments.into();
                             }
                         }

@@ -135,7 +135,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     try {
       setVersions((await projectsBackend.resume(currentVersion.id)).versions)
       notify('已从原提交恢复真实评价，不重复已完成请求')
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const saveNote = async () => {
     if (!currentVersion || !note.trim() || busy) return

@@ -33,5 +33,7 @@ export const securityBackend = {
   removeUser: (userId: number) => invoke<SecurityOverview>('remove_local_user', { userId }),
   createToken: (name: string) => invoke<CreatedToken>('create_access_token', { name }),
   revokeToken: (tokenId: number) => invoke<SecurityOverview>('revoke_access_token', { tokenId }),
+  // 21#1：PAT 登录入口——验证通过即为令牌所属用户签发新会话
+  authenticateToken: (token: string) => invoke<LocalUser>('authenticate_access_token', { token }),
   setQuota: (userId: number, resource: string, limit: number) => invoke<SecurityOverview>('set_security_quota', { userId, resource, limit }),
 }

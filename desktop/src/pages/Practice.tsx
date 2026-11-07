@@ -115,7 +115,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
       chooseSet(await practiceBackend.resume(detail.set.id))
       await refresh()
       notify('已从保存的任务状态恢复生成')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const submit = async () => {
     if (!detail || busy) return

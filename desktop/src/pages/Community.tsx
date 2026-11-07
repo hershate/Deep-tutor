@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowRight, CalendarClock, Check, Heart, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from 'lucide-react'
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, SectionHeader } from '../components/UI'
-import { backend, onBackendEvent, reportBackendError } from '../backend/client'
+import { backend, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
 import { communityBackend, type CommunityOverview, type PostKind } from '../backend/community'
 import { clampToBytes } from '../limits'
 
@@ -113,11 +113,15 @@ export default function Community({ notify }: { notify: (message: string) => voi
       await (reserved ? communityBackend.cancelReservation(id) : communityBackend.reserve(id))
       await refresh()
       notify(reserved ? '已取消预约，未发送的提醒已移除' : '预约已保存，提醒时间由后端计算')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) {
+      // 29#1：列表滞后时重复点"取消预约"，not_reserved/room_not_available 表示
+      // 目标已被另一操作正常处理，刷新即可，不弹错误
+      if (!isCancelRace(error)) reportBackendError(error)
+    }
   }
   const cancelRoom = async (id: number) => {
     try { await communityBackend.cancelRoom(id); await refresh(); notify('学习安排已取消，相关预约与提醒已同步取消') }
-    catch (error) { reportBackendError(error) }
+    catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
 
   const upcoming = data?.rooms.filter(room => room.status === 'scheduled' && Date.parse(room.startAt) > Date.parse(data.now)).sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0]

@@ -481,7 +481,11 @@ pub(crate) fn begin_unit<R: Runtime>(
     let attempt = if status == "running" || reusable {
         previous_attempt
     } else {
-        previous_attempt + 1
+        // 25#6：对齐流水线步（learning/mod.rs）的防线——裸 +1 在 release 下
+        // 会回绕，checked_add 溢出时以类型化错误拒绝
+        previous_attempt
+            .checked_add(1)
+            .ok_or_else(|| BackendError::new("too_many_attempts", "讲义单元重试次数已用尽"))?
     };
     let request_id = if (status == "running" || reusable) && previous_request.is_some() {
         previous_request.unwrap()

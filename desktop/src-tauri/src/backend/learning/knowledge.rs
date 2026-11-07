@@ -318,9 +318,10 @@ pub fn save_note<R: Runtime>(
         .and_then(|result| result.stages.iter().find(|stage| stage.id == stage_id))
         .ok_or_else(|| BackendError::new("not_found", "学习阶段不存在"))?;
     let store = state.store()?;
-    // 批注同样占用 notes 配额，与笔记导入/集合替换路径保持一致
-    store.ensure_quota("notes", 1)?;
     let tx = store.conn.unchecked_transaction()?;
+    // 批注同样占用 notes 配额，与笔记导入/集合替换路径保持一致；
+    // 25#18：计数与插入同事务，关闭 check-then-insert 并发窗口
+    store.ensure_quota_in_tx(&tx, "notes", 1)?;
     let note_id = Store::next_free_id(&tx, "notes")?
         .parse::<i64>()
         .map_err(|_| BackendError::new("storage_failed", "无法分配批注标识"))?;

@@ -734,10 +734,11 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                 params![key],
                 |row| row.get(0),
             )?;
-            if !key_exists {
-                store.ensure_quota("agent_memory", 1)?;
-            }
             let tx = store.conn.unchecked_transaction()?;
+            // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+            if !key_exists {
+                store.ensure_quota_in_tx(&tx, "agent_memory", 1)?;
+            }
             tx.execute("INSERT INTO agent_memory (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", params![key, value, now()?])?;
             resolve_pending(&tx, id, "approved", &now()?)?;
             let event = Store::event(

@@ -1,3 +1,4 @@
+use super::super::security::{principal_id, with_principal};
 use super::super::{error::Result, BackendState};
 use super::{
     active, deep_link, delete, export_config, list, set_active, test, upsert, ChatMessage,
@@ -23,11 +24,17 @@ pub async fn upsert_provider_profile<R: Runtime>(
     input: ProfileInput,
 ) -> Result<ProviderProfile> {
     let state = state.providers.shared();
-    tauri::async_runtime::spawn_blocking(move || upsert(&app, &state, input))
-        .await
-        .map_err(|_| {
-            super::super::error::BackendError::new("task_join_failed", "供应商档案保存任务异常终止")
-        })?
+    // 23#7：spawn_blocking 线程不继承 guard 在 IPC 线程设置的 thread-local
+    // principal——在此捕获并显式传播，否则 Store::new 会 fail-open 落到
+    // user1 工作区，把其他用户的档案/密钥/请求写进 user1 的库
+    let principal = principal_id();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_principal(principal, || upsert(&app, &state, input))
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("task_join_failed", "供应商档案保存任务异常终止")
+    })?
 }
 
 #[tauri::command]
@@ -70,11 +77,15 @@ pub async fn test_provider<R: Runtime>(
     real_request: bool,
 ) -> Result<ProviderTestResult> {
     let state = state.providers.shared();
-    tauri::async_runtime::spawn_blocking(move || test(&app, &state, &id, real_request))
-        .await
-        .map_err(|_| {
-            super::super::error::BackendError::new("task_join_failed", "供应商检测任务异常终止")
-        })?
+    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
+    let principal = principal_id();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_principal(principal, || test(&app, &state, &id, real_request))
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("task_join_failed", "供应商检测任务异常终止")
+    })?
 }
 
 #[tauri::command(async)]
@@ -87,47 +98,23 @@ pub async fn stream_provider_chat<R: Runtime>(
     max_tokens: u32,
 ) -> Result<super::ProviderRequest> {
     let state = state.providers.shared();
+    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
+    let principal = principal_id();
     tauri::async_runtime::spawn_blocking(move || {
-        super::stream_chat(
-            &app,
-            &state,
-            &request_id,
-            &profile_id,
-            &messages,
-            max_tokens,
-        )
+        with_principal(principal, || {
+            super::stream_chat(
+                &app,
+                &state,
+                &request_id,
+                &profile_id,
+                &messages,
+                max_tokens,
+            )
+        })
     })
     .await
     .map_err(|_| {
         super::super::error::BackendError::new("task_join_failed", "模型流式任务异常终止")
-    })?
-}
-
-#[tauri::command(async)]
-pub async fn stream_provider_chat_with_tools<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-    request_id: String,
-    profile_id: String,
-    messages: Vec<ChatMessage>,
-    max_tokens: u32,
-    tools: Option<Vec<super::tools::ToolDefinition>>,
-) -> Result<super::ProviderRequest> {
-    let state = state.providers.shared();
-    tauri::async_runtime::spawn_blocking(move || {
-        super::stream_chat_with_tools(
-            &app,
-            &state,
-            &request_id,
-            &profile_id,
-            &messages,
-            max_tokens,
-            tools.as_deref(),
-        )
-    })
-    .await
-    .map_err(|_| {
-        super::super::error::BackendError::new("task_join_failed", "工具调用流式任务异常终止")
     })?
 }
 
@@ -191,19 +178,23 @@ pub async fn route_provider_chat<R: Runtime>(
     tools: Option<Vec<super::tools::ToolDefinition>>,
 ) -> Result<super::ProviderRequest> {
     let state = state.providers.shared();
+    // 23#7：同 upsert——principal 随闭包显式传播到阻塞线程
+    let principal = principal_id();
     tauri::async_runtime::spawn_blocking(move || {
-        super::routing::stream_chat(
-            &app,
-            &state,
-            &request_id,
-            &task,
-            profile_id.as_deref(),
-            &messages,
-            max_tokens,
-            model.as_deref(),
-            tools.as_deref(),
-            false,
-        )
+        with_principal(principal, || {
+            super::routing::stream_chat(
+                &app,
+                &state,
+                &request_id,
+                &task,
+                profile_id.as_deref(),
+                &messages,
+                max_tokens,
+                model.as_deref(),
+                tools.as_deref(),
+                false,
+            )
+        })
     })
     .await
     .map_err(|_| {

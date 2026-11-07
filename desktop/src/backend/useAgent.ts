@@ -205,7 +205,8 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const resume = useCallback(async (id: number) => {
     setBusy('resume')
     try { await backend.resumeAgentRun(String(id)); if (activeIdRef.current) await refreshSession(activeIdRef.current); return true }
-    catch (cause) { setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
+    // 29#2：run_active 是"内存中已在恢复"的窄窗口竞态码，静默即可
+    catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
   }, [refreshSession])
   const remove = useCallback(async (id: number) => {
     setBusy('delete')
@@ -223,7 +224,11 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       else await backend.cancelAgentApproval(String(id))
       if (activeIdRef.current) await refreshSession(activeIdRef.current)
       return true
-    } catch (cause) { setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
+    } catch (cause) {
+      // 29#1：双击审批/两面板同时处理时 approval_resolved 表示已被正常处理
+      if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
+      return false
+    } finally { setBusy('') }
   }, [refreshSession])
 
   const retry = useCallback(async () => {

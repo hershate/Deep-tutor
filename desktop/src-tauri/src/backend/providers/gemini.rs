@@ -153,7 +153,12 @@ where
                     } else {
                         "provider_error"
                     };
-                    return Err(output.error(code, &format!("{status}：{message}")));
+                    // 29#3：上游 message 原文可能携带长技术细节/注入文本，
+                    // 用户可见文案截断到 200 字符（状态码本身有界）
+                    return Err(output.error(
+                        code,
+                        &format!("{status}：{}", message.chars().take(200).collect::<String>()),
+                    ));
                 }
                 if let Some(usage) = event.get("usageMetadata") {
                     update_usage(output, usage);

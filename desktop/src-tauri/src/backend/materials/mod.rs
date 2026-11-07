@@ -553,7 +553,6 @@ fn stage_validated<R: Runtime>(
             deduplicated: true,
         });
     }
-    store.ensure_quota("materials", 1)?;
     let destination = original_path(&state.root(), &sha256, &kind);
     fs::create_dir_all(destination.parent().unwrap_or(&state.root()))?;
     let temporary = destination.with_extension(format!(
@@ -584,6 +583,8 @@ fn stage_validated<R: Runtime>(
     let timestamp = now()?;
     let result = (|| {
         let tx = store.conn.unchecked_transaction()?;
+        // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+        store.ensure_quota_in_tx(&tx, "materials", 1)?;
         tx.execute(
             "INSERT INTO materials (title, kind, size, sha256, status, progress, warning, source_meta, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?7, ?5, ?6, ?6)",
@@ -602,6 +603,23 @@ fn stage_validated<R: Runtime>(
     let (id, event) = match result {
         Ok(value) => value,
         Err(error) => {
+            // 25#11：并发导入同哈希时后来者撞 UNIQUE——此刻目标库已有等价记录，
+            // 其原件正是本路径刚写入的文件，绝不能按旧逻辑删除（否则先提交
+            // 记录指向的原件被删，永久 missing_original）；改按查重命中返回
+            if let Some(existing) = store
+                .conn
+                .query_row(
+                    "SELECT id FROM materials WHERE sha256 = ?1",
+                    params![sha256],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+            {
+                return Ok(IngestResult {
+                    material: get(&store.conn, &state.root(), existing)?,
+                    deduplicated: true,
+                });
+            }
             if !reused {
                 let _ = fs::remove_file(&destination);
             }

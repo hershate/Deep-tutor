@@ -173,16 +173,17 @@ pub fn clear_all(conn: &Connection) -> Result<()> {
 }
 
 fn locate(source: &Scope, quote: &str) -> Result<KnowledgeCitation> {
-    if !(2..=1000).contains(&quote.chars().count()) {
+    // 25#2：下限放宽到 1 字——中文单字检索词常见，2 字门槛使其永远无引用
+    if !(1..=1000).contains(&quote.chars().count()) {
         return Err(BackendError::new(
             "citation_mismatch",
-            "引用长度须为 2 到 1000 字",
+            "引用长度须为 1 到 1000 字",
         ));
     }
-    let byte_start = source
-        .text
-        .find(quote)
-        .ok_or_else(|| BackendError::new("citation_mismatch", "引用无法在所选资料原文中定位"))?;
+    let (byte_start, byte_end) = find_ignoring_case(&source.text, quote).ok_or_else(|| {
+        BackendError::new("citation_mismatch", "引用无法在所选资料原文中定位")
+    })?;
+    let matched = &source.text[byte_start..byte_end];
     let char_start = source.text[..byte_start].chars().count();
     let line = source.text[..byte_start]
         .bytes()
@@ -193,9 +194,9 @@ fn locate(source: &Scope, quote: &str) -> Result<KnowledgeCitation> {
         material_id: source.source.material_id,
         title: source.source.title.clone(),
         sha256: source.source.sha256.clone(),
-        quote: quote.to_string(),
+        quote: matched.to_string(),
         char_start,
-        char_end: char_start + quote.chars().count(),
+        char_end: char_start + matched.chars().count(),
         line,
     })
 }
@@ -296,7 +297,9 @@ pub fn list(state: &KnowledgeState) -> Result<Vec<KnowledgeSession>> {
 }
 
 fn excerpt(text: &str, query: &str) -> String {
-    let Some(start) = text.find(query) else {
+    // 25#2：检索词已折叠小写、原文任意大小写——摘录定位同样忽略大小写，
+    // 否则命中"Bayes"却摘录开头 180 字，摘要与命中点脱节
+    let Some((start, _)) = find_ignoring_case(text, query) else {
         return text.chars().take(180).collect();
     };
     let prefix = text[..start]
@@ -309,6 +312,29 @@ fn excerpt(text: &str, query: &str) -> String {
         .collect::<String>();
     let suffix = text[start..].chars().take(160).collect::<String>();
     format!("{prefix}{suffix}")
+}
+
+/// 25#2：大小写不敏感定位——检索侧统一 to_lowercase，而原文保留任意大小写
+/// （查 "bayes" 命中 "Bayes"）；返回匹配窗口在原文中的字节区间
+fn find_ignoring_case(haystack: &str, needle: &str) -> Option<(usize, usize)> {
+    let needle: Vec<char> = needle.chars().collect();
+    if needle.is_empty() {
+        return None;
+    }
+    for (offset, _) in haystack.char_indices() {
+        let mut window = haystack[offset..].char_indices();
+        let mut end = offset;
+        let matched = needle.iter().all(|expected| {
+            window.next().is_some_and(|(index, actual)| {
+                end = index + actual.len_utf8();
+                actual.to_lowercase().eq(expected.to_lowercase())
+            })
+        });
+        if matched {
+            return Some((offset, end));
+        }
+    }
+    None
 }
 
 fn search_hit(

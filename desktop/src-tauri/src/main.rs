@@ -136,6 +136,7 @@ fn main() {
             security::commands::remove_local_user,
             security::commands::create_access_token,
             security::commands::revoke_access_token,
+            // 21#1：PAT 登录入口已接入安全面板（verify 通过即签发会话）
             security::commands::authenticate_access_token,
             security::commands::set_security_quota,
             materials::commands::import_material_files,
@@ -163,7 +164,8 @@ fn main() {
             providers::commands::import_provider_deep_link,
             providers::commands::test_provider,
             providers::commands::stream_provider_chat,
-            providers::commands::stream_provider_chat_with_tools,
+            // 21#2：stream_provider_chat_with_tools 前端零调用（Agent 工具流量
+            // 经 route_provider_chat 在 Rust 内部直调），从注册表移除收敛 IPC 面
             providers::commands::cancel_provider_chat,
             providers::commands::get_provider_chat,
             providers::commands::get_routing_settings,

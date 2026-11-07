@@ -246,7 +246,11 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                 }
             }
             if !transfer.reused.contains(&reuse_key)
-                && !["meta", "provider_meta", "revisions", "sync_config"].contains(table)
+                // 25#13：study_checkins 主键是真实业务日期——改写会造出
+                // "imported-N" 假日期脏行（按日期等值查询的日历静默漏算），
+                // 与 meta 等表一样保留原键、交给 global_conflict 按日期跳过
+                && !["meta", "provider_meta", "revisions", "sync_config", "study_checkins"]
+                    .contains(table)
                 && (exists(target, table, &primary.name, &mapped)?
                     || allocated.contains(&key(&mapped)?))
             {
@@ -453,6 +457,18 @@ fn map_plain(value: &Value, target: &str, maps: &IdMap) -> Result<Value> {
 fn reference(table: &str, column: &str) -> Option<&'static str> {
     if table == "provider_profiles" {
         return None;
+    }
+    // 23#4：主键=外键的三张子表——主键必须随父表映射重写（prepare_ids 因此
+    // 跳过对它们的自编号重映射），否则子表按自身 MAX+1 重映射后会挂错父
+    // 记录或撞外键
+    if column == "material_id" && table == "material_text" {
+        return Some("materials");
+    }
+    if column == "group_id" && table == "community_group_members" {
+        return Some("community_groups");
+    }
+    if column == "room_id" && table == "community_reservations" {
+        return Some("community_rooms");
     }
     if column == "provider_id" {
         return Some("provider_profiles");
@@ -798,10 +814,12 @@ fn insert_row(tx: &Connection, table: &str, schema: &[Column], row: &Row) -> Res
         &format!("INSERT INTO \"{table}\" ({names}) VALUES ({placeholders})"),
         params_from_iter(values),
     )
-    .map_err(|error| {
+    .map_err(|_| {
+        // 29#3：不向用户透出 rusqlite 的 SQL 内部结构（"UNIQUE constraint
+        // failed: …"），错误码 + 表名已足够定位
         BackendError::new(
             "backup_constraint_failed",
-            &format!("备份表 {table} 未通过当前数据库约束：{error}；未导入任何记录"),
+            &format!("备份表 {table} 未通过当前数据库约束，未导入任何记录"),
         )
     })?;
     Ok(())
@@ -873,6 +891,26 @@ fn import_kv(transfer: &mut Transfer, tx: &Connection) -> Result<()> {
 }
 
 fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
+    // 23#5：security_quotas 是复合主键 (user_id, resource)，prepare_ids 不做
+    // 主键重映射——登录用户重复恢复自己的备份时按原键整体跳过，不再撞
+    // UNIQUE 导致整单回滚
+    if table == "security_quotas" {
+        let user = row
+            .get("user_id")
+            .and_then(Value::as_i64)
+            .ok_or_else(invalid_record)?;
+        let resource = row
+            .get("resource")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid_record)?
+            .to_string();
+        let occupied: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM security_quotas WHERE user_id = ?1 AND resource = ?2)",
+            params![user, resource],
+            |row| row.get(0),
+        )?;
+        return Ok(occupied);
+    }
     let key = match table {
         "meta" | "provider_meta" => "key",
         "revisions" => "namespace",
@@ -935,6 +973,20 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                 });
                 if source
                     .is_some_and(|source| transfer.reused.contains(&format!("materials:{source}")))
+                {
+                    continue;
+                }
+            }
+            // 23#4：material_text 主键随父资料映射——父资料按同哈希复用目标侧
+            // 已有记录时，目标侧已持有该资料的解析文本，跳过避免撞主键
+            if *table == "material_text" {
+                let original = row
+                    .get("material_id")
+                    .cloned()
+                    .ok_or_else(invalid_record)?;
+                if transfer
+                    .reused
+                    .contains(&format!("materials:{}", key(&original)?))
                 {
                     continue;
                 }
@@ -1103,8 +1155,6 @@ pub fn dry_run(
         Connection::open_with_flags(&backup.database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.execute("PRAGMA query_only = ON", [])?;
     let mut transfer = read_tables(&source, &store.conn)?;
-    prepare_ids(&mut transfer, &store.conn)?;
-    let ordered = order(&transfer, &store.conn)?;
     let root = state
         .workspace_path()
         .parent()
@@ -1114,6 +1164,10 @@ pub fn dry_run(
     // 目标文件系统仅读校验；插件清单校验也在这里完成
     stage_files(&mut transfer, backup, &root)?;
     let tx = store.conn.unchecked_transaction()?;
+    // 25#14：与 import 同步——ID 分配在事务内执行，预演与真实导入的
+    // 冲突判定保持同一套时序
+    prepare_ids(&mut transfer, &tx)?;
+    let ordered = order(&transfer, &tx)?;
     import_rows(&mut transfer, &tx, &ordered)?;
     tx.rollback()?;
     Ok(transfer.counts)
@@ -1128,8 +1182,6 @@ pub fn import(
         Connection::open_with_flags(&backup.database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.execute("PRAGMA query_only = ON", [])?;
     let mut transfer = read_tables(&source, &store.conn)?;
-    prepare_ids(&mut transfer, &store.conn)?;
-    let ordered = order(&transfer, &store.conn)?;
     let root = state
         .workspace_path()
         .parent()
@@ -1138,7 +1190,15 @@ pub fn import(
     let staged = stage_files(&mut transfer, backup, &root)?;
     let mut installed = Vec::new();
     let outcome = (|| {
-        let tx = store.conn.unchecked_transaction()?;
+        // 25#14：ID 冲突分配与依赖排序放进 IMMEDIATE 事务——原实现在
+        // autocommit 态算 MAX+1 再开事务，窗口内其他连接写入同号 id 时
+        // 以 backup_constraint_failed 整单回滚；持写锁后再分配可关闭该窗口
+        let tx = rusqlite::Transaction::new_unchecked(
+            &store.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        prepare_ids(&mut transfer, &tx)?;
+        let ordered = order(&transfer, &tx)?;
         import_rows(&mut transfer, &tx, &ordered)?;
         installed = install_files(&root, &staged)?;
         tx.commit()?;

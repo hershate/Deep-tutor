@@ -419,44 +419,69 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
     })
 }
 
-fn known_spend(entries: &[UsageEntry]) -> f64 {
-    entries.iter().filter_map(|entry| entry.cost).sum()
+// 27#3：ensure_budget 改为 SQL 聚合（budget_spend），原内存版 known_spend 移除
+
+enum BudgetScope {
+    Daily { shift: String, today: String },
+    Session { prefix: String },
+}
+
+/// 27#3：预算聚合下推 SQL——原实现把 provider_requests 全表读入内存（每行
+/// JSON 解析 + 费率点查）且在每次模型请求开始前执行，请求启动延迟随历史
+/// 线性增长；聚合口径与 cost() 一致（缺 usage 或缺费率的行贡献 0）
+fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
+    let (clause, values): (&str, Vec<String>) = match scope {
+        BudgetScope::Daily { shift, today } => (" AND date(r.created_at, ?1) = ?2", vec![shift, today]),
+        BudgetScope::Session { prefix } => (" AND r.request_id GLOB ?1", vec![prefix]),
+    };
+    let spend: f64 = conn.query_row(
+        &format!(
+            "SELECT COALESCE(SUM(CAST(json_extract(r.usage_json, '$.inputTokens') AS REAL) * rates.input_per_million / 1000000.0
+                + CAST(json_extract(r.usage_json, '$.outputTokens') AS REAL) * rates.output_per_million / 1000000.0), 0.0)
+             FROM provider_requests r JOIN usage_rates rates ON rates.provider_id = r.provider_id AND rates.model = r.model
+             WHERE r.usage_json IS NOT NULL
+               AND json_extract(r.usage_json, '$.inputTokens') IS NOT NULL
+               AND json_extract(r.usage_json, '$.outputTokens') IS NOT NULL{clause}"
+        ),
+        rusqlite::params_from_iter(values),
+        |row| row.get(0),
+    )?;
+    Ok(spend)
+}
+
+/// RFC 3339 偏移 → SQLite 时间修饰符（±HH:MM），供 date(created_at, ?) 本地日过滤
+fn offset_modifier(offset: time::UtcOffset) -> String {
+    let minutes = offset.whole_seconds() / 60;
+    let sign = if minutes < 0 { '-' } else { '+' };
+    let minutes = minutes.unsigned_abs();
+    format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
 pub fn ensure_budget(state: &ProviderState, session_id: Option<i64>) -> Result<()> {
     let settings = settings(state)?;
     let store = state.store()?;
-    let entries = entries(&store.conn)?;
     let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-    let today = local.date();
-    let daily = entries
-        .iter()
-        .filter(|entry| local_date(&entry.created_at, local.offset()).ok() == Some(today))
-        .cloned()
-        .collect::<Vec<_>>();
-    if known_spend(&daily) >= settings.daily_usd {
+    let daily = budget_spend(
+        &store.conn,
+        BudgetScope::Daily {
+            shift: offset_modifier(local.offset()),
+            today: local.date().to_string(),
+        },
+    )?;
+    if daily >= settings.daily_usd {
         return Err(BackendError::new(
             "daily_budget_exceeded",
             "已记录费用已达到每日预算，未发起新的模型请求",
         ));
     }
     if let Some(session_id) = session_id {
-        let mut statement = store
-            .conn
-            .prepare("SELECT id FROM agent_runs WHERE session_id = ?1")?;
-        let ids = statement
-            .query_map(params![session_id], |row| row.get::<_, i64>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        drop(statement);
-        let session_entries = entries
-            .iter()
-            .filter(|entry| {
-                ids.iter()
-                    .any(|id| entry.request_id.starts_with(&format!("agent-{id}-")))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if known_spend(&session_entries) >= settings.session_usd {
+        let session = budget_spend(
+            &store.conn,
+            BudgetScope::Session {
+                prefix: format!("agent-{session_id}-*"),
+            },
+        )?;
+        if session >= settings.session_usd {
             return Err(BackendError::new(
                 "session_budget_exceeded",
                 "本会话已记录费用达到预算，未发起新的模型请求",

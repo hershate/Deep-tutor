@@ -111,6 +111,21 @@ fn latest_plan(state: &PlanningState, id: Option<&str>) -> Result<Option<Plan>> 
     }
 }
 
+/// 目标方案口径（25#5）：最近采用的方案优先，无采用记录回退最新——
+/// 与首页/报告/学习空间一致，强度切换不得改写未采用的更新草稿。
+fn adopted_first_plan(state: &PlanningState) -> Result<Option<Plan>> {
+    let store = state.store()?;
+    let all_plans = super::learning::list(&state.learning)?;
+    Ok(match super::engagement::adopted_plan_id(&store.conn) {
+        Some(adopted) => all_plans
+            .iter()
+            .find(|plan| super::learning::plan_id(&plan.id).ok() == Some(adopted))
+            .cloned()
+            .or_else(|| all_plans.first().cloned()),
+        None => all_plans.first().cloned(),
+    })
+}
+
 fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Result<PlanOverview> {
     let store = state.store()?;
     let week_start = monday(start)?;
@@ -334,7 +349,16 @@ pub fn apply_intensity<R: Runtime>(
     week_start: Option<String>,
 ) -> Result<PlanOverview> {
     factor(&intensity)?;
-    let current = get_overview(state, week_start.clone())?;
+    // 25#5：目标方案口径与首页/报告一致（最近采用优先），否则会改写未采用的
+    // 更新草稿，而界面仍展示已采用方案
+    let start = match week_start.clone() {
+        Some(value) => date(&value)?,
+        None => OffsetDateTime::now_local()
+            .unwrap_or_else(|_| OffsetDateTime::now_utc())
+            .date(),
+    };
+    let plan = adopted_first_plan(state)?;
+    let current = overview(state, start, plan)?;
     let store = state.store()?;
     let preferences_record = store.collection("preferences")?;
     let tasks_record = store.collection("tasks")?;
@@ -367,7 +391,7 @@ pub fn apply_intensity<R: Runtime>(
         )?;
         tx.commit()?;
         emit(app, &event);
-        return get_overview(state, week_start);
+        return overview(state, start, None);
     };
     let numeric = super::learning::plan_id(&plan.id)?;
     let mut statement =
@@ -411,17 +435,9 @@ pub fn apply_intensity<R: Runtime>(
         |row| row.get::<_, String>(0),
     )?)?;
     input.daily_minutes = scaled(input.daily_minutes, &current.intensity, &intensity)?;
-    let days = i64::from(result.schedule.days.max(1));
-    result.schedule.within_deadline = date(&result.schedule.end_date)?
-        >= date(&result.schedule.start_date)?
-        && result.schedule.total_minutes <= input.daily_minutes.saturating_mul(days as u32);
-    if let Some(milestone) = &result.schedule.milestone_date {
-        let days = (date(milestone)? - date(&result.schedule.start_date)?)
-            .whole_days()
-            .max(1) as u32;
-        result.schedule.within_milestone =
-            Some(result.schedule.total_minutes <= input.daily_minutes.saturating_mul(days));
-    }
+    // 23#1：within_deadline/within_milestone 是"结束日 <= 截止日"的日期语义
+    // （learning/validate.rs），强度切换不改变日期——不得用容量不等式重算，
+    // 否则逾期方案会被持久化翻成"在目标日内"；保持生成时的标志不动
     tx.execute("UPDATE learning_plans SET input_json = ?1, result_json = ?2, updated_at = ?3 WHERE id = ?4", params![serde_json::to_string(&input)?, serde_json::to_string(&result)?, timestamp(OffsetDateTime::now_utc())?, numeric])?;
     for task in tasks.as_array().into_iter().flatten() {
         super::store::Store::insert_json(
@@ -442,7 +458,7 @@ pub fn apply_intensity<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
-    get_overview(state, week_start)
+    overview(state, start, adopted_first_plan(state)?)
 }
 
 pub fn update_goal<R: Runtime>(
@@ -456,6 +472,23 @@ pub fn update_goal<R: Runtime>(
         return Err(BackendError::new(
             "plan_adopted",
             "已采用的方案不能直接重生成，请保留历史并创建新方案",
+        ));
+    }
+    // 25#4：先做与 regenerate 相同的状态/次数校验再落库——原实现先提交
+    // goal/deadline/偏好再由 regenerate 拒绝，留下"目标已改写但未重生成"的
+    // 部分提交状态
+    if !["done", "degraded"].contains(&plan.status.as_str()) {
+        return Err(BackendError::new(
+            "plan_not_ready",
+            "只有完成或降级的方案可以调整目标",
+        ));
+    }
+    let regeneration_limit =
+        super::providers::usage::settings(state.learning.providers())?.regeneration_limit;
+    if plan.version > u32::from(regeneration_limit) {
+        return Err(BackendError::new(
+            "regeneration_limit",
+            &format!("每个方案最多局部重生成 {regeneration_limit} 次"),
         ));
     }
     let goal = input.goal.trim().to_string();

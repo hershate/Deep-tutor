@@ -168,6 +168,14 @@ fn parse_time(value: &str) -> Result<OffsetDateTime> {
     })
 }
 
+/// 25#15：入库前把任意偏移的 RFC 3339 时间统一为 UTC Z 形态——后续到期/重叠
+/// 判定用字符串字典序比较（与 now() 的 Z 串），保留 "+08:00" 偏移会错序数小时
+fn normalize_time(value: &str) -> Result<String> {
+    Ok(parse_time(value)?
+        .to_offset(time::UtcOffset::UTC)
+        .format(&Rfc3339)?)
+}
+
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS community_posts (
@@ -401,8 +409,9 @@ pub fn create_post<R: Runtime>(
         }
         None
     };
-    store.ensure_quota("threads", 1)?;
     let tx = store.conn.unchecked_transaction()?;
+    // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+    store.ensure_quota_in_tx(&tx, "threads", 1)?;
     let timestamp = now()?;
     tx.execute(
         "INSERT INTO community_posts (title, body, kind, project_id, project_title, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
@@ -441,9 +450,10 @@ pub fn reply<R: Runtime>(
     if !exists {
         return Err(BackendError::new("not_found", "讨论不存在"));
     }
-    // 03#10：回复同样计入 threads 配额，与发帖共用同一上限
-    store.ensure_quota("threads", 1)?;
+    // 03#10：回复同样计入 threads 配额，与发帖共用同一上限；
+    // 25#18：计数与插入同事务，关闭 check-then-insert 并发窗口
     let tx = store.conn.unchecked_transaction()?;
+    store.ensure_quota_in_tx(&tx, "threads", 1)?;
     tx.execute(
         "INSERT INTO community_replies (post_id, body, created_at) VALUES (?1, ?2, ?3)",
         params![post_id, body, now()?],
@@ -758,13 +768,15 @@ pub fn create_room<R: Runtime>(
         start,
         start + Duration::minutes(input.duration_minutes as i64),
     )?;
+    // 25#15：入库统一 UTC Z 形态，不保留调用方输入的时区偏移
+    let start_at = normalize_time(&input.start_at)?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("INSERT INTO community_rooms (group_id, title, topic, start_at, duration_minutes, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6)", params![input.group_id, input.title.trim(), input.topic.trim(), input.start_at, input.duration_minutes, now()?])?;
+    tx.execute("INSERT INTO community_rooms (group_id, title, topic, start_at, duration_minutes, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6)", params![input.group_id, input.title.trim(), input.topic.trim(), start_at, input.duration_minutes, now()?])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
         &tx,
         "community.room_created",
-        json!({"roomId": id, "startAt": input.start_at}),
+        json!({"roomId": id, "startAt": start_at}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -821,10 +833,12 @@ pub fn reserve<R: Runtime>(
         }
     }
     let timestamp = now()?;
+    // 25#15：提醒时间统一 UTC Z 形态——claim 用字符串 <= 与 now() 的 Z 串比较
     let remind_at = std::cmp::max(
         parse_time(&start_at)? - Duration::minutes(15),
         OffsetDateTime::now_utc(),
     )
+    .to_offset(time::UtcOffset::UTC)
     .format(&Rfc3339)?;
     tx.execute("INSERT INTO community_reservations (room_id, reserved_at, cancelled_at) VALUES (?1, ?2, NULL) ON CONFLICT(room_id) DO UPDATE SET reserved_at = excluded.reserved_at, cancelled_at = NULL", params![id, timestamp])?;
     tx.execute("INSERT INTO community_reminders (room_id, remind_at, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(room_id) DO UPDATE SET remind_at = excluded.remind_at, delivered_at = NULL", params![id, remind_at, timestamp])?;

@@ -677,7 +677,13 @@ fn record_circuit<R: Runtime>(
 ) -> Result<()> {
     let id = profile_id(provider_id)?;
     let store = state.store()?;
-    let (previous, failures, opened_at, _) = circuit_row(&store.conn, id)?;
+    // 25#18：读-改-写放进同一 IMMEDIATE 事务——原实现在 autocommit 态读
+    // circuit_row 再开事务写回，并发失败计数互相覆盖、熔断晚开
+    let tx = rusqlite::Transaction::new_unchecked(
+        &store.conn,
+        rusqlite::TransactionBehavior::Immediate,
+    )?;
+    let (previous, failures, opened_at, _) = circuit_row(&tx, id)?;
     let eligible = error.as_ref().is_some_and(can_failover);
     let (next, failures, opened_at) = if error
         .as_ref()
@@ -706,7 +712,6 @@ fn record_circuit<R: Runtime>(
     } else {
         (previous, failures, opened_at)
     };
-    let tx = store.conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO provider_circuits (provider_id, state, failures, opened_at, error_code, error_message) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(provider_id) DO UPDATE SET state = excluded.state, failures = excluded.failures, opened_at = excluded.opened_at, error_code = excluded.error_code, error_message = excluded.error_message",
         params![id, next, failures, opened_at, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message)],

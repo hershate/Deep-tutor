@@ -298,23 +298,35 @@ pub fn create<R: Runtime>(
     }
     let store = state.store()?;
     let hash = token_hash(&token);
-    let owner = super::security::principal_id().unwrap_or(1);
+    // 25#12：无 principal 显式失败，不再 fail-open 归属 user1（跨用户污染索引）
+    let owner = super::security::principal_id().ok_or_else(|| {
+        BackendError::new("store_unavailable", "本地会话身份缺失，无法创建分享")
+    })?;
     register_index(state, &hash, owner)?;
-    let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "INSERT INTO shared_plans (plan_id, plan_version, token_hash, payload_json, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![super::learning::plan_id(plan_id)?, plan.version, hash, payload, expires_at, created_at.format(&Rfc3339)?],
-    )?;
-    let id = tx.last_insert_rowid();
-    let event = Store::event(&tx, "share.created", json_event(id, plan_id, plan.version))?;
-    if let Err(error) = tx.commit() {
-        let root = Store::root(state.learning.database_path().to_path_buf())?;
-        let _ = root.conn.execute(
-            "DELETE FROM share_index WHERE token_hash = ?1",
-            params![token_hash(&token)],
-        );
-        return Err(error.into());
-    }
+    let outcome = (|| -> Result<(i64, super::store::BackendEvent)> {
+        let tx = store.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO shared_plans (plan_id, plan_version, token_hash, payload_json, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![super::learning::plan_id(plan_id)?, plan.version, hash, payload, expires_at, created_at.format(&Rfc3339)?],
+        )?;
+        let id = tx.last_insert_rowid();
+        let event = Store::event(&tx, "share.created", json_event(id, plan_id, plan.version))?;
+        tx.commit()?;
+        Ok((id, event))
+    })();
+    let (id, event) = match outcome {
+        Ok(value) => value,
+        Err(error) => {
+            // 25#12：INSERT/事件/提交任一步失败都清理先写的索引行——原实现
+            // 只包住 commit，中途失败会在根库留下指向不存在分享的孤儿哈希行
+            let root = Store::root(state.learning.database_path().to_path_buf())?;
+            let _ = root.conn.execute(
+                "DELETE FROM share_index WHERE token_hash = ?1",
+                params![hash],
+            );
+            return Err(error);
+        }
+    };
     emit(app, &event);
     let (share, _) = metadata(&store.conn, id)?;
     let package = make_package(token.clone(), snapshot, expires_at)?;

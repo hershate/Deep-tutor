@@ -93,6 +93,11 @@ impl LearningState {
         self.providers.shared()
     }
 
+    pub(crate) fn providers(&self) -> &ProviderState {
+        // 25#4：planning::update_goal 预检重生成次数需要读用量设置
+        &self.providers
+    }
+
     pub(crate) fn database_path(&self) -> &Path {
         &self.database_path
     }

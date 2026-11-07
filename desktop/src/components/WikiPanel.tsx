@@ -83,7 +83,8 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     if (!current || busy) return
     setBusy(true)
     try { choose(await knowledgeBackend.resume(current.id)); notify('已从保存的问答状态恢复') }
-    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    // 29#2：answer_active 为"已在恢复"的窄窗口竞态码
+    catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const remove = async (id: number) => {
     try {

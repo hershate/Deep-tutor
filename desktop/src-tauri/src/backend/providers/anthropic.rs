@@ -242,6 +242,16 @@ where
                                 if let Some(arguments) =
                                     delta.get("partial_json").and_then(Value::as_str)
                                 {
+                                    // 25#17：对齐 openai.rs 的 256 KB 上限——自配的
+                                    // 故障端点可用 endless delta 使内存无界增长
+                                    if call.arguments.len().saturating_add(arguments.len())
+                                        > 256 * 1024
+                                    {
+                                        return Err(output.error(
+                                            "response_too_large",
+                                            "单个工具参数超过 256 KB 上限",
+                                        ));
+                                    }
                                     call.arguments.push_str(arguments);
                                 }
                             }

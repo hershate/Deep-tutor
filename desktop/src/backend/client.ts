@@ -436,6 +436,19 @@ export function isCancelRace(error: unknown) {
     'no_active_request',
     // A-9：资料解析任务取消的竞态码（materials 域）
     'no_active_job',
+    // 29#1："已被另一操作处理"语义——双击审批/列表滞后时重复取消预约与安排
+    'approval_resolved',
+    'not_reserved',
+    'room_not_available',
+    // 29#2：resume 侧"内存中已在恢复"的状态翻转码，多数 resume 幂等返回现状，
+    // 该码只在窄窗口触发且文案自释，按竞态口径静默
+    'plan_active',
+    'generation_active',
+    'run_active',
+    'answer_active',
+    'project_feedback_active',
+    'grading_active',
+    'lecture_active',
   ].includes(code)
 }
 
