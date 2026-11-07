@@ -288,6 +288,51 @@ fn eight_steps_use_real_model_results_and_actual_usage() {
     );
 }
 
+// 31#5：complete_step(7) 已落盘但 result_json 未写的断点窗口——resume 从
+// 步骤产物 $.step7 还原 result 直接补写终态，不再重走 begin_step(7) 撞
+// step_completed 使方案永久 failed
+#[test]
+fn resume_heals_step7_done_without_result_json_from_artifacts() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let plan = wait_terminal(&state, &started.id);
+    assert_eq!(plan.status, "degraded");
+    let calls_after_generation = server.request_count();
+    // 模拟断点窗口：step7 保持 done，抹掉 result_json 并置可恢复状态
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE learning_plans SET result_json = NULL, status = 'interrupted' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+    resume(app.handle(), &state, &started.id).unwrap();
+    let healed = wait_terminal(&state, &started.id);
+    assert_eq!(healed.status, "degraded");
+    assert!(healed.result.as_ref().unwrap().graph.nodes.len() == 9);
+    // 自愈路径不发起新模型请求
+    assert_eq!(server.request_count(), calls_after_generation);
+    // 再抹一次并重复自愈：幂等
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE learning_plans SET result_json = NULL, status = 'interrupted' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+    resume(app.handle(), &state, &started.id).unwrap();
+    let again = wait_terminal(&state, &started.id);
+    assert_eq!(again.status, "degraded");
+    assert_eq!(server.request_count(), calls_after_generation);
+}
+
 #[test]
 fn dependency_cycles_fail_instead_of_fabricating_a_valid_plan() {
     let (app, state) = setup();

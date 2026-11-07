@@ -699,4 +699,21 @@ fn repeat_import_with_quota_rows_skips_by_composite_key() {
         .query_row("SELECT COUNT(*) FROM security_quotas", [], |row| row.get(0))
         .unwrap();
     assert_eq!(quotas, 2, "重复导入不得新增配额行");
+    // 31#43：provider_requests 重复导入幂等——同备份二次导入按内容签名找回
+    // 首次导入的 imported-N 行并跳过，不再复制出重复请求行
+    let requests_after_first: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM provider_requests", [], |row| row.get(0))
+        .unwrap();
+    let third = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    );
+    assert!(third.is_ok(), "三次导入仍应成功：{third:?}");
+    let requests_after_third: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM provider_requests", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(requests_after_third, requests_after_first, "重复导入不得复制请求行");
 }

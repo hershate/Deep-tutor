@@ -300,3 +300,103 @@ fn real_usage_rates_cancelled_requests_csv_and_budget_are_consistent() {
         "invalid_usage_settings"
     );
 }
+
+// 31#1：会话预算聚合回归——agent_session_id 外键通道（含导入重映射行）与
+// request_id 前缀 GLOB 回退通道（存量行）都计入本会话；无关会话不计入
+#[test]
+fn session_budget_aggregates_fk_and_glob_channels() {
+    let (app, state, _server, _gate, provider_id) = prepare();
+    let numeric: i64 = provider_id
+        .trim_start_matches('p')
+        .parse()
+        .expect("数字供应商标识");
+    let timestamp = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    upsert_rate(
+        app.handle(),
+        &state,
+        RateInput {
+            provider_id: provider_id.clone(),
+            model: "test-model".into(),
+            input_per_million: 1.0,
+            output_per_million: 1.0,
+        },
+    )
+    .unwrap();
+    let store = state.store().unwrap();
+    let mut session_ids = Vec::new();
+    for title in ["会话一", "会话二"] {
+        store
+            .conn
+            .execute(
+                "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, 'plan-budget-test', ?2, 1000000, ?3, ?3)",
+                rusqlite::params![title, provider_id, timestamp],
+            )
+            .unwrap();
+        session_ids.push(store.conn.last_insert_rowid());
+    }
+    let [first, second] = [session_ids[0], session_ids[1]];
+    // GLOB 回退通道：run 归属会话一，存量行无 agent_session_id
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_runs (session_id, status, created_at, updated_at) VALUES (?1, 'done', ?2, ?2)",
+            rusqlite::params![first, timestamp],
+        )
+        .unwrap();
+    let run_id = store.conn.last_insert_rowid();
+    for (request_id, agent_session_id, tokens) in [
+        (format!("agent-{run_id}-1-1"), None, 1_000_000),
+        ("unrelated-shape".to_string(), Some(first), 1_000_000),
+        ("agent-999-1-1".to_string(), Some(second), 5_000_000),
+    ] {
+        store
+            .conn
+            .execute(
+                "INSERT INTO provider_requests (request_id, provider_id, model, status, output, usage_json, attempts, created_at, updated_at, agent_session_id) VALUES (?1, ?2, 'test-model', 'done', '', ?3, 1, ?4, ?4, ?5)",
+                rusqlite::params![
+                    request_id,
+                    numeric,
+                    format!(r#"{{"inputTokens":{tokens},"outputTokens":0}}"#),
+                    timestamp,
+                    agent_session_id
+                ],
+            )
+            .unwrap();
+    }
+    // 费率 1/1 美元每百万：会话 1 两条各 $1（合计 $2），会话 2 一条 $5
+    save_settings(
+        app.handle(),
+        &state,
+        UsageSettings {
+            session_usd: 1.5,
+            daily_usd: 100.0,
+            regeneration_limit: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        ensure_budget(&state, Some(first)).unwrap_err().code,
+        "session_budget_exceeded"
+    );
+    assert_eq!(
+        ensure_budget(&state, Some(second)).unwrap_err().code,
+        "session_budget_exceeded"
+    );
+    save_settings(
+        app.handle(),
+        &state,
+        UsageSettings {
+            session_usd: 2.5,
+            daily_usd: 100.0,
+            regeneration_limit: 1,
+        },
+    )
+    .unwrap();
+    ensure_budget(&state, Some(first)).unwrap();
+    assert_eq!(
+        ensure_budget(&state, Some(second)).unwrap_err().code,
+        "session_budget_exceeded"
+    );
+}
