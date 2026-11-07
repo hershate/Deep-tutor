@@ -999,6 +999,13 @@ pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<(
         let _ = state.credentials.delete(&format!("session-{id}"));
     }
     emit(app, &event);
+    // 31#7：登出后旧用户的派生后台任务与同步调度器不再穿透会话边界——
+    // 与 login switch 同一停机集合；登出无继任用户，调度器一并停机。
+    // 停机为尽力而为，不阻断会话撤销本身
+    if let Some(backend) = app.try_state::<crate::backend::BackendState>() {
+        let _ = with_user(user.id, || guard::stop_all(&backend));
+    }
+    super::sync::scheduler::stop_scheduler();
     Ok(())
 }
 
@@ -1257,8 +1264,25 @@ pub fn authenticate_token<R: Runtime>(
     tx.commit()?;
     emit(app, &event);
     // 21#1：PAT 认证是显式登录行为——验证通过即为该用户签发新会话
-    // （与 login 同口径），安全面板的「使用访问令牌登录」入口依赖于此
-    issue(app, state, user_id, &store)?;
+    // （与 login 同口径），安全面板的「使用访问令牌登录」入口依赖于此。
+    // 31#7：切换到另一用户时与 login switch 同口径——先停旧用户全部
+    // 后台与同步调度器，签发后以新用户身份重启调度，不留后台穿透。
+    // 31#34：停机/签发段持 WORKSPACE_SWITCH 写锁，与 switch 对称
+    guard::exclusive(|| {
+        let previous = current(&store.conn, state)
+            .ok()
+            .map(|(previous, _)| previous.id);
+        if previous != Some(user_id) {
+            if let Some(backend) = app.try_state::<crate::backend::BackendState>() {
+                if let Some(previous) = previous {
+                    let _ = with_user(previous, || guard::stop_all(&backend));
+                }
+            }
+            super::sync::scheduler::stop_scheduler();
+        }
+        issue(app, state, user_id, &store)
+    })??;
+    with_user(user_id, || super::sync::scheduler::start_scheduler(app.clone()));
     user(&store.conn, user_id, user_id)
 }
 

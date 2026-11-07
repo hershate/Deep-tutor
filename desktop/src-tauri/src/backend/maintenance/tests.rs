@@ -73,6 +73,10 @@ fn write(root: &Path, relative: &str, content: &str) {
 
 #[test]
 fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
+    // 31#3：宽限覆盖置零——刚写入的 backup-work/anki 导出立即视为过期孤儿
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(std::time::Duration::ZERO);
     let (app, learning) = setup();
     let root = learning.database_path().parent().unwrap();
     let material = crate::backend::materials::import_text(
@@ -96,10 +100,8 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     write(root, "materials/originals/orphan.txt", "orphan");
     write(root, "agent-workspaces/999/scratch/orphan.json", "{}");
     write(root, "plugins/stale.events/manifest.json", &json!({"id": "stale.events", "name": "过期插件", "version": "1.0.0", "description": "失效记录", "kind": "events", "subscriptions": []}).to_string());
-    // 14#19：安装中断残留——无清单空目录与遗留在 plugins 根的 .manifest-N.tmp
+    // 14#19：安装中断残留——无清单空目录
     std::fs::create_dir_all(root.join("plugins/broken.events")).unwrap();
-    // B-13：刚写入的 .manifest tmp 处于 24h 宽限内，不立即判孤儿
-    write(root, "plugins/.manifest-7.tmp", "partial");
     write(root, "backup-work/123-4/state.db", "snapshot");
     write(root, "exports/anki-123-4.db", "stale");
     store.conn.execute("INSERT INTO materials (title, kind, size, sha256, status, progress, parse_mode, text_length, source_meta, created_at, updated_at) VALUES ('缺失', 'txt', 1, ?1, 'metadata_only', 0, '', 0, '', ?2, ?2)", params!["a".repeat(64), timestamp]).unwrap();
@@ -110,12 +112,6 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     assert_eq!(report["orphans"]["originals"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["scratch"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 2);
-    // B-13：宽限内的 .manifest tmp 不列入孤儿，也不被清理
-    assert!(report["orphans"]["plugins"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| !item["path"].as_str().unwrap().contains(".manifest-")));
     assert_eq!(report["orphans"]["tempdirs"].as_array().unwrap().len(), 2);
     assert_eq!(
         report["orphans"]["missingOriginals"]
@@ -125,10 +121,8 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
         1
     );
     let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
-    // B-13：tmp 在宽限内不计入孤儿也不被删（原 5 = originals 1 + scratch 1
-    // + plugins 3，现 plugins 只清 stale 与 broken 两项）
+    // originals 1 + scratch 1 + plugins 2（stale 与 broken）
     assert_eq!(cleanup["deletedFiles"], 4);
-    assert!(root.join("plugins/.manifest-7.tmp").is_file());
     assert_eq!(cleanup["deletedTempItems"], 2);
     assert_eq!(cleanup["failures"], json!([]));
     assert!(cleanup["freedBytes"].as_u64().unwrap() > 0);
@@ -174,6 +168,32 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
             && kinds.contains(&"maintenance.cleanup_completed")
             && kinds.contains(&"maintenance.vacuum_completed")
     );
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = None;
+}
+
+// 31#3：宽限方向回归——进行中的 backup-work/anki 导出/清单 tmp 刚写入时
+// 处于宽限期内，不报告也不清理（原先方向写反，刚写入即被当孤儿删除）
+#[test]
+fn grace_window_protects_in_flight_files() {
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    write(root, "plugins/.manifest-7.tmp", "partial");
+    write(root, "backup-work/123-4/state.db", "snapshot");
+    write(root, "exports/anki-123-4.db", "in-flight");
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    assert!(report["orphans"]["tempdirs"].as_array().unwrap().is_empty());
+    assert!(report["orphans"]["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| !item["path"].as_str().unwrap().contains(".manifest-")));
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleanup["deletedTempItems"], 0);
+    assert!(root.join("plugins/.manifest-7.tmp").is_file());
+    assert!(root.join("backup-work/123-4/state.db").is_file());
+    assert!(root.join("exports/anki-123-4.db").is_file());
 }
 
 #[test]

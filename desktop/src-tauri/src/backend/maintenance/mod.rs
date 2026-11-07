@@ -207,10 +207,30 @@ fn walk(
 /// 超过宽限期（任务已崩溃遗留）才作为孤儿处理。
 const IN_FLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
+// 31#3：测试注入的宽限覆盖——Some(d) 时以 d 判定，用于把刚写入的临时件
+// 立即移出宽限，避免测试操纵文件 mtime（std 无稳定写 mtime API）
+#[cfg(test)]
+static GRACE_OVERRIDE: std::sync::Mutex<Option<std::time::Duration>> =
+    std::sync::Mutex::new(None);
+
+fn in_flight_grace() -> std::time::Duration {
+    #[cfg(test)]
+    {
+        GRACE_OVERRIDE
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or(IN_FLIGHT_GRACE)
+    }
+    #[cfg(not(test))]
+    {
+        IN_FLIGHT_GRACE
+    }
+}
+
 fn modified_recently(path: &Path) -> bool {
     match fs::metadata(path).and_then(|metadata| metadata.modified()) {
         Ok(modified) => match modified.elapsed() {
-            Ok(age) => age < IN_FLIGHT_GRACE,
+            Ok(age) => age < in_flight_grace(),
             Err(_) => true, // mtime 在未来（时钟偏差）：保守视为进行中
         },
         Err(_) => false,
@@ -370,10 +390,12 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
         for entry in fs::read_dir(backup_root)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
+            // 31#3：宽限方向修正——backup-work/{pid}-{n} 在宽限期内可能正被
+            // 写入，不报告；超过宽限期才视为孤儿目录
             if entry.file_type()?.is_dir()
                 && name.split('-').count() == 2
                 && name.split('-').all(|part| part.parse::<u64>().is_ok())
-                && modified_recently(&entry.path())
+                && !modified_recently(&entry.path())
             {
                 let files = walk_files(&entry.path(), &mut issues)?;
                 tempdirs.push(FileItem {
@@ -400,13 +422,14 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
         for entry in fs::read_dir(export_root)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
+            // 31#3：同 backup-work——导出中的 anki 库不报告，宽限期外才算孤儿
             if entry.file_type()?.is_file()
                 && name.starts_with("anki-")
                 && name.ends_with(".db")
                 && name[5..name.len() - 3]
                     .split('-')
                     .all(|part| part.parse::<u64>().is_ok())
-                && modified_recently(&entry.path())
+                && !modified_recently(&entry.path())
             {
                 tempdirs.push(file_item(&root, &entry.path())?);
             }

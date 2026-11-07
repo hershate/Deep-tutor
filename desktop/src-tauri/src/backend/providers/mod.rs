@@ -320,6 +320,14 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    // 31#1：会话预算经 agent_session_id 外键聚合（request_id 前缀按 run_id
+    // 构造，session/run 是两张独立自增表，无法从字面反推会话归属）
+    if !columns.iter().any(|column| column == "agent_session_id") {
+        conn.execute(
+            "ALTER TABLE provider_requests ADD COLUMN agent_session_id INTEGER",
+            [],
+        )?;
+    }
     routing::migrate(conn)?;
     usage::migrate(conn)?;
     Ok(())
@@ -1127,6 +1135,10 @@ pub fn stream_chat_with_policy<R: Runtime>(
     policy: openai::StreamPolicy,
     parent_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<ProviderRequest> {
+    // 直连路径同样受用量预算约束，与路由路径保持一致，不留绕过防线。
+    // 31#4：检查先于 begin_chat——原先在 INSERT 'running' 之后才早退，
+    // 留下永久 running 悬挂行，且同 id 重试被幂等分支判「已完成请求」
+    usage::ensure_budget(state, None)?;
     let (pending, guard) = begin_chat(app, state, request_id, provider_id, model)?;
     let Some(_guard) = guard else {
         return chat(state, request_id);
@@ -1139,8 +1151,6 @@ pub fn stream_chat_with_policy<R: Runtime>(
         .get(request_id)
         .cloned()
         .ok_or_else(|| BackendError::new("request_active", "请求状态已改变"))?;
-    // 直连路径同样受用量预算约束，与路由路径保持一致，不留绕过防线
-    usage::ensure_budget(state, None)?;
     let started = Instant::now();
     let result = get(state, provider_id)
         .and_then(|profile| {

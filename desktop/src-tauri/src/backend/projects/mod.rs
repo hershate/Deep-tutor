@@ -515,7 +515,14 @@ pub fn cancel<R: Runtime>(
     tx.commit()?;
     emit(app, &event);
     if let Some(request_id) = current.request_id {
-        providers::cancel_chat(&state.providers, &request_id)?;
+        // 31#11：容忍 no_active_request——请求恰完成时取消为良性（簿记已提交）；
+        // 31#6 僵尸 running 版本在重启后内存标志消失，cancel_chat 必报该码，
+        // 若上抛则版本永久卡 cancelling，resume/ensure_available 均不收口
+        if let Err(error) = providers::cancel_chat(&state.providers, &request_id) {
+            if error.code != "no_active_request" {
+                return Err(error);
+            }
+        }
     }
     workspace(state)
 }
@@ -549,7 +556,9 @@ pub fn resume<R: Runtime>(
         .ok_or_else(|| BackendError::new("too_many_attempts", "评价恢复次数已用尽"))?;
     let request_id = format!("project-feedback-{id}-{attempt}");
     let store = state.store()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 31#13：IMMEDIATE 起步即持写锁——DEFERRED 下复查 ensure_available 在
+    // 读快照上完成，与并发 submit/resume 各留一个 running（对照 submit 的写锁）
+    let tx = store.write_transaction()?;
     ensure_available(state, current.project_id, Some(id))?;
     let changed = tx.execute("UPDATE project_versions SET status = 'running', attempt = ?1, request_id = ?2, cancel_requested = 0, error_code = NULL, error_message = NULL, updated_at = ?3, completed_at = NULL WHERE id = ?4 AND status IN ('failed', 'cancelled', 'interrupted')", params![attempt, request_id, now()?, id])?;
     if changed == 0 {
@@ -582,7 +591,21 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProjectState) -> Result<(
         if providers::completed_chat(&state.providers, current.request_id.as_deref())?
             && !cancelled(state, id)?
         {
-            evaluate(app, state, id)?;
+            // 31#6：重放评价单条失败不上抛——原样传播会让 recover 整体失败并
+            // 写入 StartupState.failure，后端每次启动都报错且 id 更大的其余
+            // running 版本永不翻转；与 practice/subjective recover 一致逐条落终态
+            if let Err(replay_error) = evaluate(app, state, id) {
+                let tx = store.conn.unchecked_transaction()?;
+                let status = replay_error.code.clone();
+                tx.execute("UPDATE project_versions SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, completed_at = ?4 WHERE id = ?5", params![status, replay_error.code, replay_error.message, now()?, id])?;
+                let event = Store::event(
+                    &tx,
+                    "project.feedback_interrupted",
+                    json!({"versionId":id,"error":replay_error}),
+                )?;
+                tx.commit()?;
+                emit(app, &event);
+            }
             continue;
         }
         let error = if current.status == "cancelling" {
@@ -629,7 +652,9 @@ pub fn iteration_note<R: Runtime>(
         .and_then(Value::as_str)
         .unwrap_or("项目");
     let store = state.store()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 31#14：IMMEDIATE——ID 分配与写入间无锁时，并发同毫秒同 id 的
+    // ON CONFLICT DO UPDATE 会静默覆盖另一条笔记
+    let tx = store.write_transaction()?;
     let id = Store::next_free_id(&tx, "notes")?;
     let note = json!({
         "id": id.parse::<i64>().map_err(|_| BackendError::new("invalid_id", "笔记标识无效"))?,

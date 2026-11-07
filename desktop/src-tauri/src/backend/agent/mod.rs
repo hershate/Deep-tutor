@@ -640,7 +640,7 @@ fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
         // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
         // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
         // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
-        "SELECT COALESCE(SUM(CASE WHEN json_extract(provider_requests.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(provider_requests.output AS BLOB)) / 2 END), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
+        "SELECT COALESCE(SUM(CASE WHEN json_extract(r.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(r.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(r.output AS BLOB)) / 2 END), 0) FROM provider_requests r WHERE r.agent_session_id = ?1 OR EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*')",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )? as u64)
@@ -836,6 +836,15 @@ fn run_loop<R: Runtime>(
         }
         providers::usage::ensure_budget(&state.providers, Some(session_id))?;
         let (step, request_id) = begin_step(app, state, &run)?;
+        // 31#1：请求落库后回填会话外键——预算/输出统计按 agent_session_id
+        // 聚合，不再依赖 request_id 字面前缀（导入重映射后前缀会断裂）
+        {
+            let store = state.store()?;
+            store.conn.execute(
+                "UPDATE provider_requests SET agent_session_id = ?1 WHERE request_id = ?2 AND agent_session_id IS NULL",
+                params![session_id, request_id],
+            )?;
+        }
         let request = providers::routing::stream_chat(
             app,
             &state.providers,

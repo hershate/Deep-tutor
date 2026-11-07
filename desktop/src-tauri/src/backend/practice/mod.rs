@@ -1184,12 +1184,16 @@ pub fn submit<R: Runtime>(
             params![question_id, explanation, timestamp],
         )?;
     }
-    let nodes: Vec<String> = serde_json::from_str(&nodes)?;
-    for node in nodes {
-        tx.execute(
-            "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7) ON CONFLICT(plan_id, node_id, evidence_key) DO UPDATE SET score = excluded.score, max_score = excluded.max_score, details_json = excluded.details_json, created_at = excluded.created_at",
-            params![learning::plan_id(&set.plan_id)?, node, if set.mode == "exam" { "exam" } else { "practice" }, if correct { 1.0 } else { 0.0 }, serde_json::to_string(&json!({"setId": set_id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
-        )?;
+    // 31#12：hints 遮蔽旁路——evidence 照写真实得分会让知识图谱页
+    //「N 项测评记录 · 0/1」反推对错；与错题本同口径跳过
+    if set.feedback_mode != "hints" {
+        let nodes: Vec<String> = serde_json::from_str(&nodes)?;
+        for node in nodes {
+            tx.execute(
+                "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7) ON CONFLICT(plan_id, node_id, evidence_key) DO UPDATE SET score = excluded.score, max_score = excluded.max_score, details_json = excluded.details_json, created_at = excluded.created_at",
+                params![learning::plan_id(&set.plan_id)?, node, if set.mode == "exam" { "exam" } else { "practice" }, if correct { 1.0 } else { 0.0 }, serde_json::to_string(&json!({"setId": set_id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
+            )?;
+        }
     }
     let answered: u32 = tx.query_row(
         "SELECT COUNT(*) FROM practice_answers WHERE set_id = ?1 AND status = 'done'",

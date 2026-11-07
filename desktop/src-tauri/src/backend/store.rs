@@ -349,10 +349,6 @@ impl Store {
         Ok(revision)
     }
 
-    pub(crate) fn ensure_quota(&self, resource: &str, additional: u64) -> Result<()> {
-        self.ensure_quota_in_tx(&self.conn, resource, additional)
-    }
-
     /// 25#18：配额计数在调用方写事务内执行——原 ensure_quota 在只读连接上
     /// check-then-insert，窗口内并发写可超限在途并发数；把计数放进与插入
     /// 相同的事务（调用方持 IMMEDIATE 写锁）后窗口关闭

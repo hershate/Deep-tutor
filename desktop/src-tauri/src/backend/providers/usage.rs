@@ -423,7 +423,10 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
 
 enum BudgetScope {
     Daily { shift: String, today: String },
-    Session { prefix: String },
+    // 31#1：会话口径直接携带 session_id——请求 id 按 run_id 命名（agent-{run}-…），
+    // session_id 与 run_id 是两张独立自增表，原先按 agent-{session}-* GLOB
+    /// 匹配几乎恒空：护栏从不拦截、撞号时跨会话错账
+    Session { session_id: i64 },
 }
 
 /// 27#3：预算聚合下推 SQL——原实现把 provider_requests 全表读入内存（每行
@@ -434,7 +437,12 @@ fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
         BudgetScope::Daily { shift, today } => {
             (" AND date(r.created_at, ?1) = ?2", vec![shift, today])
         }
-        BudgetScope::Session { prefix } => (" AND r.request_id GLOB ?1", vec![prefix]),
+        BudgetScope::Session { session_id } => (
+            // 31#1：经 agent_session_id 外键关联（导入经 FK 重映射保持关联）；
+            // 存量行无该列时回退按本会话 run id 的 GLOB 关联
+            " AND (r.agent_session_id = ?1 OR EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*'))",
+            vec![session_id.to_string()],
+        ),
     };
     let spend: f64 = conn.query_row(
         &format!(
@@ -477,12 +485,7 @@ pub fn ensure_budget(state: &ProviderState, session_id: Option<i64>) -> Result<(
         ));
     }
     if let Some(session_id) = session_id {
-        let session = budget_spend(
-            &store.conn,
-            BudgetScope::Session {
-                prefix: format!("agent-{session_id}-*"),
-            },
-        )?;
+        let session = budget_spend(&store.conn, BudgetScope::Session { session_id })?;
         if session >= settings.session_usd {
             return Err(BackendError::new(
                 "session_budget_exceeded",

@@ -17,7 +17,8 @@ fn reject<R: Runtime>(invoke: Invoke<R>, error: BackendError) -> bool {
     true
 }
 
-fn stop_all(state: &BackendState) -> Result<()> {
+// 31#7：logout 与 PAT 认证切换复用同一停机集合，保持与 login switch 一致
+pub(super) fn stop_all(state: &BackendState) -> Result<()> {
     super::super::agent::stop(&state.agent)?;
     super::super::practice::stop(&state.practice)?;
     super::super::knowledge::stop(&state.knowledge)?;
@@ -127,6 +128,15 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
     }
     resume(actual);
     handled
+}
+
+// 31#34：PAT 认证的停机/撤旧签新段持 WORKSPACE_SWITCH 写锁——与 switch
+// 对称，多窗口/异步化后不存在旧用户上下文以新用户库执行的交错
+pub(super) fn exclusive<T>(operation: impl FnOnce() -> T) -> Result<T> {
+    let _write = WORKSPACE_SWITCH.write().map_err(|_| {
+        BackendError::new("workspace_unavailable", "工作区切换锁不可用")
+    })?;
+    Ok(operation())
 }
 
 pub fn guard_handler<R, F>(handler: F) -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static

@@ -215,6 +215,33 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
             let original_key = key(&original)?;
             let reuse_key = format!("{table}:{original_key}");
             let mut mapped = original.clone();
+            // 31#43：重复导入幂等——provider_requests 的 TEXT 主键冲突原先一律
+            // 改写 imported-N，同备份二次导入会复制出重复请求行且 agent-{run}-…
+            // 前缀断裂（会话预算 GLOB 聚合失配、历史输出重复计费）。按内容签名
+            // 找回目标中已存在的同一逻辑请求，映射到既有 id 交给 global_conflict
+            // 跳过；目标同名行内容不同（真正的独立请求）才改写 imported-N
+            if *table == "provider_requests"
+                && exists(target, table, &primary.name, &original)?
+            {
+                let matched: Option<String> = target
+                    .query_row(
+                        "SELECT request_id FROM provider_requests WHERE model IS ?1 AND created_at IS ?2 AND finish_reason IS ?3 AND attempts IS ?4 AND latency_ms IS ?5 AND status IS ?6 LIMIT 1",
+                        params![
+                            row.get("model").map(sql_value).transpose()?,
+                            row.get("created_at").map(sql_value).transpose()?,
+                            row.get("finish_reason").map(sql_value).transpose()?,
+                            row.get("attempts").map(sql_value).transpose()?,
+                            row.get("latency_ms").map(sql_value).transpose()?,
+                            row.get("status").map(sql_value).transpose()?,
+                        ],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(existing) = matched {
+                    mapped = Value::String(existing);
+                    transfer.reused.insert(reuse_key.clone());
+                }
+            }
             if *table == "materials" {
                 if let Some(hash) = row.get("sha256").and_then(Value::as_str) {
                     if let Some(id) = target
@@ -249,8 +276,16 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                 // 25#13：study_checkins 主键是真实业务日期——改写会造出
                 // "imported-N" 假日期脏行（按日期等值查询的日历静默漏算），
                 // 与 meta 等表一样保留原键、交给 global_conflict 按日期跳过
-                && !["meta", "provider_meta", "revisions", "sync_config", "study_checkins"]
-                    .contains(table)
+                && ![
+                    "meta",
+                    "provider_meta",
+                    "revisions",
+                    "sync_config",
+                    "study_checkins",
+                    // 31#44：保留原键，import_rows 的「 · 导入 N」后缀分支才可达
+                    "agent_memory",
+                ]
+                .contains(table)
                 && (exists(target, table, &primary.name, &mapped)?
                     || allocated.contains(&key(&mapped)?))
             {
@@ -389,6 +424,26 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
             .insert(original_key, mapped);
     }
     Ok(())
+}
+
+/// 31#2：lenient 模式（events 表）下引用映射不到（invalid_backup_reference）
+/// 时返回 None——调用方丢弃该字段继续，历史事件的断链不再炸整单导入
+fn map_payload_field(
+    value: &Value,
+    target: &str,
+    maps: &IdMap,
+    lenient: bool,
+) -> Result<Option<Value>> {
+    let mapped = if target == "provider_requests" {
+        map_request(value, maps)
+    } else {
+        map_plain(value, target, maps)
+    };
+    match mapped {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if lenient && error.code == "invalid_backup_reference" => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn map_plain(value: &Value, target: &str, maps: &IdMap) -> Result<Value> {
@@ -601,6 +656,10 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     "taskId" => Some("kv:tasks"),
                     "noteId" => Some("kv:notes"),
                     "userId" => Some("local_users"),
+                    // 31#2：focus.* 事件的 sessionId 是 focus_sessions.id——原二分
+                    // 把它指到 knowledge_sessions，用过专注但没用过 Wiki 的备份
+                    // 整单报「缺少记录」不可导入
+                    "sessionId" if table.starts_with("event:focus.") => Some("focus_sessions"),
                     "sessionId" if !table.starts_with("event:security.") => Some(
                         if table.starts_with("agent_") || table.starts_with("event:agent.") {
                             "agent_sessions"
@@ -608,6 +667,14 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                             "knowledge_sessions"
                         },
                     ),
+                    // 31#1：agent 会话预算经 agent_session_id 关联（不再依赖
+                    // request_id 字面前缀），导入时按外键重映射保持关联
+                    "agent_session_id" => Some("agent_sessions"),
+                    // 31#8：主键=外键的两张练习子表——主键随题目映射重写，
+                    // 否则按本表自编号后撞「缺少记录」整单失败或静默挂错题
+                    "question_id" if table == "practice_mistakes" || table == "practice_bookmarks" => {
+                        Some("practice_questions")
+                    }
                     "runId" => Some("agent_runs"),
                     "toolCallId" => Some("agent_tool_calls"),
                     "postId" => Some("community_posts"),
@@ -636,21 +703,31 @@ fn rewrite_json(value: &mut Value, table: &str, maps: &IdMap) -> Result<()> {
                     continue;
                 }
                 if let Some(target) = target {
-                    if let Some(item) = object.get_mut(&name) {
+                    // 31#2：events 是历史事实流——payload 引用的行可能早已删除
+                    //（任务/笔记删除后的残留事件）。映射不到时丢弃该字段而不是
+                    // 让整单导入失败；实体表的外键列仍走严格路径
+                    let lenient = table.starts_with("event:");
+                    let existing = object.get(&name).cloned();
+                    if let Some(item) = existing {
                         if item.is_array() {
-                            for item in item.as_array_mut().expect("array") {
-                                *item = if target == "provider_requests" {
-                                    map_request(item, maps)?
-                                } else {
-                                    map_plain(item, target, maps)?
-                                };
+                            let mut next = Vec::new();
+                            for entry in item.as_array().expect("array") {
+                                if let Some(value) =
+                                    map_payload_field(entry, target, maps, lenient)?
+                                {
+                                    next.push(value);
+                                }
                             }
+                            object.insert(name.clone(), Value::Array(next));
                         } else if !item.is_null() {
-                            *item = if target == "provider_requests" {
-                                map_request(item, maps)?
-                            } else {
-                                map_plain(item, target, maps)?
-                            };
+                            match map_payload_field(&item, target, maps, lenient)? {
+                                Some(value) => {
+                                    object.insert(name.clone(), value);
+                                }
+                                None => {
+                                    object.remove(&name);
+                                }
+                            }
                         }
                     }
                 } else if let Some(item) = object.get_mut(&name) {
@@ -911,6 +988,22 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
         )?;
         return Ok(occupied);
     }
+    // 31#8：主键=外键的练习子表按题目键跳过（题目已映射为目标 id，
+    // 目标已有该题的错题/收藏即先前导入过，保留目标侧行）
+    if table == "practice_mistakes" || table == "practice_bookmarks" {
+        let question = row
+            .get("question_id")
+            .ok_or_else(invalid_record)?;
+        return exists(tx, table, "question_id", question);
+    }
+    // 31#43：同一 request_id 已存在 = 同一逻辑请求（追加导入幂等跳过）
+    if table == "provider_requests" {
+        let request = row
+            .get("request_id")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid_record)?;
+        return exists(tx, table, "request_id", &Value::String(request.into()));
+    }
     let key = match table {
         "meta" | "provider_meta" => "key",
         "revisions" => "namespace",
@@ -958,6 +1051,14 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                     continue;
                 }
             }
+            // 31#9：material_text 的复用判定要在改写前记录源侧资料 id
+            let reused_material_source = if *table == "material_text" {
+                row.get("material_id")
+                    .map(|value| key(value).map(|key| format!("materials:{key}")))
+                    .transpose()?
+            } else {
+                None
+            };
             transform(transfer, table, row, tx).map_err(|error| {
                 BackendError::new(
                     &error.code,
@@ -978,12 +1079,14 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                 }
             }
             // 23#4：material_text 主键随父资料映射——父资料按同哈希复用目标侧
-            // 已有记录时，目标侧已持有该资料的解析文本，跳过避免撞主键
+            // 已有记录时，目标侧已持有该资料的解析文本，跳过避免撞主键。
+            // 31#9：检查须用 transform 前的源侧 id——reused 集合以源 id 为键，
+            // 上方 transform 已把 material_id 改写为目标 id，两侧 id 不一致时
+            // （跨设备同文件各自解析）原先必漏检、撞主键整单回滚
             if *table == "material_text" {
-                let original = row.get("material_id").cloned().ok_or_else(invalid_record)?;
-                if transfer
-                    .reused
-                    .contains(&format!("materials:{}", key(&original)?))
+                if reused_material_source
+                    .as_ref()
+                    .is_some_and(|source| transfer.reused.contains(source))
                 {
                     continue;
                 }

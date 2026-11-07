@@ -363,7 +363,12 @@ fn make_package(token: String, plan: SharedPlanSnapshot, expires_at: String) -> 
 }
 
 fn read_local(state: &SharingState, token: &str) -> Result<SharedPlanView> {
-    let store = state.store()?;
+    // 31#10：无 principal 时从根库读——生产未登录白名单路径原先 state.store()
+    // 必 store_unavailable；测试环境 root 即工作区，语义不变
+    let store = match super::security::principal_id() {
+        Some(_) => state.store()?,
+        None => Store::root(state.learning.database_path().to_path_buf())?,
+    };
     let id = store
         .conn
         .query_row(
@@ -392,24 +397,24 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
     if super::security::principal_id().is_some() {
         return read_local(state, token);
     }
-    let current = state.store()?;
-    let local: bool = current.conn.query_row(
+    // 31#10：未登录没有「当前工作区」——原首步 state.store() 在生产无
+    // principal 即 store_unavailable，索引定位与 users 遍历回填为不可达
+    // 代码。改为根库存在性探测（生产 root 的 shared_plans 恒为空表、探测
+    // 恒 false 直落索引；测试环境 root 即工作区、行为与原先一致），
+    // 未命中再走 share_index 与 users 遍历
+    let probe = Store::root(state.learning.database_path().to_path_buf())?;
+    let local: bool = probe.conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
         params![token_hash(token)],
         |row| row.get(0),
     )?;
-    drop(current);
+    drop(probe);
     if local {
         return read_local(state, token);
     }
     if let Some(user_id) = indexed_owner(state, &token_hash(token))? {
         return super::security::with_user(user_id, || read_local(state, token));
     }
-    let error = match read_local(state, token) {
-        Ok(view) => return Ok(view),
-        Err(error) if error.code == "share_unavailable" => error,
-        Err(error) => return Err(error),
-    };
     let root = state
         .learning
         .database_path()
@@ -418,7 +423,12 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
         .join("users");
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(error.into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(BackendError::new(
+                "share_unavailable",
+                "分享不存在、已撤销或已过期",
+            ))
+        }
         Err(error) => return Err(error.into()),
     };
     for entry in entries.flatten().take(10_000) {
@@ -439,7 +449,10 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
             return super::security::with_user(user_id, || read_local(state, token));
         }
     }
-    Err(error)
+    Err(BackendError::new(
+        "share_unavailable",
+        "分享不存在、已撤销或已过期",
+    ))
 }
 
 pub fn list(state: &SharingState, plan_id: Option<&str>) -> Result<Vec<ShareMetadata>> {

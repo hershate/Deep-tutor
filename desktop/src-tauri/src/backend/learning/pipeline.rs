@@ -639,6 +639,18 @@ pub fn run<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: i64) -> Re
         if let Some(result) = get(state, &format!("plan-{id}"))?.result {
             return complete_plan(app, state, id, &result);
         }
+        // 31#5：断点窗口修复——complete_step(7) 与 complete_plan 两个事务之间
+        // 断电时 result_json 缺失但步骤产物 $.step7 完整；重走生成会在
+        // begin_step(7) 撞 step_completed 使方案永久 failed。从步骤产物还原
+        // result 直接补写终态
+        if let Some(result) = step_output(state, id, 7)?
+            .get("result")
+            .cloned()
+            .map(serde_json::from_value::<PlanResult>)
+            .transpose()?
+        {
+            return complete_plan(app, state, id, &result);
+        }
     }
     let mut artifacts = RunArtifacts::default();
     for index in 0..7 {
