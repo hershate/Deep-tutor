@@ -120,6 +120,8 @@ pub struct BackupResult {
     pub sha256: String,
     pub files: usize,
     pub records: u64,
+    /// 备份时已缺失、按"只报告不替代"跳过的文件相对路径
+    pub missing_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -233,7 +235,9 @@ fn file_entry(path: String, source: &Path) -> Result<FileEntry> {
     })
 }
 
-fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
+/// 缺失文件按产品约定"只报告不替代"：跳过并记录，不阻断备份。
+/// 返回 (实际存在的条目, 缺失的相对路径)。
+fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)> {
     let root = state
         .workspace_path()
         .parent()
@@ -241,6 +245,7 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
         .unwrap_or_else(|| PathBuf::from("."));
     let store = state.store()?;
     let mut entries = Vec::new();
+    let mut missing = Vec::new();
     let mut statement = store
         .conn
         .prepare("SELECT sha256, kind FROM materials WHERE sha256 IS NOT NULL ORDER BY id")?;
@@ -263,12 +268,14 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
         }
         let kind = kind.to_ascii_lowercase();
         let relative = format!("materials/originals/{sha256}.{kind}");
-        entries.push(file_entry(
-            relative,
-            &root
-                .join("materials/originals")
-                .join(format!("{sha256}.{kind}")),
-        )?);
+        let source = root.join("materials/originals").join(format!("{sha256}.{kind}"));
+        match fs::metadata(&source) {
+            Ok(_) => entries.push(file_entry(relative, &source)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(relative)
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
     let mut statement = store.conn.prepare("SELECT id FROM plugins ORDER BY id")?;
     let ids = statement
@@ -277,7 +284,15 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
     drop(statement);
     for id in ids {
         let relative = format!("plugins/{id}/manifest.json");
-        let content = fs::read_to_string(root.join(&relative))?;
+        let source = root.join(format!("plugins/{id}/manifest.json"));
+        let content = match fs::read_to_string(&source) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(relative);
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
         plugins::validate_manifest_content(&content)?;
         let manifest: Value = serde_json::from_str(&content)?;
         if manifest.get("id").and_then(Value::as_str) != Some(&id) {
@@ -286,10 +301,7 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
                 "插件清单标识与记录不一致",
             ));
         }
-        entries.push(file_entry(
-            relative,
-            &root.join(format!("plugins/{id}/manifest.json")),
-        )?);
+        entries.push(file_entry(relative, &source)?);
     }
     let mut statement = store
         .conn
@@ -312,10 +324,15 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
             ));
         }
         let directory = format!("agent-workspaces/{session}/scratch");
-        entries.push(file_entry(
-            format!("{directory}/{path}"),
-            &root.join(directory).join(relative),
-        )?);
+        let source = root.join(&directory).join(relative);
+        let relative_name = format!("{directory}/{path}");
+        match fs::metadata(&source) {
+            Ok(_) => entries.push(file_entry(relative_name, &source)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(relative_name)
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
     let unique = entries
         .iter()
@@ -327,7 +344,7 @@ fn collect_files(state: &LearningState) -> Result<Vec<FileEntry>> {
             "备份存在重复文件路径",
         ));
     }
-    Ok(entries)
+    Ok((entries, missing))
 }
 
 fn write_archive_file(
@@ -409,7 +426,7 @@ pub fn export<R: Runtime>(
         sha256: format!("{:x}", Sha256::digest(&database_bytes)),
         bytes: database_bytes.len() as u64,
     };
-    let files = collect_files(state)?;
+    let (files, missing_files) = collect_files(state)?;
     let snapshot = Connection::open_with_flags(&snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut tables = BTreeMap::new();
     for table in TABLES {
@@ -462,7 +479,7 @@ pub fn export<R: Runtime>(
     let event = Store::event(
         &store.conn,
         "backup.exported",
-        json!({"format": "deep-tutor-backup", "version": 3, "bytes": bytes.len(), "files": manifest.files.len(), "sha256": sha256}),
+        json!({"format": "deep-tutor-backup", "version": 3, "bytes": bytes.len(), "files": manifest.files.len(), "missingFiles": missing_files, "sha256": sha256}),
     )?;
     emit(app, &event);
     Ok(BackupResult {
@@ -470,6 +487,7 @@ pub fn export<R: Runtime>(
         sha256,
         files: manifest.files.len(),
         records: manifest.tables.values().sum(),
+        missing_files,
     })
 }
 

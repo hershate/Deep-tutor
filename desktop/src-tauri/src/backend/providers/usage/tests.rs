@@ -58,7 +58,9 @@ fn model_server(gate: Arc<AtomicBool>) -> TestServer {
     server(move |_request, stream| {
         if !gate.load(Ordering::Acquire) {
             start_stream(stream);
+            let gate_deadline = Instant::now() + Duration::from_secs(5);
             while !gate.load(Ordering::Acquire) {
+                assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
                 std::thread::sleep(Duration::from_millis(5));
             }
         }

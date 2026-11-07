@@ -305,6 +305,8 @@ pub fn save_note<R: Runtime>(
         .and_then(|result| result.stages.iter().find(|stage| stage.id == stage_id))
         .ok_or_else(|| BackendError::new("not_found", "学习阶段不存在"))?;
     let store = state.store()?;
+    // 批注同样占用 notes 配额，与笔记导入/集合替换路径保持一致
+    store.ensure_quota("notes", 1)?;
     let tx = store.conn.unchecked_transaction()?;
     let note_id = Store::next_free_id(&tx, "notes")?
         .parse::<i64>()

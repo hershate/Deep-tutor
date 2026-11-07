@@ -387,12 +387,21 @@ fn finish_result(input: &PlanInput, artifacts: RunArtifacts) -> Result<PlanResul
                 .map(|warning| format!("资料 {}：{warning}", source.title))
         })
         .collect::<Vec<_>>();
-    if let Some(reason) = resources
-        .get("externalSearch")
-        .and_then(|search| search.get("reason"))
+    // 检索完全成功（status = done）时 reason 是信息性文案，不计入告警，
+    // 否则每个干净方案都会被标成 degraded
+    let search = resources.get("externalSearch");
+    let search_degraded = search
+        .and_then(|search| search.get("status"))
         .and_then(Value::as_str)
-    {
-        warnings.push(reason.into());
+        .map(|status| status != "done")
+        .unwrap_or(true);
+    if search_degraded {
+        if let Some(reason) = search
+            .and_then(|search| search.get("reason"))
+            .and_then(Value::as_str)
+        {
+            warnings.push(reason.into());
+        }
     }
     if !schedule.within_deadline {
         warnings.push(format!(

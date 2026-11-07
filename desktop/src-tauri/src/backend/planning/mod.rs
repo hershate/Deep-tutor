@@ -270,7 +270,8 @@ fn factor(intensity: &str) -> Result<f64> {
 
 fn scaled(minutes: u32, current: &str, target: &str) -> Result<u32> {
     let ratio = factor(target)? / factor(current)?;
-    Ok(((minutes as f64 * ratio).round() as u32).max(15))
+    // 排期步硬校验每日 10..=600 分钟：强度缩放后封顶，避免方案局部重生成永久必败
+    Ok(((minutes as f64 * ratio).round() as u32).clamp(15, 600))
 }
 
 fn alternatives_for(overview: &PlanOverview) -> Result<Vec<PlanAlternative>> {
@@ -458,7 +459,8 @@ pub fn update_goal<R: Runtime>(
     )?)?;
     plan_input.goal = goal;
     plan_input.deadline = input.deadline;
-    plan_input.daily_minutes = (input.weekly_hours * 60 / 7).max(15);
+    // 排期步硬校验每日 10..=600 分钟：每周 71–80 小时派生值封顶，保证重生成可成功
+    plan_input.daily_minutes = (input.weekly_hours * 60 / 7).clamp(15, 600);
     if let Some(level) = input.level {
         plan_input.level = level;
     }

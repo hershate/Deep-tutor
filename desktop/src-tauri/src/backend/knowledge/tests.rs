@@ -1,5 +1,6 @@
 use super::*;
 use crate::backend::providers::test_support::{response, server, start_stream, TestServer};
+use std::time::Instant;
 use crate::backend::providers::{self, ProfileInput};
 use crate::backend::BackendState;
 use std::sync::Mutex;
@@ -63,7 +64,9 @@ fn model_server(material_id: i64, valid: bool, gate: Option<Arc<AtomicBool>>) ->
     server(move |_request, stream| {
         if let Some(gate) = &gate {
             start_stream(stream);
+            let gate_deadline = Instant::now() + Duration::from_secs(5);
             while !gate.load(Ordering::Acquire) {
+                assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
                 std::thread::sleep(Duration::from_millis(5));
             }
         }

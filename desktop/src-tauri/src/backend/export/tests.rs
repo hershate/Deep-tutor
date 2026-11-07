@@ -189,6 +189,35 @@ fn pdf_is_parseable_embedded_unicode_and_contains_the_real_plan() {
     assert!(pdf.extract_text(&[1]).unwrap().contains("真实结构校验"));
 }
 
+#[cfg(windows)]
+#[test]
+fn pdf_export_supports_multiline_note_content() {
+    let (app, learning, directory) = setup();
+    let store = learning.store().unwrap();
+    let record = store.collection("notes").unwrap();
+    store
+        .replace_collection(
+            "notes",
+            record.revision,
+            &json!([{ "id": 1, "title": "多行笔记", "excerpt": "摘要", "tag": "复盘", "updated": "now", "content": "第一行\n第二行\r\n第三行" }]),
+        )
+        .unwrap();
+    let (_, bytes, path) = exported(
+        &app,
+        input("knowledge", "pdf"),
+        directory.path(),
+        "multiline.pdf",
+    );
+    assert!(bytes.starts_with(b"%PDF-"));
+    let pdf = Document::load(&path).unwrap();
+    let text = pdf
+        .extract_text(&pdf.get_pages().keys().copied().collect::<Vec<_>>())
+        .unwrap();
+    assert!(text.contains("第一行"), "{text}");
+    assert!(text.contains("第二行"), "{text}");
+    assert!(text.contains("第三行"), "{text}");
+}
+
 #[test]
 fn apkg_is_a_real_zip_with_queryable_cards_for_every_supported_scope() {
     let (app, _, directory) = setup();

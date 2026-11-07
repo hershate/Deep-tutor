@@ -1,5 +1,6 @@
 use super::super::learning::{self, PlanInput};
 use super::super::materials;
+use std::time::Instant;
 use super::super::providers::test_support::{response, server, start_stream, TestServer};
 use super::super::providers::{self, ChatMessage, ProfileInput};
 use super::super::BackendState;
@@ -94,7 +95,9 @@ fn model_server(
         let body = if request.contains("学习测评评分器") {
             if let Some(gate) = &gate {
                 start_stream(stream);
+                let gate_deadline = Instant::now() + Duration::from_secs(5);
                 while !gate.load(Ordering::Acquire) {
+                    assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }
@@ -116,7 +119,9 @@ fn model_server(
         } else if request.contains("学习测评命题器") {
             if let Some(gate) = &gate {
                 start_stream(stream);
+                let gate_deadline = Instant::now() + Duration::from_secs(5);
                 while !gate.load(Ordering::Acquire) {
+                    assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }

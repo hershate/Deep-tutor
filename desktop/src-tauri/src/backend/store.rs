@@ -16,6 +16,9 @@ use time::OffsetDateTime;
 
 const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
+/// 代码侧 schema 版本：任何 migrate() 新增表/列时必须递增，
+/// 使老库即使指纹与记录一致也会重新执行迁移（指纹只反映库内现状，不反映代码期望）。
+const SCHEMA_VERSION: i64 = 1;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 #[cfg(test)]
 static MIGRATION_RUNS: AtomicUsize = AtomicUsize::new(0);
@@ -122,7 +125,15 @@ impl Store {
             source.pragma_update(None, "busy_timeout", 10000)?;
             source.execute_batch("PRAGMA wal_checkpoint(FULL)")?;
             drop(source);
-            fs::copy(&root, &path)?;
+            // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
+            let staged = path.with_file_name(format!(
+                "{}.migration-tmp",
+                path.file_name().and_then(|name| name.to_str()).unwrap_or("store")
+            ));
+            if let Err(error) = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path)) {
+                let _ = fs::remove_file(&staged);
+                return Err(error.into());
+            }
         }
         let conn = Connection::open(&path)?;
         let journal_mode: String =
@@ -167,7 +178,18 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()?;
-        if recorded.as_deref() != Some(fingerprint.as_str()) {
+        let recorded_version: i64 = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        // 指纹不同 = 库被外部改动或首次打开；代码版本前进 = migrate 有新增列/表要对老库补齐。
+        // 旧库只记指纹、不记版本：按 0 处理，保证迁移至少补跑一次后写入版本。
+        if recorded.as_deref() != Some(fingerprint.as_str()) || recorded_version < SCHEMA_VERSION {
             #[cfg(test)]
             MIGRATION_RUNS.fetch_add(1, Ordering::AcqRel);
             super::materials::migrate(&conn)?;
@@ -190,6 +212,11 @@ impl Store {
                 "INSERT INTO meta (key, value) VALUES ('schema_fingerprint', ?1)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 params![verified],
+            )?;
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![SCHEMA_VERSION.to_string()],
             )?;
         }
         if version < 1 {

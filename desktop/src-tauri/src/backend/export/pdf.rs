@@ -240,11 +240,27 @@ fn system_font() -> Result<Font> {
 }
 
 fn source_lines(document: &ExportDocument) -> Vec<String> {
+    let split_lines = |text: &str| -> Vec<String> {
+        // 段落正文天然多行：统一换行符后按行拆开，
+        // 否则布局阶段会对 '\n' 查字形表失败，多行内容无法导出 PDF
+        text.replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .split('\n')
+            .map(str::to_string)
+            .collect()
+    };
     let mut lines = vec![document.title.clone(), String::new()];
     for section in &document.sections {
-        lines.push(section.heading.clone());
-        lines.extend(section.paragraphs.clone());
-        lines.extend(section.bullets.iter().map(|item| format!("• {item}")));
+        lines.extend(split_lines(&section.heading));
+        for paragraph in &section.paragraphs {
+            lines.extend(split_lines(paragraph));
+        }
+        lines.extend(
+            section
+                .bullets
+                .iter()
+                .flat_map(|item| split_lines(&format!("• {item}"))),
+        );
         lines.push(String::new());
     }
     lines

@@ -214,6 +214,9 @@ pub struct SecurityState {
     database_path: PathBuf,
     credentials: Arc<dyn CredentialBackend>,
     connection: Arc<std::sync::Mutex<Option<Store>>>,
+    /// 用户显式登出后置位：阻止 initialize 自动以管理员身份重新签发会话，
+    /// 直到显式登录（login / 令牌认证）或应用重启。
+    logged_out: Arc<std::sync::atomic::AtomicBool>,
     #[cfg(test)]
     _guard: Option<tempfile::TempDir>,
 }
@@ -240,6 +243,7 @@ impl SecurityState {
             database_path: path.to_path_buf(),
             credentials: Arc::new(SystemCredentials(SERVICE)),
             connection: Arc::new(std::sync::Mutex::new(None)),
+            logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             #[cfg(test)]
             _guard: None,
         }
@@ -252,6 +256,7 @@ impl SecurityState {
             database_path: path.to_path_buf(),
             credentials: Arc::new(SystemCredentials(VERIFICATION_SERVICE)),
             connection: Arc::new(std::sync::Mutex::new(None)),
+            logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             #[cfg(test)]
             _guard: None,
         }
@@ -262,6 +267,7 @@ impl SecurityState {
             database_path: self.database_path.clone(),
             credentials: Arc::clone(&self.credentials),
             connection: Arc::clone(&self.connection),
+            logged_out: Arc::clone(&self.logged_out),
             #[cfg(test)]
             _guard: None,
         }
@@ -274,6 +280,7 @@ impl SecurityState {
             database_path: guard.path().join("app.db"),
             credentials: Arc::new(MemoryCredentials::default()),
             connection: Arc::new(std::sync::Mutex::new(None)),
+            logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             _guard: Some(guard),
         })
     }
@@ -284,6 +291,7 @@ impl SecurityState {
             database_path: path.to_path_buf(),
             credentials: Arc::new(MemoryCredentials::default()),
             connection: Arc::new(std::sync::Mutex::new(None)),
+            logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             _guard: None,
         }
     }
@@ -691,6 +699,13 @@ fn initialize<R: Runtime>(
     match current(&store.conn, state) {
         Ok(current) => Ok(current),
         Err(error) if error.code == "login_required" => {
+            // 用户显式登出后不再自动以管理员身份重登，避免撤销语义被下一条命令抵消
+            if state
+                .logged_out
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                return Err(error);
+            }
             let id: i64 = store.conn.query_row("SELECT id FROM local_users WHERE role = '管理员' AND active = 1 AND deleted_at IS NULL ORDER BY id LIMIT 1", [], |row| row.get(0))?;
             let session = issue(app, state, id, &store)?;
             Ok((user(&store.conn, id, id)?, session))
@@ -862,6 +877,7 @@ pub fn overview<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result
         Ok(_) => overview_from(state),
         Err(error)
             if [
+                "login_required",
                 "invalid_session",
                 "session_expired",
                 "session_revoked",
@@ -882,12 +898,18 @@ pub fn login<R: Runtime>(
 ) -> Result<SecurityOverview> {
     let store = state.store()?;
     ensure_accounts(&store.conn)?;
+    state
+        .logged_out
+        .store(false, std::sync::atomic::Ordering::Release);
     issue(app, state, user_id, &store)?;
     drop(store);
     overview_from(state)
 }
 
 pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<()> {
+    state
+        .logged_out
+        .store(true, std::sync::atomic::Ordering::Release);
     let store = state.store()?;
     let (user, session) = current(&store.conn, state)?;
     let tx = store.conn.unchecked_transaction()?;
@@ -1143,6 +1165,10 @@ pub fn authenticate_token<R: Runtime>(
         "SELECT t.id, t.user_id FROM access_tokens t JOIN local_users u ON u.id = t.user_id WHERE t.token_hash = ?1 AND t.revoked_at IS NULL AND u.active = 1 AND u.deleted_at IS NULL",
         params![hash(&token)], |row| Ok((row.get(0)?, row.get(1)?)),
     ).optional()?.ok_or_else(|| BackendError::new("invalid_token", "访问令牌无效、已吊销或所属用户已停用"))?;
+    // 令牌认证是显式登录行为，清除登出标记
+    state
+        .logged_out
+        .store(false, std::sync::atomic::Ordering::Release);
     let timestamp = timestamp(now()?)?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(

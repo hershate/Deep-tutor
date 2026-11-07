@@ -239,6 +239,44 @@ fn jwt_rejects_tampering_and_expiry_but_allows_a_new_local_login() {
 }
 
 #[test]
+fn logout_revokes_session_until_explicit_login_and_never_relogins_silently() {
+    let (app, state) = setup();
+    let overview = ipc(&app, "get_security_overview", json!({})).unwrap();
+    let sid = overview["session"]["id"].as_str().unwrap();
+    ipc(&app, "logout_local_user", json!({})).unwrap();
+    let store = state.store().unwrap();
+    let revoked: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT revoked_at FROM auth_sessions WHERE id = ?1",
+            params![sid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(revoked.is_some());
+    drop(store);
+    // 登出后的下一条命令不得自动以管理员身份重新签发会话
+    let logged_out = ipc(&app, "get_security_overview", json!({})).unwrap();
+    assert_eq!(logged_out["requiresLogin"], true);
+    assert_eq!(logged_out["currentUser"], Value::Null);
+    let sessions: i64 = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(sessions, 0);
+    // 显式登录后恢复会话，且不复用已撤销的会话
+    let renewed = ipc(&app, "login_local_user", json!({"userId":1})).unwrap();
+    assert_ne!(renewed["session"]["id"], sid);
+    assert_eq!(renewed["currentUser"]["role"], "管理员");
+}
+
+#[test]
 fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
     let (app, state) = setup();
     ipc(&app, "get_security_overview", json!({})).unwrap();

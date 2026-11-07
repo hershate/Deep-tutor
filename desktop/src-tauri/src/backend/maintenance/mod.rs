@@ -199,6 +199,22 @@ fn walk(
     Ok(())
 }
 
+/// 进行中任务临时文件的宽限期：导入临时件（*.upload-*)、Agent 原子写残留
+/// （.*.tmp / .*.previous）、Anki 导出库（anki-*-{pid}-{n}.db）与备份工作目录
+/// （backup-work/{pid}-{n}）在宽限期内可能正被写入，不报告也不清理；
+/// 超过宽限期（任务已崩溃遗留）才作为孤儿处理。
+const IN_FLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+fn modified_recently(path: &Path) -> bool {
+    match fs::metadata(path).and_then(|metadata| metadata.modified()) {
+        Ok(modified) => match modified.elapsed() {
+            Ok(age) => age < IN_FLIGHT_GRACE,
+            Err(_) => true, // mtime 在未来（时钟偏差）：保守视为进行中
+        },
+        Err(_) => false,
+    }
+}
+
 fn walk_files(directory: &Path, issues: &mut Vec<BackendError>) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     if directory.exists() {
@@ -249,6 +265,13 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     for path in walk_files(&root.join("materials/originals"), &mut issues)? {
         let item = file_item(&root, &path)?;
         if !expected_originals.contains(&item.path) {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if name.contains(".upload-") && modified_recently(&path) {
+                continue;
+            }
             originals.push(item);
         }
     }
@@ -269,6 +292,16 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     for path in walk_files(&root.join("agent-workspaces"), &mut issues)? {
         let item = file_item(&root, &path)?;
         if !expected_scratch.contains(&item.path) {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if name.starts_with('.')
+                && (name.ends_with(".tmp") || name.ends_with(".previous"))
+                && modified_recently(&path)
+            {
+                continue;
+            }
             scratch.push(item);
         }
     }
@@ -307,6 +340,7 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             if entry.file_type()?.is_dir()
                 && name.split('-').count() == 2
                 && name.split('-').all(|part| part.parse::<u64>().is_ok())
+                && modified_recently(&entry.path())
             {
                 let files = walk_files(&entry.path(), &mut issues)?;
                 tempdirs.push(FileItem {
@@ -339,6 +373,7 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                 && name[5..name.len() - 3]
                     .split('-')
                     .all(|part| part.parse::<u64>().is_ok())
+                && modified_recently(&entry.path())
             {
                 tempdirs.push(file_item(&root, &entry.path())?);
             }

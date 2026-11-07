@@ -12,7 +12,7 @@ export type BackupPreview = {
   databaseBytes: number
   appendOnly: true
 }
-export type BackupResult = { bytes: number; sha256: string; files: number; records: number }
+export type BackupResult = { bytes: number; sha256: string; files: number; records: number; missingFiles: string[] }
 
 export const backupBackend = {
   export: (destination: string) => invoke<BackupResult>('export_full_backup', { destination }),
