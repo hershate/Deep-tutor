@@ -8,7 +8,6 @@ use std::fs;
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
-#[cfg(test)]
 use std::sync::Mutex;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -882,10 +881,28 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 }
             }
             "notes" => {
+                // projectVersionId：项目迭代笔记与版本的持久关联（13#28），
+                // 可选数字；此前版本号只在标题文本与一次性事件载荷里
                 allowed_fields(
                     object,
-                    &["id", "title", "excerpt", "tag", "updated", "content"],
+                    &[
+                        "id",
+                        "title",
+                        "excerpt",
+                        "tag",
+                        "updated",
+                        "content",
+                        "projectVersionId",
+                    ],
                 )?;
+                if object.contains_key("projectVersionId")
+                    && !object.get("projectVersionId").unwrap_or(&Value::Null).is_number()
+                {
+                    return Err(BackendError::invalid(
+                        "invalid_field",
+                        "笔记关联的项目版本标识必须是数字",
+                    ));
+                }
                 text(object, "excerpt", 2_000, true)?;
                 text(object, "tag", 100, false)?;
                 text(object, "updated", 100, true)?;

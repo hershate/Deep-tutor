@@ -1091,6 +1091,36 @@ fn install_files(root: &Path, files: &[StagedFile]) -> Result<Vec<PathBuf>> {
     Ok(installed)
 }
 
+/// 13#19：预演与导入共用同一套解析/ID 冲突映射/依赖排序——在回滚的
+/// 事务里执行 import_rows，把“库已提交才暴露”的引用断链提前到预览。
+/// 不执行 stage_files/install_files（文件安装是导入的副作用，预演不落盘）。
+pub fn dry_run(
+    backup: &mut OpenBackup,
+    store: &Store,
+    state: &LearningState,
+) -> Result<BTreeMap<String, u64>> {
+    let source = Connection::open_with_flags(
+        &backup.database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    source.execute("PRAGMA query_only = ON", [])?;
+    let mut transfer = read_tables(&source, &store.conn)?;
+    prepare_ids(&mut transfer, &store.conn)?;
+    let ordered = order(&transfer, &store.conn)?;
+    let root = state
+        .workspace_path()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    // stage_files 只写入备份临时工作区（RAII 随 OpenBackup 清理），
+    // 目标文件系统仅读校验；插件清单校验也在这里完成
+    stage_files(&mut transfer, backup, &root)?;
+    let tx = store.conn.unchecked_transaction()?;
+    import_rows(&mut transfer, &tx, &ordered)?;
+    tx.rollback()?;
+    Ok(transfer.counts)
+}
+
 pub fn import(
     backup: &mut OpenBackup,
     store: &Store,

@@ -638,6 +638,8 @@ pub fn iteration_note<R: Runtime>(
         "tag": learning::actions::text(title, 100),
         "updated": now()?,
         "content": content,
+        // 13#28：与版本的持久关联随笔记落库，事后可按版本检索迭代笔记
+        "projectVersionId": input.version_id,
     });
     super::store::validate_collection("notes", &Value::Array(vec![note.clone()]))?;
     store.ensure_quota("notes", 1)?;

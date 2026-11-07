@@ -327,23 +327,26 @@ fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<V
             "搜索词不能超过 200 字节",
         ));
     }
+    // 13#13：关键词下推 SQL LIKE（配额量级 500），不再“先 LIMIT 200 再内存
+    // 过滤”——否则第 201 条以后的旧帖即使完全匹配也永远搜不到
+    let pattern = if query.is_empty() {
+        String::new()
+    } else {
+        format!("%{}%", query.replace('%', "~%").replace('_', "~_"))
+    };
     let mut statement = conn.prepare(
-        "SELECT id FROM community_posts WHERE (?1 IS NULL OR kind = ?1) ORDER BY id DESC LIMIT 200",
+        "SELECT id FROM community_posts
+         WHERE (?1 IS NULL OR kind = ?1)
+           AND (?2 = '' OR lower(title || ' ' || body) LIKE lower(?2) ESCAPE '~')
+         ORDER BY id DESC LIMIT 500",
     )?;
     let ids = statement
-        .query_map(params![kind], |row| row.get::<_, i64>(0))?
+        .query_map(params![kind, pattern], |row| row.get::<_, i64>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
     let mut result = Vec::new();
     for id in ids {
-        let post = post_row(conn, id)?;
-        if query.is_empty()
-            || format!("{} {}", post.title, post.body)
-                .to_lowercase()
-                .contains(&query)
-        {
-            result.push(post);
-        }
+        result.push(post_row(conn, id)?);
     }
     Ok(result)
 }
@@ -790,6 +793,11 @@ pub fn cancel_reservation<R: Runtime>(
         "DELETE FROM community_reminders WHERE room_id = ?1",
         params![id],
     )?;
+    // 13#14：级联取消“即将开始”通知，否则通知中心永久残留已取消安排
+    tx.execute(
+        "DELETE FROM notifications WHERE id = ?1",
+        params![format!("room-{id}")],
+    )?;
     let event = Store::event(
         &tx,
         "community.reservation_cancelled",
@@ -822,6 +830,11 @@ pub fn cancel_room<R: Runtime>(
     tx.execute(
         "DELETE FROM community_reminders WHERE room_id = ?1",
         params![id],
+    )?;
+    // 13#14：同步取消“即将开始”通知
+    tx.execute(
+        "DELETE FROM notifications WHERE id = ?1",
+        params![format!("room-{id}")],
     )?;
     let event = Store::event(&tx, "community.room_cancelled", json!({"roomId": id}))?;
     tx.commit()?;

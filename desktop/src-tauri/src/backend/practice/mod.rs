@@ -958,6 +958,20 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
     Ok(set)
 }
 
+/// 13#24：到期未交卷的考试在读取时惰性收卷。仓库规约不允许后台
+/// 定时器/无人值守进程，读取路径是确定性的收卷时机。
+pub fn lazy_finalize_expired_exam<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &PracticeState,
+    id: i64,
+) -> Result<()> {
+    let set = set_row(&state.store()?.conn, id)?;
+    if exams::remaining(&set).is_ok_and(|(expired, _)| expired) {
+        exams::finalize(app, state, id)?;
+    }
+    Ok(())
+}
+
 pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
     let store = state.store()?;
     let set = set_row(&store.conn, id)?;
@@ -1052,6 +1066,15 @@ fn normalize(answer: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+        // 13#23：中文 IME 常见全角字母/数字/标点归一为半角等价形态，
+        // 语义等价作答（ＡＢＣ/１２３/，）不再被判错
+        .chars()
+        .map(|character| match character {
+            '！'..='～' => char::from_u32(character as u32 - 0xFEE0).unwrap_or(character),
+            '　' => ' ',
+            other => other,
+        })
+        .collect::<String>()
         .to_lowercase()
 }
 
@@ -1248,6 +1271,19 @@ pub fn bookmark<R: Runtime>(
     bookmarked: bool,
 ) -> Result<()> {
     let store = state.store()?;
+    // 13#26：题目不存在时给出类型化错误（此前 FK 违例折叠为 storage_failed，
+    // 文案误导排障）
+    let exists: bool = store.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM practice_questions WHERE id = ?1)",
+        params![question_id],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(BackendError::new(
+            "not_found",
+            "题目不存在或已随练习集删除，未收藏",
+        ));
+    }
     let tx = store.conn.unchecked_transaction()?;
     if bookmarked {
         tx.execute("INSERT INTO practice_bookmarks (question_id, created_at) VALUES (?1, ?2) ON CONFLICT(question_id) DO NOTHING", params![question_id, now()?])?;

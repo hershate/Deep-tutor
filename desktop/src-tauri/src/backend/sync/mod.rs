@@ -512,7 +512,10 @@ fn run<R: Runtime>(
     stage(app, service, id, "running", "request")?;
     match kind {
         "check" => {
-            let _ = transport::send(
+            // 13#30：对象尚未创建（新配置首次上传前的正常态）返回 404，
+            // 原样折叠为 sync_http_error 会把正常态判为失败并误导用户
+            // 以为凭据有误；区分“服务可达但对象不存在”。
+            match transport::send(
                 config,
                 &credentials,
                 if config.kind == "s3" {
@@ -521,11 +524,23 @@ fn run<R: Runtime>(
                     "PROPFIND"
                 },
                 None,
-            )?;
-            Ok(Outcome {
-                result: json!({"reachable": true, "bytes": 0}),
-                local_path: None,
-            })
+            ) {
+                Ok(_) => Ok(Outcome {
+                    result: json!({"reachable": true, "objectPresent": true, "note": ""}),
+                    local_path: None,
+                }),
+                Err(error) if error.code == "sync_http_error" && error.message.contains("404") => {
+                    Ok(Outcome {
+                        result: json!({
+                            "reachable": true,
+                            "objectPresent": false,
+                            "note": "服务连接正常；同步对象尚未创建，首次上传后自动建立",
+                        }),
+                        local_path: None,
+                    })
+                }
+                Err(error) => Err(error),
+            }
         }
         "upload" => {
             let bytes = serde_json::to_vec_pretty(&providers::export_config(&service.providers)?)?;
@@ -547,6 +562,25 @@ fn run<R: Runtime>(
                     .join(format!("{id}.json")),
             };
             super::materials::atomic_export(&path, &bytes)?;
+            // 13#29：本地回写文件保留最近 10 份，更早的清理——
+            // 原先无清理路径，users/<id>/sync 随任务数无限累积
+            if let Some(parent) = path.parent() {
+                let mut stale: Vec<std::path::PathBuf> = std::fs::read_dir(parent)
+                    .map(|entries| {
+                        entries
+                            .filter_map(std::result::Result::ok)
+                            .map(|entry| entry.path())
+                            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                if stale.len() > 10 {
+                    stale.sort();
+                    for old in &stale[..stale.len() - 10] {
+                        let _ = std::fs::remove_file(old);
+                    }
+                }
+            }
             check_cancelled(service, id)?;
             stage(app, service, id, "running", "verify")?;
             if std::fs::read(&path)? != bytes {

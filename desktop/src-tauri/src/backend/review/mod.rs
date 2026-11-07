@@ -501,8 +501,10 @@ pub fn stats(state: &ReviewState) -> Result<ReviewStats> {
         params![tomorrow_start, day_after],
         |row| row.get(0),
     )?;
+    // 13#16：again 显式计 0%，未知/异常档位不再被 ELSE 吞成 0 拉低均值
+    //（NULL 使其退出 AVG）
     let retention: Option<f64> = store.conn.query_row(
-        "SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history",
+        "SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 WHEN 'again' THEN 0.0 ELSE NULL END) FROM review_history",
         [],
         |row| row.get(0),
     )?;
@@ -510,11 +512,20 @@ pub fn stats(state: &ReviewState) -> Result<ReviewStats> {
     for offset in 0..7 {
         let date = today.checked_add(Duration::days(offset)).unwrap();
         let next_date = date.next_day().unwrap();
-        let count: u32 = store.conn.query_row(
-            "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at >= ?1 AND due_at < ?2",
-            params![day_start(date, local.offset())?, day_start(next_date, local.offset())?],
-            |row| row.get(0),
-        )?;
+        // 13#17：“今天”桶与 dueToday 同口径（含全部逾期），复习页两数字不再矛盾
+        let count: u32 = if offset == 0 {
+            store.conn.query_row(
+                "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at < ?1",
+                params![day_start(next_date, local.offset())?],
+                |row| row.get(0),
+            )?
+        } else {
+            store.conn.query_row(
+                "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at >= ?1 AND due_at < ?2",
+                params![day_start(date, local.offset())?, day_start(next_date, local.offset())?],
+                |row| row.get(0),
+            )?
+        };
         let label = if offset == 0 {
             "今天".into()
         } else {

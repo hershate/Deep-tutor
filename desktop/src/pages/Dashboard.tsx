@@ -21,6 +21,13 @@ export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify
     void setTasks(tasks.map(task => task.id === id ? { ...task, done: !task.done } : task)).catch(reportBackendError)
   }
   const formatDate = (value: string) => {
+    // 纯日期串（YYYY-MM-DD）按本地时区解析：Date.parse 会按 UTC 零点，
+    // 西半球时区 toLocaleDateString 会显示成前一天（13#15）
+    const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+    if (plain) {
+      const [year, month, day] = [Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])] as const
+      return new Date(year, month, day).toLocaleDateString('zh-CN')
+    }
     const timestamp = Date.parse(value)
     return Number.isNaN(timestamp) ? value : new Date(timestamp).toLocaleDateString('zh-CN')
   }

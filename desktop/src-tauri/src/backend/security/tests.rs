@@ -359,7 +359,10 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
         crate::backend::backup::export(app.handle(), &store, &learning, &path)
     })
     .unwrap();
-    let preview = with_user(1, || crate::backend::backup::preview(&learning, &path)).unwrap();
+    let preview = with_user(1, || {
+        crate::backend::backup::preview(&learning, &learning.store().unwrap(), &path)
+    })
+    .unwrap();
     assert_eq!(preview.table_counts["access_tokens"], 0);
     assert_eq!(preview.table_counts["auth_sessions"], 0);
     let mut archive = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();

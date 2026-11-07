@@ -447,7 +447,8 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
                 continue;
             }
             for node in plan_result.graph.nodes {
-                if !format!("{}{}", node.title, node.summary)
+                // 13#4：字段间加空格，避免标题尾字+摘要首字拼出查询词的跨边界误命中
+                if !format!("{} {}", node.title, node.summary)
                     .to_lowercase()
                     .contains(&query.to_lowercase())
                 {
@@ -474,9 +475,18 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
         }
     }
     let lower = query.to_lowercase();
+    // 13#3：原按 kind 字母序（material<node<note<page）排序，命中 ≥40 时
+    // "功能页面"导航入口被系统性挤出；改为页面导航优先，内容类随后
+    let kind_priority = |kind: &str| match kind {
+        "page" => 0u8,
+        "task" | "plan" => 1,
+        "note" | "material" => 2,
+        _ => 3,
+    };
     results.sort_by_key(|item| {
         (
             !item.title.to_lowercase().starts_with(&lower),
+            kind_priority(item.kind.as_str()),
             item.kind.clone(),
             item.title.clone(),
         )
@@ -562,11 +572,16 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 "review",
             )?;
         }
+        let recent_floor = (now()? - Duration::days(7))
+            .date()
+            .to_string();
+        // 13#2：原 WHERE date <= today 无下界，全部历史逾期都计入"今日"；
+        // 收敛为近 7 天窗口，数字不再随陈年未勾选任务虚高
         let mut statement = store
             .conn
-            .prepare("SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= ?1")?;
+            .prepare("SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= ?1 AND date >= ?2")?;
         let ids = statement
-            .query_map(params![today], |row| row.get::<_, i64>(0))?
+            .query_map(params![today, recent_floor], |row| row.get::<_, i64>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         drop(statement);
         let tasks = store.collection("tasks")?.value;
@@ -733,13 +748,34 @@ pub fn mark_read<R: Runtime>(
     notification_overview(state)
 }
 
+/// 首页/报告的目标方案口径（13#6）：最近采用的方案优先，无采用记录回退最新。
+fn adopted_plan_id(conn: &rusqlite::Connection) -> Option<i64> {
+    conn.query_row(
+        "SELECT plan_id FROM learning_plan_adoptions ORDER BY id DESC LIMIT 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .ok()
+}
+
 pub fn dashboard<R: Runtime>(
     app: &AppHandle<R>,
     state: &EngagementState,
 ) -> Result<DashboardOverview> {
     let profile = get_profile(app, state)?;
     let store = state.store()?;
-    let plan = super::learning::list(&state.learning)?.into_iter().next();
+    // 13#6：原恒取最新方案（list().next()），未采用的新方案会悄悄切换首页
+    // 目标；改为优先"最近采用的方案"（与学习空间口径一致），无采用记录
+    // 时才回退最新方案
+    let all_plans = super::learning::list(&state.learning)?;
+    let plan = match adopted_plan_id(&store.conn) {
+        Some(adopted) => all_plans
+            .iter()
+            .find(|plan| super::learning::plan_id(&plan.id).ok() == Some(adopted))
+            .cloned()
+            .or_else(|| all_plans.first().cloned()),
+        None => all_plans.first().cloned(),
+    };
     let next_task = plan.as_ref().and_then(|plan| {
         let plan_id = super::learning::plan_id(&plan.id).ok()?;
         plan.result.as_ref().and_then(|result| {
@@ -807,6 +843,7 @@ pub fn dashboard<R: Runtime>(
             page: "practice".into(),
         });
     }
+    let mut project_items = Vec::new();
     for project in store
         .collection("projects")?
         .value
@@ -826,7 +863,12 @@ pub fn dashboard<R: Runtime>(
                     .unwrap_or(false)
             })
             .count();
-        upcoming.push(DashboardItem {
+        // 13#5：里程碑全部完成的项目不再列为待办（原样混入会显示
+        // “0 个里程碑待完成”并挤占考试等真实待办）
+        if remaining == 0 {
+            continue;
+        }
+        project_items.push(DashboardItem {
             kind: "project".into(),
             title: text(project, "title", "项目").into(),
             detail: format!("{remaining} 个里程碑待完成"),
@@ -834,6 +876,10 @@ pub fn dashboard<R: Runtime>(
             page: "projects".into(),
         });
     }
+    // 13#5：项目待办按截止日升序，最多 3 条（与考试口径一致）
+    project_items.sort_by_key(|item| item.date.clone());
+    project_items.truncate(3);
+    upcoming.extend(project_items);
     let recommendation = report.recommendations.into_iter().next();
     Ok(DashboardOverview {
         name: profile.name,

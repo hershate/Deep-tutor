@@ -13,7 +13,14 @@ pub fn generate_practice<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn get_practice_set(state: State<'_, BackendState>, id: i64) -> Result<PracticeSetDetail> {
+pub fn get_practice_set<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<PracticeSetDetail> {
+    // 13#24：考试到期不再永久停留 ready——读取详情时惰性收卷
+    //（未答按 0 分落定），遗忘交卷的试卷不会悬空成绩与错题
+    super::lazy_finalize_expired_exam(&app, &state.practice, id)?;
     super::detail(&state.practice, id)
 }
 

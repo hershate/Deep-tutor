@@ -682,7 +682,24 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
         focus_minutes(&store, &since_text, &previous_text)?;
     let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN max_score > 0 THEN score / max_score END) FROM practice_answers WHERE status = 'done' AND created_at >= ?1", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
-    let latest_plan = super::learning::list(&state.learning)?.into_iter().next();
+    // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新
+    let all_plans = super::learning::list(&state.learning)?;
+    let adopted = store
+        .conn
+        .query_row(
+            "SELECT plan_id FROM learning_plan_adoptions ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok();
+    let latest_plan = match adopted {
+        Some(adopted) => all_plans
+            .iter()
+            .find(|plan| super::learning::plan_id(&plan.id).ok() == Some(adopted))
+            .cloned()
+            .or_else(|| all_plans.first().cloned()),
+        None => all_plans.first().cloned(),
+    };
     let (goal_status, goal_detail) = latest_plan
         .map(|plan| {
             let detail = plan
@@ -864,6 +881,7 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
     let mut days = Vec::new();
     let mut total_minutes = 0;
     let mut recorded = 0;
+    let mut active_start: Option<u64> = None;
     for offset in (0..84).rev() {
         let date = today - Duration::days(offset);
         let date_text = day(date);
@@ -877,14 +895,27 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
+        // 13#7：自报与计时并存时不再整日丢弃计时（决策“日历保留计时与
+        // 自报来源”）；同一学习活动两来源可能重复描述，取较大值避免双计
+        let focus_minutes = (focus.max(0) as u64) / 60;
+        let has_checkin = checkin.is_some();
         let (minutes, note, source) = match checkin {
-            Some((minutes, note)) => (minutes.max(0) as u64, note, "self_report".to_string()),
-            None if focus > 0 => ((focus as u64) / 60, String::new(), "timer".to_string()),
+            Some((minutes, note)) => {
+                let reported = minutes.max(0) as u64;
+                let merged = reported.max(focus_minutes);
+                (merged, note, "self_report".to_string())
+            }
+            None if focus > 0 => (focus_minutes, String::new(), "timer".to_string()),
             None => (0, String::new(), "none".to_string()),
         };
         total_minutes += minutes;
-        if minutes > 0 {
+        // 13#8：打卡率名实一致——分子只计主动自报打卡日（计时日不再虚增），
+        // 分母取窗口内工作区已活跃天数（首个有记录日起算，84 天封顶）
+        if has_checkin && minutes > 0 {
             recorded += 1;
+        }
+        if minutes > 0 && active_start.is_none() {
+            active_start = Some((84 - offset).max(1) as u64);
         }
         days.push(CalendarDay {
             date: date_text,
@@ -917,7 +948,9 @@ pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
         streak,
         total_minutes,
         note_count: note_count as u64,
-        checkin_rate: (recorded * 100 / 84) as u8,
+        // 13#8：分母 = 自首个活跃日以来的天数（1..=84），新工作区不再被
+        // 固定 84 稀释；无任何记录时比率为 0
+        checkin_rate: (recorded * 100 / active_start.unwrap_or(0).max(1)) as u8,
         days,
     })
 }
@@ -1066,10 +1099,11 @@ pub fn export_report<R: Runtime>(
         ("主动练习题数", report.metrics.practice_count.to_string()),
         (
             "正确率百分比",
+            // 13#11：与页面 Math.round 同口径输出整数百分比
             report
                 .metrics
                 .correct_percent
-                .map(|value| (value * 100.0).to_string())
+                .map(|value| format!("{}", value.round() as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         (
@@ -1077,7 +1111,7 @@ pub fn export_report<R: Runtime>(
             report
                 .metrics
                 .retention_percent
-                .map(|value| (value * 100.0).to_string())
+                .map(|value| format!("{}", value.round() as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         ("目标状态", report.metrics.goal_status.clone()),

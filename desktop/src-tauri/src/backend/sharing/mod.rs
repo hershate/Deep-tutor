@@ -431,7 +431,9 @@ pub fn list(state: &SharingState, plan_id: Option<&str>) -> Result<Vec<ShareMeta
     let plan_id = plan_id.map(super::learning::plan_id).transpose()?;
     let store = state.store()?;
     let mut statement = store.conn.prepare(
-        "SELECT id FROM shared_plans WHERE (?1 IS NULL OR plan_id = ?1) ORDER BY id DESC LIMIT 100",
+        // 13#18：撤销入口只渲染列表返回行；窗口从 100 放宽到 500（配额量级），
+        // 避免最旧的有效分享从 UI 永久不可撤销
+        "SELECT id FROM shared_plans WHERE (?1 IS NULL OR plan_id = ?1) ORDER BY id DESC LIMIT 500",
     )?;
     let ids = statement
         .query_map(params![plan_id], |row| row.get::<_, i64>(0))?

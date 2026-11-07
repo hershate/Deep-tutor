@@ -62,7 +62,11 @@ fn push_version(
     }
     let name = value.rsplit('/').next().unwrap_or_default();
     let path = format!("{}/versions/{name}", base(config)?);
-    valid_version_path(config, &path)?;
+    // 13#31：外部工具放入的不合规对象名跳过（不阻断整个列举），
+    // 否则任一异名文件会让上传的数据已传但任务失败、版本 UI 瘫痪
+    if valid_version_path(config, &path).is_err() {
+        return Ok(());
+    }
     result.push(SyncVersion {
         path,
         size,
