@@ -57,7 +57,9 @@ export default function DataDirectoryPanel() {
     if (next.error) { throw next.error }
     if (next.ready) {
       if (next.pendingDataRoot) setMessage('初始化已就绪；新目录将在应用重启后生效，可点击「保存并立即重启」。')
-      else window.location.reload()
+      // A-6：ready 且无待切换目录时后端不做任何动作——此前整页 reload
+      // 会白屏数秒并丢失全部本地状态，与「重试」的预期不符
+      else setMessage('初始化状态正常，无需处理。')
     } else {
       setMessage('初始化仍在进行；已保存的新目录会在下次启动时生效，请稍后重试或重启应用。')
     }

@@ -204,6 +204,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .empty-state { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px; color: var(--muted); }
 .empty-state h3 { color: var(--text); margin: 14px 0 6px; }
 .empty-state p { max-width: 440px; }
+.toast-stack { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100vw - 32px); }
+.toast-stack .toast { position: static; transform: none; }
 .toast { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 9px; padding: 12px 14px; border: 1px solid oklch(0.5 0.04 160); border-radius: 11px; background: var(--pine-950); color: white; box-shadow: 0 14px 40px oklch(0.15 0.02 160 / .3); font-size: 13px; animation: toast-in .2s ease-out; }
 .toast > svg { color: var(--lime-400); }
 .toast-error { border-color: oklch(0.55 0.16 25); }
@@ -423,9 +425,6 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .reading-article > p { font-size: .94em; }
 .reading-article p strong { color: var(--text); }
 .reading-article mark { background: oklch(0.92 0.09 105); color: inherit; padding: 2px 3px; }
-.fraction { display: grid; text-align: center; }
-.fraction i { padding: 3px 10px; font-style: normal; }
-.fraction i:first-child { border-bottom: 1px solid white; }
 .term-grid { display: grid; gap: 10px; margin: 24px 0; }
 .term-grid > div { padding: 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .term-grid span { color: var(--accent); font-size: .85em; font-weight: 700; }
@@ -475,14 +474,6 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .drawer-overlay { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: oklch(0.14 0.02 165 / .45); backdrop-filter: blur(3px); }
 .global-tutor { width: min(390px, 100%); height: 100dvh; box-shadow: -20px 0 60px oklch(0.15 0.02 160 / .25); }
 .global-tutor .tutor-messages { max-height: none; }
-.video-learning { max-width: 900px; margin: 0 auto; padding: 26px 18px; }
-.video-stage { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; border-radius: 14px; background: var(--pine-950); color: white; }
-.video-diagram { display: flex; align-items: center; gap: clamp(8px, 3vw, 28px); color: oklch(0.8 0.02 130); font-size: clamp(12px, 2vw, 20px); }
-.video-diagram strong { color: var(--lime-400); font-size: 1.4em; }
-.video-stage > button { position: absolute; width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid oklch(0.8 0.05 130 / .5); border-radius: 50%; background: oklch(0.2 0.03 160 / .75); color: white; }
-.video-time { position: absolute; right: 14px; bottom: 10px; font-size: 12px; }
-.video-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 0; }
-.video-controls h2 { margin: 0; font-size: 20px; }
 .chapter-resources { max-width: 800px; margin: 0 auto; padding: 32px 20px; }
 .chapter-resources > button { width: 100%; display: flex; align-items: center; gap: 14px; min-height: 78px; padding: 14px; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
 .chapter-resources > button:hover { background: var(--surface-soft); }
@@ -1309,6 +1300,7 @@ td strong { color: var(--text); }
 .export-center > label { display: grid; gap: 7px; margin-bottom: 14px; }
 .export-receipt { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .export-receipt p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.export-receipt .export-warning { color: oklch(0.55 0.14 60); font-weight: 600; }
 .share-status { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .share-status > div { flex: 1; }
 .share-status p { margin: 4px 0 0; font-size: 12px; }

@@ -249,7 +249,7 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
         {
             issues.push(BackendError::new(
                 "invalid_material_path",
-                "材料原件路径不符合应用约定",
+                "资料原件路径不符合应用约定",
             ));
             continue;
         }

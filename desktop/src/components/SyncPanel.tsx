@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldCheck, Square, Upload } from 'lucide-react'
 import { Badge, Button, Modal, SectionHeader, Toggle } from './UI'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
 import { syncBackend } from '../backend/sync'
 import type { SyncConfigInput, SyncJob, SyncOverview, SyncVersion } from '../backend/sync'
 
@@ -77,7 +77,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   }
   const cancel = async (id: string) => {
     setBusy(`cancel-${id}`)
-    try { await syncBackend.cancel(id); await refresh() } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    try { await syncBackend.cancel(id); await refresh() } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const openVersions = async () => {
     setBusy('versions')

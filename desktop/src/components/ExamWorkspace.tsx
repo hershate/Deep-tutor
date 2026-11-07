@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, deltaThrottle } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, type LearningPlan, deltaThrottle } from '../backend/client'
+import { clampToBytes } from '../limits'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet, type QuestionKind } from '../backend/practice'
 import { statusName } from '../status'
 
@@ -90,7 +91,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   }
   const cancelGeneration = async () => {
     if (!exam) return
-    try { onUpdated(await practiceBackend.cancel(exam.set.id)) } catch (error) { reportBackendError(error) }
+    try { onUpdated(await practiceBackend.cancel(exam.set.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
   const resumeGeneration = async () => {
     if (!exam) return
@@ -119,7 +120,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   }
   const cancelAnswer = async () => {
     if (!answer) return
-    try { onUpdated(await practiceBackend.cancelAnswer(answer.id)) } catch (error) { reportBackendError(error) }
+    try { onUpdated(await practiceBackend.cancelAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
   const resumeAnswer = async () => {
     if (!answer) return
@@ -149,7 +150,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
             return <button key={option} disabled={recorded || busy || exam.examExpired} className={`${selectedValue === optionIndex ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} onClick={() => setSelected(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong></button>
           })}</div>}
           {question.kind === 'fill' && <input className="practice-fill-input" value={draft} disabled={recorded || busy || exam.examExpired} onChange={event => setDraft(event.target.value)} placeholder="填写准确术语" />}
-          {['short', 'essay'].includes(question.kind) && <textarea rows={question.kind === 'essay' ? 8 : 5} maxLength={30000} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} disabled={recorded || busy || exam.examExpired} onChange={event => setDraft(event.target.value)} placeholder="组织自己的回答，交卷后由后端按评分要点评分" />}
+          {['short', 'essay'].includes(question.kind) && <textarea rows={question.kind === 'essay' ? 8 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} disabled={recorded || busy || exam.examExpired} onChange={event => setDraft(clampToBytes(event.target.value, 30000))} placeholder="组织自己的回答，交卷后由后端按评分要点评分" />}
           {question.rubric.length > 0 && <div className="rubric-preview"><strong>评分要点</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>}
           {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>交卷后统一显示得分与解析。</p></div>}
           {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={answer.status === 'cancelling'}>取消评分</Button></div>}

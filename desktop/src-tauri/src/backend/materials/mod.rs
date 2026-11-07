@@ -108,7 +108,7 @@ impl MaterialState {
         let jobs = self
             .active
             .lock()
-            .map_err(|_| BackendError::new("store_unavailable", "材料任务状态暂不可用"))?;
+            .map_err(|_| BackendError::new("store_unavailable", "资料任务状态暂不可用"))?;
         for flag in jobs.values() {
             flag.store(true, Ordering::Release);
         }
@@ -862,7 +862,7 @@ fn spawn_job<R: Runtime>(
         let mut active = state
             .active
             .lock()
-            .map_err(|_| BackendError::new("store_unavailable", "材料任务状态暂不可用"))?;
+            .map_err(|_| BackendError::new("store_unavailable", "资料任务状态暂不可用"))?;
         if active.contains_key(&id) {
             return Err(BackendError::new("job_active", "该资料已在解析队列中"));
         }
@@ -1046,7 +1046,7 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     let flag = state
         .active
         .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "材料任务状态暂不可用"))?
+        .map_err(|_| BackendError::new("store_unavailable", "资料任务状态暂不可用"))?
         .get(&id)
         .cloned();
     if let Some(flag) = &flag {

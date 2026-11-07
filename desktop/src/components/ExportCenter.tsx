@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
-import { backend, backendErrorMessage } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
 import type { LearningPlan, Lecture } from '../backend/client'
 import { exportBackend } from '../backend/export'
 import type { ExportFormat, ExportResult, ExportScope } from '../backend/export'
@@ -23,17 +23,19 @@ const scopes: { id: ExportScope; label: string }[] = [
 
 function fileName(title: string, extension: string) {
   const safe = title.replace(/[\\/:*?"<>|]/g, '_').replace(/[.\s]+$/, '')
-  return `${safe.slice(0, 80) || 'DeepTutor-export'}.${extension}`
+  // E-5：按码点截断（与后端 chars().take(80) 同口径）——UTF-16 码元切片
+  // 会把代理对切半，defaultPath 序列化出孤立代理解析必败
+  const clipped = Array.from(safe).slice(0, 80).join('')
+  return `${clipped || 'DeepTutor-export'}.${extension}`
 }
 
-export default function ExportCenter({ open, onClose, notify, initialPlanId, initialScope = 'plan' }: {
+export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   open: boolean
   onClose: () => void
   notify: (message: string) => void
   initialPlanId?: string
-  initialScope?: ExportScope
 }) {
-  const [scope, setScope] = useState<ExportScope>(initialScope)
+  const [scope, setScope] = useState<ExportScope>('plan')
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [planId, setPlanId] = useState(initialPlanId || '')
   const [stageId, setStageId] = useState('')
@@ -56,6 +58,20 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId, ini
     }).catch(cause => { if (active) setError(backendErrorMessage(cause)) }).finally(() => { if (active) setBusy('') })
     return () => { active = false }
   }, [open, initialPlanId])
+  useEffect(() => {
+    // 信息项：弹窗开着期间新完成的方案实时进入列表（plan. 前缀事件触发重拉）
+    if (!open) return
+    let unlisten: (() => void) | undefined
+    let disposed = false
+    void onBackendEvent(event => {
+      if (disposed || !event.kind.startsWith('plan.')) return
+      void backend.listLearningPlans().then(items => {
+        if (disposed) return
+        setPlans(items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status)))
+      }).catch(() => {})
+    }).then(remove => { if (disposed) remove(); else unlisten = remove })
+    return () => { disposed = true; unlisten?.() }
+  }, [open])
 
   const plan = plans.find(item => item.id === planId) || null
   useEffect(() => {
@@ -98,10 +114,10 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId, ini
   return <Modal open={open} onClose={onClose} title="导出学习内容" wide><div className="export-center">
     <div className="export-scope"><label>导出范围<select value={scope} onChange={event => { setScope(event.target.value as ExportScope); setDone(null); setError('') }}>{scopes.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div><Badge tone="green">Rust 原生文件生成</Badge><p>内容来自 SQLite 和已保存讲义。PDF 不打开打印窗口；Anki 导出真实 APKG。</p></div></div>
     {needsPlan && <label>学习方案<select value={planId} onChange={event => { setPlanId(event.target.value); setDone(null) }} disabled={!plans.length}><option value="">请选择已完整生成的方案</option>{plans.map(item => <option key={item.id} value={item.id}>{item.goal} · v{item.version}</option>)}</select></label>}
-    {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
+    {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="export-grid">{available.map(format => <button key={format.id} onClick={() => void run(format.id, format.ext)} disabled={Boolean(busy) || !canExport}><format.icon size={22} /><div><strong>{format.name}</strong><span>{format.description}</span></div>{busy === format.id ? <LoaderCircle size={18} className="spin" /> : done?.format === format.id ? <Check size={18} /> : <ArrowDownToLine size={18} />}</button>)}</div>
-    {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p></div></div>}
+    {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div></div>}
     <div className="export-foot"><span>动态文本按格式转义；HTML 不执行脚本。只有用户选择保存位置后才写入文件。</span><Button variant="secondary" onClick={onClose}>完成</Button></div>
   </div></Modal>
 }

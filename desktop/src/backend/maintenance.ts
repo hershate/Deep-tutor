@@ -28,6 +28,8 @@ export type CleanupResult = {
   deletedTempItems: number
   freedBytes: number
   failures: BackendError[]
+  /** B-12：未轮到的剩余孤儿数，>0 时提示再清一次 */
+  remaining: number
 }
 export type VacuumResult = {
   beforeBytes: number

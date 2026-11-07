@@ -18,7 +18,10 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   const [loadingEarlier, setLoadingEarlier] = useState(false)
   const events = useMemo(() => {
     const seen = new Set((data?.events ?? []).map(event => `${event.pluginId}-${event.eventId}`))
-    const merged = [...(data?.events ?? []), ...earlier.filter(event => !seen.has(`${event.pluginId}-${event.eventId}`))]
+    // B-19：earlier 快照可能含已卸载插件（plugin_deliveries 已 CASCADE 清空），
+    // 对照当前插件集过滤，卸载后历史行不再残留
+    const installed = new Set((data?.plugins ?? []).map(plugin => plugin.id))
+    const merged = [...(data?.events ?? []), ...earlier.filter(event => installed.has(event.pluginId) && !seen.has(`${event.pluginId}-${event.eventId}`))]
     return merged.sort((a, b) => b.eventId - a.eventId)
   }, [data, earlier])
   const loadEarlier = async () => {

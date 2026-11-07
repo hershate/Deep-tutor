@@ -128,7 +128,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
       await practiceBackend.submit(detail.set.id, question.id, answer)
       setDetail(await practiceBackend.detail(detail.set.id))
       await refresh()
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const bookmark = async () => {
     const question = detail?.questions[index]

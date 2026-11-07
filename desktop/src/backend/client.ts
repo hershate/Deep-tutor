@@ -13,6 +13,8 @@ export type AppSnapshot = {
   versions: Record<CollectionNamespace | 'drafts', number>
   lastEventId: number
   workspaceId: number
+  /** A-20：备份导入后部分域 recover 失败的降级警告（无失败时不出现） */
+  backupImportWarnings?: string[]
 }
 export type BackendEvent = {
   id: number
@@ -432,14 +434,18 @@ export function isCancelRace(error: unknown) {
     'project_feedback_not_active',
     'sync_not_active',
     'no_active_request',
+    // A-9：资料解析任务取消的竞态码（materials 域）
+    'no_active_job',
   ].includes(code)
 }
 
-export function reportBackendError(error: unknown) {
+export function reportBackendError(error: unknown, kind: 'read' | 'write' = 'read') {
   const message = backendErrorMessage(error)
   console.error(error)
-  // 03#6：database_busy 是瞬态争用（写锁超时/维护检查点未完），事件驱动
-  // 刷新会随下一个事件自动重试，不打断用户
-  if (typeof error === 'object' && error !== null && 'code' in error && (error as Partial<BackendError>).code === 'database_busy') return
+  // 03#6：database_busy 是瞬态争用（写锁超时/维护检查点未完），事件驱动的
+  // 读刷新会随下一个事件自动重试，不打断用户。
+  // B-17：写操作失败没有后续事件自愈——静默等于丢操作（勾选弹回、答案
+  // 丢失），写路径必须提示用户重试
+  if (kind === 'read' && typeof error === 'object' && error !== null && 'code' in error && (error as Partial<BackendError>).code === 'database_busy') return
   window.dispatchEvent(new CustomEvent('backend-error', { detail: message }))
 }

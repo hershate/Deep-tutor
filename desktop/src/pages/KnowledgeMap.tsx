@@ -72,7 +72,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       if (event.kind === 'plan.adopted') void refreshPlans()
       // 练习/复习证据落库后掌握度随之变化，停留页面也要刷新（事件载荷不带 planId，直接重拉概览）
       if (event.kind === 'study.progress_changed' && event.payload.planId === planRef.current?.id) void refreshOverview()
-      else if (['practice.answer_graded', 'practice.set_completed', 'practice.mistake_mastered_by_variant', 'review.graded'].includes(event.kind)) void refreshOverview()
+      else if (['practice.answer_graded', 'practice.answer_submitted', 'practice.set_completed', 'practice.exam_completed', 'practice.mistake_mastered_by_variant', 'review.graded'].includes(event.kind)) void refreshOverview()
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
     return () => { disposed = true; unlisten?.() }
   }, [refreshOverview, refreshPlans])
@@ -105,7 +105,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
     setBusy(true)
     try {
       await backend.addKnowledgeTask(plan.id, node.id)
-      notify(`已把「${node.title}」加入学习计划，重复添加不会重复创建任务`)
+      notify(`已把「${node.title}」加入方案，重复添加不会重复创建任务`)
       onNavigate('plan')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy(false) }
   }

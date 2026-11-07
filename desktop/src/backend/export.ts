@@ -10,7 +10,7 @@ export type ExportInput = {
   unitIndex: number | null
   version: number | null
 }
-export type ExportResult = { bytes: number; sha256: string; format: ExportFormat; title: string }
+export type ExportResult = { bytes: number; sha256: string; format: ExportFormat; title: string; warning?: string }
 export type NotesArchiveResult = { bytes: number; sha256: string; count: number }
 
 export const exportBackend = {

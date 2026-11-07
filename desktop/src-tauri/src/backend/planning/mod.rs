@@ -488,6 +488,15 @@ pub fn update_goal<R: Runtime>(
     let base = (input.weekly_hours * 60 / 7).clamp(15, 600);
     plan_input.daily_minutes = ((base as f64 * factor(&intensity)?).round() as u32).clamp(15, 600);
     if let Some(level) = input.level {
+        // A-2：level 直接落 input_json 并随 regenerate 进入模型提示词——
+        // generate 入口的 1000B 校验（learning）在本路径不重跑，超长基础
+        // 描述会静默污染提示词，这里同界校验
+        if level.len() > 1000 {
+            return Err(BackendError::invalid(
+                "invalid_level",
+                "当前掌握情况不能超过 1000 字节",
+            ));
+        }
         plan_input.level = level;
     }
     preferences["weeklyHours"] = Value::from(input.weekly_hours);

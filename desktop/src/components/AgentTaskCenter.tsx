@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
 
 type TaskEntry = {
   id: string
@@ -51,7 +51,7 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
     if (!task.cancel) return
     setBusy(task.id)
     try { await task.cancel(); notify('取消请求已提交，最终状态由原生后端保存'); await refresh() }
-    catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   if (loading && !error) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实运行记录…</div>
   if (error && !tasks.length) return <div className="page-loading" role="alert"><CircleAlert size={25} /><h2>运行记录读取失败</h2><p>{error}</p><Button onClick={() => { setError(''); setLoading(true); void refresh() }}>重新读取</Button></div>

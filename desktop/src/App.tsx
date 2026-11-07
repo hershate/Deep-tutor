@@ -66,7 +66,8 @@ export default function App() {
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
-  const [toast, setToast] = useState<{ message: string; tone: 'info' | 'error' } | null>(null)
+  // A-10：多槽 toast——两个并发后端错误后到不再覆盖先到
+  const [toasts, setToasts] = useState<{ id: number; message: string; tone: 'info' | 'error' }[]>([])
   const [quickType, setQuickType] = useState('任务')
   const [quickTitle, setQuickTitle] = useState('')
   const [focusOpen, setFocusOpen] = useState(false)
@@ -82,7 +83,8 @@ export default function App() {
   // 专注层的圈禁在其组件内部接线（14#10）
   useFocusContainment(tutorRef, tutorOpen)
 
-  const notify = (message: string) => setToast({ message, tone: 'info' })
+  const notify = (message: string) => setToasts(current => [...current, { id: Date.now() + Math.random(), message, tone: 'info' as const }].slice(-4))
+  const dismissToast = (id: number) => setToasts(current => current.filter(toast => toast.id !== id))
   // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
   useEffect(() => {
     const sync = () => {
@@ -104,11 +106,15 @@ export default function App() {
   }, [])
   useEffect(() => {
     // 后端错误以错误样式（alert）播报，与成功提示区分，不再共用绿色对勾
-    const onError = (event: Event) => setToast({ message: (event as CustomEvent<string>).detail, tone: 'error' })
+    const onError = (event: Event) => setToasts(current => [...current, { id: Date.now() + Math.random(), message: (event as CustomEvent<string>).detail, tone: 'error' as const }].slice(-4))
     window.addEventListener('backend-error', onError)
     return () => window.removeEventListener('backend-error', onError)
   }, [])
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), toast.tone === 'error' ? 5200 : 3200); return () => window.clearTimeout(timer) }, [toast])
+  useEffect(() => {
+    if (!toasts.length) return
+    const timers = toasts.map(toast => window.setTimeout(() => setToasts(current => current.filter(item => item.id !== toast.id)), toast.tone === 'error' ? 5200 : 3200))
+    return () => timers.forEach(timer => window.clearTimeout(timer))
+  }, [toasts])
   useEffect(() => {
     if (!ready || loginRequired) return
     let active = true
@@ -217,7 +223,7 @@ export default function App() {
       if (quickType === '任务') await setTasks([...tasks, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
       else await setNotes([{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: '刚刚', content: quickTitle.trim() }, ...notes])
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
   }
   const importAll = (path: string) => importBackup(path)
   const resetAll = async () => {
@@ -277,13 +283,13 @@ export default function App() {
   }
 
   if (startupError) {
-    return <main className="page-loading startup-recovery"><h1>本地数据或实时连接打开失败</h1><p role="alert">{startupError}</p><DataDirectoryPanel />{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
+    return <main className="page-loading startup-recovery"><h1>本地数据或实时连接打开失败</h1><p role="alert">{startupError}</p><DataDirectoryPanel /><ToastStack toasts={toasts} onClose={dismissToast} /></main>
   }
   if (loginRequired) {
-    return <main className="page-loading access-gate"><h1>选择本地用户</h1><p>会话已过期或尚未建立。请选择本地身份，继续进入对应的学习工作区。</p><div className="surface access-gate-panel"><SecurityPanel notify={notify} /></div>{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
+    return <main className="page-loading access-gate"><h1>选择本地用户</h1><p>会话已过期或尚未建立。请选择本地身份，继续进入对应的学习工作区。</p><div className="surface access-gate-panel"><SecurityPanel notify={notify} /></div><ToastStack toasts={toasts} onClose={dismissToast} /></main>
   }
   if (!ready) {
-    return <main className="page-loading"><LoaderMark />正在打开本地学习数据…{toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}</main>
+    return <main className="page-loading"><LoaderMark />正在打开本地学习数据…<ToastStack toasts={toasts} onClose={dismissToast} /></main>
   }
 
   return <div className={`app-shell ${page === 'study' ? 'study-mode' : ''}`}>
@@ -297,7 +303,7 @@ export default function App() {
     </aside>
 
     <div className="app-main">
-      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识点…</span><kbd>⌘ K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences({ ...preferences, theme: preferences.theme === 'light' ? 'dark' : 'light' })}>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)}><Sparkles size={16} />问知舟</Button></div></header>
+      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>⌘ K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences({ ...preferences, theme: preferences.theme === 'light' ? 'dark' : 'light' })}>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)}><Sparkles size={16} />问知舟</Button></div></header>
       <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
     </div>
 
@@ -307,7 +313,7 @@ export default function App() {
 
     <SearchLayer open={modal === 'search'} onClose={() => setModal(null)} onOpenResult={openSearchResult} />
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
-      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
+      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」.'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
       {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
@@ -327,7 +333,7 @@ export default function App() {
       onReset={() => void resetFocus()}
       onExit={() => setFocusOpen(false)}
     />}
-    {toast && <div className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => setToast(null)}><X size={15} /></button></div>}
+    <ToastStack toasts={toasts} onClose={dismissToast} />
   </div>
 }
 
@@ -343,6 +349,12 @@ function Highlight({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <>{text}</>
   const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'))
   return <>{parts.map((part, index) => part.toLowerCase() === query.toLowerCase() ? <mark key={index}>{part}</mark> : part)}</>
+}
+
+// 多槽错误/成功提示堆叠（A-10）：并发后端错误各自可见，互不覆盖
+function ToastStack({ toasts, onClose }: { toasts: { id: number; message: string; tone: 'info' | 'error' }[]; onClose: (id: number) => void }) {
+  if (!toasts.length) return null
+  return <div className="toast-stack">{toasts.map(toast => <div key={toast.id} className={`toast ${toast.tone === 'error' ? 'toast-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <CircleAlert size={17} /> : <Check size={17} />}<span>{toast.message}</span><button aria-label="关闭提示" onClick={() => onClose(toast.id)}><X size={15} /></button></div>)}</div>
 }
 
 // 专注层独立组件（14#10）：计时器每秒只重渲染本层，
@@ -405,6 +417,6 @@ function SearchLayer({ open, onClose, onOpenResult }: {
     return () => { active = false; window.clearTimeout(timer) }
   }, [query])
   return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
-    <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识点…" /></div><div className="command-results">{results.length ? results.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => onOpenResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、材料、方案与知识节点，按 Esc 关闭</div>
+    <div className="command-search"><Search size={20} /><input autoFocus value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} placeholder="输入页面、笔记或知识节点…" /></div><div className="command-results">{results.length ? results.map(result => <button key={`${result.kind}-${result.id}`} onClick={() => { setQuery(''); onOpenResult(result) }}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案与知识节点，按 Esc 关闭</div>
   </Modal>
 }
