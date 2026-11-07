@@ -118,7 +118,9 @@ fn seed_source(
         .unwrap();
     store.conn.execute("INSERT INTO learning_plan_adoptions (plan_id, project_id, created_at) VALUES (1, 1, ?1)", params![timestamp]).unwrap();
     store.conn.execute("INSERT INTO learning_annotations (plan_id, stage_id, note_id, created_at) VALUES (1, 'stage-1', 1, ?1)", params![timestamp]).unwrap();
-    store.conn.execute("INSERT INTO provider_requests (request_id, provider_id, model, status, output, attempts, created_at, updated_at) VALUES ('request-1', 1, 'test-model', 'done', '已保存的真实模型输出', 1, ?1, ?1)", params![timestamp]).unwrap();
+    // 34#7：请求行携带会话外键 agent_session_id=1——导入时必须按表间依赖
+    // 重映射到目标库会话 id，不得残留源库字面值
+    store.conn.execute("INSERT INTO provider_requests (request_id, provider_id, model, status, output, attempts, agent_session_id, created_at, updated_at) VALUES ('request-1', 1, 'test-model', 'done', '已保存的真实模型输出', 1, 1, ?1, ?1)", params![timestamp]).unwrap();
     store.conn.execute("INSERT INTO learning_plan_steps (plan_id, step_index, status, request_id, created_at, updated_at) VALUES (1, 0, 'done', 'request-1', ?1, ?1)", params![timestamp]).unwrap();
     let share = crate::backend::sharing::create(
         app.handle(),
@@ -283,6 +285,19 @@ fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
             .output,
         "已保存的真实模型输出"
     );
+    // 34#7：agent_session_id 按表间依赖重映射——源会话 1 → 目标会话 2；
+    // 恒为源库字面值 1 会把预算挂到目标库无关会话上
+    let remapped_session: i64 = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT agent_session_id FROM provider_requests WHERE request_id = 'imported-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(remapped_session, 2);
     let original = target
         .database_path()
         .parent()
@@ -602,6 +617,7 @@ fn append_import_rewrites_pk_fk_child_tables_with_parent() {
         json!({"path": path.to_string_lossy()}),
     )
     .unwrap();
+    let _ = &state;
     let store = target.store().unwrap();
     let imported_material: i64 = store
         .conn

@@ -1310,4 +1310,57 @@ mod tests {
             .unwrap();
         assert!(restored);
     }
+
+    #[test]
+    fn schema_version_gate_restores_missing_columns_on_reopen() {
+        // 34#1：31#1 之前的老库缺 provider_requests.agent_session_id 列，
+        // 但其指纹由旧代码在旧 schema 上计算——重开时指纹自洽，只有
+        // schema_version 门禁（1 < 2）能触发补跑 migrate 恢复缺列
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        {
+            let store = Store::root(&path).unwrap();
+            store
+                .conn
+                .execute("ALTER TABLE provider_requests DROP COLUMN agent_session_id", [])
+                .unwrap();
+            // 重记缺列 schema 的指纹并回退版本号，精确模拟老库：指纹匹配、版本 1
+            let stale = Store::schema_fingerprint(&store.conn).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_fingerprint'",
+                    params![stale],
+                )
+                .unwrap();
+            store
+                .conn
+                .execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'", [])
+                .unwrap();
+        }
+        let baseline = migration_count();
+        let reopened = Store::root(&path).unwrap();
+        assert_eq!(migration_count(), baseline + 1);
+        let columns: Vec<String> = reopened
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('provider_requests')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(
+            columns.iter().any(|column| column == "agent_session_id"),
+            "版本门禁必须补跑 migrate 恢复缺列"
+        );
+        let version: String = reopened
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "2");
+    }
 }

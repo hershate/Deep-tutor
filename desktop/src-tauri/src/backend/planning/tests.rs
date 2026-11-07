@@ -144,6 +144,22 @@ fn ipc_schedule_intensity_and_task_dates_use_persistent_data() {
         ipc(&app, "apply_plan_intensity", json!({"intensity":"过量"})).unwrap_err()["code"],
         "invalid_intensity"
     );
+    // 34#3：切强度（在同版本落 versions 快照）后 regenerate 不得撞
+    // (plan_id, version) 主键——原裸 INSERT 使切过强度的方案永久不可重生成
+    let store = learning.store().unwrap();
+    let versions: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_plan_versions WHERE plan_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(versions >= 1, "强度切换应先落版本快照");
+    crate::backend::learning::actions::regenerate(app.handle(), &learning, "1", 6).unwrap();
+    let regenerated = crate::backend::learning::get(&learning, "plan-1").unwrap();
+    assert_eq!(regenerated.status, "running");
+    assert_eq!(regenerated.version, versions as u32 + 1);
     let scheduled = ipc(
         &app,
         "assign_task_date",

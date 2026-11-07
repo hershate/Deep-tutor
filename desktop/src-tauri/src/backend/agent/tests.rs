@@ -901,6 +901,19 @@ fn token_budget_stops_a_completed_response_before_another_request() {
     assert_eq!(completed.status, "done");
     assert_eq!(completed.output_tokens, 1024);
     assert_eq!(agent_server.request_count(), 1);
+    // 34#6：回填必须在 begin_chat 的 INSERT 之后执行——运行结束即可按
+    // agent_session_id 外键聚合该请求；恒 NULL 会让会话预算漏算整次调用
+    let backfilled: Option<i64> = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT agent_session_id FROM provider_requests WHERE request_id LIKE 'agent-%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(backfilled, Some(session.id));
     assert_eq!(
         get(&state, &session.id.to_string())
             .unwrap()
@@ -1031,6 +1044,7 @@ fn history_replay_trims_dangling_tool_calls_and_orphan_tool_messages() {
     // tool 回复"的悬挂历史——OpenAI 系端点对这类请求返回 400，resume 永久
     // 卡死；重放前必须修剪为自洽序列
     let (app, state) = setup();
+    let _ = &app;
     // 直接落会话行：本测试只关心消息历史的修剪，不走需要已采用方案的
     // new_session 校验
     let store = state.store().unwrap();
@@ -1084,4 +1098,104 @@ fn history_replay_trims_dangling_tool_calls_and_orphan_tool_messages() {
         .collect();
     assert_eq!(tools.len(), 1, "孤儿 tool 回复必须被修剪");
     assert_eq!(tools[0].tool_call_id.as_deref(), Some("call-a"));
+}
+
+#[test]
+fn tool_messages_replay_with_preceding_assistant_declaration() {
+    // 34#5：严格端点要求 role=tool 消息前置 assistant(tool_calls) 声明；
+    // 此前第二次请求只带 tool 消息，被端点 400 拒绝后整个工具循环失效
+    let (app, state, _baseline, base_session) = prepare();
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&bodies);
+    let agent_server = server(move |request, stream| {
+        sink.lock().unwrap().push(request.to_string());
+        let event = if request.contains("\"role\":\"tool\"") {
+            json!({"choices": [{"delta": {"content": "配对完成"}}]})
+        } else {
+            json!({"choices": [{"delta": {"tool_calls": [{
+                "index": 0, "id": "call-pair", "type": "function",
+                "function": {"name": "workspace.read", "arguments": "{\"reference\":\"current\"}"},
+            }]}}]})
+        };
+        response(stream, "200 OK", &format!("data: {event}\n\ndata: {{\"usage\":{{\"prompt_tokens\":12,\"completion_tokens\":33}},\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"));
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let session = new_session(
+        app.handle(),
+        &state,
+        Some("配对测试".into()),
+        Some(base_session.plan_id),
+        Some(16_000),
+    )
+    .unwrap();
+    let run = send(
+        app.handle(),
+        &state,
+        &session.id.to_string(),
+        "读取当前方案".into(),
+    )
+    .unwrap();
+    let completed = wait_run(&state, &run.id.to_string());
+    assert_eq!(completed.status, "done");
+    let bodies = bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 2, "{bodies:?}");
+    let second = bodies.last().unwrap();
+    let declared = second.find("\"tool_calls\"").expect("缺少声明");
+    let tool = second.find("\"role\":\"tool\"").expect("缺少 tool 消息");
+    assert!(
+        declared < tool,
+        "tool 消息必须后置于 assistant 声明：{second}"
+    );
+    assert!(second.contains("call-pair"));
+}
+
+#[test]
+fn long_history_is_capped_and_survives_validate_messages() {
+    // 34#8：历史超过 validate_messages 的 64 条上限时，history() 必须裁剪
+    // 到上限内（保留最新），否则长会话每次 send 都 invalid_messages 永久失败
+    let (app, state) = setup();
+    let agent_server = server(move |_request, stream| {
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"长会话回复\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":33},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES ('长会话', 'plan-1', 'p1', 16000, ?1, ?1)",
+        params![timestamp],
+    )
+    .unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_runs (session_id, status, steps, created_at, updated_at) VALUES (1, 'done', 1, ?1, ?1)",
+        params![timestamp],
+    )
+    .unwrap();
+    for index in 0..70 {
+        let role = if index % 2 == 0 { "user" } else { "assistant" };
+        store.conn.execute(
+            "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, partial, created_at) VALUES (1, 1, 1, ?1, ?2, '', 0, ?3)",
+            params![role, format!("历史第{index}条"), timestamp],
+        )
+        .unwrap();
+    }
+    let session = get(&state, "1").unwrap();
+    let replay = history(&session).unwrap();
+    assert!(
+        replay.len() <= 64,
+        "重放条数必须落在 validate_messages 上限内：{}",
+        replay.len()
+    );
+    assert!(!replay
+        .iter()
+        .any(|message| message.content == "历史第0条"));
+    assert!(replay
+        .iter()
+        .any(|message| message.content == "历史第69条"));
+    let run = send(app.handle(), &state, "1", "继续长会话".into()).unwrap();
+    let completed = wait_run(&state, &run.id.to_string());
+    assert_eq!(completed.status, "done");
+    assert_eq!(
+        get(&state, "1").unwrap().messages.last().unwrap().content,
+        "长会话回复"
+    );
 }
