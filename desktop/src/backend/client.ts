@@ -99,7 +99,7 @@ export type LearningStep = {
   requestId: string | null
   output: unknown
   error: BackendError | null
-  usage: { inputTokens: number | null; outputTokens: number | null } | null
+  usage: { inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null }  /* 35#10：与 TokenUsage 三字段对齐 */ | null
   upstreamAttempts: number | null
   latencyMs: number | null
 }
@@ -163,7 +163,7 @@ export type LectureUnit = {
   requestId: string | null
   content: LectureContent | null
   error: BackendError | null
-  usage: { inputTokens: number | null; outputTokens: number | null } | null
+  usage: { inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null }  /* 35#10：与 TokenUsage 三字段对齐 */ | null
 }
 export type Lecture = {
   planId: string

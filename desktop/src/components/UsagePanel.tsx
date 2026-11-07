@@ -39,9 +39,10 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
     let mounted = true
     let unlisten: (() => void) | undefined
     const listening = onBackendEvent(event => {
-      // 32#1：过滤收窄到用量域与模型请求终态——原先 `.completed` 后缀命中
-      // provider.chat_completed，任何后台请求完成都触发一次全量刷新
-      if (event.kind.startsWith('usage.') || event.kind.startsWith('provider.chat_') || event.kind.startsWith('provider.route_')) void refresh()
+      // 32#1：过滤收窄到用量域与模型请求终态。35#1：`provider.chat_` 前缀会
+      // 命中 chat_delta——流式输出每分块触发两次 IPC 全量刷新；改为精确终态
+      const terminal = ['provider.chat_completed', 'provider.chat_failed', 'provider.chat_cancelled', 'provider.chat_interrupted', 'provider.route_completed', 'provider.route_failed', 'provider.route_cancelled', 'provider.route_interrupted']
+      if (event.kind.startsWith('usage.') || terminal.includes(event.kind)) void refresh()
     })
     listening.then(stop => { if (mounted) unlisten = stop; else stop() }).catch(reportBackendError)
     // 28#5：卸载早于 listen() promise resolve 时立即注销，不再空转刷新
@@ -63,7 +64,7 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
       await usageBackend.upsertRate({ providerId: rateProvider, model: rateModel, inputPerMillion: clampRate(inputRate), outputPerMillion: clampRate(outputRate) })
       await refresh()
       notify('实际模型费率已保存，后续台账按该费率计算')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const saveBudget = async () => {
     if (busy) return
@@ -74,7 +75,7 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
       setData(current => current ? { ...current, settings } : current)
       await refresh()
       notify('预算与方案重生成上限已保存，并用于后续原生请求')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const exportCsv = async () => {
     try {

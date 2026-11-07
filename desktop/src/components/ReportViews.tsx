@@ -29,7 +29,7 @@ export function CalendarReport({ data, onSaved, notify }: { data: CalendarData |
       onSaved(result)
       setSelected(null)
       notify('真实学习打卡已保存')
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   if (!data) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实打卡…</div>
   const latest = data.days.filter(day => day.minutes > 0).slice(-7).reverse()

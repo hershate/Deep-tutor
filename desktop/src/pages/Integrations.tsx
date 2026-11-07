@@ -53,19 +53,19 @@ export default function Integrations({ notify }: { notify: (message: string) => 
       const plugin = await pluginBackend.install(await file.text())
       await refresh()
       notify(`插件「${plugin.name}」已安装，默认停用；审查清单后可启用`)
-    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const toggle = async (id: string, enabled: boolean) => {
     if (busy) return
     setBusy(true)
     try { await pluginBackend.setEnabled(id, enabled); await refresh(); notify(enabled ? '插件已启用，事件订阅开始生效' : '插件已停用，历史投递仍保留') }
-    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const reload = async (id: string) => {
     if (busy) return
     setBusy(true)
     try { const plugin = await pluginBackend.reload(id); await refresh(); notify(`已重载「${plugin.name}」，当前版本 ${plugin.version}，第 ${plugin.generation} 代配置`) }
-    catch (error) { reportBackendError(error) } finally { setBusy(false) }
+    catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   // 20#5：卸载级联删除投递历史，不可恢复——补确认对话框
   const [uninstallId, setUninstallId] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   }
   const ping = async () => {
     try { const id = await pluginBackend.ping(); await refresh(); notify(`已发送真实原生事件 plugin.ping，事件 ID ${id}`) }
-    catch (error) { reportBackendError(error) }
+    catch (error) { reportBackendError(error, 'write') }
   }
   const download = async (id: string) => {
     try {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookMarked, BookOpen, Check, ChevronDown, ChevronRight, FileText, Highlighter, ListTree, LoaderCircle, Maximize2, Minus, NotebookPen, Plus, Quote, Sparkles, Video } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -36,7 +36,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const stageRef = useRef({ planId: '', stageId: '' })
   const consumedTarget = useRef('')
   const routeUpstreams = useRef<Record<string, string>>({})
-  useEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
+  // 35#9：useLayoutEffect 在提交后同步刷新——passive effect 有微任务窗口，
+// 在途响应的 promise 微任务可先于 effect 冲刷漏过守卫
+useLayoutEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
   useEffect(() => { routeUpstreams.current = {} }, [plan?.id, stageId])
   useEffect(() => {
     if (tab !== '视频') return
@@ -116,6 +118,10 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
     if (lecture?.units.length) setUnitIndex(current => Math.min(current, lecture.units.length - 1))
   }, [lecture?.units.length])
 
+  // 35#8：监听器依赖去掉 lecture?.units——原先每条 lecture.* 事件刷新都产生
+  // 新数组身份，监听器反复重挂，注销与 listen() 解析之间存在丢事件窗口
+  const lectureUnitsRef = useRef(lecture?.units)
+  useEffect(() => { lectureUnitsRef.current = lecture?.units }, [lecture?.units])
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
@@ -133,14 +139,14 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
         const requestId = event.payload.requestId
         const logicalId = routeUpstreams.current[requestId] ?? requestId
-        if (lecture?.units.some(unit => unit.status === 'running' && unit.requestId === logicalId)) {
+        if (lectureUnitsRef.current?.some(unit => unit.status === 'running' && unit.requestId === logicalId)) {
           // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
           throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
     return () => { disposed = true; unlisten?.() }
-  }, [refreshLecture, refreshProgress, lecture?.units])
+  }, [refreshLecture, refreshProgress])
 
   const stage = plan?.result?.stages.find(item => item.id === stageId)
   const nodes = useMemo(() => stage?.nodeIds.map(id => plan?.result?.graph.nodes.find(node => node.id === id)).filter(node => node !== undefined) || [], [stage, plan])
@@ -180,8 +186,12 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
     // 事件都会以不存在的版本号请求并报 not_found，进度永不更新、弹窗被
     // running 挡住形成死锁
     readingVersionRef.current = undefined
+    const requested = { planId: plan.id, stageId }
     try {
       const next = await backend.generateLecture(plan.id, stageId, lecture?.status === 'done')
+      // 35#4：生成耗时数十秒，响应返回时用户可能已切阶段/课程——过期讲义
+      // 与版本号不得写入（与 refreshLecture 的 32#4 守卫同型）
+      if (stageRef.current.planId !== requested.planId || stageRef.current.stageId !== requested.stageId) return
       readingVersionRef.current = next.version
       setLecture(next)
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
@@ -189,7 +199,13 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const cancel = async () => {
     if (!plan || !stageId) return
     setBusy('cancel')
-    try { setLecture(await backend.cancelLecture(plan.id, stageId)) } catch (cause) {
+    const requestedCancel = { planId: plan.id, stageId }
+    try {
+      const next = await backend.cancelLecture(plan.id, stageId)
+      // 35#4：同 generate——取消响应也按当前 stage 复查
+      if (stageRef.current.planId !== requestedCancel.planId || stageRef.current.stageId !== requestedCancel.stageId) return
+      setLecture(next)
+    } catch (cause) {
       if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
       // 28#1：取消命中竞态码（任务已终态）时重读当前状态，避免弹窗停在
       // running 卡死（flag 已随线程结束移除，取消必然 no_active_lecture）

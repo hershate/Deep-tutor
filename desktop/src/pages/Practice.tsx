@@ -10,7 +10,7 @@ import { statusName } from '../status'
 type Tab = 'practice' | 'subjective' | 'mistakes' | 'exam'
 const emptyInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'adaptive', feedbackMode: 'immediate', kinds: ['choice', 'fill'] }
 
-export default function Practice({ notify, target }: { notify: (message: string) => void; target?: PracticeTarget | null }) {
+export default function Practice({ notify, target, onTargetConsumed }: { notify: (message: string) => void; target?: PracticeTarget | null; onTargetConsumed?: () => void }) {
   const [tab, setTab] = useState<Tab>('practice')
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [history, setHistory] = useState<PracticeSet[]>([])
@@ -86,7 +86,10 @@ export default function Practice({ notify, target }: { notify: (message: string)
     setTab('practice')
     setInput(previous => ({ ...previous, planId: target.planId, stageId: target.stageId, nodeId: target.nodeId }))
     setSetupOpen(true)
-  }, [target])
+    // 35#3：一次性导航目标消费即清——原先 App 级 target 永不清除，之后每次
+    // 进入练习页都被拉回 practice 标签并强制弹窗
+    onTargetConsumed?.()
+  }, [target, onTargetConsumed])
 
   const chooseSet = (next: PracticeDetail) => {
     currentId.current = next.set.id

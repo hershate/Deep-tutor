@@ -61,7 +61,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
       apply(await operation())
       notify(message)
       return true
-    } catch (error) { reportBackendError(error); return false }
+    } catch (error) { reportBackendError(error, 'write'); return false }
     finally { setBusy('') }
   }
   const createUser = async () => {
@@ -77,7 +77,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
       setTokenName(''); setTokenOpen(false)
       await refresh()
       notify('真实 PAT 已创建；明文只显示这一次')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
     finally { setBusy('') }
   }
   const copyToken = async () => {

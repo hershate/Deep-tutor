@@ -46,7 +46,7 @@ export default function MaintenancePanel() {
       setVacuum(null)
       setConfirmOpen(false)
       setReport(await maintenanceBackend.report())
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
     finally { setBusy('') }
   }
   const compact = async () => {
@@ -54,7 +54,7 @@ export default function MaintenancePanel() {
     try {
       setVacuum(await maintenanceBackend.vacuum())
       setReport(await maintenanceBackend.report())
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
     finally { setBusy('') }
   }
 
