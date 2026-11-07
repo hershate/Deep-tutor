@@ -438,6 +438,28 @@ pub fn list(state: &MaterialState) -> Result<Vec<Material>> {
     Ok(materials)
 }
 
+/// 39#1：需要「资料 + 解析文本」全量配对的消费方（如知识检索）走这里——
+/// 单条连接一次 JOIN 取回，替代 list 后逐份 detail 的 1+N 连接模式
+/// （每份 detail 的 Store::new 都要重开连接并重跑 PRAGMA 与迁移判定）。
+pub fn list_with_text(state: &MaterialState) -> Result<Vec<(Material, Option<String>)>> {
+    let store = state.store()?;
+    let mut statement = store.conn.prepare(
+        "SELECT m.id, m.title, m.kind, m.size, m.sha256, m.status, m.progress, m.text_length, m.parse_mode, m.error_code, m.error_message, m.warning, m.source_meta, t.content \
+         FROM materials m LEFT JOIN material_text t ON t.material_id = m.id ORDER BY m.id",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            material(row, &state.root())?,
+            row.get::<_, Option<String>>(13)?,
+        ))
+    })?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
 fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
     let path = fs::canonicalize(path)
         .map_err(|_| BackendError::new("not_found", "选择的文件不存在或不可读"))?;

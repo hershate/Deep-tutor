@@ -402,9 +402,10 @@ pub fn search(state: &KnowledgeState, query: &str) -> Result<Vec<KnowledgeHit>> 
             hits.push(hit);
         }
     }
-    for material in super::materials::list(&state.materials)? {
-        let detail = super::materials::detail(&state.materials, material.id)?;
-        let text = detail.text.clone().unwrap_or_default();
+    // 39#1：检索改走单连接批量配对——原先逐份 detail 各开一条 SQLite 连接
+    // （重跑 PRAGMA 与迁移判定），大资料库检索延迟随份数线性增长
+    for (material, detail_text) in super::materials::list_with_text(&state.materials)? {
+        let text = detail_text.unwrap_or_default();
         let scope = Scope {
             source: KnowledgeSource {
                 material_id: material.id,
