@@ -3,7 +3,7 @@ use crate::backend::providers::openai::{
 };
 use crate::backend::providers::protocol::{
     argument_object, emit, gemini_schema, retryable, stream_events, success, validate_policy,
-    ToolNames,
+    backoff, ToolNames,
 };
 use crate::backend::providers::tools::{ToolCall, ToolDefinition};
 use crate::backend::providers::{ChatMessage, ProviderProfile};
@@ -140,6 +140,21 @@ where
             &policy,
             profile.default_model.clone(),
             |event, output| {
+                // Gemini 以流内 error 事件返回真实错误（配额/安全等，10#5）：
+                // 不处理会退化为泛化 incomplete_stream，丢失诊断信息
+                if let Some(error) = event.get("error").filter(|error| !error.is_null()) {
+                    let status = error.get("status").and_then(Value::as_str).unwrap_or("");
+                    let message = error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("模型服务在流内返回错误");
+                    let code = if status.contains("RESOURCE_EXHAUSTED") {
+                        "rate_limited"
+                    } else {
+                        "provider_error"
+                    };
+                    return Err(output.error(code, &format!("{status}：{message}")));
+                }
                 if let Some(usage) = event.get("usageMetadata") {
                     update_usage(output, usage);
                 }
@@ -227,6 +242,7 @@ where
             Ok(result) => return Ok(success(result, started, attempt)),
             Err(mut error) => {
                 if retryable(&error, attempt, &policy) {
+                    backoff(attempt);
                     continue;
                 }
                 error.attempts = attempt;

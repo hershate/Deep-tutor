@@ -520,6 +520,7 @@ fn stage_validated<R: Runtime>(
     bytes: Vec<u8>,
     sha256: String,
     source_url: Option<&str>,
+    initial_warning: Option<&str>,
 ) -> Result<IngestResult> {
     let store = state.store()?;
     if let Some(existing) = store
@@ -568,9 +569,9 @@ fn stage_validated<R: Runtime>(
     let result = (|| {
         let tx = store.conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO materials (title, kind, size, sha256, status, progress, source_meta, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?5, ?6, ?6)",
-            params![title, kind, bytes.len() as i64, sha256, source_url.unwrap_or(""), timestamp],
+            "INSERT INTO materials (title, kind, size, sha256, status, progress, warning, source_meta, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?7, ?5, ?6, ?6)",
+            params![title, kind, bytes.len() as i64, sha256, source_url.unwrap_or(""), timestamp, initial_warning],
         )?;
         let id = tx.last_insert_rowid();
         sync_resources(&tx)?;
@@ -613,7 +614,7 @@ fn stage_bytes<R: Runtime>(
     }
     validate_content(&kind, &bytes)?;
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
-    stage_validated(app, state, title, kind, bytes, sha256, None)
+    stage_validated(app, state, title, kind, bytes, sha256, None, None)
 }
 
 fn stage_one<R: Runtime>(
@@ -622,7 +623,7 @@ fn stage_one<R: Runtime>(
     source: &Path,
 ) -> Result<IngestResult> {
     let (title, kind, bytes, sha256) = validate_source(source)?;
-    stage_validated(app, state, title, kind, bytes, sha256, None)
+    stage_validated(app, state, title, kind, bytes, sha256, None, None)
 }
 
 pub fn import_text<R: Runtime>(
@@ -631,7 +632,7 @@ pub fn import_text<R: Runtime>(
     title: String,
     content: String,
 ) -> Result<IngestResult> {
-    import_text_with_source(app, state, title, content, None)
+    import_text_with_source(app, state, title, content, None, None)
 }
 
 pub(crate) fn import_text_with_source<R: Runtime>(
@@ -640,6 +641,7 @@ pub(crate) fn import_text_with_source<R: Runtime>(
     title: String,
     content: String,
     source_url: Option<&str>,
+    initial_warning: Option<&str>,
 ) -> Result<IngestResult> {
     let title = title.trim();
     if title.is_empty() || title.len() > 200 {
@@ -670,6 +672,7 @@ pub(crate) fn import_text_with_source<R: Runtime>(
         bytes,
         sha256,
         source_url,
+        None,
     )
 }
 
@@ -781,7 +784,9 @@ fn run_job<R: Runtime>(
     transition(&app, &store, &root, id, job_id, "parsing", 85, None)?;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
-        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = ?5, error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1",
+        // warning 取解析阶段与入库阶段先到者：网页导入的截断警示不被
+        // 纯文本解析的“无警告”覆盖（10#25）
+        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = COALESCE(?5, warning), error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1",
         params![id, if parsed.warning.is_some() { "degraded" } else { "parsed" }, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
     )?;
     if changed == 0 {

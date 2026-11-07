@@ -192,7 +192,7 @@ pub fn add_task<R: Runtime>(
         .find(|node| node.id == node_id)
         .ok_or_else(|| BackendError::new("not_found", "知识节点不存在"))?;
     let store = state.store()?;
-    if store
+    if let Some(existing_task_id) = store
         .conn
         .query_row(
             "SELECT task_id FROM learning_node_tasks WHERE plan_id = ?1 AND node_id = ?2",
@@ -200,9 +200,22 @@ pub fn add_task<R: Runtime>(
             |row| row.get::<_, i64>(0),
         )
         .optional()?
-        .is_some()
     {
-        return store.app_state();
+        // 去重键命中时先确认那条任务还活着；任务已删除则清掉残留行
+        // 并照常重建，避免该节点永久无法再建补学任务（10#17）
+        let tasks = store.collection("tasks")?.value;
+        let alive = tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|task| task.get("id").and_then(Value::as_i64) == Some(existing_task_id));
+        if alive {
+            return store.app_state();
+        }
+        store.conn.execute(
+            "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND node_id = ?2",
+            params![id, node_id],
+        )?;
     }
     let tx = store.conn.unchecked_transaction()?;
     let task_id = Store::next_free_id(&tx, "tasks")?

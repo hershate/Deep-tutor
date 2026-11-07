@@ -134,7 +134,7 @@ sequenceDiagram
 | 6 | 五维校验 | validation_prompt :158 | 模型输出无效降级 unavailable_model；`validation_report`（:354）原生复核依赖/难度/认知负载 |
 | 7 | 方案落盘 | finish_result :363 | warnings 聚合；status=done（passed 且无警告）否则 degraded（complete_plan L/mod.rs:779-795） |
 
-模型调用统一 `model_json`（:195）：`begin_step` → `routing::stream_chat`（request_id=`plan-{id}-{步}-{attempt}`，L/mod.rs:664-668）→ `parse_model_json`（剥 ``` 围栏，:177）→ 校验 → 失败重试 2 次。
+模型调用统一 `model_json`（:195）：`begin_step` → `routing::stream_chat`（request_id=`plan-{id}-{步}-{attempt}`，L/mod.rs:664-668）→ `parse_model_json`（剥 ``` 围栏，:177）→ 校验 → 失败共 2 次尝试（1 次重试）。
 
 **断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:707 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:301,346）还原再执行未完成步骤。`begin_step`（L/mod.rs:655-668）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:456-473）与重启 `recover`（:903，running/cancelling → interrupted/cancelled）。
 
@@ -152,7 +152,7 @@ flowchart TD
     H --> I{passed 且无警告?}
     I -->|是| J[status done]
     I -->|否| K[status degraded]
-    C -. 校验失败重试 2 次 .-> C
+    C -. 校验失败共 2 次尝试 1 次重试 .-> C
     A -. 文本合计超 192KB .-> L[context_too_large]
     E -. 拒绝或失败 .-> M[partial 或 unavailable 不虚构链接]
     G -. 模型输出无效 .-> N[降级 unavailable_model 全部告警]
@@ -207,7 +207,7 @@ sequenceDiagram
 
 熔断状态机（`provider_circuits.state`）：closed→open（failures≥3，:699-704）；open→half_open（冷却 60s 到期，:653）；half_open→closed（成功 :695）/→open（失败或重启恢复 :687-689,1267-1269）。
 
-路由候选循环：
+路由候选循环（**仅 routing 模式生效**；direct/aggregate 单上游直连：无熔断、无故障转移、无候选级重试，与界面文案一致）：
 
 ```mermaid
 flowchart TD
@@ -222,7 +222,10 @@ flowchart TD
     H -->|是| J{circuit_permit 熔断许可?}
     J -->|open 未到期| K[circuit_open 跳过该候选]
     K --> H
-    J -->|closed 或 half_open| L[save_attempt + 调直连层]
+    J -->|closed| L[save_attempt + 调直连层]
+    J -->|half_open 且 CAS 抢到探测位| L
+    J -->|half_open 未抢到| R[circuit_probing 跳过该候选]
+    R --> H
     L -->|成功| M[record_circuit 复位 closed]
     M --> N[finish route_completed]
     L -->|失败| O{can_failover 允许转移?}

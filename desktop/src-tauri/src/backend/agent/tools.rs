@@ -727,6 +727,18 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                     .and_then(Value::as_str)
                     .ok_or_else(|| BackendError::invalid("invalid_approval", "记忆审批缺少内容"))?,
             )?;
+            // 10#18：agent_memory 是 agent 域此前唯一无条数配额的持久写入口；
+            // 覆盖已有键不新增条数，新键写入前过配额
+            let key_exists: bool = store
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM agent_memory WHERE key = ?1)",
+                    params![key],
+                    |row| row.get(0),
+                )?;
+            if !key_exists {
+                store.ensure_quota("agent_memory", 1)?;
+            }
             let tx = store.conn.unchecked_transaction()?;
             tx.execute("INSERT INTO agent_memory (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", params![key, value, now()?])?;
             resolve_pending(&tx, id, "approved", &now()?)?;

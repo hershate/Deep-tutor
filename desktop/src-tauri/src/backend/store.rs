@@ -353,6 +353,10 @@ impl Store {
                 self.conn
                     .query_row("SELECT COUNT(*) FROM community_posts", [], |row| row.get(0))?
             }
+            "agent_memory" => {
+                self.conn
+                    .query_row("SELECT COUNT(*) FROM agent_memory", [], |row| row.get(0))?
+            }
             _ => return Err(BackendError::invalid("invalid_quota", "未知的资源配额")),
         };
         let additional = i64::try_from(additional).unwrap_or(i64::MAX);

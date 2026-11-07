@@ -1073,6 +1073,8 @@ pub fn stream_chat<R: Runtime>(
                     finish(app, state, request_id, &result)?;
                     return Ok(result);
                 }
+                // 继续尝试下一个候选（跨上游故障转移，无需等待）；同上游的
+                // 逐次重试在协议层循环内完成，已带指数退避（10#2）
                 last_result = Some(result);
             }
         }

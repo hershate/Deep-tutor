@@ -1,6 +1,6 @@
 use crate::backend::providers::openai::{self, ChatError, ChatResult, Delta, StreamPolicy};
 use crate::backend::providers::protocol::{
-    emit, response_usage, retryable, stream_events, success, validate_policy, ToolNames,
+    backoff, emit, response_usage, retryable, stream_events, success, validate_policy, ToolNames,
 };
 use crate::backend::providers::tools::{ToolCall, ToolDefinition};
 use crate::backend::providers::{ChatMessage, ProviderProfile};
@@ -9,6 +9,16 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroizing;
+
+/// Responses API 的 incomplete_details.reason（null/缺省视为完整）
+fn incomplete_reason(response: &Value) -> Option<String> {
+    response
+        .get("incomplete_details")
+        .filter(|details| !details.is_null())?
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
 
 fn request_body(
     profile: &ProviderProfile,
@@ -221,11 +231,16 @@ where
                     }
                     "response.completed" => {
                         let response = event.get("response").cloned().unwrap_or(Value::Null);
-                        if response
-                            .get("incomplete_details")
-                            .is_some_and(|details| !details.is_null())
-                        {
-                            return Err(output.error("incomplete_stream", "模型响应未完整完成"));
+                        if let Some(reason) = incomplete_reason(&response) {
+                            if reason == "max_output_tokens" {
+                                // 输出触及上限：与 OpenAI Chat 的 finish_reason=length
+                                // 同语义（10#4）——保留已生成内容正常完成，不整步失败
+                                output.finish_reason = Some("length".into());
+                            } else {
+                                return Err(
+                                    output.error("incomplete_stream", "模型响应未完整完成")
+                                );
+                            }
                         }
                         output.usage = response_usage(&response);
                         if let Some(model) = response.get("model").and_then(Value::as_str) {
@@ -236,7 +251,13 @@ where
                     "response.incomplete" => {
                         let response = event.get("response").cloned().unwrap_or(Value::Null);
                         output.usage = response_usage(&response);
-                        return Err(output.error("incomplete_stream", "模型响应未完整完成"));
+                        if incomplete_reason(&response).as_deref() == Some("max_output_tokens") {
+                            // 触及输出上限但已有内容：按截断完成处理（10#4）
+                            output.finish_reason = Some("length".into());
+                            done = true;
+                        } else {
+                            return Err(output.error("incomplete_stream", "模型响应未完整完成"));
+                        }
                     }
                     "response.failed" | "error" => {
                         let message = event
@@ -260,6 +281,7 @@ where
             Ok(result) => return Ok(success(result, started, attempt)),
             Err(mut error) => {
                 if retryable(&error, attempt, &policy) {
+                    backoff(attempt);
                     continue;
                 }
                 error.attempts = attempt;

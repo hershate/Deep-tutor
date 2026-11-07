@@ -131,6 +131,22 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
             ))
         })?;
         let tasks = store.collection("tasks")?.value;
+        // 10#17：kv 任务删除后，排期表没有按任务删除路径；周视图计算时
+        // 惰性清理本方案的孤儿行，避免已删任务继续计入分钟统计
+        let live_ids: Vec<i64> = tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|task| task.get("id").and_then(Value::as_i64))
+            .collect();
+        store.conn.execute(
+            "DELETE FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+            params![numeric, serde_json::to_string(&live_ids)?],
+        )?;
+        store.conn.execute(
+            "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+            params![numeric, serde_json::to_string(&live_ids)?],
+        )?;
         for row in rows {
             let (task_id, date, stage_id, minutes) = row?;
             let task = tasks

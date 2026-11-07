@@ -458,6 +458,7 @@ fn completion(body: &Value) -> Result<(String, String, Option<String>, Vec<ToolC
         text.to_string(),
         message
             .get("reasoning_content")
+            .or_else(|| message.get("reasoning"))
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
@@ -500,14 +501,24 @@ pub fn chat_once_with_tools(
     validate_messages(messages, max_tokens)?;
     let url = endpoint(&profile.base_url, &profile.kind, "chat/completions")?;
     let started = Instant::now();
+    // OpenAI 官方限制工具名须匹配 ^[a-zA-Z0-9_-]{1,64}$（10#8）：
+    // 请求侧统一消毒（本地 web.fetch 等 → web_fetch），响应侧回译
+    let names = super::protocol::ToolNames::new(tools);
     let mut body = json!({
         "model": profile.default_model,
-        "messages": messages,
+        "messages": remote_messages(&names, messages),
         "max_tokens": max_tokens,
         "stream": false
     });
-    if let Some(tools) = tools {
-        body["tools"] = serde_json::to_value(tools)?;
+    if !names.definitions.is_empty() {
+        body["tools"] = names
+            .definitions
+            .iter()
+            .map(|(name, definition)| {
+                json!({"type": "function", "function": {"name": name, "description": definition.description, "parameters": definition.parameters}})
+            })
+            .collect::<Vec<_>>()
+            .into();
         body["tool_choice"] = json!("auto");
     }
     let response = authorize(client(&url, &profile.kind)?.post(url), &key)
@@ -515,7 +526,11 @@ pub fn chat_once_with_tools(
         .send()
         .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
     let body = read_json(response)?;
-    let (text, reasoning, finish_reason, tool_calls) = completion(&body)?;
+    let (text, reasoning, finish_reason, mut tool_calls) = completion(&body)?;
+    for call in tool_calls.iter_mut() {
+        call.name = names.local(&call.name);
+    }
+    let tool_calls = tool_calls;
     Ok(ChatResult {
         text,
         reasoning,
@@ -539,10 +554,12 @@ pub(crate) fn validate_messages(messages: &[ChatMessage], max_tokens: u32) -> Re
             "对话消息必须包含 1 到 64 条内容",
         ));
     }
-    if !(1..=8192).contains(&max_tokens) {
+    // 上限 16384：图谱步骤对齐“最多 100 节点”的校验上界（10#16），
+    // 流水线截断类失败重试也会在此界内翻倍（10#12）
+    if !(1..=16384).contains(&max_tokens) {
         return Err(BackendError::new(
             "invalid_max_tokens",
-            "max_tokens 必须位于 1 到 8192",
+            "max_tokens 必须位于 1 到 16384",
         ));
     }
     let total = messages
@@ -734,6 +751,7 @@ where
                         | "rate_limited"
                         | "provider_timeout"
                         | "endpoint_unreachable"
+                        | "incomplete_stream"
                 );
                 if !retry
                     || attempt == policy.max_attempts
@@ -744,6 +762,8 @@ where
                     error.attempts = attempt;
                     return Err(error);
                 }
+                // 10#2：同上游重试前退避，避免限流窗口内原样重发
+                super::protocol::backoff(attempt);
             }
         }
     }
@@ -933,7 +953,11 @@ where
                 }
             }
         }
-        for (field, reasoning) in [("content", false), ("reasoning_content", true)] {
+        for (field, reasoning) in [
+            ("content", false),
+            ("reasoning_content", true),
+            ("reasoning", true),
+        ] {
             if let Some(text) = delta.get(field).and_then(Value::as_str) {
                 if text.is_empty() {
                     continue;
@@ -992,16 +1016,23 @@ where
     if cancelled(cancel, parent_cancel) {
         return Err(ChatError::new("cancelled", "模型请求已取消"));
     }
+    let names = super::protocol::ToolNames::new(tools);
     let mut body = json!({
         "model": profile.default_model,
-        "messages": messages,
+        "messages": remote_messages(&names, messages),
         "max_tokens": max_tokens,
         "stream": true,
         "stream_options": {"include_usage": true}
     });
-    if let Some(tools) = tools {
-        body["tools"] = serde_json::to_value(tools)
-            .map_err(|_| ChatError::new("invalid_tool_definition", "工具定义不是有效 JSON"))?;
+    if !names.definitions.is_empty() {
+        body["tools"] = names
+            .definitions
+            .iter()
+            .map(|(name, definition)| {
+                json!({"type": "function", "function": {"name": name, "description": definition.description, "parameters": definition.parameters}})
+            })
+            .collect::<Vec<_>>()
+            .into();
         body["tool_choice"] = json!("auto");
     }
     let request = authorize_async(
@@ -1088,7 +1119,28 @@ where
             }
         }
     }
-    output.finish(done)
+    let (text, reasoning, model, usage, finish_reason, mut tool_calls) = output.finish(done)?;
+    for call in tool_calls.iter_mut() {
+        call.name = names.local(&call.name);
+    }
+    Ok((text, reasoning, model, usage, finish_reason, tool_calls))
+}
+
+/// 请求侧：历史消息中的本地工具名（含点号）→ 远端消毒名（10#8）。
+/// 无工具时原样克隆，保持请求体不变。
+fn remote_messages(names: &super::protocol::ToolNames, messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    messages
+        .iter()
+        .map(|message| {
+            let mut next = message.clone();
+            if let Some(calls) = next.tool_calls.as_mut() {
+                for call in calls.iter_mut() {
+                    call.function.name = names.remote(&call.function.name);
+                }
+            }
+            next
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1199,9 +1251,11 @@ mod tests {
             },
         }];
         let address = server(|request| {
-            assert!(request.contains("memory.recall"));
+            // 10#8：请求侧发送消毒名（点号 → 下划线），不再原样透出本地名
+            assert!(request.contains("memory_recall"));
+            assert!(!request.contains("memory.recall"));
             assert!(request.contains("\"tools\""));
-            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"memory.recall","arguments":"{\"key\":\"topic\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}"#.into()
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"memory_recall","arguments":"{\"key\":\"topic\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}"#.into()
         });
         let result =
             chat_once_with_tools(&profile(&address), None, &messages(), 64, Some(&tools)).unwrap();
@@ -1211,8 +1265,9 @@ mod tests {
         assert_eq!(result.tool_calls[0].arguments, r#"{"key":"topic"}"#);
 
         let address = server(|request| {
-            assert!(request.contains("memory.recall"));
-            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory.recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n".into()
+            assert!(request.contains("memory_recall"));
+            assert!(!request.contains("memory.recall"));
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory_recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n".into()
         });
         let result = stream_chat_with_tools(
             &profile(&address),

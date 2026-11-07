@@ -22,6 +22,8 @@ pub struct WebPage {
     pub url: String,
     pub title: String,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     pub sha256: String,
 }
 
@@ -151,7 +153,9 @@ fn document(value: Url, depth: u8) -> Result<Document> {
         .resolve_to_addrs(&target.host, &target.addresses)
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(12))
-        .user_agent("DeepTutor/1.0 native-web-fetch")
+        .user_agent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)              Chrome/124.0.0.0 Safari/537.36",
+        )
         .build()
         .map_err(|_| BackendError::new("web_client_error", "无法初始化原生网页客户端"))?;
     let response = client
@@ -179,6 +183,15 @@ fn document(value: Url, depth: u8) -> Result<Document> {
             .join(location)
             .map_err(|_| BackendError::invalid("invalid_web_url", "网页重定向地址无效"))?;
         return document(target, depth + 1);
+    }
+    if status.as_u16() == 403 || status.as_u16() == 429 {
+        return Err(BackendError::new(
+            "web_rate_limited",
+            &format!(
+                "公开网页服务限流（HTTP {}），请等待一段时间后再试，立即重试会加剧限制",
+                status.as_u16()
+            ),
+        ));
     }
     if !status.is_success() {
         return Err(BackendError::new(
@@ -268,10 +281,31 @@ pub fn fetch(value: &str) -> Result<WebPage> {
     } else {
         parsed.title
     };
+    // 10#25：网页标题超过资料 200 字节上限会导致抓取成功后导入必败，
+    // 在抓取侧按字符边界钳制；正文截断同样落警示而非静默丢弃
+    let mut title_clamped = false;
+    let title = if title.len() > 197 {
+        title_clamped = true;
+        let mut end = 197;
+        while !title.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &title[..end])
+    } else {
+        title
+    };
+    let body_truncated = text.len() > MAX_TEXT_BYTES;
+    let warning = match (title_clamped, body_truncated) {
+        (false, false) => None,
+        (true, true) => Some("网页标题过长已截断；正文超过 256 KiB 上限，仅保存前 256 KiB。".into()),
+        (true, false) => Some("网页标题过长已截断。".into()),
+        (false, true) => Some("网页正文超过 256 KiB 上限，仅保存前 256 KiB。".into()),
+    };
     Ok(WebPage {
         url: document.url.to_string(),
         title,
         text: truncate(&text),
+        warning,
         sha256: format!("{:x}", Sha256::digest(document.body.as_bytes())),
     })
 }
@@ -314,20 +348,29 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
     }
     let mut endpoint = Url::parse(&search_endpoint())
         .map_err(|_| BackendError::new("search_unavailable", "公开检索入口无效"))?;
-    endpoint.query_pairs_mut().append_pair("q", query);
+    // 10#19：kl 区域参数让中文查询拿到本地化结果，而不是默认美区
+    endpoint
+        .query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("kl", "cn-zh");
     let document = document(endpoint, 0)?;
     let parsed = html::parse(&document.body, true)?;
     let mut results = Vec::new();
     let mut rejected = Vec::new();
     let mut seen = BTreeSet::new();
+    // 10#20：候选普遍不可达时不再无限串行抓取（单次 12s 超时 × 全部候选
+    // 会阻塞分钟级且无中间事件），最多尝试验证 10 个候选
+    const MAX_CANDIDATE_FETCHES: usize = 10;
+    let mut fetches = 0usize;
     for candidate in parsed
         .candidates
         .into_iter()
         .filter(|candidate| !candidate.href.is_empty() && !candidate.title.is_empty())
     {
-        if results.len() >= limit {
+        if results.len() >= limit || fetches >= MAX_CANDIDATE_FETCHES {
             break;
         }
+        fetches += 1;
         match candidate_url(&document.url, &candidate.href).and_then(|url| {
             if !seen.insert(url.to_string()) {
                 return Ok(None);
@@ -338,6 +381,12 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
             Ok(None) => {}
             Err(error) => rejected.push(json!({"title":candidate.title,"error":{"code":error.code,"message":error.message}})),
         }
+    }
+    // 10#20：rejected 明细只保留前 5 条，其余以计数说明，避免工具结果无上限膨胀
+    if rejected.len() > 5 {
+        let omitted = rejected.len() - 5;
+        rejected.truncate(5);
+        rejected.push(json!({"note": format!("另有 {omitted} 个候选验证失败，已省略")}));
     }
     if results.is_empty() {
         return Err(BackendError::new(

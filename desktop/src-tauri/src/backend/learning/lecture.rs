@@ -1,5 +1,7 @@
 use super::super::commands::emit;
 use super::super::error::{BackendError, Result};
+
+const LECTURE_SYSTEM: &str = "你是知舟 Deep Tutor 的讲义撰写者。你是文字模型，只能依据给定资料撰写指定知识节点的自学讲义。只输出一个 JSON 对象，不要 Markdown 代码围栏或额外解释。所有引用必须逐字取自资料原文，不得编造来源、链接或结论。";
 use super::super::providers::{self, ChatMessage};
 use super::super::store::Store;
 use super::*;
@@ -570,9 +572,27 @@ fn unit<R: Runtime>(
         .as_ref()
         .and_then(|result| result.graph.nodes.iter().find(|node| &node.id == node_id))
         .ok_or_else(|| BackendError::new("invalid_persisted_plan", "讲义引用了未知知识节点"))?;
+    // 10#15：每单元只注入该节点引用命中的资料（无命中回退全量），
+    // 避免逐单元重复发送全部资料使输入成本随单元数线性放大
+    let cited_ids: Vec<i64> = node.citations.iter().map(|c| c.material_id).collect();
+    let unit_sources: Vec<&Source> = {
+        let filtered: Vec<&Source> = sources
+            .iter()
+            .filter(|source| cited_ids.contains(&source.id))
+            .collect();
+        if filtered.is_empty() {
+            sources.iter().collect()
+        } else {
+            filtered
+        }
+    };
     let prompt = format!(
         "为知识节点撰写自学讲义。只返回 {{\"title\":\"...\",\"overview\":\"...\",\"sections\":[{{\"heading\":\"...\",\"content\":\"Markdown 正文\"}}],\"examples\":[{{\"title\":\"...\",\"content\":\"...\"}}],\"checkpoints\":[{{\"question\":\"...\",\"answer\":\"...\"}}],\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料中连续存在的原文\"}}]}}。\n正文必须基于资料，包含概念解释和至少一道检查题；示例可为空数组；所有引用必须真实存在于资料中，不得编造来源或链接。总正文不超过 500 行。\n阶段：{}\n节点：{}\n节点摘要：{}\n难度：{}\n资料快照：{}",
-        stage.title, node.title, node.summary, node.difficulty, serde_json::to_string(sources)?
+        stage.title,
+        node.title,
+        node.summary,
+        node.difficulty,
+        serde_json::to_string(&unit_sources)?
     );
     let provider_id = plan.provider_id.as_str();
     let mut last_error = None;
@@ -590,7 +610,7 @@ fn unit<R: Runtime>(
         let messages = vec![
             ChatMessage {
                 role: "system".into(),
-                content: pipeline::MODEL_SYSTEM.into(),
+                content: LECTURE_SYSTEM.into(),
                 ..Default::default()
             },
             ChatMessage {
@@ -598,7 +618,13 @@ fn unit<R: Runtime>(
                 content: if retry == 0 {
                     prompt.clone()
                 } else {
-                    format!("{prompt}\n上次输出未通过校验，请重新输出完整且有效的 JSON。")
+                    format!(
+                        "{prompt}\n上一次输出未通过原生校验，请修正后重新输出完整 JSON。错误：{}",
+                        last_error
+                            .as_ref()
+                            .map(|error: &BackendError| error.message.as_str())
+                            .unwrap_or("结构不符合要求")
+                    )
                 },
                 ..Default::default()
             },

@@ -133,6 +133,44 @@ fn clean(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// 正文清洗（10#21）：保留换行结构——行内空白折叠为单空格、行首尾空白去除、
+/// 连续空行压成一个。知识问答的引用行号、模型对结构的理解都依赖换行。
+fn clean_block(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut last_space = false;
+    let mut last_newline = false;
+    for character in value.chars() {
+        match character {
+            '\n' => {
+                if !last_newline {
+                    result.push('\n');
+                }
+                last_newline = true;
+                last_space = false;
+            }
+            item if item.is_whitespace() => {
+                if !last_space && !last_newline {
+                    result.push(' ');
+                }
+                last_space = true;
+            }
+            item => {
+                result.push(item);
+                last_space = false;
+                last_newline = false;
+            }
+        }
+    }
+    result.trim().to_string()
+}
+
+/// 块级元素（10#21）：进入/退出时补换行，正文不再被压成单行
+const BLOCK_TAGS: [&str; 26] = [
+    "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
+    "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "main", "ol", "p", "pre",
+    "section", "table", "ul",
+];
+
 pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
     if html.len() > 1024 * 1024 {
         return Err(BackendError::new(
@@ -165,7 +203,6 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
                 current.title.push_str(&raw_text);
             } else {
                 text.push_str(&raw_text);
-                text.push(' ');
             }
         }
         let mut end = None;
@@ -183,6 +220,14 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
         }
         let Some(end) = end else { break };
         let tag = &html[open + 1..end];
+        if tag.starts_with("!--") {
+            // 10#21：注释可能包含 '>'，通用扫描会提前收束导致后半段泄漏为正文
+            match html[open..].find("-->") {
+                Some(close) => cursor = open + close + 3,
+                None => cursor = html.len(),
+            }
+            continue;
+        }
         let name = tag_name(tag);
         let closing = tag.trim_start().starts_with('/');
         let self_closing = tag.trim_end().ends_with('/');
@@ -197,7 +242,18 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
             }
             continue;
         }
-        if ["script", "style", "noscript", "template", "svg"].contains(&name.as_str()) {
+        if [
+            "script",
+            "style",
+            "noscript",
+            "template",
+            "svg",
+            "nav",
+            "footer",
+            "aside",
+        ]
+        .contains(&name.as_str())
+        {
             if !closing && !self_closing {
                 skip_tag = name;
                 skip_depth = 1;
@@ -208,10 +264,20 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
             in_title = !closing;
             continue;
         }
+        if BLOCK_TAGS.contains(&name.as_str())
+            && snippet_tag.is_empty()
+            && !in_title
+            && candidate.is_none()
+        {
+            text.push('\n');
+        }
         if search && !snippet_tag.is_empty() && closing && name == snippet_tag {
             snippet_tag.clear();
             continue;
         }
+        // 10#22：DDG 检索选择器与 duckduckgo.com/html 页面结构强耦合
+        //（result__snippet / result__a）。改版后 candidates 为空会走
+        // search_unavailable 优雅失败，不会虚构链接；恢复需更新此处选择器。
         if search
             && !closing
             && attribute(tag, "class").is_some_and(|class| {
@@ -246,7 +312,7 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
         parsed.candidates.push(candidate);
     }
     parsed.title = clean(&title);
-    parsed.text = clean(&text);
+    parsed.text = clean_block(&text);
     for candidate in &mut parsed.candidates {
         candidate.title = clean(&candidate.title);
         candidate.snippet = clean(&candidate.snippet);

@@ -22,6 +22,9 @@ use time::OffsetDateTime;
 
 const SYSTEM: &str = "你是基于本地资料的学习问答助手。只能使用提供的资料，不得用记忆补造来源。只返回 JSON：answer 为真实回答，sufficient 表示资料是否足够，citations 为可逐字定位的资料引用。资料不足时明确说明，不得虚构结论。";
 const MAX_SOURCE_CHARS: usize = 16_000;
+/// 10#23：Wiki 问答资料聚合总预算（此前 8 份 × 16000 字 ≈ 12.8 万字符单请求，
+/// 可超模型上下文窗口且无任何引导）；超出预算的资料不进入本次请求
+const MAX_TOTAL_SOURCE_CHARS: usize = 64_000;
 
 pub struct KnowledgeState {
     database_path: PathBuf,
@@ -536,10 +539,21 @@ fn run<R: Runtime>(app: &AppHandle<R>, state: &KnowledgeState, id: i64) -> Resul
     }
     let scope = session_scope(state, id)?;
     let mut truncated = false;
-    let source_data = scope.iter().map(|source| {
-        truncated |= source.text.chars().count() > MAX_SOURCE_CHARS;
-        json!({"materialId": source.source.material_id, "title": source.source.title, "text": source.text.chars().take(MAX_SOURCE_CHARS).collect::<String>(), "truncated": source.text.chars().count() > MAX_SOURCE_CHARS})
-    }).collect::<Vec<_>>();
+    let mut source_data = Vec::new();
+    let mut remaining = MAX_TOTAL_SOURCE_CHARS;
+    for source in &scope {
+        if remaining == 0 {
+            // 10#23：总预算耗尽，后续资料整体不进入本次请求
+            truncated = true;
+            break;
+        }
+        let per_source = MAX_SOURCE_CHARS.min(remaining);
+        let count = source.text.chars().count();
+        let take = per_source.min(count);
+        truncated |= count > take;
+        remaining = remaining.saturating_sub(take);
+        source_data.push(json!({"materialId": source.source.material_id, "title": source.source.title, "text": source.text.chars().take(take).collect::<String>(), "truncated": count > take}));
+    }
     let messages = vec![
         ChatMessage {
             role: "system".into(),
@@ -595,19 +609,39 @@ fn run<R: Runtime>(app: &AppHandle<R>, state: &KnowledgeState, id: i64) -> Resul
     }
     let mut seen = HashSet::new();
     let mut citations = Vec::new();
+    let mut dropped = 0usize;
     for citation in draft.citations {
-        let source = scope
+        // 10#24：范围外或无法逐字定位的引用剔除并计数，不再让单条引用
+        // 问题作废整次问答（对照检索路径 search_hit 的 .ok() 降级语义）
+        let Some(source) = scope
             .iter()
             .find(|source| source.source.material_id == citation.material_id)
-            .ok_or_else(|| {
-                BackendError::new("citation_out_of_scope", "引用不在本次问答的资料范围内")
-            })?;
+        else {
+            dropped += 1;
+            continue;
+        };
         if seen.insert((citation.material_id, citation.quote.clone())) {
-            citations.push(locate(source, &citation.quote)?);
+            match locate(source, &citation.quote) {
+                Ok(citation) => citations.push(citation),
+                Err(_) => dropped += 1,
+            }
         }
     }
-    let warning = truncated
-        .then_some("部分资料仅使用前 16000 字；模型不能据此推断未提供的内容。".to_string());
+    if draft.sufficient && citations.is_empty() {
+        return Err(BackendError::new(
+            "citation_mismatch",
+            "模型声称依据充分，但全部引用都无法在资料原文中逐字定位，回答不可信",
+        ));
+    }
+    let mut warning = truncated
+        .then(|| "资料总量超过本次问答预算，仅使用部分内容；模型不能据此推断未提供的内容。".to_string());
+    if dropped > 0 {
+        let note = format!("{dropped} 条模型引用未能在资料原文中逐字定位，已剔除。");
+        warning = Some(match warning {
+            Some(existing) => format!("{existing}{note}"),
+            None => note,
+        });
+    }
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
         "UPDATE knowledge_sessions SET answer = ?1, sufficient = ?2, citations_json = ?3, warning = ?4, status = 'done', error_code = NULL, error_message = NULL, updated_at = ?5 WHERE id = ?6 AND status = 'running'",

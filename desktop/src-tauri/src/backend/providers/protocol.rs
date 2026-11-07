@@ -180,6 +180,13 @@ where
     Ok(())
 }
 
+/// 同上游重试前的指数退避（10#2）：429/瞬断后立即原样重发大概率再撞限流。
+/// 400ms/800ms/1600ms 封顶；等待发生在同步重试循环内（block_on 上下文）。
+pub(crate) fn backoff(failed_attempt: u8) {
+    let delay = 400u64 << (failed_attempt.saturating_sub(1)).min(3);
+    std::thread::sleep(std::time::Duration::from_millis(delay));
+}
+
 pub(crate) fn retryable(error: &ChatError, attempt: u8, policy: &StreamPolicy) -> bool {
     attempt < policy.max_attempts
         && error.partial_text.is_empty()

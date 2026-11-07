@@ -2,7 +2,7 @@ use crate::backend::providers::openai::{
     self, ChatError, ChatResult, Delta, StreamOutput, StreamPolicy, TokenUsage,
 };
 use crate::backend::providers::protocol::{
-    argument_object, emit, retryable, stream_events, success, validate_policy, ToolNames,
+    argument_object, backoff, emit, retryable, stream_events, success, validate_policy, ToolNames,
 };
 use crate::backend::providers::tools::{ToolCall, ToolDefinition};
 use crate::backend::providers::{ChatMessage, ProviderProfile};
@@ -283,6 +283,7 @@ where
             Ok(result) => return Ok(success(result, started, attempt)),
             Err(mut error) => {
                 if retryable(&error, attempt, &policy) {
+                    backoff(attempt);
                     continue;
                 }
                 error.attempts = attempt;

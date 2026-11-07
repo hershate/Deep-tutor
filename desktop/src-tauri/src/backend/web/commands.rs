@@ -24,5 +24,6 @@ pub fn import_webpage<R: Runtime>(
         page.title,
         page.text,
         Some(&page.url),
+        page.warning.as_deref(),
     )
 }

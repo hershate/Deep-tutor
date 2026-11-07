@@ -176,20 +176,72 @@ fn validation_prompt(
 
 pub(crate) fn parse_model_json<T: DeserializeOwned>(output: &str) -> Result<T> {
     let output = output.trim();
-    let content = if output.starts_with("```") {
-        let mut lines = output.lines();
-        let _ = lines.next();
-        let body = lines.collect::<Vec<_>>().join("\n");
-        body.trim()
-            .strip_suffix("```")
-            .map(str::trim)
-            .map(str::to_string)
-            .ok_or_else(|| BackendError::new("invalid_model_output", "模型代码围栏未闭合"))?
+    // 10#12：模型常在围栏前加说明文字，或输出被上限截断丢失闭合围栏。
+    // 取首个 ``` 行之后到最后一个 ``` 之前的内容；无闭合围栏则取到结尾。
+    let content = if let Some(start) = output.find("```") {
+        let after = &output[start + 3..];
+        let after = match after.find('\n') {
+            Some(newline) => &after[newline + 1..],
+            None => after
+                .trim_start_matches(|character: char| character.is_ascii_alphanumeric())
+                .trim_start(),
+        };
+        match after.rfind("```") {
+            Some(end) => after[..end].trim(),
+            None => after.trim(),
+        }
     } else {
-        output.to_string()
+        output
     };
-    serde_json::from_str(&content)
+    let repaired = strip_trailing_commas(content);
+    serde_json::from_str(&repaired)
+        .or_else(|_| serde_json::from_str(content))
         .map_err(|_| BackendError::new("invalid_model_output", "模型输出不是符合约定结构的 JSON"))
+}
+
+/// 丢弃 ] / } 前的尾随逗号（10#12）：截断续写或宽松模型常见，
+/// 字符串字面量内的逗号不受影响。
+fn strip_trailing_commas(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut characters = input.chars().peekable();
+    while let Some(character) = characters.next() {
+        if escaped {
+            result.push(character);
+            escaped = false;
+            continue;
+        }
+        if in_string && character == '\\' {
+            result.push(character);
+            escaped = true;
+            continue;
+        }
+        if character == '"' {
+            in_string = !in_string;
+            result.push(character);
+            continue;
+        }
+        if character == ',' && !in_string {
+            let mut lookahead = characters.clone();
+            let mut next_meaningful = None;
+            for _ in 0..256 {
+                match lookahead.next() {
+                    Some(next) if next.is_whitespace() => continue,
+                    Some(next) => {
+                        next_meaningful = Some(next);
+                        break;
+                    }
+                    None => break,
+                }
+            }
+            if matches!(next_meaningful, Some(']') | Some('}')) {
+                continue;
+            }
+        }
+        result.push(character);
+    }
+    result
 }
 
 fn model_json<T, F>(
@@ -213,6 +265,13 @@ where
     let mut last_error = None;
     for retry in 0..2 {
         cancelled(state, id)?;
+        // 截断类失败原样重发大概率复现：重试轮输出上限翻倍（10#12），
+        // 封顶在 providers 校验的 16384 界内（10#16）
+        let max_tokens = if retry == 0 {
+            max_tokens
+        } else {
+            max_tokens.saturating_mul(2).min(16384)
+        };
         let (_, request_id) = begin_step(app, state, id, index)?;
         let request_id = request_id
             .ok_or_else(|| BackendError::new("storage_failed", "模型步骤缺少请求标识"))?;
@@ -456,7 +515,10 @@ fn execute_index<R: Runtime>(
                 index,
                 input,
                 graph_prompt(input, sources)?,
-                8192,
+                // 提示与校验都允许 100 节点、每节点多引引用：合规大图谱
+                // 估算远超 8192 token，原上限必然截断→解析失败→同参重试复现
+                // （10#16）；上限翻倍对齐校验上界
+                16384,
                 |graph| validate::validate_graph(graph, sources),
             )?;
             Ok(Artifact::Graph(graph))

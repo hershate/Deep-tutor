@@ -604,8 +604,10 @@ fn ipc_tool_calls_are_persisted_and_can_be_read_back() {
     let (app, state) = setup();
     let server = server(|request, stream| {
         assert!(request.contains("\"tools\""));
-        assert!(request.contains("memory.recall"));
-        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory.recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n");
+        // 10#8：请求侧发送消毒名（点号 → 下划线）
+        assert!(request.contains("memory_recall"));
+        assert!(!request.contains("memory.recall"));
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"memory_recall\",\"arguments\":\"{\\\"key\\\":\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"topic\\\"}\"}}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n");
     });
     let profile = upsert(app.handle(), &state, input(&server.url())).unwrap();
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
