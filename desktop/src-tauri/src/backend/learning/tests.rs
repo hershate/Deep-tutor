@@ -1027,6 +1027,9 @@ fn resource_pipeline_uses_verified_web_results_and_reports_real_failures() {
         let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         std::io::Write::write_all(stream, response.as_bytes()).unwrap();
     });
+    // C-8：learning 域是第三个设置检索端点的调用点——与 web/agent 两域
+    // 并行时会互相劫持端点，同样先持有互斥
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
     let guard = crate::backend::web::set_search_endpoint_for_tests(Some(server.url()));
     let result = pipeline::resources(&input(1), &[]);
     assert_eq!(result["externalSearch"]["status"], "done");

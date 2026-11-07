@@ -6,10 +6,10 @@
 
 | 入口 | 命令 | 实际动作 |
 |---|---|---|
-| Makefile:22 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `npm run build`（tsc -b && vite build） |
+| Makefile:22 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 四处版本校验 + `npm run build`（tsc -b && vite build） |
 | Makefile:25 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
 | Makefile:28 | `make check` | lint + test |
-| Makefile:18 | `make build` | `npm run tauri build` → tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
+| Makefile:18 | `make build` | `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build` → tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
 | Makefile:30 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
 本地 Rust 工具链复用：`F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc`，`CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`（AGENTS.md 约定）。
@@ -27,12 +27,12 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏证据：dist/ 下 1.0.0→1.0.5 六个安装包；版本号三处同步（package.json、tauri.conf.json、Cargo.toml 均为 1.0.5）。
+发布节奏证据：dist/ 下 1.0.0→1.0.5 六个安装包；版本号四处同步（package.json、tauri.conf.json、Cargo.toml 与根 README 均为 1.1.0，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
 - 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。共 112 个 .rs 文件中约 1/3 为测试。
-- 运行方式：`--release --locked -- --test-threads=1` 串行。真实原因不是 SQLite 文件锁（STORE_OPEN_LOCK/ACTIVE 均按测试隔离），而是两个无互斥保护的全局：`MIGRATION_RUNS` 计数器（store.rs，并行时幂等断言随机失败）与 `SEARCH_ENDPOINT` 保存/恢复式端点（web/mod.rs，web 与 agent 域测试并行时互相劫持检索端点）。并行化前须先给这两处加互斥。
+- 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:613-671 `mock_app/ipc` 辅助函数）。
   - 本机回环 TestServer 线程模拟 LLM/WebDAV/S3 协议（providers/test_support.rs:35-70），断言真实 HTTP 行为而非 mock 返回值。
@@ -178,19 +178,16 @@ flowchart TD
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；`claim_community_reminders`（:832）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），**当前前端零调用（注册未接线，见 01#3）**，提醒投递闭环未生效；取消预约/房间同步删提醒（:789-792,821-825）。
+预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；`claim_community_reminders`（:832）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders），提醒投递闭环已生效；取消预约/房间同步删提醒（:789-792,821-825）。
 
 ```mermaid
 sequenceDiagram
     participant U as 用户
     participant R as reserve 预约
     participant RM as community_reminders
-    participant U as 用户
-    participant R as reserve 预约
-    participant RM as community_reminders
     U->>R: 预约房间 scheduled 未过期 已入组
     R->>RM: remind_at 为开始前 15 分钟与现在的较大值
-    Note over RM: claim_community_reminders 已注册但前端零调用<br/>到期提醒领取与 community.reminder_due 投递未接线
+    Note over RM: App.tsx 每 60 秒轮询 claim_community_reminders<br/>到期提醒逐条置 delivered_at 并发 community.reminder_due
     Note over RM: 取消预约或房间同步删除提醒
 ```
 
@@ -245,7 +242,7 @@ flowchart LR
 - 密钥流：一次性表单 → `CredentialBackend.set`（keyring）→ 库/日志/导出/同步只出现 `has_key` 布尔；导出配置 `reject_sensitive`（providers/sync_config.rs:30）拒绝凭据字段；上传载荷测试断言无 apiKey。
 - 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目（security/mod.rs:939-953,1004-1006）。
 - 配额流：四资源（notes 500/materials 200/sessions 200/threads 500 默认，security/mod.rs:135）提交前强制；拒绝写入不影响其他用户（store.rs:284-329）。
-- 分享流：令牌只存哈希；哈希索引仅暴露给只读定位；快照带工作区 ID 与事件代次（sharing/mod.rs:129-136）。
+- 分享流：令牌只存哈希；哈希索引仅暴露给只读定位；分享快照本体不含工作区 ID 与事件代次（事件代次口径已移除，13#21/22），用户标识在定位索引、工作区 ID 在 app_state 快照（sharing/mod.rs）。
 - 网络流：全部出站经 `public_address`/DNS pin/禁代理绕过/重定向逐跳校验（providers/openai.rs:103,243-254；web/mod.rs:71-181）。
 
 ## 7. 前端页面 × 命令矩阵（摘要）
@@ -263,7 +260,7 @@ flowchart LR
 | Library | saveDraft（防抖）、import_notes、get_library_overview | material./study.note_saved/state.changed |
 | Projects | submit_project_version、cancel/resume_feedback | project./provider.chat_delta |
 | Reports | get_learning_report/calendar、focus 全套 | focus./study.checkin/practice./review./plan. |
-| Community | get_community_overview、post/reply/reserve、claim_community_reminders（前端未接线） | community. |
+| Community | get_community_overview、post/reply/reserve、claim_community_reminders（App.tsx 轮询） | community. |
 | Integrations | 插件全套 | plugin. |
 | ProviderHub | 供应商/路由/熔断/日志、stream_provider_chat | 经 refresh |
 | Settings | 学习档案、setPreferences | security.session_started/state.changed |
@@ -273,4 +270,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 24 个客户端文件调用的命令名与 main.rs:75-264 注册表逐一核对一致；事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs:230-236 IPC 测试同形验证）。
+前端 23 个客户端文件调用的命令名与 main.rs:79-268 注册表逐一核对一致；事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs:230-236 IPC 测试同形验证）。

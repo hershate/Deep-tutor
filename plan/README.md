@@ -15,10 +15,10 @@ make check
 make build
 ```
 
-- `make lint`：Rust 格式、TypeScript 与 Vite 生产构建。
+- `make lint`：Rust 格式、四处版本校验（check-versions.mjs）与 TypeScript/Vite 生产构建。
 - `make test`：完整 Rust 测试，真实 SQLite、MockRuntime、临时文件与本机回环协议服务，串行执行。
 - `make check`：上述检查全部通过。
-- `make build`：生成 Tauri 2 NSIS 安装包，最终文件统一输出到根目录 `dist/` 并校验复制哈希，不运行安装器或打开应用。配置测试锁定 `DeepTutor` 的安装目录、开始菜单目录和安装包名称均为 ASCII，同时保持应用标识与学习数据位置不变。
+- `make build`：先收集第三方许可再生成 Tauri 2 NSIS 安装包，最终文件统一输出到根目录 `dist/` 并校验复制哈希，不运行安装器或打开应用。配置测试锁定 `DeepTutor` 的安装目录、开始菜单目录和安装包名称均为 ASCII，同时保持应用标识与学习数据位置不变。
 
 不得通过前台窗口、对话框、键鼠注入或截屏进行自动测试。
 

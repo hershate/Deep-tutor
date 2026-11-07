@@ -572,9 +572,12 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 "review",
             )?;
         }
-        let recent_floor = (now()? - Duration::days(7)).date().to_string();
-        // 13#2：原 WHERE date <= today 无下界，全部历史逾期都计入"今日"；
-        // 收敛为近 7 天窗口，数字不再随陈年未勾选任务虚高
+        // C-10：与 today 同源取本地日期——此前 recent_floor 用 UTC now()，
+        // 东八区凌晨窗口实际跨越 8-9 个日历日
+        let recent_floor = (local - Duration::days(7)).date().to_string();
+        // 13#2：原 WHERE date <= today 无下界，全部历史逾期都计入；
+        // 收敛为近 7 天窗口，数字不再随陈年未勾选任务虚高。C-10：标题
+        // 与查询口径一致（此前查询 7 天标题却写「今日」）
         let mut statement = store.conn.prepare(
             "SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= ?1 AND date >= ?2",
         )?;
@@ -597,7 +600,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 &store.conn,
                 &format!("tasks-due-{today}"),
                 "plan",
-                &format!("今日有 {} 项方案任务", pending.len()),
+                &format!("近 7 天有 {} 项方案任务待完成", pending.len()),
                 "请按方案完成当前任务，也可在方案中调整安排。",
                 "plan",
             )?;

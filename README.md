@@ -32,7 +32,7 @@ npm ci
 npm run tauri build
 ```
 
-该命令执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
+`make build` 会先收集第三方许可（scripts/collect-licenses.mjs，随安装包分发）再执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
 
 ```text
 dist/
@@ -59,6 +59,7 @@ Deep-tutor/
 ├── plan/                    # 当前验证契约
 ├── .github/workflows/       # Tauri 2 无界面 CI
 ├── .githooks/pre-push       # 推送前执行 make check
+├── scripts/                 # 版本校验与第三方许可收集（lint/build 各步骤）
 ├── Makefile                 # 构建与检查入口
 ├── NOTICE                   # 来源与许可披露
 └── REF/                     # 用户提供的参考源，非交付目录
@@ -69,7 +70,7 @@ Deep-tutor/
 ## 验证
 
 ```bash
-make lint                         # Rust 格式与 TypeScript/Vite 构建
+make lint                         # Rust 格式、四处版本校验与 TypeScript/Vite 构建
 make test                         # 原生后端全量测试，串行执行
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包

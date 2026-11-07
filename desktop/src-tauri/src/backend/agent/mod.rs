@@ -628,7 +628,10 @@ pub fn send<R: Runtime>(
 fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
     let store = state.store()?;
     Ok(store.conn.query_row(
-        "SELECT COALESCE(SUM(CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER)), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
+        // 08#7：部分供应商不回传 usage 字段，原先这些请求对预算贡献 0，
+        // 长会话的已耗被系统性低估；缺失时按输出文本长度保守估算
+        // （2 字符≈1 token，宁可高估），预算护栏不失真
+        "SELECT COALESCE(SUM(CASE WHEN json_extract(provider_requests.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(provider_requests.usage_json, '$.outputTokens') AS INTEGER) ELSE (LENGTH(provider_requests.output) + 1) / 2 END), 0) FROM agent_runs JOIN provider_requests ON provider_requests.request_id GLOB 'agent-' || agent_runs.id || '-*' WHERE agent_runs.session_id = ?1",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )? as u64)

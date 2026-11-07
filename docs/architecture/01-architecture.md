@@ -1,6 +1,6 @@
 # 01 · 架构分析
 
-> 基准：main 分支 commit `cf2cb36c`。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
+> 基准：main 分支（2026-11-07 第七至十轮问题集修复完成后重算）。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
 
 ## 1. 总览
 
@@ -45,31 +45,31 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 5 / 2004 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:29`：store Mutex + 11 个域 State） |
+| backend（根） | 4 / 799 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:29`：store Mutex + 10 个域 State） |
 | startup | 1 / 754 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1234 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:58`） |
-| security | 6 / 2344 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:212`） |
-| providers | 14 / 8574 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:173`） |
-| web | 4 / 1032 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 2805 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 995 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 4855 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 839 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1319 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:26`） |
-| practice | 6 / 3404 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
-| review | 2 / 896 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 995 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 3136 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:27`） |
-| engagement | 3 / 1135 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1518 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1379 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 956 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
-| backup | 5 / 2495 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:139`） |
-| sharing | 3 / 960 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2261 | WebDAV/S3 配置同步、24h 调度、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
-| maintenance | 3 / 854 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
-| export | 7 / 1912 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 63 / 8429 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
+| store | 1 / 1298 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:58`） |
+| security | 6 / 2390 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:212`） |
+| providers | 15 / 9052 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:173`） |
+| web | 4 / 1057 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 2835 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 1012 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 4901 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| planning | 3 / 847 | 周视图、强度、目标、排期 | 复用 LearningState |
+| knowledge | 3 / 1323 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:26`） |
+| practice | 9 / 4415 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
+| review | 2 / 907 | SM-2 式间隔复习 | 复用 SQLite 事务 |
+| projects | 3 / 1000 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 3139 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:27`） |
+| engagement | 3 / 1182 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1624 | 专注会话、学习报告、日历 | 复用 |
+| community | 3 / 1525 | 本机讨论/小组/预约/提醒 | 复用 |
+| plugins | 3 / 1046 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
+| backup | 5 / 2593 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:139`） |
+| sharing | 3 / 967 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| sync | 7 / 2320 | WebDAV/S3 配置同步、24h 调度、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
+| maintenance | 3 / 944 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
+| export | 7 / 1997 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 63 / 8595 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
 
 ## 4. 横切层
 
@@ -262,9 +262,9 @@ graph TD
 - 客户端层 23 个文件：`client.ts` 聚合 63 个 invoke；领域客户端 practice/review/knowledge/community/… 一一对应命令组（见 03 工作流 §2 表）；事件统一走 `onBackendEvent`。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:29-39）；`security.session_started` 触发 generation+1 全量重载（:131-141）。
 - 流式：`useAgent.ts:97-133` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId。
-- 样式：单文件 styles.css 1919 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1180/1240/1280/1320（:281-:1023 各处）。
+- 样式：单文件 styles.css 1869 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1180/1240/1280/1320（:281-:1023 各处）。
 
-## 8. 命令注册总览（`main.rs:75-264`）
+## 8. 命令注册总览（`main.rs:79-268`）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|
@@ -276,6 +276,6 @@ graph TD
 | 练习/复习/项目 | 27 | practice 13 + review 9 + projects 5：submit_practice_answer、grade_review_card、submit_project_version |
 | Agent | 10 | send_agent_message、approve_agent_request |
 | 备份/分享/同步/运维 | 20 | backup 3 + sharing 7 + sync 7 + maintenance 3：import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
-| 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 8 + export 2 + reports 11 + engagement/web 10：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 注册但前端零调用） |
+| 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 8 + export 2 + reports 11 + engagement/web 10：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 由 App.tsx 每 60 秒轮询领取） |
 
 前端调用的命令名与注册表逐一核对一致；仅 `stream_provider_chat_with_tools`、`authenticate_access_token` 为后端内部/预留入口，前端不直接调用。

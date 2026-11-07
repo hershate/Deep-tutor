@@ -1,7 +1,7 @@
 # Deep-tutor 架构文档
 
-**分析基准**：main 分支 commit `cf2cb36c`（2026-11-06）
-**分析范围**：`desktop/`（Tauri 2 应用全量：Rust 后端 48,876 行 / 111 文件 + React 前端 8,429 行 / 63 文件，含 styles.css 与 tauri 配置侧脚本；口径为 src/ 与 src-tauri/src/ 下全部源码文件）
+**分析基准**：main 分支（2026-11-07 第七至十轮问题集修复完成后重算）
+**分析范围**：`desktop/`（Tauri 2 应用全量：Rust 后端 50,203 行 / 111 文件 + React 前端 8,595 行 / 63 文件，含 styles.css 与 tauri 配置侧脚本；口径为 src/ 与 src-tauri/src/ 下全部源码文件）
 **分析模式**：全量静态分析，未运行应用
 
 ## 项目快照

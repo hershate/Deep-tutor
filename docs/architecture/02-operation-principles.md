@@ -16,14 +16,14 @@ sequenceDiagram
     SU->>SU: assemble
     SU->>SEC: SecurityState::new + initialize_session
     SU->>B: manage BackendState(10 个域 State)
-    SU->>SU: with_user: materials/providers/learning/agent/practice/projects/knowledge/sync recover
+    SU->>SU: with_user: materials/providers/learning/agent/practice/projects/knowledge/sync/reports recover
     SU->>SU: start_scheduler(sync 24h)
     FE->>FE: bootstrap 轮询(250ms, 20s 上限)
     FE->>FE: events_since 追赶 + get_app_state
 ```
 
 1. 目录决策（`startup.rs:18-36`）：读 `app_local_data_dir/storage-location.json`（≤4096B，version==1，`StoredLocation` :20-25）失败则回退 `app_data_dir`。`validate_location`（:86-130）拒绝：相对路径/根目录/`..` 段/UNC 网络目录/Windows 与 Program Files 目录。`prepare_directory`（:146）自动创建缺失目录，无对话框。
-2. `assemble`（:332-388）顺序：`SecurityState` → `prepare_directory` → `Store::new` → 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话且存在活跃管理员时自动签发首位会话，`SEC/mod.rs:680-684`）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync，`startup.rs:372-381`）→ 独立 `with_user` 启动 sync 调度线程（:383-385）。
+2. `assemble`（:332-388）顺序：`SecurityState` → `prepare_directory` → `Store::new` → 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话且存在活跃管理员时自动签发首位会话，`SEC/mod.rs:680-684`）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync→reports，`startup.rs:372-382`；reports 把残留 running/paused 专注会话收尾为 interrupted）→ 独立 `with_user` 启动 sync 调度线程（:383-385）。
 3. 失败语义：初始化线程 panic 被 catch（:299-307）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts:88-97`）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` 仅在未运行且无 pending 时重新 `initialize`，`startup.rs:431-451`）、改目录（写 pointer 原子替换 `.tmp`+rename，:212-227）、恢复默认（只删 pointer 不动数据，:231-243）、立即重启。
 4. 命令可用性：未就绪时守卫 `ensure_ready`（`SEC/guard.rs:150`）对除存储外的命令返回 `startup_not_ready`，前端据此继续轮询。
 
@@ -538,7 +538,7 @@ stateDiagram-v2
 | provider_circuits.state | closed/open/half_open | — | recover :1267 |
 | material_jobs.status | queued/parsing/cancelling → done/failed/cancelled | done/failed/cancelled | materials::recover :1073 |
 | sync_jobs.status | running(stage:request/version/verify/retention)/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | sync::recover :799 |
-| focus_sessions.status | running ⇄ paused → completed/cancelled | completed/cancelled | — |
+| focus_sessions.status | running ⇄ paused → completed/cancelled；崩溃残留由启动 recover 收尾为 interrupted | completed/cancelled/interrupted | — |
 | shared_plans（派生） | active → revoked/expired | revoked/expired | — |
 | local_users.active | 1 ⇄ 0；软删 deleted_at | — | — |
 
@@ -625,5 +625,5 @@ sequenceDiagram
 
 ## 15. 观察到的边界情况
 
-- reports 模块 `finish_focus`（reports/mod.rs:343-361）对 paused 行执行 complete/cancel 时 UPDATE 条件 `WHERE status='running'` 不命中但未检查受影响行数，仍发终态事件——暂停中完成/取消的会话行状态可能停留 paused 而事件已发出。
+- reports 模块 `finish_focus`（reports/mod.rs）的 UPDATE 条件为 `status IN ('running','paused')` 且检查受影响行数，不命中时报 `no_active_focus`、不发终态事件（01#4 修复后行为）。
 - `stream_provider_chat_with_tools`、`authenticate_access_token` 注册但前端不直接调用（前者是 agent 工具循环的内部通道，后者为 PAT 认证预留）。
