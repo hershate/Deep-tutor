@@ -1322,7 +1322,10 @@ mod tests {
             let store = Store::root(&path).unwrap();
             store
                 .conn
-                .execute("ALTER TABLE provider_requests DROP COLUMN agent_session_id", [])
+                .execute(
+                    "ALTER TABLE provider_requests DROP COLUMN agent_session_id",
+                    [],
+                )
                 .unwrap();
             // 重记缺列 schema 的指纹并回退版本号，精确模拟老库：指纹匹配、版本 1
             let stale = Store::schema_fingerprint(&store.conn).unwrap();
@@ -1335,7 +1338,10 @@ mod tests {
                 .unwrap();
             store
                 .conn
-                .execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'", [])
+                .execute(
+                    "UPDATE meta SET value = '1' WHERE key = 'schema_version'",
+                    [],
+                )
                 .unwrap();
         }
         let baseline = migration_count();

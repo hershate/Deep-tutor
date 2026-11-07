@@ -1185,12 +1185,8 @@ fn long_history_is_capped_and_survives_validate_messages() {
         "重放条数必须落在 validate_messages 上限内：{}",
         replay.len()
     );
-    assert!(!replay
-        .iter()
-        .any(|message| message.content == "历史第0条"));
-    assert!(replay
-        .iter()
-        .any(|message| message.content == "历史第69条"));
+    assert!(!replay.iter().any(|message| message.content == "历史第0条"));
+    assert!(replay.iter().any(|message| message.content == "历史第69条"));
     let run = send(app.handle(), &state, "1", "继续长会话".into()).unwrap();
     let completed = wait_run(&state, &run.id.to_string());
     assert_eq!(completed.status, "done");
