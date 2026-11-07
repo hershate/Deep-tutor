@@ -47,6 +47,38 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
     let mut title = file_title.to_string();
     let mut content = text;
     let mut tag = "复盘".to_string();
+    // 11#17：外部工具常见的 YAML frontmatter（--- 包围块，title/tag 字段）。
+    // 此前只识别自家导出头，外部 Markdown 的元数据会混进正文。
+    if let Some(rest) = content.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---") {
+            let block = &rest[..end];
+            let body = rest[end + 4..].trim_start_matches('\n');
+            for line in block.lines() {
+                if let Some(value) = line.strip_prefix("title:") {
+                    let cleaned = value.trim().trim_matches('"').trim();
+                    if !cleaned.is_empty() {
+                        title = cleaned.to_string();
+                    }
+                }
+                if let Some(value) = line.strip_prefix("tags:").or_else(|| line.strip_prefix("tag:")) {
+                    let cleaned = value
+                        .trim()
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                        .split([',', '，'])
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .trim_matches('"')
+                        .trim();
+                    if !cleaned.is_empty() {
+                        tag = cleaned.to_string();
+                    }
+                }
+            }
+            content = body.to_string();
+        }
+    }
     if let Some(rest) = content.strip_prefix("# ") {
         if let Some((heading, rest)) = rest.split_once("\n\n标签：") {
             if let Some((metadata_tag, rest)) = rest.split_once("\n更新时间：") {
@@ -65,6 +97,18 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
     }
     if content.contains('\0') {
         return Err(invalid("invalid_note_content", "笔记正文不能包含 NUL 字符"));
+    }
+    // 11#16：落库前的真实约束是“序列化后记录 ≤ 1 MB”（含转义膨胀）；
+    // 在读取侧预检并把具体文件名带进错误，避免整批 ZIP 导入到最后一步才失败
+    let serialized = serde_json::to_string(&content).map_err(|_| invalid("invalid_note_content", "笔记正文无法序列化"))?.len()
+        + serde_json::to_string(&title).map(|value| value.len()).unwrap_or_default()
+        + tag.len()
+        + 512;
+    if serialized > crate::backend::store::MAX_RECORD_BYTES {
+        return Err(BackendError::new(
+            "record_too_large",
+            &format!("笔记「{file_title}」超过单条 1 MB 上限（含 JSON 转义后约 {serialized} 字节），请拆分后重试"),
+        ));
     }
     let title = truncate(title.trim(), 500);
     if title.is_empty() {

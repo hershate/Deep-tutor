@@ -1047,7 +1047,15 @@ pub fn export_report<R: Runtime>(
         ));
     }
     let report = get_report(state, period)?;
-    let escape = |value: String| format!("\"{}\"", value.replace('"', "\"\""));
+    // 11#6：与前两个 CSV 出口（export/formats.rs、providers/usage.rs）同口径——
+    // 用户可控单元格以 =/+/-/@ 开头时前置引号，防表格软件按公式执行
+    let escape = |value: String| {
+        let mut guarded = value;
+        if guarded.starts_with(['=', '+', '-', '@']) {
+            guarded.insert(0, '\'');
+        }
+        format!("\"{}\"", guarded.replace('"', "\"\""))
+    };
     let mut csv = String::from("\u{feff}指标,数值\n");
     for (name, value) in [
         ("有效学习秒", report.metrics.focus_seconds.to_string()),

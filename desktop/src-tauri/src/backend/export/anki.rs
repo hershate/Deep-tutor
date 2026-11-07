@@ -21,6 +21,17 @@ impl Drop for TempDatabase {
     }
 }
 
+/// 复习卡的 Anki due（rev 卡为自 epoch 起的天数；11#3）。
+/// 解析失败或为空时回退为“今天”，卡片仍进入复习队列。
+fn anki_due_day(due_at: &str, now: i64) -> Result<i64> {
+    if due_at.is_empty() {
+        return Ok(now / 86_400);
+    }
+    Ok(time::OffsetDateTime::parse(due_at, &time::format_description::well_known::Rfc3339)
+        .map(|moment| moment.unix_timestamp() / 86_400)
+        .unwrap_or(now / 86_400))
+}
+
 fn stable_id(value: &str) -> i64 {
     let digest = Sha256::digest(value.as_bytes());
     i64::from(u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]) & 0x7fff_ffff)
@@ -64,7 +75,14 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
         "tmpls": [{"name": "正面 → 背面", "ord": 0, "qfmt": "{{正面}}", "afmt": "{{FrontSide}}<hr id=answer>{{背面}}", "did": null, "bqfmt": "", "bafmt": ""}]
     });
     let deck = json!({"id": deck_id, "name": document.title, "desc": "由知舟原生后端导出的真实卡片", "mod": now, "usn": 0, "collapsed": false, "newToday": [0, 0], "revToday": [0, 0], "lrnToday": [0, 0], "timeToday": [0, 0], "dyn": 0, "extendNew": 10, "extendRev": 50, "conf": 1});
-    let configuration = json!({"name": "默认", "new": {"delays": [1, 10], "ints": [1, 4], "initialFactor": 2500, "perDay": 20, "bury": false}, "rev": {"perDay": 200, "ease4": 1.3, "ivlFct": 1.0, "maxIvl": 36500, "bury": false}, "lapse": {"delays": [10], "mult": 0.0, "minInt": 1, "leechFails": 8}});
+    // 11#5：dconf 覆盖官方 2.1 scheduler 读取的常用键（order/separate/fuzz/
+    // minSpace/leechAction/maxTaken/timer/replayq），避免新版 Anki 迁移时回退默认
+    let configuration = json!({
+        "id": 1, "name": "默认", "mod": 0, "usn": 0, "maxTaken": 60, "autoplay": true, "timer": 0, "replayq": true,
+        "new": {"delays": [1, 10], "ints": [1, 4], "initialFactor": 2500, "perDay": 20, "bury": false, "separate": true, "order": 1},
+        "rev": {"perDay": 200, "ease4": 1.3, "ivlFct": 1.0, "maxIvl": 36500, "bury": false, "fuzz": 0.05, "minSpace": 1},
+        "lapse": {"delays": [10], "mult": 0.0, "minInt": 1, "leechFails": 8, "leechAction": 0}
+    });
     {
         let connection = Connection::open(&temporary.0)?;
         connection.execute_batch(
@@ -72,7 +90,11 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
              CREATE TABLE notes (id integer primary key, guid text not null, mid integer not null, mod integer not null, usn integer not null, tags text not null, flds text not null, sfld text not null, csum integer not null, flags integer not null, data text not null);
              CREATE TABLE cards (id integer primary key, nid integer not null, did integer not null, ord integer not null, mod integer not null, usn integer not null, type integer not null, queue integer not null, due integer not null, ivl integer not null, factor integer not null, reps integer not null, lapses integer not null, left integer not null, odue integer not null, odid integer not null, flags integer not null, data text not null);
              CREATE TABLE revlog (id integer primary key, cid integer not null, usn integer not null, ease integer not null, ivl integer not null, lastIvl integer not null, factor integer not null, time integer not null, type integer not null);
-             CREATE TABLE graves (oid integer not null, type integer not null, usn integer not null);",
+             CREATE TABLE graves (oid integer not null, type integer not null, usn integer not null);
+             CREATE INDEX ix_cards_nid ON cards (nid);
+             CREATE INDEX ix_cards_sched ON cards (did, queue, due);
+             CREATE INDEX ix_revlog_cid ON revlog (cid);
+             CREATE INDEX ix_notes_csum ON notes (csum);",
         )?;
         connection.execute(
             "INSERT INTO col VALUES (1, ?1, ?2, ?2, 11, 0, 0, 0, ?3, ?4, ?5, ?6, '{}')",
@@ -87,13 +109,27 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                 checksum[2],
                 checksum[3],
             ]));
-            let guid = format!(
-                "{:x}",
-                Sha256::digest(format!("{note_id}:{}", card.front).as_bytes())
-            )
-            .chars()
-            .take(10)
-            .collect::<String>();
+            // 11#4：guid 锚定稳定卡片 id + 正面内容（复习卡用 review 表 id，
+            // 其余来源用正面内容哈希），再次导出同一张卡 guid 不变，
+            // Anki 按 guid 更新而不是插入整套重复笔记
+            let anchor = if card.id != 0 {
+                format!("{}:{}", card.id, card.front)
+            } else {
+                format!("content:{}", card.front)
+            };
+            let guid = format!("{:x}", Sha256::digest(anchor.as_bytes()))
+                .chars()
+                .take(10)
+                .collect::<String>();
+            // 11#3：SM-2 调度迁移——有复习记录的卡按到期日/间隔/难度写入
+            // cards 表，而不是全部清零回新卡队列
+            let (card_type, queue, due, ivl, factor) = if card.repetitions == 0 {
+                (0, 0, index as i64, 0, (card.ease * 1000.0) as i64)
+            } else if card.suspended {
+                (2, -1, anki_due_day(&card.due_at, now)?, card.interval_days.round() as i64, (card.ease * 1000.0) as i64)
+            } else {
+                (2, 2, anki_due_day(&card.due_at, now)?, card.interval_days.round() as i64, (card.ease * 1000.0) as i64)
+            };
             connection.execute(
                 "INSERT INTO notes VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, 0, '')",
                 params![
@@ -108,8 +144,20 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                 ],
             )?;
             connection.execute(
-                "INSERT INTO cards VALUES (?1, ?2, ?3, 0, ?4, 0, 0, 0, ?5, 0, 0, 0, 0, 0, 0, 0, 0, '')",
-                params![note_id + 1_000_000, note_id, deck_id, now, index as i64],
+                "INSERT INTO cards VALUES (?1, ?2, ?3, 0, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, 0, 0, 0, '')",
+                params![
+                    note_id + 1_000_000,
+                    note_id,
+                    deck_id,
+                    now,
+                    card_type,
+                    queue,
+                    due,
+                    ivl,
+                    factor,
+                    card.repetitions as i64,
+                    card.lapses as i64
+                ],
             )?;
         }
     }

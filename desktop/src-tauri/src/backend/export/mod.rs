@@ -89,6 +89,33 @@ pub(crate) struct ExportCard {
     pub front: String,
     pub back: String,
     pub tag: String,
+    /// 复习卡稳定 id（11#4：Anki guid 锚定它而非导出时间戳）
+    pub id: i64,
+    /// SM-2 调度状态（11#3：导出迁移复习进度而非清零回新卡）
+    pub due_at: String,
+    pub interval_days: f64,
+    pub ease: f64,
+    pub repetitions: u32,
+    pub lapses: u32,
+    pub suspended: bool,
+}
+
+impl ExportCard {
+    /// 无复习调度的新卡（图谱/讲义/知识库导出路径）
+    pub(crate) fn new(front: String, back: String, tag: String) -> Self {
+        Self {
+            front,
+            back,
+            tag,
+            id: 0,
+            due_at: String::new(),
+            interval_days: 0.0,
+            ease: 2.5,
+            repetitions: 0,
+            lapses: 0,
+            suspended: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -251,11 +278,11 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
             .push(section("关联资料".into(), vec![], resources));
     }
     for node in &result.graph.nodes {
-        document.cards.push(ExportCard {
-            front: format!("请解释：{}", node.title),
-            back: node.summary.clone(),
-            tag: result.goal.clone(),
-        });
+        document.cards.push(ExportCard::new(
+            format!("请解释：{}", node.title),
+            node.summary.clone(),
+            result.goal.clone(),
+        ));
     }
     Ok(document)
 }
@@ -323,11 +350,11 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
             .collect(),
     ));
     for item in &content.checkpoints {
-        document.cards.push(ExportCard {
-            front: item.question.clone(),
-            back: item.answer.clone(),
-            tag: content.title.clone(),
-        });
+        document.cards.push(ExportCard::new(
+            item.question.clone(),
+            item.answer.clone(),
+            content.title.clone(),
+        ));
     }
     Ok(document)
 }
@@ -362,11 +389,7 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
             date: String::new(),
             minutes: None,
         });
-        document.cards.push(ExportCard {
-            front: title.into(),
-            back: content.into(),
-            tag: tag.into(),
-        });
+        document.cards.push(ExportCard::new(title.into(), content.into(), tag.into()));
     }
     let mut statement = store.conn.prepare("SELECT materials.title, materials.kind, material_text.content FROM material_text JOIN materials ON materials.id = material_text.material_id ORDER BY materials.id")?;
     let rows = statement
@@ -415,13 +438,22 @@ fn review_document(state: &LearningState) -> Result<ExportDocument> {
             title: card.front.clone(),
             content: card.back.clone(),
             detail: card.tag.clone(),
-            date: card.due_at,
+            // due_at 同时进 rows 与 cards：rows 侧改为 clone，
+            // 保留原值给 cards 的调度迁移（11#3）
+            date: card.due_at.clone(),
             minutes: None,
         });
         document.cards.push(ExportCard {
             front: card.front,
             back: card.back,
             tag: card.tag,
+            id: card.id,
+            due_at: card.due_at,
+            interval_days: card.interval_days,
+            ease: card.ease,
+            repetitions: card.repetitions,
+            lapses: card.lapses,
+            suspended: card.suspended,
         });
     }
     Ok(document)

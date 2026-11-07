@@ -6,7 +6,7 @@ pub mod parse;
 use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::store::Store;
-use parse::{parse, MAX_FILE_BYTES};
+use parse::{parse_with_progress, MAX_FILE_BYTES};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -532,6 +532,22 @@ fn stage_validated<R: Runtime>(
         )
         .optional()?
     {
+        // 11#15：命中去重但原件丢失（外部删除/杀毒隔离）时补写原件，
+        // 否则该内容永远报 missing_original，且被方案引用时删除也被阻止
+        let destination = original_path(&state.root(), &sha256, &kind);
+        if !destination.is_file() {
+            fs::create_dir_all(destination.parent().unwrap_or(&state.root()))?;
+            let temporary = destination.with_extension(format!(
+                "{kind}.restore-{}-{}",
+                std::process::id(),
+                TEMP_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::write(&temporary, &bytes)?;
+            if let Err(error) = fs::rename(&temporary, &destination) {
+                let _ = fs::remove_file(&temporary);
+                return Err(error.into());
+            }
+        }
         return Ok(IngestResult {
             material: get(&store.conn, &state.root(), existing)?,
             deduplicated: true,
@@ -672,7 +688,7 @@ pub(crate) fn import_text_with_source<R: Runtime>(
         bytes,
         sha256,
         source_url,
-        None,
+        initial_warning,
     )
 }
 
@@ -774,7 +790,10 @@ fn run_job<R: Runtime>(
             "原件校验失败，已停止解析",
         ));
     }
-    let parsed = parse(&bytes, &kind, cancel.clone())?;
+    let parsed = parse_with_progress(&bytes, &kind, cancel.clone(), |percent| {
+        // 11#14：解析期间按页真实进度写入并发事件（失败不阻断解析本身）
+        let _ = transition(&app, &store, &root, id, job_id, "parsing", percent as i64, None);
+    })?;
     if cancel.load(Ordering::Acquire) {
         return Err(BackendError::new(
             "cancelled",

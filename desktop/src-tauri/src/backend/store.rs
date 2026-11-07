@@ -15,7 +15,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const COLLECTIONS: [&str; 4] = ["tasks", "notes", "resources", "projects"];
-const MAX_RECORD_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// 代码侧 schema 版本：任何 migrate() 新增表/列时必须递增，
 /// 使老库即使指纹与记录一致也会重新执行迁移（指纹只反映库内现状，不反映代码期望）。
 const SCHEMA_VERSION: i64 = 1;

@@ -193,15 +193,21 @@ pub fn ics(document: &ExportDocument) -> Result<String> {
     Ok(output)
 }
 
+/// OPML text 属性专用转义（11#8）：属性规范化会折叠字面换行为空格，
+/// 多行内容改以字符引用 &#10; 保留行结构
+fn xml_attr(value: &str) -> String {
+    xml(value).replace('\n', "&#10;").replace('\r', "")
+}
+
 pub fn opml(document: &ExportDocument) -> String {
-    let mut output = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>{}</title></head><body><outline text=\"{}\">", xml(&document.title), xml(&document.title));
+    let mut output = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>{}</title></head><body><outline text=\"{}\">", xml(&document.title), xml_attr(&document.title));
     for section in &document.sections {
-        output.push_str(&format!("<outline text=\"{}\">", xml(&section.heading)));
+        output.push_str(&format!("<outline text=\"{}\">", xml_attr(&section.heading)));
         for paragraph in &section.paragraphs {
-            output.push_str(&format!("<outline text=\"{}\"/>", xml(paragraph)));
+            output.push_str(&format!("<outline text=\"{}\"/>", xml_attr(paragraph)));
         }
         for bullet in &section.bullets {
-            output.push_str(&format!("<outline text=\"{}\"/>", xml(bullet)));
+            output.push_str(&format!("<outline text=\"{}\"/>", xml_attr(bullet)));
         }
         output.push_str("</outline>");
     }

@@ -209,6 +209,10 @@ fn cmap(bytes: &[u8], tables: &BTreeMap<[u8; 4], (usize, usize)>) -> Result<usiz
 }
 
 #[cfg(windows)]
+// 11#2 已知限制：Font::load 复制源字体全部表（无字形子集化），msyh 全量
+// 嵌入使一页 PDF 也有约 10 MB 级体积。仓库规约默认不新增依赖，引入完整
+// TrueType 子集化（glyf/loca/cmap/hmtx 重建）前维持全量嵌入：正确性优先，
+// 体积问题以本声明登记，导出仍为单个自包含文件、无外部字体依赖。
 fn system_font() -> Result<Font> {
     let mut last_error = None;
     for path in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf"] {
@@ -289,29 +293,42 @@ fn unicode_cmap(glyphs: &BTreeMap<char, u16>) -> String {
 pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
     let font = system_font()?;
     let source = source_lines(document);
-    let glyphs = source
+    // 11#1：任一字符缺字形不再让整份 PDF 失败——收集时跳过缺字形字符，
+    // 布局阶段以 □（U+25A1）替代呈现；emoji/生僻字/BOM 残留只影响对应字符
+    let mut glyphs = BTreeMap::new();
+    for character in source
         .iter()
         .flat_map(|line| line.chars())
-        .filter(|character| !character.is_control())
-        .map(|character| {
-            let glyph = font.glyph(character)?.ok_or_else(|| {
-                BackendError::new(
-                    "pdf_font_missing_glyph",
-                    "所选内容包含系统字体不支持的字符，请使用 Markdown 或 TXT 导出",
-                )
-            })?;
-            Ok((character, glyph))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
+        .filter(|character| !character.is_control() && *character != '\u{FEFF}')
+    {
+        if let Some(glyph) = font.glyph(character)? {
+            glyphs.insert(character, glyph);
+        }
+    }
+    let fallback_glyph = font
+        .glyph('\u{25A1}')?
+        .unwrap_or(0);
+    glyphs.entry('\u{25A1}').or_insert(fallback_glyph);
     let mut lines = Vec::new();
     for line in source {
         let line = line.replace('\t', "    ");
         let mut current = String::new();
         let mut width = 0.0;
         for character in line.chars() {
-            let glyph = *glyphs.get(&character).ok_or_else(|| {
-                BackendError::new("pdf_font_missing_glyph", "内容包含不支持的字符")
-            })?;
+            let glyph = match glyphs.get(&character) {
+                Some(glyph) => *glyph,
+                // 11#1：缺字形字符以 □ 替代，导出继续
+                None => {
+                    let advance = font.width(fallback_glyph)? * 0.011;
+                    if !current.is_empty() && width + advance > 495.0 {
+                        lines.push(std::mem::take(&mut current));
+                        width = 0.0;
+                    }
+                    current.push('\u{25A1}');
+                    width += advance;
+                    continue;
+                }
+            };
             let advance = font.width(glyph)? * 0.011;
             if !current.is_empty() && width + advance > 495.0 {
                 lines.push(std::mem::take(&mut current));

@@ -37,17 +37,33 @@ fn check_cancel(cancel: &Arc<AtomicBool>) -> Result<()> {
     }
 }
 
+/// 无进度回调的默认入口
 pub fn parse(bytes: &[u8], kind: &str, cancel: Arc<AtomicBool>) -> Result<ParsedDocument> {
+    parse_with_progress(bytes, kind, cancel, |_| {})
+}
+
+/// 11#14：带进度回调的解析入口——PDF 按页上报真实百分比（35–85 区间、
+/// 5% 步进），替代与工作量无关的装饰性里程碑；其余格式无中间粒度。
+pub fn parse_with_progress(
+    bytes: &[u8],
+    kind: &str,
+    cancel: Arc<AtomicBool>,
+    mut progress: impl FnMut(u8),
+) -> Result<ParsedDocument> {
     check_cancel(&cancel)?;
     let mut parsed = match kind {
         "txt" | "md" => ParsedDocument {
-            text: std::str::from_utf8(bytes)
-                .map_err(|_| failure("文本必须是有效 UTF-8，未生成替代文本"))?
-                .to_string(),
+            // 11#9：Windows 记事本旧默认"UTF-8"带 BOM；U+FEFF 非空白、
+            // trim 不会移除，入库会污染 Wiki 上下文并连锁毁掉 PDF 导出
+            text: {
+                let text = std::str::from_utf8(bytes)
+                    .map_err(|_| failure("文本必须是有效 UTF-8，未生成替代文本"))?;
+                text.strip_prefix('\u{FEFF}').unwrap_or(text).to_string()
+            },
             mode: "text-utf8".into(),
             warning: None,
         },
-        "pdf" => parse_pdf(bytes, &cancel)?,
+        "pdf" => parse_pdf(bytes, &cancel, &mut progress)?,
         "docx" => ParsedDocument {
             text: parse_docx(bytes, &cancel)?,
             mode: "docx-xml".into(),
@@ -89,7 +105,11 @@ pub fn parse(bytes: &[u8], kind: &str, cancel: Arc<AtomicBool>) -> Result<Parsed
     Ok(parsed)
 }
 
-fn parse_pdf(bytes: &[u8], cancel: &Arc<AtomicBool>) -> Result<ParsedDocument> {
+fn parse_pdf(
+    bytes: &[u8],
+    cancel: &Arc<AtomicBool>,
+    progress: &mut dyn FnMut(u8),
+) -> Result<ParsedDocument> {
     let document = Document::load_mem(bytes).map_err(|_| failure("PDF 结构无法读取"))?;
     let pages = document.get_pages();
     if pages.len() as u32 > MAX_PDF_PAGES {
@@ -99,13 +119,26 @@ fn parse_pdf(bytes: &[u8], cancel: &Arc<AtomicBool>) -> Result<ParsedDocument> {
         ));
     }
     let mut text = String::new();
-    for page in pages.keys() {
+    let mut skipped_pages = 0u32;
+    // 11#14：真实进度按页计算（35→85），5% 步进节流事件量
+    let total = pages.len().max(1);
+    let mut last_reported = 35u8;
+    for (index, page) in pages.keys().enumerate() {
         check_cancel(cancel)?;
-        let part = document
-            .extract_text(&[*page])
-            .map_err(|_| failure("PDF 文本层读取失败，未生成替代文本"))?;
-        text.push_str(&part);
-        text.push('\n');
+        let percent = 35 + ((index as u64 * 50) / total as u64) as u8;
+        if percent >= last_reported.saturating_add(5) && percent < 85 {
+            last_reported = percent;
+            progress(percent);
+        }
+        // 11#10：单页内容流损坏只跳过该页并计数，已提取文本不再整份丢弃
+        // （2000 页文档 1 页异常 ≠ 全量失败）
+        match document.extract_text(&[*page]) {
+            Ok(part) => {
+                text.push_str(&part);
+                text.push('\n');
+            }
+            Err(_) => skipped_pages += 1,
+        }
         if text.len() > MAX_TEXT_BYTES {
             break;
         }
@@ -113,7 +146,9 @@ fn parse_pdf(bytes: &[u8], cancel: &Arc<AtomicBool>) -> Result<ParsedDocument> {
     Ok(ParsedDocument {
         text,
         mode: "pdf-text-layer".into(),
-        warning: None,
+        warning: (skipped_pages > 0).then(|| {
+            format!("有 {skipped_pages} 页的文本层无法读取，已跳过这些页；其余页文本完整保留")
+        }),
     })
 }
 
@@ -346,12 +381,35 @@ fn attributes(bytes: &[u8], wanted: &[&str]) -> Result<Vec<HashMap<String, Strin
     Ok(result)
 }
 
+/// 百分号解码（11#12）：EPUB href 规范允许且常见中文文件名等编码
+/// （chapter-%E4%B8%AD.xhtml），仅替换 %20 会让 by_name 找不到条目，
+/// 报出误导性的"压缩包缺少必需文档"。无效转义序列原样保留。
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = (bytes[index + 1] as char).to_digit(16);
+            let low = (bytes[index + 2] as char).to_digit(16);
+            if let (Some(high), Some(low)) = (high, low) {
+                result.push((high * 16 + low) as u8);
+                index += 3;
+                continue;
+            }
+        }
+        result.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&result).into_owned()
+}
+
 fn zip_path(base: &str, href: &str) -> Result<String> {
-    let href = href
-        .split(['?', '#'])
-        .next()
-        .unwrap_or_default()
-        .replace("%20", " ");
+    let href = percent_decode(
+        href.split(['?', '#'])
+            .next()
+            .unwrap_or_default(),
+    );
     if href.contains(':') || href.starts_with('/') {
         return Err(failure("文档索引包含外部路径"));
     }
@@ -390,14 +448,14 @@ fn parse_epub(bytes: &[u8], cancel: &Arc<AtomicBool>) -> Result<String> {
         .ok_or_else(|| failure("EPUB 缺少 OPF 索引"))?;
     let opf = read_zip_entry(&mut archive, &rootfile, &mut budget, cancel)?;
     let manifest = attributes(&opf, &["item", "itemref"])?;
+    // 11#13：xhtml 之外接受 text/html（OEBPS 1.x 常见），两者都没有才为空
+    let media_ok = |kind: Option<&String>| {
+        kind.is_some_and(|kind| kind == "application/xhtml+xml" || kind == "text/html")
+    };
     let items = manifest
         .iter()
         .filter(|attributes| attributes.contains_key("href"))
-        .filter(|attributes| {
-            attributes
-                .get("media-type")
-                .is_some_and(|kind| kind == "application/xhtml+xml")
-        })
+        .filter(|attributes| media_ok(attributes.get("media-type")))
         .map(|attributes| {
             (
                 attributes.get("id").cloned().unwrap_or_default(),
@@ -405,17 +463,20 @@ fn parse_epub(bytes: &[u8], cancel: &Arc<AtomicBool>) -> Result<String> {
             )
         })
         .collect::<HashMap<_, _>>();
-    let mut hrefs = manifest
+    let mut hrefs: Vec<String> = manifest
         .iter()
         .filter_map(|attributes| attributes.get("idref"))
         .filter_map(|idref| items.get(idref))
-        .collect::<Vec<_>>();
+        .cloned()
+        .collect();
     if hrefs.is_empty() {
-        hrefs = items.values().collect();
+        // 11#13：无 spine 时按 href 排序兜底，HashMap 迭代顺序不再决定章节顺序
+        hrefs = items.values().cloned().collect();
+        hrefs.sort();
     }
     let mut output = String::new();
     for href in hrefs {
-        let path = zip_path(&rootfile, href)?;
+        let path = zip_path(&rootfile, &href)?;
         let xml = read_zip_entry(&mut archive, &path, &mut budget, cancel)?;
         output.push_str(&normalize(&xml_text(&xml, "epub", cancel)?));
         output.push('\n');

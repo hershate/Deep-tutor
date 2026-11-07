@@ -476,7 +476,8 @@ fn csv(value: impl ToString) -> String {
 
 pub fn export_csv(state: &ProviderState) -> Result<String> {
     let entries = entries(&state.store()?.conn)?;
-    let mut output = String::from("request_id,provider,model,task,input_tokens,output_tokens,cost_usd,status,attempts,created_at\r\n");
+    // 11#7：与其余 CSV 出口一致补 UTF-8 BOM，中文列在 Excel 双击打开不乱码
+    let mut output = String::from("\u{feff}request_id,provider,model,task,input_tokens,output_tokens,cost_usd,status,attempts,created_at\r\n");
     for entry in entries {
         output.push_str(
             &[
