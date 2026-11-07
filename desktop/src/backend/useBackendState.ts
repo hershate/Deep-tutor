@@ -53,12 +53,9 @@ export function useBackendState() {
     const task = (async () => {
       do {
         queued.current = false
-        let page = await backend.eventsSince(lastEventId.current)
-        while (page.hasMore) {
-          const last = page.events.at(-1)
-          if (!last) throw new Error('invalid_event_page')
-          page = await backend.eventsSince(last.id)
-        }
+        // 38#2：直接取全量快照——其 lastEventId 本身就是最新游标，原先先
+        // 逐页翻完 eventsSince 再取快照，事件载荷全程丢弃、纯冗余 IPC，
+        // 事件爆发后首次 sync 串行数十次往返表现为「卡几秒才刷新」
         applySnapshot(await backend.getAppState(), requestedGeneration)
       } while (queued.current && mounted.current)
     })()

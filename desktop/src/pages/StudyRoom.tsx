@@ -37,8 +37,8 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const consumedTarget = useRef('')
   const routeUpstreams = useRef<Record<string, string>>({})
   // 35#9：useLayoutEffect 在提交后同步刷新——passive effect 有微任务窗口，
-// 在途响应的 promise 微任务可先于 effect 冲刷漏过守卫
-useLayoutEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
+  // 在途响应的 promise 微任务可先于 effect 冲刷漏过守卫
+  useLayoutEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
   useEffect(() => { routeUpstreams.current = {} }, [plan?.id, stageId])
   useEffect(() => {
     if (tab !== '视频') return

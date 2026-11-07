@@ -307,7 +307,6 @@ export default function App() {
       case 'integrations': return <Integrations notify={notify} />
       case 'providers': return <ProviderHub notify={notify} />
       case 'settings': return <Settings preferences={preferences} setPreferences={setPreferences} onImport={importAll} counts={{ tasks: tasks.length, notes: notes.length, resources: resources.length, projects: projects.length }} onReset={resetAll} notify={notify} />
-      case 'shared': return <SharedPlan token={new URLSearchParams(window.location.search).get('share')} />
     }
   }
 
