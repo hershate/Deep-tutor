@@ -10,6 +10,8 @@
 > 逐行审。每一条都经主审逐条回源码复核后才录入；未经证实的代理候选项一律不收
 > （第十轮 1 条代理论断证伪修正见 20#3；第十一轮 1 条前轮判定被推翻已加注，
 > 见 22#1 修订；第十二轮实证推翻"构建门禁可用"的隐含假设，见 27#1）。
+> **第十三轮（收尾验证，无新缺陷）**：真实运行 `--verify-native`、全仓标记与
+> 抑制扫描、死文件检测、DESIGN.md 令牌核对、.gitattributes 通读——结论见下。
 
 ## 基线（审计起点，全部真实执行）
 
@@ -64,6 +66,23 @@ lock 同步）；plan/README、release note、README、AGENTS、NOTICE、DEEPTUT
 capabilities 最小化 4 权限）；错误码对照无死分支（前端 19 个判断码全部真实存在）；
 docs/architecture 主体声明（188 命令、66 表、guard 分层、事件 kind、SM-2 数值）
 全部精确命中。
+
+第十三轮（运行时与横切收尾验证，全部通过、无新增缺陷条目）：
+- 构建产物 `deep-tutor-workspace.exe --verify-native`（独立目录 F:/TEMP，跑后已清理）
+  真实执行：完成目录创建、SQLite 初始化、业务装配、bootstrap 断言后 exit(0)，
+  输出 `native verification passed: workspace=1, lastEventId=0`——交付物二进制
+  无界面验收路径与决策 20、plan/README.md:37 描述一致。
+- 全仓无 TODO/FIXME/HACK 标记、无 `#[allow(...)]` lint 抑制、前端无 console.log
+  残留（client.ts 的 console.error 为有意保留）。
+- 7 处 `unreachable!()` 全部有前置校验保护（review 三处由 grade 白名单
+  mod.rs:409-414 挡住；providers 四处由 max_attempts 1..=4 校验挡住，十一轮已核）。
+- 前端零死文件：6 个 React.lazy 页面（App.tsx:35-40）即死文件检测的全部"疑似"，
+  均为动态导入正常引用。
+- DESIGN.md 的设计令牌（--pine-950/--lime-400/--paper-50/--ink-950/--accent-bright 等）
+  在 styles.css 中全部存在（70 处命中）。
+- .gitattributes 规则与跟踪树文件类型一致；data.ts/status.ts 通读无新问题
+  （Note.updated 类型与 19#3 已记录问题相关）。
+- clippy 与 fmt 同因本机 msvc 工具链缺组件无法执行（环境限制，非项目缺陷）。
 
 - IPC 接线：前端 186 个 invoke 命令全部已注册，缺 0；单通道事件
   `backend://event` 前后端 kind 全对齐，载荷字段无不一致。
