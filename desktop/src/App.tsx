@@ -24,6 +24,7 @@ import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
 import { engagementBackend } from './backend/engagement'
+import { quickPages } from './backend/engagement'
 import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
 import { communityBackend } from './backend/community'
 import { clampToBytes } from './limits'
@@ -108,6 +109,8 @@ export default function App() {
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), toast.tone === 'error' ? 5200 : 3200); return () => window.clearTimeout(timer) }, [toast])
   useEffect(() => {
     let active = true
+    // 空查询直接给本地页面快捷入口，不发 IPC；有词时 120ms 去抖后走后端全文检索
+    if (!query.trim()) { setSearchResults(quickPages); setSearching(false); setSearchError(''); return }
     const timer = window.setTimeout(() => {
       setSearching(true)
       setSearchError('')
@@ -116,7 +119,7 @@ export default function App() {
       }).catch(error => {
         if (active) { setSearchError(backendErrorMessage(error)); reportBackendError(error) }
       }).finally(() => { if (active) setSearching(false) })
-    }, query.trim() ? 120 : 0)
+    }, 120)
     return () => { active = false; window.clearTimeout(timer) }
   }, [query])
   useEffect(() => {
@@ -139,20 +142,23 @@ export default function App() {
     const timer = window.setInterval(() => { void load() }, 30000)
     return () => { active = false; stop?.(); window.clearInterval(timer) }
   }, [ready, loginRequired])
+  const [homeSummaryError, setHomeSummaryError] = useState('')
+  const [summaryReload, setSummaryReload] = useState(0)
   useEffect(() => {
     if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
     const load = async () => {
+      // 摘要全局只加载这一份：侧栏与"今日"页共用，前缀取两处需求并集，避免重复请求
       const next = await engagementBackend.dashboard()
-      if (active) setHomeSummary(next)
+      if (active) { setHomeSummary(next); setHomeSummaryError('') }
     }
-    void load().catch(reportBackendError)
+    void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
     void onBackendEvent(event => {
-      if (active && ['state.changed', 'plan.', 'study.checkin', 'security.session_started', 'focus.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
+      if (active && ['state.changed', 'plan.', 'study.checkin', 'security.session_started', 'focus.', 'practice.', 'review.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [ready, loginRequired])
+  }, [ready, loginRequired, summaryReload])
   useEffect(() => {
     // 社区预约提醒：后端只在被领取时投递（置 delivered_at 并发 community.reminder_due），
     // 应用打开期间每分钟领取一次到期提醒，触发通知中心刷新与弹层提示
@@ -268,7 +274,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} />
+      case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} overview={homeSummary} summaryError={homeSummaryError} onRetrySummary={() => setSummaryReload(current => current + 1)} />
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
       case 'plan': return <Plan tasks={tasks} setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />

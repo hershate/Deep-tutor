@@ -3,7 +3,7 @@ import { ArrowRight, BookOpenCheck, CheckCircle2, ChevronRight, CircleAlert, Clo
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import SubjectivePractice from '../components/SubjectivePractice'
 import ExamWorkspace from '../components/ExamWorkspace'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeMistake, type PracticeSet, type PracticeTarget } from '../backend/practice'
 import { statusName } from '../status'
 
@@ -59,6 +59,7 @@ export default function Practice({ notify, target }: { notify: (message: string)
     let unlisten: (() => void) | undefined
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
+    const throttledFetch = deltaThrottle()
     const listening = onBackendEvent(event => {
       if (event.kind.startsWith('practice.')) void refresh().catch(reportBackendError)
       const logical = requestId.current
@@ -66,7 +67,8 @@ export default function Practice({ notify, target }: { notify: (message: string)
         upstreams.set(event.payload.upstreamRequestId, logical)
       }
       if (event.kind === 'provider.chat_delta' && logical !== null && typeof event.payload.requestId === 'string' && (event.payload.requestId === logical || upstreams.get(event.payload.requestId) === logical)) {
-        void backend.getProviderChat(logical).then(request => setGenerationOutput(request.output)).catch(reportBackendError)
+        // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
+        throttledFetch(() => void backend.getProviderChat(logical).then(request => setGenerationOutput(request.output)).catch(reportBackendError))
       }
     }).then(stop => { unlisten = stop }).catch(reportBackendError)
     return () => { unlisten?.(); void listening }

@@ -396,6 +396,15 @@ export const backend = {
   routeProviderChat: (requestId: string, task: TaskRouteId, profileId: string | null, model: string | null, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('route_provider_chat', { requestId, task, profileId, model, messages, maxTokens }),
 }
 
+/** 流式 delta 事件合并器：窗口期内多条 delta 只触发一次全量拉取。 */
+export function deltaThrottle() {
+  let timer: number | undefined
+  return (fire: () => void) => {
+    if (timer !== undefined) return
+    timer = window.setTimeout(() => { timer = undefined; fire() }, 150)
+  }
+}
+
 export function onBackendEvent(handler: (event: BackendEvent) => void) {
   return listen<BackendEvent>('backend://event', message => handler(message.payload))
 }

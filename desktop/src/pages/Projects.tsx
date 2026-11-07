@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, Circle, FileUp, FolderKanban, GitBranch, Lightbulb, Plus, Rocket, Sparkles, Trophy } from 'lucide-react'
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { AppSnapshot, LearningPlan, Material } from '../backend/client'
 import { projectsBackend } from '../backend/projects'
 import type { ProjectVersion } from '../backend/projects'
@@ -65,11 +65,13 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
       } catch (cause) { if (active) setError(backendErrorMessage(cause)) }
     }
     void load()
+    const throttledFetch = deltaThrottle()
     void onBackendEvent(event => {
       if (active && (event.kind.startsWith('project.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'projects'))) void load()
       const requestId = running?.requestId
       if (active && requestId && event.kind === 'provider.chat_delta' && event.payload.requestId === requestId) {
-        void backend.getProviderChat(requestId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError)
+        // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
+        throttledFetch(() => void backend.getProviderChat(requestId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError))
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }

@@ -37,9 +37,9 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 190 个命令（`main.rs:75-264`），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
-- `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:266-268`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:54-72`）。
-- 正常分支：`startup::initialize_background`（`main.rs:46`）在 `backend-startup` 线程初始化（`startup.rs:296-318`），主窗口立即显示，前端轮询 `get_storage_overview` 等待就绪。
+- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 190 个命令（`main.rs:79-268`），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
+- `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:270-272`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:58-76`）。
+- 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:296-318`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
 
 ## 3. 模块清单与规模
 

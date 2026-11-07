@@ -10,6 +10,10 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost ws://127.0.0.1:1420"
+    },
     "windows": [
       {
         "title": "知舟 Deep Tutor · 个人学习操作系统",

@@ -4,7 +4,7 @@ import type { Resource } from '../data'
 import { Badge, Button, EmptyState, Modal } from './UI'
 import { clampToBytes } from '../limits'
 import { statusName } from '../status'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail, isCancelRace, deltaThrottle } from '../backend/client'
 import { knowledgeBackend, type KnowledgeCitation, type KnowledgeHit, type KnowledgeSession } from '../backend/knowledge'
 
 export default function WikiPanel({ resources, notify }: { resources: Resource[]; notify: (message: string) => void }) {
@@ -50,9 +50,11 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     let unlisten: (() => void) | undefined
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
+    // 每条 delta 不再各拉一次全量输出：150ms 窗口内合并为一次
+    const throttledUpdate = deltaThrottle()
     const listening = onBackendEvent(event => {
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === requestId) upstreams.set(event.payload.upstreamRequestId, requestId)
-      if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) update()
+      if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
     }).then(stop => { unlisten = stop }).catch(reportBackendError)
     return () => { active = false; unlisten?.(); void listening }
   }, [current?.requestId, current?.status])

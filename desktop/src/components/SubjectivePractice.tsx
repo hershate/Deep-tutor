@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet } from '../backend/practice'
 
 type Props = {
@@ -66,9 +66,11 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     let unlisten: (() => void) | undefined
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
+    // 每条 delta 不再各拉一次全量输出：150ms 窗口内合并为一次
+    const throttledUpdate = deltaThrottle()
     const listening = onBackendEvent(event => {
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === requestId) upstreams.set(event.payload.upstreamRequestId, requestId)
-      if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) update()
+      if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
     }).then(stop => { unlisten = stop }).catch(reportBackendError)
     return () => { active = false; unlisten?.(); void listening }
   }, [answer?.requestId, answer?.status])

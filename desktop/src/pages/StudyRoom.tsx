@@ -6,7 +6,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { PageId } from '../data'
 import { Badge, Button, IconButton, Modal, ProgressBar } from '../components/UI'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { Lecture, LearningPlan, Material, ProviderRequest, ReadingProgress } from '../backend/client'
 import { mediaBackend } from '../backend/media'
 import MediaPlayer from '../components/MediaPlayer'
@@ -110,6 +110,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
+    const throttledFetch = deltaThrottle()
     void onBackendEvent(event => {
       if (disposed) return
       if (event.kind.startsWith('lecture.') && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture(readingVersionRef.current)
@@ -122,7 +123,8 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
         const requestId = event.payload.requestId
         const logicalId = routeUpstreams.current[requestId] ?? requestId
         if (lecture?.units.some(unit => unit.status === 'running' && unit.requestId === logicalId)) {
-          void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
+          // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
+          throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })

@@ -2,6 +2,14 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Recommendation, TimeSlice } from './reports'
 import type { PageId } from '../data'
 
+/** 空查询时的页面快捷入口：与后端 pages() 保持一致，避免每次打开搜索都走一次 IPC。 */
+export const quickPages: SearchResult[] = [
+  ['today', '今日'], ['generator', 'AI 方案生成'], ['plan', '学习计划'], ['study', '学习空间'],
+  ['map', '知识地图'], ['agent', 'Agent 助手'], ['practice', '练习测评'], ['review', '记忆复习'],
+  ['library', '笔记与 Wiki'], ['projects', '项目作品'], ['reports', '学习报告'], ['community', '学习社区'],
+  ['providers', '模型供应商'], ['integrations', '插件与事件'], ['settings', '设置与偏好'],
+].map(([page, title]) => ({ kind: 'page', id: page, title, subtitle: '功能页面', page: page as PageId, planId: null, stageId: null }))
+
 export type SearchResult = {
   kind: string
   id: string

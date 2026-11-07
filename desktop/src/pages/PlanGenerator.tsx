@@ -5,7 +5,7 @@ import { Badge, Button, IconButton, Modal, ProgressBar, SectionHeader } from '..
 import SharePlanDialog from '../components/SharePlanDialog'
 import ExportCenter from '../components/ExportCenter'
 import { localShareUrl } from '../backend/sharing'
-import { backend, backendErrorMessage, isCancelRace, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, isCancelRace, onBackendEvent, deltaThrottle } from '../backend/client'
 import type { LearningCheckName, LearningGraph, LearningPlan, Material, ProviderRequest } from '../backend/client'
 import { webBackend } from '../backend/web'
 import { usageBackend } from '../backend/usage'
@@ -98,6 +98,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     void refreshPlans().then(items => { if (items[0]) setStep(items[0].result ? 3 : 2) })
     let disposed = false
     let unlisten: (() => void) | undefined
+    const throttledFetch = deltaThrottle()
     void onBackendEvent(event => {
       if (disposed) return
       if (event.kind.startsWith('material.')) void refreshMaterials()
@@ -124,7 +125,8 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
         const active = planRef.current?.steps.some(item => item.requestId === logicalId && item.status === 'running')
         if (active && typeof logicalId === 'string') {
           setLastEventId(event.id)
-          void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
+          // 多条 delta 合并为一次全量拉取，避免长回答期间逐条重放
+          throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
