@@ -333,11 +333,19 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
     })
     .unwrap();
     store.conn.execute("INSERT INTO community_posts (title, body, kind, created_at, updated_at) VALUES ('真实讨论', '讨论内容', 'discussion', 'now', 'now')", []).unwrap();
+    // 03#10：threads 配额按帖子 + 回复计数
+    store.conn.execute(
+        "INSERT INTO community_replies (post_id, body, created_at) VALUES (1, '真实回复', 'now')",
+        [],
+    )
+    .unwrap();
     let token = ipc(&app, "create_access_token", json!({"name":"不进入备份"})).unwrap();
     let token_hash = hash(token["token"].as_str().unwrap());
     let overview = ipc(&app, "get_security_overview", json!({})).unwrap();
     for quota in overview["quotas"].as_array().unwrap() {
-        assert_eq!(quota["used"], 1);
+        // threads = 帖子 1 + 回复 1；其余资源各 1
+        let expected = if quota["resource"] == "threads" { 2 } else { 1 };
+        assert_eq!(quota["used"], expected);
     }
     let limited = ipc(
         &app,

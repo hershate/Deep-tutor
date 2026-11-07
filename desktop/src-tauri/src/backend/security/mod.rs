@@ -771,10 +771,13 @@ fn overview_from(state: &SecurityState) -> Result<SecurityOverview> {
                     .conn
                     .query_row("SELECT COUNT(*) FROM materials", [], |row| row.get(0))?
             }
+            // 03#10：总览与 ensure_quota 同口径——帖子 + 回复
             "threads" => {
-                workspace
-                    .conn
-                    .query_row("SELECT COUNT(*) FROM community_posts", [], |row| row.get(0))?
+                workspace.conn.query_row(
+                    "SELECT (SELECT COUNT(*) FROM community_posts) + (SELECT COUNT(*) FROM community_replies)",
+                    [],
+                    |row| row.get(0),
+                )?
             }
             _ => return Err(BackendError::new("invalid_quota", "未知的资源配额")),
         };

@@ -353,9 +353,13 @@ impl Store {
                 self.conn
                     .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))?
             }
+            // 03#10：threads 配额按帖子与回复总数计，回复不再无限突破上限
             "threads" => {
-                self.conn
-                    .query_row("SELECT COUNT(*) FROM community_posts", [], |row| row.get(0))?
+                self.conn.query_row(
+                    "SELECT (SELECT COUNT(*) FROM community_posts) + (SELECT COUNT(*) FROM community_replies)",
+                    [],
+                    |row| row.get(0),
+                )?
             }
             "agent_memory" => {
                 self.conn

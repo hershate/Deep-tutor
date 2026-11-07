@@ -432,6 +432,8 @@ pub fn reply<R: Runtime>(
     if !exists {
         return Err(BackendError::new("not_found", "讨论不存在"));
     }
+    // 03#10：回复同样计入 threads 配额，与发帖共用同一上限
+    store.ensure_quota("threads", 1)?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO community_replies (post_id, body, created_at) VALUES (?1, ?2, ?3)",
