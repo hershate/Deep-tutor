@@ -431,7 +431,9 @@ enum BudgetScope {
 /// 线性增长；聚合口径与 cost() 一致（缺 usage 或缺费率的行贡献 0）
 fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
     let (clause, values): (&str, Vec<String>) = match scope {
-        BudgetScope::Daily { shift, today } => (" AND date(r.created_at, ?1) = ?2", vec![shift, today]),
+        BudgetScope::Daily { shift, today } => {
+            (" AND date(r.created_at, ?1) = ?2", vec![shift, today])
+        }
         BudgetScope::Session { prefix } => (" AND r.request_id GLOB ?1", vec![prefix]),
     };
     let spend: f64 = conn.query_row(

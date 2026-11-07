@@ -1069,12 +1069,18 @@ fn history_replay_trims_dangling_tool_calls_and_orphan_tool_messages() {
     let session = get(&state, &created_id.to_string()).unwrap();
     let replay = history(&session).unwrap();
     // 悬挂的 call-b 不声明、孤儿 call-z 不发送、call-a 保持配对
-    let assistant = replay.iter().find(|message| message.role == "assistant").unwrap();
+    let assistant = replay
+        .iter()
+        .find(|message| message.role == "assistant")
+        .unwrap();
     let calls = assistant.tool_calls.as_ref().expect("配对完整的调用应保留");
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, "web.search");
     assert_eq!(calls[0].id, "call-a");
-    let tools: Vec<_> = replay.iter().filter(|message| message.role == "tool").collect();
+    let tools: Vec<_> = replay
+        .iter()
+        .filter(|message| message.role == "tool")
+        .collect();
     assert_eq!(tools.len(), 1, "孤儿 tool 回复必须被修剪");
     assert_eq!(tools[0].tool_call_id.as_deref(), Some("call-a"));
 }

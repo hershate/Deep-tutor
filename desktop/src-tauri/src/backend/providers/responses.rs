@@ -191,10 +191,8 @@ where
                             // 25#17：对齐 openai.rs 的 256 KB 上限——自配的故障
                             // 端点可用 endless delta 使内存无界增长
                             if call.arguments.len().saturating_add(delta.len()) > 256 * 1024 {
-                                return Err(output.error(
-                                    "response_too_large",
-                                    "单个工具参数超过 256 KB 上限",
-                                ));
+                                return Err(output
+                                    .error("response_too_large", "单个工具参数超过 256 KB 上限"));
                             }
                             call.arguments.push_str(delta);
                         }

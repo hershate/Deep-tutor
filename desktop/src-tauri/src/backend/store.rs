@@ -73,10 +73,7 @@ impl Store {
         // 维持 root 语义
         #[cfg(not(test))]
         let owner = Some(super::security::principal_id().ok_or_else(|| {
-            BackendError::new(
-                "store_unavailable",
-                "本地会话身份缺失，拒绝打开数据层",
-            )
+            BackendError::new("store_unavailable", "本地会话身份缺失，拒绝打开数据层")
         })?);
         #[cfg(test)]
         let owner = super::security::principal_id();

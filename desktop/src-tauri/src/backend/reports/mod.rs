@@ -636,7 +636,12 @@ fn evidence(store: &Store, since: &str) -> Result<Vec<(i64, String, String, f64,
         // 不再上抛——原实现令 learning_report 与 get_dashboard 整体失败，
         // 与 learning/knowledge.rs 对同一数据的静默跳过口径不一致
         let (plan_id, node_id, kind, score, maximum, created_at) = row?;
-        if score.is_finite() && maximum.is_finite() && maximum > 0.0 && score >= 0.0 && score <= maximum {
+        if score.is_finite()
+            && maximum.is_finite()
+            && maximum > 0.0
+            && score >= 0.0
+            && score <= maximum
+        {
             collected.push((plan_id, node_id, kind, score, maximum, created_at));
         }
     }

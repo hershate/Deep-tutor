@@ -399,7 +399,10 @@ fn hints_mode_subjective_wrong_answer_stays_out_of_mistakes() {
             assert_eq!(status, "done");
             break;
         }
-        assert!(Instant::now() < deadline, "主观评分未在限时内结束（{status}）");
+        assert!(
+            Instant::now() < deadline,
+            "主观评分未在限时内结束（{status}）"
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(

@@ -157,7 +157,10 @@ where
                     // 用户可见文案截断到 200 字符（状态码本身有界）
                     return Err(output.error(
                         code,
-                        &format!("{status}：{}", message.chars().take(200).collect::<String>()),
+                        &format!(
+                            "{status}：{}",
+                            message.chars().take(200).collect::<String>()
+                        ),
                     ));
                 }
                 if let Some(usage) = event.get("usageMetadata") {
