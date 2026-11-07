@@ -158,7 +158,7 @@ fn version(conn: &Connection, id: i64) -> Result<ProjectVersion> {
                 content: row.get(3)?, milestone_id: row.get(4)?, milestone_title: row.get(5)?,
                 material_id: row.get(6)?, status: row.get(7)?, attempt: row.get(8)?,
                 provider_id: row.get(9)?, request_id: row.get(10)?, feedback: None,
-                error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("项目反馈失败"))),
+                error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("项目评价失败"))),
                 created_at: row.get(14)?, updated_at: row.get(15)?, completed_at: row.get(16)?,
             }, row.get(11)?))
         },
@@ -230,7 +230,7 @@ fn ensure_available(state: &ProjectState, project_id: i64, except: Option<i64>) 
     if running {
         return Err(BackendError::new(
             "project_feedback_active",
-            "当前项目已有反馈任务，请等待完成或先取消",
+            "当前项目已有评价任务，请等待完成或先取消",
         ));
     }
     Ok(())
@@ -259,17 +259,17 @@ fn launch<R: Runtime>(
                         &worker_app,
                         &worker_state,
                         id,
-                        BackendError::new("task_panicked", "项目反馈任务异常终止"),
+                        BackendError::new("task_panicked", "项目评价任务异常终止"),
                     );
                 }
             }
         });
     if result.is_err() {
-        let error = BackendError::new("task_start_failed", "项目反馈任务未能启动，可恢复");
+        let error = BackendError::new("task_start_failed", "项目评价任务未能启动，可恢复");
         fail(&app, state, id, error)?;
         return Err(BackendError::new(
             "task_start_failed",
-            "项目反馈任务未能启动",
+            "项目评价任务未能启动",
         ));
     }
     workspace(state)
@@ -433,7 +433,7 @@ fn evaluate<R: Runtime>(app: &AppHandle<R>, state: &ProjectState, id: i64) -> Re
         return Ok(());
     }
     if cancelled(state, id)? {
-        return Err(BackendError::new("cancelled", "项目反馈已取消"));
+        return Err(BackendError::new("cancelled", "项目评价已取消"));
     }
     let project = project(state, version.project_id)?;
     let material = version
@@ -460,7 +460,7 @@ fn evaluate<R: Runtime>(app: &AppHandle<R>, state: &ProjectState, id: i64) -> Re
     ];
     let request_id = version
         .request_id
-        .ok_or_else(|| BackendError::new("invalid_persisted_project", "反馈任务缺少请求标识"))?;
+        .ok_or_else(|| BackendError::new("invalid_persisted_project", "评价任务缺少请求标识"))?;
     let request = providers::routing::stream_chat(
         app,
         &state.providers,
@@ -475,16 +475,16 @@ fn evaluate<R: Runtime>(app: &AppHandle<R>, state: &ProjectState, id: i64) -> Re
     )?;
     if request.status != "done" {
         if cancelled(state, id)? || request.status == "cancelled" {
-            return Err(BackendError::new("cancelled", "项目反馈已取消"));
+            return Err(BackendError::new("cancelled", "项目评价已取消"));
         }
         return Err(request
             .error
-            .unwrap_or_else(|| BackendError::new("provider_error", "项目反馈模型请求未完成")));
+            .unwrap_or_else(|| BackendError::new("provider_error", "项目评价模型请求未完成")));
     }
     if cancelled(state, id)? {
         return Err(BackendError::new(
             "cancelled",
-            "项目反馈已取消，未写入评价结果",
+            "项目评价已取消，未写入评价结果",
         ));
     }
     let feedback: ProjectFeedback = learning::pipeline::parse_model_json(&request.output)?;
@@ -501,7 +501,7 @@ pub fn cancel<R: Runtime>(
     if !["running", "cancelling"].contains(&current.status.as_str()) {
         return Err(BackendError::new(
             "project_feedback_not_active",
-            "该版本没有正在执行的反馈任务",
+            "该版本没有正在执行的评价任务",
         ));
     }
     let store = state.store()?;
@@ -532,7 +532,7 @@ pub fn resume<R: Runtime>(
     if !["failed", "cancelled", "interrupted"].contains(&current.status.as_str()) {
         return Err(BackendError::new(
             "project_feedback_active",
-            "当前反馈任务尚未进入可恢复状态",
+            "当前评价任务尚未进入可恢复状态",
         ));
     }
     ensure_available(state, current.project_id, Some(id))?;
@@ -540,13 +540,13 @@ pub fn resume<R: Runtime>(
     if !provider.enabled {
         return Err(BackendError::new(
             "provider_disabled",
-            "项目反馈供应商已停用",
+            "项目评价供应商已停用",
         ));
     }
     let attempt = current
         .attempt
         .checked_add(1)
-        .ok_or_else(|| BackendError::new("too_many_attempts", "反馈恢复次数已用尽"))?;
+        .ok_or_else(|| BackendError::new("too_many_attempts", "评价恢复次数已用尽"))?;
     let request_id = format!("project-feedback-{id}-{attempt}");
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
@@ -555,7 +555,7 @@ pub fn resume<R: Runtime>(
     if changed == 0 {
         return Err(BackendError::new(
             "project_feedback_active",
-            "反馈任务已被其他操作恢复",
+            "评价任务已被其他操作恢复",
         ));
     }
     let event = Store::event(
@@ -586,9 +586,9 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProjectState) -> Result<(
             continue;
         }
         let error = if current.status == "cancelling" {
-            BackendError::new("cancelled", "应用重启后未重新执行已取消的项目反馈")
+            BackendError::new("cancelled", "应用重启后未重新执行已取消的项目评价")
         } else {
-            BackendError::new("interrupted", "应用重启后项目反馈已中断，可从原提交恢复")
+            BackendError::new("interrupted", "应用重启后项目评价已中断，可从原提交恢复")
         };
         let tx = store.conn.unchecked_transaction()?;
         let status = error.code.clone();

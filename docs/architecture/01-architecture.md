@@ -14,8 +14,8 @@ graph TD
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[190 个 tauri::command]
-        CMD --> DOM[22 个域模块 backend/*]
+        GH --> CMD[188 个 tauri::command]
+        CMD --> DOM[21 个域模块 backend/*]
         DOM --> ST[store.rs SQLite + 事件 outbox]
         DOM --> FS[应用数据目录文件区]
         DOM --> NET[providers/web HTTP]
@@ -26,7 +26,7 @@ graph TD
 
 分层判定依据：
 - 表现层：`src/pages/*.tsx`、`src/components/*.tsx`，无业务规则，仅调用客户端函数（`src/pages/Practice.tsx:12`）。
-- 业务逻辑层：`src-tauri/src/backend/*` 22 个域模块，每个模块 `commands.rs`（IPC 边界）+ `mod.rs`（实现）+ `tests.rs`。
+- 业务逻辑层：`src-tauri/src/backend/*` 21 个域模块（另有 backend 根的 commands/store/error/random），每个模块 `commands.rs`（IPC 边界）+ `mod.rs`（实现）+ `tests.rs`。
 - 数据访问层：`store.rs`（kv/meta/revisions/events 通用表）与各模块 `migrate()` 建立的领域表，全部经 rusqlite 直连。
 - 横切层：`error.rs`（类型化错误）、`security/guard.rs`（鉴权与用户工作区切换）、`plugins/mod.rs:609`（事件订阅分发）、`random.rs`（安全随机数）。
 
@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 190 个命令（`main.rs:79-268`），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
+- 入口 `src-tauri/src/main.rs:13`：`tauri::Builder` + `tauri_plugin_dialog` + `setup` 回调注册 188 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:132`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:270-272`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:58-76`）。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:296-318`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
 
@@ -45,31 +45,31 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 5 / 1926 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:29`：store Mutex + 11 个域 State） |
-| startup | 2 / 1020 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1186 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:58`） |
-| security | 6 / 2244 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:212`） |
-| providers | 14 / 8352 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:173`） |
-| web | 4 / 916 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 2683 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 895 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 4729 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 812 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1282 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:26`） |
-| practice | 6 / 3394 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
-| review | 2 / 891 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 993 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 3065 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:27`） |
-| engagement | 3 / 1126 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1409 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1343 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 955 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
-| backup | 5 / 2482 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:139`） |
-| sharing | 3 / 958 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2135 | WebDAV/S3 配置同步、24h 调度、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
-| maintenance | 3 / 819 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
-| export | 7 / 1762 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 60 / 6202 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
+| backend（根） | 5 / 2004 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:29`：store Mutex + 11 个域 State） |
+| startup | 1 / 754 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
+| store | 1 / 1234 | kv/meta/revisions/events、校验、配额、事件分页 | `Store`（`store.rs:58`） |
+| security | 6 / 2344 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:212`） |
+| providers | 14 / 8574 | 供应商档案、三协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:173`） |
+| web | 4 / 1032 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 2805 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 995 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 4855 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| planning | 3 / 839 | 周视图、强度、目标、排期 | 复用 LearningState |
+| knowledge | 3 / 1319 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:26`） |
+| practice | 6 / 3404 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
+| review | 2 / 896 | SM-2 式间隔复习 | 复用 SQLite 事务 |
+| projects | 3 / 995 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 3136 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:27`） |
+| engagement | 3 / 1135 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1518 | 专注会话、学习报告、日历 | 复用 |
+| community | 3 / 1379 | 本机讨论/小组/预约/提醒 | 复用 |
+| plugins | 3 / 956 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
+| backup | 5 / 2495 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:139`） |
+| sharing | 3 / 960 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| sync | 7 / 2261 | WebDAV/S3 配置同步、24h 调度、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
+| maintenance | 3 / 854 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
+| export | 7 / 1912 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 63 / 8429 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
 
 ## 4. 横切层
 
@@ -259,23 +259,23 @@ graph TD
 
 - 骨架：`main.tsx:6-10` → `App.tsx`；无 router，`page` 状态 + hash 同步（`App.tsx:50,190`），`renderPage()` switch 分发（:232-251）；5 个重页面 React.lazy（:32-36）；三组导航 + 顶栏（⌘K 搜索/快速记录/主题/通知）+ 移动底栏（:270-282）。
 - 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader（:253-265）。
-- 客户端层 24 个文件：`client.ts` 聚合 70 个 invoke（:327-395）；领域客户端 practice/review/knowledge/community/… 一一对应命令组（见 03 工作流 §2 表）；事件统一走 `onBackendEvent`（:397）。
+- 客户端层 23 个文件：`client.ts` 聚合 63 个 invoke；领域客户端 practice/review/knowledge/community/… 一一对应命令组（见 03 工作流 §2 表）；事件统一走 `onBackendEvent`。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:29-39）；`security.session_started` 触发 generation+1 全量重载（:131-141）。
 - 流式：`useAgent.ts:97-133` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId。
-- 样式：单文件 styles.css 1904 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1180/1240/1280/1320（:281-:1023 各处）。
+- 样式：单文件 styles.css 1919 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1180/1240/1280/1320（:281-:1023 各处）。
 
 ## 8. 命令注册总览（`main.rs:75-264`）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|
-| 启动/存储 | 5+7 | get_storage_overview、bootstrap、events_since、reset_application |
+| 启动/存储 | 14 | startup 5 + 通用命令 9：bootstrap、events_since、replace_collection、reset_application |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
-| 供应商/路由/用量 | 22 | stream_provider_chat_with_tools、route_provider_chat、export_usage_csv |
+| 供应商/路由/用量 | 21 | stream_provider_chat_with_tools、route_provider_chat、export_usage_csv |
 | 材料/笔记 | 14 | import_material_archive、read_material_media_chunk、import_notes |
-| 学习/讲义/知识 | 18 | start_learning_plan、generate_lecture、ask_knowledge |
-| 练习/复习/项目 | 26 | submit_practice_answer、grade_review_card、submit_project_version |
+| 学习/讲义/知识/排期 | 29 | learning 16 + knowledge 8 + planning 5：start_learning_plan、generate_lecture、ask_knowledge |
+| 练习/复习/项目 | 27 | practice 13 + review 9 + projects 5：submit_practice_answer、grade_review_card、submit_project_version |
 | Agent | 10 | send_agent_message、approve_agent_request |
-| 备份/分享/同步/运维 | 18 | import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
-| 社区/插件/导出/报告/搜索 | 其余 | claim_community_reminders、install_plugin、export_content、export_learning_report、search_workspace |
+| 备份/分享/同步/运维 | 20 | backup 3 + sharing 7 + sync 7 + maintenance 3：import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
+| 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 8 + export 2 + reports 11 + engagement/web 10：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 注册但前端零调用） |
 
 前端调用的命令名与注册表逐一核对一致；仅 `stream_provider_chat_with_tools`、`authenticate_access_token` 为后端内部/预留入口，前端不直接调用。

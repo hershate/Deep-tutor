@@ -36,6 +36,11 @@ struct Document {
 #[cfg(test)]
 static SEARCH_ENDPOINT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// 12#20：web 与 agent 两域测试共用保存/恢复式检索端点，并行会互相劫持；
+/// 设置端点的测试须先持有此互斥（覆盖设置→使用→恢复的整个窗口）。
+#[cfg(test)]
+pub static SEARCH_ENDPOINT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 pub struct SearchEndpointGuard(Option<String>);
 

@@ -9,7 +9,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -20,12 +19,14 @@ pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// 使老库即使指纹与记录一致也会重新执行迁移（指纹只反映库内现状，不反映代码期望）。
 const SCHEMA_VERSION: i64 = 1;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
+// 12#20：迁移计数改为互斥保护——无锁原子计数在并行测试下与幂等断言竞态；
+// 互斥后读取/递增串行化，断言不再随机漂移
 #[cfg(test)]
-static MIGRATION_RUNS: AtomicUsize = AtomicUsize::new(0);
+static MIGRATION_RUNS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
 #[cfg(test)]
 pub fn migration_count() -> usize {
-    MIGRATION_RUNS.load(Ordering::Acquire)
+    *MIGRATION_RUNS.lock().unwrap()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -200,7 +201,9 @@ impl Store {
         // 旧库只记指纹、不记版本：按 0 处理，保证迁移至少补跑一次后写入版本。
         if recorded.as_deref() != Some(fingerprint.as_str()) || recorded_version < SCHEMA_VERSION {
             #[cfg(test)]
-            MIGRATION_RUNS.fetch_add(1, Ordering::AcqRel);
+            {
+                *MIGRATION_RUNS.lock().unwrap() += 1;
+            }
             // 根库（owner 为空）跳过 kv→materials 一次性导入，避免复制后再生成死数据
             super::materials::migrate(&conn, owner.is_some())?;
             super::knowledge::migrate(&conn)?;
@@ -507,7 +510,7 @@ impl Store {
         if namespace == "resources" {
             return Err(BackendError::new(
                 "use_material_commands",
-                "资料原件、解析和删除必须使用原生材料命令",
+                "资料原件、解析和删除必须使用原生资料命令",
             ));
         }
         if !Self::namespace_allowed(namespace) {

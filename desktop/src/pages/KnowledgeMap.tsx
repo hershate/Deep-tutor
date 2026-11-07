@@ -97,7 +97,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
     try {
       const next = await backend.getKnowledgePath(plan.id, selected, target)
       setPath(next)
-      notify(`已按真实依赖生成最短路径，共 ${next.length} 个节点`)
+      notify(`已按真实依赖生成最短路径，共 ${next.length} 个知识节点`)
     } catch (cause) { setError(backendErrorMessage(cause)); setPath(null) } finally { setBusy(false) }
   }
   const addTask = async () => {
@@ -125,10 +125,10 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
         </div> : <div className="knowledge-list">{graph.nodes.map(item => { const mastery = overview?.nodes.find(progress => progress.nodeId === item.id)?.mastery; return <button key={item.id} onClick={() => setSelected(item.id)} className={selected === item.id ? 'active' : ''}><div><strong>{item.title}</strong><span>{item.summary}</span></div><div><span>{mastery === null || mastery === undefined ? '待评估' : `${mastery}%`}</span><ProgressBar value={mastery || 0} /></div><ArrowRight size={17} /></button> })}</div>}
       </section>
       {node && <aside className="surface node-detail">
-        <div className="node-detail-top"><Badge tone={progress?.mastery != null ? 'green' : progress?.readingCompleted ? 'amber' : 'neutral'}>{progress?.mastery != null ? '已有测评' : progress?.readingCompleted ? '阅读完成' : '待评估'}</Badge><span>知识点详情</span></div><h2>{node.title}</h2><p>{node.summary}</p>
+        <div className="node-detail-top"><Badge tone={progress?.mastery != null ? 'green' : progress?.readingCompleted ? 'amber' : 'neutral'}>{progress?.mastery != null ? '已有测评' : progress?.readingCompleted ? '阅读完成' : '待评估'}</Badge><span>知识节点详情</span></div><h2>{node.title}</h2><p>{node.summary}</p>
         <div className="mastery-evidence"><div><strong>{progress?.mastery == null ? '待评估' : `${progress.mastery}%`}</strong><span>测评掌握度</span></div><ProgressBar value={progress?.mastery || 0} /><small><Target size={14} />{progress?.evidence || '尚无测评证据'}</small></div>
         <div className="node-relations"><h3>知识关系</h3><div><span>前置知识</span><strong>{prerequisites.length ? prerequisites.join('、') : '无'}</strong></div><div><span>后续应用</span><strong>{successors.length ? successors.join('、') : '无直接后续节点'}</strong></div></div>
-        <div className="node-actions"><Button disabled={!stage} onClick={() => { if (stage) { if (onStudy) onStudy(plan.id, stage.id); else onNavigate('study') } }}>{stage ? <BookOpen size={17} /> : <CircleDashed size={17} />}{stage ? '开始学习' : '尚未安排阶段'}</Button><Button variant="secondary" disabled={!stage || !node} onClick={() => { if (stage && node) { if (onPractice) onPractice(plan.id, stage.id, node.id); else onNavigate('practice') } }}><Target size={17} />针对「{node?.title}」练习</Button><Button variant="secondary" onClick={() => void addTask()} disabled={busy}><Play size={17} />加入计划</Button></div>
+        <div className="node-actions"><Button disabled={!stage} onClick={() => { if (stage) { if (onStudy) onStudy(plan.id, stage.id); else onNavigate('study') } }}>{stage ? <BookOpen size={17} /> : <CircleDashed size={17} />}{stage ? '开始学习' : '尚未安排阶段'}</Button><Button variant="secondary" disabled={!stage || !node} onClick={() => { if (stage && node) { if (onPractice) onPractice(plan.id, stage.id, node.id); else onNavigate('practice') } }}><Target size={17} />针对「{node?.title}」练习</Button><Button variant="secondary" onClick={() => void addTask()} disabled={busy}><Play size={17} />加入方案</Button></div>
         <div className="node-agent"><h3>原文引用</h3>{node.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => onNavigate('library')}><p>“{citation.quote}”</p><small>资料 #{citation.materialId} · 来自所选原文</small></button>)}</div>
       </aside>}
     </div>

@@ -1,7 +1,7 @@
 # Deep-tutor 架构文档
 
 **分析基准**：main 分支 commit `cf2cb36c`（2026-11-06）
-**分析范围**：`desktop/`（Tauri 2 应用全量：Rust 后端 47,367 行 / 112 文件 + React 前端 6,202 行 / 60 文件）
+**分析范围**：`desktop/`（Tauri 2 应用全量：Rust 后端 48,876 行 / 111 文件 + React 前端 8,429 行 / 63 文件，含 styles.css 与 tauri 配置侧脚本；口径为 src/ 与 src-tauri/src/ 下全部源码文件）
 **分析模式**：全量静态分析，未运行应用
 
 ## 项目快照
@@ -9,7 +9,7 @@
 - **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
 - **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 5
 - **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
-- **规模**：190 个 Tauri 命令、22 个后端域模块、16 个页面、24 个前端客户端文件
+- **规模**：188 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/mod）、16 个页面、23 个前端客户端文件（src/backend/*.ts）
 - **CI**：GitHub Actions windows-latest（fmt + 前端构建 + 原生测试串行 + NSIS 安装包）
 - **分支**：main（单线演进，细粒度中文提交）
 

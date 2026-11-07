@@ -79,7 +79,10 @@ fn workspaces_files_and_quota_failures_are_isolated_by_user() {
             "第一位笔记"
         );
         assert_eq!(materials::list(&materials).unwrap().len(), 1);
-        assert!(materials::detail(&materials, 999).is_err());
+        assert_eq!(
+            materials::detail(&materials, 999).unwrap_err().code,
+            "not_found"
+        );
     });
     with_user(2, || {
         let store = learning.store().unwrap();

@@ -32,12 +32,12 @@ flowchart LR
 ## 2. 测试策略
 
 - 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。共 112 个 .rs 文件中约 1/3 为测试。
-- 运行方式：`--release --locked -- --test-threads=1` 串行，避免 SQLite 文件与全局锁（STORE_OPEN_LOCK、ACTIVE）竞争。
+- 运行方式：`--release --locked -- --test-threads=1` 串行。真实原因不是 SQLite 文件锁（STORE_OPEN_LOCK/ACTIVE 均按测试隔离），而是两个无互斥保护的全局：`MIGRATION_RUNS` 计数器（store.rs，并行时幂等断言随机失败）与 `SEARCH_ENDPOINT` 保存/恢复式端点（web/mod.rs，web 与 agent 域测试并行时互相劫持检索端点）。并行化前须先给这两处加互斥。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:613-671 `mock_app/ipc` 辅助函数）。
   - 本机回环 TestServer 线程模拟 LLM/WebDAV/S3 协议（providers/test_support.rs:35-70），断言真实 HTTP 行为而非 mock 返回值。
   - `MemoryCredentials`（providers/mod.rs:151）替代系统密钥库。
-  - `defer` 布尔关闭真实线程 spawn（learning/mod.rs:372、materials、sync 同型），使流水线测试同步化。
+  - `defer` 布尔使流水线测试同步化，三域形态各异：learning 跳过 spawn（直接内联执行）、materials 自旋等待任务完成、sync 暂停调度线程。
   - MIGRATION_RUNS 计数器验证指纹迁移幂等（store.rs:20-26,1162-1185）。
 - 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs:439-499 server 计数不变；subjective_tests.rs:230）；事件 outbox 分页与重启续接（store.rs:1126-1159）；备份 ID 映射与重复导入保留双方（backup/tests.rs:235-242,423,494）；同步回读校验与保留恰 10 个（sync/tests.rs:223-225,396-430；versions_tests.rs:133-135）；并发 grade 仅一次生效（review/mod.rs:768）；两用户文件隔离（security/workspace_tests.rs:70-74）。
 - 环境边界：真实供应商、真实媒体编解码播放、交互安装为独立验收项，协议夹具不替代（plan/README.md 约定；无界面安装验证走 `--verify-native` + `DEEPTUTOR_VERIFY_DATA_DIR`，main.rs:14-72）。
@@ -178,20 +178,19 @@ flowchart TD
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；前端轮询 `claim_community_reminders`（:832）逐条置 delivered_at 并发 `community.reminder_due`；取消预约/房间同步删提醒（:789-792,821-825）。
+预约 `reserve`（community/mod.rs:719）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`；`claim_community_reminders`（:832）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），**当前前端零调用（注册未接线，见 01#3）**，提醒投递闭环未生效；取消预约/房间同步删提醒（:789-792,821-825）。
 
 ```mermaid
 sequenceDiagram
     participant U as 用户
     participant R as reserve 预约
     participant RM as community_reminders
-    participant FE as 前端轮询
+    participant U as 用户
+    participant R as reserve 预约
+    participant RM as community_reminders
     U->>R: 预约房间 scheduled 未过期 已入组
     R->>RM: remind_at 为开始前 15 分钟与现在的较大值
-    FE->>RM: claim_community_reminders 轮询
-    RM-->>FE: 到期且未投递的提醒
-    RM->>RM: 逐条置 delivered_at
-    RM-->>FE: community.reminder_due 事件
+    Note over RM: claim_community_reminders 已注册但前端零调用<br/>到期提醒领取与 community.reminder_due 投递未接线
     Note over RM: 取消预约或房间同步删除提醒
 ```
 
@@ -264,7 +263,7 @@ flowchart LR
 | Library | saveDraft（防抖）、import_notes、get_library_overview | material./study.note_saved/state.changed |
 | Projects | submit_project_version、cancel/resume_feedback | project./provider.chat_delta |
 | Reports | get_learning_report/calendar、focus 全套 | focus./study.checkin/practice./review./plan. |
-| Community | get_community_overview、post/reply/reserve、claim_community_reminders | community. |
+| Community | get_community_overview、post/reply/reserve、claim_community_reminders（前端未接线） | community. |
 | Integrations | 插件全套 | plugin. |
 | ProviderHub | 供应商/路由/熔断/日志、stream_provider_chat | 经 refresh |
 | Settings | 学习档案、setPreferences | security.session_started/state.changed |

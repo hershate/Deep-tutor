@@ -462,14 +462,30 @@ fn account_store_is_reused_across_session_checks() {
     );
 }
 
+/// 系统密钥库探针守卫（12#16）：断言 panic 也在 Drop 里清理。
+struct ProbeGuard {
+    id: String,
+}
+
+impl Drop for ProbeGuard {
+    fn drop(&mut self) {
+        let _ = SystemCredentials(SERVICE).delete(&self.id);
+    }
+}
+
 #[test]
 fn production_credential_store_persists_across_entries() {
     // keyring 3.x falls back to a per-entry mock store when no platform
     // feature is enabled; the session token would be lost on every write and
     // each command would reissue a session.
+    // 12#16：无密钥库环境跳过而不是失败；探针用 RAII 守卫清理。
     let id = format!("probe-{}", crate::backend::random::token("").unwrap());
     let backend = SystemCredentials(SERVICE);
-    backend.set(&id, "probe-value").unwrap();
+    if backend.set(&id, "probe-value").is_err() {
+        eprintln!("skipped: 宿主环境没有可用系统密钥库");
+        return;
+    }
+    let _guard = ProbeGuard { id: id.clone() };
     assert_eq!(
         backend
             .get(&id)
@@ -479,6 +495,6 @@ fn production_credential_store_persists_across_entries() {
         Some("probe-value"),
         "credential store does not persist across entries"
     );
-    backend.delete(&id).unwrap();
+    drop(_guard);
     assert!(backend.get(&id).unwrap().is_none());
 }

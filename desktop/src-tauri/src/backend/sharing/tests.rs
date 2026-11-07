@@ -53,18 +53,21 @@ fn add_plan(state: &SharingState, status: &str, goal: &str) -> i64 {
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, SharingState) {
     let learning = crate::backend::learning::LearningState::for_tests().unwrap();
     let state = SharingState::new(&learning);
+    let path = learning.database_path().to_path_buf();
+    let providers = learning.provider_state();
+    let materials = learning.material_state();
     let app = tauri::test::mock_builder()
         .manage(BackendState {
             store: Mutex::new(state.store().unwrap()),
             materials: learning.material_state().shared(),
             providers: learning.provider_state(),
             learning: learning.shared(),
-            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
-            practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
-            review: crate::backend::review::ReviewState::for_tests().unwrap(),
-            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
-            community: crate::backend::community::CommunityState::for_tests().unwrap(),
-            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+            agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &providers, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &providers, &materials),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
             sharing: SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![

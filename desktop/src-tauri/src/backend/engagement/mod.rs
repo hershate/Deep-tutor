@@ -584,8 +584,8 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 &store.conn,
                 &format!("tasks-due-{today}"),
                 "plan",
-                &format!("今日有 {} 项计划任务", pending.len()),
-                "请按计划完成当前任务，也可在计划中调整安排。",
+                &format!("今日有 {} 项方案任务", pending.len()),
+                "请按方案完成当前任务，也可在方案中调整安排。",
                 "plan",
             )?;
         }
@@ -746,7 +746,7 @@ pub fn dashboard<R: Runtime>(
             result.stages.iter().find(|stage| {
                 let completed: bool = store.conn.query_row("SELECT COALESCE((SELECT completed FROM learning_reading_progress WHERE plan_id = ?1 AND stage_id = ?2), 0)", params![plan_id, stage.id], |row| row.get(0)).unwrap_or(false);
                 !completed
-            }).map(|stage| DashboardTask { title: stage.title.clone(), detail: format!("{} · 当前计划阶段", plan.goal), minutes: stage.minutes as u64, kind: "学习".into() })
+            }).map(|stage| DashboardTask { title: stage.title.clone(), detail: format!("{} · 当前方案阶段", plan.goal), minutes: stage.minutes as u64, kind: "学习".into() })
         })
     }).or_else(|| {
         store.collection("tasks").ok()?.value.as_array()?.iter().find(|task| !task.get("done").and_then(Value::as_bool).unwrap_or(false)).map(|task| DashboardTask { title: text(task, "title", "学习任务").into(), detail: format!("{} · {}", text(task, "subject", "未分类"), text(task, "kind", "学习")), minutes: task.get("duration").and_then(Value::as_u64).unwrap_or(0), kind: text(task, "kind", "学习").into() })

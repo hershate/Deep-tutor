@@ -150,6 +150,20 @@ impl CredentialBackend for SystemCredentials {
 #[derive(Default)]
 struct MemoryCredentials(Mutex<HashMap<String, Zeroizing<String>>>);
 
+/// 12#15：注入一次密钥库写失败（模拟 keyring 故障），下一次 set/delete
+/// 返回 credential_error 后自动复位——用于测试“凭据写失败时数据库
+/// 不得提交”的补偿路径；此前该后端永不失败，路径零覆盖。
+#[cfg(test)]
+static MEMORY_CREDENTIAL_FAIL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+impl MemoryCredentials {
+    pub(crate) fn fail_next_write() {
+        MEMORY_CREDENTIAL_FAIL.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
 #[cfg(test)]
 impl CredentialBackend for MemoryCredentials {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>> {
@@ -157,6 +171,12 @@ impl CredentialBackend for MemoryCredentials {
     }
 
     fn set(&self, id: &str, value: &str) -> Result<()> {
+        if MEMORY_CREDENTIAL_FAIL.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            return Err(BackendError::new(
+                "credential_error",
+                "无法写入系统密钥库",
+            ));
+        }
         self.0
             .lock()
             .unwrap()
@@ -165,6 +185,12 @@ impl CredentialBackend for MemoryCredentials {
     }
 
     fn delete(&self, id: &str) -> Result<()> {
+        if MEMORY_CREDENTIAL_FAIL.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            return Err(BackendError::new(
+                "credential_error",
+                "无法写入系统密钥库",
+            ));
+        }
         self.0.lock().unwrap().remove(id);
         Ok(())
     }
@@ -204,6 +230,13 @@ impl ProviderState {
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             _guard: Some(guard),
         })
+    }
+
+    /// 测试装配用：与主状态共享同一数据库路径（12#18，
+    /// 生产 assemble 全部 State 共享一个 database_path）
+    #[cfg(test)]
+    pub(crate) fn test_database_path(&self) -> &Path {
+        &self.database_path
     }
 
     #[cfg(test)]

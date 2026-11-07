@@ -7,18 +7,23 @@ use std::time::Duration;
 
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
     let learning = LearningState::for_tests().unwrap();
+    let path = learning.database_path().to_path_buf();
+    let providers = learning.provider_state();
+    let materials = learning.material_state();
     let app = tauri::test::mock_builder()
         .manage(BackendState {
             store: Mutex::new(learning.store().unwrap()),
             materials: learning.materials.shared(),
             providers: learning.providers.shared(),
             learning: learning.shared(),
-            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
-            practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
-            review: crate::backend::review::ReviewState::for_tests().unwrap(),
-            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
-            community: crate::backend::community::CommunityState::for_tests().unwrap(),
-            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+            // 12#18：filler 状态与主 LearningState 共用同一 database_path，
+            // 对齐生产 assemble 的“全状态同路径”装配
+            agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &providers, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &providers, &materials),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
             sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![
@@ -408,7 +413,8 @@ fn cancellation_stops_the_pipeline_and_keeps_the_actual_partial_request() {
                 .unwrap();
         let _ = std::io::Write::write_all(stream, format!("data: {event}\n\n").as_bytes());
         let _ = std::io::Write::flush(stream);
-        std::thread::sleep(Duration::from_millis(500));
+        // 12#19：取消竞态窗口按 3 倍放宽
+        std::thread::sleep(Duration::from_millis(1500));
     });
     configure_provider(&app, &state, &server.url());
     let started = start(app.handle(), &state, input(material_id)).unwrap();
@@ -855,7 +861,8 @@ fn lecture_cancellation_stops_before_the_next_unit() {
                 .unwrap();
         let _ = std::io::Write::write_all(stream, format!("data: {event}\n\n").as_bytes());
         let _ = std::io::Write::flush(stream);
-        std::thread::sleep(Duration::from_millis(400));
+        // 12#19：取消竞态窗口按 3 倍放宽
+        std::thread::sleep(Duration::from_millis(1200));
     });
     let profile = providers::get(&state.providers, &started.provider_id).unwrap();
     providers::upsert(

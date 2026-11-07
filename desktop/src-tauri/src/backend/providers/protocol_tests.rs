@@ -6,19 +6,23 @@ use std::time::Duration;
 
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
     let state = ProviderState::for_tests().unwrap();
+    // 12#18：filler 与主状态共享同一 database_path（生产同路径装配）
+    let path = state.test_database_path().to_path_buf();
+    let materials = crate::backend::materials::MaterialState::new(&path).unwrap();
+    let learning = crate::backend::learning::LearningState::new(&path, &state, &materials);
     let app = tauri::test::mock_builder()
         .manage(BackendState {
             store: Mutex::new(state.store().unwrap()),
-            materials: crate::backend::materials::MaterialState::for_tests().unwrap(),
+            materials: materials.shared(),
             providers: state.shared(),
-            learning: crate::backend::learning::LearningState::for_tests().unwrap(),
-            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
-            practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
-            review: crate::backend::review::ReviewState::for_tests().unwrap(),
-            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
-            community: crate::backend::community::CommunityState::for_tests().unwrap(),
-            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
-            sharing: crate::backend::sharing::SharingState::for_tests().unwrap(),
+            learning: learning.shared(),
+            agent: crate::backend::agent::AgentState::new(&path, &state, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &state, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &state, &materials),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
+            sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![
             crate::backend::providers::commands::upsert_provider_profile,

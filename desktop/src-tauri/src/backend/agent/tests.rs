@@ -744,7 +744,8 @@ fn cancelling_a_stream_preserves_partial_output_and_retries_with_a_new_request()
             )
             .unwrap();
             std::io::Write::flush(stream).unwrap();
-            std::thread::sleep(Duration::from_millis(300));
+            // 12#19：取消竞态窗口按 3 倍放宽，慢 CI 不再越界误报“取消未生效”
+            std::thread::sleep(Duration::from_millis(900));
             let _ = std::io::Write::write_all(stream, b"data: [DONE]\n\n");
         } else {
             response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"恢复后回答\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":33},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
@@ -984,6 +985,7 @@ fn web_tools_use_real_http_persist_results_and_replay_without_another_request() 
         let response = format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         std::io::Write::write_all(stream, response.as_bytes()).unwrap();
     });
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
     let _guard = crate::backend::web::set_search_endpoint_for_tests(Some(web_server.url()));
     let timestamp = now().unwrap();
     let store = state.store().unwrap();

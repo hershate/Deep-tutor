@@ -1186,6 +1186,23 @@ mod tests {
         address
     }
 
+    #[test]
+    fn hostname_endpoints_drive_resolution_pinning_and_connect() {
+        // 12#17：此前全部回环测试用 127.0.0.1 字面量，“域名解析→钉扎→
+        // 按钉扎地址连接”的正向链路零覆盖（仅拒绝态负例）。这里用
+        // localhost 主机名驱动完整链路连到 127.0.0.1 回环服务。
+        let address = server(|_| "{}".into());
+        let port = address
+            .trim_start_matches("http://127.0.0.1:")
+            .to_string();
+        let url: reqwest::Url = format!("http://localhost:{port}/v1/models")
+            .parse()
+            .unwrap();
+        let client = client(&url, "本地模型").unwrap();
+        let response = client.get(url).send().unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+    }
+
     fn messages() -> Vec<ChatMessage> {
         vec![ChatMessage {
             role: "user".into(),

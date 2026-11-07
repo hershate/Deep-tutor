@@ -31,18 +31,23 @@ fn setup() -> (
     tempfile::TempDir,
 ) {
     let learning = LearningState::for_tests().unwrap();
+    let path = learning.database_path().to_path_buf();
+    let providers = learning.provider_state();
+    let materials = learning.material_state();
     let app = tauri::test::mock_builder()
         .manage(BackendState {
             store: Mutex::new(learning.store().unwrap()),
             materials: learning.material_state(),
             providers: learning.provider_state(),
             learning: learning.shared(),
-            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
-            practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
-            review: crate::backend::review::ReviewState::for_tests().unwrap(),
-            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
-            community: crate::backend::community::CommunityState::for_tests().unwrap(),
-            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
+            // 12#18：filler 状态与主 LearningState 共用同一 database_path，
+            // 对齐生产 assemble 的“全状态同路径”装配
+            agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &providers, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &providers, &materials),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
             sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![

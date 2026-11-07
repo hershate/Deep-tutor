@@ -6,19 +6,23 @@ use tauri::{Listener, WebviewWindowBuilder};
 
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
     let state = ProviderState::for_tests().unwrap();
+    // 12#18：filler 与主状态共享同一 database_path（生产同路径装配）
+    let path = state.test_database_path().to_path_buf();
+    let materials = crate::backend::materials::MaterialState::new(&path).unwrap();
+    let learning = crate::backend::learning::LearningState::new(&path, &state, &materials);
     let app = tauri::test::mock_builder()
         .manage(BackendState {
             store: Mutex::new(state.store().unwrap()),
-            materials: crate::backend::materials::MaterialState::for_tests().unwrap(),
+            materials: materials.shared(),
             providers: state.shared(),
-            learning: crate::backend::learning::LearningState::for_tests().unwrap(),
-            agent: crate::backend::agent::AgentState::for_tests().unwrap(),
-            practice: crate::backend::practice::PracticeState::for_tests().unwrap(),
-            review: crate::backend::review::ReviewState::for_tests().unwrap(),
-            knowledge: crate::backend::knowledge::KnowledgeState::for_tests().unwrap(),
-            community: crate::backend::community::CommunityState::for_tests().unwrap(),
-            plugins: crate::backend::plugins::PluginState::for_tests().unwrap(),
-            sharing: crate::backend::sharing::SharingState::for_tests().unwrap(),
+            learning: learning.shared(),
+            agent: crate::backend::agent::AgentState::new(&path, &state, &learning),
+            practice: crate::backend::practice::PracticeState::new(&path, &state, &learning),
+            review: crate::backend::review::ReviewState::new(&path, &learning),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &state, &materials),
+            community: crate::backend::community::CommunityState::new(&path),
+            plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
+            sharing: crate::backend::sharing::SharingState::new(&learning),
         })
         .invoke_handler(tauri::generate_handler![
             crate::backend::commands::reset_application,
@@ -214,7 +218,10 @@ fn failed_database_writes_restore_the_previous_credential() {
              WHEN NEW.kind = 'provider.deleted' BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
         )
         .unwrap();
-    assert!(delete(app.handle(), &state, &saved.id).is_err());
+    assert_eq!(
+        delete(app.handle(), &state, &saved.id).unwrap_err().code,
+        "storage_failed"
+    );
     assert_eq!(
         state.credentials.get(&saved.id).unwrap().unwrap().as_str(),
         "unit-test-token"
@@ -233,7 +240,12 @@ fn deep_link_discards_secrets_and_unsupported_protocol_is_explicit() {
     let (app, state) = setup();
     let profile = deep_link(app.handle(), &state, "deeptutor://provider?name=Test&baseUrl=http%3A%2F%2F127.0.0.1%3A8000%2Fv1&model=test-model&api_key=not-imported").unwrap();
     assert!(!profile.has_key);
-    assert!(deep_link(app.handle(), &state, "https://provider?name=bad").is_err());
+    assert_eq!(
+        deep_link(app.handle(), &state, "https://provider?name=bad")
+            .unwrap_err()
+            .code,
+        "invalid_deep_link"
+    );
     assert!(upsert(
         app.handle(),
         &state,
@@ -1581,12 +1593,55 @@ fn ipc_failover_returns_the_backup_result_and_real_circuit_state() {
 }
 
 #[test]
+fn credential_backend_failure_aborts_upsert_before_database_commit() {
+    // 12#15：系统密钥库真实故障（keyring 写失败）此前零覆盖——
+    // 注入失败后档案更新必须在数据库提交前中止，旧凭据保持不变
+    let (app, state) = setup();
+    let saved = upsert(app.handle(), &state, input("http://127.0.0.1:8000/v1")).unwrap();
+    super::MemoryCredentials::fail_next_write();
+    let error = upsert(
+        app.handle(),
+        &state,
+        ProfileInput {
+            id: Some(saved.id.clone()),
+            name: "不应落库".into(),
+            api_key: Some("replacement-token".into()),
+            ..input("http://127.0.0.1:8000/v1")
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "credential_error");
+    assert_eq!(get(&state, &saved.id).unwrap().name, "本地测试");
+    assert_eq!(
+        state.credentials.get(&saved.id).unwrap().unwrap().as_str(),
+        "unit-test-token"
+    );
+}
+
+/// 系统密钥库探针守卫（12#16）：断言 panic 也在 Drop 里清理，
+/// 不在宿主凭据库残留 probe-* 条目。
+struct ProbeGuard {
+    id: String,
+}
+
+impl Drop for ProbeGuard {
+    fn drop(&mut self) {
+        let _ = SystemCredentials.delete(&self.id);
+    }
+}
+
+#[test]
 fn production_credential_store_persists_across_entries() {
     // Same regression guard as the security module: provider API keys must
     // survive across Entry instances in the real system credential store.
+    // 12#16：无密钥库环境（部分 CI 容器）跳过而不是失败。
     let id = format!("probe-{}", crate::backend::random::token("").unwrap());
     let backend = SystemCredentials;
-    backend.set(&id, "probe-value").unwrap();
+    if backend.set(&id, "probe-value").is_err() {
+        eprintln!("skipped: 宿主环境没有可用系统密钥库");
+        return;
+    }
+    let _guard = ProbeGuard { id: id.clone() };
     assert_eq!(
         backend
             .get(&id)
@@ -1596,7 +1651,7 @@ fn production_credential_store_persists_across_entries() {
         Some("probe-value"),
         "credential store does not persist across entries"
     );
-    backend.delete(&id).unwrap();
+    drop(_guard);
     assert!(backend.get(&id).unwrap().is_none());
 }
 

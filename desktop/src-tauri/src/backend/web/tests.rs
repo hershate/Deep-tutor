@@ -112,6 +112,7 @@ fn web_server() -> TestServer {
 #[test]
 fn search_returns_only_actually_fetched_results_and_fetch_extracts_real_text() {
     let server = web_server();
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
     let _guard = set_search_endpoint_for_tests(Some(format!("{}/search", server.url())));
     let result = search("真实检索", 3).unwrap();
     assert_eq!(result["provider"], "DuckDuckGo HTML");
@@ -193,6 +194,7 @@ fn redirects_content_types_and_empty_search_return_real_errors() {
         fetch(&oversized.url()).unwrap_err().code,
         "web_response_too_large"
     );
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
     let _guard = set_search_endpoint_for_tests(Some(format!("{}/empty-search", server.url())));
     assert_eq!(
         search("没有结果", 3).unwrap_err().code,
