@@ -459,13 +459,22 @@ pub fn update_goal<R: Runtime>(
     )?)?;
     plan_input.goal = goal;
     plan_input.deadline = input.deadline;
-    // 排期步硬校验每日 10..=600 分钟：每周 71–80 小时派生值封顶，保证重生成可成功
-    plan_input.daily_minutes = (input.weekly_hours * 60 / 7).clamp(15, 600);
+    let preferences_record = store.collection("preferences")?;
+    let mut preferences = preferences_record.value;
+    // 每日分钟 = 基数 × 当前强度因子：保持"排期分钟已含强度"的前提，
+    // 否则 goal 更新+重生成后再切强度会按未缩放基数计算（07#7）；
+    // 排期步硬校验 10..=600 分钟，派生值整体封顶保证重生成可成功
+    let intensity = preferences
+        .get("planIntensity")
+        .and_then(Value::as_str)
+        .unwrap_or("标准")
+        .to_string();
+    let base = (input.weekly_hours * 60 / 7).clamp(15, 600);
+    plan_input.daily_minutes =
+        ((base as f64 * factor(&intensity)?).round() as u32).clamp(15, 600);
     if let Some(level) = input.level {
         plan_input.level = level;
     }
-    let preferences_record = store.collection("preferences")?;
-    let mut preferences = preferences_record.value;
     preferences["weeklyHours"] = Value::from(input.weekly_hours);
     super::store::validate_preferences(&preferences)?;
     let tx = store.conn.unchecked_transaction()?;

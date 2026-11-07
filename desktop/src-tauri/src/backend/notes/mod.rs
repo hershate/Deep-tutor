@@ -211,9 +211,8 @@ pub fn import<R: Runtime>(
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))?;
     guard.ensure_quota("notes", notes.len() as u64)?;
-    let updated = OffsetDateTime::now_local()
-        .unwrap_or_else(|_| OffsetDateTime::now_utc())
-        .format(&Rfc3339)?;
+    // 与学习批注写入口一致使用 UTC（+00:00）格式，避免同一字段混用本地偏移表示（07#8）
+    let updated = OffsetDateTime::now_utc().format(&Rfc3339)?;
     let tx = guard.conn.unchecked_transaction()?;
     for source in &notes {
         let id = Store::next_free_id(&tx, "notes")?;

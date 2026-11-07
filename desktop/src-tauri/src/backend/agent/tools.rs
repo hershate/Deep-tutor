@@ -397,6 +397,19 @@ fn memory_value(value: &str) -> Result<String> {
     Ok(value.into())
 }
 
+/// 把登记为 running 的工具调用收尾为 failed（参数校验失败路径专用）。
+fn finish_failed_tool_call(store: &Store, id: &str, message: &str) -> Result<()> {
+    store.conn.execute(
+        "UPDATE agent_tool_calls SET status = 'failed', result_json = ?1, finished_at = ?2 WHERE id = ?3 AND status = 'running'",
+        params![
+            serde_json::to_string(&json!({"status": "failed", "error": message}))?,
+            now()?,
+            id
+        ],
+    )?;
+    Ok(())
+}
+
 pub fn execute<R: Runtime>(
     app: &AppHandle<R>,
     state: &AgentState,
@@ -458,14 +471,25 @@ pub fn execute<R: Runtime>(
             )),
         };
     }
-    let arguments: Value = serde_json::from_str(&call.arguments)
-        .map_err(|_| BackendError::invalid("invalid_tool_arguments", "工具参数不是有效 JSON"))?;
-    if !arguments.is_object() {
-        return Err(BackendError::invalid(
-            "invalid_tool_arguments",
-            "工具参数必须是 JSON 对象",
-        ));
-    }
+    // 参数校验失败也要收尾登记行：否则 status 停留 running，
+    // 同 id 重放会命中 tool_active 被永久拒绝（07#2）
+    let arguments: Value = match serde_json::from_str::<Value>(&call.arguments) {
+        Ok(value) if value.is_object() => value,
+        Ok(_) => {
+            finish_failed_tool_call(&store, &call.id, "工具参数必须是 JSON 对象")?;
+            return Err(BackendError::invalid(
+                "invalid_tool_arguments",
+                "工具参数必须是 JSON 对象",
+            ));
+        }
+        Err(_) => {
+            finish_failed_tool_call(&store, &call.id, "工具参数不是有效 JSON")?;
+            return Err(BackendError::invalid(
+                "invalid_tool_arguments",
+                "工具参数不是有效 JSON",
+            ));
+        }
+    };
     let result = (|| -> Result<Value> {
         match call.name.as_str() {
             "workspace.list" => {

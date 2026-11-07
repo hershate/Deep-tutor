@@ -713,9 +713,13 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let evidence = evidence(&store, &since_text)?;
     let mut trend_groups: BTreeMap<String, (f64, u64)> = BTreeMap::new();
     let mut node_groups: BTreeMap<(i64, String), (f64, u64, f64, u64, f64, u64)> = BTreeMap::new();
+    // 证据时间戳按 UTC 存储：趋势分组标签换算到本地日期，与窗口边界（本地午夜）口径一致（07#9）
+    let local_offset = OffsetDateTime::now_local()
+        .map(|local| local.offset())
+        .unwrap_or_else(|_| time::UtcOffset::UTC);
     for (plan_id, node_id, kind, score, maximum, created_at) in &evidence {
         let date = parse_time(created_at)?;
-        let label = day(date);
+        let label = day(date.to_offset(local_offset));
         let trend = trend_groups.entry(label).or_default();
         trend.0 += ratio(*score, *maximum);
         trend.1 += 1;
@@ -1009,6 +1013,13 @@ pub fn adopt_recommendations<R: Runtime>(
             "已有一个进行中的专注，请先完成或取消",
         ));
     }
+    // 先启动专注、后提交任务：专注启动失败时（如预检查后的竞态）任务不落库，
+    // 避免"报错但清单已出现新任务"的不一致（07#4）
+    let focus = if wants_focus {
+        Some(start_focus(app, state, None, 1500)?)
+    } else {
+        None
+    };
     if added > 0 {
         let revision = store.collection("tasks")?.revision;
         let mutation = store.replace_collection("tasks", revision, &Value::Array(tasks.clone()))?;
@@ -1016,11 +1027,6 @@ pub fn adopt_recommendations<R: Runtime>(
             emit(app, &event);
         }
     }
-    let focus = if wants_focus {
-        Some(start_focus(app, state, None, 1500)?)
-    } else {
-        None
-    };
     Ok(AdoptionResult { added, focus })
 }
 

@@ -509,7 +509,7 @@ stateDiagram-v2
     running --> degraded: 成功但有警告
     running --> failed: 错误或 panic
     running --> interrupted: 重启 recover
-    cancelling --> interrupted: 重启 recover
+    cancelling --> cancelled: 重启 recover（取消意图已保存）
     interrupted --> running: resume 复用 completed_chat
     failed --> running: resume
     cancelled --> running: resume
@@ -540,6 +540,8 @@ stateDiagram-v2
 | local_users.active | 1 ⇄ 0；软删 deleted_at | — | — |
 
 通用规律：取消 = AtomicBool 置位 + status='cancelling' + `providers::cancel_chat` 上游中断三件套；重启 = `recover` 把 running→interrupted、cancelling→cancelled，永不自动重跑；用户 `resume` 显式续接，且 `providers::completed_chat(request_id)` 为真时复用已完成请求不重计费。
+
+声明的例外：materials 域的本地文本解析在重启后对 queued/parsing 任务自动回到 queued 并重新解析（`materials/mod.rs` recover→spawn_job）——解析幂等、不产生模型费用，属有意为之的例外，不适用"永不自动重跑"。
 
 ## 13. 并发模型总览
 

@@ -924,10 +924,18 @@ pub fn cancel<R: Runtime>(
     flag.store(true, Ordering::Release);
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE agent_runs SET status = 'cancelling', updated_at = ?1 WHERE id = ?2",
+    // 只把运行中的运行翻成 cancelling：终态已落库的毫秒级竞态窗口内不覆盖结果，
+    // 否则该行停留 cancelling 且无人翻转，会话被卡死到重启
+    let changed = tx.execute(
+        "UPDATE agent_runs SET status = 'cancelling', updated_at = ?1 WHERE id = ?2 AND status = 'running'",
         params![now()?, run_id],
     )?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "no_active_run",
+            "该 Agent 任务已经结束，不能重复取消",
+        ));
+    }
     let event = Store::event(&tx, "agent.run_cancel_requested", json!({"runId": run_id}))?;
     tx.commit()?;
     emit(app, &event);

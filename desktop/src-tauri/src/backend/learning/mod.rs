@@ -819,10 +819,17 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) -
     flag.store(true, Ordering::Release);
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE learning_plans SET status = 'cancelling', updated_at = ?1 WHERE id = ?2",
+    // 只把运行中的方案翻成 cancelling：终态竞态窗口内不覆盖结果（与 practice/knowledge 守卫一致）
+    let changed = tx.execute(
+        "UPDATE learning_plans SET status = 'cancelling', updated_at = ?1 WHERE id = ?2 AND status = 'running'",
         params![now()?, id],
     )?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "no_active_plan",
+            "该方案没有正在执行的任务，不能重复取消",
+        ));
+    }
     let event = Store::event(
         &tx,
         "plan.cancel_requested",

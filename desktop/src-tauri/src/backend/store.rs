@@ -82,6 +82,15 @@ impl Store {
         Self::open(path.into(), None)
     }
 
+    /// 读-改-写事务使用 IMMEDIATE：WAL 下 DEFERRED 事务在读快照过期后升级写锁
+    /// 会得到 BUSY_SNAPSHOT（busy_timeout 不重试）；IMMEDIATE 起步即持写锁，
+    /// 冲突时按 busy_timeout 等待而非立即失败。适合 replace_collection 这类
+    /// 与流式 delta 自动提交并发的高频短事务（07#11）。
+    pub(crate) fn write_transaction(&self) -> Result<rusqlite::Transaction<'_>> {
+        rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
+            .map_err(BackendError::from)
+    }
+
     fn schema_fingerprint(conn: &Connection) -> Result<String> {
         let mut statement = conn.prepare(
             "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master
@@ -522,7 +531,8 @@ impl Store {
                 .map_or(0, Vec::len);
             self.ensure_quota("notes", next.saturating_sub(current) as u64)?;
         }
-        let tx = self.conn.unchecked_transaction()?;
+        // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT
+        let tx = self.write_transaction()?;
         let revision = Self::next_revision(&tx, namespace)?;
         if revision - 1 != expected_revision {
             return Err(BackendError::new(
@@ -626,11 +636,11 @@ impl Store {
         super::reports::clear_all(&tx)?;
         super::knowledge::clear_all(&tx)?;
         super::sharing::clear_all(&tx)?;
-        if let Some(owner_id) = self.owner_id {
-            super::sharing::clear_index(&self.account_path, owner_id)?;
-        } else {
+        if self.owner_id.is_none() {
             tx.execute("DELETE FROM share_index WHERE user_id = 1", [])?;
         }
+        // 多用户时根库 share_index 在主事务提交成功后再清：
+        // 提交前清空会在回滚后留下"索引已空而 shared_plans 仍在"的不一致（07#3）
         super::projects::clear_all(&tx)?;
         super::learning::clear_all(&tx)?;
         super::materials::clear_all(&tx)?;
@@ -659,7 +669,13 @@ impl Store {
             "application.reset",
             json!({"versions": Value::Object(revisions)}),
         )?;
-        self.finish_write(tx, Some(event))
+        let mutation = self.finish_write(tx, Some(event))?;
+        if let Some(owner_id) = self.owner_id {
+            // 主事务已提交后再清根库索引；清理失败时重置本身报错，不再产生
+            // "索引已空而 shared_plans 仍在"的跨库不一致（备份导入 reindex 亦可自愈）
+            super::sharing::clear_index(&self.account_path, owner_id)?;
+        }
+        Ok(mutation)
     }
 
     #[cfg(test)]

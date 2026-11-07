@@ -744,7 +744,14 @@ pub fn cancel<R: Runtime>(
     flag.store(true, Ordering::Release);
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE learning_lectures SET status = 'cancelling', updated_at = ?1 WHERE plan_id = ?2 AND stage_id = ?3", params![now()?, id, stage_id])?;
+    // 只把生成中的讲义翻成 cancelling：终态竞态窗口内不覆盖结果（与 practice/knowledge 守卫一致）
+    let changed = tx.execute("UPDATE learning_lectures SET status = 'cancelling', updated_at = ?1 WHERE plan_id = ?2 AND stage_id = ?3 AND status IN ('running', 'queued')", params![now()?, id, stage_id])?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "no_active_lecture",
+            "该阶段没有正在生成的讲义，不能重复取消",
+        ));
+    }
     let event = Store::event(
         &tx,
         "lecture.cancel_requested",

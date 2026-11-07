@@ -961,32 +961,42 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
 pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
     let store = state.store()?;
     let set = set_row(&store.conn, id)?;
+    // 书签与提示一次性预取：detail 在每次提交与 practice.* 事件刷新时整段重跑，
+    // 逐题 EXISTS / 逐答案查提示的 N+1 会随题量放大为可感卡顿（07#10）
+    let mut statement = store
+        .conn
+        .prepare("SELECT question_id FROM practice_bookmarks WHERE question_id IN (SELECT id FROM practice_questions WHERE set_id = ?1)")?;
+    let bookmarks: std::collections::BTreeSet<i64> = statement
+        .query_map(params![id], |row| row.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    drop(statement);
     let mut statement = store.conn.prepare("SELECT id, position, kind, prompt, options_json, hint, difficulty, citations_json, node_ids_json, variant_of, rubric_json FROM practice_questions WHERE set_id = ?1 ORDER BY position")?;
+    let mut hints = HashMap::new();
     let questions = statement
         .query_map(params![id], |row| {
             let question_id: i64 = row.get(0)?;
             let options: String = row.get(4)?;
+            let hint: String = row.get(5)?;
             let citations: String = row.get(7)?;
             let nodes: String = row.get(8)?;
             let rubric: String = row.get(10)?;
-            let bookmarked: bool = store.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM practice_bookmarks WHERE question_id = ?1)",
-                params![question_id],
-                |row| row.get(0),
-            )?;
             Ok(PracticeQuestion {
                 id: question_id,
                 position: row.get::<_, i64>(1)? as u32,
                 kind: row.get(2)?,
                 prompt: row.get(3)?,
                 options: serde_json::from_str(&options).unwrap_or_default(),
-                hint: row.get(5)?,
+                bookmarked: bookmarks.contains(&question_id),
+                hint: hint.clone(),
                 difficulty: row.get::<_, i64>(6)? as u8,
                 citations: serde_json::from_str(&citations).unwrap_or_default(),
                 node_ids: serde_json::from_str(&nodes).unwrap_or_default(),
                 rubric: serde_json::from_str(&rubric).unwrap_or_default(),
                 variant_of: row.get(9)?,
-                bookmarked,
+            })
+            .map(|question| {
+                hints.insert(question_id, hint);
+                question
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1004,12 +1014,7 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
                 correct: reveal.then(|| row.get(6)).transpose()?,
                 feedback: if set.feedback_mode == "hints" {
                     let question_id: i64 = row.get(1)?;
-                    let hint: String = store.conn.query_row(
-                        "SELECT hint FROM practice_questions WHERE id = ?1",
-                        params![question_id],
-                        |row| row.get(0),
-                    )?;
-                    json!({"hint": hint})
+                    json!({"hint": hints.get(&question_id).cloned().unwrap_or_default()})
                 } else {
                     serde_json::from_str(&feedback).unwrap_or(Value::Null)
                 },

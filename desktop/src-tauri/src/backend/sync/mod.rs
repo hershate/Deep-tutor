@@ -805,15 +805,32 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, service: &SyncService) -> Result<
     let store = service.store()?;
     let mut statement = store
         .conn
-        .prepare("SELECT id FROM sync_jobs WHERE status IN ('running', 'cancelling')")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, String>(0))?
+        .prepare("SELECT id, status FROM sync_jobs WHERE status IN ('running', 'cancelling')")?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    for id in ids {
+    for (id, status) in rows {
+        // 用户已请求取消的任务重启后落 cancelled，与方案/Agent 等域语义一致；
+        // 只有 running 才是"被重启打断"（07#5）
+        let (next, code, message, kind) = if status == "cancelling" {
+            (
+                "cancelled",
+                Option::<String>::None,
+                "取消请求已保存，重启后按已取消收尾".to_string(),
+                "sync.cancelled",
+            )
+        } else {
+            (
+                "interrupted",
+                Some("sync_interrupted".to_string()),
+                "应用重启后未自动重试远端同步，请核对远端后手动执行".to_string(),
+                "sync.interrupted",
+            )
+        };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE sync_jobs SET status = 'interrupted', error_code = 'sync_interrupted', error_message = '应用重启后未自动重试远端同步，请核对远端后手动执行', updated_at = ?1, finished_at = ?1 WHERE id = ?2", params![now()?, id])?;
-        let event = Store::event(&tx, "sync.interrupted", json!({"jobId": id}))?;
+        tx.execute("UPDATE sync_jobs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, finished_at = ?4 WHERE id = ?5", params![next, code, message, now()?, id])?;
+        let event = Store::event(&tx, kind, json!({"jobId": id}))?;
         tx.commit()?;
         emit(app, &event);
     }

@@ -1268,35 +1268,48 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> Result<
         "UPDATE provider_circuits SET state = 'open' WHERE state = 'half_open'",
         [],
     )?;
-    let mut statement = store.conn.prepare(
-        "SELECT request_id FROM provider_route_runs WHERE status IN ('running', 'cancelling')",
-    )?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, String>(0))?
+    let mut statement = store
+        .conn
+        .prepare("SELECT request_id, status FROM provider_route_runs WHERE status IN ('running', 'cancelling')")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    for id in ids {
+    for (id, run_status) in rows {
         let current = super::get_chat(state, &id).ok();
         let latency = current.as_ref().and_then(|request| request.latency_ms);
-        let (status, error) = match current {
-            Some(request) if request.status != "running" => (request.status, request.error),
-            _ => (
-                "interrupted".into(),
+        let (status, error) = if run_status == "cancelling" {
+            // 用户已请求取消：重启后按已取消收尾，与多数域语义一致（07#5）
+            (
+                "cancelled".into(),
                 Some(BackendError::new(
-                    "request_interrupted",
-                    "应用重启后未自动重试路由请求",
+                    "cancelled",
+                    "取消请求已保存，重启后按已取消收尾",
                 )),
-            ),
+            )
+        } else {
+            match current {
+                Some(request) if request.status != "running" => (request.status, request.error),
+                _ => (
+                    "interrupted".into(),
+                    Some(BackendError::new(
+                        "request_interrupted",
+                        "应用重启后未自动重试路由请求",
+                    )),
+                ),
+            }
         };
         let tx = store.conn.unchecked_transaction()?;
         tx.execute("UPDATE provider_route_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5", params![status, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), now()?, id])?;
         tx.execute("UPDATE provider_route_attempts SET status = ?1, latency_ms = ?2, error_code = ?3, error_message = ?4 WHERE request_id = ?5 AND status = 'running'", params![status, latency, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), id])?;
         let event = Store::event(
             &tx,
-            if status == "interrupted" {
-                "provider.route_interrupted"
-            } else {
-                "provider.route_recovered"
+            match status.as_str() {
+                "interrupted" => "provider.route_interrupted",
+                "cancelled" => "provider.route_cancelled",
+                _ => "provider.route_recovered",
             },
             json!({"requestId": id, "status": status}),
         )?;
