@@ -70,7 +70,7 @@ Deep-tutor/
 ## 验证
 
 ```bash
-make lint                         # Rust 格式、四处版本校验与 TypeScript/Vite 构建
+make lint                         # Rust 格式、五处版本校验与 TypeScript/Vite 构建
 make test                         # 原生后端全量测试，串行执行
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包
