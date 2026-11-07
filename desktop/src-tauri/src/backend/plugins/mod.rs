@@ -306,6 +306,7 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
                 "content",
                 "backup",
                 "sync",
+                "maintenance",
             ]
             .contains(&prefix)
         } else {

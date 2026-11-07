@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldCheck, Square, Upload } from 'lucide-react'
 import { Badge, Button, Modal, SectionHeader, Toggle } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
@@ -20,6 +20,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const [versions, setVersions] = useState<SyncVersion[] | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const versionsOpenRef = useRef(false)
 
   const refresh = useCallback(async () => {
     try { setOverview(await syncBackend.overview()) } catch (cause) { setError(backendErrorMessage(cause)) }
@@ -32,7 +33,8 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     let unlisten: (() => void) | undefined
     void onBackendEvent(event => {
       if (event.kind.startsWith('sync.')) void refresh()
-      if (event.kind === 'sync.completed') void loadVersions()
+      // 版本列表只在弹窗打开时跟随刷新；关闭状态下不额外发起远端列举请求
+      if (event.kind === 'sync.completed' && versionsOpenRef.current) void loadVersions()
     }).then(remove => { unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
     return () => { unlisten?.() }
   }, [refresh, loadVersions])
@@ -80,6 +82,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const openVersions = async () => {
     setBusy('versions')
     await loadVersions()
+    versionsOpenRef.current = true
     setVersionsOpen(true)
     setBusy('')
   }
@@ -142,13 +145,14 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
         <Toggle checked={form.allowPrivate} onChange={value => update('allowPrivate', value)} label="允许本机或私网服务" description="仅用于明确的本地 MinIO / WebDAV。未开启时公网服务必须使用 HTTPS，禁止访问私网地址。" />
         <Toggle checked={form.autoSync} onChange={value => update('autoSync', value)} label="每 24 小时自动同步" description="保存后由原生调度器检查到期任务；每次上传保留历史版本，最近 10 个可恢复。" />
         <Toggle checked={clearCredentials} onChange={setClearCredentials} label="清除此服务的已保存凭据" description="保存后删除系统密钥库中对应的同步凭据，不影响模型供应商密钥。" />
+        {error && <div className="form-error" role="alert">{error}</div>}
         <div className="share-actions">
           <Button variant="secondary" disabled={Boolean(busy)} onClick={() => void save(true)}>{checkIcon}测试连接并保存</Button>
           <Button disabled={Boolean(busy)} onClick={() => void save(false)}>{saveIcon}保存配置</Button>
         </div>
       </div>
     </Modal>
-    <Modal open={versionsOpen} onClose={() => setVersionsOpen(false)} title="远端历史版本" wide>
+    <Modal open={versionsOpen} onClose={() => { versionsOpenRef.current = false; setVersionsOpen(false) }} title="远端历史版本" wide>
       <div className="form-stack">
         <div className="modal-callout"><ShieldCheck size={18} /><span>版本来自远端实际列表。恢复会读取所选对象并追加导入档案与路由，不覆盖本机系统凭据。</span></div>
         <div className="data-actions"><Button variant="secondary" size="sm" onClick={() => void loadVersions()}><RefreshCw size={15} />重新读取远端列表</Button></div>

@@ -54,8 +54,13 @@ export default function DataDirectoryPanel() {
   })
   const retry = () => run('retry', async () => {
     const next = await storageBackend.retry()
-    if (next.ready) { window.location.reload() }
     if (next.error) { throw next.error }
+    if (next.ready) {
+      if (next.pendingDataRoot) setMessage('初始化已就绪；新目录将在应用重启后生效，可点击「保存并立即重启」。')
+      else window.location.reload()
+    } else {
+      setMessage('初始化仍在进行；已保存的新目录会在下次启动时生效，请稍后重试或重启应用。')
+    }
     return next
   })
   const restart = async () => {

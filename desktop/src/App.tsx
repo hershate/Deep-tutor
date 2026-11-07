@@ -118,7 +118,7 @@ export default function App() {
     return () => { active = false; window.clearTimeout(timer) }
   }, [query])
   useEffect(() => {
-    if (!ready) return
+    if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
     const fail = (error: unknown) => {
@@ -136,9 +136,9 @@ export default function App() {
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(fail)
     const timer = window.setInterval(() => { void load() }, 30000)
     return () => { active = false; stop?.(); window.clearInterval(timer) }
-  }, [ready])
+  }, [ready, loginRequired])
   useEffect(() => {
-    if (!ready) return
+    if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
     const load = async () => {
@@ -150,11 +150,11 @@ export default function App() {
       if (active && ['state.changed', 'plan.', 'study.checkin', 'security.session_started', 'focus.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(reportBackendError)
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [ready])
+  }, [ready, loginRequired])
   useEffect(() => {
     // 社区预约提醒：后端只在被领取时投递（置 delivered_at 并发 community.reminder_due），
     // 应用打开期间每分钟领取一次到期提醒，触发通知中心刷新与弹层提示
-    if (!ready) return
+    if (!ready || loginRequired) return
     let active = true
     const claim = async () => {
       try {
@@ -165,7 +165,7 @@ export default function App() {
     void claim()
     const timer = window.setInterval(() => { void claim() }, 60000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [ready])
+  }, [ready, loginRequired])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)

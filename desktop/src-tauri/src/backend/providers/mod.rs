@@ -1092,6 +1092,8 @@ pub fn stream_chat_with_policy<R: Runtime>(
         .get(request_id)
         .cloned()
         .ok_or_else(|| BackendError::new("request_active", "请求状态已改变"))?;
+    // 直连路径同样受用量预算约束，与路由路径保持一致，不留绕过防线
+    usage::ensure_budget(state, None)?;
     let started = Instant::now();
     let result = get(state, provider_id)
         .and_then(|profile| {

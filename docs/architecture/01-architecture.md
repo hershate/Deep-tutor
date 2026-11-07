@@ -182,7 +182,7 @@ sequenceDiagram
 
 写路径：域函数在事务内 `Store::event`（落 events 表 + 插件投递）→ 事务 commit → 命令层 `emit(app,&event)` 推 `backend://event`（`backend/commands.rs:15-26`）。终态先落盘再发送由此保证。前端 `onBackendEvent`（`client.ts:397`）统一接收，`useBackendState.sync()` 以 `events_since(lastId)` 翻页追赶（`useBackendState.ts:41-66`）。
 
-插件投递：`plugins::dispatch(conn,event_id,kind)` 查 `plugin_subscriptions` 命中即 INSERT `plugin_deliveries`（`plugins/mod.rs:609-623`），模式为 `*` 或 14 个命名空间前缀 `.*`（:294-310）。
+插件投递：`plugins::dispatch(conn,event_id,kind)` 查 `plugin_subscriptions` 命中即 INSERT `plugin_deliveries`（`plugins/mod.rs:609-623`），模式为 `*` 或 15 个命名空间前缀 `.*`（:294-310，含 maintenance）。
 
 ## 5. 各域数据结构（SQLite 表 + 核心类型）
 
@@ -212,7 +212,7 @@ sequenceDiagram
 - reports：`focus_sessions`（paused_at 靠 PRAGMA 检测补列 :197-199）、`study_checkins`。
 
 ### 5.6 backup / sharing / sync
-- backup：`.dtbackup` = zip{manifest.json + state.db(VACUUM INTO 快照) + files/*}；`TABLES` 68 张白名单（archive.rs:25-93），排除 `auth_sessions/access_tokens/share_index`（:95）；上限包 2GB/库 512MB/单文件 50MB/清单 1MB（:19-22）。
+- backup：`.dtbackup` = zip{manifest.json + state.db(VACUUM INTO 快照) + files/*}；`TABLES` 67 张白名单（archive.rs:25-93），排除 `auth_sessions/access_tokens/share_index`（:95）；上限包 2GB/库 512MB/单文件 50MB/清单 1MB（:19-22）。
 - sharing：`shared_plans(token_hash UNIQUE,payload_json,expires_at,revoked_at)` + 根库 `share_index(token_hash,user_id)`；离线包 `SharePackage{format,version,token,plan,expires_at,checksum}`（mod.rs:90）。
 - sync：`sync_config`(id=1 单行，凭据在 keyring)、`sync_jobs`(id TEXT PK,status,remote_path)；远端布局 `{base}/versions/{timestamp}-{id}-{sha256}.json` + 当前对象（versions.rs:179-193），保留最近 10 个（:206-218）。
 

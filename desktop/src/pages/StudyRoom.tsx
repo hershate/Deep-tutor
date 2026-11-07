@@ -62,10 +62,16 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       setProgress(Object.fromEntries(entries))
     } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan])
+  // 正在阅读的讲义版本：事件刷新时保持同一版本，生成新版本期间不被拉回
+  const readingVersionRef = useRef<number | undefined>(undefined)
   const refreshLecture = useCallback(async (version?: number) => {
     if (version !== undefined) setLiveRequest(null)
     if (!plan || !stageId) { setLecture(null); return }
-    try { setLecture(await backend.getLecture(plan.id, stageId, version)) } catch (cause) { setError(backendErrorMessage(cause)) }
+    try {
+      const next = await backend.getLecture(plan.id, stageId, version)
+      readingVersionRef.current = version ?? next.version
+      setLecture(next)
+    } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan, stageId])
   const refreshPlans = useCallback(async () => {
     try {
@@ -105,7 +111,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
     let unlisten: (() => void) | undefined
     void onBackendEvent(event => {
       if (disposed) return
-      if (event.kind.startsWith('lecture.') && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
+      if (event.kind.startsWith('lecture.') && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture(readingVersionRef.current)
       if (event.kind === 'study.progress_changed' && event.payload.planId === stageRef.current.planId) void refreshProgress()
       if (event.kind === 'agent.artifact_promoted' && event.payload.planId === stageRef.current.planId && event.payload.stageId === stageRef.current.stageId) void refreshLecture()
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && lecture?.units.some(unit => unit.status === 'running' && unit.requestId === event.payload.requestId)) {

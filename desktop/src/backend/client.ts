@@ -216,6 +216,7 @@ export type ProviderTestResult = {
   result: { text: string; reasoning: string; model: string; latencyMs: number; attempts: number } | null
 }
 export type ProviderChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+export type ProviderToolCall = { id: string; name: string; arguments: string }
 export type ProviderRequest = {
   requestId: string
   providerId: string
@@ -223,6 +224,7 @@ export type ProviderRequest = {
   status: 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
   output: string
   reasoning: string
+  toolCalls: ProviderToolCall[]
   usage: { inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null } | null
   finishReason: string | null
   error: BackendError | null

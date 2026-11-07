@@ -441,6 +441,11 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
             ));
         }
         if let Some(plan_result) = plan.result {
+            // 学习空间只渲染已采用方案：未采用方案的节点不能作为跳转结果，
+            // 否则点击后会落到无关方案的内容
+            if plan.adopted_project_id.is_none() {
+                continue;
+            }
             for node in plan_result.graph.nodes {
                 if !format!("{}{}", node.title, node.summary)
                     .to_lowercase()

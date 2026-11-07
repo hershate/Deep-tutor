@@ -37,7 +37,11 @@ export default function SharedPlan({ token = null }: { token?: string | null }) 
       const path = await sharingBackend.openFile()
       if (!path) return
       setView(await sharingBackend.readFile(path))
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setOpening(false) }
+    } catch (cause) {
+      // 打开新包失败时清空旧内容并给出提示，避免用户误以为新包已打开
+      setView(null)
+      setError(backendErrorMessage(cause))
+    } finally { setOpening(false) }
   }
 
   if (loading) return <div className="shared-missing"><LoaderCircle size={32} className="spin" /><h1>正在读取真实分享</h1><p>正在校验本机快照、撤销状态与有效期。</p></div>

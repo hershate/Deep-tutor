@@ -147,7 +147,8 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
         setLiveLogical(requestId)
         setStream({ requestId, text: '', reasoning: '' })
       }
-      if (event.kind === 'agent.message_saved') setStream(current => ({ ...current, text: '', reasoning: '' }))
+      if (event.kind === 'agent.message_saved' && numberField(event.payload.sessionId) === activeIdRef.current) setStream(current => ({ ...current, text: '', reasoning: '' }))
+      if (event.kind === 'agent.approval_expired') void refresh()
       if (event.kind === 'agent.session_created' || event.kind === 'agent.session_deleted') void refresh()
       else if (sessionId !== null && sessionId === activeIdRef.current) void refreshSession(sessionId)
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
