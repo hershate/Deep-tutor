@@ -11,17 +11,9 @@
 
 ### 39#1 knowledge::search 每份资料新开一条 SQLite 连接并全文加载——N+1 连接模式
 
-- 位置：`desktop/src-tauri/src/backend/knowledge/mod.rs:405-427`（search 对
-  `materials::list` 的每份资料调 `materials::detail`）；`materials/mod.rs:95-97`
-  （`fn store(&self)` 每次调用 `Store::new` 新开连接）；`store.rs:129-175`
-  （每次 open：建连 + uni_lower 注册 + WAL/外键 PRAGMA + schema 指纹
-  SHA-256 计算与迁移判定）
-- 证据：Wiki 检索按钮一次点击 = 1 次 list 连接 + N 次 detail 连接 + N 份
-  material_text 全文（单份上限 500KB）读入内存。100 份资料的库一次检索约开
-  百余条连接、加载最多数十 MB 文本。按钮触发而非逐键，本地规模可接受。
-- 传递链条：检索延迟随资料数线性增长（本地每次连接约 1–3ms + 文本读取）；
-  无正确性影响。影响范围：大资料库用户的 Wiki 检索响应。可复用同一条连接
-  或在 detail 层提供批量接口收敛。
+- 位置：`desktop/src-tauri/src/backend/knowledge/mod.rs:405-427`；`materials/mod.rs:95-97`；`store.rs:129-175`
+- **传递链条**：① 用户在 Wiki 面板点「检索」（按钮触发，非逐键）→ ② `knowledge::search`（`mod.rs:405`）先 `materials::list` 开第 1 条连接取列表 → ③ 循环对每份资料调 `materials::detail`（`:406`）→ ④ `detail` 内 `state.store()`（`materials/mod.rs:95-97`）= `Store::new` **每份资料新开一条 SQLite 连接**：建连 + `uni_lower` 标量函数注册 + WAL/外键/busy_timeout PRAGMA + schema 指纹 SHA-256 计算与迁移判定（`store.rs:129-175`）→ ⑤ 同时读取该资料 `material_text` 全文（单份上限 500KB，`materials/mod.rs:414-425`）进内存做 `contains`/摘录 → ⑥ N 份资料 = 1+N 条连接 + N 份全文加载；100 份库一次检索约百余条连接、最多数十 MB 文本。
+- **影响范围**：检索延迟随资料数线性增长（本地每连接约 1–3ms + 文本 IO）；无正确性影响（连接即开即用、WAL 读并发安全）。大资料库（100+ 份）用户可感知「检索慢」。同类模式另见 `knowledge::list → session_row → session_scope → load_scope`（每会话最多 8 份，量小可忽略）。修法：search 复用一条连接，或在 detail 层提供批量接口。
 
 ## 深读正向结论（零缺陷记录）
 
