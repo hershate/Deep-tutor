@@ -168,12 +168,15 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     return () => { disposed = true; unlisten?.() }
   }, [refresh])
 
+  // 32#21：预览 effect 依赖基元化——原先依赖 profiles/routing 的数组身份，
+  // 每个 provider.* 事件刷新都触发重复 export_provider_config
+  const configKey = `${view}|${activeId}|${routing.mode}|${profiles.map(profile => `${profile.id}:${profile.enabled}:${profile.hasKey}:${profile.models.length}:${profile.defaultModel}`).join(',')}`
   useEffect(() => {
     if (view !== '配置与同步') return
     let current = true
     void backend.exportProviderConfig().then(config => { if (current) setConfigPreview(config) }).catch(error => { if (current) setPageError(backendErrorMessage(error)) })
     return () => { current = false }
-  }, [view, profiles, activeId, routing])
+  }, [configKey, view])
   useEffect(() => { setRequestModel('') }, [activeId, routing.mode])
 
   const filtered = useMemo(() => profiles.filter(profile => (filter === '全部' || profile.kind === filter) && `${profile.name}${profile.baseUrl}${profile.models.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [profiles, filter, query])

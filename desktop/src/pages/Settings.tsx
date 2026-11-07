@@ -32,7 +32,7 @@ const settingNav = [
 const learningStyles = ['案例与练习结合', '先系统阅读，再集中练习', '以项目实践为主']
 const explanationStyles = ['先追问，再针对讲解', '直接给出完整讲解', '苏格拉底式引导']
 
-export default function Settings({ preferences, setPreferences, onImport, counts, onReset, notify }: { preferences: Preferences; setPreferences: (p: Preferences) => Promise<AppSnapshot>; onImport: (path: string) => Promise<AppSnapshot>; counts: { tasks: number; notes: number; resources: number; projects: number }; onReset: () => Promise<AppSnapshot>; notify: (message: string) => void }) {
+export default function Settings({ preferences, setPreferences, onImport, counts, onReset, notify }: { preferences: Preferences; setPreferences: (p: Preferences | ((current: Preferences) => Preferences)) => Promise<AppSnapshot>; onImport: (path: string) => Promise<AppSnapshot>; counts: { tasks: number; notes: number; resources: number; projects: number }; onReset: () => Promise<AppSnapshot>; notify: (message: string) => void }) {
   const [resetOpen, setResetOpen] = useState(false)
   const [profile, setProfile] = useState<LearningProfile | null>(null)
   const [draft, setDraft] = useState<LearningProfile | null>(null)
@@ -56,7 +56,9 @@ export default function Settings({ preferences, setPreferences, onImport, counts
     return () => { active = false; stop?.() }
   }, [profileOpen])
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    void setPreferences({ ...preferences, [key]: value }).catch(error => reportBackendError(error, 'write'))
+    // 32#13：以 updater 形态提交——渲染闭包整对象在排队写入期间会被后续
+    // 切换整体覆盖（replaceCollection 已支持 updater，24#5 正为此设计）
+    void setPreferences(current => ({ ...current, [key]: value })).catch(error => reportBackendError(error, 'write'))
   }
   const saveProfile = async (input: LearningProfile, close: boolean) => {
     if (busy) return

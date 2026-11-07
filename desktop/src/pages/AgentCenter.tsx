@@ -47,7 +47,12 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
   const resumable = activeRun && ['failed', 'cancelled', 'interrupted'].includes(activeRun.status)
   const messages = useMemo(() => activeSession?.messages.filter(message => message.role !== 'tool') ?? [], [activeSession])
   const plan = plans.find(item => item.id === activeSession?.planId)
-  const filteredSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.messages.map(message => message.content).join(' ')}`.toLowerCase().includes(sessionSearch.trim().toLowerCase())), [sessions, sessionSearch])
+  // 32#18：搜索语料按 sessions 记忆化——原先每次击键都重拼全部消息全文
+  const sessionCorpus = useMemo(() => sessions.map(session => `${session.title} ${session.messages.map(message => message.content).join(' ')}`.toLowerCase()), [sessions])
+  const filteredSessions = useMemo(() => {
+    const needle = sessionSearch.trim().toLowerCase()
+    return sessions.filter((_, index) => sessionCorpus[index].includes(needle))
+  }, [sessions, sessionCorpus, sessionSearch])
   const toolEvents = useMemo(() => {
     if (!activeSession) return []
     const messages = activeSession.messages

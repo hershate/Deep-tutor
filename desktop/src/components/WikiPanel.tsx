@@ -24,15 +24,22 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
   const refresh = useCallback(async () => {
     const items = await knowledgeBackend.list()
     setSessions(items)
-    if (currentId.current) setCurrent(await knowledgeBackend.get(currentId.current))
+    // 32#23：get 在途期间用户可能已切到其他会话——按请求时的 id 复查再 set
+    if (currentId.current) {
+      const requested = currentId.current
+      const next = await knowledgeBackend.get(requested)
+      if (currentId.current === requested) setCurrent(next)
+    }
   }, [])
   useEffect(() => {
     void refresh().catch(reportBackendError)
     let unlisten: (() => void) | undefined
-    const listening = onBackendEvent(event => {
+    // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
+    let disposed = false
+    onBackendEvent(event => {
       if (event.kind.startsWith('knowledge.')) void refresh().catch(reportBackendError)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { unlisten?.(); void listening }
+    }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
+    return () => { disposed = true; unlisten?.() }
   }, [refresh])
   useEffect(() => {
     setSelected(previous => previous.filter(id => resources.some(resource => resource.id === id)))
@@ -48,15 +55,17 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     }
     update()
     let unlisten: (() => void) | undefined
+    // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
+    let disposed = false
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
     // 每条 delta 不再各拉一次全量输出：150ms 窗口内合并为一次
     const throttledUpdate = deltaThrottle()
-    const listening = onBackendEvent(event => {
+    onBackendEvent(event => {
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === requestId) upstreams.set(event.payload.upstreamRequestId, requestId)
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { active = false; unlisten?.(); void listening }
+    }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
+    return () => { active = false; disposed = true; unlisten?.() }
   }, [current?.requestId, current?.status])
 
   const choose = (session: KnowledgeSession) => {
@@ -87,12 +96,15 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const remove = async (id: number) => {
+    // 32#10：busy 守卫——refresh 完成前二次命中会弹 not_found 伪错误
+    if (busy) return
+    setBusy(true)
     try {
       await knowledgeBackend.remove(id)
       if (currentId.current === id) { currentId.current = null; setCurrent(null) }
       await refresh()
       notify('这条真实问答历史已删除')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
   }
   // 20#5：清空问答历史不可恢复——补确认
   const [clearOpen, setClearOpen] = useState(false)

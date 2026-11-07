@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, ShieldCheck } from 'lucide-react'
 import { Badge, Button, EmptyState, MiniBars, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type ProviderProfile } from '../backend/client'
@@ -16,15 +16,21 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   const [dailyUsd, setDailyUsd] = useState(10)
   const [regenerationLimit, setRegenerationLimit] = useState(2)
   const [busy, setBusy] = useState(false)
+  // 32#1：预算草稿不随事件刷新被覆盖——provider.chat_completed 等任意模型
+  // 请求完成都会触发 refresh，正在编辑的输入框只有在持久值确实变化时才
+  // 被替换（对齐 SecurityPanel 28#10 的草稿守卫）
+  const previousSettings = useRef({ sessionUsd: 1, dailyUsd: 10, regenerationLimit: 2 })
 
   const refresh = useCallback(async () => {
     try {
       const [usage, providers] = await Promise.all([usageBackend.overview(), backend.listProviderProfiles()])
       setData(usage)
       setProfiles(providers)
-      setSessionUsd(usage.settings.sessionUsd)
-      setDailyUsd(usage.settings.dailyUsd)
-      setRegenerationLimit(usage.settings.regenerationLimit)
+      const previous = previousSettings.current
+      setSessionUsd(current => (usage.settings.sessionUsd === previous.sessionUsd ? current : usage.settings.sessionUsd))
+      setDailyUsd(current => (usage.settings.dailyUsd === previous.dailyUsd ? current : usage.settings.dailyUsd))
+      setRegenerationLimit(current => (usage.settings.regenerationLimit === previous.regenerationLimit ? current : usage.settings.regenerationLimit))
+      previousSettings.current = { sessionUsd: usage.settings.sessionUsd, dailyUsd: usage.settings.dailyUsd, regenerationLimit: usage.settings.regenerationLimit }
       setError('')
     } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
   }, [])
@@ -33,7 +39,9 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
     let mounted = true
     let unlisten: (() => void) | undefined
     const listening = onBackendEvent(event => {
-      if (event.kind.startsWith('usage.') || ['completed', 'cancelled', 'failed'].some(suffix => event.kind.endsWith(`.${suffix}`))) void refresh()
+      // 32#1：过滤收窄到用量域与模型请求终态——原先 `.completed` 后缀命中
+      // provider.chat_completed，任何后台请求完成都触发一次全量刷新
+      if (event.kind.startsWith('usage.') || event.kind.startsWith('provider.chat_') || event.kind.startsWith('provider.route_')) void refresh()
     })
     listening.then(stop => { if (mounted) unlisten = stop; else stop() }).catch(reportBackendError)
     // 28#5：卸载早于 listen() promise resolve 时立即注销，不再空转刷新

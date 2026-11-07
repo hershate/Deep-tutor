@@ -46,9 +46,11 @@ export default function Practice({ notify, target }: { notify: (message: string)
     setDetail(next)
     setIndex(previous => Math.min(previous, Math.max(0, next.questions.filter(question => ['choice', 'fill'].includes(question.kind)).length - 1)))
     if (['generating', 'cancelling'].includes(next.set.status) && next.set.requestId) {
+      // 32#14：附加直播流单独捕获（read 口径不冒泡）——题目数据已加载成功，
+      // 直播流的 database_busy 等瞬态错误不该夸大为整页「练习数据读取失败」
       try { setGenerationOutput((await backend.getProviderChat(next.set.requestId)).output) }
       catch (error) {
-        if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') throw error
+        if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error, 'read')
       }
     } else setGenerationOutput('')
   }, [])
@@ -57,11 +59,16 @@ export default function Practice({ notify, target }: { notify: (message: string)
     // 加载失败保留在页面上的错误横幅（含重试），不再只剩误导性空态
     void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) })
     let unlisten: (() => void) | undefined
+    // 32#2：晚解析守卫——卸载早于 listen() resolve 时立即注销，不再泄漏
+    // 一份绑定已卸载组件的回调（StrictMode 双挂载必现）
+    let disposed = false
     // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
     const upstreams = new Map<string, string>()
     const throttledFetch = deltaThrottle()
-    const listening = onBackendEvent(event => {
-      if (event.kind.startsWith('practice.')) void refresh().catch(reportBackendError)
+    // 32#17：practice.* 事件密集期合并为一次全量刷新（每次 4 个 IPC）
+    const throttledRefresh = deltaThrottle()
+    onBackendEvent(event => {
+      if (event.kind.startsWith('practice.')) throttledRefresh(() => void refresh().catch(reportBackendError))
       const logical = requestId.current
       if (event.kind === 'provider.route_attempt' && logical !== null && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === logical) {
         upstreams.set(event.payload.upstreamRequestId, logical)
@@ -70,8 +77,8 @@ export default function Practice({ notify, target }: { notify: (message: string)
         // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
         throttledFetch(() => void backend.getProviderChat(logical).then(request => setGenerationOutput(request.output)).catch(reportBackendError))
       }
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { unlisten?.(); void listening }
+    }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
+    return () => { disposed = true; unlisten?.() }
   }, [refresh])
 
   useEffect(() => {
@@ -155,11 +162,14 @@ export default function Practice({ notify, target }: { notify: (message: string)
     } catch (error) { reportBackendError(error) }
   }
   const setMastered = async (item: PracticeMistake) => {
+    // 32#10：busy 守卫——快速双击会两次取相互抵消
+    if (busy) return
+    setBusy(true)
     try {
       await practiceBackend.masterMistake(item.questionId, !item.mastered)
       setMistakes(await practiceBackend.mistakes())
       notify(item.mastered ? '已恢复为待巩固' : '已保存手动掌握标记')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error) } finally { setBusy(false) }
   }
   const generateVariant = async (item: PracticeMistake) => {
     if (busy) return

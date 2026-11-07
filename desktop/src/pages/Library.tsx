@@ -99,7 +99,8 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       void backend.getMaterial(activeMaterial.id).then(detail => {
         if (!stopped) setActiveMaterial(detail)
       }).catch(reportBackendError)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
+    // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
+    }).then(stop => { if (stopped) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { stopped = true; unlisten?.() }
   }, [activeMaterial?.id])
 

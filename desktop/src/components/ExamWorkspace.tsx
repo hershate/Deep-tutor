@@ -116,8 +116,11 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     try { onUpdated(await practiceBackend.cancel(exam.set.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
   const resumeGeneration = async () => {
-    if (!exam) return
-    try { onUpdated(await practiceBackend.resume(exam.set.id)) } catch (error) { reportBackendError(error) }
+    // 32#12：busy 守卫 + isCancelRace——双击第二次撞 generation_active 竞态码
+    // 时任务实际已正常恢复，不该弹伪错误横幅（对齐 cancelGeneration）
+    if (!exam || busy) return
+    setBusy(true)
+    try { onUpdated(await practiceBackend.resume(exam.set.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const submit = async () => {
     if (!exam || !question || recorded || exam.examExpired || busy) return
@@ -147,8 +150,10 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     try { onUpdated(await practiceBackend.cancelAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
   }
   const resumeAnswer = async () => {
-    if (!answer) return
-    try { onUpdated(await practiceBackend.resumeAnswer(answer.id)) } catch (error) { reportBackendError(error) }
+    // 32#12：busy 守卫 + isCancelRace——对齐 cancelAnswer
+    if (!answer || busy) return
+    setBusy(true)
+    try { onUpdated(await practiceBackend.resumeAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const selectSet = async (id: number) => {
     try { onGenerated(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }

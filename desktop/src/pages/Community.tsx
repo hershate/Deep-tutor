@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, CalendarClock, Check, Heart, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from 'lucide-react'
 import type { Project } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, Modal, SectionHeader } from '../components/UI'
@@ -38,21 +38,28 @@ export default function Community({ notify }: { notify: (message: string) => voi
     const timer = window.setTimeout(() => setDebouncedQuery(query), 250)
     return () => window.clearTimeout(timer)
   }, [query])
+  // 32#11：刷新序号守卫（照抄 Reports 28#4 的 refreshSequence 模式）——
+  // tab/搜索切换时旧响应后到会覆盖新 tab 数据或旧搜索词结果
+  const refreshSequence = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSequence.current
     const [next, projectCollection] = await Promise.all([
       communityBackend.overview(tab === 'peer_review' ? 'peer_review' : undefined, debouncedQuery),
       backend.getCollection<Project[]>('projects'),
     ])
+    if (ticket !== refreshSequence.current) return
     setData(next)
     setProjects(projectCollection.value)
   }, [tab, debouncedQuery])
   useEffect(() => {
     void refresh().catch(reportBackendError)
     let unlisten: (() => void) | undefined
-    const listening = onBackendEvent(event => {
+    // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
+    let disposed = false
+    onBackendEvent(event => {
       if (event.kind.startsWith('community.')) void refresh().catch(reportBackendError)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { unlisten?.(); void listening }
+    }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
+    return () => { disposed = true; unlisten?.() }
   }, [refresh])
 
   const createPost = async () => {
@@ -66,7 +73,10 @@ export default function Community({ notify }: { notify: (message: string) => voi
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const reaction = async (id: number, kind: 'like' | 'bookmark') => {
-    try { await communityBackend.reaction(id, kind); await refresh() } catch (error) { reportBackendError(error, 'write') }
+    // 32#10：busy 守卫——快速双击产生抵消点赞/收藏
+    if (busy) return
+    setBusy(true)
+    try { await communityBackend.reaction(id, kind); await refresh() } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const addReply = async (postId: number) => {
     const draft = replyDrafts[postId] ?? ''
@@ -80,7 +90,10 @@ export default function Community({ notify }: { notify: (message: string) => voi
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const accept = async (id: number, accepted: boolean) => {
-    try { await communityBackend.acceptReply(id, accepted); await refresh() } catch (error) { reportBackendError(error, 'write') }
+    // 32#10：busy 守卫
+    if (busy) return
+    setBusy(true)
+    try { await communityBackend.acceptReply(id, accepted); await refresh() } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const createGroup = async () => {
     if (busy || !groupName.trim() || !groupTopic.trim() || !groupSchedule.trim()) return
@@ -93,8 +106,11 @@ export default function Community({ notify }: { notify: (message: string) => voi
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const toggleGroup = async (id: number, joined: boolean) => {
+    // 32#10：busy 守卫
+    if (busy) return
+    setBusy(true)
     try { await communityBackend.joinGroup(id, joined); await refresh(); notify(joined ? '已加入本机小组' : '已退出本机小组') }
-    catch (error) { reportBackendError(error, 'write') }
+    catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const createRoom = async () => {
     if (busy || !roomTitle.trim() || !roomTopic.trim() || !roomStart) return

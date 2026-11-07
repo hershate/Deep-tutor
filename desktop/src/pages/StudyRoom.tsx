@@ -58,8 +58,12 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
 
   const refreshProgress = useCallback(async () => {
     if (!plan?.result) { setProgress({}); return }
+    // 32#6：捕获请求时的方案 id——快速切换课程时旧方案的并行进度响应
+    // 后到会整体替换 progress，新方案进度全丢
+    const requestedPlanId = plan.id
     try {
       const entries = await Promise.all(plan.result.stages.map(async stage => [stage.id, await backend.getReadingProgress(plan.id, stage.id)] as const))
+      if (stageRef.current.planId !== requestedPlanId) return
       setProgress(Object.fromEntries(entries))
     } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan])
@@ -68,8 +72,11 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const refreshLecture = useCallback(async (version?: number) => {
     if (version !== undefined) setLiveRequest(null)
     if (!plan || !stageId) { setLecture(null); return }
+    const requested = { planId: plan.id, stageId }
     try {
       const next = await backend.getLecture(plan.id, stageId, version)
+      // 32#4：响应返回时用户可能已切到其他阶段/课程——过期讲义不得覆盖
+      if (stageRef.current.planId !== requested.planId || stageRef.current.stageId !== requested.stageId) return
       readingVersionRef.current = version ?? next.version
       setLecture(next)
     } catch (cause) { setError(backendErrorMessage(cause)) }

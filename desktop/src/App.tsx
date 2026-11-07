@@ -59,7 +59,7 @@ export default function App() {
   const setTasks = (value: Task[] | ((current: Task[]) => Task[])) => replaceCollection('tasks', value)
   const setNotes = (value: AppSnapshot['notes'] | ((current: AppSnapshot['notes']) => AppSnapshot['notes'])) => replaceCollection('notes', value)
   const setProjects = (value: Project[] | ((current: Project[]) => Project[])) => replaceCollection('projects', value)
-  const setPreferences = (value: AppSnapshot['preferences']) => replaceCollection('preferences', value)
+  const setPreferences = (value: AppSnapshot['preferences'] | ((current: AppSnapshot['preferences']) => AppSnapshot['preferences'])) => replaceCollection('preferences', value)
   const [mobileNav, setMobileNav] = useState(false)
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string; nonce: number } | null>(null)
   const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
@@ -111,10 +111,18 @@ export default function App() {
     window.addEventListener('backend-error', onError)
     return () => window.removeEventListener('backend-error', onError)
   }, [])
+  // 32#15：每条 toast 独立计时——原先依赖整个数组，任一新提示会重建全部
+  // 计时器，旧提示的剩余存活时间被重置为满时长；以已登记集合保证每条只排一次
+  const scheduledToasts = useRef<Set<number>>(new Set())
   useEffect(() => {
-    if (!toasts.length) return
-    const timers = toasts.map(toast => window.setTimeout(() => setToasts(current => current.filter(item => item.id !== toast.id)), toast.tone === 'error' ? 5200 : 3200))
-    return () => timers.forEach(timer => window.clearTimeout(timer))
+    for (const toast of toasts) {
+      if (scheduledToasts.current.has(toast.id)) continue
+      scheduledToasts.current.add(toast.id)
+      window.setTimeout(() => {
+        scheduledToasts.current.delete(toast.id)
+        setToasts(current => current.filter(item => item.id !== toast.id))
+      }, toast.tone === 'error' ? 5200 : 3200)
+    }
   }, [toasts])
   useEffect(() => {
     if (!ready || loginRequired) return
@@ -273,14 +281,14 @@ export default function App() {
       setNotifications(await engagementBackend.markAllRead())
       setModal(null)
       notify('通知已全部标为已读')
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
   }
   const readNotification = async (id: string, page: PageId) => {
     try {
       setNotifications(await engagementBackend.markRead(id))
       setModal(null)
       navigate(page)
-    } catch (error) { reportBackendError(error) }
+    } catch (error) { reportBackendError(error, 'write') }
   }
   const renderPage = () => {
     switch (page) {

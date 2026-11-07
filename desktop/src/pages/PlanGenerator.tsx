@@ -99,9 +99,11 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     let disposed = false
     let unlisten: (() => void) | undefined
     const throttledFetch = deltaThrottle()
+    // 32#17：批量导入时 material.* 逐文件事件合并为一次全量拉取
+    const throttledMaterials = deltaThrottle()
     void onBackendEvent(event => {
       if (disposed) return
-      if (event.kind.startsWith('material.')) void refreshMaterials()
+      if (event.kind.startsWith('material.')) throttledMaterials(() => void refreshMaterials())
       if (event.kind.startsWith('plan.')) {
         const id = event.payload.planId
         if (typeof id !== 'string') return
@@ -109,7 +111,9 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
         if (planRef.current?.id === id) {
           setLastEventId(event.id)
           void backend.getLearningPlan(id).then(next => {
-            if (disposed) return
+            // 32#3：响应返回时用户可能已手动切换到历史方案——过期响应
+            // 不得覆盖当前选择或强行拉回第 3 步
+            if (disposed || planRef.current?.id !== next.id) return
             setPlan(next)
             if (next.result) setStep(3)
           }).catch(cause => setError(backendErrorMessage(cause)))

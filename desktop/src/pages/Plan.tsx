@@ -133,7 +133,8 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     if (!selectedTask?.taskId || busy) return
     setBusy('toggle')
     try {
-      await setTasks(current => current.map(task => task.id === selectedTask.taskId ? { ...task, done: !selectedTask.done } : task))
+      // 32#9：以 updater 内的最新集合取反——弹窗快照在打开期间可能被事件写入改变
+      await setTasks(current => current.map(task => task.id === selectedTask.taskId ? { ...task, done: !task.done } : task))
       setSelectedTask(null); await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }

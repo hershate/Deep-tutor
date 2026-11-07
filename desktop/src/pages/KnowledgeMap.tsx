@@ -52,7 +52,13 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
 
   const refreshOverview = useCallback(async () => {
     if (!plan) { setOverview(null); return }
-    try { setOverview(await backend.getKnowledgeOverview(plan.id)) } catch (cause) { setError(backendErrorMessage(cause)) }
+    // 32#7：方案 A→B 快速切换时，A 的响应后到不得覆盖 B 的掌握度概览
+    const requestedPlanId = plan.id
+    try {
+      const next = await backend.getKnowledgeOverview(plan.id)
+      if (planRef.current?.id !== requestedPlanId) return
+      setOverview(next)
+    } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan])
   const refreshPlans = useCallback(async () => {
     try {

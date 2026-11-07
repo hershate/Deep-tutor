@@ -36,10 +36,14 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   useEffect(() => {
     void refresh().catch(reportBackendError)
     let unlisten: (() => void) | undefined
-    const listening = onBackendEvent(event => {
-      if (event.kind.startsWith('plugin.') || ['completed', 'created', 'graded', 'parsed', 'failed', 'cancelled'].some(suffix => event.kind.endsWith(`.${suffix}`))) void refresh().catch(reportBackendError)
-    }).then(stop => { unlisten = stop }).catch(reportBackendError)
-    return () => { unlisten?.(); void listening }
+    // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
+    let disposed = false
+    onBackendEvent(event => {
+      // 32#22：过滤收窄——原先 `.completed` 等后缀命中 provider.chat_completed，
+      // 任意模型请求完成都触发插件 overview 全量刷新
+      if (event.kind.startsWith('plugin.') || event.kind.startsWith('material.') || event.kind.startsWith('practice.') || event.kind.startsWith('knowledge.')) void refresh().catch(reportBackendError)
+    }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
+    return () => { disposed = true; unlisten?.() }
   }, [refresh])
 
   const install = async (file: File | undefined) => {

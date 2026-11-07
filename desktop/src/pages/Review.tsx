@@ -42,10 +42,13 @@ export default function Review({ notify }: { notify: (message: string) => void }
     // 加载失败保留错误横幅（含重试），与"现在没有到期卡片"空态区分
     void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) })
     let unlisten: (() => void) | undefined
-    const stop = onBackendEvent(event => {
+    // 32#2：晚解析守卫——卸载早于 listen() resolve 时立即注销，不再泄漏
+    // 一份绑定已卸载组件的回调（StrictMode 双挂载必现）
+    let disposed = false
+    onBackendEvent(event => {
       if (event.kind.startsWith('review.') || event.kind.startsWith('plan.')) void refresh().catch(reportBackendError)
-    }).then(stopListening => { unlisten = stopListening }).catch(reportBackendError)
-    return () => { unlisten?.(); void stop }
+    }).then(stopListening => { if (disposed) stopListening(); else unlisten = stopListening }).catch(reportBackendError)
+    return () => { disposed = true; unlisten?.() }
   }, [refresh])
 
   const grade = useCallback(async (level: ReviewGrade) => {
@@ -105,11 +108,14 @@ export default function Review({ notify }: { notify: (message: string) => void }
     } catch (error) { reportBackendError(error, 'write') }
   }
   const suspend = async (item: ReviewCard) => {
+    // 32#10：busy 守卫——refresh 完成前的快速双击会两次取相互抵消
+    if (busy) return
+    setBusy(true)
     try {
       await reviewBackend.suspend(item.id, !item.suspended)
       await refresh()
       notify(item.suspended ? '记忆卡已恢复到复习队列' : '记忆卡已暂停，不会出现在到期队列')
-    } catch (error) { reportBackendError(error, 'write') }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const showHistory = async (id: number) => {
     if (historyCard === id) { setHistoryCard(null); return }
