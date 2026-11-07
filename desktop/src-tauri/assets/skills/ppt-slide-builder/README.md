@@ -61,7 +61,7 @@ ppt-slide-builder/
 6. **修改页面过渡** — 设置整体过渡类型（淡入、滑动、缩放、翻转等）
 7. **修改主题样式** — 用户要求模糊时追问具体风格方向，通过 CSS 变量统一修改
 8. **删除幻灯片** — 移除目标 slide 并重新编号所有后续 slide
-9. **预览** — 在默认浏览器中打开，支持键盘方向键、鼠标滚轮、点击空白区域、触摸滑动四种 PPT 模拟导航方式
+9. **预览** — 在默认浏览器中打开，支持键盘方向键、鼠标滚轮、点击空白区域、屏幕导航按钮、触摸滑动五种 PPT 模拟导航方式
 
 ## 技术细节
 
@@ -73,9 +73,15 @@ ppt-slide-builder/
 |---------|------|------|
 | 淡入 | `anim-fade-in` | 透明度从 0 到 1 |
 | 上滑 | `anim-slide-up` | 从下方 30px 滑入 |
+| 下滑 | `anim-slide-down` | 从上方 30px 滑入 |
+| 左滑 | `anim-slide-left` | 从右侧 30px 滑入 |
+| 右滑 | `anim-slide-right` | 从左侧 30px 滑入 |
 | 放大 | `anim-scale-in` | 从 0.7 倍放大 |
 | 模糊 | `anim-blur-in` | 从模糊到清晰 |
 | 翻转 | `anim-flip-in` | 3D 翻转入场 |
+| 旋转 | `anim-rotate-in` | 旋转入场 |
+| 弹跳 | `anim-bounce-in` | 弹性缩放入场 |
+| 高亮 | `anim-highlight` | 背景高亮闪烁 |
 | 打字机 | `anim-typewriter` | 逐字显示（短文本） |
 
 支持 `anim-delay-1` 到 `anim-delay-10` 控制错落节奏。
@@ -84,8 +90,11 @@ ppt-slide-builder/
 |---------|------|------|
 | 淡入淡出 | `trans-fade` | 交叉淡入淡出 |
 | 左滑 | `trans-slide-left` | 页面向左推入 |
+| 右滑 | `trans-slide-right` | 页面向右推入 |
+| 上滑 | `trans-slide-up` | 页面向上推入 |
 | 缩放 | `trans-zoom` | 缩放过渡 |
 | 3D 翻转 | `trans-flip` | 带透视的翻页 |
+| 无过渡 | `trans-none` | 直接切换 |
 
 完整参考见 `references/animation-reference.md`。
 

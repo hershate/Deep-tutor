@@ -11,15 +11,23 @@ deep-tutor-knowledge-map/
 ```
 
 ## 运行时集成
-- **加载**：`app/skills/loader.py` 启动扫描 `skills/deep-tutor-knowledge-map/SKILL.md`，按 frontmatter `name` 注册。
-- **取用**：`app/agent/loop.py` `_get_system_prompt` 取本 Skill 正文作 `build_knowledge_map` 的 system prompt（三级回退：skill -> inline_prompt -> 默认）。
-- **校验**：输出由 `app/tools/build_knowledge_map.py` 的 `KnowledgeMapData` pydantic 模型校验。
-- **后处理**：`clean_map` 兜底丢弃悬空边、断环成 DAG、节点 >100 截断并加 `_note`。
+
+> 30#1 事实修正：本节原描述的 Python Skill 加载器（`app/skills/loader.py`、
+> `app/agent/loop.py`、pydantic 校验链）属已删除的历史 Python 后端，当前应用
+> 不存在任何 Python 运行时。当前实现见下方「当前资产状态」。
+
+## 当前资产状态
+- **嵌入方式**：`SKILL.md` 由 `desktop/src-tauri/src/backend/plugins/mod.rs` 的
+  `assets()` 以 `include_str!` **编译期嵌入**二进制，作为「legacy-skill（历史
+  Skill 资产）」静态条目经 `get_plugin_overview`/`asset` 命令展示。
+- **生效方式**：修改 `SKILL.md` 后须**重新编译 Rust**（重启应用不生效）。
+- **执行边界**：当前应用不执行 Python；内联技能 `native-operations` 明示
+  「不执行 Python」。
 
 ## 方法论来源
 移植自 study-planner Step 2（核心前置 / 核心知识 / 进阶扩展 / 实战项目）。
 
 ## 注意事项
 - 本 Skill 不是 Claude Code 用户态技能，而是 Deep-tutor 运行时确定性加载的方法论指令。
-- 修改 `SKILL.md` 后重启后端即生效。
+- 修改 `SKILL.md` 须重新编译 Rust（`include_str!` 编译期嵌入，重启应用不生效）。
 - 输出 schema 变更须同步 `KnowledgeMapData` pydantic 模型。

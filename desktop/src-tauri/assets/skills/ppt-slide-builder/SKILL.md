@@ -559,7 +559,7 @@ allowed-tools: Read Write Edit Glob Bash WebSearch
    start "" "./<project-name>/index.html"
    ```
 
-2. 向用户说明所有导航方式：键盘方向键翻页、鼠标滚轮翻页、点击空白区域翻页、触摸滑动翻页。
+2. 向用户说明所有导航方式：键盘方向键翻页、鼠标滚轮翻页、点击空白区域翻页、屏幕导航按钮翻页、触摸滑动翻页。
 
 ## Constraints
 

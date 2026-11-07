@@ -32,7 +32,8 @@
 cd desktop
 npm ci
 npm run build
-npm run tauri build
+# 与 Makefile/CI 同口径：-- -- 透传 --locked 给 cargo，锁文件不一致时失败而非静默更新
+npm run tauri build -- -- --locked
 
 cd src-tauri
 cargo test --release --locked -- --test-threads=1

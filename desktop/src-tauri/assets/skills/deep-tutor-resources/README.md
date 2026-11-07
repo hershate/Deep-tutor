@@ -11,16 +11,24 @@ deep-tutor-resources/
 ```
 
 ## 运行时集成
-- **加载**：`app/skills/loader.py` 启动扫描 `skills/deep-tutor-resources/SKILL.md`，按 frontmatter `name` 注册。
-- **取用**：`app/tools/search_resources.py` `_screen_resources` 从 `ctx.skill_registry` 取本 Skill 正文作筛选 LLM 调用的 system prompt（缺失 -> inline `SCREEN_PROMPT` 回退，R13；两者输出 schema 必须一致）。
-- **解析**：筛选输出由 `_parse_screen_verdicts` 解析（JSON 数组，容忍代码块包裹，单项非法跳过）。
-- **降级**：无 provider / LLM 失败 / 输出不可解析 -> 跳过筛选（保持 verify 可达性判定，行为同 iter 62 前）。
+
+> 30#1 事实修正：本节原描述的 Python Skill 加载器（`app/skills/loader.py`、
+> `app/agent/loop.py`、pydantic 校验链）属已删除的历史 Python 后端，当前应用
+> 不存在任何 Python 运行时。当前实现见下方「当前资产状态」。
+
+## 当前资产状态
+- **嵌入方式**：`SKILL.md` 由 `desktop/src-tauri/src/backend/plugins/mod.rs` 的
+  `assets()` 以 `include_str!` **编译期嵌入**二进制，作为「legacy-skill（历史
+  Skill 资产）」静态条目经 `get_plugin_overview`/`asset` 命令展示。
+- **生效方式**：修改 `SKILL.md` 后须**重新编译 Rust**（重启应用不生效）。
+- **执行边界**：当前应用不执行 Python；内联技能 `native-operations` 明示
+  「不执行 Python」。
 
 ## 方法论来源
 移植自 study-planner Step 4（链接验证 ✅⚠️❌ + 内容难度适配判定，plan/02 §5）；本 Skill 负责「内容适配」一半，可达性判定由 verify_url（纯 Python）完成。
 
 ## 注意事项
 - 本 Skill 不是 Claude Code 用户态技能，而是 Deep-tutor 运行时确定性加载的方法论指令。
-- 修改 `SKILL.md` 后重启后端即生效。
+- 修改 `SKILL.md` 须重新编译 Rust（`include_str!` 编译期嵌入，重启应用不生效）。
 - 筛选输出 schema 变更须同步 `_parse_screen_verdicts` 与 inline `SCREEN_PROMPT`。
 - `suitable=false` 仅限内容不相关（将被丢弃）；相关但过深/存疑用 `label="uncertain"` 保留。

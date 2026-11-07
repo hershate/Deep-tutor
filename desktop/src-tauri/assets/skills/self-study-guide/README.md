@@ -9,10 +9,10 @@
 ```
 self-study-guide/
 ├── SKILL.md                # 技能主文件
-├── README.md               # 本文件
-├── study-materials/        # 生成的学习材料输出目录
-│   └── index.md            # 学习计划与索引（自动生成）
-├── references/             # 补充文档（预留）
+└── README.md               # 本文件
+
+> 30#3：历史版本声明的 `references/` 与 `study-materials/` 目录从未随本仓库
+> 资产分发；本技能当前作为 legacy-skill 静态展示，不生成任何输出目录。
 ```
 
 ## 安装方式
