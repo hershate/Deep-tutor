@@ -1,4 +1,4 @@
-# 问题集（第十六至十八轮全量审计）
+# 问题集（第十六至十九轮全量审计）
 
 > 第十五轮问题（34–36 号）已全部修复并删除（35b8511e）。
 > **第十六轮**：十五轮修复之后的全仓复审。原计划 5 路并行子审计因运行环境
@@ -11,6 +11,9 @@
 > **第十八轮**：覆盖收口——第十七轮清单剩余范围全部逐行读完
 > （sync/mod 全文、pdf/anki/formats 全文、client.ts 前半、startup 与
 > backend/commands 余段经核对均为生产码已读+纯测试模块），零新缺陷。
+> **第十九轮**：核心层与最后一批未读文件逐行读完（store.rs/main.rs/error.rs/
+> backend/mod.rs/plugins/sharing/web 全域/sync transport+versions/
+> export mod+notes/materials parse），零新缺陷。
 
 ## 基线（审计起点，全部真实执行）
 
@@ -63,10 +66,11 @@
 | 38-状态引擎与写路径III.md | 0 | 0 | 2 | 2 | 写口径漏改族 17 处、sync() 冗余事件翻页、死代码与缩进残留 |
 | 39-后端深读III.md | 0 | 0 | 0 | 1 | knowledge::search N+1 连接；materials/knowledge/engagement/maintenance/startup 等深读零缺陷正向结论 |
 | 40-收尾深读IV.md | 0 | 0 | 0 | 0 | sync/export 全文、client.ts 前半、startup 与 commands 余段逐行收口，零新缺陷 |
+| 41-核心层与剩余域深读V.md | 0 | 0 | 0 | 0 | store/main/error/mod/plugins/sharing/web/sync-transport-versions/export-mod-notes/materials-parse 逐行，零新缺陷 |
 | 合计 | **0** | **0** | **7** | **7** | 另有契约四轴/后端抽查/文档三组正向结论在案 |
 
-三轮均无 P1/P2：十五轮修复（c3895ffe/878b345b）经逐 hunk 回归审查未发现新引入的
-高危缺陷；第十七、十八轮对后端大文件的逐行深读亦零缺陷。以下 14 个条目
+四轮均无 P1/P2：十五轮修复（c3895ffe/878b345b）经逐 hunk 回归审查未发现新引入的
+高危缺陷；第十七至十九轮对后端大文件的逐行深读亦零缺陷。以下 14 个条目
 （含 38#1 内 17 处点位）以 P3 与信息性为主，
 集中在「同一类约定修了大部分但漏了边角」的漏网族。
 
