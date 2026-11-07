@@ -2,72 +2,51 @@
 
 ## 简介
 
-PPT 风格全屏网页演示文稿生成器。支持**统一样式管理**、**多页面增删改**、**元素入场动画**和**页面过渡动画**。生成纯静态 HTML，无需任何构建工具或外部依赖，双击即可在浏览器中全屏播放。
+PPT 风格全屏网页演示文稿生成器的方法论指令源：统一样式管理、多页面增删改、元素入场动画与页面过渡动画，生成纯静态自包含 HTML（五种导航：键盘方向键、鼠标滚轮、点击空白、屏幕按钮、触摸滑动；URL hash 定位 `index.html#slide-N`）。源自 Claude Code 用户态技能；`SKILL.md` 现作为 legacy-skill 静态资产编译期嵌入二进制、仅经插件面板展示，应用内不可触发执行；templates/ 与 references/ 仅随仓库分发，不嵌入二进制、不进安装包。
 
 ## 目录结构
 
 ```
 ppt-slide-builder/
-├── SKILL.md                       # 技能主文件
+├── SKILL.md                       # 技能主文件（legacy-skill 静态展示内容）
 ├── README.md                      # 本文件
 ├── templates/
-│   └── base.html                  # 演示文稿基础模板
-├── references/
-│   └── animation-reference.md     # 动画与过渡效果完整参考
-└── <project-name>/                # 生成的演示项目（在当前工作目录下）
-    └── index.html                 # 单个完整的演示文件
+│   └── base.html                  # 演示文稿基础模板（默认 2 页示例内容）
+└── references/
+    └── animation-reference.md     # 动画与过渡效果完整参考
 ```
 
-## 安装方式
+## 当前资产状态
 
-1. 将 `ppt-slide-builder/` 目录复制到项目 `.claude/skills/` 下
-2. 重新启动 Claude Code
-3. 使用 `/ppt-slide-builder` 或触发关键词激活
+- **嵌入方式**：`SKILL.md` 由 `desktop/src-tauri/src/backend/plugins/mod.rs` 的
+  `assets()` 以 `include_str!` **编译期嵌入**二进制，作为「幻灯片模板（历史
+  Skill 资产）」静态条目经 `get_plugin_overview`（清单）与 `get_developer_asset`
+  （正文）命令展示（`asset` 为 Rust 内部函数，非 IPC 命令）。
+- **生效方式**：修改 `SKILL.md` 后须**重新编译 Rust**（重启应用不生效）。
+- **执行边界**：应用不提供斜杠命令或关键词激活（`/ppt-slide-builder` 及触发词
+  属历史 Claude Code 机制），不执行 SKILL.md 声明的 Read/Write/Edit/Bash/WebSearch
+  等工具，不生成 `<project-name>/index.html` 输出目录。
 
-## 使用方式
+## SKILL.md 历史行为（Claude Code 用户态技能时期，当前应用不执行）
 
-### 斜杠命令
-
-```
-/ppt-slide-builder <操作描述>
-```
-
-示例：
-```
-/ppt-slide-builder 创建一个科技主题的 PPT，标题为"2025 年度技术回顾"
-/ppt-slide-builder 在第 3 页后面添加一页产品路线图
-/ppt-slide-builder 给第 1 页的标题添加淡入动画
-/ppt-slide-builder 把翻页过渡改成缩放效果
-/ppt-slide-builder 把主题改成深色模式
-/ppt-slide-builder 删除第 2 页
-```
-
-### 自动触发
-
-当用户输入包含以下关键词时自动激活：
-- "制作PPT"、"PPT网页"、"幻灯片"、"演示页面"
-- "presentation"、"slide deck"、"slide builder"
-- "添加动画"、"页面过渡"、"翻页动画"
-- "新建幻灯片"、"修改幻灯片"、"删除幻灯片"
-- "演示文稿"、"slides"
-
-## Workflow 说明
-
-1. **初始化项目** — 逐轮提问收集需求（标题/风格/页数/内容）→ 12 维度系统性分析优化项目规约 → 严格按照规约从模板生成 HTML → 执行质量检查 + 输出生成报告（含设计摘要和修改指引）→ 浏览器预览
-2. **添加幻灯片** — 向用户确认新幻灯片内容和布局后在末尾追加，自动编号
-3. **修改幻灯片内容** — 通过 slide 标记精确定位，仅修改内容区域
-4. **添加图片** — 支持本地图片（复制到项目目录 + 相对路径引用）和网络图床链接（WebSearch 验证），根据用户指定的页面位置精准插入
-5. **添加入场动画** — 为指定 slide 中的元素添加 CSS 动画 class
-6. **修改页面过渡** — 设置整体过渡类型（淡入、滑动、缩放、翻转等）
-7. **修改主题样式** — 用户要求模糊时追问具体风格方向，通过 CSS 变量统一修改
-8. **删除幻灯片** — 移除目标 slide 并重新编号所有后续 slide
-9. **预览** — 在默认浏览器中打开，支持键盘方向键、鼠标滚轮、点击空白区域、屏幕导航按钮、触摸滑动五种 PPT 模拟导航方式
+- **初始化项目**：逐轮提问收集需求（标题/风格/页数/内容）→ 12 维度分析优化规约
+  → 从模板生成 HTML → 质量检查 → 输出结构化生成报告（设计摘要 + 修改指引）。
+- **页面操作**：添加（末尾追加自动编号）/修改（经 `<!-- SLIDE: slide-N -->`
+  注释精确定位，不用行号）/删除（后续 slide 重新编号保连续）；主题经 `:root`
+  CSS 变量统一修改，全局生效。
+- **图片**：本地图片复制到项目 `images/` 目录用相对路径引用；网络图床链接先经
+  WebSearch 验证再引用；占位图优先用 CSS 纯色块，不依赖外部服务。
+- **输出**：当前工作目录 `<project-name>/index.html`，自包含可离线；导出
+  PowerPoint 需复制到 Google Slides/Keynote 重新编排。
+- **历史工具声明**：Read/Write/Edit/Glob/Bash/WebSearch。
+- **行为约定**：用户输入模糊时逐轮追问（一次 1-2 问）不自行假设；外部 CDN/占位
+  图 URL 先验证；动画遵循 `prefers-reduced-motion`。
 
 ## 技术细节
 
 ### 动画系统
 
-内置 12 种元素动画和 7 种页面过渡效果，无需编写 CSS：
+`templates/base.html` 内置 12 种元素动画和 7 种页面过渡效果，无需编写 CSS：
 
 | 动画类型 | 类名 | 效果 |
 |---------|------|------|
@@ -116,35 +95,7 @@ ppt-slide-builder/
 
 修改主题后所有幻灯片自动生效。
 
-### 使用的工具
+### 模板约束
 
-- `Read` — 读取项目文件和模板
-- `Write` — 创建新项目文件
-- `Edit` — 精确修改已有内容
-- `Glob` — 查找项目目录
-- `Bash` — 在浏览器中打开预览
-- `WebSearch` — 验证网络图床链接和外部图片 URL 的有效性
-
-### 输出说明
-
-- 生成的演示文件在当前工作目录的 `<project-name>/index.html`
-- 完全自包含，无外部依赖，可离线使用
-- 支持五种导航方式：键盘方向键、鼠标滚轮、点击空白区域、屏幕导航按钮、触摸滑动
-- 支持 URL hash 定位到指定页（`index.html#slide-3`）
-
-## 注意事项
-
-- 所有操作严格遵循"精确匹配"原则：通过 `<!-- SLIDE: slide-N -->` 注释定位，不使用行号
-- 删除幻灯片后会自动重新编号，确保编号连续无空洞
-- 主题修改全局生效，不需要逐页调整
-- 每个项目是独立文件，不影响其他项目
-- **用户输入模糊时，本 skill 会主动逐轮提问**（一次只问 1-2 个问题），而不是自行假设生成
-- **生成后自动执行质量检查**（PPT 质量检查清单），通过后输出结构化的**生成报告**（含设计摘要和自定义修改指引）
-- 任何对外部 CDN 或占位图服务的引用，会自动先用 `WebSearch` 验证 URL 是否有效
-- 生成的演示默认提供 2 页示例内容，可根据需求增删
-- 如需占位图片，优先使用 CSS 纯色占位块（不依赖外部服务）
-- 所有动画支持 `prefers-reduced-motion` 可访问性设置
-- `color-mix()` 用于导航栏背景，需 Chrome 111+ / Firefox 113+ / Safari 16.2+
-- 不支持 React/Vue 等框架，仅生成纯静态 HTML
-- **添加图片**（Step 4）支持本地文件（自动复制到 `images/` 目录）和网络图床链接（WebSearch 验证后直接引用）
-- 如需导出为 PowerPoint 格式，可复制到 Google Slides 或 Keynote 中重新编排
+- 仅生成纯静态 HTML，不支持 React/Vue 等框架。
+- `color-mix()` 用于导航栏背景，需 Chrome 111+ / Firefox 113+ / Safari 16.2+。

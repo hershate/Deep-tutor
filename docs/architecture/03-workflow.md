@@ -7,10 +7,10 @@
 | 入口 | 命令 | 实际动作 |
 |---|---|---|
 | Makefile:23 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 五处版本校验 + `npm run build`（tsc -b && vite build） |
-| Makefile:25 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
-| Makefile:28 | `make check` | lint + test |
+| Makefile:28 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
+| Makefile:32 | `make check` | lint + test |
 | Makefile:18 | `make build` | `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
-| Makefile:30 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
+| Makefile:34 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
 本地 Rust 工具链复用：`F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc`，`CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`（AGENTS.md 约定）。
 
@@ -38,7 +38,7 @@ flowchart LR
   - 本机回环 TestServer 线程模拟 LLM/WebDAV/S3 协议（providers/test_support.rs:35-70），断言真实 HTTP 行为而非 mock 返回值。
   - `MemoryCredentials`（providers/mod.rs:151）替代系统密钥库。
   - `defer` 布尔使流水线测试同步化，三域形态各异：learning 跳过 spawn（直接内联执行）、materials 自旋等待任务完成、sync 暂停调度线程。
-  - MIGRATION_RUNS 计数器验证指纹迁移幂等（store.rs:20-26,1162-1185）。
+  - MIGRATION_RUNS 计数器验证迁移幂等与版本门禁补列（store.rs:22-26；测试 :1289 幂等 / :1315 版本门禁）。
 - 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs、subjective_tests.rs server 计数不变）；事件 outbox 分页与重启续接（store.rs:1252 测试）；备份 ID 映射、追加导入子表随父重写与重复导入按复合键跳过（backup/tests.rs）；同步回读校验与保留恰 10 个（sync/tests.rs、versions_tests.rs）；并发 grade 仅一次生效（review/mod.rs 测试）；两用户文件隔离（security/workspace_tests.rs）；异步命令从会话派生 principal——user2 登录后档案必须落在 user2 工作区（security/guard_tests.rs）。
 - 环境边界：真实供应商、真实媒体编解码播放、交互安装为独立验收项，协议夹具不替代（plan/README.md 约定；无界面安装验证走 `--verify-native` + `DEEPTUTOR_VERIFY_DATA_DIR`，main.rs:14-72）。
 
@@ -106,7 +106,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[答错或未答] --> B[practice_mistakes upsert wrong_count 加一]
+    A[答错 正常反馈模式] --> B[practice_mistakes upsert wrong_count 加一]
+    A2[未答 落 0 分与证据 不进错题本 不进闭环]
     B --> C[以错题为源生成变式]
     C --> D{源是真实错题 同 plan 同题型 且非 exam?}
     D -->|否| E[拒绝]
@@ -120,7 +121,7 @@ flowchart TD
 ### 3.3 练习与复习（Practice/Review）
 - 出题范围约束：nodeId 必须属于方案图谱、所选阶段且属变式 node_ids（practice/mod.rs:591-614）；生成 prompt 与题目校验均受该范围约束（:816-844）；恢复任务不扩大范围。
 - 错题变式：`variant_of` 只接受真实错题且同 plan 同题型（variants.rs:65-78）；prompt 追加"改变情境不得复制"（mod.rs:424）；生成校验拒绝与原题同 prompt（:797-799）；答对后原子置原错题 mastered（variants.rs:106-133）。
-- 复习到期：`next_review_card` 取 `due_at<=now` 最旧（review/mod.rs:361）；grade 公式见 02 §10。
+- 复习到期：`next_review_card` 取 `due_at<=now` 最旧（review/mod.rs:366）；grade 公式见 02 §10。
 
 ### 3.4 项目成果（Projects）
 提交 `submit_project_version`（projects/mod.rs:278）：content 1-100000B 无 NUL；可选材料须已解析；每项目单反馈任务（事务内复查 :313）；INSERT 'running' + **commit 后才 emit** `project.feedback_started`（:329-335）；量规由模型按概念应用/实现质量/验证与反思 0-100 评分（:443-448），`validate_feedback`（:351）限分≤100、summary≤6000、建议 1-5 条；不声称执行代码。恢复：completed_chat 为真直接重放 evaluate，否则 interrupted（:571-602）。迭代笔记写入真实 notes 集合（:607-648）。
@@ -141,7 +142,7 @@ flowchart TD
 ```
 
 ### 3.5 报告（Reports）
-只聚合真实记录：专注实际秒数（running 时实时推导 `now-started_at`，pause 冻结，resume 改写 started_at=now-actual 保持时钟连续，reports/mod.rs:226-244,394,417-420）；完成任务保留计划分钟并区分；掌握度来自 `learning_node_evidence` AVG；无证据不填示例趋势；建议采纳一次提交（:914）；CSV/报告导出经后端（:982）。
+只聚合真实记录：专注实际秒数（running 时实时推导 `now-started_at`，pause 冻结，resume 改写 started_at=now-actual 保持时钟连续，reports/mod.rs:241-255,394,439,465）；完成任务保留计划分钟并区分；掌握度来自 `learning_node_evidence` AVG；无证据不填示例趋势；建议采纳一次提交（:1092）；CSV/报告导出经后端（:1162）。
 
 专注会话时钟语义：
 
@@ -155,7 +156,7 @@ stateDiagram-v2
 ```
 
 ### 3.6 知识库与 Wiki（Knowledge/Notes）
-- 问答 `ask_knowledge`（knowledge/mod.rs:454）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用双重校验**：material_id 必须在 scope 白名单（`citation_out_of_scope` :602）+ quote（1..=1000 字）必须能在资料原文经 `find_ignoring_case`（大小写不敏感字符窗口匹配，knowledge/mod.rs:319）定位（`citation_mismatch`，locate knowledge/mod.rs:175，得 char_start/char_end/line）；`UPDATE ... WHERE status='running'` 防取消后写入。
+- 问答 `ask_knowledge`（knowledge/mod.rs:483）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用剔除式校验（10#24）**：material_id 不在 scope 或 quote（1..=1000 字）无法经 `find_ignoring_case`（大小写不敏感字符窗口匹配，knowledge/mod.rs:319）在原文定位（locate knowledge/mod.rs:175）的引用被剔除并计入 dropped（重复引用去重），dropped>0 仅产生 warning；仅当 sufficient 且剔除后 citations 为空才报 `citation_mismatch`（:654-658）；`UPDATE ... WHERE status='running'` 防取消后写入。
 
 引用双重校验：
 
@@ -167,14 +168,14 @@ flowchart TD
     D --> E{answer 30000B 内? sufficient 则 citations 非空?}
     E -->|否| F[校验失败]
     E -->|是| G{material_id 在 scope 白名单?}
-    G -->|否| H[citation_out_of_scope]
-    G -->|是| I{text.find 定位 quote 原文}
-    I -->|找不到| J[citation_mismatch]
+    G -->|否| H2[剔除引用 dropped 加一]
+    G -->|是| I{locate 定位 quote 原文}
+    I -->|找不到| H2
     I -->|找到| K[落 char_start char_end line]
     K --> L[UPDATE WHERE status running 防取消后写入]
 ```
 
-- 知识关联：笔记↔节点映射只来自学习阶段批注（learning_annotations）；删除笔记同步清理（store.rs:517）。
+- 知识关联：笔记↔节点映射只来自学习阶段批注（learning_annotations）；删除笔记同步清理（store.rs:608）。
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
@@ -203,9 +204,9 @@ flowchart LR
     M[运维清理白名单孤儿]
 ```
 
-- 备份排除项：auth_sessions、access_tokens、share_index（secure_delete 后 VACUUM，backup/archive.rs:392-398）；系统凭据本就不在库中（keyring）。
+- 备份排除项：auth_sessions、access_tokens、share_index（EXCLUDED_AUTH_TABLES archive.rs:95；secure_delete 后 VACUUM :410-416）；系统凭据本就不在库中（keyring）。
 - 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:866,:1013-1021）；agent_memory 重名加"· 导入 n"后缀（:1101-1112）。
-- 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:31 校验路径属本配置 versions/ 目录）。
+- 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:60 校验路径属本配置 versions/ 目录）。
 - 数据目录切换：不搬移不删除旧数据；目录配置不作为备份中的绝对路径恢复（startup.rs:194-243；plan/README.md 约定）。
 
 ## 5. 异常恢复矩阵
@@ -218,11 +219,11 @@ flowchart LR
 | 写锁竞争 | busy_timeout 10s → database_busy（前端瞬态自动重试至多 5 次） | 前端提示重试 | store.rs:172；error.rs |
 | 模型步骤中断 | 步骤 interrupted + request_id 持久化 | resume 复用 completed_chat，不重调上游 | learning/mod.rs:655-668 |
 | 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:626-714 |
-| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1082 |
-| 预算超限 | ensure_budget 拒绝（session/daily USD，`budget_spend` SQL 聚合 usage.rs:432） | 用户调预算设置 | usage.rs:462 |
+| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1127 |
+| 预算超限 | ensure_budget 拒绝（session/daily USD，`budget_spend` SQL 聚合 usage.rs:443） | 用户调预算设置 | usage.rs:480 |
 | 解析线程崩溃 | catch_unwind → failed + internal_error | 重新 enqueue | materials/mod.rs:862,897 |
-| 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:196-203 |
-| 备份导入中途失败 | IMMEDIATE 事务回滚 + 删除已装文件 | 修正后重新导入 | transfer.rs:1213-1217 |
+| 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:226-231 |
+| 备份导入中途失败 | IMMEDIATE 事务回滚 + 删除已装文件 | 修正后重新导入 | transfer.rs:1295-1314（install_files）、:1366 起（回滚删已装） |
 | 应用重置 | 先停任务；DB 成功后才删原件/凭据，失败保留备份 | reset_application | backend/commands.rs:82-110 |
 | 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:49-127 |
 
@@ -249,7 +250,7 @@ flowchart LR
 
 | 页面 | 主命令 | 监听事件前缀 |
 |---|---|---|
-| Dashboard | get_dashboard | state.changed/focus./plan./practice./review. |
+| Dashboard | get_dashboard（App.tsx 调用经 props 下发，Dashboard 自身无 invoke/订阅） | state.changed/focus./plan./practice./review.（App 级快照与 30s 轮询驱动） |
 | PlanGenerator | start/cancel/resume/regenerate/adopt、import_material_*、import_webpage | material./plan./provider.chat_delta |
 | Plan | get_plan_overview、apply_plan_intensity、update_learning_goal、replace_collection(tasks) | plan./state.changed/security.session_started |
 | StudyRoom | get_lecture、generate_lecture、set_reading_progress、save_study_note | lecture./study.progress_changed/agent.artifact_promoted |
@@ -266,7 +267,7 @@ flowchart LR
 | Settings | 学习档案、setPreferences | security.session_started/state.changed |
 | SharedPlan | read_shared_plan、read_shared_plan_package | 无 |
 
-组件归属：DataDirectoryPanel/BackupPanel/SecurityPanel/SyncPanel/MaintenancePanel/UsagePanel/ExportCenter/SharePlanDialog/MediaPlayer/WikiPanel/ExamWorkspace/SubjectivePractice/TutorPanel/AgentTaskCenter（components/）。
+组件归属（components/ 共 17 个 + UI.tsx 原语库）：DataDirectoryPanel/BackupPanel/SecurityPanel/SyncPanel/MaintenancePanel/UsagePanel/ProviderRouting/ExportCenter/SharePlanDialog/MediaPlayer/WikiPanel/ExamWorkspace/SubjectivePractice/TutorPanel/AgentTaskCenter/ReportViews（components/）。
 
 ## 8. 命令与事件契约一致性
 
