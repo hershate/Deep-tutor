@@ -1277,7 +1277,9 @@ pub fn dry_run(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    let tx = store.conn.unchecked_transaction()?;
+    // 31#66：IMMEDIATE 与 import 同序——DEFERRED 下预演与真实导入的锁时序
+    // 不一致，库状态变化时预演结论可能失真
+    let tx = store.write_transaction()?;
     // 25#14：与 import 同步——ID 分配在事务内执行，预演与真实导入的
     // 冲突判定保持同一套时序
     prepare_ids(&mut transfer, &tx)?;
