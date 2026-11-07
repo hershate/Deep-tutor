@@ -2,8 +2,8 @@ use crate::backend::providers::openai::{
     self, ChatError, ChatResult, Delta, StreamOutput, StreamPolicy, TokenUsage,
 };
 use crate::backend::providers::protocol::{
-    argument_object, emit, gemini_schema, retryable, stream_events, success, validate_policy,
-    backoff, ToolNames,
+    argument_object, backoff, emit, gemini_schema, retryable, stream_events, success,
+    validate_policy, ToolNames,
 };
 use crate::backend::providers::tools::{ToolCall, ToolDefinition};
 use crate::backend::providers::{ChatMessage, ProviderProfile};

@@ -148,11 +148,7 @@ pub fn send_at_or_missing(
 }
 
 /// MKCOL 创建 WebDAV 集合；2xx 与 405（集合已存在）都视为成功。
-pub fn mkcol(
-    config: &SyncConfig,
-    credentials: &SyncCredentials,
-    path: &str,
-) -> Result<()> {
+pub fn mkcol(config: &SyncConfig, credentials: &SyncCredentials, path: &str) -> Result<()> {
     let (status, _) = execute(config, credentials, "MKCOL", None, path, &[], None)?;
     if status.is_success() || status.as_u16() == 405 {
         Ok(())

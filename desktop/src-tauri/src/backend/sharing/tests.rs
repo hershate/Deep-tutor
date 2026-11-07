@@ -65,7 +65,9 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, SharingState) {
             agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
             practice: crate::backend::practice::PracticeState::new(&path, &providers, &learning),
             review: crate::backend::review::ReviewState::new(&path, &learning),
-            knowledge: crate::backend::knowledge::KnowledgeState::new(&path, &providers, &materials),
+            knowledge: crate::backend::knowledge::KnowledgeState::new(
+                &path, &providers, &materials,
+            ),
             community: crate::backend::community::CommunityState::new(&path),
             plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
             sharing: SharingState::new(&learning),

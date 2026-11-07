@@ -330,20 +330,18 @@ fn groups_rooms_reservations_reminders_and_reset_use_real_state() {
     let later = (OffsetDateTime::now_utc() + Duration::hours(4))
         .format(&Rfc3339)
         .unwrap();
-    assert!(
-        create_room(
-            app.handle(),
-            &state,
-            RoomInput {
-                group_id: None,
-                title: "错开时段".into(),
-                topic: "应接受".into(),
-                start_at: later,
-                duration_minutes: 30,
-            },
-        )
-        .is_ok()
-    );
+    assert!(create_room(
+        app.handle(),
+        &state,
+        RoomInput {
+            group_id: None,
+            title: "错开时段".into(),
+            topic: "应接受".into(),
+            start_at: later,
+            duration_minutes: 30,
+        },
+    )
+    .is_ok());
     // 预约同样受冲突约束：直接落库一条与“时段占用”重叠的旧排期再预约
     let store = state.store().unwrap();
     store
@@ -397,16 +395,27 @@ fn community_overview_reads_real_rows_and_filters_through_ipc() {
     assert_eq!(overview["stats"]["posts"], 1);
     assert_eq!(overview["posts"].as_array().unwrap().len(), 1);
     // kind / query 过滤必须落到真实 SQL 与行级匹配，而不是前端兜底
-    let filtered =
-        ipc(&window, "get_community_overview", json!({"kind": "peer_review"})).unwrap();
+    let filtered = ipc(
+        &window,
+        "get_community_overview",
+        json!({"kind": "peer_review"}),
+    )
+    .unwrap();
     assert!(filtered["posts"].as_array().unwrap().is_empty());
-    let searched =
-        ipc(&window, "get_community_overview", json!({"query": "概率"})).unwrap();
+    let searched = ipc(&window, "get_community_overview", json!({"query": "概率"})).unwrap();
     assert_eq!(searched["posts"].as_array().unwrap().len(), 1);
-    let missing = ipc(&window, "get_community_overview", json!({"query": "不存在的关键词"}))
-        .unwrap();
+    let missing = ipc(
+        &window,
+        "get_community_overview",
+        json!({"query": "不存在的关键词"}),
+    )
+    .unwrap();
     assert!(missing["posts"].as_array().unwrap().is_empty());
-    let invalid =
-        ipc(&window, "get_community_overview", json!({"kind": "unknown"})).unwrap_err();
+    let invalid = ipc(
+        &window,
+        "get_community_overview",
+        json!({"kind": "unknown"}),
+    )
+    .unwrap_err();
     assert_eq!(invalid["code"], "invalid_post_kind");
 }

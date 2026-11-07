@@ -268,12 +268,12 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)>
         }
         let kind = kind.to_ascii_lowercase();
         let relative = format!("materials/originals/{sha256}.{kind}");
-        let source = root.join("materials/originals").join(format!("{sha256}.{kind}"));
+        let source = root
+            .join("materials/originals")
+            .join(format!("{sha256}.{kind}"));
         match fs::metadata(&source) {
             Ok(_) => entries.push(file_entry(relative, &source)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                missing.push(relative)
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => missing.push(relative),
             Err(error) => return Err(error.into()),
         }
     }

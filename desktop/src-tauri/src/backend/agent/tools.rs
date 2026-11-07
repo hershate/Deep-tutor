@@ -729,13 +729,11 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
             )?;
             // 10#18：agent_memory 是 agent 域此前唯一无条数配额的持久写入口；
             // 覆盖已有键不新增条数，新键写入前过配额
-            let key_exists: bool = store
-                .conn
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM agent_memory WHERE key = ?1)",
-                    params![key],
-                    |row| row.get(0),
-                )?;
+            let key_exists: bool = store.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM agent_memory WHERE key = ?1)",
+                params![key],
+                |row| row.get(0),
+            )?;
             if !key_exists {
                 store.ensure_quota("agent_memory", 1)?;
             }

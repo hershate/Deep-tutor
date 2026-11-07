@@ -27,9 +27,11 @@ fn anki_due_day(due_at: &str, now: i64) -> Result<i64> {
     if due_at.is_empty() {
         return Ok(now / 86_400);
     }
-    Ok(time::OffsetDateTime::parse(due_at, &time::format_description::well_known::Rfc3339)
-        .map(|moment| moment.unix_timestamp() / 86_400)
-        .unwrap_or(now / 86_400))
+    Ok(
+        time::OffsetDateTime::parse(due_at, &time::format_description::well_known::Rfc3339)
+            .map(|moment| moment.unix_timestamp() / 86_400)
+            .unwrap_or(now / 86_400),
+    )
 }
 
 fn stable_id(value: &str) -> i64 {
@@ -126,9 +128,21 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
             let (card_type, queue, due, ivl, factor) = if card.repetitions == 0 {
                 (0, 0, index as i64, 0, (card.ease * 1000.0) as i64)
             } else if card.suspended {
-                (2, -1, anki_due_day(&card.due_at, now)?, card.interval_days.round() as i64, (card.ease * 1000.0) as i64)
+                (
+                    2,
+                    -1,
+                    anki_due_day(&card.due_at, now)?,
+                    card.interval_days.round() as i64,
+                    (card.ease * 1000.0) as i64,
+                )
             } else {
-                (2, 2, anki_due_day(&card.due_at, now)?, card.interval_days.round() as i64, (card.ease * 1000.0) as i64)
+                (
+                    2,
+                    2,
+                    anki_due_day(&card.due_at, now)?,
+                    card.interval_days.round() as i64,
+                    (card.ease * 1000.0) as i64,
+                )
             };
             connection.execute(
                 "INSERT INTO notes VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, 0, '')",

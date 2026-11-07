@@ -679,8 +679,9 @@ fn ensure_no_overlap(
     start: OffsetDateTime,
     end: OffsetDateTime,
 ) -> Result<()> {
-    let mut statement = conn
-        .prepare("SELECT id, start_at, duration_minutes FROM community_rooms WHERE status = 'scheduled'")?;
+    let mut statement = conn.prepare(
+        "SELECT id, start_at, duration_minutes FROM community_rooms WHERE status = 'scheduled'",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, i64>(0)?,

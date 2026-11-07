@@ -486,8 +486,7 @@ pub fn update_goal<R: Runtime>(
         .unwrap_or("标准")
         .to_string();
     let base = (input.weekly_hours * 60 / 7).clamp(15, 600);
-    plan_input.daily_minutes =
-        ((base as f64 * factor(&intensity)?).round() as u32).clamp(15, 600);
+    plan_input.daily_minutes = ((base as f64 * factor(&intensity)?).round() as u32).clamp(15, 600);
     if let Some(level) = input.level {
         plan_input.level = level;
     }

@@ -237,9 +237,7 @@ where
                                 // 同语义（10#4）——保留已生成内容正常完成，不整步失败
                                 output.finish_reason = Some("length".into());
                             } else {
-                                return Err(
-                                    output.error("incomplete_stream", "模型响应未完整完成")
-                                );
+                                return Err(output.error("incomplete_stream", "模型响应未完整完成"));
                             }
                         }
                         output.usage = response_usage(&response);

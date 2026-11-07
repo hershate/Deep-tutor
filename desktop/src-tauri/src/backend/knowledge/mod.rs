@@ -633,8 +633,9 @@ fn run<R: Runtime>(app: &AppHandle<R>, state: &KnowledgeState, id: i64) -> Resul
             "模型声称依据充分，但全部引用都无法在资料原文中逐字定位，回答不可信",
         ));
     }
-    let mut warning = truncated
-        .then(|| "资料总量超过本次问答预算，仅使用部分内容；模型不能据此推断未提供的内容。".to_string());
+    let mut warning = truncated.then(|| {
+        "资料总量超过本次问答预算，仅使用部分内容；模型不能据此推断未提供的内容。".to_string()
+    });
     if dropped > 0 {
         let note = format!("{dropped} 条模型引用未能在资料原文中逐字定位，已剔除。");
         warning = Some(match warning {

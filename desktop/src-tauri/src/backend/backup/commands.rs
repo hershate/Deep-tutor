@@ -38,7 +38,11 @@ pub fn export_full_backup<R: Runtime>(
 
 #[tauri::command]
 pub fn preview_full_backup(state: State<'_, BackendState>, path: String) -> Result<BackupPreview> {
-    super::preview(&state.learning, &*store(&state)?, std::path::Path::new(&path))
+    super::preview(
+        &state.learning,
+        &*store(&state)?,
+        std::path::Path::new(&path),
+    )
 }
 
 #[tauri::command]

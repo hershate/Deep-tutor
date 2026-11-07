@@ -1099,10 +1099,8 @@ pub fn dry_run(
     store: &Store,
     state: &LearningState,
 ) -> Result<BTreeMap<String, u64>> {
-    let source = Connection::open_with_flags(
-        &backup.database,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
+    let source =
+        Connection::open_with_flags(&backup.database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.execute("PRAGMA query_only = ON", [])?;
     let mut transfer = read_tables(&source, &store.conn)?;
     prepare_ids(&mut transfer, &store.conn)?;

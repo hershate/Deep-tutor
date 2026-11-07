@@ -82,8 +82,7 @@ pub fn import<R: Runtime>(
         ),
         (
             "projects",
-            super::projects::recover(app, &super::projects::ProjectState::new(state))
-                .map(|_| ()),
+            super::projects::recover(app, &super::projects::ProjectState::new(state)).map(|_| ()),
         ),
         (
             "knowledge",

@@ -700,10 +700,7 @@ fn initialize<R: Runtime>(
         Ok(current) => Ok(current),
         Err(error) if error.code == "login_required" => {
             // 用户显式登出后不再自动以管理员身份重登，避免撤销语义被下一条命令抵消
-            if state
-                .logged_out
-                .load(std::sync::atomic::Ordering::Acquire)
-            {
+            if state.logged_out.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(error);
             }
             let id: i64 = store.conn.query_row("SELECT id FROM local_users WHERE role = '管理员' AND active = 1 AND deleted_at IS NULL ORDER BY id LIMIT 1", [], |row| row.get(0))?;

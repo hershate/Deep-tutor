@@ -90,7 +90,10 @@ fn subjective_rubrics_scores_citations_and_evidence_are_real() {
             .answered_questions,
         1
     );
-    assert_eq!(detail(&state, generated.set.id).unwrap().set.score, Some(0.8));
+    assert_eq!(
+        detail(&state, generated.set.id).unwrap().set.score,
+        Some(0.8)
+    );
     assert_eq!(
         subjective::submit(
             app.handle(),

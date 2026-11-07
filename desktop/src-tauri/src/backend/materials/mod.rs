@@ -792,7 +792,16 @@ fn run_job<R: Runtime>(
     }
     let parsed = parse_with_progress(&bytes, &kind, cancel.clone(), |percent| {
         // 11#14：解析期间按页真实进度写入并发事件（失败不阻断解析本身）
-        let _ = transition(&app, &store, &root, id, job_id, "parsing", percent as i64, None);
+        let _ = transition(
+            &app,
+            &store,
+            &root,
+            id,
+            job_id,
+            "parsing",
+            percent as i64,
+            None,
+        );
     })?;
     if cancel.load(Ordering::Acquire) {
         return Err(BackendError::new(

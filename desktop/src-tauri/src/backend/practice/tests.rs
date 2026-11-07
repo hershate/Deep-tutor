@@ -1,12 +1,12 @@
 use super::super::learning::{self, PlanInput};
 use super::super::materials;
-use std::time::Instant;
 use super::super::providers::test_support::{response, server, start_stream, TestServer};
 use super::super::providers::{self, ChatMessage, ProfileInput};
 use super::super::BackendState;
 use super::*;
 use serde_json::json;
 use std::sync::Mutex;
+use std::time::Instant;
 
 mod exam_tests;
 mod subjective_tests;
@@ -97,7 +97,10 @@ fn model_server(
                 start_stream(stream);
                 let gate_deadline = Instant::now() + Duration::from_secs(5);
                 while !gate.load(Ordering::Acquire) {
-                    assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
+                    assert!(
+                        Instant::now() < gate_deadline,
+                        "测试门未在 5 秒内释放，可能前置断言已失败"
+                    );
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }
@@ -121,7 +124,10 @@ fn model_server(
                 start_stream(stream);
                 let gate_deadline = Instant::now() + Duration::from_secs(5);
                 while !gate.load(Ordering::Acquire) {
-                    assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
+                    assert!(
+                        Instant::now() < gate_deadline,
+                        "测试门未在 5 秒内释放，可能前置断言已失败"
+                    );
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }

@@ -360,10 +360,7 @@ fn finish_focus<R: Runtime>(
     let tx = store.conn.unchecked_transaction()?;
     let updated = tx.execute("UPDATE focus_sessions SET status = ?1, actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?4 AND status IN ('running', 'paused')", params![status, session.actual_seconds as i64, timestamp, id])?;
     if updated == 0 {
-        return Err(BackendError::new(
-            "no_active_focus",
-            "当前没有进行中的专注",
-        ));
+        return Err(BackendError::new("no_active_focus", "当前没有进行中的专注"));
     }
     let event = Store::event(
         &tx,
@@ -387,9 +384,9 @@ pub fn cancel_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Resu
 /// 时长取暂停时的累计值，或墙钟流逝（封顶计划时长），避免停机时间全部计入统计。
 pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<()> {
     let store = state.store()?;
-    let mut statement = store
-        .conn
-        .prepare("SELECT id FROM focus_sessions WHERE status IN ('running', 'paused') ORDER BY id")?;
+    let mut statement = store.conn.prepare(
+        "SELECT id FROM focus_sessions WHERE status IN ('running', 'paused') ORDER BY id",
+    )?;
     let ids = statement
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;

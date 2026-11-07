@@ -1,9 +1,9 @@
 use super::*;
 use crate::backend::providers::test_support::{response, server, start_stream, TestServer};
-use std::time::Instant;
 use crate::backend::providers::{self, ProfileInput};
 use crate::backend::BackendState;
 use std::sync::Mutex;
+use std::time::Instant;
 
 fn setup() -> (tauri::App<tauri::test::MockRuntime>, KnowledgeState) {
     let state = KnowledgeState::for_tests().unwrap();
@@ -66,7 +66,10 @@ fn model_server(material_id: i64, valid: bool, gate: Option<Arc<AtomicBool>>) ->
             start_stream(stream);
             let gate_deadline = Instant::now() + Duration::from_secs(5);
             while !gate.load(Ordering::Acquire) {
-                assert!(Instant::now() < gate_deadline, "测试门未在 5 秒内释放，可能前置断言已失败");
+                assert!(
+                    Instant::now() < gate_deadline,
+                    "测试门未在 5 秒内释放，可能前置断言已失败"
+                );
                 std::thread::sleep(Duration::from_millis(5));
             }
         }

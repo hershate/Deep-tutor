@@ -137,7 +137,9 @@ impl Store {
             // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
             let staged = path.with_file_name(format!(
                 "{}.migration-tmp",
-                path.file_name().and_then(|name| name.to_str()).unwrap_or("store")
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("store")
             ));
             if let Err(error) = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path)) {
                 let _ = fs::remove_file(&staged);
@@ -896,7 +898,10 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                     ],
                 )?;
                 if object.contains_key("projectVersionId")
-                    && !object.get("projectVersionId").unwrap_or(&Value::Null).is_number()
+                    && !object
+                        .get("projectVersionId")
+                        .unwrap_or(&Value::Null)
+                        .is_number()
                 {
                     return Err(BackendError::invalid(
                         "invalid_field",

@@ -360,7 +360,9 @@ fn write_manifest(state: &PluginState, id: &str, content: &str) -> Result<PathBu
         .create_new(true)
         .open(&temporary)?;
     // 14#15：写坏即删 tmp，不留半截文件被孤儿扫描收走
-    if let Err(error) = std::io::Write::write_all(&mut file, content.as_bytes()).and_then(|()| file.sync_all()) {
+    if let Err(error) =
+        std::io::Write::write_all(&mut file, content.as_bytes()).and_then(|()| file.sync_all())
+    {
         drop(file);
         let _ = fs::remove_file(&temporary);
         return Err(error.into());

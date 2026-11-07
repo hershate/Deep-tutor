@@ -302,7 +302,9 @@ pub fn fetch(value: &str) -> Result<WebPage> {
     let body_truncated = text.len() > MAX_TEXT_BYTES;
     let warning = match (title_clamped, body_truncated) {
         (false, false) => None,
-        (true, true) => Some("网页标题过长已截断；正文超过 256 KiB 上限，仅保存前 256 KiB。".into()),
+        (true, true) => {
+            Some("网页标题过长已截断；正文超过 256 KiB 上限，仅保存前 256 KiB。".into())
+        }
         (true, false) => Some("网页标题过长已截断。".into()),
         (false, true) => Some("网页正文超过 256 KiB 上限，仅保存前 256 KiB。".into()),
     };

@@ -166,9 +166,32 @@ fn clean_block(value: &str) -> String {
 
 /// 块级元素（10#21）：进入/退出时补换行，正文不再被压成单行
 const BLOCK_TAGS: [&str; 26] = [
-    "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
-    "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "main", "ol", "p", "pre",
-    "section", "table", "ul",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "br",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "figcaption",
+    "figure",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "li",
+    "main",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "ul",
 ];
 
 pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
@@ -243,14 +266,7 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
             continue;
         }
         if [
-            "script",
-            "style",
-            "noscript",
-            "template",
-            "svg",
-            "nav",
-            "footer",
-            "aside",
+            "script", "style", "noscript", "template", "svg", "nav", "footer", "aside",
         ]
         .contains(&name.as_str())
         {

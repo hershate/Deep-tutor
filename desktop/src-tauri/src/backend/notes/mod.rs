@@ -60,7 +60,10 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
                         title = cleaned.to_string();
                     }
                 }
-                if let Some(value) = line.strip_prefix("tags:").or_else(|| line.strip_prefix("tag:")) {
+                if let Some(value) = line
+                    .strip_prefix("tags:")
+                    .or_else(|| line.strip_prefix("tag:"))
+                {
                     let cleaned = value
                         .trim()
                         .trim_start_matches('[')
@@ -100,8 +103,12 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
     }
     // 11#16：落库前的真实约束是“序列化后记录 ≤ 1 MB”（含转义膨胀）；
     // 在读取侧预检并把具体文件名带进错误，避免整批 ZIP 导入到最后一步才失败
-    let serialized = serde_json::to_string(&content).map_err(|_| invalid("invalid_note_content", "笔记正文无法序列化"))?.len()
-        + serde_json::to_string(&title).map(|value| value.len()).unwrap_or_default()
+    let serialized = serde_json::to_string(&content)
+        .map_err(|_| invalid("invalid_note_content", "笔记正文无法序列化"))?
+        .len()
+        + serde_json::to_string(&title)
+            .map(|value| value.len())
+            .unwrap_or_default()
         + tag.len()
         + 512;
     if serialized > crate::backend::store::MAX_RECORD_BYTES {

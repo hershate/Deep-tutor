@@ -418,11 +418,7 @@ fn percent_decode(value: &str) -> String {
 }
 
 fn zip_path(base: &str, href: &str) -> Result<String> {
-    let href = percent_decode(
-        href.split(['?', '#'])
-            .next()
-            .unwrap_or_default(),
-    );
+    let href = percent_decode(href.split(['?', '#']).next().unwrap_or_default());
     if href.contains(':') || href.starts_with('/') {
         return Err(failure("文档索引包含外部路径"));
     }

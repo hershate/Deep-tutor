@@ -1128,7 +1128,10 @@ where
 
 /// 请求侧：历史消息中的本地工具名（含点号）→ 远端消毒名（10#8）。
 /// 无工具时原样克隆，保持请求体不变。
-fn remote_messages(names: &super::protocol::ToolNames, messages: &[ChatMessage]) -> Vec<ChatMessage> {
+fn remote_messages(
+    names: &super::protocol::ToolNames,
+    messages: &[ChatMessage],
+) -> Vec<ChatMessage> {
     messages
         .iter()
         .map(|message| {
@@ -1192,9 +1195,7 @@ mod tests {
         // 按钉扎地址连接”的正向链路零覆盖（仅拒绝态负例）。这里用
         // localhost 主机名驱动完整链路连到 127.0.0.1 回环服务。
         let address = server(|_| "{}".into());
-        let port = address
-            .trim_start_matches("http://127.0.0.1:")
-            .to_string();
+        let port = address.trim_start_matches("http://127.0.0.1:").to_string();
         let url: reqwest::Url = format!("http://localhost:{port}/v1/models")
             .parse()
             .unwrap();

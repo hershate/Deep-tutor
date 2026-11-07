@@ -172,10 +172,7 @@ impl CredentialBackend for MemoryCredentials {
 
     fn set(&self, id: &str, value: &str) -> Result<()> {
         if MEMORY_CREDENTIAL_FAIL.swap(false, std::sync::atomic::Ordering::AcqRel) {
-            return Err(BackendError::new(
-                "credential_error",
-                "无法写入系统密钥库",
-            ));
+            return Err(BackendError::new("credential_error", "无法写入系统密钥库"));
         }
         self.0
             .lock()
@@ -186,10 +183,7 @@ impl CredentialBackend for MemoryCredentials {
 
     fn delete(&self, id: &str) -> Result<()> {
         if MEMORY_CREDENTIAL_FAIL.swap(false, std::sync::atomic::Ordering::AcqRel) {
-            return Err(BackendError::new(
-                "credential_error",
-                "无法写入系统密钥库",
-            ));
+            return Err(BackendError::new("credential_error", "无法写入系统密钥库"));
         }
         self.0.lock().unwrap().remove(id);
         Ok(())

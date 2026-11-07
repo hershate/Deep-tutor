@@ -202,7 +202,10 @@ fn xml_attr(value: &str) -> String {
 pub fn opml(document: &ExportDocument) -> String {
     let mut output = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>{}</title></head><body><outline text=\"{}\">", xml(&document.title), xml_attr(&document.title));
     for section in &document.sections {
-        output.push_str(&format!("<outline text=\"{}\">", xml_attr(&section.heading)));
+        output.push_str(&format!(
+            "<outline text=\"{}\">",
+            xml_attr(&section.heading)
+        ));
         for paragraph in &section.paragraphs {
             output.push_str(&format!("<outline text=\"{}\"/>", xml_attr(paragraph)));
         }

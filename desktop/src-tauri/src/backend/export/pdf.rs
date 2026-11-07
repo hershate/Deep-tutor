@@ -305,9 +305,7 @@ pub fn render(document: &ExportDocument) -> Result<Vec<u8>> {
             glyphs.insert(character, glyph);
         }
     }
-    let fallback_glyph = font
-        .glyph('\u{25A1}')?
-        .unwrap_or(0);
+    let fallback_glyph = font.glyph('\u{25A1}')?.unwrap_or(0);
     glyphs.entry('\u{25A1}').or_insert(fallback_glyph);
     let mut lines = Vec::new();
     for line in source {

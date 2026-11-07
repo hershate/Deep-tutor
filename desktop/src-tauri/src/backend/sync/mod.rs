@@ -841,7 +841,9 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, service: &SyncService) -> Result<
         .conn
         .prepare("SELECT id, status FROM sync_jobs WHERE status IN ('running', 'cancelling')")?;
     let rows = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
     for (id, status) in rows {

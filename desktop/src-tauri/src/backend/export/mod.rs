@@ -389,7 +389,9 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
             date: String::new(),
             minutes: None,
         });
-        document.cards.push(ExportCard::new(title.into(), content.into(), tag.into()));
+        document
+            .cards
+            .push(ExportCard::new(title.into(), content.into(), tag.into()));
     }
     let mut statement = store.conn.prepare("SELECT materials.title, materials.kind, material_text.content FROM material_text JOIN materials ON materials.id = material_text.material_id ORDER BY materials.id")?;
     let rows = statement

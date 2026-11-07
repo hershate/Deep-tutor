@@ -554,7 +554,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 .with_time(time::Time::MIDNIGHT)
                 .assume_offset(local.offset())
                 + Duration::days(1))
-                .to_offset(time::UtcOffset::UTC),
+            .to_offset(time::UtcOffset::UTC),
         )?;
         let due: i64 = store.conn.query_row(
             "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at < ?1",
@@ -572,14 +572,12 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 "review",
             )?;
         }
-        let recent_floor = (now()? - Duration::days(7))
-            .date()
-            .to_string();
+        let recent_floor = (now()? - Duration::days(7)).date().to_string();
         // 13#2：原 WHERE date <= today 无下界，全部历史逾期都计入"今日"；
         // 收敛为近 7 天窗口，数字不再随陈年未勾选任务虚高
-        let mut statement = store
-            .conn
-            .prepare("SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= ?1 AND date >= ?2")?;
+        let mut statement = store.conn.prepare(
+            "SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= ?1 AND date >= ?2",
+        )?;
         let ids = statement
             .query_map(params![today, recent_floor], |row| row.get::<_, i64>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
