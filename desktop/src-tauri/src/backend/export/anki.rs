@@ -128,7 +128,12 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                 format!(
                     "content:{}:{:x}",
                     card.front,
-                    u32::from_be_bytes([back_digest[0], back_digest[1], back_digest[2], back_digest[3]])
+                    u32::from_be_bytes([
+                        back_digest[0],
+                        back_digest[1],
+                        back_digest[2],
+                        back_digest[3]
+                    ])
                 )
             };
             let guid = format!("{:x}", Sha256::digest(anchor.as_bytes()))

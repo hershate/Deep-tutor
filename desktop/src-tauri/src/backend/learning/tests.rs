@@ -1052,3 +1052,16 @@ fn resource_pipeline_uses_verified_web_results_and_reports_real_failures() {
         .unwrap()
         .contains("web_network_error"));
 }
+
+#[test]
+fn parse_model_json_recovers_bare_json_with_fenced_string_content() {
+    // B-2：裸 JSON 的字符串值内含 ```（讲义正文为 Markdown 天然可能）时，
+    // 围栏提取会截出损坏片段——提取物解析失败必须回退整体解析
+    let bare = r#"{"title":"单元","sections":[{"heading":"示例","content":"代码：\n```rust\nfn main() {}\n```"}]}"#;
+    let parsed: serde_json::Value = pipeline::parse_model_json(bare).unwrap();
+    assert_eq!(parsed["sections"][0]["heading"], "示例");
+    // 无围栏但带前缀说明文字的常规形态仍然成立
+    let fenced = "说明文字\n```json\n{\"a\":1}\n```";
+    let parsed: serde_json::Value = pipeline::parse_model_json(fenced).unwrap();
+    assert_eq!(parsed["a"], 1);
+}

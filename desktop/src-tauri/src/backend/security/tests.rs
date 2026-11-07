@@ -343,8 +343,13 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
     let token_hash = hash(token["token"].as_str().unwrap());
     let overview = ipc(&app, "get_security_overview", json!({})).unwrap();
     for quota in overview["quotas"].as_array().unwrap() {
-        // threads = 帖子 1 + 回复 1；其余资源各 1
-        let expected = if quota["resource"] == "threads" { 2 } else { 1 };
+        // threads = 帖子 1 + 回复 1；agent_memory 按 kv 条数计（本测试
+        // 未写记忆，为 0）；其余资源各 1
+        let expected = match quota["resource"].as_str().unwrap() {
+            "threads" => 2,
+            "agent_memory" => 0,
+            _ => 1,
+        };
         assert_eq!(quota["used"], expected);
     }
     let limited = ipc(

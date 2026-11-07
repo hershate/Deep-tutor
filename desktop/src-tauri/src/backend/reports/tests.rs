@@ -295,3 +295,100 @@ fn report_links_plan_evidence_checkins_adoption_and_real_csv() {
         "future_checkin"
     );
 }
+
+#[test]
+fn calendar_checkin_rate_denominator_follows_first_active_day() {
+    // 15#1：分母 = 自首个活跃日起的天数——今天首活跃分母为 1（不再被固定
+    // 84 稀释），83 天前首活跃分母为 84（打卡率不再超过 100%）
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    let today = day(OffsetDateTime::now_local().unwrap_or_else(|_| now().unwrap()));
+    // 场景 A：全新工作区，只打卡今天
+    let calendar = ipc(
+        &app,
+        "save_study_checkin",
+        json!({"input":{"date":today,"minutes":30,"note":"今天首活跃"}}),
+    )
+    .unwrap();
+    assert_eq!(calendar["checkinRate"], 100, "今天首活跃：1/1 = 100%");
+    // 场景 B：83 天前有已完成的专注会话 → 首活跃日 = 83 天前，分母 84
+    let old = timestamp(
+        OffsetDateTime::now_local()
+            .unwrap_or_else(|_| now().unwrap())
+            .replace_time(time::Time::MIDNIGHT)
+            - Duration::days(83),
+    )
+    .unwrap();
+    store.conn.execute(
+        "INSERT INTO focus_sessions (task_id, planned_seconds, status, started_at, ended_at, actual_seconds, created_at, updated_at) VALUES (NULL, 1500, 'completed', ?1, ?1, 1500, ?1, ?1)",
+        params![old],
+    )
+    .unwrap();
+    let calendar = ipc(&app, "get_learning_calendar", json!({})).unwrap();
+    // 分子只计打卡日（1），分母为首个活跃日（83 天前）以来的 84 天；
+    // 修复前分母 = 84-83 = 1，打卡率错误地为 100%
+    assert_eq!(
+        calendar["checkinRate"],
+        (1 * 100 / 84) as u64,
+        "分母应为 84：1/84 取整"
+    );
+}
+
+#[test]
+fn report_csv_percentages_output_integer_percent_not_0_or_1() {
+    // 15#2：correct_percent 为 [0,1] 小数，CSV 输出须乘 100 取整——
+    // 修复前 76.9% 输出 "1"、40% 输出 "0"
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    insert_plan(&store);
+    let now = timestamp(now().unwrap()).unwrap();
+    store.conn.execute(
+        "INSERT INTO practice_sets (mode, status, plan_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, created_at, updated_at) VALUES ('targeted', 'completed', 1, 'p1', 'adaptive', 'immediate', '[]', 13, ?1, ?1)",
+        params![now],
+    )
+    .unwrap();
+    let set_id = store.conn.last_insert_rowid();
+    for position in 0..13 {
+        store.conn.execute(
+            "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty) VALUES (?1, ?2, 'choice', '题目', '[]', '0', '', '', '[]', '[]', 1)",
+            params![set_id, position],
+        )
+        .unwrap();
+    }
+    // 13 题对 10 题：10/13 ≈ 0.769 → CSV 应为 77
+    let question_ids: Vec<i64> = store
+        .conn
+        .prepare("SELECT id FROM practice_questions WHERE set_id = ?1 ORDER BY id")
+        .unwrap()
+        .query_map(params![set_id], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    for (index, correct) in [true; 10].iter().chain([false; 3].iter()).enumerate() {
+        store.conn.execute(
+            "INSERT INTO practice_answers (question_id, set_id, response_json, score, max_score, correct, feedback_json, status, created_at) VALUES (?1, ?2, '{}', ?3, 1, ?4, '{}', 'done', ?5)",
+            params![question_ids[index], set_id, if *correct { 1.0 } else { 0.0 }, correct, now],
+        )
+        .unwrap();
+    }
+    let destination = learning
+        .workspace_path()
+        .parent()
+        .unwrap()
+        .join("percent.csv");
+    ipc(
+        &app,
+        "export_learning_report",
+        json!({"destination":destination.to_string_lossy(),"period":"8w"}),
+    )
+    .unwrap();
+    let content = std::fs::read_to_string(&destination).unwrap();
+    assert!(
+        content.contains("\"正确率百分比\",\"77\"") || content.contains("正确率百分比,77"),
+        "76.9% 应输出 77，内容为：{content}"
+    );
+    assert!(
+        !content.contains("\"正确率百分比\",\"0\"") && !content.contains("\"正确率百分比\",\"1\""),
+        "不得输出 0 或 1"
+    );
+}

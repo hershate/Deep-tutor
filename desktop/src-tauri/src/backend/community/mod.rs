@@ -337,7 +337,10 @@ fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<V
     } else {
         format!(
             "%{}%",
-            query.replace('~', "~~").replace('%', "~%").replace('_', "~_")
+            query
+                .replace('~', "~~")
+                .replace('%', "~%")
+                .replace('_', "~_")
         )
     };
     let mut statement = conn.prepare(

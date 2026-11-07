@@ -411,3 +411,67 @@ fn draft_commands_round_trip_through_ipc_with_real_rows_and_events() {
         .collect();
     assert!(kinds.contains(&"draft.saved") && kinds.contains(&"draft.deleted"));
 }
+
+#[test]
+fn imported_notes_strip_bom_crlf_and_do_not_lose_leading_divider_content() {
+    // A-18：Windows 记事本保存的 md（BOM + CRLF）导入后不得把 FEFF 带进
+    // 正文、frontmatter 应正常识别；B-7：正文以 --- 分隔线开头且块内无
+    // title:/tag: 键时，首段不得被当作 frontmatter 剥掉
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    // ① BOM + CRLF + frontmatter
+    let with_bom = directory.path().join("bom.md");
+    std::fs::write(
+        &with_bom,
+        "\u{feff}---\r\ntitle: 带BOM的笔记\r\ntag: 概率\r\n---\r\n\r\n正文第一行。\r\n第二行。\r\n"
+            .as_bytes(),
+    )
+    .unwrap();
+    ipc(
+        &app,
+        "import_notes",
+        json!({"path": with_bom.to_string_lossy()}),
+    )
+    .unwrap();
+    let list = notes(&app);
+    let imported = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|note| note["title"] == "带BOM的笔记")
+        .expect("frontmatter 标题应被识别");
+    assert!(
+        !imported["content"].as_str().unwrap().contains("\u{feff}"),
+        "BOM 不得进入正文"
+    );
+    assert!(imported["content"]
+        .as_str()
+        .unwrap()
+        .contains("正文第一行。"));
+    assert_eq!(imported["tag"], "概率");
+    // ② 正文以 --- 分隔线开头：首段到下一条分隔线之间不得被剥离
+    let divider = directory.path().join("divider.md");
+    std::fs::write(
+        &divider,
+        "---\n分隔线开头的正文首段。\n\n---\n\n后续段落。\n".as_bytes(),
+    )
+    .unwrap();
+    ipc(
+        &app,
+        "import_notes",
+        json!({"path": divider.to_string_lossy()}),
+    )
+    .unwrap();
+    let list = notes(&app);
+    let kept = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|note| note["title"] == "divider")
+        .expect("分隔线笔记应导入");
+    let content = kept["content"].as_str().unwrap();
+    assert!(
+        content.contains("分隔线开头的正文首段。"),
+        "无元数据键的分隔线块不得被当 frontmatter 剥掉，实际内容：{content}"
+    );
+}

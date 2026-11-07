@@ -239,7 +239,10 @@ pub fn import<R: Runtime>(
         super::set_active(app, state, &active).map_err(|error| {
             BackendError::new(
                 "sync_active_restore_failed",
-                &format!("已追加 {applied} 个档案，但默认档案恢复失败：{}", error.message),
+                &format!(
+                    "已追加 {applied} 个档案，但默认档案恢复失败：{}",
+                    error.message
+                ),
             )
         })?;
     }

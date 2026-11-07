@@ -596,9 +596,11 @@ pub fn cleanup<R: Runtime>(
             }
         }
         // B-12：截断对用户可见——报告未轮到的剩余项数
-        let remaining = (orphans.originals.len() + orphans.scratch.len() + orphans.plugins.len()
+        let remaining = (orphans.originals.len()
+            + orphans.scratch.len()
+            + orphans.plugins.len()
             + orphans.tempdirs.len())
-            .saturating_sub(batch + failures.len()) as u64;
+        .saturating_sub(batch + failures.len()) as u64;
         Ok(CleanupResult {
             deleted_files,
             deleted_temp_items,

@@ -412,9 +412,7 @@ pub fn render(document: &ExportDocument) -> Result<(Vec<u8>, Option<String>)> {
     pdf.save_to(&mut bytes)?;
     // A-17：缺字形替换占比 >1% 时随回执告警（与材料解析域 03#16 同阈值），
     // 不再让成片 □ 静默进入成品
-    let notice = if total_characters > 0
-        && replaced_characters * 100 > total_characters
-    {
+    let notice = if total_characters > 0 && replaced_characters * 100 > total_characters {
         Some(format!(
             "导出字体缺少 {} 个字符的字形（约 {}%），已用 □ 替代，建议改用 HTML/Markdown 格式查看完整内容",
             replaced_characters,

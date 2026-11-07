@@ -393,3 +393,47 @@ fn notes_zip_is_generated_by_native_ipc_with_real_markdown_and_manifest() {
     let manifest: Value = serde_json::from_str(&manifest).unwrap();
     assert_eq!(manifest["count"], 1);
 }
+
+#[test]
+fn apkg_review_card_due_counts_days_since_collection_creation() {
+    // 15#4：queue=2 复习卡的 due 语义为「自 collection crt 起的天数」——
+    // 修复前按 epoch 天数写入（≈20541），导入真实 Anki 后到期日落 在数十年后
+    let (app, learning, directory) = setup();
+    let store = learning.store().unwrap();
+    let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    // setup 创建的卡 repetitions=0；升级为复习卡并设定明天的到期日
+    let due = (OffsetDateTime::now_utc() + time::Duration::days(1))
+        .replace_nanosecond(0)
+        .unwrap()
+        .format(&Rfc3339)
+        .unwrap();
+    store.conn.execute(
+        "UPDATE review_cards SET repetitions = 3, interval_days = 5, ease = 2.5, due_at = ?2 WHERE id = (SELECT MIN(id) FROM review_cards)",
+        params![timestamp, due],
+    )
+    .unwrap();
+    let (_, _, path) = exported(&app, input("review", "apkg"), directory.path(), "due.apkg");
+    let file = std::fs::File::open(path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut archive.by_name("collection.anki2").unwrap(),
+        &mut bytes,
+    )
+    .unwrap();
+    let collection = directory.path().join("due.anki2");
+    std::fs::write(&collection, bytes).unwrap();
+    let connection = Connection::open(collection).unwrap();
+    let (queue, due_day, crt): (i64, i64, i64) = connection
+        .query_row(
+            "SELECT cards.queue, cards.due, col.crt FROM cards JOIN col ON col.id = 1 WHERE cards.queue = 2",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(queue, 2);
+    assert!(
+        (-1..=2).contains(&due_day),
+        "due 应为自 crt 起的个位数天数（明天到期 ≈ 1），实际 {due_day}（crt={crt}）"
+    );
+}

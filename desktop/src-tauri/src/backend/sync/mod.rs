@@ -579,16 +579,11 @@ fn run<R: Runtime>(
                                         entry.file_name().to_string_lossy().starts_with("sync-")
                                     })
                                     .filter(|entry| {
-                                        entry
-                                            .path()
-                                            .extension()
-                                            .is_some_and(|ext| ext == "json")
+                                        entry.path().extension().is_some_and(|ext| ext == "json")
                                     })
                                     .filter_map(|entry| {
-                                        let modified = entry
-                                            .metadata()
-                                            .and_then(|meta| meta.modified())
-                                            .ok();
+                                        let modified =
+                                            entry.metadata().and_then(|meta| meta.modified()).ok();
                                         modified.map(|time| (time, entry.path()))
                                     })
                                     .collect::<Vec<_>>()

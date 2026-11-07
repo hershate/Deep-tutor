@@ -41,7 +41,10 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
         .canonicalize()
         .unwrap_or_else(|_| lexical_absolute(root));
     // 目标可能尚不存在：优先规范化已存在的父目录；不存在时词法绝对化
-    let candidate = match destination.parent().and_then(|parent| parent.canonicalize().ok()) {
+    let candidate = match destination
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+    {
         Some(parent) => parent.join(destination.file_name().unwrap_or_default()),
         None => lexical_absolute(destination),
     };

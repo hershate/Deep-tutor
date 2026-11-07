@@ -15,7 +15,7 @@ pub const STEP_NAMES: [&str; 8] = [
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanInput {
     pub goal: String,
     pub level: String,

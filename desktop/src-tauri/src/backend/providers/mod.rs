@@ -471,10 +471,7 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
 
 /// upsert 的停用约束预检（E-2）：import 等批量写入方先整批调用本函数，
 /// 避免「写一半才撞约束」造成部分提交
-pub(crate) fn check_disable_constraints(
-    state: &ProviderState,
-    input: &ProfileInput,
-) -> Result<()> {
+pub(crate) fn check_disable_constraints(state: &ProviderState, input: &ProfileInput) -> Result<()> {
     let id = input.id.as_deref().map(numeric_id).transpose()?;
     let previous = id.map(|id| format!("p{id}"));
     if input.enabled == Some(false)

@@ -42,7 +42,11 @@ fn file_name(note: &Value) -> Result<String> {
         // 「导出的文件名」与 manifest/导入侧认知不一致
         .trim_end_matches([' ', '.'])
         .to_string();
-    let title = if title.is_empty() { "未命名笔记".to_string() } else { title };
+    let title = if title.is_empty() {
+        "未命名笔记".to_string()
+    } else {
+        title
+    };
     Ok(format!("知舟笔记/{id:03}-{title}.md"))
 }
 

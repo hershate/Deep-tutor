@@ -145,29 +145,6 @@ impl Store {
                 let _ = fs::remove_file(&staged);
                 return Err(error.into());
             }
-            // A-14：迁移成功后清理根库旧业务表——根库此后不再被读写，
-            // 残留副本是永久死重（根库体积翻倍、审计者困惑）。仅在复制
-            // 与改名都成功后执行；失败不影响迁移结果（下次启动 path 已
-            // 存在，不再进本分支，清理失败仅意味着死重照旧）。
-            if let Ok(source) = Connection::open(&root) {
-                let tables: Vec<String> = source
-                    .prepare(
-                        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-                    )
-                    .and_then(|mut statement| {
-                        let mut rows = statement.query([])?;
-                        let mut names = Vec::new();
-                        while let Some(row) = rows.next()? {
-                            names.push(row.get(0)?);
-                        }
-                        Ok(names)
-                    })
-                    .unwrap_or_default();
-                for table in tables {
-                    let _ = source.execute(&format!("DROP TABLE IF EXISTS \"{table}\""), []);
-                }
-                let _ = source.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
-            }
         }
         let conn = Connection::open(&path)?;
         // B-10：SQLite 内建 lower() 仅覆盖 ASCII——注册 Unicode 版供搜索
@@ -645,7 +622,9 @@ impl Store {
     pub fn put_draft(&self, id: &str, value: &Value) -> Result<Mutation> {
         Self::validate_draft_id(id)?;
         validate_draft(value)?;
-        let tx = self.conn.unchecked_transaction()?;
+        // A-11：草稿保存与流式 delta 自动提交并发频繁，读改写用 IMMEDIATE
+        //（07#11 同指引）——DEFERRED 读快照过期后升级写锁会得 BUSY_SNAPSHOT
+        let tx = self.write_transaction()?;
         let revision = Self::next_revision(&tx, "drafts")?;
         Self::insert_json(&tx, "drafts", id, value)?;
         let event = Self::event(&tx, "draft.saved", json!({"id": id, "revision": revision}))?;
@@ -654,7 +633,8 @@ impl Store {
 
     pub fn delete_draft(&self, id: &str) -> Result<Mutation> {
         Self::validate_draft_id(id)?;
-        let tx = self.conn.unchecked_transaction()?;
+        // A-11：与 put_draft 同理，读改写事务用 IMMEDIATE
+        let tx = self.write_transaction()?;
         let deleted = tx.execute(
             "DELETE FROM kv WHERE namespace = 'drafts' AND id = ?1",
             params![id],

@@ -684,8 +684,8 @@ fn ensure_accounts(conn: &Connection) -> Result<()> {
         for (resource, limit) in RESOURCES {
             tx.execute(
                 "INSERT INTO security_quotas (user_id, resource, item_limit)
-                 SELECT u.id, ?2, ?3 FROM local_users u
-                 WHERE NOT EXISTS (SELECT 1 FROM security_quotas q WHERE q.user_id = u.id AND q.resource = ?2)",
+                 SELECT u.id, ?1, ?2 FROM local_users u
+                 WHERE NOT EXISTS (SELECT 1 FROM security_quotas q WHERE q.user_id = u.id AND q.resource = ?1)",
                 params![resource, limit as i64],
             )?;
         }
@@ -794,6 +794,12 @@ fn overview_from(state: &SecurityState) -> Result<SecurityOverview> {
                     [],
                     |row| row.get(0),
                 )?
+            }
+            // B-5：与 ensure_quota 同口径——agent_memory 按记忆条数计
+            "agent_memory" => {
+                workspace
+                    .conn
+                    .query_row("SELECT COUNT(*) FROM agent_memory", [], |row| row.get(0))?
             }
             _ => return Err(BackendError::new("invalid_quota", "未知的资源配额")),
         };

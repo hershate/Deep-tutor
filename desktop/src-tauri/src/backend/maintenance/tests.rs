@@ -98,6 +98,7 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     write(root, "plugins/stale.events/manifest.json", &json!({"id": "stale.events", "name": "过期插件", "version": "1.0.0", "description": "失效记录", "kind": "events", "subscriptions": []}).to_string());
     // 14#19：安装中断残留——无清单空目录与遗留在 plugins 根的 .manifest-N.tmp
     std::fs::create_dir_all(root.join("plugins/broken.events")).unwrap();
+    // B-13：刚写入的 .manifest tmp 处于 24h 宽限内，不立即判孤儿
     write(root, "plugins/.manifest-7.tmp", "partial");
     write(root, "backup-work/123-4/state.db", "snapshot");
     write(root, "exports/anki-123-4.db", "stale");
@@ -108,7 +109,13 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     assert_eq!(report["database"]["schemaVersion"], 1);
     assert_eq!(report["orphans"]["originals"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["scratch"].as_array().unwrap().len(), 1);
-    assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 3);
+    assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 2);
+    // B-13：宽限内的 .manifest tmp 不列入孤儿，也不被清理
+    assert!(report["orphans"]["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| !item["path"].as_str().unwrap().contains(".manifest-")));
     assert_eq!(report["orphans"]["tempdirs"].as_array().unwrap().len(), 2);
     assert_eq!(
         report["orphans"]["missingOriginals"]
@@ -118,7 +125,10 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
         1
     );
     let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
-    assert_eq!(cleanup["deletedFiles"], 5);
+    // B-13：tmp 在宽限内不计入孤儿也不被删（原 5 = originals 1 + scratch 1
+    // + plugins 3，现 plugins 只清 stale 与 broken 两项）
+    assert_eq!(cleanup["deletedFiles"], 4);
+    assert!(root.join("plugins/.manifest-7.tmp").is_file());
     assert_eq!(cleanup["deletedTempItems"], 2);
     assert_eq!(cleanup["failures"], json!([]));
     assert!(cleanup["freedBytes"].as_u64().unwrap() > 0);
