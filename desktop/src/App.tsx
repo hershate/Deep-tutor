@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
@@ -26,6 +27,7 @@ import { engagementBackend } from './backend/engagement'
 import { quickPages } from './backend/engagement'
 import type { DashboardOverview, NotificationOverview, SearchResult } from './backend/engagement'
 import { communityBackend } from './backend/community'
+import { importMaterialPaths, summarizeMaterialImport } from './backend/materialImport'
 import { clampToBytes } from './limits'
 import { localId } from './ids'
 import { reportsBackend } from './backend/reports'
@@ -176,6 +178,24 @@ export default function App() {
     const timer = window.setInterval(() => { void claim() }, 60000)
     return () => { active = false; window.clearInterval(timer) }
   }, [ready, loginRequired])
+  useEffect(() => {
+    // 37#3：dragDropEnabled 早已开启但全仓无处理器——拖入被 WebView2 静默
+    // 吞掉。现在全窗口接收 OS 拖放：文件经共享导入通道暂存进资料库，
+    // 生成器/资料库页由 material.* 事件自动刷新
+    if (!ready || loginRequired) return
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void getCurrentWebview().onDragDropEvent(event => {
+      if (disposed || event.payload.type !== 'drop') return
+      const paths = event.payload.paths
+      if (!paths?.length) return
+      void importMaterialPaths(paths)
+        .then(summary => notify(summarizeMaterialImport(summary)))
+        .catch(error => reportBackendError(error, 'write'))
+    }).then(remove => { if (disposed) remove(); else unlisten = remove })
+      .catch(() => { /* 拖放监听不可用时保持无拖放行为，不影响主流程 */ })
+    return () => { disposed = true; unlisten?.() }
+  }, [ready, loginRequired, notify])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)

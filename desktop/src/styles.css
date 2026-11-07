@@ -1030,6 +1030,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .source-dropzone > p { margin: 8px 0; font-size: 12px; }
 .source-dropzone > span { color: var(--muted); font-size: 12px; }
 .source-dropzone input { display: none; }
+/* 37#3：OS 拖入悬停高亮（导入由 App 全局拖放监听执行） */
+.source-dropzone.is-drag-over { border-color: var(--accent); background: var(--accent-soft); }
 .source-text-input textarea { min-height: 220px; }
 .source-text-input > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
 .source-text-input > div > span { color: var(--muted); font-size: 12px; }

@@ -12,6 +12,7 @@ import WikiPanel from '../components/WikiPanel'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
 import type { AppSnapshot, MaterialDetail } from '../backend/client'
 import { exportBackend } from '../backend/export'
+import { importMaterialPaths, summarizeMaterialImport } from '../backend/materialImport'
 import { notesBackend } from '../backend/notes'
 import type { LibraryOverview } from '../backend/notes'
 import { mediaBackend } from '../backend/media'
@@ -129,23 +130,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     try {
       const paths = await backend.openMaterialFiles()
       if (!paths?.length) return
-      // 后端单次最多 32 个文件：超过时分批提交，避免整批被拒
-      const regular = paths.filter(path => !path.toLowerCase().endsWith('.zip'))
-      const outcomes = []
-      for (let index = 0; index < regular.length; index += 32) {
-        outcomes.push(...await backend.importMaterialFiles(regular.slice(index, index + 32)))
-      }
-      let skipped = 0
-      for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
-        const archive = await backend.importMaterialArchive(path)
-        outcomes.push(...archive.outcomes)
-        skipped += archive.skipped.length
-      }
-      const staged = outcomes.filter(item => item.material && !item.deduplicated).length
-      const duplicates = outcomes.filter(item => item.deduplicated).length
-      const errors = outcomes.flatMap(item => item.error ? [item.error] : [])
-      if (errors.length) notify(`${staged} 份已暂存，${duplicates} 份去重，${skipped} 个不支持条目已跳过，${errors.length} 份失败：${errors[0].message}`)
-      else notify(`${staged} 份原件已暂存，${duplicates} 份已去重，${skipped} 个不支持条目已跳过`)
+      notify(summarizeMaterialImport(await importMaterialPaths(paths)))
     } catch (error) { reportBackendError(error, 'write') } finally { setImporting(false) }
   }
   const openMaterial = async (id: number) => {
