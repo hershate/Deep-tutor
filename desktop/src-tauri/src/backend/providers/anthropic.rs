@@ -34,7 +34,7 @@ fn request_body(
                     content.push(json!({
                         "type": "tool_use",
                         "id": call.id,
-                        "name": names.local(&call.function.name),
+                        "name": names.remote(&call.function.name),
                         "input": argument_object(&call.function.arguments)?,
                     }));
                 }

@@ -56,6 +56,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
   const [shareOpen, setShareOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const planRef = useRef<LearningPlan | null>(null)
+  const routeUpstreams = useRef<Record<string, string>>({})
   useEffect(() => { planRef.current = plan }, [plan])
 
   const refreshMaterials = useCallback(async () => {
@@ -108,12 +109,17 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
           }).catch(cause => setError(backendErrorMessage(cause)))
         }
       }
+      if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string') {
+        // failover 后 delta 携带 {requestId}-fN 上游 id：记录映射再对齐步骤的逻辑 id
+        routeUpstreams.current[event.payload.upstreamRequestId] = event.payload.requestId
+      }
       if (event.kind === 'provider.chat_delta') {
         const requestId = event.payload.requestId
-        const active = planRef.current?.steps.some(item => item.requestId === requestId && item.status === 'running')
-        if (active && typeof requestId === 'string') {
+        const logicalId = typeof requestId === 'string' ? routeUpstreams.current[requestId] ?? requestId : undefined
+        const active = planRef.current?.steps.some(item => item.requestId === logicalId && item.status === 'running')
+        if (active && typeof logicalId === 'string') {
           setLastEventId(event.id)
-          void backend.getProviderChat(requestId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
+          void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause)))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })

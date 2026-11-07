@@ -22,6 +22,26 @@ use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+/// 工具结果进入模型上下文前的截断上限（字节）。
+/// 完整结果仍持久化在 agent_messages；不截断时两次满额长文抓取即可超出常见 128K 上下文。
+const MODEL_TOOL_CONTENT_LIMIT: usize = 16 * 1024;
+
+/// 按字节截断并在字符边界对齐，附加截断说明。
+fn truncate_for_model(content: &str) -> String {
+    if content.len() <= MODEL_TOOL_CONTENT_LIMIT {
+        return content.to_string();
+    }
+    let mut cut = MODEL_TOOL_CONTENT_LIMIT;
+    while !content.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!(
+        "{}…[工具输出已截断至 {} 字节，完整结果已保存在会话记录中，需要时可用工具分段读取]",
+        &content[..cut],
+        MODEL_TOOL_CONTENT_LIMIT
+    )
+}
+
 const AGENT_SYSTEM: &str = "你是知舟 Deep Tutor 的 Agent。你必须依据真实工具结果回答，不得声称未执行的读取、写入、检索或提升已经完成。只在需要时调用工具；严格使用工具给定的结构化参数。工作区修改先保存为 scratch，正式提升必须等待用户批准。记忆只通过工具按需保存、召回和删除，不要自动注入。无法执行的能力必须明确报告，不得编造链接、引用、成本或学习效果。";
 
 pub struct AgentState {
@@ -652,9 +672,15 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
                 },
             })
             .collect::<Vec<_>>();
+        // 重放历史时同样截断工具结果，保证 resume 不把全量输出重新注入上下文
+        let content = if message.role == "tool" {
+            truncate_for_model(&message.content)
+        } else {
+            message.content.clone()
+        };
         messages.push(ChatMessage {
             role: message.role.clone(),
-            content: message.content.clone(),
+            content,
             tool_calls: (!calls.is_empty()).then_some(calls),
             tool_call_id: message.tool_call_id.clone(),
             name: message.name.clone(),
@@ -866,7 +892,8 @@ fn run_loop<R: Runtime>(
             )?;
             messages.push(ChatMessage {
                 role: "tool".into(),
-                content,
+                // 完整结果已持久化；发给模型的历史按上限截断，避免上下文随步数线性膨胀
+                content: truncate_for_model(&content),
                 tool_call_id: Some(call.id.clone()),
                 name: Some(call.name.clone()),
                 ..Default::default()

@@ -46,7 +46,7 @@ fn request_body(
                 }
                 for call in message.tool_calls.as_deref().unwrap_or(&[]) {
                     parts.push(json!({"functionCall": {
-                        "name": names.local(&call.function.name),
+                        "name": names.remote(&call.function.name),
                         "args": argument_object(&call.function.arguments)?,
                     }}));
                 }
@@ -54,7 +54,7 @@ fn request_body(
             }
             "tool" => {
                 let name = message.name.as_deref().unwrap_or_default();
-                let remote = names.local(name);
+                let remote = names.remote(name);
                 contents.push(json!({
                     "role": "function",
                     "parts": [{"functionResponse": {"name": remote, "response": function_response(&remote, &message.content)}}],

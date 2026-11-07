@@ -25,6 +25,10 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const activeIdRef = useRef<number | null>(null)
   const plansRef = useRef<LearningPlan[]>([])
   const liveRequestRef = useRef('')
+  // 逻辑请求 id 与当前上游显示 id 分开记录：failover 后上游 id 变为 {logical}-fN，
+  // 而 route_attempt/chat_delta 事件携带的 requestId 仍是逻辑 id，两者靠映射对齐
+  const liveLogicalRef = useRef('')
+  const routeUpstreams = useRef(new Map<string, string>())
   const runOwners = useRef(new Map<number, number>())
 
   const rememberRuns = useCallback((items: AgentSession[]) => {
@@ -34,6 +38,8 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     activeIdRef.current = id
     setActiveId(id)
     setLiveRequest('')
+    liveLogicalRef.current = ''
+    routeUpstreams.current.clear()
     setStream(emptyStream)
     setError('')
   }, [])
@@ -41,6 +47,18 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     liveRequestRef.current = id
     setLiveRequestId(id)
   }, [])
+  const setLiveLogical = useCallback((id: string) => {
+    liveLogicalRef.current = id
+    routeUpstreams.current.clear()
+    liveRequestRef.current = id
+    setLiveRequestId(id)
+  }, [])
+  const clearLive = useCallback(() => {
+    liveLogicalRef.current = ''
+    routeUpstreams.current.clear()
+    liveRequestRef.current = ''
+    setLiveRequestId('')
+  }, [setLiveRequest])
   const refreshSession = useCallback(async (id: number) => {
     try {
       const next = await backend.getAgentSession(String(id))
@@ -74,8 +92,11 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const activeSession = useMemo(() => sessions.find(item => item.id === activeId) ?? null, [sessions, activeId])
   const activeRun = useMemo(() => activeSession?.runs.find(run => run.status === 'running' || run.status === 'cancelling') ?? activeSession?.runs[0] ?? null, [activeSession])
   useEffect(() => {
-    setLiveRequest(activeRun?.status === 'running' || activeRun?.status === 'cancelling' ? activeRun.currentRequestId ?? '' : '')
-  }, [activeRun?.id, activeRun?.currentRequestId, activeRun?.status, setLiveRequest])
+    const live = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
+    const id = live ? activeRun.currentRequestId ?? '' : ''
+    if (id && id !== liveLogicalRef.current) setLiveLogical(id)
+    else if (!id && liveLogicalRef.current) clearLive()
+  }, [activeRun?.id, activeRun?.currentRequestId, activeRun?.status, setLiveLogical, clearLive])
 
   useEffect(() => {
     let current = true
@@ -99,7 +120,8 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       if (event.kind === 'provider.route_attempt') {
         const requestId = stringField(event.payload.requestId)
         const upstreamRequestId = stringField(event.payload.upstreamRequestId)
-        if (requestId === liveRequestRef.current && upstreamRequestId) {
+        if (requestId && upstreamRequestId && requestId === liveLogicalRef.current) {
+          routeUpstreams.current.set(upstreamRequestId, requestId)
           setLiveRequest(upstreamRequestId)
           setStream({ requestId: upstreamRequestId, text: '', reasoning: '' })
         }
@@ -108,8 +130,8 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       if (event.kind === 'provider.chat_delta') {
         const requestId = stringField(event.payload.requestId)
         const text = stringField(event.payload.text)
-        if (requestId && requestId === liveRequestRef.current && text) {
-          setStream(current => current.requestId === requestId
+        if (requestId !== null && text !== null && (routeUpstreams.current.get(requestId) ?? requestId) === liveLogicalRef.current && liveLogicalRef.current) {
+          setStream(current => current.requestId === liveRequestRef.current
             ? event.payload.reasoning === true ? { ...current, reasoning: current.reasoning + text } : { ...current, text: current.text + text }
             : { requestId, text: event.payload.reasoning === true ? '' : text, reasoning: event.payload.reasoning === true ? text : '' })
         }
@@ -122,7 +144,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       const sessionId = eventSessionId ?? (runId === null ? null : runOwners.current.get(runId))
       if (event.kind === 'agent.step_started' && runId !== null && sessionId === activeIdRef.current) {
         const requestId = stringField(event.payload.requestId) ?? ''
-        setLiveRequest(requestId)
+        setLiveLogical(requestId)
         setStream({ requestId, text: '', reasoning: '' })
       }
       if (event.kind === 'agent.message_saved') setStream(current => ({ ...current, text: '', reasoning: '' }))
@@ -130,7 +152,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       else if (sessionId !== null && sessionId === activeIdRef.current) void refreshSession(sessionId)
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
     return () => { disposed = true; unlisten?.() }
-  }, [enabled, refresh, refreshSession, setLiveRequest])
+  }, [enabled, refresh, refreshSession, setLiveLogical, setLiveRequest])
 
   const createSession = useCallback(async (title?: string, requestedPlanId?: string): Promise<AgentSession | null> => {
     setBusy('create')

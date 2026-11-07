@@ -24,6 +24,7 @@ const MAX_COMPLETION_BYTES: usize = 1024 * 1024;
 
 pub(crate) struct ToolNames {
     pub local_by_remote: HashMap<String, String>,
+    pub remote_by_local: HashMap<String, String>,
     pub definitions: Vec<(String, ToolDefinitionFunction)>,
 }
 
@@ -31,6 +32,7 @@ impl ToolNames {
     pub fn new(tools: Option<&[ToolDefinition]>) -> Self {
         let mut used = HashSet::new();
         let mut local_by_remote = HashMap::new();
+        let mut remote_by_local = HashMap::new();
         let mut definitions = Vec::new();
         for definition in tools.unwrap_or(&[]) {
             let original = &definition.function.name;
@@ -61,19 +63,31 @@ impl ToolNames {
                 index += 1;
             }
             local_by_remote.insert(remote.clone(), original.clone());
+            remote_by_local.insert(original.clone(), remote.clone());
             definitions.push((remote, definition.function.clone()));
         }
         Self {
             local_by_remote,
+            remote_by_local,
             definitions,
         }
     }
 
+    /// 响应侧：远端消毒名 → 本地名
     pub fn local(&self, remote: &str) -> String {
         self.local_by_remote
             .get(remote)
             .cloned()
             .unwrap_or_else(|| remote.into())
+    }
+
+    /// 请求侧：历史里的本地名（含点号）→ 远端消毒名；查不到原样返回。
+    /// 只有 local() 单向表时，请求侧会把带点号的原名发往 Anthropic/Gemini/Responses。
+    pub fn remote(&self, local: &str) -> String {
+        self.remote_by_local
+            .get(local)
+            .cloned()
+            .unwrap_or_else(|| local.into())
     }
 }
 

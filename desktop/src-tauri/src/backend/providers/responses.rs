@@ -34,7 +34,7 @@ fn request_body(
                     }));
                 }
                 for call in message.tool_calls.as_deref().unwrap_or(&[]) {
-                    let name = names.local(&call.function.name);
+                    let name = names.remote(&call.function.name);
                     input.push(json!({
                         "type": "function_call",
                         "call_id": call.id,

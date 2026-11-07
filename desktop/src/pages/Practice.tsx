@@ -53,11 +53,16 @@ export default function Practice({ notify, target }: { notify: (message: string)
   useEffect(() => {
     void refresh().catch(reportBackendError)
     let unlisten: (() => void) | undefined
+    // failover 后 delta 携带 {requestId}-fN 上游 id：记录 route_attempt 映射再对齐逻辑 id
+    const upstreams = new Map<string, string>()
     const listening = onBackendEvent(event => {
       if (event.kind.startsWith('practice.')) void refresh().catch(reportBackendError)
-      if (event.kind === 'provider.chat_delta' && event.payload.requestId === requestId.current) {
-        const id = requestId.current
-        if (id) void backend.getProviderChat(id).then(request => setGenerationOutput(request.output)).catch(reportBackendError)
+      const logical = requestId.current
+      if (event.kind === 'provider.route_attempt' && logical !== null && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === logical) {
+        upstreams.set(event.payload.upstreamRequestId, logical)
+      }
+      if (event.kind === 'provider.chat_delta' && logical !== null && typeof event.payload.requestId === 'string' && (event.payload.requestId === logical || upstreams.get(event.payload.requestId) === logical)) {
+        void backend.getProviderChat(logical).then(request => setGenerationOutput(request.output)).catch(reportBackendError)
       }
     }).then(stop => { unlisten = stop }).catch(reportBackendError)
     return () => { unlisten?.(); void listening }
