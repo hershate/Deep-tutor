@@ -201,6 +201,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL,
             PRIMARY KEY (post_id, kind)
         );
+        -- 53#8：帖子列表逐帖点查回复计数、删除走 FK CASCADE——无 post_id
+        -- 前缀索引时社区页打开随帖量二次方变慢
+        CREATE INDEX IF NOT EXISTS community_replies_post ON community_replies(post_id, id);
         CREATE TABLE IF NOT EXISTS community_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,

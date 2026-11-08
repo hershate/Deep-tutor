@@ -164,7 +164,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             ease REAL NOT NULL,
             reviewed_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS review_history_card ON review_history(card_id, id);",
+        CREATE INDEX IF NOT EXISTS review_history_card ON review_history(card_id, id);
+        -- 53#5：stats()/报表按 reviewed_at 窗口过滤复习历史，表只增不减
+        CREATE INDEX IF NOT EXISTS review_history_reviewed ON review_history(reviewed_at);",
     )?;
     Ok(())
 }

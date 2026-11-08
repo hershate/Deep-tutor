@@ -251,29 +251,30 @@ pub fn upsert_rate<R: Runtime>(
         .ok_or_else(|| BackendError::new("not_found", "费率保存后未找到记录"))
 }
 
-fn cost(
-    conn: &Connection,
-    provider_id: i64,
-    model: &str,
-    usage: &Option<TokenUsage>,
-) -> Result<Option<f64>> {
-    let Some(usage) = usage else { return Ok(None) };
-    let (Some(input), Some(output)) = (usage.input_tokens, usage.output_tokens) else {
-        return Ok(None);
-    };
-    let rate: Option<(f64, f64)> = conn.query_row("SELECT input_per_million, output_per_million FROM usage_rates WHERE provider_id = ?1 AND model = ?2", params![provider_id, model], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-    Ok(rate.map(|(input_rate, output_rate)| {
-        input as f64 * input_rate / 1_000_000.0 + output as f64 * output_rate / 1_000_000.0
-    }))
+/// 费率→成本换算（缺 usage 或缺费率返回 None）——聚合口径与 budget_spend
+/// SQL 侧一致（缺 usage 或缺费率的行贡献 0）
+fn cost_from_rate(rate: Option<(f64, f64)>, usage: &Option<TokenUsage>) -> Option<f64> {
+    let usage = usage.as_ref()?;
+    let input = usage.input_tokens?;
+    let output = usage.output_tokens?;
+    let (input_rate, output_rate) = rate?;
+    Some(input as f64 * input_rate / 1_000_000.0 + output as f64 * output_rate / 1_000_000.0)
 }
 
-fn entry(row: &rusqlite::Row<'_>, conn: &Connection) -> Result<UsageEntry> {
+fn entry(row: &rusqlite::Row<'_>) -> Result<UsageEntry> {
     let provider_id: i64 = row.get(1)?;
     let model: String = row.get(2)?;
     let raw_usage: Option<String> = row.get(4)?;
     let usage: Option<TokenUsage> = match raw_usage {
         Some(value) => serde_json::from_str(&value)?,
         None => None,
+    };
+    let rate: Option<(f64, f64)> = match (
+        row.get::<_, Option<f64>>(9)?,
+        row.get::<_, Option<f64>>(10)?,
+    ) {
+        (Some(input), Some(output)) => Some((input, output)),
+        _ => None,
     };
     Ok(UsageEntry {
         request_id: row.get(0)?,
@@ -287,7 +288,7 @@ fn entry(row: &rusqlite::Row<'_>, conn: &Connection) -> Result<UsageEntry> {
             .unwrap_or_else(|| "direct".into()),
         input_tokens: usage.as_ref().and_then(|usage| usage.input_tokens),
         output_tokens: usage.as_ref().and_then(|usage| usage.output_tokens),
-        cost: cost(conn, provider_id, &model, &usage)?,
+        cost: cost_from_rate(rate, &usage),
         status: row.get(3)?,
         attempts: row.get(7)?,
         created_at: row.get(8)?,
@@ -296,13 +297,15 @@ fn entry(row: &rusqlite::Row<'_>, conn: &Connection) -> Result<UsageEntry> {
 
 fn entries(conn: &Connection) -> Result<Vec<UsageEntry>> {
     // 34#22：failover 上游行（{request_id}-fN）经 attempts.upstream_request_id
-    // 反查逻辑请求取 task——原先精确 join 不到，真实计费行被归为 direct
+    // 反查逻辑请求取 task——原先精确 join 不到，真实计费行被归为 direct；
+    // 53#7：费率一并 LEFT JOIN（usage_rates 按 provider+model 唯一，无行
+    // 放大），替代逐行点查的 N+1——provider_requests 是库中最大表
 
-    let mut statement = conn.prepare("SELECT r.request_id, r.provider_id, r.model, r.status, r.usage_json, p.name, routes.task, r.attempts, r.created_at FROM provider_requests r LEFT JOIN provider_profiles p ON p.id = r.provider_id LEFT JOIN provider_route_attempts attempts ON attempts.upstream_request_id = r.request_id LEFT JOIN provider_route_runs routes ON routes.request_id = COALESCE(attempts.request_id, r.request_id) ORDER BY r.rowid DESC")?;
+    let mut statement = conn.prepare("SELECT r.request_id, r.provider_id, r.model, r.status, r.usage_json, p.name, routes.task, r.attempts, r.created_at, ur.input_per_million, ur.output_per_million FROM provider_requests r LEFT JOIN provider_profiles p ON p.id = r.provider_id LEFT JOIN provider_route_attempts attempts ON attempts.upstream_request_id = r.request_id LEFT JOIN provider_route_runs routes ON routes.request_id = COALESCE(attempts.request_id, r.request_id) LEFT JOIN usage_rates ur ON ur.provider_id = r.provider_id AND ur.model = r.model ORDER BY r.rowid DESC")?;
     let mut rows = statement.query([])?;
     let mut entries = Vec::new();
     while let Some(row) = rows.next()? {
-        entries.push(entry(row, conn)?);
+        entries.push(entry(row)?);
     }
     Ok(entries)
 }

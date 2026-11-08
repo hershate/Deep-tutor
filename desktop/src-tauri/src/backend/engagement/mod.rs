@@ -140,7 +140,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             page TEXT NOT NULL,
             created_at TEXT NOT NULL,
             read_at TEXT
-        );",
+        );
+        -- 53#11：通知中心 30s 轮询按 created_at 倒序取 50 条，表只增不减——
+        -- 无索引时轮询全表扫+排序随历史膨胀线性变慢
+        CREATE INDEX IF NOT EXISTS notifications_created
+            ON notifications(created_at DESC);",
     )?;
     Ok(())
 }
@@ -691,7 +695,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
         [],
         |row| row.get(0),
     )?;
-    let mut statement = store.conn.prepare("SELECT id, kind, title, body, page, created_at, read_at FROM notifications ORDER BY created_at DESC LIMIT 50")?;
+    // 47#6：同事务批量写入的通知 created_at 相同（秒级精度），并列行的
+    // 相对顺序未定义——id 兜底使 30s 轮询顺序稳定、截断边界不闪烁
+    let mut statement = store.conn.prepare("SELECT id, kind, title, body, page, created_at, read_at FROM notifications ORDER BY created_at DESC, id DESC LIMIT 50")?;
     let items = statement
         .query_map([], |row| {
             Ok(NotificationItem {

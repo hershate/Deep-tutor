@@ -438,22 +438,26 @@ impl Store {
                 "不支持的数据集合",
             ));
         }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT data FROM kv WHERE namespace = ?1 ORDER BY rowid")?;
+        Ok(Collection {
+            value: Self::collection_value(&self.conn, namespace)?,
+            revision: Self::revision(&self.conn, namespace)?,
+        })
+    }
+
+    /// 53#4：在指定连接（如 IMMEDIATE 事务内）读取集合内容——孤儿清理需要
+    /// 与 DELETE 同事务地重读任务集合，旧口径「快照读 + 各自 autocommit 的
+    /// DELETE」在毫秒窗内会误删并发 adopt/保存刚插入的排期行
+    pub(crate) fn collection_value(conn: &Connection, namespace: &str) -> Result<Value> {
+        let mut stmt = conn.prepare("SELECT data FROM kv WHERE namespace = ?1 ORDER BY rowid")?;
         let rows = stmt.query_map(params![namespace], |row| row.get::<_, String>(0))?;
         let mut items = Vec::new();
         for row in rows {
             items.push(serde_json::from_str::<Value>(&row?)?);
         }
-        let value = if namespace == "preferences" {
+        Ok(if namespace == "preferences" {
             items.into_iter().next().unwrap_or_else(Self::defaults)
         } else {
             Value::Array(items)
-        };
-        Ok(Collection {
-            value,
-            revision: Self::revision(&self.conn, namespace)?,
         })
     }
 
@@ -1320,6 +1324,12 @@ mod tests {
         let path = dir.path().join("app.db");
         {
             let store = Store::root(&path).unwrap();
+            // 53#1 索引引用该列，SQLite 的 DROP COLUMN 拒绝删除被索引引用的
+            // 列——老库模拟先摘索引（真实老库本就没有该索引）
+            store
+                .conn
+                .execute("DROP INDEX IF EXISTS provider_requests_session", [])
+                .unwrap();
             store
                 .conn
                 .execute(

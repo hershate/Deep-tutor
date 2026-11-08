@@ -283,7 +283,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         );
         -- 27#5：答题提交/详情/计数按 set_id 过滤 practice_answers，仅 PK+
         -- UNIQUE(question_id) 时为全表扫
-        CREATE INDEX IF NOT EXISTS practice_answers_set ON practice_answers(set_id);",
+        -- 53#5：报表/dashboard 按 status+created_at 窗口过滤——叠加索引消除
+        -- 热路径全表扫
+        CREATE INDEX IF NOT EXISTS practice_answers_set ON practice_answers(set_id);
+        CREATE INDEX IF NOT EXISTS practice_answers_status_created
+            ON practice_answers(status, created_at);",
     )?;
     let mut statement = conn.prepare("PRAGMA table_info(practice_sets)")?;
     let columns = statement

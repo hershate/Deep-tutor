@@ -804,7 +804,12 @@ fn transition<R: Runtime>(
             "资料已删除，停止本次解析",
         ));
     }
-    sync_resources(&tx)?;
+    // 53#10：parsing 期间的逐页/逐条目进度回调原先每次整写 resources 集合
+    //（DELETE 全 namespace + 全量重插+提交），大 PDF 按 WAL 放大 N 倍——
+    // 解析进度以 10% 粒度节流，终态与阶段翻转仍整写
+    if status != "parsing" || progress % 10 == 0 {
+        sync_resources(&tx)?;
+    }
     let event = Store::event(
         &tx,
         &format!("material.{status}"),

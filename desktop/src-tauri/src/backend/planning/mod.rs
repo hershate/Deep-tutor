@@ -6,7 +6,7 @@ use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::learning::{LearningState, Plan};
 use super::store::Store;
-use rusqlite::params;
+use rusqlite::{params, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -127,7 +127,7 @@ fn adopted_first_plan(state: &PlanningState) -> Result<Option<Plan>> {
 }
 
 fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Result<PlanOverview> {
-    let store = state.store()?;
+    let mut store = state.store()?;
     let week_start = monday(start)?;
     let week_end = week_start + Duration::days(7);
     let start_text = week_start.to_string();
@@ -136,6 +136,30 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
     let plan_id = plan.as_ref().map(|plan| plan.id.clone());
     if let Some(id) = &plan_id {
         let numeric = super::learning::plan_id(id)?;
+        // 10#17：kv 任务删除后，排期表没有按任务删除路径；周视图计算时
+        // 惰性清理本方案的孤儿行，避免已删任务继续计入分钟统计。
+        // 53#4：任务集合重读与两条 DELETE 收进同一 IMMEDIATE 事务——原先
+        // 快照读在 autocommit、DELETE 各自独立提交，毫秒窗内并发的
+        // adopt/replace_collection 新插入的排期行会被旧快照判为孤儿误删
+        let tx = store
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tasks = Store::collection_value(&tx, "tasks")?;
+        let live_ids: Vec<i64> = tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|task| task.get("id").and_then(Value::as_i64))
+            .collect();
+        tx.execute(
+            "DELETE FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+            params![numeric, serde_json::to_string(&live_ids)?],
+        )?;
+        tx.execute(
+            "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+            params![numeric, serde_json::to_string(&live_ids)?],
+        )?;
+        tx.commit()?;
         let mut statement = store.conn.prepare("SELECT task_id, date, stage_id, minutes FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND date >= ?2 AND date < ?3 ORDER BY date, task_id")?;
         let rows = statement.query_map(params![numeric, start_text, end_text], |row| {
             Ok((
@@ -145,23 +169,6 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
                 row.get::<_, i64>(3)?,
             ))
         })?;
-        let tasks = store.collection("tasks")?.value;
-        // 10#17：kv 任务删除后，排期表没有按任务删除路径；周视图计算时
-        // 惰性清理本方案的孤儿行，避免已删任务继续计入分钟统计
-        let live_ids: Vec<i64> = tasks
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|task| task.get("id").and_then(Value::as_i64))
-            .collect();
-        store.conn.execute(
-            "DELETE FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
-            params![numeric, serde_json::to_string(&live_ids)?],
-        )?;
-        store.conn.execute(
-            "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
-            params![numeric, serde_json::to_string(&live_ids)?],
-        )?;
         for row in rows {
             let (task_id, date, stage_id, minutes) = row?;
             let task = tasks

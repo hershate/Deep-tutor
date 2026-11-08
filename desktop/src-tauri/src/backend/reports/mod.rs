@@ -182,6 +182,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             updated_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS focus_sessions_status ON focus_sessions(status, started_at);
+        -- 53#2：打卡日历在 84 天循环内按 status+ended_at 逐日过滤——叠加索引
+        -- 覆盖 ended_at，dashboard 事件热触发不再 84 次全表扫
+        CREATE INDEX IF NOT EXISTS focus_sessions_status_ended
+            ON focus_sessions(status, ended_at);
         CREATE TABLE IF NOT EXISTS study_checkins (
             date TEXT PRIMARY KEY,
             minutes INTEGER NOT NULL,
@@ -436,7 +440,14 @@ pub fn pause_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Resul
     let session = focus_by_id(&store.conn, id)?;
     let timestamp = timestamp(now()?)?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE focus_sessions SET status = 'paused', actual_seconds = ?1, paused_at = ?2, updated_at = ?2 WHERE id = ?3 AND status = 'running'", params![session.actual_seconds as i64, timestamp, id])?;
+    // 53#9：SELECT 与 UPDATE 之间的毫秒窗内并发 finish 可能已把会话置为
+    // completed——changed==0 时不再照发 focus.paused（与终态矛盾的悬空事件），
+    // 返回会话当前真实状态
+    let changed = tx.execute("UPDATE focus_sessions SET status = 'paused', actual_seconds = ?1, paused_at = ?2, updated_at = ?2 WHERE id = ?3 AND status = 'running'", params![session.actual_seconds as i64, timestamp, id])?;
+    if changed == 0 {
+        tx.commit()?;
+        return focus_by_id(&store.conn, id);
+    }
     let event = Store::event(
         &tx,
         "focus.paused",
@@ -462,7 +473,12 @@ pub fn resume_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Resu
     let started_at = timestamp(now()? - Duration::seconds(session.actual_seconds as i64))?;
     let timestamp = timestamp(now()?)?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE focus_sessions SET status = 'running', started_at = ?1, paused_at = NULL, updated_at = ?2 WHERE id = ?3 AND status = 'paused'", params![started_at, timestamp, id])?;
+    // 53#9：同 pause——状态守卫未命中时不发 focus.resumed 悬空事件
+    let changed = tx.execute("UPDATE focus_sessions SET status = 'running', started_at = ?1, paused_at = NULL, updated_at = ?2 WHERE id = ?3 AND status = 'paused'", params![started_at, timestamp, id])?;
+    if changed == 0 {
+        tx.commit()?;
+        return focus_by_id(&store.conn, id);
+    }
     let event = Store::event(
         &tx,
         "focus.resumed",

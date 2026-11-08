@@ -236,6 +236,7 @@ fn load_scope(state: &KnowledgeState, ids: &[i64]) -> Result<Vec<Scope>> {
     Ok(scope)
 }
 
+/// 问答续接（resume）重装会话全文 scope——列表/详情路径已改走 session_sources
 fn session_scope(state: &KnowledgeState, id: i64) -> Result<Vec<Scope>> {
     let store = state.store()?;
     let mut statement = store.conn.prepare("SELECT material_id FROM knowledge_session_materials WHERE session_id = ?1 ORDER BY material_id")?;
@@ -247,16 +248,34 @@ fn session_scope(state: &KnowledgeState, id: i64) -> Result<Vec<Scope>> {
     load_scope(state, &ids)
 }
 
-fn session_row(conn: &Connection, state: &KnowledgeState, id: i64) -> Result<KnowledgeSession> {
+/// 53#3：会话源摘要单查询直取 materials 列——原先 session_row 经
+/// session_scope→load_scope 逐份 detail 开新 Store（列表 100 会话 = 100+ 次
+/// 开库），且列表并不需要解析正文；真实正文 scope 仍由问答流程 load_scope
+/// 一次性装载
+fn session_sources(conn: &Connection, id: i64) -> Result<Vec<KnowledgeSource>> {
+    let mut statement = conn.prepare(
+        "SELECT m.id, m.title, m.sha256, m.kind FROM knowledge_session_materials s JOIN materials m ON m.id = s.material_id WHERE s.session_id = ?1 ORDER BY s.material_id",
+    )?;
+    let sources = statement
+        .query_map(params![id], |row| {
+            Ok(KnowledgeSource {
+                material_id: row.get(0)?,
+                title: row.get(1)?,
+                sha256: row.get(2)?,
+                kind: row.get(3)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(sources)
+}
+
+fn session_row(conn: &Connection, id: i64) -> Result<KnowledgeSession> {
     let (question, answer, sufficient, citations, status, provider_id, request_id, attempt, warning, code, message, created_at, updated_at): (String, Option<String>, Option<bool>, String, String, String, Option<String>, u32, Option<String>, Option<String>, Option<String>, String, String) = conn.query_row(
         "SELECT question, answer, sufficient, citations_json, status, provider_id, request_id, attempt, warning, error_code, error_message, created_at, updated_at FROM knowledge_sessions WHERE id = ?1",
         params![id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?)),
     ).optional()?.ok_or_else(|| BackendError::new("not_found", "Wiki 问答记录不存在"))?;
-    let sources = session_scope(state, id)?
-        .into_iter()
-        .map(|scope| scope.source)
-        .collect();
+    let sources = session_sources(conn, id)?;
     Ok(KnowledgeSession {
         id,
         question,
@@ -278,7 +297,7 @@ fn session_row(conn: &Connection, state: &KnowledgeState, id: i64) -> Result<Kno
 
 pub fn get(state: &KnowledgeState, id: i64) -> Result<KnowledgeSession> {
     let store = state.store()?;
-    session_row(&store.conn, state, id)
+    session_row(&store.conn, id)
 }
 
 pub fn list(state: &KnowledgeState) -> Result<Vec<KnowledgeSession>> {
@@ -290,8 +309,9 @@ pub fn list(state: &KnowledgeState) -> Result<Vec<KnowledgeSession>> {
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
+    // 53#3：全部查询共享同一连接（会话行 + 源摘要），不再逐会话开库
     ids.into_iter()
-        .map(|id| session_row(&store.conn, state, id))
+        .map(|id| session_row(&store.conn, id))
         .collect()
 }
 

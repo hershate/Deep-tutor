@@ -328,6 +328,15 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    // 53#1：预算护栏（budget_spend/session_output_tokens）对库中最大表按
+    // agent_session_id 聚合、按 created_at 过滤——每次模型请求与流式期间的
+    // 每个 agent.* 事件都命中，无索引时全表扫且延迟随历史线性增长
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS provider_requests_session
+            ON provider_requests(agent_session_id);
+        CREATE INDEX IF NOT EXISTS provider_requests_created
+            ON provider_requests(created_at);",
+    )?;
     routing::migrate(conn)?;
     usage::migrate(conn)?;
     Ok(())

@@ -175,6 +175,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             minutes INTEGER NOT NULL,
             PRIMARY KEY (plan_id, task_id)
         );
+        -- 53#6：专注-任务关联按 task_id 点查排期行，PK 前缀是 plan_id 不命中
+        CREATE INDEX IF NOT EXISTS learning_plan_schedule_tasks_task
+            ON learning_plan_schedule_tasks(task_id);
         CREATE TABLE IF NOT EXISTS learning_plan_versions (
             plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
             version INTEGER NOT NULL,
@@ -502,8 +505,15 @@ pub fn resume<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) -
 }
 
 pub fn get(state: &LearningState, id: &str) -> Result<Plan> {
-    let id = plan_id(id)?;
     let store = state.store()?;
+    get_with(&store, id)
+}
+
+/// 53#3：列表类消费方（list/dashboard/报告）走同一连接逐方案取回——原先
+/// 逐方案 get 各自 Store::new（重开连接+PRAGMA+迁移判定），存档方案多的
+/// 工作区列表延迟随存档数线性放大（39#1 同族）
+pub(crate) fn get_with(store: &Store, id: &str) -> Result<Plan> {
+    let id = plan_id(id)?;
     let row = store.conn.query_row(
         "SELECT status, provider_id, input_json, artifacts_json, result_json, current_step, version, error_code, error_message, created_at, updated_at FROM learning_plans WHERE id = ?1",
         params![id],
@@ -605,6 +615,7 @@ pub fn get(state: &LearningState, id: &str) -> Result<Plan> {
 }
 
 pub fn list(state: &LearningState) -> Result<Vec<Plan>> {
+    // 53#3：单连接逐方案取回（get_with）——原先每方案 get 一次 Store::new
     let store = state.store()?;
     let mut statement = store
         .conn
@@ -612,7 +623,7 @@ pub fn list(state: &LearningState) -> Result<Vec<Plan>> {
     let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
     let mut plans = Vec::new();
     for row in rows {
-        plans.push(get(state, &format!("plan-{}", row?))?);
+        plans.push(get_with(&store, &format!("plan-{}", row?))?);
     }
     Ok(plans)
 }
