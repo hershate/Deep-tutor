@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
 import type { PageId, Task } from '../data'
-import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
+import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import ExportCenter from '../components/ExportCenter'
 import SharePlanDialog from '../components/SharePlanDialog'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
@@ -50,6 +50,8 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const [level, setLevel] = useState('')
   const [exportOpen, setExportOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // 43#5：强度 segmented 外观是筛选、行为是覆盖性重排——点击先落确认层
+  const [intensityTarget, setIntensityTarget] = useState<string | null>(null)
   const plan = overview?.plan ?? null
   const ready = Boolean(plan?.result && ['done', 'degraded'].includes(plan.status))
   const progress = overview?.stages.length ? Math.round(overview.stages.filter(stage => stage.completed).length / overview.stages.length * 100) : 0
@@ -154,7 +156,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     {plan && !ready && <div className="capacity-warning"><RefreshCw size={18} className={plan.status === 'running' ? 'spin' : ''} /><div><strong>方案状态：{statusName(plan.status)} · 生成进度 {plan.progress}%</strong><p>{plan.error ? `${plan.error.code}：${plan.error.message}` : plan.status === 'running' ? '正在等待原生步骤与真实事件，不会提前展示新的排期。' : '当前没有完整可采用的方案结果。'}</p><Button variant="secondary" size="sm" onClick={() => onNavigate('generator')}>查看真实生成步骤</Button></div></div>}
 
     <div className="plan-toolbar">
-      <div className="segmented" aria-label="学习强度">{(['稳妥', '标准', '冲刺'] as const).map(item => <button key={item} disabled={!ready || busy === 'intensity'} className={overview?.intensity === item ? 'active' : ''} onClick={() => void changeIntensity(item)}>{item}</button>)}</div>
+      <div className="segmented" aria-label="学习强度">{(['稳妥', '标准', '冲刺'] as const).map(item => <button key={item} disabled={!ready || busy === 'intensity'} className={overview?.intensity === item ? 'active' : ''} onClick={() => setIntensityTarget(item)}>{item}</button>)}</div>
       <div className="plan-toolbar-actions"><span><Clock3 size={16} />本周已排 {Math.round((overview?.weeklyMinutes ?? 0) / 6) / 10} 小时 / 可投入 {overview?.weeklyHours ?? 0} 小时</span><Button variant="secondary" size="sm" disabled={!ready || busy === 'intensity'} onClick={() => void changeIntensity(overview?.intensity ?? '标准')}><RefreshCw size={16} />按强度保存排期</Button></div>
     </div>
 
@@ -178,6 +180,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     <Modal open={Boolean(selectedTask)} onClose={() => setSelectedTask(null)} title="任务与排期"><div className="form-stack"><h3>{selectedTask?.title}</h3><p>{selectedTask?.kind} · {selectedTask?.minutes} 分钟 · {selectedTask?.done ? '已完成' : '未完成'}</p><label>实际安排日期<input type="date" value={taskDate} onChange={event => setTaskDate(event.target.value)} /></label>{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button disabled={!taskDate || busy === 'schedule'} onClick={() => void saveTaskDate()}>{busy === 'schedule' ? '正在保存…' : '保存日期'}</Button><Button variant="secondary" disabled={busy === 'toggle'} onClick={() => void toggleTask()}>{selectedTask?.done ? '标记为未完成' : '标记为已完成'}</Button></div></Modal>
     <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="调整学习目标"><div className="form-stack">{plan?.adoptedProjectId !== null ? <div className="modal-callout"><AlertTriangle size={18} /><span>已采用方案的学习记录必须保留，不能直接重跑。请通过 AI 生成方案创建新版本，采用新版本不会修改旧方案的完成记录。</span><Button variant="secondary" onClick={() => { setGoalOpen(false); onNavigate('generator') }}>创建新方案</Button></div> : <><label>目标名称<input value={goal} onChange={event => setGoal(clampToBytes(event.target.value, 200))} maxLength={200} /></label><div className="form-grid"><label>目标日期<input type="date" value={deadline} onChange={event => setDeadline(event.target.value)} /></label><label>每周可投入（小时）<input type="number" value={weeklyHours} onChange={event => setWeeklyHours(Number(event.target.value))} min={1} max={80} /></label></div><label>当前掌握情况<textarea rows={3} value={level} onChange={event => setLevel(clampToBytes(event.target.value, 1000))} /></label><div className="modal-callout"><CalendarRange size={18} /><span>保存后会真正从知识图谱步骤重新生成。现有版本先进入历史，真实生成完成后才能采用；失败会保留错误，不会显示虚假成功。</span></div>{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button onClick={() => void saveGoal()} disabled={busy === 'goal' || !goal.trim() || !deadline || !level.trim() || weeklyHours < 1 || weeklyHours > 80}>{busy === 'goal' ? '正在保存并启动…' : '保存并重新规划'}</Button></>}</div></Modal>
     <Modal open={alternativesOpen} onClose={() => setAlternativesOpen(false)} title="本周替代安排"><div className="form-stack">{alternatives.map(item => <button className="milestone-row" key={item.intensity} disabled={busy === 'intensity'} onClick={() => { setAlternativesOpen(false); void changeIntensity(item.intensity) }}><span className="milestone-marker"><Clock3 size={15} /></span><div><strong>{item.intensity} · {item.weeklyMinutes} 分钟</strong><small>占每周可投入时间的 {item.loadPercent}%，保留当前任务日期</small></div><Badge tone={overview?.intensity === item.intensity ? 'green' : 'neutral'}>{overview?.intensity === item.intensity ? '当前方案' : '采用此强度'}</Badge></button>)}</div></Modal>
+    <ConfirmDialog open={intensityTarget !== null} onClose={() => setIntensityTarget(null)} onConfirm={() => { const next = intensityTarget; setIntensityTarget(null); if (next) void changeIntensity(next) }} title={`按「${intensityTarget ?? ''}」重排全部任务？`} description="会以该强度重新保存全部方案任务的时长与日期，手动调整过的排期也会被覆盖；此操作不可撤销。想先看各强度的工作量，可点「查看替代安排」预览。" confirmLabel="确认重排" busy={busy === 'intensity'} />
     <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} />
     <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
   </div>

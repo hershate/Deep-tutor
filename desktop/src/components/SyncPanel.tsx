@@ -18,6 +18,9 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const [configOpen, setConfigOpen] = useState(false)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [versions, setVersions] = useState<SyncVersion[] | null>(null)
+  // 43#7：远端列举失败单独下沉到弹窗内渲染——面板级 error 会被模态完全遮挡，
+  // 原先弹窗里只有无限 spinner，无错误也无重试入口
+  const [versionsError, setVersionsError] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const versionsOpenRef = useRef(false)
@@ -26,7 +29,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     try { setOverview(await syncBackend.overview()) } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [])
   const loadVersions = useCallback(async () => {
-    try { setVersions(await syncBackend.versions()) } catch (cause) { setError(backendErrorMessage(cause)) }
+    try { setVersions(await syncBackend.versions()); setVersionsError('') } catch (cause) { setVersionsError(backendErrorMessage(cause)) }
   }, [])
   useEffect(() => {
     void refresh()
@@ -166,7 +169,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       <div className="form-stack">
         <div className="modal-callout"><ShieldCheck size={18} /><span>版本来自远端实际列表。恢复会读取所选对象并追加导入档案与路由，不覆盖本机系统凭据。</span></div>
         <div className="data-actions"><Button variant="secondary" size="sm" onClick={() => void loadVersions()}><RefreshCw size={15} />重新读取远端列表</Button></div>
-        {versions === null ? <LoaderCircle size={22} className="spin" /> : versions.length ? versions.map(version => <div className="sync-version" key={version.path}><div><strong>{version.path.split('/').at(-1)}</strong><p>{version.size === null ? '大小未提供' : `${version.size.toLocaleString()} 字节`} · {version.lastModified ? new Date(version.lastModified).toLocaleString() : '时间未提供'}</p><code>{version.path}</code></div><Button variant="secondary" size="sm" disabled={busy === 'restore'} onClick={() => void restoreVersion(version.path)}>恢复并追加</Button></div>) : <p>远端尚无历史版本。完成一次实际上传后可在这里恢复。</p>}
+        {versionsError ? <div className="form-error" role="alert"><p>远端版本列表读取失败：{versionsError}</p><Button size="sm" onClick={() => void loadVersions()}>重试读取</Button></div> : versions === null ? <LoaderCircle size={22} className="spin" /> : versions.length ? versions.map(version => <div className="sync-version" key={version.path}><div><strong>{version.path.split('/').at(-1)}</strong><p>{version.size === null ? '大小未提供' : `${version.size.toLocaleString()} 字节`} · {version.lastModified ? new Date(version.lastModified).toLocaleString() : '时间未提供'}</p><code>{version.path}</code></div><Button variant="secondary" size="sm" disabled={busy === 'restore'} onClick={() => void restoreVersion(version.path)}>恢复并追加</Button></div>) : <p>远端尚无历史版本。完成一次实际上传后可在这里恢复。</p>}
       </div>
     </Modal>
   </section>

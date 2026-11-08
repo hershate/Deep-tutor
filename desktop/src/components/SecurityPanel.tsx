@@ -83,7 +83,9 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
   const copyToken = async () => {
     if (!newToken) return
     try { await navigator.clipboard.writeText(newToken.token); notify('PAT 已复制，请保存到安全位置') }
-    catch (error) { reportBackendError(error) }
+    // 43#9：WebView 失焦等场景 clipboard API 可拒绝——令牌明文只显示这一次，
+    // 必须明确告知手动复制路径，否则用户关掉提示后令牌永久不可再取
+    catch { notify('复制失败：请直接选中上方令牌文本手动复制（明文只显示这一次）') }
   }
   // 21#1：PAT 登录入口——输入完整访问令牌即可切换到令牌所属用户
   const loginWithToken = async () => {

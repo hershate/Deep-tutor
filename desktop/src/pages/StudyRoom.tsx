@@ -222,14 +222,17 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       notify('批注已保存到原生笔记库，并关联当前阶段')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
+  // 43#2：导出写盘期间复用 busy 通道，行按钮禁用防连点
   const exportMaterial = async (materialId: number, title: string) => {
+    if (busy) return
+    setBusy('export')
     try {
       const detail = await backend.getMaterial(materialId)
       const destination = await backend.saveMaterialFile(title, detail.kind)
       if (!destination) return
       await backend.exportMaterialOriginal(materialId, destination)
       notify('原件已由原生后端导出')
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 
   if (loading && !error) return <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取已采用的学习方案…</div>
@@ -264,7 +267,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
           <div className="article-footer"><Button variant="secondary" disabled={unitIndex === 0} onClick={() => setUnitIndex(Math.max(0, unitIndex - 1))}><ArrowLeft size={16} />上一单元</Button><span>{lecture ? `讲义 v${lecture.version} · ${lectureStatus[lecture.status]}` : '尚未读取讲义'}</span><Button disabled={unitIndex >= nodes.length - 1} onClick={() => setUnitIndex(Math.min(nodes.length - 1, unitIndex + 1))}>下一单元<ArrowRight size={16} /></Button></div>
           <div className="article-footer"><Button variant="secondary" disabled={plan.result.stages[0]?.id === stageId} onClick={() => { const index = plan.result!.stages.findIndex(item => item.id === stageId); setStageId(plan.result!.stages[Math.max(0, index - 1)].id) }}><ArrowLeft size={16} />上一阶段</Button><Button onClick={() => void completeAndContinue()} disabled={busy === 'reading'}>{progress[stageId]?.completed ? '已完成阅读' : '完成并继续'}<ArrowRight size={16} /></Button></div>
         </article>}
-        {tab === '资料' && <div className="chapter-resources"><h1>本方案关联资料</h1>{plan.result.resources.items.map(item => <button key={item.materialId} onClick={() => void exportMaterial(item.materialId, item.title)}><FileText size={21} /><div><strong>{item.title}</strong><span>资料 #{item.materialId} · SHA-256 {item.sha256.slice(0, 16)}… · 点击导出原件</span></div><ArrowRight size={17} /></button>)}</div>}
+        {tab === '资料' && <div className="chapter-resources"><h1>本方案关联资料</h1>{plan.result.resources.items.map(item => <button key={item.materialId} disabled={busy === 'export'} onClick={() => void exportMaterial(item.materialId, item.title)}><FileText size={21} /><div><strong>{item.title}</strong><span>资料 #{item.materialId} · SHA-256 {item.sha256.slice(0, 16)}… · {busy === 'export' ? '正在导出…' : '点击导出原件'}</span></div><ArrowRight size={17} /></button>)}</div>}
         {tab === '视频' && <div className="chapter-resources"><h1>本地音视频原件</h1><p>只显示当前用户实际导入的媒体，不展示演示视频或虚构课程关联。</p>{selectedMedia ? <><label>选择媒体原件<select value={selectedMedia.id} onChange={event => setMediaId(Number(event.target.value))}>{mediaMaterials.map(item => <option key={item.id} value={item.id}>{item.title} · {item.kind}</option>)}</select></label><MediaPlayer material={selectedMedia} /></> : <div className="provider-empty"><Video size={26} /><h2>尚未导入音视频</h2><p>请在资料库导入真实 MP4、WebM、MP3、WAV 等原件，再在这里预览。</p><Button onClick={() => onNavigate('library')}>前往资料库</Button></div>}</div>}
       </main>
       <aside className="study-tutor"><section className="surface"><h3>当前知识节点</h3><h2>{currentNode?.title}</h2><p>{currentNode?.summary}</p><Badge tone="neutral">难度 {currentNode?.difficulty}/5</Badge><div className="node-relations"><h3>阶段信息</h3><div><span>预计时长</span><strong>{currentNode?.estimatedMinutes} 分钟</strong></div><div><span>阶段日期</span><strong>{stage.startDate} 至 {stage.endDate}</strong></div><div><span>阅读状态</span><strong>{currentReading.completed ? '已完成' : '未完成'}</strong></div></div><p>阅读状态与测评掌握度分别记录，不会将阅读完成自动视为已经掌握。</p></section></aside>

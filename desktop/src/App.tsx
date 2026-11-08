@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronDown, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
+import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Plan from './pages/Plan'
@@ -88,7 +88,9 @@ export default function App() {
   // 专注层的圈禁在其组件内部接线（14#10）
   useFocusContainment(tutorRef, tutorOpen)
 
-  const notify = (message: string) => setToasts(current => [...current, { id: Date.now() + Math.random(), message, tone: 'info' as const }].slice(-4))
+  // 43#11：useCallback 稳定化——拖放监听等 effect 依赖 notify，原先每次渲染
+  // 新建函数导致监听被反复注销/重挂，渲染间隙的拖入会被 WebView2 吞掉
+  const notify = useCallback((message: string) => setToasts(current => [...current, { id: Date.now() + Math.random(), message, tone: 'info' as const }].slice(-4)), [])
   const dismissToast = (id: number) => setToasts(current => current.filter(toast => toast.id !== id))
   // 浏览器前进/后退或手动改 hash 时同步路由（navigate 只单向写 hash）
   useEffect(() => {
@@ -362,7 +364,8 @@ export default function App() {
     {mobileNav && <button className="nav-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>DEEP TUTOR</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
-      <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronDown size={15} /></button>
+      {/* 43#12：ChevronDown 形似可展开的下拉，实际整钮跳转学习计划——改右箭头对齐导航语义 */}
+      <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronRight size={15} /></button>
       <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</button>)}</div>)}</nav>
       <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
     </aside>
