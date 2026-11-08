@@ -10,19 +10,29 @@ use serde_json::Value;
 use std::path::Path;
 use tauri::{AppHandle, Runtime, State};
 
-#[tauri::command]
-pub fn import_material_files<R: Runtime>(
+#[tauri::command(async)]
+pub async fn import_material_files<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     paths: Vec<String>,
 ) -> Result<Vec<ImportOutcome>> {
+    // 44#1：≤32×50MB 逐文件读+校验+哈希+写盘的重 IO 移出主线程（原先
+    // 同步命令冻结窗口）；23#7：阻塞线程传播 principal
     if paths.len() > 32 {
         return Err(BackendError::new(
             "too_many_files",
             "单次最多导入 32 份资料",
         ));
     }
-    Ok(import_files(&app, &state.materials, paths))
+    let materials = state.materials.shared();
+    let principal = super::super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            Ok(import_files(&app, &materials, paths))
+        })
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "导入任务执行异常终止"))?
 }
 
 #[tauri::command]
@@ -113,11 +123,20 @@ pub fn read_material_media_chunk(
     super::media::chunk(&state.materials, id, offset, length)
 }
 
-#[tauri::command]
-pub fn import_material_archive<R: Runtime>(
+#[tauri::command(async)]
+pub async fn import_material_archive<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     path: String,
 ) -> Result<super::archive::ArchiveImportResult> {
-    super::archive::import_archive(&app, &state.materials, Path::new(&path))
+    // 44#1：≤200MB ZIP 预检+逐项解压落盘的重 IO 移出主线程
+    let materials = state.materials.shared();
+    let principal = super::super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::archive::import_archive(&app, &materials, Path::new(&path))
+        })
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "导入任务执行异常终止"))?
 }
