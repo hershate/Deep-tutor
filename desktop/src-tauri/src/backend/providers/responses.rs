@@ -148,6 +148,12 @@ where
                                 .ok_or_else(|| {
                                     output.error("invalid_tool_call", "工具调用缺少 output_index")
                                 })? as usize;
+                            // 55#1 同根：distinct index 上限防稀疏 index 无限膨胀
+                            if index >= openai::MAX_TOOL_CALL_ENTRIES {
+                                return Err(
+                                    output.error("invalid_tool_call", "工具调用索引超出上限")
+                                );
+                            }
                             let id = item
                                 .get("call_id")
                                 .and_then(Value::as_str)
@@ -163,6 +169,16 @@ where
                                 .ok_or_else(|| {
                                     output.error("invalid_tool_call", "工具调用缺少函数名")
                                 })?;
+                            // 55#8：同 index 重发条目（id 不同）直接覆盖会静默丢弃
+                            // 已 emit 的 partial 参数——对齐 OpenAI 的 fail-closed
+                            if let Some(existing) = output.tool_calls.get(&index) {
+                                if existing.id != id {
+                                    return Err(output.error(
+                                        "invalid_tool_call",
+                                        "同一索引出现了不同 ID 的工具调用",
+                                    ));
+                                }
+                            }
                             output.tool_calls.insert(
                                 index,
                                 ToolCall {

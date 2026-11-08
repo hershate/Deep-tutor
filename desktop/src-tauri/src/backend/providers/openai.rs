@@ -14,6 +14,9 @@ use zeroize::Zeroizing;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_SSE_LINE_BYTES: usize = 64 * 1024;
 const MAX_COMPLETION_BYTES: usize = 1024 * 1024;
+/// 55#1：流式工具调用的 distinct index 上限（并行调用的真实数量级远低于此，
+/// 畸形流不得借稀疏 index 无限膨胀 BTreeMap）
+pub(crate) const MAX_TOOL_CALL_ENTRIES: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -310,7 +313,42 @@ pub(crate) fn authorize_async(
 pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> {
     let status = response.status().as_u16();
     if status != 200 {
-        return Err(http_error(status));
+        // 55#4：非 200 时读 body 前 4KB 提取诊断细节——原先直接丢弃连接，
+        // 400 {"error":{"message":"Invalid model"}} 的真实原因与 Cloudflare
+        // WAF 的 HTML 拦截页全部丢失，只剩状态码猜谜误导排障
+        let mut bytes = Vec::new();
+        let _ = response
+            .take(4096)
+            .read_to_end(&mut bytes)
+            .map_err(|_| BackendError::new("invalid_response", "模型服务响应读取失败"))?;
+        let base = http_error(status);
+        if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
+            if let Some(message) = body.pointer("/error/message").and_then(Value::as_str) {
+                let detail: String = message.chars().take(200).collect();
+                return Err(BackendError::new(
+                    &base.code,
+                    &format!("{}（服务返回：{detail}）", base.message),
+                ));
+            }
+        } else {
+            // HTML/纯文本页：剥标签取前 160 字符（WAF 拦截页有可读标题）
+            let text = String::from_utf8_lossy(&bytes);
+            let stripped: String = text
+                .split('<')
+                .map(|segment| segment.split_once('>').map_or(segment, |(_, rest)| rest))
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !stripped.is_empty() {
+                let detail: String = stripped.chars().take(160).collect();
+                return Err(BackendError::new(
+                    &base.code,
+                    &format!("{}（服务返回：{detail}）", base.message),
+                ));
+            }
+        }
+        return Err(base);
     }
     let mut bytes = Vec::new();
     response
@@ -447,6 +485,21 @@ fn parse_tool_calls(message: &Value) -> Result<Vec<ToolCall>> {
 }
 
 fn completion(body: &Value) -> Result<(String, String, Option<String>, Vec<ToolCall>)> {
+    // 55#3：供应商以 200 返回内嵌 error（配额耗尽/权限类），原先只剩
+    // 「缺少 choices」或 error 被静默忽略——与流式路径/Gemini 同口径提取
+    if let Some(error) = body.get("error").filter(|error| !error.is_null()) {
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("模型服务返回了错误");
+        return Err(BackendError::new(
+            "provider_error",
+            &format!(
+                "模型服务返回了错误：{}",
+                message.chars().take(200).collect::<String>()
+            ),
+        ));
+    }
     let choice = body
         .get("choices")
         .and_then(Value::as_array)
@@ -819,6 +872,20 @@ impl StreamOutput {
             .with_tool_calls(self.tool_calls.values().cloned().collect())
     }
 
+    /// 55#1：已产出规模的粗略度量（文本/推理/工具调用/用量/结束原因）——
+    /// 流式循环据此判定「字节持续到达但零产出」的洪泛流
+    pub(crate) fn produced_bytes(&self) -> usize {
+        self.text.len()
+            + self.reasoning.len()
+            + self
+                .tool_calls
+                .values()
+                .map(|call| call.id.len() + call.name.len() + call.arguments.len())
+                .sum::<usize>()
+            + usize::from(self.usage.is_some())
+            + usize::from(self.finish_reason.is_some())
+    }
+
     pub(crate) fn finish(self, done: bool) -> std::result::Result<StreamSuccess, ChatError> {
         if !done {
             return Err(self.error("incomplete_stream", "模型流式响应在结束标记前中断"));
@@ -889,6 +956,9 @@ where
     let line = std::str::from_utf8(line)
         .map_err(|_| output.error("invalid_response", "流式事件包含无效 UTF-8"))?
         .trim_end_matches(['\r', '\n']);
+    // 55#7：部分网关在流首输出 UTF-8 BOM——首行变为 \u{FEFF}data: {...}，
+    // strip_prefix 失败会被静默跳过（首事件丢失/用量缺失），行首剥一次
+    let line = line.strip_prefix('\u{FEFF}').unwrap_or(line);
     if line.is_empty() || line.starts_with(':') {
         return Ok(false);
     }
@@ -904,7 +974,9 @@ where
     }
     let body: Value = serde_json::from_str(data)
         .map_err(|_| output.error("invalid_response", "流式事件不是有效 JSON"))?;
-    if body.get("error").is_some() {
+    // 55#2：兼容网关在正常 chunk 里回显 "error": null——对 Some(Value::Null)
+    // 判真会误杀整条流（该供应商所有流式请求 100% 失败），与 Gemini 同口径
+    if body.get("error").is_some_and(|error| !error.is_null()) {
         return Err(output.error("provider_error", "模型服务在流式响应中返回了错误"));
     }
     if let Some(model) = body.get("model").and_then(Value::as_str) {
@@ -946,6 +1018,11 @@ where
                     return Err(output.error("unsupported_tool_type", "仅支持函数工具调用"));
                 }
                 let index = call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                // 55#1 同根：distinct index 无上限时畸形流可用极小事件让
+                // BTreeMap 无限增长直至 EOF——并行工具调用的实际上限远低于此
+                if index >= MAX_TOOL_CALL_ENTRIES {
+                    return Err(output.error("invalid_tool_call", "工具调用索引超出上限"));
+                }
                 let function = match call.get("function") {
                     Some(function) => function,
                     None => return Err(output.error("invalid_tool_call", "工具调用缺少 function")),
@@ -1094,6 +1171,12 @@ where
     let mut pending = Vec::new();
     let mut last_chunk = Instant::now();
     let mut done = false;
+    // 55#1：无产出字节的累计预算——换行洪泛/注释洪泛等「字节持续到达但
+    // 零事件产出」的畸形流按 1 MB 累计封顶（正常流每个 delta 都会产出）
+    let mut idle_bytes: usize = 0;
+    // 55#5：已消费行数——body 中途网络错误且一行未收时按网络中断归类
+    // （可重试/可故障转移），已收到内容则保持不可重试防重复计费
+    let mut processed_lines: usize = 0;
     loop {
         if cancelled(cancel, parent_cancel) {
             return Err(output.error("cancelled", "模型请求已取消"));
@@ -1105,18 +1188,35 @@ where
         match next {
             Ok(Ok(Some(chunk))) => {
                 last_chunk = Instant::now();
+                let produced_before = output.produced_bytes();
                 pending.extend_from_slice(&chunk);
-                while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+                // 55#1：游标偏移切片替代逐行头部 drain——64KB 全换行的洪泛
+                // 在 drain 实现下每行把尾部整体 memmove（约 2×10⁹ 字节拷贝，
+                // ~32000 倍 CPU 放大），游标方案每 chunk 只做一次前缀消化
+                // 55#6：行终止按 SSE 规范同时接受 CRLF / LF / 裸 CR
+                let mut cursor = 0usize;
+                while let Some(offset) = pending[cursor..]
+                    .iter()
+                    .position(|byte| *byte == b'\n' || *byte == b'\r')
+                {
+                    let end = cursor + offset;
                     if cancelled(cancel, parent_cancel) {
                         return Err(output.error("cancelled", "模型请求已取消"));
                     }
-                    // 31#36：整行随单次 chunk 到达时同样受限——原先上限只作用于
-                    // 无换行的剩余段，>64KB 完整行一次读取即绕过
-                    if end + 1 > MAX_SSE_LINE_BYTES {
+                    // 31#36：行长度上限（相对游标的行本身，含终止符）——
+                    // >64KB 完整行一次读取即拒绝
+                    if offset + 1 > MAX_SSE_LINE_BYTES {
                         return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
                     }
-                    let line = pending.drain(..=end).collect::<Vec<_>>();
-                    done = consume_line(&line, &mut output, on_delta)?;
+                    let terminator =
+                        if pending[end] == b'\r' && pending.get(end + 1) == Some(&b'\n') {
+                            2
+                        } else {
+                            1
+                        };
+                    done = consume_line(&pending[cursor..end], &mut output, on_delta)?;
+                    cursor = end + terminator;
+                    processed_lines += 1;
                     if done {
                         break;
                     }
@@ -1124,17 +1224,43 @@ where
                 if done {
                     break;
                 }
+                pending.drain(..cursor);
+                if output.produced_bytes() == produced_before {
+                    idle_bytes += chunk.len();
+                    if idle_bytes > MAX_SSE_LINE_BYTES * 16 {
+                        return Err(
+                            output.error("invalid_response", "流式响应累计超过 1 MB 无有效事件")
+                        );
+                    }
+                } else {
+                    idle_bytes = 0;
+                }
                 if pending.len() > MAX_SSE_LINE_BYTES {
                     return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
                 }
             }
             Ok(Ok(None)) => {
+                // 55#5：零事件的 EOF 同样是连接中断（服务端发完响应头即断开，
+                // reqwest 干净 FIN 不走 Err 分支）——按网络毛刺归类可重试/
+                // 可故障转移；有事件但缺 [DONE] 仍为 incomplete_stream
+                if processed_lines == 0 {
+                    return Err(
+                        output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
+                    );
+                }
                 if !pending.is_empty() {
                     done = consume_line(&pending, &mut output, on_delta)?;
                 }
                 break;
             }
-            Ok(Err(_)) => return Err(output.error("invalid_response", "流式响应读取失败")),
+            Ok(Err(_)) => {
+                if processed_lines == 0 {
+                    return Err(
+                        output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
+                    );
+                }
+                return Err(output.error("invalid_response", "流式响应读取失败"));
+            }
             Err(_) => {
                 if last_chunk.elapsed() >= policy.chunk_timeout {
                     return Err(output.error(
@@ -1395,5 +1521,73 @@ mod tests {
             .code,
             "invalid_endpoint"
         );
+    }
+
+    #[test]
+    fn consume_line_accepts_null_error_and_strips_bom() {
+        // 55#2：兼容网关回显 "error": null 不得误杀整条流（对齐 gemini 口径）
+        let mut output = StreamOutput::new("m".into());
+        let mut deltas = Vec::new();
+        let mut sink = |delta: Delta| {
+            deltas.push(delta);
+            Ok(())
+        };
+        consume_line(
+            b"data: {\"error\":null,\"choices\":[{\"delta\":{\"content\":\"fine\"}}]}",
+            &mut output,
+            &mut sink,
+        )
+        .unwrap();
+        assert_eq!(output.text, "fine");
+        // 55#7：流首 UTF-8 BOM 使首行 \u{FEFF}data: 前缀匹配失败被静默跳过
+        let mut output = StreamOutput::new("m".into());
+        let mut sink = |_delta: Delta| Ok(());
+        consume_line(
+            "\u{FEFF}data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}".as_bytes(),
+            &mut output,
+            &mut sink,
+        )
+        .unwrap();
+        assert_eq!(output.text, "first");
+        // 非 null error 仍然 fail-fast
+        let mut output = StreamOutput::new("m".into());
+        let mut sink = |_delta: Delta| Ok(());
+        let error = consume_line(
+            b"data: {\"error\":{\"message\":\"boom\"}}",
+            &mut output,
+            &mut sink,
+        )
+        .unwrap_err();
+        assert_eq!(error.error.code, "provider_error");
+    }
+
+    #[test]
+    fn consume_line_rejects_oversized_tool_index() {
+        // 55#1 同根：稀疏大 index 的畸形流不得无限膨胀 tool_calls
+        let mut output = StreamOutput::new("m".into());
+        let mut sink = |_delta: Delta| Ok(());
+        let error = consume_line(
+            b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1000,\"function\":{\"name\":\"f\",\"arguments\":\"{}\"}}]}}]}",
+            &mut output,
+            &mut sink,
+        )
+        .unwrap_err();
+        assert_eq!(error.error.code, "invalid_tool_call");
+    }
+
+    #[test]
+    fn completion_extracts_embedded_error_detail() {
+        // 55#3：200 + 内嵌 error 提取真实原因，不再只剩「缺少 choices」
+        let body: Value =
+            serde_json::from_str("{\"error\":{\"message\":\"Insufficient credits\"}}").unwrap();
+        let error = completion(&body).unwrap_err();
+        assert_eq!(error.code, "provider_error");
+        assert!(error.message.contains("Insufficient credits"));
+        // error:null 并存 choices 时按成功处理
+        let body: Value = serde_json::from_str(
+            "{\"error\":null,\"choices\":[{\"message\":{\"content\":\"ok\"}}]}",
+        )
+        .unwrap();
+        assert_eq!(completion(&body).unwrap().0, "ok");
     }
 }

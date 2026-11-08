@@ -199,7 +199,9 @@ where
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                for candidate in candidates {
+                // 55#9：candidateCount>1 或网关回显多候选时全量 emit 会使输出
+                // 成倍重复——与 OpenAI 路径（choices[0]）同口径只取首个候选
+                for candidate in candidates.into_iter().take(1) {
                     if let Some(parts) = candidate
                         .pointer("/content/parts")
                         .and_then(Value::as_array)

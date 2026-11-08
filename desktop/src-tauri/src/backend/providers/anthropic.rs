@@ -163,6 +163,10 @@ where
                             .and_then(Value::as_u64)
                             .ok_or_else(|| output.error("invalid_response", "内容块缺少索引"))?
                             as usize;
+                        // 55#1 同根：distinct index 上限防稀疏 index 无限膨胀
+                        if index >= openai::MAX_TOOL_CALL_ENTRIES {
+                            return Err(output.error("invalid_response", "内容块索引超出上限"));
+                        }
                         let block = event.get("content_block").cloned().unwrap_or(Value::Null);
                         match block.get("type").and_then(Value::as_str) {
                             Some("text") => {
@@ -204,6 +208,17 @@ where
                                         output.error("invalid_tool_arguments", "工具参数序列化失败")
                                     })?
                                     .unwrap_or_default();
+                                // 55#8：同 index 重发起始块（id 不同）直接覆盖会
+                                // 静默丢弃已 emit 的 partial 参数——对齐 OpenAI
+                                // 路径的同索引异 id fail-closed
+                                if let Some(existing) = output.tool_calls.get(&index) {
+                                    if existing.id != id {
+                                        return Err(output.error(
+                                            "invalid_tool_call",
+                                            "同一索引出现了不同 ID 的工具调用",
+                                        ));
+                                    }
+                                }
                                 output.tool_calls.insert(
                                     index,
                                     ToolCall {

@@ -202,6 +202,20 @@ pub(crate) fn retryable(error: &ChatError, attempt: u8, policy: &StreamPolicy) -
         )
 }
 
+/// 55#1：字节级判定一行是否为携带 data 载荷的事件行（空行/注释/非 data
+/// 前缀/[DONE] 都不算）——洪泛预算在 process 闭包外按此累计
+fn line_is_data_event(line: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(line);
+    let text = text.trim_start_matches('\u{FEFF}').trim();
+    match text.strip_prefix("data:") {
+        Some(data) => {
+            let data = data.trim();
+            !data.is_empty() && data != "[DONE]"
+        }
+        None => false,
+    }
+}
+
 pub(crate) fn success(result: StreamSuccess, started: Instant, attempt: u8) -> ChatResult {
     let (text, reasoning, model, usage, finish_reason, tool_calls) = result;
     ChatResult {
@@ -280,6 +294,8 @@ where
         let line = std::str::from_utf8(line)
             .map_err(|_| output.error("invalid_response", "流式事件包含无效 UTF-8"))?
             .trim_end_matches(['\r', '\n']);
+        // 55#7：剥流首 UTF-8 BOM，否则首行 data: 前缀匹配失败被静默跳过
+        let line = line.strip_prefix('\u{FEFF}').unwrap_or(line);
         if line.is_empty() || line.starts_with(':') {
             return Ok(false);
         }
@@ -297,6 +313,11 @@ where
             .map_err(|_| output.error("invalid_response", "流式事件不是有效 JSON"))?;
         on_event(event, &mut output)
     };
+    // 55#1：无产出字节的累计预算（换行/注释洪泛封顶）与已消费行数（区分
+    // 「零事件即断」的网络毛刺与流中途断开）——process 闭包独占 output
+    // 借用，空闲判定在闭包外按「是否携带 data 载荷行」字节级启发式累计
+    let mut idle_bytes: usize = 0;
+    let mut processed_lines: usize = 0;
     loop {
         if openai::cancelled(cancel, parent_cancel) {
             return Err(output.error("cancelled", "模型请求已取消"));
@@ -309,17 +330,33 @@ where
             Ok(Ok(Some(chunk))) => {
                 last_chunk = Instant::now();
                 pending.extend_from_slice(&chunk);
-                while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+                // 55#1：游标偏移替代逐行头部 drain（O(N²) memmove 消除）；
+                // 55#6：行终止按 SSE 规范接受 CRLF / LF / 裸 CR
+                let mut cursor = 0usize;
+                let mut has_event_line = false;
+                while let Some(offset) = pending[cursor..]
+                    .iter()
+                    .position(|byte| *byte == b'\n' || *byte == b'\r')
+                {
+                    let end = cursor + offset;
                     if openai::cancelled(cancel, parent_cancel) {
                         return Err(output.error("cancelled", "模型请求已取消"));
                     }
-                    // 31#36：整行随单次 chunk 到达时同样受限——原先上限只作用于
-                    // 无换行的剩余段，>64KB 完整行一次读取即绕过
-                    if end + 1 > MAX_SSE_LINE_BYTES {
+                    // 31#36：行长度上限（相对游标的行本身，含终止符）——
+                    // >64KB 完整行一次读取即拒绝
+                    if offset + 1 > MAX_SSE_LINE_BYTES {
                         return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
                     }
-                    let line = pending.drain(..=end).collect::<Vec<_>>();
-                    done = process(&line)? || done;
+                    let terminator =
+                        if pending[end] == b'\r' && pending.get(end + 1) == Some(&b'\n') {
+                            2
+                        } else {
+                            1
+                        };
+                    has_event_line = has_event_line || line_is_data_event(&pending[cursor..end]);
+                    done = process(&pending[cursor..end])? || done;
+                    cursor = end + terminator;
+                    processed_lines += 1;
                     if done {
                         break;
                     }
@@ -327,17 +364,43 @@ where
                 if done {
                     break;
                 }
+                pending.drain(..cursor);
+                if !has_event_line {
+                    idle_bytes += chunk.len();
+                    if idle_bytes > MAX_SSE_LINE_BYTES * 16 {
+                        return Err(
+                            output.error("invalid_response", "流式响应累计超过 1 MB 无有效事件")
+                        );
+                    }
+                } else {
+                    idle_bytes = 0;
+                }
                 if pending.len() > MAX_SSE_LINE_BYTES {
                     return Err(output.error("response_too_large", "流式事件超过 64 KB 上限"));
                 }
             }
             Ok(Ok(None)) => {
+                // 55#5：零事件的 EOF 同样是连接中断（干净 FIN 不走 Err 分支）——
+                // 可重试/可故障转移；有事件但缺 [DONE] 仍为 incomplete_stream
+                if processed_lines == 0 {
+                    return Err(
+                        output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
+                    );
+                }
                 if !pending.is_empty() {
                     done = process(&pending)? || done;
                 }
                 break;
             }
-            Ok(Err(_)) => return Err(output.error("invalid_response", "流式响应读取失败")),
+            Ok(Err(_)) => {
+                // 55#5：零事件即断的网络毛刺归入可重试/可故障转移类
+                if processed_lines == 0 {
+                    return Err(
+                        output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
+                    );
+                }
+                return Err(output.error("invalid_response", "流式响应读取失败"));
+            }
             Err(_) => {
                 if last_chunk.elapsed() >= policy.chunk_timeout {
                     return Err(output.error("provider_timeout", "模型流式响应超时"));

@@ -1172,15 +1172,73 @@ pub fn stream_chat_with_policy<R: Runtime>(
         .map_err(openai::ChatError::from)
         .and_then(|(mut profile, key)| {
             profile.default_model = pending.model;
-            protocol::stream_chat_with_policy(&profile, key, messages, max_tokens, tools, cancel, parent_cancel, policy, |delta| {
-                let event = Store::event(
-                    &store.conn,
-                    "provider.chat_delta",
-                    json!({"requestId": request_id, "text": delta.text, "reasoning": delta.reasoning}),
-                )?;
-                emit(app, &event);
+            // 55#10：每 delta 一条 events 表 INSERT + IPC 广播——恶意/故障
+            // 端点按 1 字节粒度下发合法 SSE 可放大至约百万行事件（events 表
+            // ~100MB 膨胀 + UI 事件风暴）。按字节/时间窗合并（4KB 或 150ms
+            // 冲刷一次），消费方按序 append 文本的拼接语义不变；流结束（含
+            // 错误路径）冲刷余量，崩溃续读的 delta 重建不丢内容
+            let mut buffered_text = String::new();
+            let mut buffered_reasoning = String::new();
+            // 前沿触发：首个 delta 立即可见（前沿回拨 1s 使首达即冲刷）；
+            // 之后 150ms 窗口内到达的增量合并（对齐前端 deltaThrottle 拉取
+            // 节流），窗口外首个 delta 立即冲刷——慢速流即时可见、快速洪泛
+            // 被压到 ~7 事件/秒，且不存在「下一 delta 永不到达」的滞留
+            let mut last_flush =
+                Instant::now().checked_sub(std::time::Duration::from_secs(1));
+            let mut flush = |force: bool,
+                             buffered_text: &mut String,
+                             buffered_reasoning: &mut String|
+             -> Result<()> {
+                let due = force
+                    || buffered_text.len() + buffered_reasoning.len() >= 4096
+                    || last_flush
+                        .map(|at| at.elapsed() >= std::time::Duration::from_millis(150))
+                        .unwrap_or(true);
+                if !due {
+                    return Ok(());
+                }
+                if !buffered_text.is_empty() {
+                    let event = Store::event(
+                        &store.conn,
+                        "provider.chat_delta",
+                        json!({"requestId": request_id, "text": buffered_text, "reasoning": false}),
+                    )?;
+                    emit(app, &event);
+                    buffered_text.clear();
+                }
+                if !buffered_reasoning.is_empty() {
+                    let event = Store::event(
+                        &store.conn,
+                        "provider.chat_delta",
+                        json!({"requestId": request_id, "text": buffered_reasoning, "reasoning": true}),
+                    )?;
+                    emit(app, &event);
+                    buffered_reasoning.clear();
+                }
+                last_flush = Some(Instant::now());
                 Ok(())
-            }, request_id)
+            };
+            let result = protocol::stream_chat_with_policy(
+                &profile,
+                key,
+                messages,
+                max_tokens,
+                tools,
+                cancel,
+                parent_cancel,
+                policy,
+                |delta| {
+                    if delta.reasoning {
+                        buffered_reasoning.push_str(&delta.text);
+                    } else {
+                        buffered_text.push_str(&delta.text);
+                    }
+                    flush(false, &mut buffered_text, &mut buffered_reasoning)
+                },
+                request_id,
+            );
+            let _ = flush(true, &mut buffered_text, &mut buffered_reasoning);
+            result
         });
     let (status, output, reasoning, tool_calls, usage, finish_reason, error, attempts) =
         match result {

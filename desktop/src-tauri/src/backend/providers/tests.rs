@@ -1720,3 +1720,81 @@ fn ipc_deep_link_import_creates_profile_and_delete_guards_active() {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[test]
+fn cr_only_line_terminators_are_accepted() {
+    // 55#6：SSE 规范允许裸 CR 行终止——原先只按 \n 切行，CR-only 代理的
+    // 整个 body 滞留 pending，EOF 分支当一行解析必然 JSON 失败
+    use std::io::Write as _;
+    let (app, state) = setup();
+    let server = server(|_, stream| {
+        start_stream(stream);
+        let _ = stream.write_all(
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"cr\"}}]}\r\
+              data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\r\
+              data: [DONE]\r",
+        );
+    });
+    let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
+    let request = stream_chat(
+        app.handle(),
+        &state,
+        "chat-cr",
+        &saved.id,
+        &messages("hello"),
+        8,
+    )
+    .unwrap();
+    assert_eq!(request.status, "done");
+    assert_eq!(request.output, "crok");
+}
+
+#[test]
+fn newline_flood_hits_idle_byte_budget() {
+    // 55#1：换行洪泛不再 O(N²) memmove（游标消化），且累计 1MB 零产出
+    // 字节后按类型化错误终止——空行不计入文本上限，旧实现仅能靠取消退出
+    use std::io::Write as _;
+    let (app, state) = setup();
+    let server = server(|_, stream| {
+        start_stream(stream);
+        let flood = "\n".repeat(1024 * 1024 + 4096);
+        let _ = stream.write_all(flood.as_bytes());
+    });
+    let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
+    let request = stream_chat(
+        app.handle(),
+        &state,
+        "chat-flood",
+        &saved.id,
+        &messages("hello"),
+        8,
+    )
+    .unwrap();
+    assert_eq!(request.status, "failed");
+    assert_eq!(request.error.unwrap().code, "invalid_response");
+    assert_eq!(request.output, "");
+}
+
+#[test]
+fn disconnect_before_any_event_is_endpoint_unreachable() {
+    // 55#5：零事件即断的首连接毛刺按网络中断归类（可重试/可故障转移），
+    // 不再是不重试也不切换上游的 invalid_response
+    let (app, state) = setup();
+    let server = server(|_, stream| {
+        start_stream(stream);
+        // 不发送任何事件即关闭连接
+    });
+    let saved = upsert(app.handle(), &state, input(&server.url())).unwrap();
+    let request = stream_chat(
+        app.handle(),
+        &state,
+        "chat-drop",
+        &saved.id,
+        &messages("hello"),
+        8,
+    )
+    .unwrap();
+    assert_eq!(request.status, "failed");
+    assert_eq!(request.error.unwrap().code, "endpoint_unreachable");
+    assert_eq!(request.output, "");
+}
