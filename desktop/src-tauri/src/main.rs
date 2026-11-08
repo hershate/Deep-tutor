@@ -235,6 +235,7 @@ fn main() {
             materials::commands::get_material,
             materials::commands::get_material_media_info,
             materials::commands::read_material_media_chunk,
+            materials::commands::verify_material_media,
             materials::commands::enqueue_material_parse,
             materials::commands::cancel_material_parse,
             materials::commands::delete_material,

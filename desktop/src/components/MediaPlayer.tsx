@@ -23,17 +23,19 @@ export default function MediaPlayer({ material }: { material: Pick<Material, 'id
         const parts: ArrayBuffer[] = []
         let offset = 0
         while (offset < info.total) {
-          const chunk = await mediaBackend.chunk(material.id, offset)
+          const data = await mediaBackend.chunk(material.id, offset)
           if (disposed) return
-          if (chunk.offset !== offset || chunk.total !== info.total || !chunk.data.length || chunk.data.length > 256 * 1024) throw new Error('原生媒体分块不完整')
-          parts.push(new Uint8Array(chunk.data).buffer as ArrayBuffer)
-          offset += chunk.data.length
+          if (!(data instanceof ArrayBuffer) || !data.byteLength || data.byteLength > 256 * 1024) throw new Error('原生媒体分块不完整')
+          parts.push(data)
+          offset += data.byteLength
           setProgress(Math.min(99, Math.round(offset / info.total * 100)))
         }
-        const blob = new Blob(parts, { type: info.mime })
-        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))).map(byte => byte.toString(16).padStart(2, '0')).join('')
-        if (hash !== info.sha256) throw new Error('媒体内容校验失败，未创建播放器')
+        // 46#2：传输完成后由 Rust 侧整文件复核（info 传输前已校验，此处关闭
+        // 预览期间外部改动原件的 TOCTOU 窗口）——替代前端 blob.arrayBuffer()
+        // 的第三次复制与 JS 全量 SHA-256；校验失败不创建播放器（28#7）
+        await mediaBackend.verify(material.id)
         if (disposed) return
+        const blob = new Blob(parts, { type: info.mime })
         objectUrl = URL.createObjectURL(blob)
         setUrl(objectUrl); setMime(info.mime); setProgress(100)
       } catch (cause) {

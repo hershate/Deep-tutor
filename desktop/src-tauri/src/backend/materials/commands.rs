@@ -119,8 +119,19 @@ pub fn read_material_media_chunk(
     id: i64,
     offset: u64,
     length: u64,
-) -> Result<super::media::MediaChunk> {
-    super::media::chunk(&state.materials, id, offset, length)
+) -> Result<tauri::ipc::Response> {
+    // 46#2：二进制应答（数字数组 JSON 通道的 3–4× 内存峰值消除）
+    Ok(tauri::ipc::Response::new(super::media::chunk_bytes(
+        &state.materials,
+        id,
+        offset,
+        length,
+    )?))
+}
+
+#[tauri::command]
+pub fn verify_material_media(state: State<'_, BackendState>, id: i64) -> Result<()> {
+    super::media::verify(&state.materials, id)
 }
 
 #[tauri::command(async)]

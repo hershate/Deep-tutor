@@ -17,16 +17,6 @@ pub struct MediaInfo {
     pub sha256: String,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaChunk {
-    pub id: i64,
-    pub offset: u64,
-    pub total: u64,
-    pub mime: String,
-    pub data: Vec<u8>,
-}
-
 pub fn mime(kind: &str) -> Option<&'static str> {
     match kind.to_ascii_lowercase().as_str() {
         "mp4" | "m4v" => Some("video/mp4"),
@@ -131,20 +121,8 @@ fn source(state: &MaterialState, id: i64) -> Result<(Material, PathBuf)> {
 
 pub fn info(state: &MaterialState, id: i64) -> Result<MediaInfo> {
     let (material, path) = source(state, id)?;
-    // E-3：流式哈希——原先 fs::read 整读最大 50MB 进内存只为算摘要，
-    // 每次预览都放大内存峰值；改为 256KiB 分块读取（与 chunk() 同粒度）
     let total = path.metadata()?.len();
-    let mut file = fs::File::open(&path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 256 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    let actual = format!("{:x}", hasher.finalize());
+    let actual = streaming_sha256(&path)?;
     if actual != material.sha256 {
         return Err(BackendError::new(
             "media_integrity_failed",
@@ -162,8 +140,42 @@ pub fn info(state: &MaterialState, id: i64) -> Result<MediaInfo> {
     })
 }
 
-pub fn chunk(state: &MaterialState, id: i64, offset: u64, length: u64) -> Result<MediaChunk> {
+/// E-3：流式哈希——256KiB 分块读取（与 chunk() 同粒度），不整读 50MB 进内存
+fn streaming_sha256(path: &std::path::Path) -> Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// 46#2：传输完成后的整文件复核——info() 在传输前已流式校验，此处关闭
+/// 「预览期间外部改动原件」的 TOCTOU 窗口；替代原先前端 blob.arrayBuffer()
+/// 第三次复制 + JS 全量 SHA-256（50MB 视频在 WebView 侧为秒级）
+pub fn verify(state: &MaterialState, id: i64) -> Result<()> {
     let (material, path) = source(state, id)?;
+    let actual = streaming_sha256(&path)?;
+    if actual != material.sha256 {
+        return Err(BackendError::new(
+            "media_integrity_failed",
+            "媒体原件在校验期间发生变化，请重试",
+        ));
+    }
+    Ok(())
+}
+
+/// 46#2：以原始字节经 tauri::ipc::Response 二进制通道返回——原先 Vec<u8>
+/// 经 serde_json 逐字节序列化为数字数组（256KiB ≈ 0.9–1.6MB JSON 文本，
+/// JS 再解析出 26 万个 Number），50MB 视频的预览内存峰值约 3–4×；
+/// offset/total/mime 元数据由前端从 info() 与应答长度推导
+pub fn chunk_bytes(state: &MaterialState, id: i64, offset: u64, length: u64) -> Result<Vec<u8>> {
+    let (_material, path) = source(state, id)?;
     let total = path.metadata()?.len();
     if offset > total || length == 0 || length > MAX_CHUNK_BYTES {
         return Err(BackendError::invalid(
@@ -175,14 +187,5 @@ pub fn chunk(state: &MaterialState, id: i64, offset: u64, length: u64) -> Result
     file.seek(SeekFrom::Start(offset))?;
     let mut data = Vec::new();
     file.take(length).read_to_end(&mut data)?;
-    let mime = mime(&material.kind)
-        .unwrap_or("application/octet-stream")
-        .to_string();
-    Ok(MediaChunk {
-        id,
-        offset,
-        total,
-        mime,
-        data,
-    })
+    Ok(data)
 }
