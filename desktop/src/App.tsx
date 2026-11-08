@@ -171,7 +171,12 @@ export default function App() {
     const claim = async () => {
       try {
         const due = await communityBackend.claimDueReminders()
-        if (active && due.length) notify(`预约「${due[due.length - 1].title}」即将开始`)
+        // 37#6：同一轮领取的多条到期预约逐条可见——原先只弹最后一条标题
+        if (active && due.length) {
+          const titles = due.map(item => item.title)
+          const listed = titles.length > 5 ? `${titles.slice(0, 5).join('、')} 等` : titles.join('、')
+          notify(due.length === 1 ? `预约「${listed}」即将开始` : `${due.length} 条预约即将开始：${listed}`)
+        }
       } catch { /* 尽力而为的提醒轮询：失败时等待下一轮，不打断主界面 */ }
     }
     void claim()

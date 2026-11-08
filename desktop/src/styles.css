@@ -1308,8 +1308,7 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .share-status { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .share-status > div { flex: 1; }
 .share-status p { margin: 4px 0 0; font-size: 12px; }
-.copy-field { display: flex; gap: 7px; }
-.copy-field input { flex: 1; min-width: 0; font-size: 12px; }
+/* 37#7：.copy-field 随「本机只读地址」展示一并移除（无剩余消费方） */
 .share-actions { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .shared-screen { min-height: 100dvh; background: var(--bg); color: var(--text); }
 .shared-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -1584,7 +1583,6 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
   .editor-footer { align-items: flex-start; flex-direction: column; }
   .editor-footer > div { width: 100%; justify-content: flex-end; }
   .backup-counts { grid-template-columns: 1fr 1fr; }
-  .copy-field { flex-direction: column; }
 }
 
 .page-loading { min-height: 55dvh; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px; }

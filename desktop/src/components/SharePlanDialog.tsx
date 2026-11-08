@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from 'lucide-react'
+import { Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
-import { localShareUrl, sharingBackend } from '../backend/sharing'
+import { sharingBackend } from '../backend/sharing'
 import type { CreatedShare, ShareMetadata } from '../backend/sharing'
 import type { LearningPlan } from '../backend/client'
 
@@ -86,14 +86,6 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 
-  const copy = async () => {
-    if (!created) return
-    try {
-      await navigator.clipboard.writeText(localShareUrl(created.token))
-      notify('本机只读地址已复制；它不是公共互联网链接')
-    } catch { notify('无法访问剪贴板，请手动复制地址') }
-  }
-
   const matchingCreated = created?.share.planId === selectedId ? created : null
   return <Modal open={open} onClose={onClose} title="分享只读学习方案" wide>
     <div className="form-stack">
@@ -106,7 +98,9 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
       <Button onClick={() => void create()} disabled={!selectedId || Boolean(busy)}>{busy === 'create' ? <LoaderCircle size={16} className="spin" /> : <Share2 size={16} />}创建新分享</Button>
       {matchingCreated && <section className="share-created">
         <h3>新分享已保存 · 有效期至 {new Date(matchingCreated.share.expiresAt).toLocaleString()}</h3>
-        <label>本机只读地址<div className="copy-field"><input readOnly value={localShareUrl(matchingCreated.token)} onFocus={event => event.target.select()} /><Button variant="secondary" onClick={() => void copy()}><Copy size={16} />复制</Button></div></label>
+        {/* 37#7：原「本机只读地址」复制出的 tauri.localhost URL 无任何消费方（应用内
+            无地址栏、无 deep-link、外部浏览器打不开）——移除展示与复制，只保留真正
+            给接收者的两条通道：应用内只读预览与 .dtshare 分享包 */}
         <p className="form-help">令牌只返回一次；此后只能查看元数据。再次下载请保留当前对话框，或创建新分享。</p>
         <div className="share-actions"><Button variant="secondary" onClick={() => onPreview(matchingCreated.token)}><Eye size={16} />只读预览</Button><Button onClick={() => void download()} disabled={Boolean(busy)}><Download size={16} />{busy === 'download' ? '等待选择保存位置' : '下载 .dtshare 分享包'}</Button></div>
       </section>}

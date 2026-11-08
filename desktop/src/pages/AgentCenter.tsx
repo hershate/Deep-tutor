@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Code2, FileCheck2, FileText, History, LoaderCircle, MessageSquareText, Plus, Search, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from 'lucide-react'
-import { Badge, Button, IconButton, ProgressBar, SectionHeader } from '../components/UI'
+import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, SectionHeader } from '../components/UI'
 import { useAgent } from '../backend/useAgent'
 import type { AgentApproval, AgentMessage } from '../backend/client'
 
@@ -42,6 +42,8 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
   const [rightTab, setRightTab] = useState('运行过程')
   const [sessionSearch, setSessionSearch] = useState('')
   const [newPlan, setNewPlan] = useState('')
+  // 37#1：删除会话级联清空全部历史，不可恢复——确认后再执行（对齐 20#5 家族）
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const running = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
   const resumable = activeRun && ['failed', 'cancelled', 'interrupted'].includes(activeRun.status)
@@ -101,7 +103,7 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
     </aside>
 
     <main className="agent-chat">
-      <header><div><span className="agent-mark"><Sparkles size={18} /></span><div><h1>{activeSession?.title ?? 'Agent 学习工作台'}</h1><p>{activeSession ? `${plan?.goal ?? activeSession.planId} · ${activeSession.providerId}` : '需要已采用的学习方案和已配置的模型供应商'}</p></div></div><div><Badge tone={error ? 'amber' : 'green'}><i className="live-dot" />{error ? '后端连接异常' : '本地后端已连接'}</Badge><IconButton label="删除当前会话" disabled={!activeSession || running || busy === 'delete'} onClick={() => void removeSession()}><Trash2 size={17} /></IconButton></div></header>
+      <header><div><span className="agent-mark"><Sparkles size={18} /></span><div><h1>{activeSession?.title ?? 'Agent 学习工作台'}</h1><p>{activeSession ? `${plan?.goal ?? activeSession.planId} · ${activeSession.providerId}` : '需要已采用的学习方案和已配置的模型供应商'}</p></div></div><div><Badge tone={error ? 'amber' : 'green'}><i className="live-dot" />{error ? '后端连接异常' : '本地后端已连接'}</Badge><IconButton label="删除当前会话" disabled={!activeSession || running || busy === 'delete'} onClick={() => setDeleteOpen(true)}><Trash2 size={17} /></IconButton></div></header>
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="agent-message-scroll">
         {messages.map(message => <div className={`agent-message agent-${message.role}`} key={message.id}>{message.role === 'assistant' && <span className="agent-avatar"><Bot size={17} /></span>}<div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{message.content || (message.toolCalls.length ? `已请求 ${message.toolCalls.length} 个工具调用。` : '模型未返回文本。')}</div>{message.reasoning && <details className="thought-details"><summary><Brain size={14} />查看模型返回的推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{message.reasoning}</p></details>}{message.toolCalls.length > 0 && <div className="message-tools">{message.toolCalls.map(tool => <span key={tool.id}><Wrench size={12} />{tool.name}</span>)}</div>}{message.partial && <Badge tone="amber">未完成的模型输出</Badge>}</div></div>)}
@@ -121,5 +123,7 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
       {rightTab === '工具' && <div className="tool-catalog"><SectionHeader title="12 个 Agent 工具" description="名称与参数由原生工具目录注册；搜索与网页抓取返回真实网络结果。" />{toolCatalog.map(([tool, description]) => <button key={tool} title={description} onClick={() => setInput(`请使用 ${tool} 帮我完成：`)}><Code2 size={15} /><span>{tool}</span><Plus size={14} /></button>)}<div className="security-note"><ShieldCheck size={16} />scratch 有路径限制与哈希校验；记忆写删和产物提升需要明确审批。网页访问执行 SSRF 防护，未验证的链接不会标为成功。注意：阅读工作区/资料、检索与抓取公开网页不需要逐次审批——被污染的网页内容可能诱导模型读取本地学习数据并经公开请求外发，请仅让它访问可信来源。</div></div>}
       {rightTab === '预算' && <div className="budget-inspector"><SectionHeader title="真实运行限制" description="Token 用量来自供应商响应；无价格表时不换算为美元。" /><div className="budget-item"><div><span>当前会话输出</span><strong>{usedTokens} / {budget || 0} tokens</strong></div><ProgressBar value={budgetPercent} /></div><div className="budget-item"><div><span>本次运行步数</span><strong>{activeRun?.steps ?? 0} / 25</strong></div><ProgressBar value={(activeRun?.steps ?? 0) / 25 * 100} tone="blue" /></div><div className="usage-breakdown"><h3>本次运行计量</h3><div><span>输入 tokens</span><strong>{activeRun?.inputTokens ?? 0}</strong></div><div><span>输出 tokens</span><strong>{activeRun?.outputTokens ?? 0}</strong></div><div><span>会话工具调用</span><strong>{totalTools}</strong></div></div><p>达到输出 Token 预算后停止新请求；单步最多 8 个工具调用。异常与取消时已返回的 Token 仍计入。</p></div>}
     </aside>
+
+    <ConfirmDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => { setDeleteOpen(false); void removeSession() }} title="删除这个会话？" description="将同时删除该会话的全部消息、工具结果、运行与审批历史；此操作不可恢复。" confirmLabel="确认删除" busy={busy === 'delete'} />
   </div>
 }
