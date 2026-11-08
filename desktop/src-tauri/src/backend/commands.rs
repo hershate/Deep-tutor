@@ -152,6 +152,7 @@ mod tests {
                 crate::backend::materials::commands::get_material,
                 crate::backend::materials::commands::get_material_media_info,
                 crate::backend::materials::commands::read_material_media_chunk,
+                crate::backend::materials::commands::verify_material_media,
                 crate::backend::materials::commands::enqueue_material_parse,
                 crate::backend::materials::commands::delete_material,
                 crate::backend::materials::commands::export_material_original,
@@ -186,6 +187,32 @@ mod tests {
             },
         )
         .map(|body| body.deserialize::<Value>().unwrap())
+    }
+
+    /// 46#2：二进制应答命令（tauri::ipc::Response）的 IPC 级读取——
+    /// mock 通道返回 InvokeBody::Raw，JSON 反序列化只得 Null
+    fn ipc_raw(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        command: &str,
+        arguments: Value,
+    ) -> std::result::Result<Vec<u8>, Value> {
+        let window = app.get_webview_window("main").unwrap();
+        tauri::test::get_ipc_response(
+            &window,
+            InvokeRequest {
+                cmd: command.to_string(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: "http://tauri.localhost".parse().unwrap(),
+                body: InvokeBody::Json(arguments),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .map(|body| match body {
+            tauri::ipc::InvokeResponseBody::Raw(bytes) => bytes,
+            tauri::ipc::InvokeResponseBody::Json(value) => serde_json::to_vec(&value).unwrap(),
+        })
     }
 
     #[test]
@@ -413,14 +440,14 @@ mod tests {
         assert_eq!(info["total"], data.len());
         assert_eq!(info["mime"], "video/mp4");
         assert_eq!(info["sha256"], imported[0]["material"]["sha256"]);
-        let chunk = ipc(
+        // 46#2：chunk 走二进制应答，字节原样到达；total/mime 由 info() 推导
+        let chunk = ipc_raw(
             &app,
             "read_material_media_chunk",
             json!({"id":id,"offset":4,"length":8}),
         )
         .unwrap();
-        assert_eq!(chunk["data"], json!(data[4..12]));
-        assert_eq!(chunk["total"], data.len());
+        assert_eq!(chunk, data[4..12].to_vec());
         assert_eq!(
             ipc(
                 &app,
@@ -430,6 +457,8 @@ mod tests {
             .unwrap_err()["code"],
             "invalid_media_range"
         );
+        // 46#2：传输完成后 Rust 侧整文件复核通过
+        ipc(&app, "verify_material_media", json!({"id":id})).unwrap();
         assert_eq!(
             ipc(&app, "enqueue_material_parse", json!({"id":id})).unwrap_err()["code"],
             "media_analysis_unsupported"
