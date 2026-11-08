@@ -11,8 +11,8 @@
 ### 53#1 预算护栏对 provider_requests（库中最大表）每次模型请求全表扫描
 
 - 位置：`desktop/src-tauri/src/backend/providers/usage.rs:443-470`（budget_spend，主审亲验）；schema `providers/mod.rs:288-304`——**agent_session_id/created_at 均无索引**（仅 request_id PK）；调用点 `routing.rs:916`（每次路由请求）、`providers/mod.rs:1141`（每次直连）、`agent/mod.rs:881`（agent 每步）。
-- **机理**：daily 口径 `date(r.created_at,?)=?` 函数包裹列且 created_at 无索引；session 口径 `agent_session_id=? OR (... GLOB ...)` 的 OR+GLOB 阻断任何索引合并——每次模型请求（含 25 步 agent 循环的每一步）全表扫描含全部 LLM 输出文本的最大表，延迟随历史线性增长。27#3 只消除了「读入内存」，未消除扫描本身。`agent/mod.rs:644` 的 session_output_tokens（同谓词）被每个 agent.* 事件触发的 get() 调用，流式期间高频放大。
-- **影响**：模型重度用户的每次请求延迟持续劣化；叠加 44 号主线程事实（同步命令）表现为请求前 UI 卡顿放大。修复：`CREATE INDEX provider_requests_session ON provider_requests(agent_session_id)`（外键列尚无索引本身也值得补）+ created_at 索引，或预算改为累计表。
+- **传递链条（机理）**：① 每次模型请求进入预算判定 → ② daily 口径 `date(r.created_at,?)=?` 函数包裹列且 created_at 无索引；session 口径 `agent_session_id=? OR (... GLOB ...)` 的 OR+GLOB 阻断任何索引合并——每次模型请求（含 25 步 agent 循环的每一步）全表扫描含全部 LLM 输出文本的最大表，延迟随历史线性增长。27#3 只消除了「读入内存」，未消除扫描本身。`agent/mod.rs:644` 的 session_output_tokens（同谓词）被每个 agent.* 事件触发的 get() 调用，流式期间高频放大。
+- **影响范围**：模型重度用户的每次请求延迟随 provider_requests 行数线性劣化——25 步 agent 循环每步扫一次、流式期间 session_output_tokens（同谓词）再被每个 agent.* 事件放大；叠加 44 号主线程事实（同步命令）表现为请求前 UI 卡顿持续放大。轻度用户（数十条请求）无感。修复：`CREATE INDEX provider_requests_session ON provider_requests(agent_session_id)`（外键列尚无索引本身也值得补）+ created_at 索引，或预算改为累计表。
 
 ### 53#2 get_calendar 每次调用 84 次全表扫描——dashboard 事件热触发
 
