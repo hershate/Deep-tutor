@@ -301,11 +301,18 @@ fn factor(intensity: &str) -> Result<f64> {
     }
 }
 
+/// 强度缩放：条目/任务/阶段分钟按比例取整，不套 10..=600 钳制——
+/// 排期装填合法产出 1–9 分钟尾条目，旧实现对全部量 clamp(10,600) 使
+/// 2 分钟尾条目切「冲刺」被抬到 10 分钟、再切回时单调卡死在 10（52#1）。
 fn scaled(minutes: u32, current: &str, target: &str) -> Result<u32> {
     let ratio = factor(target)? / factor(current)?;
-    // 排期步硬校验每日 10..=600 分钟：强度缩放后封顶，避免方案局部重生成永久必败。
-    // 31#20：下限与 validate 对齐到 10——原 15 使 daily=10 切「稳妥」反被放大
-    Ok(((minutes as f64 * ratio).round() as u32).clamp(10, 600))
+    Ok(((minutes as f64) * ratio).round() as u32)
+}
+
+/// 每日分钟是排期步硬校验 10..=600 的唯一对象（learning validate 拒收
+/// 界外值使重生成永久必败），缩放后仍钳回界内（07#7/31#20/52#1）。
+fn scaled_daily(minutes: u32, current: &str, target: &str) -> Result<u32> {
+    Ok(scaled(minutes, current, target)?.clamp(10, 600))
 }
 
 fn alternatives_for(overview: &PlanOverview) -> Result<Vec<PlanAlternative>> {
@@ -492,7 +499,7 @@ pub fn apply_intensity<R: Runtime>(
         params![numeric],
         |row| row.get::<_, String>(0),
     )?)?;
-    input.daily_minutes = scaled(input.daily_minutes, &current.intensity, &intensity)?;
+    input.daily_minutes = scaled_daily(input.daily_minutes, &current.intensity, &intensity)?;
     // 23#1：within_deadline/within_milestone 是"结束日 <= 截止日"的日期语义
     // （learning/validate.rs），强度切换不改变日期——不得用容量不等式重算，
     // 否则逾期方案会被持久化翻成"在目标日内"；保持生成时的标志不动
@@ -576,9 +583,12 @@ pub fn update_goal<R: Runtime>(
         .and_then(Value::as_str)
         .unwrap_or("标准")
         .to_string();
-    // 31#20：下限与 validate 的 10..=600 对齐——原 15 把 weekly_hours=1 钳到 105 分钟/周
-    let base = (input.weekly_hours * 60 / 7).clamp(10, 600);
-    plan_input.daily_minutes = ((base as f64 * factor(&intensity)?).round() as u32).clamp(10, 600);
+    // 52#2：先乘后除全程浮点（整数除法 60/7=8 向零截断，余数档每周静默
+    // 丢 1–4 分钟），钳制只在最终值做一次——基数预钳再乘强度会叠加抬升；
+    // 10..=600 为排期步硬校验界，最终值必须落回界内
+    plan_input.daily_minutes = ((f64::from(input.weekly_hours) * 60.0 / 7.0 * factor(&intensity)?)
+        .round() as u32)
+        .clamp(10, 600);
     if let Some(level) = input.level {
         // A-2：level 直接落 input_json 并随 regenerate 进入模型提示词——
         // generate 入口的 1000B 校验（learning）在本路径不重跑，超长基础

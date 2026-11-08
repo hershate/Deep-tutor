@@ -241,3 +241,17 @@ fn adopted_plan_keeps_its_goal_and_history() {
     assert!(plan.result.is_some());
     assert!(plan.adopted_project_id.is_some());
 }
+
+#[test]
+fn scaled_keeps_small_entries_and_clamps_only_daily() {
+    // 52#1：条目/任务/阶段分钟不再套 10..=600 钳制——排期装填合法产出
+    // 1–9 分钟尾条目，旧实现切强度抬到 10 且再切回时单调卡死；
+    // 每日分钟（scaled_daily）仍钳界内保证排期步硬校验可重生成
+    assert_eq!(scaled(2, "标准", "冲刺").unwrap(), 2);
+    assert_eq!(scaled(2, "冲刺", "标准").unwrap(), 2);
+    assert_eq!(scaled(2, "标准", "稳妥").unwrap(), 2);
+    assert_eq!(scaled(0, "标准", "冲刺").unwrap(), 0);
+    assert_eq!(scaled(600, "标准", "冲刺").unwrap(), 720);
+    assert_eq!(scaled_daily(2, "标准", "冲刺").unwrap(), 10);
+    assert_eq!(scaled_daily(600, "标准", "冲刺").unwrap(), 600);
+}

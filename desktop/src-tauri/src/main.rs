@@ -18,9 +18,7 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
         let root = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
             .map(std::path::PathBuf::from)
             .filter(|path| path.is_absolute())
-            .ok_or(
-                "DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory",
-            )?;
+            .ok_or("DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory")?;
         let pointer = root.join("verification-storage.json");
         (root.clone(), root.clone(), pointer, None)
     } else {

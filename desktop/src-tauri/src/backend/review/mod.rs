@@ -421,6 +421,19 @@ pub fn grade<R: Runtime>(
         return Err(BackendError::new("card_not_due", "这张卡片尚未到复习时间"));
     }
     let previous_interval = card.interval_days;
+    // 47#3：ease/间隔为库内 f64，被外部改库成 NaN/巨值时直接参与乘法会经
+    // seconds_f64 与日期加法 panic（同步命令=主线程崩溃）——先校验有限与
+    // 合法域（ease 更新规则本就收敛到 1.3..=3.0），毒数据显式报错而非崩溃
+    if !previous_interval.is_finite()
+        || previous_interval < 0.0
+        || !card.ease.is_finite()
+        || !(1.3..=3.0).contains(&card.ease)
+    {
+        return Err(BackendError::new(
+            "invalid_record",
+            "复习卡间隔或难度系数无效，请删除后重建该卡片",
+        ));
+    }
     let next_interval = match grade {
         "again" => 10.0 / 1440.0,
         "hard" if card.repetitions == 0 => 2.0,
@@ -430,7 +443,10 @@ pub fn grade<R: Runtime>(
         "good" => previous_interval * card.ease,
         "easy" => previous_interval * card.ease * 1.3,
         _ => unreachable!(),
-    };
+    }
+    // 47#3：复利增长无封顶时连续 good/easy 约 11–15 次后 now+interval 会
+    // 越过 time crate 最大年份 9999 使加法 panic——对齐 Anki 36500 天上限
+    .min(36500.0);
     let ease = match grade {
         "again" => (card.ease - 0.2).max(1.3),
         "hard" => (card.ease - 0.15).max(1.3),
@@ -503,7 +519,14 @@ pub fn stats(state: &ReviewState) -> Result<ReviewStats> {
         |row| row.get(0),
     )?;
     let tomorrow_start = end.clone();
-    let day_after = day_start(tomorrow.next_day().unwrap(), local.offset())?;
+    // 47#3：next_day 在 9999-12-31 边界返回 None——同明日边界显式转类型化
+    // 错误，不 panic（同步命令=主线程）
+    let day_after = day_start(
+        tomorrow
+            .next_day()
+            .ok_or_else(|| BackendError::new("invalid_persisted_time", "无法计算后日复习日期"))?,
+        local.offset(),
+    )?;
     let tomorrow_count: u32 = store.conn.query_row(
         "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at >= ?1 AND due_at < ?2",
         params![tomorrow_start, day_after],

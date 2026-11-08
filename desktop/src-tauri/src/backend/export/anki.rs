@@ -164,17 +164,19 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                     } else {
                         card.interval_days.round() as i64
                     },
-                    (card.ease * 1000.0) as i64,
+                    // 52#6：ease=2.35 的 f64 实为 2.3499…，向零截断导出 2349
+                    // 比 Anki 调度少一个千分点——先 round 再转
+                    (card.ease * 1000.0).round() as i64,
                 )
             } else if card.repetitions == 0 {
-                (0, 0, index as i64, 0, (card.ease * 1000.0) as i64)
+                (0, 0, index as i64, 0, (card.ease * 1000.0).round() as i64)
             } else {
                 (
                     2,
                     2,
                     anki_due_day(&card.due_at, now)?,
                     card.interval_days.round() as i64,
-                    (card.ease * 1000.0) as i64,
+                    (card.ease * 1000.0).round() as i64,
                 )
             };
             connection.execute(

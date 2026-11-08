@@ -755,8 +755,10 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let (focus_seconds, previous_focus_seconds) =
         focus_minutes(&store, &since_text, &previous_text)?;
     // B-11：hints 模式作答不进正确率聚合——「题目答错」可从聚合值反推，
-    // 属遮蔽口径的报表旁路
-    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    // 属遮蔽口径的报表旁路；47#7：脏行（score 超界/负值/缺 max）退出 AVG
+    // （与 :639 evidence 路径的 finite+界内过滤同口径），不再被 as u8 饱和
+    // 转换静默钳到 100% 掩盖
+    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 AND a.score >= 0 AND a.score <= a.max_score THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
     // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新
     let all_plans = super::learning::list(&state.learning)?;
@@ -1196,11 +1198,12 @@ pub fn export_report<R: Runtime>(
         (
             "正确率百分比",
             // 13#11：与页面 Math.round(value*100) 同口径输出整数百分比；
-            // 15#2：指标为 [0,1] 小数，漏乘 100 会把 76.9% 输出为 1
+            // 15#2：指标为 [0,1] 小数，漏乘 100 会把 76.9% 输出为 1；
+            // 47#7：浮点转 u8 为饱和转换，先 clamp 保证脏值不会静默变 100
             report
                 .metrics
                 .correct_percent
-                .map(|value| format!("{}", (value * 100.0).round() as u8))
+                .map(|value| format!("{}", (value * 100.0).round().clamp(0.0, 100.0) as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         (
@@ -1208,7 +1211,7 @@ pub fn export_report<R: Runtime>(
             report
                 .metrics
                 .retention_percent
-                .map(|value| format!("{}", (value * 100.0).round() as u8))
+                .map(|value| format!("{}", (value * 100.0).round().clamp(0.0, 100.0) as u8))
                 .unwrap_or_else(|| "暂无数据".into()),
         ),
         ("目标状态", report.metrics.goal_status.clone()),
