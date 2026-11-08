@@ -16,38 +16,52 @@
 
 ### 53#2 get_calendar 每次调用 84 次全表扫描——dashboard 事件热触发
 
-- 位置：`desktop/src-tauri/src/backend/reports/mod.rs:965-969`（`(0..84).rev()` 循环内 `WHERE status='completed' AND ended_at >= ? AND < ?`，主审亲验）；索引仅 `(status, started_at)`（:184），**不覆盖 ended_at**。App.tsx:161-163 使复习评分/练习提交/任务变更每个事件都整跑 dashboard。修复：`CREATE INDEX focus_sessions_ended ON focus_sessions(status, ended_at)` 或 84 天合并单条 GROUP BY。
+- 位置：`desktop/src-tauri/src/backend/reports/mod.rs:965-969`（主审亲验）；索引仅 `(status, started_at)`（:184）。
+- **传递链条**：① 复习评分/练习提交/任务变更产生事件 → ② App.tsx:161-163 每个事件触发 `dashboard()` → ③ `get_calendar` 在 `(0..84).rev()` 循环内逐日执行 `WHERE status='completed' AND ended_at >= ? AND < ?` → ④ 现有索引不覆盖 ended_at → 84 次全表扫描+临时聚合，同步命令在主线程执行（叠加 44 号）。
+- **影响范围**：focus_sessions 行数随使用线性增长的用户（重度专注者数千行）——每次评分/提交的 dashboard 延迟随之上升，主线程占用造成可感顿挫。冷启动用户无感。修复：`(status, ended_at)` 索引或合并单条 GROUP BY。
 
 ### 53#3 learning/knowledge 列表 N+1 每项新开一条 SQLite 连接——39#1 同族漏网
 
-- 位置：`learning/mod.rs:88-90`（`store()` = `Store::new(path)`：PRAGMA×4 + WAL 检查 + schema 指纹 SHA256 + meta 读，主审亲验）、`:607-618`（list → 逐方案 get → 每方案开一条连接 + 3 类查询）；`knowledge/mod.rs:240/284-296` 同型（每会话一条，LIMIT 100）。list 被 dashboard/engagement::search/reports/planning 复用——一次 dashboard 最多 100 次开库。39#1 只修了 knowledge::search 的资料配对路径。修复：沿 39#1 模式做批量取回。
+- 位置：`learning/mod.rs:88-90`（`store()`=Store::new：PRAGMA×4+WAL+指纹 SHA256+meta，主审亲验）、`:607-618`；`knowledge/mod.rs:240/284-296` 同型。
+- **传递链条**：① 任意 dashboard/搜索/报告/周计划请求 → ② `learning::list` 逐方案调 `get` → ③ 每方案 `Store::new(database_path)` 开一条全新 SQLite 连接（重跑 PRAGMA、WAL 检查、schema 指纹 SHA256、meta 读）→ ④ 100 个存档方案 = 100 次开库 + 300 组查询；knowledge 列表同型（每会话一条，LIMIT 100）。
+- **影响范围**：方案/知识会话存档多的用户——列表类页面与 dashboard 的延迟随存档数线性放大（39#1 已证明该模式在百份资料时可感）。39#1 只修了 knowledge::search 的资料配对路径，本族是同型漏网。修复：沿 39#1 的批量取回模式。
 
 ### 53#4 planning overview 读快照后 autocommit DELETE——并发 adopt/保存的毫秒窗误删新排期行
 
-- 位置：`desktop/src-tauri/src/backend/planning/mod.rs:157-164`。`live_ids` 来自 :148 的 collection 快照；两条孤儿清理 DELETE 各自独立 autocommit。若 `replace_collection("tasks")` 或 `adopt`（单事务插任务+排期行）恰在快照与 DELETE 之间提交，新任务的排期行按「NOT IN 旧快照」被误删且不自愈。窗口毫秒级。修复：DELETE 与 live_ids 重读收进同一 IMMEDIATE 事务。
+- 位置：`desktop/src-tauri/src/backend/planning/mod.rs:157-164`。
+- **传递链条**：① 周视图 overview 读 `collection("tasks")` 得 live_ids 快照 → ② 并发的 `replace_collection("tasks")` 或 `adopt`（单事务插入新任务 kv 行 + 排期行）恰在快照之后提交 → ③ 两条孤儿清理 `DELETE … WHERE task_id NOT IN (旧快照)` 以各自独立的 autocommit 执行 → ④ 新任务的排期行被判定为孤儿而误删——且下轮 overview 不会恢复（任务 kv 行还在，需重新 adopt/排期）。
+- **影响范围**：恰在周计划页浏览时执行采纳/保存的用户（毫秒窗）；后果为该新任务的排期行静默丢失（任务本身仍在，日期需重设）。无数据损坏到不可恢复。修复：DELETE 与 live_ids 重读收进同一 IMMEDIATE 事务。
 
 ### 53#5 复习/练习统计聚合无索引全表扫（dashboard 热路径）
 
-- `review/mod.rs:514-518`（review_history 无时间界全表 AVG，只增不减）；`reports/mod.rs:760`（reviewed_at 无索引）；`reports/mod.rs:759`（practice_answers 仅 set_id 索引，status+created_at 全表扫）。修复：`review_history(reviewed_at)`、`practice_answers(status, created_at)`。
+- 位置：`review/mod.rs:514-518`、`reports/mod.rs:759-760`。
+- **传递链条**：① 每次 dashboard 事件 → ② `stats()` 对 review_history 全表 AVG（无时间界，表只增不减）+ reports 按窗口过滤（reviewed_at/created_at 均无索引）→ ③ practice_answers 仅 set_id 索引，status+created_at 过滤全表扫 → ④ 扫描量随历史线性增长，与 53#2 同在 dashboard 热路径叠加。
+- **影响范围**：长期使用（数百次评分/作答）后 dashboard 逐次变慢；短历史用户无感。修复：`review_history(reviewed_at)`、`practice_answers(status, created_at)` 两个索引。
 
 ### 53#6 focus/排期 N+1 与 task_id 缺索引
 
-- `reports/mod.rs:740`：每条已完成 focus 行点查 `learning_plan_schedule_tasks WHERE task_id=?`——该表 PK 为 (plan_id, task_id)，**task_id 无前缀索引** → 每行全表扫（N+1）。`:574/:723` focus 聚合无时间下推全部历史进内存。修复：`CREATE INDEX lpst_task ON learning_plan_schedule_tasks(task_id)`。
+- 位置：`reports/mod.rs:740`（点查）、`:574/:723`（聚合无时间下推）。
+- **传递链条**：① 报告计算专注-任务关联 → ② 每条已完成 focus 行执行 `SELECT plan_id FROM learning_plan_schedule_tasks WHERE task_id=? LIMIT 1` → ③ 该表 PK 为 (plan_id, task_id)，task_id 无前缀索引 → 每行全表扫（行数×表长）→ ④ 专注历史长的用户报告页显著变慢。
+- **影响范围**：专注记录多且有排期任务的用户（报告/周报路径）；修复一个索引即消。
 
 ### 53#7 usage 台账全表读 + 每行费率点查 N+1
 
-- `providers/usage.rs:297-307`（entries 无 WHERE 读全表 provider_requests）、`:264`（每行点查 usage_rates）、`:330-353`（overview 再以 31 天×全部条目内存过滤）。usage 页与 export_csv 触发。可改 JOIN 单查。
+- 位置：`providers/usage.rs:297-307`（全表）、`:264`（点查）、`:330-353`（内存过滤）。
+- **传递链条**：① 打开用量页或导出 CSV → ② `entries()` 无 WHERE 读取全部 provider_requests（含全部 LLM 输出文本的反序列化）→ ③ 每行点查 usage_rates 费率 → ④ overview 再以 31 天×全部条目做内存日期过滤。
+- **影响范围**：模型请求数多的用户打开用量页/导出 CSV 的耗时线性劣化（provider_requests 是最大表）；主线程执行（44 号叠加）期间 UI 冻结。修复：JOIN 单查 + 分页。
 
 ### 53#8 community_replies 无 post_id 索引——帖子列表二次方
 
-- `community/mod.rs:339`（每帖 `WHERE post_id=? ORDER BY id`，建表 :191-197 仅 PK+FK）；外层配额 500 帖 × 每回复点查；帖子删除的 CASCADE 同样全表找子行。修复：`CREATE INDEX community_replies_post ON community_replies(post_id)`。
+- 位置：`community/mod.rs:339`（每帖点查）；建表 :191-197 仅 PK+FK。
+- **传递链条**：① 打开社区页/搜索 → ② posts() 外层取至多 500 帖 → ③ 每帖执行 `WHERE post_id=? ORDER BY id` 无索引全表扫 replies → ④ 帖子删除时 FK CASCADE 同样全表找子行。
+- **影响范围**：社区重度使用（帖子/回复多）的用户——社区页打开与搜索随数据量二次方变慢；帖子删除偶发卡顿。修复：`community_replies_post(post_id)` 一个索引。
 
 ## 信息性
 
-- **53#9** pause/resume_focus（reports/mod.rs:439/465）UPDATE 带状态守卫但未检查 changed——竞态窗内静默 0 行仍发 focus.paused/resumed 事件（对照 finish_focus :372-375 有检查）。
-- **53#10** materials 转换回调每页进度全量重写 resources 集合（DELETE 全 namespace + 重插，materials/mod.rs:807→:359）——大 PDF 解析期写放大。
-- **53#11** 冷路径全表扫：plugins deliveries OR 通配+跨插件 event_id 排序无索引；agent_messages run_id 无索引（每步一次）；notifications 无 created_at/read_at 索引且无清理路径（30s 轮询但表小）。
-- **53#12** security display_name COLLATE NOCASE 仅 ASCII 折叠——中文重名检测实为精确匹配（功能可用，语义与「不区分大小写」预期不符）。
+- **53#9** pause/resume_focus 竞态窗多余事件。链条：① pause 请求先 SELECT id 再 UPDATE …AND status='running'（reports/mod.rs:439/465）→ ② 窗口内并发 finish 已把行置 completed → ③ UPDATE 静默 0 行但未检查 changed → ④ 照发 focus.paused 事件并返回旧会话。影响：一条与会话终态矛盾的事件（前端靠下一事件自愈）；低概率毫秒窗。对照 finish_focus（:372-375）有 changed 检查。
+- **53#10** materials 进度回调写放大。链条：① 大 PDF 逐页解析 → ② 每页进度回调 transition（materials/mod.rs:807）→ ③ 每次都 sync_resources：DELETE 全 resources namespace + 全量重插（:359）并提交。影响：解析期间 resources 集合按页数整写 N 次（磁盘与 WAL 放大），功能正确；节流即可。
+- **53#11** 冷路径全表扫三处。链条与影响：plugins deliveries 列表 `(?1 IS NULL OR plugin_id=?1)` OR 通配杀索引且跨插件按 event_id 排序无索引（插件多、事件多时慢，低频页面）；agent_messages `WHERE run_id=?` 无索引（agent 每步一次全表扫，25 步×消息量）；notifications 无索引且无清理路径（30s 轮询全表扫+排序，表按日增长，长期膨胀后轮询变慢——兼有容量问题）。
+- **53#12** display_name 重名检测语义。链条：`COLLATE NOCASE` 仅折叠 ASCII 大小写（security/mod.rs:1028）→ 中文「张三」与「张三 」等仅空白差异也被视为不同/英文大小写视为同。影响：本地重名提示对中文用户实为精确匹配（提示漏报），无功能破坏。
 
 ## 正向结论（核对过、无问题）
 
