@@ -1,6 +1,6 @@
 # 02 · 运行原理
 
-> 基准：main 分支 commit `df63ee0f`。引用形如 `文件:行号`，相对 `desktop/` 目录。`L/`=learning，`P/`=providers，`M/`=materials，`K/`=knowledge，`SEC/`=security。
+> 基准：main 分支滚动演进（不钉单一 commit，引用以撰写时 HEAD 为准，随开发可能移位）。引用形如 `文件:行号`，相对 `desktop/` 目录。`L/`=learning，`P/`=providers，`M/`=materials，`K/`=knowledge，`SEC/`=security。
 
 ## 1. 启动流程
 

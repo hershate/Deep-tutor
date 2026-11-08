@@ -3,7 +3,6 @@
 .env.local
 .env.*.local
 .env.*
-!.env.example
 
 # User data and reference source, never treated as build inputs to delete
 /data/

@@ -16,3 +16,15 @@
 *.tsx text eol=lf
 *.txt text eol=lf
 *.yml text eol=lf
+
+# 显式二进制/生成物规则（49#9）：不依赖 * text=auto 的内容探测
+*.exe -text
+*.dll -text
+*.ico -text
+*.png -text
+*.jpg -text
+*.woff -text
+*.woff2 -text
+*.crate -text
+# Cargo.lock 为生成物且 cargo 全平台输出 LF，禁用归一化避免检出即改写
+Cargo.lock -text

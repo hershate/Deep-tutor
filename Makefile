@@ -16,7 +16,8 @@ NPM ?= npm
 .PHONY: build lint test check hooks
 
 build:
-	node scripts/collect-licenses.mjs
+	# 许可收集挂在 tauri beforeBuildCommand（npm run build:bundle，49#1），
+	# npm run tauri build 直连路径与 make/CI 路径同一口径
 	# npm 吞掉第一个 --，脚本收到 build -- --locked，--locked 才能转发给 cargo
 	cd desktop && $(NPM) run tauri build -- -- --locked
 

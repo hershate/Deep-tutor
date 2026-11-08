@@ -1,6 +1,6 @@
 # 01 · 架构分析
 
-> 基准：main 分支 commit `df63ee0f`。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
+> 基准：main 分支滚动演进（不钉单一 commit，引用以撰写时 HEAD 为准，随开发可能移位）。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
 
 ## 1. 总览
 
@@ -9,7 +9,7 @@
 ```mermaid
 graph TD
     subgraph WebView
-        P[React 页面 16 个] --> CL[backend 客户端层 23 个 ts]
+        P[React 页面 16 个] --> CL[backend 客户端层 25 个 ts]
         CL --> IP[invoke / listen]
     end
     subgraph Rust 进程

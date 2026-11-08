@@ -26,13 +26,21 @@
 
 ### 命令
 
+推荐在仓库根目录执行：
+
+```bash
+make build
+```
+
+也可直连 Tauri 构建（第三方许可收集挂在 `beforeBuildCommand` 的 `npm run build:bundle`，两条路径同一口径）：
+
 ```bash
 cd desktop
 npm ci
 npm run tauri build
 ```
 
-`make build` 会先收集第三方许可（scripts/collect-licenses.mjs，随安装包分发）再执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
+`make build` 执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
 
 ```text
 dist/

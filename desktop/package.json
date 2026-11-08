@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:bundle": "node ../scripts/collect-licenses.mjs && npm run build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "node scripts/tauri.mjs"
   },

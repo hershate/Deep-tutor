@@ -10,6 +10,72 @@ use backend::{
 };
 use tauri::Manager;
 
+/// 应用装配：resolve 数据目录 → 初始化后端 → verify 模式下自检并 exit(0)。
+/// 错误以 Result 交还调用方（verify 模式转 exit(2)，GUI 模式沿 setup 上抛
+/// 走 initialize_background 的失败恢复 UI）。
+fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (data_root, default_root, pointer, configuration_error) = if verify_native {
+        let root = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(
+                "DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory",
+            )?;
+        let pointer = root.join("verification-storage.json");
+        (root.clone(), root.clone(), pointer, None)
+    } else {
+        let default_root = app.path().app_data_dir()?;
+        let pointer = app
+            .path()
+            .app_local_data_dir()?
+            .join("storage-location.json");
+        let selected = startup::configured_directory(&pointer, &default_root);
+        let root = selected.clone().unwrap_or_else(|_| default_root.clone());
+        (root, default_root, pointer, selected.err())
+    };
+    if verify_native {
+        app.handle()
+            .manage(security::SecurityState::for_verification(
+                &data_root.join("deep-tutor.db"),
+            ));
+        startup::initialize(
+            app.handle(),
+            &data_root,
+            &default_root,
+            &pointer,
+            configuration_error,
+        );
+    } else {
+        startup::initialize_background(
+            app.handle(),
+            &data_root,
+            &default_root,
+            &pointer,
+            configuration_error,
+        );
+    }
+    if verify_native {
+        startup::ensure_ready(app.handle())
+            .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+        let snapshot = app
+            .state::<BackendState>()
+            .store
+            .lock()
+            .map_err(|_| -> Box<dyn std::error::Error> {
+                "verification database lock failed".into()
+            })?
+            .bootstrap()
+            .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+        assert!(snapshot["tasks"].is_array() && snapshot["preferences"].is_object());
+        println!(
+            "native verification passed: workspace={}, lastEventId={}",
+            snapshot["workspaceId"], snapshot["lastEventId"]
+        );
+        app.handle().exit(0);
+    }
+    Ok(())
+}
+
 fn main() {
     let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
     let builder = tauri::Builder::default()
@@ -18,66 +84,17 @@ fn main() {
         // 走系统浏览器（替代 WebView2 NewWindowRequested 的未定义行为）
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            let (data_root, default_root, pointer, configuration_error) = if verify_native {
-                let root = std::env::var_os("DEEPTUTOR_VERIFY_DATA_DIR")
-                    .map(std::path::PathBuf::from)
-                    .filter(|path| path.is_absolute())
-                    .ok_or(
-                        "DEEPTUTOR_VERIFY_DATA_DIR must be an absolute verification directory",
-                    )?;
-                let pointer = root.join("verification-storage.json");
-                (root.clone(), root.clone(), pointer, None)
-            } else {
-                let default_root = app.path().app_data_dir()?;
-                let pointer = app
-                    .path()
-                    .app_local_data_dir()?
-                    .join("storage-location.json");
-                let selected = startup::configured_directory(&pointer, &default_root);
-                let root = selected.clone().unwrap_or_else(|_| default_root.clone());
-                (root, default_root, pointer, selected.err())
-            };
+            let outcome = assemble(app, verify_native);
             if verify_native {
-                app.handle()
-                    .manage(security::SecurityState::for_verification(
-                        &data_root.join("deep-tutor.db"),
-                    ));
-                startup::initialize(
-                    app.handle(),
-                    &data_root,
-                    &default_root,
-                    &pointer,
-                    configuration_error,
-                );
-            } else {
-                startup::initialize_background(
-                    app.handle(),
-                    &data_root,
-                    &default_root,
-                    &pointer,
-                    configuration_error,
-                );
+                // 50#1：verify 通道错误以 eprintln + exit(2) 交付而非上抛
+                // panic（exit 101）——脚本按退出码即可区分成功/失败，不必解析
+                // panic 输出；windows_subsystem 下 stderr 不可见时也无栈噪声
+                if let Err(error) = outcome {
+                    eprintln!("native verification failed: {error}");
+                    std::process::exit(2);
+                }
             }
-            if verify_native {
-                startup::ensure_ready(app.handle())
-                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-                let snapshot = app
-                    .state::<BackendState>()
-                    .store
-                    .lock()
-                    .map_err(|_| -> Box<dyn std::error::Error> {
-                        "verification database lock failed".into()
-                    })?
-                    .bootstrap()
-                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-                assert!(snapshot["tasks"].is_array() && snapshot["preferences"].is_object());
-                println!(
-                    "native verification passed: workspace={}, lastEventId={}",
-                    snapshot["workspaceId"], snapshot["lastEventId"]
-                );
-                app.handle().exit(0);
-            }
-            Ok(())
+            outcome
         })
         .invoke_handler(security::guard_handler(tauri::generate_handler![
             startup::commands::get_storage_overview,

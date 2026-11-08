@@ -35,6 +35,9 @@ jobs:
           workspaces: desktop/src-tauri
       - name: Install frontend dependencies
         run: npm ci
+      # 49#8：TS 类型错误先于数十分钟的 Rust 测试暴露，反馈周期不再被拖长
+      - name: Frontend build
+        run: npm run build
       - name: Rust format
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check
@@ -45,8 +48,8 @@ jobs:
       - name: Check versions
         # 15#9/C-1：版本一致性检查进 CI，PR 路径不再只靠本地 make lint
         run: node ../scripts/check-versions.mjs
-      - name: Collect third-party licenses
-        run: node ../scripts/collect-licenses.mjs
+      # 许可收集由 beforeBuildCommand（npm run build:bundle，49#1）执行，
+      # 与本地 make build / README 的 npm run tauri build 同一链路
       - name: Build NSIS installer
         run: npm run tauri build -- -- --locked
       - name: Upload installer

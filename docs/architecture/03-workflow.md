@@ -1,6 +1,6 @@
 # 03 · 工作流分析
 
-> 基准：main 分支 commit `df63ee0f`。引用形如 `文件:行号`，相对仓库根（`desktop/` 内引用会显式标注）。
+> 基准：main 分支滚动演进（不钉单一 commit，引用以撰写时 HEAD 为准，随开发可能移位）。引用形如 `文件:行号`，相对仓库根（`desktop/` 内引用会显式标注）。
 
 ## 1. 开发与构建工作流
 
@@ -267,7 +267,7 @@ flowchart LR
 | Settings | 学习档案、setPreferences | security.session_started/state.changed |
 | SharedPlan | read_shared_plan、read_shared_plan_package | 无 |
 
-组件归属（components/ 共 17 个 + UI.tsx 原语库）：DataDirectoryPanel/BackupPanel/SecurityPanel/SyncPanel/MaintenancePanel/UsagePanel/ProviderRouting/ExportCenter/SharePlanDialog/MediaPlayer/WikiPanel/ExamWorkspace/SubjectivePractice/TutorPanel/AgentTaskCenter/ReportViews（components/）。
+组件归属（components/ 共 17 个，含 UI.tsx 原语库）：DataDirectoryPanel/BackupPanel/SecurityPanel/SyncPanel/MaintenancePanel/UsagePanel/ProviderRouting/ExportCenter/SharePlanDialog/MediaPlayer/WikiPanel/ExamWorkspace/SubjectivePractice/TutorPanel/AgentTaskCenter/ReportViews/UI（components/）。
 
 ## 8. 命令与事件契约一致性
 

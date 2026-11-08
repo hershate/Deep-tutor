@@ -39,7 +39,7 @@ cd src-tauri
 cargo test --release --locked -- --test-threads=1
 ```
 
-安装包统一输出到仓库根目录的 `dist/`，例如 `dist/DeepTutor_<版本号>_x64-setup.exe`；复制后校验 SHA-256。安装后从开始菜单的 `DeepTutor` 目录运行，不需要脚本、虚拟环境或服务。默认数据目录自动创建，可在设置中修改，重启后生效且不自动迁移旧数据；初始化失败在主窗口内提供重试与目录管理入口。
+安装包统一输出到仓库根目录的 `dist/`，例如 `dist/DeepTutor_<版本号>_x64-setup.exe`；复制后校验 SHA-256。第三方许可收集挂在 `beforeBuildCommand`（`npm run build:bundle`），任何构建路径打出的安装包都随包分发许可全文。安装后从开始菜单的 `DeepTutor` 目录运行，不需要脚本、虚拟环境或服务。默认数据目录自动创建，可在设置中修改，重启后生效且不自动迁移旧数据；初始化失败在主窗口内提供重试与目录管理入口。
 
 开发调试可运行 `npm run tauri dev`；Vite 仅绑定 `127.0.0.1:1420` 供开发壳使用，不是产品网页入口。
 
