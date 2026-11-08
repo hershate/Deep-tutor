@@ -19,7 +19,7 @@ sequenceDiagram
     SU->>SU: with_user: materials/providers/learning/agent/practice/projects/knowledge/sync/reports recover
     SU->>SU: start_scheduler(sync 24h)
     FE->>FE: bootstrap 轮询(250ms, 20s 上限)
-    FE->>FE: events_since 追赶 + get_app_state
+    FE->>FE: get_app_state 全量校准(游标取快照 lastEventId)
 ```
 
 1. 目录决策（`startup.rs:18-36`）：读 `app_local_data_dir/storage-location.json`（≤4096B，version==1，`StoredLocation` :22-27）失败则回退 `app_data_dir`。`validate_location`（:91-135）拒绝：相对路径/根目录/`..` 段/UNC 网络目录/Windows 与 Program Files 目录。`prepare_directory`（:159）自动创建缺失目录，无对话框。
@@ -90,7 +90,7 @@ flowchart TD
 
 前端双通道（`src/backend/useBackendState.ts`）：
 1. 实时：`listen('backend://event')` 逐条应用。
-2. 追赶：`sync()` 以 `events_since(lastId)` 循环翻页（每页 200，`store.rs:786` LIMIT 201 判定 has_more）直到无更多，再 `get_app_state()` 全量校准；`applySnapshot` 丢弃 `lastEventId` 回退的过期事件并在 workspaceId 变化时重置游标（:33-43）；瞬态 `database_busy` 自动重试至多 5 次（:96）。
+2. 校准：`sync()` 直接 `get_app_state()` 取全量快照（38#2：原先先逐页翻 `events_since` 再取快照，事件载荷全程丢弃、纯冗余 IPC，事件爆发后首次 sync 串行数十次往返；快照 `lastEventId` 本身就是最新游标）；`applySnapshot` 丢弃 `lastEventId` 回退的过期事件并在 workspaceId 变化时重置游标（:33-43）；瞬态 `database_busy` 自动重试至多 5 次（:96）。`events_since` 命令保留给 IPC 级测试作事件断言通道。
 3. 触发点：bootstrap 后、窗口 focus/visibilitychange（:201）、`security.session_started` 全量重载（:162）。
 
 断线不重复执行的机制不在事件层，而在任务层：每个模型步骤持久化 `request_id`+`attempt`，恢复时 `providers::completed_chat` 为真则复用原请求结果不再调上游（见 §5）。

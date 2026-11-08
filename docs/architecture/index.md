@@ -9,7 +9,7 @@
 - **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
 - **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 5
 - **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
-- **规模**：187 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/mod）、16 个页面、23 个前端客户端文件（src/backend/*.ts）、194 个后端测试（串行全绿）
+- **规模**：191 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、195 个后端测试（串行全绿）
 - **CI**：GitHub Actions windows-latest（fmt + 原生测试串行 + 版本/许可证收集 + NSIS 安装包，前端构建在 NSIS 步骤的 beforeBuildCommand 内执行；push:main / PR / 手动触发）
 - **分支**：main（单线演进，细粒度中文提交）
 
@@ -25,7 +25,7 @@
 
 1. **单进程全原生**：WebView 零业务逻辑，全部 I/O（SQLite/文件/HTTP/密钥库）在 Rust 侧执行；前端唯一事件通道 `backend://event` 与命令名和注册表完全一致。
 2. **统一任务生命周期**：11 类长任务实体共用同一模式——SQLite status 列 + AtomicBool 取消注册表 + `providers::completed_chat` 请求复用 + 重启 `recover`（running→interrupted、cancelling→cancelled、不自动重跑）。
-3. **终态先落盘再发送**：所有事件经 `Store::event` 在写事务内进 outbox 表，commit 后才 emit；断线续接靠 `events_since` 分页追赶 + 任务层请求复用，不重复执行或计费。
+3. **终态先落盘再发送**：所有事件经 `Store::event` 在写事务内进 outbox 表，commit 后才 emit；断线续接靠 `get_app_state` 全量快照校准（游标取快照 `lastEventId`，38#2 后不再逐页翻 `events_since`）+ 任务层请求复用，不重复执行或计费。
 4. **安全以结构 enforcement**：SSRF/DNS pin/重定向逐跳校验、密钥仅入 keyring、备份 secure_delete 排除凭据、分享令牌只存哈希、配额提交前强制——均可在具体函数定位。
 5. **算法可定位**：八步流水线（learning/pipeline.rs execute_index:527）、SM-2 简化调度（review/mod.rs:424 起）、贪心排期（learning/validate.rs:206）、BFS 补学路径（learning/knowledge.rs:115）、熔断状态机（providers/routing.rs:626 起）。
 
