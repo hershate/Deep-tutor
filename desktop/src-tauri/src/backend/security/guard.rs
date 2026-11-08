@@ -18,14 +18,51 @@ fn reject<R: Runtime>(invoke: Invoke<R>, error: BackendError) -> bool {
 }
 
 // 31#7：logout 与 PAT 认证切换复用同一停机集合，保持与 login switch 一致
-pub(super) fn stop_all(state: &BackendState) -> Result<()> {
-    super::super::agent::stop(&state.agent)?;
-    super::super::practice::stop(&state.practice)?;
-    super::super::knowledge::stop(&state.knowledge)?;
-    super::super::learning::stop(&state.learning)?;
-    super::super::providers::stop_chats(&state.providers)?;
-    super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))?;
-    super::super::materials::stop(&state.materials)
+// 56#2：逐域独立停并汇总错误——原先串行 `?` 使 agent::stop 超时（run_active，
+// 工具执行最长 ~12s 网络等待）直接短路，practice/knowledge/learning/
+// providers/sync/materials 六域全停，logout 侧 `let _ =` 吞错后旧用户任务
+// 全量续跑；focus 域补入停机集合（原先停留 running 按墙钟计时）。
+// maintenance 的清理/重置共用同一实现（原先另有一份串行副本）
+pub(crate) fn stop_all(state: &BackendState) -> Result<()> {
+    let mut failed: Vec<&'static str> = Vec::new();
+    let domains: [(&'static str, &dyn Fn() -> Result<()>); 8] = [
+        ("Agent 任务", &|| super::super::agent::stop(&state.agent)),
+        ("练习生成", &|| {
+            super::super::practice::stop(&state.practice)
+        }),
+        ("知识问答", &|| {
+            super::super::knowledge::stop(&state.knowledge)
+        }),
+        ("学习方案", &|| {
+            super::super::learning::stop(&state.learning)
+        }),
+        ("模型请求", &|| {
+            super::super::providers::stop_chats(&state.providers)
+        }),
+        ("同步任务", &|| {
+            super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))
+        }),
+        ("资料解析", &|| {
+            super::super::materials::stop(&state.materials)
+        }),
+        ("专注会话", &|| {
+            super::super::reports::stop(&super::super::reports::ReportState::new(&state.learning))
+        }),
+    ];
+    for (name, stop) in domains {
+        if let Err(error) = stop() {
+            eprintln!("stop_all: {name} 域停止失败 {}", error.code);
+            failed.push(name);
+        }
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(BackendError::new(
+            "stop_failed",
+            &format!("部分后台任务未能停止（{}），请稍后重试", failed.join("、")),
+        ))
+    }
 }
 
 fn current<R: Runtime>(app: &AppHandle<R>) -> Result<i64> {

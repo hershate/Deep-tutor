@@ -1141,9 +1141,23 @@ pub fn cancel<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
         ));
     }
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE material_jobs SET cancel_requested = 1, status = 'cancelling', updated_at = ?1 WHERE id = ?2", params![now()?, job_id])?;
+    // 56#1：UPDATE 带状态条件——先验 SELECT 与本事务之间毫秒窗内解析完成
+    // 事务提交 done/parsed 后，晚到的取消不得把终态覆写为 cancelling（该
+    // 资料将永挂 cancelling 至重启且重启后被错标 cancelled）；changed==0
+    // 转竞态码（前端 isCancelRace 静默）
+    let changed = tx.execute(
+        "UPDATE material_jobs SET cancel_requested = 1, status = 'cancelling', updated_at = ?1 WHERE id = ?2 AND status IN ('queued', 'parsing', 'cancelling')",
+        params![now()?, job_id],
+    )?;
+    if changed == 0 {
+        tx.commit()?;
+        return Err(BackendError::new(
+            "no_active_job",
+            "该资料没有正在执行的解析任务",
+        ));
+    }
     tx.execute(
-        "UPDATE materials SET status = 'cancelling', updated_at = ?1 WHERE id = ?2",
+        "UPDATE materials SET status = 'cancelling', updated_at = ?1 WHERE id = ?2 AND status IN ('queued', 'parsing', 'cancelling')",
         params![now()?, id],
     )?;
     sync_resources(&tx)?;

@@ -1241,6 +1241,12 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &AgentState) -> Result<()>
         };
         let tx = store.conn.unchecked_transaction()?;
         tx.execute("UPDATE agent_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5", params![status, error.code, error.message, now()?, id])?;
+        // 56#5：崩溃残留的工具调用行一并收口——run 已判 interrupted，其
+        // running 态的 agent_tool_calls 永无人翻（同 id 重放还会撞 tool_active）
+        tx.execute(
+            "UPDATE agent_tool_calls SET status = 'interrupted', finished_at = ?2 WHERE run_id = ?1 AND status = 'running'",
+            params![id, now()?],
+        )?;
         let event = Store::event(
             &tx,
             if cancelled {

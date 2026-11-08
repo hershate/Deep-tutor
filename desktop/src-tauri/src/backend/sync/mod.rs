@@ -845,10 +845,17 @@ pub fn cancel<R: Runtime>(
     flag.store(true, Ordering::Release);
     let store = service.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE sync_jobs SET status = 'cancelling', updated_at = ?1 WHERE id = ?2",
+    // 56#3：UPDATE 带状态条件——active 查找与事务之间毫秒窗内 worker 已提交
+    // done 时，晚到的取消不得覆写终态（列表永挂「取消中」至重启且文案谎称
+    // 已取消而远端实际已完成）；changed==0 转竞态码（isCancelRace 静默）
+    let changed = tx.execute(
+        "UPDATE sync_jobs SET status = 'cancelling', updated_at = ?1 WHERE id = ?2 AND status = 'running'",
         params![now()?, id],
     )?;
+    if changed == 0 {
+        tx.commit()?;
+        return Err(BackendError::new("sync_not_active", "该同步任务未在运行"));
+    }
     let event = Store::event(&tx, "sync.cancel_requested", json!({"jobId": id}))?;
     tx.commit()?;
     emit(app, &event);

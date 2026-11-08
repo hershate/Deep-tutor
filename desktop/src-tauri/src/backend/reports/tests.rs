@@ -165,7 +165,9 @@ fn focus_completion_and_empty_report_use_real_time_and_no_fake_metrics() {
     assert!(resumed["actualSeconds"].as_u64().unwrap() >= 3600);
     let completed = ipc(&app, "complete_focus_session", json!({})).unwrap();
     assert_eq!(completed["status"], "completed");
-    assert!(completed["actualSeconds"].as_u64().unwrap() >= 3600);
+    // 56#4：完成落库按 min(planned) 封顶——挂机膨胀的墙钟秒不再计入
+    // focus_minutes 报告与日历；进行中/暂停/恢复的展示仍是真实墙钟
+    assert_eq!(completed["actualSeconds"].as_u64().unwrap(), 1500);
     assert_eq!(
         ipc(&app, "complete_focus_session", json!({})).unwrap_err()["code"],
         "no_active_focus"
@@ -175,19 +177,21 @@ fn focus_completion_and_empty_report_use_real_time_and_no_fake_metrics() {
         "no_active_focus"
     );
     let report = ipc(&app, "get_learning_report", json!({"period":"8w"})).unwrap();
-    assert!(report["metrics"]["focusSeconds"].as_u64().unwrap() >= 3600);
+    // 56#4：完成封顶后报告按 planned 计（1500s），不再计入挂机膨胀墙钟
+    assert_eq!(report["metrics"]["focusSeconds"].as_u64().unwrap(), 1500);
     assert!(report["timeComposition"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|slice| slice["kind"] == "学习" && slice["seconds"].as_u64().unwrap() >= 3600));
+        .any(|slice| slice["kind"] == "学习" && slice["seconds"].as_u64().unwrap() >= 1500));
     let calendar = ipc(&app, "get_learning_calendar", json!({})).unwrap();
     assert_eq!(calendar["streak"], 1);
+    // 56#4：日历分钟同样按封顶后的 1500s（25 分钟）计
     assert!(
         calendar["days"].as_array().unwrap().last().unwrap()["minutes"]
             .as_u64()
             .unwrap()
-            >= 60
+            >= 25
     );
 }
 

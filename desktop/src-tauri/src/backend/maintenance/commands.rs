@@ -8,6 +8,12 @@ use tauri::{AppHandle, Runtime, State};
 
 static OPERATION: Mutex<()> = Mutex::new(());
 
+// 56#2：与登出/切换共用 security::guard::stop_all（逐域独立停并汇总错误，
+// 含 focus 收口）——原先此处另有一份串行 `?` 副本，同样会被 agent 超时短路
+fn stop_all(state: &State<'_, BackendState>) -> Result<()> {
+    super::super::security::guard::stop_all(state)
+}
+
 fn store<'a>(
     state: &'a State<'_, BackendState>,
 ) -> Result<MutexGuard<'a, super::super::store::Store>> {
@@ -15,16 +21,6 @@ fn store<'a>(
         .store
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))
-}
-
-fn stop_all(state: &State<'_, BackendState>) -> Result<()> {
-    super::super::agent::stop(&state.agent)?;
-    super::super::practice::stop(&state.practice)?;
-    super::super::knowledge::stop(&state.knowledge)?;
-    super::super::learning::stop(&state.learning)?;
-    super::super::providers::stop_chats(&state.providers)?;
-    super::super::sync::stop(&super::super::sync::SyncService::new(&state.learning))?;
-    super::super::materials::stop(&state.materials)
 }
 
 #[tauri::command]

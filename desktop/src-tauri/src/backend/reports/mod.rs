@@ -373,14 +373,17 @@ fn finish_focus<R: Runtime>(
     let session = focus_by_id(&store.conn, id)?;
     let timestamp = timestamp(now()?)?;
     let tx = store.conn.unchecked_transaction()?;
-    let updated = tx.execute("UPDATE focus_sessions SET status = ?1, actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?4 AND status IN ('running', 'paused')", params![status, session.actual_seconds as i64, timestamp, id])?;
+    // 56#4：挂机数小时后点「完成」按未封顶墙钟秒计入 focus_minutes 报告与
+    // 日历——对齐崩溃恢复路径的 min(planned) 封顶（:411 同口径）
+    let actual = session.actual_seconds.min(session.planned_seconds) as i64;
+    let updated = tx.execute("UPDATE focus_sessions SET status = ?1, actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?4 AND status IN ('running', 'paused')", params![status, actual, timestamp, id])?;
     if updated == 0 {
         return Err(BackendError::new("no_active_focus", "当前没有进行中的专注"));
     }
     let event = Store::event(
         &tx,
         &format!("focus.{status}"),
-        json!({"sessionId":id,"actualSeconds":session.actual_seconds,"taskId":session.task_id}),
+        json!({"sessionId":id,"actualSeconds":actual,"taskId":session.task_id}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -422,6 +425,31 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<()
         )?;
         tx.commit()?;
         emit(app, &event);
+    }
+    Ok(())
+}
+
+/// 56#2：stop_all 的专注收口——running/paused 会话按 min(planned) 封顶置
+/// interrupted（与 recover 同口径，但 stop_all 场景无 app 句柄不发事件，
+/// 由后续快照刷新对齐）；原先登出/切换不停 focus，会话停留 running 按
+/// 墙钟累计，该用户再登录见「进行中且秒数疯涨」
+pub fn stop(state: &ReportState) -> Result<()> {
+    let store = state.store()?;
+    let mut statement = store.conn.prepare(
+        "SELECT id FROM focus_sessions WHERE status IN ('running', 'paused') ORDER BY id",
+    )?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    let timestamp = timestamp(now()?)?;
+    for id in ids {
+        let session = focus_by_id(&store.conn, id)?;
+        let actual = session.actual_seconds.min(session.planned_seconds) as i64;
+        store.conn.execute(
+            "UPDATE focus_sessions SET status = 'interrupted', actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?1 AND status IN ('running', 'paused')",
+            params![id, actual, timestamp],
+        )?;
     }
     Ok(())
 }
