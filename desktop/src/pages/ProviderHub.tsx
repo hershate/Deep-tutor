@@ -34,17 +34,6 @@ const presets: Preset[] = [
 ]
 const emptyForm: EditorForm = { name: '', preset: '', kind: '官方', protocol: 'OpenAI Chat', baseUrl: '', models: [], defaultModel: '', key: '', note: '' }
 
-function downloadJson(name: string, data: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = name
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
 function importedProfiles(data: unknown): ProviderProfileInput[] {
   const items = Array.isArray(data) ? data : (data as { providers?: unknown })?.providers
   if (!Array.isArray(items) || items.length > 200) throw new Error('invalid providers')
@@ -338,10 +327,12 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   }
   const exportConfig = async () => {
     try {
-      const config = await backend.exportProviderConfig()
-      setConfigPreview(config)
-      downloadJson('DeepTutor-provider-config.json', config)
-      notify('已从原生数据层导出脱敏配置，不包含 API Key')
+      // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
+      const destination = await backend.saveMaterialFile('DeepTutor-provider-config.json', 'json')
+      if (!destination) return
+      const result = await backend.exportProviderConfigFile(destination)
+      setConfigPreview(await backend.exportProviderConfig())
+      notify(`已从原生数据层导出脱敏配置（${result.bytes.toLocaleString()} 字节），不包含 API Key`)
     } catch (error) { notify(backendErrorMessage(error)) }
   }
   const startChat = async () => {

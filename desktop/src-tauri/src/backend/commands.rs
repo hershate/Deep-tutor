@@ -156,6 +156,8 @@ mod tests {
                 crate::backend::materials::commands::delete_material,
                 crate::backend::materials::commands::export_material_original,
                 crate::backend::materials::commands::export_material_text,
+                crate::backend::providers::commands::export_usage_csv_file,
+                crate::backend::plugins::commands::save_plugin_asset,
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
@@ -253,6 +255,48 @@ mod tests {
         assert_eq!(reset["tasks"], json!([]));
         assert_eq!(reset["lastEventId"], 2);
         assert_eq!(received.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn blob_export_commands_write_to_chosen_destination() {
+        // 37#5：原前端 Blob 静默下载的内容改由原生后端写盘——回执字节数与
+        // SHA-256 必须和实际落盘内容一致，且目的地必须是文件
+        use sha2::{Digest, Sha256};
+        let app = test_app();
+        let guard = tempfile::tempdir().unwrap();
+        let csv_path = guard.path().join("usage.csv");
+        let receipt = ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": csv_path.to_string_lossy()}),
+        )
+        .unwrap();
+        let written = std::fs::read_to_string(&csv_path).unwrap();
+        assert!(!written.is_empty());
+        assert_eq!(receipt["bytes"], json!(written.len()));
+        assert_eq!(
+            receipt["sha256"],
+            json!(format!("{:x}", Sha256::digest(written.as_bytes())))
+        );
+        let asset_path = guard.path().join("native-operations.md");
+        let asset = ipc(
+            &app,
+            "save_plugin_asset",
+            json!({"id": "native-operations", "destination": asset_path.to_string_lossy()}),
+        )
+        .unwrap();
+        let asset_written = std::fs::read(&asset_path).unwrap();
+        assert!(!asset_written.is_empty());
+        assert_eq!(asset["bytes"], json!(asset_written.len()));
+        assert_eq!(
+            asset["sha256"],
+            json!(format!("{:x}", Sha256::digest(&asset_written)))
+        );
+        // 目的地没有文件名（磁盘根）被类型化拒绝；目录目的地的 rename 语义
+        // 属 atomic_export 既有行为，实际 UI 目的地恒来自原生保存对话框
+        let root = if cfg!(windows) { "C:\\" } else { "/" };
+        let error = ipc(&app, "export_usage_csv_file", json!({"destination": root})).unwrap_err();
+        assert_eq!(error["code"], "invalid_destination");
     }
 
     #[test]

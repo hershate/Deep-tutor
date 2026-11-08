@@ -60,6 +60,20 @@ pub fn export_provider_config(state: State<'_, BackendState>) -> Result<Value> {
     export_config(&state.providers)
 }
 
+/// 37#5：脱敏配置 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）
+#[tauri::command]
+pub fn export_provider_config_file<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    destination: String,
+) -> Result<Value> {
+    let content = export_config(&state.providers)?;
+    let bytes = serde_json::to_vec_pretty(&content).map_err(|_| {
+        super::super::error::BackendError::new("export_failed", "供应商配置序列化失败")
+    })?;
+    super::super::write_export_bytes(&app, &destination, &bytes)
+}
+
 #[tauri::command]
 pub fn import_provider_deep_link<R: Runtime>(
     app: AppHandle<R>,
@@ -231,4 +245,15 @@ pub fn upsert_usage_rate<R: Runtime>(
 #[tauri::command]
 pub fn export_usage_csv(state: State<'_, BackendState>) -> Result<String> {
     super::usage::export_csv(&state.providers)
+}
+
+/// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）
+#[tauri::command]
+pub fn export_usage_csv_file<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    destination: String,
+) -> Result<Value> {
+    let content = super::usage::export_csv(&state.providers)?;
+    super::super::write_export_bytes(&app, &destination, content.as_bytes())
 }

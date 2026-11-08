@@ -28,4 +28,6 @@ export const pluginBackend = {
   // before 为 event_id 游标：取早于该 ID 的 100 条（14#18）
   events: (pluginId?: string, before?: number) => invoke<PluginEvent[]>('list_plugin_events', { pluginId: pluginId ?? null, before: before ?? null }),
   asset: (id: string) => invoke<DeveloperAssetContent>('get_developer_asset', { id }),
+  // 37#5：开发者资产经原生保存对话框落盘（替代 WebView Blob 下载）
+  saveAsset: (id: string, destination: string) => invoke<{ bytes: number; sha256: string }>('save_plugin_asset', { id, destination }),
 }

@@ -1,5 +1,6 @@
 use super::super::{error::Result, BackendState};
 use super::{AssetContent, PluginEventView, PluginOverview, PluginView};
+use serde_json::Value;
 use tauri::{AppHandle, Runtime, State};
 
 #[tauri::command]
@@ -64,4 +65,16 @@ pub fn list_plugin_events(
 #[tauri::command]
 pub fn get_developer_asset(state: State<'_, BackendState>, id: String) -> Result<AssetContent> {
     super::asset(&state.plugins, &id)
+}
+
+/// 37#5：开发者资产改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）
+#[tauri::command]
+pub fn save_plugin_asset<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+    destination: String,
+) -> Result<Value> {
+    let asset = super::asset(&state.plugins, &id)?;
+    super::super::write_export_bytes(&app, &destination, asset.content.as_bytes())
 }

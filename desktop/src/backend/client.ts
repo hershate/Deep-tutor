@@ -359,6 +359,8 @@ export const backend = {
   setActiveProvider: (id: string) => invoke<void>('set_active_provider', { id }),
   deleteProviderProfile: (id: string) => invoke<void>('delete_provider_profile', { id }),
   exportProviderConfig: () => invoke<ProviderExport>('export_provider_config'),
+  // 37#5：脱敏配置 JSON 经原生保存对话框落盘（替代 WebView Blob 下载）
+  exportProviderConfigFile: (destination: string) => invoke<{ bytes: number; sha256: string }>('export_provider_config_file', { destination }),
   importProviderDeepLink: (link: string) => invoke<ProviderProfile>('import_provider_deep_link', { link }),
   testProvider: (id: string, realRequest: boolean) => invoke<ProviderTestResult>('test_provider', { id, realRequest }),
   streamProviderChat: (requestId: string, profileId: string, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('stream_provider_chat', { requestId, profileId, messages, maxTokens }),

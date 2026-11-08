@@ -156,12 +156,11 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
   }
   const exportMistakes = async () => {
     try {
-      const data = await practiceBackend.exportMistakes()
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-      const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = 'DeepTutor-错题.json'; document.body.appendChild(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify('已从原生后端导出真实错题记录')
+      // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
+      const destination = await backend.saveMaterialFile('DeepTutor-错题.json', 'json')
+      if (!destination) return
+      const result = await practiceBackend.exportMistakesFile(destination)
+      notify(`已从原生后端导出真实错题记录（${result.bytes.toLocaleString()} 字节）`)
     } catch (error) { reportBackendError(error) }
   }
   const setMastered = async (item: PracticeMistake) => {

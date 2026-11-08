@@ -113,6 +113,8 @@ export const practiceBackend = {
   submit: (setId: number, questionId: number, answer: number | string) => invoke<{ answer: PracticeAnswer; set: PracticeSet }>('submit_practice_answer', { setId, questionId, answer }),
   mistakes: () => invoke<PracticeMistake[]>('list_practice_mistakes'),
   exportMistakes: () => invoke<Record<string, unknown>>('export_practice_mistakes'),
+  // 37#5：错题 JSON 经原生保存对话框落盘（替代 WebView Blob 下载）
+  exportMistakesFile: (destination: string) => invoke<{ bytes: number; sha256: string }>('export_practice_mistakes_file', { destination }),
   bookmark: (questionId: number, bookmarked: boolean) => invoke<void>('set_practice_bookmark', { questionId, bookmarked }),
   masterMistake: (questionId: number, mastered: boolean) => invoke<void>('set_practice_mistake_mastered', { questionId, mastered }),
   cancelAnswer: (answerId: number) => invoke<PracticeDetail>('cancel_practice_answer', { answerId }),

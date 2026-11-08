@@ -79,6 +79,25 @@ fn lexical_absolute(path: &std::path::Path) -> std::path::PathBuf {
     }
     result
 }
+
+/// 37#5：四处原先由前端 WebView Blob 静默下载的内容（错题 JSON、脱敏
+/// 供应商配置、用量 CSV、开发者资产）统一改为原生保存对话框——由用户
+/// 选择位置后经此通道落盘。沿用 reject_data_root_destination 二道遏制
+/// 与 materials 的原子写，返回与导出域一致的 bytes/sha256 回执。
+pub(crate) fn write_export_bytes<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    destination: &str,
+    bytes: &[u8],
+) -> error::Result<serde_json::Value> {
+    use sha2::{Digest, Sha256};
+    let path = std::path::Path::new(destination);
+    reject_data_root_destination(app, path)?;
+    materials::atomic_export(path, bytes)?;
+    Ok(serde_json::json!({
+        "bytes": bytes.len(),
+        "sha256": format!("{:x}", Sha256::digest(bytes)),
+    }))
+}
 pub mod sync;
 pub mod web;
 

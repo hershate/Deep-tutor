@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, EmptyState, IconButton, SectionHeader, Toggle } from '../components/UI'
-import { onBackendEvent, reportBackendError } from '../backend/client'
+import { backend, onBackendEvent, reportBackendError } from '../backend/client'
 import { pluginBackend, type PluginEvent, type PluginOverview } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
 
@@ -81,12 +81,11 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   }
   const download = async (id: string) => {
     try {
-      const asset = await pluginBackend.asset(id)
-      const url = URL.createObjectURL(new Blob([asset.content], { type: 'text/markdown;charset=utf-8' }))
-      const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = asset.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify(`已下载真实资产 ${asset.fileName}`)
+      // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
+      const destination = await backend.saveMaterialFile(`${id}.md`, 'md')
+      if (!destination) return
+      const result = await pluginBackend.saveAsset(id, destination)
+      notify(`已下载真实资产（${result.bytes.toLocaleString()} 字节）`)
     } catch (error) { reportBackendError(error) }
   }
 

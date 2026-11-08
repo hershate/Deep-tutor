@@ -79,12 +79,11 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   }
   const exportCsv = async () => {
     try {
-      const content = await usageBackend.exportCsv()
-      const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }))
-      const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = 'DeepTutor-usage.csv'; document.body.appendChild(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify('已导出真实用量 CSV，不包含提示词、回答或密钥')
+      // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
+      const destination = await backend.saveMaterialFile('DeepTutor-usage.csv', 'csv')
+      if (!destination) return
+      const result = await usageBackend.exportCsvFile(destination)
+      notify(`已导出真实用量 CSV（${result.bytes.toLocaleString()} 字节），不包含提示词、回答或密钥`)
     } catch (error) { reportBackendError(error) }
   }
   const profile = profiles.find(item => item.id === rateProvider)
