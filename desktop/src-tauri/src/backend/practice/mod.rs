@@ -964,7 +964,7 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
 /// 47#1：考试计时从学生首次拉卷起算（原子置位，并发拉取只有一次生效）。
 /// 旧版本在生成完成时写死 deadline，生成耗时与学生等待都吃掉考试时长。
 pub fn start_exam_timer(state: &PracticeState, id: i64) -> Result<()> {
-    let mut store = state.store()?;
+    let store = state.store()?;
     let set = set_row(&store.conn, id)?;
     if set.mode != "exam" || set.status != "ready" {
         return Ok(());

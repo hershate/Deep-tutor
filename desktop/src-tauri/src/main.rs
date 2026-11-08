@@ -74,8 +74,79 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// 46#1：单实例防护——双开触发跨进程重复同步上传（远端最后写者胜、空耗
+/// 版本保留额度）与莫名其妙的 revision_conflict 提示。命名互斥体快速失败
+/// 并聚焦已有主窗口；不引入 tauri-plugin-single-instance 依赖（仓库规约
+/// 默认不新增依赖，kernel32/user32 直连即可）。verify 通道无窗口且按目录
+/// 隔离，不占用全局互斥体。
+#[cfg(windows)]
+mod single_instance {
+    const ERROR_ALREADY_EXISTS: u32 = 183;
+    const SW_RESTORE: i32 = 9;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateMutexW(
+            attributes: *mut core::ffi::c_void,
+            initial_owner: i32,
+            name: *const u16,
+        ) -> *mut core::ffi::c_void;
+        fn GetLastError() -> u32;
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowW(class: *const u16, title: *const u16) -> *mut core::ffi::c_void;
+        fn ShowWindow(window: *mut core::ffi::c_void, command: i32) -> i32;
+        fn SetForegroundWindow(window: *mut core::ffi::c_void) -> i32;
+    }
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain([0]).collect()
+    }
+
+    /// 返回 false 表示已有实例持有互斥体（句柄故意泄漏给进程生命周期保管）。
+    pub fn acquire() -> bool {
+        let name = wide("DeepTutor-SingleInstance-7f3a9c2e");
+        unsafe {
+            let handle = CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
+            // 句柄为 NULL 仅在极端分配失败——按可启动处理，不阻塞用户
+            !handle.is_null() && GetLastError() != ERROR_ALREADY_EXISTS
+        }
+    }
+
+    /// 把已有实例的主窗口带到前台（找不到窗口时静默退出第二实例）。
+    pub fn focus_existing(title: &str) {
+        let title = wide(title);
+        unsafe {
+            let window = FindWindowW(std::ptr::null(), title.as_ptr());
+            if !window.is_null() {
+                ShowWindow(window, SW_RESTORE);
+                SetForegroundWindow(window);
+            }
+        }
+    }
+}
+
 fn main() {
     let verify_native = std::env::args_os().any(|argument| argument == "--verify-native");
+    let mut context = tauri::generate_context!();
+    if !verify_native {
+        #[cfg(windows)]
+        {
+            if !single_instance::acquire() {
+                let title = context
+                    .config()
+                    .app
+                    .windows
+                    .first()
+                    .map(|window| window.title.clone())
+                    .unwrap_or_default();
+                single_instance::focus_existing(&title);
+                return;
+            }
+        }
+    }
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // 37#4/37#8：官方 opener——「在资源管理器中显示」与 https 外链显式
@@ -290,7 +361,6 @@ fn main() {
             agent::commands::approve_agent_request,
             agent::commands::cancel_agent_approval,
         ]));
-    let mut context = tauri::generate_context!();
     if verify_native {
         context.config_mut().app.windows.clear();
     }
