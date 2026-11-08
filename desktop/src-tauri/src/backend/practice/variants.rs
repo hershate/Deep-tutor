@@ -1,6 +1,7 @@
 use super::{PracticeState, RubricCriterion};
 use crate::backend::error::{BackendError, Result};
 use crate::backend::learning::{self, Citation};
+use crate::backend::store;
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub struct VariantSource {
@@ -40,15 +41,8 @@ impl VariantSource {
 }
 
 fn ensure_column(conn: &Connection, table: &str, name: &str, declaration: &str) -> Result<()> {
-    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    drop(statement);
-    if !columns.iter().any(|column| column == name) {
-        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"), [])?;
-    }
-    Ok(())
+    // 46#4：与 learning 共用 store 的幂等补列实现，消除双份内联漂移面
+    store::ensure_column(conn, table, name, declaration)
 }
 
 pub fn migrate(conn: &Connection) -> Result<()> {

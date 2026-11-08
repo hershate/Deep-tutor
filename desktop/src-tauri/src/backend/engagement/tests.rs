@@ -71,6 +71,16 @@ fn ipc(
 }
 
 fn profile(name: &str) -> ProfileInput {
+    // 47#4：起止相等（原先 00:00==00:00 的全天静音语义）已被校验拒绝——
+    // 改用「当前时刻 ±1 分钟」的窗口，任何时刻运行测试都处于免打扰期
+    let minute_of_day = {
+        let local = super::super::store::now_local();
+        u32::from(local.time().hour()) * 60 + u32::from(local.time().minute())
+    };
+    let (start, end) = (
+        (minute_of_day + 1440 - 1) % 1440,
+        (minute_of_day + 1) % 1440,
+    );
     ProfileInput {
         name: name.into(),
         role: "自学者".into(),
@@ -79,8 +89,8 @@ fn profile(name: &str) -> ProfileInput {
         weekly_hours: 8,
         learning_style: "案例与练习结合".into(),
         explanation_style: "先追问，再针对讲解".into(),
-        quiet_start: "00:00".into(),
-        quiet_end: "00:00".into(),
+        quiet_start: format!("{:02}:{:02}", start / 60, start % 60),
+        quiet_end: format!("{:02}:{:02}", end / 60, end % 60),
         quiet_enabled: true,
         diagnostic_started_at: None,
     }

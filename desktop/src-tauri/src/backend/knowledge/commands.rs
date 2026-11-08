@@ -3,8 +3,7 @@ use super::{KnowledgeHit, KnowledgeSession};
 use tauri::{AppHandle, Runtime, State};
 
 #[tauri::command(async)]
-pub async fn search_knowledge<R: Runtime>(
-    app: AppHandle<R>,
+pub async fn search_knowledge(
     state: State<'_, BackendState>,
     query: String,
 ) -> Result<Vec<KnowledgeHit>> {

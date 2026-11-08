@@ -18,6 +18,8 @@ pub fn get_practice_set<R: Runtime>(
     state: State<'_, BackendState>,
     id: i64,
 ) -> Result<PracticeSetDetail> {
+    // 47#1：考试计时从首次拉卷起算（生成完成不再吃掉考试时长）
+    super::start_exam_timer(&state.practice, id)?;
     // 13#24：考试到期不再永久停留 ready——读取详情时惰性收卷
     //（未答按 0 分落定），遗忘交卷的试卷不会悬空成绩与错题
     super::lazy_finalize_expired_exam(&app, &state.practice, id)?;

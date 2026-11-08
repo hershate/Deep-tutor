@@ -236,6 +236,14 @@ fn validate_profile(input: &ProfileInput) -> Result<()> {
             "学习档案、语言、每周时长、学习方式或免打扰时间不符合约定",
         ));
     }
+    // 47#4：起止相等在 quiet() 里恒真（= 全天静音）且通知中心被整体压制
+    // 无任何解释——界面本就不该允许保存这种组合
+    if input.quiet_start == input.quiet_end {
+        return Err(BackendError::invalid(
+            "invalid_profile",
+            "免打扰起止时间相同会被解释为全天静音，请设置不同的起止时间",
+        ));
+    }
     if let Some(date) = &input.diagnostic_started_at {
         OffsetDateTime::parse(date, &Rfc3339)
             .map_err(|_| BackendError::invalid("invalid_diagnostic_time", "学习诊断时间无效"))?;
@@ -553,7 +561,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
         .and_then(Value::as_bool)
         .unwrap_or(true)
     {
-        let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+        let local = super::store::now_local();
         let today = local.date().to_string();
         // 边界转 UTC 后格式化：due_at 以 UTC 存储，字典序比较要求两侧时区后缀一致
         let tomorrow = timestamp(
@@ -714,10 +722,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
     Ok(NotificationOverview {
         items,
         unread_count: unread_count as u64,
-        suppressed: quiet(
-            &preferences,
-            OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()),
-        ),
+        suppressed: quiet(&preferences, super::store::now_local()),
     })
 }
 
@@ -893,8 +898,17 @@ pub fn dashboard<R: Runtime>(
             page: "projects".into(),
         });
     }
-    // 13#5：项目待办按截止日升序，最多 3 条（与考试口径一致）
-    project_items.sort_by_key(|item| item.date.clone());
+    // 13#5：项目待办按截止日升序，最多 3 条（与考试口径一致）；
+    // 47#8：due 为自由文本，非 ISO 日期（「明天」「2026-1-5」）原先按字典序
+    // 排序与真实日期序不符——解析失败置尾而非错位插队
+    project_items.sort_by_key(|item| {
+        time::Date::parse(
+            &item.date,
+            &time::format_description::well_known::Iso8601::DEFAULT,
+        )
+        .map(|date| (0u8, date.to_string()))
+        .unwrap_or((1, item.date.clone()))
+    });
     project_items.truncate(3);
     upcoming.extend(project_items);
     let recommendation = report.recommendations.into_iter().next();

@@ -20,6 +20,40 @@ pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// 已在版本 1 记录过指纹的存量库跳过迁移，Agent 域 SQL 报 no such column）
 const SCHEMA_VERSION: i64 = 2;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
+
+/// 47#2：time crate 的 now_local() 在多线程进程中因健全性限制恒 Err——
+/// Unix 构建上全部调用点静默回退 UTC，东八区 00:00–08:00 之间本地日界
+/// 差一天（排期首日/复习到期/预算重置/免打扰全部平移）。启动后首次调用
+/// 探测本地偏移并缓存；DST 时区在进程运行期内可能漂移（当前用户群无 DST）
+static LOCAL_OFFSET: std::sync::OnceLock<time::UtcOffset> = std::sync::OnceLock::new();
+
+pub fn now_local() -> OffsetDateTime {
+    let offset = *LOCAL_OFFSET.get_or_init(|| {
+        OffsetDateTime::now_local()
+            .map(|local| local.offset())
+            .unwrap_or(time::UtcOffset::UTC)
+    });
+    OffsetDateTime::now_utc().to_offset(offset)
+}
+
+/// 46#4：幂等补列（先 PRAGMA table_info 再 ALTER）——原先 practice/variants
+/// 与 learning 各持一份内联实现，逐份复制会漂移
+pub(crate) fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    name: &str,
+    declaration: &str,
+) -> Result<()> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    if !columns.iter().any(|column| column == name) {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"), [])?;
+    }
+    Ok(())
+}
 // 12#20：迁移计数改为互斥保护——无锁原子计数在并行测试下与幂等断言竞态；
 // 互斥后读取/递增串行化，断言不再随机漂移
 #[cfg(test)]
@@ -180,7 +214,18 @@ impl Store {
         // 语义不受影响（见 note/产品与技术决策.md）
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 1 {
+        // 46#3：user_version 惯例只写到 1，schema 版本实际记录在 meta 表——
+        // 降级门只看 user_version 时，未来版本只递增 SCHEMA_VERSION 的库会被
+        // 旧应用静默降级（新列数据被忽略）；取两者最大值（meta 表尚未建时为 0），
+        // 仅高于当前应用版本（> SCHEMA_VERSION）才拒绝
+        let meta_version: i64 = conn
+            .query_row(
+                "SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'), 0)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if version.max(meta_version) > SCHEMA_VERSION {
             return Err(BackendError::new(
                 "unsupported_schema",
                 "数据库版本高于当前应用，拒绝执行降级修改",

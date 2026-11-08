@@ -327,7 +327,7 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
     }
     let store = state.store()?;
     let entries = entries(&store.conn)?;
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::super::store::now_local();
     let today = local.date();
     let mut daily = Vec::new();
     for offset in (0..days).rev() {
@@ -483,7 +483,7 @@ fn offset_modifier(offset: time::UtcOffset) -> String {
 pub fn ensure_budget(state: &ProviderState, session_id: Option<i64>) -> Result<()> {
     let settings = settings(state)?;
     let store = state.store()?;
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::super::store::now_local();
     let daily = budget_spend(
         &store.conn,
         BudgetScope::Daily {

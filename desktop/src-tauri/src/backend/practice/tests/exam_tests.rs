@@ -83,16 +83,27 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
     assert_eq!(generated.set.feedback_mode, "deferred");
     assert_eq!(generated.set.exam_time_limit_minutes, Some(45));
     assert_eq!(generated.set.pass_score_percent, Some(80));
-    assert!(generated.set.exam_started_at.is_some());
-    assert!(generated.set.exam_deadline.is_some());
+    // 47#1：计时从首次拉卷起算——生成完成时 deadline 尚未落位（生成耗时
+    // 与等待不再吃掉考试时长）
+    assert!(generated.set.exam_started_at.is_none());
+    assert!(generated.set.exam_deadline.is_none());
     assert!(!generated.exam_expired);
-    assert!(generated
+    assert!(generated.exam_remaining_seconds.is_none());
+    // 首次拉卷（get_practice_set 命令路径）起算——此处直接调用同一入口
+    start_exam_timer(&state, generated.set.id).unwrap();
+    // 幂等：重复拉卷不重置计时
+    start_exam_timer(&state, generated.set.id).unwrap();
+    let reopened = wait_set(&state, started.set.id);
+    assert!(reopened.set.exam_started_at.is_some());
+    assert!(reopened.set.exam_deadline.is_some());
+    assert!(!reopened.exam_expired);
+    assert!(reopened
         .exam_remaining_seconds
         .is_some_and(|seconds| seconds > 0 && seconds <= 2700));
     let started_at =
-        OffsetDateTime::parse(generated.set.exam_started_at.as_deref().unwrap(), &Rfc3339).unwrap();
+        OffsetDateTime::parse(reopened.set.exam_started_at.as_deref().unwrap(), &Rfc3339).unwrap();
     let deadline =
-        OffsetDateTime::parse(generated.set.exam_deadline.as_deref().unwrap(), &Rfc3339).unwrap();
+        OffsetDateTime::parse(reopened.set.exam_deadline.as_deref().unwrap(), &Rfc3339).unwrap();
     assert_eq!((deadline - started_at).whole_minutes(), 45);
 
     let choice = generated.questions[0].id;

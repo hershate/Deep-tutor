@@ -121,7 +121,17 @@ impl CredentialBackend for SystemCredentials {
         keyring::Entry::new(SERVICE, &credential_name(id))
             .map_err(|_| BackendError::new("credential_error", "无法访问系统密钥库"))?
             .set_password(value)
-            .map_err(|_| BackendError::new("credential_error", "无法写入系统密钥库"))
+            .map_err(|error| {
+                // 54#1：keyring 的 TooLong 在 Windows 凭据库上限（2560 字节 ≈
+                // 1280 个 UTF-16 码元）处返回——单独指向长度而非笼统写入失败
+                if matches!(error, keyring::Error::TooLong(..)) {
+                    return BackendError::new(
+                        "credential_too_long",
+                        "API Key 超过系统密钥库上限（约 1280 字符），请改用短令牌",
+                    );
+                }
+                BackendError::new("credential_error", "无法写入系统密钥库")
+            })
     }
 
     fn delete(&self, id: &str) -> Result<()> {
@@ -464,10 +474,13 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
             "备注不能超过 1000 字符",
         ));
     }
-    if input.api_key.as_deref().is_some_and(|key| key.len() > 4096) {
+    // 54#1：上限对齐 Windows 凭据库实际限制（keyring 2560 字节 ≈ 1280 个
+    // UTF-16 码元，非 BMP 字符按代理对计 4 字节）——原先 4096 字节放行的
+    // 长 Key 到密钥库层必败，且报错无长度指向
+    if input.api_key.as_deref().is_some_and(|key| key.len() > 1200) {
         return Err(BackendError::invalid(
             "invalid_credential",
-            "API Key 不能超过 4096 字节",
+            "API Key 不能超过 1200 字节（系统密钥库上限约 1280 字符）",
         ));
     }
     let _ = openai::endpoint(&input.base_url, &input.kind, "models")?;

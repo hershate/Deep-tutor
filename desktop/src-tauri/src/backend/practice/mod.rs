@@ -889,20 +889,13 @@ fn generate_questions<R: Runtime>(
             params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?, input.variant_of],
         )?;
     }
-    let (started_at, deadline) = if input.mode.as_deref() == Some("exam") {
-        let minutes = set_row(&store.conn, id)?
-            .exam_time_limit_minutes
-            .ok_or_else(|| BackendError::new("exam_not_started", "试卷缺少考试时长"))?;
-        let started_at = now()?;
-        let deadline = (OffsetDateTime::now_utc() + Duration::from_secs(minutes as u64 * 60))
-            .format(&Rfc3339)?;
-        (Some(started_at), Some(deadline))
-    } else {
-        (None, None)
-    };
+    // 47#1：考试计时不再从「生成完成」起算——生成耗时（数十秒到数分钟，
+    // 失败重试双倍）与学生等待都吃掉考试时长，超时即 exam_deadline_exceeded
+    // 拒答。exam_started_at/exam_deadline 留空，待学生首次拉卷时
+    // 惰性起算（start_exam_timer）；从未开考的试卷也不再有过期悬空态
     let changed = tx.execute(
-        "UPDATE practice_sets SET status = 'ready', max_score = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, exam_started_at = CASE WHEN ?4 = 'exam' THEN ?5 ELSE NULL END, exam_deadline = CASE WHEN ?4 = 'exam' THEN ?6 ELSE NULL END WHERE id = ?3 AND status = 'generating'",
-        params![count, now()?, id, input.mode.as_deref(), started_at, deadline],
+        "UPDATE practice_sets SET status = 'ready', max_score = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, exam_started_at = NULL, exam_deadline = NULL WHERE id = ?3 AND status = 'generating'",
+        params![count, now()?, id],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -966,6 +959,39 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
         |row| row.get(0),
     )?;
     Ok(set)
+}
+
+/// 47#1：考试计时从学生首次拉卷起算（原子置位，并发拉取只有一次生效）。
+/// 旧版本在生成完成时写死 deadline，生成耗时与学生等待都吃掉考试时长。
+pub fn start_exam_timer(state: &PracticeState, id: i64) -> Result<()> {
+    let mut store = state.store()?;
+    let set = set_row(&store.conn, id)?;
+    if set.mode != "exam" || set.status != "ready" {
+        return Ok(());
+    }
+    // 旧版本生成的 ready 试卷已带 deadline（生成完成时写入）——尊重既有计时
+    if set.exam_started_at.is_some() || set.exam_deadline.is_some() {
+        return Ok(());
+    }
+    let Some(minutes) = set.exam_time_limit_minutes else {
+        return Ok(());
+    };
+    let started_at = now()?;
+    let deadline = (OffsetDateTime::now_utc() + Duration::from_secs(u64::from(minutes) * 60))
+        .format(&Rfc3339)?;
+    let tx = store.conn.unchecked_transaction()?;
+    let changed = tx.execute(
+        "UPDATE practice_sets SET exam_started_at = ?1, exam_deadline = ?2, updated_at = ?3 WHERE id = ?4 AND mode = 'exam' AND status = 'ready' AND exam_started_at IS NULL AND exam_deadline IS NULL",
+        params![started_at, deadline, now()?, id],
+    )?;
+    if changed == 0 {
+        // 并发拉取已由对方起算——沿用其计时即可
+        tx.commit()?;
+        return Ok(());
+    }
+    // 起算时机即本次拉卷，详情响应本身携带 deadline——无需另发事件推送
+    tx.commit()?;
+    Ok(())
 }
 
 /// 13#24：到期未交卷的考试在读取时惰性收卷。仓库规约不允许后台

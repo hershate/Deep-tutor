@@ -1,13 +1,13 @@
 use super::super::error::{BackendError, Result};
+use super::super::store;
 use super::types::*;
 use std::collections::{HashMap, HashSet};
 use time::format_description::well_known::Iso8601;
-use time::{Date, OffsetDateTime};
+use time::Date;
 
 pub fn today() -> Date {
-    OffsetDateTime::now_local()
-        .unwrap_or_else(|_| OffsetDateTime::now_utc())
-        .date()
+    // 47#2：缓存本地偏移，防 Unix 构建静默回退 UTC 使日界错一天
+    store::now_local().date()
 }
 
 pub fn deadline(value: &str) -> Result<Date> {

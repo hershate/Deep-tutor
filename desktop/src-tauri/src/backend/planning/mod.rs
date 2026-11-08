@@ -286,9 +286,7 @@ fn events_by_day_values(days: &[ScheduleDay]) -> u64 {
 pub fn get_overview(state: &PlanningState, week_start: Option<String>) -> Result<PlanOverview> {
     let start = match week_start {
         Some(value) => date(&value)?,
-        None => OffsetDateTime::now_local()
-            .unwrap_or_else(|_| OffsetDateTime::now_utc())
-            .date(),
+        None => super::store::now_local().date(),
     };
     // 31#18：周视图与强度切换/报告同口径（adopted-first，25#5 修复补全）——
     // 原先取最新方案，已采用 plan-1 + 未采用 plan-2 时周历恒空而强度改 plan-1
@@ -370,9 +368,7 @@ pub fn apply_intensity<R: Runtime>(
     // 更新草稿，而界面仍展示已采用方案
     let start = match week_start.clone() {
         Some(value) => date(&value)?,
-        None => OffsetDateTime::now_local()
-            .unwrap_or_else(|_| OffsetDateTime::now_utc())
-            .date(),
+        None => super::store::now_local().date(),
     };
     let plan = adopted_first_plan(state)?;
     let current = overview(state, start, plan)?;

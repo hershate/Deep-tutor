@@ -464,6 +464,14 @@ fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
     let path = fs::canonicalize(path)
         .map_err(|_| BackendError::new("not_found", "选择的文件不存在或不可读"))?;
     let metadata = fs::metadata(&path)?;
+    // 42#3：「拖文件夹」是高频手势——原先目录落入扩展名检查报
+    // unsupported_format（「当前支持 PDF、DOCX…」），文案答非所问
+    if metadata.is_dir() {
+        return Err(BackendError::new(
+            "directory_not_supported",
+            "暂不支持拖入文件夹，请拖入单个文件或 ZIP 压缩包",
+        ));
+    }
     if !metadata.is_file() {
         return Err(BackendError::new("invalid_file", "只能选择普通文件"));
     }

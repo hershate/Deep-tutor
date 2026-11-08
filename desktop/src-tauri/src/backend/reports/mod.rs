@@ -518,7 +518,7 @@ pub fn resume_focus<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Resu
 }
 
 fn period_bounds(period: &str) -> Result<(OffsetDateTime, i64, OffsetDateTime)> {
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::store::now_local();
     let today = local
         .date()
         .with_time(time::Time::MIDNIGHT)
@@ -855,9 +855,7 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     let mut trend_groups: BTreeMap<String, (f64, u64)> = BTreeMap::new();
     let mut node_groups: BTreeMap<(i64, String), (f64, u64, f64, u64, f64, u64)> = BTreeMap::new();
     // 证据时间戳按 UTC 存储：趋势分组标签换算到本地日期，与窗口边界（本地午夜）口径一致（07#9）
-    let local_offset = OffsetDateTime::now_local()
-        .map(|local| local.offset())
-        .unwrap_or_else(|_| time::UtcOffset::UTC);
+    let local_offset = super::store::now_local().offset();
     for (plan_id, node_id, kind, score, maximum, created_at) in &evidence {
         let date = parse_time(created_at)?;
         let label = day(date.to_offset(local_offset));
@@ -917,7 +915,7 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
         )
         .collect::<Vec<_>>();
     let recommendations = report_recommendations(&masteries);
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::store::now_local();
     let week = timestamp(
         local
             .date()
@@ -999,7 +997,7 @@ pub fn get_report(state: &ReportState, period: Option<&str>) -> Result<LearningR
 
 pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
     let store = state.store()?;
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::store::now_local();
     let today = local
         .date()
         .with_time(time::Time::MIDNIGHT)
@@ -1100,7 +1098,7 @@ pub fn save_checkin<R: Runtime>(
         &time::format_description::well_known::Iso8601::DATE,
     )
     .map_err(|_| BackendError::invalid("invalid_checkin_date", "打卡日期格式无效"))?;
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::store::now_local();
     if date > local.date() {
         return Err(BackendError::invalid(
             "future_checkin",

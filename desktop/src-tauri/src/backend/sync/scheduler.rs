@@ -1,5 +1,6 @@
 use super::super::error::Result;
 use super::{start, SyncJobView, SyncService};
+use rusqlite::OptionalExtension;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
@@ -30,14 +31,36 @@ pub fn run_due<R: Runtime>(
         |row| row.get::<_, String>(0),
     )?;
     let anchor = if last_attempt.is_empty() {
-        &config.updated_at
+        config.updated_at.clone()
     } else {
-        &last_attempt
+        last_attempt.clone()
     };
-    let anchor = OffsetDateTime::parse(anchor, &Rfc3339).map_err(|_| {
+    let anchor = OffsetDateTime::parse(&anchor, &Rfc3339).map_err(|_| {
         super::super::error::BackendError::new("invalid_sync_schedule", "同步调度时间无效")
     })?;
-    if anchor + time::Duration::hours(24) > OffsetDateTime::now_utc() {
+    // 47#5：失败也写 finished_at，原先失败后同样要等满 24h——断网当天的同步
+    // 缺失且不自愈（一天最多尝试一次）；失败后 1 小时短退避重试，成功/取消
+    // 仍按滚动 24h（决策文档的 24h 口径指成功后的同步间隔）
+    let last_status: Option<String> = if last_attempt.is_empty() {
+        None
+    } else {
+        store
+            .conn
+            .query_row(
+                "SELECT status FROM sync_jobs WHERE kind = 'upload' AND finished_at = ?1 ORDER BY id DESC LIMIT 1",
+                rusqlite::params![last_attempt],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+    };
+    let interval = if last_status.as_deref() == Some("failed") {
+        1
+    } else {
+        24
+    };
+    if anchor + time::Duration::hours(interval) > OffsetDateTime::now_utc() {
         return Ok(None);
     }
     start(app, service, "upload".into(), None).map(Some)

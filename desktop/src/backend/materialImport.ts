@@ -1,4 +1,4 @@
-import { backend } from './client'
+import { backend, backendErrorMessage } from './client'
 import type { MaterialImportResult } from './client'
 
 export type MaterialImportSummary = {
@@ -18,9 +18,16 @@ export async function importMaterialPaths(paths: string[]): Promise<MaterialImpo
   }
   let skipped = 0
   for (const path of paths.filter(path => path.toLowerCase().endsWith('.zip'))) {
-    const archive = await backend.importMaterialArchive(path)
-    outcomes.push(...archive.outcomes)
-    skipped += archive.skipped.length
+    // 42#3：单个 ZIP 失败不再让整批 reject——后续包继续导入，失败项以
+    // 逐文件 outcome 汇总（原先第 2 个包抛错后第 3 个及之后不再导入）
+    try {
+      const archive = await backend.importMaterialArchive(path)
+      outcomes.push(...archive.outcomes)
+      skipped += archive.skipped.length
+    } catch (error) {
+      const name = path.split(/[\\/]/).pop() ?? path
+      outcomes.push({ fileName: name, material: null, deduplicated: false, error: { code: 'import_failed', message: backendErrorMessage(error) } })
+    }
   }
   return { outcomes, skipped }
 }

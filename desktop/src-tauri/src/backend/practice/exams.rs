@@ -49,10 +49,11 @@ pub fn remaining(set: &PracticeSet) -> Result<(bool, Option<i64>)> {
     if set.mode != "exam" || set.status != "ready" {
         return Ok((false, None));
     }
-    let deadline = set
-        .exam_deadline
-        .as_deref()
-        .ok_or_else(|| BackendError::new("exam_not_started", "试卷尚未形成有效的开考时间"))?;
+    let Some(deadline) = set.exam_deadline.as_deref() else {
+        // 47#1：deadline 在学生首次拉卷时才落位（start_exam_timer）——
+        // 尚未开考的试卷不受时限约束，原先此处报 exam_not_started
+        return Ok((false, None));
+    };
     let deadline = OffsetDateTime::parse(deadline, &Rfc3339)
         .map_err(|_| BackendError::new("invalid_persisted_time", "考试截止时间格式无效"))?;
     let seconds = (deadline - OffsetDateTime::now_utc())

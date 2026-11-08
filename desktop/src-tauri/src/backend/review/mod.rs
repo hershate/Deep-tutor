@@ -509,7 +509,7 @@ pub fn grade<R: Runtime>(
 
 pub fn stats(state: &ReviewState) -> Result<ReviewStats> {
     let store = state.store()?;
-    let local = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let local = super::store::now_local();
     let today = local.date();
     let tomorrow = today
         .next_day()
