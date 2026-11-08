@@ -820,6 +820,20 @@ fn rewrite_json_field(row: &mut Row, table: &str, column: &str, maps: &IdMap) ->
         .and_then(Value::as_str)
         .ok_or_else(invalid_record)?;
     let mut value: Value = serde_json::from_str(text).map_err(|_| invalid_record())?;
+    // 57#1：tool_calls_json 的数组元素键是 "id"（不在键表，34#14 的
+    // toolCalls 特判也匹配不上）——跨工作区撞键时 agent_tool_calls 行已
+    // 重映射，消息内嵌声明必须同步改写，否则会话视图按源 id 配对到目标库
+    // 无关的工具调用行
+    if column == "tool_calls_json" {
+        if let Some(calls) = value.as_array_mut() {
+            for call in calls.iter_mut() {
+                if let Some(id) = call.get("id").cloned() {
+                    let mapped = map_plain(&id, "agent_tool_calls", maps)?;
+                    call["id"] = mapped;
+                }
+            }
+        }
+    }
     if table == "events" {
         let kind = row.get("kind").and_then(Value::as_str).unwrap_or_default();
         rewrite_json(&mut value, &format!("event:{kind}"), maps)?;
@@ -936,18 +950,28 @@ fn transform(transfer: &Transfer, table: &str, row: &mut Row, target: &Connectio
 }
 
 fn insert_row(tx: &Connection, table: &str, schema: &[Column], row: &Row) -> Result<()> {
-    let names = schema
+    // 57#4：源行缺列时从列清单剔除——省略的列由 SQLite 取列默认值；原先
+    // 对缺列显式插 NULL 不触发 DEFAULT，NOT NULL 列在旧版本备份上必然
+    // backup_constraint_failed（与 :100「缺列走默认值」注释不符）
+    let present: Vec<&Column> = schema
+        .iter()
+        .filter(|column| row.get(&column.name).is_some())
+        .collect();
+    if present.is_empty() {
+        return Ok(());
+    }
+    let names = present
         .iter()
         .map(|column| format!("\"{}\"", column.name))
         .collect::<Vec<_>>()
         .join(",");
-    let placeholders = (1..=schema.len())
+    let placeholders = (1..=present.len())
         .map(|index| format!("?{index}"))
         .collect::<Vec<_>>()
         .join(",");
-    let values = schema
+    let values = present
         .iter()
-        .map(|column| sql_value(row.get(&column.name).unwrap_or(&Value::Null)))
+        .map(|column| sql_value(row.get(&column.name).expect("filtered present")))
         .collect::<Result<Vec<_>>>()?;
     tx.execute(
         &format!("INSERT INTO \"{table}\" ({names}) VALUES ({placeholders})"),

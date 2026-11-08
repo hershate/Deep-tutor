@@ -9,7 +9,7 @@ use super::error::Result;
 use super::learning::LearningState;
 use super::store::Store;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Runtime};
 
 pub use archive::{BackupPreview, BackupResult};
@@ -41,6 +41,55 @@ pub fn import<R: Runtime>(
     let counts = transfer::import(&mut backup, store, state)?;
     let mut reindex_warning: Option<String> = None;
     let mut recover_warnings: Vec<String> = Vec::new();
+    // 57#3：导入后校验资料行有对应原件（随档携带或本机已有）——导出时的
+    // 缺失只留在导出回执，恢复方原先拿到「数据行在、文件缺」的档案毫无
+    // 提示；现在按 backupImportWarnings 显式列出
+    {
+        let root = state
+            .workspace_path()
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let bundled: std::collections::HashSet<&str> = backup
+            .manifest
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+        let mut statement = store
+            .conn
+            .prepare("SELECT sha256, kind FROM materials WHERE sha256 IS NOT NULL")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut missing_originals: Vec<String> = rows
+            .into_iter()
+            .filter_map(|(sha256, kind)| {
+                let relative =
+                    format!("materials/originals/{sha256}.{}", kind.to_ascii_lowercase());
+                (!bundled.contains(relative.as_str()) && !root.join(&relative).exists())
+                    .then_some(relative)
+            })
+            .collect();
+        missing_originals.sort();
+        missing_originals.dedup();
+        if !missing_originals.is_empty() {
+            let preview: Vec<&str> = missing_originals
+                .iter()
+                .take(3)
+                .map(String::as_str)
+                .collect();
+            recover_warnings.push(format!(
+                "{} 份资料的原件不在备份与本机（导出时缺失或内容不符被跳过），预览与导出该原件会失败：{}{}",
+                missing_originals.len(),
+                preview.join("、"),
+                if missing_originals.len() > 3 { " 等" } else { "" }
+            ));
+        }
+    }
     if let Err(error) = super::sharing::reindex(&super::sharing::SharingState::new(state)) {
         reindex_warning = Some(format!("分享索引重建失败：{}", error.message));
     }

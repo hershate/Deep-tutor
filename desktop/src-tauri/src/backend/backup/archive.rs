@@ -111,6 +111,11 @@ pub(crate) struct Manifest {
     pub tables: BTreeMap<String, u64>,
     pub database: FileEntry,
     pub files: Vec<FileEntry>,
+    /// 57#3：导出时未随档携带的文件（缺失或内容漂移按缺失处理）——
+    /// 缺失信息随档案走，恢复方导入后可显式提示而非静默缺件；
+    /// 旧档案（v3 无此字段）反序列化为空表
+    #[serde(default)]
+    pub missing_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +127,9 @@ pub struct BackupResult {
     pub records: u64,
     /// 备份时已缺失、按"只报告不替代"跳过的文件相对路径
     pub missing_files: Vec<String>,
+    /// 57#2：原件内容与库内记录哈希不符（同步盘/杀毒/手动改动）的文件——
+    /// 按缺失处理单列，不再产出「导出成功却因 stem≠sha 永远导不回来」的档案
+    pub drifted_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -236,8 +244,10 @@ fn file_entry(path: String, source: &Path) -> Result<FileEntry> {
 }
 
 /// 缺失文件按产品约定"只报告不替代"：跳过并记录，不阻断备份。
-/// 返回 (实际存在的条目, 缺失的相对路径)。
-fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)> {
+/// 内容漂移（文件实际哈希 ≠ 库内记录，zip 内 stem 将与 entry.sha 错位、
+/// 导入侧强制 stem==sha 必然拒收）同样按缺失处理。
+/// 返回 (实际存在的条目, 缺失的相对路径, 内容漂移的相对路径)。
+fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>, Vec<String>)> {
     let root = state
         .workspace_path()
         .parent()
@@ -246,6 +256,7 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)>
     let store = state.store()?;
     let mut entries = Vec::new();
     let mut missing = Vec::new();
+    let mut drifted = Vec::new();
     let mut statement = store
         .conn
         .prepare("SELECT sha256, kind FROM materials WHERE sha256 IS NOT NULL ORDER BY id")?;
@@ -272,7 +283,16 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)>
             .join("materials/originals")
             .join(format!("{sha256}.{kind}"));
         match fs::metadata(&source) {
-            Ok(_) => entries.push(file_entry(relative, &source)?),
+            Ok(_) => {
+                let entry = file_entry(relative.clone(), &source)?;
+                // 57#2：实际内容哈希 ≠ 库内记录（即相对路径 stem）时，若照常
+                // 打包，导入侧 stem==sha 强校验会整单拒收——按缺失处理并单列
+                if entry.sha256 != sha256 {
+                    drifted.push(relative);
+                } else {
+                    entries.push(entry);
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => missing.push(relative),
             Err(error) => return Err(error.into()),
         }
@@ -344,7 +364,7 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>)>
             "备份存在重复文件路径",
         ));
     }
-    Ok((entries, missing))
+    Ok((entries, missing, drifted))
 }
 
 fn write_archive_file(
@@ -426,7 +446,7 @@ pub fn export<R: Runtime>(
         sha256: format!("{:x}", Sha256::digest(&database_bytes)),
         bytes: database_bytes.len() as u64,
     };
-    let (files, missing_files) = collect_files(state)?;
+    let (files, missing_files, drifted_files) = collect_files(state)?;
     let snapshot = Connection::open_with_flags(&snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut tables = BTreeMap::new();
     for table in TABLES {
@@ -442,6 +462,12 @@ pub fn export<R: Runtime>(
         tables,
         database,
         files,
+        // 57#3：缺失（含漂移按缺失处理）随档案携带，恢复方可显式提示
+        missing_files: missing_files
+            .iter()
+            .chain(drifted_files.iter())
+            .cloned()
+            .collect(),
     };
     let mut bytes = Vec::new();
     {
@@ -479,7 +505,7 @@ pub fn export<R: Runtime>(
     let event = Store::event(
         &store.conn,
         "backup.exported",
-        json!({"format": "deep-tutor-backup", "version": 3, "bytes": bytes.len(), "files": manifest.files.len(), "missingFiles": missing_files, "sha256": sha256}),
+        json!({"format": "deep-tutor-backup", "version": 3, "bytes": bytes.len(), "files": manifest.files.len(), "missingFiles": missing_files, "driftedFiles": drifted_files, "sha256": sha256}),
     )?;
     emit(app, &event);
     Ok(BackupResult {
@@ -488,6 +514,7 @@ pub fn export<R: Runtime>(
         files: manifest.files.len(),
         records: manifest.tables.values().sum(),
         missing_files,
+        drifted_files,
     })
 }
 

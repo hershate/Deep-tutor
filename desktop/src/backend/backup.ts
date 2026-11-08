@@ -12,7 +12,8 @@ export type BackupPreview = {
   databaseBytes: number
   appendOnly: true
 }
-export type BackupResult = { bytes: number; sha256: string; files: number; records: number; missingFiles: string[] }
+// 57#2：driftedFiles 为内容与库内记录不符、按缺失处理的原件（不再产出导不回来的档案）
+export type BackupResult = { bytes: number; sha256: string; files: number; records: number; missingFiles: string[]; driftedFiles: string[] }
 
 export const backupBackend = {
   export: (destination: string) => invoke<BackupResult>('export_full_backup', { destination }),
