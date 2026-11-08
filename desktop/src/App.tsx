@@ -73,6 +73,8 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: number; message: string; tone: 'info' | 'error' }[]>([])
   const [quickType, setQuickType] = useState('任务')
   const [quickTitle, setQuickTitle] = useState('')
+  // 43#1：快速记录保存中的防抖态
+  const [quickBusy, setQuickBusy] = useState(false)
   const [focusOpen, setFocusOpen] = useState(false)
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null)
   // A-19：从任务行进入专注时携带的任务 id（无关联专注为 null）
@@ -277,14 +279,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: preferences.reducedMotion || systemReduced ? 'auto' : 'smooth' })
   }
   const addQuick = async () => {
-    if (!quickTitle.trim()) return
+    // 43#1：busy 防抖——清空发生在 await 之后，双击/回车连击会经 inflight
+    // 串行化落两条 id 不同的同标题记录（对照 Plan 页 addTask 的 busy 守卫）
+    if (quickBusy || !quickTitle.trim()) return
+    setQuickBusy(true)
     try {
       if (quickType === '任务') await setTasks(current => [...current, { id: localId(), title: quickTitle.trim(), subject: '快速记录', duration: 20, done: false, kind: '学习' }])
       // 19#3：updated 持久化 ISO 时间戳（渲染层格式化为相对时间），不再写入
       // 相对时间文案「刚刚」——那会让笔记永远显示"刚刚"
       else await setNotes(current => [{ id: localId(), title: quickTitle.trim(), excerpt: '通过全局快速记录创建。', tag: '复盘', updated: new Date().toISOString(), content: quickTitle.trim() }, ...current])
       notify(`${quickType}已保存`); setQuickTitle(''); setModal(null)
-    } catch (error) { reportBackendError(error, 'write') }
+    } catch (error) { reportBackendError(error, 'write') } finally { setQuickBusy(false) }
   }
   const importAll = (path: string) => importBackup(path)
   const resetAll = async () => {
@@ -373,7 +378,7 @@ export default function App() {
 
     <SearchLayer open={modal === 'search'} onClose={() => setModal(null)} onOpenResult={openSearchResult} />
     <Modal open={modal === 'quick'} onClose={() => setModal(null)} title="快速记录">
-      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」。'}</p><Button onClick={addQuick} disabled={!quickTitle.trim()}>保存{quickType}</Button></div>
+      <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」。'}</p><Button onClick={() => void addQuick()} disabled={quickBusy || !quickTitle.trim()}>{quickBusy ? '正在保存…' : `保存${quickType}`}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
       {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
