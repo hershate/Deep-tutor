@@ -328,7 +328,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const exportConfig = async () => {
     try {
       // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
-      const destination = await backend.saveMaterialFile('DeepTutor-provider-config.json', 'json')
+      const destination = await backend.saveMaterialFile('DeepTutor-provider-config', 'json')
       if (!destination) return
       const result = await backend.exportProviderConfigFile(destination)
       setConfigPreview(await backend.exportProviderConfig())

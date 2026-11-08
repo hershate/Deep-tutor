@@ -82,7 +82,7 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   const download = async (id: string) => {
     try {
       // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
-      const destination = await backend.saveMaterialFile(`${id}.md`, 'md')
+      const destination = await backend.saveMaterialFile(id, 'md')
       if (!destination) return
       const result = await pluginBackend.saveAsset(id, destination)
       notify(`已下载真实资产（${result.bytes.toLocaleString()} 字节）`)

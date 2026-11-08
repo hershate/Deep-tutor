@@ -22,14 +22,6 @@ const scopes: { id: ExportScope; label: string }[] = [
   { id: 'knowledge', label: '笔记与知识库' }, { id: 'review', label: '复习卡片' }, { id: 'schedule', label: '学习日程' },
 ]
 
-function fileName(title: string, extension: string) {
-  const safe = title.replace(/[\\/:*?"<>|]/g, '_').replace(/[.\s]+$/, '')
-  // E-5：按码点截断（与后端 chars().take(80) 同口径）——UTF-16 码元切片
-  // 会把代理对切半，defaultPath 序列化出孤立代理解析必败
-  const clipped = Array.from(safe).slice(0, 80).join('')
-  return `${clipped || 'DeepTutor-export'}.${extension}`
-}
-
 export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   open: boolean
   onClose: () => void
@@ -107,7 +99,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
     setDone(null)
     setDonePath('')
     try {
-      const destination = await backend.saveMaterialFile(fileName(title, extension), extension)
+      const destination = await backend.saveMaterialFile(title, extension)
       if (!destination) return
       const result = await exportBackend.content({ scope, format, planId: needsPlan ? planId : null, stageId: scope === 'lecture' ? stageId : null, unitIndex: scope === 'lecture' ? unitIndex : null, version: null }, destination)
       setDone(result)

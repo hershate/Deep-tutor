@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Folder, FolderOpen, RefreshCw, RotateCcw } from 'lucide-react'
-import { Badge, Button, SectionHeader } from './UI'
+import { Badge, Button, ConfirmDialog, SectionHeader } from './UI'
 import { backendErrorMessage, reportBackendError } from '../backend/client'
 import { storageBackend } from '../backend/storage'
 import { revealInFileManager } from '../backend/shell'
@@ -12,6 +12,9 @@ export default function DataDirectoryPanel() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState('')
+  // 42#4：一键即重启加确认层（数据已落盘，但整窗上下文消失与其余全局操作
+  // 的确认模型不一致）
+  const [restartOpen, setRestartOpen] = useState(false)
 
   const apply = useCallback((next: StorageOverview) => {
     setOverview(next)
@@ -93,6 +96,7 @@ export default function DataDirectoryPanel() {
     <p className="form-help">保存时会检查目录和数据库。已有数据库会被打开；空目录会创建新数据库。不会覆盖或删除原目录中的学习数据。</p>
     {message && <p className="setting-note" role="status">{message}</p>}
     {error && <div className="form-error" role="alert">{error}</div>}
-    <div className="data-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void retry()}><RefreshCw size={16} />{busy === 'retry' ? '正在初始化…' : '重试初始化'}</Button>{pending && <Button disabled={Boolean(busy)} onClick={() => void restart()}>保存并立即重启</Button>}</div>
+    <div className="data-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void retry()}><RefreshCw size={16} />{busy === 'retry' ? '正在初始化…' : '重试初始化'}</Button>{pending && <Button disabled={Boolean(busy)} onClick={() => setRestartOpen(true)}>保存并立即重启</Button>}</div>
+    <ConfirmDialog open={restartOpen} onClose={() => setRestartOpen(false)} onConfirm={() => { setRestartOpen(false); void restart() }} title="现在重启应用？" description="重启后新数据目录生效。打开的弹窗、滚动位置等界面状态会丢失（学习数据均已落盘，不会丢内容）。" confirmLabel="确认重启" />
   </section>
 }

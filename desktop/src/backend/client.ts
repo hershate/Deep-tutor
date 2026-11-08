@@ -4,6 +4,14 @@ import type { Note, Project, Resource, Task } from '../data'
 import type { Preferences } from '../pages/Settings'
 
 export type CollectionNamespace = 'tasks' | 'notes' | 'resources' | 'projects' | 'preferences'
+
+/** 42#1：Windows 文件名清洗（非法字符替换、尾部点/空格剥离、80 码点截断） */
+function sanitizeFileBaseName(name: string) {
+  const safe = name.replace(/[\\/:*?"<>|]/g, '_').replace(/[.\s]+$/, '')
+  // E-5：按码点截断（与后端 chars().take(80) 同口径）——UTF-16 码元切片
+  // 会把代理对切半，defaultPath 序列化出孤立代理解析必败
+  return Array.from(safe).slice(0, 80).join('') || 'DeepTutor-export'
+}
 export type AppSnapshot = {
   tasks: Task[]
   notes: Note[]
@@ -340,8 +348,17 @@ export const backend = {
   openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
     options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'] }] },
   }),
-  saveMaterialFile: (title: string, extension: string) => invoke<string | null>('plugin:dialog|save', {
-    options: { title: '保存到本地', defaultPath: title, filters: [{ name: '文件', extensions: [extension] }] },
+  // 42#1/42#2：defaultPath 统一清洗——Windows 文件名非法字符（\ / : * ? " < > |）
+  // 与尾部点/空格会使 IFileDialog::SetFileName 返回 E_INVALIDARG，保存对话框
+  // 直接打不开（手输资料标题含半角冒号即触发）；扩展名统一小写并显式补全
+  // （此前各调用点口径不一：有的不带后缀、有的大写）。E-5 按码点截断防代理对切半。
+  // 调用方传不含扩展名的基础名即可。
+  saveMaterialFile: (baseName: string, extension: string) => invoke<string | null>('plugin:dialog|save', {
+    options: {
+      title: '保存到本地',
+      defaultPath: `${sanitizeFileBaseName(baseName)}.${extension.toLowerCase()}`,
+      filters: [{ name: '文件', extensions: [extension.toLowerCase()] }],
+    },
   }),
   importMaterialFiles: (paths: string[]) => invoke<MaterialImportResult[]>('import_material_files', { paths }),
   importMaterialArchive: (path: string) => invoke<{ outcomes: MaterialImportResult[]; skipped: string[]; totalBytes: number }>('import_material_archive', { path }),

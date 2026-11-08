@@ -39,9 +39,11 @@ export function SectionHeader({ title, description, action }: { title: string; d
   return <div className="section-header"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{action}</div>
 }
 
-export function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (value: boolean) => void; label: string; description?: string }) {
+export function Toggle({ checked, onChange, label, description, disabled }: { checked: boolean; onChange: (value: boolean) => void; label: string; description?: string; disabled?: boolean }) {
   const id = useId()
-  return <div className="toggle-row"><div><label htmlFor={id}>{label}</label>{description && <p>{description}</p>}</div><button id={id} role="switch" aria-checked={checked} className={`switch ${checked ? 'is-on' : ''}`} onClick={() => onChange(!checked)}><span /></button></div>
+  // 43#8：disabled 透传——IPC 写入进行中开关可点但被 busy 守卫静默吞掉，
+  // 用户以为失灵；禁用后状态回弹观感消除
+  return <div className="toggle-row"><div><label htmlFor={id}>{label}</label>{description && <p>{description}</p>}</div><button id={id} role="switch" aria-checked={checked} disabled={disabled} className={`switch ${checked ? 'is-on' : ''}`} onClick={() => onChange(!checked)}><span /></button></div>
 }
 
 // 焦点圈禁（09#5）：aria-modal 的弹层必须把 Tab/Shift+Tab 限制在容器内，

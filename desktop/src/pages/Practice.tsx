@@ -174,7 +174,7 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
     setExportBusy(true)
     try {
       // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
-      const destination = await backend.saveMaterialFile('DeepTutor-错题.json', 'json')
+      const destination = await backend.saveMaterialFile('DeepTutor-错题', 'json')
       if (!destination) return
       const result = await practiceBackend.exportMistakesFile(destination)
       notify(`已从原生后端导出真实错题记录（${result.bytes.toLocaleString()} 字节）`)

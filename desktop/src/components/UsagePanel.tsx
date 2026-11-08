@@ -80,7 +80,7 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   const exportCsv = async () => {
     try {
       // 37#5：与其他导出一致——原生保存对话框选位置，由后端落盘
-      const destination = await backend.saveMaterialFile('DeepTutor-usage.csv', 'csv')
+      const destination = await backend.saveMaterialFile('DeepTutor-usage', 'csv')
       if (!destination) return
       const result = await usageBackend.exportCsvFile(destination)
       notify(`已导出真实用量 CSV（${result.bytes.toLocaleString()} 字节），不包含提示词、回答或密钥`)

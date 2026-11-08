@@ -78,7 +78,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     setBusy(kind)
     setError('')
     try {
-      const destination = kind === 'download' ? await backend.saveMaterialFile('DeepTutor-provider-config.json', 'json') : null
+      const destination = kind === 'download' ? await backend.saveMaterialFile('DeepTutor-provider-config', 'json') : null
       if (kind === 'download' && !destination) return
       const accepted = await syncBackend.start(kind, destination)
       notify(`${jobNames[kind]}任务 ${accepted.id} 已启动，等待真实远端结果`)

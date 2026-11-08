@@ -174,7 +174,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const exportText = async () => {
     if (!activeMaterial?.text) return
     try {
-      const destination = await backend.saveMaterialFile(`${activeMaterial.title}.txt`, 'txt')
+      const destination = await backend.saveMaterialFile(activeMaterial.title, 'txt')
       if (!destination) return
       await backend.exportMaterialText(activeMaterial.id, destination)
       notify('解析文本已由原生后端写入文件')
@@ -249,7 +249,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   }
   const exportNotes = async () => {
     try {
-      const destination = await backend.saveMaterialFile('DeepTutor-notes.zip', 'zip')
+      const destination = await backend.saveMaterialFile('DeepTutor-notes', 'zip')
       if (!destination) return
       const result = await exportBackend.notesArchive(destination)
       notify(`已由原生后端导出 ${result.count} 条 Markdown 笔记与清单（${result.bytes.toLocaleString()} 字节）`)
