@@ -61,6 +61,12 @@
   --danger-soft: oklch(0.34 0.06 28);
   --warning-soft: oklch(0.36 0.05 95);
   --info-soft: oklch(0.32 0.04 235);
+  /* 63#4：danger/success 深色提亮——六处纯文字点（form-error/错题选项/
+  同步失败等）原先沿用中亮度浅色值，对比仅 2.3-2.7:1 低于 AA；对齐
+  badge-red 深色 0.84 的既有方案 */
+  --danger: oklch(0.78 0.14 25);
+  --success: oklch(0.82 0.12 145);
+  --warning: oklch(0.82 0.12 85);
   --shadow: 0 8px 30px oklch(0.1 0.01 160 / 0.2);
   color-scheme: dark;
 }
@@ -114,7 +120,6 @@ svg { flex-shrink: 0; }
 .nav-group button i { margin-left: auto; min-width: 23px; height: 20px; display: grid; place-items: center; border-radius: 10px; background: oklch(0.45 0.04 160); color: white; font-size: 12px; font-style: normal; }
 .nav-group button.active i { background: var(--pine-950); }
 .sidebar-bottom { border-top: 1px solid oklch(0.45 0.04 160 / .55); padding-top: 8px; }
-.running-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lime-400); margin-left: auto; box-shadow: 0 0 0 4px oklch(0.9 0.17 120 / .12); }
 .sidebar-profile { display: flex; align-items: center; gap: 10px; padding: 16px 6px 2px; }
 .sidebar-profile > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: oklch(0.75 0.08 90); color: var(--pine-950); font-weight: 700; }
 .sidebar-profile div { flex: 1; display: grid; }
@@ -465,7 +470,6 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .message-user { justify-items: end; }
 .message-bubble { max-width: 94%; padding: 11px 13px; border-radius: 4px 13px 13px 13px; background: var(--surface-soft); color: var(--text-secondary); font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
 .message-user .message-bubble { border-radius: 13px 4px 13px 13px; background: var(--accent-strong); color: var(--paper-50); }
-.message-source { display: flex; align-items: flex-start; gap: 5px; margin-top: 5px; padding: 5px 0; border: 0; background: transparent; color: var(--accent); font-size: 12px; text-align: left; }
 .tutor-suggestions { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; }
 .tutor-suggestions button { flex: 0 0 auto; min-height: 32px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: 12px; }
 .tutor-composer { margin: 0 12px 8px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-raised); overflow: hidden; }
@@ -511,8 +515,10 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .map-node strong { font-size: 12px; }
 .map-node small { color: var(--muted); font-size: 12px; }
 .node-status { color: var(--accent); }
-.node-学习中 .node-status, .node-待巩固 .node-status { color: var(--warning); }
-.node-未学 .node-status { color: var(--muted); }
+/* 63#1：类名与 KnowledgeMap 实际拼接对齐——原先写成中文状态名（死规则），
+   英文类无定义导致三种掌握状态图标恒为默认绿，图例色承诺失效 */
+.node-learning .node-status { color: var(--warning); }
+.node-locked .node-status { color: var(--muted); }
 .node-detail { padding: 24px; align-self: start; }
 .node-detail-top { display: flex; align-items: center; justify-content: space-between; }
 .node-detail-top > span { color: var(--muted); font-size: 12px; }
@@ -817,20 +823,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 :root[data-theme="dark"] .line-chart { color: #7fc4a4; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
 .chart-label { fill: var(--muted); font-size: 12px; }
-.chart-insight { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
-.chart-insight p { margin: 0; font-size: 12px; }
-.donut-wrap { display: grid; place-items: center; padding: 6px 0 18px; }
-.donut { position: relative; width: 150px; height: 150px; display: grid; place-items: center; border-radius: 50%; background: var(--surface); }
-.donut > svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.donut > div { position: relative; z-index: 1; text-align: center; }
-.donut strong { display: block; font-size: 26px; }
-.donut span { color: var(--muted); font-size: 12px; }
 .donut-legend { display: grid; gap: 9px; }
 .donut-legend > div { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; font-size: 12px; }
-.donut-color { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
-.donut-color.color-1 { background: var(--info); }
-.donut-color.color-2 { background: var(--warning); }
-.donut-color.color-3 { background: var(--border-strong); }
 .donut-legend small { width: 28px; color: var(--muted); text-align: right; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12px; }
@@ -870,9 +864,6 @@ td strong { color: var(--text); }
 .next-room .badge-green { background: oklch(0.38 0.05 160); color: var(--lime-400); }
 .next-room h2 { margin: 18px 0 9px; font-size: 20px; }
 .next-room p { color: oklch(0.76 0.02 130); font-size: 12px; }
-.room-avatars { display: flex; align-items: center; margin: 18px 0; }
-.room-avatars > span { width: 30px; height: 30px; display: grid; place-items: center; margin-right: -6px; border: 2px solid var(--pine-950); border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
-.room-avatars small { margin-left: 12px; color: oklch(0.72 0.02 130); font-size: 12px; }
 .next-room .btn { width: 100%; background: var(--lime-400); color: var(--pine-950); border-color: var(--lime-400); }
 .community-rules > svg { color: var(--accent); }
 .community-rules h3 { margin: 12px 0; }
@@ -1068,7 +1059,6 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .clarify-form { max-width: 900px; width: 100%; justify-self: center; }
 .clarify-summary { display: flex; align-items: flex-start; gap: 10px; padding: 16px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
 .clarify-summary p { margin: 4px 0 0; font-size: 12px; }
-.clarify-warning { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--warning); border-radius: 9px; color: var(--warning); font-size: 13px; }
 .generator-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .clarify-side > div { display: flex; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
 .clarify-side > div > span { color: var(--accent); font-size: 12px; font-weight: 700; }
@@ -1153,6 +1143,9 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .agent-message-content { max-width: 90%; }
 .agent-bubble { padding: 13px 15px; border-radius: 4px 13px 13px 13px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); font-size: 13px; line-height: 1.75; }
 .agent-user .agent-bubble { border: 0; border-radius: 13px 4px 13px 13px; background: var(--accent-strong); color: var(--paper-50); }
+/* 63#2：深色漏网——accent-strong 翻转成亮绿而 paper-50 仍近白，用户气泡
+   呈亮绿底白字（对比约 1.3:1）；对齐 message-user 的深色反色方案 */
+:root[data-theme="dark"] .agent-user .agent-bubble { color: var(--pine-950); }
 .thought-details { margin-top: 7px; }
 .thought-details summary { display: flex; align-items: center; gap: 5px; width: fit-content; cursor: pointer; color: var(--muted); font-size: 12px; }
 .thought-details p { margin: 7px 0 0; padding: 10px; border-radius: 7px; background: var(--surface-soft); font-size: 12px; }
@@ -1313,7 +1306,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .export-center > label { display: grid; gap: 7px; margin-bottom: 14px; }
 .export-receipt { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .export-receipt p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
-.export-receipt .export-warning { color: oklch(0.55 0.14 60); font-weight: 600; }
+/* 63#3：警告文字改语义变量——硬编码深棕不经变量翻转，深色下对比不足 */
+.export-receipt .export-warning { color: var(--warning); font-weight: 600; }
 .share-status { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .share-status > div { flex: 1; }
 .share-status p { margin: 4px 0 0; font-size: 12px; }
@@ -1518,7 +1512,6 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .checkin-metrics strong { font-size: 23px; }
 .checkin-metrics small { margin-left: 3px; color: var(--muted); font-size: 12px; }
 .heatmap-panel, .daily-records, .plan-report-overview, .plan-report-bottom > .surface { padding: 24px; }
-.heatmap-months { display: flex; justify-content: space-between; padding: 0 4px 8px; color: var(--muted); font-size: 12px; }
 .learning-heatmap { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; grid-auto-columns: minmax(10px, 1fr); gap: 5px; overflow-x: auto; padding: 5px 2px 12px; }
 .learning-heatmap button, .heatmap-legend i { width: 100%; min-width: 12px; aspect-ratio: 1; border: 0; border-radius: 3px; background: var(--surface-soft); }
 .learning-heatmap button { min-height: 14px; }
@@ -1527,6 +1520,13 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .learning-heatmap .heat-2, .heatmap-legend .heat-2 { background: oklch(0.75 0.09 145); }
 .learning-heatmap .heat-3, .heatmap-legend .heat-3 { background: oklch(0.58 0.1 155); }
 .learning-heatmap .heat-4, .heatmap-legend .heat-4 { background: var(--pine-700); }
+/* 63#6：深色梯度单调化——heat-1..4 沿用浅色梯度时深色亮度序列为
+   0.3→0.88→0.75→0.58→0.45，一级反而最亮，「少→多」直觉被破坏；
+   深色改为随强度递增变亮（0.3→0.38→0.48→0.6→0.76） */
+:root[data-theme="dark"] .learning-heatmap .heat-1, :root[data-theme="dark"] .heatmap-legend .heat-1 { background: oklch(0.38 0.04 150); }
+:root[data-theme="dark"] .learning-heatmap .heat-2, :root[data-theme="dark"] .heatmap-legend .heat-2 { background: oklch(0.48 0.07 148); }
+:root[data-theme="dark"] .learning-heatmap .heat-3, :root[data-theme="dark"] .heatmap-legend .heat-3 { background: oklch(0.6 0.1 148); }
+:root[data-theme="dark"] .learning-heatmap .heat-4, :root[data-theme="dark"] .heatmap-legend .heat-4 { background: oklch(0.76 0.12 145); }
 .learning-heatmap button.has-record { outline: 2px solid var(--lime-400); outline-offset: 1px; }
 .heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--muted); font-size: 12px; }
 .heatmap-legend i { width: 12px; height: 12px; }
@@ -1570,9 +1570,9 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .lecture-scope p { margin: 4px 0 0; font-size: 12px; }
 .lecture-options { display: grid; gap: 7px; }
 .lecture-options span { padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-secondary); font-size: 12px; }
-.lecture-progress, .lecture-done { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--surface-soft); color: var(--accent); }
-.lecture-progress > div, .lecture-done > div { flex: 1; }
-.lecture-progress p, .lecture-done p { margin: 4px 0 8px; font-size: 12px; }
+.lecture-progress { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--surface-soft); color: var(--accent); }
+.lecture-progress > div { flex: 1; }
+.lecture-progress p { margin: 4px 0 8px; font-size: 12px; }
 .review-keyboard { margin: -8px 0 14px; color: var(--muted); font-size: 12px; text-align: center; }
 .command-results mark { padding: 0 2px; background: var(--accent-bright); color: var(--pine-950); }
 
@@ -1629,12 +1629,6 @@ h1, h2, h3 { text-wrap: balance; }
 .provider-view-tabs button.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .provider-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .mode-description { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.route-active-banner { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; padding: 16px 18px; border-radius: 11px; background: var(--pine-950); color: white; }
-.route-active-banner > div { display: flex; align-items: flex-start; gap: 10px; }
-.route-active-banner > div > svg { color: var(--lime-400); }
-.route-active-banner strong { font-size: 13px; }
-.route-active-banner p { margin: 4px 0 0; color: oklch(0.78 0.02 130); font-size: 12px; }
-.route-active-banner code { color: var(--lime-400); font-size: 12px; }
 .aggregate-models { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .aggregate-models > div:first-child { display: flex; align-items: center; gap: 8px; color: var(--accent); }
 .aggregate-models h2 { flex: 1; margin: 0; font-size: 17px; }
@@ -1732,7 +1726,6 @@ h1, h2, h3 { text-wrap: balance; }
 .config-safety ul { padding-left: 18px; color: var(--text-secondary); font-size: 12px; }
 .config-safety li { margin-bottom: 8px; }
 .cloud-sync { display: grid; gap: 13px; }
-.sync-status { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
 
 /* Provider editor and import */
 .editor-step-line { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
@@ -1756,9 +1749,6 @@ h1, h2, h3 { text-wrap: balance; }
 .model-check-list { display: flex; gap: 7px; flex-wrap: wrap; }
 .model-check-list label { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; }
 .model-check-list input { width: 15px; height: 15px; }
-.advanced-provider-options { padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
-.advanced-provider-options summary { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--accent); font-size: 12px; font-weight: 650; }
-.advanced-provider-options > *:not(summary) { margin-top: 14px; }
 .form-error { display: flex; align-items: center; gap: 7px; padding: 11px; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); font-size: 12px; }
 .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
 .editor-actions > div { display: flex; gap: 8px; }
@@ -1774,7 +1764,6 @@ h1, h2, h3 { text-wrap: balance; }
 .check-explainer p { margin: 5px 0 0; font-size: 12px; }
 .connection-test-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .test-stage { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
-.test-stage .hidden { display: none; }
 .local-cors-note { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
 .local-cors-note p { margin: 0; font-size: 12px; }
 .import-provider-preview { display: grid; gap: 12px; }
@@ -1824,7 +1813,6 @@ h1, h2, h3 { text-wrap: balance; }
 .practice-history-list { display: grid; gap: 8px; }
 .practice-history-list > button { display: flex; justify-content: space-between; gap: 15px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
 .practice-history-list small { color: var(--muted); }
-.unavailable-feature { padding: 24px; }
 .rubric-preview { display: grid; gap: 8px; margin: 16px 0; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .rubric-preview > div { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .rubric-preview small { flex-shrink: 0; color: var(--muted); }
