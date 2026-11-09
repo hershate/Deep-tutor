@@ -1356,14 +1356,20 @@ pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
     drop(file);
     let replaced = destination.exists();
     if replaced {
-        fs::rename(destination, &previous)?;
+        if let Err(error) = fs::rename(destination, &previous) {
+            // 59#2：目标被占用（Excel 独占等）使替换首步失败——temporary 已写满
+            // 内容，须回收再报错，不留 download-{n} 残留
+            let _ = fs::remove_file(temporary);
+            return Err(error.into());
+        }
     }
     match fs::rename(&temporary, destination) {
         Ok(()) => {
             if replaced {
-                fs::remove_file(previous).map_err(|_| {
-                    BackendError::new("cleanup_failed", "导出已写入，旧文件备份清理失败")
-                })?;
+                // 59#1：新内容已落盘即导出成功——旧文件备份清理失败（杀软/索引器
+                // 短暂占用等）不得把成功报成失败；previous-{n} 残留在用户目录，
+                // 由用户自行处置，不进错误通道
+                let _ = fs::remove_file(previous);
             }
             Ok(())
         }

@@ -6,7 +6,7 @@ use crate::backend::commands::emit;
 use crate::backend::error::{BackendError, Result};
 use crate::backend::learning::{self, Citation};
 use crate::backend::providers::{self, ChatMessage};
-use crate::backend::store::Store;
+use crate::backend::store::{self, Store};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -19,15 +19,8 @@ use tauri::{AppHandle, Runtime};
 pub const GRADING_SYSTEM: &str = "你是学习测评评分器。只能依据题目、学生作答、给定评分要点和资料原文评分，不增加评分项，不迎合学生，不虚构资料。只返回要求的 JSON 对象。";
 
 fn ensure_column(conn: &Connection, table: &str, name: &str, declaration: &str) -> Result<()> {
-    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    drop(statement);
-    if !columns.iter().any(|column| column == name) {
-        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"), [])?;
-    }
-    Ok(())
+    // 59#3：与 variants 共用 store 的幂等补列实现（46#4），消除域内复制漂移面
+    store::ensure_column(conn, table, name, declaration)
 }
 
 pub fn migrate(conn: &Connection) -> Result<()> {

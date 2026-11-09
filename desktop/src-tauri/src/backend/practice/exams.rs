@@ -2,7 +2,7 @@ use super::{now, set_row, PracticeSet, PracticeSetDetail, PracticeState};
 use crate::backend::commands::emit;
 use crate::backend::error::{BackendError, Result};
 use crate::backend::learning;
-use crate::backend::store::Store;
+use crate::backend::store::{self, Store};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -11,15 +11,8 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 fn ensure_column(conn: &Connection, table: &str, name: &str, declaration: &str) -> Result<()> {
-    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    drop(statement);
-    if !columns.iter().any(|column| column == name) {
-        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"), [])?;
-    }
-    Ok(())
+    // 59#3：与 variants 共用 store 的幂等补列实现（46#4），消除域内复制漂移面
+    store::ensure_column(conn, table, name, declaration)
 }
 
 pub fn migrate(conn: &Connection) -> Result<()> {
