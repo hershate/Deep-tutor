@@ -65,7 +65,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
       setFlipped(false)
       await refresh()
       const days = result.card.intervalDays
-      notify(level === 'again' ? '已记录，将在 10 分钟后再次到期' : `已记录为「${gradeNames[level]}」，下次间隔 ${days.toFixed(days < 1 ? 2 : 1)} 天`)
+      notify(level === 'again' ? '已记录，将在 10 分钟后再次到期' : `已记录为「${gradeNames[level]}」，下次间隔 ${days.toFixed(2)} 天`)
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }, [card, flipped, busy, refresh, notify])
 
@@ -77,7 +77,14 @@ export default function Review({ notify }: { notify: (message: string) => void }
       // 真实评分写库；焦点在输入框内同样跳过
       if (document.querySelector('.overlay, .drawer-overlay, .focus-overlay')) return
       if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
-      if (event.code === 'Space') { event.preventDefault(); setFlipped(value => !value) }
+      if (event.code === 'Space') {
+        // 68#2：焦点在按钮上时空格应激活按钮——只对 flashcard 之外的按钮让位
+        //（flashcard 自身的 preventDefault 恰好防双翻，属正确部分）
+        if (event.target instanceof HTMLElement && event.target.closest('button') && !event.target.closest('.flashcard')) return
+        // 68#6：长按空格 keydown 每 33ms 重复触发翻面——repeat 只翻一次
+        if (event.repeat) { event.preventDefault(); return }
+        event.preventDefault(); setFlipped(value => !value)
+      }
       const keys: Record<string, ReviewGrade> = { Digit1: 'again', Digit2: 'hard', Digit3: 'good', Digit4: 'easy' }
       if (flipped && keys[event.code]) { event.preventDefault(); void grade(keys[event.code]) }
     }

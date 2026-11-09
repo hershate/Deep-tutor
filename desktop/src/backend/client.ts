@@ -485,6 +485,16 @@ export function isCancelRace(error: unknown) {
     'project_feedback_active',
     'grading_active',
     'lecture_active',
+    // 69#1：五码为后端真实竞态码但原表缺失——倒计时归零自动收尾与手动
+    // 完成/暂停并发（no_active_focus 族）、双开防护（focus_active）、
+    // resume 未命中（no_paused_focus）、重复入队（job_active）、取消/复用
+    // 窗口（request_active）：操作本身幂等或已生效，事件滞后窄窗内到达
+    // 不应弹错误 toast
+    'no_active_focus',
+    'focus_active',
+    'no_paused_focus',
+    'job_active',
+    'request_active',
   ].includes(code)
 }
 

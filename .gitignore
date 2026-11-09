@@ -47,3 +47,4 @@ coverage.out
 *.exe
 *.exe~
 NUL
+repolint

@@ -50,10 +50,18 @@ export function Toggle({ checked, onChange, label, description, disabled }: { ch
 // 焦点逃逸到遮罩背后时拉回；卸载后把焦点还给打开前的元素。
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+// 68#1：兄弟型双层弹层（如 Modal 与其内触发的 ConfirmDialog 同级渲染）
+// 原先两个圈禁实例同时拦截 Tab 互相拉锯，键盘用户困死在内层首元素——
+// 按激活顺序登记令牌，仅栈顶实例拦截，下层实例让位（嵌套 DOM 型不受
+// 影响：焦点本就在内层容器内）
+const FOCUS_CONTAINMENT_STACK: symbol[] = []
+
 export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: boolean, restore?: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!active) return
     const container = ref.current
+    const token = Symbol('focus-containment')
+    FOCUS_CONTAINMENT_STACK.push(token)
     // 15#8：autoFocus 弹窗在 effect 运行前已把焦点落进容器，此时捕获到的
     // activeElement 属于弹窗内部（卸载后还原无效）；调用方可经 restore
     // 传入渲染期（DOM 更新前）捕获的打开前焦点
@@ -69,6 +77,8 @@ export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: 
     const timer = window.setTimeout(focusFirst, 20)
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Tab' || !container) return
+      // 68#1：非栈顶实例不拦截——上层弹层关闭（令牌弹出）后本层自动恢复圈禁
+      if (FOCUS_CONTAINMENT_STACK[FOCUS_CONTAINMENT_STACK.length - 1] !== token) return
       const items = focusables()
       if (!items.length) { event.preventDefault(); container.focus(); return }
       const first = items[0]
@@ -79,7 +89,13 @@ export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: 
       else if (!event.shiftKey && current === last) { event.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
-    return () => { window.clearTimeout(timer); document.removeEventListener('keydown', onKey); previous?.focus() }
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('keydown', onKey)
+      const index = FOCUS_CONTAINMENT_STACK.indexOf(token)
+      if (index >= 0) FOCUS_CONTAINMENT_STACK.splice(index, 1)
+      previous?.focus()
+    }
   }, [active, ref, restore])
 }
 

@@ -503,6 +503,8 @@ function SearchLayer({ open, onClose, onOpenResult }: {
   const openResult = (result: SearchResult) => { setQuery(''); onOpenResult(result) }
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!results.length) return
+    // 68#3：IME 组字期间 ↑↓ 用于选候选词，不挪动结果高亮（Enter 已有同款守卫）
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex(index => (index + 1) % results.length) }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex(index => (index - 1 + results.length) % results.length) }
     else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); openResult(results[activeIndex] ?? results[0]) }
