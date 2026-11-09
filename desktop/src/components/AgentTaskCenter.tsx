@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
+import { Ban, Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
 
@@ -57,7 +57,8 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
   if (error && !tasks.length) return <div className="page-loading" role="alert"><CircleAlert size={25} /><h2>运行记录读取失败</h2><p>{error}</p><Button onClick={() => { setError(''); setLoading(true); void refresh() }}>重新读取</Button></div>
   return <>
     {error && <div className="form-error" role="alert">{error}</div>}
-    {!tasks.length ? <EmptyState title="尚无运行记录" description="方案生成、讲义生成和 Agent 运行后，会在这里显示真实状态。" /> : <div className="agent-task-list">{tasks.map(task => <div key={task.id}><span className={`task-status ${task.status === 'running' ? 'running' : ''}`}>{task.status === 'running' || task.status === 'cancelling' ? <LoaderCircle size={16} className="spin" /> : task.status === 'done' ? <Check size={16} /> : <CircleAlert size={16} />}</span><div><strong>{task.title}</strong><p>{task.detail}</p><ProgressBar value={task.progress} /><small>{new Date(task.updatedAt).toLocaleString('zh-CN')}</small></div><Badge tone={task.status === 'done' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'amber'}>{labels[task.status] ?? task.status}</Badge>{task.cancel && <Button variant="ghost" size="sm" aria-label={`取消 ${task.title}`} disabled={busy === task.id} onClick={() => void cancel(task)}><Square size={13} />取消</Button>}</div>)}</div>}
+    {!tasks.length ? <EmptyState title="尚无运行记录" description="方案生成、讲义生成和 Agent 运行后，会在这里显示真实状态。" /> : <div className="agent-task-list">{tasks.map(task => <div key={task.id}><span className={`task-status ${task.status === 'running' ? 'running' : ''}`}>{/* 48#16：取消态用 Ban 与真失败 CircleAlert 区分（中断/失败仍警示图标） */}
+{task.status === 'running' || task.status === 'cancelling' ? <LoaderCircle size={16} className="spin" /> : task.status === 'done' ? <Check size={16} /> : task.status === 'cancelled' ? <Ban size={16} /> : <CircleAlert size={16} />}</span><div><strong>{task.title}</strong><p>{task.detail}</p><ProgressBar value={task.progress} /><small>{new Date(task.updatedAt).toLocaleString('zh-CN')}</small></div><Badge tone={task.status === 'done' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'amber'}>{labels[task.status] ?? task.status}</Badge>{task.cancel && <Button variant="ghost" size="sm" aria-label={`取消 ${task.title}`} disabled={busy === task.id} onClick={() => void cancel(task)}><Square size={13} />取消</Button>}</div>)}</div>}
     <div className="setting-note"><Check size={16} />这里只展示原生后端持久化的方案、讲义和 Agent 运行，不生成演示任务。</div>
   </>
 }

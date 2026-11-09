@@ -169,7 +169,10 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .badge-amber { background: oklch(0.93 0.06 85); color: oklch(0.43 0.09 65); }
 .badge-red { background: oklch(0.94 0.04 28); color: var(--danger); }
 .badge-blue { background: oklch(0.93 0.035 235); color: oklch(0.42 0.09 235); }
-:root[data-theme="dark"] .badge-amber, :root[data-theme="dark"] .badge-red, :root[data-theme="dark"] .badge-blue { background: var(--surface-soft); color: var(--text); }
+/* 48#2：深色主题不再把状态色抹平成 neutral——改深底亮字，警告/失败/信息的色调通道保留 */
+:root[data-theme="dark"] .badge-amber { background: oklch(0.32 0.05 75); color: oklch(0.86 0.11 85); }
+:root[data-theme="dark"] .badge-red { background: oklch(0.3 0.06 25); color: oklch(0.84 0.1 25); }
+:root[data-theme="dark"] .badge-blue { background: oklch(0.3 0.05 240); color: oklch(0.85 0.09 240); }
 .progress-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .progress-track { flex: 1; height: 6px; overflow: hidden; border-radius: 3px; background: var(--border); }
 .progress-fill { height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
@@ -646,7 +649,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .review-progress .badge { grid-column: 2; grid-row: 1; }
 .flashcard { position: relative; width: 100%; height: 350px; margin-bottom: 22px; border: 0; border-radius: 18px; background: transparent; transform-style: preserve-3d; transition: transform .45s ease; }
 .flashcard.is-flipped { transform: rotateY(180deg); }
-.flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; }
+.flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; overflow-y: auto; }
 .flashcard-front { background: var(--pine-950); color: white; }
 .flashcard-back { background: var(--accent-soft); transform: rotateY(180deg); }
 .flashcard-face > span { position: absolute; top: 22px; left: 24px; color: var(--muted); font-size: 12px; letter-spacing: .12em; }
@@ -997,6 +1000,11 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 .high-contrast { --muted: var(--text-secondary); --border: var(--border-strong); }
+/* 48#9：高对比模式同时保护状态色调通道——状态 Badge 加 currentColor 描边、
+   考试/练习正误选项加粗边框，与设置文案「加深辅助文字和控件边界」对齐 */
+.high-contrast .badge { border: 1px solid currentColor; }
+.high-contrast .badge-neutral { color: var(--text); }
+.high-contrast .option-list > button.correct, .high-contrast .option-list > button.wrong { border-width: 2px; }
 .large-text body { font-size: 18px; zoom: 1.12; }
 .large-text .reading-article { font-size: 1.125em; }
 :root[data-theme="dark"] .reading-article mark { background: oklch(0.42 0.06 95); }
@@ -1053,7 +1061,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .source-item > div { flex: 1; min-width: 0; display: grid; }
 .source-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .source-item span, .source-item small { color: var(--muted); font-size: 12px; }
-.source-item > .badge { display: none; }
+/* 48#11：窄窗口不再整块隐藏解析状态 Badge——缩成紧凑徽标（省略截断），状态始终可见 */
+.source-item > .badge { max-width: 120px; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px; font-size: 10px; }
 .staging-bottom { display: grid; gap: 12px; margin-top: 20px; }
 .staging-bottom > span { color: var(--muted); font-size: 12px; }
 .clarify-form { max-width: 900px; width: 100%; justify-self: center; }
@@ -1208,7 +1217,7 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 
 @media (min-width: 700px) {
   .generator-stepper button > svg { display: block; }
-  .source-item > .badge { display: inline-flex; }
+  .source-item > .badge { max-width: none; padding: 3px 8px; font-size: 12px; }
   .tool-run-list > div > code { display: block; }
   .validation-grid { grid-template-columns: repeat(5, 1fr); }
 }

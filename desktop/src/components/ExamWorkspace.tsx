@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw, XCircle } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, type LearningPlan, deltaThrottle } from '../backend/client'
 import { clampToBytes } from '../limits'
@@ -176,7 +176,8 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
           {question.kind === 'choice' && <div className="option-list">{question.options.map((option, optionIndex) => {
             const correct = completed && answer?.feedback.answer === optionIndex
             const wrong = completed && selectedValue === optionIndex && answer?.correct === false
-            return <button key={`${option}-${optionIndex}`} disabled={recorded || busy || expired} className={`${selectedValue === optionIndex ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} onClick={() => { if (question) selectedByQuestion.current[question.id] = optionIndex; setSelected(optionIndex) }}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong></button>
+            // 48#10：复盘正误补图标双通道——原先仅边框/背景色，红绿色盲无法从选项行分辨对错
+            return <button key={`${option}-${optionIndex}`} disabled={recorded || busy || expired} className={`${selectedValue === optionIndex ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} onClick={() => { if (question) selectedByQuestion.current[question.id] = optionIndex; setSelected(optionIndex) }}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{correct && <CheckCircle2 size={17} aria-label="正确选项" />}{wrong && <XCircle size={17} aria-label="你的错误选择" />}</button>
           })}</div>}
           {question.kind === 'fill' && <input className="practice-fill-input" value={draft} disabled={recorded || busy || expired} onChange={event => { if (question) draftByQuestion.current[question.id] = event.target.value; setDraft(event.target.value) }} placeholder="填写准确术语" />}
           {['short', 'essay'].includes(question.kind) && <textarea rows={question.kind === 'essay' ? 8 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} disabled={recorded || busy || expired} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} placeholder="组织自己的回答，交卷后由后端按评分要点评分" />}
