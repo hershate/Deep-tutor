@@ -24,15 +24,21 @@
 
 ### 72#3（=C-3）NSIS 安装包未配置代码签名
 
-- `tauri.conf.json` bundle.windows.nsis 无 certificateThumbprint、CI 无 sign 步骤——SmartScreen 拦截/未知发布者警告训练用户无视警告，亦留中间人替换空间。有发布渠道后补签名+timestamp。
+- 位置：`desktop/src-tauri/tauri.conf.json:43-48`（bundle.windows.nsis 无 certificateThumbprint）；`.github/workflows/ci.yml`（无 sign/signtool 步骤）。
+- 传递链条：① 构建产出未签名 exe ② 用户运行安装时 SmartScreen 拦截/「未知发布者」警告 ③ 每次安装都被警告训练用户无视此类警告——日后真遇到恶意签名缺失软件时防线已失效；下载链路中间人替换亦无签名校验可拦。
+- 影响范围：发布质量与供应链弱化；非运行时漏洞。有发布渠道后补 certificateThumbprint+timestamp。
 
 ### 72#4（=C-4）WebView2 默认右键菜单未禁用；style-src 'unsafe-inline'
 
-- 右键菜单保留「后退/刷新/另存为」（release 已禁 devtools，「检查」不可用）；`style-src 'unsafe-inline'` 为 React 内联样式常规妥协，`script-src 'self'` 无 unsafe-eval。可选收紧，非必须。
+- 位置：窗口配置无 contextMenu 键（wry-0.57.1 webview2 默认启用 default menus）；`tauri.conf.json:14` `style-src 'unsafe-inline'`。
+- 传递链条：① 右键菜单保留「后退/刷新/另存为」（release 已禁 devtools 故「检查」不可用）——「后退/刷新」对 SPA 状态型应用可能造成意外导航/重载 ② `unsafe-inline` 仅样式域（React 内联样式的常规妥协），`script-src` 仍 `'self'` 且无 unsafe-eval，注入面未扩大。
+- 影响范围：桌面应用语境下右键菜单属行为面小瑕疵；CSP 样式域放宽无实际攻击面。可选收紧。
 
 ### 72#5（=C-5）「零子进程」结论的框架级注记
 
-- `restart_application`（startup.rs:510-512）→ tauri `app.restart()` 在 Windows 以 `Command::new(自身exe).spawn()` 重启——用户显式点「重启应用」才触发的一次性自重启。结论表述宜为「业务代码零 Command::new；唯一 spawn 为框架自重启（自 exe）」。
+- 位置：`startup.rs:510-512`（restart_application → `app.restart()`）→ tauri-2.12.5 `src/process.rs:83`（Windows 以 `Command::new(自身exe).args(env.args_os).spawn()` 重启）。
+- 传递链条：① 用户在数据目录面板点「保存并立即重启」② `app.restart()` 由框架 spawn 自身 exe 后退出当前进程 ③ 这是唯一子进程路径——用户显式触发、spawn 对象为自身、GUI 子系统无控制台窗口。
+- 影响范围：零（不闪窗不弹选择器）；仅结论表述宜精确为「业务代码零 Command::new；唯一 spawn 为框架自重启（自 exe）」，避免后续审计误报。
 
 ## 已核实（配置正确面）
 

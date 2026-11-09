@@ -40,27 +40,39 @@
 
 ### 76#6（=G-6）Reports/StudyRoom 事件监听随 period/tab 重挂，间隙丢事件——51#9 家族漏网
 
-- `Reports.tsx:35-60`（deps [period]→[refresh]）、`StudyRoom.tsx:43-58`（deps [tab]）。旧监听注销与新 listen() resolve 之间的 IPC 窗口事件丢失，自愈于下一事件；与其余 9 页已 ref 化的口径不一致。
+- 位置：`Reports.tsx:35-51`（refresh 依赖 [period]）→ `:52-60`（effect deps [refresh]）；`StudyRoom.tsx:43-58`（deps [tab]）。
+- 传递链条：① 切周期/切 tab → refresh 回调 identity 变化 → effect 重跑 ② cleanup 注销旧监听 → 新 listen() 是异步 promise ③ 注销与新监听生效之间的 IPC 往返窗口内到达的事件丢失 ④ 该次刷新丢失、报表滞留至下一事件自愈。
+- 影响范围：毫秒级窗口、低频触发、可自愈；与其余 9 页已按 51#9 ref 化的口径不一致（属一致性债）。
 
 ### 76#7（=G-7）deltaThrottle 定时器无取消通道——卸载后仍触发一次 IPC+setState
 
-- `client.ts:438-444`（无 cancel API），8 个使用点。切页瞬间一次多余 getProviderChat；同族 ProviderHub testAll 循环卸载后继续整轮。
+- 位置：`client.ts:438-444`（deltaThrottle 工厂无 cancel API）；使用点 8 处（ProviderHub:142、PlanGenerator:123、StudyRoom:133、Practice:79、Projects:76、ExamWorkspace:98、SubjectivePractice:75、WikiPanel:66）。
+- 传递链条：① 直播流页面 delta 到达，150ms 窗口定时器已武装 ② 立即切页卸载组件 ③ 定时器照常 fire → 一次多余 getProviderChat IPC + 组件已卸载的 setState（React 18 no-op 无警告）④ 同族：ProviderHub testAll 循环（:259-263）卸载后继续整轮 IPC+setState。
+- 影响范围：每次切页至多一次多余 IPC；无泄漏累积（定时器一次即终）。
 
 ### 76#8（=G-8）51#2 序号守卫覆盖盘点——10 个次级面板未配
 
-- 未配：ProviderHub/Projects/AgentTaskCenter/SecurityPanel/SyncPanel/UsagePanel/Settings.profile/KnowledgeMap.refreshPlans/StudyRoom.refreshPlans/Library.openMaterial（单飞近似串行）。最接近可感：ProviderHub 保存档案后旧 refresh 后到拉回旧列表。均无自伤路径、多为全量重拉。
+- 位置：ProviderHub.refresh（:99-113）、Projects.load（:65-74）、AgentTaskCenter.refresh（:22-35）、SecurityPanel.refresh（:40-45）、SyncPanel.refresh（:35-37）、UsagePanel.refresh（:24-36）、Settings.profile load（:56-65）、KnowledgeMap.refreshPlans（:63-70）、StudyRoom.refreshPlans（:86-95）、Library.openMaterial（仅 openingMaterial 单飞近似串行）。
+- 传递链条：① 快速连续触发两个刷新（如保存档案的 refresh1 在途、provider.* 事件触发 refresh2 先回）② refresh1 后到直接 set——旧数据覆盖新数据 ③ 13 处主刷新点均已配守卫（51#2 家族），这 10 个次级面板未跟进。
+- 影响范围：最接近可感的是 ProviderHub（保存后列表闪回旧值一瞬）；其余为单次 RTT 窗口、无自伤路径、多为全量重拉自愈。
 
 ### 76#9（=G-9）Community 预约/取消缺 busy 守卫（同文件 32#10 口径不一）
 
-- `Community.tsx:131-145`——双击靠 not_reserved 静默兜底，连点期间无视觉反馈。
+- 位置：`Community.tsx:131-145`（reserve/cancelRoom 无 `if (busy) return`，按钮未 disabled）。
+- 传递链条：① 快速双击「预约提醒」② 第二次请求命中 not_reserved/room_not_available → isCancelRace 静默 ③ 同文件 reaction/accept/toggleGroup（:79-118）均已有 busy 守卫——连点期间无视觉反馈。
+- 影响范围：双击期间无禁用反馈；后端竞态码兜底无数据损害。
 
 ### 76#10（=G-10）KnowledgeMap 后台方案采用事件重置用户选区
 
-- `KnowledgeMap.tsx:92-96`——plan 对象 identity 变化即重置 selected/path；他处采用方案时地图页选区弹回首节点。低频。
+- 位置：`KnowledgeMap.tsx:92-96`（effect deps [plan, graph] 内 setSelected(null)/setPath(null)）+ `:63-70`（plan.adopted 事件 → refreshPlans）。
+- 传递链条：① 地图页选中节点并生成补学路径 ② 他处（生成器页）采用一份方案 → plan.adopted 事件 ③ refreshPlans 替换 plan 对象（即使 id 未变，identity 变）→ effect 重跑 → selected 弹回首节点、path 清空。
+- 影响范围：仅他处采用方案时触发（低频）；用户正在浏览的选区丢失。
 
 ### 76#11（=G-11）Library 笔记被并发删除后保存提示假成功
 
-- `Library.tsx:228-232`——map 不命中零写入仍 toast「已保存」。无害但误导。
+- 位置：`Library.tsx:228-232`（saveNote 的 setNotes updater map）。
+- 传递链条：① 打开笔记 A 编辑 ② 另一窗口/会话删除该笔记（kv 全量替换不含 A）③ 回到编辑器点保存 → updater `current.map(n => n.id === activeNote.id …)` 不命中——零写入 ④ 仍走成功分支 toast「笔记修改已保存」。
+- 影响范围：多窗口编辑场景的误导提示；结果无害（笔记本已删除）。
 
 ## 已核实良好（摘要）
 
