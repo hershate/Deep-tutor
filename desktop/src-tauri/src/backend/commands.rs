@@ -6,10 +6,12 @@ use std::sync::MutexGuard;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 fn store<'a>(state: &'a State<'_, BackendState>) -> Result<MutexGuard<'a, Store>> {
-    state
+    // 73#16：锁中毒（持锁线程 panic unwind）恢复而非永久拒绝——rusqlite
+    // 事务在 unwind 时 Drop 回滚，连接保持一致，可安全复用
+    Ok(state
         .store
         .lock()
-        .map_err(|_| super::error::BackendError::new("store_unavailable", "本地数据层暂不可用"))
+        .unwrap_or_else(|poisoned| poisoned.into_inner()))
 }
 
 fn finish<R: Runtime>(app: &AppHandle<R>, mutation: Mutation) -> Result<Value> {
@@ -120,9 +122,7 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
                 state
                     .store
                     .lock()
-                    .map_err(|_| {
-                        super::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
-                    })?
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .reset()
             };
             match result {

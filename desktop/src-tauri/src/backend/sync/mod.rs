@@ -418,15 +418,22 @@ pub fn overview(service: &SyncService) -> Result<SyncOverview> {
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
+    // 73#13b：原先逐 id 调 job()（每次 service.store() 开新连接：PRAGMA×5+
+    // 指纹 SHA256）——50 个 job = 51 次连接开关。已持有连接直接逐行取回
+    //（53#3 同款：单连接复用，行级查询本身不变）
     let jobs = ids
-        .into_iter()
-        .map(|id| job(service, &id))
+        .iter()
+        .map(|id| job_with(&store, id))
         .collect::<Result<Vec<_>>>()?;
     Ok(SyncOverview { config, jobs })
 }
 
 pub fn job(service: &SyncService, id: &str) -> Result<SyncJobView> {
     let store = service.store()?;
+    job_with(&store, id)
+}
+
+fn job_with(store: &crate::backend::store::Store, id: &str) -> Result<SyncJobView> {
     store.conn.query_row("SELECT kind, status, remote_path, result_json, local_path, error_code, error_message, created_at, updated_at FROM sync_jobs WHERE id = ?1", params![id], |row| {
         let result: Option<String> = row.get(3)?;
         let code: Option<String> = row.get(5)?;

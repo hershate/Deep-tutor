@@ -275,6 +275,11 @@ pub(crate) fn streaming_client(url: &reqwest::Url, kind: &str) -> Result<reqwest
         .redirect(reqwest::redirect::Policy::none())
         .resolve_to_addrs(&host, &addresses)
         .connect_timeout(Duration::from_secs(5))
+        // 73#11：流式客户端原先无任何读超时（对照阻塞客户端 45s 总超时）——
+        // 停滞流使 worker 永远阻塞在读取上，15s deadline 必到、stop_all 永远
+        // 失败、线程泄漏至连接断开。设 120s 读超时（两次数据之间的间隔上限）：
+        // 正常流式回答的 token 间隔远小于此，停滞流以网络错误显式收尾
+        .read_timeout(Duration::from_secs(120))
         .build()
         .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))
 }

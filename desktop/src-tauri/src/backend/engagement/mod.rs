@@ -174,8 +174,16 @@ pub fn get_profile<R: Runtime>(
     app: &AppHandle<R>,
     state: &EngagementState,
 ) -> Result<LearningProfile> {
-    let store = state.store()?;
-    let preferences = preferences(&store)?;
+    profile_with(app, state, &state.store()?)
+}
+
+/// 73#13a：dashboard 扇出方复用连接（同 learning::list_with 口径）
+pub(crate) fn profile_with<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &EngagementState,
+    store: &super::store::Store,
+) -> Result<LearningProfile> {
+    let preferences = preferences(store)?;
     let security = app
         .try_state::<super::security::SecurityState>()
         .map(|state| state.shared())
@@ -784,12 +792,16 @@ pub fn dashboard<R: Runtime>(
     app: &AppHandle<R>,
     state: &EngagementState,
 ) -> Result<DashboardOverview> {
-    let profile = get_profile(app, state)?;
     let store = state.store()?;
+    // 73#13a：原先本函数扇出 7 次连接开关（profile/store/learning::list/
+    // review::stats/get_calendar/get_report+其内部第二次 learning::list），
+    // 各自 Store::new（PRAGMA×5+指纹 SHA256），首页打开延迟随方案数线性；
+    // 现全部复用同一连接（list_with/stats_with/calendar_with/report_with）
+    let profile = profile_with(app, state, &store)?;
     // 13#6：原恒取最新方案（list().next()），未采用的新方案会悄悄切换首页
     // 目标；改为优先"最近采用的方案"（与学习空间口径一致），无采用记录
     // 时才回退最新方案
-    let all_plans = super::learning::list(&state.learning)?;
+    let all_plans = super::learning::list_with(&store)?;
     let plan = match adopted_plan_id(&store.conn) {
         Some(adopted) => all_plans
             .iter()
@@ -815,16 +827,9 @@ pub fn dashboard<R: Runtime>(
             .as_ref()
             .map(|result| result.schedule.end_date.clone())
     });
-    let review = super::review::stats(&super::review::ReviewState::new(
-        state.learning.database_path(),
-        &state.learning,
-    ))?;
-    let calendar =
-        super::reports::get_calendar(&super::reports::ReportState::new(&state.learning))?;
-    let report = super::reports::get_report(
-        &super::reports::ReportState::new(&state.learning),
-        Some("4w"),
-    )?;
+    let review = super::review::stats_with(&store)?;
+    let calendar = super::reports::calendar_with(&store)?;
+    let report = super::reports::report_with(&store, "4w")?;
     let week = calendar
         .days
         .iter()

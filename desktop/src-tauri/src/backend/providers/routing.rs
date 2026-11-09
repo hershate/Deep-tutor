@@ -150,7 +150,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             opened_at TEXT,
             error_code TEXT,
             error_message TEXT
-        );",
+        );
+        -- 73#12：列表查询 ORDER BY created_at DESC LIMIT 100 此前无索引——
+        -- 行数随每次模型请求单调增长，十万行级全表扫+排序 100-500ms 主线程
+        CREATE INDEX IF NOT EXISTS provider_route_runs_created
+            ON provider_route_runs(created_at DESC);",
     )?;
     let legacy = conn
         .query_row(

@@ -612,14 +612,19 @@ pub(crate) fn get_with(store: &Store, id: &str) -> Result<Plan> {
 
 pub fn list(state: &LearningState) -> Result<Vec<Plan>> {
     // 53#3：单连接逐方案取回（get_with）——原先每方案 get 一次 Store::new
-    let store = state.store()?;
+    list_with(&state.store()?)
+}
+
+/// 73#13a：dashboard 等多域扇出方复用调用方已持有的连接，
+/// 不再各自 Store::new（连接开关+PRAGMA+指纹 SHA256）
+pub(crate) fn list_with(store: &super::store::Store) -> Result<Vec<Plan>> {
     let mut statement = store
         .conn
         .prepare("SELECT id FROM learning_plans ORDER BY id DESC LIMIT 100")?;
     let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
     let mut plans = Vec::new();
     for row in rows {
-        plans.push(get_with(&store, &format!("plan-{}", row?))?);
+        plans.push(get_with(store, &format!("plan-{}", row?))?);
     }
     Ok(plans)
 }

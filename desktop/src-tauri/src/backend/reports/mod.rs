@@ -692,8 +692,9 @@ fn evidence(store: &Store, since: &str) -> Result<Vec<(i64, String, String, f64,
     Ok(collected)
 }
 
-fn node_titles(state: &ReportState, plan_id: i64) -> Result<HashMap<String, String>> {
-    let plan = super::learning::get(&state.learning, &format!("plan-{plan_id}"))?;
+/// 73#13a：直接接收调用方连接（get_with 同连接取方案，不再另开 Store::new）
+fn node_titles(store: &super::store::Store, plan_id: i64) -> Result<HashMap<String, String>> {
+    let plan = super::learning::get_with(store, &format!("plan-{plan_id}"))?;
     Ok(plan
         .result
         .map(|result| {
@@ -793,6 +794,11 @@ fn plan_focus(
 
 fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> {
     let store = state.store()?;
+    report_with(&store, period)
+}
+
+/// 73#13a：dashboard 等扇出方传入已持有的连接，不再重开
+pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<LearningReport> {
     let (since, _, previous) = period_bounds(period)?;
     let since_text = timestamp(since.to_offset(time::UtcOffset::UTC))?;
     let previous_text = timestamp(previous.to_offset(time::UtcOffset::UTC))?;
@@ -804,8 +810,9 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
     // 转换静默钳到 100% 掩盖
     let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 AND a.score >= 0 AND a.score <= a.max_score THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
-    // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新
-    let all_plans = super::learning::list(&state.learning)?;
+    // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新。
+    // 73#13a：改在已持有的连接上取回——原先每域扇出各自 Store::new
+    let all_plans = super::learning::list_with(&store)?;
     let adopted = store
         .conn
         .query_row(
@@ -887,7 +894,7 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
         .map(|(id, _)| *id)
         .collect::<std::collections::BTreeSet<_>>()
     {
-        titles.insert(plan_id, node_titles(state, plan_id)?);
+        titles.insert(plan_id, node_titles(store, plan_id)?);
     }
     let masteries = node_groups
         .into_iter()
@@ -925,7 +932,8 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
             - Duration::days(6),
     )?;
     let (focus_by_plan, focus_by_week) = plan_focus(&store, &since_text, &week)?;
-    let plans = super::learning::list(&state.learning)?.into_iter().map(|plan| {
+    // 73#13a：同连接取回（list_with）
+    let plans = super::learning::list_with(store)?.into_iter().map(|plan| {
         let id = super::learning::plan_id(&plan.id)?;
         let total_stages = plan.result.as_ref().map(|result| result.stages.len() as u64).unwrap_or(0);
         // 25#8：局部重生成不清理旧阶段的完成行，孤儿计数可超过当前阶段总数
@@ -996,7 +1004,11 @@ pub fn get_report(state: &ReportState, period: Option<&str>) -> Result<LearningR
 }
 
 pub fn get_calendar(state: &ReportState) -> Result<CalendarReport> {
-    let store = state.store()?;
+    calendar_with(&state.store()?)
+}
+
+/// 73#13a：dashboard 扇出方复用调用方连接
+pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarReport> {
     let local = super::store::now_local();
     let today = local
         .date()

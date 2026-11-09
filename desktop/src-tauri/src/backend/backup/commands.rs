@@ -33,7 +33,7 @@ pub async fn export_full_backup<R: Runtime>(
                 let store = backend
                     .store
                     .lock()
-                    .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))?;
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 super::export(&app, &store, &learning, std::path::Path::new(&destination))
             };
             if result.is_ok() {
@@ -62,7 +62,7 @@ pub async fn preview_full_backup<R: Runtime>(
             let store = backend
                 .store
                 .lock()
-                .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))?;
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             super::preview(&learning, &store, std::path::Path::new(&path))
         })
     })
@@ -88,7 +88,7 @@ pub async fn import_full_backup<R: Runtime>(
                 let store = backend
                     .store
                     .lock()
-                    .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))?;
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 super::import(&app, &store, &learning, std::path::Path::new(&path))
             };
             super::super::sync::scheduler::start_scheduler(app.clone());

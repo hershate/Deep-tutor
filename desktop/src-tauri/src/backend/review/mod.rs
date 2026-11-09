@@ -508,7 +508,11 @@ pub fn grade<R: Runtime>(
 }
 
 pub fn stats(state: &ReviewState) -> Result<ReviewStats> {
-    let store = state.store()?;
+    stats_with(&state.store()?)
+}
+
+/// 73#13a：dashboard 扇出方复用调用方连接（同 learning::list_with 口径）
+pub(crate) fn stats_with(store: &super::store::Store) -> Result<ReviewStats> {
     let local = super::store::now_local();
     let today = local.date();
     let tomorrow = today

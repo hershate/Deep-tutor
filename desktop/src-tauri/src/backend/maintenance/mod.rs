@@ -853,6 +853,15 @@ pub fn vacuum<R: Runtime>(
             "DELETE FROM events WHERE created_at < ?1 AND id <= (SELECT COALESCE(MAX(id), 0) - 20000 FROM events)",
             params![cutoff],
         )?;
+        // 73#12：路由审计行随每次模型请求单调增长且此前无任何裁剪——
+        // 整理时保留最近 1000 条 run（界面日志视图只读最近 100 条）；
+        // attempts 经 FK ON DELETE CASCADE 连带清理
+        store.conn.execute(
+            "DELETE FROM provider_route_runs WHERE request_id NOT IN (
+                SELECT request_id FROM provider_route_runs ORDER BY created_at DESC, rowid DESC LIMIT 1000
+            )",
+            [],
+        )?;
         store.conn.execute_batch("VACUUM")?;
         // 14#20：VACUUM 本体已完成；检查点被并发读挡住（wal_busy=1）只
         // 意味着 WAL 稍后再截断，不再把整条“整理数据库”报为失败误导重试

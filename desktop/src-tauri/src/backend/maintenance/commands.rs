@@ -16,10 +16,11 @@ fn blocking_panic() -> BackendError {
 fn store<'a>(
     state: &'a tauri::State<'_, BackendState>,
 ) -> Result<MutexGuard<'a, super::super::store::Store>> {
-    state
+    // 73#16：锁中毒恢复而非永久拒绝——事务 unwind 时 Drop 回滚，连接一致可复用
+    Ok(state
         .store
         .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))
+        .unwrap_or_else(|poisoned| poisoned.into_inner()))
 }
 
 // 73#4：体检页打开即触发 integrity_check 全库扫描 + 全目录树 walk——原先
@@ -54,6 +55,15 @@ pub async fn cleanup_orphan_files<R: Runtime + 'static>(
                 BackendError::new("maintenance_unavailable", "运维任务状态暂不可用")
             })?;
             let result = (|| {
+                // 73#15：备份导入等长事务持 store 锁时先探测占用立即拒绝——
+                // 原先要等满 busy_timeout（10s）才报 database_locked；
+                // 探测在停机之前，未停任何任务直接返回
+                if state.store.try_lock().is_err() {
+                    return Err(BackendError::new(
+                        "maintenance_busy",
+                        "数据层正被长任务占用（如备份导入），请稍后再试",
+                    ));
+                }
                 super::super::security::guard::stop_all(&state)?;
                 let _store = store(&state)?;
                 super::cleanup(&app, &MaintenanceService::new(&state.learning))
@@ -78,6 +88,15 @@ pub async fn vacuum_database<R: Runtime + 'static>(app: AppHandle<R>) -> Result<
                 BackendError::new("maintenance_unavailable", "运维任务状态暂不可用")
             })?;
             let result = (|| {
+                // 73#15：备份导入等长事务持 store 锁时先探测占用立即拒绝——
+                // 原先要等满 busy_timeout（10s）才报 database_locked；
+                // 探测在停机之前，未停任何任务直接返回
+                if state.store.try_lock().is_err() {
+                    return Err(BackendError::new(
+                        "maintenance_busy",
+                        "数据层正被长任务占用（如备份导入），请稍后再试",
+                    ));
+                }
                 super::super::security::guard::stop_all(&state)?;
                 let store = store(&state)?;
                 super::vacuum(&app, &store, &MaintenanceService::new(&state.learning))
