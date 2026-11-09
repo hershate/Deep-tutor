@@ -560,9 +560,8 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
     // From<ZipError> 落到 export_failed「无法生成有效的压缩归档」，
     // 用户拿到与场景相反的导出侧文案，误导排障方向
     let file = fs::File::open(path)?;
-    let mut archive = ZipArchive::new(file).map_err(|_| {
-        BackendError::invalid("invalid_backup", "备份文件损坏或不是有效的归档")
-    })?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|_| BackendError::invalid("invalid_backup", "备份文件损坏或不是有效的归档"))?;
     if archive.len() < 2 || archive.len() > 20_002 {
         return Err(BackendError::invalid(
             "invalid_backup",

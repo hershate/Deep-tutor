@@ -613,7 +613,9 @@ mod tests {
             Ok(_) => panic!("a corrupt database must not be accepted"),
             Err(error) => error,
         };
-        assert_eq!(error.code, "storage_failed");
+        // 86#3：库损坏独立错误码——原先与目录故障共用 storage_failed，
+        // 用户无法区分「换目录+导入备份」与「检查目录权限」两条自救路径
+        assert_eq!(error.code, "database_corrupt");
 
         let locked = temporary.path().join("locked.db");
         let store = crate::backend::store::Store::root(&locked).unwrap();

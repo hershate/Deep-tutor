@@ -1,6 +1,6 @@
 # 知舟 Deep Tutor
 
-**版本 1.1.3 · 唯一交付形态：Tauri 2 桌面安装包**
+**版本 1.1.4 · 唯一交付形态：Tauri 2 桌面安装包**
 
 界面来自用户提供的 `REF/frontend/app`，由 React 18、TypeScript、Vite 和 Tauri 2（Rust）组成。前后端在应用进程内通过 commands/events 连接，不需要启动网页、HTTP 服务、Electron 或旧脚本。
 

@@ -1,9 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DeepTutor",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "identifier": "com.deeptutor.workspace",
-  "copyright": "Copyright (c) 2026 DeepTutor Contributors",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -31,6 +30,7 @@
     ]
   },
   "bundle": {
+    "copyright": "Copyright (c) 2026 DeepTutor Contributors",
     "active": true,
     "targets": [
       "nsis"

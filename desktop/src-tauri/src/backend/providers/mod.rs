@@ -744,9 +744,9 @@ pub fn deep_link<R: Runtime>(
     // U+202E（RTL 覆盖）等在设置页列表中伪装官方条目名（React 文本节点
     // 自动转义无 XSS，属文案伪装/钓鱼面）
     let display_safe = |text: &str| {
-        !text.chars().any(|c| {
-            c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069)
-        })
+        !text
+            .chars()
+            .any(|c| c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069))
     };
     if !display_safe(&model) {
         return Err(BackendError::invalid(
@@ -764,8 +764,8 @@ pub fn deep_link<R: Runtime>(
     } else {
         "兼容服务"
     };
-    let name = name
-        .ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 name"))?;
+    let name =
+        name.ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 name"))?;
     if !display_safe(&name) {
         return Err(BackendError::invalid(
             "invalid_deep_link",

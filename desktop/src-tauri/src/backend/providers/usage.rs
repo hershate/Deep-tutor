@@ -463,7 +463,9 @@ enum BudgetScope {
 /// 命中 provider_requests_created 索引；time crate 输出亚秒位数不定（0/9），
 /// 整秒边界补 `.000000000` 保证与列值的字典序一致（残余误差仅纳秒级）
 fn rfc3339_floor(value: time::OffsetDateTime) -> String {
-    let text = value.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+    let text = value
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
     if text.contains('.') {
         text
     } else {
