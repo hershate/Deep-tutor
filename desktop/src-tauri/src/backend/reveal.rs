@@ -12,7 +12,9 @@ const CAP: usize = 64;
 
 fn lock() -> std::sync::MutexGuard<'static, Vec<(PathBuf, Instant)>> {
     // 73#16 同口径：锁中毒不放大为全局拒绝
-    RECEIPTS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    RECEIPTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 注册一次成功导出的目的地（用户经原生保存对话框选定、由后端真实写出）

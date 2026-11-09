@@ -12,6 +12,18 @@ use tauri::{
 
 static WORKSPACE_SWITCH: RwLock<()> = RwLock::new(());
 
+// 73#1：store owner 镜像——prepare_store 稳态（owner 未变）完全绕开 store
+// 互斥锁：备份导入/重置等长事务持锁期间，其余命令不再在主线程排队等锁
+// （原先每条 invoke 都锁一次 store，最坏排队至导入结束）。镜像只在换库点
+// 写入；不一致时走慢路径锁内复核——镜像过期只损失性能不损语义
+static STORE_OWNER: RwLock<Option<i64>> = RwLock::new(None);
+
+fn note_store_owner(owner: Option<i64>) {
+    if let Ok(mut slot) = STORE_OWNER.write() {
+        *slot = owner;
+    }
+}
+
 fn reject<R: Runtime>(invoke: Invoke<R>, error: BackendError) -> bool {
     invoke.resolver.reject(error);
     true
@@ -22,10 +34,13 @@ fn reject<R: Runtime>(invoke: Invoke<R>, error: BackendError) -> bool {
 // 工具执行最长 ~12s 网络等待）直接短路，practice/knowledge/learning/
 // providers/sync/materials 六域全停，logout 侧 `let _ =` 吞错后旧用户任务
 // 全量续跑；focus 域补入停机集合（原先停留 running 按墙钟计时）。
-// maintenance 的清理/重置共用同一实现（原先另有一份串行副本）
+// maintenance 的清理/重置共用同一实现（原先另有一份串行副本）。
+// 73#9：八域并行停（scoped threads）——串行最坏为各域 deadline 之和
+// （agent/practice/knowledge/learning/providers 各 15s + sync 50s ≈140s），
+// 登出/切换/清理在主线程按此冻结；并行后等待上限收敛为最慢单域（sync 50s）
 pub(crate) fn stop_all(state: &BackendState) -> Result<()> {
     let mut failed: Vec<&'static str> = Vec::new();
-    let domains: [(&'static str, &dyn Fn() -> Result<()>); 8] = [
+    let domains: [(&'static str, &(dyn Fn() -> Result<()> + Sync)); 8] = [
         ("Agent 任务", &|| super::super::agent::stop(&state.agent)),
         ("练习生成", &|| {
             super::super::practice::stop(&state.practice)
@@ -49,12 +64,28 @@ pub(crate) fn stop_all(state: &BackendState) -> Result<()> {
             super::super::reports::stop(&super::super::reports::ReportState::new(&state.learning))
         }),
     ];
-    for (name, stop) in domains {
-        if let Err(error) = stop() {
-            eprintln!("stop_all: {name} 域停止失败 {}", error.code);
-            failed.push(name);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = domains
+            .iter()
+            .map(|(name, stop)| {
+                let stop = *stop;
+                scope.spawn(move || stop().map_err(|error| (*name, error)))
+            })
+            .collect();
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err((name, error))) => {
+                    eprintln!("stop_all: {name} 域停止失败 {}", error.code);
+                    failed.push(name);
+                }
+                Err(_) => {
+                    // 73#16 同口径：域内 panic 不再放大为整次停机 abort
+                    failed.push("未知域（内部异常）");
+                }
+            }
         }
-    }
+    });
     if failed.is_empty() {
         Ok(())
     } else {
@@ -74,6 +105,15 @@ fn prepare_store<R: Runtime>(app: &AppHandle<R>, user_id: i64) -> Result<()> {
     let Some(state) = app.try_state::<BackendState>() else {
         return Ok(());
     };
+    // 73#1：快路径——镜像命中即放行，不触碰 store 互斥锁（读锁瞬取瞬放）；
+    // 镜像中毒/过期一律走慢路径，语义由锁内复核兜底
+    let fast = STORE_OWNER
+        .read()
+        .map(|slot| *slot == Some(user_id))
+        .unwrap_or(false);
+    if fast {
+        return Ok(());
+    }
     let mut store = state
         .store
         .lock()
@@ -81,6 +121,7 @@ fn prepare_store<R: Runtime>(app: &AppHandle<R>, user_id: i64) -> Result<()> {
     if store.owner_id != Some(user_id) {
         *store = Store::at_user(state.learning.database_path().to_path_buf(), user_id)?;
     }
+    note_store_owner(store.owner_id);
     Ok(())
 }
 
@@ -153,12 +194,15 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
             }
         };
         previous_store = Some(std::mem::replace(&mut *store, next));
+        // 73#1：换库后同步 owner 镜像，其余命令恢复无锁快路径
+        note_store_owner(Some(target));
     }
     let handled = handler(invoke);
     let actual = current(&app).ok();
     if actual != Some(target) {
         if let (Some(state), Some(previous)) = (&backend, previous_store) {
             if let Ok(mut store) = state.store.lock() {
+                note_store_owner(previous.owner_id);
                 *store = previous;
             }
         }

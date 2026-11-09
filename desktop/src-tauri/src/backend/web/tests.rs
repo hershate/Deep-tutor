@@ -13,7 +13,12 @@ fn ipc_app() -> (
     let providers = learning.provider_state();
     let app = tauri::test::mock_builder()
         .manage(crate::backend::BackendState {
-            store: std::sync::Mutex::new(learning.store().unwrap()),
+            // 73#5：import_webpage 移后台后会话派生 principal（Some(user)），
+            // 材料写入用户工作区库——BackendState.store 同步改为该用户的
+            // 工作区库，ipc 直调统一包 with_user，与生产 guard 语义一致
+            store: std::sync::Mutex::new(
+                crate::backend::store::Store::at_user(path.clone(), 1).unwrap(),
+            ),
             materials: learning.material_state(),
             providers: providers.shared(),
             learning: learning.shared(),
@@ -46,6 +51,15 @@ fn ipc_app() -> (
 }
 
 fn ipc(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    command: &str,
+    arguments: Value,
+) -> std::result::Result<Value, Value> {
+    // 73#5：ipc 直调绕过 guard——统一以 user1 会话身份执行，与生产一致
+    crate::backend::security::with_user(1, || ipc_inner(app, command, arguments))
+}
+
+fn ipc_inner(
     app: &tauri::App<tauri::test::MockRuntime>,
     command: &str,
     arguments: Value,
@@ -250,16 +264,18 @@ fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc
     };
     assert_eq!(detail["text"], "真实正文 & 证据");
     assert_eq!(detail["sourceUrl"], url);
-    let source: String = learning
-        .store()
-        .unwrap()
-        .conn
-        .query_row(
-            "SELECT source_meta FROM materials WHERE id = ?1",
-            rusqlite::params![id],
-            |row| row.get(0),
-        )
-        .unwrap();
+    let source: String = crate::backend::security::with_user(1, || {
+        learning
+            .store()
+            .unwrap()
+            .conn
+            .query_row(
+                "SELECT source_meta FROM materials WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    });
     assert_eq!(source, url);
     let events = ipc(&app, "events_since", json!({"lastId":0})).unwrap()["events"]
         .as_array()

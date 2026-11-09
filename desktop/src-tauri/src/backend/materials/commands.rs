@@ -83,20 +83,29 @@ pub fn delete_material<R: Runtime>(
     state.materials.store()?.app_state()
 }
 
-#[tauri::command]
-pub fn export_material_original<R: Runtime>(
+// 73#8：原件导出整读 ≤50MB + SHA256 + 写盘——原先同步命令在主线程执行，
+// HDD 上 0.3-2s 冻结。移后台（44#1 同款）；72#2 回执登记随成功路径照常
+#[tauri::command(async)]
+pub async fn export_material_original<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     id: i64,
     destination: String,
 ) -> Result<Value> {
+    use tauri::Manager;
     super::super::reject_data_root_destination(&app, Path::new(&destination))?;
-    let result = export_original(&state.materials, id, Path::new(&destination));
-    if result.is_ok() {
-        // 72#2：导出回执登记（reveal_path 白名单）
-        super::super::reveal::register(Path::new(&destination));
-    }
-    result
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        let result = export_original(&state.materials, id, Path::new(&destination));
+        if result.is_ok() {
+            // 72#2：导出回执登记（reveal_path 白名单）
+            super::super::reveal::register(Path::new(&destination));
+        }
+        result
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "原件导出任务执行异常终止")
+    })?
 }
 
 #[tauri::command]

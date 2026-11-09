@@ -1382,7 +1382,9 @@ pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
             let mut message = format!("导出替换失败：{error}");
             if replaced {
                 if let Err(rollback) = fs::rename(&previous, destination) {
-                    message.push_str(&format!("；回滚先前备份也失败：{rollback}（{previous:?} 残留，可手动删除）"));
+                    message.push_str(&format!(
+                        "；回滚先前备份也失败：{rollback}（{previous:?} 残留，可手动删除）"
+                    ));
                 }
             }
             let _ = fs::remove_file(temporary);
@@ -1851,11 +1853,13 @@ mod tests {
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
-        let state_json = crate::backend::commands::reset_application(
-            reset_app.handle().clone(),
-            reset_app.state(),
-        )
-        .unwrap();
+        let state_json = {
+            // 73#10：reset_application 转 async（spawn_blocking）——测试经
+            // tauri 专用测试运行时阻塞等待结果
+            let handle = reset_app.handle().clone();
+            let future = crate::backend::commands::reset_application(handle);
+            tauri::async_runtime::block_on(future).unwrap()
+        };
         assert_eq!(state_json["resources"], json!([]));
         assert!(
             list(&reset_app.state::<crate::backend::BackendState>().materials)

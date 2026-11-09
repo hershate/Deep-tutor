@@ -129,7 +129,10 @@ pub fn overview(state: &BackendState) -> Result<LibraryOverview> {
         };
         // 25#10：方案行损坏/缺失只降级为本条 issue，不再上抛——同函数对孤儿
         // 批注、无结果方案均降级，单条坏数据不应放大为整个知识库检查失败
-        let plan = match learning::get(&state.learning, &format!("plan-{plan_id}")) {
+        // 73#7：改走已持有的同连接（get_with）——原 learning::get 每条批注
+        // 一次 Store::new（连接开关+PRAGMA+指纹 SHA256），批注多时主线程
+        // 线性冻结（39#1/53#3 同族）
+        let plan = match learning::get_with(&guard, &format!("plan-{plan_id}")) {
             Ok(plan) => plan,
             Err(_) => {
                 issues.push(issue(

@@ -102,42 +102,62 @@ pub fn delete_draft<R: Runtime>(
     finish(&app, mutation)
 }
 
-#[tauri::command]
-pub fn reset_application<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-) -> Result<Value> {
-    super::agent::stop(&state.agent)?;
-    super::practice::stop(&state.practice)?;
-    super::knowledge::stop(&state.knowledge)?;
-    super::learning::stop(&state.learning)?;
-    super::providers::stop_chats(&state.providers)?;
-    super::sync::stop(&super::sync::SyncService::new(&state.learning))?;
-    let provider_ids = super::providers::credential_ids(&state.providers)?;
-    let backup = super::materials::prepare_reset(&state.materials)?;
-    let result = { store(&state)?.reset() };
-    match result {
-        Ok(mutation) => {
-            let file_result = super::materials::finish_reset(&state.materials, backup, true);
-            let credential_result =
-                super::providers::purge_credentials(&state.providers, &provider_ids);
-            file_result?;
-            credential_result?;
-            super::plugins::reset_files(&state.plugins)?;
-            // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
-            // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
-            // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
-            if let Some(user_root) = state.learning.workspace_path().parent() {
-                let _ = std::fs::remove_dir_all(user_root.join("agent-workspaces"));
-                let _ = std::fs::remove_dir_all(user_root.join("sync"));
+// 73#10/73#14：停机集合改用 guard::stop_all（原先六个串行 `?` 首败即弃、
+// 漏 materials/focus 两域且与 guard 注释宣称的「同一实现」不符）；
+// reset 大事务 + remove_dir_all 整目录删除（上限 ~10GB）移后台线程，
+// 不再在主线程冻结秒到数十秒
+#[tauri::command(async)]
+pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Result<Value> {
+    use tauri::Manager;
+    let principal = super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::security::guard::stop_all(&state)?;
+            let provider_ids = super::providers::credential_ids(&state.providers)?;
+            let backup = super::materials::prepare_reset(&state.materials)?;
+            let result = {
+                state
+                    .store
+                    .lock()
+                    .map_err(|_| {
+                        super::error::BackendError::new("store_unavailable", "本地数据层暂不可用")
+                    })?
+                    .reset()
+            };
+            match result {
+                Ok(mutation) => {
+                    let file_result =
+                        super::materials::finish_reset(&state.materials, backup, true);
+                    let credential_result =
+                        super::providers::purge_credentials(&state.providers, &provider_ids);
+                    file_result?;
+                    credential_result?;
+                    super::plugins::reset_files(&state.plugins)?;
+                    // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
+                    // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
+                    // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
+                    // 73#10：目录删除（上限 ~10GB）移后台一次性线程——reset
+                    // 返回不等删除完成，失败仅孤儿扫描兜底
+                    if let Some(user_root) = state.learning.workspace_path().parent() {
+                        let agent_dir = user_root.join("agent-workspaces");
+                        let sync_dir = user_root.join("sync");
+                        std::thread::spawn(move || {
+                            let _ = std::fs::remove_dir_all(agent_dir);
+                            let _ = std::fs::remove_dir_all(sync_dir);
+                        });
+                    }
+                    finish(&app, mutation)
+                }
+                Err(error) => {
+                    super::materials::finish_reset(&state.materials, backup, false)?;
+                    Err(error)
+                }
             }
-            finish(&app, mutation)
-        }
-        Err(error) => {
-            super::materials::finish_reset(&state.materials, backup, false)?;
-            Err(error)
-        }
-    }
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "重置任务执行异常终止"))?
 }
 
 #[tauri::command]
@@ -334,6 +354,17 @@ mod tests {
         std::fs::create_dir_all(user_root.join("sync")).unwrap();
         std::fs::write(user_root.join("sync/sync-1-0.json"), "{}").unwrap();
         ipc(&app, "reset_application", json!({})).unwrap();
+        // 73#10：目录删除移后台一次性线程（上限 ~10GB，不再阻塞命令返回）——
+        // 有界轮询等待删除完成
+        let mut cleared = false;
+        for _ in 0..200 {
+            if !user_root.join("agent-workspaces").exists() && !user_root.join("sync").exists() {
+                cleared = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(cleared, "后台目录删除未在限时内完成");
         assert!(!user_root.join("agent-workspaces").exists());
         assert!(!user_root.join("sync").exists());
     }
@@ -869,14 +900,19 @@ mod tests {
             "core:event:allow-unlisten",
             "dialog:allow-open",
             "dialog:allow-save",
-            // 37#4/37#8：opener——资源管理器定位与 https 外链走系统浏览器
-            "opener:allow-reveal-item-in-dir",
         ] {
             assert!(
                 permissions.contains(&json!(permission)),
                 "missing {permission}"
             );
         }
+        // 72#2：reveal 权限不再授予前端——资源管理器定位经后端 reveal_path
+        // 命令白名单（数据根 + 本进程导出回执）校验，被注入脚本无法定位
+        // 本机任意路径
+        assert!(
+            !permissions.contains(&json!("opener:allow-reveal-item-in-dir")),
+            "reveal permission must not be granted to the webview"
+        );
         // open-url 以带 scope 的对象条目授权：仅放行 https://**，
         // 不授予任意协议/scheme 的打开能力
         let open_url = permissions
