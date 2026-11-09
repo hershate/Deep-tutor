@@ -242,12 +242,8 @@ pub fn upsert_usage_rate<R: Runtime>(
     super::usage::upsert_rate(&app, &state.providers, input)
 }
 
-#[tauri::command]
-pub fn export_usage_csv(state: State<'_, BackendState>) -> Result<String> {
-    super::usage::export_csv(&state.providers)
-}
-
-/// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）
+/// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
+/// 61 号：内存版 export_usage_csv 命令已删（前端零调用）
 #[tauri::command]
 pub fn export_usage_csv_file<R: Runtime>(
     app: AppHandle<R>,

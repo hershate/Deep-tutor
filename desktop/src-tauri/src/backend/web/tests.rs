@@ -31,7 +31,6 @@ fn ipc_app() -> (
         })
         .manage(crate::backend::security::SecurityState::for_tests_at(&path))
         .invoke_handler(tauri::generate_handler![
-            commands::fetch_webpage,
             commands::import_webpage,
             crate::backend::materials::commands::enqueue_material_parse,
             crate::backend::materials::commands::get_material,
@@ -218,9 +217,11 @@ fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc
     let (app, learning) = ipc_app();
     let server = web_server();
     let url = format!("{}/article", server.url());
-    let page = ipc(&app, "fetch_webpage", json!({"url":url})).unwrap();
-    assert_eq!(page["title"], "实际文章标题");
-    assert_eq!(page["text"], "真实正文 & 证据");
+    // 61 号：fetch_webpage IPC 壳已删（前端零调用，import_webpage 内部复用
+    // 同一抓取链），抓取语义改直调内部函数断言
+    let page = fetch(&url).unwrap();
+    assert_eq!(page.title, "实际文章标题");
+    assert_eq!(page.text, "真实正文 & 证据");
     let imported = ipc(&app, "import_webpage", json!({"url":url})).unwrap();
     assert_eq!(imported["deduplicated"], false);
     assert_eq!(imported["material"]["title"], "实际文章标题");

@@ -75,12 +75,8 @@ pub fn list_practice_mistakes(state: State<'_, BackendState>) -> Result<Vec<Mist
     super::mistakes(&state.practice)
 }
 
-#[tauri::command]
-pub fn export_practice_mistakes(state: State<'_, BackendState>) -> Result<Value> {
-    super::export_mistakes(&state.practice)
-}
-
-/// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）
+/// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
+/// 61 号：内存版 export_practice_mistakes 命令已删（前端零调用）
 #[tauri::command]
 pub fn export_practice_mistakes_file<R: Runtime>(
     app: AppHandle<R>,

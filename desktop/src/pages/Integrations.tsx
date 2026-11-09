@@ -5,7 +5,8 @@ import { backend, onBackendEvent, reportBackendError } from '../backend/client'
 import { pluginBackend, type PluginEvent, type PluginOverview } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
 
-const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'app', 'share', 'content', 'backup', 'sync', 'maintenance']
+// 61#1：与后端白名单同步——app 无对应原生命名空间事件，订阅恒空投递
+const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'share', 'content', 'backup', 'sync', 'maintenance']
 
 export default function Integrations({ notify }: { notify: (message: string) => void }) {
   const [tab, setTab] = useState('插件体系')

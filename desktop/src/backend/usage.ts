@@ -14,6 +14,6 @@ export const usageBackend = {
   saveSettings: (settings: UsageSettings) => invoke<UsageSettings>('save_usage_settings', { settings }),
   upsertRate: (input: RateInput) => invoke<UsageRate>('upsert_usage_rate', { input }),
   // 37#5：用量 CSV 经原生保存对话框落盘（替代 WebView Blob 下载）；
-  // 旧 export_usage_csv 命令仅供 IPC 级测试断言，前端不再封装（45#1）
+  // 61 号：旧 export_usage_csv 内存版命令已删，仅保留 _file 版
   exportCsvFile: (destination: string) => invoke<{ bytes: number; sha256: string }>('export_usage_csv_file', { destination }),
 }

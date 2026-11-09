@@ -31,7 +31,6 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             super::super::commands::get_usage_overview,
             super::super::commands::save_usage_settings,
             super::super::commands::upsert_usage_rate,
-            super::super::commands::export_usage_csv,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -182,11 +181,9 @@ fn real_usage_rates_cancelled_requests_csv_and_budget_are_consistent() {
     assert_eq!(usage_json["ledger"][0]["task"], "wiki");
     assert_eq!(usage_json["rates"].as_array().unwrap().len(), 1);
     assert_eq!(usage_json["days"].as_array().unwrap().len(), 7);
-    let csv = ipc(&window, "export_usage_csv", json!({}))
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_string();
+    // 61 号：export_usage_csv IPC 壳已删（前端零调用），CSV 语义改为直调
+    // 内部函数断言——_file 版的回执/落盘另由根 blob_export 测试覆盖
+    let csv = super::export_csv(&state).unwrap();
     assert!(csv.contains("usage-1"));
     assert!(csv.contains("0.0000780000"));
     assert!(!csv.contains("usage-test-token"));

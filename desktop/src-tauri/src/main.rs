@@ -243,7 +243,8 @@ fn main() {
             materials::commands::export_material_text,
             notes::commands::import_notes,
             notes::commands::get_library_overview,
-            web::commands::fetch_webpage,
+            // 61 号：fetch_webpage 前端零调用（import_webpage 内部复用同一抓取
+            // 链），从注册表移除收敛 IPC 面
             web::commands::import_webpage,
             providers::commands::list_provider_profiles,
             providers::commands::get_active_provider,
@@ -267,7 +268,8 @@ fn main() {
             providers::commands::get_usage_overview,
             providers::commands::save_usage_settings,
             providers::commands::upsert_usage_rate,
-            providers::commands::export_usage_csv,
+            // 61 号：export_usage_csv 前端零调用（37#5 由 _file 版替代），
+            // 从注册表移除收敛 IPC 面
             providers::commands::export_usage_csv_file,
             learning::commands::start_learning_plan,
             learning::commands::list_learning_plans,
@@ -316,7 +318,8 @@ fn main() {
             practice::commands::submit_practice_answer,
             practice::commands::submit_exam,
             practice::commands::list_practice_mistakes,
-            practice::commands::export_practice_mistakes,
+            // 61 号：export_practice_mistakes 前端零调用（37#5 由 _file 版
+            // 替代），从注册表移除收敛 IPC 面
             practice::commands::export_practice_mistakes_file,
             practice::commands::set_practice_bookmark,
             practice::commands::set_practice_mistake_mastered,

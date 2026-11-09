@@ -113,8 +113,8 @@ export const practiceBackend = {
   submit: (setId: number, questionId: number, answer: number | string) => invoke<{ answer: PracticeAnswer; set: PracticeSet }>('submit_practice_answer', { setId, questionId, answer }),
   mistakes: () => invoke<PracticeMistake[]>('list_practice_mistakes'),
   // 37#5：错题 JSON 经原生保存对话框落盘（替代 WebView Blob 下载）；
-  // 旧 export_practice_mistakes 命令仅供 IPC 级测试断言，前端不再封装（45#1，
-  // 页面组件内的同名本地函数走 exportMistakesFile，与本封装无关）
+  // 61 号：旧 export_practice_mistakes 内存版命令已删，仅保留 _file 版
+  //（页面组件内的同名本地函数走 exportMistakesFile，与本封装无关）
   exportMistakesFile: (destination: string) => invoke<{ bytes: number; sha256: string }>('export_practice_mistakes_file', { destination }),
   bookmark: (questionId: number, bookmarked: boolean) => invoke<void>('set_practice_bookmark', { questionId, bookmarked }),
   masterMistake: (questionId: number, mastered: boolean) => invoke<void>('set_practice_mistake_mastered', { questionId, mastered }),

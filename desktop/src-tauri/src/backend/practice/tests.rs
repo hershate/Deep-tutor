@@ -39,7 +39,6 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             super::commands::submit_practice_answer,
             super::commands::submit_exam,
             super::commands::list_practice_mistakes,
-            super::commands::export_practice_mistakes,
             super::commands::set_practice_bookmark,
             super::commands::set_practice_mistake_mastered,
             super::commands::cancel_practice_answer,
@@ -431,7 +430,9 @@ fn objective_questions_use_real_citations_answers_mistakes_and_evidence() {
         json!({"questionId": choice, "mastered": true}),
     )
     .unwrap();
-    let export = ipc(&window, "export_practice_mistakes", json!({})).unwrap();
+    // 61 号：export_practice_mistakes IPC 壳已删（前端零调用），改直调内部
+    // 函数断言 mastered 序列化——_file 版回执/落盘由根 blob_export 测试覆盖
+    let export = super::export_mistakes(&state).unwrap();
     assert_eq!(export["mistakes"][0]["mastered"], true);
     assert_eq!(
         ipc(&window, "list_practice_history", json!({}))

@@ -3,13 +3,11 @@ use super::super::{
     materials::{self, IngestResult},
     BackendState,
 };
-use super::{fetch, WebPage};
+use super::fetch;
 use tauri::{AppHandle, Runtime, State};
 
-#[tauri::command]
-pub fn fetch_webpage(_state: State<'_, BackendState>, url: String) -> Result<WebPage> {
-    fetch(&url)
-}
+// 61 号：fetch_webpage IPC 壳已删（前端零调用）——抓取链仅供 import_webpage
+// 内部复用，测试直调 web::fetch
 
 #[tauri::command]
 pub fn import_webpage<R: Runtime>(

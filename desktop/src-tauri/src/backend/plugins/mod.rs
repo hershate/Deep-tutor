@@ -291,6 +291,8 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
         let valid = if pattern == "*" {
             true
         } else if let Some(prefix) = pattern.strip_suffix(".*") {
+            // 61#1：白名单只含真实 emit 的命名空间——原含 app 但后端无任何
+            // app.* 事件，订阅它静默零投递
             [
                 "plan",
                 "practice",
@@ -301,7 +303,6 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
                 "community",
                 "provider",
                 "plugin",
-                "app",
                 "share",
                 "content",
                 "backup",

@@ -64,20 +64,23 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   }, [index, exam?.set.id])
   // 28#3：倒计时归零立即本地判定过期——不再停留"剩余 00:00 但仍可作答"
   // 的矛盾态（后端拒绝仍是最终守卫，此处让界面先行一致）
+  // 61#2：基准改用后端权威 examRemainingSeconds（每次拉卷带回），本地只
+  // 推进流逝量——系统时钟回拨/跨设备时不再与 exam_deadline_exceeded 矛盾
   const [deadlinePassed, setDeadlinePassed] = useState(false)
   const expired = exam?.examExpired === true || deadlinePassed
   useEffect(() => {
-    if (!exam?.set.examDeadline || exam.set.status !== 'ready') { setSeconds(0); setDeadlinePassed(false); return }
-    const deadline = exam.set.examDeadline
+    if (exam?.set.status !== 'ready' || exam.examRemainingSeconds == null) { setSeconds(0); setDeadlinePassed(false); return }
+    const base = exam.examRemainingSeconds
+    const startedAt = Date.now()
     const update = () => {
-      const remaining = Math.max(0, Math.ceil((Date.parse(deadline) - Date.now()) / 1000))
+      const remaining = Math.max(0, base - Math.floor((Date.now() - startedAt) / 1000))
       setSeconds(remaining)
       setDeadlinePassed(remaining === 0)
     }
     update()
     const timer = window.setInterval(update, 1000)
     return () => window.clearInterval(timer)
-  }, [exam?.set.examDeadline, exam?.set.status])
+  }, [exam?.set.id, exam?.set.status, exam?.examRemainingSeconds])
   useEffect(() => {
     if (!activeRequest) { setOutput(''); return }
     const requestId = activeRequest
