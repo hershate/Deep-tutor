@@ -103,7 +103,13 @@ let npmMissing = 0
 let npmGenerated = 0
 let npmDevSkipped = 0
 const modules = join(root, 'desktop/node_modules')
-if (existsSync(modules)) {
+// 79#2：node_modules 整体缺失按 npm 侧管线失败——原先整体跳过且只要
+// cargo 侧有收录即 exit 0，「npm 依赖许可随包分发」的承诺被静默架空
+if (!existsSync(modules)) {
+  console.error('collect-licenses: desktop/node_modules 不存在——先安装前端依赖（npm ci），npm 依赖许可不可跳过')
+  process.exit(1)
+}
+{
   const devOnly = runtimeFilter()
   for (const entry of readdirSync(modules, { withFileTypes: true })) {
     // `.bin`/`.vite` 等点开头的目录是 npm/vite 工具目录，不是依赖包
@@ -112,7 +118,27 @@ if (existsSync(modules)) {
     const candidates = scopeDir
       ? readdirSync(scopeDir, { withFileTypes: true }).filter(child => child.isDirectory()).map(child => join(scopeDir, child.name))
       : [join(modules, entry.name)]
-    for (const dir of candidates) {
+    // 79#3：嵌套 node_modules 递归一层——npm 因版本冲突未提升的嵌套包
+    // 原先不收录不计缺失，同依赖双版本进 vite 产物时许可静默缺失；
+    // 嵌套副本输出名带 nested_ 前缀，与顶层同名包互不覆盖
+    const expanded = []
+    for (const top of candidates) {
+      expanded.push(top)
+      const nestedRoot = join(top, 'node_modules')
+      if (!existsSync(nestedRoot)) continue
+      for (const nested of readdirSync(nestedRoot, { withFileTypes: true })) {
+        if (!nested.isDirectory() || nested.name.startsWith('.')) continue
+        if (nested.name.startsWith('@')) {
+          const nestedScope = join(nestedRoot, nested.name)
+          for (const child of readdirSync(nestedScope, { withFileTypes: true })) {
+            if (child.isDirectory()) expanded.push(join(nestedScope, child.name))
+          }
+        } else {
+          expanded.push(join(nestedRoot, nested.name))
+        }
+      }
+    }
+    for (const dir of expanded) {
       if (devOnly) {
         const rel = scopeDir ? `${entry.name}/${basename(dir)}` : basename(dir)
         if (devOnly.has(rel)) {

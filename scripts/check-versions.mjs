@@ -24,7 +24,15 @@ if (!readmeVersion) {
   process.exit(1)
 }
 
-const versions = { 'desktop/package.json': packageVersion, 'desktop/package-lock.json': JSON.parse(read('desktop/package-lock.json')).version, 'desktop/src-tauri/tauri.conf.json': tauriVersion, 'desktop/src-tauri/Cargo.toml': cargoVersion, 'README.md': readmeVersion }
+// 79#10c：Cargo.lock 工作区包版本一并校验——原先漏检时版本漂移要等
+// cargo --locked 编译才暴露
+const cargoLock = read('desktop/src-tauri/Cargo.lock')
+const lockMatch = cargoLock.match(/^name = "deep-tutor-workspace"\nversion = "([^"]+)"/m)
+if (!lockMatch) {
+  console.error('check-versions: Cargo.lock 缺少 deep-tutor-workspace 工作区包条目')
+  process.exit(1)
+}
+const versions = { 'desktop/package.json': packageVersion, 'desktop/package-lock.json': JSON.parse(read('desktop/package-lock.json')).version, 'desktop/src-tauri/tauri.conf.json': tauriVersion, 'desktop/src-tauri/Cargo.toml': cargoVersion, 'desktop/src-tauri/Cargo.lock（工作区包）': lockMatch[1], 'README.md': readmeVersion }
 const unique = new Set(Object.values(versions))
 if (unique.size !== 1) {
   console.error('check-versions: 版本号不一致，请同步后重试：')
@@ -33,4 +41,4 @@ if (unique.size !== 1) {
   }
   process.exit(1)
 }
-console.log(`check-versions: 五处版本一致 (${packageVersion})`)
+console.log(`check-versions: ${Object.keys(versions).length} 处版本一致 (${packageVersion})`)

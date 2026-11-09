@@ -2,3 +2,6 @@
 # 与 CI（dtolnay/rust-toolchain@1.99.1）一致，钉住避免 stable 漂移
 channel = "1.99.1"
 profile = "minimal"
+# 79#6：minimal 不含 rustfmt——新机 rustup 自动装配后首跑 cargo fmt 即挂；
+# 本机/CI 此前各自兜底（手工补装 / dtolnay 默认 profile），此处显式声明
+components = ["rustfmt"]

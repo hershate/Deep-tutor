@@ -35,9 +35,11 @@ jobs:
           workspaces: desktop/src-tauri
       - name: Install frontend dependencies
         run: npm ci
-      # 49#8：TS 类型错误先于数十分钟的 Rust 测试暴露，反馈周期不再被拖长
-      - name: Frontend build
-        run: npm run build
+      # 49#8：TS 类型错误先于数十分钟的 Rust 测试暴露，反馈周期不再被拖长。
+      # 79#8：只跑 tsc 类型检查——完整前端构建由下方 tauri build 的
+      # beforeBuildCommand 执行，不再每条 CI 双跑 vite 产物
+      - name: Frontend type check
+        run: npx tsc --noEmit
       - name: Rust format
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check
@@ -52,9 +54,20 @@ jobs:
       # 与本地 make build / README 的 npm run tauri build 同一链路
       - name: Build NSIS installer
         run: npm run tauri build -- -- --locked
+      # 79#5：安装包层验收——产出的 exe 实际执行 --verify-native 契约
+      # （绝对目录强制/绕过单实例/自检 exit 0），打包配置或资源缺失类
+      # 回归不再只能靠人工装包发现
+      - name: Verify native contract
+        working-directory: desktop/src-tauri
+        env:
+          DEEPTUTOR_VERIFY_DATA_DIR: ${{ runner.temp }}\deeptutor-verify
+        run: ./target/release/deep-tutor-workspace.exe --verify-native
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: deep-tutor-windows-nsis
-          path: dist/*.exe
+          # 79#1：.sha256 摘要随安装包上传，接收方可校验完整性
+          path: |
+            dist/*.exe
+            dist/*.sha256
           if-no-files-found: error

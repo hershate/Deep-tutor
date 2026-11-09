@@ -1,3 +1,8 @@
 #!/bin/sh
+# 79#10d：本钩子跑完整门禁（fmt/test/前端构建），需要 AGENTS.md 声明的
+# 构建环境：PATH 含 winlibs mingw64/bin（dlltool），并设置
+# CARGO_HOME=F:/DevCache/cargo、RUSTUP_HOME=F:/DevCache/rustup。
+# GUI Git 客户端未继承这些导出时会因 dlltool 缺失失败——请改用已配置
+# 环境的终端推送，或临时 git push --no-verify。
 set -e
 make check

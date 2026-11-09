@@ -8,6 +8,10 @@ GITBASH := $(or \
 	$(wildcard F:/Progra~1/Git/bin/sh.exe), \
 	$(wildcard $(subst $(space),\ ,$(GIT_ROOT))/bin/sh.exe))
 SHELL := $(if $(GITBASH),$(GITBASH),/bin/sh)
+# 79#10b：探测落空时给出可执行提示而不是晦涩的 sh 报错
+ifeq ($(GITBASH),)
+$(warning 未在常见位置找到 Git Bash 的 sh.exe——请设 SHELL=/path/to/sh.exe 后重试（例如 Git 安装目录 bin/sh.exe）)
+endif
 endif
 
 CARGO ?= cargo
