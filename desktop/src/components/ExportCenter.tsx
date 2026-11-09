@@ -11,7 +11,7 @@ const formats: { id: ExportFormat; name: string; description: string; icon: type
   { id: 'md', name: 'Markdown', description: '真实方案、讲义与笔记结构', icon: FileText, ext: 'md' },
   { id: 'pdf', name: 'PDF', description: '原生分页并嵌入 Unicode 字体', icon: FileArchive, ext: 'pdf' },
   { id: 'ics', name: 'ICS 日历', description: '按真实排期生成全天日程', icon: CalendarDays, ext: 'ics' },
-  { id: 'apkg', name: 'Anki APKG', description: '包含真实 SQLite 卡片库的归档', icon: Layers3, ext: 'apkg' },
+  { id: 'apkg', name: 'Anki APKG', description: '包含真实 SQLite 记忆卡库的归档', icon: Layers3, ext: 'apkg' },
   { id: 'html', name: 'HTML 文档', description: '无脚本、无外部依赖的静态页面', icon: Presentation, ext: 'html' },
   { id: 'csv', name: 'CSV', description: '按实际范围导出结构化内容', icon: Table2, ext: 'csv' },
   { id: 'txt', name: 'TXT', description: '保留实际内容的纯文本', icon: Code2, ext: 'txt' },
@@ -19,7 +19,7 @@ const formats: { id: ExportFormat; name: string; description: string; icon: type
 ]
 const scopes: { id: ExportScope; label: string }[] = [
   { id: 'plan', label: '完整学习方案' }, { id: 'lecture', label: '当前单元讲义' },
-  { id: 'knowledge', label: '笔记与知识库' }, { id: 'review', label: '复习卡片' }, { id: 'schedule', label: '学习日程' },
+  { id: 'knowledge', label: '笔记与知识库' }, { id: 'review', label: '记忆卡' }, { id: 'schedule', label: '学习日程' },
 ]
 
 export default function ExportCenter({ open, onClose, notify, initialPlanId }: {

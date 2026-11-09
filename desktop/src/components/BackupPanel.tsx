@@ -9,7 +9,7 @@ import type { BackupPreview, BackupResult } from '../backend/backup'
 import MaintenancePanel from './MaintenancePanel'
 
 const collectionNames: Record<string, string> = { tasks: '任务', notes: '笔记', resources: '资料', projects: '项目', preferences: '偏好设置', drafts: '草稿' } // 66#1：补 preferences/resources（预演按 kv 命名空间分组）
-const tableNames: Record<string, string> = { learning_plans: '学习方案', materials: '资料记录', review_cards: '复习卡', practice_sets: '练习组', agent_sessions: 'Agent 会话', shared_plans: '分享快照' }
+const tableNames: Record<string, string> = { learning_plans: '学习方案', materials: '资料记录', review_cards: '记忆卡', practice_sets: '练习组', agent_sessions: 'Agent 会话', shared_plans: '分享快照' }
 
 export default function BackupPanel({ onImport, counts, notify }: { onImport: (path: string) => Promise<AppSnapshot>; counts: { tasks: number; notes: number; resources: number; projects: number }; notify: (message: string) => void }) {
   const [preview, setPreview] = useState<{ path: string; data: BackupPreview } | null>(null)

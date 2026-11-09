@@ -32,6 +32,10 @@
   --accent-soft: oklch(0.92 0.045 145);
   --success: var(--pine-600);
   --warning: var(--amber-500);
+  /* 87#2/87#3：亮色文字级深琥珀——amber-500 亮度只适配深底，作亮色正文
+  1.95-2.44:1 系统性欠对比；取 badge-amber 深字色同款（6.75:1） */
+  --warning-strong: oklch(0.43 0.09 65);
+  --focus-ring: var(--accent);
   --danger: var(--red-500);
   --info: var(--blue-500);
   --danger-soft: oklch(0.94 0.04 28);
@@ -67,6 +71,12 @@
   --danger: oklch(0.78 0.14 25);
   --success: oklch(0.82 0.12 145);
   --warning: oklch(0.82 0.12 85);
+  /* 暗色沿用既有 warning（已达标）；焦点圈保持高对比 lime */
+  --warning-strong: var(--warning);
+  --focus-ring: var(--accent-bright);
+  /* 87#7：0.70→0.74——主题选中卡/翻卡底注等 accent-soft 深底上的小字
+  4.33/4.08:1 边缘不达标，提亮后 ≥4.6:1 */
+  --muted: oklch(0.74 0.014 130);
   --shadow: 0 8px 30px oklch(0.1 0.01 160 / 0.2);
   color-scheme: dark;
 }
@@ -80,7 +90,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 button, input, textarea, select { outline: none; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent-bright); outline-offset: 3px; }
+/* 87#1：焦点圈改主题变量——亮色原先用 lime-400（1.05-1.31:1 近乎不可见），
+现亮色 pine-700 6.5:1、暗色 lime 13.79:1 均过 Focus Appearance 3:1；
+87#9：summary 折叠块纳入统一焦点体系 */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 input, textarea, select { width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); color: var(--text); padding: 11px 13px; transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 textarea { resize: vertical; }
@@ -594,13 +607,13 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .option-list > button.selected > span { background: var(--accent); color: var(--surface); border-color: var(--accent); }
 .option-list > button.correct { border-color: var(--success); background: var(--accent-soft); color: var(--accent); opacity: 1; }
 .option-list > button.wrong { border-color: var(--danger); background: color-mix(in oklch, var(--danger) 8%, var(--surface)); color: var(--danger); opacity: 1; }
-.hint-box { display: flex; align-items: flex-start; gap: 10px; margin-top: 18px; padding: 14px; border-radius: 9px; background: oklch(0.95 0.035 95); color: var(--warning); }
+.hint-box { display: flex; align-items: flex-start; gap: 10px; margin-top: 18px; padding: 14px; border-radius: 9px; background: oklch(0.95 0.035 95); color: var(--warning-strong); }
 :root[data-theme="dark"] .hint-box { background: var(--surface-soft); }
 .hint-box p { margin: 0; font-size: 13px; }
 .answer-feedback { margin-top: 20px; padding: 17px; border: 1px solid var(--success); border-radius: 9px; background: var(--accent-soft); }
 .answer-feedback.is-wrong { border-color: var(--warning); background: var(--surface-soft); }
 .answer-feedback > div { display: flex; align-items: center; gap: 8px; color: var(--accent); }
-.answer-feedback.is-wrong > div { color: var(--warning); }
+.answer-feedback.is-wrong > div { color: var(--warning-strong); }
 .answer-feedback h3 { margin: 0; font-size: 15px; }
 .answer-feedback p { margin: 10px 0; font-size: 13px; }
 .answer-feedback button { min-height: 32px; border: 0; background: transparent; color: var(--accent); padding: 0; font-size: 12px; }
@@ -620,7 +633,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .mistakes-surface { padding: 24px; }
 .mistake-list { display: grid; }
 .mistake-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 20px 0; border-bottom: 1px solid var(--border); }
-.mistake-count { width: 52px; display: grid; place-items: center; color: var(--warning); font-size: 24px; font-weight: 700; }
+.mistake-count { width: 52px; display: grid; place-items: center; color: var(--warning-strong); font-size: 24px; font-weight: 700; }
 .mistake-count small { font-size: 12px; font-weight: 500; color: var(--muted); }
 .mistake-row > div:nth-child(2) { flex: 1 1 280px; }
 .mistake-row h3 { margin: 7px 0 3px; font-size: 16px; }
@@ -670,7 +683,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .review-grade span { font-size: 12px; font-weight: 700; }
 .review-grade small { color: var(--muted); font-size: 12px; }
 .review-grade .grade-again { color: var(--danger); }
-.review-grade .grade-hard { color: var(--warning); }
+.review-grade .grade-hard { color: var(--warning-strong); }
 .review-grade .grade-good, .review-grade .grade-easy { color: var(--accent); }
 .review-side { display: grid; gap: 20px; align-content: start; }
 .review-side > .surface { padding: 22px; }
@@ -1107,7 +1120,7 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .result-stage small { color: var(--muted); font-size: 12px; }
 .validation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .validation-grid > div { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px; padding: 11px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
-.capacity-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--warning); border-radius: 9px; color: var(--warning); }
+.capacity-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--warning-strong); border-radius: 9px; color: var(--warning-strong); }
 .capacity-warning p { margin: 4px 0 0; font-size: 12px; }
 .result-resources > button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 9px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
 .result-resources > button > div { flex: 1; display: grid; }
@@ -1307,7 +1320,10 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .export-receipt { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .export-receipt p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
 /* 63#3：警告文字改语义变量——硬编码深棕不经变量翻转，深色下对比不足 */
-.export-receipt .export-warning { color: var(--warning); font-weight: 600; }
+/* 87#4：亮色换 warning-strong（amber on accent-soft 1.95:1 全站最低） */
+.export-receipt .export-warning { color: var(--warning-strong); font-weight: 600; }
+/* 87#5：回执内的 form-error 加实底——accent-soft 上 danger 4.41:1 差一线 */
+.export-receipt .form-error { background: var(--surface); padding: 8px 10px; border-radius: 6px; }
 .share-status { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .share-status > div { flex: 1; }
 .share-status p { margin: 4px 0 0; font-size: 12px; }
@@ -1528,6 +1544,9 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 :root[data-theme="dark"] .learning-heatmap .heat-3, :root[data-theme="dark"] .heatmap-legend .heat-3 { background: oklch(0.6 0.1 148); }
 :root[data-theme="dark"] .learning-heatmap .heat-4, :root[data-theme="dark"] .heatmap-legend .heat-4 { background: oklch(0.76 0.12 145); }
 .learning-heatmap button.has-record { outline: 2px solid var(--lime-400); outline-offset: 1px; }
+/* 87#6：格子常驻 outline 恒压过全局 focus-visible（特异度 0,2,1 > 0,1,1），
+补显式提权使键盘 Tab 有可辨聚焦态 */
+.learning-heatmap button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--muted); font-size: 12px; }
 .heatmap-legend i { width: 12px; height: 12px; }
 .checkin-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 18px; padding: 13px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
@@ -1803,10 +1822,12 @@ h1, h2, h3 { text-wrap: balance; }
 .review-card-row h3 { margin: 9px 0; font-size: 15px; white-space: pre-wrap; }
 .review-card-row p { margin: 6px 0; color: var(--muted); font-size: 12px; }
 .row-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
-.grade-again { background: var(--danger-soft); }
-.grade-hard { background: var(--warning-soft); }
-.grade-good { background: var(--accent-soft); }
-.grade-easy { background: var(--info-soft); }
+/* 87#8：加 .review-grade 前缀提权——原先单类特异度被 .review-grade button
+的统一背景恒压过，四条 soft 背景从未生效（死代码且与意图相悖） */
+.review-grade .grade-again { background: var(--danger-soft); }
+.review-grade .grade-hard { background: var(--warning-soft); }
+.review-grade .grade-good { background: var(--accent-soft); }
+.review-grade .grade-easy { background: var(--info-soft); }
 .practice-fill-input { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
 .practice-citations { margin-top: 18px; padding: 12px; border-left: 3px solid var(--accent); background: var(--surface-soft); }
 .practice-citations p { margin: 5px 0; font-size: 12px; }
