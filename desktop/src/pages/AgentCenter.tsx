@@ -75,7 +75,16 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
   const budgetPercent = budget ? Math.min(100, usedTokens / budget * 100) : 0
   const totalTools = activeSession?.messages.reduce((total, message) => total + message.toolCalls.length, 0) ?? 0
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages.length, stream.text])
+  // 82#7：仅贴底时跟随——流式输出期间用户上翻阅读不再被每 150ms 一次的
+  // scrollIntoView 拉回底部（找最近可滚祖先判断是否在底部 48px 内）
+  useEffect(() => {
+    let scroller: HTMLElement | null = null
+    for (let node = endRef.current?.parentElement ?? null; node; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight + 4) { scroller = node; break }
+    }
+    const nearBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
+    if (nearBottom) endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [messages.length, stream.text])
   const submit = async () => {
     const value = input.trim()
     if (!value || running || busy === 'send' || busy === 'create') return

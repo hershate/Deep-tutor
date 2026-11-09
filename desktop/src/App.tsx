@@ -458,6 +458,14 @@ function FocusLayer({ session, tasks, busy, onToggle, onFinish, onReset, onExit 
   // 19#2：自动收尾只尝试一次——完成请求持久性失败时不再每秒重试+
   // 每秒错误 toast（1Hz 风暴），失败后由手动按钮接管；新会话重置标记
   const autoFinishedRef = useRef(false)
+  // 76#4：onFinish 经 ref 取最新——deps 含每次渲染新建的函数会使 interval
+  // 反复重建（清掉重 tick），事件/toast 密集期倒计时相位抖动可感。
+  // 82#1：ref 必须在组件顶层声明——76#4 原把 useRef 放进 effect 回调，
+  // running 会话下在渲染上下文外调 Hook，React 18 的 passive effect 期
+  // dispatcher 直接抛 Invalid hook call，专注层一启动即被 ErrorBoundary
+  // 整树替换
+  const finishRef = useRef(onFinish)
+  finishRef.current = onFinish
   useFocusContainment(ref, true)
   useEffect(() => {
     setSeconds(session ? session.remainingSeconds : 25 * 60)
@@ -465,10 +473,6 @@ function FocusLayer({ session, tasks, busy, onToggle, onFinish, onReset, onExit 
   }, [session])
   useEffect(() => {
     if (session?.status !== 'running') return
-    // 76#4：onFinish 经 ref 取最新——deps 含每次渲染新建的函数会使 interval
-    // 反复重建（清掉重 tick），事件/toast 密集期倒计时相位抖动可感
-    const finishRef = useRef(onFinish)
-    finishRef.current = onFinish
     const tick = () => {
       const remaining = Math.max(0, session.plannedSeconds - Math.floor((Date.now() - Date.parse(session.startedAt)) / 1000))
       setSeconds(remaining)

@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { PageId } from '../data'
-import { Badge, Button, IconButton, MarkdownLink, Modal, ProgressBar } from '../components/UI'
+import { Badge, Button, ConfirmDialog, IconButton, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { Lecture, LearningPlan, Material, ProviderRequest, ReadingProgress } from '../backend/client'
 import { mediaBackend } from '../backend/media'
@@ -32,6 +32,20 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   const [courseOpen, setCourseOpen] = useState(true)
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState('')
+  // 82#3：批注打开时的基线——关闭时正文偏离基线且非空则先确认，
+  // 原先 X/Esc/遮罩直接关掉，长批注一次误点即丢（与 Library 笔记编辑器
+  // 的草稿+确认双保护不一致，正是 28#2 在练习侧修过的同型问题）
+  const [noteBaseline, setNoteBaseline] = useState('')
+  const [noteDiscardOpen, setNoteDiscardOpen] = useState(false)
+  const openNoteModal = (initial?: string) => {
+    if (initial !== undefined) setNote(initial)
+    setNoteBaseline(initial !== undefined ? initial : note)
+    setNoteOpen(true)
+  }
+  const closeNoteModal = () => {
+    if (note.trim() && note !== noteBaseline) setNoteDiscardOpen(true)
+    else setNoteOpen(false)
+  }
   const [lectureOpen, setLectureOpen] = useState(false)
   const [liveRequest, setLiveRequest] = useState<ProviderRequest | null>(null)
   const [busy, setBusy] = useState('')
@@ -271,7 +285,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       </aside>
 
       <main className="reading-pane">
-        <div className="reading-toolbar"><div className="content-tabs">{['阅读', '资料'].map(item => <button className={tab === item ? 'active' : ''} aria-pressed={tab === item} key={item} onClick={() => setTab(item)}>{item === '阅读' ? <BookOpen size={16} /> : <FileText size={16} />}{item}</button>)}<button className={tab === '视频' ? 'active' : ''} aria-pressed={tab === '视频'} onClick={() => setTab('视频')}><Video size={16} />视频</button></div><div className="reading-tools"><IconButton label="减小字号" onClick={() => setFontScale(Math.max(.9, fontScale - .1))}><Minus size={16} /></IconButton><span>{Math.round(fontScale * 100)}%</span><IconButton label="增大字号" onClick={() => setFontScale(Math.min(1.25, fontScale + .1))}><Plus size={16} /></IconButton><IconButton label="生成自学讲义" onClick={() => setLectureOpen(true)}><Sparkles size={17} /></IconButton><IconButton label="记录学习笔记" onClick={() => setNoteOpen(true)}><NotebookPen size={17} /></IconButton></div></div>
+        <div className="reading-toolbar"><div className="content-tabs">{['阅读', '资料'].map(item => <button className={tab === item ? 'active' : ''} aria-pressed={tab === item} key={item} onClick={() => setTab(item)}>{item === '阅读' ? <BookOpen size={16} /> : <FileText size={16} />}{item}</button>)}<button className={tab === '视频' ? 'active' : ''} aria-pressed={tab === '视频'} onClick={() => setTab('视频')}><Video size={16} />视频</button></div><div className="reading-tools"><IconButton label="减小字号" onClick={() => setFontScale(Math.max(.9, fontScale - .1))}><Minus size={16} /></IconButton><span>{Math.round(fontScale * 100)}%</span><IconButton label="增大字号" onClick={() => setFontScale(Math.min(1.25, fontScale + .1))}><Plus size={16} /></IconButton><IconButton label="生成自学讲义" onClick={() => setLectureOpen(true)}><Sparkles size={17} /></IconButton><IconButton label="记录学习笔记" onClick={() => openNoteModal()}><NotebookPen size={17} /></IconButton></div></div>
         {tab === '阅读' && <article className="reading-article" style={{ fontSize: `${fontScale}rem` }}>
           <div className="article-kicker"><Badge tone="green">{stage.title}</Badge><span>难度 {stage.difficulty}/5 · 单元 {Math.min(unitIndex + 1, nodes.length)} / {nodes.length}</span></div>
           {content ? <>
@@ -279,11 +293,11 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
             {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><MemoMarkdown text={section.content} /></section>)}
             {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><MemoMarkdown text={example.content} /></div>)}
             <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><MemoMarkdown text={checkpoint.answer} /></details>)}
-            <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Quote size={16} /><span>「{citation.quote}」</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
+            <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { openNoteModal(citation.quote) }}><Quote size={16} /><span>「{citation.quote}」</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
           </> : <>
             <h1>{currentNode?.title || stage.title}</h1><p className="article-lead">尚未生成这一单元的讲义。以下只展示已保存的节点摘要与原文引用，不用模板正文替代。</p>
             <div className="article-summary"><span>节点摘要</span><p>{currentNode?.summary}</p></div>
-            {currentNode?.citations.map((citation, index) => <div className="term-grid" key={`${citation.materialId}-${index}`}><div><span>资料 #{citation.materialId}</span><p>「{citation.quote}」</p><button onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Highlighter size={16} />引用到批注</button></div></div>)}
+            {currentNode?.citations.map((citation, index) => <div className="term-grid" key={`${citation.materialId}-${index}`}><div><span>资料 #{citation.materialId}</span><p>「{citation.quote}」</p><button onClick={() => { openNoteModal(citation.quote) }}><Highlighter size={16} />引用到批注</button></div></div>)}
             {lecture?.error && <div className="form-error">{lecture.error.code}：{lecture.error.message}</div>}
           </>}
           <div className="article-footer"><Button variant="secondary" disabled={unitIndex === 0} onClick={() => setUnitIndex(Math.max(0, unitIndex - 1))}><ArrowLeft size={16} />上一单元</Button><span>{lecture ? `讲义 v${lecture.version} · ${lectureStatus[lecture.status]}` : '尚未读取讲义'}</span><Button disabled={unitIndex >= nodes.length - 1} onClick={() => setUnitIndex(Math.min(nodes.length - 1, unitIndex + 1))}>下一单元<ArrowRight size={16} /></Button></div>
@@ -294,7 +308,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       </main>
       <aside className="study-tutor"><section className="surface"><h3>当前知识节点</h3><h2>{currentNode?.title}</h2><p>{currentNode?.summary}</p><Badge tone="neutral">难度 {currentNode?.difficulty}/5</Badge><div className="node-relations"><h3>阶段信息</h3><div><span>预计时长</span><strong>{currentNode?.estimatedMinutes} 分钟</strong></div><div><span>阶段日期</span><strong>{stage.startDate} 至 {stage.endDate}</strong></div><div><span>阅读状态</span><strong>{currentReading.completed ? '已完成' : '未完成'}</strong></div></div><p>阅读状态与测评掌握度分别记录，不会将阅读完成自动视为已经掌握。</p></section></aside>
     </div>
-    <Modal open={noteOpen} onClose={() => setNoteOpen(false)} title="记录学习批注"><div className="form-stack"><div className="note-context"><BookOpen size={16} />{stage.title} · {currentNode?.title}</div><label>批注内容<textarea autoFocus rows={7} maxLength={100000} value={note} onChange={event => setNote(clampToBytes(event.target.value, 100000))} placeholder="记录你的理解、疑问或一个自己的例子…" /></label><div className="note-quick"><span>快速插入：</span><button onClick={() => setNote(note + '\n我的理解：')}>我的理解</button><button onClick={() => setNote(note + '\n仍有疑问：')}>仍有疑问</button><button onClick={() => setNote(note + '\n自己的例子：')}>自己的例子</button></div><Button onClick={() => void saveNote()} disabled={!note.trim() || busy === 'note'}>保存到笔记库</Button></div></Modal>
+    <Modal open={noteOpen} onClose={closeNoteModal} title="记录学习批注"><div className="form-stack"><div className="note-context"><BookOpen size={16} />{stage.title} · {currentNode?.title}</div><label>批注内容<textarea autoFocus rows={7} maxLength={100000} value={note} onChange={event => setNote(clampToBytes(event.target.value, 100000))} placeholder="记录你的理解、疑问或一个自己的例子…" /></label><div className="note-quick"><span>快速插入：</span><button onClick={() => setNote(note + '\n我的理解：')}>我的理解</button><button onClick={() => setNote(note + '\n仍有疑问：')}>仍有疑问</button><button onClick={() => setNote(note + '\n自己的例子：')}>自己的例子</button></div><Button onClick={() => void saveNote()} disabled={!note.trim() || busy === 'note'}>保存到笔记库</Button></div></Modal>
+    {/* 82#3：批注丢弃确认——保存按钮之外的关闭路径全部经此守卫 */}
+    <ConfirmDialog open={noteDiscardOpen} onClose={() => setNoteDiscardOpen(false)} onConfirm={() => { setNoteDiscardOpen(false); setNoteOpen(false) }} title="放弃未保存的批注？" description="批注内容尚未保存到笔记库，关闭后将丢失；引用原文会随下次打开重新注入。" confirmLabel="放弃并关闭" />
     <Modal open={lectureOpen} onClose={() => { if (!running) setLectureOpen(false) }} title="生成自学讲义"><div className="form-stack"><div className="lecture-scope"><BookOpen size={18} /><div><strong>{stage.title} · 难度 {stage.difficulty}/5</strong><p>按实际 {nodes.length} 个知识节点逐单元生成，引用仅接受资料白名单中的原文。</p></div></div><div className="lecture-options">{nodes.map(node => <span key={node.id}>{node.title}</span>)}</div>{lecture && <><div className="lecture-progress" aria-live="polite"><LoaderCircle size={18} className={running ? 'spin' : ''} /><div><strong>{lectureStatus[lecture.status]} · v{lecture.version}</strong><p>{lecture.completedUnits} / {lecture.totalUnits} 个单元已保存{lecture.previousVersion ? ` · 可查看旧版本 v${lecture.previousVersion}` : ''}</p><ProgressBar value={lecture.totalUnits ? Math.round(lecture.completedUnits / lecture.totalUnits * 100) : 0} /></div></div>{liveRequest && <pre className="native-chat-output">{liveRequest.output || '等待真实模型输出…'}</pre>}{lecture.error && <div className="form-error">{lecture.error.code}：{lecture.error.message}</div>}{lecture.previousVersion && <Button variant="ghost" size="sm" onClick={() => void refreshLecture(lecture.previousVersion!)}>读取旧版本 v{lecture.previousVersion}</Button>}{lecture.status === 'done' && lecture.version > 1 && <Button variant="ghost" size="sm" onClick={() => void refreshLecture()}>返回当前版本</Button>}</>}<div className="generator-actions"><Button variant="secondary" disabled={running && (lecture?.status === 'cancelling' || busy === 'cancel')} onClick={() => running ? void cancel() : setLectureOpen(false)}>{lecture?.status === 'cancelling' ? '正在取消…' : running ? '取消生成' : '关闭'}</Button><Button onClick={() => void generate()} disabled={busy === 'generate' || running}>{busy === 'generate' ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}{lecture?.status === 'done' ? '生成新版本' : lecture?.status === 'empty' || !lecture ? '开始生成' : '恢复生成'}</Button></div></div></Modal>
   </div>
 }

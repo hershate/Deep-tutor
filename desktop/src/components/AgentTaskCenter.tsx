@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Ban, Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
+import type { Lecture } from '../backend/client'
 
 type TaskEntry = {
   id: string
@@ -21,12 +22,23 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
   const [busy, setBusy] = useState('')
   // 76#8：次级面板序号守卫（51#2 家族补齐）——并发刷新旧响应后到不覆盖新数据
   const refreshSeq = useRef(0)
+  // 82#11：done 讲义缓存——原先每次全局刷新（事件 300ms 去抖后）都对
+  // 「已采用方案 × 阶段」全量 getLecture；done 是终态，除收到讲义类
+  // 事件（可能有新版本）外不可变，缓存后扇出只覆盖非终态讲义
+  const doneLectures = useRef(new Map<string, Lecture>())
   const refresh = useCallback(async () => {
     const ticket = ++refreshSeq.current
     try {
       const [plans, sessions] = await Promise.all([backend.listLearningPlans(), backend.listAgentSessions()])
       if (ticket !== refreshSeq.current) return
-      const lectures = (await Promise.all(plans.filter(plan => plan.adoptedProjectId !== null).flatMap(plan => plan.result?.stages.map(async stage => ({ plan, stage, lecture: await backend.getLecture(plan.id, stage.id) })) ?? []))).filter(item => item.lecture.version > 0)
+      const lectures = (await Promise.all(plans.filter(plan => plan.adoptedProjectId !== null).flatMap(plan => plan.result?.stages.map(async stage => {
+        const key = `${plan.id}:${stage.id}`
+        const cached = doneLectures.current.get(key)
+        if (cached) return { plan, stage, lecture: cached }
+        const lecture = await backend.getLecture(plan.id, stage.id)
+        if (lecture.status === 'done') doneLectures.current.set(key, lecture)
+        return { plan, stage, lecture }
+      }) ?? []))).filter(item => item.lecture.version > 0)
       const entries: TaskEntry[] = [
         ...plans.map(plan => ({ id: `plan-${plan.id}`, title: plan.goal, detail: `方案生成 · 第 ${plan.currentStep} / ${plan.steps.length} 步${plan.error ? ` · ${plan.error.code}：${plan.error.message}` : ''}`, status: plan.status, progress: plan.progress, updatedAt: plan.updatedAt, cancel: plan.status === 'running' ? () => backend.cancelLearningPlan(plan.id) : undefined })),
         ...sessions.flatMap(session => session.runs[0] ? [{ id: `agent-${session.runs[0].id}`, title: session.title, detail: `Agent · 第 ${session.runs[0].steps} / 25 步 · 输出 ${session.runs[0].outputTokens} tokens${session.runs[0].error ? ` · ${session.runs[0].error.code}：${session.runs[0].error.message}` : ''}`, status: session.runs[0].status, progress: session.runs[0].status === 'done' ? 100 : session.runs[0].steps / 25 * 100, updatedAt: session.runs[0].updatedAt, cancel: session.runs[0].status === 'running' ? () => backend.cancelAgentRun(String(session.runs[0].id)) : undefined }] : []),
@@ -45,6 +57,8 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
     let timer: number | undefined
     void onBackendEvent(event => {
       if (['plan.', 'agent.', 'lecture.'].some(prefix => event.kind.startsWith(prefix)) && ['started', 'completed', 'failed', 'cancelled', 'interrupted', 'degraded'].some(status => event.kind.endsWith(status))) {
+        // 82#11：讲义类事件可能意味着新版本生成——终态缓存作废重拉
+        if (event.kind.startsWith('lecture.')) doneLectures.current.clear()
         if (timer !== undefined) return
         timer = window.setTimeout(() => { timer = undefined; void refresh() }, 300)
       }

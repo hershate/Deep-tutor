@@ -82,6 +82,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const [busy, setBusy] = useState('')
   const [testingId, setTestingId] = useState('')
   const [testingAll, setTestingAll] = useState(false)
+  const stopAllRef = useRef(false)
   const [testStage, setTestStage] = useState('')
   const [importPreview, setImportPreview] = useState<ProviderProfileInput[] | null>(null)
   const [deepLinkOpen, setDeepLinkOpen] = useState(false)
@@ -264,8 +265,16 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     }
   }
   const testAll = async () => {
+    // 82#10：串行检测可中止——再点一次「全部检测」即停止剩余档案，
+    // 原先 testingId 使按钮在整轮期间禁用，用户只能等全部跑完
+    if (testingAll) { stopAllRef.current = true; return }
+    stopAllRef.current = false
     setTestingAll(true)
-    for (const profile of profiles) await testProfile(profile.id, false)
+    for (const profile of profiles) {
+      if (stopAllRef.current) break
+      await testProfile(profile.id, false)
+    }
+    stopAllRef.current = false
     setTestingAll(false)
   }
   const switchProvider = async (id: string) => {
@@ -371,7 +380,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     {pageError && <div className="form-error" role="alert"><CircleAlert size={16} />{pageError}<Button variant="ghost" size="sm" onClick={() => void refresh()}>重新读取</Button></div>}
 
     {view === '供应商' && <>
-      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式">{([['direct', '直连模式'], ['routing', '本地路由'], ['aggregate', '聚合模式']] as const).map(([mode, label]) => <button key={mode} className={routing.mode === mode ? 'active' : ''} disabled={busy === 'routing'} onClick={() => changeMode(mode)}>{label}</button>)}</div><div className={`mode-description mode-${routing.mode}`}><span>{routing.mode === 'direct' ? `当前供应商直连：${activeProfile?.name ?? '尚未配置'}；不启动本地网络服务。` : routing.mode === 'routing' ? '任务路由在应用进程内执行，按任务选择真实上游，不监听 HTTP 端口。' : `${requestModels.length} 个上游模型已合并；按模型名选择供应商，不自动故障转移。`}</span>{routing.mode !== 'direct' && <Button variant="ghost" size="sm" onClick={() => setView('任务路由')}>配置路由</Button>}</div></div>
+      <div className="provider-mode-bar"><div className="segmented" aria-label="接入模式">{([['direct', '直连模式'], ['routing', '本地路由'], ['aggregate', '聚合模式']] as const).map(([mode, label]) => <button key={mode} className={routing.mode === mode ? 'active' : ''} aria-pressed={routing.mode === mode} disabled={busy === 'routing'} onClick={() => changeMode(mode)}>{label}</button>)}</div><div className={`mode-description mode-${routing.mode}`}><span>{routing.mode === 'direct' ? `当前供应商直连：${activeProfile?.name ?? '尚未配置'}；不启动本地网络服务。` : routing.mode === 'routing' ? '任务路由在应用进程内执行，按任务选择真实上游，不监听 HTTP 端口。' : `${requestModels.length} 个上游模型已合并；按模型名选择供应商，不自动故障转移。`}</span>{routing.mode !== 'direct' && <Button variant="ghost" size="sm" onClick={() => setView('任务路由')}>配置路由</Button>}</div></div>
       {routing.mode === 'aggregate' && <AggregateModels settings={routing} profiles={profiles} onSave={saveRouting} saving={busy === 'routing'} />}
       <section className="surface native-chat-panel">
         <SectionHeader title="真实模型流式请求" description={`${routing.mode === 'direct' ? '当前供应商直连' : routing.mode === 'routing' ? '原生任务路由' : '聚合模型选择'} · 实际协议由上游档案决定`} action={<Badge tone={liveRequest?.status === 'done' ? 'green' : 'neutral'}>{liveRequest ? `原生状态：${statusName(liveRequest.status)}` : '尚未请求'}</Badge>} />
@@ -380,7 +389,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
         {streamError && <div className="form-error" role="alert"><CircleAlert size={16} />{streamError}</div>}
         {liveRequest && <><pre className="native-chat-output">{liveRequest.output || (liveRequest.status === 'running' ? '等待上游返回文本…' : '没有已保存的文本输出')}</pre><div className="provider-health-summary"><span>实际上游：{profiles.find(profile => profile.id === liveRequest.providerId)?.name ?? liveRequest.providerId}</span><span>模型：{liveRequest.model}</span><span>实际尝试：{liveRequest.attempts} 次</span><span>{liveRequest.usage ? `输入 ${liveRequest.usage.inputTokens ?? '未报告'} · 输出 ${liveRequest.usage.outputTokens ?? '未报告'} tokens` : '上游未报告用量'}</span><span>{liveRequest.latencyMs === null ? '等待终态' : `${liveRequest.latencyMs} ms`}</span></div>{liveRequest.error && <div className="form-error" role="alert"><CircleAlert size={16} />{liveRequest.error.code}：{liveRequest.error.message}</div>}</>}
       </section>
-      <div className="provider-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} aria-label="搜索供应商" placeholder="搜索已保存的供应商、地址或模型…" /></div><div className="filter-row">{['全部', '官方', '兼容服务', '本地模型'].map(item => <button key={item} className={filter === item ? 'active' : ''} aria-pressed={filter === item} onClick={() => setFilter(item)}>{item}</button>)}</div><Button variant="secondary" size="sm" onClick={() => void testAll()} disabled={!profiles.length || Boolean(testingId)}>{testingAll ? <LoaderCircle size={16} className="spin" /> : <Gauge size={16} />}全部检测</Button><IconButton label="导入 JSON 配置" onClick={() => importRef.current?.click()}><Upload size={17} /></IconButton><IconButton label="从 Deep Link 导入" onClick={() => setDeepLinkOpen(true)}><Link2 size={17} /></IconButton><input ref={importRef} type="file" accept=".json" className="visually-hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void applyImport(file); event.target.value = '' }} /></div>
+      <div className="provider-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} aria-label="搜索供应商" placeholder="搜索已保存的供应商、地址或模型…" /></div><div className="filter-row">{['全部', '官方', '兼容服务', '本地模型'].map(item => <button key={item} className={filter === item ? 'active' : ''} aria-pressed={filter === item} onClick={() => setFilter(item)}>{item}</button>)}</div><Button variant="secondary" size="sm" onClick={() => void testAll()} disabled={!profiles.length}>{testingAll ? <Square size={16} /> : <Gauge size={16} />}{testingAll ? '停止检测' : '全部检测'}</Button><IconButton label="导入 JSON 配置" onClick={() => importRef.current?.click()}><Upload size={17} /></IconButton><IconButton label="从 Deep Link 导入" onClick={() => setDeepLinkOpen(true)}><Link2 size={17} /></IconButton><input ref={importRef} type="file" accept=".json" className="visually-hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void applyImport(file); event.target.value = '' }} /></div>
       <div className="provider-health-summary"><span><CheckCircle2 size={16} />{profiles.filter(profile => profile.health === 'healthy').length} 个档案最近检测正常</span><span><CircleAlert size={16} />{profiles.filter(profile => profile.health === 'error').length} 个需要处理</span><span><LockKeyhole size={16} />密钥只存在系统密钥库，不进入档案或导出</span></div>
       {loading ? <div className="provider-empty"><LoaderCircle size={25} className="spin" /><h2>正在读取原生供应商档案</h2></div> : <div className="provider-card-list">{filtered.map(profile => { const active = profile.id === activeId; const testing = testingId === profile.id; return <article className={`provider-card ${active ? 'is-active' : ''} ${!profile.enabled ? 'is-disabled' : ''}`} key={profile.id}>
         <div className="provider-card-main"><span className={`provider-monogram kind-${profile.kind}`}>{profile.name.slice(0, 1)}</span><div className="provider-identity"><div><h2>{profile.name}</h2>{active && routing.mode !== 'aggregate' && <Badge tone="green">当前使用</Badge>}{routing.mode === 'aggregate' && routing.aggregateDefault === profile.id && <Badge tone="green">聚合默认</Badge>}<Badge tone="neutral">{profile.kind}</Badge></div><p><code>{profile.baseUrl}</code></p><div className="provider-model-line"><span>{profile.protocol}</span><strong>{profile.defaultModel}</strong><span>{profile.models.length} 个模型</span></div></div></div>

@@ -17,7 +17,15 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   const messages = activeSession?.messages.filter(message => message.role !== 'tool') ?? []
   const plan = plans.find(item => item.id === activeSession?.planId) ?? plans.find(item => item.id === planId) ?? plans[0]
   const context = contextLabel ?? plan?.goal ?? '尚未选择学习方案'
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages.length, stream.text])
+  // 82#7：仅贴底时跟随——同 AgentCenter，上翻阅读不被流式滚动劫持
+  useEffect(() => {
+    let scroller: HTMLElement | null = null
+    for (let node = endRef.current?.parentElement ?? null; node; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight + 4) { scroller = node; break }
+    }
+    const nearBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
+    if (nearBottom) endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [messages.length, stream.text])
   useEffect(() => { setMode(hintsOnly ? '提示' : '讲解') }, [hintsOnly])
 
   const submit = async (value = input) => {
