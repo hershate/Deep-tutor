@@ -29,7 +29,7 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       # 工具链钉住：与 rust-toolchain.toml 一致，避免 stable rustfmt 规则漂移
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri

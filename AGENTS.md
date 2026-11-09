@@ -34,8 +34,8 @@
 ## 构建与验证
 
 - 前端：`cd desktop && npm run build`。
-- Rust 可复用 `F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc\bin`，
-  同步设置 `CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`。
+- Rust 按 `rust-toolchain.toml` 钉住 1.99.1 msvc（本机在默认 rustup 目录），
+  crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`。
 - 后端：`cd desktop/src-tauri && cargo test --release --locked -- --test-threads=1`。
 - 门禁：`make check`；安装包：`make build`。不要并行启动多个重型测试套件。
 - 临时文件使用 `F:\TEMP\deeptutor`，完成后按仓库规约分批清理。
