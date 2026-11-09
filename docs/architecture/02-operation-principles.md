@@ -626,4 +626,4 @@ sequenceDiagram
 ## 15. 观察到的边界情况
 
 - reports 模块 `start_focus` 在 IMMEDIATE 事务内执行（防并发双开，reports/mod.rs:329）；`finish_focus` 用 DEFERRED 事务 + 条件 UPDATE（`status IN ('running','paused')`，:371-374）防并发双收尾，不命中时报 `no_active_focus`、不发终态事件。
-- `fetch_webpage` 注册但前端不直接调用——它由 `import_webpage` 在后端内部复用（同一 SSRF 校验抓取链）；`authenticate_access_token` 已接入 SecurityPanel 的 PAT 登录入口，验证通过后经 `issue()` 建立会话。工具调用流量统一走 `route_provider_chat`（tools 参数化）。
+- 网页抓取链为后端内部函数（`import_webpage` 专用，同一 SSRF 校验链；`fetch_webpage` IPC 壳已随 61 号删除）；`authenticate_access_token` 已接入 SecurityPanel 的 PAT 登录入口，验证通过后经 `issue()` 建立会话。工具调用流量统一走 `route_provider_chat`（tools 参数化）。

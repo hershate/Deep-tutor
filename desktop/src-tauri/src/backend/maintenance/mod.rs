@@ -748,6 +748,11 @@ pub fn cleanup<R: Runtime>(
                 break;
             }
             if !root.join(&item.path).exists() {
+                // 70#6：扫描后已被并发 sync 自剪枝删除的项按「已处理」入账——
+                // 原先既不进 batch 也不进 failures，remaining 把它们计成
+                // 「未处理」，运维面板虚高一轮并诱导空跑；不计 deleted_files
+                // （非本轮删除）
+                batch += 1;
                 continue;
             }
             match remove_file(&root, item) {

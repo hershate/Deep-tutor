@@ -1376,11 +1376,17 @@ pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
             Ok(())
         }
         Err(error) => {
+            // 70#3：回滚 rename 失败不得提前返回——那会跳过 temporary 清理
+            // （残留 download-{n} ≤50MB）并掩盖本次替换的原始失败原因；
+            // 回滚失败降级记录，两条错误一并上报
+            let mut message = format!("导出替换失败：{error}");
             if replaced {
-                fs::rename(previous, destination)?;
+                if let Err(rollback) = fs::rename(&previous, destination) {
+                    message.push_str(&format!("；回滚先前备份也失败：{rollback}（{previous:?} 残留，可手动删除）"));
+                }
             }
             let _ = fs::remove_file(temporary);
-            Err(error.into())
+            Err(BackendError::new("export_failed", message.as_str()))
         }
     }
 }

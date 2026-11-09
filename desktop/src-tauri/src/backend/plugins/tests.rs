@@ -174,6 +174,44 @@ fn manifest_lifecycle_event_deduplication_and_reload_preservation_are_real() {
     assert!(!manifest_path(&state, "practice-events").unwrap().exists());
 }
 
+// 70#5：1.1.1 前存量清单声明 app.* 订阅——重载按过期订阅滤除而非整单拒绝
+#[test]
+fn legacy_app_namespace_subscriptions_are_dropped_on_reload() {
+    let (app, state) = setup();
+    install(app.handle(), &state, manifest("1.0.0", &["practice.*"])).unwrap();
+    // 模拟存量磁盘清单：含 1.1.1 前白名单内的 app.* 订阅
+    fs::write(
+        manifest_path(&state, "practice-events").unwrap(),
+        manifest("1.1.0", &["app.*", "practice.*", "app.*"]),
+    )
+    .unwrap();
+    let reloaded = reload(app.handle(), &state, "practice-events".into()).unwrap();
+    assert_eq!(reloaded.version, "1.1.0");
+    assert_eq!(reloaded.subscriptions, vec!["practice.*"]);
+    assert_eq!(reloaded.generation, 1);
+    // 全部订阅都是过期命名空间时：滤除后空订阅仍可重载
+    fs::write(
+        manifest_path(&state, "practice-events").unwrap(),
+        manifest("1.1.1", &["app.*"]),
+    )
+    .unwrap();
+    let reloaded = reload(app.handle(), &state, "practice-events".into()).unwrap();
+    assert_eq!(reloaded.version, "1.1.1");
+    assert!(reloaded.subscriptions.is_empty());
+    // 非法的未知命名空间（非 app）不享受滤除——仍按原错误拒绝
+    fs::write(
+        manifest_path(&state, "practice-events").unwrap(),
+        manifest("1.2.0", &["secret.*"]),
+    )
+    .unwrap();
+    assert_eq!(
+        reload(app.handle(), &state, "practice-events".into())
+            .unwrap_err()
+            .code,
+        "invalid_plugin_subscriptions"
+    );
+}
+
 #[test]
 fn assets_are_real_files_and_reset_removes_installed_manifest_data() {
     let (app, state) = setup();

@@ -95,6 +95,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   useEffect(() => {
     const requestId = running?.requestId
     setLiveOutput('')
+    // 70#7：映射仅对当前请求有意义（route_attempt 已按 runningRequestId 过滤），
+    // 请求切换即整表作废——原先只增不清，长驻高频请求下单调增长
+    routeUpstreamsRef.current = {}
     if (requestId) void backend.getProviderChat(requestId).then(request => setLiveOutput(request.output)).catch(reportBackendError)
   }, [running?.requestId])
 

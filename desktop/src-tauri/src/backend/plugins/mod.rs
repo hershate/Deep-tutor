@@ -337,6 +337,20 @@ fn parse_manifest(content: &str) -> Result<PluginManifest> {
     Ok(manifest)
 }
 
+// 70#5：1.1.1 前安装的存量清单可能声明 app.* 订阅（该命名空间已从白名单
+// 移除且后端无任何 app.* 事件，投递恒零命中）——重载时按「过期订阅」滤除
+// 后重校验，而不是整单拒绝使存量插件从此无法重载；滤除不改变投递行为
+fn drop_legacy_subscriptions(content: &str) -> Option<String> {
+    let mut value: serde_json::Value = serde_json::from_str(content).ok()?;
+    let patterns = value.get_mut("subscriptions")?.as_array_mut()?;
+    let before = patterns.len();
+    patterns.retain(|pattern| pattern.as_str() != Some("app.*"));
+    if patterns.len() == before {
+        return None;
+    }
+    serde_json::to_string(&value).ok()
+}
+
 pub(crate) fn validate_manifest_content(content: &str) -> Result<()> {
     parse_manifest(content).map(|_| ())
 }
@@ -596,16 +610,25 @@ pub fn reload<R: Runtime>(
             )
         })
         .and_then(|content| {
-            parse_manifest(&content).and_then(|manifest| {
-                if manifest.id == id {
-                    Ok(manifest)
-                } else {
-                    Err(BackendError::new(
-                        "plugin_id_changed",
-                        "清单 ID 不可在重载时改变",
-                    ))
-                }
-            })
+            // 70#5：存量 app.* 订阅滤除后重试一次——失败仍以原始错误返回
+            parse_manifest(&content)
+                .or_else(|first| match drop_legacy_subscriptions(&content) {
+                    Some(filtered) => {
+                        eprintln!("plugin {}: 重载已滤除过期的 app.* 订阅（后端无 app.* 事件，投递行为不变）", id);
+                        parse_manifest(&filtered).map_err(|_| first)
+                    }
+                    None => Err(first),
+                })
+                .and_then(|manifest| {
+                    if manifest.id == id {
+                        Ok(manifest)
+                    } else {
+                        Err(BackendError::new(
+                            "plugin_id_changed",
+                            "清单 ID 不可在重载时改变",
+                        ))
+                    }
+                })
         });
     let manifest = match result {
         Ok(manifest) => manifest,

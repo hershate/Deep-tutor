@@ -60,21 +60,26 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
 
   // 51#2：序号守卫——快速翻周/事件并发时，后到的旧周响应不再覆盖新周视图
   const refreshSeq = useRef(0)
-  // 60#1：可选 week 参数供写路径复查（写回值不得绕过守卫直写 overview）
-  const refresh = useCallback(async (week: string = weekStart) => {
+  // 70#2：默认周从 ref 取最新——写路径补偿刷新若捕获旧渲染闭包（applyIntensity
+  // 在途时用户翻周），旧闭包 refresh() 会以 W1 请求并以更新的序号通过 51#2 守卫，
+  // 造成表头 W2、内容 W1 且无自愈的错周视图
+  const weekStartRef = useRef(weekStart)
+  useEffect(() => { weekStartRef.current = weekStart })
+  const refresh = useCallback(async (week?: string) => {
+    const target = week ?? weekStartRef.current
     const ticket = ++refreshSeq.current
     try {
-      const next = await planningBackend.overview(week)
+      const next = await planningBackend.overview(target)
       if (ticket !== refreshSeq.current) return
       setOverview(next)
       setError('')
     } catch (cause) { if (ticket === refreshSeq.current) setError(backendErrorMessage(cause)) }
-  }, [weekStart])
+  }, [])
   // 51#9：事件监听只挂载一次——原先依赖含 refresh（随 weekStart 变化），
   // 每次翻周都先注销再异步重挂，间隙到达的事件被丢弃；回调经 ref 取最新
   const refreshRef = useRef(refresh)
   useEffect(() => { refreshRef.current = refresh })
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { void refresh() }, [weekStart])
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -150,8 +155,10 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     try {
       const next = await planningBackend.assignTaskDate(selectedTask.taskId, taskDate)
       // 60#1 同型：写回值不直写 overview——跨周由 setWeekStart 触发 effect
-      // 过守卫重取；同周 effect 不重挂，显式刷新
-      if (next.weekStart === weekStart) await refresh(next.weekStart)
+      // 过守卫重取；同周 effect 不重挂，显式刷新。
+      // 70#2：与 ref 中的最新周比较——写路径在途翻周时旧闭包比较恒真，
+      // refresh(旧周) 会以新序号过守卫盖掉新周视图
+      if (next.weekStart === weekStartRef.current) await refresh(next.weekStart)
       else setWeekStart(next.weekStart)
       setSelectedTask(null)
       notify('任务日期已保存到真实排期')

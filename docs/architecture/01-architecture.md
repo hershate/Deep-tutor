@@ -4,7 +4,7 @@
 
 ## 1. 总览
 
-单一 Tauri 2 进程：Rust 侧承担窗口宿主、全部业务后端、SQLite 持久化与网络访问；WebView 侧 React 18 只做渲染与命令调用，不直接访问文件系统或网络（网页抓取 `fetch_webpage` 命令仅由后端 `import_webpage` 复用，前端不直接调用）。
+单一 Tauri 2 进程：Rust 侧承担窗口宿主、全部业务后端、SQLite 持久化与网络访问；WebView 侧 React 18 只做渲染与命令调用，不直接访问文件系统或网络（网页抓取为后端内部函数，仅由 `import_webpage` 使用，前端无对应命令）。
 
 ```mermaid
 graph TD
@@ -14,7 +14,7 @@ graph TD
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[192 个 tauri::command]
+        GH --> CMD[189 个 tauri::command]
         CMD --> DOM[21 个域模块 backend/*]
         DOM --> ST[store.rs SQLite + 事件 outbox]
         DOM --> FS[应用数据目录文件区]
@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 192 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:142`）。
+- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 189 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:142`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
 - 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:309-331`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
@@ -260,23 +260,23 @@ graph TD
 
 - 骨架：`main.tsx:33-37` → `App.tsx`；无 router，`page` 状态 + hash 同步（`App.tsx:54`），`renderPage()` switch 分发（:293-314）；6 个重页面 React.lazy（:37-42：StudyRoom/Library/PlanGenerator/AgentCenter/Integrations/ProviderHub）；三组导航 + 顶栏（⌘K 搜索/快速记录/主题/通知）+ 移动底栏。
 - 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader（:315-329）。
-- 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表（client.ts:424）；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道（37#3）、`shell.ts` 收敛 opener 定位与外链（37#4/37#8）；事件统一走 `onBackendEvent`（client.ts:410）。
+- 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表（client.ts:460）；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道（37#3）、`shell.ts` 收敛 opener 定位与外链（37#4/37#8）；事件统一走 `onBackendEvent`（client.ts:410）。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:33-43）；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错（:96）；`security.session_started` 触发 generation+1 全量重载（:162）；`replaceCollection`（:217）提交更新函数语义并按命名空间排队串行提交（inflight 队列 :27），消除一帧窗口的丢写竞态。
 - 流式：`useAgent.ts:129-171` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
 - 样式：单文件 styles.css 1880 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63，状态 Badge 深底亮字保留色调通道）；断点 640/700/1024/1080/1100/1180/1240/1280/1320（:281-:1023 各处）；Esc 经 UI.tsx `MODAL_STACK`（:87）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 规则覆盖 smooth scroll，系统偏好经 matchMedia 跟随（App.tsx:251）。
 
-## 8. 命令注册总览（`main.rs:169-363`，共 192 个）
+## 8. 命令注册总览（`main.rs:168-367`，共 189 个）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|
 | 启动/存储 | 14 | startup 5 + 通用命令 9：bootstrap、events_since、replace_collection、reset_application |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
-| 供应商/路由/用量 | 22 | route_provider_chat（含工具调用）、stream_provider_chat、export_usage_csv(_file) |
+| 供应商/路由/用量 | 21 | route_provider_chat（含工具调用）、stream_provider_chat、export_usage_csv_file（对话框版；内存版 export_usage_csv 已随 61 号删除） |
 | 材料/笔记 | 15 | import_material_archive、read_material_media_chunk（二进制 ipc::Response）、verify_material_media、import_notes |
 | 学习/讲义/知识/排期 | 29 | learning 16 + knowledge 8 + planning 5：start_learning_plan、generate_lecture、ask_knowledge |
-| 练习/复习/项目 | 28 | practice 14 + review 9 + projects 5：submit_practice_answer、grade_review_card、submit_project_version |
+| 练习/复习/项目 | 27 | practice 13 + review 9 + projects 5：submit_practice_answer、grade_review_card、submit_project_version |
 | Agent | 10 | send_agent_message、approve_agent_request |
 | 备份/分享/同步/运维 | 20 | backup 3 + sharing 7 + sync 7 + maintenance 3：import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
-| 社区/插件/导出/报告/搜索 | 44 | community 12 + plugins 9 + export 2 + reports 11 + engagement/web 10：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 由 App.tsx 每 60 秒轮询领取） |
+| 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 9 + export 2 + reports 11 + engagement 8 + web 1：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 由 App.tsx 每 60 秒轮询领取） |
 
-前端调用的命令名与注册表逐一核对一致；`fetch_webpage` 为后端内部命令（`import_webpage` 复用同一抓取链）前端不直接调用；`events_since` 自 38#2 起前端不再调用，保留给 IPC 级测试作事件断言通道。四个 `*_file`/`save_plugin_asset` 落盘命令（37#5）由原生保存对话框选定目的地后写入。
+前端调用的命令名与注册表逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用）；`events_since` 自 38#2 起前端不再调用，保留给 IPC 级测试作事件断言通道。五个 `*_file`/`save_plugin_asset` 落盘命令（export_provider_config_file、export_usage_csv_file、export_practice_mistakes_file、read_shared_plan_file、save_plugin_asset；37#5）由原生保存对话框选定目的地后写入。

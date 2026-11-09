@@ -9,7 +9,7 @@
 - **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
 - **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 5
 - **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
-- **规模**：192 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、202 个后端测试（串行全绿）
+- **规模**：189 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、214 个后端测试（串行全绿）
 - **CI**：GitHub Actions windows-latest（前端构建先行 + fmt + 原生测试串行 + 版本校验 + NSIS 安装包；许可证收集在 NSIS 步骤的 beforeBuildCommand 内执行；push:main / PR / 手动触发）
 - **分支**：main（单线演进，细粒度中文提交）
 
