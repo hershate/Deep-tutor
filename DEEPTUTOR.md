@@ -22,9 +22,10 @@
 - Tauri commands provide request/response; Tauri events provide real-time output.
 - SQLite stores business state, execution records and the event outbox. Large originals
   and generated files live in the app data directory, not in the repository.
-- Run the full schema migration only when its fingerprint changes; repair detected drift instead
-  of skipping it. Reuse the account connection, but release its guard before another operation
-  or command needs the same account store.
+- Run the full schema migration when its fingerprint changes or the recorded version is below
+  the current schema version; repair detected drift instead of skipping it. Reuse the account
+  connection, but release its guard before another operation or command needs the same account
+  store.
 - Use one material parse worker. Keep pending jobs in SQLite, support cancellation while queued,
   do not start another job after stopping, and register the next job before retiring the old one.
 - Events have monotonically increasing ids and support Last-Event-ID replay. Persist a
@@ -38,8 +39,9 @@
   turn tail, not in a cache-stable prefix.
 - Errors callers distinguish carry typed codes, not sentences to match.
 - Security decisions use structure: typed inputs, URL resolution, schemas, paths and hashes.
-- New Rust comments are English, explain only non-obvious constraints and are omitted by default.
-- Declaration docs are at most 5 lines, package docs at most 8 and other comments at most 3.
+- New Rust comments follow the repository's Chinese convention (issue number + constraint),
+  explain only non-obvious constraints and are omitted by default.
+- Declaration docs are at most 8 lines, package docs at most 8 and other comments at most 5.
 
 ## Change discipline
 
@@ -74,7 +76,9 @@ explicitly declared, not inferred from a file name.
 - sensitive: desktop/src-tauri/src/backend/plugins/**
 - sensitive: desktop/src-tauri/src/backend/export/**   # PDF/Anki/文件写磁盘，与 backup/sharing 同属文件输出域
 - sensitive: desktop/src-tauri/src/backend/store.rs
-- sensitive: desktop/src-tauri/src/backend/*/commands.rs   # 全部 IPC 入口：参数映射与路径遏制
+- sensitive: desktop/src-tauri/src/backend/*/commands.rs   # 域级 IPC 入口：参数映射与路径遏制
+- sensitive: desktop/src-tauri/src/backend/commands.rs     # 根级 IPC 入口（bootstrap/replace_collection/reset_application 等 9 命令）
+- sensitive: desktop/src-tauri/src/startup.rs              # 启动与数据目录 IPC 入口（set/reset_storage_location、restart_application 等 5 命令）
 - sensitive: desktop/src-tauri/src/main.rs
 
 Review path containment, archive and decompression limits, URL resolution and redirect
