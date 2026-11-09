@@ -448,8 +448,8 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
 
 enum BudgetScope {
     Daily {
-        shift: String,
-        today: String,
+        start: String,
+        end: String,
     },
     // 31#1：会话口径直接携带 session_id——请求 id 按 run_id 命名（agent-{run}-…），
     // session_id 与 run_id 是两张独立自增表，原先按 agent-{session}-* GLOB
@@ -459,13 +459,27 @@ enum BudgetScope {
     },
 }
 
+/// 86#2：RFC3339 边界补齐 9 位亚秒——裸列区间比较（created_at >= ? AND < ?）
+/// 命中 provider_requests_created 索引；time crate 输出亚秒位数不定（0/9），
+/// 整秒边界补 `.000000000` 保证与列值的字典序一致（残余误差仅纳秒级）
+fn rfc3339_floor(value: time::OffsetDateTime) -> String {
+    let text = value.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+    if text.contains('.') {
+        text
+    } else {
+        text.replace('Z', ".000000000Z")
+    }
+}
+
 /// 27#3：预算聚合下推 SQL——原实现把 provider_requests 全表读入内存（每行
 /// JSON 解析 + 费率点查）且在每次模型请求开始前执行，请求启动延迟随历史
 /// 线性增长；聚合口径与 cost() 一致（缺 usage 或缺费率的行贡献 0）
+/// 86#2：Daily 由 date(created_at, 偏移) 函数比较改为裸列区间——函数包列
+/// 使索引失效，每次模型请求前都要全表扫
 fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
     let (clause, values): (&str, Vec<String>) = match scope {
-        BudgetScope::Daily { shift, today } => {
-            (" AND date(r.created_at, ?1) = ?2", vec![shift, today])
+        BudgetScope::Daily { start, end } => {
+            (" AND r.created_at >= ?1 AND r.created_at < ?2", vec![start, end])
         }
         BudgetScope::Session { session_id } => (
             // 31#1：经 agent_session_id 外键关联（导入经 FK 重映射保持关联）。
@@ -491,23 +505,20 @@ fn budget_spend(conn: &Connection, scope: BudgetScope) -> Result<f64> {
     Ok(spend)
 }
 
-/// RFC 3339 偏移 → SQLite 时间修饰符（±HH:MM），供 date(created_at, ?) 本地日过滤
-fn offset_modifier(offset: time::UtcOffset) -> String {
-    let minutes = offset.whole_seconds() / 60;
-    let sign = if minutes < 0 { '-' } else { '+' };
-    let minutes = minutes.unsigned_abs();
-    format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
-}
-
 pub fn ensure_budget(state: &ProviderState, session_id: Option<i64>) -> Result<()> {
     let settings = settings(state)?;
     let store = state.store()?;
+    // 86#2：本地今日 [00:00, +24h) 的 UTC 区间裸列比较——原先
+    // date(created_at, 偏移) 函数包列使索引失效，每请求全表扫
     let local = super::super::store::now_local();
+    let start_utc = local
+        .replace_time(time::Time::MIDNIGHT)
+        .to_offset(time::UtcOffset::UTC);
     let daily = budget_spend(
         &store.conn,
         BudgetScope::Daily {
-            shift: offset_modifier(local.offset()),
-            today: local.date().to_string(),
+            start: rfc3339_floor(start_utc),
+            end: rfc3339_floor(start_utc + time::Duration::days(1)),
         },
     )?;
     if daily >= settings.daily_usd {

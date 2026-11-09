@@ -37,6 +37,17 @@ impl From<rusqlite::Error> for BackendError {
             {
                 Self::new("database_busy", "数据库正忙，请稍后重试")
             }
+            // 86#3：库损坏/非库文件独立错误码——原先与目录只读、磁盘满共用
+            // storage_failed 通用文案，用户无法区分「换目录+导入备份」与
+            // 「检查目录权限」两条自救路径（SQLITE_CORRUPT=11、NOTADB=26）
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.extended_code == 26 || code.extended_code & 0xFF == 11 =>
+            {
+                Self::new(
+                    "database_corrupt",
+                    "本地数据库文件已损坏；请换一个空目录重启应用，并通过全量备份导入恢复数据",
+                )
+            }
             _ => Self::storage(),
         }
     }

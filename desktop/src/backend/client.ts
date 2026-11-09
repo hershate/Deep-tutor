@@ -504,6 +504,9 @@ export function isCancelRace(error: unknown) {
     'plan_active',
     'generation_active',
     'run_active',
+    // 83#1：agent run 中断后恢复重放命中 tool_active（相同工具调用已登记
+    // 未完成，未重复产生副作用）——幂等安全，按竞态处理不再误报横幅
+    'tool_active',
     'answer_active',
     'project_feedback_active',
     'grading_active',

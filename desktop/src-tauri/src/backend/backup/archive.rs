@@ -556,7 +556,13 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
     if size > MAX_BACKUP_BYTES {
         return Err(BackendError::new("backup_too_large", "备份超过 2 GB 上限"));
     }
-    let mut archive = ZipArchive::new(fs::File::open(path)?)?;
+    // 86#4：导入侧的 ZipError 就地映射 invalid_backup——原先经全局
+    // From<ZipError> 落到 export_failed「无法生成有效的压缩归档」，
+    // 用户拿到与场景相反的导出侧文案，误导排障方向
+    let file = fs::File::open(path)?;
+    let mut archive = ZipArchive::new(file).map_err(|_| {
+        BackendError::invalid("invalid_backup", "备份文件损坏或不是有效的归档")
+    })?;
     if archive.len() < 2 || archive.len() > 20_002 {
         return Err(BackendError::invalid(
             "invalid_backup",
@@ -564,7 +570,9 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
         ));
     }
     let manifest: Manifest = serde_json::from_slice(&read_bounded(
-        &mut archive.by_name("manifest.json")?,
+        &mut archive
+            .by_name("manifest.json")
+            .map_err(|_| BackendError::invalid("invalid_backup", "备份缺少清单条目"))?,
         MAX_MANIFEST_BYTES as u64,
     )?)
     .map_err(|_| BackendError::invalid("invalid_backup_manifest", "备份清单格式无效"))?;

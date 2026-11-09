@@ -400,7 +400,16 @@ impl Store {
     }
 
     pub(crate) fn next_revision(conn: &Connection, namespace: &str) -> Result<i64> {
-        let revision = Self::revision(conn, namespace)? + 1;
+        let current = Self::revision(conn, namespace)?;
+        // 86#8：溢出前显式报错——release 下 wrap 会使乐观锁守卫永久不匹配，
+        // 该 namespace 写入全拒且无诊断（理论不可达，完备性收口）
+        if current == i64::MAX {
+            return Err(BackendError::new(
+                "revision_exhausted",
+                "集合版本号已达上限，请联系支持处理",
+            ));
+        }
+        let revision = current + 1;
         conn.execute(
             "INSERT INTO revisions (namespace, value) VALUES (?1, ?2)
              ON CONFLICT(namespace) DO UPDATE SET value = excluded.value",
@@ -885,7 +894,12 @@ impl Store {
             ))
         })?;
         let mut events = Vec::new();
+        // 81#5：has_more 按原始行数——75#3 跳过坏 payload 行后 events.len()
+        // 可能 < 201，窗口内恰有坏行时误判「无更多」，按 latest_id 推进游标
+        // 会漏页（当前前端零调用，防御未来分页消费方）
+        let mut raw_rows = 0usize;
         for row in rows {
+            raw_rows += 1;
             let (id, kind, payload, created_at) = row?;
             // 75#3：坏 payload 行跳过——原先直穿使事件轮询分页全失败，
             // 前端从此永远拿不到该页之后的任何事件
@@ -903,7 +917,7 @@ impl Store {
                 created_at,
             });
         }
-        let has_more = events.len() > 200;
+        let has_more = raw_rows > 200;
         events.truncate(200);
         Ok(EventPage {
             events,

@@ -267,8 +267,10 @@ pub fn migrate(conn: &rusqlite::Connection) -> Result<()> {
         -- 27#4：getAgentSession 按 session_id 过滤 messages/runs/artifacts/
         -- approvals 四表，每个 agent.* 事件触发一次，仅 PK 时为全表扫
         -- 53#11：run 详情按 run_id 过滤消息（agent 每步一次）同补前缀索引
+        -- 86#9：工具调用按 run_id 过滤同补（恢复/取消路径，与消息表对称）
         CREATE INDEX IF NOT EXISTS agent_messages_session ON agent_messages(session_id);
         CREATE INDEX IF NOT EXISTS agent_messages_run ON agent_messages(run_id);
+        CREATE INDEX IF NOT EXISTS agent_tool_calls_run ON agent_tool_calls(run_id);
         CREATE INDEX IF NOT EXISTS agent_runs_session ON agent_runs(session_id);
         CREATE INDEX IF NOT EXISTS agent_artifacts_session ON agent_artifacts(session_id);
         CREATE INDEX IF NOT EXISTS agent_approvals_session ON agent_approvals(session_id);",

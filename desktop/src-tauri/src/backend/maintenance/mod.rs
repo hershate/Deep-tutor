@@ -627,12 +627,15 @@ fn emit_result<R: Runtime, T: Serialize>(
             Ok(value)
         }
         Err(error) => {
-            let event = Store::event(
+            // 86#6：失败分支的事件写入失败（同因磁盘满）不得经 ? 覆盖原始
+            // 错误——尽力落审计事件，始终返回整理本身的失败原因
+            if let Ok(event) = Store::event(
                 &store.conn,
                 "maintenance.failed",
                 json!({"kind": kind, "error": error}),
-            )?;
-            emit(app, &event);
+            ) {
+                emit(app, &event);
+            }
             Err(error)
         }
     }
@@ -863,6 +866,17 @@ pub fn vacuum<R: Runtime>(
                 SELECT request_id FROM provider_route_runs ORDER BY created_at DESC, rowid DESC LIMIT 1000
             )",
             [],
+        )?;
+        // 86#1：provider_requests 随每次模型请求单调增长且为库中最大表，
+        // 原先整理只裁 events 与 route_runs，用量页加载与备份体积随历史
+        // 无界增长——与 events 同口径「90 天且最近 20000 条以外」裁剪
+        // （表主键为 TEXT request_id，窗口用 rowid 取）；用量聚合按所选
+        // 窗口、ledger 只显示最近 200 条，裁剪不影响展示
+        store.conn.execute(
+            "DELETE FROM provider_requests WHERE created_at < ?1 AND rowid NOT IN (
+                SELECT rowid FROM provider_requests ORDER BY created_at DESC, rowid DESC LIMIT 20000
+            )",
+            params![cutoff],
         )?;
         store.conn.execute_batch("VACUUM")?;
         // 14#20：VACUUM 本体已完成；检查点被并发读挡住（wal_busy=1）只

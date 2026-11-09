@@ -82,6 +82,10 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
 #[cfg(windows)]
 mod single_instance {
     const ERROR_ALREADY_EXISTS: u32 = 183;
+    // 86#11：同名互斥体存在但 DACL 拒绝访问时 GetLastError 返回
+    // ERROR_ACCESS_DENIED——原先只排除 ALREADY_EXISTS，该情形被误判
+    // 「可启动」造成双开（对同一数据目录引发 SQLite 锁竞争）
+    const ERROR_ACCESS_DENIED: u32 = 5;
     const SW_RESTORE: i32 = 9;
 
     #[link(name = "kernel32")]
@@ -111,7 +115,11 @@ mod single_instance {
         unsafe {
             let handle = CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
             // 句柄为 NULL 仅在极端分配失败——按可启动处理，不阻塞用户
-            !handle.is_null() && GetLastError() != ERROR_ALREADY_EXISTS
+            if handle.is_null() {
+                return true;
+            }
+            let error = GetLastError();
+            error != ERROR_ALREADY_EXISTS && error != ERROR_ACCESS_DENIED
         }
     }
 
